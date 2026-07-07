@@ -1673,6 +1673,25 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_RENDER_CHROME_SCREEN": "1",
     # (e) depth de-chrome members - default-ON (depth_synthesis.py:340 getenv default "1").
     "PG_DEPTH_DECHROME_MEMBERS": "1",
+    # I-deepfix-001 (#1344) WAVE-2 FETCH THROUGHPUT - two DEFAULT-OFF-in-code fetch-throughput flags,
+    # quad-wired EXACTLY like PG_CITATION_SHELL_REFETCH above (slate "1" HERE + _BENCHMARK_FORCE_ON_FLAGS +
+    # _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS + _WINNER_FLAG_ALLOWLIST). They stop already-FETCHED bodies from
+    # being lost under the retrieval wall (the throughput collapse behind "only 3 of ~35 queries mattered").
+    # §-1.3 FAITHFULNESS-NEUTRAL: enrich is credibility METADATA and the wall-rescue only classifies+keeps
+    # (rules-floor tier, WEIGHT not drop) - every rescued/enriched source re-passes the UNCHANGED
+    # strict_verify / NLI / 4-role D8 / provenance chokepoint; the FROZEN faithfulness engine is untouched.
+    # (a) parallel post-fetch OpenAlex enrich - pre-batch the per-source enrich in a BOUNDED ThreadPool
+    #     before the serial classify loop (live_retriever.py, gated default-OFF PG_POST_FETCH_ENRICH_PARALLEL)
+    #     so a ~13-30s/source serial enrich tail cannot consume the wall and drop fetched bodies.
+    "PG_POST_FETCH_ENRICH_PARALLEL": "1",
+    # (b) wall-break rules-only rescue - at the retrieval-wall break keep classifying the remaining already-
+    #     fetched bodies RULES-ONLY at the rules-floor tier and KEEP them (live_retriever.py, gated default-OFF
+    #     PG_WALL_CLASSIFY_RESCUE) so they feed the CRAG corrective reserve (§-1.3 keep-not-drop).
+    "PG_WALL_CLASSIFY_RESCUE": "1",
+    # (c) parallel-enrich worker cap - NUMERIC infra pin (like PG_SIDE_JUDGE_MAX_CONCURRENCY): bound the
+    #     Fix-A ThreadPool. Float-parseable => the SLATE-PURITY gate skips it (infra, not a feature-enable);
+    #     NOT in the boolean force-on / required / allowlist sets. setdefault so an operator may raise it.
+    "PG_POST_FETCH_ENRICH_WORKERS": "8",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -1943,6 +1962,13 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_A1_BASKET_FALLBACK",
     "PG_RENDER_CHROME_SCREEN",
     "PG_DEPTH_DECHROME_MEMBERS",
+    # I-deepfix-001 (#1344) WAVE-2 FETCH THROUGHPUT - fail-CLOSED before spend if either fetch-throughput
+    # flag is off: a paid run with one =0 silently reverts to the serial enrich tail (fetched bodies lost
+    # to the wall) / drops the wall-rescued fetched bodies. Force-ON above, so a stray operator =0 fails the
+    # run CLOSED here. Booleans -> safe in this truthy-required tuple. FAITHFULNESS-NEUTRAL.
+    # (PG_POST_FETCH_ENRICH_WORKERS is NUMERIC infra -> NOT here; it rides the slate setdefault only.)
+    "PG_POST_FETCH_ENRICH_PARALLEL",
+    "PG_WALL_CLASSIFY_RESCUE",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -2209,6 +2235,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_A1_BASKET_FALLBACK",              # binds basket corroborators to a verifiable-span frame row
     "PG_RENDER_CHROME_SCREEN",            # render chrome screen master gate (default-ON)
     "PG_DEPTH_DECHROME_MEMBERS",          # holds chrome member spans out of basket distinct-origin support
+    # I-deepfix-001 (#1344) WAVE-2 FETCH THROUGHPUT - force-ON the two fetch-throughput flags so a stray
+    # operator/.env =0 cannot survive the setdefault slate and silently revert to the serial enrich tail /
+    # drop the wall-rescued fetched bodies. Each is DEFAULT-OFF in code (flag-OFF byte-identical); force-ON
+    # here + preflight-required above + allowlisted (SLATE-PURITY). FAITHFULNESS-NEUTRAL (enrich is metadata;
+    # rescue only classifies+keeps at rules-floor). PG_POST_FETCH_ENRICH_WORKERS is NUMERIC infra (slate only).
+    "PG_POST_FETCH_ENRICH_PARALLEL",      # parallel post-fetch OpenAlex enrich pre-batch (bounded ThreadPool)
+    "PG_WALL_CLASSIFY_RESCUE",            # wall-break rules-only rescue of already-fetched bodies (keep-not-drop)
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -3407,6 +3440,13 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_A1_BASKET_FALLBACK",                 # binds basket corroborators to a verifiable-span frame row
     "PG_RENDER_CHROME_SCREEN",               # render chrome screen master gate (chrome removal at render)
     "PG_DEPTH_DECHROME_MEMBERS",             # holds chrome member spans out of basket distinct-origin support
+    # -- I-deepfix-001 (#1344) WAVE-2 FETCH THROUGHPUT (winner-or-infra: INFRA) --
+    # Two retrieval-orchestration throughput surfaces (parallel enrich pre-batch + wall-break rules-only
+    # rescue) - conscious 'winner or infra?' decision, allowlisted deliberately so the clean slate PASSES
+    # SLATE-PURITY. §-1.3 weight-and-consolidate; FAITHFULNESS-NEUTRAL (frozen faithfulness engine untouched).
+    # (PG_POST_FETCH_ENRICH_WORKERS is a NUMERIC infra pin -> float-parseable => SLATE-PURITY skips it; NOT allowlisted.)
+    "PG_POST_FETCH_ENRICH_PARALLEL",         # parallel post-fetch OpenAlex enrich pre-batch (bounded ThreadPool)
+    "PG_WALL_CLASSIFY_RESCUE",               # wall-break rules-only rescue of already-fetched bodies (keep-not-drop)
 })
 
 # BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.

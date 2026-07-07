@@ -56,6 +56,7 @@ from src.polaris_graph.authority.source_class import AuthoritySignals
 # (bool("false") is True in Python — the coercion bug Codex iter-1 flagged).
 from src.polaris_graph.authority.supersession import _is_truthy as _retraction_is_truthy
 from src.polaris_graph.retrieval.tier_classifier import (
+    ClassificationResult,
     ClassificationSignals,
     TierLevel,
     _classify_source_tier_rules,
@@ -1887,6 +1888,318 @@ def _bounded_openalex_enrich(
         )
         return {}
     return holder.get("value", {})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 (#1344) WAVE 2 — fetch throughput. Two DEFAULT-OFF flags that
+# stop already-FETCHED bodies from being lost under the retrieval wall (the
+# throughput collapse behind "only 3 of ~35 queries mattered"):
+#   (A) PG_POST_FETCH_ENRICH_PARALLEL — pre-batch the per-candidate OpenAlex
+#       enrich in a BOUNDED ThreadPool BEFORE the serial classify loop, so a slow
+#       serial enrich tail (~13-30s/source) cannot consume the whole retrieval
+#       wall and leave fetched bodies unclassified.
+#   (B) PG_WALL_CLASSIFY_RESCUE — at the wall break, keep classifying the
+#       remaining already-fetched bodies RULES-ONLY at the deterministic rules-
+#       floor tier and KEEP them (§-1.3 keep-not-drop), so they feed the CRAG
+#       corrective reserve instead of being dropped.
+# Both are FAITHFULNESS-NEUTRAL: enrich is credibility METADATA and the rescue
+# only classifies+keeps. The FROZEN faithfulness engine (strict_verify / NLI /
+# 4-role D8 / provenance / span-grounding) is byte-untouched — every rescued /
+# enriched row still re-passes it unchanged downstream.
+# ─────────────────────────────────────────────────────────────────────────────
+_ENV_POST_FETCH_ENRICH_PARALLEL = "PG_POST_FETCH_ENRICH_PARALLEL"
+_ENV_POST_FETCH_ENRICH_WORKERS = "PG_POST_FETCH_ENRICH_WORKERS"
+_ENV_POST_FETCH_ENRICH_WALL_FRACTION = "PG_POST_FETCH_ENRICH_WALL_FRACTION"
+_ENV_WALL_CLASSIFY_RESCUE = "PG_WALL_CLASSIFY_RESCUE"
+_ENV_WALL_RESCUE_WEIGHT = "PG_WALL_RESCUE_WEIGHT"
+# Bounded default worker cap for the Fix-A pre-batch (LAW VI — env-overridable):
+# enough concurrency to collapse the serial enrich tail, small enough to never
+# fan out unbounded onto OpenAlex.
+_POST_FETCH_ENRICH_WORKERS_DEFAULT = 8
+# WAVE-2 Fix B rules-floor WEIGHT for a wall-rescued body (§-1.3 keep-at-floor,
+# NEVER drop). Mirrors content_relevance_judge._DEFAULT_DEMOTE_WEIGHT (0.25): a
+# source classified RULES-ONLY past the wall never had its content-relevance
+# scored, so it is KEPT at the low-but-nonzero rules floor — never at full (1.0)
+# weight (which would falsely rank it as fully relevant) and never at zero (a
+# drop). Clamped to (0, 1] by `_wall_rescue_weight`.
+_WALL_RESCUE_WEIGHT_DEFAULT = 0.25
+# Disclosed, KEEP-NEUTRAL telemetry label for a wall-rescued body. Deliberately
+# NOT `demoted`/`escalated_demoted` (weighted_enrichment._CONFIRMED_OFFTOPIC_LABELS)
+# — a rescued body was NEVER judged off-topic, only left unscored past the wall, so
+# marking it off-topic would suppress its cite surface (a §-1.3 drop). This label
+# is keep-neutral everywhere it is read (never suppressed), only surfacing the
+# honest "kept at the rules floor because the wall was hit" disclosure.
+_WALL_RESCUE_LABEL = "wall_rescue_floor"
+
+
+def _post_fetch_enrich_parallel_enabled() -> bool:
+    """WAVE-2 Fix A master switch (default OFF). Unset => the post-fetch loop runs
+    the serial per-candidate OpenAlex enrich exactly as before (BYTE-IDENTICAL).
+    ON => the enrich is pre-batched in a BOUNDED ThreadPool before the classify
+    loop so the serial enrich tail cannot burn the retrieval wall and drop
+    already-fetched bodies unclassified. LAW VI env-overridable; truthy
+    1/true/on/yes. Faithfulness-neutral (enrich is credibility metadata)."""
+    return os.environ.get(_ENV_POST_FETCH_ENRICH_PARALLEL, "").strip().lower() in (
+        "1", "true", "on", "yes",
+    )
+
+
+def _post_fetch_enrich_workers() -> int:
+    """Bounded worker cap for the Fix-A parallel enrich pre-batch (LAW VI). Default
+    8 — a sane bound (clamped >=1 by ``_env_int``); never an unbounded fan-out."""
+    return _env_int(_ENV_POST_FETCH_ENRICH_WORKERS, _POST_FETCH_ENRICH_WORKERS_DEFAULT)
+
+
+def _post_fetch_enrich_wall_fraction() -> float:
+    """WAVE-2 Fix A (Codex wave-2 P1a): the FRACTION of the REMAINING retrieval wall the
+    parallel OpenAlex enrich pre-batch may consume, so the batch cannot burn the ENTIRE
+    wall before the classify loop even starts.
+
+    The pre-batch's collection is SYNCHRONOUS (it blocks in index order until every
+    future resolves or the deadline passes). Handing it the FULL ``_retrieval_deadline``
+    let a slow early future stall the whole collection to the wall — starving the very
+    classify loop the fix was meant to protect: with rescue OFF the fetched-body tail is
+    dropped at candidate 0, and with rescue ON every candidate falls into rules-only
+    rescue. Reserving the remainder for classification closes that (mirrors
+    :func:`_retrieval_w2_wall_fraction`, the identical W2 fix).
+
+    Three outcomes (fail-safe parser identical to :func:`_retrieval_w2_wall_fraction`):
+      * ``PG_POST_FETCH_ENRICH_WALL_FRACTION`` UNSET -> ``0.5`` (enrich gets at most half
+        the remaining wall; classification keeps the other half).
+      * a valid finite float in ``(0.0, 1.0]``       -> that value.
+      * ANY set-but-invalid value                    -> ``1.0`` = the FULL retrieval
+        deadline unchanged (the pre-P1a behaviour; OFF path is unaffected either way).
+
+    Read at CALL time (LAW VI). Pure (env-only); unit-testable. Faithfulness-neutral:
+    a straggler not collected inside the reserved slice is recorded as ``{}`` — the SAME
+    empty result the serial per-candidate enrich returns on timeout (an unenriched row is
+    disclosed/undated downstream, NEVER dropped — §-1.3)."""
+    raw = os.getenv(_ENV_POST_FETCH_ENRICH_WALL_FRACTION)
+    if raw is None:
+        return 0.5
+    try:
+        frac = float(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(frac) or not (0.0 < frac <= 1.0):
+        return 1.0
+    return frac
+
+
+def _wall_rescue_weight() -> float:
+    """WAVE-2 Fix B (Codex wave-2 P1b): the rules-floor content-relevance WEIGHT a
+    wall-rescued body is KEPT at (§-1.3 keep-at-floor, never drop).
+
+    A body classified RULES-ONLY past the retrieval wall never had its content-relevance
+    scored, so it must NOT carry the default full weight (1.0) — that would falsely rank
+    it as fully relevant. It is instead kept at the deterministic rules floor (default
+    ``_WALL_RESCUE_WEIGHT_DEFAULT`` = 0.25, matching the content-relevance demote floor):
+    low but NON-zero, so the source still flows to composition at reduced weight and is
+    NEVER dropped. Clamped to ``(0, 1]`` (a zero/negative/garbage override can never
+    zero-drop a rescued source). Read at CALL time (LAW VI). Faithfulness-neutral — the
+    frozen strict_verify / NLI / 4-role / provenance engine still re-checks the row."""
+    raw = os.getenv(_ENV_WALL_RESCUE_WEIGHT, "").strip()
+    if not raw:
+        return _WALL_RESCUE_WEIGHT_DEFAULT
+    try:
+        w = float(raw)
+    except (TypeError, ValueError):
+        return _WALL_RESCUE_WEIGHT_DEFAULT
+    if not math.isfinite(w) or not (0.0 < w <= 1.0):
+        return _WALL_RESCUE_WEIGHT_DEFAULT
+    return w
+
+
+def _wall_classify_rescue_enabled() -> bool:
+    """WAVE-2 Fix B master switch (default OFF). Unset => the retrieval-wall break
+    in the post-fetch loop hands off exactly as before (BYTE-IDENTICAL). ON => at
+    the wall break the loop keeps classifying the REMAINING already-fetched bodies
+    RULES-ONLY (deterministic rules-floor tier — no enrich, no LLM, no network) and
+    KEEPS them (§-1.3 keep-not-drop) so they feed the CRAG corrective reserve. LAW
+    VI env-overridable; truthy 1/true/on/yes. Verification is NEVER relaxed."""
+    return os.environ.get(_ENV_WALL_CLASSIFY_RESCUE, "").strip().lower() in (
+        "1", "true", "on", "yes",
+    )
+
+
+def _loop_budget_truncation_active(
+    *, wall_rescue_mode: bool, now: float, loop_deadline: float
+) -> bool:
+    """WAVE-2 Fix B (Codex wave-2 P1): whether the LEGACY post-fetch loop-budget
+    truncation is allowed to fire.
+
+    The loop-budget branch can DROP already-fetched bodies (its default 'warn' policy
+    breaks the loop and sets ``corpus_truncated``, which the Path-B gate rejects). Once
+    ``PG_WALL_CLASSIFY_RESCUE`` has engaged rules-only rescue, that break must NOT fire:
+    in rescue mode every remaining fetched body is classified RULES-ONLY and KEPT
+    (§-1.3 keep-not-drop), and the rules-only path is cheap (no enrich / LLM / network),
+    so the serial-grind the loop budget guards against does not apply. Returning False
+    in rescue mode lets the loop keep classifying+keeping to the end instead of dropping
+    the tail at the loop deadline.
+
+    OFF / pre-rescue (``wall_rescue_mode`` False — the ONLY value when the flag is OFF)
+    => byte-identical to the bare ``now > loop_deadline`` check. Pure; unit-testable."""
+    if wall_rescue_mode:
+        return False
+    return now > loop_deadline
+
+
+def _wall_rescue_armed_marker(*, enrich_parallel: bool) -> str:
+    """WAVE-2 Fix B (Codex wave-2 P1): the anti-dark LIVENESS marker for
+    ``PG_WALL_CLASSIFY_RESCUE``.
+
+    Emitted at post-fetch loop SETUP whenever the rescue flag is ON — INDEPENDENT of
+    whether the retrieval wall trips. The wall-hit "engaged" log alone is NOT proof the
+    rescue path is wired: the parallel enrich pre-batch (Fix A) can keep the wall from
+    ever tripping on an official run, so a run could set ``PG_WALL_CLASSIFY_RESCUE=1``
+    (FORCE_ON + SLATE prove only the ENV is set) yet emit no rescue log at all — a DARK
+    path. This armed marker fires on EVERY run the flag is ON, proving the flag->code
+    path was reached and the rescue is live. Pure (string only); the ``[activation] ``
+    prefix routes it into the forensic activation-capture buffer streamed to stdout.
+    Faithfulness-neutral (it only discloses that the keep-not-drop rescue is armed)."""
+    return f"[activation] wall_classify_rescue: armed enrich_parallel={enrich_parallel}"
+
+
+def _prefetch_openalex_enrich_parallel(
+    candidates: list[Any],
+    *,
+    workers: int,
+    deadline_monotonic: Optional[float] = None,
+    enrich_fn: Optional[Any] = None,
+) -> dict[int, dict[str, Any]]:
+    """WAVE-2 Fix A: bounded-parallel pre-batch of the per-candidate OpenAlex enrich.
+
+    Returns ``{i: enrich_dict}`` keyed by each candidate's position in
+    ``candidates`` — ORDER-STABLE (``result[i]`` always corresponds to
+    ``candidates[i]`` regardless of completion order), so the merge is identical to
+    the serial loop's per-candidate enrich. The batch NEVER reorders ``candidates``
+    and NEVER touches ``seen_urls`` (the caller's upstream first-seen-wins candidate
+    ordering is preserved); it only READS ``cand.url`` / ``cand.title`` (immutable)
+    and calls the SAME bounded enrich the serial path calls, so there is no race on
+    shared candidate/dedup state. The only shared write is the module authority
+    cache inside the enrich, whose per-call sqlite connection + top-level
+    try/except make a lock-contended write fail-open to ``{}`` (never corruption);
+    the one-time cache migration is warmed once here before fan-out.
+
+    Each candidate's enrich is hard-bounded (``enrich_fn`` defaults to
+    ``_bounded_openalex_enrich`` — a daemon-thread join-timeout abandon), so a
+    wedged OpenAlex response can never hang the pool teardown. An overall
+    ``deadline_monotonic`` (absolute ``time.monotonic()``) additionally caps the
+    whole batch: a straggler not collected by the deadline is recorded as ``{}`` —
+    the SAME empty result the serial per-candidate bound returns on timeout (§-1.3:
+    an unenriched row is disclosed/undated downstream, NEVER dropped). Codex wave-2
+    P0: once the deadline passes the batch STOPS waiting AND CANCELS every still-queued
+    future so no further OpenAlex enrich starts during the classify phase — the batch
+    is bounded by the WALL, not just by worker count. Already-running futures (at most
+    ``max_workers``) cannot be cancelled but are each self-bounded by the per-call
+    daemon join-timeout. Pure w.r.t. inputs; unit-testable with a 2-arg stub
+    ``enrich_fn`` (no heavy models).
+    """
+    results: dict[int, dict[str, Any]] = {}
+    n = len(candidates)
+    if n == 0:
+        return results
+    _enrich = enrich_fn if enrich_fn is not None else _bounded_openalex_enrich
+    # Warm the authority-cache migration ONCE on the main thread so the pool
+    # workers never race the one-time `_ensure_authority_cache_migrated` global.
+    try:
+        _ensure_authority_cache_migrated()
+    except Exception:  # noqa: BLE001 — cache warm is best-effort; enrich fails open
+        pass
+    from concurrent.futures import (  # noqa: E402
+        ThreadPoolExecutor,
+        TimeoutError as _FutureTimeout,
+    )
+
+    max_workers = max(1, min(int(workers), n))
+    per_call_timeout = _env_float("PG_OPENALEX_ENRICH_DEADLINE", 45.0) + 5.0
+    executor = ThreadPoolExecutor(
+        max_workers=max_workers, thread_name_prefix="oa-enrich-batch",
+    )
+    # Declared BEFORE the try so the finally can cancel every submitted future even
+    # if the submit loop raises partway (Codex wave-2 P0 — no leaked queued enrich).
+    _future_by_idx: dict[int, Any] = {}
+    try:
+        for idx, cand in enumerate(candidates):
+            _future_by_idx[idx] = executor.submit(
+                _enrich, getattr(cand, "url", ""), getattr(cand, "title", ""),
+            )
+        # Codex wave-2 P0: once the RESERVED wall slice is spent the pre-batch must
+        # stop consuming network/threads — it is bounded by the WALL DEADLINE, not
+        # just by worker count. When the deadline passes we STOP waiting on the
+        # remaining futures AND CANCEL each still-queued one so no further enrich
+        # starts during the classify phase. Every index STILL gets a value ({} for an
+        # un-collected straggler) — §-1.3 keep-not-drop: the merge never loses an
+        # index, it only records the SAME fail-open {} the serial enrich returns on
+        # timeout. (Running futures <= max_workers can't be cancelled but are each
+        # self-bounded by the per-call daemon join-timeout.)
+        _deadline_expired = False
+        for idx in range(n):  # collect in INDEX order -> order-stable merge
+            fut = _future_by_idx[idx]
+            if _deadline_expired:
+                fut.cancel()  # still-queued -> never runs; already-running -> no-op
+                results[idx] = {}
+                continue
+            if deadline_monotonic is not None:
+                _timeout = max(0.0, deadline_monotonic - time.monotonic())
+            else:
+                _timeout = per_call_timeout
+            try:
+                val = fut.result(timeout=_timeout)
+            except _FutureTimeout:
+                val = {}
+            except Exception:  # noqa: BLE001 — mirror serial enrich's {}-on-error
+                val = {}
+            results[idx] = val if isinstance(val, dict) else {}
+            # Past the reserved deadline: do NOT keep waiting on / letting the
+            # remaining futures run — cancel them on the next iterations + finally.
+            if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                _deadline_expired = True
+    finally:
+        # Cancel every still-pending future so a queued OpenAlex enrich cannot keep
+        # firing after the reserved wall slice (Codex wave-2 P0). cancel_futures also
+        # purges the pool's work queue; still-running workers are self-bounded by the
+        # per-call daemon join-timeout, so teardown never blocks on a wedged enrich.
+        for _f in _future_by_idx.values():
+            _f.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+    return results
+
+
+def _wall_rescue_classify_source(
+    signals: ClassificationSignals,
+    url: str,
+    title: str,
+    domain: str,
+    *,
+    content_relevance_weight: float,
+    content_relevance_label: str,
+) -> tuple[CorpusSource, ClassificationResult]:
+    """WAVE-2 Fix B: classify an already-fetched body RULES-ONLY and KEEP it.
+
+    Uses the DETERMINISTIC rules-floor classifier (``_classify_source_tier_rules``
+    — no enrich, no LLM, no network) so the rescued body carries a FINAL tier (never
+    a placeholder). ALWAYS returns a ``CorpusSource`` (never ``None`` / never a
+    drop) even when the rules floor lands at UNKNOWN/T7 — §-1.3 keep-not-drop: a
+    low-credibility source stays in the corpus at its honest weight, it is never
+    filtered out. The genre stamp (``_m2_dt``) mirrors the deferred W5 path so the
+    disclosure surface matches. Faithfulness-NEUTRAL: this only classifies+keeps;
+    the frozen strict_verify / NLI / 4-role / provenance engine is untouched and
+    still re-checks the row downstream. Pure; unit-testable (no heavy models)."""
+    tier_result = _classify_source_tier_rules(signals)
+    _m2_dt(tier_result, signals)
+    src = CorpusSource(
+        url=url,
+        title=title,
+        domain=domain,
+        tier=tier_result.tier.value,
+        tier_confidence=tier_result.confidence,
+        tier_rule=tier_result.matched_rules[0] if tier_result.matched_rules else "",
+        tier_reasons=list(tier_result.reasons),
+        content_relevance_weight=content_relevance_weight,
+        content_relevance_label=content_relevance_label,
+    )
+    return src, tier_result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -5634,6 +5947,77 @@ def run_live_retrieval(
             f"escalated={_w2_report.n_escalated} (weight-not-filter, no drop)"
         )
 
+    # ── WAVE-2 Fix A: PG_POST_FETCH_ENRICH_PARALLEL — pre-loop bounded-parallel
+    # OpenAlex enrich batch (I-deepfix-001 #1344) ───────────────────────────────
+    # DEFAULT-OFF. When ON (and OpenAlex enrich is enabled), pre-batch the
+    # per-candidate enrich in a BOUNDED ThreadPool BEFORE the serial classify loop
+    # so a slow serial enrich tail cannot consume the retrieval wall and drop
+    # already-fetched bodies unclassified (the Wave-2 throughput collapse). The
+    # loop then reads each candidate's enrich from `_enrich_by_idx` (a dict lookup,
+    # no per-candidate network) instead of the inline `_bounded_openalex_enrich`.
+    # OFF => `_enrich_by_idx` stays empty and the loop's serial enrich path runs
+    # byte-identically. Faithfulness-neutral (enrich is credibility metadata; the
+    # frozen strict_verify / NLI / 4-role engine is untouched).
+    _enrich_parallel_on = _post_fetch_enrich_parallel_enabled()
+    _enrich_by_idx: dict[int, dict[str, Any]] = {}
+    if _enrich_parallel_on and enable_openalex_enrich and candidates:
+        _enrich_workers = _post_fetch_enrich_workers()
+        # Codex wave-2 P1a: bound the SYNCHRONOUS pre-batch to a RESERVED SLICE of the
+        # remaining wall (PG_POST_FETCH_ENRICH_WALL_FRACTION, default 0.5) — NOT the full
+        # `_retrieval_deadline`. The batch collects in index order and blocks until every
+        # future resolves or the deadline passes; handing it the full wall let a slow early
+        # future stall collection to the wall and starve the classify loop it was meant to
+        # protect (rescue OFF => the fetched-body tail is dropped at candidate 0; rescue ON
+        # => every candidate falls into rules-only rescue). Reserving the remainder for
+        # classification restores the intended protection. =1.0 (or any invalid value) =>
+        # `_enrich_deadline == _retrieval_deadline` = byte-identical to the prior full-wall
+        # collection. A straggler past the reserved slice is recorded as `{}` — the SAME
+        # fail-open the serial enrich returns on timeout (undated row never dropped, §-1.3).
+        _enrich_now = time.monotonic()
+        _enrich_deadline = min(
+            _retrieval_deadline,
+            _enrich_now
+            + _post_fetch_enrich_wall_fraction()
+            * max(0.0, _retrieval_deadline - _enrich_now),
+        )
+        _enrich_by_idx = _prefetch_openalex_enrich_parallel(
+            candidates,
+            workers=_enrich_workers,
+            deadline_monotonic=_enrich_deadline,
+        )
+        _enrich_nonempty = sum(1 for _v in _enrich_by_idx.values() if _v)
+        logger.info(
+            "[live_retriever] PG_POST_FETCH_ENRICH_PARALLEL ON — pre-batched "
+            "OpenAlex enrich over %d candidates (workers=%d, enriched=%d, "
+            "wall_reserved_for_classify=%.1fs) — replacing the serial in-loop enrich; "
+            "already-fetched bodies no longer lost to a slow serial enrich tail, and the "
+            "batch can no longer burn the whole wall before classification",
+            len(candidates), _enrich_workers, _enrich_nonempty,
+            max(0.0, _retrieval_deadline - _enrich_deadline),
+        )
+
+    # ── WAVE-2 Fix B: PG_WALL_CLASSIFY_RESCUE — wall-break rules-only rescue
+    # (I-deepfix-001 #1344) ─────────────────────────────────────────────────────
+    # DEFAULT-OFF. When ON, the retrieval-wall break below does NOT drop the
+    # remaining already-fetched bodies: it switches the loop into RULES-ONLY rescue
+    # mode (no enrich, no LLM tiering, no network re-fetch) that classifies them at
+    # the deterministic rules-floor tier and KEEPS them (§-1.3 keep-not-drop) so
+    # they feed the CRAG corrective reserve. OFF => the wall break hands off exactly
+    # as before (byte-identical). The faithfulness engine is untouched.
+    _wall_rescue_on = _wall_classify_rescue_enabled()
+    _wall_rescue_mode = False
+    _wall_rescued_count = 0
+    if _wall_rescue_on:
+        # WAVE-2 Fix B (Codex wave-2 P1): emit the anti-dark LIVENESS marker NOW —
+        # independent of whether the retrieval wall trips — so an official run PROVES
+        # the rescue path is wired even when the parallel enrich pre-batch keeps the
+        # wall from ever tripping (the wall-hit "engaged" note is not liveness proof;
+        # FORCE_ON + SLATE prove only that the env is set). Fires every run the flag
+        # is ON. Faithfulness-neutral disclosure only.
+        logger.info(
+            "%s", _wall_rescue_armed_marker(enrich_parallel=_enrich_parallel_on)
+        )
+
     for i, cand in enumerate(candidates):
         # I-deepfix-001 item 4 (#1344): RETRIEVAL-PHASE wall (checked BEFORE the
         # legacy post-fetch loop budget). On expiry, STOP classifying the remaining
@@ -5645,17 +6029,46 @@ def run_live_retrieval(
         # (§-1.3 — never a silent drop). The per-candidate Layer-1 bound still guards
         # any single wedged candidate; this wall guards the whole-phase grind.
         if time.monotonic() > _retrieval_deadline:
-            _retrieval_wall_hit = True
-            _candidates_processed = i
-            logger.warning(
-                "[live_retriever] retrieval wall hit during the post-fetch "
-                "classify loop at candidate %d/%d (%d already classified) — "
-                "handing off the partial corpus (render-PASS, NOT corpus_truncated; "
-                "PG_RETRIEVAL_WALL_SECONDS)",
-                i, len(candidates), len(classified_sources),
-            )
-            break
-        if time.monotonic() > _loop_deadline:
+            if _wall_rescue_on:
+                # WAVE-2 Fix B (PG_WALL_CLASSIFY_RESCUE): DO NOT drop the remaining
+                # already-fetched bodies. Engage rules-only rescue mode ONCE and FALL
+                # THROUGH to classify this + every remaining candidate RULES-ONLY
+                # (no enrich / LLM / network) and KEEP them for the CRAG reserve
+                # (§-1.3 keep-not-drop). `_retrieval_wall_hit` still discloses the
+                # wall tripped; the faithfulness engine is untouched.
+                if not _wall_rescue_mode:
+                    _wall_rescue_mode = True
+                    _retrieval_wall_hit = True
+                    logger.warning(
+                        "[live_retriever] retrieval wall hit at candidate %d/%d — "
+                        "PG_WALL_CLASSIFY_RESCUE ON: classifying the remaining "
+                        "already-fetched bodies RULES-ONLY (rules-floor tier; no "
+                        "enrich/LLM/network) and KEEPING them for the CRAG reserve "
+                        "(§-1.3 keep-not-drop; faithfulness engine untouched)",
+                        i, len(candidates),
+                    )
+                # fall through (no break) — process this candidate in rescue mode.
+            else:
+                _retrieval_wall_hit = True
+                _candidates_processed = i
+                logger.warning(
+                    "[live_retriever] retrieval wall hit during the post-fetch "
+                    "classify loop at candidate %d/%d (%d already classified) — "
+                    "handing off the partial corpus (render-PASS, NOT corpus_truncated; "
+                    "PG_RETRIEVAL_WALL_SECONDS)",
+                    i, len(candidates), len(classified_sources),
+                )
+                break
+        if _loop_budget_truncation_active(
+            wall_rescue_mode=_wall_rescue_mode,
+            now=time.monotonic(),
+            loop_deadline=_loop_deadline,
+        ):
+            # WAVE-2 Fix B (Codex wave-2 P1): in rescue mode this branch is inert
+            # (predicate returns False) so an also-expired _loop_deadline can NEVER
+            # break the loop and DROP the remaining already-fetched bodies — they are
+            # all classified RULES-ONLY and KEPT (§-1.3 keep-not-drop). OFF / pre-rescue
+            # => byte-identical to the prior bare `time.monotonic() > _loop_deadline`.
             if _trunc_policy == "repair":
                 # §-1.3: do NOT ship a thinned corpus. Keep processing the
                 # remaining candidates so recall is preserved. The per-candidate
@@ -5747,8 +6160,10 @@ def run_live_retrieval(
                 if _w2v is not None:
                     _w2_weight = _w2v.weight
                     _w2_label = _w2v.label
-            else:
+            elif not _wall_rescue_mode:
                 # Serial fallback: no pre-loop batch — compute this one inline.
+                # WAVE-2 Fix B: SKIP this inline (GPU) compute in rescue mode — the
+                # rescued body keeps the default full weight (1.0), never demoted.
                 from src.polaris_graph.retrieval.content_relevance_judge import (  # noqa: E402
                     score_passages,
                 )
@@ -5778,7 +6193,23 @@ def run_live_retrieval(
         # enrichment: it prevents abandoned daemon threads from accumulating
         # when OpenAlex is degraded for the whole run.
         oa = {}
-        if enable_openalex_enrich and not _enrich_disabled:
+        if _wall_rescue_mode:
+            # WAVE-2 Fix B: past the retrieval wall the already-fetched body is
+            # classified RULES-ONLY — SKIP the (slow, serial) OpenAlex enrich
+            # entirely so the fetched-body tail is not lost to the wall. `oa` stays
+            # {} (an undated/unenriched row is never demoted downstream — fail-open);
+            # the faithfulness engine is untouched (§-1.3 keep-not-drop).
+            pass
+        elif _enrich_parallel_on:
+            # WAVE-2 Fix A: read THIS candidate's enrich from the pre-loop bounded-
+            # parallel batch (built once before the loop) instead of the serial per-
+            # candidate round-trip. Order-stable (keyed by candidate index); {} when
+            # the batch abandoned a straggler past its bound (identical to the serial
+            # failure return). Same downstream result as the serial enrich.
+            oa = _enrich_by_idx.get(i, {})
+            if oa:
+                api_calls["openalex"] += 1
+        elif enable_openalex_enrich and not _enrich_disabled:
             oa = _bounded_openalex_enrich(cand.url, cand.title, _enrich_stats)
             if oa:
                 api_calls["openalex"] += 1
@@ -5934,7 +6365,54 @@ def run_live_retrieval(
             structured_jsonld=raw_jsonld or "",
             claim_vendor_token=(research_question or "").strip().lower(),
         )
-        if _llm_tiering_on:
+        if _wall_rescue_mode:
+            # WAVE-2 Fix B (PG_WALL_CLASSIFY_RESCUE): RULES-ONLY classification of an
+            # already-fetched body past the retrieval wall. Deterministic rules-floor
+            # tier (NO LLM defer, NO dispatcher, NO network) via the shared
+            # `_wall_rescue_classify_source` helper; the source is KEPT with a FINAL
+            # tier (never a placeholder -> the W5 batch never touches it) so it feeds
+            # the CRAG reserve. `_w5_loop_idx=-1` disables the later evidence-row W5
+            # back-fill hook. §-1.3 keep-not-drop; the frozen faithfulness engine
+            # (strict_verify / NLI / 4-role / provenance) is UNTOUCHED — this only
+            # classifies+keeps, the downstream verify leg still re-checks the row.
+            _w5_loop_idx = -1
+            # Codex wave-2 P1b + Wave-2 re-review P0/P1: KEEP the rescued body at the
+            # deterministic RULES-FLOOR weight, NEVER the default full `_w2_weight`
+            # (1.0). Past the wall the content-relevance pass is skipped (no GPU
+            # reranker), so the row was never scored — carrying full weight would
+            # falsely rank it as fully relevant. The floor (`_wall_rescue_weight`,
+            # default 0.25) is low but NON-zero: the source still flows to composition
+            # at reduced weight and is NEVER dropped (§-1.3 keep-at-floor). The label is
+            # the keep-neutral `_WALL_RESCUE_LABEL` (NOT a `demoted` off-topic label,
+            # which would suppress its cite surface) so the disclosure is honest without
+            # ever removing the source.
+            #
+            # Resolve the floor ONCE and stamp it on BOTH surfaces so they can never
+            # diverge (the Wave-2 re-review defect): (1) the per-candidate locals
+            # `_w2_weight`/`_w2_label` — the values the groundable EVIDENCE row the
+            # generator/CRAG path actually reads picks up below (~L6780). Previously
+            # these were left at the full 1.0/"" default in rescue mode (the W2 block
+            # above skips the inline compute via `elif not _wall_rescue_mode`), so the
+            # rescued body's evidence row carried FULL weight while only the CorpusSource
+            # got the floor — a rescued body laundered into the evidence/CRAG path at
+            # full/default weight (§-1.3 weight-not-drop violated on that path); and
+            # (2) the CorpusSource the helper builds. Setting the locals to the floor
+            # makes the `if _w2_label:` evidence-row block below fire and stamp the SAME
+            # floor weight + keep-neutral label onto the row, so the rescued body is
+            # safely kept AND provenanced at the honest rules-floor on every downstream
+            # surface. Faithfulness-neutral (a weight + disclosure label only; the frozen
+            # strict_verify / NLI / 4-role / provenance engine is untouched).
+            _rescue_weight = _wall_rescue_weight()
+            _w2_weight = _rescue_weight
+            _w2_label = _WALL_RESCUE_LABEL
+            _rescue_src, tier_result = _wall_rescue_classify_source(
+                signals, cand.url, cand.title, domain_,
+                content_relevance_weight=_rescue_weight,
+                content_relevance_label=_WALL_RESCUE_LABEL,
+            )
+            classified_sources.append(_rescue_src)
+            _wall_rescued_count += 1
+        elif _llm_tiering_on:
             # I-wire-001 W5: DEFER the LLM tier to the bounded-parallel post-loop batch.
             # Build the row now with a placeholder tier (back-filled below); record the
             # signals + row index so the batch assigns the LLM tier (rules-floor
@@ -6045,7 +6523,7 @@ def run_live_retrieval(
         # row (nothing relaxed; ``_u21_repaired`` clears the stale classification-time
         # degraded flag exactly like the BUG-B02/B04 recovered case).
         _u21_repaired = False
-        if (not content) and (not ok) and _refetch_degraded_enabled():
+        if (not content) and (not ok) and _refetch_degraded_enabled() and not _wall_rescue_mode:
             _u21_recovered = _try_refetch_degraded_row(
                 cand.url, DEFAULT_CONTENT_MAX_CHARS,
             )
@@ -6136,7 +6614,7 @@ def run_live_retrieval(
             # NOT a new cap — it is the same stub decision already made upstream.
             if (
                 _starved or _is_landing or _is_shell or not ok
-            ) and _refetch_degraded_enabled():
+            ) and _refetch_degraded_enabled() and not _wall_rescue_mode:
                 _refetched = _try_refetch_degraded_row(
                     cand.url, DEFAULT_CONTENT_MAX_CHARS,
                 )
@@ -6617,6 +7095,20 @@ def run_live_retrieval(
         )
         logger.warning("[live_retriever] %s", _wall_note)
         notes.append(_wall_note)
+
+    # WAVE-2 Fix B (#1344): disclose the wall-rescue on the manifest channel so the
+    # §-1.3 "never silently drop, always disclose" requirement holds — the bodies
+    # the wall would have dropped were classified RULES-ONLY and KEPT.
+    if _wall_rescue_mode:
+        _rescue_note = (
+            f"wall_classify_rescue: PG_WALL_CLASSIFY_RESCUE engaged — "
+            f"{_wall_rescued_count} already-fetched bodies classified RULES-ONLY "
+            f"(rules-floor tier, no enrich/LLM) past the retrieval wall and KEPT in "
+            f"the corpus for the CRAG reserve (§-1.3 keep-not-drop; faithfulness "
+            f"engine untouched)"
+        )
+        logger.info("[live_retriever] %s", _rescue_note)
+        notes.append(_rescue_note)
 
     # FIX-3 piece 1 (I-deepfix-001): bounded end-of-run drain of abandoned bypass
     # workers. Fires ONCE per run on BOTH the parallel and serial fetch paths
