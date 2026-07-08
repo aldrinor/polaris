@@ -76,12 +76,24 @@ def enable_faulthandler() -> None:
     Honors `PYTHONFAULTHANDLER` (already enabled by the interpreter then) and is
     idempotent — calling `faulthandler.enable` twice is safe."""
     import faulthandler
+    import signal
 
     try:
         faulthandler.enable(all_threads=True)
     except (RuntimeError, ValueError, OSError):
         # stderr redirected to a non-fileno stream (e.g. captured under a test
         # harness) — best-effort; never block the run on diagnostics setup.
+        pass
+
+    # I-deepfix-001 (wedge diagnosis): register SIGUSR1 to dump EVERY thread's
+    # Python stack to stderr ON DEMAND without killing the process. `kill -USR1
+    # <pid>` then captures an in-process DEADLOCK (e.g. the shared-SSL-context
+    # lock/import hang) that `faulthandler.enable` — which only fires on a FATAL
+    # signal — can never surface. POSIX-only (SIGUSR1 absent on Windows).
+    try:
+        if hasattr(signal, "SIGUSR1"):
+            faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+    except (RuntimeError, ValueError, OSError, AttributeError):
         pass
 
 from scripts.architecture.verify_lock import load_lock
@@ -6244,6 +6256,26 @@ def main(argv: list[str] | None = None) -> int:
     # a C+Python stack instead of a silent process death (2 of 5 live runs died
     # this way). Cheap, idempotent, no spend, no network.
     enable_faulthandler()
+
+    # I-deepfix-001 (wedge ROOT FIX): pre-warm the process-wide shared TLS/SSL
+    # context ONCE here on the main thread, BEFORE any parallel judge fan-out. The
+    # credibility pass calls get_shared_ssl_context() 16-way concurrent; a
+    # concurrent FIRST build deadlocked because the lazy build imported certifi
+    # while holding _SHARED_SSL_LOCK (verified: main futex_wait + N sleeping
+    # workers, 0 GPU/disk/net). Building it single-threaded here makes the
+    # singleton non-None, so every worker takes the lock-free fast-path and the
+    # race is structurally gone. Behaviour-neutral: identical SSL context, identical
+    # verify/judge verdicts, full 16-way concurrency preserved.
+    try:
+        from src.utils.shared_ssl_context import get_shared_ssl_context
+
+        get_shared_ssl_context()
+    except Exception as _ssl_prewarm_err:  # best-effort: log loud, never block
+        logging.getLogger(__name__).warning(
+            "[ssl-prewarm] shared SSL context pre-warm failed (%s); workers will "
+            "build lazily (pre-fix behaviour)",
+            _ssl_prewarm_err,
+        )
 
     import argparse
 

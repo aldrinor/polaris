@@ -1,0 +1,91 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 34260f09..3f3d03e8 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -76,6 +76,7 @@ def enable_faulthandler() -> None:
+     Honors `PYTHONFAULTHANDLER` (already enabled by the interpreter then) and is
+     idempotent — calling `faulthandler.enable` twice is safe."""
+     import faulthandler
++    import signal
+ 
+     try:
+         faulthandler.enable(all_threads=True)
+@@ -84,6 +85,17 @@ def enable_faulthandler() -> None:
+         # harness) — best-effort; never block the run on diagnostics setup.
+         pass
+ 
++    # I-deepfix-001 (wedge diagnosis): register SIGUSR1 to dump EVERY thread's
++    # Python stack to stderr ON DEMAND without killing the process. `kill -USR1
++    # <pid>` then captures an in-process DEADLOCK (e.g. the shared-SSL-context
++    # lock/import hang) that `faulthandler.enable` — which only fires on a FATAL
++    # signal — can never surface. POSIX-only (SIGUSR1 absent on Windows).
++    try:
++        if hasattr(signal, "SIGUSR1"):
++            faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
++    except (RuntimeError, ValueError, OSError, AttributeError):
++        pass
++
+ from scripts.architecture.verify_lock import load_lock
+ # I-ready-017 FIX-JO (#1100): the canonical journal_only runtime-flag NAME. Imported (not
+ # re-hardcoded) so the per-slug activation below sets the SAME env the consumer reads in
+@@ -6245,6 +6257,26 @@ def main(argv: list[str] | None = None) -> int:
+     # this way). Cheap, idempotent, no spend, no network.
+     enable_faulthandler()
+ 
++    # I-deepfix-001 (wedge ROOT FIX): pre-warm the process-wide shared TLS/SSL
++    # context ONCE here on the main thread, BEFORE any parallel judge fan-out. The
++    # credibility pass calls get_shared_ssl_context() 16-way concurrent; a
++    # concurrent FIRST build deadlocked because the lazy build imported certifi
++    # while holding _SHARED_SSL_LOCK (verified: main futex_wait + N sleeping
++    # workers, 0 GPU/disk/net). Building it single-threaded here makes the
++    # singleton non-None, so every worker takes the lock-free fast-path and the
++    # race is structurally gone. Behaviour-neutral: identical SSL context, identical
++    # verify/judge verdicts, full 16-way concurrency preserved.
++    try:
++        from src.utils.shared_ssl_context import get_shared_ssl_context
++
++        get_shared_ssl_context()
++    except Exception as _ssl_prewarm_err:  # best-effort: log loud, never block
++        logging.getLogger(__name__).warning(
++            "[ssl-prewarm] shared SSL context pre-warm failed (%s); workers will "
++            "build lazily (pre-fix behaviour)",
++            _ssl_prewarm_err,
++        )
++
+     import argparse
+ 
+     parser = argparse.ArgumentParser(
+diff --git a/src/utils/shared_ssl_context.py b/src/utils/shared_ssl_context.py
+index 42eafc59..ced35bfd 100644
+--- a/src/utils/shared_ssl_context.py
++++ b/src/utils/shared_ssl_context.py
+@@ -38,6 +38,18 @@ import os
+ import ssl
+ import threading
+ 
++# I-deepfix-001 (wedge fix): import certifi at MODULE TOP-LEVEL, never inside a
++# function that runs under ``_SHARED_SSL_LOCK``. The original local import (in
++# ``_build_default_verify_context``) executed the ``import`` machinery WHILE the
++# lock was held; when >1 credibility/entailment judge thread hit
++# ``get_shared_ssl_context`` for the first time concurrently, the lock-held
++# ``import`` deadlocked against Python's import lock (verified: main thread
++# ``futex_wait`` + N sleeping workers, 0 GPU, 0 disk, 0 network). Hoisting the
++# import here means the lock body no longer imports anything. Behaviour-neutral:
++# ``certifi`` is a pure data package; import time/order does not change the CA
++# bundle or any TLS verdict.
++import certifi
++
+ # Lazily-built process-wide singleton. None until first use so importing this
+ # leaf module never eagerly builds (or PEM-parses) a context — preserves the
+ # off-mode zero-import-cost contract of the llm leaf modules that import it.
+@@ -56,8 +68,8 @@ def _build_default_verify_context() -> ssl.SSLContext:
+     trusting that CA exactly as it did before. ``create_default_context``
+     guarantees ``verify_mode=CERT_REQUIRED`` and ``check_hostname=True``.
+     """
+-    import certifi  # local import: only needed on the (one-time) build path
+-
++    # certifi is imported at module top-level (see header note) — NEVER import
++    # here, this function runs under _SHARED_SSL_LOCK.
+     # trust_env semantics match httpx's default (trust_env=True).
+     ssl_cert_file = os.environ.get("SSL_CERT_FILE")
+     ssl_cert_dir = os.environ.get("SSL_CERT_DIR")

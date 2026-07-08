@@ -38,9 +38,23 @@ import os
 import ssl
 import threading
 
+# I-deepfix-001 (wedge fix): import certifi at MODULE TOP-LEVEL, never inside a
+# function that runs under ``_SHARED_SSL_LOCK``. The original local import (in
+# ``_build_default_verify_context``) executed the ``import`` machinery WHILE the
+# lock was held; when >1 credibility/entailment judge thread hit
+# ``get_shared_ssl_context`` for the first time concurrently, the lock-held
+# ``import`` deadlocked against Python's import lock (verified: main thread
+# ``futex_wait`` + N sleeping workers, 0 GPU, 0 disk, 0 network). Hoisting the
+# import here means the lock body no longer imports anything. Behaviour-neutral:
+# ``certifi`` is a pure data package; import time/order does not change the CA
+# bundle or any TLS verdict.
+import certifi
+
 # Lazily-built process-wide singleton. None until first use so importing this
-# leaf module never eagerly builds (or PEM-parses) a context — preserves the
-# off-mode zero-import-cost contract of the llm leaf modules that import it.
+# leaf module never eagerly BUILDS (or PEM-parses) a context — preserves the
+# off-mode zero-cost contract of the llm leaf modules that import it. (certifi is
+# imported at module top per the header note; it is a cheap path-lookup package,
+# NOT a PEM parse, so no context is built at import time.)
 _SHARED_SSL_CONTEXT: ssl.SSLContext | None = None
 _SHARED_SSL_LOCK = threading.Lock()
 
@@ -56,8 +70,8 @@ def _build_default_verify_context() -> ssl.SSLContext:
     trusting that CA exactly as it did before. ``create_default_context``
     guarantees ``verify_mode=CERT_REQUIRED`` and ``check_hostname=True``.
     """
-    import certifi  # local import: only needed on the (one-time) build path
-
+    # certifi is imported at module top-level (see header note) — NEVER import
+    # here, this function runs under _SHARED_SSL_LOCK.
     # trust_env semantics match httpx's default (trust_env=True).
     ssl_cert_file = os.environ.get("SSL_CERT_FILE")
     ssl_cert_dir = os.environ.get("SSL_CERT_DIR")
