@@ -240,6 +240,15 @@ def _build_batch_prompt(
         "then a source about entity X but aspect B is OFF; a source about entity X "
         "and aspect A is ON.",
         "",
+        # I-deepfix-001 (drb_72 forensic): the seminal on-topic papers were wrongly marked OFF
+        # because the question text embeds a DATE window ("before June 2023") and the judge read a
+        # post-cutoff date/marker in a snippet as a "different aspect". TOPICALITY IS DATE-BLIND.
+        "TOPICALITY IS DATE-BLIND: a publication date — or ANY date in the research question — is "
+        "NOT an aspect. NEVER mark a source OFF because of its publication date or a date range in "
+        "the question; recency is a SEPARATE axis handled elsewhere. Judge ONLY subject-entity + "
+        "aspect. An exposure / projection / potential-impact / early-evidence study of the "
+        "question's aspect is ON (it bears on that aspect), not OFF.",
+        "",
         "FAIL-OPEN: if you genuinely cannot tell whether the source addresses the "
         "question's specific aspect, mark it ON. When in doubt, answer ON.",
         "",
@@ -395,8 +404,12 @@ def classify_topic_relevance(
     # ``PG_SCOPE_TOPIC_GATE_HARD_DROP`` (audit / reversal). Order is unchanged in
     # BOTH modes (no tail-partition), so a demoted row stays best-first-ranked.
     hard_drop = topic_gate_hard_drop_enabled()
+    rescue_on_stamp = os.environ.get("PG_TOPIC_GATE_RESCUE_ON_STAMP", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
     offtopic_rows: list[dict[str, Any]] = []
     offtopic_titles: list[str] = []
+    ontopic_rows: list[dict[str, Any]] = []  # I-deepfix-001: confident-ON, for the rescue False-stamp
 
     for start in range(0, len(judged_rows), size):
         end = min(start + size, len(judged_rows))
@@ -424,10 +437,20 @@ def classify_topic_relevance(
             )
             continue
         for local_idx, row in enumerate(batch_rows):
-            if verdicts.get(local_idx) is True:  # confident OFF only
+            v = verdicts.get(local_idx)
+            if v is True:  # confident OFF only
                 offtopic_rows.append(row)
                 # batch_meta is already the per-batch slice -> index locally.
                 offtopic_titles.append(batch_meta[local_idx][0] or "(no title)")
+            elif v is False:  # confident ON
+                # I-deepfix-001 (drb_72 forensic): RESCUE semantics. Historically the gate wrote
+                # ONLY True (never False), so a re-judge (PG_RESUME_RUN_TOPIC_JUDGE) could ADD demotes
+                # but never CLEAR a stale bad stamp baked into the corpus_snapshot by an earlier run.
+                # Stamping False on a confident-ON verdict lets a fixed-prompt re-judge un-bury the
+                # seminal papers wrongly demoted upstream. Faithfulness-neutral: downstream
+                # (_is_confirmed_offtopic keys on `is True`; is_topic_unjudged on `is not None`) already
+                # handles False. Gated PG_TOPIC_GATE_RESCUE_ON_STAMP (default ON); OFF = byte-identical.
+                ontopic_rows.append(row)
 
     if hard_drop:
         # LEGACY (explicit opt-in): hard-drop the confident-OFF set.
@@ -443,6 +466,12 @@ def classify_topic_relevance(
         kept_rows = list(sources)
         for row in offtopic_rows:
             row["topic_offtopic_demoted"] = True
+        # I-deepfix-001 (drb_72): RESCUE — stamp False on confident-ON rows so a fixed-prompt
+        # re-judge CLEARS a stale bad True baked into the corpus_snapshot by an earlier run.
+        # Gated PG_TOPIC_GATE_RESCUE_ON_STAMP (default ON); OFF => no False stamp = byte-identical.
+        if rescue_on_stamp:
+            for row in ontopic_rows:
+                row["topic_offtopic_demoted"] = False
         dropped_rows, dropped_titles = [], []
         demoted_rows, demoted_titles = offtopic_rows, offtopic_titles
 
