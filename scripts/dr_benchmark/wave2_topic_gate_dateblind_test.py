@@ -37,12 +37,23 @@ pick = [e for e in SEMINAL if e in rows_all] + JUNK
 sources = [dict(rows_all[e]) for e in pick]  # copies (so we can read the stamp)
 print("testing rows:", pick)
 
-_client = OpenRouterClient()
-model = os.environ.get("PG_JUDGE_MODEL") or os.environ.get("PG_GENERATOR_MODEL") or "z-ai/glm-5.2"
+import asyncio
+model = os.environ.get("PG_SCOPE_TOPIC_MODEL") or os.environ.get("PG_GENERATOR_MODEL") or "z-ai/glm-5.2"
 
 
 def llm_callable(prompt):
-    return _client.generate(prompt, model=model, max_tokens=1200, temperature=0.0)
+    async def _run():
+        c = OpenRouterClient(model=model)
+        try:
+            r = await c.generate(prompt=prompt, max_tokens=1200, temperature=0.0)
+            return (r.content or "").strip()
+        finally:
+            if hasattr(c, "close"):
+                try:
+                    await c.close()
+                except Exception:
+                    pass
+    return asyncio.run(_run())
 
 
 res = tg.classify_topic_relevance(sources, QUESTION, llm_callable=llm_callable, batch_size=25)
