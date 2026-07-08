@@ -1,0 +1,242 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019f3f71-c185-7e91-a36c-cba5131f348a
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Review: fetch-yield per-query-crash fix (I-deepfix-001 #1369)
+
+## What happened (the bug being fixed)
+A live paid run (box 1) crashed rc=1 with:
+`FetchStarvationError: fetch yield 0.095 < floor 0.30 (success=6 timeout=57)` at
+`live_retriever.py:_fetch_yield_gate`. Traceback: fs_researcher fans out ~50 queries
+(`_ex.map(_one, _rest)`), each `_one` -> per_query_retrieve -> run_live_retrieval ->
+`_fetch_yield_gate(...)` at the PER-QUERY seam. ONE throttled/niche query (6 usable of
+~63 attempts under 429 pressure) raised FetchStarvationError, which propagated through
+the ThreadPoolExecutor and killed the ENTIRE run — even though the AGGREGATE corpus was
+healthy (731 fetched / 127 failed = 0.85 yield). The gate meant to PREVENT a starved
+corpus instead CRASHED a healthy run.
+
+## The fix (2 hunks, faithfulness-neutral)
+1. `live_retriever.py` ~6317: the PER-QUERY `_fetch_yield_gate(...)` call is now wrapped
+   in try/except FetchStarvationError -> DISCLOSE-ONLY (log warning + append to `notes`),
+   NOT re-raised. The gate function itself is UNCHANGED (still computes rate, still emits
+   the [activation] marker on pass/HALT/skip). A single query no longer kills the run.
+2. `run_honest_sweep_r3.py` ~11588 (post-fetch, pre-selection seam, runs in BOTH fresh
+   and resume): NEW aggregate `fetch_yield_aggregate_gate` — computes yield from the FULL
+   merged `retrieval.candidates_fetched / candidates_total`; if total>=min_attempts AND
+   rate<floor -> raise FetchStarvationError (the authoritative "never bank a starved
+   corpus" halt, the 53/990 disaster class). Emits [activation] marker on HALT and pass.
+   Env kill-switch PG_FETCH_YIELD_AGGREGATE_GATE=1 default-ON. Missing counts (total<=0)
+   -> rate 1.0 -> pass (no false halt on lean resume reconstructs).
+
+## Offline proof (already run, all pass)
+- both files py_compile clean; exactly 1 call site of _fetch_yield_gate (now wrapped).
+- `_fetch_yield_gate(6,57,0)` still RAISES (gate logic unchanged).
+- healthy aggregate 731/858=0.852 -> pass; below-min-attempts 1/41 -> skip; disaster
+  53/990=0.054 -> aggregate HALT=True.
+
+## Review focus (verify, don't discover)
+- Does the per-query catch correctly stop the crash WITHOUT swallowing a genuinely starved
+  AGGREGATE (answer: aggregate gate is the authoritative halt)?
+- Is `notes` in scope at the catch site? (yes — appended at ~6290 subwall path).
+- Is `retrieval` in scope + are the attr names correct (candidates_fetched /
+  candidates_failed_fetch / candidates_total — confirmed used identically at ~15746)?
+- Any double-halt / resume false-halt risk? (resume with total<=0 -> pass by design).
+- Faithfulness: does this touch strict_verify / NLI / 4-role / span-grounding? (must be NO).
+
+## Output schema (required)
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+## THE DIFF UNDER REVIEW
+```diff
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index f1157aac..fcae8f6f 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -11585,6 +11585,53 @@ async def run_one_query(
+             except Exception as _fetch_snap_exc:  # noqa: BLE001 — checkpoint is best-effort
+                 _log(f"[checkpoint]  post-fetch snapshot save skipped (fail-open): {_fetch_snap_exc}")
+ 
++        # I-deepfix-001 (#1369) AGGREGATE fetch-yield HARD halt — the authoritative
++        # "never bank a starved corpus" gate. The per-query gate in live_retriever is now
++        # DISCLOSE-ONLY (a single throttled query no longer false-crashes a healthy run —
++        # that was box 1's rc=1: 6/63 on ONE query killed a 731-source run). The genuinely
++        # starved AGGREGATE corpus (the 53/990 disaster class) halts HERE, ONCE, on the full
++        # merged `retrieval`, at the post-fetch / pre-selection seam. Runs in BOTH fresh and
++        # resume, so a starved resume checkpoint is REFUSED rather than re-composed into a
++        # deficient report (box 2's resume would have halted here instead of shipping junk).
++        # §-1.3 faithfulness-neutral: halts loudly, never fabricates. Env kill-switch
++        # PG_FETCH_YIELD_AGGREGATE_GATE=0 reverts to no aggregate halt (LAW VI). Missing
++        # counts (total<=0, e.g. a lean resume reconstruct) => rate 1.0 => pass, never a
++        # false halt.
++        if os.environ.get("PG_FETCH_YIELD_AGGREGATE_GATE", "1").strip().lower() not in (
++            "", "0", "false", "no", "off",
++        ):
++            _agg_fetched = int(getattr(retrieval, "candidates_fetched", 0) or 0)
++            _agg_failed = int(getattr(retrieval, "candidates_failed_fetch", 0) or 0)
++            _agg_total = int(getattr(retrieval, "candidates_total", 0) or 0) or (
++                _agg_fetched + _agg_failed
++            )
++            try:
++                _agg_floor = float(os.getenv("PG_MIN_FETCH_YIELD", "0.30"))
++            except ValueError:
++                _agg_floor = 0.30
++            try:
++                _agg_min_attempts = int(os.getenv("PG_MIN_FETCH_YIELD_MIN_ATTEMPTS", "50"))
++            except ValueError:
++                _agg_min_attempts = 50
++            _agg_rate = (_agg_fetched / _agg_total) if _agg_total > 0 else 1.0
++            if _agg_total >= _agg_min_attempts and _agg_rate < _agg_floor:
++                _log(
++                    f"[activation] fetch_yield_aggregate_gate: rate={_agg_rate:.3f} "
++                    f"floor={_agg_floor:.2f} fetched={_agg_fetched} total={_agg_total} -> HALT"
++                )
++                from src.polaris_graph.retrieval.live_retriever import (
++                    FetchStarvationError as _FetchStarvationError,
++                )
++                raise _FetchStarvationError(
++                    f"AGGREGATE fetch yield {_agg_rate:.3f} < floor {_agg_floor:.2f} "
++                    f"(fetched={_agg_fetched} of total={_agg_total}) — halting before "
++                    f"banking a starved corpus (§-1.3)"
++                )
++            _log(
++                f"[activation] fetch_yield_aggregate_gate: rate={_agg_rate:.3f} "
++                f"floor={_agg_floor:.2f} fetched={_agg_fetched} total={_agg_total} -> pass"
++            )
++
+         # I-beatboth-011 junk-SOURCE screen (#1289). At THIS single corpus-
+         # consumption seam — after every retrieval/merge lane AND after the
+         # fresh/resume branch reconcile, but BEFORE selection / the approval gate /
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 6a57ea5e..de636ff9 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -6307,18 +6307,35 @@ def run_live_retrieval(
+             parallel_report.timeout_count,
+             max_workers, per_task_timeout,
+         )
+-        # UNIT 6 (I-wire-001 TRACK-2 fetch robustness): fetch-yield HALT gate.
+-        # Right after the retrieval telemetry emit and BEFORE any downstream
+-        # consolidation/composition/return, compute the fetch yield and HALT the
+-        # run if it fell below PG_MIN_FETCH_YIELD — so a starved corpus (the
+-        # 922/990-timeout hang-and-leak cascade) is refused loudly rather than
+-        # banked. Faithfulness-neutral (§-1.3): halts, never fabricates. The
+-        # [activation] marker fires either way so the run-log canary sees it ran.
+-        _fetch_yield_gate(
+-            parallel_report.success_count,
+-            parallel_report.timeout_count,
+-            parallel_report.errored_count,
+-        )
++        # UNIT 6 (I-wire-001 TRACK-2 fetch robustness): fetch-yield gate.
++        # Right after the retrieval telemetry emit, compute the fetch yield and emit
++        # the [activation] marker so the run-log canary sees it ran.
++        #
++        # I-deepfix-001 (#1369) PER-QUERY-CRASH FIX: run_live_retrieval is called
++        # ONCE PER QUERY (fs_researcher fans it out ~50x). A SINGLE throttled or niche
++        # query (e.g. box 1: 6 usable of ~63 attempts under 429 pressure) must NOT
++        # hard-kill a run whose AGGREGATE corpus is healthy (731 fetched). So the
++        # per-query call is now DISCLOSE-ONLY: it still computes the rate + emits the
++        # marker, but a per-query FetchStarvationError is caught and surfaced as a note,
++        # NOT re-raised. The authoritative "never bank a starved corpus" HARD halt runs
++        # ONCE on the full merged corpus at the post-fetch / pre-generation seam
++        # (run_honest_sweep_r3 fetch_yield_aggregate_gate). §-1.3 faithfulness-neutral:
++        # discloses/halts, never fabricates.
++        try:
++            _fetch_yield_gate(
++                parallel_report.success_count,
++                parallel_report.timeout_count,
++                parallel_report.errored_count,
++            )
++        except FetchStarvationError as _per_query_starve:
++            logger.warning(
++                "[live_retriever] per-query fetch-yield low — DISCLOSED, non-fatal "
++                "(the aggregate pre-composition gate is authoritative): %s",
++                _per_query_starve,
++            )
++            notes.append(
++                f"per-query fetch-yield low (disclosed, non-fatal): {_per_query_starve}"
++            )
+         # GH #1258 PART 2: parallel_fetch (the longest network-bound phase) just returned —
+         # tick the heartbeat so a human tailing run_status.json sees the run advance out of
+         # the fetch wait instead of a frozen scope_gate_passed snapshot.
+```
+
+codex
+I’ll do the repository-required bootstrapping first, then review the two changed seams against the real code paths rather than only the pasted diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath CLAUDE.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw -LiteralPath state\\beatboth_campaign\\loop_state.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw -LiteralPath state\\beatboth_campaign\\MASTER_PLAN.md" in C:\POLARIS
+2026-07-08T01:57:45.192072Z ERROR codex_core::exec: exec error: windows sandbox: CreateProcessWithLogonW failed: 1326
+2026-07-08T01:57:45.202158Z ERROR codex_core::exec: exec error: windows sandbox: CreateProcessWithLogonW failed: 1326
+2026-07-08T01:57:45.207877Z ERROR codex_core::tools::router: error=execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+ exited -1 in 0ms:
+execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+ exited -1 in 0ms:
+execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+2026-07-08T01:57:45.209212Z ERROR codex_core::exec: exec error: windows sandbox: CreateProcessWithLogonW failed: 1326
+2026-07-08T01:57:45.217400Z ERROR codex_core::tools::router: error=execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+2026-07-08T01:57:45.225138Z ERROR codex_core::tools::router: error=execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+ exited -1 in 0ms:
+execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+codex
+The parallel read hit a Windows sandbox launch error before any file content was returned. I’m switching to single shell calls so I can still satisfy the required repo-state check and continue the review.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw -LiteralPath CLAUDE.md' in C:\POLARIS
+2026-07-08T01:57:50.626896Z ERROR codex_core::exec: exec error: windows sandbox: CreateProcessWithLogonW failed: 1326
+2026-07-08T01:57:50.655019Z ERROR codex_core::tools::router: error=execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+ exited -1 in 0ms:
+execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+codex
+The single shell launch is failing the same way, before PowerShell starts. I’ll try the non-login path next; if the sandbox still refuses process creation, I’ll base the review on the supplied diff and explicitly mark the local-verification gap.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoProfile -Command Get-Location in C:\POLARIS
+2026-07-08T01:57:53.993511Z ERROR codex_core::exec: exec error: windows sandbox: CreateProcessWithLogonW failed: 1326
+2026-07-08T01:57:54.001851Z ERROR codex_core::tools::router: error=execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+ exited -1 in 0ms:
+execution error: Io(Custom { kind: Other, error: "windows sandbox: CreateProcessWithLogonW failed: 1326" })
+codex
+Process creation is unavailable in this session, so I can’t open local files or run py_compile from the workspace. I’ll still perform the code review from the provided diff and separate hard blockers from verification limitations.
+mcp: codex/list_mcp_resources started
+mcp: codex/list_mcp_resources (completed)
+codex
+verdict: APPROVE
+
+novel_p0: []
+
+continuing_p0: []
+
+p1: []
+
+p2: [
+  "Local verification was blocked: PowerShell process creation failed in this session before any repo files/tests could be read or run. Review is therefore based on the supplied diff and stated offline proof, not an independent workspace execution."
+]
+
+convergence_call: continue
+
+remaining_blockers_for_execution: []
+tokens used
+18,856

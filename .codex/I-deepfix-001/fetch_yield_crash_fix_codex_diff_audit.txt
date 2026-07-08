@@ -1,0 +1,3 @@
+verdict: APPROVE
+# Codex gate — fetch-yield per-query-crash fix (I-deepfix-001 #1369)
+# zero P0, zero P1; 3 P2 non-blocking

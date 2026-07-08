@@ -11585,6 +11585,53 @@ async def run_one_query(
             except Exception as _fetch_snap_exc:  # noqa: BLE001 — checkpoint is best-effort
                 _log(f"[checkpoint]  post-fetch snapshot save skipped (fail-open): {_fetch_snap_exc}")
 
+        # I-deepfix-001 (#1369) AGGREGATE fetch-yield HARD halt — the authoritative
+        # "never bank a starved corpus" gate. The per-query gate in live_retriever is now
+        # DISCLOSE-ONLY (a single throttled query no longer false-crashes a healthy run —
+        # that was box 1's rc=1: 6/63 on ONE query killed a 731-source run). The genuinely
+        # starved AGGREGATE corpus (the 53/990 disaster class) halts HERE, ONCE, on the full
+        # merged `retrieval`, at the post-fetch / pre-selection seam. Runs in BOTH fresh and
+        # resume, so a starved resume checkpoint is REFUSED rather than re-composed into a
+        # deficient report (box 2's resume would have halted here instead of shipping junk).
+        # §-1.3 faithfulness-neutral: halts loudly, never fabricates. Env kill-switch
+        # PG_FETCH_YIELD_AGGREGATE_GATE=0 reverts to no aggregate halt (LAW VI). Missing
+        # counts (total<=0, e.g. a lean resume reconstruct) => rate 1.0 => pass, never a
+        # false halt.
+        if os.environ.get("PG_FETCH_YIELD_AGGREGATE_GATE", "1").strip().lower() not in (
+            "", "0", "false", "no", "off",
+        ):
+            _agg_fetched = int(getattr(retrieval, "candidates_fetched", 0) or 0)
+            _agg_failed = int(getattr(retrieval, "candidates_failed_fetch", 0) or 0)
+            _agg_total = int(getattr(retrieval, "candidates_total", 0) or 0) or (
+                _agg_fetched + _agg_failed
+            )
+            try:
+                _agg_floor = float(os.getenv("PG_MIN_FETCH_YIELD", "0.30"))
+            except ValueError:
+                _agg_floor = 0.30
+            try:
+                _agg_min_attempts = int(os.getenv("PG_MIN_FETCH_YIELD_MIN_ATTEMPTS", "50"))
+            except ValueError:
+                _agg_min_attempts = 50
+            _agg_rate = (_agg_fetched / _agg_total) if _agg_total > 0 else 1.0
+            if _agg_total >= _agg_min_attempts and _agg_rate < _agg_floor:
+                _log(
+                    f"[activation] fetch_yield_aggregate_gate: rate={_agg_rate:.3f} "
+                    f"floor={_agg_floor:.2f} fetched={_agg_fetched} total={_agg_total} -> HALT"
+                )
+                from src.polaris_graph.retrieval.live_retriever import (
+                    FetchStarvationError as _FetchStarvationError,
+                )
+                raise _FetchStarvationError(
+                    f"AGGREGATE fetch yield {_agg_rate:.3f} < floor {_agg_floor:.2f} "
+                    f"(fetched={_agg_fetched} of total={_agg_total}) — halting before "
+                    f"banking a starved corpus (§-1.3)"
+                )
+            _log(
+                f"[activation] fetch_yield_aggregate_gate: rate={_agg_rate:.3f} "
+                f"floor={_agg_floor:.2f} fetched={_agg_fetched} total={_agg_total} -> pass"
+            )
+
         # I-beatboth-011 junk-SOURCE screen (#1289). At THIS single corpus-
         # consumption seam — after every retrieval/merge lane AND after the
         # fresh/resume branch reconcile, but BEFORE selection / the approval gate /

@@ -6307,18 +6307,35 @@ def run_live_retrieval(
             parallel_report.timeout_count,
             max_workers, per_task_timeout,
         )
-        # UNIT 6 (I-wire-001 TRACK-2 fetch robustness): fetch-yield HALT gate.
-        # Right after the retrieval telemetry emit and BEFORE any downstream
-        # consolidation/composition/return, compute the fetch yield and HALT the
-        # run if it fell below PG_MIN_FETCH_YIELD — so a starved corpus (the
-        # 922/990-timeout hang-and-leak cascade) is refused loudly rather than
-        # banked. Faithfulness-neutral (§-1.3): halts, never fabricates. The
-        # [activation] marker fires either way so the run-log canary sees it ran.
-        _fetch_yield_gate(
-            parallel_report.success_count,
-            parallel_report.timeout_count,
-            parallel_report.errored_count,
-        )
+        # UNIT 6 (I-wire-001 TRACK-2 fetch robustness): fetch-yield gate.
+        # Right after the retrieval telemetry emit, compute the fetch yield and emit
+        # the [activation] marker so the run-log canary sees it ran.
+        #
+        # I-deepfix-001 (#1369) PER-QUERY-CRASH FIX: run_live_retrieval is called
+        # ONCE PER QUERY (fs_researcher fans it out ~50x). A SINGLE throttled or niche
+        # query (e.g. box 1: 6 usable of ~63 attempts under 429 pressure) must NOT
+        # hard-kill a run whose AGGREGATE corpus is healthy (731 fetched). So the
+        # per-query call is now DISCLOSE-ONLY: it still computes the rate + emits the
+        # marker, but a per-query FetchStarvationError is caught and surfaced as a note,
+        # NOT re-raised. The authoritative "never bank a starved corpus" HARD halt runs
+        # ONCE on the full merged corpus at the post-fetch / pre-generation seam
+        # (run_honest_sweep_r3 fetch_yield_aggregate_gate). §-1.3 faithfulness-neutral:
+        # discloses/halts, never fabricates.
+        try:
+            _fetch_yield_gate(
+                parallel_report.success_count,
+                parallel_report.timeout_count,
+                parallel_report.errored_count,
+            )
+        except FetchStarvationError as _per_query_starve:
+            logger.warning(
+                "[live_retriever] per-query fetch-yield low — DISCLOSED, non-fatal "
+                "(the aggregate pre-composition gate is authoritative): %s",
+                _per_query_starve,
+            )
+            notes.append(
+                f"per-query fetch-yield low (disclosed, non-fatal): {_per_query_starve}"
+            )
         # GH #1258 PART 2: parallel_fetch (the longest network-bound phase) just returned —
         # tick the heartbeat so a human tailing run_status.json sees the run advance out of
         # the fetch wait instead of a frozen scope_gate_passed snapshot.

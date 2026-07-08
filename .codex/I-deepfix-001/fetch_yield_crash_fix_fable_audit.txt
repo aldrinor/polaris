@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Fable 5 gate — AST-verified; zero P0, zero P1; 3 P2 non-blocking
