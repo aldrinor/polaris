@@ -3022,6 +3022,105 @@ def _is_unrenderable_sentence_form(text: str) -> bool:
     return False
 
 
+# I-deepfix-001 P0 (box2 chrome infestation): furniture-chrome vocabulary the I-wire-013 containment
+# port never enumerated (BLS wage-in-table, PDF object dict, tel:/mailto, >=2 inline md-links, scraped
+# masthead byline). SUPPRESS-ONLY, faithfulness-neutral. Kill-switch PG_SOURCE_FURNITURE_CHROME (default ON).
+_FURN_WAGE_RE = re.compile(r"\$\s?[\d,]+(?:\.\d+)?\s*(?:per\s+(?:year|hour)|/\s*(?:year|hour|hr))", re.IGNORECASE)
+_FURN_PDF_OBJ_RE = re.compile(r"(?:%PDF|\bendobj\b|\bendstream\b|\bxref\b|/ID\s*\[<|\bIndex\[\d+\s+\d+\]|\b\d+\s+\d+\s+obj\b|/(?:Root|Prev|Length|BBox)\b)")
+_FURN_CONTACT_RE = re.compile(r"\b(?:tel:|mailto:)\S", re.IGNORECASE)
+_FURN_MDLINK_RE = re.compile(r"\]\(\s*https?://")
+_FURN_TBWIDGET_RE = re.compile(r"#TB_inline|&inlineId=|&width=\d+", re.IGNORECASE)
+# Codex P1: the author-byline rule was DROPPED — "[David Autor](url) is a professor at MIT who finds that
+# one more robot ... reduces wages by 0.42%" matched it and suppressed a REAL finding. Box2's actual masthead
+# byline chrome is always glued to a wage table (caught by _FURN_WAGE_RE) so no coverage is lost. Over-drop-safe.
+
+# I-deepfix-001 wave-2 (#1370): the furniture-chrome vocabulary the box2 §-1.1 line-by-line read exposed the
+# wave-1 set still missed — a dashboard chart-legend dump (a RUN of >=3 bare "+NN%" tokens, no sentence
+# structure), a bare international CONTACT phone number, a nav CTA ("view details" / "Learn more about the"),
+# a document-TITLE recital ("The document is titled ..."), and CC-license / publisher boilerplate. SUPPRESS-ONLY,
+# faithfulness-neutral. Each pattern was verified NON-matching against the box2 MUST-KEEP real findings (the
+# Acemoglu robot -0.42% wage stat, the Eloundou 1.8% exposure stat, the GDP 1.5%/3%/3.7% projection, the SMEs
+# 83% stat, the Accenture 26.08% stat) — a genuine finding's percents are ALWAYS separated by prose words, so
+# the consecutive-"%"-run signature never fires on them (over-drop-safe, the Codex-P1 byline lesson applied).
+_FURN_CHARTDUMP_RE = re.compile(r"(?:[+\-]?\d+(?:\.\d+)?\s?%\s+){2,}[+\-]?\d+(?:\.\d+)?\s?%")
+_FURN_PHONE_RE = re.compile(r"\+\d{1,3}[\s\-]\d{2,4}[\s\-]\d{2,4}(?:[\s\-]\d{2,4})?")
+# Fable gate (wave-2): "learn more about the" / "read more" substring-match REAL synthesis prose
+# ("workers learn more about the mechanism of task substitution") — DROPPED (byline-trap). Only the
+# unambiguous nav CTAs remain; neither ever appears inside a genuine finding.
+_FURN_NAVCTA_RE = re.compile(r"\bview details\b|\bclick here\b", re.IGNORECASE)
+# Fable gate (wave-2): the bare "is titled" leg substring-matched a REAL cited finding ("the study,
+# which is titled 'Generative AI at Work,' found +14%"). Tightened to the RECITAL form only — a doc-noun
+# IMMEDIATELY followed by "(is )titled" ("The document is titled …", "A work titled …") — so a mid-prose
+# ", which is titled" (comma breaks the doc-noun adjacency) is never matched. Over-drop-safe.
+_FURN_DOCTITLE_RE = re.compile(
+    r"\b(?:a|an|the)\s+(?:document|work|study|report|book|guide|paper|article|publication|chapter)\s+(?:is\s+)?titled\b",
+    re.IGNORECASE,
+)
+_FURN_PUBLISHER_RE = re.compile(
+    r"books in this series are published|some rights are reserved|users can reuse,\s*share,?\s*adapt|authors alliance",
+    re.IGNORECASE,
+)
+# Codex gate (wave-2) P1: a unit carrying a genuine finding SIGNAL — a decimal, a percentage, or a
+# finding VERB — must NEVER be dropped by the SOFT furniture legs (doc-title recital, >=2 md-links),
+# because a real finding legitimately mentions a title ("A study titled X FOUND +14%") or carries a
+# linked author + linked paper. Only a pure recital / link-farm with NO finding is chrome. The HARD
+# legs (PDF-object dict, chart-legend dump, publisher boilerplate, contact-phone) are unambiguous and
+# fire regardless. Over-drop-safe (verified vs the box2 MUST-KEEP findings + the Codex adversarial cases).
+_FINDING_SIGNAL_RE = re.compile(
+    r"\d\.\d|\b\d+(?:\.\d+)?\s?%|\b(?:found|finds|estimat\w+|report\w+|show\w+|showed|conclud\w+|"
+    r"observ\w+|demonstrat\w+|reveal\w+|reduc\w+|increas\w+|associated with|correlat\w+|"
+    r"percentage points?)\b",
+    re.IGNORECASE,
+)
+# Codex gate (wave-2) P1: the phone leg fires ONLY with a contact CONTEXT word, so a signed statistical
+# estimate ("+0.123 (0.045)") — digits/dots/parens/spaces, no contact context — is never dropped.
+_FURN_CONTACT_CTX_RE = re.compile(
+    r"\b(?:phone|telephone|fax|hotline|dial|call\s*back)\b",
+    re.IGNORECASE,
+)
+
+
+def _source_furniture_chrome_enabled() -> bool:
+    return os.getenv("PG_SOURCE_FURNITURE_CHROME", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _contains_source_furniture_chrome(text: str) -> bool:
+    """True iff ``text`` carries page/source FURNITURE chrome the enumerated categories miss: a PDF
+    object-dictionary recital, a tel:/mailto: contact line, a wage figure inside a nav/pipe table or a
+    table-widget id (BLS OOH), >=2 inline markdown links (nav link-furniture), or a scraped author
+    masthead byline glued to a profile link. SUPPRESS-ONLY, faithfulness-neutral."""
+    if not _source_furniture_chrome_enabled():
+        return False
+    s = str(text or "")
+    if not s.strip():
+        return False
+    if _FURN_PDF_OBJ_RE.search(s):
+        return True
+    if _FURN_CONTACT_RE.search(s):
+        return True
+    if _FURN_WAGE_RE.search(s) and ("|" in s or _FURN_TBWIDGET_RE.search(s)):
+        return True
+    # I-deepfix-001 wave-2 (#1370): the box2 §-1.1 furniture classes wave-1 missed.
+    # HARD legs (unambiguous furniture — fire regardless of finding-signal):
+    if _FURN_CHARTDUMP_RE.search(s):  # a run of >=3 whitespace-separated bare %-tokens (chart legend)
+        return True
+    if _FURN_PUBLISHER_RE.search(s):  # CC-license / publisher boilerplate
+        return True
+    if _FURN_NAVCTA_RE.search(s):  # "view details" / "click here" (never inside a finding)
+        return True
+    # SOFT legs (Codex P1/P1-cont: guarded — a unit with a real finding SIGNAL is never dropped here.
+    # Phone is under the guard AND format-tight AND context-gated so a signed statistic like
+    # "Recruitment increased employment by +0.123 (0.045)" is triple-safe from a false drop):
+    if not _FINDING_SIGNAL_RE.search(s):
+        if _FURN_PHONE_RE.search(s) and _FURN_CONTACT_CTX_RE.search(s):  # a contact phone, not a statistic
+            return True
+        if _FURN_DOCTITLE_RE.search(s):  # a pure doc-title RECITAL ("The document is titled …")
+            return True
+        if len(_FURN_MDLINK_RE.findall(s)) >= 2:  # a link-farm / nav block, not a linked finding
+            return True
+    return False
+
+
 def is_render_chrome_or_unrenderable(
     text: str,
     *,
@@ -3056,6 +3155,11 @@ def is_render_chrome_or_unrenderable(
     if not render_chrome_screen_enabled():
         return False  # NEW categories OFF -> byte-identical to the legacy base screen
     if _is_new_chrome_category(s):
+        return True
+    # I-deepfix-001 P0 (box2 chrome infestation): the missing-vocabulary furniture classes. SUPPRESS-ONLY,
+    # faithfulness-neutral; inside the render_chrome_screen_enabled() gate so PG_RENDER_CHROME_SCREEN=0 stays
+    # byte-identical. Auto-fixes _screen_render_chrome_prose + _compose_junk_screen + the render seam at once.
+    if _contains_source_furniture_chrome(s):
         return True
     try:
         from src.polaris_graph.generator.key_findings import (  # noqa: PLC0415

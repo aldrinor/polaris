@@ -158,6 +158,34 @@ def promote_grounded_enabled() -> bool:
     promote_on = os.environ.get(_ENV_PROMOTE_GROUNDED, "0").strip().lower() not in _OFF_VALUES
     return promote_on and deviation_check_enabled()
 
+
+# I-deepfix-001 P1 (box2 DEPTH lever): synthesis-mode basket gate. The extractive PROMOTE gate requires each
+# synthesis sentence to be ENTAILED/verbatim-grounded by its cited spans — correct for extractive body claims,
+# WRONG for cross-source analytical SYNTHESIS that fuses+interprets sources into a new insight no single span
+# entails (box2: 79/81 real cited cross-source sentences dropped). When ON, a synthesis sentence is KEPT iff it
+# (1) resolves >=1 valid cited span AND (2) passes the DETERMINISTIC anti-fabrication floor (_span_grounds_sentence:
+# every number in the sentence appears in the UNION of cited spans AND >=2 content-word overlap). Default OFF.
+_ENV_BASKET_MODE = "PG_ANALYST_SYNTHESIS_BASKET_MODE"
+
+
+def basket_mode_enabled() -> bool:
+    on = os.environ.get(_ENV_BASKET_MODE, "0").strip().lower() not in _OFF_VALUES
+    return on and promote_grounded_enabled()
+
+
+# I-deepfix-001 wave-2 (#1370): whole-basket FULL-TEXT grounding (default ON within basket mode). Ground a
+# synthesis sentence against the FULL text of each cited source (direct_quote + statement + title + snippet),
+# unioned across all cited [N], NOT the narrow direct_quote slice — the box2 over-drop where ~18-20 real
+# cross-source analytical sentences (the task-based / substitution-complementarity framework, the
+# Brynjolfsson +14% and Eloundou exposure findings) were dropped because their grounded numbers sat in the
+# source ``statement`` but not the exact quote slice. A number in NO cited source still drops (anti-fabrication
+# floor holds). §-1.3 whole-basket faithfulness: STRENGTHENS, never relaxes. Set 0 to revert to the narrow union.
+_ENV_BASKET_FULLTEXT = "PG_ANALYST_SYNTHESIS_BASKET_FULLTEXT"
+
+
+def _basket_fulltext_enabled() -> bool:
+    return os.environ.get(_ENV_BASKET_FULLTEXT, "1").strip().lower() not in _OFF_VALUES
+
 # A confidence marker is appended ONCE per sentence; this guards against a double-append when the
 # function is (defensively) called twice on already-labeled prose.
 _ALREADY_LABELED_MARKER = "[confidence:"
@@ -189,13 +217,23 @@ def _deadline_s() -> float:
 
 
 def _resolve_span_for_evidence_id(
-    evidence_id: str, evidence_rows: list[dict[str, Any]]
+    evidence_id: str, evidence_rows: list[dict[str, Any]], *, full_text: bool = False
 ) -> str:
     """Resolve an evidence_id to its cited span text (``direct_quote`` first, then ``statement``).
-    Returns ``""`` when the id is not in the pool or carries no span text."""
+    Returns ``""`` when the id is not in the pool or carries no span text. wave-2 (#1370): ``full_text``
+    widens the resolved text to the source's TRUSTED evidence-BODY fields (``direct_quote`` + ``statement``)
+    so a number/word that lives in the source body but not the exact quote slice grounds — the box2
+    over-drop where a real Brynjolfsson/Eloundou number sat in the source ``statement`` but not the exact
+    quote slice, so a grounded synthesis sentence was dropped. Codex depth-gate P1: ``title``/``snippet``
+    (retrieval METADATA) are DELIBERATELY EXCLUDED so a number that appears only incidentally in a search
+    snippet or title can NEVER ground a synthesis sentence — the anti-fabrication floor stays honest."""
     for row in evidence_rows or []:
         rid = str(row.get("evidence_id") or row.get("id") or "")
         if rid and rid == evidence_id:
+            if full_text:
+                return " ".join(
+                    str(row.get(k, "") or "") for k in ("direct_quote", "statement")
+                ).strip()
             return str(row.get("direct_quote") or row.get("statement") or "")
     return ""
 
@@ -204,11 +242,15 @@ def _resolve_sentence_span(
     sentence: str,
     bibliography: list[dict[str, Any]],
     evidence_rows: list[dict[str, Any]],
+    *,
+    full_text: bool = False,
 ) -> str:
     """Concatenate the cited spans for ALL ``[N]`` markers in ``sentence``. ``N`` indexes the
     bibliography 1-based -> ``bibliography[N-1].evidence_id`` -> the evidence row's span. Returns
     ``""`` when the sentence carries NO resolvable ``[N]`` span (=> the caller labels BUCKET_NO_SOURCE).
-    PURE (no I/O)."""
+    wave-2 (#1370): ``full_text`` resolves each cited source to its WHOLE text (see
+    ``_resolve_span_for_evidence_id``) so a synthesis sentence grounds against the whole-basket union,
+    not the narrow direct_quote slice. PURE (no I/O)."""
     spans: list[str] = []
     for m in _NUMBERED_RE.finditer(sentence):
         try:
@@ -221,7 +263,7 @@ def _resolve_sentence_span(
         eid = str(entry.get("evidence_id") or "")
         if not eid:
             continue
-        span = _resolve_span_for_evidence_id(eid, evidence_rows)
+        span = _resolve_span_for_evidence_id(eid, evidence_rows, full_text=full_text)
         if span:
             spans.append(span)
     return "\n".join(spans)
@@ -409,6 +451,17 @@ def screen_synthesis_against_baskets(
     # the judge (it is a BUCKET_NO_SOURCE label, not an UNSUPPORTED verdict). Span resolution reads the
     # ``[N]`` markers, which are untouched by the confidence-marker strip below.
     spans = [_resolve_sentence_span(s, bibliography, evidence_rows) for s in sentences]
+    # I-deepfix-001 wave-2 (#1370) basket faithfulness (§-1.3): in basket mode, ALSO resolve each sentence's
+    # cited sources to their WHOLE-basket full text (direct_quote + statement + title + snippet), unioned
+    # across all cited [N], so a synthesis sentence whose grounded numbers/words live anywhere in its cited
+    # sources is not falsely dropped for citing only the narrow direct_quote slice (box2 over-drop; harness
+    # T2). A number in NO cited source still drops (harness T3). The legacy 4-leg path keeps the narrow
+    # `spans`. Default-ON within basket mode; PG_ANALYST_SYNTHESIS_BASKET_FULLTEXT=0 reverts to the narrow union.
+    basket_spans = (
+        [_resolve_sentence_span(s, bibliography, evidence_rows, full_text=True) for s in sentences]
+        if (basket_mode_enabled() and _basket_fulltext_enabled())
+        else spans
+    )
     # D3 P0 (#1344): the cited EVIDENCE ROWS per sentence, for the frozen-engine re-pass in PROMOTE
     # mode (a real [#ev:id:start-end] token is rebuilt per cited row -> verify_sentence_provenance).
     # Resolved once (pure); used only in the promote branch below.
@@ -490,12 +543,23 @@ def screen_synthesis_against_baskets(
             # not admitted as a hedged body claim. A grounded one is re-promoted with a fresh moderate
             # marker on the stripped base (never a double marker).
             base = screen_sentences[i]
-            grounded = (
-                has_span
-                and supported.get(i, False)
-                and _span_grounds_sentence(base, spans[i])
-                and _frozen_engine_verifies_sentence(base, cited_rows_per_sentence[i])
-            )
+            if basket_mode_enabled():
+                # P1 basket mode: KEEP grounded cross-source synthesis. The deterministic anti-fabrication
+                # floor (numbers-in-union + >=2 content-word overlap vs the UNION of cited spans) is the
+                # faithfulness gate; the extractive single-span ENTAILMENT requirement is dropped (it
+                # over-kills interpretive synthesis). Fabricated numbers + no-citation sentences still drop.
+                # wave-2 (#1370): ground against the WHOLE-basket FULL-TEXT union of the cited sources
+                # (basket_spans[i]) so a real number living in a source's statement/title — not the narrow
+                # quote slice — is not falsely dropped (box2 over-drop of the cross-source analytical layer).
+                _bspan = basket_spans[i]
+                grounded = bool(_bspan.strip()) and _span_grounds_sentence(base, _bspan)
+            else:
+                grounded = (
+                    has_span
+                    and supported.get(i, False)
+                    and _span_grounds_sentence(base, spans[i])
+                    and _frozen_engine_verifies_sentence(base, cited_rows_per_sentence[i])
+                )
             if grounded:
                 marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_MODERATE)
                 out_sentences.append(f"{base} {marker}")
