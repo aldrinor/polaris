@@ -128,6 +128,17 @@ def offtopic_cite_suppress_enabled() -> bool:
     )
 
 
+_POSITIVE_RELEVANCE_LABELS = frozenset({"relevant", "escalated_relevant"})
+
+
+def _offtopic_relevance_override_enabled() -> bool:
+    """Kill-switch ``PG_OFFTOPIC_RELEVANCE_OVERRIDE`` (default ON). OFF => the
+    legacy byte-identical ``_is_confirmed_offtopic`` (topic-flag wins)."""
+    return os.environ.get("PG_OFFTOPIC_RELEVANCE_OVERRIDE", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
 def _is_confirmed_offtopic(row: Any) -> bool:
     """True iff a SEMANTIC judge confirmed this source is OFF-topic.
 
@@ -136,12 +147,26 @@ def _is_confirmed_offtopic(row: Any) -> bool:
     {``demoted``, ``escalated_demoted``}) — NEVER on the noisy lexical/embedding
     ``selection_relevance`` score (that is the §-1.3-banned keystone DROP). A
     missing/absent label is keep-neutral (NOT off-topic): an unjudged or
-    judged-RELEVANT row is never suppressed."""
+    judged-RELEVANT row is never suppressed.
+
+    I-deepfix-001 (drb_72 forensic): when the TWO semantic judges DISAGREE — the
+    W2 content-relevance judge affirmatively rated the source ``relevant`` /
+    ``escalated_relevant`` (high weight) while the topic gate stamped
+    ``topic_offtopic_demoted=True`` — the AFFIRMATIVE relevance verdict WINS and the
+    source is NOT suppressed. This is the §-1.3 weight-not-filter rule: a false-positive
+    off-topic flag must never bury a source the content-relevance judge judged relevant.
+    (The drb_72 corpus buried the SEMINAL papers this way — GPTs-are-GPTs / World Bank /
+    Humlum all carried content_relevance_label='relevant' weight=1.0 BUT
+    topic_offtopic_demoted=True, so the old predicate suppressed them from the finding
+    surface.) Behind ``PG_OFFTOPIC_RELEVANCE_OVERRIDE`` (default ON); OFF = byte-identical."""
     if not isinstance(row, dict):
+        return False
+    label = str(row.get("content_relevance_label", "") or "").strip().lower()
+    if _offtopic_relevance_override_enabled() and label in _POSITIVE_RELEVANCE_LABELS:
+        # judges conflict (relevant vs off-topic-demoted) -> trust the positive relevance, KEEP.
         return False
     if row.get("topic_offtopic_demoted") is True:
         return True
-    label = str(row.get("content_relevance_label", "") or "").strip().lower()
     return label in _CONFIRMED_OFFTOPIC_LABELS
 
 
