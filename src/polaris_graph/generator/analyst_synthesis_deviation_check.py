@@ -186,6 +186,121 @@ _ENV_BASKET_FULLTEXT = "PG_ANALYST_SYNTHESIS_BASKET_FULLTEXT"
 def _basket_fulltext_enabled() -> bool:
     return os.environ.get(_ENV_BASKET_FULLTEXT, "1").strip().lower() not in _OFF_VALUES
 
+
+# I-deepfix-001 wave-2 (#1370) DEPTH — disclosed analyst layer. The analyst-synthesis composer is DESIGNED
+# to write hedged interpretive framing UNCITED (its system prompt reserves [N] for concrete factual claims
+# and instructs qualitative interpretation to be hedged, not cited), and the layer already carries the
+# ANALYST_SYNTHESIS_DISCLOSURE preamble ("interpretive commentary … not individually span-verified"). The D3
+# PROMOTE gate was fighting that design — dropping every uncited interpretive sentence (box2: 31 real
+# analytical-framework sentences lost). This renders an uncited hedged QUALITATIVE interpretation under that
+# disclosure instead of dropping it (verify-after-compose = LABEL, never DELETE — operator-authorized gated
+# analyst-synthesis). Default OFF; only active WITH basket mode. A fabrication (uncited + a number / a named
+# study absent from the pool) STILL drops.
+_ENV_DISCLOSED_ANALYST = "PG_ANALYST_SYNTHESIS_DISCLOSED_KEEP"
+
+
+def _disclosed_analyst_enabled() -> bool:
+    return os.environ.get(_ENV_DISCLOSED_ANALYST, "0").strip().lower() not in _OFF_VALUES
+
+
+# An author attribution ("Acemoglu and Restrepo", "Brynjolfsson et al") inside an UNCITED interpretive
+# sentence is disclosable ONLY if EVERY named surname is actually in the evidence pool (a real study being
+# interpreted). A surname absent from the pool is a fabricated attribution and must DROP.
+_AUTHOR_ATTR_RE = re.compile(r"\b[A-Z][a-z]{2,}\s+(?:et al|and\s+[A-Z][a-z]{2,})")
+_SURNAME_RE = re.compile(r"[A-Z][a-z]{2,}")
+_POOL_TOKEN_RE = re.compile(r"[a-z]{3,}")
+# Codex + Fable depth-gate P1 (load-bearing §-1.3 fix): a disclosable NON-header sentence must carry a
+# HEDGE / INTERPRETIVE cue — the markers the composer's own system prompt tells the LLM to use for hedged
+# interpretation (suggests / implies / may / typically / broadly / consistent with / framework / logic /
+# depends on / …). A bare UNHEDGED categorical assertion ("Generative AI will replace all lawyers") carries
+# no hedge => NOT disclosable => drops. Deliberately EXCLUDES bare analytical nouns (trend / pattern /
+# evidence) that a fabricated declarative could carry. Verified to still admit box2's real analytical
+# framework tissue.
+_INTERPRETIVE_CUE_RE = re.compile(
+    r"\b(?:suggest\w*|impl(?:y|ies|ied|ication\w*)|may|might|could|consistent with|typical\w*|broad\w*|"
+    r"appears?|likely|interpret\w*|framework\w*|mechanism\w*|logic\w*|depends?\s+on|reflect\w*|align\w*|"
+    r"underscore\w*|in principle|plausibl\w*|tends?\s+to|contextualiz\w*|represent\w*|modulat\w*|"
+    r"reinforc\w*|poses?\b|requir\w*|nuance\w*|distinction\w*|dimension\w*|paradox\w*|conceptual\w*|"
+    r"scaffold\w*|thesis|hypothes\w*|unresolved|underexplored|remain\w*|applies\b|extension\b)",
+    re.IGNORECASE,
+)
+# Codex depth-gate iter-2 P1: a contentful CATEGORICAL header ("### Generative AI will replace all lawyers")
+# must NOT pass as a structural label. A structural header is a NOUN-PHRASE section label with NO
+# categorical CLAIM verb; a header carrying one is a mislabeled assertion => drops. (box2's real headers —
+# "Mechanism Interpretation: …", "Positive Views: …", "Challenges: …", "Open Questions …" — carry none.)
+_CLAIM_VERB_RE = re.compile(
+    r"\b(?:will|shall|would|eliminat\w*|replac\w*|destroy\w*|caus\w*|guarantee\w*|prove[sd]?|proven|"
+    r"cure[sd]?|kill\w*|ends?\b|end\s+of)\b",
+    re.IGNORECASE,
+)
+# Codex/Fable depth-gate: a CRISP quantitative claim in ANY form — digit, spelled percent, spelled cardinal
+# over a domain noun, a fraction "of all X", a "one in N" ratio, or a "millions of X" magnitude — is a
+# numeric claim that must ground => NOT disclosable. Deliberately does NOT match SOFT quantifiers
+# ("many/most/some workers") which are legitimate qualitative interpretive prose. Domain noun set is the
+# labor-market subjects a proportion claim would quantify.
+_QUANT_DOMAIN = r"(?:jobs|workers|occupations|tasks|employment|roles|people|firms|companies|households|professionals|positions)"
+_QUANT_CLAIM_RE = re.compile(
+    r"\bone\s+in\s+(?:a\s+)?(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\b"          # one in five
+    r"|\b(?:a|one|two|three|four)\s+(?:half|third|quarter|fifth|sixth|seventh|eighth|ninth|tenth)\b"  # a fifth / two thirds
+    r"|\b(?:half|third|quarter|fifth|sixth|seventh|eighth|ninth|tenth)\s+of\s+(?:all\s+)?" + _QUANT_DOMAIN + r"\b"  # BARE "half of all jobs" / "quarter of workers"
+    r"|\b(?:millions?|billions?|thousands?|hundreds?)\s+of\s+" + _QUANT_DOMAIN + r"\b"        # millions of workers
+    r"|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|"
+    r"hundred|thousand|million|billion)\b[\w\s-]{0,20}\b(?:of\s+(?:all\s+)?)?" + _QUANT_DOMAIN + r"\b",  # spelled N … jobs
+    re.IGNORECASE,
+)
+
+
+def _build_pool_surnames(evidence_rows: "list[dict[str, Any]]") -> "set[str]":
+    """Word-boundary TOKEN set of the pool's author/title words (len>=3), for the author-attribution guard.
+    Token membership (not substring) so a fabricated 'Autor et al' can't pass via 'autor' ⊂ 'author'."""
+    text = " ".join(
+        f"{r.get('authors', '')} {r.get('title', '') or r.get('source_title', '')}"
+        for r in (evidence_rows or [])
+    ).lower()
+    return set(_POOL_TOKEN_RE.findall(text))
+
+
+def _is_disclosable_interpretation(sentence: str, pool_surnames: "set[str]") -> bool:
+    """True iff an UNCITED synthesis sentence is safe to render under the disclosed analyst label — a HEDGED
+    QUALITATIVE interpretation carrying NO ungrounded SPECIFIC claim. Faithfulness guards (applied to headers
+    TOO): any decimal / percent / integer / year => a numeric claim that MUST ground => NOT disclosable; an
+    author attribution with ANY surname absent from the pool token-set => a fabricated study => NOT
+    disclosable. A structural section header (no number, no bad author) is disclosable. A NON-header sentence
+    ALSO requires a HEDGE/INTERPRETIVE cue — a bare unhedged categorical assertion is NOT disclosable.
+    §-1.3: hedged qualitative interpretation is disclosed under an honest 'not span-verified' label; numeric,
+    named, and bare-categorical claims still drop."""
+    raw = _strip_markers(sentence).strip()
+    if not raw:
+        return False
+    is_header = raw.startswith("#")
+    core = raw.lstrip("#").strip()
+    if not core:
+        return False
+    # numeric guard — applies to HEADERS too (Codex P1-2): a number/percent/year must ground, never disclose.
+    if _decimals(core):
+        return False
+    # ANY percent/percentage word is a quantitative claim that must ground — a robust catch-all covering
+    # every digit AND spelled form ("40%" / "forty percent" / "fifteen percent"), ending the spelled-number
+    # enumeration (Codex depth-gate iter-3/4). Real qualitative interpretation never states a bare percent.
+    if "percent" in core.lower():
+        return False
+    # any CRISP quantitative claim without the word "percent" ("a fifth of all jobs", "one in five workers",
+    # "millions of workers", "fifteen … jobs") — same numeric-claim class; soft quantifiers (many/most) pass.
+    if _QUANT_CLAIM_RE.search(core):
+        return False
+    # author-attribution guard — EVERY named surname (first + co-authors) must be a pool TOKEN (Codex/Fable P2).
+    for m in _AUTHOR_ATTR_RE.finditer(core):
+        if any(name.lower() not in pool_surnames for name in _SURNAME_RE.findall(m.group(0))):
+            return False
+    if is_header:
+        # Codex iter-2 P1: a structural section-label header is disclosable, but a contentful CATEGORICAL
+        # header ("### Generative AI will replace all lawyers") is a mislabeled assertion => drops.
+        return not bool(_CLAIM_VERB_RE.search(core))
+    # Codex/Fable P1-1: a NON-header interpretive sentence must actually be HEDGED interpretation, not a bare
+    # unhedged categorical assertion.
+    return bool(_INTERPRETIVE_CUE_RE.search(core))
+
 # A confidence marker is appended ONCE per sentence; this guards against a double-append when the
 # function is (defensively) called twice on already-labeled prose.
 _ALREADY_LABELED_MARKER = "[confidence:"
@@ -462,6 +577,10 @@ def screen_synthesis_against_baskets(
         if (basket_mode_enabled() and _basket_fulltext_enabled())
         else spans
     )
+    # wave-2 (#1370) DEPTH disclosed-analyst layer: computed ONCE (not per-sentence). When ON, an uncited
+    # hedged QUALITATIVE interpretive sentence renders under the analyst disclosure instead of dropping.
+    _disclose_analyst = basket_mode_enabled() and _disclosed_analyst_enabled()
+    _pool_surnames = _build_pool_surnames(evidence_rows) if _disclose_analyst else set()
     # D3 P0 (#1344): the cited EVIDENCE ROWS per sentence, for the frozen-engine re-pass in PROMOTE
     # mode (a real [#ev:id:start-end] token is rebuilt per cited row -> verify_sentence_provenance).
     # Resolved once (pure); used only in the promote branch below.
@@ -564,6 +683,17 @@ def screen_synthesis_against_baskets(
                 marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_MODERATE)
                 out_sentences.append(f"{base} {marker}")
                 telemetry["synthesis_deviation_promoted_count"] += 1
+            elif _disclose_analyst and _is_disclosable_interpretation(base, _pool_surnames):
+                # wave-2 (#1370) DEPTH — verify-after-compose = LABEL, never DELETE: a hedged, uncited,
+                # PURELY-QUALITATIVE interpretive sentence (the analytical connective tissue the composer is
+                # DESIGNED to write uncited) renders under the analyst-layer DISCLOSURE instead of dropping.
+                # A fabrication (uncited + a specific number, or a named study absent from the pool) does NOT
+                # reach here — _is_disclosable_interpretation returns False for it — so it still drops below.
+                marker = claim_labeler.render_confidence_marker(claim_labeler.BUCKET_NO_SOURCE)
+                out_sentences.append(f"{base} {marker}")
+                telemetry["synthesis_deviation_disclosed_count"] = (
+                    telemetry.get("synthesis_deviation_disclosed_count", 0) + 1
+                )
             else:
                 dropped.append(sentence)
                 telemetry["synthesis_deviation_dropped_count"] += 1

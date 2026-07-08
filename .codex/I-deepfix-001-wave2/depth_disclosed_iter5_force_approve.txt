@@ -1,0 +1,14 @@
+I-deepfix-001 wave-2 (#1370) DEPTH disclosed-analyst — iter-5 cap force-approve (per CLAUDE.md §8.3.1)
+Codex iters 1-5 all engaged substantively; every NOVEL/continuing P1 was RESOLVED in-diff:
+  iter1 P1: unhedged qual fabrication + header numeric bypass + attribution first-surname/substring -> FIXED (hedge cue, numeric-on-headers, token-membership all-surnames)
+  iter2 P1: contentful categorical header bypass -> FIXED (_CLAIM_VERB_RE)
+  iter3 P1: spelled teens -> FIXED then superseded by robust "percent" catch-all
+  iter4 P1: non-percent spelled/fraction/magnitude -> FIXED (_QUANT_CLAIM_RE)
+  iter5 P1: BARE fraction ("half of all jobs") -> FIXED (bare-fraction alternative added)
+RESIDUAL at cap (P2, BOTH Codex+Fable concur = §-1.1-audit follow-up, NEVER false-drops real content):
+  attribution under-validation for single-author ("Fakenamez suggests") + comma-list ("Brynjolfsson, Li, and Raymond") forms.
+  -> A fabricated attribution MIGHT slip under the explicit "not span-verified / interpretive commentary"
+     two-level disclosure; real content is never dropped. Confined to the disclosed analyst layer.
+Follow-up issue filed; first box-1 §-1.1 spot-check converts "possible" -> "observed-or-clean".
+Fable: APPROVE. Proof: scripts/dr_benchmark/wave2_stage_disclosed.py ALL_PASS (26 framework rendered, 12 fabrication classes dropped).
+verdict: APPROVE  # force-approved at iter-5 cap per CLAUDE.md §8.3.1

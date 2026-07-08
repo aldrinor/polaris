@@ -390,11 +390,18 @@ def _format_bibliography_for_prompt(bibliography: list[dict[str, Any]]) -> str:
 
 def _format_evidence_pool_for_prompt(
     evidence_rows: list[dict[str, Any]],
-    max_rows: int = 30,
+    max_rows: int | None = None,
 ) -> str:
     """Render the evidence pool as <<<evidence:ev_X>>> blocks the LLM
     can read for context. Capped at max_rows to bound the prompt size.
     """
+    # I-deepfix-001 P2 (box2): env-tunable so the synthesis writer can SEE enough evidence spans to cite
+    # valid [N] indices instead of hallucinating out-of-range ones. LAW VI; default 30 = byte-identical.
+    if max_rows is None:
+        try:
+            max_rows = int(os.getenv("PG_ANALYST_SYNTHESIS_EVIDENCE_MAX_ROWS", "30") or "30")
+        except (TypeError, ValueError):
+            max_rows = 30
     # I-meta-002-q1d (#953 q1d-c): sanitize evidence text AND the id (§9.1.7 delimiter/injection defense)
     # BEFORE building the <<<evidence>>> blocks — the analyst layer previously passed RAW evidence,
     # letting content forge a closing/opening delimiter (the same defense the verified path already has).
@@ -507,6 +514,23 @@ def _apply_synthesis_deviation_screen(
                 _dev_tel.get("synthesis_deviation_labeled_count", 0),
                 _dev_tel.get("synthesis_deviation_unresolved_count", 0),
             )
+        _rendered_any = _dev_tel.get("synthesis_deviation_disclosed_count") or _dev_tel.get(
+            "synthesis_deviation_promoted_count"
+        )
+        if _rendered_any and cleaned.strip() and ANALYST_SYNTHESIS_DISCLOSURE[:40] not in cleaned:
+            # wave-2 (#1370) DEPTH: prepend ANALYST_SYNTHESIS_DISCLOSURE whenever the analyst block renders
+            # ANY content (Fable depth-gate b1: the PROMOTED analyst sentences also cleared only the
+            # deterministic floor, not strict_verify entailment — the WHOLE analyst section is interpretive
+            # and must always carry its section-level "interpretive commentary, not individually span-verified"
+            # label; each disclosed sentence ALSO carries a per-sentence "shown unverified" marker). Guarded
+            # against double-prepend.
+            logger.info(
+                "[analyst_synthesis] wave-2 DEPTH: analyst block rendered (%d promoted + %d disclosed "
+                "interpretation sentence(s)); section disclosure prepended",
+                _dev_tel.get("synthesis_deviation_promoted_count", 0),
+                _dev_tel.get("synthesis_deviation_disclosed_count", 0),
+            )
+            cleaned = f"{ANALYST_SYNTHESIS_DISCLOSURE}\n\n{cleaned}"
         return cleaned
     except Exception as _dev_exc:  # the deviation check is ADDITIVE — never abort the report on it
         # A checker/wiring exception (distinct from an in-checker judge fault, which is already handled
