@@ -43,7 +43,7 @@ export PG_RETRIEVAL_WALL_SECONDS=5400         # live_retriever per-question retr
 export PG_FETCH_DEADLINE_SECONDS=210          # per-URL content-fetch deadline / worker abandon-join: 90 -> 210 (ABOVE the ~195s capped mineru cascade, so a slow-but-legit PDF worker FINISHES and RELEASES its in-flight slot instead of leaking it — drb_72 #1369 leak-safety)
 # UNIT 6 fetch-concurrency + leak-safety (drb_72 fix wave #1369): the 922-timeout HANG-AND-LEAK cure.
 # NOT a wall change — aligns the live fetch semaphore to the pool + caps the PDF worker so the cascade fits under the abandon-join.
-export PG_BYPASS_MAX_INFLIGHT=48             # live in-flight fetch semaphore: 16(orig)/32(new default) -> 48 (match the 48-wide pool so it stops being the throughput bottleneck + leak headroom)
+export PG_BYPASS_MAX_INFLIGHT=16             # 48 blew the container PID-cap (12544) via headless-browser fan-out on box1 preflight; 16 proven-safe, leak-fix (mineru 75s + abandon-join 210s) still cures starvation. DEEPFIX #1369
 export PG_MINERU25_TIMEOUT_S=75             # mineru PDF per-call cap: 300(orig)/90(new default) -> 75 (cascade 60+60+75=195 fits under the 210 abandon-join)
 export PG_MIN_FETCH_YIELD=0.30              # NEW hard fetch-yield HALT gate: abort BEFORE composition if <30% of candidates fetched (never bank a starved corpus again)
 export PG_LIVE_HTTP_TIMEOUT=60                # per-request httpx timeout (FLOOR): 30 -> 60
