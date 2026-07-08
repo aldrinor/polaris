@@ -272,6 +272,138 @@ def _strip_ev_tokens(clause: str) -> str:
     return re.sub(r"\s+", " ", _EV_TOKEN_RE.sub(" ", clause or "")).strip()
 
 
+# ── I-deepfix-001 Wave-2 (#1370): COMPOSE-STAGE ANTI-GLUE for topically-unrelated NEUTRAL pairs ──────
+# LAW VI: DEFAULT-OFF (``PG_COMPOSE_NO_UNRELATED_GLUE``). The cross-source composer joins two verified
+# single-source clauses with ``LICENSED_CONNECTIVES[rel]``. When the relation is NEUTRAL (no engine
+# licensed a conflict/agreement/extension/comparison), the connective is ``"; separately, "`` — pure
+# juxtaposition. box2 showed that this GLUES two TOPICALLY-UNRELATED spans into one run-on sentence
+# (e.g. "...a Gaussian distribution; separately, Informant 17 summarized..."), which reads as incoherent
+# glue. This lever renders such a NEUTRAL + topically-unrelated pair as SEPARATE sentences (a period
+# break) instead of gluing them. FAITHFULNESS-NEUTRAL: the SAME two clauses, the SAME provenance tokens,
+# the SAME citations survive — only the JOIN character changes from ``"; separately, "`` to a sentence
+# break. It never touches strict_verify / NLI / provenance and only ever acts on the ``neutral`` branch
+# (a licensed conflict/agreement/extension/comparison connective is NEVER split). OFF => byte-identical.
+_ENV_NO_UNRELATED_GLUE = "PG_COMPOSE_NO_UNRELATED_GLUE"
+_ENV_NO_GLUE_MIN_OVERLAP = "PG_COMPOSE_NO_GLUE_MIN_OVERLAP"
+_DEFAULT_NO_GLUE_MIN_OVERLAP = 2
+
+# The grammatical connective-tissue words that do NOT signal a shared TOPIC (mirrors the strict_verify
+# grounding-stopword intent, kept LOCAL so this module imports NO faithfulness file — its PURE contract).
+_GLUE_STOPWORDS = frozenset({
+    "the", "and", "are", "was", "were", "for", "from", "with", "that", "this",
+    "these", "those", "its", "has", "have", "had", "will", "would", "can",
+    "could", "been", "being", "also", "more", "most", "other", "any", "all",
+    "each", "both", "only", "just", "even", "new", "old", "one", "two", "three",
+    "four", "five", "such", "which", "their", "there", "than", "then", "over",
+    "under", "into", "onto", "very", "used", "using", "some", "many",
+})
+
+
+def compose_no_unrelated_glue_enabled() -> bool:
+    """``PG_COMPOSE_NO_UNRELATED_GLUE`` gate (default OFF, LAW VI). OFF => the composer glues a NEUTRAL
+    pair with ``"; separately, "`` exactly as before (byte-identical). ON => a NEUTRAL pair whose two
+    clauses share FEWER than the min content-word overlap is rendered as SEPARATE sentences. A rendering
+    (readability) lever, never a drop / cap / thinner (§-1.3) — both clauses + all citations survive."""
+    return os.getenv(_ENV_NO_UNRELATED_GLUE, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _no_glue_min_overlap() -> int:
+    """The minimum shared content-word count for two NEUTRAL clauses to be treated as TOPICALLY RELATED
+    (and therefore kept glued). Default 2 (mirrors the strict_verify >=2 content-word grounding floor); a
+    pair sharing FEWER is topically UNRELATED and split. LAW VI env-tunable; a non-positive / unparseable
+    value falls back to the default (never 0, which would split even a related pair)."""
+    raw = os.getenv(_ENV_NO_GLUE_MIN_OVERLAP, "").strip()
+    if not raw:
+        return _DEFAULT_NO_GLUE_MIN_OVERLAP
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_NO_GLUE_MIN_OVERLAP
+    return val if val >= 1 else _DEFAULT_NO_GLUE_MIN_OVERLAP
+
+
+def _glue_content_words(text: str) -> set[str]:
+    """The lower-cased content words (alphabetic, length >=3, minus ``_GLUE_STOPWORDS``) of a clause with
+    its ``[#ev:...]`` provenance tokens removed — the topical-overlap signal. Pure; deterministic."""
+    clean = _strip_ev_tokens(text).lower()
+    return {w for w in re.findall(r"[a-z][a-z\-]{2,}", clean) if w not in _GLUE_STOPWORDS}
+
+
+def _clauses_topically_related(clause_a: str, clause_b: str) -> bool:
+    """True iff the two clauses share at least ``_no_glue_min_overlap()`` content words (topically
+    related => keep glued). An empty content-word set on EITHER clause reads as UNRELATED (returns
+    False => split) — never glue when there is no shared topic to justify the co-location. Pure."""
+    words_a = _glue_content_words(clause_a)
+    words_b = _glue_content_words(clause_b)
+    if not words_a or not words_b:
+        return False
+    return len(words_a & words_b) >= _no_glue_min_overlap()
+
+
+def _ensure_sentence_terminal(clause: str) -> str:
+    """The clause with a single sentence terminal guaranteed at the end: unchanged when it already ends in
+    a terminal (``. ! ?``) or a provenance ``]`` (which the production sentence splitter treats as a
+    terminal), else a ``.`` is appended. Pure; never touches a provenance token."""
+    c = (clause or "").rstrip()
+    if not c:
+        return c
+    return c if c[-1] in ".!?]" else c + "."
+
+
+def _render_separate_sentences(clause_a: str, clause_b: str) -> Optional[str]:
+    """Render two verified clauses as TWO SEPARATE sentences (a terminal break + a space), each KEEPING
+    its OWN leading capital and its OWN ``[#ev:...]`` token(s). This is the anti-glue alternative to the
+    ``"; separately, "`` connective: the SAME spans, the SAME citations survive — only the join becomes a
+    sentence break. Returns None when EITHER clause is empty (the caller then drops the unit)."""
+    first = _ensure_sentence_terminal(clause_a)
+    second = _ensure_sentence_terminal((clause_b or "").strip())
+    if not first or not second:
+        return None
+    return f"{first} {second}"
+
+
+def _join_analytical_pair(clause_a: str, clause_b: str, rel: str) -> Optional[str]:
+    """Join two already-verified single-source clauses into ONE analytical unit for the licensed relation
+    ``rel``, returning the guarded final string (or None if the join collapses).
+
+    DEFAULT (byte-identical): glue ``clause_a`` + ``LICENSED_CONNECTIVES[rel]`` + ``clause_b`` via the
+    shared ``_join_verified_clauses`` contract, then run ``guard_relational_quantifier`` (defense-in-depth
+    against an unlicensed connective).
+
+    ``PG_COMPOSE_NO_UNRELATED_GLUE`` (default OFF, LAW VI): when ``rel`` is ``neutral`` (no engine licensed
+    a relation) AND the two clauses are TOPICALLY UNRELATED (share fewer than ``_no_glue_min_overlap()``
+    content words), render them as SEPARATE sentences instead of the ``"; separately, "`` glue. The guard
+    still runs (a no-op on a connective-free two-sentence string). FAITHFULNESS-NEUTRAL: the SAME two
+    clauses, the SAME tokens, the SAME citations — ONLY the JOIN becomes a sentence break. This never
+    touches strict_verify / NLI / provenance and never acts on a licensed connective."""
+    from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+        _join_verified_clauses,
+        _strip_terminal_punct,
+    )
+    from src.polaris_graph.generator.relational_quantifier_guard import (  # noqa: PLC0415
+        guard_relational_quantifier,
+    )
+    if (
+        rel == "neutral"
+        and compose_no_unrelated_glue_enabled()
+        and not _clauses_topically_related(clause_a, clause_b)
+    ):
+        joined = _render_separate_sentences(clause_a, clause_b)
+    else:
+        connective = LICENSED_CONNECTIVES.get(rel, LICENSED_CONNECTIVES["neutral"])
+        # Strip clause_A's terminal so the join reads as one flowing sentence "[clause A]<connective>[clause B]".
+        joined = _join_verified_clauses(
+            [_strip_terminal_punct(clause_a), clause_b], connective=connective,
+        )
+    if not joined:
+        return None
+    # The guard neutralizes an UNLICENSED connective (defense-in-depth: our composer only ever emits a
+    # licensed one; a two-sentence separate rendering carries no connective, so the guard is a no-op).
+    # ``licensed_relations`` is the SINGLE relation we licensed for this sentence.
+    guarded = guard_relational_quantifier(joined, None, licensed_relations={rel})
+    return (guarded or joined).strip()
+
+
 def _default_entail_fn() -> Optional[Callable[[str, str], Optional[bool]]]:
     """The CERTIFIED directional-entailment engine — ``consolidation_nli.entails_directional`` (the
     one-directional NLI counterpart to the bidirectional consolidation merge, reading ONLY the forward
@@ -739,13 +871,6 @@ def _process_pair(
     Wave-2a deterministic numeric comparator (a NEUTRAL pair whose two baskets carry FULLY-comparable
     numeric merge keys upgrades to ``comparison``; any missing/ambiguous/differing field fails CLOSED to
     neutral). The result keeps >=2 distinct cited evidence_ids (a real cross-SOURCE relation)."""
-    from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
-        _join_verified_clauses,
-        _strip_terminal_punct,
-    )
-    from src.polaris_graph.generator.relational_quantifier_guard import (  # noqa: PLC0415
-        guard_relational_quantifier,
-    )
 
     def _clause(basket: Any, cid: str) -> Optional[str]:
         if cid not in clause_cache:
@@ -790,17 +915,13 @@ def _process_pair(
                 # Wave-3a (#1344): ADDITIVE activation count (never changes ``rel`` or the licensing).
                 if numeric_upgrade_counter is not None:
                     numeric_upgrade_counter[0] += 1
-    connective = LICENSED_CONNECTIVES.get(rel, LICENSED_CONNECTIVES["neutral"])
-    # Strip clause_A's terminal so the join reads as one flowing sentence "[clause A]<connective>[clause B]".
-    joined = _join_verified_clauses(
-        [_strip_terminal_punct(clause_a), clause_b], connective=connective,
-    )
-    if not joined:
+    # Join the two verified clauses for the licensed relation. DEFAULT: glue with LICENSED_CONNECTIVES[rel]
+    # + guard (byte-identical). PG_COMPOSE_NO_UNRELATED_GLUE (default OFF): a NEUTRAL + topically-unrelated
+    # pair renders as SEPARATE sentences instead of "; separately, " (faithfulness-neutral — the SAME
+    # spans, tokens, citations survive; only the join becomes a sentence break).
+    final = _join_analytical_pair(clause_a, clause_b, rel)
+    if not final:
         return None
-    # The guard neutralizes an UNLICENSED connective (defense-in-depth: our composer only ever emits a
-    # licensed one). ``licensed_relations`` is the SINGLE relation we licensed for this sentence.
-    guarded = guard_relational_quantifier(joined, None, licensed_relations={rel})
-    final = (guarded or joined).strip()
     # KEEP only a real cross-source unit: >=2 distinct cited evidence_ids survive.
     if len(_distinct_ev_ids(final)) < 2:
         return None

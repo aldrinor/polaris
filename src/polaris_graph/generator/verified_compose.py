@@ -1398,6 +1398,24 @@ def _uncovered_fact_disclosure(basket: Any, span_text: str) -> str:
     a verbatim source span (grounded by construction) rendered as an honest labeled evidence block; it is
     never body prose and never re-run through strict_verify. Fable P2: the subject is whitespace-collapsed
     so an embedded ``\\n\\n`` can never split the single disclosure paragraph."""
+    # I-deepfix-001 P0 (box2 chrome): withhold an uncovered-fact block whose SPAN is source furniture
+    # (wage/nav table, PDF metadata, tel:/mailto, link-furniture, masthead byline). These blocks bypass
+    # strict_verify + _screen_render_chrome_prose (appended after both), so screen HERE. Faithfulness-
+    # neutral: the SOURCE stays in the pool; only this labeled block is withheld ("" => partition/render drops it).
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            _contains_source_furniture_chrome as _furn_chrome,
+        )
+        if _furn_chrome(span_text or ""):
+            return ""
+    except Exception as _furn_err:  # never break the compose, but LOG (not silent) — Codex P2
+        try:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "[uncovered-fact] furniture-chrome screen faulted (%s); block emitted un-screened", _furn_err
+            )
+        except Exception:
+            pass
     subject = str(getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim")
     subject = " ".join(subject.split())  # Fable P2: no embedded newline can split the paragraph
     # Fable P1: strip the raw [#ev:...] token(s) (marker-less like every sibling disclosure) and tidy the

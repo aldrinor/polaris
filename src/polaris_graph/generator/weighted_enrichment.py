@@ -145,6 +145,174 @@ def _is_confirmed_offtopic(row: Any) -> bool:
     return label in _CONFIRMED_OFFTOPIC_LABELS
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 wave-2 — OFF-TOPIC FAIL-CLOSED QUARANTINE (Fable design).
+#
+# THE BUG (box2 wave-1): a RESUME reloads the corpus_snapshot post-selection and
+# SKIPS the topic judge, so every reloaded row carries NO topic verdict. The
+# ``_is_confirmed_offtopic`` seam keys ONLY on a POSITIVE confirmed-OFF verdict
+# (``topic_offtopic_demoted`` / ``content_relevance_label`` in demoted/escalated),
+# so an unjudged off-topic row (a funeral / tree-cover / face-recognition source
+# leaked into an AI-labor report) sails through and anchors a numbered finding.
+#
+# THE FIX — §-1.3 WITHHOLD-and-disclose, NEVER a lexical DROP: the BANNED discriminator
+# is the noisy lexical ``selection_relevance < floor`` (weighted_enrichment keystone:
+# it killed 729/746 real sources). This fix uses ONLY the ABSENCE of a semantic verdict
+# as a FAIL-CLOSED signal: a row the judge NEVER judged is WITHHELD from the finding
+# surface (kept in evidence_pool + the disclosure — never a pool drop, never deleted),
+# but ONLY when we can prove the judge actually ran this run (``topic_judge_ran``), and
+# ONLY within a blast-radius ceiling (``PG_QUARANTINE_MAX_FRACTION``). If the judge was
+# legitimately SKIPPED (a resume without PG_RESUME_RUN_TOPIC_JUDGE, or the topic gate
+# off), NOTHING is unjudged-in-the-leak-sense => nothing is quarantined. The faithfulness
+# engine (strict_verify / NLI / 4-role D8 / provenance / span-grounding) is UNTOUCHED —
+# withholding a citation is a SURFACE-placement decision, never a grounding change.
+# Gated default-OFF (LAW VI): PG_QUARANTINE_UNJUDGED_TOPIC unset => byte-identical.
+_ENV_QUARANTINE_UNJUDGED = "PG_QUARANTINE_UNJUDGED_TOPIC"      # master flag, default OFF
+_ENV_QUARANTINE_MAX_FRACTION = "PG_QUARANTINE_MAX_FRACTION"    # blast-radius ceiling (LAW VI)
+# Run-scoped signal the orchestrator sets when the topic judge demonstrably ran this run
+# (fresh OR the PG_RESUME_RUN_TOPIC_JUDGE resume path). Mirrored as a plain env name so the
+# generator never imports the retrieval-side gate on the hot path; ``topic_judge_ran`` ALSO
+# derives the same fact from the data (any row carrying a verdict), so the coupling holds
+# even if the orchestrator never set the flag.
+_ENV_TOPIC_JUDGE_RAN = "PG_TOPIC_JUDGE_RAN"
+_DEFAULT_QUARANTINE_MAX_FRACTION = 0.5
+_QUARANTINE_REASON = "unjudged_topic_no_verdict"
+
+
+def quarantine_unjudged_topic_enabled() -> bool:
+    """Master kill-switch ``PG_QUARANTINE_UNJUDGED_TOPIC`` (default OFF, LAW VI). OFF => no
+    row is ever quarantined on missing-verdict => byte-identical to the legacy cite surface."""
+    return os.environ.get(_ENV_QUARANTINE_UNJUDGED, "").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _quarantine_max_fraction() -> float:
+    """Blast-radius ceiling in [0.0, 1.0] (default 0.5). If quarantine WOULD withhold a
+    larger fraction of the surface than this, the guard trips (FAIL LOUD + disable). A
+    garbage value is an operator config error => ValueError (LAW VI: fail-loud, never
+    swallowed)."""
+    raw = os.environ.get(_ENV_QUARANTINE_MAX_FRACTION)
+    if raw is None or not str(raw).strip():
+        return _DEFAULT_QUARANTINE_MAX_FRACTION
+    val = float(str(raw).strip())  # ValueError on garbage: fail loud
+    if not (0.0 <= val <= 1.0):
+        raise ValueError(
+            f"{_ENV_QUARANTINE_MAX_FRACTION} must be in [0.0, 1.0]; got {val!r}"
+        )
+    return val
+
+
+def _topic_judge_ran_env() -> bool:
+    """The explicit run-scoped signal ``PG_TOPIC_JUDGE_RAN`` the orchestrator sets once the
+    topic judge has executed this run (fresh or resume). Absent => rely on the data-derived
+    corroboration in ``topic_judge_ran``."""
+    return os.environ.get(_ENV_TOPIC_JUDGE_RAN, "").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def is_topic_unjudged(row: Any) -> bool:
+    """True iff a row carries NO topic verdict at all — the topic/content-relevance judge
+    never stamped it (``topic_offtopic_demoted`` absent AND ``content_relevance_label``
+    empty). A row a judge stamped — either a ``topic_offtopic_demoted`` sidecar (True/False)
+    OR a non-empty ``content_relevance_label`` (relevant / demoted / escalated_* /
+    wall_rescue_floor) — returns False. A non-dict returns False (keep-neutral; never
+    quarantined). PURE read of already-computed state; no faithfulness gate is touched and
+    NO lexical ``selection_relevance`` score is consulted (that is the §-1.3-banned DROP)."""
+    if not isinstance(row, dict):
+        return False
+    if row.get("topic_offtopic_demoted") is not None:
+        return False  # a topic-gate verdict (True/False) was stamped => judged
+    label = str(row.get("content_relevance_label", "") or "").strip()
+    return label == ""  # no content-relevance label => the judge never saw this row
+
+
+def topic_judge_ran(rows: Any = None) -> bool:
+    """Run-scoped: True iff the topic/content-relevance judge demonstrably ran this run.
+
+    OR of two POSITIVE signals (either alone is sufficient proof the judge ran; only when
+    NEITHER holds do we conclude the judge was legitimately SKIPPED and stand quarantine
+    down):
+      (1) the explicit orchestrator env flag ``PG_TOPIC_JUDGE_RAN`` (set the moment
+          ``classify_topic_relevance`` executed this run — including the resume path opened
+          by ``PG_RESUME_RUN_TOPIC_JUDGE``), OR
+      (2) at least one provided row carries a topic verdict (``not is_topic_unjudged`` — a
+          stamp only a judge could have written).
+
+    This is the coupling that makes the quarantine NEVER fire when the judge was skipped:
+    a skipped-judge run has no env flag AND no stamped row, so this returns False."""
+    if _topic_judge_ran_env():
+        return True
+    for row in (rows or ()):
+        if isinstance(row, dict) and not is_topic_unjudged(row):
+            return True
+    return False
+
+
+def partition_unjudged_topic_rows(
+    rows: Any,
+    *,
+    judged_universe: Any = None,
+    anchor_predicate: "Callable[[Any], bool] | None" = None,
+) -> "tuple[list, list]":
+    """Split ``rows`` into ``(kept, quarantined)`` on ``is_topic_unjudged``, FAIL-CLOSED.
+
+    Quarantine fires ONLY when ALL of:
+      * ``PG_QUARANTINE_UNJUDGED_TOPIC`` is ON (default OFF => ``(list(rows), [])``), AND
+      * the topic judge ran this run (``topic_judge_ran`` over ``judged_universe`` or
+        ``rows``) — so a legitimately-skipped judge NEVER quarantines, AND
+      * the blast-radius guard passes: the withheld fraction ``<= PG_QUARANTINE_MAX_FRACTION``
+        (default 0.5). If it WOULD exceed the ceiling, the guard TRIPS: ``logger.error``
+        (FAIL LOUD) + disable for this call (return every row kept). A mass-withhold is the
+        signature of a judge that did not actually stamp the corpus, so we refuse to nuke it.
+
+    A marquee/required-entity anchor (via ``anchor_predicate``) is NEVER quarantined. A
+    quarantined row is WITHHELD from the finding surface only — the caller keeps it in
+    ``evidence_pool`` + the off-topic disclosure; nothing is deleted; the faithfulness engine
+    is untouched. OFF / judge-skipped / no unjudged row => ``(list(rows), [])``."""
+    row_list = list(rows or [])
+    if not quarantine_unjudged_topic_enabled():
+        return row_list, []
+    universe = list(judged_universe) if judged_universe is not None else row_list
+    if not topic_judge_ran(universe):
+        # The judge was legitimately skipped this run => absence of a verdict is EXPECTED,
+        # not a leak. Never quarantine (byte-identical keep-all).
+        return row_list, []
+
+    def _is_anchor(r: Any) -> bool:
+        if anchor_predicate is None:
+            return False
+        try:
+            return bool(anchor_predicate(r))
+        except Exception:  # noqa: BLE001 — a broken predicate must never quarantine an anchor
+            return False
+
+    candidates = [r for r in row_list if is_topic_unjudged(r) and not _is_anchor(r)]
+    if not candidates:
+        return row_list, []
+    max_fraction = _quarantine_max_fraction()
+    fraction = (len(candidates) / len(row_list)) if row_list else 0.0
+    if fraction > max_fraction:
+        logger.error(
+            "[weighted_enrichment] PG_QUARANTINE_UNJUDGED_TOPIC blast-radius guard TRIPPED: "
+            "would withhold %d/%d rows (%.1f%%) > ceiling %.1f%% — DISABLING quarantine for "
+            "this run and KEEPING ALL rows (fail-loud; a mass-withhold means the judge did not "
+            "actually stamp the corpus, so refusing to nuke it).",
+            len(candidates), len(row_list), 100.0 * fraction, 100.0 * max_fraction,
+        )
+        return row_list, []
+    quarantined_ids = {id(r) for r in candidates}
+    kept = [r for r in row_list if id(r) not in quarantined_ids]
+    logger.info(
+        "[weighted_enrichment] PG_QUARANTINE_UNJUDGED_TOPIC (%s): WITHHELD %d/%d unjudged-topic "
+        "row(s) from the finding surface (kept in evidence_pool + disclosed; faithfulness engine "
+        "untouched)",
+        _QUARANTINE_REASON, len(candidates), len(row_list),
+    )
+    return kept, candidates
+
+
 def breadth_enrichment_enabled() -> bool:
     """True iff the default-OFF master flag is explicitly enabled (LAW VI)."""
     return os.environ.get(_ENV_BREADTH_ENRICHMENT, "").strip().lower() in (

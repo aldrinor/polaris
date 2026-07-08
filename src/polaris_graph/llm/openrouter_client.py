@@ -936,6 +936,41 @@ MAX_RETRIES = 2
 RETRY_BACKOFF_BASE = 2.0
 
 
+def _parse_retry_after(value: Optional[str]) -> Optional[float]:
+    """Parse an HTTP ``Retry-After`` header into a positive delay in seconds.
+
+    Per RFC 9110 §10.2.3 the value is either delta-seconds (a non-negative integer) or an
+    HTTP-date. Returns the delay in seconds when it parses to a strictly-positive value, else
+    ``None`` (header absent / empty / malformed / non-positive) — the 429 branch then keeps its
+    own computed backoff, i.e. behaviour is byte-identical to the pre-header path. Pure + side-
+    effect free; NEVER raises (a malformed header must never break the retry path). Transport
+    timing only — the faithfulness engine is untouched."""
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    # delta-seconds form (the common case: an integer/float count of seconds)
+    try:
+        secs = float(raw)
+        return secs if secs > 0 else None
+    except ValueError:
+        pass
+    # HTTP-date form: compute the delta from now (UTC-aware)
+    try:
+        from email.utils import parsedate_to_datetime  # noqa: PLC0415
+
+        when = parsedate_to_datetime(raw)
+        if when is None:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        delta = (when - datetime.now(timezone.utc)).total_seconds()
+        return delta if delta > 0 else None
+    except Exception:  # noqa: BLE001 — a malformed date must never break the retry path
+        return None
+
+
 @dataclass
 class UsageTracker:
     """Track token usage and cost across the session."""
@@ -1148,6 +1183,42 @@ def _clean_json(raw: str) -> str:
     # Without this, json.loads() rejects "analysis":"\n\nThe user..."
     text = _escape_control_chars_in_strings(text)
     return text.strip()
+
+
+_COT_PREAMBLE_RE = re.compile(
+    r"^\s*(?:(?:okay|alright|sure|great|got it|understood)[,.!:\s]+)*"
+    r"(?:let me\b|let's\b|i'?ll\b|i will\b|i'?m going to\b|i am going to\b|i need to\b|i should\b|"
+    r"now,?\s+(?:let me|i'?ll|i will|i)\b|first,?\s+(?:let me|i'?ll|i will|i)\b|"
+    # Codex P1: require an explicit meta-object after "here's/here is" so a real answer starting
+    # "Here is evidence that AI tools boost productivity by 30%." is NOT stripped (only "Here's the paragraph:").
+    r"here(?:'?s| is)\s+(?:the\s+)?(?:revised\s+|edited\s+|final\s+|updated\s+|rewritten\s+)?(?:paragraph|section|text|version|answer|response|rewrite)\b|"
+    r"the (?:revised|edited|final|following|updated) (?:paragraph|section|text|version|answer|response)\b)"
+    # I-deepfix-001 P0 over-strip guard: stop at a COLON too, so "Here's the paragraph: <real content>"
+    # strips only "Here's the paragraph:" and never eats the colon-introduced answer (caught by _wave1_assert).
+    r"[^.!?:\n]*[.!?:\n]+",
+    re.IGNORECASE,
+)
+
+
+def _cot_preamble_strip_enabled() -> bool:
+    return os.environ.get("PG_COT_PREAMBLE_STRIP", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _strip_cot_preamble(text: str) -> str:
+    """Strip a LEADING run of first-person meta-planning CoT sentences ("Let me make them flow as a
+    paragraph.", "Okay, I'll write...", "Here's the section:") a reasoning-first model glues to the front
+    of its answer. Removes ONLY leading sentences matching the planning vocabulary — stops at the first
+    subject sentence — and matches through the first terminator even when glued ("paragraph.The").
+    Faithfulness-NEUTRAL. No-op when disabled or no preamble present."""
+    if not _cot_preamble_strip_enabled() or not text:
+        return text
+    out = text
+    for _ in range(12):  # bounded: at most 12 stacked planning sentences
+        m = _COT_PREAMBLE_RE.match(out)
+        if not m:
+            break
+        out = out[m.end():].lstrip()
+    return out if out.strip() else text
 
 
 def _extract_answer_from_reasoning(reasoning: str) -> Optional[str]:
@@ -2247,9 +2318,22 @@ class OpenRouterClient:
                     # parallel-section generation. Operator-tunable via PG_RATE_LIMIT_FLOOR_S.
                     floor = float(os.getenv("PG_RATE_LIMIT_FLOOR_S", "15.0"))
                     wait = min(60.0, max(floor, RETRY_BACKOFF_BASE ** (attempt + 1)) * (attempt + 1))
+                    # I-deepfix-001 wave-2: HONOR a server-provided Retry-After header when present.
+                    # Per RFC 9110 a 429 MAY carry Retry-After telling us EXACTLY when the throttle
+                    # window clears; that server signal is authoritative, so it wins over the blind
+                    # computed backoff above (which is only a heuristic for when we have no signal).
+                    # Bounded to [1s, PG_RATE_LIMIT_RETRY_AFTER_CAP_S] so a pathological header can
+                    # neither busy-retry nor wedge the run. Absent/malformed header => retry_after is
+                    # None => `wait` is UNCHANGED (byte-identical to the prior floor-only behaviour).
+                    # Transport timing only — the faithfulness engine is untouched.
+                    retry_after = _parse_retry_after(exc.response.headers.get("Retry-After"))
+                    if retry_after is not None:
+                        cap = float(os.getenv("PG_RATE_LIMIT_RETRY_AFTER_CAP_S", "120.0"))
+                        wait = max(1.0, min(cap, retry_after))
                     logger.warning(
-                        "[polaris graph] Rate limited, waiting %.1fs (attempt %d/%d)",
+                        "[polaris graph] Rate limited, waiting %.1fs (attempt %d/%d)%s",
                         wait, attempt + 1, MAX_RETRIES + 1,
+                        "" if retry_after is None else f" [Retry-After={retry_after:.1f}s honored]",
                     )
                     await asyncio.sleep(wait)
                     continue
@@ -3134,6 +3218,10 @@ class OpenRouterClient:
                 # before using as content. GLM-5 puts "1. **Analyze the Request:**"
                 # and "The user wants..." thinking before the actual output.
                 _cleaned_reasoning = result.reasoning
+                # I-deepfix-001 P0 (box2 CoT leak): glm-5.2 glues first-person planning CoT to the answer
+                # with NO </think> tag, so the legacy clinical-keyword + newline-anchored strategies below
+                # miss it. Strip the planning preamble FIRST. Faithfulness-NEUTRAL (output channel only).
+                _cleaned_reasoning = _strip_cot_preamble(_cleaned_reasoning)
                 import re as _re
 
                 # Strategy 1: Find end of numbered thinking steps pattern

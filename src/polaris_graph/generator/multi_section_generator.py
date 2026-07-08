@@ -1975,6 +1975,56 @@ def _aspect_offtopic_slot_guard_enabled() -> bool:
     )
 
 
+def _marquee_anchor_predicate(row: Any) -> bool:
+    """True iff ``row`` is a marquee / required-entity anchor that must NEVER be
+    quarantined. Reuses the retrieval-side ``_row_is_marquee_anchor`` (the SAME exemption
+    the topic gate applies) via a lazy import; any import/attr error fails-CLOSED (treat as
+    NOT an anchor) so the guard can only ever RESCUE, never accidentally withhold."""
+    try:
+        from src.polaris_graph.retrieval.topic_relevance_gate import (  # noqa: PLC0415
+            _row_is_marquee_anchor,
+        )
+    except Exception:  # noqa: BLE001 — exemption unavailable => not-an-anchor (fail-closed)
+        return False
+    try:
+        return bool(_row_is_marquee_anchor(row))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _quarantine_unjudged_topic_for_assignment(
+    evidence: "list[dict[str, Any]] | None",
+) -> "list[dict[str, Any]] | None":
+    """I-deepfix-001 wave-2 — OFF-TOPIC FAIL-CLOSED QUARANTINE (wired beside
+    ``_is_confirmed_offtopic``). WITHHOLD from the finding surface any row that carries NO
+    topic verdict at all (``weighted_enrichment.is_topic_unjudged``) — but ONLY when the
+    topic judge demonstrably ran this run AND the blast-radius guard permits it. The
+    withheld rows are NOT deleted: they stay in ``evidence_pool`` + the off-topic-excluded
+    disclosure exactly like the confirmed-off-topic demotion above. Default-OFF
+    (``PG_QUARANTINE_UNJUDGED_TOPIC``); OFF / judge-skipped / import failure => the input is
+    returned UNCHANGED (byte-identical, incl. a ``None`` passthrough)."""
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            partition_unjudged_topic_rows,
+            quarantine_unjudged_topic_enabled,
+        )
+    except Exception:  # recognizer unavailable -> no quarantine (fail-open, never a crash)
+        return evidence
+    if not quarantine_unjudged_topic_enabled():
+        return evidence  # default OFF => byte-identical (preserves a None passthrough too)
+    kept, quarantined = partition_unjudged_topic_rows(
+        evidence or [], anchor_predicate=_marquee_anchor_predicate
+    )
+    if quarantined:
+        logger.info(
+            "[multi_section] I-deepfix-001 wave-2 unjudged-topic quarantine: %d row(s) with "
+            "NO topic verdict WITHHELD from section assignment (kept in the pool + disclosed; "
+            "faithfulness engine untouched)",
+            len(quarantined),
+        )
+    return kept
+
+
 def _drop_offtopic_rows_for_assignment(
     evidence: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1985,15 +2035,21 @@ def _drop_offtopic_rows_for_assignment(
     they remain in `evidence_pool` and are surfaced in the off-topic-excluded disclosure
     exactly as the compose-time F3 demotion already keeps them. Kill-switch OFF, an import
     failure, or an evidence set with no labeled-off-topic rows all return the input
-    unchanged (byte-identical)."""
+    unchanged (byte-identical).
+
+    I-deepfix-001 wave-2: the confirmed-off-topic removal keys on a POSITIVE off-topic
+    verdict, so it cannot catch a row the judge NEVER judged (a resume-leaked off-topic
+    source). ``_quarantine_unjudged_topic_for_assignment`` withholds those UNJUDGED rows
+    fail-closed (default-OFF ``PG_QUARANTINE_UNJUDGED_TOPIC``; independent of the FINDING#5
+    kill-switch, so it applies on BOTH exit paths)."""
     if not _aspect_offtopic_slot_guard_enabled():
-        return evidence
+        return _quarantine_unjudged_topic_for_assignment(evidence)
     try:
         from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
             _is_confirmed_offtopic,
         )
     except Exception:  # recognizer unavailable -> no filtering (fail-open, never a crash)
-        return evidence
+        return _quarantine_unjudged_topic_for_assignment(evidence)
     kept = [row for row in (evidence or []) if not _is_confirmed_offtopic(row)]
     if len(kept) != len(evidence or []):
         logger.info(
@@ -2002,7 +2058,7 @@ def _drop_offtopic_rows_for_assignment(
             "+ disclosed; a section left with none falls to the gap-statement path)",
             len(evidence or []) - len(kept),
         )
-    return kept
+    return _quarantine_unjudged_topic_for_assignment(kept)
 
 
 def _assign_evidence_to_planned_outline(

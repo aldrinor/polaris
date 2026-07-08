@@ -69,6 +69,32 @@ def topic_gate_enabled() -> bool:
     return raw not in ("0", "false", "no", "off", "")
 
 
+def resume_run_topic_judge_enabled() -> bool:
+    """Kill-switch ``PG_RESUME_RUN_TOPIC_JUDGE`` (default OFF — I-deepfix-001 wave-2).
+
+    A RESUME normally SKIPS this gate (the orchestrator guards the call with
+    ``not _resume_active`` because the corpus_snapshot is reloaded post-selection). That
+    leaves every reloaded row UNJUDGED, so an off-topic source can leak into the finding
+    surface. When this flag is set, the orchestrator ALSO runs the EXISTING
+    :func:`classify_topic_relevance` on a resume, so the reloaded rows get a topic verdict
+    stamped. Default OFF => the ``not _resume_active`` short-circuit holds => byte-identical
+    (the judge is not run on a resume, exactly as before)."""
+    raw = os.environ.get("PG_RESUME_RUN_TOPIC_JUDGE", "").strip().lower()
+    return raw in ("1", "true", "on", "yes", "enabled")
+
+
+def mark_topic_judge_ran() -> None:
+    """Set the run-scoped signal ``PG_TOPIC_JUDGE_RAN=1`` the moment the topic judge has
+    executed this run (fresh or the resume path opened by
+    :func:`resume_run_topic_judge_enabled`). The downstream unjudged-topic quarantine
+    (``weighted_enrichment.topic_judge_ran`` / ``partition_unjudged_topic_rows``) reads this
+    to prove the judge ran — so a row that STILL lacks a verdict is a genuine leak
+    (quarantinable), NEVER a legitimately-skipped-judge false positive. Process/run-scoped
+    (each sweep is its own process); the quarantine ALSO derives the same fact from the data,
+    so this write is the explicit belt to that suspenders."""
+    os.environ["PG_TOPIC_JUDGE_RAN"] = "1"
+
+
 def topic_gate_hard_drop_enabled() -> bool:
     """LEGACY escape hatch ``PG_SCOPE_TOPIC_GATE_HARD_DROP`` (default OFF).
 

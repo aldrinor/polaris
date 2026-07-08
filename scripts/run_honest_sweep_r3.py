@@ -13056,6 +13056,8 @@ async def run_one_query(
         from src.polaris_graph.retrieval.topic_relevance_gate import (
             classify_topic_relevance,
             topic_gate_enabled,
+            resume_run_topic_judge_enabled,
+            mark_topic_judge_ran,
         )
         from src.polaris_graph.retrieval.evidence_selector import (
             prefer_journal_over_arxiv,
@@ -13068,7 +13070,14 @@ async def run_one_query(
         # `_planner_llm` (thread-driven coroutine + _RUN_COST_CTX write-back) so the
         # topic-gate spend is NOT lost from the parent run cost. Fail-OPEN: any LLM
         # error / count mismatch / unparseable verdict keeps the batch.
-        if (not _resume_active) and topic_gate_enabled() and evidence_for_gen:
+        # I-deepfix-001 wave-2 (PG_RESUME_RUN_TOPIC_JUDGE, default OFF): a resume normally
+        # SKIPS the topic judge (the `not _resume_active` guard), leaving every reloaded row
+        # UNJUDGED so an off-topic source can leak into the finding surface. When the flag is
+        # set, the EXISTING classify_topic_relevance ALSO runs on a resume so the reloaded
+        # rows get a topic verdict stamped. Flag OFF => `_run_topic_judge` == `not
+        # _resume_active` => the condition is byte-identical to the prior behaviour.
+        _run_topic_judge = (not _resume_active) or resume_run_topic_judge_enabled()
+        if _run_topic_judge and topic_gate_enabled() and evidence_for_gen:
             def _topic_llm(prompt: str) -> str:
                 import asyncio as _asyncio
                 import concurrent.futures as _futures
@@ -13129,6 +13138,11 @@ async def run_one_query(
                 primary_trial_anchors=_primary_anchors,
                 anchor_predicate=_topic_anchor_predicate,
             )
+            # I-deepfix-001 wave-2: the topic judge demonstrably ran this run (fresh or the
+            # PG_RESUME_RUN_TOPIC_JUDGE resume path) — set the run-scoped signal the
+            # downstream unjudged-topic quarantine keys on, so a row that STILL lacks a
+            # verdict is treated as a genuine leak, never a skipped-judge false positive.
+            mark_topic_judge_ran()
             if _topic_result.n_dropped_offtopic:
                 _log(
                     f"[scope]       topic_gate dropped "
