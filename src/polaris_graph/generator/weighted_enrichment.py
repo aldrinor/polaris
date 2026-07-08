@@ -2872,10 +2872,106 @@ def _base_junk(text: str) -> bool:
         return _is_web_chrome(text) or _is_captcha_stub(text)
 
 
+# I-deepfix-001 (#1369) FIX 4 — chrome TYPES the existing screens structurally cannot match (Fable,
+# code-verified on box-2 report): (a) GENERATED document-navigation NARRATION ("...on page 46, presents
+# Figure 4.1 on page 61, includes Figure 6.1 as a schematic") — span-grounded so strict_verify passes it,
+# but it is document-structure furniture, not a research finding; (b) an author MASTHEAD carrying NO
+# ORCID/ISSN (so _ORCID_RE + the ISSN masthead rule both miss it: "Alexandra Shajek 1. Institut für ...,
+# GmbH, Berlin, Germany 2."). Default-ON kill-switch PG_RENDER_CHROME_NARRATION. Precision-first: the
+# narration rule needs >=2 distinct structure references so a real claim mentioning ONE figure is safe.
+_STRUCTURE_REF_RE = re.compile(
+    r"\b(?:on\s+)?page\s+\d+\b|\bFig(?:ure|\.)?\s*\d+(?:\.\d+)?\b|\bTable\s+\d+(?:\.\d+)?\b"
+    r"|\bas\s+a\s+schematic\b|\bchapter\s+\d+\b|\bsection\s+\d+(?:\.\d+)?\b",
+    re.I,
+)
+_MASTHEAD_NO_ORCID_RE = re.compile(
+    r"\b\d\s*\.?\s*(?:Institut|Institute|Universit|GmbH|Department|Laborator|Faculty|Ministry|Centre|Center)\b"
+    r".{0,90}?\b(?:Germany|Deutschland|USA|United\s+States|France|Italy|Spain|Netherlands|Austria|"
+    r"Switzerland|Sweden|Norway|Denmark|Finland|Belgium|Poland|Portugal|Greece|China|Japan|Korea|India|"
+    r"Canada|Australia|Kingdom)\b",
+    re.I,
+)
+
+
+def _render_chrome_narration_enabled() -> bool:
+    """Kill-switch ``PG_RENDER_CHROME_NARRATION`` (default ON). Only an explicit 0/false/off/no
+    disables; an EMPTY string stays ON."""
+    return os.environ.get("PG_RENDER_CHROME_NARRATION", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+# I-deepfix-001 (#1369) iter2/iter3 (Codex + Fable P1, WEIGHT-NOT-FILTER / no-drop): a REAL finding that
+# merely cites figure/table LOCATIONS is NOT chrome. TWO keep-signals, both computed on the residual after
+# stripping the structure references, so "Figure 4.1"'s "4.1" / "page 61"'s "61" never read as findings:
+#   (a) a finding metric survives — a %, "percent/pp", a decimal, OR a plain/comma integer of >=2 digits
+#       ("job losses of 1,200 and 900 workers"); OR
+#   (b) SUBSTANTIVE content dominates — the structure references are a MINORITY of the text (< 45% of chars),
+#       so a qualitative finding ("Table 2 and Table 3 show automation displaces routine work") is KEPT.
+# Only text that is BOTH metric-free AND dominated by document-navigation refs ("...page 46, presents
+# Figure 4.1 on page 61, includes Figure 6.1 as a schematic") is flagged as chrome. Err toward KEEP (§-1.3).
+_FINDING_METRIC_RE = re.compile(
+    r"\d+(?:\.\d+)?\s*%|\bpercent(?:age\s+points?)?\b|\bpp\b|\d{1,3}(?:,\d{3})+|\d+\.\d+|\b\d{2,}\b"
+)
+# Document-DESCRIPTION verb that DIRECTLY GOVERNS a structure noun — the writer narrating a document's own
+# apparatus ("presents Figure 4.1", "includes Figure 6.1", "reproduces Table 2 as a schematic"). Codex iter-3
+# P1: the verb ALONE is not enough — "present/illustrate/depict/include" are REAL finding verbs when they
+# govern CONTENT ("present evidence that automation displaces work", "illustrate that ...", "depict a shift").
+# So we require the description verb to be IMMEDIATELY followed by a structure noun (Figure/Table/Chart/...),
+# OR the standalone "as a schematic" tail. This catches the box-2 navigation chrome without touching a real
+# qualitative finding that merely uses "present/illustrate/depict".
+# STRONG navigation signal: a description verb DIRECTLY governing a structure noun ("presents Figure 4.1").
+# Each occurrence counts fully toward the narration chain.
+_NAV_VERB_STRUCTURE_RE = re.compile(
+    r"\b(?:outlines?|presents?|depicts?|illustrates?|includes?|reproduces?|shows?|contains?|summariz\w+)\s+"
+    r"(?:the\s+|a\s+|an\s+)?(?:Fig(?:ure|\.)?|Table|Chart|Schematic|Diagram|Panel|Exhibit|Appendix|Chapter)\b",
+    re.I,
+)
+# WEAK navigation signal: a bare "see Figure/Table/page" locator or an "as a schematic" tail. Codex iter-4 +
+# Fable iter-5 P1 (no-drop): a REAL finding routinely carries such parentheticals — "(see Table 2) and
+# manufacturing (see Figure 3)". So ALL of these together count AT MOST ONCE toward the chain.
+_NAV_LOCATOR_RE = re.compile(
+    r"\bas\s+a\s+schematic\b|\bsee\s+(?:figure|table|page)\b",
+    re.I,
+)
+
+
+def _is_generated_narration_or_masthead(text: str) -> bool:
+    """True iff ``text`` is generated document-navigation narration or an ORCID/ISSN-less author-
+    affiliation masthead. NARRATION = >=2 structure refs AND no finding metric AND (a document-DESCRIPTION
+    verb like outlines/presents/includes OR the structure refs DOMINATE the text). Weight-not-filter /
+    no-drop (Codex+Fable P1): a real finding citing a table/figure location — quantitative ('3.2% ... Table 4
+    on page 12.', 'job losses of 1,200 and 900 workers') OR qualitative ('Table 2 and Table 3 show automation
+    displaces routine work') — is CONTENT and is NEVER dropped (it has a metric, or an outcome verb rather
+    than a description verb, or low structure-share). PURE."""
+    # Masthead: an affiliation block carrying a finding metric is a numbered-list FINDING, not a masthead.
+    if _MASTHEAD_NO_ORCID_RE.search(text) and not _FINDING_METRIC_RE.search(text):
+        return True
+    refs = _STRUCTURE_REF_RE.findall(text)
+    if len(refs) >= 2:
+        residual = _STRUCTURE_REF_RE.sub(" ", text)
+        if _FINDING_METRIC_RE.search(residual):
+            return False  # a real finding metric survives the structure refs -> content, keep it
+        ref_chars = sum(len(m) for m in refs)
+        structure_dominates = ref_chars / (len(text.strip()) or 1) >= 0.45
+        # Codex iter-3/4 + Fable iter-5 P1 (no-drop): pure document narration walks the reader through
+        # MULTIPLE exhibits ("presents Figure 4.1 ... includes Figure 6.1 as a schematic"); a REAL finding
+        # cites locations in passing ("...(see Table 2) and manufacturing (see Figure 3)", "present evidence
+        # that ..."). So the chain = (every strong description-verb-governs-structure phrase) + (all the weak
+        # bare "see X"/"as a schematic" locators counted AT MOST ONCE combined). Flag only when the chain
+        # reaches 2 OR the structure refs outright dominate. A real finding never chains 2+ STRONG nav clauses.
+        nav_chain = len(_NAV_VERB_STRUCTURE_RE.findall(text)) + min(1, len(_NAV_LOCATOR_RE.findall(text)))
+        if nav_chain >= 2 or structure_dominates:
+            return True   # metric-free + (multi-clause document-navigation OR structure-dominated) -> chrome
+        return False      # metric-free finding with <=1 locator phrase and low structure-share -> keep it
+    return False
+
+
 def _is_new_chrome_category(text: str) -> bool:
     """The NEW I-wire-012 chrome categories (default-ON, high-precision) PLUS the I-wire-013 (#1327)
     CONTAINMENT forensic rules (a unit that CONTAINS glued page-furniture, not only IS junk)."""
     if _SHARED_RENDER_CHROME_RE.search(text):
+        return True
+    # I-deepfix-001 (#1369) FIX 4: generated page/figure narration + ORCID-less masthead (default-ON).
+    if _render_chrome_narration_enabled() and _is_generated_narration_or_masthead(text):
         return True
     if _SHARED_CLAIM_HEADER_CHROME_RE.search(text):
         return True

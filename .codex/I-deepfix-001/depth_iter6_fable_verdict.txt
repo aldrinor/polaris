@@ -1,0 +1,82 @@
+FABLE-5 INDEPENDENT RE-GATE — I-deepfix-001 #1369 depth build, iter 6
+Reviewer: Claude Fable 5 (claude-fable-5), 2026-07-07
+Scope: verify the two prior Fable findings (P0 promote-fn NameError, P1 double-locator over-drop) are genuinely fixed; no new P0/P1.
+
+== P0 verification (emitter fail-closed guard called non-existent _promote_grounded_active) ==
+- Code read: src/polaris_graph/generator/analyst_synthesis.py line 589 now calls _promote_mode_active();
+  that function EXISTS at line 445 (probes deviation-check module's promote_grounded_enabled, falls back
+  to the raw PROMOTE flag on probe failure — fail-closed direction preserved). grep across src/: zero
+  remaining references to _promote_grounded_active.
+- Direct probe 1 (layer ON, PROMOTE OFF, deviation-check OFF): generate_analyst_synthesis returned
+  ('', 0, 0) with the fail-CLOSED warning logged. NO NameError.
+- Direct probe 2 (layer ON, PROMOTE ON, deviation-check ON, LLM client replaced by a raising sentinel):
+  _promote_mode_active() returned True; the guard evaluated and PASSED; execution reached the LLM step
+  (sentinel RuntimeError raised, the expected non-NameError). NO NameError on the promote-ON path.
+- Regression test exists and passes: tests/polaris_graph/test_ideepfix_render_seam_fixes.py::
+  test_p0_emitter_failclosed_calls_real_promote_fn_no_nameerror (line 140) exercises exactly the
+  layer-ON emitter path that previously slipped through.
+
+== P1 verification (double bare "see X" locators over-dropped a real finding) ==
+- Code read: weighted_enrichment.py lines 2921-2964 — the regex is split as claimed:
+  _NAV_VERB_STRUCTURE_RE (strong: description verb DIRECTLY governing a structure noun, each occurrence
+  counts fully) + _NAV_LOCATOR_RE (weak: bare "see figure/table/page" / "as a schematic", ALL occurrences
+  capped via min(1, count)). Chain fires only at >=2 or structure-dominance >=0.45, metric check first.
+- Probe results (10 constructed cases):
+  * "Job displacement was concentrated in clerical roles (see Table 2) and manufacturing (see Figure 3)."
+    -> KEPT (my prior counterexample, fixed).
+  * "Table 2 and Table 3 present evidence that automation displaces routine work." -> KEPT.
+  * Box-2 "The document outlines the framework on page 3, presents Figure 4.1 on page 61, and includes
+    Figure 6.1 as a schematic." -> FLAGGED (chrome detection retained).
+  * TRIPLE bare see-X locators on a real finding -> KEPT. Two-clause finding with two locators -> KEPT.
+    One weak locator + one strong phrase -> KEPT. "as a schematic" tail + see-X on a real finding -> KEPT.
+  * Chapter-walkthrough chrome and two-strong-phrase apparatus narration -> both still FLAGGED.
+- Regression test exists and passes: test_ideepfix_render_seam_fixes.py line 127 pins my exact prior
+  counterexample as KEPT.
+
+== Test runs ==
+- Required trio: tests/polaris_graph/test_ideepfix_render_seam_fixes.py +
+  tests/dr_benchmark/test_verified_only_surface_iready013.py +
+  tests/dr_benchmark/test_purity_preflight_gates.py -> 45 passed (final run).
+  NOTE: the FIRST trio run showed 1 flaky failure (test_winner_fires_deep_load_probes_are_documented_
+  deferred_not_faked, inspect.getsource missing the DEFERRED-PROBE NOTE). Root-caused as CONCURRENT-EDIT
+  FLAKE, not a code defect: scripts/dr_benchmark/run_gate_b.py mtime 21:26:28 shows the file was being
+  written by the parallel session DURING that pytest run (linecache read a mid-write/shifted file). The
+  note IS in the function source (run_gate_b.py:5185, inside preflight_full_capability at :4575; getsource
+  = 694 lines containing the note). Test passes alone, passes with its file (27/27), passes both pairwise
+  combos, and the exact trio re-run is green (45/45).
+- Adjacent regression sweep: test_analyst_synthesis.py, test_analyst_synthesis_safety.py,
+  test_render_chrome_prose_screen.py, test_deepfix_chrome_canary_unblind.py,
+  test_ideepfix_portal_masthead_chrome.py, generator/test_weighted_enrichment_iarch007.py,
+  generator/test_enrichment_keep_all_iarch011.py, test_step1..step4 depth tests -> 180 passed.
+
+== Frozen faithfulness engine ==
+- Full changed-file set of the depth build (a7a89611~1 .. working tree): 10 code files, ALL
+  generator/composition-side (analyst_synthesis, weighted_enrichment, boundary_conditions,
+  cross_source_synthesis, key_findings, numeric_comparator, summary_table, verified_compose,
+  run_gate_b.py slate) + test updates. ZERO changes to provenance_generator.py, evaluator/, roles/,
+  NLI/entailment src modules. The one engine-ADJACENT path in the span is a TEST-file deletion
+  (tests/polaris_graph/retrieval/test_nli_conflict_model_decouple.py, removed in the already-dual-gated
+  a7a89611 "orphan-tests" fix) — engine source byte-untouched.
+- run_gate_b.py working diff re-enables PG_SWEEP_ANALYST_SYNTHESIS=1 ONLY with PROMOTE + deviation-check
+  pinned "1" (force-EXACT) and removes it from REQUIRED_OFF with the _assert_analyst_synthesis_gated
+  preflight backstop — consistent with the operator-authorized gated-promote posture; verify-after-
+  compose-DROP semantics, faithfulness never relaxed.
+
+p0_promote_fn_fixed: yes
+p1_double_locator_fixed: yes
+novel_p0: []
+p1: []
+p2:
+  - "Residual narration-predicate edge (constructed adversarially, NOT the prior defect class): a
+    METRIC-FREE sentence narrating two exhibits with strong verb+structure collocations is still flagged —
+    'The IMF report presents Figure 2 showing displacement concentrated in clerical work, while the OECD
+    presents Table 5 showing displacement concentrated in manufacturing.' -> flagged=True. Low real-world
+    frequency (comparative findings almost always carry a metric, which keeps them via the metric check;
+    parenthetical/see-X phrasings are kept), and it sits exactly on the documented Codex-iter-3 design line
+    ('a real finding never chains 2+ STRONG nav clauses'). Not a blocker; log as a watch-item for the
+    post-run §-1.1 render audit."
+  - "test_winner_fires_deep_load_probes_are_documented_deferred_not_faked is vulnerable to concurrent-edit
+    flake (inspect.getsource + linecache while run_gate_b.py is being written by a parallel session).
+    One-off, reproduced-green x3 afterwards. Optional hardening: read the source text from the file path
+    instead of inspect.getsource. Not a defect of this diff."
+verdict: APPROVE

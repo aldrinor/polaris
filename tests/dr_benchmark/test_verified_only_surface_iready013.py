@@ -70,7 +70,11 @@ def _set_min_passing_gate_b_env(monkeypatch: pytest.MonkeyPatch) -> None:
     set_max_cost_per_run(25.0)
 
 
-def test_gate_b_slate_force_disables_unverified_analyst_synthesis(monkeypatch):
+def test_gate_b_slate_enables_gated_analyst_synthesis(monkeypatch):
+    """I-deepfix-001 (#1369): the analyst-synthesis layer is RE-ENABLED under the GATED D3 PROMOTE
+    (drop-if-ungrounded) posture — operator-authorized, dual-gated (Codex+Fable). The slate now forces
+    the layer ON with BOTH gate flags ON; the three flags are conscious WINNERS (allowlist + FORCE_EXACT)
+    and are NO LONGER in REQUIRED_OFF. This supersedes the old I-ready-013 hard-ban assertion."""
     from src.polaris_graph.llm.openrouter_client import (
         get_max_cost_per_run,
         set_max_cost_per_run,
@@ -78,49 +82,45 @@ def test_gate_b_slate_force_disables_unverified_analyst_synthesis(monkeypatch):
 
     old_cap = get_max_cost_per_run()
     try:
-        monkeypatch.setenv("PG_SWEEP_ANALYST_SYNTHESIS", "1")
         gate_b.apply_full_capability_benchmark_slate()
-        assert os.environ["PG_SWEEP_ANALYST_SYNTHESIS"] == "0"
-        assert gate_b._FULL_CAPABILITY_BENCHMARK_SLATE["PG_SWEEP_ANALYST_SYNTHESIS"] == "0"
-        assert "PG_SWEEP_ANALYST_SYNTHESIS" in gate_b._BENCHMARK_FORCE_EXACT_FLAGS
-        assert "PG_SWEEP_ANALYST_SYNTHESIS" in gate_b._BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
+        assert gate_b._FULL_CAPABILITY_BENCHMARK_SLATE["PG_SWEEP_ANALYST_SYNTHESIS"] == "1"
+        assert gate_b._FULL_CAPABILITY_BENCHMARK_SLATE["PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED"] == "1"
+        assert gate_b._FULL_CAPABILITY_BENCHMARK_SLATE["PG_ANALYST_SYNTHESIS_DEVIATION_CHECK"] == "1"
+        assert os.environ["PG_SWEEP_ANALYST_SYNTHESIS"] == "1"
+        for _f in (
+            "PG_SWEEP_ANALYST_SYNTHESIS",
+            "PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED",
+            "PG_ANALYST_SYNTHESIS_DEVIATION_CHECK",
+        ):
+            assert _f in gate_b._BENCHMARK_FORCE_EXACT_FLAGS
+            assert _f in gate_b._WINNER_FLAG_ALLOWLIST
+            assert _f not in gate_b._BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
     finally:
         set_max_cost_per_run(old_cap)
 
 
-def test_gate_b_preflight_fails_if_analyst_synthesis_enabled(monkeypatch):
+def test_gate_b_preflight_refuses_ungated_analyst_synthesis(monkeypatch):
+    """I-deepfix-001 (#1369): the layer may ONLY ship under the D3 fail-closed PROMOTE gate. A run with
+    PG_SWEEP_ANALYST_SYNTHESIS ON while PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED resolves falsey is the exact
+    ungated posture that was banned, so the preflight REFUSES it fail-closed."""
     from src.polaris_graph.llm.openrouter_client import (
         get_max_cost_per_run,
         set_max_cost_per_run,
     )
 
     old_cap = get_max_cost_per_run()
-    # _set_min_passing_gate_b_env applies the production slate, which mutates os.environ DIRECTLY (not via
-    # monkeypatch). Snapshot + restore the whole environment so the winners-only baseline (e.g. the W4
-    # PG_CLINICAL_PDF_EXTRACTOR=mineru25 pin) does not leak into sibling dr_benchmark tests in the same
-    # process — the env-leak class this suite is otherwise prone to.
+    # _set_min_passing_gate_b_env mutates os.environ DIRECTLY; snapshot + restore so the winners-only
+    # baseline does not leak into sibling dr_benchmark tests in the same process.
     env_snapshot = dict(os.environ)
     try:
         _set_min_passing_gate_b_env(monkeypatch)
-        # offline=True: this is a no-GPU / no-spend unit test, so skip ONLY the WINNER-FIRES GPU
-        # host-capability probes (W4 mineru25 torch.cuda, W5 reranker device) that would false-fail on a
-        # CPU host. The NO-LOSER gate + the killed-loser REQUIRED_OFF check (which is what protects the
-        # analyst-synthesis suppression) stay UNCONDITIONAL, so the perturbation below still binds.
-        gate_b.preflight_full_capability(offline=True)
-
-        # I-deepfix-001 (#1344): the legacy Analyst Synthesis layer is a killed un-span-verified loser —
-        # PG_SWEEP_ANALYST_SYNTHESIS is in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS, so re-arming it trips
-        # the generic NO-LOSER/REQUIRED_OFF gate. The message names the flag (the dedicated "Analyst
-        # Synthesis" phrasing was consolidated into the generic killed-loser gate), so match the flag id.
+        # ungated posture: layer ON, D3 PROMOTE gate OFF => REFUSED fail-closed by the :4693 preflight assert.
         monkeypatch.setenv("PG_SWEEP_ANALYST_SYNTHESIS", "1")
-        with pytest.raises(RuntimeError, match="PG_SWEEP_ANALYST_SYNTHESIS"):
+        monkeypatch.setenv("PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED", "0")
+        with pytest.raises(RuntimeError, match="PROMOTE"):
             gate_b.preflight_full_capability(offline=True)
     finally:
         set_max_cost_per_run(old_cap)
-        # I-deepfix-001 (#1344) Codex P1: undo monkeypatch FIRST — _set_min_passing_gate_b_env recorded
-        # POST-slate env values via monkeypatch, and pytest's monkeypatch teardown runs AFTER this finally;
-        # without undo() it would re-inject them, defeating the snapshot restore. The snapshot restore then
-        # handles the slate's DIRECT os.environ mutations (untracked by monkeypatch). Both are required.
         monkeypatch.undo()
         os.environ.clear()
         os.environ.update(env_snapshot)

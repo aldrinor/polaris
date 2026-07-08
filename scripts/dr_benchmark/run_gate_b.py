@@ -864,11 +864,22 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # PG_RELEVANCE_FLOOR gotcha). Code default 0.0 => slate-absent runs are byte-identical; the slate
     # ACTIVATES it for the cert run (the PG_LIVE_MAX_EV_TO_GEN "built-it-then-left-it-off" lesson).
     "PG_MIN_VERIFIED_SECTION_FRACTION": "0.4",
-    # I-ready-013 (#1080): benchmark report.md must be a verified-only surface.
-    # The legacy Analyst Synthesis layer is interpretive and not span-verified /
-    # 4-role gated, so Gate-B force-disables it instead of turning on the planner
-    # or changing the verifier machinery.
-    "PG_SWEEP_ANALYST_SYNTHESIS": "0",
+    # I-deepfix-001 (#1369) DEPTH: re-enable the Analyst Synthesis interpretive layer, but ONLY
+    # under the D3 fail-closed PROMOTE gate (PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED) — every synthesis
+    # sentence is verify-AFTER-compose-DROP: it must pass the frozen-engine provenance re-pass, the
+    # >=2 content-word span-grounding overlap, AND the second-family Sentinel groundedness judge, or it
+    # is DROPPED from the scored body (never label-and-keep). Judge/engine fault -> fail-closed DROP.
+    # Operator-authorized grounded-depth posture (2026-07-07): STRICTER than the ungated legacy layer
+    # banned under I-ready-013 (#1080), not looser — this layer's prose is the report's ONLY
+    # multi-paragraph mechanism/implication/comparison ARGUMENT. A launch with
+    # PG_SWEEP_ANALYST_SYNTHESIS=1 while PROMOTE resolves falsey is BLOCKED by the fail-closed preflight
+    # assert (_assert_analyst_synthesis_gated) — that combination would ship UNGATED synthesis.
+    "PG_SWEEP_ANALYST_SYNTHESIS": "1",
+    # D3 fail-closed drop gate (code default-OFF): pin ON so re-enabled synthesis is ALWAYS gated.
+    "PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED": "1",
+    # The per-sentence deviation screen (code default-ON): pin ON so a stray .env=0 cannot disable the
+    # gate while the layer is on.
+    "PG_ANALYST_SYNTHESIS_DEVIATION_CHECK": "1",
     # I-ready-004 (#1078): finding-dedup. Collapse near-duplicate findings to one corroboration-counted
     # representative + apply a relevance floor. The legacy PG_USE_FINDING_DEDUP mode CONSOLIDATES (keeps
     # ALL sources per claim, multi-citation) — §-1.3 CONSOLIDATE-DON'T-DROP. PG_RELEVANCE_FLOOR is a FLOAT
@@ -1595,6 +1606,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # span-grounding chokepoint; the FROZEN faithfulness engine is byte-untouched).
     "PG_CROSS_SOURCE_BODY": "1",              # plan-driven candidate pairing (cross_source_synthesis)
     "PG_NUMERIC_COMPARATOR": "1",             # upgrade fully-comparable NEUTRAL pair -> comparison connective
+    # I-deepfix-001 (#1369) STEP 3: construct-level numeric comparison — lets DIFFERENT-subject numbers that
+    # share a unit + known construct (Frey-Osborne vs Eloundou vs ILO exposure %) pair for the "; for
+    # comparison, " connective. Fail-closed (unknown construct/unit never pairs); each clause keeps its own
+    # [#ev] token; non-directional (§-1.3). Was the reason 892 extracted numbers rendered zero comparison.
+    "PG_NUMERIC_CONSTRUCT_COMPARISON": "1",
     "PG_PROVENANCE_REANCHOR": "1",            # re-anchor wrongly-cited claim to best ENTAILING span (argmax)
     "PG_SYNTH_PRIMARY": "1",                  # compose-then-verify PRIMARY body for corroborated baskets
     "PG_FINDING_DEDUP_NLI": "1",              # directional bidirectional-entailment same-claim grouping (Wave-1b)
@@ -2470,6 +2486,12 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
 # around capability-enabling flags keep their original meaning.
 _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_SWEEP_ANALYST_SYNTHESIS",
+    # I-deepfix-001 (#1369) DEPTH: pin the two D3 gate flags to their slate value so a stray
+    # operator/.env cannot re-enable the interpretive layer UNGATED (promote off) or disable the
+    # per-sentence deviation screen while the layer is on. The fail-closed preflight assert below
+    # (_assert_analyst_synthesis_gated) is the hard backstop; these force-EXACT pins are belt-and-braces.
+    "PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED",
+    "PG_ANALYST_SYNTHESIS_DEVIATION_CHECK",
     # I-beatboth-011 KEYSTONE (#1289): force-EXACT the STRING-valued span-gate companions so a stray
     # operator/.env value cannot survive the slate. PG_HTML_EXTRACTOR=trafilatura_precision selects the
     # precision profile (the int-FLOOR path would crash on float('trafilatura_precision')) — also
@@ -2657,12 +2679,14 @@ _BENCHMARK_SPAN_WINDOW_MAX_BYTES = 2000
 # fails CLOSED if ANY of these is truthy (a stray operator/.env value re-arming a killed loser). STORM
 # core + ingest + agentic are the live-discovery losers; the three query-gen entries (legacy decompose /
 # IterResearch / research-planner) are the superseded query-gen modules (FS-Researcher W2 is the sole
-# adaptive qgen winner). PG_SWEEP_ANALYST_SYNTHESIS stays (the un-span-verified synthesis layer). Each is
-# ALSO force-EXACT "0" (slate de-arm) — REQUIRED_OFF is the fail-closed assert.
+# adaptive qgen winner). Each is ALSO force-EXACT "0" (slate de-arm) — REQUIRED_OFF is the fail-closed assert.
 # R1_deepener_enable: PG_SWEEP_EVIDENCE_DEEPENER is REMOVED from this REQUIRED_OFF set — the citation-
 # snowball deepener is now the recall lever (setdefault-ON, widen-only), NOT a killed loser.
+# I-deepfix-001 (#1369) DEPTH: PG_SWEEP_ANALYST_SYNTHESIS is REMOVED from this REQUIRED_OFF set — the
+# interpretive layer is now re-enabled UNDER the D3 fail-closed PROMOTE gate (slate "1"), so it is a
+# gated winner, not a killed loser. Its safety is enforced instead by _assert_analyst_synthesis_gated
+# in preflight (a launch with the layer ON but PROMOTE OFF fails CLOSED — ungated synthesis is blocked).
 _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS = (
-    "PG_SWEEP_ANALYST_SYNTHESIS",
     "PG_STORM_ENABLED_IN_BENCHMARK",   # K1 STORM core (the loser the operator saw fire)
     "PG_STORM_ENABLED",                # K1 storm_interviews module flag (dual-arm kill)
     "PG_STORM_INGEST_WEB_RESULTS",     # K3 STORM seed-URL ingest lane
@@ -3830,6 +3854,8 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     "PG_ABSTRACTIVE_WRITER",                 # W12 abstractive writer (per-basket prose producer)
     "PG_BASKET_CORROBORATION_RENDER",        # W12/W14 keep-all basket render
     "PG_SYNTHESIS_ABSTRACT_CONCLUSION",      # W14 render=det (abstract/conclusion sandwich)
+    # (I-deepfix-001 #1369 DEPTH winners — PG_SWEEP_ANALYST_SYNTHESIS + the 2 PROMOTE-gate flags +
+    #  PG_NUMERIC_CONSTRUCT_COMPARISON — are allowlisted once, in the depth-winners block further below.)
     # ── FROZEN faithfulness engine + the verified-compose / breadth surfaces (NOT losers) ───────────
     "PG_STRICT_VERIFY_ENTAILMENT",           # W13 binding entailment leg (frozen engine, enforce mode)
     "PG_MAX_JUDGE_ERROR_RATE",               # judge error-rate wall (faithfulness transport)
@@ -3955,6 +3981,15 @@ _WINNER_FLAG_ALLOWLIST: frozenset[str] = frozenset({
     # loser still fails CLOSED. §-1.3 weight-and-consolidate; FAITHFULNESS-NEUTRAL.
     "PG_CROSS_SOURCE_BODY",                  # plan-driven candidate pairing (cross_source_synthesis)
     "PG_NUMERIC_COMPARATOR",                 # NEUTRAL -> comparison connective upgrade
+    # ── I-deepfix-001 (#1369) DEPTH winners — conscious 'winner or infra?' decision, allowlisted
+    # deliberately so the depth slate PASSES SLATE-PURITY (they are force-EXACT "1" above). The analyst
+    # layer is the grounded-synthesis argument writer under the D3 fail-closed PROMOTE drop gate; the
+    # construct comparator surfaces cross-subject numeric comparisons. FAITHFULNESS-NEUTRAL (verify-after-
+    # compose-DROP / engine-licensed connective); the frozen strict_verify/NLI/4-role engine is untouched.
+    "PG_SWEEP_ANALYST_SYNTHESIS",            # grounded analyst-synthesis argument layer (gated)
+    "PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED", # D3 fail-closed drop-if-ungrounded PROMOTE gate
+    "PG_ANALYST_SYNTHESIS_DEVIATION_CHECK",  # per-sentence deviation screen (keeps the gate live)
+    "PG_NUMERIC_CONSTRUCT_COMPARISON",       # construct-level cross-source numeric comparison
     "PG_PROVENANCE_REANCHOR",                # re-anchor wrongly-cited claim to best ENTAILING span (argmax)
     "PG_SYNTH_PRIMARY",                      # compose-then-verify PRIMARY body for corroborated baskets
     "PG_FINDING_DEDUP_NLI",                  # directional bidirectional-entailment same-claim grouping
@@ -4640,6 +4675,24 @@ def preflight_full_capability(smoke_scale: bool = False, offline: bool = False) 
             _assert_aw_preconditions()
         except RuntimeError as _awe:
             raise RuntimeError(f"benchmark preflight FAILED: {_awe}") from _awe
+    # I-deepfix-001 (#1369) DEPTH fail-closed: the Analyst Synthesis interpretive layer is re-enabled
+    # (slate PG_SWEEP_ANALYST_SYNTHESIS=1) but may ONLY ship under the D3 fail-closed PROMOTE gate — every
+    # synthesis sentence is verify-AFTER-compose-DROP. A launch with the layer ON while PROMOTE resolves
+    # falsey would ship UNGATED interpretive prose (the I-ready-013 ban reason). REFUSE the paid run in
+    # that state. promote_grounded_enabled() is the authoritative probe (it requires BOTH the deviation
+    # check ON AND the promote flag ON). Faithfulness gate — runs on smoke + full alike; only asserts when
+    # the layer is actually ON (an operator may legitimately run verbatim-only with the layer off).
+    if os.getenv("PG_SWEEP_ANALYST_SYNTHESIS", "0").strip().lower() not in ("", "0", "false", "off", "no"):
+        from src.polaris_graph.generator.analyst_synthesis_deviation_check import (  # noqa: PLC0415
+            promote_grounded_enabled as _promote_gate_on,
+        )
+        if not _promote_gate_on():
+            raise RuntimeError(
+                "benchmark preflight FAILED: PG_SWEEP_ANALYST_SYNTHESIS is ON but the D3 PROMOTE gate "
+                "(PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED + PG_ANALYST_SYNTHESIS_DEVIATION_CHECK) is NOT "
+                "active — that ships UNGATED interpretive synthesis (the I-ready-013 ban reason). The slate "
+                "pins PROMOTE ON; a stray .env=0 disabled it. Re-enable the gate or disable the layer."
+            )
     # F03 (A3): the verified-section-FRACTION coverage-honesty floor must be ACTIVE (a float in (0, 1])
     # for the cert run — a 0/absent value disables the gate and lets a mostly-gap clinical report ship
     # GREEN (the "built-it-then-left-it-off" failure). Checked FIRST (fail-fast on a faithfulness gate;

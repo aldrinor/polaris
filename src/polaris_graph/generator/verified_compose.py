@@ -1405,7 +1405,14 @@ def _uncovered_fact_disclosure(basket: Any, span_text: str) -> str:
     clean_span = _EV_TOKEN_RE.sub("", span_text or "")
     clean_span = re.sub(r"\s+([.,;:!?])", r"\1", clean_span)
     clean_span = " ".join(clean_span.split())
-    return f"{_UNCOVERED_FACT_DISCLOSURE_PREFIX} {subject[:120]}] {clean_span}"
+    # I-deepfix-001 (#1369) FIX 2: WORD-BOUNDARY-safe subject truncation (was subject[:120] mid-word
+    # slice -> "There is no sho]" chrome). Kill-switch restores the legacy hard slice byte-for-byte.
+    subject_out = (
+        _truncate_subject_word_safe(subject, _UNCOVERED_SUBJECT_LIMIT)
+        if _uncovered_subject_hygiene_enabled()
+        else subject[:120]
+    )
+    return f"{_UNCOVERED_FACT_DISCLOSURE_PREFIX} {subject_out}] {clean_span}"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1426,6 +1433,64 @@ _ENV_UNCOVERED_FACT_MIN_SPAN_WORDS = "PG_UNCOVERED_FACT_MIN_SPAN_WORDS"
 _DEFAULT_UNCOVERED_FACT_MIN_SUBJECT_WORDS = 2   # a SUBSTANTIVE subject is at least two content words
 _DEFAULT_UNCOVERED_FACT_MIN_SPAN_WORDS = 3      # a real lifted source span carries ≥3 content words
 _MARKDOWN_LINK_FURNITURE_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+
+# I-deepfix-001 (#1369) FIX 2 — uncovered-fact SUBJECT hygiene. Root cause (Fable, code-verified on
+# box-2 report): the disclosure builder hard-sliced ``subject[:120]`` MID-WORD ("There is no sho]",
+# "...effective and impactful]") — a deterministic self-inflicted truncation-chrome artifact on ANY
+# corpus — and the junk predicate screened only word-COUNTS + a markdown-LINK regex, so it was blind to
+# markdown-EMPHASIS/heading chrome in the subject, to bare scheme fragments ("(https://doi.org]"), and to
+# author-affiliation mastheads. This adds (a) WORD-BOUNDARY-safe subject truncation and (b) a subject
+# chrome screen. Default-ON kill-switch PG_UNCOVERED_SUBJECT_HYGIENE. Faithfulness-NEUTRAL: only whether
+# THIS labeled block renders / where it is cut changes; the SOURCE stays in the pool (§-1.3).
+_ENV_UNCOVERED_SUBJECT_HYGIENE = "PG_UNCOVERED_SUBJECT_HYGIENE"
+_UNCOVERED_SUBJECT_LIMIT = 120
+# markdown emphasis/bold (**x** or _x_ pairs) or a leading heading marker
+_SUBJECT_MARKDOWN_CHROME_RE = re.compile(r"\*\*.+?\*\*|(?<!\w)_[^_]+_(?!\w)|^\s{0,3}#{1,6}\s")
+# a bare URL scheme fragment with no closing paren (the "(https://doi.org]" leak class)
+_SUBJECT_SCHEME_FRAGMENT_RE = re.compile(r"\(\s*https?://[^)\s]*(?:\]|\s|$)", re.I)
+# author-affiliation masthead: an institution keyword followed (same string) by a country / trailing
+# superscript index — the ORCID/ISSN-less masthead the dedicated screens structurally cannot match
+_SUBJECT_AFFILIATION_RE = re.compile(
+    r"\b(?:Institut|Institute|University|Universit[aä]t|GmbH|Laborator|Department|Faculty)\b"
+    r".{0,80}?(?:Germany|Deutschland|Berlin|USA|United States|France|Italy|Spain|Netherlands|"
+    r"Austria|Switzerland|Sweden|Norway|Denmark|Finland|Belgium|Poland|Czech|Portugal|Greece|"
+    r"China|Japan|Korea|India|Canada|Australia|Kingdom|Country|\b\d\b)",
+    re.I,
+)
+
+
+def _uncovered_subject_hygiene_enabled() -> bool:
+    """Kill-switch ``PG_UNCOVERED_SUBJECT_HYGIENE`` (default ON). Only an explicit 0/false/off/no
+    disables; an EMPTY string stays ON (a blank env can never silently disable the screen)."""
+    return os.getenv(_ENV_UNCOVERED_SUBJECT_HYGIENE, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _truncate_subject_word_safe(subject: str, limit: int = _UNCOVERED_SUBJECT_LIMIT) -> str:
+    """Truncate ``subject`` to at most ``limit`` chars WITHOUT slicing a word in half. Cuts at the last
+    whole-word boundary within the limit and appends an ellipsis; if the whole subject already fits it is
+    returned unchanged. Fixes the ``subject[:120]`` mid-word chrome. PURE."""
+    s = " ".join((subject or "").split())
+    if len(s) <= limit:
+        return s
+    head = s[:limit]
+    cut = head.rfind(" ")
+    if cut <= 0:  # single very long token: fall back to a hard cut but mark it truncated
+        return head.rstrip() + "…"
+    return head[:cut].rstrip() + "…"
+
+
+def _uncovered_subject_is_chrome(subject: str) -> bool:
+    """True (=> WITHHOLD) iff the uncovered-fact SUBJECT is render chrome the count-based screen misses:
+    markdown emphasis/heading syntax, a bare unterminated URL-scheme fragment, or an author-affiliation
+    masthead. Precision-first: only clearly-chrome subjects match. PURE."""
+    s = subject or ""
+    if _SUBJECT_MARKDOWN_CHROME_RE.search(s):
+        return True
+    if _SUBJECT_SCHEME_FRAGMENT_RE.search(s):
+        return True
+    if _SUBJECT_AFFILIATION_RE.search(s):
+        return True
+    return False
 
 
 def _uncovered_fact_subject_gate_enabled() -> bool:
@@ -1469,6 +1534,10 @@ def _uncovered_fact_disclosure_is_junk(basket: Any, span_text: str) -> bool:
     pool; only whether THIS labeled block renders changes."""
     subject = str(getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim")
     if len(_repair_content_words(subject)) < _uncovered_fact_min_subject_words():
+        return True
+    # I-deepfix-001 (#1369) FIX 2b: a SUBJECT carrying markdown emphasis/heading chrome, a bare URL-scheme
+    # fragment, or an author-affiliation masthead is page furniture, not a claim subject -> WITHHOLD.
+    if _uncovered_subject_hygiene_enabled() and _uncovered_subject_is_chrome(subject):
         return True
     span = span_text or ""
     if _MARKDOWN_LINK_FURNITURE_RE.search(span):

@@ -75,6 +75,21 @@ _LEGACY_ARM_UNKNOWN_SENTINEL = "treatment"  # extractor no-cue arm default == UN
 
 _ENV_NUMERIC_COMPARATOR = "PG_NUMERIC_COMPARATOR"
 
+# I-deepfix-001 (#1369) STEP 3 — construct-level cross-source numeric comparison. The exact-discriminator
+# path below only licenses a comparison when two numbers share the SAME subject/entity/unit; that is why
+# Frey-Osborne "702 occupations / computerisation", Eloundou "1.8% -> 46% of jobs", and ILO "24% of
+# clerical tasks" — all EXPOSURE_SHARE measures in % — never paired (different subjects) and 892 extracted
+# numbers rendered zero comparison. The CLOSED, deterministic construct-tag map below lets two numeric
+# atoms compare when they share a UNIT and a KNOWN construct even with different subject strings. It is
+# FAIL-CLOSED: an unknown construct (no lexicon hit) is NOT comparable — a construct is NEVER forced.
+_ENV_CONSTRUCT_COMPARISON = "PG_NUMERIC_CONSTRUCT_COMPARISON"
+_CONSTRUCT_LEXICON: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # (construct_tag, needle substrings)  — FIRST match wins (priority order). CLOSED set (Fable/coord spec).
+    ("EXPOSURE_SHARE", ("exposure", "exposed", "susceptib", "affected", "at-risk", "at risk", "computeris", "computeriz")),
+    ("LABOR_EFFECT", ("employment", "wage", "displace", "job-loss", "job loss", "jobs lost", "unemploy")),
+    ("PRODUCTIVITY", ("productivity", "output")),
+)
+
 
 def numeric_comparator_enabled() -> bool:
     """``PG_NUMERIC_COMPARATOR`` gate (default OFF, LAW VI). OFF => the composer never consults the
@@ -83,6 +98,39 @@ def numeric_comparator_enabled() -> bool:
     upgraded to the ``comparison`` connective. This is a WEIGHT/CONSOLIDATE surfacing lever, never a
     cap / target / thinner (§-1.3)."""
     return os.getenv(_ENV_NUMERIC_COMPARATOR, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _construct_comparison_enabled() -> bool:
+    """``PG_NUMERIC_CONSTRUCT_COMPARISON`` gate (default OFF in code, LAW VI; slate pins ON). OFF => only
+    the exact-discriminator comparison path fires (byte-identical). ON => two positively-known numeric keys
+    that share a UNIT and a KNOWN construct tag but differ in subject are ALSO licensed for the
+    non-directional ``comparison`` connective."""
+    return os.getenv(_ENV_CONSTRUCT_COMPARISON, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _construct_tag(normalized_key: Any) -> Optional[tuple]:
+    """``(construct_tag, unit)`` for a positively-known numeric key, or ``None`` (fail-closed).
+
+    ``construct_tag`` is the FIRST-matching CLOSED lexicon entry over the key's subject+predicate text;
+    no hit => ``None`` (an unknown construct is never forced to compare). ``unit`` is the merge key's unit
+    discriminator (legacy layout: original index 4 => discriminators[3]); the comparability view has
+    already fail-closed on a BLANK unit, so ``unit`` here is always positively known. Pure; never raises."""
+    view = _numeric_comparability_key(normalized_key)
+    if view is None:
+        return None
+    disc, _val = view
+    # disc = (tag, subject, predicate, unit, dose, arm, endpoint) on the legacy layout; scan the SEMANTIC
+    # fields (everything past the "numeric" tag) for the construct lexicon.
+    text = " ".join(str(d) for d in disc[1:]).lower()
+    tag: Optional[str] = None
+    for cand, needles in _CONSTRUCT_LEXICON:
+        if any(n in text for n in needles):
+            tag = cand
+            break
+    if tag is None:
+        return None
+    unit = str(disc[3]).strip().lower() if len(disc) > 3 else ""
+    return (tag, unit)
 
 
 def _numeric_comparability_key(normalized_key: Any) -> Optional[tuple]:
@@ -154,11 +202,23 @@ def license_numeric_comparison(key_a: Any, key_b: Any) -> Optional[str]:
         return None
     disc_a, val_a = ca
     disc_b, val_b = cb
-    if disc_a != disc_b:
-        return None  # different claim identity (measure/unit/entity/qualifier) => not comparable
     if val_a == val_b:
         return None  # identical values => same claim, no comparison to draw
-    return NUMERIC_COMPARISON_RELATION
+    if disc_a == disc_b:
+        return NUMERIC_COMPARISON_RELATION  # exact claim-identity comparison (measure/unit/entity match)
+    # I-deepfix-001 (#1369) STEP 3: construct-level fallback — DIFFERENT subjects but SAME unit + SAME
+    # KNOWN construct (Frey-Osborne vs Eloundou vs ILO, all EXPOSURE_SHARE in %). ``_construct_tag`` returns
+    # ``(construct_tag, unit)`` and is None on an unknown construct, so the equality below requires BOTH the
+    # construct AND the unit to match — a different construct (exposure % vs wage pp) or a different unit
+    # never pairs (fail-closed). Values already differ (guarded above). The connective stays the
+    # non-directional "comparison"; each clause keeps its own [#ev] token and no direction/magnitude is
+    # asserted, so faithfulness is preserved by quotation (§-1.3). Gated by PG_NUMERIC_CONSTRUCT_COMPARISON.
+    if _construct_comparison_enabled():
+        cta = _construct_tag(key_a)
+        ctb = _construct_tag(key_b)
+        if cta is not None and cta == ctb:
+            return NUMERIC_COMPARISON_RELATION
+    return None
 
 
 def build_numeric_key_lookup(claims: Any) -> dict[str, tuple]:

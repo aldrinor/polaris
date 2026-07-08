@@ -629,12 +629,14 @@ def _refuter_cross_ref(a: Any, b: Any, cluster_a_id: str, cluster_b_id: str) -> 
 def _pair_is_plan_candidate(
     a: Any, b: Any, cluster_a_id: str, cluster_b_id: str,
     *, edges: Any, agree_map: Any, equiv_clusters: Any,
+    numeric_key_by_cluster: Optional[dict] = None,
 ) -> bool:
     """The plan-driven candidacy predicate: same facet OR a certified contradiction (edge / refuter) OR a
-    threaded agreement lookup. NLI (extension / bidirectional agreement) refines the CONNECTIVE for
-    admitted candidates but is NOT re-run here as a candidacy gate over every O(N^2) pair (a pure
-    cross-subject NLI-only candidacy is DEFERRED for cost; the resident encoder still fires per candidate).
-    Pure; deterministic; conservative on missing data."""
+    threaded agreement lookup OR (I-deepfix-001 #1369 STEP 3) a licensed construct-level numeric comparison.
+    NLI (extension / bidirectional agreement) refines the CONNECTIVE for admitted candidates but is NOT
+    re-run here as a candidacy gate over every O(N^2) pair (a pure cross-subject NLI-only candidacy is
+    DEFERRED for cost; the resident encoder still fires per candidate). Pure; deterministic; conservative
+    on missing data."""
     if _same_facet(a, b):
         return True
     if _edge_between(edges, cluster_a_id, cluster_b_id):
@@ -643,6 +645,23 @@ def _pair_is_plan_candidate(
         return True
     if _agree(agree_map, equiv_clusters, cluster_a_id, cluster_b_id):
         return True
+    # I-deepfix-001 (#1369) STEP 3: construct-level numeric candidacy — admit a pair whose two clusters
+    # carry numeric merge keys the DETERMINISTIC, FAIL-CLOSED comparator licenses (same construct + unit,
+    # differing values), even across DIFFERENT subjects/facets. This is what lets Frey-Osborne vs Eloundou
+    # vs ILO exposure numbers become cross-source comparison candidates (892 numbers that rendered zero
+    # comparison). Only when the key lookup is threaded AND the comparator is enabled AND the license fires;
+    # the RELATION is still decided by _process_pair (which re-consults the comparator), so this only WIDENS
+    # candidacy — it never asserts a comparison the licensing engine did not grant.
+    if numeric_key_by_cluster:
+        from src.polaris_graph.generator.numeric_comparator import (  # noqa: PLC0415
+            license_numeric_comparison,
+            numeric_comparator_enabled,
+        )
+        if numeric_comparator_enabled() and license_numeric_comparison(
+            numeric_key_by_cluster.get(cluster_a_id),
+            numeric_key_by_cluster.get(cluster_b_id),
+        ):
+            return True
     return False
 
 
@@ -673,9 +692,13 @@ def _anchor_candidate_pairs(baskets: list):
         logger.info("[activation] cross_source_body: anchor_equality pairs=%d", _emitted)
 
 
-def _plan_driven_candidate_pairs(baskets: list, *, edges: Any, agree_map: Any, equiv_clusters: Any):
+def _plan_driven_candidate_pairs(
+    baskets: list, *, edges: Any, agree_map: Any, equiv_clusters: Any,
+    numeric_key_by_cluster: Optional[dict] = None,
+):
     """The Wave-2a pairing: every unordered distinct-cluster pair of section baskets admitted by
-    ``_pair_is_plan_candidate``, in stable i<j order over the section basket list."""
+    ``_pair_is_plan_candidate``, in stable i<j order over the section basket list. ``numeric_key_by_cluster``
+    (I-deepfix-001 #1369 STEP 3) is threaded so a construct-level numeric comparison can WIDEN candidacy."""
     n = len(baskets)
     for i in range(n):
         for j in range(i + 1, n):
@@ -684,7 +707,8 @@ def _plan_driven_candidate_pairs(baskets: list, *, edges: Any, agree_map: Any, e
             if not ca or not cb or ca == cb:
                 continue
             if _pair_is_plan_candidate(
-                a, b, ca, cb, edges=edges, agree_map=agree_map, equiv_clusters=equiv_clusters
+                a, b, ca, cb, edges=edges, agree_map=agree_map, equiv_clusters=equiv_clusters,
+                numeric_key_by_cluster=numeric_key_by_cluster,
             ):
                 yield a, b
 
@@ -830,7 +854,8 @@ def compose_cross_source_analytical_units(
         # Materialize so the plan-driven pair COUNT can be reported by the activation marker; the single
         # full-drain loop below is behaviorally identical to iterating the generator (same pairs, order).
         candidate_pairs = list(_plan_driven_candidate_pairs(
-            baskets, edges=edges, agree_map=agree_map, equiv_clusters=equiv_clusters
+            baskets, edges=edges, agree_map=agree_map, equiv_clusters=equiv_clusters,
+            numeric_key_by_cluster=numeric_key_by_cluster,
         ))
         # I-deepfix-001 Wave-3a (#1344): plan-driven ACTIVATION fire marker. Emitted ONLY under
         # PG_CROSS_SOURCE_BODY (this branch) so OFF is byte-identical. ``input_threaded`` is true when the

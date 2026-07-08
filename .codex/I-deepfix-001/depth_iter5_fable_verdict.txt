@@ -1,0 +1,99 @@
+Fable-5 independent review — I-deepfix-001 #1369 depth build (iter5 dual-gate)
+Reviewed: .codex/I-deepfix-001/depth_build_full.diff + working-tree surround
+(run_gate_b.py, analyst_synthesis.py, analyst_synthesis_deviation_check.py,
+summary_table.py, weighted_enrichment.py, multi_section_generator.py caller,
+plus the 5 working-tree-modified files OMITTED from the diff artifact:
+boundary_conditions.py, cross_source_synthesis.py, key_findings.py,
+numeric_comparator.py, verified_compose.py).
+Tests run: 62/62 pass (test_ideepfix_render_seam_fixes, test_step1..step4,
+test_verified_only_surface_iready013, test_purity_preflight_gates) + 10/10
+test_analyst_synthesis_safety. Adversarial probes run directly against
+_is_generated_narration_or_masthead, _topical_gate_rows, _same_finding_regroup,
+_regroup_rows_by_label, and generate_analyst_synthesis.
+
+novel_p0: [
+  "EMITTER GUARD IS A NameError — DEPTH LAYER IS DEAD ON THE EXACT SLATE POSTURE.
+   src/polaris_graph/generator/analyst_synthesis.py:589 calls _promote_grounded_active(),
+   which is DEFINED NOWHERE (the file defines _promote_mode_active at :445). PROVEN by
+   direct offline probe: with PG_SWEEP_ANALYST_SYNTHESIS=1 + PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED=1
+   + PG_ANALYST_SYNTHESIS_DEVIATION_CHECK=1 (the slate's exact posture),
+   generate_analyst_synthesis raises: NameError: name '_promote_grounded_active' is not defined.
+   The only caller (multi_section_generator.py:10423-10427) catches Exception and logs
+   'analyst_synthesis failed (non-fatal)' — so every run SILENTLY ships with the analyst
+   synthesis layer ABSENT. Gate-B pins PG_USE_RESEARCH_PLANNER=0, so the benchmark path
+   DOES reach this call: the paid depth run would come back exactly as shallow as before
+   (the 'built-it-then-left-it-off' class), wasting the run. Faithfulness direction is
+   accidentally fail-closed (nothing ungated ships), so this is a LAUNCH blocker, not a
+   fabrication path. NO test exercises the layer-ON emitter path (all 62 + 10 pass because
+   they only test the kill-switch-OFF short-circuit at :574 and the module-level flag sets).
+   FIX (surgical): call the existing _promote_mode_active() at :589 (its semantics are
+   correct: probes promote_grounded_enabled, fail-closed fallback to the raw promote flag);
+   ADD an emitter-path test pair: (a) layer ON + PROMOTE OFF + guard default => returns
+   ('',0,0) without any client call; (b) layer ON + PROMOTE ON => proceeds past the guard
+   (mock the client)."
+]
+continuing_p0: []
+p1: [
+  "NARRATION RULE OVER-DROP (weight-not-filter / §-1.3): _is_generated_narration_or_masthead
+   (weighted_enrichment.py) flags a REAL metric-free qualitative finding that carries two
+   parenthetical reader-directions. Proven counterexample (probe): 'Job displacement was
+   concentrated in clerical roles (see Table 2) and manufacturing (see Figure 3).' -> True
+   (chrome). Root cause: the '\\bsee\\s+(figure|table|page)\\b' alternation inside
+   _NAV_DESCRIPTION_VERB_RE counts toward the >=2 'nav-governs-structure' chain, but real
+   findings DO chain parenthetical '(see Table N)' locators in academic prose. The predicate
+   feeds is_render_chrome_or_unrenderable, which DROPS units at multiple render seams
+   (multi_section_generator:4473/4636 compose screens, key_findings, verified_compose:1287,
+   depth_synthesis, summary_table, and NEW boundary_conditions:210) — so the flagged real
+   finding is dropped from the rendered body, not demoted. FIX (surgical, keeps the box-2
+   catch): count 'see figure/table/page' occurrences at most ONCE toward the chain (or
+   exclude parenthesized '(see ...)' forms), so the >=2 chain requires at least one true
+   description-verb-governs-structure phrase ('presents Figure 4.1 ... includes Figure 6.1'
+   still fires); alternatively demote-not-drop at the enrichment surface. Note: the second
+   probe miss ('The survey presents Figure 4 comparing wage effects and presents Table 2
+   on displacement...') is genuine document-narration and I do NOT count it as an over-drop."
+]
+p2: [
+  "Duplicate allowlist insertion: the 4 depth flags are added TWICE inside the same
+   _WINNER_FLAG_ALLOWLIST frozenset literal (run_gate_b.py:3863-3866 and :3997-4000).
+   Harmless (set dedupes) but a redundant maintenance surface — keep one block.",
+  "Review-artifact completeness: depth_build_full.diff omits 5 modified source files that
+   ship in the same working tree (boundary_conditions.py, cross_source_synthesis.py,
+   key_findings.py, numeric_comparator.py, verified_compose.py — ~237 lines, the STEP-3/
+   STEP-4 machinery). I reviewed them from the working tree: all faithfulness-safe
+   (candidacy-widening only; fail-closed CLOSED construct lexicon; non-directional
+   connective with per-clause [#ev]; disclosure-tail hygiene only). The committed gate
+   artifact should include them so the record matches the shipped diff.",
+  "Construct lexicon LABOR_EFFECT merges employment/wage/displacement/unemployment into one
+   construct tag: a wage-% and an employment-% with unit '%' can be juxtaposed 'for
+   comparison' (apples-to-oranges juxtaposition). Faithfulness holds (non-directional, each
+   clause keeps its own [#ev]); quality noise only. Consider splitting WAGE vs EMPLOYMENT.",
+  "_STRUCTURE_REF_RE matches statutory refs ('Section 230', 'Chapter 11'): a SHORT metric-free
+   legal finding citing two statutes could trip structure-dominance (>=45%). Edge case;
+   long sentences pass.",
+  "verified_compose _SUBJECT_AFFILIATION_RE can withhold an uncovered-fact DISCLOSURE whose
+   subject genuinely names an institute+country ('MIT Department of Economics ... USA').
+   Bounded to the disclosure tail (source stays in pool); precision-first accepted.",
+  "Truthiness-parse asymmetry for PG_SWEEP_ANALYST_SYNTHESIS: preflight (:4693, treats any
+   non-off value as ON) vs layer (:574, ON only for 1/true/True). 'yes'/'TRUE' => preflight
+   refuses while the layer is actually off — a FALSE REFUSAL (fail-closed direction, never
+   fail-open); slate force-EXACT '1' makes it moot on the benchmark path."
+]
+remaining_blockers: [
+  "P0: fix the _promote_grounded_active NameError (one-token change to _promote_mode_active)
+   + add the missing emitter-path test pair, else the paid depth run ships with the analyst
+   synthesis layer silently dead and the depth objective fails again.",
+  "P1: stop counting chained '(see Table/Figure N)' reader-directions as the >=2 narration
+   chain (real-finding over-drop at the render seams)."
+]
+verdict: REQUEST_CHANGES
+
+# Verified clean (for the record): Gate-B preflight assert fires correctly (test passes);
+# FORCE_EXACT pins + allowlist + REQUIRED_OFF removal are coherent (62/62 tests);
+# _topical_gate_rows is genuinely demote-not-drop (probe: 3-in/3-out, on-topic-first reorder,
+# empty-question passthrough); _regroup_rows_by_label numberless bar 0.85 does NOT over-merge
+# distinct same-label findings and keep-all citations survive the merge (probe); the frozen
+# faithfulness engine (strict_verify/provenance, NLI entailment, deviation-check module,
+# 4-role D8) is byte-untouched — no modified engine file in the working tree; no path ships
+# UNGATED synthesis (with the NameError the failure direction is fail-closed; after the
+# one-token fix the emitter guard semantics via _promote_mode_active are correct and the
+# screen's exception path drops the whole block under promote mode).

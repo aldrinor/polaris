@@ -716,6 +716,25 @@ def _union_terms(term_lists: Iterable[list[str]]) -> list[str]:
     return out[:_MAX_TERMS_PER_CELL]
 
 
+# I-deepfix-001 (#1369) FIX 1 — summary-table duplicate rows (10/36 rows in box-2 were dups of 3 docs:
+# SERBE×6, Deloitte [10][11], laweconcenter [25][26]). Root cause (Fable): (a) doc_key splits the SAME
+# document across a URL-keyed row and title-keyed rows (blank-URL bibliography entries), so they never
+# unite; (b) _same_finding's Jaccard>=0.6 bar rejects the composer's synonym-swap paraphrases (0.53-0.56).
+# A SECOND additive pass groups the FINAL rows by their VISIBLE source label (Literature minus trailing
+# [N] citations) and merges, within a label, rows with an identical non-empty salient-number set OR high
+# claim-token CONTAINMENT — catching URL-vs-title splits and paraphrases without lowering the primary bar.
+# CONSOLIDATE-KEEP-ALL: every citation survives on the merged row. Default-ON PG_SUMMARY_TABLE_LABEL_REGROUP.
+_LABEL_CITE_SUFFIX_RE = re.compile(r"(?:\s*\[\d+\])+\s*$")
+_ENV_LABEL_REGROUP = "PG_SUMMARY_TABLE_LABEL_REGROUP"
+_REGROUP_CONTAINMENT_WITH_NUMBERS = 0.60  # even with an identical number set, require real token overlap
+# I-deepfix-001 (#1369) iter2 (Codex + Fable P2): a NUMBERLESS pair has no numeric discriminator, so the
+# label-regroup second pass must clear the SAME strict bar as the first-pass numberless Jaccard (0.85),
+# not 0.60 — else two DISTINCT same-label qualitative findings at 60% containment over-merge and a real
+# second finding is lost from the table (§-1.3 no-drop). Number-matched pairs keep the 0.60 bar (the
+# identical salient-number set is the real discriminator there).
+_REGROUP_CONTAINMENT_NUMBERLESS = 0.85
+
+
 def _merge_cluster(cluster: list[_RowData]) -> _RowData:
     """Collapse a >=2-member same-document same-finding cluster into ONE multi-citation row.
     ``num`` = min member num (stable sort anchor); ``cite_nums`` = sorted union of ALL members'
@@ -731,8 +750,10 @@ def _merge_cluster(cluster: list[_RowData]) -> _RowData:
         if _clean_claim_text(m.claim) == best_claim:
             rep = m
             break
-    suffix = f" [{min_row.num}]"
-    base = min_row.literature[:-len(suffix)] if min_row.literature.endswith(suffix) else min_row.literature
+    # I-deepfix-001 (#1369) FIX 1: strip ALL trailing [N] citations (robust to an already-consolidated
+    # multi-cite row entering the label-regroup second pass), then re-append the full keep-all set. For a
+    # single-cite row "X [8]" this is byte-identical to the prior single-suffix strip.
+    base = _LABEL_CITE_SUFFIX_RE.sub("", min_row.literature).rstrip()
     literature = base + "".join(f"[{n}]" for n in cite_nums)
     return _RowData(
         num=min_row.num,
@@ -788,6 +809,92 @@ def _consolidate_rows_by_source(rows: list[_RowData]) -> list[_RowData]:
     logger.info(
         "[activation] summary_table_source_consolidate: clusters=%d rows_in=%d rows_out=%d",
         clusters, rows_in, len(out),
+    )
+    return out
+
+
+def _label_regroup_enabled() -> bool:
+    """LAW VI kill-switch ``PG_SUMMARY_TABLE_LABEL_REGROUP`` (default ON). OFF => the second pass is a
+    no-op and rows pass through byte-identically."""
+    return os.environ.get(_ENV_LABEL_REGROUP, "1").strip().lower() not in _OFF_VALUES
+
+
+def _row_label_key(r: "_RowData") -> str:
+    """The row's VISIBLE-source grouping key: the Literature cell with its trailing ``[N]`` citations
+    stripped, whitespace-normalized and lowercased. Groups a document that split across a URL-keyed row
+    and title-keyed rows (which ``doc_key`` kept apart). PURE."""
+    lit = _LABEL_CITE_SUFFIX_RE.sub("", r.literature or "")
+    return _WS_RE.sub(" ", lit).strip().lower()
+
+
+def _same_finding_regroup(a: str, b: str) -> bool:
+    """Relaxed same-finding test for the SAME-LABEL second pass: a DIFFERENT salient-number set is never
+    merged (different quantitative result); an identical number set (or both numberless) merges when the
+    claim-token CONTAINMENT (|A∩B|/min(|A|,|B|)) clears the bar — a lower bar when an identical NON-EMPTY
+    number set already anchors the pair, the stricter bar when there is no numeric discriminator. Uses
+    containment (not Jaccard) so synonym swaps + length asymmetry do not defeat it. PURE."""
+    sa, sb = _salient_numbers(a), _salient_numbers(b)
+    if sa != sb:
+        return False
+    ta, tb = _claim_tokens(a), _claim_tokens(b)
+    if not ta and not tb:
+        return True
+    if not ta or not tb:
+        return False
+    containment = len(ta & tb) / min(len(ta), len(tb))
+    bar = _REGROUP_CONTAINMENT_WITH_NUMBERS if sa else _REGROUP_CONTAINMENT_NUMBERLESS
+    return containment >= bar
+
+
+def _regroup_rows_by_label(rows: list["_RowData"]) -> list["_RowData"]:
+    """SECOND additive consolidation pass (FIX 1): group by VISIBLE source label and merge same-label
+    rows that state the same finding under the relaxed :func:`_same_finding_regroup` test. Empty/`source`
+    labels and singletons pass through unchanged; merge is CONSOLIDATE-KEEP-ALL via ``_merge_cluster``.
+    Emits the realized-effect ``[activation]`` marker (anti-dark). Order-stable. PURE apart from the log."""
+    if not _label_regroup_enabled():
+        return rows
+    rows_in = len(rows)
+    by_label: dict[str, list[_RowData]] = {}
+    order: list[str] = []
+    passthrough: list[_RowData] = []
+    for r in rows:
+        key = _row_label_key(r)
+        if not key or key == "source":
+            passthrough.append(r)  # no identifiable label => never regrouped (fail-closed)
+            continue
+        if key not in by_label:
+            by_label[key] = []
+            order.append(key)
+        by_label[key].append(r)
+    out: list[_RowData] = []
+    groups = 0
+    for key in order:
+        group = by_label[key]
+        if len(group) < 2:
+            out.append(group[0])
+            continue
+        ordered = sorted(group, key=lambda r: r.num)
+        used = [False] * len(ordered)
+        for i, seed in enumerate(ordered):
+            if used[i]:
+                continue
+            cluster = [seed]
+            used[i] = True
+            for j in range(i + 1, len(ordered)):
+                if used[j]:
+                    continue
+                if _same_finding_regroup(seed.claim, ordered[j].claim):
+                    cluster.append(ordered[j])
+                    used[j] = True
+            if len(cluster) >= 2:
+                out.append(_merge_cluster(cluster))
+                groups += 1
+            else:
+                out.append(cluster[0])
+    out.extend(passthrough)
+    logger.info(
+        "[activation] summary_table_label_regroup: groups=%d rows_in=%d rows_out=%d",
+        groups, rows_in, len(out),
     )
     return out
 
@@ -1031,6 +1138,11 @@ def _build_rows(
     # so the collapsed multi-citation rows and the untouched singletons order together by ``num``.
     if _source_consolidate_enabled():
         rows = _consolidate_rows_by_source(rows)
+        # I-deepfix-001 (#1369) FIX 1: SECOND label-regroup pass catches the URL-vs-title splits and
+        # synonym-swap paraphrases the first (doc_key + Jaccard) pass leaves as duplicate rows. Kept
+        # UNDER the same master consolidation gate so PG_SUMMARY_TABLE_SOURCE_CONSOLIDATE=0 stays
+        # byte-identical to the one-row-per-eid legacy output.
+        rows = _regroup_rows_by_label(rows)
     rows.sort(key=lambda r: r.num)
     return rows
 
@@ -1133,6 +1245,67 @@ def _insert_before_appendix(report_md: str, table_md: str, appendix_boundary_mar
     return report_md.rstrip() + block
 
 
+# I-deepfix-001 (#1369) FIX 3 (iter3) — off-topic summary-table rows. Root cause (Fable): the promotion
+# topical gate is wired ONLY to the CWF single-source promotion partition, never to summary-table row
+# building, so an off-topic-but-span-verified source (materials-science MWCNT row [28] in a Gen-AI-and-jobs
+# report) rows-ifies unchecked. WEIGHT-NOT-FILTER / no-drop (Codex+Fable P1): a row whose claim shares EXACTLY
+# ZERO content-word overlap with the research question is DEMOTED to the bottom of the table — NEVER dropped
+# (lexical overlap is not a reliable off-topic signal; an on-topic synonym row has zero literal overlap too).
+# Every verified row survives; skips (no demotion) when the question yields no tokens. Default-ON
+# PG_SUMMARY_TABLE_TOPICAL_GATE.
+_ENV_TOPICAL_GATE = "PG_SUMMARY_TABLE_TOPICAL_GATE"
+
+
+def _topical_gate_enabled() -> bool:
+    """LAW VI kill-switch (default ON). OFF => rows pass through byte-identically."""
+    return os.environ.get(_ENV_TOPICAL_GATE, "1").strip().lower() not in _OFF_VALUES
+
+
+def _topical_tokens(text: str) -> frozenset[str]:
+    """Content-word tokens for the topical-overlap test, splitting on whitespace AND hyphens/slashes so a
+    compound like "employment-to-population" contributes "employment" (else an on-topic row that never
+    uses the question's exact surface form would be wrongly dropped). Stopword-stripped. PURE."""
+    out: set[str] = set()
+    for raw in re.split(r"[\s\-/]+", (text or "").lower()):
+        tok = raw.strip(".,;:!?()[]{}\"'`—–…%")
+        if not tok or tok in _CONSOLIDATE_STOPWORDS:
+            continue
+        out.add(tok)
+    return frozenset(out)
+
+
+def _topical_gate_rows(rows: list["_RowData"], research_question: str) -> list["_RowData"]:
+    """WEIGHT-NOT-FILTER / no-drop (Codex + Fable P1, §-1.3): NEVER drop a verified summary-table row on
+    topical grounds — a vocabulary-mismatch on-topic row ('Automation exposure is highest in clerical
+    occupations' vs a 'generative AI employment effects' question) has zero LITERAL question-token overlap
+    yet is genuinely on-topic, and lexical overlap is not a reliable off-topic signal. Instead DEMOTE: keep
+    EVERY row, but order the zero-overlap rows AFTER the overlapping ones (stable within each group) so
+    on-topic findings surface first without deleting any content. Emits the realized-effect marker. PURE
+    apart from the log."""
+    if not _topical_gate_enabled():
+        return rows
+    qtokens = _topical_tokens(research_question or "")
+    if not qtokens:
+        logger.info(
+            "[activation] summary_table_topical_gate: demoted=0 kept=%d (no question tokens -> skip)",
+            len(rows),
+        )
+        return rows
+    on_topic: list[_RowData] = []
+    off_topic: list[_RowData] = []
+    for r in rows:
+        ctoks = _topical_tokens(r.claim or "")
+        if ctoks and not (ctoks & qtokens):
+            off_topic.append(r)  # zero literal overlap -> DEMOTE to the bottom, never drop
+        else:
+            on_topic.append(r)
+    logger.info(
+        "[activation] summary_table_topical_gate: demoted=%d kept=%d (no-drop, on-topic-first)",
+        len(off_topic), len(on_topic) + len(off_topic),
+    )
+    return on_topic + off_topic
+
+
 def render_requested_summary_table(
     *,
     research_question: str,
@@ -1157,6 +1330,9 @@ def render_requested_summary_table(
     if len(headers) < 2:
         return SummaryTableResult(text=existing_report_md, changed=False, canary="no_table_requested")
     rows = _build_rows(bibliography or [], section_claims, chrome_screen)
+    # I-deepfix-001 (#1369) FIX 3 (iter3): DEMOTE off-topic table rows (literal zero question-overlap) to the
+    # bottom — never drop (weight-not-filter / §-1.3 no-drop). Every verified row survives.
+    rows = _topical_gate_rows(rows, research_question)
     if not rows:
         return SummaryTableResult(
             text=existing_report_md, changed=False, canary="no_verified_rows", headers=headers

@@ -1104,9 +1104,24 @@ def build_depth_layer(
         # I-wire-012 (#1326): surface a REAL cross-source tension — a verbatim verified sentence
         # carrying a disagreement/opposition cue, distinct from the headline AND the challenge. Never
         # fabricated: if the section's own verified prose raises no opposition, no Tension line.
+        # I-deepfix-001 (#1369) STEP 4 anti-signal: also exclude a Tension that is the SAME sentence as the
+        # headline (or challenge) modulo citation markers / whitespace — the exact ``!= headline`` string
+        # guard misses a formatting-only difference, which is how a Tension line duplicated its own headline
+        # in the drb_72 report. Normalized = strip [N] markers + collapse whitespace + lowercase. Default-ON
+        # kill-switch PG_TENSION_HEADLINE_DEDUP (OFF => byte-identical exact-string guard only).
+        _tension_dedup_on = os.getenv("PG_TENSION_HEADLINE_DEDUP", "1").strip().lower() not in (
+            "", "0", "false", "off", "no",
+        )
+
+        def _norm_dedup(_s: str) -> str:
+            return re.sub(r"\s+", " ", re.sub(r"\[[^\]]*\]", "", _s or "")).strip().lower()
+
+        _hl_norm = _norm_dedup(headline) if _tension_dedup_on else None
+        _ch_norm = _norm_dedup(challenge) if _tension_dedup_on else None
         tension = next(
             (s for s in ordered
-             if _TENSION_CUE_RE.search(s) and s != headline and s != challenge),
+             if _TENSION_CUE_RE.search(s) and s != headline and s != challenge
+             and (not _tension_dedup_on or (_norm_dedup(s) != _hl_norm and _norm_dedup(s) != _ch_norm))),
             "",
         )
         if tension:

@@ -184,6 +184,43 @@ def find_qualifying_lower_weight_basket(
     return best
 
 
+def _boundary_quote_hygiene_enabled() -> bool:
+    """``PG_BOUNDARY_QUOTE_HYGIENE`` kill-switch (default ON, LAW VI). OFF => the boundary quote is emitted
+    unscreened (byte-identical to legacy). ON => a truncated / glued / render-chrome candidate quote is
+    SKIPPED (the section falls through to the next candidate or emits nothing) so a broken 'graduatio...'
+    fragment never renders as counter-evidence."""
+    return os.getenv("PG_BOUNDARY_QUOTE_HYGIENE", "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _quote_is_unrenderable(quote: str) -> bool:
+    """I-deepfix-001 (#1369) STEP 4: True iff a boundary candidate quote is render-chrome OR a
+    truncated/glued fragment that reads as broken (the 'graduatio...' mid-word cut). Conservative — only
+    rejects clear artifacts; a complete verbatim sentence is never rejected. Over-rejection is safe (it
+    only withholds an anti-signal line, never a fact). Pure; never raises."""
+    q = (quote or "").strip()
+    if not q:
+        return True
+    # An embedded blank line signals a GLUED multi-fragment span (the 'graduatio' class).
+    if "\n\n" in q or "\n \n" in q:
+        return True
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_render_chrome_or_unrenderable,
+        )
+        if is_render_chrome_or_unrenderable(q):
+            return True
+    except Exception:  # noqa: BLE001 — screen is advisory; never break the render on a probe fault
+        pass
+    # Ends MID-WORD: no sentence-terminal punctuation AND the final token is a bare lowercase word fragment
+    # (>=6 letters) — the 'graduatio' cut. Conservative: a quote ending in punctuation or a short word passes.
+    if q[-1] not in ".!?\"')]}%":
+        toks = q.split()
+        last = toks[-1] if toks else ""
+        if last.isalpha() and last.islower() and len(last) >= 6:
+            return True
+    return False
+
+
 def synthesize_boundary_line(
     headline_baskets: Iterable[Any],
     candidate_baskets: Iterable[Any],
@@ -210,6 +247,11 @@ def synthesize_boundary_line(
         member = supports[0]
         quote = _member_quote(member)
         if not quote:
+            continue
+        # I-deepfix-001 (#1369) STEP 4 anti-signal: skip a truncated / glued / chrome fragment (the
+        # 'graduatio...' class) so it never renders as counter-evidence. Skipping falls through to the next
+        # candidate; if none qualify the section emits nothing (byte-identical to no-qualifier).
+        if _boundary_quote_hygiene_enabled() and _quote_is_unrenderable(quote):
             continue
         source = _member_source_label(member)
         subject = str(_basket_field(headline, "subject", "") or "").strip()

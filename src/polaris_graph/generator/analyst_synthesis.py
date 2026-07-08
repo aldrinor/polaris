@@ -578,6 +578,21 @@ async def generate_analyst_synthesis(
         )
         return "", 0, 0
 
+    # I-deepfix-001 (#1369) iter2 (Codex P0): EMITTER-level fail-closed. The Gate-B preflight refuses an
+    # ungated launch, but the RESUME-render / direct-sweep path SKIPS that preflight — so the same guard
+    # must bind HERE at the emitter. If the layer is ON while the D3 PROMOTE (drop-if-ungrounded) gate is
+    # NOT active, shipping would emit legacy KEEP-and-LABEL (un-dropped) synthesis — the exact ungated
+    # posture that was banned. Refuse it: ship the span-verified core ONLY. Default-ON kill-switch so only
+    # an explicit operator opt-out disables the guard. The frozen faithfulness engine is untouched.
+    if os.environ.get(
+        "PG_ANALYST_SYNTHESIS_EMITTER_FAILCLOSED", "1"
+    ).strip().lower() not in ("0", "false", "off", "no") and not _promote_mode_active():
+        logger.warning(
+            "[analyst_synthesis] EMITTER fail-CLOSED: layer ON but D3 PROMOTE gate is OFF — refusing "
+            "UNGATED synthesis (verified core only). Set PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED=1 to ship it."
+        )
+        return "", 0, 0
+
     from src.polaris_graph.llm.openrouter_client import (
         OpenRouterClient,
         set_reasoning_call_context,
