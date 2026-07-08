@@ -1,0 +1,1194 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index b697ae7a..34260f09 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -1148,7 +1148,19 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     # NOTE: PG_CREDIBILITY_PASS_MAX_INFLIGHT stays at 1 (serial) in code until ITEM 2a (thread-safe judge
+     # client) lands — the slate value is INERT until 1b's parallelism is enabled atop 2a (plan §8 PR-2).
+     # FLOAT/INT values -> force-EXACT (the int-FLOOR path is wrong for the wall; force the chosen pair).
+-    "PG_CREDIBILITY_PASS_WALL_S": "3000",
++    # I-deepfix-001 BANK-BEFORE-WALL RE-SIZE (drb_72 box1 canary rc=1): 3000 -> 6000. The 3000 pin was
++    # sized for ~619 members; the fetch-yield-fixed rich corpus (box1: 1061 sources, ~999 members) runs
++    # BOTH LLM-bound phases (P2 source scoring + per-member basket verifies) past 3000s, and the pin
++    # FORCE-EXACT clobbered the operator's generous-limits 6000 back down — the credibility analysis was
++    # discarded whole, the unbound-SUPPORTS basket never computed, and the "Corroborated Weighted
++    # Findings" breadth layer VANISHED from report.md (the §-1.3 funnel silently reasserting). 6000
++    # matches the operator's generous-limits intent and stays FAR under the run-wall (14400): the
++    # hierarchy credibility 6000 << run-wall 14400 holds. Sizing: ~999 members @40s / inflight-20 ≈
++    # 2000s per phase ≈ 4000s worst healthy < 6000. The wall is now ONLY the hang backstop — the
++    # BANK-BEFORE-WALL soft deadline (PG_CREDIBILITY_PASS_BANK_FRAC, default 0.85 => bank at 5100s)
++    # returns the pass WITH its banked verified verdicts before the wall can discard anything, so the
++    # corroboration layer surfaces from whatever verified in time (never all-or-nothing again).
++    "PG_CREDIBILITY_PASS_WALL_S": "6000",
+     # I-beatboth-008 (#1285) commit-2 build A: raise the credibility-pass parallelism 16 -> 20. The
+     # WALL_S sizing invariant still holds with margin (worst healthy ~619 members @ 40s / inflight-20 ≈
+     # 1238s < 3000s wall, MORE headroom than the inflight-16 ≈ 1548s). Read at call time
+diff --git a/src/polaris_graph/authority/credibility_judge_caller.py b/src/polaris_graph/authority/credibility_judge_caller.py
+index 21e19e9c..84d1f7a8 100644
+--- a/src/polaris_graph/authority/credibility_judge_caller.py
++++ b/src/polaris_graph/authority/credibility_judge_caller.py
+@@ -33,7 +33,10 @@ from src.polaris_graph.llm.judge_burst_spread import (
+ # I-deepfix-001 (de-storm): SAME shared, env-driven bounded-concurrency cap as entailment_judge — the
+ # credibility scoring / W5 tiering burst pins the SAME mirror chain, so it shares the ONE global slot
+ # pool that caps TOTAL glm-5.2 mirror POSTs in flight. Transport-only; verdict logic unchanged. LAW VI.
+-from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
++from src.polaris_graph.llm.judge_concurrency import (
++    JudgeSlotTimeout as _JudgeSlotTimeout,
++    acquire_judge_slot as _acquire_judge_slot,
++)
+ # I-deepfix-001 (§9.1.8 anti-starvation): a GLM judge IGNORES reasoning.effort, so a provider that runs
+ # reasoning long can eat the whole max_tokens budget and return EMPTY content. The shared leaf helper puts
+ # the PROVEN D8-Mirror NUMERIC reasoning cap (reasoning_cap << max_tokens) on the glm reasoning block so the
+@@ -115,9 +118,12 @@ _DEFAULT_TOTAL_S = 300.0
+ # to apply the fix (=> up to 2 attempts on a hang vs 3 on a transient fault). Faithfulness-NEUTRAL: the
+ # outcome on exhaustion is the SAME transport-fault -> judge_error -> advisory; fewer wasted retries only.
+ _ENV_TOTAL_DEADLINE_RETRIES = "PG_CREDIBILITY_JUDGE_TOTAL_DEADLINE_RETRIES"
++# I-deepfix-001 (box2 SPEED fix): bounded side-judge slot-acquire deadline (0/unset => unbounded,
++# byte-identical). A wedged slot-holder can no longer freeze the advisory pass — see call_llm.
++_ENV_JUDGE_SLOT_WAIT_S = "PG_CREDIBILITY_JUDGE_SLOT_WAIT_S"
+ 
+ 
+-def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
++def _post_with_total_deadline(client, endpoint, headers, json_body, total_s, slot_wait=None):
+     """I-arch-007 #1264: run the blocking credibility-judge POST under a HARD total wall-deadline.
+ 
+     httpx's ``read`` timeout is a per-byte GAP that a trickled keep-alive socket resets indefinitely;
+@@ -134,7 +140,7 @@ def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
+     three side judges) are in flight at once — the burst can no longer 429-storm the mirror-chain lead.
+     Transport-only; the verdict logic is unchanged.
+     """
+-    with _acquire_judge_slot():
++    with _acquire_judge_slot(timeout=slot_wait):
+         ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+         fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
+         try:
+@@ -249,11 +255,34 @@ def make_openrouter_credibility_caller(
+     except (TypeError, ValueError):
+         _td_retries_raw = retries
+     total_deadline_retries = min(retries, _td_retries_raw)
+-    base = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
++    # I-deepfix-001 (box2 SPEED fix): the credibility judge (ADVISORY, EVALUATOR-family) may run on a
++    # DEDICATED endpoint/key so its ~999-per-run burst lands on its OWN rate limit and never eats the
++    # main OpenRouter account's 429 headroom (which a live generation run is already consuming). Both
++    # override envs default to the OpenRouter values => byte-identical when unset. When a NON-OpenRouter
++    # base is supplied (a direct Zhipu/GLM endpoint) the OpenRouter-specific ``provider`` routing block
++    # below is skipped (it would 400 a native endpoint); the operator sets PG_CREDIBILITY_JUDGE_MODEL to
++    # that endpoint's slug. LAW VI: env-driven, no hardcoded key/endpoint.
++    base = (
++        os.environ.get("PG_CREDIBILITY_JUDGE_BASE_URL", "").strip()
++        or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
++    ).rstrip("/")
+     endpoint = base + "/chat/completions"
+-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
++    _is_openrouter_endpoint = "openrouter.ai" in base
++    api_key = (
++        os.environ.get("PG_CREDIBILITY_JUDGE_API_KEY", "").strip()
++        or os.environ.get("OPENROUTER_API_KEY", "").strip()
++    )
+     if not api_key:
+-        raise RuntimeError("PG_SWEEP_CREDIBILITY_REDESIGN credibility judge requires OPENROUTER_API_KEY")
++        raise RuntimeError(
++            "PG_SWEEP_CREDIBILITY_REDESIGN credibility judge requires OPENROUTER_API_KEY "
++            "(or the dedicated PG_CREDIBILITY_JUDGE_API_KEY override)"
++        )
++    # I-deepfix-001 (box2 SPEED fix): bounded slot-acquire deadline for the ADVISORY judge. A wedged
++    # side-judge slot-holder (documented GIL/fut.result stall) no longer strangles the pass — a row
++    # that cannot get a slot within this window degrades to a disclosed judge_error prior. 0/unset =>
++    # None => the pre-fix UNBOUNDED acquire (byte-identical). LAW VI: env-driven.
++    _slot_wait_raw = _float_env(_ENV_JUDGE_SLOT_WAIT_S, 0.0)
++    slot_wait = _slot_wait_raw if _slot_wait_raw > 0 else None
+ 
+     def call_llm(prompt: str) -> str:
+         started = time.monotonic()
+@@ -313,7 +342,14 @@ def make_openrouter_credibility_caller(
+         if _rotate_chain and _burst_mode == "spread":
+             _provider_cursor = _next_burst_start_index(len(_rotate_chain))
+         _rotate_attempts = 0  # distinct hosts already tried (0 == the START host, not yet rotated)
+-        if _rotate_chain and _burst_mode == "lb":
++        if not _is_openrouter_endpoint:
++            # I-deepfix-001 (box2 SPEED fix): a dedicated NON-OpenRouter endpoint (direct Zhipu/GLM) does
++            # not understand OpenRouter's ``provider`` routing block — omit it entirely so the native
++            # endpoint routes the model itself. The rotation ring is also OpenRouter-only, so it stays
++            # inert here (its guards below already no-op when ``provider`` is absent). Byte-identical on
++            # the default OpenRouter endpoint.
++            _rotate_chain = []
++        elif _rotate_chain and _burst_mode == "lb":
+             # Documented D8-Judge cure: drop the single-host `order` and let OpenRouter LOAD-BALANCE the
+             # burst across all glm-5.2 endpoints (require_parameters:True keeps reasoning-honoring hosts).
+             json_body["provider"] = {"allow_fallbacks": True, "require_parameters": True}
+@@ -375,9 +411,16 @@ def make_openrouter_credibility_caller(
+                         {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                         json_body,
+                         total_s,
++                        slot_wait=slot_wait,
+                     )
+                     response.raise_for_status()
+                     data = response.json()
++            except _JudgeSlotTimeout:
++                # I-deepfix-001 (box2 SPEED fix): no side-judge slot within the bounded window (a wedged
++                # holder). Retrying re-waits the SAME deadline on the SAME wedge, so do NOT retry — raise
++                # straight to the judge wrapper -> {} -> per-row judge_error -> disclosed priors. ADVISORY,
++                # faithfulness-neutral (no gate/verdict touched); the row is kept + disclosed, never dropped.
++                raise
+             except concurrent.futures.TimeoutError:
+                 # Trickle-hang: the wall-deadline fired (client already force-closed in the helper). A
+                 # re-hang on the same pinned provider almost never recovers, so a total-deadline fault
+diff --git a/src/polaris_graph/authority/credibility_skill.py b/src/polaris_graph/authority/credibility_skill.py
+index 4bf9db89..0aa1d39e 100644
+--- a/src/polaris_graph/authority/credibility_skill.py
++++ b/src/polaris_graph/authority/credibility_skill.py
+@@ -58,6 +58,17 @@ _DEFAULT_JUDGE_CONCURRENCY = 12
+ # the run slate may lower it to coordinate with PG_CREDIBILITY_PASS_WALL_S. LAW VI: env-driven.
+ _ENV_JUDGE_POOL_WALL_S = "PG_CREDIBILITY_JUDGE_POOL_WALL_S"
+ _DEFAULT_JUDGE_POOL_WALL_S = 3600.0
++# I-deepfix-001 (box2 SPEED fix): TIER-BAND HYBRID. A comma-list of source TIERS whose credibility the
++# LLM judge SKIPS — those rows take their DETERMINISTIC authority prior instead (``_priors_only_judgment``:
++# weight = authority_score, high for T1/T2, low for T6/T7, so the downstream demotion still fires). This
++# reduces the per-run LLM REQUEST COUNT (the 429-relief lever) while keeping EVERY source credibility-
++# weighted. It is faithfulness-neutral (the pass is ADVISORY) AND selection-neutral (breadth/selection
++# rank on ``authority_score`` weight_mass, NOT this credibility — weight_mass.py plan §148). Default empty
++# => hybrid OFF => every row is LLM-judged, byte-identical. LAW VI: env-driven.
++_ENV_HYBRID_SKIP_TIERS = "PG_CREDIBILITY_JUDGE_HYBRID_TIERS"
++# I-deepfix-001 (box2 SPEED fix): emit a progress line every N completed judge calls so a large pass can
++# never again read as a dead run. 0/unset => no progress log (byte-identical). LAW VI: env-driven.
++_ENV_PROGRESS_EVERY = "PG_CREDIBILITY_JUDGE_PROGRESS_EVERY"
+ 
+ # The deterministic prior-signal names the judge may cite (anti-hallucination: a
+ # ``signals_cited`` entry that is not one of these AND present on the row is dropped).
+@@ -180,6 +191,23 @@ def _is_low_or_thin(row: dict[str, Any]) -> bool:
+     return False
+ 
+ 
++def _hybrid_skip_tiers() -> frozenset[str]:
++    """I-deepfix-001 (box2 SPEED fix): the UPPER-cased set of source tiers the LLM judge SKIPS (those
++    rows take their deterministic authority prior). Empty (unset) => hybrid OFF => every row LLM-judged,
++    byte-identical. LAW VI: env-driven (``PG_CREDIBILITY_JUDGE_HYBRID_TIERS``, e.g. ``T1,T2,T6,T7``)."""
++    raw = os.environ.get(_ENV_HYBRID_SKIP_TIERS, "").strip()
++    if not raw:
++        return frozenset()
++    return frozenset(t.strip().upper() for t in raw.split(",") if t.strip())
++
++
++def _row_tier(row: dict[str, Any]) -> str:
++    """The source tier label on a row (``tier`` then ``source_tier``), UPPER-cased; '' when unknown.
++    An UNKNOWN/absent tier is NEVER in a skip-set of concrete tiers, so it always routes to the LLM
++    judge — the safe direction (ambiguous rows are judged, never skipped)."""
++    return str(row.get("tier") or row.get("source_tier") or "").strip().upper()
++
++
+ def _priors_only_judgment(row: dict[str, Any]) -> CredibilityJudgment:
+     """The deterministic fallback (no judge / judge error): reliability from the prior, relevance
+     neutral (1.0). Never fabricates relevance it cannot judge."""
+@@ -259,6 +287,7 @@ def score_source_credibility(
+     *,
+     domain: str | None = None,
+     judge: Optional[Callable[[str, dict], dict]] = None,
++    pool_wall_s: float | None = None,
+ ) -> list[CredibilityJudgment]:
+     """Score each source on reliability × relevance — ADVISORY ONLY, pure, no row mutation.
+ 
+@@ -277,10 +306,77 @@ def score_source_credibility(
+     Order is preserved (downstream ``zip(rows, judgments)`` requires it). A worker ``BudgetExceededError`` /
+     exception PROPAGATES (fail closed; no silent drop). The caller (``multi_section_generator`` 5383) runs
+     this whole pass under ``asyncio.to_thread`` so the blocking pool join never sits on the event loop.
++
++    ``pool_wall_s`` (I-deepfix-001 BANK-BEFORE-WALL, #1264 follow-up): an OPTIONAL caller-supplied
++    upper bound on the pool-join wall — the EFFECTIVE wall is ``min(PG_CREDIBILITY_JUDGE_POOL_WALL_S,
++    pool_wall_s)``. ``credibility_pass._run_chain`` threads its remaining deadline budget here so this
++    phase can NEVER outlive the caller's pass wall (the drb_72 box1 defect: the env wall defaulted to
++    3600s while the outer pass wall was force-pinned at 3000s, so the graceful partial-bank below was
++    UNREACHABLE and the whole analysis was discarded — the corroboration layer vanished from
++    report.md). ``None`` (every legacy caller) => env wall only, byte-identical. Behavior at the wall
++    is UNCHANGED: drain the finished futures, fill the rest with deterministic priors, never discard.
+     """
+     rows = rows or []
+     if judge is None:
+         return [_priors_only_judgment(row) for row in rows]
++
++    # I-deepfix-001 (box2 SPEED fix) — TIER-BAND HYBRID: route CLEAR-tier rows to their deterministic
++    # authority prior (no LLM call) and LLM-judge only the AMBIGUOUS tiers, cutting the per-run request
++    # count (the 429-relief lever). Every source still ends with a real credibility weight; selection /
++    # breadth rank on authority weight_mass (NOT this credibility), so this is selection-neutral +
++    # faithfulness-neutral (advisory pass). Empty skip-set => hybrid OFF => every row LLM-judged
++    # (byte-identical). Recurses with an empty skip-set on the ambiguous subset so the pooled path below
++    # is reused verbatim (order preserved).
++    _skip_tiers = _hybrid_skip_tiers()
++    if _skip_tiers:
++        out: list[Optional[CredibilityJudgment]] = [None] * len(rows)
++        ambiguous_rows: list[dict[str, Any]] = []
++        ambiguous_idx: list[int] = []
++        for _i, _row in enumerate(rows):
++            _tier = _row_tier(_row)
++            if _tier in _skip_tiers:
++                _pj = _priors_only_judgment(_row)
++                _pj.rationale = (
++                    f"tier-clear ({_tier or 'n/a'}): deterministic authority prior; LLM relevance-"
++                    "judging reserved for ambiguous-tier sources (hybrid request-count reduction)"
++                )
++                out[_i] = _pj
++            else:
++                ambiguous_rows.append(_row)
++                ambiguous_idx.append(_i)
++        if ambiguous_rows:
++            judged = _judge_rows_pooled(
++                research_question, ambiguous_rows, domain, judge, pool_wall_s=pool_wall_s,
++            )
++            for _k, _j in enumerate(judged):
++                out[ambiguous_idx[_k]] = _j
++        import logging as _logging  # noqa: PLC0415
++        _logging.getLogger(__name__).info(
++            "[credibility] hybrid tiering: %d/%d LLM-judged (ambiguous), %d clear-tier via "
++            "deterministic authority prior (skip_tiers=%s) — request-count reduction, every source "
++            "still weighted; selection ranks on authority weight_mass (unchanged)",
++            len(ambiguous_rows), len(rows), len(rows) - len(ambiguous_rows), sorted(_skip_tiers),
++        )
++        return [j for j in out if j is not None]
++
++    return _judge_rows_pooled(research_question, rows, domain, judge, pool_wall_s=pool_wall_s)
++
++
++def _judge_rows_pooled(
++    research_question: str,
++    rows: list[dict[str, Any]],
++    domain: str | None,
++    judge: Callable[[str, dict], dict],
++    *,
++    pool_wall_s: float | None = None,
++) -> list[CredibilityJudgment]:
++    """Run the injected judge over ``rows`` (bounded-parallel, order-preserved) — the pooled body
++    shared by the plain path and the hybrid ambiguous-subset path.
++
++    Verdict-identical to the pre-refactor inline pool: only WHICH rows are handed to it differs (all
++    rows on the plain path; the ambiguous subset on the hybrid path). I-deepfix-001 (box2 SPEED fix)
++    adds an OPTIONAL progress log (``PG_CREDIBILITY_JUDGE_PROGRESS_EVERY``, default 0 => silent) so a
++    large pass can never again read as a dead run."""
+     n = len(rows)
+     try:
+         workers = max(1, int(
+@@ -311,6 +407,16 @@ def score_source_credibility(
+ 
+     # I-deepfix-001 (HANG backstop): the pool JOIN wall — see the _DEFAULT_JUDGE_POOL_WALL_S note above.
+     pool_wall = _float_env(_ENV_JUDGE_POOL_WALL_S, _DEFAULT_JUDGE_POOL_WALL_S)
++    # I-deepfix-001 BANK-BEFORE-WALL: the caller's remaining deadline budget CAPS the env wall (min of
++    # the two) so this phase can never outlive the outer credibility-pass wall. None => env-only.
++    if pool_wall_s is not None:
++        pool_wall = min(pool_wall, max(1.0, float(pool_wall_s)))
++    # I-deepfix-001 (box2 SPEED fix): progress cadence (0 => silent, byte-identical).
++    try:
++        _progress_every = max(0, int(os.environ.get(_ENV_PROGRESS_EVERY, "0") or "0"))
++    except (TypeError, ValueError):
++        _progress_every = 0
++    _completed = 0
+ 
+     results: list[Optional[CredibilityJudgment]] = [None] * n
+     pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+@@ -328,6 +434,13 @@ def score_source_credibility(
+                 results[idx] = judgment
+                 _add_run_cost(delta)            # thread the per-source spend into the single run counter
+                 check_run_budget(0)             # raises BudgetExceededError -> bounded overspend (~workers in flight)
++                _completed += 1
++                if _progress_every and (_completed % _progress_every == 0):
++                    import logging as _logging  # noqa: PLC0415
++                    _logging.getLogger(__name__).info(
++                        "[credibility] judge progress: %d/%d sources scored (workers=%d)",
++                        _completed, n, workers,
++                    )
+         except concurrent.futures.TimeoutError:
+             # The wall fired before every worker joined. Drain any future that DID finish (so a real
+             # verdict or a real BudgetExceededError is never lost); the rest are filled with priors below.
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index b9694522..8f03889a 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -9114,22 +9114,58 @@ async def generate_multi_section_report(
+             # hard wall (the always-release degrade path below remains the safety net). The pass
+             # is ADVISORY — strict_verify / NLI / 4-role D8 / span-grounding are untouched.
+             _cred_pass_wall_s = float(os.getenv("PG_CREDIBILITY_PASS_WALL_S", "1200"))
++            # I-deepfix-001 (box2 SPEED fix): for the DURATION of this advisory pass ONLY, raise the
++            # shared side-judge concurrency cap to PG_CREDIBILITY_PASS_SIDE_JUDGE_CONCURRENCY so BOTH
++            # legs (the ~999 credibility-scorer POSTs AND the basket-member entailment verify POSTs,
++            # each throttled by acquire_judge_slot) clear in a commercial window instead of grinding at
++            # the composition-time cap (which stays put, protecting the composition entailment burst).
++            # Unset/0 => no override => byte-identical. Transport-only; no gate/verdict touched.
++            from ..llm.judge_concurrency import credibility_pass_concurrency as _cred_pass_concurrency
++            _cred_phase_c_raw = os.getenv("PG_CREDIBILITY_PASS_SIDE_JUDGE_CONCURRENCY", "").strip()
+             try:
+-                credibility_analysis = await asyncio.wait_for(
+-                    asyncio.to_thread(
+-                        _credibility_pass.run_credibility_analysis,
+-                        research_question, list(evidence_pool.values()),
+-                        # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
+-                        # (in scope as generate_multi_section_report's `domain` param) so the
+-                        # claim graph's fail-closed dispatch can consolidate equal clinical atoms
+-                        # instead of singleton-ing every claim (domain=None made consolidation
+-                        # INERT). ``domain or None`` normalizes the '' default back to today's
+-                        # None when unset.
+-                        gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
+-                        judge=credibility_pass_judge,
+-                    ),
+-                    timeout=_cred_pass_wall_s,
+-                )
++                _cred_phase_c = int(_cred_phase_c_raw) if _cred_phase_c_raw else 0
++            except ValueError:
++                _cred_phase_c = 0
++            # I-deepfix-001 BANK-BEFORE-WALL (drb_72 box1 canary rc=1 root fix): a SOFT deadline
++            # INSIDE the hard wall, threaded into the pass so it RETURNS a real CredibilityAnalysis
++            # (verified verdicts BANKED, the rest disclosed verification-unavailable) BEFORE the
++            # all-or-nothing asyncio.wait_for below can discard the whole analysis. Box1 proved the
++            # discard path: a rich corpus (1061 sources / ~999 members) overran the force-pinned
++            # 3000s wall -> credibility_analysis=None -> the unbound-SUPPORTS basket was never
++            # computed -> the "Corroborated Weighted Findings" breadth layer VANISHED from report.md
++            # (the §-1.3 funnel silently reasserting) -> breadth-enrichment canary rc=1. With the
++            # bank, a slow-but-healthy pass surfaces the corroboration layer from whatever verified
++            # in time; the wait_for wall remains ONLY as the hang backstop (asyncio.to_thread is not
++            # cancellable). LAW VI: fraction env-driven; bad values fall back. Faithfulness-neutral:
++            # the pass stays ADVISORY — banked members carry genuine ENFORCE-entailment verdicts,
++            # skipped members can only UNDERCOUNT (never surface); strict_verify / NLI / 4-role D8 /
++            # span-grounding are untouched.
++            try:
++                _cred_bank_frac = float(os.getenv("PG_CREDIBILITY_PASS_BANK_FRAC", "0.85"))
++            except (TypeError, ValueError):
++                _cred_bank_frac = 0.85
++            if not (0.0 < _cred_bank_frac < 1.0):
++                _cred_bank_frac = 0.85
++            _cred_bank_deadline = time.monotonic() + _cred_pass_wall_s * _cred_bank_frac
++            try:
++                with _cred_pass_concurrency(_cred_phase_c):
++                    credibility_analysis = await asyncio.wait_for(
++                        asyncio.to_thread(
++                            _credibility_pass.run_credibility_analysis,
++                            research_question, list(evidence_pool.values()),
++                            # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
++                            # (in scope as generate_multi_section_report's `domain` param) so the
++                            # claim graph's fail-closed dispatch can consolidate equal clinical atoms
++                            # instead of singleton-ing every claim (domain=None made consolidation
++                            # INERT). ``domain or None`` normalizes the '' default back to today's
++                            # None when unset.
++                            gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
++                            judge=credibility_pass_judge,
++                            # BANK-BEFORE-WALL: return-with-banked-verdicts BEFORE the hard wall.
++                            deadline_monotonic=_cred_bank_deadline,
++                        ),
++                        timeout=_cred_pass_wall_s,
++                    )
+             except (asyncio.TimeoutError, _credibility_pass.CredibilityPassError) as _cred_exc:
+                 # B5/B7: "nothing shall hold the report". The credibility pass is ADVISORY (strict_verify
+                 # + 4-role D8 stay the ONLY binding gates). A side-judge failure (judge_error /
+diff --git a/src/polaris_graph/llm/judge_concurrency.py b/src/polaris_graph/llm/judge_concurrency.py
+index 00a7d161..6041d5b8 100644
+--- a/src/polaris_graph/llm/judge_concurrency.py
++++ b/src/polaris_graph/llm/judge_concurrency.py
+@@ -58,14 +58,38 @@ _LOCK = threading.Lock()
+ _SEMAPHORE: threading.BoundedSemaphore | None = None
+ _SEMAPHORE_BOUND: int | None = None
+ 
++# I-deepfix-001 (box2 credibility-pass SPEED fix): a PROCESS-GLOBAL, thread-safe PHASE OVERRIDE. When
++# set (> 0) it REPLACES the env-resolved cap for the DURATION of a wrapped phase — used to raise the
++# side-judge concurrency ONLY while the advisory credibility pass runs (both its legs: the credibility
++# scorer AND the basket-member entailment verify go through ``acquire_judge_slot``), leaving the
++# composition-time entailment cap at its protected env value. Default None => no override => the env
++# path below is byte-identical. Set/cleared by ``credibility_pass_concurrency`` around the pass; on the
++# one-query-per-VM model no two passes overlap in a process.
++_OVERRIDE_LOCK = threading.Lock()
++_CONCURRENCY_OVERRIDE: int | None = None
++
++
++class JudgeSlotTimeout(RuntimeError):
++    """Raised by ``acquire_judge_slot(timeout=…)`` when a slot is not admitted within the deadline.
++
++    A wedged slot-holder (e.g. the documented GIL/fut.result stall) can no longer freeze the run: an
++    ADVISORY caller (the credibility judge) catches this and degrades THAT row to a disclosed
++    ``judge_error`` priors fallback. Binding callers that pass no timeout are unaffected (default
++    ``None`` == the pre-fix unbounded acquire)."""
+ 
+-def resolve_max_concurrency() -> int:
+-    """Resolve the configured in-flight side-judge cap from ``PG_SIDE_JUDGE_MAX_CONCURRENCY``.
+ 
+-    Returns the cap ``N >= 1`` when bounded, or ``0`` for UNBOUNDED (the explicit ``"0"`` escape
+-    hatch). Unset -> ``DEFAULT_MAX_CONCURRENCY``. A negative or malformed value -> ``DEFAULT_MAX_
+-    CONCURRENCY`` (a typo must not silently disable the de-storm). Never raises (a transport-config
+-    read must not break the judge)."""
++def resolve_max_concurrency() -> int:
++    """Resolve the configured in-flight side-judge cap.
++
++    Precedence: an active ``credibility_pass_concurrency`` PHASE OVERRIDE (> 0) wins; otherwise the
++    env ``PG_SIDE_JUDGE_MAX_CONCURRENCY``. Returns the cap ``N >= 1`` when bounded, or ``0`` for
++    UNBOUNDED (the explicit ``"0"`` escape hatch). Unset -> ``DEFAULT_MAX_CONCURRENCY``. A negative or
++    malformed value -> ``DEFAULT_MAX_CONCURRENCY`` (a typo must not silently disable the de-storm).
++    Never raises (a transport-config read must not break the judge)."""
++    with _OVERRIDE_LOCK:
++        override = _CONCURRENCY_OVERRIDE
++    if override is not None and override > 0:
++        return override
+     raw = os.environ.get(ENV_SIDE_JUDGE_MAX_CONCURRENCY, "").strip()
+     if raw == "":
+         return DEFAULT_MAX_CONCURRENCY
+@@ -80,6 +104,36 @@ def resolve_max_concurrency() -> int:
+     return n
+ 
+ 
++@contextlib.contextmanager
++def credibility_pass_concurrency(bound: int | None):
++    """Temporarily REPLACE the side-judge concurrency cap for the wrapped block (the credibility pass).
++
++    ``bound`` <= 0 / None => no override (byte-identical: the env cap governs). ``bound`` >= 1 raises
++    the effective cap to exactly ``bound`` for the DURATION of the block — every ``acquire_judge_slot``
++    call on any thread reads it via ``resolve_max_concurrency``. Restores the prior value on EVERY exit
++    (success or exception). Faithfulness-neutral: it changes only HOW MANY advisory/entailment POSTs are
++    admitted at once during this ONE phase; it never touches the model, prompt, verdict, or gate. Leaves
++    the composition-time side-judge cap (the env value) untouched, so the storm protection there holds.
++    The (re)built semaphore is swapped atomically per ``_get_semaphore``; in-flight holders release the
++    object they acquired, so a mid-flight bound change never corrupts a live acquire."""
++    global _CONCURRENCY_OVERRIDE
++    try:
++        n = int(bound) if bound is not None else 0
++    except (TypeError, ValueError):
++        n = 0
++    if n <= 0:
++        yield
++        return
++    with _OVERRIDE_LOCK:
++        prev = _CONCURRENCY_OVERRIDE
++        _CONCURRENCY_OVERRIDE = n
++    try:
++        yield
++    finally:
++        with _OVERRIDE_LOCK:
++            _CONCURRENCY_OVERRIDE = prev
++
++
+ def _get_semaphore(bound: int) -> threading.BoundedSemaphore:
+     """Return the process-global ``BoundedSemaphore`` for ``bound`` (>= 1), rebuilding it iff the
+     resolved bound changed since the last call. In production the bound is constant so the semaphore
+@@ -94,20 +148,34 @@ def _get_semaphore(bound: int) -> threading.BoundedSemaphore:
+ 
+ 
+ @contextlib.contextmanager
+-def acquire_judge_slot():
++def acquire_judge_slot(timeout: float | None = None):
+     """Admit at most ``resolve_max_concurrency()`` side-judge provider POSTs concurrently.
+ 
+     Wrap the blocking provider POST in ``with acquire_judge_slot():``. When the cap is ``0``
+     (unbounded escape hatch) this is a no-op — byte-identical to the pre-fix path. Otherwise it
+     acquires one slot of the shared process-global bounded semaphore for the duration of the POST and
+     releases it on EVERY exit path (success, timeout, or exception), so a hung/timed-out call frees
+-    its slot when its total-deadline force-closes it. TRANSPORT-ONLY: it never touches the verdict."""
++    its slot when its total-deadline force-closes it. TRANSPORT-ONLY: it never touches the verdict.
++
++    ``timeout`` (I-deepfix-001 box2 fix): when a positive deadline is supplied and no slot is admitted
++    within it, raise ``JudgeSlotTimeout`` BEFORE the POST (nothing acquired => nothing released). This
++    is the graceful-degrade path for the ADVISORY credibility judge: a wedged slot-holder can no longer
++    strangle the run — the timed-out row falls back to a disclosed ``judge_error`` prior. ``None`` (the
++    default, used by every binding caller) keeps the pre-fix UNBOUNDED acquire, byte-identical."""
+     bound = resolve_max_concurrency()
+     if bound <= 0:
+         yield
+         return
+     sem = _get_semaphore(bound)
+-    sem.acquire()
++    if timeout is not None and timeout > 0:
++        if not sem.acquire(timeout=timeout):
++            raise JudgeSlotTimeout(
++                f"side-judge slot not admitted within {timeout:g}s (cap={bound}) — degrading this "
++                "advisory judge call to a disclosed judge_error prior so a wedged slot-holder can "
++                "never freeze the run (transport-only; no verdict/gate touched)"
++            )
++    else:
++        sem.acquire()
+     try:
+         yield
+     finally:
+diff --git a/src/polaris_graph/synthesis/credibility_pass.py b/src/polaris_graph/synthesis/credibility_pass.py
+index 8598490f..30fcc365 100644
+--- a/src/polaris_graph/synthesis/credibility_pass.py
++++ b/src/polaris_graph/synthesis/credibility_pass.py
+@@ -35,6 +35,7 @@ from __future__ import annotations
+ 
+ import dataclasses
+ import os
++import time
+ from dataclasses import dataclass, field
+ from typing import Any, Callable
+ 
+@@ -89,6 +90,33 @@ def basket_consume_finding_dedup_enabled() -> bool:
+ _ENV_PASS_MAX_INFLIGHT = "PG_CREDIBILITY_PASS_MAX_INFLIGHT"
+ _DEFAULT_PASS_MAX_INFLIGHT = 1
+ 
++# I-deepfix-001 BANK-BEFORE-WALL (#1264 follow-up): when the caller threads a soft deadline, the
++# fraction of the REMAINING budget granted to phase A (P2 source scoring) — the rest is reserved for
++# the per-member basket verifies (phase B, the leg that feeds the SUPPORTS baskets / the breadth
++# enrichment). Without this split, phase A could consume the entire budget and phase B would bank
++# ZERO verified members => the corroboration layer still empties (the exact drb_72 box1 defect
++# reappearing one phase later). LAW VI: env-overridable; a bad value falls back to the default.
++_ENV_PHASE_A_BUDGET_FRAC = "PG_CREDIBILITY_PASS_PHASE_A_FRAC"
++_DEFAULT_PHASE_A_BUDGET_FRAC = 0.5
++# Floor on any phase budget (seconds) so a near-expired deadline still lets a few members bank
++# rather than sentinel-filling everything on arrival.
++_MIN_PHASE_BUDGET_S = 60.0
++
++
++def _phase_a_budget_frac() -> float:
++    """The phase-A share of the remaining soft-deadline budget, in (0, 1). Bad/out-of-range env
++    values fall back to the default (fail-safe: the split must always leave phase B a share)."""
++    raw = os.environ.get(_ENV_PHASE_A_BUDGET_FRAC, "").strip()
++    if not raw:
++        return _DEFAULT_PHASE_A_BUDGET_FRAC
++    try:
++        val = float(raw)
++    except (TypeError, ValueError):
++        return _DEFAULT_PHASE_A_BUDGET_FRAC
++    if not (0.0 < val < 1.0):
++        return _DEFAULT_PHASE_A_BUDGET_FRAC
++    return val
++
+ 
+ def _pass_max_inflight() -> int:
+     """The bounded per-member verify concurrency (LAW VI). 1 (default) ⇒ the serial path is taken
+@@ -389,15 +417,15 @@ class BasketMember:
+     # (genuine-gap) value. Read ONLY by the ARM-B degraded-verify disclosure to separate a transient
+     # judge OUTAGE from a genuine evidence gap; never rendered, never counted as support.
+     entailment_judge_unavailable: bool = False
+-    # I-deepfix-001 COV-DECHROME-BASKETS (#1344): True iff this member's claim-local span
+-    # (``direct_quote``) is page furniture / a dead-fetch shell / a truncated fragment, per the SAME
+-    # shared render-seam predicate the basket-build chrome screen already runs. Default False so any
+-    # legacy constructor that omits it is the safe (not-chrome) value. The downstream cross-source
+-    # (``depth_synthesis``) member selection reads this DURABLE flag to hold a chrome member OUT of the
+-    # corroboration set BEFORE the eligibility gate (the coverage forensic root: chrome member spans
+-    # collapsed the depth pre-pass 3->0 and killed the one cross-source pair). Never rendered, never
+-    # counted as support, never a faithfulness verdict; the member itself is KEPT (§-1.3 no-drop).
+-    span_is_chrome: bool = False
++    # I-deepfix-001 COV-DECHROME-BASKETS (#1344): True iff this member's claim-local span
++    # (``direct_quote``) is page furniture / a dead-fetch shell / a truncated fragment, per the SAME
++    # shared render-seam predicate the basket-build chrome screen already runs. Default False so any
++    # legacy constructor that omits it is the safe (not-chrome) value. The downstream cross-source
++    # (``depth_synthesis``) member selection reads this DURABLE flag to hold a chrome member OUT of the
++    # corroboration set BEFORE the eligibility gate (the coverage forensic root: chrome member spans
++    # collapsed the depth pre-pass 3->0 and killed the one cross-source pair). Never rendered, never
++    # counted as support, never a faithfulness verdict; the member itself is KEPT (§-1.3 no-drop).
++    span_is_chrome: bool = False
+ 
+ 
+ @dataclass
+@@ -609,11 +637,22 @@ def _verify_member_in_isolation(
+     return _classify_member_tier(result)
+ 
+ 
++# I-deepfix-001 BANK-BEFORE-WALL (#1264 follow-up, drb_72 box1 canary rc=1): the sentinel verdict a
++# member receives when the pass's soft deadline expires BEFORE its isolated verify ran. Conservative
++# by direction — "UNSUPPORTED" can only UNDERCOUNT corroboration (the member never joins a SUPPORTS
++# basket, never surfaces, never inflates breadth); ``judge_unavailable=True`` is the existing durable
++# verification-unavailable label (Wave-3 P1b) so the skip is DISCLOSED, never silent. The members
++# verified BEFORE the deadline keep their genuine ENFORCE-entailment verdicts and are BANKED — the
++# frozen faithfulness engine (verify_fn) is called-not-edited and never re-run as a gate.
++_DEADLINE_SKIP_VERDICT = ("UNSUPPORTED", MEMBER_TIER_UNVERIFIED, True)
++
++
+ def _run_member_verifies(
+     tasks: list[tuple[str, dict]],
+     *,
+     verify_fn: Callable,
+     max_inflight: int,
++    deadline_monotonic: float | None = None,
+ ) -> list[tuple[str, str, bool]]:
+     """Run the per-member isolated verifies for ``tasks`` and return their verdicts IN ORDER.
+ 
+@@ -644,14 +683,38 @@ def _run_member_verifies(
+ 
+     This is ADVISORY — ``_verify_member_in_isolation`` is never re-run as a gate, and parallelism
+     changes WALL-CLOCK only, never any verdict.
++
++    ``deadline_monotonic`` (I-deepfix-001 BANK-BEFORE-WALL): an OPTIONAL ``time.monotonic()``
++    deadline. When it expires mid-pass, the verdicts computed SO FAR are BANKED verbatim and every
++    not-yet-verified member gets ``_DEADLINE_SKIP_VERDICT`` (disclosed verification-unavailable —
++    an UNDERCOUNT-only degrade, mirroring ``credibility_skill``'s proven priors-fill wall pattern).
++    The drb_72 box1 defect this fixes: this loop had NO deadline, so the CALLER's all-or-nothing
++    ``asyncio.wait_for`` wall discarded the ENTIRE analysis (baskets included) on a rich corpus and
++    the "Corroborated Weighted Findings" breadth layer silently vanished from report.md (§-1.3
++    funnel reassertion; breadth-enrichment canary rc=1). ``None`` (every legacy caller/test) =>
++    byte-identical unbounded behavior.
+     """
+     n = len(tasks)
+     if max_inflight <= 1 or n <= 1:
+-        # SERIAL fast path (default / single task): byte-identical to the pre-1b inline loop.
+-        return [
+-            _verify_member_in_isolation(claim_text, member_row, verify_fn=verify_fn)
+-            for claim_text, member_row in tasks
+-        ]
++        # SERIAL fast path (default / single task): byte-identical to the pre-1b inline loop when no
++        # deadline is threaded; with a deadline, bank the verified prefix + sentinel-fill the rest.
++        serial_results: list[tuple[str, str, bool]] = []
++        for _i, (claim_text, member_row) in enumerate(tasks):
++            if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
++                import logging as _logging  # noqa: PLC0415
++                _logging.getLogger(__name__).warning(
++                    "[credibility-pass] BANK-BEFORE-WALL: member-verify soft deadline expired at "
++                    "%d/%d (serial); BANKING the %d verified verdict(s) and filling the remaining %d "
++                    "with the disclosed verification-unavailable sentinel (UNDERCOUNT-only; the "
++                    "banked SUPPORTS members still surface the breadth layer — never discarded).",
++                    _i, n, _i, n - _i,
++                )
++                serial_results.extend([_DEADLINE_SKIP_VERDICT] * (n - _i))
++                break
++            serial_results.append(
++                _verify_member_in_isolation(claim_text, member_row, verify_fn=verify_fn)
++            )
++        return serial_results
+ 
+     import concurrent.futures  # noqa: PLC0415 (lazy: zero cost on the serial default path)
+     import contextvars  # noqa: PLC0415
+@@ -674,21 +737,61 @@ def _run_member_verifies(
+ 
+     results: list[tuple[str, str, bool] | None] = [None] * n
+     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_inflight)
++    deadline_expired = False
+     try:
+         futures = [
+             pool.submit(_verify_one, i, claim_text, member_row, contextvars.copy_context())
+             for i, (claim_text, member_row) in enumerate(tasks)
+         ]
+-        for future in concurrent.futures.as_completed(futures):
+-            idx, verdict, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
+-            results[idx] = verdict
+-            _add_run_cost(delta)   # thread the per-member spend into the single run counter (no lost ticks)
+-            check_run_budget(0)    # raises BudgetExceededError -> bounded overspend (~max_inflight in flight)
++        # I-deepfix-001 BANK-BEFORE-WALL: bound the join by the remaining soft-deadline budget (None =>
++        # unbounded, byte-identical). Mirrors credibility_skill._judge_rows_pooled's PROVEN
++        # as_completed(timeout=...)-then-drain wall pattern — bank what finished, never discard.
++        _join_timeout: float | None = None
++        if deadline_monotonic is not None:
++            _join_timeout = max(0.001, deadline_monotonic - time.monotonic())
++        try:
++            for future in concurrent.futures.as_completed(futures, timeout=_join_timeout):
++                idx, verdict, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
++                results[idx] = verdict
++                _add_run_cost(delta)   # thread the per-member spend into the single run counter (no lost ticks)
++                check_run_budget(0)    # raises BudgetExceededError -> bounded overspend (~max_inflight in flight)
++        except concurrent.futures.TimeoutError:
++            # The soft deadline fired before every member verified. Drain any future that DID finish
++            # (a real verdict / a real BudgetExceededError is never lost), then sentinel-fill the rest
++            # below. The banked SUPPORTS verdicts keep the corroboration/breadth layer ALIVE — the
++            # all-or-nothing discard (the drb_72 box1 rc=1 root cause) is structurally gone.
++            deadline_expired = True
++            for _i, future in enumerate(futures):
++                if results[_i] is not None or not future.done():
++                    continue
++                try:
++                    idx, verdict, delta = future.result()
++                except BudgetExceededError:
++                    raise  # a real cap breach MUST still abort the sweep, even on the deadline path
++                except Exception:  # noqa: BLE001 — a genuinely-failed worker takes the sentinel below
++                    continue
++                results[idx] = verdict
++                _add_run_cost(delta)
++                check_run_budget(0)  # enforce the aggregate cap on the drain path too (fail-closed)
+     except BaseException:
+         pool.shutdown(wait=False, cancel_futures=True)
+         raise
+     else:
+-        pool.shutdown(wait=True)
++        # Deadline path: don't block on still-running verifies (wait=False) and cancel the queued
++        # ones; the healthy path joins normally (wait=True). Orphaned worker cost ticks are recovered
++        # by the caller's process-global ledger reconcile (multi_section_generator's finally block).
++        pool.shutdown(wait=not deadline_expired, cancel_futures=deadline_expired)
++    if deadline_expired:
++        _banked = sum(1 for v in results if v is not None)
++        import logging as _logging  # noqa: PLC0415
++        _logging.getLogger(__name__).warning(
++            "[credibility-pass] BANK-BEFORE-WALL: member-verify soft deadline expired with %d/%d "
++            "verified; BANKING the verified verdicts and filling the remaining %d with the disclosed "
++            "verification-unavailable sentinel (UNDERCOUNT-only; banked SUPPORTS members still "
++            "surface the breadth layer — the analysis is never discarded).",
++            _banked, n, n - _banked,
++        )
++        return [v if v is not None else _DEADLINE_SKIP_VERDICT for v in results]
+     for i, verdict in enumerate(results):
+         if verdict is None:
+             raise CredibilityPassError(
+@@ -698,21 +801,21 @@ def _run_member_verifies(
+     return [v for v in results if v is not None]
+ 
+ 
+-def _emit_basket_consume_marker(regrouped: int, *, noop: bool) -> None:
+-    """I-deepfix-001 Wave-3a (#1344): the HOP-A basket-consume ACTIVATION fire marker. Emitted ONLY when
+-    PG_BASKET_CONSUME_FINDING_DEDUP is ON so the OFF path (this whole regroup is skipped at the caller)
+-    stays byte-identical — the run_log carries no ``[activation]`` line. ``noop=True`` is the silent-no-op
+-    the routing proof flagged (the function returned the input graph UNCHANGED). Structural presence +
+-    count, never a threshold (§-1.3). Side-effect only; the returned graph is byte-untouched."""
+-    if not basket_consume_finding_dedup_enabled():
+-        return
+-    import logging as _logging  # noqa: PLC0415
+-    _logging.getLogger(__name__).info(
+-        "[activation] basket_consume_finding_dedup: regrouped old_to_new=%d noop=%s",
+-        int(regrouped), bool(noop),
+-    )
+-
+-
++def _emit_basket_consume_marker(regrouped: int, *, noop: bool) -> None:
++    """I-deepfix-001 Wave-3a (#1344): the HOP-A basket-consume ACTIVATION fire marker. Emitted ONLY when
++    PG_BASKET_CONSUME_FINDING_DEDUP is ON so the OFF path (this whole regroup is skipped at the caller)
++    stays byte-identical — the run_log carries no ``[activation]`` line. ``noop=True`` is the silent-no-op
++    the routing proof flagged (the function returned the input graph UNCHANGED). Structural presence +
++    count, never a threshold (§-1.3). Side-effect only; the returned graph is byte-untouched."""
++    if not basket_consume_finding_dedup_enabled():
++        return
++    import logging as _logging  # noqa: PLC0415
++    _logging.getLogger(__name__).info(
++        "[activation] basket_consume_finding_dedup: regrouped old_to_new=%d noop=%s",
++        int(regrouped), bool(noop),
++    )
++
++
+ def _regroup_graph_by_finding_dedup(
+     graph: Any,
+     annotated: list[dict],
+@@ -751,7 +854,7 @@ def _regroup_graph_by_finding_dedup(
+ 
+     claims = list(getattr(graph, "claims", None) or [])
+     if not claims:
+-        _emit_basket_consume_marker(0, noop=True)
++        _emit_basket_consume_marker(0, noop=True)
+         return graph
+ 
+     # claim_graph emits AT MOST ONE numeric AtomicClaim per evidence_id (extract_numeric_claims emits
+@@ -869,7 +972,7 @@ def _regroup_graph_by_finding_dedup(
+ 
+     if not old_to_new:
+         # No merge happened (e.g. finding_dedup found nothing to group) -> the legacy grouping stands.
+-        _emit_basket_consume_marker(0, noop=True)
++        _emit_basket_consume_marker(0, noop=True)
+         return graph
+ 
+     # ── Remap edges so a refuter reference still lands on the MERGED cluster id (never hide a
+@@ -883,7 +986,7 @@ def _regroup_graph_by_finding_dedup(
+         }))
+         new_edges.append(dataclasses.replace(edge, claim_cluster_ids=ids))
+ 
+-    _emit_basket_consume_marker(len(old_to_new), noop=False)
++    _emit_basket_consume_marker(len(old_to_new), noop=False)
+     return dataclasses.replace(
+         graph,
+         claims=claims,
+@@ -901,6 +1004,7 @@ def _assemble_baskets(
+     *,
+     verify_fn: Callable,
+     max_inflight: int = _DEFAULT_PASS_MAX_INFLIGHT,
++    deadline_monotonic: float | None = None,
+ ) -> list:
+     """Assemble one ClaimBasket per claim cluster (design §5/§6).
+ 
+@@ -967,6 +1071,7 @@ def _assemble_baskets(
+     # SAME order the serial loop computed them — verdict-identical, only faster.
+     verdicts = _run_member_verifies(
+         verify_tasks, verify_fn=verify_fn, max_inflight=max_inflight,
++        deadline_monotonic=deadline_monotonic,
+     )
+     _verdict_cursor = 0
+ 
+@@ -1007,12 +1112,12 @@ def _assemble_baskets(
+             # additive seam stored on the member for the I-arch-011 keep-with-labels layer.
+             verdict, member_tier, judge_unavailable = verdicts[_verdict_cursor]
+             _verdict_cursor += 1
+-            # I-deepfix-001 COV-DECHROME-BASKETS (#1344): the per-member chrome flag, computed in the
+-            # SUPPORTS branch below and carried DURABLY onto the member so the downstream cross-source
+-            # (``depth_synthesis``) member selection can hold it out of the corroboration set BEFORE the
+-            # eligibility gate. Reset per member; stays False for a non-SUPPORTS member (only isolated-
+-            # SUPPORTS members flow to the cross-source synthesis, so no others need the flag).
+-            _span_is_chrome = False
++            # I-deepfix-001 COV-DECHROME-BASKETS (#1344): the per-member chrome flag, computed in the
++            # SUPPORTS branch below and carried DURABLY onto the member so the downstream cross-source
++            # (``depth_synthesis``) member selection can hold it out of the corroboration set BEFORE the
++            # eligibility gate. Reset per member; stays False for a non-SUPPORTS member (only isolated-
++            # SUPPORTS members flow to the cross-source synthesis, so no others need the flag).
++            _span_is_chrome = False
+             if verdict == "SUPPORTS":
+                 # I-deepfix-001 F1-STRUCTURAL (#1344): screen the member's claim-local span AND the
+                 # cluster claim_text through the shared render-seam predicate before crediting the
+@@ -1049,15 +1154,15 @@ def _assemble_baskets(
+                     # still appended below (kept). Not "all verified" since this span is not genuine
+                     # renderable verified support (basket_verdict is a display LABEL, never a gate).
+                     all_verified = False
+-                    # I-deepfix-001 COV-DECHROME-BASKETS (#1344): LOUD per-basket disclosure — the
+-                    # coverage forensic flagged these chrome exclusions were SILENT, forcing manual
+-                    # reconstruction. The member is KEPT in the basket (§-1.3 no-drop); only its chrome
+-                    # span is held out of the corroboration count + the downstream cross-source set.
+-                    import logging as _logging  # noqa: PLC0415
+-                    _logging.getLogger(__name__).info(
+-                        "[credibility-pass] basket %s: SUPPORTS member held out of corroboration: "
+-                        "chrome span (eid=%s)", cluster_id, eid,
+-                    )
++                    # I-deepfix-001 COV-DECHROME-BASKETS (#1344): LOUD per-basket disclosure — the
++                    # coverage forensic flagged these chrome exclusions were SILENT, forcing manual
++                    # reconstruction. The member is KEPT in the basket (§-1.3 no-drop); only its chrome
++                    # span is held out of the corroboration count + the downstream cross-source set.
++                    import logging as _logging  # noqa: PLC0415
++                    _logging.getLogger(__name__).info(
++                        "[credibility-pass] basket %s: SUPPORTS member held out of corroboration: "
++                        "chrome span (eid=%s)", cluster_id, eid,
++                    )
+                 else:
+                     verified_any = True
+                     verified_origin_ids.add(origin_id)
+@@ -1080,11 +1185,11 @@ def _assemble_baskets(
+                 # I-deepfix-001 Wave-3 P1b (#1344): the durable judge-outage signal for this member
+                 # (True only when DETERMINISTIC_ONLY BECAUSE the judge errored/timed out this run).
+                 entailment_judge_unavailable=judge_unavailable,
+-                # I-deepfix-001 COV-DECHROME-BASKETS (#1344): the durable chrome-span flag (True iff
+-                # this member's claim-local span is page furniture / a dead-fetch shell). The downstream
+-                # cross-source member selection reads it to hold the member out of the corroboration set
+-                # BEFORE eligibility. Never rendered, never a faithfulness verdict; the member is KEPT.
+-                span_is_chrome=_span_is_chrome,
++                # I-deepfix-001 COV-DECHROME-BASKETS (#1344): the durable chrome-span flag (True iff
++                # this member's claim-local span is page furniture / a dead-fetch shell). The downstream
++                # cross-source member selection reads it to hold the member out of the corroboration set
++                # BEFORE eligibility. Never rendered, never a faithfulness verdict; the member is KEPT.
++                span_is_chrome=_span_is_chrome,
+             ))
+ 
+         refuter_ids = tuple(sorted(refuters_by_cluster.get(cluster_id, set())))
+@@ -1132,6 +1237,7 @@ def run_credibility_analysis(
+     judge: Callable | None = None,
+     now_year: int | None = None,
+     max_inflight: int | None = None,
++    deadline_monotonic: float | None = None,
+ ) -> CredibilityAnalysis:
+     """Run the P4→P3→P2→P5→P6 chain over the EFFECTIVE evidence pool.
+ 
+@@ -1150,6 +1256,13 @@ def run_credibility_analysis(
+     ``_assemble_baskets`` (LAW VI). ``None`` (the default) reads the ``PG_CREDIBILITY_PASS_MAX_INFLIGHT``
+     env knob, which itself defaults to 1 = the byte-identical SERIAL path. The bound changes WALL-CLOCK
+     only — the per-member verdicts and the resulting baskets are identical to the serial pass.
++
++    ``deadline_monotonic`` (I-deepfix-001 BANK-BEFORE-WALL): an OPTIONAL ``time.monotonic()`` soft
++    deadline the caller sets INSIDE its own hard wall. The chain budgets it across the two LLM-bound
++    phases (P2 source scoring / per-member basket verifies) so the pass RETURNS a real
++    ``CredibilityAnalysis`` — with every verdict computed so far BANKED and the rest disclosed
++    verification-unavailable — BEFORE the caller's all-or-nothing wall can discard the whole analysis.
++    ``None`` (every legacy caller) => byte-identical unbounded behavior.
+     """
+     if max_inflight is None:
+         max_inflight = _pass_max_inflight()
+@@ -1174,7 +1287,7 @@ def run_credibility_analysis(
+         return _run_chain(
+             research_question, rows,
+             gov_suffixes=gov_suffixes, domain=domain, judge=judge, now_year=now_year,
+-            max_inflight=max_inflight,
++            max_inflight=max_inflight, deadline_monotonic=deadline_monotonic,
+         )
+     except (CredibilityPassError, BudgetExceededError):
+         # CredibilityPassError = fail-loud abort; BudgetExceededError (Codex #012a P1-2) must reach the
+@@ -1196,6 +1309,7 @@ def _run_chain(
+     judge: Callable | None,
+     now_year: int | None,
+     max_inflight: int = _DEFAULT_PASS_MAX_INFLIGHT,
++    deadline_monotonic: float | None = None,
+ ) -> CredibilityAnalysis:
+     """The P4→P3→P2→P5→P6 chain body; wrapped by run_credibility_analysis for the fail-loud posture."""
+     # ── I-deepfix-001 B9(a): join a deterministic tier-authority prior onto any row missing an
+@@ -1248,7 +1362,19 @@ def _run_chain(
+     # at all — is still fail-loud, caught downstream by ``apply_disclosure_to_svs``'s coverage
+     # assertion; that is a real coverage gap, NOT a recoverable infra condition.)
+     judge_missing = judge is None
+-    judgments = score_source_credibility(research_question, annotated, domain=domain, judge=judge)
++    # I-deepfix-001 BANK-BEFORE-WALL: budget phase A (P2 source scoring) to a FRACTION of the
++    # remaining soft-deadline budget so phase B (the per-member basket verifies that feed the
++    # SUPPORTS baskets / breadth enrichment) is GUARANTEED a share. score_source_credibility takes
++    # min(env pool wall, this budget) and already partial-banks at its wall (drain + priors-fill,
++    # never a discard). None deadline (legacy) => None budget => env-only, byte-identical.
++    _phase_a_wall_s: float | None = None
++    if deadline_monotonic is not None:
++        _remaining_s = deadline_monotonic - time.monotonic()
++        _phase_a_wall_s = max(_MIN_PHASE_BUDGET_S, _remaining_s * _phase_a_budget_frac())
++    judgments = score_source_credibility(
++        research_question, annotated, domain=domain, judge=judge,
++        pool_wall_s=_phase_a_wall_s,
++    )
+     errored_ids = {j.evidence_id for j in judgments if getattr(j, "judge_error", False)}
+     if errored_ids:
+         example = sorted(errored_ids)[:5]
+@@ -1326,6 +1452,10 @@ def _run_chain(
+         graph, weight_mass, annotated, credibility_by_evidence,
+         verify_fn=verify_sentence_provenance,
+         max_inflight=max_inflight,
++        # I-deepfix-001 BANK-BEFORE-WALL: phase B gets the WHOLE remaining budget (phase A was
++        # capped to its fraction above). At expiry the verified prefix is BANKED and the rest is
++        # sentinel-filled (disclosed, UNDERCOUNT-only) — the analysis is returned, never discarded.
++        deadline_monotonic=deadline_monotonic,
+     )
+ 
+     # ── sentence -> claim_cluster_id binding (design §6): evidence_id -> the cluster
+diff --git a/tests/polaris_graph/test_credibility_pass_bank_before_wall.py b/tests/polaris_graph/test_credibility_pass_bank_before_wall.py
+new file mode 100644
+index 00000000..bf40d667
+--- /dev/null
++++ b/tests/polaris_graph/test_credibility_pass_bank_before_wall.py
+@@ -0,0 +1,270 @@
++"""I-deepfix-001 BANK-BEFORE-WALL — the credibility pass BANKS partial verdicts at its soft
++deadline; the all-or-nothing wall discard that emptied the corroboration layer is structurally gone.
++
++drb_72 box1 (commit 9db58130, ``run_gate_b.py --only drb_72_ai_labor``, rc=1): a rich corpus
++(1061 sources / ~999 basket members) overran the force-pinned ``PG_CREDIBILITY_PASS_WALL_S=3000``;
++``asyncio.wait_for`` discarded the WHOLE ``CredibilityAnalysis`` -> ``credibility_analysis=None`` ->
++``weighted_enrichment.diagnose_unbound_supports_selection`` returned
++``reason=credibility_analysis_none`` -> NO "Corroborated Weighted Findings" section in report.md ->
++the breadth-enrichment canary FAILED CLOSED (the §-1.3 funnel silently reasserting).
++
++This suite proves OFFLINE (no network, no model spend), against the REAL production functions:
++  (1) legacy behavior preserved — no deadline => genuine verdicts only, byte-identical paths;
++  (2) the serial AND bounded-parallel member-verify paths BANK the verified prefix at the deadline
++      and sentinel-fill the rest (KEEP-ALL: length preserved, disclosed, nothing raises/discards);
++  (3) the banked SUPPORTS members flow through the REAL enrichment selection + plan builder — the
++      "Corroborated Weighted Findings" SectionPlan IS built (the render precondition);
++  (4) the REAL post-run canary returns "present" on a report carrying the section + a citation and
++      still FAILS CLOSED on the box1 shape (no enrichment heading at all) — fail-closed preserved;
++  (5) the phase-A budget cap: ``score_source_credibility(pool_wall_s=...)`` bounds the join under
++      the caller's budget and priors-fills at the cap (drain-not-discard), so phase B (the leg that
++      feeds the SUPPORTS baskets) is always left a share of the deadline budget.
++
++FAITHFULNESS-NEUTRAL throughout: the verifier is INJECTED (the frozen strict_verify / NLI / 4-role
++engine is never edited, never re-run as a gate); a deadline-skipped member is
++``("UNSUPPORTED", UNVERIFIED, judge_unavailable=True)`` — an UNDERCOUNT-only, disclosed degrade
++that can never surface an unverified claim or inflate corroboration.
++"""
++
++from __future__ import annotations
++
++import json
++import time as real_time
++from types import SimpleNamespace
++
++import pytest
++
++import src.polaris_graph.synthesis.credibility_pass as cp
++from src.polaris_graph.authority.credibility_skill import _judge_rows_pooled
++from src.polaris_graph.generator.weighted_enrichment import (
++    _ENRICHMENT_TITLE,
++    build_weighted_enrichment_plan,
++    diagnose_unbound_supports_selection,
++)
++from src.polaris_graph.generator.multi_section_generator import SectionPlan
++from src.polaris_graph.synthesis.credibility_pass import (
++    _DEADLINE_SKIP_VERDICT,
++    _run_member_verifies,
++    BasketMember,
++    ClaimBasket,
++    CredibilityAnalysis,
++)
++from scripts.dr_benchmark.run_gate_b import (
++    BreadthEnrichmentCanaryError,
++    assert_breadth_enrichment_rendered,
++)
++
++_GENUINE = ("SUPPORTS", "ENTAILMENT_VERIFIED", False)
++
++
++def _tasks(n: int) -> list[tuple[str, dict]]:
++    return [
++        (f"claim text {i}", {"evidence_id": f"ev{i}", "direct_quote": f"span text {i}"})
++        for i in range(n)
++    ]
++
++
++# ── (1) legacy no-deadline paths are unchanged ────────────────────────────────────────────────────
++
++
++def test_no_deadline_serial_all_genuine(monkeypatch):
++    calls = []
++    monkeypatch.setattr(
++        cp, "_verify_member_in_isolation",
++        lambda text, row, *, verify_fn: (calls.append(text) or _GENUINE),
++    )
++    out = _run_member_verifies(_tasks(4), verify_fn=object(), max_inflight=1)
++    assert out == [_GENUINE] * 4
++    assert len(calls) == 4
++
++
++def test_no_deadline_parallel_all_genuine(monkeypatch):
++    monkeypatch.setattr(
++        cp, "_verify_member_in_isolation", lambda text, row, *, verify_fn: _GENUINE,
++    )
++    out = _run_member_verifies(_tasks(5), verify_fn=object(), max_inflight=3)
++    assert out == [_GENUINE] * 5
++    assert _DEADLINE_SKIP_VERDICT not in out
++
++
++# ── (2) deadline paths BANK the verified prefix and sentinel-fill the rest (KEEP-ALL) ─────────────
++
++
++def test_serial_deadline_banks_prefix_and_fills_rest(monkeypatch):
++    """Fake clock: each verify advances 1.0s; deadline at t=2.5 => exactly 3 banked, 2 sentinel."""
++    now = [0.0]
++
++    def _fake_verify(text, row, *, verify_fn):
++        now[0] += 1.0
++        return _GENUINE
++
++    monkeypatch.setattr(cp, "_verify_member_in_isolation", _fake_verify)
++    monkeypatch.setattr(cp, "time", SimpleNamespace(monotonic=lambda: now[0]))
++    out = _run_member_verifies(
++        _tasks(5), verify_fn=object(), max_inflight=1, deadline_monotonic=2.5,
++    )
++    assert len(out) == 5  # KEEP-ALL: every member gets a verdict slot, nothing dropped
++    assert out[:3] == [_GENUINE] * 3  # the verified prefix is BANKED verbatim
++    assert out[3:] == [_DEADLINE_SKIP_VERDICT] * 2  # the rest disclosed, undercount-only
++    assert now[0] == 3.0  # no further verifier work after expiry (no hang, no spend)
++
++
++def test_serial_already_expired_deadline_zero_calls(monkeypatch):
++    calls = []
++    monkeypatch.setattr(
++        cp, "_verify_member_in_isolation",
++        lambda text, row, *, verify_fn: (calls.append(1) or _GENUINE),
++    )
++    monkeypatch.setattr(cp, "time", SimpleNamespace(monotonic=lambda: 100.0))
++    out = _run_member_verifies(
++        _tasks(3), verify_fn=object(), max_inflight=1, deadline_monotonic=1.0,
++    )
++    assert out == [_DEADLINE_SKIP_VERDICT] * 3
++    assert calls == []  # structurally bounded: zero verifier calls after expiry
++
++
++def test_parallel_deadline_banks_completed_and_fills_rest(monkeypatch):
++    """Real clock, generous margins: 2 fast members bank; 4 slow members sentinel-fill at the
++    deadline. Proves the bounded-parallel join banks-then-returns instead of discarding."""
++
++    def _fake_verify(text, row, *, verify_fn):
++        if "slow" in text:
++            real_time.sleep(2.0)
++        return _GENUINE
++
++    monkeypatch.setattr(cp, "_verify_member_in_isolation", _fake_verify)
++    tasks = [
++        ("fast 0", {"evidence_id": "ev0", "direct_quote": "s"}),
++        ("fast 1", {"evidence_id": "ev1", "direct_quote": "s"}),
++        ("slow 2", {"evidence_id": "ev2", "direct_quote": "s"}),
++        ("slow 3", {"evidence_id": "ev3", "direct_quote": "s"}),
++        ("slow 4", {"evidence_id": "ev4", "direct_quote": "s"}),
++        ("slow 5", {"evidence_id": "ev5", "direct_quote": "s"}),
++    ]
++    t0 = real_time.monotonic()
++    out = _run_member_verifies(
++        tasks, verify_fn=object(), max_inflight=2,
++        deadline_monotonic=real_time.monotonic() + 0.6,
++    )
++    elapsed = real_time.monotonic() - t0
++    assert len(out) == 6                      # KEEP-ALL
++    assert out[0] == _GENUINE and out[1] == _GENUINE  # completed verdicts BANKED
++    assert out[2] == _DEADLINE_SKIP_VERDICT   # in-flight/queued at the deadline => sentinel
++    assert out[5] == _DEADLINE_SKIP_VERDICT
++    assert elapsed < 1.9                      # returned at the deadline, not after 2.0s+ of joins
++
++
++# ── (3) banked SUPPORTS members SURFACE the enrichment plan (the render precondition) ─────────────
++
++
++def test_banked_supports_surface_the_enrichment_plan(monkeypatch):
++    """One basket, one member verified BEFORE the deadline (SUPPORTS, banked) and one skipped at
++    the deadline (the sentinel verdict). The REAL selection surfaces the banked member; the REAL
++    plan builder emits the "Corroborated Weighted Findings" SectionPlan — under the old
++    all-or-nothing discard this whole surface was ``credibility_analysis_none``-empty."""
++    monkeypatch.delenv("PG_RELEVANCE_FLOOR", raising=False)
++    banked = BasketMember(
++        evidence_id="ev_banked", source_url="https://journals.example.org/a", source_tier="T2",
++        origin_cluster_id="oc_a", credibility_weight=0.8, authority_score=0.8,
++        span=(0, 30), direct_quote="a verified span of source text",
++        span_verdict="SUPPORTS",
++    )
++    skipped = BasketMember(
++        evidence_id="ev_skipped", source_url="https://journals.example.org/b", source_tier="T2",
++        origin_cluster_id="oc_b", credibility_weight=0.8, authority_score=0.8,
++        span=(0, 30), direct_quote="another span of source text",
++        # the BANK-BEFORE-WALL sentinel shape: UNSUPPORTED + disclosed verification-unavailable
++        span_verdict=_DEADLINE_SKIP_VERDICT[0],
++    )
++    basket = ClaimBasket(
++        claim_cluster_id="clm_1", claim_text="claim text", subject="s", predicate="p",
++        supporting_members=[banked, skipped], refuter_cluster_ids=(),
++        weight_mass=1.0, total_clustered_origin_count=2, verified_support_origin_count=1,
++        basket_verdict="partial",
++    )
++    analysis = CredibilityAnalysis(
++        credibility_by_evidence={}, origin_by_evidence={}, claims=[], edges=[],
++        weight_mass=[], baskets=[basket], cluster_id_by_evidence={},
++    )
++    pool = {
++        "ev_banked": {"evidence_id": "ev_banked", "direct_quote": "a verified span of source text"},
++        "ev_skipped": {"evidence_id": "ev_skipped", "direct_quote": "another span of source text"},
++    }
++    sel = diagnose_unbound_supports_selection(
++        evidence_pool=pool, credibility_analysis=analysis, contract_plans=[],
++    )
++    assert sel.reason == "ok"
++    assert sel.ev_ids == ["ev_banked"]      # the banked member surfaces
++    # the skipped member can only UNDERCOUNT: it is absent from the cite surface, never deleted
++    assert "ev_skipped" in pool
++    plan = build_weighted_enrichment_plan(sel.ev_ids, section_plan_cls=SectionPlan)
++    assert plan is not None
++    assert plan.title == _ENRICHMENT_TITLE  # "Corroborated Weighted Findings" renders
++    assert plan.ev_ids == ["ev_banked"]
++
++
++def test_old_discard_shape_still_diagnosed_empty():
++    """RED shape (box1): credibility_analysis=None (the wall discard) => the selection is EMPTY with
++    the stable reason token — the report then carries NO enrichment heading and the canary fails.
++    This is the exact failure the bank now prevents upstream."""
++    sel = diagnose_unbound_supports_selection(
++        evidence_pool={"ev1": {"evidence_id": "ev1"}}, credibility_analysis=None, contract_plans=[],
++    )
++    assert sel.ev_ids == []
++    assert sel.reason == "credibility_analysis_none"
++    assert build_weighted_enrichment_plan(sel.ev_ids, section_plan_cls=SectionPlan) is None
++
++
++# ── (4) the REAL canary: present on the fixed shape, fail-closed on the box1 shape ────────────────
++
++
++def _summary(run_dir) -> dict:
++    return {"status": "success", "run_dir": str(run_dir), "manifest": {}}
++
++
++def test_canary_present_when_enrichment_section_renders(tmp_path):
++    (tmp_path / "report.md").write_text(
++        "# Research report: q\n\n## Key Findings\n\nbody [1]\n\n"
++        f"## {_ENRICHMENT_TITLE}\n\nA banked verified finding sentence. [2]\n\n"
++        "## Bibliography\n\n[1] https://a\n[2] https://b\n",
++        encoding="utf-8",
++    )
++    (tmp_path / "manifest.json").write_text(json.dumps({}), encoding="utf-8")
++    assert assert_breadth_enrichment_rendered(_summary(tmp_path)) == "present"
++
++
++def test_canary_fails_closed_on_box1_shape(tmp_path):
++    # the box1 report: rich body, NO enrichment heading of ANY of the three forms
++    (tmp_path / "report.md").write_text(
++        "# Research report: q\n\n## Key Findings\n\nbody [1]\n\n## Methods\n\nm\n\n"
++        "## Bibliography\n\n[1] https://a\n",
++        encoding="utf-8",
++    )
++    (tmp_path / "manifest.json").write_text(
++        json.dumps({"credibility_disclosed_gap": "credibility_pass_unavailable: wall"}),
++        encoding="utf-8",
++    )
++    with pytest.raises(BreadthEnrichmentCanaryError):
++        assert_breadth_enrichment_rendered(_summary(tmp_path))
++
++
++# ── (5) phase-A budget cap: pool_wall_s bounds the join, priors-fill (drain-not-discard) ──────────
++
++
++def test_phase_a_pool_wall_override_caps_and_priors_fills(monkeypatch):
++    monkeypatch.setenv("PG_CREDIBILITY_JUDGE_CONCURRENCY", "2")
++
++    def _slow_judge(question, payload):
++        real_time.sleep(2.0)
++        return {"reliability": 0.5, "relevance": 0.5, "rationale": "slow"}
++
++    rows = [
++        {"evidence_id": f"e{i}", "url": f"https://x/{i}", "tier": "T4", "authority_score": 0.4}
++        for i in range(4)
++    ]
++    t0 = real_time.monotonic()
++    out = _judge_rows_pooled("q", rows, None, _slow_judge, pool_wall_s=0.4)
++    elapsed = real_time.monotonic() - t0
++    assert len(out) == 4                       # KEEP-ALL: every row gets a judgment
++    assert any(getattr(j, "judge_error", False) for j in out)  # capped rows priors-filled + labeled
++    assert elapsed < 1.9                       # the caller's budget bound held (no 2s+ join)

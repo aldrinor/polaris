@@ -58,6 +58,17 @@ _DEFAULT_JUDGE_CONCURRENCY = 12
 # the run slate may lower it to coordinate with PG_CREDIBILITY_PASS_WALL_S. LAW VI: env-driven.
 _ENV_JUDGE_POOL_WALL_S = "PG_CREDIBILITY_JUDGE_POOL_WALL_S"
 _DEFAULT_JUDGE_POOL_WALL_S = 3600.0
+# I-deepfix-001 (box2 SPEED fix): TIER-BAND HYBRID. A comma-list of source TIERS whose credibility the
+# LLM judge SKIPS — those rows take their DETERMINISTIC authority prior instead (``_priors_only_judgment``:
+# weight = authority_score, high for T1/T2, low for T6/T7, so the downstream demotion still fires). This
+# reduces the per-run LLM REQUEST COUNT (the 429-relief lever) while keeping EVERY source credibility-
+# weighted. It is faithfulness-neutral (the pass is ADVISORY) AND selection-neutral (breadth/selection
+# rank on ``authority_score`` weight_mass, NOT this credibility — weight_mass.py plan §148). Default empty
+# => hybrid OFF => every row is LLM-judged, byte-identical. LAW VI: env-driven.
+_ENV_HYBRID_SKIP_TIERS = "PG_CREDIBILITY_JUDGE_HYBRID_TIERS"
+# I-deepfix-001 (box2 SPEED fix): emit a progress line every N completed judge calls so a large pass can
+# never again read as a dead run. 0/unset => no progress log (byte-identical). LAW VI: env-driven.
+_ENV_PROGRESS_EVERY = "PG_CREDIBILITY_JUDGE_PROGRESS_EVERY"
 
 # The deterministic prior-signal names the judge may cite (anti-hallucination: a
 # ``signals_cited`` entry that is not one of these AND present on the row is dropped).
@@ -180,6 +191,23 @@ def _is_low_or_thin(row: dict[str, Any]) -> bool:
     return False
 
 
+def _hybrid_skip_tiers() -> frozenset[str]:
+    """I-deepfix-001 (box2 SPEED fix): the UPPER-cased set of source tiers the LLM judge SKIPS (those
+    rows take their deterministic authority prior). Empty (unset) => hybrid OFF => every row LLM-judged,
+    byte-identical. LAW VI: env-driven (``PG_CREDIBILITY_JUDGE_HYBRID_TIERS``, e.g. ``T1,T2,T6,T7``)."""
+    raw = os.environ.get(_ENV_HYBRID_SKIP_TIERS, "").strip()
+    if not raw:
+        return frozenset()
+    return frozenset(t.strip().upper() for t in raw.split(",") if t.strip())
+
+
+def _row_tier(row: dict[str, Any]) -> str:
+    """The source tier label on a row (``tier`` then ``source_tier``), UPPER-cased; '' when unknown.
+    An UNKNOWN/absent tier is NEVER in a skip-set of concrete tiers, so it always routes to the LLM
+    judge — the safe direction (ambiguous rows are judged, never skipped)."""
+    return str(row.get("tier") or row.get("source_tier") or "").strip().upper()
+
+
 def _priors_only_judgment(row: dict[str, Any]) -> CredibilityJudgment:
     """The deterministic fallback (no judge / judge error): reliability from the prior, relevance
     neutral (1.0). Never fabricates relevance it cannot judge."""
@@ -259,6 +287,7 @@ def score_source_credibility(
     *,
     domain: str | None = None,
     judge: Optional[Callable[[str, dict], dict]] = None,
+    pool_wall_s: float | None = None,
 ) -> list[CredibilityJudgment]:
     """Score each source on reliability × relevance — ADVISORY ONLY, pure, no row mutation.
 
@@ -277,10 +306,77 @@ def score_source_credibility(
     Order is preserved (downstream ``zip(rows, judgments)`` requires it). A worker ``BudgetExceededError`` /
     exception PROPAGATES (fail closed; no silent drop). The caller (``multi_section_generator`` 5383) runs
     this whole pass under ``asyncio.to_thread`` so the blocking pool join never sits on the event loop.
+
+    ``pool_wall_s`` (I-deepfix-001 BANK-BEFORE-WALL, #1264 follow-up): an OPTIONAL caller-supplied
+    upper bound on the pool-join wall — the EFFECTIVE wall is ``min(PG_CREDIBILITY_JUDGE_POOL_WALL_S,
+    pool_wall_s)``. ``credibility_pass._run_chain`` threads its remaining deadline budget here so this
+    phase can NEVER outlive the caller's pass wall (the drb_72 box1 defect: the env wall defaulted to
+    3600s while the outer pass wall was force-pinned at 3000s, so the graceful partial-bank below was
+    UNREACHABLE and the whole analysis was discarded — the corroboration layer vanished from
+    report.md). ``None`` (every legacy caller) => env wall only, byte-identical. Behavior at the wall
+    is UNCHANGED: drain the finished futures, fill the rest with deterministic priors, never discard.
     """
     rows = rows or []
     if judge is None:
         return [_priors_only_judgment(row) for row in rows]
+
+    # I-deepfix-001 (box2 SPEED fix) — TIER-BAND HYBRID: route CLEAR-tier rows to their deterministic
+    # authority prior (no LLM call) and LLM-judge only the AMBIGUOUS tiers, cutting the per-run request
+    # count (the 429-relief lever). Every source still ends with a real credibility weight; selection /
+    # breadth rank on authority weight_mass (NOT this credibility), so this is selection-neutral +
+    # faithfulness-neutral (advisory pass). Empty skip-set => hybrid OFF => every row LLM-judged
+    # (byte-identical). Recurses with an empty skip-set on the ambiguous subset so the pooled path below
+    # is reused verbatim (order preserved).
+    _skip_tiers = _hybrid_skip_tiers()
+    if _skip_tiers:
+        out: list[Optional[CredibilityJudgment]] = [None] * len(rows)
+        ambiguous_rows: list[dict[str, Any]] = []
+        ambiguous_idx: list[int] = []
+        for _i, _row in enumerate(rows):
+            _tier = _row_tier(_row)
+            if _tier in _skip_tiers:
+                _pj = _priors_only_judgment(_row)
+                _pj.rationale = (
+                    f"tier-clear ({_tier or 'n/a'}): deterministic authority prior; LLM relevance-"
+                    "judging reserved for ambiguous-tier sources (hybrid request-count reduction)"
+                )
+                out[_i] = _pj
+            else:
+                ambiguous_rows.append(_row)
+                ambiguous_idx.append(_i)
+        if ambiguous_rows:
+            judged = _judge_rows_pooled(
+                research_question, ambiguous_rows, domain, judge, pool_wall_s=pool_wall_s,
+            )
+            for _k, _j in enumerate(judged):
+                out[ambiguous_idx[_k]] = _j
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).info(
+            "[credibility] hybrid tiering: %d/%d LLM-judged (ambiguous), %d clear-tier via "
+            "deterministic authority prior (skip_tiers=%s) — request-count reduction, every source "
+            "still weighted; selection ranks on authority weight_mass (unchanged)",
+            len(ambiguous_rows), len(rows), len(rows) - len(ambiguous_rows), sorted(_skip_tiers),
+        )
+        return [j for j in out if j is not None]
+
+    return _judge_rows_pooled(research_question, rows, domain, judge, pool_wall_s=pool_wall_s)
+
+
+def _judge_rows_pooled(
+    research_question: str,
+    rows: list[dict[str, Any]],
+    domain: str | None,
+    judge: Callable[[str, dict], dict],
+    *,
+    pool_wall_s: float | None = None,
+) -> list[CredibilityJudgment]:
+    """Run the injected judge over ``rows`` (bounded-parallel, order-preserved) — the pooled body
+    shared by the plain path and the hybrid ambiguous-subset path.
+
+    Verdict-identical to the pre-refactor inline pool: only WHICH rows are handed to it differs (all
+    rows on the plain path; the ambiguous subset on the hybrid path). I-deepfix-001 (box2 SPEED fix)
+    adds an OPTIONAL progress log (``PG_CREDIBILITY_JUDGE_PROGRESS_EVERY``, default 0 => silent) so a
+    large pass can never again read as a dead run."""
     n = len(rows)
     try:
         workers = max(1, int(
@@ -311,6 +407,16 @@ def score_source_credibility(
 
     # I-deepfix-001 (HANG backstop): the pool JOIN wall — see the _DEFAULT_JUDGE_POOL_WALL_S note above.
     pool_wall = _float_env(_ENV_JUDGE_POOL_WALL_S, _DEFAULT_JUDGE_POOL_WALL_S)
+    # I-deepfix-001 BANK-BEFORE-WALL: the caller's remaining deadline budget CAPS the env wall (min of
+    # the two) so this phase can never outlive the outer credibility-pass wall. None => env-only.
+    if pool_wall_s is not None:
+        pool_wall = min(pool_wall, max(1.0, float(pool_wall_s)))
+    # I-deepfix-001 (box2 SPEED fix): progress cadence (0 => silent, byte-identical).
+    try:
+        _progress_every = max(0, int(os.environ.get(_ENV_PROGRESS_EVERY, "0") or "0"))
+    except (TypeError, ValueError):
+        _progress_every = 0
+    _completed = 0
 
     results: list[Optional[CredibilityJudgment]] = [None] * n
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
@@ -328,6 +434,13 @@ def score_source_credibility(
                 results[idx] = judgment
                 _add_run_cost(delta)            # thread the per-source spend into the single run counter
                 check_run_budget(0)             # raises BudgetExceededError -> bounded overspend (~workers in flight)
+                _completed += 1
+                if _progress_every and (_completed % _progress_every == 0):
+                    import logging as _logging  # noqa: PLC0415
+                    _logging.getLogger(__name__).info(
+                        "[credibility] judge progress: %d/%d sources scored (workers=%d)",
+                        _completed, n, workers,
+                    )
         except concurrent.futures.TimeoutError:
             # The wall fired before every worker joined. Drain any future that DID finish (so a real
             # verdict or a real BudgetExceededError is never lost); the rest are filled with priors below.

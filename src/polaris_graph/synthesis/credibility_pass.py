@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -88,6 +89,33 @@ def basket_consume_finding_dedup_enabled() -> bool:
 # makes that client thread-safe/thread-local (CONSOLIDATED_FIX_PLAN ITEM 1b "HARD ORDERING CONSTRAINT").
 _ENV_PASS_MAX_INFLIGHT = "PG_CREDIBILITY_PASS_MAX_INFLIGHT"
 _DEFAULT_PASS_MAX_INFLIGHT = 1
+
+# I-deepfix-001 BANK-BEFORE-WALL (#1264 follow-up): when the caller threads a soft deadline, the
+# fraction of the REMAINING budget granted to phase A (P2 source scoring) — the rest is reserved for
+# the per-member basket verifies (phase B, the leg that feeds the SUPPORTS baskets / the breadth
+# enrichment). Without this split, phase A could consume the entire budget and phase B would bank
+# ZERO verified members => the corroboration layer still empties (the exact drb_72 box1 defect
+# reappearing one phase later). LAW VI: env-overridable; a bad value falls back to the default.
+_ENV_PHASE_A_BUDGET_FRAC = "PG_CREDIBILITY_PASS_PHASE_A_FRAC"
+_DEFAULT_PHASE_A_BUDGET_FRAC = 0.5
+# Floor on any phase budget (seconds) so a near-expired deadline still lets a few members bank
+# rather than sentinel-filling everything on arrival.
+_MIN_PHASE_BUDGET_S = 60.0
+
+
+def _phase_a_budget_frac() -> float:
+    """The phase-A share of the remaining soft-deadline budget, in (0, 1). Bad/out-of-range env
+    values fall back to the default (fail-safe: the split must always leave phase B a share)."""
+    raw = os.environ.get(_ENV_PHASE_A_BUDGET_FRAC, "").strip()
+    if not raw:
+        return _DEFAULT_PHASE_A_BUDGET_FRAC
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_PHASE_A_BUDGET_FRAC
+    if not (0.0 < val < 1.0):
+        return _DEFAULT_PHASE_A_BUDGET_FRAC
+    return val
 
 
 def _pass_max_inflight() -> int:
@@ -609,11 +637,22 @@ def _verify_member_in_isolation(
     return _classify_member_tier(result)
 
 
+# I-deepfix-001 BANK-BEFORE-WALL (#1264 follow-up, drb_72 box1 canary rc=1): the sentinel verdict a
+# member receives when the pass's soft deadline expires BEFORE its isolated verify ran. Conservative
+# by direction — "UNSUPPORTED" can only UNDERCOUNT corroboration (the member never joins a SUPPORTS
+# basket, never surfaces, never inflates breadth); ``judge_unavailable=True`` is the existing durable
+# verification-unavailable label (Wave-3 P1b) so the skip is DISCLOSED, never silent. The members
+# verified BEFORE the deadline keep their genuine ENFORCE-entailment verdicts and are BANKED — the
+# frozen faithfulness engine (verify_fn) is called-not-edited and never re-run as a gate.
+_DEADLINE_SKIP_VERDICT = ("UNSUPPORTED", MEMBER_TIER_UNVERIFIED, True)
+
+
 def _run_member_verifies(
     tasks: list[tuple[str, dict]],
     *,
     verify_fn: Callable,
     max_inflight: int,
+    deadline_monotonic: float | None = None,
 ) -> list[tuple[str, str, bool]]:
     """Run the per-member isolated verifies for ``tasks`` and return their verdicts IN ORDER.
 
@@ -644,14 +683,38 @@ def _run_member_verifies(
 
     This is ADVISORY — ``_verify_member_in_isolation`` is never re-run as a gate, and parallelism
     changes WALL-CLOCK only, never any verdict.
+
+    ``deadline_monotonic`` (I-deepfix-001 BANK-BEFORE-WALL): an OPTIONAL ``time.monotonic()``
+    deadline. When it expires mid-pass, the verdicts computed SO FAR are BANKED verbatim and every
+    not-yet-verified member gets ``_DEADLINE_SKIP_VERDICT`` (disclosed verification-unavailable —
+    an UNDERCOUNT-only degrade, mirroring ``credibility_skill``'s proven priors-fill wall pattern).
+    The drb_72 box1 defect this fixes: this loop had NO deadline, so the CALLER's all-or-nothing
+    ``asyncio.wait_for`` wall discarded the ENTIRE analysis (baskets included) on a rich corpus and
+    the "Corroborated Weighted Findings" breadth layer silently vanished from report.md (§-1.3
+    funnel reassertion; breadth-enrichment canary rc=1). ``None`` (every legacy caller/test) =>
+    byte-identical unbounded behavior.
     """
     n = len(tasks)
     if max_inflight <= 1 or n <= 1:
-        # SERIAL fast path (default / single task): byte-identical to the pre-1b inline loop.
-        return [
-            _verify_member_in_isolation(claim_text, member_row, verify_fn=verify_fn)
-            for claim_text, member_row in tasks
-        ]
+        # SERIAL fast path (default / single task): byte-identical to the pre-1b inline loop when no
+        # deadline is threaded; with a deadline, bank the verified prefix + sentinel-fill the rest.
+        serial_results: list[tuple[str, str, bool]] = []
+        for _i, (claim_text, member_row) in enumerate(tasks):
+            if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                import logging as _logging  # noqa: PLC0415
+                _logging.getLogger(__name__).warning(
+                    "[credibility-pass] BANK-BEFORE-WALL: member-verify soft deadline expired at "
+                    "%d/%d (serial); BANKING the %d verified verdict(s) and filling the remaining %d "
+                    "with the disclosed verification-unavailable sentinel (UNDERCOUNT-only; the "
+                    "banked SUPPORTS members still surface the breadth layer — never discarded).",
+                    _i, n, _i, n - _i,
+                )
+                serial_results.extend([_DEADLINE_SKIP_VERDICT] * (n - _i))
+                break
+            serial_results.append(
+                _verify_member_in_isolation(claim_text, member_row, verify_fn=verify_fn)
+            )
+        return serial_results
 
     import concurrent.futures  # noqa: PLC0415 (lazy: zero cost on the serial default path)
     import contextvars  # noqa: PLC0415
@@ -674,21 +737,61 @@ def _run_member_verifies(
 
     results: list[tuple[str, str, bool] | None] = [None] * n
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_inflight)
+    deadline_expired = False
     try:
         futures = [
             pool.submit(_verify_one, i, claim_text, member_row, contextvars.copy_context())
             for i, (claim_text, member_row) in enumerate(tasks)
         ]
-        for future in concurrent.futures.as_completed(futures):
-            idx, verdict, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
-            results[idx] = verdict
-            _add_run_cost(delta)   # thread the per-member spend into the single run counter (no lost ticks)
-            check_run_budget(0)    # raises BudgetExceededError -> bounded overspend (~max_inflight in flight)
+        # I-deepfix-001 BANK-BEFORE-WALL: bound the join by the remaining soft-deadline budget (None =>
+        # unbounded, byte-identical). Mirrors credibility_skill._judge_rows_pooled's PROVEN
+        # as_completed(timeout=...)-then-drain wall pattern — bank what finished, never discard.
+        _join_timeout: float | None = None
+        if deadline_monotonic is not None:
+            _join_timeout = max(0.001, deadline_monotonic - time.monotonic())
+        try:
+            for future in concurrent.futures.as_completed(futures, timeout=_join_timeout):
+                idx, verdict, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
+                results[idx] = verdict
+                _add_run_cost(delta)   # thread the per-member spend into the single run counter (no lost ticks)
+                check_run_budget(0)    # raises BudgetExceededError -> bounded overspend (~max_inflight in flight)
+        except concurrent.futures.TimeoutError:
+            # The soft deadline fired before every member verified. Drain any future that DID finish
+            # (a real verdict / a real BudgetExceededError is never lost), then sentinel-fill the rest
+            # below. The banked SUPPORTS verdicts keep the corroboration/breadth layer ALIVE — the
+            # all-or-nothing discard (the drb_72 box1 rc=1 root cause) is structurally gone.
+            deadline_expired = True
+            for _i, future in enumerate(futures):
+                if results[_i] is not None or not future.done():
+                    continue
+                try:
+                    idx, verdict, delta = future.result()
+                except BudgetExceededError:
+                    raise  # a real cap breach MUST still abort the sweep, even on the deadline path
+                except Exception:  # noqa: BLE001 — a genuinely-failed worker takes the sentinel below
+                    continue
+                results[idx] = verdict
+                _add_run_cost(delta)
+                check_run_budget(0)  # enforce the aggregate cap on the drain path too (fail-closed)
     except BaseException:
         pool.shutdown(wait=False, cancel_futures=True)
         raise
     else:
-        pool.shutdown(wait=True)
+        # Deadline path: don't block on still-running verifies (wait=False) and cancel the queued
+        # ones; the healthy path joins normally (wait=True). Orphaned worker cost ticks are recovered
+        # by the caller's process-global ledger reconcile (multi_section_generator's finally block).
+        pool.shutdown(wait=not deadline_expired, cancel_futures=deadline_expired)
+    if deadline_expired:
+        _banked = sum(1 for v in results if v is not None)
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).warning(
+            "[credibility-pass] BANK-BEFORE-WALL: member-verify soft deadline expired with %d/%d "
+            "verified; BANKING the verified verdicts and filling the remaining %d with the disclosed "
+            "verification-unavailable sentinel (UNDERCOUNT-only; banked SUPPORTS members still "
+            "surface the breadth layer — the analysis is never discarded).",
+            _banked, n, n - _banked,
+        )
+        return [v if v is not None else _DEADLINE_SKIP_VERDICT for v in results]
     for i, verdict in enumerate(results):
         if verdict is None:
             raise CredibilityPassError(
@@ -901,6 +1004,7 @@ def _assemble_baskets(
     *,
     verify_fn: Callable,
     max_inflight: int = _DEFAULT_PASS_MAX_INFLIGHT,
+    deadline_monotonic: float | None = None,
 ) -> list:
     """Assemble one ClaimBasket per claim cluster (design §5/§6).
 
@@ -967,6 +1071,7 @@ def _assemble_baskets(
     # SAME order the serial loop computed them — verdict-identical, only faster.
     verdicts = _run_member_verifies(
         verify_tasks, verify_fn=verify_fn, max_inflight=max_inflight,
+        deadline_monotonic=deadline_monotonic,
     )
     _verdict_cursor = 0
 
@@ -1132,6 +1237,7 @@ def run_credibility_analysis(
     judge: Callable | None = None,
     now_year: int | None = None,
     max_inflight: int | None = None,
+    deadline_monotonic: float | None = None,
 ) -> CredibilityAnalysis:
     """Run the P4→P3→P2→P5→P6 chain over the EFFECTIVE evidence pool.
 
@@ -1150,6 +1256,13 @@ def run_credibility_analysis(
     ``_assemble_baskets`` (LAW VI). ``None`` (the default) reads the ``PG_CREDIBILITY_PASS_MAX_INFLIGHT``
     env knob, which itself defaults to 1 = the byte-identical SERIAL path. The bound changes WALL-CLOCK
     only — the per-member verdicts and the resulting baskets are identical to the serial pass.
+
+    ``deadline_monotonic`` (I-deepfix-001 BANK-BEFORE-WALL): an OPTIONAL ``time.monotonic()`` soft
+    deadline the caller sets INSIDE its own hard wall. The chain budgets it across the two LLM-bound
+    phases (P2 source scoring / per-member basket verifies) so the pass RETURNS a real
+    ``CredibilityAnalysis`` — with every verdict computed so far BANKED and the rest disclosed
+    verification-unavailable — BEFORE the caller's all-or-nothing wall can discard the whole analysis.
+    ``None`` (every legacy caller) => byte-identical unbounded behavior.
     """
     if max_inflight is None:
         max_inflight = _pass_max_inflight()
@@ -1174,7 +1287,7 @@ def run_credibility_analysis(
         return _run_chain(
             research_question, rows,
             gov_suffixes=gov_suffixes, domain=domain, judge=judge, now_year=now_year,
-            max_inflight=max_inflight,
+            max_inflight=max_inflight, deadline_monotonic=deadline_monotonic,
         )
     except (CredibilityPassError, BudgetExceededError):
         # CredibilityPassError = fail-loud abort; BudgetExceededError (Codex #012a P1-2) must reach the
@@ -1196,6 +1309,7 @@ def _run_chain(
     judge: Callable | None,
     now_year: int | None,
     max_inflight: int = _DEFAULT_PASS_MAX_INFLIGHT,
+    deadline_monotonic: float | None = None,
 ) -> CredibilityAnalysis:
     """The P4→P3→P2→P5→P6 chain body; wrapped by run_credibility_analysis for the fail-loud posture."""
     # ── I-deepfix-001 B9(a): join a deterministic tier-authority prior onto any row missing an
@@ -1248,7 +1362,19 @@ def _run_chain(
     # at all — is still fail-loud, caught downstream by ``apply_disclosure_to_svs``'s coverage
     # assertion; that is a real coverage gap, NOT a recoverable infra condition.)
     judge_missing = judge is None
-    judgments = score_source_credibility(research_question, annotated, domain=domain, judge=judge)
+    # I-deepfix-001 BANK-BEFORE-WALL: budget phase A (P2 source scoring) to a FRACTION of the
+    # remaining soft-deadline budget so phase B (the per-member basket verifies that feed the
+    # SUPPORTS baskets / breadth enrichment) is GUARANTEED a share. score_source_credibility takes
+    # min(env pool wall, this budget) and already partial-banks at its wall (drain + priors-fill,
+    # never a discard). None deadline (legacy) => None budget => env-only, byte-identical.
+    _phase_a_wall_s: float | None = None
+    if deadline_monotonic is not None:
+        _remaining_s = deadline_monotonic - time.monotonic()
+        _phase_a_wall_s = max(_MIN_PHASE_BUDGET_S, _remaining_s * _phase_a_budget_frac())
+    judgments = score_source_credibility(
+        research_question, annotated, domain=domain, judge=judge,
+        pool_wall_s=_phase_a_wall_s,
+    )
     errored_ids = {j.evidence_id for j in judgments if getattr(j, "judge_error", False)}
     if errored_ids:
         example = sorted(errored_ids)[:5]
@@ -1326,6 +1452,10 @@ def _run_chain(
         graph, weight_mass, annotated, credibility_by_evidence,
         verify_fn=verify_sentence_provenance,
         max_inflight=max_inflight,
+        # I-deepfix-001 BANK-BEFORE-WALL: phase B gets the WHOLE remaining budget (phase A was
+        # capped to its fraction above). At expiry the verified prefix is BANKED and the rest is
+        # sentinel-filled (disclosed, UNDERCOUNT-only) — the analysis is returned, never discarded.
+        deadline_monotonic=deadline_monotonic,
     )
 
     # ── sentence -> claim_cluster_id binding (design §6): evidence_id -> the cluster

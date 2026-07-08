@@ -33,7 +33,10 @@ from src.polaris_graph.llm.judge_burst_spread import (
 # I-deepfix-001 (de-storm): SAME shared, env-driven bounded-concurrency cap as entailment_judge — the
 # credibility scoring / W5 tiering burst pins the SAME mirror chain, so it shares the ONE global slot
 # pool that caps TOTAL glm-5.2 mirror POSTs in flight. Transport-only; verdict logic unchanged. LAW VI.
-from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
+from src.polaris_graph.llm.judge_concurrency import (
+    JudgeSlotTimeout as _JudgeSlotTimeout,
+    acquire_judge_slot as _acquire_judge_slot,
+)
 # I-deepfix-001 (§9.1.8 anti-starvation): a GLM judge IGNORES reasoning.effort, so a provider that runs
 # reasoning long can eat the whole max_tokens budget and return EMPTY content. The shared leaf helper puts
 # the PROVEN D8-Mirror NUMERIC reasoning cap (reasoning_cap << max_tokens) on the glm reasoning block so the
@@ -115,9 +118,12 @@ _DEFAULT_TOTAL_S = 300.0
 # to apply the fix (=> up to 2 attempts on a hang vs 3 on a transient fault). Faithfulness-NEUTRAL: the
 # outcome on exhaustion is the SAME transport-fault -> judge_error -> advisory; fewer wasted retries only.
 _ENV_TOTAL_DEADLINE_RETRIES = "PG_CREDIBILITY_JUDGE_TOTAL_DEADLINE_RETRIES"
+# I-deepfix-001 (box2 SPEED fix): bounded side-judge slot-acquire deadline (0/unset => unbounded,
+# byte-identical). A wedged slot-holder can no longer freeze the advisory pass — see call_llm.
+_ENV_JUDGE_SLOT_WAIT_S = "PG_CREDIBILITY_JUDGE_SLOT_WAIT_S"
 
 
-def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
+def _post_with_total_deadline(client, endpoint, headers, json_body, total_s, slot_wait=None):
     """I-arch-007 #1264: run the blocking credibility-judge POST under a HARD total wall-deadline.
 
     httpx's ``read`` timeout is a per-byte GAP that a trickled keep-alive socket resets indefinitely;
@@ -134,7 +140,7 @@ def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
     three side judges) are in flight at once — the burst can no longer 429-storm the mirror-chain lead.
     Transport-only; the verdict logic is unchanged.
     """
-    with _acquire_judge_slot():
+    with _acquire_judge_slot(timeout=slot_wait):
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         fut = ex.submit(client.post, endpoint, headers=headers, json=json_body)
         try:
@@ -249,11 +255,34 @@ def make_openrouter_credibility_caller(
     except (TypeError, ValueError):
         _td_retries_raw = retries
     total_deadline_retries = min(retries, _td_retries_raw)
-    base = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
+    # I-deepfix-001 (box2 SPEED fix): the credibility judge (ADVISORY, EVALUATOR-family) may run on a
+    # DEDICATED endpoint/key so its ~999-per-run burst lands on its OWN rate limit and never eats the
+    # main OpenRouter account's 429 headroom (which a live generation run is already consuming). Both
+    # override envs default to the OpenRouter values => byte-identical when unset. When a NON-OpenRouter
+    # base is supplied (a direct Zhipu/GLM endpoint) the OpenRouter-specific ``provider`` routing block
+    # below is skipped (it would 400 a native endpoint); the operator sets PG_CREDIBILITY_JUDGE_MODEL to
+    # that endpoint's slug. LAW VI: env-driven, no hardcoded key/endpoint.
+    base = (
+        os.environ.get("PG_CREDIBILITY_JUDGE_BASE_URL", "").strip()
+        or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    ).rstrip("/")
     endpoint = base + "/chat/completions"
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    _is_openrouter_endpoint = "openrouter.ai" in base
+    api_key = (
+        os.environ.get("PG_CREDIBILITY_JUDGE_API_KEY", "").strip()
+        or os.environ.get("OPENROUTER_API_KEY", "").strip()
+    )
     if not api_key:
-        raise RuntimeError("PG_SWEEP_CREDIBILITY_REDESIGN credibility judge requires OPENROUTER_API_KEY")
+        raise RuntimeError(
+            "PG_SWEEP_CREDIBILITY_REDESIGN credibility judge requires OPENROUTER_API_KEY "
+            "(or the dedicated PG_CREDIBILITY_JUDGE_API_KEY override)"
+        )
+    # I-deepfix-001 (box2 SPEED fix): bounded slot-acquire deadline for the ADVISORY judge. A wedged
+    # side-judge slot-holder (documented GIL/fut.result stall) no longer strangles the pass — a row
+    # that cannot get a slot within this window degrades to a disclosed judge_error prior. 0/unset =>
+    # None => the pre-fix UNBOUNDED acquire (byte-identical). LAW VI: env-driven.
+    _slot_wait_raw = _float_env(_ENV_JUDGE_SLOT_WAIT_S, 0.0)
+    slot_wait = _slot_wait_raw if _slot_wait_raw > 0 else None
 
     def call_llm(prompt: str) -> str:
         started = time.monotonic()
@@ -313,7 +342,14 @@ def make_openrouter_credibility_caller(
         if _rotate_chain and _burst_mode == "spread":
             _provider_cursor = _next_burst_start_index(len(_rotate_chain))
         _rotate_attempts = 0  # distinct hosts already tried (0 == the START host, not yet rotated)
-        if _rotate_chain and _burst_mode == "lb":
+        if not _is_openrouter_endpoint:
+            # I-deepfix-001 (box2 SPEED fix): a dedicated NON-OpenRouter endpoint (direct Zhipu/GLM) does
+            # not understand OpenRouter's ``provider`` routing block — omit it entirely so the native
+            # endpoint routes the model itself. The rotation ring is also OpenRouter-only, so it stays
+            # inert here (its guards below already no-op when ``provider`` is absent). Byte-identical on
+            # the default OpenRouter endpoint.
+            _rotate_chain = []
+        elif _rotate_chain and _burst_mode == "lb":
             # Documented D8-Judge cure: drop the single-host `order` and let OpenRouter LOAD-BALANCE the
             # burst across all glm-5.2 endpoints (require_parameters:True keeps reasoning-honoring hosts).
             json_body["provider"] = {"allow_fallbacks": True, "require_parameters": True}
@@ -375,9 +411,16 @@ def make_openrouter_credibility_caller(
                         {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                         json_body,
                         total_s,
+                        slot_wait=slot_wait,
                     )
                     response.raise_for_status()
                     data = response.json()
+            except _JudgeSlotTimeout:
+                # I-deepfix-001 (box2 SPEED fix): no side-judge slot within the bounded window (a wedged
+                # holder). Retrying re-waits the SAME deadline on the SAME wedge, so do NOT retry — raise
+                # straight to the judge wrapper -> {} -> per-row judge_error -> disclosed priors. ADVISORY,
+                # faithfulness-neutral (no gate/verdict touched); the row is kept + disclosed, never dropped.
+                raise
             except concurrent.futures.TimeoutError:
                 # Trickle-hang: the wall-deadline fired (client already force-closed in the helper). A
                 # re-hang on the same pinned provider almost never recovers, so a total-deadline fault

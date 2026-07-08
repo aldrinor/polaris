@@ -1148,7 +1148,19 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # NOTE: PG_CREDIBILITY_PASS_MAX_INFLIGHT stays at 1 (serial) in code until ITEM 2a (thread-safe judge
     # client) lands — the slate value is INERT until 1b's parallelism is enabled atop 2a (plan §8 PR-2).
     # FLOAT/INT values -> force-EXACT (the int-FLOOR path is wrong for the wall; force the chosen pair).
-    "PG_CREDIBILITY_PASS_WALL_S": "3000",
+    # I-deepfix-001 BANK-BEFORE-WALL RE-SIZE (drb_72 box1 canary rc=1): 3000 -> 6000. The 3000 pin was
+    # sized for ~619 members; the fetch-yield-fixed rich corpus (box1: 1061 sources, ~999 members) runs
+    # BOTH LLM-bound phases (P2 source scoring + per-member basket verifies) past 3000s, and the pin
+    # FORCE-EXACT clobbered the operator's generous-limits 6000 back down — the credibility analysis was
+    # discarded whole, the unbound-SUPPORTS basket never computed, and the "Corroborated Weighted
+    # Findings" breadth layer VANISHED from report.md (the §-1.3 funnel silently reasserting). 6000
+    # matches the operator's generous-limits intent and stays FAR under the run-wall (14400): the
+    # hierarchy credibility 6000 << run-wall 14400 holds. Sizing: ~999 members @40s / inflight-20 ≈
+    # 2000s per phase ≈ 4000s worst healthy < 6000. The wall is now ONLY the hang backstop — the
+    # BANK-BEFORE-WALL soft deadline (PG_CREDIBILITY_PASS_BANK_FRAC, default 0.85 => bank at 5100s)
+    # returns the pass WITH its banked verified verdicts before the wall can discard anything, so the
+    # corroboration layer surfaces from whatever verified in time (never all-or-nothing again).
+    "PG_CREDIBILITY_PASS_WALL_S": "6000",
     # I-beatboth-008 (#1285) commit-2 build A: raise the credibility-pass parallelism 16 -> 20. The
     # WALL_S sizing invariant still holds with margin (worst healthy ~619 members @ 40s / inflight-20 ≈
     # 1238s < 3000s wall, MORE headroom than the inflight-16 ≈ 1548s). Read at call time

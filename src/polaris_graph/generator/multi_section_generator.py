@@ -9114,22 +9114,58 @@ async def generate_multi_section_report(
             # hard wall (the always-release degrade path below remains the safety net). The pass
             # is ADVISORY — strict_verify / NLI / 4-role D8 / span-grounding are untouched.
             _cred_pass_wall_s = float(os.getenv("PG_CREDIBILITY_PASS_WALL_S", "1200"))
+            # I-deepfix-001 (box2 SPEED fix): for the DURATION of this advisory pass ONLY, raise the
+            # shared side-judge concurrency cap to PG_CREDIBILITY_PASS_SIDE_JUDGE_CONCURRENCY so BOTH
+            # legs (the ~999 credibility-scorer POSTs AND the basket-member entailment verify POSTs,
+            # each throttled by acquire_judge_slot) clear in a commercial window instead of grinding at
+            # the composition-time cap (which stays put, protecting the composition entailment burst).
+            # Unset/0 => no override => byte-identical. Transport-only; no gate/verdict touched.
+            from ..llm.judge_concurrency import credibility_pass_concurrency as _cred_pass_concurrency
+            _cred_phase_c_raw = os.getenv("PG_CREDIBILITY_PASS_SIDE_JUDGE_CONCURRENCY", "").strip()
             try:
-                credibility_analysis = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        _credibility_pass.run_credibility_analysis,
-                        research_question, list(evidence_pool.values()),
-                        # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
-                        # (in scope as generate_multi_section_report's `domain` param) so the
-                        # claim graph's fail-closed dispatch can consolidate equal clinical atoms
-                        # instead of singleton-ing every claim (domain=None made consolidation
-                        # INERT). ``domain or None`` normalizes the '' default back to today's
-                        # None when unset.
-                        gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
-                        judge=credibility_pass_judge,
-                    ),
-                    timeout=_cred_pass_wall_s,
-                )
+                _cred_phase_c = int(_cred_phase_c_raw) if _cred_phase_c_raw else 0
+            except ValueError:
+                _cred_phase_c = 0
+            # I-deepfix-001 BANK-BEFORE-WALL (drb_72 box1 canary rc=1 root fix): a SOFT deadline
+            # INSIDE the hard wall, threaded into the pass so it RETURNS a real CredibilityAnalysis
+            # (verified verdicts BANKED, the rest disclosed verification-unavailable) BEFORE the
+            # all-or-nothing asyncio.wait_for below can discard the whole analysis. Box1 proved the
+            # discard path: a rich corpus (1061 sources / ~999 members) overran the force-pinned
+            # 3000s wall -> credibility_analysis=None -> the unbound-SUPPORTS basket was never
+            # computed -> the "Corroborated Weighted Findings" breadth layer VANISHED from report.md
+            # (the §-1.3 funnel silently reasserting) -> breadth-enrichment canary rc=1. With the
+            # bank, a slow-but-healthy pass surfaces the corroboration layer from whatever verified
+            # in time; the wait_for wall remains ONLY as the hang backstop (asyncio.to_thread is not
+            # cancellable). LAW VI: fraction env-driven; bad values fall back. Faithfulness-neutral:
+            # the pass stays ADVISORY — banked members carry genuine ENFORCE-entailment verdicts,
+            # skipped members can only UNDERCOUNT (never surface); strict_verify / NLI / 4-role D8 /
+            # span-grounding are untouched.
+            try:
+                _cred_bank_frac = float(os.getenv("PG_CREDIBILITY_PASS_BANK_FRAC", "0.85"))
+            except (TypeError, ValueError):
+                _cred_bank_frac = 0.85
+            if not (0.0 < _cred_bank_frac < 1.0):
+                _cred_bank_frac = 0.85
+            _cred_bank_deadline = time.monotonic() + _cred_pass_wall_s * _cred_bank_frac
+            try:
+                with _cred_pass_concurrency(_cred_phase_c):
+                    credibility_analysis = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            _credibility_pass.run_credibility_analysis,
+                            research_question, list(evidence_pool.values()),
+                            # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
+                            # (in scope as generate_multi_section_report's `domain` param) so the
+                            # claim graph's fail-closed dispatch can consolidate equal clinical atoms
+                            # instead of singleton-ing every claim (domain=None made consolidation
+                            # INERT). ``domain or None`` normalizes the '' default back to today's
+                            # None when unset.
+                            gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
+                            judge=credibility_pass_judge,
+                            # BANK-BEFORE-WALL: return-with-banked-verdicts BEFORE the hard wall.
+                            deadline_monotonic=_cred_bank_deadline,
+                        ),
+                        timeout=_cred_pass_wall_s,
+                    )
             except (asyncio.TimeoutError, _credibility_pass.CredibilityPassError) as _cred_exc:
                 # B5/B7: "nothing shall hold the report". The credibility pass is ADVISORY (strict_verify
                 # + 4-role D8 stay the ONLY binding gates). A side-judge failure (judge_error /

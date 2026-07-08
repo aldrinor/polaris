@@ -58,14 +58,38 @@ _LOCK = threading.Lock()
 _SEMAPHORE: threading.BoundedSemaphore | None = None
 _SEMAPHORE_BOUND: int | None = None
 
+# I-deepfix-001 (box2 credibility-pass SPEED fix): a PROCESS-GLOBAL, thread-safe PHASE OVERRIDE. When
+# set (> 0) it REPLACES the env-resolved cap for the DURATION of a wrapped phase — used to raise the
+# side-judge concurrency ONLY while the advisory credibility pass runs (both its legs: the credibility
+# scorer AND the basket-member entailment verify go through ``acquire_judge_slot``), leaving the
+# composition-time entailment cap at its protected env value. Default None => no override => the env
+# path below is byte-identical. Set/cleared by ``credibility_pass_concurrency`` around the pass; on the
+# one-query-per-VM model no two passes overlap in a process.
+_OVERRIDE_LOCK = threading.Lock()
+_CONCURRENCY_OVERRIDE: int | None = None
+
+
+class JudgeSlotTimeout(RuntimeError):
+    """Raised by ``acquire_judge_slot(timeout=…)`` when a slot is not admitted within the deadline.
+
+    A wedged slot-holder (e.g. the documented GIL/fut.result stall) can no longer freeze the run: an
+    ADVISORY caller (the credibility judge) catches this and degrades THAT row to a disclosed
+    ``judge_error`` priors fallback. Binding callers that pass no timeout are unaffected (default
+    ``None`` == the pre-fix unbounded acquire)."""
+
 
 def resolve_max_concurrency() -> int:
-    """Resolve the configured in-flight side-judge cap from ``PG_SIDE_JUDGE_MAX_CONCURRENCY``.
+    """Resolve the configured in-flight side-judge cap.
 
-    Returns the cap ``N >= 1`` when bounded, or ``0`` for UNBOUNDED (the explicit ``"0"`` escape
-    hatch). Unset -> ``DEFAULT_MAX_CONCURRENCY``. A negative or malformed value -> ``DEFAULT_MAX_
-    CONCURRENCY`` (a typo must not silently disable the de-storm). Never raises (a transport-config
-    read must not break the judge)."""
+    Precedence: an active ``credibility_pass_concurrency`` PHASE OVERRIDE (> 0) wins; otherwise the
+    env ``PG_SIDE_JUDGE_MAX_CONCURRENCY``. Returns the cap ``N >= 1`` when bounded, or ``0`` for
+    UNBOUNDED (the explicit ``"0"`` escape hatch). Unset -> ``DEFAULT_MAX_CONCURRENCY``. A negative or
+    malformed value -> ``DEFAULT_MAX_CONCURRENCY`` (a typo must not silently disable the de-storm).
+    Never raises (a transport-config read must not break the judge)."""
+    with _OVERRIDE_LOCK:
+        override = _CONCURRENCY_OVERRIDE
+    if override is not None and override > 0:
+        return override
     raw = os.environ.get(ENV_SIDE_JUDGE_MAX_CONCURRENCY, "").strip()
     if raw == "":
         return DEFAULT_MAX_CONCURRENCY
@@ -78,6 +102,36 @@ def resolve_max_concurrency() -> int:
     if n < 0:
         return DEFAULT_MAX_CONCURRENCY
     return n
+
+
+@contextlib.contextmanager
+def credibility_pass_concurrency(bound: int | None):
+    """Temporarily REPLACE the side-judge concurrency cap for the wrapped block (the credibility pass).
+
+    ``bound`` <= 0 / None => no override (byte-identical: the env cap governs). ``bound`` >= 1 raises
+    the effective cap to exactly ``bound`` for the DURATION of the block — every ``acquire_judge_slot``
+    call on any thread reads it via ``resolve_max_concurrency``. Restores the prior value on EVERY exit
+    (success or exception). Faithfulness-neutral: it changes only HOW MANY advisory/entailment POSTs are
+    admitted at once during this ONE phase; it never touches the model, prompt, verdict, or gate. Leaves
+    the composition-time side-judge cap (the env value) untouched, so the storm protection there holds.
+    The (re)built semaphore is swapped atomically per ``_get_semaphore``; in-flight holders release the
+    object they acquired, so a mid-flight bound change never corrupts a live acquire."""
+    global _CONCURRENCY_OVERRIDE
+    try:
+        n = int(bound) if bound is not None else 0
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        yield
+        return
+    with _OVERRIDE_LOCK:
+        prev = _CONCURRENCY_OVERRIDE
+        _CONCURRENCY_OVERRIDE = n
+    try:
+        yield
+    finally:
+        with _OVERRIDE_LOCK:
+            _CONCURRENCY_OVERRIDE = prev
 
 
 def _get_semaphore(bound: int) -> threading.BoundedSemaphore:
@@ -94,20 +148,34 @@ def _get_semaphore(bound: int) -> threading.BoundedSemaphore:
 
 
 @contextlib.contextmanager
-def acquire_judge_slot():
+def acquire_judge_slot(timeout: float | None = None):
     """Admit at most ``resolve_max_concurrency()`` side-judge provider POSTs concurrently.
 
     Wrap the blocking provider POST in ``with acquire_judge_slot():``. When the cap is ``0``
     (unbounded escape hatch) this is a no-op — byte-identical to the pre-fix path. Otherwise it
     acquires one slot of the shared process-global bounded semaphore for the duration of the POST and
     releases it on EVERY exit path (success, timeout, or exception), so a hung/timed-out call frees
-    its slot when its total-deadline force-closes it. TRANSPORT-ONLY: it never touches the verdict."""
+    its slot when its total-deadline force-closes it. TRANSPORT-ONLY: it never touches the verdict.
+
+    ``timeout`` (I-deepfix-001 box2 fix): when a positive deadline is supplied and no slot is admitted
+    within it, raise ``JudgeSlotTimeout`` BEFORE the POST (nothing acquired => nothing released). This
+    is the graceful-degrade path for the ADVISORY credibility judge: a wedged slot-holder can no longer
+    strangle the run — the timed-out row falls back to a disclosed ``judge_error`` prior. ``None`` (the
+    default, used by every binding caller) keeps the pre-fix UNBOUNDED acquire, byte-identical."""
     bound = resolve_max_concurrency()
     if bound <= 0:
         yield
         return
     sem = _get_semaphore(bound)
-    sem.acquire()
+    if timeout is not None and timeout > 0:
+        if not sem.acquire(timeout=timeout):
+            raise JudgeSlotTimeout(
+                f"side-judge slot not admitted within {timeout:g}s (cap={bound}) — degrading this "
+                "advisory judge call to a disclosed judge_error prior so a wedged slot-holder can "
+                "never freeze the run (transport-only; no verdict/gate touched)"
+            )
+    else:
+        sem.acquire()
     try:
         yield
     finally:
