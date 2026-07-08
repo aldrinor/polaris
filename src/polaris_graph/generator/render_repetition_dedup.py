@@ -57,6 +57,7 @@ byte-for-byte unchanged (round-trip invariant). Pure function.
 """
 from __future__ import annotations
 
+import os
 import re
 
 # Numeric citation markers as they appear in a FINAL rendered report.md:
@@ -97,6 +98,46 @@ _REFERENCES_HEADER_RE = re.compile(
     r"^\s*#{1,6}\s+.*\b(references|bibliography|sources|works cited|citations)\b",
     re.IGNORECASE,
 )
+
+# I-deepfix-001 wave-2 (PG_DEDUP_REFHEADER_STRICT, default OFF): a STANDALONE
+# references-section heading whose text is EXACTLY a references keyword (optionally
+# surrounded by whitespace) — e.g. "## References", "## Bibliography", "### Sources".
+# Anchored ``^...$`` so a heading that merely CONTAINS a keyword does NOT match. The
+# loose _REFERENCES_HEADER_RE above matches ANY heading containing the keyword,
+# INCLUDING a long level-1 document TITLE that says "...specific literature sources...";
+# that false-positive latches back_matter=True at heading 1 and globally exempts the
+# WHOLE report from cross-section dedup. This anchored pattern gates ONLY the
+# back_matter latch when the flag is ON, so a long title no longer disables body dedup.
+_REFERENCES_SECTION_STANDALONE_RE = re.compile(
+    r"^\s*#{1,6}\s*(?:references|bibliography|sources|works cited|citations)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _refheader_strict_enabled() -> bool:
+    """True iff PG_DEDUP_REFHEADER_STRICT is set to an explicit truthy value.
+    Default (unset / empty / 0 / false / no / off) is OFF => byte-identical: the
+    back_matter latch keeps its legacy loose-regex behaviour when this is OFF."""
+    return os.getenv("PG_DEDUP_REFHEADER_STRICT", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _refheader_max_heading_len() -> int:
+    """Max heading-text length (chars) that may latch back_matter under strict mode.
+    A real references-section heading is a few words ("References", "References and
+    Notes", "7. References", "Cited Sources"); the false-positive is a 1104-char level-1
+    TITLE that merely CONTAINS "...literature sources...". Default 80 comfortably admits
+    every real variant while rejecting the long title. Env PG_DEDUP_REFHEADER_MAX_LEN."""
+    try:
+        n = int(os.getenv("PG_DEDUP_REFHEADER_MAX_LEN", "80"))
+    except (TypeError, ValueError):
+        return 80
+    return n if n > 0 else 80
+
 
 # Fail-open precision guard: never dedup a sentence with fewer than this many
 # alphanumeric content words. A genuine repeated claim sentence is long.
@@ -237,6 +278,7 @@ def dedup_rendered_report_markdown(report_md: str) -> str:
     back_matter = False
     exempt_section = False
     section_id = 0
+    refheader_strict = _refheader_strict_enabled()
 
     for line in lines:
         stripped = line.strip()
@@ -259,8 +301,29 @@ def dedup_rendered_report_markdown(report_md: str) -> str:
             # non-references heading (e.g. "## Source corroboration (per claim)") exits
             # byte-preserve so the A3 back-to-back collapse can reach that prose block.
             is_references_heading = bool(_REFERENCES_HEADER_RE.match(line))
+            # I-deepfix-001 wave-2 (PG_DEDUP_REFHEADER_STRICT, default OFF): the back_matter
+            # latch is the dominant blocker — under the OFF (legacy) path a long level-1 TITLE
+            # merely CONTAINING "...literature sources..." loose-matches _REFERENCES_HEADER_RE and
+            # latches back_matter=True at heading 1, globally exempting the entire report from the
+            # cross-section dedup. When the flag is ON, the latch additionally requires a STANDALONE
+            # short references-section heading (heading text IS the keyword, e.g. "## Bibliography"),
+            # so the document title no longer disables body dedup while a real references heading still
+            # latches. ``references_mode`` (the per-section byte-preserve protecting numbered ``[N]``
+            # entries) is deliberately left on the loose regex, so OFF stays byte-identical and no
+            # genuine references list ever loses its verbatim byte-preserve.
             if is_references_heading:
-                back_matter = True
+                # Latch under strict mode iff the heading is a real (short) references
+                # heading — an exact standalone keyword OR any references-keyword heading
+                # whose text is short. This admits every real variant ("## References and
+                # Notes", "## 7. References", "## Cited Sources") while rejecting the long
+                # level-1 title (Codex+Fable P2: length guard > exact-keyword anchor).
+                heading_text = line.lstrip("#").strip()
+                if (
+                    not refheader_strict
+                    or bool(_REFERENCES_SECTION_STANDALONE_RE.match(line))
+                    or len(heading_text) <= _refheader_max_heading_len()
+                ):
+                    back_matter = True
             references_mode = is_references_heading
             # A back-matter section (corroboration / disclosure lists) is EXEMPT from the
             # cross-section dedup for the SAME reason a front summary is: it re-presents
