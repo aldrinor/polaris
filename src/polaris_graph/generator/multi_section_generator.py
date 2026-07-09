@@ -1975,6 +1975,21 @@ def _aspect_offtopic_slot_guard_enabled() -> bool:
     )
 
 
+# N6-FIX-B legacy-outline off-topic strip gate (I-deepfix-001 #1370, Codex+Fable gate-fix P1-2). The
+# wave-2 legacy-outline ev_id strip (`_strip_offtopic_ev_ids_from_plans`) must NOT ride the EXISTING
+# default-ON `PG_ASPECT_OFFTOPIC_SLOT_GUARD` — that stripped by default (a flag-off leak). It gets its
+# OWN default-OFF flag so OFF => no strip => byte-identical; the launch env sets it to 1.
+_LEGACY_OUTLINE_OFFTOPIC_STRIP_ENV = "PG_LEGACY_OUTLINE_OFFTOPIC_STRIP"
+
+
+def _legacy_outline_offtopic_strip_enabled() -> bool:
+    """N6-FIX-B kill-switch (DEFAULT OFF). OFF => the legacy-outline plans keep every ev_id exactly as
+    before (byte-identical); only ``1/true/on/yes`` enables the SEMANTIC off-topic ev_id strip."""
+    return os.getenv(_LEGACY_OUTLINE_OFFTOPIC_STRIP_ENV, "0").strip().lower() in (
+        "1", "true", "on", "yes",
+    )
+
+
 def _marquee_anchor_predicate(row: Any) -> bool:
     """True iff ``row`` is a marquee / required-entity anchor that must NEVER be
     quarantined. Reuses the retrieval-side ``_row_is_marquee_anchor`` (the SAME exemption
@@ -2084,15 +2099,17 @@ def _strip_offtopic_ev_ids_from_plans(
     confirmed-demoted rows enter section.ev_ids and compose into body prose.
 
     Keys on the shared override-aware SEMANTIC verdict (`weighted_enrichment._is_confirmed_offtopic`)
-    — never a lexical relevance floor. Under the EXISTING FINDING#5 kill-switch
-    (`PG_ASPECT_OFFTOPIC_SLOT_GUARD`, default ON); OFF / import fault => plans returned UNCHANGED
-    (byte-identical). §-1.3: stripped rows stay in `evidence_pool`, the numbered bibliography, and the
-    off-topic disclosure (withhold-and-disclose, never a source drop). A plan emptied of ev_ids is NOT
-    dropped here — it falls to the existing no_evidence_in_pool gap-stub / ungroundable path.
+    — never a lexical relevance floor. Under its OWN default-OFF kill-switch
+    (`PG_LEGACY_OUTLINE_OFFTOPIC_STRIP`, Codex+Fable gate-fix P1-2 — NOT the existing default-ON
+    `PG_ASPECT_OFFTOPIC_SLOT_GUARD`, which would have stripped by default); OFF / import fault => plans
+    returned UNCHANGED (byte-identical). §-1.3: stripped rows stay in `evidence_pool`, the numbered
+    bibliography, and the off-topic disclosure (withhold-and-disclose, never a source drop). A plan
+    emptied of ev_ids is NOT dropped here — it falls to the existing no_evidence_in_pool gap-stub /
+    ungroundable path.
 
     Mutates each plan's `ev_ids` in place and returns the same `plans` list (idempotent — a
     re-strip is a no-op)."""
-    if not plans or not _aspect_offtopic_slot_guard_enabled():
+    if not plans or not _legacy_outline_offtopic_strip_enabled():
         return plans
     try:
         from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
@@ -8937,7 +8954,7 @@ async def generate_multi_section_report(
         plans = outline_parse.plans
         # N6-FIX-B (I-deepfix-001 wave-2): strip SEMANTIC confirmed-off-topic ev_ids from the LEGACY
         # outline plans (FINDING#5's intent, previously wired only on the on-mode planner branch).
-        # Under the EXISTING PG_ASPECT_OFFTOPIC_SLOT_GUARD kill-switch; OFF => byte-identical.
+        # Under its OWN default-OFF PG_LEGACY_OUTLINE_OFFTOPIC_STRIP kill-switch; OFF => byte-identical.
         plans = _strip_offtopic_ev_ids_from_plans(plans, evidence)
         outline_ok = outline_parse.ok
         outline_reason_codes = list(outline_parse.reason_codes)
@@ -8982,7 +8999,7 @@ async def generate_multi_section_report(
         if fallback_plans:
             plans = fallback_plans
             # N6-FIX-B: also strip off-topic ev_ids from the legacy deterministic fallback outline
-            # (same EXISTING kill-switch; OFF => byte-identical).
+            # (same default-OFF PG_LEGACY_OUTLINE_OFFTOPIC_STRIP kill-switch; OFF => byte-identical).
             plans = _strip_offtopic_ev_ids_from_plans(plans, evidence)
             outline_fallback_used = True
             if not outline_reason_codes:

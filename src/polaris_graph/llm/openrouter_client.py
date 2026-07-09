@@ -950,6 +950,12 @@ _ENV_OPENROUTER_MAX_KEEPALIVE = "PG_OPENROUTER_MAX_KEEPALIVE"
 # idle pool is dropped and a fresh client is built BEFORE the retry so the re-POST opens a clean socket.
 # DEFAULT OFF => byte-identical.
 _ENV_OPENROUTER_FRESH_CONN_ON_DISCONNECT = "PG_OPENROUTER_FRESH_CONN_ON_DISCONNECT"
+# Generator provider FANOUT gate (I-deepfix-001 B3 #1370, Codex+Fable gate-fix P1-1). When ON, the
+# generator's yaml provider pins (order + ignore + allow_fallbacks:false) are NOT applied, so the
+# per-basket compose burst load-balances across glm-5.2's healthy endpoints (allow_fallbacks stays the
+# OPENROUTER_ALLOW_FALLBACKS default true). DEFAULT OFF => the yaml pins ARE applied => byte-identical to
+# the pre-B3 pinned routing. Faithfulness-neutral (same generator model; provider spread only).
+_ENV_GENERATOR_PROVIDER_FANOUT = "PG_GENERATOR_PROVIDER_FANOUT"
 
 
 def _client_limits_from_env() -> Optional["httpx.Limits"]:
@@ -997,6 +1003,14 @@ def _fresh_conn_on_disconnect_enabled() -> bool:
     return os.getenv(_ENV_OPENROUTER_FRESH_CONN_ON_DISCONNECT, "0").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
+
+
+def _generator_provider_fanout_enabled() -> bool:
+    """``PG_GENERATOR_PROVIDER_FANOUT`` gate (I-deepfix-001 B3 #1370). DEFAULT OFF => the generator keeps
+    its yaml provider pins (order + ignore + allow_fallbacks:false) = byte-identical to the pre-B3 pinned
+    routing. ON => the pins are dropped so OpenRouter fans the per-basket compose burst across glm-5.2's
+    healthy endpoints. Only ``1/true/on/yes`` enables; unset/empty/other => OFF."""
+    return os.getenv(_ENV_GENERATOR_PROVIDER_FANOUT, "0").strip().lower() in ("1", "true", "on", "yes")
 
 
 def _parse_retry_after(value: Optional[str]) -> Optional[float]:
@@ -2116,11 +2130,19 @@ class OpenRouterClient:
             provider_block["allow_fallbacks"] = False
         elif provider_order:
             provider_block["order"] = provider_order
+        elif _generator_provider_fanout_enabled():
+            # I-deepfix-001 B3 (#1370, Codex+Fable gate-fix P1-1): PG_GENERATOR_PROVIDER_FANOUT is ON, so
+            # the generator is DELIBERATELY UNPINNED — the yaml order/ignore pins are NOT applied, and
+            # allow_fallbacks stays the OPENROUTER_ALLOW_FALLBACKS default (true, set above) so OpenRouter
+            # fans the per-basket compose burst across glm-5.2's healthy endpoints instead of hammering
+            # order[0]=friendli. Faithfulness-neutral (same generator model; provider spread only).
+            pass
         else:
-            # I-run11-007 (#1051): no env override + no Path-B singleton -> use the ranked HEALTHY
-            # generator provider chain from config (order + ignore + allow_fallbacks:False), so the
-            # generator also never lands on a flaky/slow provider. Lazy import keeps openrouter_client
-            # free of an import-time dep on the roles package (provider_routing has no back-imports).
+            # I-run11-007 (#1051): no env override + no Path-B singleton + fanout OFF (default) -> use the
+            # ranked HEALTHY generator provider chain from config (order + ignore + allow_fallbacks:False),
+            # so the generator also never lands on a flaky/slow provider. This DEFAULT branch is
+            # byte-identical to the pre-B3 pinned routing. Lazy import keeps openrouter_client free of an
+            # import-time dep on the roles package (provider_routing has no back-imports).
             from src.polaris_graph.roles.provider_routing import role_provider_routing
 
             gen_routing = role_provider_routing("generator")
@@ -2529,14 +2551,21 @@ class OpenRouterClient:
                         _fresh_conn_on_disconnect_enabled()
                         and isinstance(exc, (httpx.RemoteProtocolError, httpx.ReadError))
                     ):
+                        # Codex+Fable gate-fix P2 (SWAP-THEN-CLOSE): build the fresh client and SWAP
+                        # self._client FIRST, THEN aclose the OLD pool. self._client is SHARED across the
+                        # parallel four-role / per-basket compose bursts; closing it before the swap
+                        # (close-then-rebuild) faults sibling in-flight requests that grabbed the pool.
+                        # Swapping first means new requests read the fresh client and only the already-
+                        # captured old pool is torn down.
+                        _old_client = self._client
+                        self._client = self._build_async_client()
                         try:
-                            await self._client.aclose()
+                            await _old_client.aclose()
                         except Exception:  # noqa: BLE001 — pool teardown is best-effort; never mask retry
                             logger.debug(
                                 "[polaris graph] B3 fresh-conn: aclose() raised on stale pool",
                                 exc_info=True,
                             )
-                        self._client = self._build_async_client()
                         logger.info(
                             "[polaris graph] I-deepfix-001 B3: dropped idle pool + rebuilt client "
                             "after %s before retry (attempt %d/%d)",

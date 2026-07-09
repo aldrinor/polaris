@@ -1214,6 +1214,30 @@ def _junk_ev_row_direct_quote(_row: Any) -> str:
     return str(getattr(_row, "direct_quote", "") or "")
 
 
+def _a15_row_furniture_degraded(
+    grounding: str, *, screen_on: bool, is_dominant_fn: "Any" = None
+) -> bool:
+    """I-deepfix-001 B1 (wave-2 RESUME WIRING) — furniture-degraded verdict for ONE banked
+    resume row, for the A15 degraded-detector.
+
+    True iff the B1 furniture-density screen is ON (``PG_FURNITURE_DENSITY_SCREEN``, surfaced by
+    the caller as ``screen_on``) AND the row's banked grounding (``direct_quote`` / body) is
+    furniture-DOMINANT per the READ-ONLY B1 predicate ``shell_detector.is_furniture_dominant``
+    (passed in as ``is_dominant_fn``). A furniture-dominant banked row is a degraded big-PDF
+    extraction (masthead / nav / DOI / license welded together) — flagging it degraded lets the
+    A15 cascade re-fetch it with the fixed mineru (B2) and recover the real article.
+
+    Pure + fail-open: a predicate/import error yields ``False`` so a screen failure never INVENTS a
+    degraded flag. Gated on ``screen_on`` (default OFF): OFF => always ``False`` => NO extra rows
+    flagged => byte-identical. NEVER drops a row — it only marks it for the existing re-fetch."""
+    if not screen_on or is_dominant_fn is None:
+        return False
+    try:
+        return bool(is_dominant_fn(grounding))
+    except Exception:  # noqa: BLE001 — fail-open: a screen error never invents a degraded flag
+        return False
+
+
 def _junk_src_url(_src: Any) -> str:
     """URL of a classified source (dict OR CorpusSource object); '' when absent."""
     if isinstance(_src, dict):
@@ -12907,6 +12931,26 @@ async def run_one_query(
                     refetch_degraded_resume_rows as _a15_refetch_rows,
                     resume_refetch_enabled as _a15_refetch_enabled,
                 )
+                # I-deepfix-001 B1 (wave-2 RESUME WIRING, 2026-07-08) — extend the A15 degraded
+                # predicate with the B1 furniture-density screen so a banked row whose
+                # direct_quote/body is furniture-DOMINANT (masthead / nav / DOI / license welded
+                # together — the degraded big-PDF extraction) is ALSO flagged degraded and re-fetched
+                # with the fixed mineru (B2) to recover the real article. READ-ONLY reuse of
+                # shell_detector.is_furniture_dominant (never forked, LAW V). Gated STRICTLY on the
+                # default-OFF PG_FURNITURE_DENSITY_SCREEN: OFF => the furniture term is never
+                # evaluated => NO extra rows flagged => byte-identical. Isolated try/except so a B1
+                # import error never perturbs the existing A15 detection (fail-open: no furniture flag).
+                _b1_furniture_screen_on = False
+                _b1_is_furniture_dominant = None
+                try:
+                    from src.polaris_graph.retrieval.shell_detector import (  # noqa: PLC0415
+                        furniture_density_screen_enabled as _b1_furniture_enabled,
+                        is_furniture_dominant as _b1_is_furniture_dominant,
+                    )
+                    _b1_furniture_screen_on = _b1_furniture_enabled()
+                except Exception:  # noqa: BLE001 — no predicate => no furniture flag (fail-open)
+                    _b1_furniture_screen_on = False
+                    _b1_is_furniture_dominant = None
                 _a15_stale_rows: list[str] = []
                 _a15_degraded_dicts: list[dict] = []
                 for _row in evidence_for_gen:
@@ -12921,6 +12965,11 @@ async def run_one_query(
                         or bool(_row.get("fetch_failed"))
                         or bool(_row.get("landing_page"))
                         or _a15_is_starved(_grounding)
+                        or _a15_row_furniture_degraded(
+                            _grounding,
+                            screen_on=_b1_furniture_screen_on,
+                            is_dominant_fn=_b1_is_furniture_dominant,
+                        )
                     )
                     if _is_degraded:
                         _a15_stale_rows.append(str(_eid))

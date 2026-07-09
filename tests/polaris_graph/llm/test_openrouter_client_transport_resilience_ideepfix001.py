@@ -4,8 +4,10 @@ Pure Python, no network. Covers:
   * ``_client_limits_from_env`` — UNSET (both) => None (byte-identical legacy client, NO limits= kwarg);
     SET => an httpx.Limits carrying exactly the env-overridden field(s), httpx defaults elsewhere,
   * ``_fresh_conn_on_disconnect_enabled`` — DEFAULT OFF + truthy parse,
-  * the generator-UNPIN config edit: ``role_provider_routing("generator")`` now returns None (order
-    removed => allow_fallbacks:true burst-spread), while mirror stays pinned (only generator touched).
+  * the generator provider fanout gate-fix (Codex+Fable P1-1): the yaml generator pins are RESTORED as
+    the DEFAULT (``role_provider_routing("generator")`` returns the ranked order/ignore = byte-identical
+    to the pre-B3 pinned routing), while mirror stays pinned + judge stays unpinned (only generator
+    touched); the B3 fanout is gated behind ``PG_GENERATOR_PROVIDER_FANOUT`` (default OFF).
 """
 
 from __future__ import annotations
@@ -67,21 +69,46 @@ def test_fresh_conn_truthy(monkeypatch, val):
     assert oc._fresh_conn_on_disconnect_enabled() is True
 
 
-# ── B3(c) generator UNPIN in openrouter_provider_routing.yaml ────────────────────────────────────
-def test_generator_routing_unpinned(monkeypatch):
-    # The generator block's `order`/`ignore` are REMOVED, so role_provider_routing("generator")
-    # returns None => openrouter_client keeps allow_fallbacks:true and OpenRouter spreads the burst.
+# ── P1-1 generator provider FANOUT gate (Codex+Fable gate-fix) ───────────────────────────────────
+def test_generator_routing_pinned_by_default(monkeypatch):
+    # Gate-fix P1-1: the generator `order`/`ignore` pins are RESTORED in the yaml, so
+    # role_provider_routing("generator") returns the ranked healthy chain (byte-identical to the pre-B3
+    # pinned routing). The unpinned FANOUT is now behind PG_GENERATOR_PROVIDER_FANOUT, applied in
+    # openrouter_client — NOT by removing the yaml pins.
     from src.polaris_graph.roles import provider_routing as pr
 
     monkeypatch.delenv("PG_OPENROUTER_PROVIDER_ROUTING", raising=False)  # routing enabled by default
     monkeypatch.delenv("PG_PROVIDER_ROUTING_CONFIG", raising=False)      # use the committed config
     pr.reset_cache()
     try:
-        assert pr.role_provider_routing("generator") is None
-        # The judge is also intentionally unpinned (unchanged) — sanity that "None" is the unpinned shape.
+        gen = pr.role_provider_routing("generator")
+        assert gen is not None
+        assert gen["order"] == ["friendli", "novita", "z-ai", "phala"]
+        assert gen["ignore"] == [
+            "deepinfra", "fireworks", "cloudflare", "atlas-cloud", "baidu",
+            "gmicloud", "wandb", "siliconflow", "streamlake",
+        ]
+        # The judge is intentionally unpinned (unchanged) — sanity that "None" is the unpinned shape.
         assert pr.role_provider_routing("judge") is None
-        # Only the generator was touched: the mirror stays pinned with a real order chain.
+        # The mirror stays pinned with a real order chain (only the generator gating was touched).
         mirror = pr.role_provider_routing("mirror")
         assert mirror is not None and mirror["order"]
     finally:
         pr.reset_cache()
+
+
+def test_generator_provider_fanout_default_off(monkeypatch):
+    monkeypatch.delenv(oc._ENV_GENERATOR_PROVIDER_FANOUT, raising=False)
+    assert oc._generator_provider_fanout_enabled() is False
+
+
+@pytest.mark.parametrize("val", ["0", "", "false", "off", "no", "nonsense"])
+def test_generator_provider_fanout_falsy(monkeypatch, val):
+    monkeypatch.setenv(oc._ENV_GENERATOR_PROVIDER_FANOUT, val)
+    assert oc._generator_provider_fanout_enabled() is False
+
+
+@pytest.mark.parametrize("val", ["1", "true", "on", "yes", "YES"])
+def test_generator_provider_fanout_truthy(monkeypatch, val):
+    monkeypatch.setenv(oc._ENV_GENERATOR_PROVIDER_FANOUT, val)
+    assert oc._generator_provider_fanout_enabled() is True

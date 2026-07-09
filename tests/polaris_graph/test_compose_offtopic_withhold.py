@@ -20,6 +20,9 @@ _msg = importlib.import_module("src.polaris_graph.generator.multi_section_genera
 
 _SCREEN_ENV = "PG_COMPOSE_OFFTOPIC_BASKET_SCREEN"
 _SLOT_GUARD_ENV = "PG_ASPECT_OFFTOPIC_SLOT_GUARD"
+# Codex+Fable gate-fix P1-2: the legacy-outline strip now rides its OWN default-OFF flag, NOT the
+# existing default-ON PG_ASPECT_OFFTOPIC_SLOT_GUARD.
+_STRIP_ENV = "PG_LEGACY_OUTLINE_OFFTOPIC_STRIP"
 
 
 def _member(eid, quote=""):
@@ -112,15 +115,26 @@ def test_boundary_line_no_longer_quotes_screened_offtopic_basket(monkeypatch):
     assert b2_quote not in screened_line
 
 
-def test_outline_strip_removes_offtopic_ev_ids_under_guard(monkeypatch):
-    """(5) outline strip: a plan with ev_ids=[A,B,C] under PG_ASPECT_OFFTOPIC_SLOT_GUARD ON yields
-    [A,C] (B stripped, C protected by the override); guard OFF yields [A,B,C]."""
-    monkeypatch.delenv(_SLOT_GUARD_ENV, raising=False)  # default ON
+def test_outline_strip_removes_offtopic_ev_ids_under_new_flag(monkeypatch):
+    """(5) outline strip (P1-2): a plan with ev_ids=[A,B,C] under the NEW default-OFF
+    PG_LEGACY_OUTLINE_OFFTOPIC_STRIP flag ON yields [A,C] (B stripped, C protected by the override)."""
+    monkeypatch.setenv(_STRIP_ENV, "1")
     plan = _msg.SectionPlan(title="Sec", focus="f", ev_ids=["A", "B", "C"], archetype="")
     out = _msg._strip_offtopic_ev_ids_from_plans([plan], _pool())
     assert out[0].ev_ids == ["A", "C"]
 
-    monkeypatch.setenv(_SLOT_GUARD_ENV, "0")
+
+def test_outline_strip_flag_off_byte_identical(monkeypatch):
+    """(P1-2 byte-identical) the NEW flag OFF (default) => NO strip, even though the existing
+    default-ON PG_ASPECT_OFFTOPIC_SLOT_GUARD is ON. Plans keep every ev_id unchanged."""
+    monkeypatch.delenv(_STRIP_ENV, raising=False)            # NEW flag OFF (default)
+    monkeypatch.delenv(_SLOT_GUARD_ENV, raising=False)       # existing guard default ON
+    plan = _msg.SectionPlan(title="Sec", focus="f", ev_ids=["A", "B", "C"], archetype="")
+    out = _msg._strip_offtopic_ev_ids_from_plans([plan], _pool())
+    assert out[0].ev_ids == ["A", "B", "C"]  # no strip => byte-identical
+
+    # Explicitly ON existing guard but NEW flag still OFF => still no strip (does not ride the old flag).
+    monkeypatch.setenv(_SLOT_GUARD_ENV, "1")
     plan2 = _msg.SectionPlan(title="Sec", focus="f", ev_ids=["A", "B", "C"], archetype="")
     out2 = _msg._strip_offtopic_ev_ids_from_plans([plan2], _pool())
     assert out2[0].ev_ids == ["A", "B", "C"]
@@ -129,7 +143,7 @@ def test_outline_strip_removes_offtopic_ev_ids_under_guard(monkeypatch):
 def test_outline_strip_emptied_plan_still_ships(monkeypatch):
     """(5) a plan reduced to [] still ships (the plan object survives with empty ev_ids — the
     downstream no_evidence gap-stub path handles it, this helper never drops a plan)."""
-    monkeypatch.delenv(_SLOT_GUARD_ENV, raising=False)  # default ON
+    monkeypatch.setenv(_STRIP_ENV, "1")
     plan = _msg.SectionPlan(title="OffOnly", focus="f", ev_ids=["B"], archetype="")
     out = _msg._strip_offtopic_ev_ids_from_plans([plan], _pool())
     assert len(out) == 1
@@ -139,7 +153,7 @@ def test_outline_strip_emptied_plan_still_ships(monkeypatch):
 def test_outline_strip_accepts_row_list(monkeypatch):
     """The strip helper accepts a list of row dicts (the production caller passes `evidence`),
     not only a pool dict."""
-    monkeypatch.delenv(_SLOT_GUARD_ENV, raising=False)  # default ON
+    monkeypatch.setenv(_STRIP_ENV, "1")
     rows = [
         {"evidence_id": "A", "content_relevance_label": "relevant"},
         {"evidence_id": "B", "topic_offtopic_demoted": True, "content_relevance_label": "demoted"},

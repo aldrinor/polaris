@@ -4651,6 +4651,24 @@ def _build_provenance_quote(
         chunks.append(chunk)
         total += len(chunk) + 6  # rough separator overhead
 
+    # I-deepfix-001 B1 step 3 (#1370, Codex+Fable gate-fix P1-4): furniture-aware span selection. The
+    # chunks are the ordered candidate spans of the cited direct_quote (head first, then decimal windows).
+    # When PG_SPAN_SELECT_FURNITURE_AWARE is ON and the head chunk is FURNITURE (a degraded masthead /
+    # DOI / license extraction) while a later chunk is real content, lead the quote with the FIRST
+    # real-content chunk so a real-content span wins the direct_quote over a furniture span. Every chunk
+    # is a verbatim substring of the de-hyphenated content, so re-leading is faithfulness-neutral and the
+    # furniture chunk is KEPT in the body (§-1.3 disclose-don't-drop, never a source/span drop). Default
+    # OFF or a non-furniture head (picker returns index 0) => chunks unchanged => byte-identical.
+    if len(chunks) > 1:
+        from src.polaris_graph.retrieval.shell_detector import (  # noqa: PLC0415
+            select_real_content_span,
+            span_select_furniture_aware_enabled,
+        )
+        if span_select_furniture_aware_enabled():
+            _idx, _ = select_real_content_span(chunks)
+            if _idx > 0:
+                chunks = [chunks[_idx], *chunks[:_idx], *chunks[_idx + 1:]]
+
     return "\n\n[...]\n\n".join(chunks)
 
 

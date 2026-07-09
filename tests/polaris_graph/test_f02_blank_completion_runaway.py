@@ -164,20 +164,23 @@ def test_retry_excludes_the_blanking_provider(monkeypatch):
     generator is allow_fallbacks=false; OpenRouter does not auto-advance off a blank 200, so without
     this the retry re-stalls on the same provider.)
 
-    'WandB' is chosen because it is in the generator's `order` chain but NOT in its base `ignore`, so
-    the assertion proves the ROTATION added it (absent on attempt 1, present on the retry) — not a
-    pre-existing config exclusion."""
+    'Phala' is chosen because it IS in the generator's glm-5.2 `order` chain
+    [friendli, novita, z-ai, phala] but NOT in its base `ignore`, so the assertion proves the ROTATION
+    added it (absent on attempt 1, present on the retry) — not a pre-existing config exclusion. (Codex+
+    Fable gate-fix P1-1: the generator `order`/`ignore` pins are RESTORED as the byte-identical default;
+    the prior 'WandB' probe was in the base `ignore`, so it no longer distinguishes rotation from the
+    config deny-list.)"""
     client, state = _make_client(
-        monkeypatch, [_blank_degenerate_response(provider="WandB"), _ok_response()]
+        monkeypatch, [_blank_degenerate_response(provider="Phala"), _ok_response()]
     )
     resp = _run(client)
     assert resp.content == "the answer"
     assert state["n"] == 2
-    # The first request did NOT exclude wandb; the RETRY request excludes the blanking provider.
+    # The first request did NOT exclude phala; the RETRY request excludes the blanking provider.
     first_ignore = (state["bodies"][0].get("provider", {}) or {}).get("ignore", [])
     retry_ignore = (state["bodies"][1].get("provider", {}) or {}).get("ignore", [])
-    assert "wandb" not in first_ignore
-    assert "wandb" in retry_ignore
+    assert "phala" not in first_ignore
+    assert "phala" in retry_ignore
 
 
 # --------------------------------------------------------------------------------------------- (a) STREAM PATH
@@ -258,8 +261,9 @@ def test_REAL_sse_path_rotation_excludes_blanking_provider(monkeypatch):
     """(b) REAL streaming-seam regression (Codex diff-gate P1): in a NORMAL (non-Path-B) run, the
     served-provider capture must be available so the rotation excludes the blanking provider. Drives
     the REAL ``_accumulate_sse`` (the served-provider capture is now UNCONDITIONAL, not Path-B-gated)
-    by mocking only ``self._client.stream``. Proves the FIRST attempt blanks on 'WandB' and the RETRY
-    request carries 'wandb' in body['provider']['ignore'] — then recovers."""
+    by mocking only ``self._client.stream``. Proves the FIRST attempt blanks on 'Phala' and the RETRY
+    request carries 'phala' in body['provider']['ignore'] — then recovers. ('Phala' is in the restored
+    glm-5.2 `order` chain but not the base `ignore`; see the P1-1 note on the non-stream sibling test.)"""
     client = openrouter_client.OpenRouterClient(api_key="test-key-hermetic")
     monkeypatch.setattr(openrouter_client.asyncio, "sleep", _noop_async_sleep)
     # Confirm Path-B is INACTIVE for this run (the gate the P1 was about).
@@ -270,7 +274,7 @@ def test_REAL_sse_path_rotation_excludes_blanking_provider(monkeypatch):
         i = state["n"]
         state["n"] += 1
         state["bodies"].append(copy.deepcopy(kwargs.get("json")))
-        lines = _sse_blank_death_lines("WandB") if i == 0 else _sse_ok_lines()
+        lines = _sse_blank_death_lines("Phala") if i == 0 else _sse_ok_lines()
         return _FakeStreamResponse(lines)
 
     monkeypatch.setattr(client._client, "stream", _fake_stream)
@@ -283,12 +287,12 @@ def test_REAL_sse_path_rotation_excludes_blanking_provider(monkeypatch):
     )
     assert resp.content == "the answer"
     assert state["n"] == 2
-    # The blanking provider 'WandB' -> slug 'wandb' was NOT excluded on attempt 1, but IS on retry —
+    # The blanking provider 'Phala' -> slug 'phala' was NOT excluded on attempt 1, but IS on retry —
     # proving the rotation works on the REAL streaming path in a non-Path-B run.
     first_ignore = (state["bodies"][0].get("provider", {}) or {}).get("ignore", [])
     retry_ignore = (state["bodies"][1].get("provider", {}) or {}).get("ignore", [])
-    assert "wandb" not in first_ignore
-    assert "wandb" in retry_ignore
+    assert "phala" not in first_ignore
+    assert "phala" in retry_ignore
 
 
 def _sse_blank_death_no_provider() -> list[str]:

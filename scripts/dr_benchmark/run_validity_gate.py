@@ -65,6 +65,11 @@ _H1_RE = re.compile(r"^\s{0,3}#\s+(.*?)\s*#*\s*$", re.MULTILINE)
 # The generator titles a report ``# Research report: <question>``; strip that stock prefix so the
 # title region is the actual question echo, not the boilerplate.
 _TITLE_PREFIX_RE = re.compile(r"^\s*research report\s*:\s*", re.IGNORECASE)
+# A rendered citation marker is the canonical ``[N]`` (the analyst-synthesis scrubber normalizes
+# every marker to ``[<int>]`` and drops malformed forms). A line carrying one is CITED evidence
+# (every verified sentence carries [N] per §9.1) — the FIX-13 framing scan EXCLUDES such lines so
+# legitimately-cited body/table mentions of a phrase are never mistaken for a title reformulation.
+_CITATION_MARKER_RE = re.compile(r"\[\d+\]")
 
 
 class RunValidityGateError(RuntimeError):
@@ -77,6 +82,22 @@ def run_validity_gate_enabled() -> bool:
     return os.getenv(_GATE_ENABLED_ENV, "1").strip().lower() not in (
         "0", "false", "no", "off", "disabled", "",
     )
+
+
+# The forbidden-reformulation FRAMING-ONLY switch (I-deepfix-001 FIX-13). DEFAULT OFF; ONLY the
+# exact string "1" enables it. OFF => the reformulation scan keeps its verbatim body-wide substring
+# containment (byte-identical). ON => a phrase counts ONLY when it appears in a FRAMING position
+# (any heading OR an uncited body line) so 3 legitimately-CITED evidence mentions of the phrase no
+# longer trip the gate (the drb_72 4IR false-positive that aborted a valid run), while a reformulated
+# TITLE/heading and uncited generator prose adopting the phrase STAY fully detected.
+_REFORMULATION_FRAMING_ONLY_ENV = "PG_RUN_VALIDITY_REFORMULATION_FRAMING_ONLY"
+
+
+def run_validity_reformulation_framing_only_enabled() -> bool:
+    """True iff the reformulation scan is restricted to FRAMING positions (headings + uncited body
+    lines). DEFAULT OFF; ONLY the exact string ``"1"`` enables it (FIX-13 spec) so OFF => the
+    verbatim body-wide containment => byte-identical. Read at call time (LAW VI operator-override)."""
+    return os.getenv(_REFORMULATION_FRAMING_ONLY_ENV, "").strip() == "1"
 
 
 # ---------------------------------------------------------------------------
@@ -167,13 +188,50 @@ def _table_header_rows(report_md: str) -> list[list[str]]:
 # ---------------------------------------------------------------------------
 # FIX-2: question fidelity.
 # ---------------------------------------------------------------------------
+def _framing_violation(report_md: str, phrase_n: str) -> bool:
+    """FIX-13 framing-only reformulation test. True iff the ALREADY-NORMALIZED phrase ``phrase_n``
+    appears in a FRAMING position:
+
+      (1) ANY heading text (H1 title + every subsection / disclosed-gap header) — the original
+          drb_72 disaster class (a reformulated title/section header) stays fully detected; OR
+      (2) any body LINE that carries NO citation marker — uncited prose adopting the phrase is the
+          generator reframing.
+
+    A body/table line carrying a ``[N]`` citation marker is CITED evidence (every verified sentence
+    carries [N] per §9.1) and is EXCLUDED, so N legitimately-cited evidence mentions of the phrase do
+    NOT trip the gate. Pure, no I/O; deterministic."""
+    if not phrase_n:
+        return False
+    # (1) Headings — a reformulated title / section header (the original disaster class).
+    for heading in _heading_texts(report_md):
+        if phrase_n in _norm(heading):
+            return True
+    # (2) Uncited body lines — cited (``[N]``) lines and heading lines are excluded.
+    for line in (report_md or "").splitlines():
+        if _HEADING_RE.match(line):
+            continue  # heading handled in (1)
+        if _CITATION_MARKER_RE.search(line):
+            continue  # cited evidence line / cited table cell -> excluded
+        if phrase_n in _norm(line):
+            return True
+    return False
+
+
 def check_question_fidelity(
-    report_md: str, bound_question: str, contract: dict[str, Any]
+    report_md: str,
+    bound_question: str,
+    contract: dict[str, Any],
+    *,
+    framing_only: bool = False,
 ) -> list[str]:
     """Violations where the rendered report drifted from the BOUND question intent.
 
     (1) A ``forbidden_reformulations`` phrase present in the report but ABSENT from the bound
-        question is a wrong-question tell (the drb_72 title reformulation).
+        question is a wrong-question tell (the drb_72 title reformulation). When ``framing_only``
+        is True (FIX-13, env ``PG_RUN_VALIDITY_REFORMULATION_FRAMING_ONLY``) a phrase counts ONLY
+        in a FRAMING position (heading OR uncited body line) so legitimately-CITED evidence mentions
+        no longer false-trip the gate; when False (DEFAULT) the verbatim body-wide substring
+        containment is used (byte-identical to the pre-FIX-13 behaviour).
     (2) An ``intent_anchors`` group with NO hit in the H1/title region means the title does not
         reflect the bound question (or there is no H1 at all).
     """
@@ -185,7 +243,14 @@ def check_question_fidelity(
         phrase_n = _norm(phrase)
         if not phrase_n:
             continue
-        if phrase_n in report_n and phrase_n not in question_n:
+        if phrase_n in question_n:
+            continue  # legitimately in the bound question -> never a reformulation flag
+        present = (
+            _framing_violation(report_md, phrase_n)
+            if framing_only
+            else (phrase_n in report_n)
+        )
+        if present:
             violations.append(
                 f"question-fidelity: reformulation phrase {phrase!r} appears in the rendered "
                 f"report but is ABSENT from the bound question - the report was reformulated "
@@ -257,11 +322,20 @@ def check_contract_scaffold(report_md: str, contract: dict[str, Any]) -> list[st
 
 
 def evaluate_report_validity(
-    report_md: str, bound_question: str, contract: dict[str, Any]
+    report_md: str,
+    bound_question: str,
+    contract: dict[str, Any],
+    *,
+    framing_only: bool = False,
 ) -> list[str]:
-    """All run-validity violations (question-fidelity + contract-scaffold) for one rendered report."""
+    """All run-validity violations (question-fidelity + contract-scaffold) for one rendered report.
+
+    ``framing_only`` (FIX-13) is threaded to ``check_question_fidelity`` only; it never touches the
+    contract-scaffold check. DEFAULT False => byte-identical to the pre-FIX-13 behaviour."""
     return (
-        check_question_fidelity(report_md, bound_question, contract)
+        check_question_fidelity(
+            report_md, bound_question, contract, framing_only=framing_only
+        )
         + check_contract_scaffold(report_md, contract)
     )
 
@@ -331,7 +405,12 @@ def enforce_render_validity(
 
     report_md = report_path.read_text(encoding="utf-8", errors="replace")
     question = bound_question if bound_question is not None else q.get("question", "")
-    violations = evaluate_report_validity(report_md, question, contract)
+    # FIX-13: read the framing-only switch ONCE here (env I/O stays in the I/O wiring; the pure
+    # predicates take it as an explicit keyword). DEFAULT OFF => body-wide containment => byte-identical.
+    framing_only = run_validity_reformulation_framing_only_enabled()
+    violations = evaluate_report_validity(
+        report_md, question, contract, framing_only=framing_only
+    )
     if not violations:
         return []
 

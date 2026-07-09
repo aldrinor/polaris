@@ -2852,11 +2852,16 @@ def _compose_offtopic_basket_screen_enabled() -> bool:
 
 
 def _basket_confirmed_offtopic(basket: Any, evidence_pool: Any) -> bool:
-    """True iff the basket has >=1 supporting member whose pool row RESOLVES *and* EVERY resolvable
-    member row satisfies ``weighted_enrichment._is_confirmed_offtopic`` (the override-aware SEMANTIC
-    verdict — a W2-judged-relevant / escalated_relevant member protects the whole basket). A basket
-    with any missing-row, unjudged, relevant, or escalated_relevant member is KEPT (returns False) —
-    precision-first. Fail-open False (never withhold) on any import / attr / lookup error."""
+    """True iff the basket has >=1 supporting member AND *EVERY* member row RESOLVES in the pool AND
+    every resolved row satisfies ``weighted_enrichment._is_confirmed_offtopic`` (the override-aware
+    SEMANTIC verdict). Precision-first: ANY member that is unresolved / missing from the pool / id-less
+    / unjudged / relevant / escalated_relevant PROTECTS the whole basket (returns False => KEEP).
+
+    Codex+Fable gate-fix P1-3: the prior impl looked ONLY at the RESOLVED subset of members, so a
+    basket with one resolved-off-topic member plus other MISSING members was wrongly withheld — it must
+    be KEPT (a missing member could be the real, on-topic corroborator). Withhold ONLY when the pool
+    confirms EVERY member is off-topic. Fail-open False (never withhold) on any import / attr / lookup
+    error."""
     try:
         from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
             _is_confirmed_offtopic,
@@ -2867,18 +2872,20 @@ def _basket_confirmed_offtopic(basket: Any, evidence_pool: Any) -> bool:
         members = getattr(basket, "supporting_members", None)
         if members is None and isinstance(basket, dict):
             members = basket.get("supporting_members")
-        resolved_rows: list = []
-        for m in members or []:
+        members = list(members or [])
+        if not members:
+            return False  # no members => KEEP (nothing to confirm off-topic, precision-first)
+        for m in members:
             mid = m.get("evidence_id") if isinstance(m, dict) else getattr(m, "evidence_id", "")
             mid = str(mid or "")
             if not mid:
-                continue
+                return False  # id-less member cannot be confirmed off-topic => PROTECTS
             row = evidence_pool.get(mid) if hasattr(evidence_pool, "get") else None
-            if row is not None:
-                resolved_rows.append(row)
-        if not resolved_rows:
-            return False  # no resolvable member => KEEP (missing-row basket, precision-first)
-        return all(_is_confirmed_offtopic(r) for r in resolved_rows)
+            if row is None:
+                return False  # unresolved / missing-from-pool member => PROTECTS (precision-first)
+            if not _is_confirmed_offtopic(row):
+                return False  # unjudged / relevant / escalated_relevant member => PROTECTS
+        return True  # every member resolved AND every one is confirmed off-topic => WITHHOLD
     except Exception:  # noqa: BLE001 — any fault => KEEP (fail-open, never withhold)
         return False
 
