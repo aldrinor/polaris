@@ -87,7 +87,9 @@ _DISCLOSURE_PREFIXES = (
 # The section-level curator-gap stub (a whole slot that failed strict verification). Matched as a
 # containment signal, case-insensitive.
 _CURATOR_GAP_RE = re.compile(
-    r"did not survive strict verification|curator-actionable gap|this slot is a curator",
+    r"did not survive strict verification|curator-actionable gap|this slot is a curator|"
+    # N4 (I-deepfix-001 wave-2): plain-English gap disclosure (carries [N]).
+    r"insufficient verified evidence",
     re.IGNORECASE,
 )
 

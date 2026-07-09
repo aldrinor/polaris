@@ -1204,14 +1204,24 @@ def _cell_for_role(role: str, row: _RowData) -> str:
     return GAP_CELL
 
 
-def build_summary_table_markdown(headers: list[str], rows: list[_RowData]) -> str:
+def build_summary_table_markdown(
+    headers: list[str], rows: list[_RowData], include_heading: bool = True
+) -> str:
     """Render the GFM table (header, separator, one row per verified source) plus a
-    faithfulness disclosure note and the idempotency marker. PURE."""
+    faithfulness disclosure note and the idempotency marker. PURE.
+
+    ``include_heading`` (default True) preserves the legacy standalone block that carries
+    its own generic ``## Summary table`` heading (every existing caller is byte-identical).
+    When False (N3 anchor path, PG_SUMMARY_TABLE_ANCHOR_SECTION), ONLY that heading line and
+    its trailing blank separator are omitted so the block can be inserted DIRECTLY under the
+    report's own body heading that names the summary table; TABLE_MARKER, the disclosure note
+    and the table itself are byte-identical to the include_heading=True form."""
     roles = assign_header_roles(headers)
     esc_headers = [_escape_cell(h) for h in headers]
     lines: list[str] = []
-    lines.append("## Summary table")
-    lines.append("")
+    if include_heading:
+        lines.append("## Summary table")
+        lines.append("")
     lines.append(TABLE_MARKER)
     lines.append(
         "_Built only from verified findings (CLAUDE.md §-1.3: a presentation of "
@@ -1306,6 +1316,55 @@ def _topical_gate_rows(rows: list["_RowData"], research_question: str) -> list["
     return on_topic + off_topic
 
 
+# I-deepfix-001 wave-2 (#1370) N3 — ANCHOR the verified summary table INTO the body section
+# whose heading NAMES it (e.g. "### Industry Application Cases and Risk Summary Table"), instead
+# of the detached generic "## Summary table" heading dropped before the Bibliography. Placement /
+# anchoring only: the row building, verification gating, chrome screen and disclosed-gap ("—")
+# cells are UNTOUCHED (they are correct honest behaviour). Default-OFF flag (LAW VI): unset/"0"
+# => byte-identical current output (the legacy _insert_before_appendix path).
+_ENV_ANCHOR_SECTION = "PG_SUMMARY_TABLE_ANCHOR_SECTION"
+
+# A body heading (2..5 ``#``) whose text names a "summary table". Anchored to line starts
+# (MULTILINE) so only headings match; IGNORECASE so "SUMMARY TABLE" / "Summary Table" all anchor.
+_SUMMARY_TABLE_HEADING_RE = re.compile(
+    r"^#{2,5}\s+.*summary\s+table", re.IGNORECASE | re.MULTILINE
+)
+
+
+def _anchor_section_enabled() -> bool:
+    """LAW VI flag (default OFF). OFF => the legacy detached-heading path => byte-identical."""
+    return os.environ.get(_ENV_ANCHOR_SECTION, "0").strip().lower() not in _OFF_VALUES
+
+
+def _find_summary_table_heading(report_md: str, appendix_boundary_marker: str) -> int | None:
+    """Scan ONLY the body BEFORE the appendix boundary for the FIRST markdown heading line whose
+    text names a summary table; return the offset just PAST that heading line (and its single
+    trailing blank line, if any) — the insertion point directly under the heading, before the
+    section's existing prose. Return None when no such heading exists in the body. PURE."""
+    if not report_md:
+        return None
+    if appendix_boundary_marker and appendix_boundary_marker in report_md:
+        body_limit = report_md.index(appendix_boundary_marker)
+    else:
+        body_limit = len(report_md)
+    for match in _SUMMARY_TABLE_HEADING_RE.finditer(report_md):
+        if match.start() >= body_limit:
+            break  # the heading is inside the appendix machinery, not the scored body
+        line_end = report_md.find("\n", match.end())
+        if line_end == -1:
+            return len(report_md)  # heading is the last line; append point is EOF
+        pos = line_end + 1
+        next_nl = report_md.find("\n", pos)
+        if next_nl == -1:
+            # only a trailing (possibly blank) remnant after the heading line
+            return len(report_md) if report_md[pos:].strip() == "" else pos
+        # skip a SINGLE blank line immediately after the heading (the heading's separator)
+        if report_md[pos:next_nl].strip() == "":
+            return next_nl + 1
+        return pos
+    return None
+
+
 def render_requested_summary_table(
     *,
     research_question: str,
@@ -1337,17 +1396,38 @@ def render_requested_summary_table(
         return SummaryTableResult(
             text=existing_report_md, changed=False, canary="no_verified_rows", headers=headers
         )
-    table_md = build_summary_table_markdown(headers, rows)
-    if not existing_report_md:
-        new_text = table_md
+    # N3 (#1370): when enabled AND the report body carries a heading that NAMES the summary
+    # table, anchor the (heading-less) table DIRECTLY under that heading, keeping the section's
+    # existing narrative prose below it (§-1.3: never drop content). Otherwise keep the exact
+    # legacy path — the detached "## Summary table" block inserted before the appendix boundary.
+    anchor_pos: int | None = None
+    if _anchor_section_enabled() and existing_report_md:
+        anchor_pos = _find_summary_table_heading(existing_report_md, appendix_boundary_marker)
+    if anchor_pos is not None:
+        table_md = build_summary_table_markdown(headers, rows, include_heading=False)
+        new_text = (
+            existing_report_md[:anchor_pos]
+            + table_md.rstrip()
+            + "\n\n"
+            + existing_report_md[anchor_pos:]
+        )
+        anchored = True
     else:
-        new_text = _insert_before_appendix(existing_report_md, table_md, appendix_boundary_marker)
+        table_md = build_summary_table_markdown(headers, rows)
+        if not existing_report_md:
+            new_text = table_md
+        else:
+            new_text = _insert_before_appendix(
+                existing_report_md, table_md, appendix_boundary_marker
+            )
+        anchored = False
     n_geo = sum(1 for r in rows if r.geography)
     n_dom = sum(1 for r in rows if r.domain)
     n_risk = sum(1 for r in rows if r.risk)
     canary = (
         f"{CANARY_TAG} rows={len(rows)} cols={len(headers)} "
-        f"geo_filled={n_geo} domain_filled={n_dom} risk_filled={n_risk}"
+        f"geo_filled={n_geo} domain_filled={n_dom} risk_filled={n_risk} "
+        f"anchored={anchored}"
     )
     return SummaryTableResult(
         text=new_text, changed=True, canary=canary, rows=len(rows), headers=headers

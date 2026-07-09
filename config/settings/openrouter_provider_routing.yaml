@@ -10,11 +10,16 @@ roles:
     # Friendli 3/3 contentful 3.3s 1M-ctx/1048576-out = STABLEST+FASTEST+MAXCAP (LEAD); Novita 3/3 6.7s 131072;
     # Z.AI 3/3 9.8s first-party 131072; Phala 3/3 22.3s 1048576 (slow tail). Fireworks+Cloudflare 2/3 (429)
     # DROPPED. All 4 chained providers serve glm-5.2 status=0. allow_fallbacks:false keeps off-list hosts out.
-    order: [friendli, novita, z-ai, phala]
-    # I-beatboth-008 #1285 ignore: providers that DO NOT serve glm-5.2 or are flaky on it. deepinfra/fireworks/
-    # cloudflare/atlas-cloud flaky or 429; baidu/gmicloud/wandb/siliconflow/streamlake serve only deepseek-v4-pro
-    # or glm-5.1 (not glm-5.2) -> would 404 every generator call under allow_fallbacks:false.
-    ignore: [deepinfra, fireworks, cloudflare, atlas-cloud, baidu, gmicloud, wandb, siliconflow, streamlake]
+    # I-deepfix-001 B3 (#1370, 2026-07-08): generator UNPINNED — `order` + `ignore` REMOVED so the
+    # per-basket compose BURST load-balances across glm-5.2's 27 healthy endpoints instead of hammering
+    # order[0]=friendli under allow_fallbacks:false (the drb_72 "Server disconnected" root cause #3).
+    # This MIRRORS the judge block below (no `order`, no `allow_fallbacks:false`): with `order` absent,
+    # roles.provider_routing.role_provider_routing("generator") returns None, so openrouter_client keeps
+    # only `require_parameters:true` + `allow_fallbacks:true` (the OPENROUTER_ALLOW_FALLBACKS default) and
+    # OpenRouter spreads the burst. No token-cap regression (every glm-5.2 endpoint serves the writer's
+    # max_tokens). To RE-PIN a ranked healthy subset, restore `order:`/`ignore:` here — the prior pins were
+    # order=[friendli, novita, z-ai, phala] and
+    # ignore=[deepinfra, fireworks, cloudflare, atlas-cloud, baidu, gmicloud, wandb, siliconflow, streamlake].
   mirror:
     model: z-ai/glm-5.2  # I-beatboth-008 #1285 (operator-signed 2026-06-20): mirror upgrade 5.1->5.2 (MIT, 1M ctx, ~4x faster: 2.7s Z.AI vs 11.7s on the 5.1 chain)
     # I-ready-018 FIX-GLM (#1100): Parasail DEMOTED out of the Mirror chain. In the drb_72 paid run

@@ -2591,7 +2591,9 @@ def _placeholder_bib_nums(bibliography: "list[dict]") -> "set[str]":
 # section body carrying this is ALREADY routed to the gap path; we must not double-route it.
 _RENDER_GAP_MARKER_RE = re.compile(
     r"curator-actionable gap|did not survive strict verification|"
-    r"did not survive (?:4-role )?verification",
+    r"did not survive (?:4-role )?verification|"
+    # N4 (I-deepfix-001 wave-2): plain-English gap disclosure (carries [N]).
+    r"insufficient verified evidence",
     re.IGNORECASE,
 )
 _RENDER_CITATION_NUM_RE = re.compile(r"\[(\d+)\]")

@@ -34,6 +34,7 @@ POSTURE (binding)
 from __future__ import annotations
 
 import os
+import re
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shell vocabulary — THE single source of truth (LAW V). ``live_retriever``'s
@@ -389,3 +390,166 @@ def is_cited_span_shell(direct_quote: str) -> bool:
     if _ambiguous_phrase_fires(low, body_len):
         return True
     return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 B1 (wave-2, 2026-07-08) — extraction-time FURNITURE-DENSITY screen.
+#
+# WHY (separate from the bot-wall gates above): the short-body shell gates catch a
+# page whose WHOLE body is a challenge / error / cookie stub. They do NOT catch a
+# DEGRADED PDF extraction whose FULL body is masthead / nav / DOI / license / author-
+# affiliation FURNITURE welded together (the mineru-timeout -> docling-skip-on->40pg
+# -> PyMuPDF-flat-text path on a big PDF). That furniture becomes the claim-local
+# direct_quote, survives strict_verify via the self-citation hole, and forms an all-
+# chrome basket -> writer skip -> K-span (real papers lost: Felten "Occupational
+# Heterogeneity", a DSpace paper, World Bank). The §-1.3-safe fix is to catch a
+# furniture-DOMINANT full body at extraction time -> mark fetch-DEGRADED -> the caller
+# re-fetches with a DIFFERENT extractor to RECOVER the real article; if it is still
+# furniture, down-weight + disclose (kept in the pool, NEVER hard-dropped).
+#
+# The per-segment furniture verdict REUSES the ONE shared render-side predicate
+# ``weighted_enrichment.is_render_chrome_or_unrenderable`` (READ-ONLY, LAZY import,
+# fail-open) — it is never forked here (LAW V). All three B1 behaviours sit behind
+# their own default-OFF flags; OFF => byte-identical (these functions are never called
+# on the hot path).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ENV_FURNITURE_DENSITY_SCREEN = "PG_FURNITURE_DENSITY_SCREEN"
+_ENV_FURNITURE_REFETCH = "PG_FURNITURE_REFETCH"
+_ENV_SPAN_SELECT_FURNITURE_AWARE = "PG_SPAN_SELECT_FURNITURE_AWARE"
+
+# Fraction of body CHARACTERS that must sit in furniture segments for the body to
+# count as furniture-DOMINANT. High (0.6) so a real article carrying an incidental
+# masthead / license footer is NEVER flagged — only a body that is MOSTLY furniture.
+_ENV_FURNITURE_DENSITY_THRESHOLD = "PG_FURNITURE_DENSITY_THRESHOLD"
+_DEFAULT_FURNITURE_DENSITY_THRESHOLD = 0.6
+
+# The density verdict is meaningless on a tiny body (the short-body shell gates above
+# already own stubs), so the screen only runs at/above this length — it targets the
+# degraded-big-PDF furniture case, not a small stub.
+_ENV_FURNITURE_MIN_BODY_CHARS = "PG_FURNITURE_MIN_BODY_CHARS"
+_DEFAULT_FURNITURE_MIN_BODY_CHARS = 1200
+
+
+def furniture_density_screen_enabled() -> bool:
+    """True ⇒ the caller runs the extraction-time furniture-density screen. Default
+    OFF (``PG_FURNITURE_DENSITY_SCREEN``); unset/0/false/off/no/disabled ⇒ OFF ⇒
+    byte-identical. Read at call time so tests toggle without re-import."""
+    return os.environ.get(_ENV_FURNITURE_DENSITY_SCREEN, "0").strip().lower() not in _OFF_VALUES
+
+
+def furniture_refetch_enabled() -> bool:
+    """True ⇒ a furniture-degraded body is re-fetched with a DIFFERENT extractor to
+    recover the real article. Default OFF (``PG_FURNITURE_REFETCH``)."""
+    return os.environ.get(_ENV_FURNITURE_REFETCH, "0").strip().lower() not in _OFF_VALUES
+
+
+def span_select_furniture_aware_enabled() -> bool:
+    """True ⇒ direct_quote span selection prefers a real-content span over a
+    furniture span. Default OFF (``PG_SPAN_SELECT_FURNITURE_AWARE``)."""
+    return os.environ.get(_ENV_SPAN_SELECT_FURNITURE_AWARE, "0").strip().lower() not in _OFF_VALUES
+
+
+def _furniture_density_threshold() -> float:
+    """Char-fraction ceiling above which a body is furniture-dominant. A bad/empty
+    value falls back to the safe default; a value outside (0, 1] also falls back so a
+    misconfig can never make every body (>=0) or no body (>1) dominant."""
+    raw = os.environ.get(_ENV_FURNITURE_DENSITY_THRESHOLD, "").strip()
+    if not raw:
+        return _DEFAULT_FURNITURE_DENSITY_THRESHOLD
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_FURNITURE_DENSITY_THRESHOLD
+    return value if 0.0 < value <= 1.0 else _DEFAULT_FURNITURE_DENSITY_THRESHOLD
+
+
+def _furniture_min_body_chars() -> int:
+    """Minimum body length at which the furniture-density screen may fire."""
+    return _env_int(_ENV_FURNITURE_MIN_BODY_CHARS, _DEFAULT_FURNITURE_MIN_BODY_CHARS)
+
+
+def _segment_body(body: str) -> "list[str]":
+    """Split a fetched body into candidate segments for the furniture screen —
+    blank-line-delimited paragraphs, falling back to single lines when the body has
+    no blank-line structure (flat PyMuPDF text). Pure, deterministic."""
+    if not body:
+        return []
+    blocks = [b for b in re.split(r"\n\s*\n", body) if b.strip()]
+    if len(blocks) >= 2:
+        return blocks
+    return [ln for ln in body.splitlines() if ln.strip()]
+
+
+def _is_furniture_segment(segment: str) -> bool:
+    """READ-ONLY reuse of the shared render-side chrome/furniture predicate
+    ``weighted_enrichment.is_render_chrome_or_unrenderable`` (LAZY import so this
+    leaf module keeps no import-time dependency on the generator package). Fail-open
+    ``False`` on any import/predicate error — a screen failure must never invent a
+    furniture flag that would (downstream) degrade a real source."""
+    seg = segment.strip()
+    if not seg:
+        return False
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (
+            is_render_chrome_or_unrenderable,
+        )
+    except Exception:  # noqa: BLE001 — no predicate => no furniture verdict (fail-open)
+        return False
+    try:
+        return bool(is_render_chrome_or_unrenderable(seg))
+    except Exception:  # noqa: BLE001 — predicate error must never break extraction
+        return False
+
+
+def furniture_density(body: str) -> float:
+    """Fraction of body CHARACTERS that sit in furniture segments (0.0–1.0). Pure;
+    ``0.0`` on an empty body. CHAR-weighted so a few long real paragraphs outweigh
+    many short furniture lines (and a wall of furniture outweighs one real line)."""
+    if not body or not body.strip():
+        return 0.0
+    total = 0
+    furniture = 0
+    for seg in _segment_body(body):
+        n = len(seg.strip())
+        if n == 0:
+            continue
+        total += n
+        if _is_furniture_segment(seg):
+            furniture += n
+    if total == 0:
+        return 0.0
+    return furniture / total
+
+
+def is_furniture_dominant(body: str) -> bool:
+    """True iff ``body`` is a furniture-DOMINANT degraded extraction: chrome density
+    at/above ``PG_FURNITURE_DENSITY_THRESHOLD`` AND long enough to be the big-PDF
+    furniture case (not a tiny stub the short-body shell gates already own). Pure,
+    fail-open ``False``. NEVER used to DROP — only to mark a fetch degraded so the
+    caller re-fetches / down-weights + discloses (§-1.3 RECOVER, never hard-drop)."""
+    if not body:
+        return False
+    if len(body.strip()) < _furniture_min_body_chars():
+        return False
+    return furniture_density(body) >= _furniture_density_threshold()
+
+
+def select_real_content_span(candidate_spans: "list[str]") -> "tuple[int, str]":
+    """I-deepfix-001 B1 step 3 — furniture-aware direct_quote span picker.
+
+    Given ordered candidate spans (best-first by the caller's ranking), return
+    ``(index, span)`` of the FIRST non-furniture span so a real-content span wins the
+    direct_quote over a furniture span. If EVERY candidate is furniture, return
+    ``(0, candidate_spans[0])`` UNCHANGED — never drop (the all-furniture case is
+    owned by the down-weight/disclose path, not this picker). Pure; the caller gates
+    on ``span_select_furniture_aware_enabled()`` so OFF => the caller keeps its legacy
+    span => byte-identical. Provided for the downstream direct_quote selection seam
+    (frame_fetcher / live_retriever); this module never wires it itself."""
+    spans = [s for s in (candidate_spans or []) if s]
+    if not spans:
+        return (0, "")
+    for i, span in enumerate(spans):
+        if not _is_furniture_segment(span):
+            return (i, span)
+    return (0, spans[0])

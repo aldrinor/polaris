@@ -2823,11 +2823,78 @@ def _compose_section_per_basket(
     return out
 
 
-def _section_baskets_for_compose(section: Any, credibility_analysis: Any) -> list:
+# ── N1-FIX-1 / N6-FIX-A (merged, I-deepfix-001 wave-2) — OFF-TOPIC BASKET SCREEN ────────────────
+#
+# THE LEAK (drb_72 forensic): the topic judge correctly stamped confirmed-off-topic verdicts on the
+# run's pool rows, but this per-basket compose seam (`_section_baskets_for_compose`) never read them —
+# it selects EVERY basket whose members intersect the section's ev_ids, checking NOTHING (no
+# `topic_offtopic_demoted`, no `content_relevance_label`, no weight). So off-topic-ONLY baskets
+# (professor bio, scam blog) composed straight into body prose, the B2 boundary line
+# (`synthesize_boundary_line(_vc_baskets, _vc_baskets)`), and the no-token repair pass.
+#
+# THE FIX (ONE chokepoint covers all three surfaces): WITHHOLD from the SUBMITTED compose set any
+# basket whose >=1 supporting member resolves in the pool AND EVERY resolvable member row is
+# `weighted_enrichment._is_confirmed_offtopic`. Precision-first: a mixed basket (>=1 not-confirmed-off
+# member), a protected basket (a member the W2 relevance judge rated `escalated_relevant`/`relevant` —
+# the override lives INSIDE `_is_confirmed_offtopic`), an unjudged basket, or a missing-row basket is
+# KEPT (consolidation / corroboration preserved). §-1.3 WITHHOLD-and-disclose: withheld baskets stay
+# untouched in credibility_analysis + evidence_pool + every disclosure sidecar — only WHICH baskets
+# are submitted to the writer changes; the faithfulness engine (strict_verify / NLI / D8 / provenance)
+# is byte-untouched. Keys on the SEMANTIC judge verdict, never a lexical score / weight floor / count
+# cap. Default OFF (`PG_COMPOSE_OFFTOPIC_BASKET_SCREEN`); OFF or pool None => byte-identical.
+_COMPOSE_OFFTOPIC_SCREEN_ENV = "PG_COMPOSE_OFFTOPIC_BASKET_SCREEN"
+
+
+def _compose_offtopic_basket_screen_enabled() -> bool:
+    """N1-FIX-1 / N6-FIX-A merged kill-switch. DEFAULT OFF — only ``1/true/on/yes`` enables;
+    unset / empty / any other value => OFF => byte-identical (no screen)."""
+    return os.getenv(_COMPOSE_OFFTOPIC_SCREEN_ENV, "").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _basket_confirmed_offtopic(basket: Any, evidence_pool: Any) -> bool:
+    """True iff the basket has >=1 supporting member whose pool row RESOLVES *and* EVERY resolvable
+    member row satisfies ``weighted_enrichment._is_confirmed_offtopic`` (the override-aware SEMANTIC
+    verdict — a W2-judged-relevant / escalated_relevant member protects the whole basket). A basket
+    with any missing-row, unjudged, relevant, or escalated_relevant member is KEPT (returns False) —
+    precision-first. Fail-open False (never withhold) on any import / attr / lookup error."""
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            _is_confirmed_offtopic,
+        )
+    except Exception:  # noqa: BLE001 — recognizer unavailable => never withhold (fail-open)
+        return False
+    try:
+        members = getattr(basket, "supporting_members", None)
+        if members is None and isinstance(basket, dict):
+            members = basket.get("supporting_members")
+        resolved_rows: list = []
+        for m in members or []:
+            mid = m.get("evidence_id") if isinstance(m, dict) else getattr(m, "evidence_id", "")
+            mid = str(mid or "")
+            if not mid:
+                continue
+            row = evidence_pool.get(mid) if hasattr(evidence_pool, "get") else None
+            if row is not None:
+                resolved_rows.append(row)
+        if not resolved_rows:
+            return False  # no resolvable member => KEEP (missing-row basket, precision-first)
+        return all(_is_confirmed_offtopic(r) for r in resolved_rows)
+    except Exception:  # noqa: BLE001 — any fault => KEEP (fail-open, never withhold)
+        return False
+
+
+def _section_baskets_for_compose(
+    section: Any, credibility_analysis: Any, evidence_pool: Any = None
+) -> list:
     """ALL baskets whose verified members back evidence assigned to THIS section (primary, not
     augment: contract-entity baskets are a SUBSET). A basket belongs to the section if any of its
     member evidence_ids is in the section's assigned ev_ids. Deterministic; order follows the
-    credibility_analysis.baskets order. None/empty => [] (caller keeps the legacy path)."""
+    credibility_analysis.baskets order. None/empty => [] (caller keeps the legacy path).
+
+    N1-FIX-1 / N6-FIX-A (merged): when ``evidence_pool`` is provided AND
+    ``PG_COMPOSE_OFFTOPIC_BASKET_SCREEN`` is ON, off-topic-ONLY baskets are WITHHELD from the returned
+    compose set (see ``_basket_confirmed_offtopic``). ``evidence_pool`` None or the flag OFF =>
+    byte-identical legacy selection (the screen is never consulted)."""
     baskets = list(getattr(credibility_analysis, "baskets", None) or [])
     if not baskets:
         return []
@@ -2873,6 +2940,19 @@ def _section_baskets_for_compose(section: Any, credibility_analysis: Any) -> lis
             logger.warning(
                 "[activation] debate_con_basket_consolidation: unavailable_failopen"
             )
+    # N1-FIX-1 / N6-FIX-A (merged, I-deepfix-001 wave-2): OFF-TOPIC BASKET SCREEN — WITHHOLD any
+    # basket whose >=1 resolvable member is present AND every resolvable member is
+    # _is_confirmed_offtopic (mixed / protected / unjudged / missing-row baskets are KEPT). §-1.3
+    # WITHHOLD-and-disclose: withheld baskets stay in the pool + disclosures; only the SUBMITTED
+    # compose set changes; the faithfulness engine is untouched. Default OFF / pool None =>
+    # byte-identical (the screen is never consulted).
+    if evidence_pool is not None and _compose_offtopic_basket_screen_enabled():
+        _kept = [b for b in out if not _basket_confirmed_offtopic(b, evidence_pool)]
+        logger.info(
+            "[activation] compose_offtopic_basket_screen: withheld=%d kept=%d",
+            len(out) - len(_kept), len(_kept),
+        )
+        out = _kept
     return out
 
 

@@ -2061,6 +2061,65 @@ def _drop_offtopic_rows_for_assignment(
     return _quarantine_unjudged_topic_for_assignment(kept)
 
 
+def _offtopic_ev_id_lookup(evidence_pool_or_rows: Any) -> dict:
+    """Build an ``{evidence_id: row}`` lookup from either a pool dict (returned as-is) or a list of
+    row dicts. Non-dict inputs / rows are ignored. Pure; never raises."""
+    if isinstance(evidence_pool_or_rows, dict):
+        return evidence_pool_or_rows
+    lut: dict = {}
+    for row in evidence_pool_or_rows or []:
+        if isinstance(row, dict):
+            eid = str(row.get("evidence_id", "") or "")
+            if eid:
+                lut[eid] = row
+    return lut
+
+
+def _strip_offtopic_ev_ids_from_plans(
+    plans: "list[SectionPlan]", evidence_pool_or_rows: Any
+) -> "list[SectionPlan]":
+    """N6-FIX-B (I-deepfix-001 wave-2): strip SEMANTIC confirmed-off-topic ev_ids from each LEGACY
+    outline plan's ev_ids — FINDING#5's stated intent, previously wired ONLY on the on-mode planner
+    branch (`_assign_evidence_to_planned_outline`), so the wave-2 legacy `_call_outline` path let
+    confirmed-demoted rows enter section.ev_ids and compose into body prose.
+
+    Keys on the shared override-aware SEMANTIC verdict (`weighted_enrichment._is_confirmed_offtopic`)
+    — never a lexical relevance floor. Under the EXISTING FINDING#5 kill-switch
+    (`PG_ASPECT_OFFTOPIC_SLOT_GUARD`, default ON); OFF / import fault => plans returned UNCHANGED
+    (byte-identical). §-1.3: stripped rows stay in `evidence_pool`, the numbered bibliography, and the
+    off-topic disclosure (withhold-and-disclose, never a source drop). A plan emptied of ev_ids is NOT
+    dropped here — it falls to the existing no_evidence_in_pool gap-stub / ungroundable path.
+
+    Mutates each plan's `ev_ids` in place and returns the same `plans` list (idempotent — a
+    re-strip is a no-op)."""
+    if not plans or not _aspect_offtopic_slot_guard_enabled():
+        return plans
+    try:
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            _is_confirmed_offtopic,
+        )
+    except Exception:  # noqa: BLE001 — recognizer unavailable => no strip (fail-open)
+        return plans
+    lut = _offtopic_ev_id_lookup(evidence_pool_or_rows)
+    total_stripped = 0
+    for plan in plans:
+        ev_ids = list(getattr(plan, "ev_ids", None) or [])
+        if not ev_ids:
+            continue
+        kept = [e for e in ev_ids if not _is_confirmed_offtopic(lut.get(str(e)))]
+        if len(kept) != len(ev_ids):
+            total_stripped += len(ev_ids) - len(kept)
+            plan.ev_ids = kept
+    if total_stripped:
+        logger.info(
+            "[multi_section] FINDING#5 legacy-outline off-topic strip: %d SEMANTIC "
+            "confirmed-off-topic ev_id(s) stripped from plan assignment (kept in the pool "
+            "+ disclosed; a plan left empty falls to the no_evidence gap-stub path)",
+            total_stripped,
+        )
+    return plans
+
+
 def _assign_evidence_to_planned_outline(
     planned_outline: list[Any],
     evidence: list[dict[str, Any]],
@@ -4828,7 +4887,9 @@ def _repair_llm_draft_untokened(
     """
     if not rewritten or credibility_analysis is None or not no_token_sentence_repair_enabled():
         return rewritten
-    baskets = _section_baskets_for_compose(section, credibility_analysis)
+    # N1-FIX-1 / N6-FIX-A (merged): thread evidence_pool so the off-topic basket screen applies to the
+    # no-token repair pass too. Default OFF (PG_COMPOSE_OFFTOPIC_BASKET_SCREEN) => byte-identical.
+    baskets = _section_baskets_for_compose(section, credibility_analysis, evidence_pool=evidence_pool)
     if not baskets:
         return rewritten
     from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
@@ -5176,7 +5237,10 @@ async def _run_section(
     # same result => byte-identical branch selection; it is [] on every branch that never enters
     # verified-compose (the B2 boundary-conditions append below stays a safe no-op).
     _vc_baskets: list = (
-        _section_baskets_for_compose(section, credibility_analysis)
+        # N1-FIX-1 / N6-FIX-A (merged): thread evidence_pool so the off-topic basket screen applies to
+        # the body-prose compose set AND (automatically) the B2 boundary-line call at :5911 that reuses
+        # _vc_baskets. Default OFF (PG_COMPOSE_OFFTOPIC_BASKET_SCREEN) => byte-identical selection.
+        _section_baskets_for_compose(section, credibility_analysis, evidence_pool=evidence_pool)
         if (
             _verified_compose_enabled()
             and credibility_analysis is not None
@@ -8871,6 +8935,10 @@ async def generate_multi_section_report(
                 domain=domain,
             )
         plans = outline_parse.plans
+        # N6-FIX-B (I-deepfix-001 wave-2): strip SEMANTIC confirmed-off-topic ev_ids from the LEGACY
+        # outline plans (FINDING#5's intent, previously wired only on the on-mode planner branch).
+        # Under the EXISTING PG_ASPECT_OFFTOPIC_SLOT_GUARD kill-switch; OFF => byte-identical.
+        plans = _strip_offtopic_ev_ids_from_plans(plans, evidence)
         outline_ok = outline_parse.ok
         outline_reason_codes = list(outline_parse.reason_codes)
         outline_fallback_used = False
@@ -8913,6 +8981,9 @@ async def generate_multi_section_report(
         fallback_plans = _build_deterministic_fallback_outline(evidence, domain=domain)
         if fallback_plans:
             plans = fallback_plans
+            # N6-FIX-B: also strip off-topic ev_ids from the legacy deterministic fallback outline
+            # (same EXISTING kill-switch; OFF => byte-identical).
+            plans = _strip_offtopic_ev_ids_from_plans(plans, evidence)
             outline_fallback_used = True
             if not outline_reason_codes:
                 outline_reason_codes = ["empty_plans"]

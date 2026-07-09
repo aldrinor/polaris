@@ -73,6 +73,14 @@ class RoleResponse:
     # transport so the verdict parsers only ever see the bare verdict/body (no "soap") AND the
     # reasoning is captured for line-by-line review. None when the role emitted no reasoning.
     reasoning: str | None = None
+    # I-deepfix-001 B6 FIX 2 (#1370): the ROUTING SLUG of the provider that actually served this
+    # completion (the SAME `slug_for_provider(raw['provider'])` identity the transport's blank-200
+    # rotation already uses for `provider.order`/`ignore`). It lets the Judge off-enum re-ask
+    # (judge_adapter WS-1(b)) rotate OFF a provider whose load-balanced endpoint garbles the
+    # reasoning channel. None when the transport did not report a served provider (e.g. a mock, the
+    # self-host path, or a fault before any response). Defaulted last so every existing positional
+    # + keyword construction stays byte-identical.
+    served_provider: str | None = None
 
 
 @dataclass

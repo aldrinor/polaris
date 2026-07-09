@@ -1092,8 +1092,16 @@ def _mineru25_circuit_threshold() -> int:
     """Consecutive-failure count that OPENS the mineru25 breaker. ``<= 0`` disables
     the breaker entirely (the operator escape hatch, mirroring the campaign's FIX-1
     ``=0`` / FIX-2 unset sentinels). A malformed value falls back to the small
-    default (the breaker is an operational knob, not a correctness gate)."""
-    raw = os.getenv("PG_MINERU25_CIRCUIT_THRESHOLD", "").strip()
+    default (the breaker is an operational knob, not a correctness gate).
+
+    I-deepfix-001 B2 (wave-2, 2026-07-08) — GENTLER BREAKER. The binding knob
+    ``PG_MINERU25_BREAKER_THRESHOLD`` takes precedence when set, so the operator can
+    raise the trip count and one slow big-PDF batch no longer blacks out mineru for
+    the small PDFs it would extract cleanly. UNSET => falls through to the legacy
+    ``PG_MINERU25_CIRCUIT_THRESHOLD`` then the 3-fail default => BYTE-IDENTICAL."""
+    raw = os.getenv("PG_MINERU25_BREAKER_THRESHOLD", "").strip()
+    if not raw:
+        raw = os.getenv("PG_MINERU25_CIRCUIT_THRESHOLD", "").strip()
     if not raw:
         return _MINERU25_CIRCUIT_THRESHOLD_DEFAULT
     try:
@@ -1105,8 +1113,15 @@ def _mineru25_circuit_threshold() -> int:
 def _mineru25_circuit_cooldown() -> float:
     """Seconds the mineru25 breaker stays OPEN after tripping. Default 300s (one
     per-call timeout window) — long enough to ride out a wedged VLM, short enough to
-    retry if it recovers."""
-    raw = os.getenv("PG_MINERU25_CIRCUIT_COOLDOWN", "").strip()
+    retry if it recovers.
+
+    I-deepfix-001 B2 (wave-2) — GENTLER BREAKER. ``PG_MINERU25_BREAKER_COOLDOWN_S``
+    takes precedence when set (a shorter cooldown restores mineru for small PDFs
+    sooner). UNSET => falls through to the legacy ``PG_MINERU25_CIRCUIT_COOLDOWN``
+    then the 300s default => BYTE-IDENTICAL."""
+    raw = os.getenv("PG_MINERU25_BREAKER_COOLDOWN_S", "").strip()
+    if not raw:
+        raw = os.getenv("PG_MINERU25_CIRCUIT_COOLDOWN", "").strip()
     if not raw:
         return _MINERU25_CIRCUIT_COOLDOWN_DEFAULT
     try:
@@ -1114,6 +1129,67 @@ def _mineru25_circuit_cooldown() -> float:
     except ValueError:
         return _MINERU25_CIRCUIT_COOLDOWN_DEFAULT
     return value if value > 0 else _MINERU25_CIRCUIT_COOLDOWN_DEFAULT
+
+
+# I-deepfix-001 B2 (wave-2, 2026-07-08) — PAGE-SCALED mineru timeout.
+# A flat page-agnostic wall makes a 4-page article and a 458-page report share the
+# same budget: the big report times out, the breaker trips, and mineru is blacked
+# out for the small PDFs it would extract cleanly. The page-scaled timeout keeps the
+# small floor while giving genuinely large PDFs proportional time within a bound.
+_MINERU25_TIMEOUT_MAX_DEFAULT = 900.0
+
+
+def _mineru25_pdf_page_count(pdf_bytes: bytes) -> int:
+    """Best-effort PDF page count (fail-open ``0`` on any error). Used ONLY by the
+    B2 page-scaled timeout when ``PG_MINERU25_TIMEOUT_PER_PAGE_S`` is set; a ``0``
+    return makes the scaler fall back to the flat floor (byte-identical)."""
+    try:
+        import fitz as _fitz  # PyMuPDF — already a dependency of the extract path
+        _doc = _fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            return int(_doc.page_count)
+        finally:
+            _doc.close()
+    except Exception:  # noqa: BLE001 — probe is best-effort; never break extraction
+        return 0
+
+
+def _mineru25_timeout_seconds(pdf_bytes: bytes, floor: float) -> float:
+    """I-deepfix-001 B2 (wave-2) — page-SCALED per-PDF mineru timeout.
+
+    ``PG_MINERU25_TIMEOUT_PER_PAGE_S`` UNSET or ``<= 0`` => return ``floor`` unchanged
+    (the flat legacy behaviour => BYTE-IDENTICAL). When set, the effective timeout is
+    ``max(floor, page_count * per_page_s)`` bounded above by
+    ``PG_MINERU25_TIMEOUT_MAX_S`` (default 900s) so a mangled page count can never
+    produce an unbounded wall. ``floor`` stays the small-PDF minimum; a failed page
+    probe (page_count == 0) falls back to ``floor`` (fail-open, no scaling).
+
+    This is a per-PDF timeout MECHANISM, not a blind time-wall raise: small PDFs keep
+    the fast floor; only genuinely large PDFs get proportional time within the bound.
+    Faithfulness-neutral (only HOW long the extractor may run changes)."""
+    raw = os.getenv("PG_MINERU25_TIMEOUT_PER_PAGE_S", "").strip()
+    if not raw:
+        return floor
+    try:
+        per_page = float(raw)
+    except ValueError:
+        return floor
+    if per_page <= 0:
+        return floor
+    pages = _mineru25_pdf_page_count(pdf_bytes)
+    if pages <= 0:
+        return floor
+    try:
+        ceiling = float(
+            os.getenv("PG_MINERU25_TIMEOUT_MAX_S", "").strip()
+            or _MINERU25_TIMEOUT_MAX_DEFAULT
+        )
+    except ValueError:
+        ceiling = _MINERU25_TIMEOUT_MAX_DEFAULT
+    if ceiling <= 0:
+        ceiling = _MINERU25_TIMEOUT_MAX_DEFAULT
+    effective = max(floor, pages * per_page)
+    return min(effective, ceiling)
 
 
 # ---------------------------------------------------------------------------
@@ -4336,6 +4412,136 @@ class AccessBypass:
         return await self._extract_pdf_text_from_bytes(url, pdf_bytes)
 
     async def _extract_pdf_text_from_bytes(self, url: str, pdf_bytes: bytes) -> str:
+        """I-deepfix-001 B1 (wave-2, 2026-07-08) — extraction-time FURNITURE screen.
+
+        Delegates to the UNCHANGED extractor selector
+        ``_extract_pdf_text_from_bytes_impl`` and — ONLY when
+        ``PG_FURNITURE_DENSITY_SCREEN`` is on — checks whether the extracted body is
+        furniture-DOMINANT (masthead / nav / DOI / license chrome welded as the whole
+        body, the degraded-big-PDF case). If so it marks the fetch DEGRADED (loud,
+        disclosed) and, when ``PG_FURNITURE_REFETCH`` is on, re-runs a DIFFERENT
+        extractor to RECOVER the real article; a recovered non-furniture body replaces
+        the furniture one. If recovery still yields furniture the ORIGINAL body is
+        KEPT and disclosed (§-1.3: down-weight/disclose downstream, NEVER hard-drop).
+
+        Both flags default OFF => this returns the impl output unchanged =>
+        BYTE-IDENTICAL. Faithfulness engine untouched — only WHICH extractor's
+        verbatim text is returned can change.
+        """
+        body = await self._extract_pdf_text_from_bytes_impl(url, pdf_bytes)
+        try:
+            from src.polaris_graph.retrieval import shell_detector as _sd
+        except Exception:  # noqa: BLE001 — detector import must never break extraction
+            return body
+        if not _sd.furniture_density_screen_enabled():
+            return body
+        if not body or not _sd.is_furniture_dominant(body):
+            return body
+        logger.warning(
+            "[B1-FURNITURE] fetch_degraded=true density=%.2f chars=%d url=%s — "
+            "extracted body is furniture-dominant (degraded extraction)",
+            _sd.furniture_density(body), len(body), url[:60],
+        )
+        if _sd.furniture_refetch_enabled():
+            try:
+                recovered = await self._refetch_alternate_extractor(url, pdf_bytes)
+            except Exception as _exc:  # noqa: BLE001 — recovery never breaks the fetch
+                logger.debug(
+                    "[B1-FURNITURE] alternate re-fetch errored: %s", str(_exc)[:100]
+                )
+                recovered = ""
+            if recovered and not _sd.is_furniture_dominant(recovered):
+                logger.info(
+                    "[B1-FURNITURE] recovered real content via alternate extractor "
+                    "(%d chars) url=%s", len(recovered), url[:60],
+                )
+                return recovered
+        # Still furniture (or re-fetch disabled): keep + disclose, NEVER drop (§-1.3).
+        logger.warning(
+            "[B1-FURNITURE] alternate re-fetch did not recover clean content; keeping "
+            "degraded body for downstream down-weight+disclose (no drop) url=%s",
+            url[:60],
+        )
+        return body
+
+    @staticmethod
+    def _docling_oom_safe(pdf_bytes: bytes) -> bool:
+        """B1 re-fetch guard: True iff a PDF is within the docling OOM gate (bytes +
+        page count) so re-running Docling cannot ``std::bad_alloc`` / SIGSEGV. Mirrors
+        the ``PG_MAX_DOCLING_PDF_*`` gate in ``_extract_pdf_text_from_bytes_impl``.
+        FAIL-CLOSED (``False``) on any probe error — never risk a crash to recover a
+        furniture body."""
+        try:
+            max_bytes = int(os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(5 * 1024 * 1024)))
+            max_pages = int(os.getenv("PG_MAX_DOCLING_PDF_PAGES", "40"))
+        except (TypeError, ValueError):
+            return False
+        if max_bytes > 0 and len(pdf_bytes) > max_bytes:
+            return False
+        if max_pages > 0:
+            try:
+                import fitz as _fitz
+                _doc = _fitz.open(stream=pdf_bytes, filetype="pdf")
+                try:
+                    if int(_doc.page_count) > max_pages:
+                        return False
+                finally:
+                    _doc.close()
+            except Exception:  # noqa: BLE001 — cannot verify size => do not risk OOM
+                return False
+        return True
+
+    async def _refetch_alternate_extractor(self, url: str, pdf_bytes: bytes) -> str:
+        """I-deepfix-001 B1 step 2 — re-extract a furniture-degraded PDF body with a
+        DIFFERENT extractor to RECOVER the real article. Tries the structured
+        extractors the flat-PyMuPDF-furniture path bypassed and returns the FIRST
+        non-furniture body:
+
+          1. mineru25 (GPU VLM) when a GPU is present — the cleanest extractor,
+             safe on big PDFs (remote server, no local OOM), breaker-guarded;
+          2. Docling — ONLY when the PDF is within the OOM gate (never risk a
+             ``std::bad_alloc`` SIGSEGV on a big PDF the gate would have skipped).
+
+        Returns ``""`` when nothing recovers clean content (the caller keeps +
+        discloses the original — never a hard-drop). Faithfulness-neutral: only which
+        extractor's verbatim text is returned changes; bounded by the existing
+        PG_DOCLING_TIMEOUT_S / mineru walls — no new time-wall."""
+        import asyncio as _aio
+
+        from src.polaris_graph.retrieval import shell_detector as _sd
+
+        candidates: "list[str]" = []
+        # 1. mineru25 (GPU) — the structured VLM extractor; safe on big PDFs.
+        if self._gpu_available():
+            try:
+                _mineru_text = await self._maybe_mineru25_extract(url, pdf_bytes)
+                if _mineru_text:
+                    candidates.append(_mineru_text)
+            except Exception as _exc:  # noqa: BLE001
+                logger.debug(
+                    "[B1-FURNITURE] mineru re-extract skipped: %s", str(_exc)[:80]
+                )
+        # 2. Docling — only when OOM-safe (bounded); the flat-furniture path skipped it.
+        if self._docling_oom_safe(pdf_bytes):
+            try:
+                loop = _aio.get_event_loop()
+                _docling_to = float(os.getenv("PG_DOCLING_TIMEOUT_S", "60"))
+                _docling_text = await _aio.wait_for(
+                    loop.run_in_executor(None, self._docling_extract, pdf_bytes),
+                    timeout=max(1.0, _docling_to),
+                )
+                if _docling_text:
+                    candidates.append(_docling_text)
+            except Exception as _exc:  # noqa: BLE001
+                logger.debug(
+                    "[B1-FURNITURE] docling re-extract skipped: %s", str(_exc)[:80]
+                )
+        for _cand in candidates:
+            if _cand and not _sd.is_furniture_dominant(_cand):
+                return _cand
+        return ""
+
+    async def _extract_pdf_text_from_bytes_impl(self, url: str, pdf_bytes: bytes) -> str:
         """Extract text from already-fetched PDF bytes (offline-testable).
 
         Split out of :meth:`_extract_pdf_text` (which owns the network fetch)
@@ -5655,7 +5861,15 @@ class AccessBypass:
             # letting the breaker actually see + count the timeout. Env-driven (LAW VI); the
             # default is 90 (UNIT 6 WAVE-B: cap the wedged mineru-PDF worker so a 300s hang
             # can no longer exceed the ~90s abandon-join and hold its in-flight slot forever).
-            _raw_mineru_to = float(os.getenv("PG_MINERU25_TIMEOUT_S", "90"))
+            # I-deepfix-001 B2 (wave-2): page-SCALE the flat floor. Unset
+            # PG_MINERU25_TIMEOUT_PER_PAGE_S => returns the floor unchanged =>
+            # byte-identical. The fetch-deadline cap below still applies, so at
+            # relaunch the operator raises PG_FETCH_DEADLINE_SECONDS to let a big
+            # PDF actually use the scaled budget (the inner-subprocess wall is not
+            # so capped and takes the scaled value directly).
+            _raw_mineru_to = _mineru25_timeout_seconds(
+                pdf_bytes, float(os.getenv("PG_MINERU25_TIMEOUT_S", "90"))
+            )
             # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): the GOVERNING per-URL
             # wall that abandons the bypass worker is live_retriever's worker.join on
             # PG_FETCH_DEADLINE_SECONDS, whose code default is 90 (live_retriever.py:3003)
@@ -5812,12 +6026,18 @@ class AccessBypass:
         # Finite-generous subprocess timeout — never infinite (a hung CLI/server
         # must not pin the fetch-worker thread). The outer async wait_for already
         # bounds this to the per-URL fetch deadline; this is the inner belt.
-        timeout_s = float(
+        # I-deepfix-001 B2 (wave-2): page-SCALE the inner subprocess wall too. Unset
+        # PG_MINERU25_TIMEOUT_PER_PAGE_S => returns the resolved floor unchanged =>
+        # byte-identical. This inner belt is NOT bounded by the fetch deadline, so a
+        # large PDF gets its full proportional budget here (the outer async wall is
+        # separately capped by PG_FETCH_DEADLINE_SECONDS).
+        _http_floor = float(
             os.getenv(
                 "PG_MINERU25_HTTP_TIMEOUT_S",
                 os.getenv("PG_MINERU25_TIMEOUT_S", "90"),
             )
         )
+        timeout_s = _mineru25_timeout_seconds(pdf_bytes, _http_floor)
 
         with tempfile.TemporaryDirectory(prefix="mineru25_") as _td:
             tdp = _Path(_td)

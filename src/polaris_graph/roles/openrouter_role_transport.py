@@ -116,6 +116,8 @@ from src.polaris_graph.roles.adaptive_concurrency import (
 from src.polaris_graph.roles.openai_compatible_transport import (
     BlankVerdictError,
     RoleTransportError,
+    _THINK_CLOSE,
+    _THINK_OPEN,
     _build_body,
     _normalize_messages,
     _separate_reasoning,
@@ -1462,6 +1464,23 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         if routed:
             body["provider"] = routed
 
+    # I-deepfix-001 B6 FIX 2 (#1370): off-enum provider rotation. The Judge off-enum re-ask
+    # (judge_adapter WS-1(b)) accumulates the garbling served providers and threads them here via
+    # `params['provider_ignore_extra']` (a routing-slug list). Merge them into the body's provider
+    # `ignore` deny-list using the SAME in-place idiom the blank-200 rotation uses (:2138-2142) so
+    # the next re-ask load-balances OFF the garbling host. `provider_ignore_extra` is deliberately
+    # NOT in `_build_body`'s `_PASSTHROUGH_PARAM_KEYS` allowlist, so it is never forwarded to
+    # OpenRouter as an unknown top-level body key (it stays a routing hint only). The key is written
+    # ONLY when PG_JUDGE_OFFENUM_PROVIDER_ROTATE is ON (judge_adapter gates it), so an ABSENT key =>
+    # byte-identical. Only merges when a provider block already exists (a reasoning role always has
+    # one; an unrouted Sentinel may not).
+    _ignore_extra = (request.params or {}).get("provider_ignore_extra")
+    if _ignore_extra and isinstance(body.get("provider"), dict):
+        _ignore_list = body["provider"].setdefault("ignore", [])
+        for _slug in _ignore_extra:
+            if _slug and _slug not in _ignore_list:
+                _ignore_list.append(_slug)
+
     # I-ready-017 FX-08b (#1113): determinism knobs (LAW VI, env-overridable).
     # temperature=0 (greedy decoding) is universally supported, so it is safe to
     # send even alongside provider.require_parameters=True. seed is OPT-IN
@@ -1496,6 +1515,52 @@ def _openrouter_served_block(raw: dict) -> dict:
         if value:
             served[key] = value
     return served
+
+
+# I-deepfix-001 B6 FIX 1 (#1370) — leaked-`<think>`-opener strip when a SEPARATE reasoning channel
+# exists. A subset of moonshotai/kimi-k2.6's 21 load-balanced OpenRouter endpoints populate
+# `message.reasoning` AND ALSO leak a literal `<think>` opener (sometimes with the verdict token
+# doubled, sometimes an unclosed block) into `message.content`, ignoring the response_format schema.
+# The pre-fix `_parse_openrouter_response` set `bare = content` VERBATIM whenever a separate reasoning
+# field was populated, so "<think>\nVERIFIED" flowed to the exact-enum `parse_judge_verdict` ->
+# JudgeEnumError -> a wasted paid re-ask. Default-ON LAW-VI kill-switch; OFF => byte-identical pre-fix.
+_THINK_LEAK_STRIP_ENV = "PG_OPENROUTER_THINK_LEAK_STRIP"
+
+
+def _think_leak_strip_enabled() -> bool:
+    """True iff the leaked-`<think>`-opener strip runs when a SEPARATE reasoning channel is present
+    (B6 FIX 1, default ON kill-switch). OFF => `bare = content` verbatim (byte-identical pre-fix).
+    Read at call time (LAW VI) so a slate/test override after import wins."""
+    return os.getenv(_THINK_LEAK_STRIP_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _strip_leaked_think_opener(content: object, reasoning: str) -> tuple[object, str]:
+    """Strip a leaked `<think>` opener off `content` when the reasoning already rode a SEPARATE field.
+
+    Returns `(bare, reasoning)`. Safe ONLY because a populated separate reasoning channel means the
+    leaked opener is provider CHROME (the chain-of-thought is not lost), NOT a half-emitted reasoning
+    block — so this never suppresses the fail-loud unclosed-`<think>` case, which only fires on the
+    both-fields-empty `_separate_reasoning` path (untouched):
+      - `content` not leading with `<think>` -> unchanged (byte-identical).
+      - a CLOSED leading `<think>...</think>` block -> split it off; the inner think text is APPENDED
+        to the separate reasoning (both channels preserved); `bare` = the stripped remainder.
+      - an UNCLOSED leading `<think>` (no `</think>`) -> strip ONLY the opener token + the immediately
+        following whitespace/newlines; `bare` = the remainder.
+    FAITHFULNESS-NEUTRAL: the exact-enum `parse_judge_verdict` is untouched downstream —
+    'VERIFIEDVERIFIED' still raises `JudgeEnumError`; this only removes the leaked opener CHROME so a
+    genuine single enum token ('<think>\\nVERIFIED') parses on the first POST instead of re-asking."""
+    if not (isinstance(content, str) and content.lstrip().startswith(_THINK_OPEN)):
+        return content, reasoning
+    stripped = content.lstrip()
+    close_idx = stripped.find(_THINK_CLOSE)
+    if close_idx != -1:
+        inner = stripped[len(_THINK_OPEN):close_idx].strip()
+        bare = stripped[close_idx + len(_THINK_CLOSE):].strip()
+        if inner:
+            reasoning = f"{reasoning}\n{inner}" if reasoning else inner
+        return bare, reasoning
+    # No closing tag: strip ONLY the leading opener + immediately-following whitespace (case b).
+    return stripped[len(_THINK_OPEN):].lstrip(), reasoning
 
 
 def _parse_openrouter_response(raw: dict) -> tuple[object, str | None, dict | None, str | None]:
@@ -1549,12 +1614,21 @@ def _parse_openrouter_response(raw: dict) -> tuple[object, str | None, dict | No
     # is the bare verdict and is NOT searched for a <think> block.
     reasoning_content = message.get("reasoning_content")
     openrouter_reasoning = message.get("reasoning")
+    bare: object
+    reasoning: str | None
     if isinstance(reasoning_content, str) and reasoning_content.strip():
-        bare: object = content
-        reasoning: str | None = reasoning_content
+        # I-deepfix-001 B6 FIX 1: a populated separate reasoning field means `content` is the bare
+        # verdict — but a garbling provider can ALSO leak a `<think>` opener into it. Strip that
+        # opener chrome (default ON); flag OFF => `bare = content` verbatim (byte-identical pre-fix).
+        if _think_leak_strip_enabled():
+            bare, reasoning = _strip_leaked_think_opener(content, reasoning_content)
+        else:
+            bare, reasoning = content, reasoning_content
     elif isinstance(openrouter_reasoning, str) and openrouter_reasoning.strip():
-        bare = content
-        reasoning = openrouter_reasoning
+        if _think_leak_strip_enabled():
+            bare, reasoning = _strip_leaked_think_opener(content, openrouter_reasoning)
+        else:
+            bare, reasoning = content, openrouter_reasoning
     else:
         bare, reasoning = _separate_reasoning(content, model_repr)
 
@@ -2252,6 +2326,10 @@ class OpenRouterRoleTransport:
                     usage=usage,
                     citations=None,
                     reasoning=reasoning,
+                    # I-deepfix-001 B6 FIX 2: surface the served provider under the SAME routing-slug
+                    # identity the blank-200/force-close rotations use (slug_for_provider), so the
+                    # Judge off-enum re-ask (judge_adapter WS-1(b)) can rotate OFF a garbling host.
+                    served_provider=slug_for_provider(raw.get("provider")),
                 )
 
         # Unreachable: the loop returns on success or raises on ladder exhaustion. Kept so the

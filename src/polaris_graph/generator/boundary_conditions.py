@@ -192,6 +192,23 @@ def _boundary_quote_hygiene_enabled() -> bool:
     return os.getenv("PG_BOUNDARY_QUOTE_HYGIENE", "1").strip().lower() not in ("", "0", "false", "off", "no")
 
 
+def _boundary_quote_hygiene_v2_enabled() -> bool:
+    """N1-FIX-2 (I-deepfix-001 wave-2) ``PG_BOUNDARY_QUOTE_HYGIENE_V2`` kill-switch. DEFAULT OFF —
+    only ``1/true/on/yes`` enables. ON adds two hygiene rules: (a) `_quote_is_unrenderable` also rejects
+    a markdown-link / URL-fragment quote (the cbsnews "ws.com/team/…[Add CBS News on Google](https://…"
+    leak); (b) `synthesize_boundary_line` uses the ``" on {subject}"`` suffix ONLY when the headline
+    subject carries >=2 content words (kills "on however:" / "on entry-:" / "on mid-:"). OFF =>
+    byte-identical (neither rule fires)."""
+    return os.getenv("PG_BOUNDARY_QUOTE_HYGIENE_V2", "").strip().lower() in ("1", "true", "on", "yes")
+
+
+# N1-FIX-2: a markdown link (``[text](url)``) and a bare domain-path URL fragment (the first
+# whitespace token of a leaked chrome quote, e.g. ``ws.com/team/megan-cerullo/``) — both are render
+# chrome, never legitimate counter-evidence prose. Consulted ONLY under the V2 flag.
+_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+_URL_FRAGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*\.[A-Za-z]{2,}(?:/|$)")
+
+
 def _quote_is_unrenderable(quote: str) -> bool:
     """I-deepfix-001 (#1369) STEP 4: True iff a boundary candidate quote is render-chrome OR a
     truncated/glued fragment that reads as broken (the 'graduatio...' mid-word cut). Conservative — only
@@ -200,6 +217,16 @@ def _quote_is_unrenderable(quote: str) -> bool:
     q = (quote or "").strip()
     if not q:
         return True
+    # N1-FIX-2 (I-deepfix-001 wave-2): reject a markdown-link / URL-fragment quote (render chrome). Gated
+    # on the V2 flag so V2-OFF is byte-identical to the #1369 STEP-4 predicate. The cbsnews leak
+    # ("ws.com/team/megan-cerullo/) … [Add CBS News on Google](https://www.goog") ends on a non-alpha
+    # token so the mid-word check below never fired — its FIRST whitespace token is a bare domain-path.
+    if _boundary_quote_hygiene_v2_enabled():
+        if _MARKDOWN_LINK_RE.search(q):
+            return True
+        first_tok = q.split()[0] if q.split() else ""
+        if "://" in first_tok or _URL_FRAGMENT_RE.match(first_tok):
+            return True
     # An embedded blank line signals a GLUED multi-fragment span (the 'graduatio' class).
     if "\n\n" in q or "\n \n" in q:
         return True
@@ -251,11 +278,19 @@ def synthesize_boundary_line(
         # I-deepfix-001 (#1369) STEP 4 anti-signal: skip a truncated / glued / chrome fragment (the
         # 'graduatio...' class) so it never renders as counter-evidence. Skipping falls through to the next
         # candidate; if none qualify the section emits nothing (byte-identical to no-qualifier).
-        if _boundary_quote_hygiene_enabled() and _quote_is_unrenderable(quote):
+        # N1-FIX-2: OR the V2 flag in so the V2 markdown/URL-fragment rules fire even if STEP-4 is off; when
+        # BOTH flags are off neither predicate is consulted => byte-identical.
+        if (_boundary_quote_hygiene_enabled() or _boundary_quote_hygiene_v2_enabled()) and _quote_is_unrenderable(quote):
             continue
         source = _member_source_label(member)
         subject = str(_basket_field(headline, "subject", "") or "").strip()
-        topic = f" on {subject}" if subject else ""
+        # N1-FIX-2: the " on {subject}" suffix reads as chrome when the subject is a single garbage token
+        # ("however", "entry-", "mid-"). Under V2, require the subject to carry >=2 content words; else
+        # render the bare label. V2 OFF => legacy behaviour (any non-empty subject) => byte-identical.
+        if _boundary_quote_hygiene_v2_enabled():
+            topic = f" on {subject}" if len(_content_words(subject)) >= 2 else ""
+        else:
+            topic = f" on {subject}" if subject else ""
         return (
             f"\n\n**Boundary conditions / counter-evidence{topic}:** a lower-weight source qualifies "
             f"or bounds the headline above — \"{quote}\" ({source}). This opposing/limiting evidence "

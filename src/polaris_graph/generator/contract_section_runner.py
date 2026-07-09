@@ -45,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -529,6 +530,588 @@ def _kspan_fallback_body(
     if not _clean_sentences:
         return None
     return f"{' '.join(_clean_sentences)}[{marker_num}]"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# N5-FIX-2 (I-deepfix-001 wave-2): render-seam fragment-snap wellformedness gate.
+# Defense-in-depth for slot-field VALUES cut MID source sentence (which the
+# producer-side N5-FIX-1 alone cannot repair). When ON, a deterministic-stream
+# kept SV that is a mid-sentence fragment of its cited source span is EXPANDED to
+# the full covering source sentence(s) and RE-GATED through the UNCHANGED
+# `verify_sentence_provenance`; the SV is replaced ONLY if the expanded form
+# verifies, else the original SV is kept untouched. NEVER drops, never suppresses.
+# DEFAULT OFF => kept list returned untouched (byte-identical).
+# ─────────────────────────────────────────────────────────────────────────
+_SLOT_FRAGMENT_SNAP_ON_VALUES = frozenset({"1", "true", "on", "yes"})
+
+
+def _slot_fragment_snap_enabled() -> bool:
+    """N5-FIX-2 — True only when ``PG_SLOT_FRAGMENT_SNAP`` is an explicit truthy
+    value (1/true/on/yes). Unset / empty / other => OFF => byte-identical."""
+    return (
+        os.getenv("PG_SLOT_FRAGMENT_SNAP", "").strip().lower()
+        in _SLOT_FRAGMENT_SNAP_ON_VALUES
+    )
+
+
+def _ws_tolerant_locate(needle: str, haystack: str) -> tuple[int, int] | None:
+    """Return the (start, end) CHAR offsets of ``needle`` inside ``haystack``,
+    comparing whitespace-tolerantly (runs of whitespace match ``\\s+``). Returns
+    None when not found. Character-exact otherwise (no fuzzy matching)."""
+    import re as _re  # noqa: PLC0415
+    needle = (needle or "").strip()
+    if not needle:
+        return None
+    toks = [t for t in needle.split() if t]
+    if not toks:
+        return None
+    pat = r"\s+".join(_re.escape(t) for t in toks)
+    m = _re.search(pat, haystack or "")
+    if m is None:
+        return None
+    return (m.start(), m.end())
+
+
+def _covering_source_sentence_span(
+    direct_quote: str, start: int, end: int, split_fn: Any,
+) -> tuple[int, int] | None:
+    """Given a [start, end) fragment offset inside ``direct_quote``, return the
+    (cstart, cend) offsets of the FULL source sentence(s) that cover it, using
+    ``split_fn`` (``split_into_sentences``). None when no covering sentence is
+    located."""
+    sents = split_fn(direct_quote) or []
+    cursor = 0
+    cstart: int | None = None
+    cend: int | None = None
+    for s in sents:
+        if not s:
+            continue
+        idx = direct_quote.find(s, cursor)
+        if idx < 0:
+            loc = _ws_tolerant_locate(s, direct_quote[cursor:])
+            if loc is None:
+                continue
+            s0, s1 = cursor + loc[0], cursor + loc[1]
+        else:
+            s0, s1 = idx, idx + len(s)
+        cursor = s1
+        # Overlap test against the fragment span.
+        if s1 > start and s0 < end:
+            if cstart is None:
+                cstart = s0
+            cend = s1
+    if cstart is None or cend is None:
+        return None
+    return (cstart, cend)
+
+
+def _snap_one_fragment_sv(sv: Any, evidence_pool: dict[str, dict[str, Any]],
+                          verify_fn: Any, split_fn: Any) -> Any | None:
+    """N5-FIX-2 core: if ``sv`` (exactly one provenance token) is a mid-sentence
+    fragment of its cited source span, return a NEW re-verified SV expanded to the
+    full covering source sentence(s); else None (caller keeps the original)."""
+    import re as _re  # noqa: PLC0415
+    toks = getattr(sv, "tokens", None) or []
+    if len(toks) != 1:
+        return None
+    tok = toks[0]
+    eid = getattr(tok, "evidence_id", "")
+    row = evidence_pool.get(eid) or {}
+    dq = str(row.get("direct_quote") or "")
+    if not dq:
+        return None
+    raw_sentence = str(getattr(sv, "sentence", "") or "")
+    # Strip provenance span tokens, then drop terminal punctuation for the locate.
+    text = _re.sub(r"\s*\[#ev:[^\]]*\]", "", raw_sentence).strip()
+    text = text.rstrip(".!?").strip()
+    if not text:
+        return None
+    label_prefix = ""
+    loc = _ws_tolerant_locate(text, dq)
+    if loc is None:
+        # Defensive: strip a leading "<Label>: " prefix and retry with the bare value.
+        m = _re.match(r"^([^:]{1,60}):\s+(.*)$", text, _re.DOTALL)
+        if m:
+            cand = m.group(2).strip()
+            loc2 = _ws_tolerant_locate(cand, dq)
+            if loc2 is not None:
+                label_prefix = m.group(1) + ": "
+                text = cand
+                loc = loc2
+    if loc is None:
+        return None
+    start, end = loc
+    _pre = dq[:start].rstrip()
+    _before_frag = bool(_pre) and _pre[-1] not in ".!?"
+    _after_frag = end < len(dq) and dq[end] not in ".!?"
+    if not (_before_frag or _after_frag):
+        return None  # already a complete source sentence — pass through untouched
+    cov = _covering_source_sentence_span(dq, start, end, split_fn)
+    if cov is None:
+        return None
+    cstart, cend = cov
+    expanded = dq[cstart:cend]
+    if not expanded.strip():
+        return None
+    new_tok = f"[#ev:{eid}:{cstart}-{cend}]"
+    if expanded[-1] in ".!?":
+        body = f"{expanded[:-1].rstrip()} {new_tok}{expanded[-1]}"
+    else:
+        body = f"{expanded} {new_tok}."
+    new_sentence = f"{label_prefix}{body}"
+    new_sv = verify_fn(new_sentence, evidence_pool)
+    if getattr(new_sv, "is_verified", False):
+        return new_sv
+    return None
+
+
+def _snap_fragment_kept_svs(kept_svs: list[Any],
+                            evidence_pool: dict[str, dict[str, Any]]) -> list[Any]:
+    """N5-FIX-2 pass over a deterministic-stream kept-SV list. Flag OFF =>
+    returns the SAME list object untouched (byte-identical). Flag ON => replaces
+    each mid-sentence fragment SV with its verified full-source-sentence
+    expansion; a non-expandable or non-verifying SV is kept verbatim (never
+    dropped)."""
+    if not _slot_fragment_snap_enabled():
+        return kept_svs
+    try:
+        from .provenance_generator import (  # noqa: PLC0415
+            verify_sentence_provenance as _verify_fn,
+            split_into_sentences as _split_fn,
+        )
+    except Exception:
+        return kept_svs
+    out: list[Any] = []
+    n_snapped = 0
+    for sv in kept_svs:
+        snapped = None
+        try:
+            snapped = _snap_one_fragment_sv(sv, evidence_pool, _verify_fn, _split_fn)
+        except Exception:
+            snapped = None
+        if snapped is not None:
+            out.append(snapped)
+            n_snapped += 1
+        else:
+            out.append(sv)
+    if n_snapped:
+        logger.info(
+            "[contract_section] N5 fragment-snap: expanded %d mid-sentence "
+            "fragment(s) to the full covering source sentence (re-verified, "
+            "none dropped)", n_snapped,
+        )
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# N2 (I-deepfix-001 wave-2): fragment-prose CONSOLIDATION dedup. The V30
+# two-tier renderer emits every slot field TWICE from ONE payload — a
+# deterministic "<Label>: <value> [ev]." fragment AND a narrative prose
+# restatement of the same value with the same cite. When ON, a deterministic
+# fragment whose value is fully SUBSUMED (value-substring + cite-subset +
+# number-subset) by a NON-fragment prose sentence in the SAME slot is dropped —
+# CONSOLIDATION, not content loss (the prose carries the identical value + every
+# citation + every number, enforced by the three guards). A minimum-retention
+# guard never strands an entity. Prose is NEVER dropped. DEFAULT OFF (0) =>
+# byte-identical. Runs strictly AFTER verification on already-kept SVs.
+# ─────────────────────────────────────────────────────────────────────────
+_FRAGMENT_PROSE_DEDUP_OFF_VALUES = frozenset({"0", "false", "off", "no", ""})
+
+
+def _fragment_prose_dedup_enabled() -> bool:
+    """N2 — True unless ``PG_CONTRACT_FRAGMENT_PROSE_DEDUP`` is set to a falsey
+    value. DEFAULT "0" (OFF => byte-identical); same falsey vocabulary as
+    ``_false_gap_kspan_enabled`` (Codex iarch007 P1 #3)."""
+    return (
+        os.getenv("PG_CONTRACT_FRAGMENT_PROSE_DEDUP", "0").strip().lower()
+        not in _FRAGMENT_PROSE_DEDUP_OFF_VALUES
+    )
+
+
+def _dedup_fragment_prose_restatements(
+    kept_sentences: list[Any],
+    det_sv_ids: set[int],
+    known_labels: set[str],
+    entity_to_slot_id: dict[str, str],
+) -> tuple[list[Any], dict[str, int]]:
+    """N2 core (pure, no LLM / no re-verify). Drop deterministic-stream fragment
+    SVs whose value is subsumed by a same-slot non-fragment prose sentence. Returns
+    (new_kept, telemetry). Prose is never dropped; a distinct / uncontained /
+    cite-or-number-superset fragment is kept; the minimum-retention guard keeps a
+    fragment that is its entity's sole substantive kept sentence."""
+    from .fact_dedup import (  # noqa: PLC0415
+        _CITATION_TOKEN_RE,
+        _nli_cite_set,
+        _nli_num_set,
+    )
+
+    def _slot_of(sv: Any) -> Any:
+        toks = getattr(sv, "tokens", None) or []
+        if not toks:
+            return None
+        _ov = getattr(sv, "reanchor_original_slot_id", None)
+        return _ov if _ov is not None else entity_to_slot_id.get(toks[0].evidence_id)
+
+    def _primary_eid(sv: Any) -> Any:
+        toks = getattr(sv, "tokens", None) or []
+        return toks[0].evidence_id if toks else None
+
+    def _normalize(s: Any) -> str:
+        s = _CITATION_TOKEN_RE.sub(" ", str(s or ""))
+        return " ".join(s.split()).casefold()
+
+    labels_cf = sorted(
+        {str(lbl).casefold() for lbl in known_labels if str(lbl).strip()},
+        key=len, reverse=True,
+    )
+    # Classify fragments: id(sv) -> (value_norm, cite_set, num_set).
+    frag_info: dict[int, tuple[str, frozenset, frozenset]] = {}
+    for sv in kept_sentences:
+        if id(sv) not in det_sv_ids:
+            continue
+        cleaned = _normalize(getattr(sv, "sentence", ""))
+        for lab in labels_cf:
+            prefix = lab + ":"
+            if cleaned.startswith(prefix):
+                # Strip the fragment's OWN trailing sentence punctuation (the
+                # renderer emits "<Label>: <value> [ev]." so the period is the
+                # sentence terminator, never part of the field value). Without
+                # this, a value that appears MID-sentence in the covering prose
+                # (e.g. "US labor markets," in P1) would fail the substring test.
+                value_norm = cleaned[len(prefix):].strip().rstrip(" .!?;:,").strip()
+                sent = getattr(sv, "sentence", "")
+                frag_info[id(sv)] = (
+                    value_norm, _nli_cite_set(sent), _nli_num_set(sent),
+                )
+                break
+    if not frag_info:
+        return kept_sentences, {"n_fragments_dropped": 0}
+
+    # Substantive-kept count per PRIMARY (tokens[0]) evidence_id — mirrors the
+    # `_kept_substantive_by_entity` attribution rule (non-gap sentences only).
+    subst: dict[Any, int] = {}
+    for sv in kept_sentences:
+        if _is_gap_disclosure_sentence(getattr(sv, "sentence", "")):
+            continue
+        eid = _primary_eid(sv)
+        if eid is not None:
+            subst[eid] = subst.get(eid, 0) + 1
+
+    drop_ids: set[int] = set()
+    n_dropped = 0
+    for sv in kept_sentences:
+        fi = frag_info.get(id(sv))
+        if fi is None:
+            continue
+        value_norm, frag_cites, frag_nums = fi
+        if not value_norm:
+            continue  # empty value never matches (guard against substring-of-all)
+        frag_slot = _slot_of(sv)
+        frag_eid = _primary_eid(sv)
+        matched = False
+        for cand in kept_sentences:
+            if cand is sv or id(cand) in frag_info or id(cand) in drop_ids:
+                continue  # candidate must be a non-fragment, not-yet-dropped SV
+            if _slot_of(cand) != frag_slot:
+                continue
+            cand_sent = getattr(cand, "sentence", "")
+            if (
+                value_norm in _normalize(cand_sent)
+                and frag_cites <= _nli_cite_set(cand_sent)
+                and frag_nums <= _nli_num_set(cand_sent)
+            ):
+                matched = True
+                break
+        if not matched:
+            continue
+        # Minimum-retention guard: never strand the fragment's own entity.
+        if frag_eid is not None and subst.get(frag_eid, 0) - 1 < 1:
+            continue
+        drop_ids.add(id(sv))
+        n_dropped += 1
+        if frag_eid is not None:
+            subst[frag_eid] = subst.get(frag_eid, 0) - 1
+    if not drop_ids:
+        return kept_sentences, {"n_fragments_dropped": 0}
+    new_kept = [sv for sv in kept_sentences if id(sv) not in drop_ids]
+    return new_kept, {"n_fragments_dropped": n_dropped}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# N4 (I-deepfix-001 wave-2): the zero-kept contract slot gap-DISCLOSURE sentence.
+# The disclosure is CORRECT (disclose-not-drop, §-1.3); the bug is its audience
+# register — the legacy template interpolates the raw entity SLUG + two internal
+# filenames + "curator-actionable" jargon into reader prose. Flag ON swaps the
+# reader-facing STRING for plain English (no slug/filename/jargon/underscore),
+# keeping the [N] citation; every machine detail stays where auditors read it
+# (manifest.frame_coverage_report, human_gap_tasks.json, slot_drop_log). DEFAULT
+# OFF (0) => byte-identical legacy template.
+# ─────────────────────────────────────────────────────────────────────────
+_CONTRACT_GAP_PLAIN_OFF_VALUES = frozenset({"0", "false", "off", "no", ""})
+
+
+def _contract_gap_plain_disclosure_enabled() -> bool:
+    """N4 — True unless ``PG_CONTRACT_GAP_PLAIN_DISCLOSURE`` is set falsey.
+    DEFAULT "0" (OFF => byte-identical); same falsey vocabulary as the sibling
+    ``_false_gap_kspan_enabled``."""
+    return (
+        os.getenv("PG_CONTRACT_GAP_PLAIN_DISCLOSURE", "0").strip().lower()
+        not in _CONTRACT_GAP_PLAIN_OFF_VALUES
+    )
+
+
+def _contract_gap_sentence(primary_ev: str, marker: str, label: str = "") -> str:
+    """N4 — build the zero-kept-slot gap disclosure sentence.
+
+    Flag OFF (default): return the EXACT legacy byte string (both the primary_ev
+    and the no-primary_ev branch) — byte-identical.
+
+    Flag ON: return a plain-English disclosure with NO slug, NO internal
+    filename, NO "curator-actionable" jargon, NO underscore, keeping the {marker}
+    [N] citation. The disclosure REMAINS in both modes (disclose-not-drop,
+    §-1.3); only the reader register changes. ``label`` (the ev.statement →
+    ev.title → contract_entity.label_name chain) is accepted for an optional
+    "(source: <label>)" suffix but intentionally left unused — the slot heading
+    already carries the human subsection title, so the sentence is valid without
+    it."""
+    if _contract_gap_plain_disclosure_enabled():
+        base = (
+            "Insufficient verified evidence for this item: no content drawn "
+            "from the bound source passed verification, so no findings are "
+            "reported here."
+        )
+        return f"{base}{marker}" if primary_ev else base
+    if primary_ev:
+        return (
+            f"Contract-bound content for {primary_ev} did not "
+            f"survive strict verification against retrieved "
+            f"primary source text; this slot is a curator-"
+            f"actionable gap. See manifest.frame_coverage_report "
+            f"and human_gap_tasks.json for per-entity detail."
+            f"{marker}"
+        )
+    return (
+        "Contract-bound content did not survive strict "
+        "verification; curator-actionable gap."
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# B5 (I-deepfix-001 wave-2): hollow contract-slot re-anchor to a same-work CLEAN
+# sibling, and author/abstract chrome-header strip. When a slot renders as a gap
+# because its bound entity's ONLY copy is chrome-contaminated ("## Author Listed …
+# ## Abstract We study…") or unbound, bind by DOI (+ title/author) to a clean
+# same-work sibling row and render ITS verbatim span through the UNCHANGED
+# strict_verify K-span (`_kspan_fallback_body`). Faithfulness-STRENGTHENING: a
+# verified verbatim span of the SAME work replaces a false gap; the verifier is
+# byte-untouched. All three flags DEFAULT OFF => the pass never runs =>
+# byte-identical, and N4 backstops any residual honest gap.
+# ─────────────────────────────────────────────────────────────────────────
+_B5_ON_VALUES = frozenset({"1", "true", "on", "yes"})
+_B5_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"'<>]+")
+# The "## Author Listed … ## Abstract" chrome prefix (both headers required, from
+# string start) — conservative so a legitimate quote merely mentioning "abstract"
+# is never stripped.
+_B5_AUTHOR_ABSTRACT_PREFIX_RE = re.compile(
+    r"^\s*#{1,6}\s*author\s+listed\b.*?#{1,6}\s*abstract\b[:\s]*",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _author_abstract_header_strip_enabled() -> bool:
+    """B5 — True only when ``PG_AUTHOR_ABSTRACT_HEADER_STRIP`` is truthy. DEFAULT OFF."""
+    return os.getenv("PG_AUTHOR_ABSTRACT_HEADER_STRIP", "").strip().lower() in _B5_ON_VALUES
+
+
+def _contract_bind_doi_fallback_enabled() -> bool:
+    """B5 — True only when ``PG_CONTRACT_BIND_DOI_FALLBACK`` is truthy. DEFAULT OFF."""
+    return os.getenv("PG_CONTRACT_BIND_DOI_FALLBACK", "").strip().lower() in _B5_ON_VALUES
+
+
+def _contract_reanchor_clean_sibling_enabled() -> bool:
+    """B5 — True only when ``PG_CONTRACT_REANCHOR_CLEAN_SIBLING`` is truthy. DEFAULT OFF."""
+    return os.getenv("PG_CONTRACT_REANCHOR_CLEAN_SIBLING", "").strip().lower() in _B5_ON_VALUES
+
+
+def _b5_reanchor_any_enabled() -> bool:
+    """B5 — True iff ANY of the three B5 flags is on (the gate the gap-emit loop
+    consults; all OFF => the whole pass is skipped => byte-identical)."""
+    return (
+        _author_abstract_header_strip_enabled()
+        or _contract_bind_doi_fallback_enabled()
+        or _contract_reanchor_clean_sibling_enabled()
+    )
+
+
+def _strip_author_abstract_header(quote: str) -> str:
+    """B5 — strip a leading "## Author Listed … ## Abstract" markdown chrome prefix,
+    returning the abstract body onward. Flag OFF or no such prefix => the quote is
+    returned UNCHANGED (byte-identical)."""
+    if not _author_abstract_header_strip_enabled():
+        return quote
+    m = _B5_AUTHOR_ABSTRACT_PREFIX_RE.match(quote or "")
+    if m is None:
+        return quote
+    return (quote or "")[m.end():].lstrip()
+
+
+def _b5_norm_doi(row: dict[str, Any] | None) -> str:
+    """B5 — normalized lowercase DOI for a pool row: the ``doi`` field (doi.org
+    prefix stripped) else a DOI parsed from url/source_url. "" when none."""
+    doi = str((row or {}).get("doi") or "").strip()
+    if doi:
+        doi = re.sub(r"(?i)^https?://(dx\.)?doi\.org/", "", doi).strip()
+        if doi:
+            return doi.lower()
+    for _k in ("url", "source_url"):
+        m = _B5_DOI_RE.search(str((row or {}).get(_k) or ""))
+        if m:
+            return m.group(0).lower()
+    return ""
+
+
+def _b5_norm_title(row: dict[str, Any] | None) -> str:
+    """B5 — whitespace-collapsed casefolded title for a pool row ("" when none)."""
+    return " ".join(str((row or {}).get("title") or "").split()).casefold()
+
+
+def _b5_entity_doi(contract_entity: Any) -> str:
+    """B5 — DOI from the RequiredEntity (``doi`` / ``identifier``), normalized."""
+    if contract_entity is None:
+        return ""
+    for _attr in ("doi", "identifier"):
+        v = getattr(contract_entity, _attr, None)
+        if v:
+            m = _B5_DOI_RE.search(str(v))
+            if m:
+                return m.group(0).lower()
+            return _b5_norm_doi({"doi": str(v)})
+    return ""
+
+
+def _b5_entity_title(contract_entity: Any) -> str:
+    """B5 — title from the RequiredEntity (``title`` / ``label_name``), normalized."""
+    if contract_entity is None:
+        return ""
+    for _attr in ("title", "label_name"):
+        v = getattr(contract_entity, _attr, None)
+        if v:
+            return " ".join(str(v).split()).casefold()
+    return ""
+
+
+def _b5_row_cleanliness(row: dict[str, Any] | None) -> float:
+    """B5 — a 'clean copy' score for sibling ranking (crw / authority / credibility;
+    0.0 when none carry one)."""
+    for _k in ("content_relevance_weight", "crw", "authority_score", "credibility_weight"):
+        v = (row or {}).get(_k)
+        if isinstance(v, (int, float)):
+            return float(v)
+    return 0.0
+
+
+def _b5_same_work_siblings(
+    primary_ev: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    target_doi: str,
+    target_title: str,
+) -> list[str]:
+    """B5 — evidence_ids of OTHER pool rows that are the SAME work as ``primary_ev``
+    (same normalized DOI, else same normalized non-empty title), ranked cleanest
+    first (cleanliness score desc, then header-stripped usable-span length desc)."""
+    out: list[str] = []
+    for eid, row in (evidence_pool or {}).items():
+        if eid == primary_ev:
+            continue
+        rd = _b5_norm_doi(row)
+        rt = _b5_norm_title(row)
+        same = (bool(target_doi) and rd == target_doi) or (
+            bool(target_title) and rt == target_title
+        )
+        if same:
+            out.append(eid)
+
+    def _key(eid: str) -> tuple[float, int]:
+        row = evidence_pool.get(eid) or {}
+        stripped = _strip_author_abstract_header(str(row.get("direct_quote") or ""))
+        return (_b5_row_cleanliness(row), len(stripped.strip()))
+
+    out.sort(key=_key, reverse=True)
+    return out
+
+
+def _b5_reanchor_clean_kspan(
+    *,
+    primary_ev: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    ev_to_num: dict[str, int],
+    biblio_slice: list[dict[str, Any]],
+    rewrite_fn: Any,
+    strict_verify_fn: Any,
+    contract_entity: Any,
+) -> tuple[str, str] | None:
+    """B5 — for a hollow slot, render a verified K-span from (1) the bound entity's
+    own span with the author/abstract chrome header stripped, then (2) a same-work
+    CLEAN sibling (bound by DOI + title/author). Each candidate span is routed
+    through the UNCHANGED `_kspan_fallback_body` (→ strict_verify). Returns
+    (body_md, chosen_ev_id) on the FIRST candidate that verifies; else None. A
+    bibliography entry for a newly-cited sibling is synthesized ONLY on success (no
+    dangling number). Never mutates the real span (works on a patched pool copy)."""
+    primary_row = evidence_pool.get(primary_ev) or {}
+    target_doi = _b5_norm_doi(primary_row) or _b5_entity_doi(contract_entity)
+    target_title = _b5_norm_title(primary_row) or _b5_entity_title(contract_entity)
+
+    candidates: list[str] = []
+    # (1) the bound entity itself — only useful with the header strip on.
+    if _author_abstract_header_strip_enabled():
+        candidates.append(primary_ev)
+    # (2) same-work clean siblings — the DOI/title fallback + re-anchor.
+    if _contract_bind_doi_fallback_enabled() or _contract_reanchor_clean_sibling_enabled():
+        for _sib in _b5_same_work_siblings(
+            primary_ev, evidence_pool, target_doi, target_title,
+        ):
+            if _sib not in candidates:
+                candidates.append(_sib)
+    if not candidates:
+        return None
+
+    for cand in candidates:
+        row = evidence_pool.get(cand) or {}
+        stripped = _strip_author_abstract_header(str(row.get("direct_quote") or ""))
+        if len(stripped.strip()) < _MIN_VERIFIABLE_SPAN_CHARS:
+            continue
+        _already = cand in ev_to_num
+        marker_num = ev_to_num[cand] if _already else (len(biblio_slice) + 1)
+        patched = dict(evidence_pool)
+        patched[cand] = {**row, "direct_quote": stripped}
+        try:
+            body = _kspan_fallback_body(
+                primary_ev=cand,
+                evidence_pool=patched,
+                marker_num=marker_num,
+                rewrite_fn=rewrite_fn,
+                strict_verify_fn=strict_verify_fn,
+            )
+        except Exception:
+            body = None
+        if not body:
+            continue
+        if not _already:
+            _crow = evidence_pool.get(cand, {})
+            _stmt = next(
+                (s for s in (_crow.get("statement"), _crow.get("title"), cand) if s),
+                cand,
+            )
+            biblio_slice.append({
+                "num": marker_num,
+                "evidence_id": cand,
+                "url": _crow.get("url") or _crow.get("source_url") or "",
+                "tier": _crow.get("tier", ""),
+                "statement": str(_stmt)[:300],
+            })
+            ev_to_num[cand] = marker_num
+        return (body, cand)
+    return None
 
 
 def _basket_fallback_corroborators_for_slot(
@@ -1501,6 +2084,16 @@ async def run_contract_section(
         stream_label="deterministic",
     )
 
+    # N5-FIX-2 (I-deepfix-001 wave-2): fragment-snap wellformedness gate on the
+    # deterministic stream ONLY (the proven bleeding site). A slot-field value cut
+    # MID source sentence renders a subjectless fragment; expand each such kept SV
+    # to its full covering VERBATIM source sentence and RE-GATE through the
+    # UNCHANGED verifier. Flag OFF => returns the list untouched (byte-identical);
+    # never drops. Runs in a thread — it calls verify_sentence_provenance per SV.
+    det_kept_sentences = await asyncio.to_thread(
+        _snap_fragment_kept_svs, det_kept_sentences, evidence_pool,
+    )
+
     # ── REGULATORY stream (M-70 `render_regulatory_prose` LLM synthesis) ─
     # Rescue-INELIGIBLE (Fix C / regulatory classification): the M-70 parser
     # verbatim-checks ONLY the one `source_span` phrase, not the full
@@ -1560,6 +2153,10 @@ async def run_contract_section(
     # (verbatim slot facts lead, regulatory + narrative depth follow). A slot
     # is either M-58 OR M-70 per entity, so det and reg do not co-occur for the
     # same entity — only the merge ORDER is defined here, not a mixing rule.
+    # N2 (I-deepfix-001 wave-2): the deterministic stream's prefix length. Only
+    # deterministic-origin SVs are ever eligible to be dropped as duplicated
+    # "<Label>: value" fragments (prose is never dropped).
+    _n_det_kept = len(det_kept_sentences)
     kept_sentences = (
         det_kept_sentences + reg_kept_sentences + narr_kept_sentences
     )
@@ -1570,6 +2167,11 @@ async def run_contract_section(
     if credibility_analysis is not None:
         from ..synthesis.credibility_pass import apply_disclosure_to_svs
         kept_sentences = apply_disclosure_to_svs(kept_sentences, credibility_analysis)
+    # N2: capture the DETERMINISTIC-stream SV identities AFTER apply_disclosure_to_svs
+    # (which replaces SV objects 1:1 in order via dataclasses.replace) so the id-set
+    # stays valid at the fragment-prose dedup call site below — FIX1 only APPENDS
+    # re-anchored SVs, and the I-wire-014 keep-first pass preserves object identity.
+    _det_sv_ids = {id(sv) for sv in kept_sentences[:_n_det_kept]}
     rescued = det_rescued  # regulatory + narrative streams contribute no rescues
     # Combined raw + rewritten drafts (telemetry parity with pre-Fix-B).
     raw_draft = " ".join(
@@ -1752,6 +2354,49 @@ async def run_contract_section(
                 "[contract_section] I-wire-014 dedup pass failed (%s); keeping "
                 "original verified sentences verbatim (consolidate-keep-all, §-1.3)",
                 _dedup_exc,
+            )
+
+    # N2 (I-deepfix-001 wave-2): fragment-prose CONSOLIDATION dedup. Runs AFTER the
+    # I-wire-014 consolidation and BEFORE resolve, on the list it receives (no shared
+    # index state). Drops a deterministic "<Label>: value [ev]." fragment ONLY when a
+    # same-slot NON-fragment prose sentence carries the identical value + a cite
+    # SUPERSET + a number SUPERSET (so nothing distinct/cited/numeric is lost — the
+    # prose is the surviving carrier). Prose is never dropped; a minimum-retention
+    # guard never strands an entity. Flag OFF (0) => untouched (byte-identical).
+    if _fragment_prose_dedup_enabled() and len(kept_sentences) >= 2:
+        try:
+            # Build the known fragment-label set EXACTLY as render_slot_prose does:
+            # required_field -> "field_name".replace("_"," "); Title-case first char.
+            _n2_known_labels: set[str] = set()
+            for _re_ent in plan.contract_entities_by_id.values():
+                for _rf in getattr(_re_ent, "required_fields", ()) or ():
+                    _lbl = str(_rf).replace("_", " ")
+                    _lbl = _lbl[:1].upper() + _lbl[1:] if _lbl else _lbl
+                    if _lbl:
+                        _n2_known_labels.add(_lbl)
+            _kept_before_fp = len(kept_sentences)
+            kept_sentences, _fp_telemetry = _dedup_fragment_prose_restatements(
+                kept_sentences, _det_sv_ids, _n2_known_labels, entity_to_slot_id,
+            )
+            _new_kept_fp = len(kept_sentences)
+            if _new_kept_fp != _kept_before_fp:
+                # dropped accounting mirrors the I-wire-014 block: total_in is fixed;
+                # a subsumed fragment left the kept body (its value + every cite +
+                # every number survives on the kept prose), so dropped rises by the
+                # kept-count delta. CONSOLIDATION, no source lost.
+                dropped += _kept_before_fp - _new_kept_fp
+                kept = _new_kept_fp
+            logger.info(
+                "[contract_section] fragment-prose dedup: %d -> %d kept "
+                "(n_fragments_dropped=%s)",
+                _kept_before_fp, _new_kept_fp,
+                _fp_telemetry.get("n_fragments_dropped"),
+            )
+        except Exception as _fp_exc:
+            # Safe-fail (§-1.3): a dedup error must NEVER delete cited sentences.
+            logger.warning(
+                "[contract_section] fragment-prose dedup pass failed (%s); keeping "
+                "original verified sentences verbatim (§-1.3)", _fp_exc,
             )
 
     # I-arch-005 B6/B8 (#1257) — THE KEYSTONE on the V30 contract path.
@@ -2038,23 +2683,61 @@ async def run_contract_section(
                     slot_id, primary_ev,
                 )
                 continue
-            if primary_ev:
-                marker = f"[{ev_to_num[primary_ev]}]"
-                gap_sentence = (
-                    f"Contract-bound content for {primary_ev} did not "
-                    f"survive strict verification against retrieved "
-                    f"primary source text; this slot is a curator-"
-                    f"actionable gap. See manifest.frame_coverage_report "
-                    f"and human_gap_tasks.json for per-entity detail."
-                    f"{marker}"
+            # B5 (I-deepfix-001 wave-2): the bound entity's own span was hollow
+            # (chrome-contaminated / no usable quote). Before disclosing a gap,
+            # re-anchor to a same-work CLEAN sibling (bound by DOI + title/author)
+            # and/or the author/abstract-header-stripped copy, rendered through the
+            # UNCHANGED strict_verify K-span. Faithfulness-STRENGTHENING; all B5
+            # flags OFF => the pass is skipped => byte-identical (N4 still backstops).
+            if primary_ev and _b5_reanchor_any_enabled():
+                _b5 = _b5_reanchor_clean_kspan(
+                    primary_ev=primary_ev,
+                    evidence_pool=evidence_pool,
+                    ev_to_num=ev_to_num,
+                    biblio_slice=biblio_slice,
+                    rewrite_fn=rewrite_fn,
+                    strict_verify_fn=strict_verify_fn,
+                    contract_entity=plan.contract_entities_by_id.get(primary_ev),
                 )
-            else:
-                # Fallback if no primary entity (defensive — outline
-                # compiler enforces non-empty entity_ids per slot).
-                gap_sentence = (
-                    "Contract-bound content did not survive strict "
-                    "verification; curator-actionable gap."
-                )
+                if _b5 is not None:
+                    _b5_body, _b5_eid = _b5
+                    verified_blocks.append(f"{heading}\n\n{_b5_body}")
+                    slot_drop_log.append({
+                        "slot_id": slot_id,
+                        "kept_sentences": 1,
+                        "disposition": "rendered_b5_clean_sibling_reanchor",
+                    })
+                    logger.info(
+                        "[contract_section] B5 clean-sibling re-anchor: slot %r "
+                        "rendered verified K-span from same-work entity ev=%s "
+                        "(bound entity %r hollow)", slot_id, _b5_eid, primary_ev,
+                    )
+                    continue
+            # N4 (I-deepfix-001 wave-2): the gap disclosure is built by the
+            # module-level helper so the reader register is flag-gated at the
+            # SOURCE. Flag OFF => byte-identical legacy template; ON => plain
+            # English with the [N] citation, no slug/filename/jargon. The label
+            # chain (ev.statement → ev.title → contract_entity.label_name) is the
+            # SAME candidate chain the biblio synth uses above; optional, unused by
+            # the current template but threaded per spec.
+            marker = f"[{ev_to_num[primary_ev]}]" if primary_ev else ""
+            _gap_ce = (
+                plan.contract_entities_by_id.get(primary_ev)
+                if primary_ev else None
+            )
+            _gap_row = evidence_pool.get(primary_ev, {}) if primary_ev else {}
+            _gap_label = next(
+                (
+                    _s for _s in (
+                        _gap_row.get("statement"),
+                        _gap_row.get("title"),
+                        getattr(_gap_ce, "label_name", None)
+                        if _gap_ce is not None else None,
+                    ) if _s
+                ),
+                "",
+            )
+            gap_sentence = _contract_gap_sentence(primary_ev, marker, _gap_label)
             verified_blocks.append(f"{heading}\n\n{gap_sentence}")
             slot_drop_log.append({
                 "slot_id": slot_id,

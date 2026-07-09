@@ -68,7 +68,9 @@ _GAP_STUB_RE = re.compile(
     r"did not survive (strict|4-role|four-role) verification|"
     r"curator-actionable gap|human_gap_tasks|frame_coverage_report|"
     r"placeholder for (a|the) (claim|finding|sentence)|"
-    r"this slot is a [a-z-]*\s*gap"
+    r"this slot is a [a-z-]*\s*gap|"
+    # N4 (I-deepfix-001 wave-2): plain-English gap disclosure (carries [N]).
+    r"insufficient verified evidence"
 )
 # The answer-body boundary: the appendix sections that are NOT rubric-scored answer content.
 # I-deepfix-001 (#1344): ALSO match the T5 audit-machinery appendix header the render emits

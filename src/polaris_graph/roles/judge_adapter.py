@@ -312,6 +312,31 @@ def _judge_retry_max_attempts() -> int:
         return _RETRY_MAX_ATTEMPTS_DEFAULT
 
 
+# B6 FIX 2 (I-deepfix-001 #1370) — off-enum provider ROTATION across re-asks ----------------------
+# When a re-ask fires on an off-enum `JudgeEnumError`, the served provider that returned the garbled
+# token is added to a per-call ignore set and threaded into `request.params['provider_ignore_extra']`
+# so the transport's next re-ask (a fresh `transport.complete()` -> `_build_openrouter_body`) rotates
+# OFF that garbling host — the SAME provider-exclusion idiom the blank-200 rotation already uses.
+# Completes the judge-failure-mode family (blank-200 / force-close / slow-trickle already rotate;
+# off-enum was the last mode with no provider exclusion). Default-ON kill-switch; OFF => the re-ask
+# body carries NO added ignore entry (byte-identical). The re-ask BUDGET is unchanged
+# (PG_JUDGE_RETRY_MAX_ATTEMPTS) and the degrade path is unchanged (fail-closed UNSUPPORTED +
+# <judge_offenum>, never a synthesized PASS).
+_OFFENUM_PROVIDER_ROTATE_FLAG = "PG_JUDGE_OFFENUM_PROVIDER_ROTATE"
+_PROVIDER_IGNORE_EXTRA_KEY = "provider_ignore_extra"
+
+
+def _offenum_provider_rotate_enabled() -> bool:
+    """True iff a garbling served provider is added to the re-ask's provider ignore-list (default ON).
+
+    Read at call time (LAW VI) so a slate/test override after import wins. OFF => no
+    `provider_ignore_extra` key is ever written into the request params, so the re-ask request body
+    is BYTE-IDENTICAL to pre-fix."""
+    return os.getenv(_OFFENUM_PROVIDER_ROTATE_FLAG, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
 # (c) verdict idempotency cache ------------------------------------------------------------------
 _VERDICT_IDEMPOTENCY_FLAG = "PG_JUDGE_VERDICT_IDEMPOTENCY"
 # Process-wide; keyed on (sha256(normalized_claim), sha256(normalized_span)). Only CLEAN verdicts
@@ -513,6 +538,13 @@ def run_judge(
     # (never raises), so a genuine non-support STILL HOLDS — only transport NOISE is retried.
     max_retries = _judge_retry_max_attempts() if _retry_before_degrade_enabled() else 0
     attempt = 0
+    # B6 FIX 2: accumulate the SERVED providers that returned a garbled off-enum token so each re-ask
+    # rotates OFF them. `_served_provider` tracks the provider of the most-recent completion (None
+    # until the first successful `transport.complete()`), used by the FIX 3 observability warnings.
+    # Both stay empty/None + are never written into the request when the rotation flag is OFF ->
+    # byte-identical.
+    _garbling_providers: set[str] = set()
+    _served_provider: str | None = None
     while True:
         # ---- transport POST (fail-closed degrade preserved; #1283 C.2 + #1344 W14 rationale) ----
         # A force-closed Judge `RoleTransportError` that SURVIVED the transport's own bounded retries
@@ -528,10 +560,12 @@ def run_judge(
         except RoleTransportError as exc:
             if attempt < max_retries:
                 attempt += 1
+                # B6 FIX 3 observability: carry the fault message (truncated) + the last served
+                # provider so a forensic read gets the fault + host directly from the log.
                 logger.warning(
-                    "[polaris graph] WS-1(b): judge transport fault (%s) — re-asking (attempt "
-                    "%d/%d) before the fail-closed degrade.",
-                    type(exc).__name__, attempt, max_retries,
+                    "[polaris graph] WS-1(b): judge transport fault (%s: %s) — re-asking (attempt "
+                    "%d/%d; last served_provider=%r) before the fail-closed degrade.",
+                    type(exc).__name__, str(exc)[:120], attempt, max_retries, _served_provider,
                 )
                 continue
             if not _role_transport_degrade_enabled():
@@ -562,6 +596,8 @@ def run_judge(
         # still-off-enum token degrades THIS claim (not the whole seam); WS-1 (b) re-asks first, WS-1
         # (c) inherits a clean twin, else the UNCHANGED `<judge_offenum>` degrade fires. The verdict
         # DECISION logic (`parse_judge_verdict` exact enum match) is UNTOUCHED.
+        # B6 FIX 2: the provider that served THIS completion (used to rotate off it if it garbled).
+        _served_provider = getattr(response, "served_provider", None)
         raw_token = (
             _extract_verdict_token(response.raw_text)
             if _enum_response_format_enabled()
@@ -572,10 +608,18 @@ def run_judge(
         except JudgeEnumError as enum_exc:
             if attempt < max_retries:
                 attempt += 1
+                # B6 FIX 2: rotate OFF the garbling served provider on the re-ask (default ON). The
+                # transport merges `provider_ignore_extra` into the next body's provider ignore-list.
+                if _offenum_provider_rotate_enabled() and _served_provider:
+                    _garbling_providers.add(_served_provider)
+                    request.params[_PROVIDER_IGNORE_EXTRA_KEY] = sorted(_garbling_providers)
+                # B6 FIX 3 observability: the JudgeEnumError message carries the offending token, and
+                # served_provider names the garbling host — log both so forensics need no re-run.
                 logger.warning(
-                    "[polaris graph] WS-1(b): judge off-enum token (%s) — re-asking (attempt "
-                    "%d/%d) before the fail-closed degrade.",
-                    type(enum_exc).__name__, attempt, max_retries,
+                    "[polaris graph] WS-1(b): judge off-enum token (%s: %s) — re-asking (attempt "
+                    "%d/%d; served_provider=%r, rotate_ignore=%r) before the fail-closed degrade.",
+                    type(enum_exc).__name__, str(enum_exc)[:120], attempt, max_retries,
+                    _served_provider, request.params.get(_PROVIDER_IGNORE_EXTRA_KEY),
                 )
                 continue
             if not _role_transport_degrade_enabled():

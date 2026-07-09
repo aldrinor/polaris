@@ -628,6 +628,28 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+# N5-FIX-1 (I-deepfix-001 wave-2, drb_72 garbled-sentence root cause): when a slot
+# field VALUE is multi-sentence (the LLM welded fragments cut MID source sentence),
+# `render_slot_prose`'s single-trailing-marker f-string leaves every sub-sentence but
+# the last one token-less, so strict_verify drops them as ``no_provenance_token`` and
+# the antecedent (e.g. the "roughly 1.8%" clause) silently vanishes while a subjectless
+# continuation fragment ships. When ON, each SUB-sentence of the value carries its own
+# citation (marker BEFORE terminal punctuation, per the ``_kspan_fallback_body`` idiom),
+# so every verbatim span-grounded piece survives verification IN ORDER. DEFAULT OFF =>
+# byte-identical legacy single-marker output. Only an explicit truthy value enables.
+_SLOT_PROSE_SENTENCE_CITES_ON_VALUES = frozenset({"1", "true", "on", "yes"})
+
+
+def _slot_prose_sentence_cites_enabled() -> bool:
+    """N5-FIX-1 — True only when ``PG_SLOT_PROSE_SENTENCE_CITES`` is an explicit
+    truthy value (1/true/on/yes). Unset / empty / anything else => OFF =>
+    byte-identical current output (LAW VI env-overridable, DEFAULT OFF)."""
+    return (
+        os.getenv("PG_SLOT_PROSE_SENTENCE_CITES", "").strip().lower()
+        in _SLOT_PROSE_SENTENCE_CITES_ON_VALUES
+    )
+
+
 def _dedup_extracted_fields(fields: list[SlotFieldFill]) -> list[SlotFieldFill]:
     """I-deepfix-001 FIX-D part 2 (#1335): drop extracted fields whose VALUE (or, when value is
     empty, source_span) is identical to one already kept, after whitespace+case normalization.
@@ -801,6 +823,16 @@ def render_slot_prose(payload: SlotFillPayload) -> str:
     # Title-cased field name. strict_verify's sentence splitter
     # matches `.` + whitespace + [A-Z\[], so a leading capital
     # is needed for each sentence boundary to trigger.
+    # N5-FIX-1: per-sub-sentence citation mode. Resolved ONCE so the OFF path
+    # never imports the splitter (byte-identical, no side effects).
+    _sentence_cites_on = _slot_prose_sentence_cites_enabled()
+    _split_into_sentences = None
+    if _sentence_cites_on:
+        # Lazy import (matches `_kspan_fallback_body`'s idiom) — no circular
+        # import (provenance_generator does not import slot_fill).
+        from .provenance_generator import (  # noqa: PLC0415
+            split_into_sentences as _split_into_sentences,
+        )
     sentences: list[str] = []
     for field in payload.fields:
         # I-ready-018 FIX-SLOT (#1144): render ONLY extracted fields. A field the source does not
@@ -818,5 +850,29 @@ def render_slot_prose(payload: SlotFillPayload) -> str:
         # Underscore→space for readability (e.g. "etd_with_uncertainty" → "Etd with uncertainty").
         label = field.field_name.replace("_", " ")
         label = label[:1].upper() + label[1:] if label else label
-        sentences.append(f"{label}: {field.value} [{bound}].")
+        if not _sentence_cites_on:
+            sentences.append(f"{label}: {field.value} [{bound}].")
+            continue
+        # N5-FIX-1 (flag ON): a multi-sentence value welds fragments cut mid source
+        # sentence; render EACH sub-sentence with its OWN citation so none is left
+        # token-less (strict_verify would drop it as no_provenance_token and lose the
+        # antecedent). Marker goes BEFORE terminal punctuation via the exact
+        # `_kspan_fallback_body` idiom. Only the FIRST sub-sentence carries the label;
+        # subsequent ones are Title-cased so the sentence-split boundary still triggers.
+        value_str = str(field.value or "")
+        subs = [s for s in (_p.rstrip() for _p in _split_into_sentences(value_str)) if s]
+        if not subs:
+            # No splittable content (defensive) — fall back to the legacy single form.
+            sentences.append(f"{label}: {field.value} [{bound}].")
+            continue
+        for _idx, _sub in enumerate(subs):
+            if _idx > 0 and _sub[:1].islower():
+                _sub = _sub[:1].upper() + _sub[1:]
+            if _sub[-1] in ".!?":
+                _cited = f"{_sub[:-1].rstrip()} [{bound}]{_sub[-1]}"
+            else:
+                _cited = f"{_sub} [{bound}]."
+            if _idx == 0:
+                _cited = f"{label}: {_cited}"
+            sentences.append(_cited)
     return " ".join(sentences)

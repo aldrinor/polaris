@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import math
 import os
 from typing import Any, Callable, Optional
 
@@ -105,6 +106,67 @@ _ENV_WALL_DEADLINE_S = "PG_ABSTRACTIVE_WRITER_WALL_DEADLINE_S"
 # set to that worst case so a uniformly-slow-but-eventually-healthy run completes rather than abandons
 # its last wave; observed real waves ran ~180-200s, so the wall only ever bites a genuinely stuck call.
 _DEFAULT_WALL_DEADLINE_S = 720.0               # outer wall -> abandon stuck baskets to K-span (never infinite)
+
+# ── I-deepfix-001 B3/B4 (#1370): writer throughput + transport-resilience knobs (all DEFAULT-OFF) ──
+# B4 root cause: the flat 720s wall was sized in-code for 23 baskets @ concurrency 8 (the makespan note
+# above). drb_72 sections carry 71-113 baskets, so under a provider slowdown the wall exhausts and
+# ABANDONS the whole still-pending wave to K-span (19/104, 14/86, 9/113 drafted). The fixes are all
+# THROUGHPUT / RESILIENCE mechanisms, NEVER a blind time-wall raise:
+#   * PG_WRITER_WALL_BASKET_SCALED — size the wall from the code's OWN makespan formula on the ACTUAL
+#     basket count (not the frozen 23-basket budget). max(flat, scaled) so it only ever scales UP for
+#     big sections and never shrinks below the proven-safe flat baseline. DEFAULT OFF => flat 720s.
+#   * PG_WRITER_KSPAN_RECOVERY_PASS — after the wall bites, run ONE bounded second pass over the still-
+#     undrafted baskets before dumping them to K-span. DEFAULT OFF => the legacy immediate-abandon path.
+#   * PG_WRITER_DEADLINE_TRANSPORT_AWARE — (a) _call_writer catches the httpx transport-disconnect family
+#     (ConnectTimeout/ConnectError/RemoteProtocolError/ReadError) into a clean K-span so a raw
+#     ConnectTimeout never escapes as an unretrieved-task leak; (b) a per-call transport stall does NOT
+#     consume a PRODUCTIVE retry attempt (reconnect/stall time is not charged — a bounded set of fresh
+#     reconnect windows is granted); (c) the outer wall gets one bounded reconnect-window of headroom.
+#     DEFAULT OFF => byte-identical (no catch, single hard per-call deadline, no wall headroom).
+# The bounded concurrency raise is B4's fourth lever but is an ENV-VALUE change only
+# (PG_ABSTRACTIVE_WRITER_CONCURRENCY, already wired at _DEFAULT_CONCURRENCY / line ~640) — the box runs
+# verify at 30, so the relaunch sets 24. No code default changes here (§-1.3: no hardcoded target).
+_ENV_WALL_BASKET_SCALED = "PG_WRITER_WALL_BASKET_SCALED"
+_ENV_KSPAN_RECOVERY_PASS = "PG_WRITER_KSPAN_RECOVERY_PASS"
+_ENV_DEADLINE_TRANSPORT_AWARE = "PG_WRITER_DEADLINE_TRANSPORT_AWARE"
+
+# Sentinel returned by _call_writer when (and only when) the transport-aware catch swallows an httpx
+# disconnect — a value that can NEVER appear in real model content, so _pre_pass_one_basket can tell a
+# transport disconnect apart from a genuine empty completion and never leak it into a draft.
+_WRITER_TRANSPORT_DISCONNECT = "\x00__polaris_writer_transport_disconnect__\x00"
+
+
+def _flag_enabled(name: str) -> bool:
+    """Generic DEFAULT-OFF env flag (same falsey vocabulary as ``_abstractive_writer_enabled``)."""
+    return os.getenv(name, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _wall_basket_scaled_enabled() -> bool:
+    return _flag_enabled(_ENV_WALL_BASKET_SCALED)
+
+
+def _kspan_recovery_pass_enabled() -> bool:
+    return _flag_enabled(_ENV_KSPAN_RECOVERY_PASS)
+
+
+def _deadline_transport_aware_enabled() -> bool:
+    return _flag_enabled(_ENV_DEADLINE_TRANSPORT_AWARE)
+
+
+def _makespan_wall_seconds(
+    n_baskets: int, concurrency: int, max_retries: int, call_deadline_s: float,
+) -> float:
+    """The code's OWN worst-case makespan for the pre-pass (design note at lines ~102-107):
+    ``ceil(n_baskets / concurrency)`` waves * ``(max_retries + 1)`` attempts * ``call_deadline_s``.
+
+    Invariant proof (the frozen flat default): (23, 8, 1, 120.0) => ceil(23/8)=3 waves * 2 * 120 = 720.0,
+    exactly ``_DEFAULT_WALL_DEADLINE_S`` — so the scaled wall is a generalization of the flat budget to
+    the ACTUAL basket count, never an arbitrary raise. n_baskets<=0 => 0.0 (caller floors it)."""
+    if n_baskets <= 0:
+        return 0.0
+    concurrency = max(1, concurrency)
+    waves = math.ceil(n_baskets / concurrency)
+    return float(waves) * float(max_retries + 1) * float(call_deadline_s)
 
 
 # ── teardown-drain mechanism (I-wire-001 W6 #1314) ────────────────────────────────────────────────
@@ -452,6 +514,7 @@ async def _call_writer(
     temperature: float,
     revise_reasons: Optional[list[str]] = None,
     group_mode: bool = False,
+    catch_transport: bool = False,
 ) -> str:
     """ONE LLM writer call for a basket: rephrase the SUPPORTS members' verified spans into clean
     declarative prose carrying the canonical tokens. Returns the raw draft text (re-verified by the
@@ -460,7 +523,15 @@ async def _call_writer(
 
     I-deepfix-001 Wave-1a (#1344): ``group_mode`` selects the GROUP writer contract
     (``_WRITER_SYSTEM_GROUP`` + the connected-paragraph lead) — one coherent multi-sentence narrative
-    over the whole basket's spans instead of one sentence per span. Default False => byte-identical."""
+    over the whole basket's spans instead of one sentence per span. Default False => byte-identical.
+
+    I-deepfix-001 B3 (#1370): ``catch_transport`` (set only by the transport-aware pre-pass branch)
+    catches the httpx transport-DISCONNECT family — ConnectTimeout / ConnectError / RemoteProtocolError
+    / ReadError — and returns the ``_WRITER_TRANSPORT_DISCONNECT`` sentinel instead of letting the
+    exception escape as an unretrieved-task leak ("Task exception was never retrieved"). Default False =>
+    NO catch => byte-identical (the exception propagates exactly as before, K-span via the caller)."""
+    import httpx  # noqa: PLC0415 — local import (transport-disconnect classes; B3 catch only)
+
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
 
     prompt = _build_writer_prompt(
@@ -480,6 +551,23 @@ async def _call_writer(
             reasoning_max_tokens=reasoning_arg,
         )
         return str(getattr(response, "content", "") or "")
+    except (
+        httpx.ConnectTimeout,
+        httpx.ConnectError,
+        httpx.RemoteProtocolError,
+        httpx.ReadError,
+    ) as exc:
+        # B3: only the transport-aware branch requests this catch. It converts a transport DISCONNECT
+        # into a clean sentinel (the caller then grants a fresh reconnect window without charging a
+        # productive attempt, and the basket K-span-falls-back if the budget is exhausted) — the raw
+        # ConnectTimeout never orphans as an unretrieved task. Flag OFF => re-raise => legacy behavior.
+        if not catch_transport:
+            raise
+        logger.warning(
+            "[abstractive_writer] writer call transport-disconnect (%s) -> clean reconnect sentinel",
+            type(exc).__name__,
+        )
+        return _WRITER_TRANSPORT_DISCONNECT
     finally:
         try:
             await client.close()
@@ -573,9 +661,55 @@ async def _pre_pass_one_basket(
         return None
     members = screened_members
 
-    revise_reasons: Optional[list[str]] = None
+    # I-deepfix-001 B3 (#1370): the transport-aware retry (default OFF => the verbatim legacy for-loop).
+    if not _deadline_transport_aware_enabled():
+        revise_reasons: Optional[list[str]] = None
+        last_draft = ""
+        for attempt in range(max_retries + 1):
+            try:
+                draft = await asyncio.wait_for(
+                    _call_writer(
+                        members, evidence_pool,
+                        model=model, max_tokens=max_tokens,
+                        reasoning_max_tokens=reasoning_max_tokens, temperature=temperature,
+                        revise_reasons=revise_reasons, group_mode=group_mode,
+                    ),
+                    timeout=call_deadline_s,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[abstractive_writer] basket=%s writer call exceeded %.0fs deadline (attempt %d) "
+                    "-> K-span fallback", _basket_key(basket), call_deadline_s, attempt + 1,
+                )
+                break
+            except Exception:  # noqa: BLE001 — any writer error degrades to K-span, never crashes the run
+                logger.warning(
+                    "[abstractive_writer] basket=%s writer call raised (attempt %d) -> K-span fallback",
+                    _basket_key(basket), attempt + 1, exc_info=True,
+                )
+                break
+            last_draft = draft
+            passed, reasons = _draft_passes_wrapper(draft, basket, evidence_pool, writer_verify_fn)
+            if passed:
+                return draft
+            revise_reasons = reasons or None
+        # Return the last (failing) draft; the unchanged compose loop will fall back to the K-span.
+        return last_draft
+
+    # ── transport-aware branch (PG_WRITER_DEADLINE_TRANSPORT_AWARE ON) ────────────────────────────
+    # A transport DISCONNECT / per-call stall does NOT consume a PRODUCTIVE retry attempt: it is granted
+    # a FRESH ``call_deadline_s`` reconnect window (reconnect/stall time not charged), bounded by
+    # ``max(1, max_retries)`` extra reconnect windows so a persistently-dead provider still degrades to
+    # K-span in finite time (the outer wall is the hard ceiling). Only a completed writer draft that
+    # FAILS verification burns a productive attempt — the productive budget is identical to the legacy
+    # ``range(max_retries + 1)``. The _call_writer catch (catch_transport=True) makes the disconnect a
+    # clean sentinel, killing the "Task exception was never retrieved" leak.
+    revise_reasons = None
     last_draft = ""
-    for attempt in range(max_retries + 1):
+    productive_attempt = 0
+    transport_reattempt = 0
+    max_transport_reattempts = max(1, max_retries)
+    while productive_attempt <= max_retries:
         try:
             draft = await asyncio.wait_for(
                 _call_writer(
@@ -583,19 +717,48 @@ async def _pre_pass_one_basket(
                     model=model, max_tokens=max_tokens,
                     reasoning_max_tokens=reasoning_max_tokens, temperature=temperature,
                     revise_reasons=revise_reasons, group_mode=group_mode,
+                    catch_transport=True,
                 ),
                 timeout=call_deadline_s,
             )
         except asyncio.TimeoutError:
+            # A per-call stall is a TRANSPORT event under transport-awareness: grant a fresh window
+            # without charging a productive attempt, bounded by max_transport_reattempts.
+            if transport_reattempt < max_transport_reattempts:
+                transport_reattempt += 1
+                logger.warning(
+                    "[abstractive_writer] basket=%s writer call stalled at %.0fs -> fresh reconnect "
+                    "window (transport %d/%d, productive %d/%d)",
+                    _basket_key(basket), call_deadline_s, transport_reattempt,
+                    max_transport_reattempts, productive_attempt + 1, max_retries + 1,
+                )
+                continue
             logger.warning(
-                "[abstractive_writer] basket=%s writer call exceeded %.0fs deadline (attempt %d) "
-                "-> K-span fallback", _basket_key(basket), call_deadline_s, attempt + 1,
+                "[abstractive_writer] basket=%s writer stall reconnect budget exhausted -> K-span",
+                _basket_key(basket),
             )
             break
-        except Exception:  # noqa: BLE001 — any writer error degrades to the K-span, never crashes the run
+        except Exception:  # noqa: BLE001 — any non-transport writer error degrades to K-span
             logger.warning(
-                "[abstractive_writer] basket=%s writer call raised (attempt %d) -> K-span fallback",
-                _basket_key(basket), attempt + 1, exc_info=True,
+                "[abstractive_writer] basket=%s writer call raised -> K-span fallback",
+                _basket_key(basket), exc_info=True,
+            )
+            break
+        if draft == _WRITER_TRANSPORT_DISCONNECT:
+            # A clean transport-disconnect sentinel: same treatment as a stall (fresh reconnect window,
+            # no productive attempt charged, never leaked into last_draft).
+            if transport_reattempt < max_transport_reattempts:
+                transport_reattempt += 1
+                logger.warning(
+                    "[abstractive_writer] basket=%s transport-disconnect -> fresh reconnect window "
+                    "(transport %d/%d, productive %d/%d)",
+                    _basket_key(basket), transport_reattempt, max_transport_reattempts,
+                    productive_attempt + 1, max_retries + 1,
+                )
+                continue
+            logger.warning(
+                "[abstractive_writer] basket=%s transport-disconnect budget exhausted -> K-span",
+                _basket_key(basket),
             )
             break
         last_draft = draft
@@ -603,7 +766,7 @@ async def _pre_pass_one_basket(
         if passed:
             return draft
         revise_reasons = reasons or None
-    # Return the last (failing) draft; the unchanged compose loop will fall back to the K-span.
+        productive_attempt += 1
     return last_draft
 
 
@@ -639,14 +802,34 @@ async def abstractive_pre_pass(
     wall_deadline_s = max(1.0, _env_float(_ENV_WALL_DEADLINE_S, _DEFAULT_WALL_DEADLINE_S))
     concurrency = max(1, _env_int(_ENV_CONCURRENCY, _DEFAULT_CONCURRENCY))
 
+    # I-deepfix-001 B4 (#1370): basket-count-SCALED wall from the code's own makespan formula (NOT a
+    # blind time-wall raise). The flat _DEFAULT_WALL_DEADLINE_S was sized for 23 baskets @ conc 8; a
+    # 71-113-basket drb_72 section overruns it and abandons the whole wave. max(flat, scaled) scales UP
+    # for big sections while NEVER shrinking below the proven-safe flat baseline for small ones. OFF =>
+    # the flat/env wall is used verbatim. I-deepfix-001 B3: transport-awareness adds ONE bounded
+    # reconnect-window of headroom so a wall that would bite purely on transport-stall gets one more
+    # window before abandoning (finite; not a blind raise).
+    n_keyed = sum(1 for b in (baskets or []) if _basket_key(b))
+    if _wall_basket_scaled_enabled():
+        scaled = _makespan_wall_seconds(n_keyed, concurrency, max_retries, call_deadline_s)
+        if scaled > wall_deadline_s:
+            logger.info(
+                "[abstractive_writer] basket-scaled wall: n=%d conc=%d retries=%d call=%.0fs -> "
+                "wall=%.0fs (flat floor %.0fs)",
+                n_keyed, concurrency, max_retries, call_deadline_s, scaled, wall_deadline_s,
+            )
+            wall_deadline_s = scaled
+    if _deadline_transport_aware_enabled():
+        wall_deadline_s += call_deadline_s
+
     sem = asyncio.Semaphore(concurrency)
     out: dict = {}
 
-    async def _one(basket: Any) -> None:
+    async def _one(basket: Any, semaphore: "asyncio.Semaphore") -> None:
         key = _basket_key(basket)
         if not key:
             return
-        async with sem:
+        async with semaphore:
             draft = await _pre_pass_one_basket(
                 basket, evidence_pool,
                 writer_verify_fn=writer_verify_fn,
@@ -660,7 +843,31 @@ async def abstractive_pre_pass(
             # already-completed siblings are still captured — out is the source of truth, not gather().
             out[key] = draft
 
-    tasks = [asyncio.ensure_future(_one(b)) for b in (baskets or [])]
+    def _abandon_pending(pending_tasks: "set[asyncio.Task]") -> None:
+        # ABANDON the stuck baskets — do NOT await (awaiting a task wedged in httpx teardown, or one
+        # that swallows CancelledError and re-blocks, is the very hang we are bounding). A bare
+        # t.cancel() is INSUFFICIENT for such a task. So we port the access_bypass detach/drain/
+        # force-close pattern: register each abandoned task in the detached set, attach the drain
+        # done-callback, cancel() best-effort, then FORCE-CLOSE its underlying coroutine via
+        # _coro.close() so the task is finalized as done() NOW -> excluded from asyncio.run's
+        # _cancel_all_tasks await-list -> shutdown cannot hang. Those baskets are absent from `out`
+        # -> the compose loop K-span-falls-back. This is the wall's fail-OPEN, always-release behavior.
+        for t in pending_tasks:
+            _DETACHED_WRITER_TASKS.add(t)
+            t.add_done_callback(_drain_detached_writer_task)
+            t.cancel()
+            _force_drop_detached_writer_task(t)
+
+    def _surface_completed_exceptions(done_tasks: "set[asyncio.Task]") -> None:
+        # Surface any non-cancellation exception from a COMPLETED task (never let one die silently) — a
+        # per-basket writer error already degrades to "" inside _pre_pass_one_basket, so a completed
+        # task raising here is a genuine unexpected fault worth logging (still non-fatal: always-release).
+        for t in done_tasks:
+            exc = t.exception()
+            if exc is not None:
+                logger.warning("[abstractive_writer] a pre-pass basket task raised: %r", exc)
+
+    tasks = [asyncio.ensure_future(_one(b, sem)) for b in (baskets or [])]
     if not tasks:
         logger.info("[abstractive_writer] pre-pass complete: 0/0 baskets drafted (model=%s)", model)
         return out
@@ -675,31 +882,50 @@ async def abstractive_pre_pass(
 
     done, pending = await asyncio.wait(tasks, timeout=wall_deadline_s)
     if pending:
-        # ABANDON the stuck baskets — do NOT await (awaiting a task wedged in httpx teardown, or one
-        # that swallows CancelledError and re-blocks, is the very hang we are bounding). A bare
-        # t.cancel() is INSUFFICIENT for such a task. So we port the access_bypass detach/drain/
-        # force-close pattern: register each abandoned task in the detached set, attach the drain
-        # done-callback, cancel() best-effort, then FORCE-CLOSE its underlying coroutine via _coro.close()
-        # so the task is finalized as done() NOW -> excluded from asyncio.run's _cancel_all_tasks
-        # await-list -> shutdown cannot hang. Those baskets are absent from `out` -> the compose loop
-        # K-span-falls-back. This is the wall's fail-OPEN, always-release behavior.
         logger.warning(
             "[abstractive_writer] pre-pass WALL-DEADLINE %.0fs hit: ABANDONING %d/%d still-pending "
             "basket task(s) -> K-span fallback (fail-open, disclosed). %d drafted before the wall.",
             wall_deadline_s, len(pending), len(tasks), len(out),
         )
-        for t in pending:
-            _DETACHED_WRITER_TASKS.add(t)
-            t.add_done_callback(_drain_detached_writer_task)
-            t.cancel()
-            _force_drop_detached_writer_task(t)
-    # Surface any non-cancellation exception from a COMPLETED task (never let one die silently) — a
-    # per-basket writer error already degrades to "" inside _pre_pass_one_basket, so a completed task
-    # raising here is a genuine unexpected fault worth logging (still non-fatal: always-release).
-    for t in done:
-        exc = t.exception()
-        if exc is not None:
-            logger.warning("[abstractive_writer] a pre-pass basket task raised: %r", exc)
+        _abandon_pending(pending)
+    _surface_completed_exceptions(done)
+
+    # I-deepfix-001 B4 (#1370): bounded K-span RECOVERY second-pass. Before the still-undrafted baskets
+    # fall to K-span, give them ONE more bounded pass with FRESH tasks (the abandoned originals were
+    # wedged on a dead socket; a clean re-submit — especially with B3's fresh-connection routing — often
+    # succeeds). Bounded by its own makespan wall over just the recovery set; anything still undrafted
+    # after it K-span-falls-back exactly as before. DEFAULT OFF => this block is skipped => the legacy
+    # immediate-abandon path is byte-identical. Faithfulness-neutral: K-span remains the ultimate
+    # fallback and every recovered draft still passes through the unchanged compose-loop verifier.
+    if pending and _kspan_recovery_pass_enabled():
+        recovery_baskets = [
+            b for b in (baskets or [])
+            if _basket_key(b) and _basket_key(b) not in out
+        ]
+        if recovery_baskets:
+            rec_wall = max(
+                1.0, _makespan_wall_seconds(len(recovery_baskets), concurrency, max_retries, call_deadline_s),
+            )
+            logger.warning(
+                "[abstractive_writer] K-span recovery pass: re-drafting %d still-undrafted basket(s) "
+                "under a %.0fs bounded wall before K-span.", len(recovery_baskets), rec_wall,
+            )
+            rec_sem = asyncio.Semaphore(concurrency)
+            rec_before = len(out)
+            rec_tasks = [asyncio.ensure_future(_one(b, rec_sem)) for b in recovery_baskets]
+            rec_done, rec_pending = await asyncio.wait(rec_tasks, timeout=rec_wall)
+            if rec_pending:
+                logger.warning(
+                    "[abstractive_writer] K-span recovery wall %.0fs hit: ABANDONING %d/%d recovery "
+                    "task(s) -> K-span.", rec_wall, len(rec_pending), len(rec_tasks),
+                )
+                _abandon_pending(rec_pending)
+            _surface_completed_exceptions(rec_done)
+            logger.info(
+                "[abstractive_writer] K-span recovery pass complete: %d/%d basket(s) recovered.",
+                len(out) - rec_before, len(recovery_baskets),
+            )
+
     logger.info(
         "[abstractive_writer] pre-pass complete: %d/%d baskets drafted (model=%s, retries=%d, "
         "wall=%.0fs, abandoned=%d)",

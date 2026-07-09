@@ -46,7 +46,10 @@ _CITATION_RE = re.compile(r"\[\d+\]|\[#ev:")
 # never free-form prose — this is a rendering filter, not a §-1.1 quality-by-pattern judgement.
 _GAP_MARKER_RE = re.compile(
     r"curator-actionable gap|did not survive strict verification|"
-    r"did not survive (?:4-role )?verification|frame_coverage_report|human_gap_tasks",
+    r"did not survive (?:4-role )?verification|frame_coverage_report|human_gap_tasks|"
+    # N4 (I-deepfix-001 wave-2): the plain-English gap disclosure carries a [N] so
+    # the citation filter alone cannot exclude it — recognize it here too.
+    r"insufficient verified evidence",
     re.IGNORECASE,
 )
 

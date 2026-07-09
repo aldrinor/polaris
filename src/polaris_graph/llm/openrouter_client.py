@@ -936,6 +936,69 @@ MAX_RETRIES = 2
 RETRY_BACKOFF_BASE = 2.0
 
 
+# ── I-deepfix-001 B3 (#1370): connection-resilience knobs (LAW VI — env-driven; UNSET => legacy) ──
+# glm-5.2 has 27 healthy providers — the drb_72 "Server disconnected without sending a response" bursts
+# were OUR transport, not scarcity: the AsyncClient was built with NO limits= (httpx default
+# keepalive_expiry=5s), so a <5s idle gap let a provider/LB close the socket while the pool still handed
+# it back on the next call -> RemoteProtocolError. Precedent fix: entailment_judge.py:726-738
+# (httpx.Limits max_keepalive_connections=8, keepalive_expiry tuned). These two knobs mirror that.
+# UNSET (both) => NO limits= kwarg is passed => byte-identical to the legacy client construction.
+_ENV_OPENROUTER_KEEPALIVE_EXPIRY_S = "PG_OPENROUTER_KEEPALIVE_EXPIRY_S"
+_ENV_OPENROUTER_MAX_KEEPALIVE = "PG_OPENROUTER_MAX_KEEPALIVE"
+# Fresh-connection-before-retry: on a disconnect (RemoteProtocolError/ReadError) the legacy retry loop
+# ``continue``s on the SAME (possibly still-stale) pool and can grab another dead socket. When ON, the
+# idle pool is dropped and a fresh client is built BEFORE the retry so the re-POST opens a clean socket.
+# DEFAULT OFF => byte-identical.
+_ENV_OPENROUTER_FRESH_CONN_ON_DISCONNECT = "PG_OPENROUTER_FRESH_CONN_ON_DISCONNECT"
+
+
+def _client_limits_from_env() -> Optional["httpx.Limits"]:
+    """The ``httpx.Limits`` for the OpenRouter AsyncClient, derived from the B3 keepalive env knobs.
+
+    Returns ``None`` when BOTH ``PG_OPENROUTER_KEEPALIVE_EXPIRY_S`` and ``PG_OPENROUTER_MAX_KEEPALIVE``
+    are unset/blank/unparsable — the caller then passes NO ``limits=`` kwarg, so the client is
+    byte-identical to the legacy construction (httpx defaults). When either is set, only the set field
+    is overridden (the other keeps httpx's default), mirroring entailment_judge's bounded-keepalive fix.
+    """
+    def _opt_float(name: str) -> Optional[float]:
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except ValueError:
+            logger.warning("[openrouter_client] %s=%r not a float; ignoring (legacy client)", name, raw)
+            return None
+
+    def _opt_int(name: str) -> Optional[int]:
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            logger.warning("[openrouter_client] %s=%r not an int; ignoring (legacy client)", name, raw)
+            return None
+
+    keepalive_expiry = _opt_float(_ENV_OPENROUTER_KEEPALIVE_EXPIRY_S)
+    max_keepalive = _opt_int(_ENV_OPENROUTER_MAX_KEEPALIVE)
+    if keepalive_expiry is None and max_keepalive is None:
+        return None
+    limits_kwargs: dict[str, Any] = {}
+    if max_keepalive is not None:
+        limits_kwargs["max_keepalive_connections"] = max_keepalive
+    if keepalive_expiry is not None:
+        limits_kwargs["keepalive_expiry"] = keepalive_expiry
+    return httpx.Limits(**limits_kwargs)
+
+
+def _fresh_conn_on_disconnect_enabled() -> bool:
+    """``PG_OPENROUTER_FRESH_CONN_ON_DISCONNECT`` gate. DEFAULT OFF => byte-identical legacy retry."""
+    return os.getenv(_ENV_OPENROUTER_FRESH_CONN_ON_DISCONNECT, "0").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
 def _parse_retry_after(value: Optional[str]) -> Optional[float]:
     """Parse an HTTP ``Retry-After`` header into a positive delay in seconds.
 
@@ -1479,13 +1542,29 @@ class OpenRouterClient:
                 "OPENROUTER_API_KEY not set. Add it to .env file."
             )
 
-        # BUG 3 (X509 SSL race): share the process-wide cert-verifying SSLContext
-        # so concurrent OpenRouterClient construction never re-parses the PEM
-        # bundle (the `[X509] PEM lib` race seen on the parallel verify/judge
-        # path). httpx accepts an ssl.SSLContext for verify= identically on
-        # AsyncClient; TLS verification stays ENABLED (CERT_REQUIRED + hostname).
+        self._client = self._build_async_client()
+
+        logger.info(
+            "OpenRouter client initialized: model=%s, budget=$%.2f",
+            self.model,
+            self.usage.budget_usd,
+        )
+
+    def _build_async_client(self) -> httpx.AsyncClient:
+        """Construct the OpenRouter httpx.AsyncClient.
+
+        BUG 3 (X509 SSL race): share the process-wide cert-verifying SSLContext so concurrent
+        OpenRouterClient construction never re-parses the PEM bundle (the ``[X509] PEM lib`` race seen on
+        the parallel verify/judge path). httpx accepts an ssl.SSLContext for verify= identically on
+        AsyncClient; TLS verification stays ENABLED (CERT_REQUIRED + hostname).
+
+        I-deepfix-001 B3 (#1370): apply the bounded-keepalive ``httpx.Limits`` from the env knobs when
+        set (``_client_limits_from_env``). When BOTH knobs are unset the limits are ``None`` and NO
+        ``limits=`` kwarg is passed -> byte-identical to the pre-B3 construction. Extracted into a method
+        so the fresh-connection-before-retry path can rebuild an identical client on a disconnect.
+        """
         from src.utils.shared_ssl_context import get_shared_ssl_context
-        self._client = httpx.AsyncClient(
+        client_kwargs: dict[str, Any] = dict(
             verify=get_shared_ssl_context(),
             base_url=self.base_url,
             headers={
@@ -1496,12 +1575,10 @@ class OpenRouterClient:
             },
             timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
         )
-
-        logger.info(
-            "OpenRouter client initialized: model=%s, budget=$%.2f",
-            self.model,
-            self.usage.budget_usd,
-        )
+        limits = _client_limits_from_env()
+        if limits is not None:
+            client_kwargs["limits"] = limits
+        return httpx.AsyncClient(**client_kwargs)
 
     async def close(self):
         """Close the HTTP client."""
@@ -2442,6 +2519,29 @@ class OpenRouterClient:
                 # FIX-052B: DNS failures get longer backoff (outages last 10-60s)
                 is_dns_failure = "getaddrinfo" in str(exc).lower()
                 if attempt < MAX_RETRIES:
+                    # I-deepfix-001 B3 (#1370): on a DISCONNECT (RemoteProtocolError/ReadError) the pool
+                    # can still hold the half-open socket; a bare retry ``continue``s on it and re-hits
+                    # the same dead conn. When PG_OPENROUTER_FRESH_CONN_ON_DISCONNECT is ON, drop the idle
+                    # pool and rebuild an IDENTICAL client so the re-POST opens a clean socket. Scoped to
+                    # the disconnect classes (a fresh pool cannot help a genuine ConnectTimeout/ConnectError
+                    # / DNS outage). DEFAULT OFF => byte-identical. Faithfulness-neutral (transport only).
+                    if (
+                        _fresh_conn_on_disconnect_enabled()
+                        and isinstance(exc, (httpx.RemoteProtocolError, httpx.ReadError))
+                    ):
+                        try:
+                            await self._client.aclose()
+                        except Exception:  # noqa: BLE001 — pool teardown is best-effort; never mask retry
+                            logger.debug(
+                                "[polaris graph] B3 fresh-conn: aclose() raised on stale pool",
+                                exc_info=True,
+                            )
+                        self._client = self._build_async_client()
+                        logger.info(
+                            "[polaris graph] I-deepfix-001 B3: dropped idle pool + rebuilt client "
+                            "after %s before retry (attempt %d/%d)",
+                            type(exc).__name__, attempt + 1, MAX_RETRIES + 1,
+                        )
                     if is_dns_failure:
                         dns_wait = float(os.getenv("PG_DNS_RETRY_BACKOFF", "30"))
                         logger.warning(
