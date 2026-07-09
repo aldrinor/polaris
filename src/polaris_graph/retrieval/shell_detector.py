@@ -571,3 +571,198 @@ def select_real_content_span(candidate_spans: "list[str]") -> "tuple[int, str]":
         if not _is_furniture_segment(span):
             return (i, span)
     return (fallback_index, fallback_span)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-004 D (#1375) — CITED-WORK SPAN SCREEN (issue front-matter / masthead).
+#
+# WHY (distinct from the furniture screen above): the furniture screen catches a
+# body that is MOSTLY masthead/nav/DOI chrome welded together. It does NOT catch a
+# stored SPAN that is a journal ISSUE'S COVER / TABLE-OF-CONTENTS / MASTHEAD sitting
+# at the head of an otherwise real multi-article container PDF. That is the
+# I-deepfix-004 failure: a doi.org URL redirected to a whole issue PDF, the first
+# ~2000 chars (= the cover/TOC/masthead) became the cited direct_quote, and a
+# qualitative claim verified against it on 2 shared content words (the "wrong
+# CITED-WORK, right topic" hole — every prior gate asked "is this junk?" / "is this
+# on-topic?"; none asked "is this the cited ARTICLE?").
+#
+# ``is_issue_front_matter`` is a STRUCTURAL detector on the STORED SPAN (not the raw
+# full body — a 40-page issue body is mostly article prose, so the density signal
+# only reads true on the head SPAN that was actually stored). PRECISION-FIRST +
+# FAIL-OPEN (any uncertainty ⇒ KEEP): calibrated on the real banked drb_78 corpus so
+# genuine article heads / reference lists / an incidental "contents" mention never
+# fire. NEVER used to DROP — only to mark a span ``wrong_content_span`` so the caller
+# RE-EXTRACTS (step B) to RECOVER; if unrecovered the SOURCE is KEPT as a DISCLOSED
+# DEGRADED row (§-1.3: recover→degrade→disclose, never delete a credible on-topic
+# source; only the wrong SPAN is unusable for grounding).
+#
+# Both behaviours sit behind the default-ON ``PG_SPAN_CITED_WORK_SCREEN``; OFF => the
+# functions are never called on the hot path => byte-identical.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ENV_SPAN_CITED_WORK_SCREEN = "PG_SPAN_CITED_WORK_SCREEN"
+
+# Minimum dot-leader / page-number TOC lines that must appear in the span for the
+# structural TOC signal to fire. Calibrated on the real banked drb_78 corpus: genuine
+# issue/report TOC heads carry 13–14 dot-leaders in the first 2000 chars, while every
+# real article head + reference list + an incidental "contents" mention carries 0. A
+# high floor (default 8) is precision-first — it never fires on a real article head.
+_ENV_FRONT_MATTER_TOC_LINE_MIN = "PG_FRONT_MATTER_TOC_LINE_MIN"
+_DEFAULT_FRONT_MATTER_TOC_LINE_MIN = 8
+
+# The structural verdict is meaningless on a tiny stub (the short-body shell gates own
+# those); the screen only reads a body at/above this length (a masthead/TOC head span).
+_ENV_FRONT_MATTER_MIN_BODY_CHARS = "PG_FRONT_MATTER_MIN_BODY_CHARS"
+_DEFAULT_FRONT_MATTER_MIN_BODY_CHARS = 400
+
+# Dot-leader run (three-or-more dots) followed by a page number (arabic or roman) — the
+# canonical Table-of-Contents line shape, robust to the space-collapsed single-line PDF
+# extraction output. High-precision: a run of ``...`` before a page number never occurs
+# in real article prose.
+_FRONT_MATTER_DOT_LEADER_RE = re.compile(r"\.{3,}\s*[ivxlcdm\d]{1,5}\b", re.IGNORECASE)
+
+# Contents / masthead vocabulary — REQUIRED as a co-signal for the ISSN masthead path
+# (never fires alone; an incidental "contents" mention in a real article must not trip
+# the screen — verified on the real corpus: netce "course/content" + a caregiving
+# report both carry "contents" yet are genuine articles). Includes the Cyrillic
+# journal-issue "СОДЕРЖАНИЕ" (contents) + "РЕДАКЦИОННАЯ КОЛЛЕГИЯ" (editorial board) for
+# the dgpu-class Russian-journal masthead.
+_FRONT_MATTER_CONTENTS_VOCAB: tuple[str, ...] = (
+    "table of contents",
+    "содержание",
+    "editorial board",
+    "editor-in-chief",
+    "editorial office",
+    "редакционная коллегия",
+    "редакционный совет",
+)
+
+# ISSN masthead marker (print/electronic serial number) — a strong journal-issue
+# front-matter signal, but REQUIRED to co-occur with contents vocab so a reference
+# list that merely cites an ISSN never trips the screen.
+_FRONT_MATTER_ISSN_RE = re.compile(r"issn\s*:?\s*\d{4}-\d{3}[\dxX]", re.IGNORECASE)
+
+
+def span_cited_work_screen_enabled() -> bool:
+    """True (default) ⇒ the cited-work span screen (``is_issue_front_matter`` +
+    ``identical_span_collision``) participates in the degraded-detection unions.
+
+    ``PG_SPAN_CITED_WORK_SCREEN=0`` (or off/false/no/disabled) ⇒ the screen is never
+    consulted ⇒ byte-identical. Read at call time so tests toggle without re-import."""
+    return os.environ.get(_ENV_SPAN_CITED_WORK_SCREEN, "1").strip().lower() not in _OFF_VALUES
+
+
+def _front_matter_toc_line_min() -> int:
+    """Minimum dot-leader TOC lines for the structural TOC signal to fire."""
+    return _env_int(_ENV_FRONT_MATTER_TOC_LINE_MIN, _DEFAULT_FRONT_MATTER_TOC_LINE_MIN)
+
+
+def _front_matter_min_body_chars() -> int:
+    """Minimum span length at/above which the front-matter screen reads a verdict."""
+    return _env_int(_ENV_FRONT_MATTER_MIN_BODY_CHARS, _DEFAULT_FRONT_MATTER_MIN_BODY_CHARS)
+
+
+def is_issue_front_matter(body: str) -> bool:
+    """I-deepfix-004 D — True iff ``body`` (a STORED cited SPAN) is a journal-issue
+    COVER / TABLE-OF-CONTENTS / MASTHEAD rather than the cited article's prose.
+
+    STRUCTURAL + DETERMINISTIC + PRECISION-FIRST + FAIL-OPEN (any uncertainty ⇒ KEEP,
+    i.e. return ``False``). Two independent high-precision signals — either fires:
+
+      1. TOC-shaped: at least ``PG_FRONT_MATTER_TOC_LINE_MIN`` (default 8) dot-leader
+         runs (``...`` before a page number). A real article head / reference list
+         carries ZERO (calibrated on the real banked drb_78 corpus: genuine TOC heads
+         carry 13–14, every real article head carries 0).
+      2. ISSN masthead: an ``ISSN dddd-dddd`` marker AND contents/editorial-board vocab
+         co-occur (both required — an incidental "contents" mention or a lone ISSN
+         citation in real prose trips neither). Covers the Cyrillic dgpu-class masthead
+         (``СОДЕРЖАНИЕ`` / ``РЕДАКЦИОННАЯ КОЛЛЕГИЯ`` + ISSN).
+
+    NEVER a DROP: a ``True`` verdict marks the SPAN ``wrong_content_span`` so the caller
+    re-extracts (step B) to recover the real article, else keeps the SOURCE as a
+    DISCLOSED DEGRADED row (§-1.3). Pure; no LLM / network / row mutation.
+    """
+    if not body:
+        return False
+    if len(body.strip()) < _front_matter_min_body_chars():
+        return False  # fail-open: too short to read a structural verdict
+    low = body.lower()
+    # Signal 1 — dot-leader TOC density (any-length; the run-of-dots-before-a-page-number
+    # shape never occurs in real article prose).
+    if len(_FRONT_MATTER_DOT_LEADER_RE.findall(body)) >= _front_matter_toc_line_min():
+        return True
+    # Signal 2 — ISSN masthead AND contents/editorial vocab co-occur (both required).
+    if _FRONT_MATTER_ISSN_RE.search(body) and any(
+        marker in low for marker in _FRONT_MATTER_CONTENTS_VOCAB
+    ):
+        return True
+    return False
+
+
+def _collision_span_key(row: "dict") -> str:
+    """The content-identity key for the identical-span collision screen: the stamped
+    ``fetched_blob_sha`` when present (a raw-blob / span fingerprint), else the raw
+    ``direct_quote`` text. Empty when neither is present (an empty-keyed row can never
+    collide). Pure."""
+    if not isinstance(row, dict):
+        return ""
+    sha = str(row.get("fetched_blob_sha") or "").strip()
+    if sha:
+        return f"sha:{sha}"
+    quote = str(row.get("direct_quote") or "").strip()
+    return f"q:{quote}" if quote else ""
+
+
+def _collision_work_id(row: "dict") -> str:
+    """The cited-WORK identity for the collision screen: the DOI (normalized) when
+    present, else the source URL. Two rows with the SAME work-id sharing an identical
+    span are legitimate duplicates (CONSOLIDATE, step E) — NOT a container collision.
+    Two rows with DIFFERENT work-ids sharing an identical span ARE a multi-work
+    container (one blob cited under many DOIs = the 31x-dgpu false corroboration)."""
+    if not isinstance(row, dict):
+        return ""
+    doi = str(row.get("doi") or "").strip().lower()
+    if doi:
+        return f"doi:{doi}"
+    url = str(row.get("source_url") or row.get("url") or "").strip().lower()
+    return f"url:{url}"
+
+
+def identical_span_collision(rows: "list[dict]") -> "set[str]":
+    """I-deepfix-004 D — pool-level content-identity collision detector.
+
+    Returns the set of ``evidence_id`` values whose stored span is shared, VERBATIM, by
+    at least two rows citing DIFFERENT cited works (different DOI/URL) — the signature of
+    a single multi-article CONTAINER blob (e.g. a whole journal issue) laundered into N
+    distinct citations. That is the 31x-dgpu false-corroboration class: 31 DOIs, one
+    identical masthead blob.
+
+    NOT flagged: two rows with an identical span AND the SAME cited work (a legitimate
+    duplicate → CONSOLIDATE in step E, never a container). A unique span → never flagged.
+
+    Pure; DETECTS only. The caller stamps ``wrong_content_span`` on the flagged rows so
+    they route through re-extraction / disclosure — NEVER deletes a source (§-1.3)."""
+    from collections import defaultdict
+
+    by_span: "dict[str, list[tuple[str, str]]]" = defaultdict(list)
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        span_key = _collision_span_key(row)
+        if not span_key:
+            continue
+        eid = str(row.get("evidence_id") or "")
+        work_id = _collision_work_id(row)
+        by_span[span_key].append((eid, work_id))
+
+    flagged: "set[str]" = set()
+    for members in by_span.values():
+        if len(members) < 2:
+            continue  # a unique span cannot be a container collision
+        distinct_works = {work_id for _eid, work_id in members if work_id}
+        if len(distinct_works) >= 2:
+            # ≥2 DIFFERENT cited works share ONE identical span ⇒ multi-work container.
+            for eid, _work_id in members:
+                if eid:
+                    flagged.add(eid)
+    return flagged

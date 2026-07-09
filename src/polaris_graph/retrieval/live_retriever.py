@@ -3164,6 +3164,20 @@ def _m45_pop_fetch_telemetry(url: str) -> dict[str, Any]:
     return _M45_LAST_FETCH_TELEMETRY.pop(url, {})
 
 
+def _refetch_full_body_enabled() -> bool:
+    """I-deepfix-004 A (#1375) — True (default) ⇒ the A15 re-fetch fetches the FULL
+    body (``PG_LIVE_CONTENT_MAX`` = ``DEFAULT_CONTENT_MAX_CHARS``) and caps only the
+    QUOTE at the caller's ``max_chars``, so ``_build_provenance_quote``'s decimal-window
+    design can reach a real number DEEP in a long body (the prior code truncated the
+    FETCH at ``max_chars`` = 2000 BEFORE the quote was built, so 171 A15 rows were head-
+    truncated and any deep number was thrown away). ``PG_REFETCH_FULL_BODY=0`` (or
+    off/false/no/disabled) ⇒ the FETCH is capped at ``max_chars`` exactly as before ⇒
+    byte-identical. Read at call time (LAW VI)."""
+    return os.environ.get("PG_REFETCH_FULL_BODY", "1").strip().lower() not in (
+        "0", "false", "off", "no", "disabled",
+    )
+
+
 def refetch_for_extraction_with_diagnostics(
     url: str, max_chars: int = 2000,
 ) -> tuple[str, dict[str, Any]]:
@@ -3239,8 +3253,15 @@ def refetch_for_extraction_with_diagnostics(
     _fetch_succeeded = False
     try:
         diagnostics["attempted"] = True
+        # I-deepfix-004 A (#1375): SEPARATE the FETCH-body cap from the QUOTE cap. Fetch
+        # the FULL body (default ``DEFAULT_CONTENT_MAX_CHARS`` = ``PG_LIVE_CONTENT_MAX`` =
+        # 300000) so ``_build_provenance_quote`` below can window a decimal DEEP in the
+        # body; the QUOTE stays capped at the caller's ``max_chars`` via
+        # ``max_total_chars`` (unchanged). OFF (``PG_REFETCH_FULL_BODY=0``) ⇒ fetch cap =
+        # ``max_chars`` ⇒ byte-identical to the prior head-truncating behaviour.
+        _body_cap = DEFAULT_CONTENT_MAX_CHARS if _refetch_full_body_enabled() else max_chars
         try:
-            content, ok, _title, body_type, _jsonld = _fetch_content(url, max_chars)
+            content, ok, _title, body_type, _jsonld = _fetch_content(url, _body_cap)
         except Exception as exc:
             logger.warning(
                 "[refetch_for_extraction] fetch failed for %s: %s", url, exc,
