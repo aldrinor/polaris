@@ -188,31 +188,66 @@ def _table_header_rows(report_md: str) -> list[list[str]]:
 # ---------------------------------------------------------------------------
 # FIX-2: question fidelity.
 # ---------------------------------------------------------------------------
+# A body region is split into SENTENCES on a terminal ``.!?`` followed by whitespace; a blank line
+# (paragraph break) is ALSO a sentence boundary so an unterminated line does not glue onto the next
+# paragraph. A newline that is NOT a sentence boundary stays WITHIN its sentence, so a forbidden
+# phrase broken across a hard line-wrap ("Fourth Industrial\nRevolution") is a single sentence and
+# still matches after ``_norm`` whitespace-collapse (Codex P2 + Fable P2).
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+_PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split a non-heading body region into sentence units for the framing scan.
+
+    Boundaries are (a) a blank line / paragraph break and (b) a terminal ``.!?`` followed by
+    whitespace. A newline that is NOT a boundary is preserved inside its sentence so a phrase broken
+    across a hard line-wrap still matches after ``_norm``. Pure, deterministic; empty units dropped."""
+    if not text:
+        return []
+    sentences: list[str] = []
+    for para in _PARAGRAPH_SPLIT_RE.split(text):
+        for sent in _SENTENCE_SPLIT_RE.split(para):
+            if sent.strip():
+                sentences.append(sent)
+    return sentences
+
+
 def _framing_violation(report_md: str, phrase_n: str) -> bool:
     """FIX-13 framing-only reformulation test. True iff the ALREADY-NORMALIZED phrase ``phrase_n``
     appears in a FRAMING position:
 
       (1) ANY heading text (H1 title + every subsection / disclosed-gap header) — the original
           drb_72 disaster class (a reformulated title/section header) stays fully detected; OR
-      (2) any body LINE that carries NO citation marker — uncited prose adopting the phrase is the
-          generator reframing.
+      (2) any body SENTENCE that carries NO citation marker — uncited prose adopting the phrase is
+          the generator reframing.
 
-    A body/table line carrying a ``[N]`` citation marker is CITED evidence (every verified sentence
-    carries [N] per §9.1) and is EXCLUDED, so N legitimately-cited evidence mentions of the phrase do
-    NOT trip the gate. Pure, no I/O; deterministic."""
+    Codex P1 gate-fix: the citation exclusion is SENTENCE-granular, NOT line-granular. An UNCITED
+    reformulation sentence that merely SHARES a markdown line / paragraph with a cited sibling
+    sentence (e.g. ``"The Fourth Industrial Revolution will transform every occupation. Productivity
+    evidence is mixed [1]."``) is a VIOLATION — only a sentence that ITSELF carries a ``[N]`` marker
+    is EXCLUDED as cited evidence. So N legitimately-cited evidence mentions of the phrase (each its
+    own cited sentence) do NOT trip the gate, while an uncited reformulation sharing a line with a
+    cited claim can no longer slip through. Headings are ALWAYS scanned (cited or not). Pure, no I/O;
+    deterministic."""
     if not phrase_n:
         return False
-    # (1) Headings — a reformulated title / section header (the original disaster class).
+    # (1) Headings — a reformulated title / section header (the original disaster class); ALWAYS
+    #     scanned regardless of any citation marker on the heading line.
     for heading in _heading_texts(report_md):
         if phrase_n in _norm(heading):
             return True
-    # (2) Uncited body lines — cited (``[N]``) lines and heading lines are excluded.
-    for line in (report_md or "").splitlines():
-        if _HEADING_RE.match(line):
-            continue  # heading handled in (1)
-        if _CITATION_MARKER_RE.search(line):
-            continue  # cited evidence line / cited table cell -> excluded
-        if phrase_n in _norm(line):
+    # (2) Uncited body SENTENCES. Heading lines are handled in (1) and dropped here; the remaining
+    #     body is split into sentences so a ``[N]`` marker excludes ONLY its own sentence, never a
+    #     whole shared line/paragraph. Whitespace/newlines are normalized per sentence so a phrase
+    #     broken across a hard line-wrap still matches.
+    body_text = "\n".join(
+        line for line in (report_md or "").splitlines() if not _HEADING_RE.match(line)
+    )
+    for sentence in _split_sentences(body_text):
+        if _CITATION_MARKER_RE.search(sentence):
+            continue  # THIS sentence is cited evidence -> excluded
+        if phrase_n in _norm(sentence):
             return True
     return False
 

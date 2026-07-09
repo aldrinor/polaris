@@ -2833,8 +2833,10 @@ def _compose_section_per_basket(
 # (`synthesize_boundary_line(_vc_baskets, _vc_baskets)`), and the no-token repair pass.
 #
 # THE FIX (ONE chokepoint covers all three surfaces): WITHHOLD from the SUBMITTED compose set any
-# basket whose >=1 supporting member resolves in the pool AND EVERY resolvable member row is
-# `weighted_enrichment._is_confirmed_offtopic`. Precision-first: a mixed basket (>=1 not-confirmed-off
+# basket that has >=1 supporting member AND whose EVERY member row RESOLVES in the pool AND every
+# resolved row is `weighted_enrichment._is_confirmed_offtopic` (Codex+Fable gate-fix P1-3: a basket
+# with ANY missing / unresolved / id-less member is KEPT — a missing member could be the real,
+# on-topic corroborator — never the old resolved-SUBSET rule). Precision-first: a mixed basket (>=1 not-confirmed-off
 # member), a protected basket (a member the W2 relevance judge rated `escalated_relevant`/`relevant` —
 # the override lives INSIDE `_is_confirmed_offtopic`), an unjudged basket, or a missing-row basket is
 # KEPT (consolidation / corroboration preserved). §-1.3 WITHHOLD-and-disclose: withheld baskets stay

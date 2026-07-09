@@ -4659,15 +4659,13 @@ def _build_provenance_quote(
     # is a verbatim substring of the de-hyphenated content, so re-leading is faithfulness-neutral and the
     # furniture chunk is KEPT in the body (§-1.3 disclose-don't-drop, never a source/span drop). Default
     # OFF or a non-furniture head (picker returns index 0) => chunks unchanged => byte-identical.
-    if len(chunks) > 1:
-        from src.polaris_graph.retrieval.shell_detector import (  # noqa: PLC0415
-            select_real_content_span,
-            span_select_furniture_aware_enabled,
-        )
-        if span_select_furniture_aware_enabled():
-            _idx, _ = select_real_content_span(chunks)
-            if _idx > 0:
-                chunks = [chunks[_idx], *chunks[:_idx], *chunks[_idx + 1:]]
+    # P2b import hygiene: ``shell_detector`` is already imported at module load (top of file), and
+    # the env-gate is checked BEFORE the picker is invoked, so the DEFAULT (flag-OFF) path carries no
+    # new import/attribute/failure surface — only an env read + the len()>1 check, then it returns.
+    if len(chunks) > 1 and shell_detector.span_select_furniture_aware_enabled():
+        _idx, _ = shell_detector.select_real_content_span(chunks)
+        if _idx > 0:
+            chunks = [chunks[_idx], *chunks[:_idx], *chunks[_idx + 1:]]
 
     return "\n\n[...]\n\n".join(chunks)
 
