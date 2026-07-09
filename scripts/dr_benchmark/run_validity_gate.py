@@ -188,29 +188,28 @@ def _table_header_rows(report_md: str) -> list[list[str]]:
 # ---------------------------------------------------------------------------
 # FIX-2: question fidelity.
 # ---------------------------------------------------------------------------
-# A body region is split into SENTENCES on a terminal ``.!?`` followed by whitespace; a blank line
-# (paragraph break) is ALSO a sentence boundary so an unterminated line does not glue onto the next
-# paragraph. A newline that is NOT a sentence boundary stays WITHIN its sentence, so a forbidden
-# phrase broken across a hard line-wrap ("Fourth Industrial\nRevolution") is a single sentence and
-# still matches after ``_norm`` whitespace-collapse (Codex P2 + Fable P2).
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
-_PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
+# A body UNIT is the smallest span the framing scan reasons about. Units are split on BOTH
+# (a) a terminal ``.!?`` followed by whitespace AND (b) a newline — so a bullet, a GFM table row, a
+# blockquote line, a numbered-list item, or ANY plain unterminated line each becomes its OWN unit and
+# carries (or not) its own ``[N]`` citation marker. This is the Codex+Fable P1 fix: an UNCITED
+# reformulation glued onto a FOLLOWING cited line that has NO terminal punctuation (bullets, table
+# rows, plain unterminated lines) no longer inherits that line's ``[N]`` and slips through — each line
+# now stands alone. ``\n+`` collapses a run of blank lines into one boundary.
+_UNIT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Split a non-heading body region into sentence units for the framing scan.
+    """Split a body region into UNITS on sentence terminals (``.!?`` + whitespace) AND newlines.
 
-    Boundaries are (a) a blank line / paragraph break and (b) a terminal ``.!?`` followed by
-    whitespace. A newline that is NOT a boundary is preserved inside its sentence so a phrase broken
-    across a hard line-wrap still matches after ``_norm``. Pure, deterministic; empty units dropped."""
+    Each newline is a HARD unit boundary so a bullet / GFM table row / blockquote / numbered-list /
+    plain unterminated line becomes its own unit (carrying its own citation status), while a ``. ``
+    sentence terminal still splits two sentences that share one physical line. Pure, deterministic;
+    empty units dropped. The consecutive-uncited-unit RE-JOIN that preserves a hard-wrapped phrase
+    (``Fourth Industrial`` on one line, ``Revolution`` on the next) lives in ``_framing_violation``,
+    not here — this helper only produces the units."""
     if not text:
         return []
-    sentences: list[str] = []
-    for para in _PARAGRAPH_SPLIT_RE.split(text):
-        for sent in _SENTENCE_SPLIT_RE.split(para):
-            if sent.strip():
-                sentences.append(sent)
-    return sentences
+    return [unit for unit in _UNIT_SPLIT_RE.split(text) if unit.strip()]
 
 
 def _framing_violation(report_md: str, phrase_n: str) -> bool:
@@ -219,36 +218,47 @@ def _framing_violation(report_md: str, phrase_n: str) -> bool:
 
       (1) ANY heading text (H1 title + every subsection / disclosed-gap header) — the original
           drb_72 disaster class (a reformulated title/section header) stays fully detected; OR
-      (2) any body SENTENCE that carries NO citation marker — uncited prose adopting the phrase is
-          the generator reframing.
+      (2) any UNCITED body UNIT (a sentence, bullet, GFM table row, blockquote/list line, or plain
+          unterminated line that carries NO ``[N]`` citation marker) that contains the phrase.
 
-    Codex P1 gate-fix: the citation exclusion is SENTENCE-granular, NOT line-granular. An UNCITED
-    reformulation sentence that merely SHARES a markdown line / paragraph with a cited sibling
-    sentence (e.g. ``"The Fourth Industrial Revolution will transform every occupation. Productivity
-    evidence is mixed [1]."``) is a VIOLATION — only a sentence that ITSELF carries a ``[N]`` marker
-    is EXCLUDED as cited evidence. So N legitimately-cited evidence mentions of the phrase (each its
-    own cited sentence) do NOT trip the gate, while an uncited reformulation sharing a line with a
-    cited claim can no longer slip through. Headings are ALWAYS scanned (cited or not). Pure, no I/O;
-    deterministic."""
+    Codex+Fable P1 gate-fix: the citation exclusion is UNIT-granular over units split on BOTH sentence
+    terminals AND newlines, so an uncited reformulation on a bullet / table row / plain unterminated
+    line GLUED before a following cited line no longer inherits that line's ``[N]``. Only a unit that
+    ITSELF carries a marker is EXCLUDED as cited evidence — so N legitimately-cited evidence mentions
+    (each its own cited unit) do NOT trip the gate, while an uncited reformulation can no longer slip
+    through by sharing a line/glue-region with a cited claim. To preserve the hard-wrap catch (a
+    phrase split across two UNCITED lines, ``Fourth Industrial`` / ``Revolution``), CONSECUTIVE uncited
+    units are also concatenated and the phrase is checked on the joined run; a cited unit, a heading,
+    OR a blank line BREAKS the run — so a phrase spanning an uncited→cited boundary is never joined
+    (the drb_72 cited-evidence case that FIX-13 exists to pass). Headings are ALWAYS scanned (cited or
+    not). Pure, no I/O; deterministic."""
     if not phrase_n:
         return False
-    # (1) Headings — a reformulated title / section header (the original disaster class); ALWAYS
-    #     scanned regardless of any citation marker on the heading line.
-    for heading in _heading_texts(report_md):
-        if phrase_n in _norm(heading):
-            return True
-    # (2) Uncited body SENTENCES. Heading lines are handled in (1) and dropped here; the remaining
-    #     body is split into sentences so a ``[N]`` marker excludes ONLY its own sentence, never a
-    #     whole shared line/paragraph. Whitespace/newlines are normalized per sentence so a phrase
-    #     broken across a hard line-wrap still matches.
-    body_text = "\n".join(
-        line for line in (report_md or "").splitlines() if not _HEADING_RE.match(line)
-    )
-    for sentence in _split_sentences(body_text):
-        if _CITATION_MARKER_RE.search(sentence):
-            continue  # THIS sentence is cited evidence -> excluded
-        if phrase_n in _norm(sentence):
-            return True
+    run: list[str] = []  # normalized text of the CONSECUTIVE uncited body units seen so far
+    for line in (report_md or "").splitlines():
+        heading = _HEADING_RE.match(line)
+        if heading is not None:
+            # (1) Headings are ALWAYS scanned regardless of any citation marker on the line; a
+            #     heading also BREAKS any uncited body run (it is framing, not glued prose).
+            if phrase_n in _norm(heading.group(1)):
+                return True
+            run = []
+            continue
+        if not line.strip():
+            run = []  # a blank line / paragraph break BREAKS the uncited run (not a hard-wrap)
+            continue
+        # (2) Within a physical line, split into sentence units so a ``[N]`` marker excludes ONLY its
+        #     own sentence. Each newline was already a boundary (line iteration), so a bullet / table
+        #     row / plain unterminated line is its own unit and never inherits a sibling line's [N].
+        for unit in _split_sentences(line):
+            if _CITATION_MARKER_RE.search(unit):
+                run = []  # THIS unit is cited evidence -> excluded AND it breaks the uncited run
+                continue
+            run.append(_norm(unit))
+            # Per-unit AND consecutive-uncited-run containment: the run join reunites a hard-wrapped
+            # phrase split across adjacent uncited lines (a single unit is simply the len-1 run).
+            if phrase_n in " ".join(run):
+                return True
     return False
 
 

@@ -540,26 +540,34 @@ def select_real_content_span(candidate_spans: "list[str]") -> "tuple[int, str]":
 
     Given ordered candidate spans (best-first by the caller's ranking), return
     ``(index, span)`` of the FIRST non-furniture span so a real-content span wins the
-    direct_quote over a furniture span. If EVERY candidate is furniture, return
-    ``(0, <first non-falsy span>)`` UNCHANGED — never drop (the all-furniture case is
-    owned by the down-weight/disclose path, not this picker). Pure; the caller gates
+    direct_quote over a furniture span. If EVERY candidate is furniture, return the
+    FIRST non-falsy span paired with ITS REAL index — never drop (the all-furniture case
+    is owned by the down-weight/disclose path, not this picker). Pure; the caller gates
     on ``span_select_furniture_aware_enabled()`` so OFF => the caller keeps its legacy
     span => byte-identical. Provided for the downstream direct_quote selection seam
     (frame_fetcher / live_retriever); this module never wires it itself.
 
-    INDEX CONTRACT (Fable P2a): the returned index is into the ORIGINAL, UNFILTERED
-    ``candidate_spans`` list — falsy candidates are SKIPPED but their positions are
-    preserved so the caller can index its own unfiltered list with the returned index
-    and land on the picked real-content span. (The prior impl indexed a
-    falsy-filtered copy and returned that copy's index, which the caller then applied
-    to the unfiltered list -> off-by-one whenever a falsy span preceded the pick.)"""
+    INDEX CONTRACT (Fable P2a + Codex/Fable P2 gate-fix): the returned index is ALWAYS
+    into the ORIGINAL, UNFILTERED ``candidate_spans`` list AND is SELF-CONSISTENT with
+    the returned span — ``candidate_spans[index] == span`` in every branch (including the
+    all-furniture fallback), so a future caller consuming EITHER element is safe. Falsy
+    candidates are SKIPPED but their positions are preserved. (The prior impl returned
+    ``(0, <first non-falsy span>)`` in the all-furniture branch, where index 0 could point
+    at a SKIPPED falsy span rather than the returned span — the off-by-one this fix closes.)
+
+    LIVE-CALLER (index-only) NOTE: ``live_retriever._build_provenance_quote`` uses only the
+    index and reorders iff it is ``> 0``; there ``candidate_spans[0]`` is the ``head`` chunk,
+    which is never falsy, so the first-non-falsy index is 0 in the all-furniture case => no
+    reorder (the disclose/down-weight path stays owner) — unchanged by this fix."""
     spans = candidate_spans or []
+    fallback_index = 0
     fallback_span = ""
     for i, span in enumerate(spans):
         if not span:
             continue  # skip falsy candidate but KEEP the original index position
         if not fallback_span:
-            fallback_span = span  # first non-falsy span (all-furniture fallback)
+            fallback_index = i  # REAL index of the first non-falsy span (all-furniture fallback)
+            fallback_span = span
         if not _is_furniture_segment(span):
             return (i, span)
-    return (0, fallback_span)
+    return (fallback_index, fallback_span)

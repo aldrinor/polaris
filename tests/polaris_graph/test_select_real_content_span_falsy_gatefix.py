@@ -43,13 +43,18 @@ def test_multiple_falsy_before_real_content(monkeypatch):
     assert spans[idx] == span
 
 
-def test_all_furniture_with_leading_falsy_signals_no_reorder(monkeypatch):
+def test_all_furniture_with_leading_falsy_returns_self_consistent_pair(monkeypatch):
     monkeypatch.setattr(sd, "_is_furniture_segment", lambda s: True)
-    # All furniture => fallback to the first NON-FALSY span; index 0 signals "no reorder" (caller
-    # gates on ``_idx > 0``) so the all-furniture disclose/down-weight path stays owner.
-    idx, span = sd.select_real_content_span(["", "CHROME a", "CHROME b"])
-    assert idx == 0
-    assert span == "CHROME a"
+    # All furniture => fall back to the FIRST NON-FALSY span, returning ITS REAL index so the
+    # (index, span) pair is SELF-CONSISTENT: spans[index] == span. (The prior impl returned
+    # (0, "CHROME a") where index 0 pointed at the SKIPPED falsy "" — the Codex/Fable P2 off-by-one
+    # this gate-fix closes.) In the LIVE seam (_build_provenance_quote) chunks[0] (head) is never
+    # falsy, so the first-non-falsy index is 0 there => the index-only live caller still does NOT
+    # reorder on all-furniture; this leading-falsy input is a synthetic, non-live case.
+    spans = ["", "CHROME a", "CHROME b"]
+    idx, span = sd.select_real_content_span(spans)
+    assert (idx, span) == (1, "CHROME a")
+    assert spans[idx] == span  # self-consistent: the index points AT the returned span
 
 
 def test_no_falsy_unchanged_behaviour(monkeypatch):
