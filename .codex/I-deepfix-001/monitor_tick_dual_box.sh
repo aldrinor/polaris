@@ -26,11 +26,11 @@ read_box () {
     echo '-- (1) FETCH-YIELD --'; echo \"\$NEW\" | grep -aE 'fetch_yield_gate|fetched=[0-9]|A15 refresh|A15 RE-FETCH|attempted=[0-9]|corpus ACCEPTED|weighted_mean' | tail -5 | cut -c1-180
     # (2) CONTENT — EVERY new line (strip ONLY literal tqdm spinner + pure boilerplate)
     echo '-- (2) CONTENT (every line, read it all) --'
-    echo \"\$NEW\" | grep -avE 'Batches: +[0-9]+%\\|.*\\||^\\[A|^[[:space:]]*\$|OpenRouter client initialized|POOL-1: Reasoning logged' | tail -240 | cut -c1-200
-    # (3) 14-FIX GREEN MARKERS (checklist overlay — did each fix fire at its stage)
-    echo '-- (3) FIX SIGNALS --'; echo \"\$NEW\" | grep -aoE 'compose_offtopic_basket_screen: withheld=[0-9]+ kept=[0-9]+|\\[B1-FURNITURE\\][^\"]{0,60}|verified-compose PRIMARY: [0-9]+ baskets[^\"]{0,40}|pre-pass complete: [0-9]+/[0-9]+|K-span recovery pass[^\"]{0,40}|B3:[^\"]{0,50}rebuilt client|WS-1\\(b\\)[^\"]{0,40}|think-leak[^\"]{0,40}|fragment-prose dedup[^\"]{0,40}|summary_table[^\"]{0,30}anchored=(True|False)|FINDING#5[^\"]{0,40}|framing[- ]only|release_allowed=(True|False)' | tail -30
+    echo \"\$NEW\" | grep -avE 'Batches: +[0-9]+%\\|.*\\||^\\[A|^[[:space:]]*\$|OpenRouter client initialized|POOL-1: Reasoning logged' | cut -c1-200   # NO cap — read EVERY new content line (operator directive; Codex-flagged truncation removed)
+    # (3) 16-FIX GREEN MARKERS (checklist overlay — incl the 2 committed base fixes: repetition sub-bucket + query status-leak)
+    echo '-- (3) FIX SIGNALS --'; echo \"\$NEW\" | grep -aoE 'compose_offtopic_basket_screen: withheld=[0-9]+ kept=[0-9]+|\\[B1-FURNITURE\\][^\"]{0,60}|verified-compose PRIMARY: [0-9]+ baskets[^\"]{0,40}|pre-pass complete: [0-9]+/[0-9]+|K-span recovery pass[^\"]{0,40}|B3:[^\"]{0,50}rebuilt client|WS-1\\(b\\)[^\"]{0,40}|think-leak[^\"]{0,40}|fragment-prose dedup[^\"]{0,40}|summary_table[^\"]{0,30}anchored=(True|False)|FINDING#5[^\"]{0,40}|framing[- ]only|release_allowed=(True|False)|finding_dedup[^\"]{0,40}(FIRED|SUBBUCKET|sub-bucket)|CONSOLIDATION_NLI[^\"]{0,30}SUBBUCKET|validator_status_leak|scope_query_validator: [0-9]+ kept' | tail -40
     # (4) RED FLAGS (kill-or-escalate triggers)
-    echo '-- (4) RED FLAGS --'; echo \"\$NEW\" | grep -aiE 'Server disconnected|Task exception was never retrieved|429|circuit breaker OPEN|WALL-DEADLINE.*ABANDONING|all-chrome basket|kept=0|abort_|RunValidityGateError|fourth industrial revolution|mineru25 timed out after 75s' | tail -12 | cut -c1-170
+    echo '-- (4) RED FLAGS --'; echo \"\$NEW\" | grep -aiE 'Server disconnected|Task exception was never retrieved|429|circuit breaker OPEN|WALL-DEADLINE.*ABANDONING|all-chrome basket|kept=0|abort_|RunValidityGateError|fourth industrial revolution|mineru25 timed out after 75s|constraint violation|the research question requires|SKIPPING NLI consolidation|1 kept / 0 dropped' | tail -16 | cut -c1-170
     echo \"\$SZ\" > '$offfile'
   " 2>&1 | grep -aviE 'vast\.ai|Have fun|authentication'
 }
