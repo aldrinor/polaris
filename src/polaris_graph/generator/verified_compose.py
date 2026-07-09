@@ -802,7 +802,76 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
     return None
 
 
-def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-003 (#1374) STEP 5 — SPAN-LEVEL off-topic screen on the FINDINGS-BODY compose path.
+#
+# The per-basket body writers below (build_short_member_sentence / build_multi_member_sentences /
+# build_verified_span_draft_multi) emit VERBATIM span sentences after only the chrome-FORM screen
+# (_compose_junk_screen) + the downstream strict_verify. NEITHER is TOPICAL, so a CONFIDENTLY-foreign
+# span of an otherwise-on-topic source (e.g. a "TranScriptorium manuscript project €2.4m" sentence
+# inside an AI-labor source) composes into the findings body. This reuses the EXISTING high-precision,
+# FAIL-OPEN span screen ``weighted_enrichment._withhold_offtopic_spans`` — already live on the
+# enrichment / CWF path but with ZERO callers on these body writers — to WITHHOLD such a span from
+# CITATION before it is emitted.
+#
+# FAITHFULNESS-NEUTRAL BY CONSTRUCTION: this only chooses WHICH already-grounded verbatim span of a
+# source is surfaced. The source stays in the evidence pool + bibliography; the frozen faithfulness
+# engine (strict_verify / NLI / 4-role D8 / provenance / span-grounding) is NEVER touched. FAIL-OPEN:
+# an empty research_question OR a would-empty source returns the input unchanged (never a source drop).
+# Kill-switch PG_COMPOSE_SPAN_TOPICALITY (LAW VI); default ON => OFF or an empty research_question is
+# byte-identical to the legacy keep-all body writers.
+_COMPOSE_SPAN_TOPICALITY_ENV = "PG_COMPOSE_SPAN_TOPICALITY"
+_COMPOSE_SPAN_TOPICALITY_OFF_TOKENS = frozenset({"0", "false", "off", "no"})
+
+
+def _compose_span_topicality_enabled() -> bool:
+    """Kill-switch PG_COMPOSE_SPAN_TOPICALITY (default ON). OFF => no compose-path span is ever
+    withheld on topicality => byte-identical to the legacy keep-all body writers."""
+    raw = os.environ.get(_COMPOSE_SPAN_TOPICALITY_ENV)
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in _COMPOSE_SPAN_TOPICALITY_OFF_TOKENS
+
+
+def _prepare_compose_offtopic_screen(research_question: str, evidence_pool: dict):
+    """Build the off-topic span-screen CONTEXT once per section (question terms + min floors + the
+    corpus on-topic vocabulary), reusing weighted_enrichment's EXACT helpers so the compose-path
+    screen is identical to the enrichment / CWF-path screen. Returns None (=> screen OFF =>
+    byte-identical) when the kill-switch is OFF or the research_question carries no content words.
+    Pure — no network, no GPU, no LLM; faithfulness-neutral (chooses WHICH verbatim span is
+    surfaced, never a source drop)."""
+    if not _compose_span_topicality_enabled():
+        return None
+    if not research_question or not str(research_question).strip():
+        return None
+    from src.polaris_graph.generator import weighted_enrichment as _we  # noqa: PLC0415
+    question_terms = _we._question_topic_terms(research_question)
+    if not question_terms:
+        return None
+    return (
+        question_terms,
+        _we._offtopic_span_min_content_words(),
+        _we._offtopic_span_min_local_terms(),
+        _we._corpus_topic_terms(evidence_pool or {}),
+        _we._withhold_offtopic_spans,
+    )
+
+
+def _apply_compose_offtopic_screen(units: "list[str]", ev_row: "dict | None", screen_ctx) -> "list[str]":
+    """WITHHOLD ONE member's confidently-off-topic spans from citation (fail-open). ``screen_ctx`` is the
+    tuple built once per section by ``_prepare_compose_offtopic_screen``; None (screen OFF / empty
+    question) or empty ``units`` => the input is returned UNCHANGED (byte-identical). The source is
+    NEVER dropped — the underlying ``_withhold_offtopic_spans`` restores a would-empty source (fail-open),
+    and the source stays in the evidence pool + bibliography regardless."""
+    if not screen_ctx or not units:
+        return units
+    question_terms, min_cw, min_lt, corpus_terms, withhold = screen_ctx
+    return withhold(
+        units, ev_row or {}, question_terms, min_cw, min_lt, corpus_topic_terms=corpus_terms,
+    )
+
+
+def build_short_member_sentence(basket: Any, evidence_pool: dict, research_question: str = "") -> str:
     """I-arch-011 PR-c RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC, NO-LLM short writer — the
     FIRST sentence of the basket's strongest isolated-``SUPPORTS`` member's verified span, tagged with
     that member's REAL global offsets for exactly that first-sentence prefix. It is a verbatim PREFIX of
@@ -810,7 +879,13 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
     (the P1-1 region gate). Used to PROBE the render path (does verified-compose fire through
     _run_section->render? does short prose fit the 150K answer_body budget?) WITHOUT the per-basket LLM
     writer (the real PR-c writer) and WITHOUT the verbatim-full-span overflow. Returns '' when no member
-    resolves (caller falls back to the basket's K-span / insufficient-evidence disclosure)."""
+    resolves (caller falls back to the basket's K-span / insufficient-evidence disclosure).
+
+    I-deepfix-003 (#1374) STEP 5: after the chrome-FORM screen, WITHHOLD a CONFIDENTLY-off-topic span of
+    an otherwise-on-topic source from citation (``_apply_compose_offtopic_screen``). Fail-open + gated by
+    PG_COMPOSE_SPAN_TOPICALITY (default ON); ``research_question=""`` OR the switch OFF => byte-identical.
+    Faithfulness-neutral (chooses WHICH verbatim span is surfaced; the source stays in the pool)."""
+    screen_ctx = _prepare_compose_offtopic_screen(research_question, evidence_pool)
     for m in _basket_supports_members(basket):
         eid = str(getattr(m, "evidence_id", "") or "")
         quote = str(getattr(m, "direct_quote", "") or "").strip()
@@ -822,6 +897,9 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict) -> str:
         # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); if EVERY
         # unit is chrome, fall through to the next SUPPORTS member. Real short sentences are KEPT (P1-4).
         units = [u for u in units if not _compose_junk_screen(u)]
+        # I-deepfix-003 (#1374) STEP 5: WITHHOLD a confidently-off-topic span of this on-topic source
+        # from citation (fail-open; source never dropped; faithfulness engine untouched).
+        units = _apply_compose_offtopic_screen(units, (evidence_pool or {}).get(eid), screen_ctx)
         if not units:
             continue
         first = units[0]
@@ -910,7 +988,7 @@ def _atomic_fact_key(unit: str) -> str:
     return " ".join(core.split()).lower()
 
 
-def build_multi_member_sentences(basket: Any, evidence_pool: dict) -> str:
+def build_multi_member_sentences(basket: Any, evidence_pool: dict, research_question: str = "") -> str:
     """L2 DETERMINISTIC multi-fact writer (region-safe ``writer_fn`` form). Emits one verbatim-span
     sentence per DISTINCT atomic fact across ALL of the basket's isolated-``SUPPORTS`` members, deduped
     by ``_atomic_fact_key``. Each unit carries TIGHT per-unit global offsets inside its member's quote
@@ -922,8 +1000,11 @@ def build_multi_member_sentences(basket: Any, evidence_pool: dict) -> str:
     quote — so L2 never REGRESSES the single-headline recall. When PG_SUBTOPIC_DECOMPOSITION is OFF this
     is byte-identical to ``build_short_member_sentence`` (single headline)."""
     if not _subtopic_decomposition_enabled():
-        return build_short_member_sentence(basket, evidence_pool)
+        return build_short_member_sentence(basket, evidence_pool, research_question=research_question)
     known_words = _known_words_for_compose(evidence_pool)
+    # I-deepfix-003 (#1374) STEP 5: per-section off-topic span-screen context (None => OFF/empty
+    # question => byte-identical; fail-open; faithfulness-neutral).
+    screen_ctx = _prepare_compose_offtopic_screen(research_question, evidence_pool)
     limit = _subtopic_max_facts()
     seen: set[str] = set()
     out: list[str] = []
@@ -941,6 +1022,9 @@ def build_multi_member_sentences(basket: Any, evidence_pool: dict) -> str:
             u for u in units
             if not _compose_junk_screen(u, known_words, require_sentence_form=True)
         ]
+        # I-deepfix-003 (#1374) STEP 5: WITHHOLD a confidently-off-topic span of this on-topic source
+        # from citation (fail-open; source never dropped; faithfulness engine untouched).
+        units = _apply_compose_offtopic_screen(units, (evidence_pool or {}).get(eid), screen_ctx)
         for u in units:
             key = _atomic_fact_key(u)
             if not key or key in seen:
@@ -958,7 +1042,7 @@ def build_multi_member_sentences(basket: Any, evidence_pool: dict) -> str:
     return " ".join(out) if out else ""
 
 
-def build_verified_span_draft_multi(basket: Any, evidence_pool: dict) -> Optional[str]:
+def build_verified_span_draft_multi(basket: Any, evidence_pool: dict, research_question: str = "") -> Optional[str]:
     """L2 SNAP-preserving multi-fact K-span FALLBACK — the ``build_verified_span_draft`` sibling used by
     ``_compose_one_basket`` when PG_SUBTOPIC_DECOMPOSITION is ON. Mirrors ``build_verified_span_draft``
     EXACTLY (verbatim span + real global offsets + FIX-D extend-only sentence snap + chrome/junk screen)
@@ -969,6 +1053,9 @@ def build_verified_span_draft_multi(basket: Any, evidence_pool: dict) -> Optiona
     a verbatim span carrying its member's own provenance token → re-passes strict_verify trivially
     (faithfulness UNCHANGED). Bounded by the PG_SUBTOPIC_MAX_FACTS ceiling."""
     known_words = _known_words_for_compose(evidence_pool)
+    # I-deepfix-003 (#1374) STEP 5: per-section off-topic span-screen context (None => OFF/empty
+    # question => byte-identical; fail-open; faithfulness-neutral).
+    screen_ctx = _prepare_compose_offtopic_screen(research_question, evidence_pool)
     limit = _subtopic_max_facts()
     seen: set[str] = set()
     out: list[str] = []
@@ -1007,6 +1094,11 @@ def build_verified_span_draft_multi(basket: Any, evidence_pool: dict) -> Optiona
         if units_before and not units:
             all_chrome_member_drops += 1
             continue
+        # I-deepfix-003 (#1374) STEP 5: WITHHOLD a confidently-off-topic span of this on-topic source
+        # from citation (fail-open; source never dropped; faithfulness engine untouched). Applied AFTER
+        # the all-chrome count so an off-topic withhold is not mis-attributed to a chrome drop; if it
+        # empties this member's units, the loop simply falls through to the next member.
+        units = _apply_compose_offtopic_screen(units, (evidence_pool or {}).get(eid), screen_ctx)
         for u in units:
             key = _atomic_fact_key(u)
             if not key or key in seen:
@@ -1569,7 +1661,7 @@ def _uncovered_fact_disclosure_is_junk(basket: Any, span_text: str) -> bool:
     return False
 
 
-def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str) -> str:
+def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str, research_question: str = "") -> str:
     """Build the SYNTH_PRIMARY exhaustion output: the verified authored ``body`` (may be "") PLUS the
     uncovered-fact K-span as a SEPARATE labeled disclosure paragraph (``\\n\\n``-joined), NEVER the
     mid-line ``" ".join(kept + [fallback])`` glue. Reuses ``build_verified_span_draft_multi`` (or
@@ -1578,7 +1670,7 @@ def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str)
     resolves, falls to the honest gap disclosure (also as its own ``\\n\\n`` paragraph when a body
     exists). Failed AUTHORED sentences are already discarded by the caller (never in ``body``)."""
     fallback = (
-        build_verified_span_draft_multi(basket, evidence_pool)
+        build_verified_span_draft_multi(basket, evidence_pool, research_question=research_question)
         if _subtopic_decomposition_enabled()
         else build_verified_span_draft(basket, evidence_pool)
     )
@@ -1661,6 +1753,7 @@ def _compose_one_basket_synth_primary(
     writer_fn: Callable[[Any, dict], str],
     verify_fn: Callable[..., Any],
     redraft_fn: Callable[..., str],
+    research_question: str = "",
 ) -> str:
     """SYNTH_PRIMARY (#1344 Wave-1a) compose-then-verify path. Draft ONE coherent paragraph, verify ALL
     sentences downstream with the UNCHANGED ``verify_fn``, keep the passing (chrome-screened) ones, and
@@ -1687,9 +1780,13 @@ def _compose_one_basket_synth_primary(
         # body falls to the K-span / honest-gap fallback (never an empty unit).
         if body.strip():
             return body
-        return _synth_primary_fallback_unit(basket, evidence_pool, body="")
+        return _synth_primary_fallback_unit(
+            basket, evidence_pool, body="", research_question=research_question
+        )
     # Budget exhausted with residual failures: verified authored body + SEPARATE labeled K-span block.
-    return _synth_primary_fallback_unit(basket, evidence_pool, body=body)
+    return _synth_primary_fallback_unit(
+        basket, evidence_pool, body=body, research_question=research_question
+    )
 
 
 def _compose_one_basket(
@@ -1699,6 +1796,7 @@ def _compose_one_basket(
     writer_fn: Callable[[Any, dict], str],
     verify_fn: Callable[..., Any],
     redraft_fn: Optional[Callable[..., str]] = None,
+    research_question: str = "",
 ) -> str:
     """Compose ONE basket: writer drafts prose -> strict_verify each sentence against the
     BASKET-SCOPED pool -> keep passing sentences; on the FIRST failing sentence (or a foreign-cited
@@ -1715,6 +1813,7 @@ def _compose_one_basket(
         return _compose_one_basket_synth_primary(
             basket, evidence_pool, scoped_pool, regions,
             writer_fn=writer_fn, verify_fn=verify_fn, redraft_fn=redraft_fn,
+            research_question=research_question,
         )
     draft = writer_fn(basket, scoped_pool) or ""
     kept: list[str] = []
@@ -1749,7 +1848,7 @@ def _compose_one_basket(
     # sentence that fails the per-basket verify falls here. Faithfulness-neutral (each unit re-passes
     # strict_verify trivially — it IS a verbatim span). OFF => build_verified_span_draft (byte-identical).
     fallback = (
-        build_verified_span_draft_multi(basket, evidence_pool)
+        build_verified_span_draft_multi(basket, evidence_pool, research_question=research_question)
         if _subtopic_decomposition_enabled()
         else build_verified_span_draft(basket, evidence_pool)
     )
@@ -2559,6 +2658,7 @@ def _compose_section_per_basket(
     agree_map: Any = None,
     redraft_fn: Optional[Callable[..., str]] = None,
     numeric_key_by_cluster: Optional[dict] = None,
+    research_question: str = "",
 ) -> list[str]:
     """PRIMARY per-section prose producer: compose EVERY basket of the section (the contract
     entities are a SUBSET — this is what moves the scored breadth off the contract-slot bound).
@@ -2639,6 +2739,10 @@ def _compose_section_per_basket(
                 # corroborated baskets through the same group writer + strict verify while surfacing every
                 # corroborator; both single-basket and multi-cite paths share the SYNTH_PRIMARY writer.
                 redraft_fn=redraft_fn,
+                # I-deepfix-003 (#1374) STEP 5: thread the research_question so the K-span FALLBACK
+                # (build_verified_span_draft_multi) applies the off-topic span screen. Default "" =>
+                # byte-identical.
+                research_question=research_question,
             )
         # §3.5: suppress the internal insufficient-evidence marker before it can leak into report.md.
         # Also skip an empty multi-cited result (a basket with no resolvable span at all) — the §3.5

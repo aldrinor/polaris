@@ -796,6 +796,13 @@ _BLOCK_PAGE_VISIBLE_RULES = (
     ("javascript_wall", ("enable javascript and cookies to continue",)),
     ("captcha_wall", ("verify you are human",)),
     ("captcha_wall", ("performing security verification",)),
+    # Cookie-error interstitial: the publisher's "you must enable cookies" wall
+    # (e.g. "Error - Cookies Turned Off"). Two single-phrase rules = OR semantics
+    # (all-phrases-in-a-tuple is AND). High-precision full phrases; gated to a
+    # short visible body so a real article that merely mentions cookies never
+    # trips it.
+    ("cookie_error", ("cookies turned off",)),
+    ("cookie_error", ("error - cookies",)),
 )
 
 # Visible-body ceiling for the gated VISIBLE-TEXT rules. A CF "Just a moment"
@@ -904,6 +911,90 @@ def is_block_page_or_stub(body: str = "", url: str = "") -> bool:
     """True iff `body` is a challenge / WAF block / redirect or error stub that
     must NOT become evidence. Thin boolean wrapper over `classify_block_page`."""
     return bool(classify_block_page(body, url))
+
+
+def detect_content_integrity_junk(
+    fetched_body: str, url: str, title: str
+) -> tuple[bool, str]:
+    """Content-integrity junk screen: is this fetched row a CHROME NON-SOURCE?
+
+    Returns ``(True, <class>)`` iff the row is chrome (a failed fetch / non-article
+    stub that is NOT a real source), else ``(False, "")``. This is a pure LEAF
+    detector — it never fetches, never touches the faithfulness engine, and judges
+    ONLY from the supplied ``title`` and ``fetched_body``.
+
+    Classes, evaluated in order:
+      * ``block_page``       — body is a challenge / WAF block / redirect / error
+                               stub per :func:`is_block_page_or_stub`.
+      * ``empty``            — title is empty / whitespace-only.
+      * ``not_found``        — title contains "404" / "not found" /
+                               "ressource not found".
+      * ``cookie_error``     — title contains "cookies turned off" /
+                               "error - cookies".
+      * ``login_wall``       — title starts with "login |" or equals "login".
+      * ``nonarticle_stub``  — title equals a known non-article stub label
+                               ("fulltext01", "download_pub", "conference program",
+                               "book of abstracts").
+
+    FAIL-OPEN: any internal error returns ``(False, "")`` — a bug in the screen
+    must never flag a real source as junk (§-1.3 weight-not-filter: never a
+    false hard-drop).
+    """
+    try:
+        if is_block_page_or_stub(fetched_body, url):
+            return (True, "block_page")
+        # ZYTE-RECOVERY GUARD (GH I-deepfix-003 #1374): the A15 AccessBypass+Zyte re-fetch
+        # runs BEFORE this stamp. If Zyte recovered REAL content the body is substantial —
+        # KEEP the source even when its TITLE is a stale bot/error page (a real journal whose
+        # first fetch hit "Are you a robot?" but whose body was then Zyte-recovered). NEVER
+        # throw away a Zyte-recovered source for a stale title. Only a thin / empty body —
+        # i.e. Zyte genuinely could NOT recover it — proceeds to the title screens below.
+        if len((fetched_body or "").strip()) >= 200:
+            return (False, "")
+        normalized_title = (title or "").strip().lower()
+        if not normalized_title:
+            return (True, "empty")
+        if (
+            "404" in normalized_title
+            or "not found" in normalized_title
+            or "ressource not found" in normalized_title
+        ):
+            return (True, "not_found")
+        if (
+            "cookies turned off" in normalized_title
+            or "error - cookies" in normalized_title
+        ):
+            return (True, "cookie_error")
+        # GH I-deepfix-003 (#1374): anti-bot / captcha challenge pages (Cloudflare
+        # "Just a moment...", "Are you a robot?", PerimeterX, "Attention Required") whose
+        # BODY was stripped/short enough to slip is_block_page_or_stub still carry a
+        # tell-tale challenge TITLE. A challenge page is a failed fetch, not a source.
+        if (
+            "are you a robot" in normalized_title
+            or "just a moment" in normalized_title
+            or "attention required" in normalized_title
+            or "verify you are human" in normalized_title
+            or "verifying you are human" in normalized_title
+            or "checking your browser" in normalized_title
+            or "checking if the site connection is secure" in normalized_title
+            or "access denied" in normalized_title
+            or "security check" in normalized_title
+            or "one more step" in normalized_title
+            or normalized_title == "captcha"
+        ):
+            return (True, "bot_challenge")
+        if normalized_title.startswith("login |") or normalized_title == "login":
+            return (True, "login_wall")
+        if normalized_title in (
+            "fulltext01",
+            "download_pub",
+            "conference program",
+            "book of abstracts",
+        ):
+            return (True, "nonarticle_stub")
+        return (False, "")
+    except Exception:
+        return (False, "")
 
 
 # Block-page detector canary (behavioral telemetry, REAL counts):

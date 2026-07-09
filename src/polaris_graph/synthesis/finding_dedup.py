@@ -367,18 +367,118 @@ def _title_discriminator(row: dict[str, Any]) -> str:
     return ""
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Same-URL / same-file consolidation — I-deepfix-003 STEP 4 (#1374)
+# ─────────────────────────────────────────────────────────────────────────
+# §-1.3 CONSOLIDATE-don't-DROP: a chunked PDF (e.g. "reb-t-9-2-2026.pdf") with NO
+# DOI and only weak/varying per-chunk titles produced an EMPTY ``_same_work_key`` for
+# every chunk, so ~18 chunks of the SAME file each became their OWN singleton work —
+# 18 phantom independent sources padding breadth/attribution. The DOI + title legs
+# below cannot catch it (no DOI; the per-chunk title folds to nothing / lacks a
+# discriminator), so nothing groups them.
+#
+# THE FIX (a FIRST, highest-precedence leg): two rows fetched from the SAME document —
+# the SAME normalized source_url — are the SAME WORK, period. A shared fetch URL
+# identifies one document more reliably than a missing/noisy extracted DOI or a weak
+# per-chunk title. A usable normalized URL yields a ``url:<normalized>`` key that every
+# chunk of one file shares => ONE same-work group. KEEP-ALL: each member's evidence_id /
+# URL is kept as a corroborating locator (counted/presented as ONE source, never dropped).
+# FAITHFULNESS-NEUTRAL: same-work grouping is a WEIGHT / render concern — strict_verify /
+# NLI / 4-role D8 / provenance / span-grounding are untouched, and a shared-URL group
+# counts as exactly ONE independent origin in a finding cluster's ``corroboration_count``.
+#
+# NORMALIZATION (§-1.3 "over-merge corrupts attribution; under-merge is safe"): scheme +
+# lowercased host (leading ``www.`` stripped) + path (trailing ``/`` stripped), FRAGMENT
+# dropped. A usable URL key requires a NON-EMPTY path — a host-only URL (e.g.
+# "https://site.com/") is far too coarse (it would fold every page of a site into one
+# work) and falls through to the DOI/title legs. A bare filename with no host
+# ("reb-t-9-2-2026.pdf") uses the path alone (the task's "for a PDF the filename is
+# sufficient").
+#
+# QUERY IS KEPT — a §-1.3-mandated refinement of the STEP-4 brief's "drop the query".
+# Because this leg is HIGHEST precedence, DROPPING the query would over-merge two
+# GENUINELY DIFFERENT works served by the SAME endpoint that differ ONLY in an
+# identity-bearing query param — e.g. "site/download?doi=10.1/a" vs "?doi=10.2/b", or
+# "viewer?docid=123" vs "?docid=456" — folding them into one work even though their DOIs
+# differ. That is exactly the distinct-work over-merge §-1.3 (operator-locked) forbids.
+# Keeping the query still fixes the reported bug (the 18 chunks carry the SAME full
+# source_url, query included, so they still merge); the only cost is a SAFE UNDER-merge —
+# two fetches of one doc that differ solely by fetch-time tracking noise (utm_* etc.) stay
+# separate, which is the §-1.3-preferred failure side. (The finding_dedup independent-host
+# tally already collapses same-URL rows to ONE origin via ``count_independent_hosts``; the
+# URL leg's decisive effect is de-padding the same-work / breadth / render layer.)
+#
+# NOTE — SHARED CONTRACT: the DOI/title legs are duplicated byte-for-byte in
+# ``weighted_enrichment._work_identity`` (the render/enrichment-side consolidator), and the
+# SAME URL leg is now mirrored THERE too (Fable gate P1-C, GH I-deepfix-003 #1374) behind the
+# SAME ``PG_SAMEWORK_URL_LEG`` switch — so BOTH the corroboration-side and render/enrichment-
+# side consolidators collapse a no-DOI / weak-title multi-chunk PDF to one work (full lockstep
+# parity, verified by tests/polaris_graph/test_work_identity_url_mirror.py).
+#
+# LAW VI kill-switch ``PG_SAMEWORK_URL_LEG`` (default ON). OFF => the URL leg is skipped and
+# the key is BYTE-IDENTICAL to the pre-STEP-4 DOI/title-only keying.
+_SAMEWORK_URL_LEG_ENV = "PG_SAMEWORK_URL_LEG"
+
+
+def _samework_url_leg_enabled() -> bool:
+    """``PG_SAMEWORK_URL_LEG`` kill switch (LAW VI). DEFAULT-ON: the same-URL same-work
+    leg (STEP 4). Set to ``0`` to restore the byte-identical DOI/title-only
+    ``_same_work_key`` (no URL leg — the pre-STEP-4 behavior)."""
+    return os.getenv(_SAMEWORK_URL_LEG_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _normalize_source_url(row: dict[str, Any]) -> str:
+    """The NORMALIZED same-work URL identity of a row (``""`` when there is no usable URL).
+
+    scheme + lowercased host (leading ``www.`` stripped) + path (trailing ``/`` stripped),
+    with the FRAGMENT dropped and the QUERY KEPT (see the module note above — dropping the
+    query would over-merge identity-in-query works; keeping it only risks a §-1.3-safe
+    under-merge). A usable key requires a NON-EMPTY path (a host-only URL is too coarse and
+    returns ``""``); a bare filename with no host uses the path alone. A blank / unparseable
+    URL returns ``""`` so the caller falls through to the DOI / title legs.
+    """
+    raw = str(row.get("source_url", "") or row.get("url", "") or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower().strip()
+    if host.startswith("www."):
+        host = host[4:]
+    path = (parsed.path or "").rstrip("/")
+    if not path:
+        # Host-only (or empty) URL: too coarse to identify ONE document — fall through
+        # to the DOI / title legs rather than fold an entire host into one work.
+        return ""
+    scheme = (parsed.scheme or "").lower()
+    prefix = (scheme + "://" + host) if host else ""
+    query = parsed.query
+    return prefix + path + (("?" + query) if query else "")
+
+
 def _same_work_key(row: dict[str, Any]) -> str:
-    """The SHARED same-work key: normalized DOI first, else folded title PLUS a
-    corroborating discriminator, else ``""`` (no same-work grouping — the row is
-    its own singleton work).
+    """The SHARED same-work key: normalized source_url FIRST (STEP 4), else normalized
+    DOI, else folded title PLUS a corroborating discriminator, else ``""`` (no same-work
+    grouping — the row is its own singleton work).
+
+    I-deepfix-003 STEP 4 (#1374): a FIRST, highest-precedence leg — a normalized
+    source_url (``_normalize_source_url``). Two rows fetched from the SAME document are the
+    SAME work regardless of a missing/noisy DOI or a weak per-chunk title (the ~18-chunk
+    PDF breadth-padding bug). Behind the ``PG_SAMEWORK_URL_LEG`` kill switch (default ON);
+    OFF => this leg is skipped and the key is byte-identical DOI/title-only keying.
 
     I-beatboth-011 #4 (#1289): the no-DOI branch NEVER merges on folded title
     ALONE (two different works can share a title). It requires the folded title
     AND the FIRST present discriminator (year → first-author surname → venue →
-    host). Title-with-no-discriminator → ``""`` → singleton. Matches
-    ``weighted_enrichment._work_identity`` so the two consolidators put the same
-    members in the same work.
+    host). Title-with-no-discriminator → ``""`` → singleton. The DOI + title legs
+    match ``weighted_enrichment._work_identity`` so those two consolidators put the same
+    members in the same work; the STEP-4 URL leg is added HERE only (see the module note).
     """
+    if _samework_url_leg_enabled():
+        url_key = _normalize_source_url(row)
+        if url_key:
+            return "url:" + url_key
     doi = _normalize_doi(row.get("doi"))
     if doi:
         return "doi:" + doi
@@ -582,11 +682,18 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
             dropped_prefix -= {survivors[0]}
 
         canonical = max(survivors, key=lambda ri: _row_rank_key(rows[ri], ri))
-        # Only emit a real same-work id for genuine same-work keys (a DOI/title
-        # group). The per-row "__singleton__" keys carry no cross-row meaning, so
-        # they get no same_work annotation (a row with no DOI/title is its own
-        # work and must not look "consolidated").
-        is_real_work = key.startswith("doi:") or key.startswith("title:")
+        # Only emit a real same-work id for genuine same-work keys (a URL / DOI /
+        # title group). The per-row "__singleton__" keys carry no cross-row meaning,
+        # so they get no same_work annotation (a row with no URL/DOI/title is its own
+        # work and must not look "consolidated"). STEP 4 (#1374): a ``url:`` key IS a
+        # genuine same-work group (chunks of one fetched document) — it MUST populate
+        # ``work_id_by_index`` / ``canonical_index_by_index`` so the origin-host fold
+        # and the render annotations treat the shared-URL chunks as ONE source.
+        is_real_work = (
+            key.startswith("url:")
+            or key.startswith("doi:")
+            or key.startswith("title:")
+        )
         member_evidence_ids = [
             str(rows[ri].get("evidence_id", ri)) for ri in survivors
         ]

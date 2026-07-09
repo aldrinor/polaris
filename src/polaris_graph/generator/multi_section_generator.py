@@ -5451,6 +5451,10 @@ async def _run_section(
                 redraft_fn=_vc_redraft_fn,
                 # Wave-2a: None unless PG_NUMERIC_COMPARATOR is ON (byte-identical otherwise).
                 numeric_key_by_cluster=_vc_numeric_keys,
+                # I-deepfix-003 (#1374) STEP 5: thread the research_question so the K-span FALLBACK
+                # (build_verified_span_draft_multi) applies the off-topic span screen on THIS abstractive
+                # path too (its primary writer is the precomputed LLM lookup, not a topical writer).
+                research_question=research_question,
             )
         else:
             # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each
@@ -5474,10 +5478,14 @@ async def _run_section(
             # compose_distinct_fact_units pass (DEFAULT-OFF kill-switch PG_SUBTOPIC_ADDITIVE_FACTS; opt
             # in per-run) — each a verbatim span re-verified by the UNCHANGED strict_verify, never
             # replacing the abstractive winner's prose.
+            # I-deepfix-003 (#1374) STEP 5: bind the run's research_question into the deterministic body
+            # writers so their per-span off-topic screen (PG_COMPOSE_SPAN_TOPICALITY, default ON) can
+            # WITHHOLD a confidently-foreign span of an on-topic source from citation. research_question
+            # "" (framing-only default) => byte-identical (no span ever withheld).
             if _vc_subtopic_enabled():
-                _vc_writer_fn = lambda _b, _p: _vc_multi_writer(_b, evidence_pool)  # noqa: E731
+                _vc_writer_fn = lambda _b, _p: _vc_multi_writer(_b, evidence_pool, research_question=research_question)  # noqa: E731
             else:
-                _vc_writer_fn = lambda _b, _p: _vc_short_writer(_b, evidence_pool)  # noqa: E731
+                _vc_writer_fn = lambda _b, _p: _vc_short_writer(_b, evidence_pool, research_question=research_question)  # noqa: E731
             _vc_verify_fn = _vc_verify
             _vc_composed = _compose_section_per_basket(
                 _vc_baskets, evidence_pool,
@@ -5488,6 +5496,10 @@ async def _run_section(
                 edges=getattr(credibility_analysis, "edges", None),
                 # Wave-2a: None unless PG_NUMERIC_COMPARATOR is ON (byte-identical otherwise).
                 numeric_key_by_cluster=_vc_numeric_keys,
+                # I-deepfix-003 (#1374) STEP 5: thread the research_question so the K-span FALLBACK
+                # (build_verified_span_draft_multi) applies the off-topic span screen (the primary
+                # deterministic writers already carry it via their bound closures above).
+                research_question=research_question,
             )
         # I-beatboth-011 keystone-F1 (#1284): _compose_section_per_basket now routes any basket carrying
         # >=2 corroborating isolated-SUPPORTS members through compose_basket_multicited_sentence — ONE

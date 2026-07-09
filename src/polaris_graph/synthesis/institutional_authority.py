@@ -42,8 +42,14 @@ _DEFAULT_BANDS: dict[str, float] = {
     # producers of the data other sources cite).
     "igo": 0.72,
     "statistical_agency": 0.72,
+    # Government institutions (generic ``*.gov`` / ``ed.gov`` via the additive suffix rule below):
+    # authoritative primary/regulatory producers, just under the IGO band.
+    "government": 0.68,
     # Major think-tanks / research institutes: mid-high (rigorous, but secondary analysis).
     "think_tank": 0.65,
+    # Universities / business schools / academic research centres (named hosts + generic ``*.edu``
+    # via the suffix rule): rigorous research surface, but a generic ``.edu`` page is secondary.
+    "university": 0.62,
     # Reputable news mastheads: mid (edited, fact-checked reporting; still secondary).
     "news_masthead": 0.60,
 }
@@ -118,7 +124,60 @@ _DEFAULT_REGISTRY: dict[str, str] = {
     "theguardian.com": "news_masthead",
     "nature.com": "news_masthead",       # news + comment surface (articles keep their journal weight)
     "science.org": "news_masthead",
+    # ── I-deepfix-003 (#1374): credible institutions the drb_72 corpus surfaced but the tier sets
+    # bury at T6/UNKNOWN (future-of-work / labor / education economics). Each maps to a band so the
+    # WEIGHT leg AND the credibility-pass TIER floor recognise it. Registry entries always win over
+    # the additive ``*.gov`` / ``*.edu`` suffix rule below (an explicit classification is authoritative).
+    "reports.weforum.org": "igo",            # WEF reports host (also matches weforum.org)
+    "philadelphiafed.org": "igo",            # Federal Reserve Bank of Philadelphia (central-bank research)
+    "commerce.nc.gov": "government",         # NC Dept of Commerce (also matches the *.gov rule)
+    "ed.gov": "government",                  # US Dept of Education (also matches the *.gov rule)
+    # ── Think-tanks / research institutes / policy + labor organizations ──
+    "institute.global": "think_tank",        # Tony Blair Institute for Global Change
+    "americanprogress.org": "think_tank",    # Center for American Progress
+    "equitablegrowth.org": "think_tank",     # Washington Center for Equitable Growth
+    "bipartisanpolicy.org": "think_tank",    # Bipartisan Policy Center
+    "jff.org": "think_tank",                 # Jobs for the Future
+    "naceweb.org": "think_tank",             # National Association of Colleges and Employers
+    "caixabankresearch.com": "think_tank",   # CaixaBank Research
+    "sefofuncas.com": "think_tank",          # Funcas (Spanish savings-banks foundation research)
+    "ibm.com": "think_tank",                 # IBM corporate research reports
+    "microsoft.com": "think_tank",           # Microsoft research reports
+    "calaborfed.org": "think_tank",          # California Labor Federation
+    "aflcio.org": "think_tank",              # AFL-CIO
+    "nationalacademies.org": "think_tank",   # National Academies of Sciences, Engineering, and Medicine
+    "vttresearch.com": "think_tank",         # VTT Technical Research Centre of Finland
+    "lightcast.io": "think_tank",            # Lightcast labor-market analytics/research
+    "socialfinance.org": "think_tank",       # Social Finance
+    "educause.edu": "think_tank",            # EDUCAUSE higher-ed IT research association
+    "voced.edu.au": "think_tank",            # NCVER VOCEDplus vocational-education research database
+    "ideas.repec.org": "think_tank",         # RePEc economics research repository
+    # ── Universities / business schools / academic research centres ──
+    "hbsp.harvard.edu": "university",        # Harvard Business School Publishing
+    "library.hbs.edu": "university",         # Harvard Business School (Baker Library)
+    "clp.law.harvard.edu": "university",     # Harvard Law School (Corporate Governance)
+    "law.vanderbilt.edu": "university",      # Vanderbilt Law School
+    "mitsloan.mit.edu": "university",        # MIT Sloan School of Management
+    "business.purdue.edu": "university",     # Purdue University (Daniels School of Business)
+    "laborcenter.berkeley.edu": "university",  # UC Berkeley Labor Center
+    "mpra.ub.uni-muenchen.de": "university",   # Munich Personal RePEc Archive (LMU Munich)
+    "cccco.edu": "university",               # California Community Colleges Chancellor's Office
+    "news.gsu.edu": "university",            # Georgia State University news
+    # ── News mastheads ──
+    "hbr.org": "news_masthead",              # Harvard Business Review
+    "thehill.com": "news_masthead",          # The Hill (political news)
+    "edsource.org": "news_masthead",         # EdSource (education news)
 }
+
+# ── I-deepfix-003 (#1374): additive RULE-BASED recognition ───────────────────────────────────────
+# Beyond the enumerated registry, any government (``*.gov`` / ``ed.gov``) or academic (``*.edu``)
+# host is recognised as an institution even when it is not individually listed. RAISE-ONLY like every
+# registry entry (it only ever lifts a weight/tier, never lowers one) and applied AFTER the registry
+# so an explicit classification (e.g. ``brookings.edu`` -> think_tank) always wins over the rule.
+# Multi-part government/academic ccTLDs (``*.gov.uk`` / ``*.edu.au``) are NOT matched by the bare
+# ``.gov`` / ``.edu`` suffix and are handled by explicit registry entries where they matter.
+_RULE_GOV_SUFFIX = ".gov"
+_RULE_EDU_SUFFIX = ".edu"
 
 _OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
 
@@ -203,19 +262,60 @@ def _suffix_match(host: str, registry: dict[str, str]) -> str | None:
     return None
 
 
+def _rule_band(host: str) -> str | None:
+    """I-deepfix-003: the additive suffix-rule band for ``host`` (``*.gov`` / ``ed.gov`` ->
+    ``government``; ``*.edu`` -> ``university``), else None. RAISE-ONLY like every band; applied
+    only AFTER the enumerated registry (an explicit entry always wins). Pure — no kill-switch."""
+    if not host:
+        return None
+    if host == "ed.gov" or host.endswith(_RULE_GOV_SUFFIX):
+        return "government"
+    if host.endswith(_RULE_EDU_SUFFIX):
+        return "university"
+    return None
+
+
+def _resolve_band(url: str) -> str | None:
+    """The institutional band KEY for ``url`` — the enumerated registry FIRST (an explicit entry
+    always wins), then the additive ``*.gov`` / ``*.edu`` suffix rule. None when the host is not a
+    recognised institution. Pure classification: NOT gated by any kill-switch (each caller applies
+    its own switch — the WEIGHT leg gates ``institutional_authority_for_url`` on
+    ``PG_INSTITUTIONAL_AUTHORITY_WEIGHT``; the TIER-floor leg in ``credibility_pass`` gates on
+    ``PG_INSTITUTIONAL_AUTHORITY_TIER``)."""
+    host = _host_of(url)
+    if not host:
+        return None
+    band_key = _suffix_match(host, _registry())
+    if band_key is not None:
+        return band_key
+    return _rule_band(host)
+
+
+def institutional_band_for_url(url: str) -> str | None:
+    """I-deepfix-003 (#1374): the institutional band KEY (``igo`` / ``statistical_agency`` /
+    ``government`` / ``think_tank`` / ``news_masthead`` / ``university``) for ``url``'s host, or None
+    when the host is not a recognised institution.
+
+    This surfaces the band NAME (the WEIGHT accessor ``institutional_authority_for_url`` returns only
+    the numeric weight). The credibility-pass TIER-floor leg maps this key to a RAISE-ONLY anchor-
+    eligible tier (igo/statistical_agency/government -> T3; think_tank/news_masthead/university -> T3)
+    and to the explicit ``authority_note`` label. An env-override registry entry that stores a raw
+    float (not a named band) is returned verbatim; the TIER map has no entry for it, so it drives the
+    WEIGHT leg only (no tier floor). Pure — the caller applies the kill-switch."""
+    return _resolve_band(url)
+
+
 def institutional_authority_for_url(url: str) -> float | None:
     """The calibrated institutional-authority WEIGHT for ``url`` when its host is a recognized
-    institution, else None (not an institution => no raise). None whenever the kill-switch is OFF.
+    institution (enumerated registry OR the ``*.gov`` / ``*.edu`` suffix rule), else None (not an
+    institution => no raise). None whenever the kill-switch is OFF.
 
     A band_key that resolves to no band value (e.g. an override host pointed at an unknown key)
     is treated as "no raise" (None) rather than a wrong/zero weight. The value may also be given
     as a raw float directly in the registry override, in which case it is parsed here."""
     if not institutional_authority_enabled():
         return None
-    host = _host_of(url)
-    if not host:
-        return None
-    band_key = _suffix_match(host, _registry())
+    band_key = _resolve_band(url)
     if band_key is None:
         return None
     bands = _band_values()

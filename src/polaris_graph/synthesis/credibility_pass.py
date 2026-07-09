@@ -167,6 +167,60 @@ _DEFAULT_TIER_AUTHORITY_PRIOR: dict[str, float] = {
 # wiring detection must never itself drop a source).
 _ENV_REQUIRE_NONZERO_AUTHORITY = "PG_REQUIRE_NONZERO_AUTHORITY"
 
+# ── I-deepfix-003 (#1374): recognized-institution TIER FLOOR (RAISE-ONLY, anchor-eligibility) ─────
+# The tier classifier buries credible NON-journal institutions at T6/UNKNOWN, and the downstream
+# anchor-to-strong-source signal reads the TIER label — so a WEF/OECD/BLS/think-tank/university
+# source is not seen as a valid anchor even though its authority WEIGHT is high. When a row's URL
+# resolves to an ``institutional_authority`` band (registry OR the ``*.gov`` / ``*.edu`` rule) this
+# stamps a RAISE-ONLY tier floor so the source becomes anchor-eligible in the synthesis layer
+# (AtomicClaim.source_tier / BasketMember.source_tier both derive from the row ``tier`` this join
+# writes). It NEVER lowers a stronger existing tier (a genuine T1 journal keeps T1) and NEVER touches
+# the faithfulness engine (strict_verify / NLI / 4-role D8 / provenance) — a claim's grounding is
+# unchanged; only where the source SORTS as an anchor changes. Behind its OWN kill-switch
+# (default ON); OFF => tier unchanged while the WEIGHT leg still runs (that rides
+# PG_INSTITUTIONAL_AUTHORITY_WEIGHT). §-1.3 WEIGHT-AND-CONSOLIDATE, never FILTER-AND-CAP.
+_ENV_INSTITUTIONAL_TIER = "PG_INSTITUTIONAL_AUTHORITY_TIER"
+# band_key -> anchor-eligible tier FLOOR. igo / statistical_agency / government (primary
+# institutional producers) AND think_tank / news_masthead / university (rigorous secondary
+# analysis) ALL floor to T3 — operator decision 2026-07-09 (Fable gate item A) so credible
+# institutions clear the T1-T3 anchor bar. (``government`` is the band the ``*.gov`` /
+# ``ed.gov`` suffix rule assigns.)
+_INSTITUTIONAL_TIER_FLOOR: dict[str, str] = {
+    "igo": "T3",
+    "statistical_agency": "T3",
+    "government": "T3",
+    # Operator decision 2026-07-09 (Fable gate item A): raise think_tank / news_masthead /
+    # university from T4 to T3 so credible institutions (HBR, MIT Sloan, Tony Blair Institute,
+    # AFL-CIO, universities) CLEAR the T1-T3 "strong anchor" bar (Signal-2). The explicit
+    # authority_note ("institutional authority: <band>") preserves transparency — T3 here means
+    # "government OR recognized institutional authority", it never implies a think-tank IS a
+    # government agency. Still RAISE-ONLY (a genuine T1/T2 journal is never lowered to T3).
+    "think_tank": "T3",
+    "news_masthead": "T3",
+    "university": "T3",
+}
+# Tier STRENGTH rank: lower = stronger (T1 strongest, UNKNOWN weakest). Used ONLY for the RAISE-ONLY
+# guard — a floor is applied to a field iff it is STRICTLY STRONGER than that field's current value,
+# so no field is ever lowered.
+_TIER_STRENGTH_RANK: dict[str, int] = {
+    "T1": 1, "T2": 2, "T3": 3, "T4": 4, "T5": 5, "T6": 6, "T7": 7, "UNKNOWN": 8,
+}
+
+
+def institutional_tier_floor_enabled() -> bool:
+    """True iff the I-deepfix-003 recognized-institution TIER-floor leg is active (LAW VI kill-switch
+    ``PG_INSTITUTIONAL_AUTHORITY_TIER``, default ON). OFF => tiers are left untouched by this join
+    (and no ``authority_note`` is stamped); the WEIGHT leg is independent and keeps running."""
+    return os.environ.get(_ENV_INSTITUTIONAL_TIER, "on").strip().lower() not in _OFF_VALUES
+
+
+def _tier_rank_of(value: object) -> int:
+    """The STRENGTH rank of a raw tier value (blank/unrecognized => UNKNOWN = weakest). RAISE-ONLY
+    guard helper: read per-field so a stronger existing tier in either ``tier`` / ``source_tier`` is
+    never lowered."""
+    key = str(value or "").strip().upper()
+    return _TIER_STRENGTH_RANK.get(key if key in _TIER_STRENGTH_RANK else "UNKNOWN", 8)
+
 
 def tier_authority_join_enabled() -> bool:
     """True iff the default-ON B9(a) tier-authority prior join is active (LAW VI kill-switch
@@ -220,18 +274,32 @@ def _join_tier_authority_prior(rows: list[dict]) -> list[dict]:
     authority_score is resolved (real computed weight OR tier prior), a recognized credible
     institution (WEF/OECD/IGO, national statistical agency, major think-tank, reputable news
     masthead — the LAW-VI ``institutional_authority`` registry) has its authority_score RAISED to
-    its calibrated institutional band. This is a RAISE-ONLY floor (``max`` with the base): a real
-    computed weight ABOVE the band is never lowered, and a freak-low weight can never demote a real
-    institution. Nothing is dropped, no tier is changed, faithfulness is untouched — a pure
-    credibility WEIGHT correcting the de-facto soft-filter (``weight_mass = authority_score``, so a
-    mis-low institution sank and lost slots). Disclosed via ``authority_score_source``."""
+    its calibrated institutional band. This is a RAISE-ONLY floor: a real computed weight ABOVE the
+    band is never lowered, and a freak-low weight can never demote a real institution. Disclosed via
+    ``authority_score_source``.
+
+    I-deepfix-003 (#1374) — recognized-institution TIER FLOOR + explicit label: when the row's URL
+    resolves to an institutional band (registry OR the ``*.gov`` / ``*.edu`` rule) this ALSO stamps a
+    RAISE-ONLY anchor-eligible tier floor (igo/statistical_agency/government -> T3;
+    think_tank/news_masthead/university -> T3) so a credible institution the tier classifier buried at
+    T6/UNKNOWN is seen as a valid anchor downstream (AtomicClaim.source_tier / BasketMember.source_tier
+    both derive from the row ``tier`` written here). Each tier field is guarded against ITS OWN current
+    rank, so a stronger existing tier (a genuine T1 journal) is NEVER lowered. It also stamps an
+    explicit ``authority_note = "institutional authority: <band>"`` so a reader sees WHY the source is
+    credible. The tier leg is behind its OWN kill-switch ``PG_INSTITUTIONAL_AUTHORITY_TIER`` (default
+    ON); OFF => tier + note untouched while the WEIGHT leg (``PG_INSTITUTIONAL_AUTHORITY_WEIGHT``) still
+    runs. Nothing is dropped and the faithfulness engine is untouched — a pure WEIGHT/tier correction
+    of the de-facto soft-filter (``weight_mass = authority_score``, so a mis-low institution sank and
+    lost slots). §-1.3 WEIGHT-AND-CONSOLIDATE, never FILTER-AND-CAP."""
     if not tier_authority_join_enabled():
         return rows
     from src.polaris_graph.synthesis.institutional_authority import (  # noqa: PLC0415
         institutional_authority_for_url,
+        institutional_band_for_url,
     )
 
     prior = _tier_authority_prior_map()
+    tier_floor_on = institutional_tier_floor_enabled()
     out: list[dict] = []
     for row in rows:
         existing = row.get("authority_score")
@@ -243,22 +311,54 @@ def _join_tier_authority_prior(rows: list[dict]) -> list[dict]:
             if has_existing
             else float(prior.get(_tier_of_row(row), prior["UNKNOWN"]))
         )
-        inst_band = institutional_authority_for_url(_row_url(row))
-        # W1 RAISE-ONLY institutional weight: only act when it strictly RAISES the base weight.
-        if inst_band is not None and inst_band > base:
+        url = _row_url(row)
+        # ``new_row`` stays None until something actually changes -> the caller's row is appended
+        # verbatim (byte-identical no-op) when neither leg fires.
+        new_row: dict | None = None
+
+        # ── W1 WEIGHT leg (PG_INSTITUTIONAL_AUTHORITY_WEIGHT, RAISE-ONLY) ──
+        inst_weight = institutional_authority_for_url(url)
+        if inst_weight is not None and inst_weight > base:
             new_row = dict(row)  # COPY — never mutate the caller's row
-            new_row["authority_score"] = float(inst_band)
+            new_row["authority_score"] = float(inst_weight)
             new_row["authority_score_source"] = "institutional_registry"  # disclosed
-            new_row["institutional_authority_band"] = float(inst_band)
-            out.append(new_row)
-            continue
-        if has_existing:
-            out.append(row)  # real computed weight already present (>= any band) — keep verbatim
-            continue
-        new_row = dict(row)  # COPY — never mutate the caller's row
-        new_row["authority_score"] = base
-        new_row["authority_score_source"] = "tier_prior"  # disclosed: this is a deterministic fallback
-        out.append(new_row)
+            new_row["institutional_authority_band"] = float(inst_weight)
+        elif not has_existing:
+            new_row = dict(row)  # COPY — never mutate the caller's row
+            new_row["authority_score"] = base
+            new_row["authority_score_source"] = "tier_prior"  # disclosed deterministic fallback
+        # else: has_existing and no institutional raise -> weight kept verbatim (new_row stays None).
+
+        # ── I-deepfix-003 TIER-floor leg + authority_note (PG_INSTITUTIONAL_AUTHORITY_TIER, RAISE-ONLY) ──
+        if tier_floor_on:
+            band_key = institutional_band_for_url(url)
+            if band_key is not None:
+                if new_row is None:
+                    new_row = dict(row)  # promote to a COPY so we never mutate the caller's row
+                # Explicit institutional-authority label — reader sees WHY the source is credible
+                # (operator decision: reuse the T3/T4 tier BUT surface an explicit label, not a bare
+                # badge). Rides on the row's authority record (no external consumer reads it yet —
+                # surface it wherever that record is disclosed).
+                new_row["authority_note"] = f"institutional authority: {band_key}"
+                floor_tier = _INSTITUTIONAL_TIER_FLOOR.get(band_key)
+                if floor_tier is not None:
+                    floor_rank = _TIER_STRENGTH_RANK[floor_tier]
+                    raised = False
+                    # Guard EACH tier field independently against ITS OWN current rank so a stronger
+                    # existing value is NEVER lowered. ``tier`` is the field every downstream
+                    # claim/basket consumer reads (claim_graph, BasketMember); ``source_tier`` is
+                    # raised too ONLY when the row already carries it.
+                    for field in ("tier", "source_tier"):
+                        if field == "source_tier" and field not in row:
+                            continue
+                        if floor_rank < _tier_rank_of(row.get(field)):
+                            new_row[field] = floor_tier
+                            raised = True
+                    if raised:
+                        new_row["tier_before_institutional_floor"] = _tier_of_row(row)  # disclosed
+                        new_row["institutional_authority_tier_floor"] = floor_tier  # disclosed
+
+        out.append(new_row if new_row is not None else row)
     return out
 
 

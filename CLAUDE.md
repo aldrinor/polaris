@@ -64,6 +64,14 @@ Every task / bug / issue follows this exact sequence — no shortcuts:
 
 **THE ONLY HARD GATE is the faithfulness engine** (strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding). Everything else is a WEIGHT or a CONSOLIDATION — never a DROP / CAP / THIN / TARGET.
 
+**§-1.3.1 JUNK-DELETION CARVE-OUT (operator-authorized 2026-07-09, GH I-deepfix-003 #1374).** The never-DROP rule above is LIFTED for genuine JUNK. Rationale: weighting junk to zero still leaves it in the pool, bibliography, and corroboration counts, where it pollutes a clinical report. Two classes MAY be hard-DELETED from the corpus (not merely weight-0):
+- **(a) Chrome non-sources** — bot/captcha pages, cookie/login/404/"not found" error pages, empty / no-usable-content rows. These are failed fetches, not sources.
+- **(b) Semantically-confirmed OFF-TOPIC sources** — a whole source a SEMANTIC topic judge confirms is off-topic to the research question. Judge verdict ONLY, **FAIL-OPEN** (any uncertainty ⇒ KEEP), NEVER by tier, lexical guess, or a breadth number.
+
+An off-topic SPAN inside an ON-TOPIC source is handled by dropping the SPAN from the output, keeping the source. Every deletion is **DISCLOSED** (deleted-row count + reason in Methods — fail loud, never silent).
+
+**STILL BINDING (unchanged by this carve-out):** credible **ON-TOPIC** sources — even low-tier / social / non-journal — are NEVER deleted, only weighted (principle 1 holds for them; deletion must never touch a credible on-topic source). Duplicates CONSOLIDATE to one, never delete-all (principle 2). The faithfulness engine remains the only hard gate for CLAIMS (principle 3 / §-1.1). The day-waster ban still stands: deletion is triggered ONLY by content-integrity (chrome) or a semantic off-topic verdict — NEVER to hit a breadth or quality number.
+
 **BANNED anti-pattern (the day-waster):** bolting hardcoded caps / targets / thinners / hard-filters onto the pipeline to make a breadth number go up (`PG_SPAN_PER_SOURCE_CITE_CAP`, `PG_LEGACY_SECTION_BREADTH_TARGET`, `PG_BREADTH_CANARY_MIN`, scope hard-filter, and similar). They FIGHT the architecture. Breadth and quality **EMERGE** from honest weighted multi-attribution; they are never forced. If you find yourself adding a knob to make a number hit a target — STOP. That is the bug.
 
 **SURGICAL, NOT REWRITE.** The good machinery already exists — STORM retrieval, Zyte/crawl4ai/distill, the tier classifier (= weighting), `finding_dedup`/`fact_dedup` (= consolidation), the faithfulness engine. RE-WIRE it to the right semantics (weight not filter; consolidate-keep-all not drop; basket not single-span) and DELETE only the specific number-forcing bolt-ons. Do not over-kill.

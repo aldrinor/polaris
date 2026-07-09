@@ -4781,6 +4781,40 @@ def _title_discriminator(ev: dict[str, Any]) -> str:
     return ""
 
 
+def _samework_url_leg_on() -> bool:
+    """Render-side mirror of ``finding_dedup._samework_url_leg_enabled`` — reads the SAME
+    ``PG_SAMEWORK_URL_LEG`` env flag (default ON) so the two same-work consolidators are
+    always in lockstep. OFF => the url leg is skipped and ``_work_identity`` is byte-identical
+    to the prior DOI/title-only keying."""
+    import os  # noqa: PLC0415
+    return os.getenv("PG_SAMEWORK_URL_LEG", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _samework_url_norm(ev: dict[str, Any]) -> str:
+    """Byte-identical mirror of ``finding_dedup._normalize_source_url`` (GH I-deepfix-003
+    #1374, Fable gate P1-C). scheme + lowercased host (leading ``www.`` stripped) + path
+    (trailing ``/`` stripped); FRAGMENT dropped, QUERY KEPT (dropping it would over-merge
+    identity-in-query works). Requires a NON-EMPTY path (a host-only URL is too coarse => "").
+    A blank / unparseable URL returns "" so ``_work_identity`` falls through to DOI/title."""
+    from urllib.parse import urlparse  # noqa: PLC0415
+    raw = str(ev.get("source_url", "") or ev.get("url", "") or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower().strip()
+    if host.startswith("www."):
+        host = host[4:]
+    path = (parsed.path or "").rstrip("/")
+    if not path:
+        return ""
+    scheme = (parsed.scheme or "").lower()
+    prefix = (scheme + "://" + host) if host else ""
+    query = parsed.query
+    return prefix + path + (("?" + query) if query else "")
+
+
 def _work_identity(eid: str, ev: dict[str, Any]) -> str:
     """Same-work group key for one member: DOI, else title(+discriminator), else its
     own ev_id.
@@ -4793,6 +4827,13 @@ def _work_identity(eid: str, ev: dict[str, Any]) -> str:
     distinct unit — consolidation can only MERGE genuine same-work duplicates, never
     collapse unrelated works. Matches ``finding_dedup._same_work_key``.
     """
+    # STEP 4 render-parity (GH I-deepfix-003 #1374, Fable gate P1-C): FIRST url leg mirrors
+    # finding_dedup._normalize_source_url behind the SAME PG_SAMEWORK_URL_LEG switch, so a
+    # no-DOI / weak-title multi-chunk PDF collapses to ONE Evidence-base / CWF entry (not 18).
+    if _samework_url_leg_on():
+        _u = _samework_url_norm(ev)
+        if _u:
+            return f"url:{_u}"
     doi = _normalize_doi(ev.get("doi"))
     if doi:
         return f"doi:{doi}"

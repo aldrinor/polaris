@@ -14710,6 +14710,157 @@ async def run_one_query(
                 f"{[r.get('evidence_id') for r in _retracted_for_disclosure]}"
             )
 
+        # GH I-deepfix-003 (#1374) — JUNK-DELETION GATE (operator rule change 2026-07-09,
+        # CLAUDE.md §-1.3.1). At the SAME run-level chokepoint as the retraction gate, hard-
+        # DELETE (a) chrome non-sources (bot/cookie/404/login/empty — stamped
+        # content_integrity_junk at the re-tier/A15 seam) and (b) semantically-confirmed
+        # off-topic WHOLE sources (topic-judge verdict via _is_confirmed_offtopic). Marquee /
+        # contract anchors are EXEMPT (on-topic by construction). Deleting HERE — after the
+        # topic judge + re-tier, before the snapshot save + generator — excludes the junk
+        # from EVERY grounding surface at once and never persists it. A deleted row can only
+        # SHRINK the pool, so faithfulness is untouched (a claim citing a deleted row fails
+        # strict_verify; it can never make one pass). Every deletion is DISCLOSED (§-1.3.1
+        # fail-loud). Two default-ON kill-switches (PG_DELETE_CHROME_NONSOURCE /
+        # PG_DELETE_OFFTOPIC_SOURCE); credible ON-TOPIC low-tier sources are neither class.
+        # STEP 2 STAMP (Zyte-wise, Fable-gated per GH I-deepfix-003 #1374): flag chrome
+        # non-source rows for the deletion gate, honoring the operator's recover-BEFORE-delete
+        # directive:
+        #   1. A15 AccessBypass+Zyte re-fetch ALREADY ran upstream on every DEGRADED row.
+        #   2. Detect chrome from the CURRENT (post-A15) body/url/title.
+        #   3. SKIP any row A15 GENUINELY recovered (resume_refetch.is_row_genuinely_recovered) —
+        #      never delete a Zyte-recovered source for a stale bot/error TITLE (A15 updates the
+        #      body, not the title). This flag is stricter than a raw body-length guard: it
+        #      rejects an A15-refused error page (e.g. an 821-char "DOI Not Found") that a length
+        #      check would false-keep.
+        #   4. For residual block/bot rows A15's LENGTH predicate skipped (a long-chrome-body bot
+        #      page), give ONE dedicated final Zyte (_try_refetch_degraded_row) — re-detect on the
+        #      fresh body; adopt + KEEP if it comes back clean. Kill-switch PG_JUNK_DELETE_FINAL_ZYTE.
+        #   5. Stamp junk ONLY on the still-chrome remainder => the gate deletes only what even a
+        #      fresh Zyte call cannot recover. Fail-open throughout (no stamp => no deletion).
+        try:
+            from src.tools.access_bypass import (  # noqa: PLC0415
+                detect_content_integrity_junk as _detect_ci_junk,
+            )
+            try:
+                from src.polaris_graph.retrieval.resume_refetch import (  # noqa: PLC0415
+                    is_row_genuinely_recovered as _ci_recovered,
+                )
+            except Exception:  # noqa: BLE001 — no recovered-flag => rely on the detector's guard
+                def _ci_recovered(_row):  # type: ignore
+                    return False
+            _final_zyte = None
+            if os.environ.get("PG_JUNK_DELETE_FINAL_ZYTE", "1").strip().lower() not in (
+                "0", "false", "no", "off", "",
+            ):
+                try:
+                    from src.polaris_graph.retrieval.live_retriever import (  # noqa: PLC0415
+                        _try_refetch_degraded_row as _final_zyte,
+                    )
+                except Exception:  # noqa: BLE001 — no Zyte entry => skip the final-Zyte pass
+                    _final_zyte = None
+            _ci_stamped = 0
+            _ci_zyte_saved = 0
+            for _r in evidence_for_gen:
+                if not isinstance(_r, dict) or _r.get("content_integrity_junk"):
+                    continue
+                _url = str(_r.get("source_url") or _r.get("url") or "")
+                _title = str(_r.get("title") or _r.get("source_title") or "")
+                # Codex-gate P1: feed the WIDEST body across every plausible content field —
+                # NOT just the (often short) extracted direct_quote — so a real source with a
+                # long fetched body but a short quoted snippet and a stale bot/login/404 title
+                # is protected by the detector's >=200-char recovery guard and never title-only
+                # deleted. Longest non-empty field is the strongest "has real content" signal.
+                _ci_body = max(
+                    (str(_r.get(_bk) or "") for _bk in (
+                        "fetched_body", "full_text", "content", "extracted_text",
+                        "raw_content", "raw_text", "page_text", "direct_quote",
+                        "statement", "source_text", "body", "text",
+                    )),
+                    key=len, default="",
+                )
+                _is_junk, _cls = _detect_ci_junk(_ci_body, _url, _title)
+                if not _is_junk:
+                    continue
+                if _ci_recovered(_r):
+                    continue  # A15/Zyte already genuinely recovered it — KEEP (never delete)
+                if _final_zyte is not None and _cls in ("block_page", "bot_challenge") and _url:
+                    try:
+                        _fresh = _final_zyte(_url)
+                        if _fresh and len(_fresh.strip()) >= 200:
+                            _re_junk, _re_cls = _detect_ci_junk(_fresh, _url, _title)
+                            if not _re_junk:
+                                _r["direct_quote"] = _fresh  # adopt Zyte-recovered content
+                                _ci_zyte_saved += 1
+                                continue  # recovered by final Zyte — KEEP
+                            _cls = _re_cls or _cls
+                    except Exception as _fz_exc:  # noqa: BLE001 — final Zyte best-effort
+                        _log(f"[content-integrity] final Zyte skipped for {_url[:60]}: {_fz_exc}")
+                _r["content_integrity_junk"] = True
+                _r["content_integrity_class"] = _cls
+                _ci_stamped += 1
+            if _ci_stamped or _ci_zyte_saved:
+                _log(
+                    f"[content-integrity] stamped {_ci_stamped} chrome non-source(s) for "
+                    f"deletion; final-Zyte recovered {_ci_zyte_saved} (kept). A15+Zyte tried "
+                    "first; deleting only unrecoverable junk (§-1.3.1)."
+                )
+        except Exception as _ci_exc:  # noqa: BLE001 — stamp is best-effort; no stamp => no delete
+            _log(f"[content-integrity] stamp pass skipped (fail-open): {_ci_exc}")
+        # Codex-gate P1: the ENTIRE gate seam (module import + partition + disclosure) is
+        # wrapped fail-open — an import / signature / runtime defect in the new module must
+        # NOT abort the paid run; on any error evidence_for_gen is left UNCHANGED (byte-
+        # identical, no deletion) and the disclosure is empty. evidence_for_gen is only
+        # reassigned AFTER partition_rows returns, via a temp, so a raising partition never
+        # leaves it half-mutated.
+        _run_junk_deleted_disclosed: list = []
+        try:
+            from src.polaris_graph.generator import junk_deletion_gate as _junk_gate  # noqa: PLC0415
+            try:
+                from src.polaris_graph.retrieval.topic_relevance_gate import (  # noqa: PLC0415
+                    _row_is_marquee_anchor as _jd_is_marquee,
+                )
+            except Exception:  # noqa: BLE001 — exemption best-effort; no marquee => none exempt
+                _jd_is_marquee = lambda _r: False  # noqa: E731
+            _jd_exempt_ids = {
+                str(r.get("evidence_id", "") or "")
+                for r in evidence_for_gen
+                if isinstance(r, dict) and (_jd_is_marquee(r) or r.get("v30_entity_id"))
+            }
+            _jd_exempt_ids.discard("")
+            _jd_kept, _junk_deleted_for_disclosure = _junk_gate.partition_rows(
+                evidence_for_gen, exempt_ids=_jd_exempt_ids
+            )
+            # Codex iter-2 P1 (ATOMICITY): compute the disclosure records + LOUD log FIRST,
+            # while evidence_for_gen is STILL the original (un-pruned) pool. Only after ALL
+            # accounting succeeds do we COMMIT the pruned pool AND its disclosure together, as
+            # the final two statements. So if disclosure_records() or the log raises, the outer
+            # except leaves BOTH evidence_for_gen and _run_junk_deleted_disclosed untouched —
+            # no pruned-pool-without-disclosure state can ever exist (§-1.3.1: a deletion is
+            # ALWAYS disclosed; a deletion and its disclosure are all-or-nothing).
+            _jd_disclosed = _junk_gate.disclosure_records(_junk_deleted_for_disclosure)
+            if _junk_deleted_for_disclosure:
+                _chrome_n = sum(
+                    1 for r in _junk_deleted_for_disclosure
+                    if str(r.get("deletion_reason", "")).startswith("content_integrity_junk")
+                )
+                _offtopic_n = len(_junk_deleted_for_disclosure) - _chrome_n
+                _log(
+                    "[junk-deletion-gate] RUN-LEVEL: DELETED "
+                    f"{len(_junk_deleted_for_disclosure)} junk/off-topic source(s) from the "
+                    f"grounding pool (chrome_nonsource={_chrome_n}, confirmed_offtopic="
+                    f"{_offtopic_n}; marquee/contract anchors exempt); disclosed in manifest: "
+                    f"{[r.get('evidence_id') for r in _junk_deleted_for_disclosure]}"
+                )
+            # ATOMIC COMMIT — pruned pool + disclosure together, only after all of the above
+            # succeeded. A raise anywhere above skips BOTH assignments (fail-open, consistent).
+            evidence_for_gen = _jd_kept
+            _run_junk_deleted_disclosed = _jd_disclosed
+        except Exception as _jd_exc:  # noqa: BLE001 — a gate defect must NEVER abort the paid run
+            _log(
+                "[junk-deletion-gate] SKIPPED (fail-open): "
+                f"{_jd_exc} — evidence_for_gen UNCHANGED, no deletion this run"
+            )
+
         # I-arch-004 F04 (#539/#629): persist the pre-generation corpus snapshot HERE — the
         # single seam where evidence_for_gen is FULLY constructed (selection + saturation +
         # V30 contract / req-entity / upload prepends all applied) and NOTHING further mutates
@@ -17667,6 +17818,20 @@ async def run_one_query(
                 _seen_retraction_ev.add(_gr.get("evidence_id"))
         manifest["retraction_disclosed"] = _merged_retraction_disclosed
         manifest["body_syndication"] = getattr(multi, "body_syndication_telemetry", {})
+
+        # GH I-deepfix-003 (#1374): surface the JUNK-DELETION disclosure on the success manifest
+        # (§-1.3.1 fail-loud — deletion is never silent). _run_junk_deleted_disclosed is built at
+        # the run-level junk-deletion seam above; split by reason so a §-1.1 auditor sees exactly
+        # which chrome non-sources and which confirmed-off-topic sources were removed from the
+        # grounding pool before generation. Additive observability keys (present even at zero).
+        _jd_disc = list(_run_junk_deleted_disclosed or [])
+        manifest["deleted_chrome_nonsources"] = [
+            r for r in _jd_disc
+            if str(r.get("deletion_reason", "")).startswith("content_integrity_junk")
+        ]
+        manifest["deleted_offtopic_sources"] = [
+            r for r in _jd_disc if r.get("deletion_reason") == "confirmed_offtopic"
+        ]
 
         # I-cred-006b (#1170): surface the weighted-corpus credibility disclosure in the per-run
         # manifest (ON-mode only — the key is ABSENT when the flag is off, preserving the legacy
