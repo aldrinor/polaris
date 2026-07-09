@@ -467,6 +467,42 @@ def _lines(text: str, cap: int = 12) -> list[str]:
     return out
 
 
+def _is_status_leak(text: str, question: str) -> bool:
+    """I-qgen-001 (#1373): True iff ``text`` is (or embeds) a validator/status message
+    ("Temporal constraint violation: ...", "Insufficient pre-June ...", "Lack of
+    specific ...") rather than a research sub-topic/query. Uses the SHARED
+    ``is_meta_status_clause`` predicate the retrieval-side scope validator runs, so
+    both legs share one classifier; the question text is the subject-exemption
+    source (a marker the operator themselves wrote is genuine subject, not a leak).
+    ``PG_QUERY_META_STATUS_SCREEN=0`` kill-switch => always False (byte-identical)."""
+    from src.polaris_graph.retrieval.scope_query_validator import (  # noqa: PLC0415
+        is_meta_status_clause,
+        meta_status_screen_enabled,
+    )
+    return meta_status_screen_enabled() and is_meta_status_clause(text, question)
+
+
+def _screen_status_lines(items: list[str], question: str) -> list[str]:
+    """I-qgen-001 (#1373) channel separation: drop validator/status prose from an
+    LLM-derived sub-topic (todo) list so a validation RESULT can never occupy the
+    SUB-TOPIC {topic} slot of the query-derivation prompt (drb_72 ev_1091: the leak
+    was interpolated into '... regarding the impact of Temporal constraint
+    violation: The research question requires literature' and searched). A
+    validation message is control-flow — the affected round's facet is ABORTED
+    (dropped from the todo queue), never pasted into query text. Faithfulness-
+    neutral: pre-fetch query channel only; drops ZERO fetched sources (§-1.3)."""
+    kept = [s for s in items if not _is_status_leak(s, question)]
+    n_dropped = len(items) - len(kept)
+    if n_dropped:
+        logger.info(
+            "[fs_researcher] I-qgen-001 (#1373) status-leak screen dropped %d "
+            "validator/status line(s) from the sub-topic queue "
+            "(a validation message is never a query topic).",
+            n_dropped,
+        )
+    return kept
+
+
 def _retrieval_deadline_passed(deadline: "float | None") -> bool:
     """I-deepfix-001 WALL-03 (#1344): True iff the SHARED per-question retrieval wall
     (a monotonic instant anchored ONCE by the spine) has passed.
@@ -878,7 +914,9 @@ def plan_fs_researcher_queries(
             "Deconstruct this research topic into sub-topics (the index.md table of contents). "
             "One sub-topic per line.\n\n" + question
         )
-    todos = _lines(llm(_toc_prompt), cap=10) or [question]
+    # I-qgen-001 (#1373): screen the TOC reply for validator/status prose BEFORE it
+    # becomes the todo queue — a status line must never become a sub-topic.
+    todos = _screen_status_lines(_lines(llm(_toc_prompt), cap=10), question) or [question]
 
     for _ in range(max_rounds):
         if len(queries) >= max_queries or not todos:
@@ -911,6 +949,18 @@ def plan_fs_researcher_queries(
                 query = raw.strip().splitlines()[0].strip().strip('"').strip()
             if not query:
                 query = todo
+            # I-qgen-001 (#1373): if the DERIVED query itself is (or embeds) a
+            # validator/status message — the derivation LLM can also emit one —
+            # ABORT this facet's query instead of searching it. The todo-queue
+            # screen above already keeps status prose out of the SUB-TOPIC slot;
+            # this guards the derivation output channel too.
+            if _is_status_leak(query, question):
+                logger.info(
+                    "[fs_researcher] I-qgen-001 (#1373) aborted a status-leak "
+                    "query (validator message in the topic slot): %r",
+                    query[:120],
+                )
+                continue
             key = query.lower()
             if key in seen_q:  # do not waste budget re-issuing an identical query
                 continue
@@ -926,14 +976,22 @@ def plan_fs_researcher_queries(
         if _retrieval_deadline_passed(retrieval_deadline_monotonic):
             break
         # 6-item self-review checklist critic -> deficient sub-topics become the next todos.
-        deficient = _lines(
-            llm(
-                "Self-review the knowledge base against: exhaustive coverage (a question the KB "
-                "cannot fully answer?) and information density (any aspect with only 1-2 weak "
-                "sources?). List sub-topics still needing more search. One per line, or NONE.\n\n"
-                f"QUESTION:\n{question}\n\nNOTES:\n" + "\n".join(notes[-20:])
+        # I-qgen-001 (#1373): the critic is the highest-risk status-leak channel — its
+        # deficiency FINDINGS arrive phrased as validation verdicts ("Temporal constraint
+        # violation: ...", "Insufficient pre-June ...", "Lack of specific ..."). Screen
+        # them out so a verdict never becomes the next round's sub-topic; an all-status
+        # reply empties `deficient` and the loop ABORTS the round (no corrupted search).
+        deficient = _screen_status_lines(
+            _lines(
+                llm(
+                    "Self-review the knowledge base against: exhaustive coverage (a question the KB "
+                    "cannot fully answer?) and information density (any aspect with only 1-2 weak "
+                    "sources?). List sub-topics still needing more search. One per line, or NONE.\n\n"
+                    f"QUESTION:\n{question}\n\nNOTES:\n" + "\n".join(notes[-20:])
+                ),
+                cap=6,
             ),
-            cap=6,
+            question,
         )
         if not deficient or any("NONE" in d.upper() for d in deficient[:1]):
             break

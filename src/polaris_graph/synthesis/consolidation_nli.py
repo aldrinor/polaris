@@ -35,7 +35,9 @@ module is cheap and the legacy path that never calls it pays nothing.
 from __future__ import annotations
 
 import logging
+import math
 import os
+import re
 import threading
 import time
 from concurrent.futures import (
@@ -77,6 +79,23 @@ ENV_DEVICE = "PG_CONSOLIDATION_NLI_DEVICE"
 # OOM'd the crammed card on the 890+-source clinical corpora (the CUBLAS_STATUS_ALLOC_FAILED
 # crash). Bounding the forward keeps peak GPU memory constant regardless of corpus size.
 ENV_PREDICT_CHUNK = "PG_CONSOLIDATION_NLI_PREDICT_CHUNK"
+# I-deepfix-001 W04-prebucket (#1369): over-MAX_PAIRS PRE-BUCKETING. The drb_72 live run
+# fed 311- and 351-text buckets into `score_pairs` (48,205 / 61,425 candidate pairs >
+# the 20,000 cap), so the whole bucket's NLI consolidation was SKIPPED — near-duplicate
+# findings stayed UNMERGED and rendered as REPEATED separate findings. A blind cap raise
+# would re-open the O(n^2) compute/memory blowup the cap guards. Instead, when this flag
+# is ON, an over-cap bucket is SUB-DIVIDED into lexical-overlap sub-buckets whose
+# per-sub-bucket pair count stays <= the cap, and the NLI consolidation RUNS within each
+# sub-bucket. §-1.3 CONSOLIDATE-keep-all: near-dups that share a sub-bucket MERGE
+# (citations kept on the survivor basket by the callers' keep-all member union); a
+# cross-sub-bucket near-dup pair is simply never scored => stays UNMERGED, which is a
+# KEEP — worst case equals the current skip behavior, never worse; NOTHING is dropped.
+# DEFAULT-OFF => the over-cap skip runs byte-identical (this is a build/validation
+# scaffold flag per the activate+archive discipline; the run slates flip it ON).
+ENV_SUBBUCKET = "PG_CONSOLIDATION_NLI_SUBBUCKET"
+# Content-word Jaccard threshold for routing a text into an existing sub-bucket (the
+# similarity key that keeps near-duplicates together). LAW VI env-tunable.
+ENV_SUBBUCKET_JACCARD = "PG_CONSOLIDATION_NLI_SUBBUCKET_JACCARD"
 
 _DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-base"
 _DEFAULT_WORKERS = "8"
@@ -90,6 +109,7 @@ _DEFAULT_MAX_PAIRS = "20000"
 # Still a WEIGHT, not a faithfulness gate; still fully env-overridable (LAW VI); <=0 disables.
 _DEFAULT_WALL_SECONDS = "180"   # I-deepfix-001 C2: per-call score_pairs total wall (s)
 _DEFAULT_PREDICT_CHUNK = "256"  # I-deepfix-001 #1344: max index-pairs per `.predict` forward
+_DEFAULT_SUBBUCKET_JACCARD = "0.30"  # I-deepfix-001 W04-prebucket (#1369): routing threshold
 _CPU_DEVICE = "cpu"         # the OOM-degrade target
 
 # nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
@@ -224,6 +244,105 @@ def _device() -> Optional[str]:
     unset/blank => NO device kwarg passed (byte-identical library auto-placement)."""
     raw = os.environ.get(ENV_DEVICE, "").strip()
     return raw or None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Over-cap PRE-BUCKETING — I-deepfix-001 W04-prebucket (#1369)
+# ─────────────────────────────────────────────────────────────────────────
+_SUBBUCKET_WORD_RE = re.compile(r"[a-z0-9]+")
+# Minimal English glue words excluded from the routing signature. Words shorter than
+# 3 chars ("a"/"is"/"of"/"to"/"in"...) are already dropped by the length floor below.
+# Over-inclusion here only splits sub-buckets finer (an under-merge, §-1.3-safe);
+# under-inclusion only wastes a few bounded NLI pairs — neither direction is unsafe.
+_SUBBUCKET_STOPWORDS = frozenset(
+    "the and for with that this from are was were has have had its their them they "
+    "not but into over under between among also been being can may will would could "
+    "should than then when where which while who whom whose what how why all any "
+    "each more most other some such only own same very just both few nor too".split()
+)
+
+
+def _subbucket_enabled() -> bool:
+    """``PG_CONSOLIDATION_NLI_SUBBUCKET`` gate for the over-cap pre-bucketing path.
+    DEFAULT-OFF => the over-cap SKIP runs byte-identical (whole bucket passes through
+    unmerged, exactly the current behavior)."""
+    return os.getenv(ENV_SUBBUCKET, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _subbucket_jaccard() -> float:
+    """Content-word Jaccard threshold for routing a text into an existing sub-bucket
+    (default 0.30). Out-of-range / malformed => default (logged, never raised — a typo
+    must not crash a paid run)."""
+    value = _read_float(ENV_SUBBUCKET_JACCARD, _DEFAULT_SUBBUCKET_JACCARD)
+    if not (0.0 < value <= 1.0):
+        logger.warning(
+            "[consolidation_nli] %s=%s out of (0,1]; using default %s",
+            ENV_SUBBUCKET_JACCARD, value, _DEFAULT_SUBBUCKET_JACCARD,
+        )
+        return float(_DEFAULT_SUBBUCKET_JACCARD)
+    return value
+
+
+def _subbucket_tokens(text: str) -> frozenset[str]:
+    """Deterministic content-word routing signature: lowercased alnum words of >= 3
+    chars minus the glue-word set. Self-contained on purpose — consolidation_nli must
+    stay dependency-light because BOTH dedup modules lazily import THIS module (a
+    fact_dedup import here would risk an import cycle)."""
+    words = _SUBBUCKET_WORD_RE.findall((text or "").lower())
+    return frozenset(w for w in words if len(w) >= 3 and w not in _SUBBUCKET_STOPWORDS)
+
+
+def _max_subbucket_size(max_pairs: int) -> int:
+    """Largest ``k`` with ``k*(k-1)/2 <= max_pairs`` (floored at 2 so one pair can
+    always be scored). This is the per-sub-bucket SIZE cap that keeps every
+    sub-bucket's pairwise count under the O(n^2) guard."""
+    k = int((1.0 + math.sqrt(1.0 + 8.0 * float(max_pairs))) / 2.0)
+    while k > 2 and (k * (k - 1)) // 2 > max_pairs:
+        k -= 1  # float-precision guard: never let rounding exceed the cap
+    return max(2, k)
+
+
+def _pre_bucket_indices(texts: list[str], max_pairs: int) -> list[list[int]]:
+    """Partition ``range(len(texts))`` into similarity-keyed SUB-BUCKETS, each small
+    enough that its pairwise count stays <= ``max_pairs``.
+
+    Greedy single-pass over the input order (deterministic, order-stable): each text
+    joins the best-Jaccard existing sub-bucket (vs. the sub-bucket's FIRST member's
+    token signature) that is (a) below the size cap and (b) at/above the routing
+    threshold; ties keep the earliest bucket; otherwise it OPENS a new sub-bucket.
+    Near-duplicate findings share most content words, so they route together; two
+    texts with no token overlap (or empty signatures) never share a sub-bucket.
+
+    COMPLETE + DISJOINT: every index lands in exactly one sub-bucket — nothing is
+    dropped. A near-dup pair split across sub-buckets is simply never NLI-scored
+    (stays unmerged = KEEP, the same outcome the over-cap skip gave EVERY pair).
+    Complexity O(n * buckets) set ops — trivial at the few-hundred-text scale that
+    overflows the pair cap (311/351 in the drb_72 evidence)."""
+    size_cap = _max_subbucket_size(max_pairs)
+    threshold = _subbucket_jaccard()
+    signatures = [_subbucket_tokens(t) for t in texts]
+    buckets: list[list[int]] = []
+    representatives: list[frozenset[str]] = []
+    for i in range(len(texts)):
+        sig = signatures[i]
+        best = -1
+        best_score = 0.0
+        if sig:
+            for b, rep in enumerate(representatives):
+                if len(buckets[b]) >= size_cap or not rep:
+                    continue
+                overlap = len(sig & rep)
+                if not overlap:
+                    continue
+                score = overlap / float(len(sig | rep))
+                if score >= threshold and score > best_score:
+                    best, best_score = b, score
+        if best >= 0:
+            buckets[best].append(i)
+        else:
+            buckets.append([i])
+            representatives.append(sig)
+    return buckets
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -472,25 +591,61 @@ def score_pairs(
     if n < 2:
         return []
 
-    # All upper-triangle index pairs. O(n^2) is bounded by `max_pairs`.
-    pairs: list[tuple[int, int]] = [(i, j) for i in range(n) for j in range(i + 1, n)]
-    if len(pairs) > max_pairs:
-        # I-deepfix-001 W04-consolidation-nli-wall (#1344): an over-MAX_PAIRS scale guard
-        # must DEGRADE, not ABORT the whole run. The prior `raise ValueError` propagated
-        # uncaught through `_apply_consolidation_nli` (finding_dedup.py) and aborted the
-        # run on a large cluster count. Consolidation is a WEIGHT, not a faithfulness
-        # gate: when the pair count exceeds the cap, SKIP scoring and return NO edges =>
-        # the literal clusters pass through UNMERGED (keeps MORE/equal baskets, §-1.3),
-        # exactly mirroring the prose path's correct over-cap skip in fact_dedup.py. The
-        # skip is a LOUD telemetry note, never silent. The whole-run abort is converted to
-        # a per-step under-merge.
-        logger.warning(
-            "[consolidation_nli] W04: %d candidate pairs exceeds %s=%d — SKIPPING NLI "
-            "consolidation for this bucket (literal clusters pass through UNMERGED; no "
-            "basket dropped). Raise %s or pre-bucket to merge them.",
-            len(pairs), ENV_MAX_PAIRS, max_pairs, ENV_MAX_PAIRS,
-        )
-        return []
+    # Total upper-triangle pair count, computed WITHOUT materializing the O(n^2) list —
+    # an over-cap bucket must never allocate the full list just to be told it is over
+    # the cap (I-deepfix-001 W04-prebucket #1369; under-cap construction is unchanged).
+    total_pairs = n * (n - 1) // 2
+    pairs: list[tuple[int, int]]
+    if total_pairs > max_pairs:
+        if _subbucket_enabled():
+            # I-deepfix-001 W04-prebucket (#1369): the RIGHT over-cap behavior — SUB-DIVIDE
+            # the bucket into lexical-overlap sub-buckets whose per-sub-bucket pair count
+            # stays <= the cap, then score ONLY the within-sub-bucket pairs through the
+            # UNCHANGED bounded-parallel/predict-chunk/wall machinery below. Near-dups
+            # (which share most content words) route into the SAME sub-bucket and still
+            # MERGE; a cross-sub-bucket pair is never scored => stays UNMERGED (a KEEP —
+            # worst case equals the old whole-bucket skip, never worse; §-1.3). Total
+            # scored pairs grow ~linearly with n (<= n/2 * size_cap), never O(n^2), so
+            # the compute/memory blowup the cap guards stays closed.
+            sub_buckets = _pre_bucket_indices(texts, max_pairs)
+            pairs = [
+                (bucket[a], bucket[b])
+                for bucket in sub_buckets
+                for a in range(len(bucket))
+                for b in range(a + 1, len(bucket))
+            ]
+            largest = max((len(b) for b in sub_buckets), default=0)
+            logger.warning(
+                "[consolidation_nli] W04: %d candidate pairs exceeds %s=%d — PRE-BUCKETING "
+                "%d texts into %d lexical sub-buckets (largest=%d, per-sub-bucket pairs <= "
+                "cap); NLI consolidation RUNS on %d within-sub-bucket pairs. Cross-sub-bucket "
+                "near-dups stay UNMERGED (KEEP — never worse than the skip; no basket "
+                "dropped, §-1.3).",
+                total_pairs, ENV_MAX_PAIRS, max_pairs, n, len(sub_buckets), largest,
+                len(pairs),
+            )
+            if not pairs:
+                return []
+        else:
+            # I-deepfix-001 W04-consolidation-nli-wall (#1344): an over-MAX_PAIRS scale guard
+            # must DEGRADE, not ABORT the whole run. The prior `raise ValueError` propagated
+            # uncaught through `_apply_consolidation_nli` (finding_dedup.py) and aborted the
+            # run on a large cluster count. Consolidation is a WEIGHT, not a faithfulness
+            # gate: when the pair count exceeds the cap, SKIP scoring and return NO edges =>
+            # the literal clusters pass through UNMERGED (keeps MORE/equal baskets, §-1.3),
+            # exactly mirroring the prose path's correct over-cap skip in fact_dedup.py. The
+            # skip is a LOUD telemetry note, never silent. The whole-run abort is converted to
+            # a per-step under-merge.
+            logger.warning(
+                "[consolidation_nli] W04: %d candidate pairs exceeds %s=%d — SKIPPING NLI "
+                "consolidation for this bucket (literal clusters pass through UNMERGED; no "
+                "basket dropped). Raise %s or set %s=1 to pre-bucket and merge them.",
+                total_pairs, ENV_MAX_PAIRS, max_pairs, ENV_MAX_PAIRS, ENV_SUBBUCKET,
+            )
+            return []
+    else:
+        # All upper-triangle index pairs. O(n^2) is bounded by `max_pairs`.
+        pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
 
     # I-deepfix-001 fix-3 (#1344): track whether the predict came from the real lazy
     # cross-encoder (production) vs an injected stub (the fire-test seam). On a CUDA OOM

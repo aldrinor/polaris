@@ -282,6 +282,28 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
     except Exception:
         facet_names = []
 
+    # I-qgen-001 (#1373): a validator/status message ("Temporal constraint violation:
+    # The research question requires ...") is never a facet — screening here keeps it
+    # out of the {facet} slot of the deterministic angle-query template. Shared
+    # predicate with the scope validator; the question text is the subject-exemption
+    # source; PG_QUERY_META_STATUS_SCREEN=0 kill-switch => byte-identical. The
+    # deterministic FLOOR below still guarantees the frontier never shrinks to zero.
+    if facet_names:
+        from src.polaris_graph.retrieval.scope_query_validator import (  # noqa: PLC0415
+            is_meta_status_clause,
+            meta_status_screen_enabled,
+        )
+        if meta_status_screen_enabled():
+            _screened = [f for f in facet_names if not is_meta_status_clause(f, question)]
+            if len(_screened) != len(facet_names):
+                import logging  # noqa: PLC0415
+                logging.getLogger("polaris_graph.expert_facet_planner").info(
+                    "[expert_facet_planner] I-qgen-001 (#1373) status-leak screen "
+                    "dropped %d validator/status line(s) from the facet tree.",
+                    len(facet_names) - len(_screened),
+                )
+            facet_names = _screened
+
     # FLOOR: never fewer than the deterministic split; merge (dedup, keep LLM facets first).
     floor = _deterministic_floor_facets(question)
     seen = {f.lower() for f in facet_names}

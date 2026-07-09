@@ -304,6 +304,183 @@ def strip_directive_clauses(queries: list[str]) -> tuple[list[str], list[str]]:
     return kept, dropped
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-qgen-001 (#1373) — validator-status / meta-error leak screen.
+# drb_72 forensic (ev_1091 provenance trace): an adaptive query-gen LLM round
+# answered with a temporal-constraint VALIDATION message ("Temporal constraint
+# violation: The research question requires literature ...") instead of a
+# sub-topic; the per-todo query derivation then interpolated that status prose
+# into the {topic} slot of the generated search query ("What are the positive
+# views in academic literature published before June 2023 regarding the impact
+# of Temporal constraint violation: The research question requires literature")
+# and THIS validator KEPT it — the status prose shares anchor tokens
+# (literature / June / 2023 / research / question / academic) so containment
+# clears the 0.08 floor ("scope_query_validator: 1 kept / 0 dropped" x50).
+# One corrupted query pulled ~21 off-topic rows. Sibling leaks: "Insufficient
+# pre-June ...", "Lack of specific ...".
+#
+# A validation RESULT is a control-channel message, never a search topic. This
+# screen DROPS any candidate query that IS or EMBEDS validator/status prose —
+# the query-text channel and the validation-result channel are separated. Pure
+# correctness fix: DEFAULT ON, ``PG_QUERY_META_STATUS_SCREEN=0`` kill-switch
+# reverts byte-identical. Retrieval-side + faithfulness-NEUTRAL (a pre-fetch
+# query screen; never touches strict_verify / NLI / D8; §-1.3 WEIGHT-not-FILTER
+# governs fetched SOURCES — a malformed query is not a source, it only wastes
+# budget and pulls off-topic rows).
+#
+# SUBJECT-EXEMPTION: a marker phrase that appears verbatim in the protocol's
+# OWN research question / PICO fields is that question's genuine subject there
+# (e.g. a question actually about "temporal constraint networks in scheduling")
+# and does NOT mark the query as meta — the leak signature is validator
+# vocabulary that the operator never wrote. Codex iter-2 P1: for the status-
+# VERDICT OPENERS the exemption is MULTI-WORD — the matched opener PLUS the
+# word that follows it in the candidate text must appear verbatim in the
+# subject. A single stopword hit ("no" from a PICO comparator "no intervention",
+# "insufficient" from a topic "insufficient sleep") can NOT disarm the screen:
+# "No relevant studies found" / "Insufficient pre-June 2023 literature" stay
+# dropped, while a question genuinely about "insufficient sleep" still keeps
+# its "Insufficient sleep ..." queries.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_META_STATUS_FLAG = "PG_QUERY_META_STATUS_SCREEN"
+
+# Substrings whose presence marks a clause as a VALIDATOR/STATUS message rather than
+# a research query/topic. High-precision validator vocabulary; lowercased compare.
+_META_STATUS_MARKERS: tuple[str, ...] = (
+    "constraint violation",            # the observed ev_1091 leak
+    "temporal constraint",             # validator vocabulary (subject-exempt when genuine)
+    "the research question requires",  # meta by construction — refers to the question itself
+    "the research question lacks",
+    "the research question cannot",
+    "the research question does not",
+    "lack of specific",                # sibling leak: "Lack of specific ..."
+    "validation failed",
+    "validation error",
+)
+
+# Status-VERDICT openers: a generated query/topic that BEGINS with one of these is a
+# validator verdict line, not a research topic ("Insufficient pre-June 2023 ...").
+# error/warning/invalid/violation require a following colon/dash so a genuine topic
+# ("Error rates in medical diagnosis") never trips.
+_META_STATUS_OPENER_RE = re.compile(
+    r"^\s*(?:"
+    r"insufficient\s|"
+    r"unable\s+to\s|"
+    r"not\s+enough\s|"
+    r"no\s+relevant\s|"
+    r"failed\s+to\s|"
+    r"(?:error|warning|invalid|violation)\s*[:\-—]"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def meta_status_screen_enabled() -> bool:
+    """I-qgen-001 (#1373) status-leak-screen kill-switch. DEFAULT ON (pure correctness
+    fix — a validator error was never supposed to be a query topic).
+    ``PG_QUERY_META_STATUS_SCREEN=0`` reverts to byte-identical behaviour."""
+    return os.getenv(_META_STATUS_FLAG, "1").strip().lower() not in _DIRECTIVE_OFF
+
+
+# Word tokens for the opener-exemption span (keeps intra-word hyphens: "pre-june").
+_OPENER_WORD_RE = re.compile(r"[a-z0-9][a-z0-9\-]*")
+
+
+def _status_opener_subject_exempt(
+    low: str, opener_match: "re.Match[str]", subject_low: str
+) -> bool:
+    """Codex iter-2 P1 (#1373): the status-opener subject exemption must be
+    MULTI-WORD, never a single-stopword hit.
+
+    The iter-1 exemption checked only the FIRST word of the matched opener
+    against the subject, so a PICO comparator "no intervention" disarmed the
+    "No relevant ..." screen and a topic "insufficient sleep" disarmed
+    "Insufficient pre-June ..." — 'no'/'insufficient' recur as ordinary subject
+    words. The exemption now requires the FULL matched opener PLUS the word that
+    follows it in the candidate text to appear verbatim (word-bounded,
+    whitespace-flexible) in the subject:
+
+      subject "insufficient sleep ..." + text "Insufficient sleep duration ..."
+        -> span "insufficient sleep" IS in the subject -> exempt (genuine topic)
+      subject "insufficient sleep ..." + text "Insufficient pre-June 2023 ..."
+        -> span "insufficient pre-june" NOT in the subject -> dropped (leak)
+      subject "... no intervention"    + text "No relevant studies found"
+        -> span "no relevant studies" NOT in the subject -> dropped (leak)
+
+    A span that cannot reach 2 words, or whose words are ALL stopwords, never
+    grants exemption. Pure, deterministic, no network."""
+    if not subject_low:
+        return False
+    span_words = _OPENER_WORD_RE.findall(opener_match.group(0))
+    if not span_words:
+        return False
+    following = _OPENER_WORD_RE.search(low[opener_match.end():])
+    if following:
+        span_words.append(following.group(0))
+    if len(span_words) < 2:
+        return False
+    if all(w in _STOPWORDS for w in span_words):
+        return False
+    span_pattern = r"\b" + r"\s+".join(re.escape(w) for w in span_words) + r"\b"
+    return re.search(span_pattern, subject_low) is not None
+
+
+def is_meta_status_clause(text: str, subject_text: str = "") -> bool:
+    """True iff ``text`` is (or embeds) a validator/status message rather than an
+    answerable research query or topic (I-qgen-001 #1373). Pure, deterministic,
+    no network. ``subject_text`` (the protocol's own research question / PICO
+    fields) exempts a marker that is the question's genuine subject; for
+    status-verdict OPENERS the exemption requires a MULTI-WORD verbatim subject
+    match (Codex iter-2 P1 — a lone stopword like 'no' must not disarm it)."""
+    if not text:
+        return False
+    low = text.strip().lower()
+    if not low:
+        return False
+    subject_low = (subject_text or "").lower()
+    for marker in _META_STATUS_MARKERS:
+        if marker in low and marker not in subject_low:
+            return True
+    m = _META_STATUS_OPENER_RE.match(low)
+    if m and not _status_opener_subject_exempt(low, m, subject_low):
+        return True
+    return False
+
+
+def strip_meta_status_clauses(
+    queries: list[str], subject_text: str = ""
+) -> tuple[list[str], list[str]]:
+    """Partition ``queries`` into (kept, dropped_status_leaks). The I-qgen-001 (#1373)
+    backstop the adaptive query generators SHOULD also apply at their topic slots;
+    applied here inside ``validate_amplified_queries`` so it fires on the retrieval
+    path regardless of which generator authored the query."""
+    kept: list[str] = []
+    dropped: list[str] = []
+    for q in queries:
+        if is_meta_status_clause(q, subject_text):
+            dropped.append(q)
+        else:
+            kept.append(q)
+    return kept, dropped
+
+
+def _protocol_subject_text(protocol: dict[str, Any]) -> str:
+    """The protocol's OWN question/PICO text, used as the subject-exemption source
+    for ``is_meta_status_clause`` (a marker the operator themselves wrote is the
+    question's genuine subject, not a validator leak). Deliberately EXCLUDES the
+    list-valued frame anchors (entities/constraints/...) — those are machine-derived
+    and may echo validator vocabulary ("temporal ... constraint"), which must not
+    disarm the screen."""
+    parts: list[str] = []
+    for field in (
+        "research_question", "population", "intervention", "comparator", "outcome",
+    ):
+        val = protocol.get(field)
+        if val:
+            parts.append(str(val))
+    return " ".join(parts)
+
+
 @dataclass
 class ValidationResult:
     """Return value of validate_amplified_queries()."""
@@ -407,6 +584,25 @@ def validate_amplified_queries(
                 len(directive_dropped),
             )
 
+    # I-qgen-001 (#1373) status-leak backstop: DROP any query that IS or EMBEDS a
+    # validator/status message ("Temporal constraint violation: ...", "Insufficient
+    # pre-June ...", "Lack of specific ...") BEFORE the scope-similarity gate — the
+    # status prose shares anchor tokens with the question, so the similarity floor
+    # alone rubber-stamps it (the drb_72 "1 kept / 0 dropped" x50). Dropped here so
+    # it can never enter `below_floor` (KEEP-BEST-N must not rescue a status leak).
+    # Deterministic, no network; faithfulness-neutral (pre-fetch query channel only).
+    meta_status_dropped: list[str] = []
+    if meta_status_screen_enabled():
+        amplified, meta_status_dropped = strip_meta_status_clauses(
+            list(amplified), _protocol_subject_text(protocol)
+        )
+        if meta_status_dropped:
+            logger.info(
+                "[scope_validator] I-qgen-001 (#1373) status-leak screen dropped %d "
+                "validator/status-message query(ies) before search.",
+                len(meta_status_dropped),
+            )
+
     # Dedupe while preserving order
     unique_amplified: list[str] = []
     for q in amplified:
@@ -440,6 +636,11 @@ def validate_amplified_queries(
     # (sim=0.0, an explicit injected-directive reason — never silently swallowed).
     for q in directive_dropped:
         dropped.append((q, 0.0, "injected_directive_clause"))
+
+    # Record the I-qgen-001 (#1373) status-leak drops in the telemetry too
+    # (sim=0.0, explicit reason — auditable, never silently swallowed).
+    for q in meta_status_dropped:
+        dropped.append((q, 0.0, "validator_status_leak"))
 
     # Safety net: always keep the verbatim research_question, even if
     # its own similarity was below floor (happens for very short PICO
