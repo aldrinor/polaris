@@ -290,6 +290,7 @@ def retype_bibliography_by_source_necessity(
     zero_support_nums: set[int],
     necessity: SourceNecessity,
     d8_verified_cited_nums: "Sequence[int] | frozenset | set | None" = None,
+    body_cited_nums: "Sequence[int] | frozenset | set | None" = None,
 ) -> str:
     """Move zero-factual-support cited entry lines out of "## Bibliography" into a typed
     source-necessity audit ledger, and append the necessity disclosure. PURE string surgery.
@@ -305,12 +306,18 @@ def retype_bibliography_by_source_necessity(
     numbered bibliography entry and its in-text ``[N]`` marker never dangles. Normally the caller has
     already excluded the allowlist upstream (``zero_support_bib_nums``); this is the belt-and-braces
     guard at the render seam.
+
+    I-wire-001 F1 (dangling-citation prune): ``body_cited_nums`` is the same DEFENSIVE guard, widened
+    to EVERY number whose ``[N]`` marker appears in the rendered body — never move a bibliography entry
+    the body still cites (its marker would then dangle, the drb_72 [85]/[104]/[110] defect). Empty/None
+    for either allowlist -> byte-identical to the pre-fix behaviour.
     """
     if not biblio_section_text:
         return biblio_section_text
-    # DEFENSIVE (finding #7): never quarantine a D8-VERIFIED cited number, even if a stale caller
-    # left it in `zero_support_nums`.
+    # DEFENSIVE (finding #7 + F1): never quarantine a D8-VERIFIED number OR any body-cited number,
+    # even if a stale caller left it in `zero_support_nums` (a body-cited entry must stay resolvable).
     allow = {int(n) for n in (d8_verified_cited_nums or ())}
+    allow |= {int(n) for n in (body_cited_nums or ())}
     effective_zero = {int(n) for n in (zero_support_nums or set())} - allow
     if not effective_zero:
         # Still surface the necessity number when there ARE listed sources; but keep byte-identity
@@ -351,6 +358,7 @@ def zero_support_bib_nums(
     support_by_num: Mapping[int, Sequence[Any]],
     cited_nums: Sequence[int],
     d8_verified_cited_nums: "Sequence[int] | frozenset | set | None" = None,
+    body_cited_nums: "Sequence[int] | frozenset | set | None" = None,
 ) -> set[int]:
     """The cited bibliography numbers that support NO statement (quarantine targets). PURE.
 
@@ -364,13 +372,24 @@ def zero_support_bib_nums(
     load-bearing under the ONE hard gate (§-1.3), so it is NEVER a quarantine target even when its
     isolated-span basket is span-unverified — this prevents a D8-VERIFIED cited source from being
     quarantined out of the numbered bibliography (which would leave its in-text ``[N]`` marker
-    dangling). Empty/None -> byte-identical to the pre-fix behaviour."""
+    dangling). Empty/None -> byte-identical to the pre-fix behaviour.
+
+    I-wire-001 F1 (dangling-citation prune): ``body_cited_nums`` is the set of numbers whose ``[N]``
+    marker appears in the RENDERED BODY (sections / key findings / summary table / disclosures).
+    ANY such number is protected from quarantine — a marker the reader can follow in the body MUST
+    resolve to a listed reference, so moving its entry into the audit ledger would dangle the
+    citation (the drb_72 defect where the body cites [85]/[104]/[110] but the bibliography skips
+    them). This is the general form of the D8 allowlist: it protects EVERY body-cited number, not
+    only the D8-verified subset. Empty/None -> byte-identical to the pre-fix behaviour."""
     cited = {int(n) for n in cited_nums}
     allow = {int(n) for n in (d8_verified_cited_nums or ())}
+    body_cited = {int(n) for n in (body_cited_nums or ())}
     out: set[int] = set()
     for n in cited:
         if n in allow:
             continue  # D8-VERIFIED cited source is load-bearing; never quarantine (finding #7).
+        if n in body_cited:
+            continue  # its [N] appears in the rendered body; never dangle the citation (F1).
         stmts = support_by_num.get(n)
         if not stmts:
             out.add(n)

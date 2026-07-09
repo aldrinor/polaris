@@ -4370,8 +4370,19 @@ def _apply_source_necessity_post_gate(
             n: sorted(_sn_support_by_num.get(n, set())) for n in _sn_listed
         }
         _sn_necessity = _sn_compute(_sn_support_by_src, _sn_listed, _sn_d8_cited)
-        _sn_zero_nums = _sn_zero(_sn_support_by_num, _sn_cited_nums, _sn_d8_cited)
-        _sn_retyped = _sn_retype(biblio_block, _sn_zero_nums, _sn_necessity, _sn_d8_cited)
+        # I-wire-001 F1 (dangling-citation prune): protect EVERY number whose [N] appears in the
+        # rendered body (``_sn_cited_nums`` is exactly that set) from quarantine — a body-cited
+        # source's numbered bibliography entry MUST stay resolvable, so it is never moved to the
+        # audit ledger (the drb_72 defect: body cites [85]/[104]/[110] but the bibliography skips
+        # them). The necessity ratio is still computed + DISCLOSED honestly (weight-and-disclose,
+        # never a dangling drop); only the physical MOVE of a body-cited entry is suppressed.
+        _sn_zero_nums = _sn_zero(
+            _sn_support_by_num, _sn_cited_nums, _sn_d8_cited, body_cited_nums=_sn_cited_nums
+        )
+        _sn_retyped = _sn_retype(
+            biblio_block, _sn_zero_nums, _sn_necessity, _sn_d8_cited,
+            body_cited_nums=_sn_cited_nums,
+        )
         if _sn_retyped != biblio_block:
             new_report = report_text[:_b_start] + _sn_retyped + report_text[_b_end:]
             report_path.write_text(new_report, encoding="utf-8")
@@ -6367,6 +6378,7 @@ def render_summary_table_into_artifact(
     bibliography: "list[dict] | None",
     sections: "list[Any] | None",
     appendix_boundary_marker: str = "## Bibliography",
+    contract_headers: "list[str] | None" = None,
 ) -> "tuple[str, str, int, int]":
     """I-deepfix-001 P7 (#1344): WIRE-POINT for the deterministic, verified-only summary
     table. Some prompts (drb_72) explicitly ask the report to END with a titled summary
@@ -6411,6 +6423,7 @@ def render_summary_table_into_artifact(
         existing_report_md=report_body_md,
         appendix_boundary_marker=appendix_boundary_marker,
         chrome_screen=_chrome_screen,
+        contract_headers=contract_headers,
     )
     return result.text, result.canary, result.rows, len(result.headers)
 
@@ -15921,6 +15934,17 @@ async def run_one_query(
         # (operator no-downgrade directive) — complements the loud log at the manifest build. The
         # helper returns "" unless the capability was ENABLED but produced no verified output.
         methods += quantified_degradation_disclosure(_quantified_telemetry)
+        # F3-3b (I-deepfix-001 #1369): surface the corroboration entailment-judge AVAILABILITY
+        # disclosure into the rendered Methods section. The credibility pass counts the basket
+        # members whose entailment judge was durably UNAVAILABLE this run and builds a one-sentence
+        # disclosure naming the ACTUAL binding judge (never silently softened — LAW II). Without this
+        # append the count dead-ended on CredibilityAnalysis and never reached the report. Guarded on
+        # the analysis being present (the pass may be OFF / early-returned) and the disclosure being
+        # non-empty; read-only render (no verdict / gate / count change).
+        _f3_cred = getattr(multi, "credibility_analysis", None)
+        _f3_methods_disclosure = str(getattr(_f3_cred, "methods_disclosure", "") or "").strip()
+        if _f3_methods_disclosure:
+            methods += _f3_methods_disclosure + "\n"
         # M-22 + M-25e (DR audit passes 1-5): contradiction disclosure.
         # M-22 (earlier) surfaced a bounded narrative paragraph to avoid a
         # raw dump. But the evaluator's PT08 check requires that every
@@ -16815,6 +16839,28 @@ async def run_one_query(
             _st_flag_on = _summary_table_enabled()
         except Exception:  # noqa: BLE001 — a marker-gate import must never abort the report
             _st_flag_on = False
+        # I-wire-001 F1 — resolve the per-task output CONTRACT's required-table columns
+        # (VERBATIM from the gold prompt) for this slug and hand them to the table renderer
+        # as the AUTHORITATIVE header source. A slug with no contract (or no required table)
+        # yields None => the renderer keeps the parse-from-question behaviour (byte-identical
+        # for non-table questions). run_validity_gate imports only stdlib + lazy yaml, so this
+        # import closes no cycle back into this module. Fail-open: never abort the report.
+        _st_contract_headers = None
+        try:
+            from scripts.dr_benchmark.run_validity_gate import (  # noqa: PLC0415
+                load_task_output_contract as _load_task_output_contract,
+            )
+            _st_contract = _load_task_output_contract(q.get("slug", ""))
+            if _st_contract:
+                _st_req_table = _st_contract.get("required_table") or {}
+                _st_cols_cfg = [
+                    str(_c) for _c in (_st_req_table.get("columns") or []) if str(_c).strip()
+                ]
+                if len(_st_cols_cfg) >= 2:
+                    _st_contract_headers = _st_cols_cfg
+        except Exception as _st_contract_exc:  # noqa: BLE001 — contract is optional; parse fallback
+            _log(f"[summary-table] contract-header resolve skipped (fail-open): {_st_contract_exc}")
+            _st_contract_headers = None
         try:
             _report_artifact_body, _st_canary, _st_rows, _st_cols = (
                 render_summary_table_into_artifact(
@@ -16822,6 +16868,7 @@ async def run_one_query(
                     research_question=q["question"],
                     bibliography=multi.bibliography or [],
                     sections=getattr(multi, "sections", None),
+                    contract_headers=_st_contract_headers,
                 )
             )
             if _report_artifact_body != final_report:

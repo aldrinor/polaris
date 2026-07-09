@@ -370,6 +370,234 @@ def _basket_chrome_screen_enabled() -> bool:
         "0", "false", "no", "off",
     )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F3-3b (I-deepfix-001 #1369) — corroboration entailment-judge AVAILABILITY guard.
+#
+# ROOT CAUSE (Fable F3-3b, PRIMARY, forensic on the drb_72 real run): the ISOLATED
+# per-member entailment judge that must confirm a grouped member SUPPORTS its claim
+# before it counts as a corroboration origin went UNAVAILABLE 176 times this run. A
+# member whose entailment call errored/timed-out is durably marked
+# ``entailment_judge_unavailable`` (see BasketMember + Wave-3 P1b) and NEVER counted, so
+# the multi-source corroboration collapses (4/78 cited). The run used a same-family GLM
+# entailment judge with POOR OpenRouter provider availability — the SAME class as the D8
+# judge provider-count render-blocker (the kimi-k2.6 availability lesson).
+#
+# THIS BLOCK adds the three availability protections Fable specifies, WITHOUT changing
+# what COUNTS as support (a real SUPPORTS entailment) and WITHOUT touching the frozen
+# faithfulness engine (strict_verify / the entailment verifier / 4-role D8 / provenance):
+#   (i)   active_entailment_judge_model() names the ACTUAL binding judge the per-member verify ran
+#         on (``PG_ENTAILMENT_MODEL``, default the entailment_judge default ``z-ai/glm-5.2``) — the
+#         model that ACTUALLY counted the corroboration, so the Methods disclosure never makes a
+#         wrong methods claim (LAW II / §-1.1). corroboration_judge_model() names the HIGH-PROVIDER-
+#         COUNT open model the corroboration judge SHOULD resolve to (kimi-k2.6), surfaced in the
+#         Methods disclosure SEPARATELY as the RECOMMENDED mitigation target. The advisory
+#         corroboration verify shares the process-singleton entailment judge with the binding
+#         strict_verify (verify_sentence_provenance has NO per-call model seam), so the model is
+#         ACTUALLY selected by the run-slate ``PG_ENTAILMENT_MODEL`` — a faithfulness-adjacent
+#         wiring above a builder's authority for the frozen binding judge. These resolvers +
+#         disclosure make BOTH the real judge and the intended target explicit and env-overridable;
+#         neither mutates the singleton.
+#   (ii)  bounded retries with backoff on transient/blank/429 ALREADY exist on the shared
+#         entailment judge path (entailment_judge.py: _DEFAULT_ENTAILMENT_RETRIES, the U16
+#         rate-limit floor/backoff, provider rotation). The corroboration verify inherits
+#         them; no change is made to that frozen path.
+#   (iii) count_judge_unavailable_members() + build_judge_availability_methods_disclosure()
+#         SURFACE the report-level ``entailment_judge_unavailable`` member count into the
+#         Methods disclosure (LAW II: never silently soften the corroboration count).
+#   (iv)  _enforce_judge_availability_canary() — a FAIL-LOUD canary that always LOUD-warns
+#         the count/fraction and HARD-RAISES ``CredibilityPassError`` when the unavailable
+#         fraction exceeds an ENV-DRIVEN threshold (no default magic number drives the
+#         raise; unset => warn-only, matching the proven _emit_zero_authority_canary
+#         fail-open posture so a legacy/default run never aborts on a blip).
+# ─────────────────────────────────────────────────────────────────────────────
+_ENV_CORROBORATION_JUDGE_MODEL = "PG_CORROBORATION_ENTAILMENT_MODEL"
+# The high-provider-count open model the corroboration entailment judge SHOULD resolve to
+# (the D8 availability lesson: pick a model OpenRouter serves via many providers so the
+# per-member burst does not 429/blank-storm and LOSE verdicts to outages). kimi-k2.6 is a
+# reasoning open model served by ~21 providers and is NOT in the glm generator family, so
+# the two-family invariant holds for an advisory corroboration judge. LAW VI: env-overridable.
+_DEFAULT_CORROBORATION_JUDGE_MODEL = "moonshotai/kimi-k2.6"
+# (iv) the fail-loud canary threshold — env-driven, no default magic-number hard-fail.
+_ENV_JUDGE_UNAVAILABLE_MAX_FRAC = "PG_CORROBORATION_JUDGE_UNAVAILABLE_MAX_FRAC"
+# The env the LIVE per-member entailment judge ACTUALLY resolves its model from (the same
+# ``verify_sentence_provenance`` -> ``_get_judge()`` singleton the binding strict_verify uses).
+# The Methods disclosure names THIS model — the one that actually counted the corroboration —
+# so the report never makes a WRONG methods claim (LAW II / §-1.1). Kept as a local literal
+# fallback (verified against ``entailment_judge._DEFAULT_ENTAILMENT_MODEL``); the real default is
+# lazy-imported at resolve time so the two never drift.
+_ENV_ACTIVE_ENTAILMENT_MODEL = "PG_ENTAILMENT_MODEL"
+_ENTAILMENT_JUDGE_DEFAULT_MODEL = "z-ai/glm-5.2"
+
+
+def corroboration_judge_model() -> str:
+    """F3-3b(i): the HIGH-PROVIDER-COUNT open model the corroboration entailment judge SHOULD
+    resolve to (``PG_CORROBORATION_ENTAILMENT_MODEL``, default a many-provider open reasoning
+    model). Surfaced in the Methods disclosure as the RECOMMENDED higher-provider mitigation
+    target — NOT as the judge that actually ran (that is ``active_entailment_judge_model()``).
+
+    HONEST ACTIVATION NOTE: the advisory corroboration verify calls the SAME
+    ``verify_sentence_provenance`` -> ``_get_judge()`` PROCESS SINGLETON as the binding
+    strict_verify (there is no per-call model-injection seam), so the model actually used is
+    ``PG_ENTAILMENT_MODEL`` — set by the run slate. This resolver NAMES the intended target and
+    is env-overridable; it deliberately does NOT mutate the frozen singleton (that would change
+    the binding judge's verdicts — a faithfulness change above a builder's authority). Pointing
+    the LIVE judge at this model is a run-slate / operator decision (§9.1.8 + the D8 lesson)."""
+    return os.environ.get(_ENV_CORROBORATION_JUDGE_MODEL, "").strip() or _DEFAULT_CORROBORATION_JUDGE_MODEL
+
+
+def active_entailment_judge_model() -> str:
+    """F3-3b(i): the model the LIVE per-member corroboration entailment judge ACTUALLY runs on.
+
+    The advisory per-member verify shares ``verify_sentence_provenance`` -> ``_get_judge()`` (the
+    frozen process singleton) with the binding strict_verify, and that judge resolves its model from
+    ``PG_ENTAILMENT_MODEL`` (default the entailment_judge default ``z-ai/glm-5.2``). The Methods
+    disclosure MUST name THIS model — the one that actually counted the corroboration — never the
+    recommended target, otherwise a clinical-grade report would state a WRONG methods claim (LAW II /
+    §-1.1). The real default is lazy-imported from ``entailment_judge`` (single source of truth); a
+    local literal is the fail-safe fallback if that import is unavailable. Read-only (reads env)."""
+    override = os.environ.get(_ENV_ACTIVE_ENTAILMENT_MODEL, "").strip()
+    if override:
+        return override
+    try:
+        from src.polaris_graph.llm.entailment_judge import (  # noqa: PLC0415
+            _DEFAULT_ENTAILMENT_MODEL as _ej_default,
+        )
+        return str(_ej_default).strip() or _ENTAILMENT_JUDGE_DEFAULT_MODEL
+    except Exception:
+        return _ENTAILMENT_JUDGE_DEFAULT_MODEL
+
+
+def _judge_unavailable_max_frac() -> float | None:
+    """F3-3b(iv): the ENV-DRIVEN fail-loud threshold (a fraction in (0, 1]). UNSET / ``off`` /
+    ``none`` / non-numeric / out-of-range => ``None`` = the canary is WARN-ONLY (never raises).
+
+    No default magic number drives a hard abort (per the F3 spec): the raise fires ONLY when the
+    operator/run-slate EXPLICITLY configures a ceiling and the run exceeds it — the same
+    fail-open-by-default posture ``_emit_zero_authority_canary`` uses so a legacy/default run is
+    never aborted by a transient judge blip. LAW VI."""
+    raw = os.environ.get(_ENV_JUDGE_UNAVAILABLE_MAX_FRAC, "").strip().lower()
+    if raw in ("", "off", "none", "disabled", "no"):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).warning(
+            "[credibility-pass] %s=%r is not a float; the judge-availability canary stays "
+            "WARN-ONLY (no hard raise).", _ENV_JUDGE_UNAVAILABLE_MAX_FRAC, raw,
+        )
+        return None
+    if not (0.0 < value <= 1.0):
+        import logging as _logging  # noqa: PLC0415
+        _logging.getLogger(__name__).warning(
+            "[credibility-pass] %s=%s out of (0,1]; the judge-availability canary stays "
+            "WARN-ONLY (no hard raise).", _ENV_JUDGE_UNAVAILABLE_MAX_FRAC, value,
+        )
+        return None
+    return value
+
+
+def count_judge_unavailable_members(baskets: list) -> tuple[int, int]:
+    """F3-3b(iii): return ``(judge_unavailable_member_count, total_member_count)`` across every
+    basket's ``supporting_members``. ``judge_unavailable`` counts a member whose entailment judge
+    was DURABLY UNAVAILABLE this run (``entailment_judge_unavailable`` — a judge_error / timeout /
+    transport-hard-drop / deadline-skip), the ONLY signal that means a verdict was LOST to an
+    outage (a clean NEUTRAL/CONTRADICTED is a genuine gap, not counted here). Pure/read-only."""
+    total = 0
+    unavailable = 0
+    for basket in (baskets or []):
+        for member in (getattr(basket, "supporting_members", None) or []):
+            total += 1
+            if bool(getattr(member, "entailment_judge_unavailable", False)):
+                unavailable += 1
+    return unavailable, total
+
+
+def build_judge_availability_methods_disclosure(
+    unavailable: int, total: int, *, judge_model: str | None = None, recommended_model: str | None = None
+) -> str:
+    """F3-3b(iii): the report Methods-section disclosure sentence about entailment-judge
+    availability during corroboration counting.
+
+    ``judge_model`` names the ACTUAL binding judge the per-member corroboration verify ran on this
+    run (``active_entailment_judge_model()`` = ``PG_ENTAILMENT_MODEL``, default the entailment_judge
+    default ``z-ai/glm-5.2``) — the model that ACTUALLY counted the corroboration. Naming any other
+    model here would be a WRONG methods statement in a clinical-grade report (LAW II / §-1.1): the
+    advisory verify shares the frozen process-singleton judge (no per-call model seam), so it cannot
+    have run on a different model than the run-slate ``PG_ENTAILMENT_MODEL``.
+
+    ``recommended_model`` (``corroboration_judge_model()`` = the high-provider-count open model,
+    default kimi-k2.6) is surfaced SEPARATELY, as the recommended higher-provider mitigation target
+    when a judge-outage storm actually lost verdicts — never asserted as the judge that ran.
+
+    NEVER empty — even at zero unavailable it states the actual judge and that no verdicts were lost,
+    so the Methods section is honest either way. The caller surfaces this on the
+    ``CredibilityAnalysis`` (``methods_disclosure``) for the report Methods builder to render."""
+    judge = (judge_model or active_entailment_judge_model())
+    recommended = (recommended_model or corroboration_judge_model())
+    if total <= 0:
+        return (
+            "Corroboration counting: no basket members were verified this run "
+            f"(entailment judge: {judge})."
+        )
+    frac = unavailable / total if total else 0.0
+    if unavailable <= 0:
+        return (
+            f"Corroboration counting: entailment verification (judge: {judge}) was available for "
+            f"all {total} basket member(s); no corroboration verdicts were lost to judge "
+            "unavailability."
+        )
+    # The recommended mitigation is surfaced SEPARATELY and only when it differs from the judge that
+    # actually ran (never claiming the recommended model was the one that counted the corroboration).
+    recommend_clause = ""
+    if recommended and recommended != judge:
+        recommend_clause = (
+            f" Recommended mitigation: point the entailment judge at a higher-provider-count open "
+            f"model ({recommended})."
+        )
+    return (
+        f"Corroboration counting: entailment verification (judge: {judge}) was UNAVAILABLE for "
+        f"{unavailable} of {total} basket member(s) ({frac:.1%}) this run — those members are "
+        "disclosed as verification-unavailable and were NOT counted as corroboration origins "
+        f"(the multi-source counts are a floor, never inflated).{recommend_clause}"
+    )
+
+
+def _enforce_judge_availability_canary(unavailable: int, total: int) -> None:
+    """F3-3b(iv): the FAIL-LOUD judge-availability canary.
+
+    ALWAYS emits a LOUD warning with the unavailable count/fraction (LAW II — the corroboration
+    count is never silently softened). HARD-RAISES ``CredibilityPassError`` ONLY when an
+    ENV-DRIVEN ceiling (``PG_CORROBORATION_JUDGE_UNAVAILABLE_MAX_FRAC``) is set AND the unavailable
+    fraction exceeds it — a genuine judge-outage STORM (the drb_72 176-outage collapse) that
+    guts corroboration must FAIL the run rather than ship a deficient report. Unset ceiling =>
+    warn-only (fail-open, never aborts a legacy/default run). No default magic number drives the
+    raise."""
+    if total <= 0:
+        return
+    frac = unavailable / total
+    import logging as _logging  # noqa: PLC0415
+    _logging.getLogger(__name__).warning(
+        "[credibility-pass] F3-3b judge-availability: entailment verification UNAVAILABLE for "
+        "%d/%d basket member(s) (%.1f%%) this run — those members are disclosed "
+        "verification-unavailable and NOT counted as corroboration origins (never silently "
+        "softened). Set %s to a fraction to HARD-FAIL on a judge-outage storm.",
+        unavailable, total, frac * 100.0, _ENV_JUDGE_UNAVAILABLE_MAX_FRAC,
+    )
+    threshold = _judge_unavailable_max_frac()
+    if threshold is not None and frac > threshold:
+        raise CredibilityPassError(
+            "abort_corroboration_judge_unavailable_storm: entailment verification was unavailable "
+            f"for {unavailable}/{total} basket member(s) ({frac:.1%}), exceeding the configured "
+            f"ceiling {_ENV_JUDGE_UNAVAILABLE_MAX_FRAC}={threshold:.3f}. The corroboration count is "
+            "gutted by a judge-outage storm (same class as the drb_72 176-outage collapse) — "
+            "failing loud rather than shipping a deficient report (never victory-on-deficient). "
+            "Point the entailment judge at a higher-provider-count open model "
+            f"(corroboration_judge_model()={corroboration_judge_model()!r}) or raise the ceiling."
+        )
+
+
 # I-arch-010 FIX-2 Step 0 — the 3-value per-member entailment tier (the no-leak
 # classifier). ``span_verdict`` stays STRICTLY BINARY (SUPPORTS/UNSUPPORTED) so every
 # existing ``== "SUPPORTS"`` consumer (render/count/enrichment/biblio) is byte-unchanged;
@@ -465,6 +693,11 @@ class CredibilityAnalysis:
     # Defaulted so the empty-rows early-return (and any legacy caller) still builds.
     baskets: list = field(default_factory=list)             # ClaimBasket[]
     cluster_id_by_evidence: dict = field(default_factory=dict)  # evidence_id -> claim_cluster_id[] (binding)
+    # F3-3b (I-deepfix-001 #1369) — corroboration entailment-judge availability disclosure.
+    # Defaulted so the empty-rows early-return + every legacy caller still builds byte-identically.
+    entailment_judge_unavailable_member_count: int = 0   # members whose entailment judge was durably UNAVAILABLE
+    basket_member_count: int = 0                          # total basket members verified this run
+    methods_disclosure: str = ""                          # report Methods-section judge-availability sentence
 
 
 def _require_evidence_id(row: dict, index: int) -> str:
@@ -1458,6 +1691,23 @@ def _run_chain(
         deadline_monotonic=deadline_monotonic,
     )
 
+    # ── F3-3b (I-deepfix-001 #1369): corroboration entailment-judge AVAILABILITY guard ──
+    # Count the members whose entailment judge was DURABLY UNAVAILABLE this run (the outage
+    # signal, not a clean NEUTRAL/CONTRADICTED), SURFACE it into the Methods disclosure (iii),
+    # and run the FAIL-LOUD canary (iv) — which always LOUD-warns and HARD-RAISES only when the
+    # ENV-DRIVEN ceiling is set and exceeded. This runs BEFORE the return so a judge-outage storm
+    # that guts corroboration FAILS the run rather than shipping a deficient CredibilityAnalysis.
+    _judge_unavailable, _basket_members = count_judge_unavailable_members(baskets)
+    _methods_disclosure = build_judge_availability_methods_disclosure(
+        _judge_unavailable, _basket_members,
+        # Name the ACTUAL binding judge (PG_ENTAILMENT_MODEL) that counted the corroboration —
+        # never the recommended target (that would be a wrong methods claim, LAW II). kimi-k2.6 is
+        # surfaced SEPARATELY inside the builder as the recommended higher-provider mitigation.
+        judge_model=active_entailment_judge_model(),
+        recommended_model=corroboration_judge_model(),
+    )
+    _enforce_judge_availability_canary(_judge_unavailable, _basket_members)
+
     # ── sentence -> claim_cluster_id binding (design §6): evidence_id -> the cluster
     #    id(s) its atomic claim(s) belong to. The resolve sites today carry only cited
     #    tokens (each an evidence_id), so this lets the render layer (P5.x) map a cited
@@ -1480,6 +1730,9 @@ def _run_chain(
         weight_mass=weight_mass,
         baskets=baskets,
         cluster_id_by_evidence=cluster_id_by_evidence,
+        entailment_judge_unavailable_member_count=_judge_unavailable,
+        basket_member_count=_basket_members,
+        methods_disclosure=_methods_disclosure,
     )
 
 

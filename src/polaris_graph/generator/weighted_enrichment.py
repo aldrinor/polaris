@@ -253,6 +253,21 @@ def is_topic_unjudged(row: Any) -> bool:
     return label == ""  # no content-relevance label => the judge never saw this row
 
 
+def _row_has_judgment(row: Any) -> bool:
+    """True iff SOME upstream relevance judge stamped this row — a ``topic_offtopic_demoted`` verdict,
+    a non-empty ``content_relevance_label``, OR a usable numeric ``selection_relevance``. F2 2b: when a
+    row carries a judged label we USE that judged decision (positive keeps, below-floor/off demotes)
+    and DO NOT re-apply the noisy lexical question-overlap override; the lexical fallback fires ONLY on
+    a fully-unjudged row. PURE read; no faithfulness touch."""
+    if not isinstance(row, dict):
+        return False
+    if row.get("topic_offtopic_demoted") is not None:
+        return True
+    if str(row.get("content_relevance_label", "") or "").strip():
+        return True
+    return _row_relevance(row) is not None
+
+
 def topic_judge_ran(rows: Any = None) -> bool:
     """Run-scoped: True iff the topic/content-relevance judge demonstrably ran this run.
 
@@ -1172,6 +1187,15 @@ def diagnose_unbound_supports_selection(
                 # FIX-C off-topic single-origin CITE gate: a corroborated-by-nobody, >=6-word,
                 # <= min-overlap quote is routed to disclosed_only (KEPT, not dropped). FAIL-OPEN
                 # on empty question / gate off / terse quote / any overlap above min / corroboration.
+                # F2 2b (#1371): this LEXICAL question-overlap override is the FALLBACK — it fires ONLY
+                # on a fully-UNJUDGED row. A row an upstream judge stamped (positive/off ``content_
+                # relevance_label`` or a numeric ``selection_relevance``) uses THAT judged decision:
+                # a positive label already keeps (line 157-166), a confirmed-off label is already
+                # suppressed (line 1028), and a below-floor score already routes via the WEIGHT leg —
+                # so the noisy lexical override must never re-bury a judged-relevant source (the drb_72
+                # seminal-paper burial). §-1.3 WEIGHT-not-FILTER: judged label first, lexical fallback.
+                if _row_has_judgment(pool.get(eid)):
+                    return False
                 return (
                     _promo_topical_gate
                     and bool(_promo_q_terms)
@@ -3253,6 +3277,49 @@ _FURN_PUBLISHER_RE = re.compile(
     r"books in this series are published|some rights are reserved|users can reuse,\s*share,?\s*adapt|authors alliance",
     re.IGNORECASE,
 )
+
+# I-deepfix-001 F2 (#1371, box2 §-1.1 line-by-line): the furniture-chrome FORM classes the wave-1/2
+# vocabulary still missed — grant/acknowledgment back-matter, a cookie-consent notice, media-player
+# reader furniture, a paywall unlock-code token, a Crossref citation-count widget, the US-gov site
+# banner, and the "Split View" reader control.
+#
+# Codex F2 gate iter-1 (HC-2): these 7 legs are consulted ONLY by the F2 body/ledger PLACEMENT path
+# (``_contains_f2_placement_furniture`` below) — they are deliberately NOT added to the shared
+# ``_contains_source_furniture_chrome`` / ``is_render_chrome_or_unrenderable`` predicate, because that
+# shared predicate ALSO feeds pre-existing DROP seams OUTSIDE this fix (retrieval fetch-furniture
+# screen, verified_compose sentence screen, key_findings, run_honest_sweep). Keeping the F2 vocab out
+# of the shared predicate leaves those drop seams BYTE-IDENTICAL, so no new vocabulary can WIDEN a drop
+# of a real source. §-1.3: a match here can only MOVE a unit below the appendix boundary into the
+# labelled ledger (PLACEMENT), never a drop / cap / thin. SUPPRESS-nothing, faithfulness-neutral.
+#
+# The four broad legs are narrowed (Codex F2 iter-1 P1) to the unambiguous furniture FORM so they never
+# route a genuine topical finding — even for placement — in a media/streaming/HCI, grants/bibliometrics,
+# privacy/cookies, or product-UI report:
+#   • media-player: the specific reader control "playback rate" ONLY (the broad "live stream" is dropped
+#     — a plausible real finding in media economics / streaming commerce);
+#   • grant back-matter: "under Grant <digit>" (an acknowledgment number, not prose) OR the byline form
+#     "Corresponding author:" WITH a colon (a masthead field, not "corresponding authorship" prose);
+#   • cookie-consent: the "cookie" noun co-occurring with a consent-notice signature ("cookie called …"
+#     or "does not store any identifiable data") — the broad bare "duration" context is dropped;
+#   • "Split View": only when glued to a section label by a "-"/":" separator (the scrape form), never a
+#     sentence-initial product-feature mention.
+# Verified NON-matching against the box2 MUST-KEEP real findings (the robot -0.42% wage stat, the
+# Eloundou 1.8%->46% exposure stat, the 5,172-agent Brynjolfsson design sentence, the 0.5-0.9pp GDP
+# productivity projection, the Frey-Osborne 702-occupation methodology).
+_FURN_GRANT_RE = re.compile(r"\bunder\s+Grant\s+\d|\bCorresponding\s+author\s*:", re.IGNORECASE)
+# Cookie-consent fires ONLY when the "cookie" noun co-occurs with a consent-notice signature token —
+# never on a bare mention, and never on generic "duration" prose — so a substantive cookie/privacy
+# finding (e.g. "third-party cookies persist for a long duration enabling tracking") is never furniture.
+_FURN_COOKIE_RE = re.compile(r"\bcookies?\b", re.IGNORECASE)
+_FURN_COOKIE_CTX_RE = re.compile(r"does not store any identifiable data|\bcookie\s+called\b", re.IGNORECASE)
+_FURN_MEDIAPLAYER_RE = re.compile(r"\bplayback rate\b", re.IGNORECASE)
+_FURN_PAYWALL_RE = re.compile(r"\bunlocked article code\b", re.IGNORECASE)
+_FURN_CROSSREF_RE = re.compile(r"\bCrossref\s+\d")
+_FURN_GOVSITE_RE = re.compile(r"An official website of the United States government", re.IGNORECASE)
+# "Split View" is a title-cased reader-pane control that scrapes glued to a section label ("Design: -
+# Split View"). Require the label-glue separator ("-"/":") so a sentence-initial product-feature mention
+# ("Split View lets users …") is never matched.
+_FURN_SPLITVIEW_RE = re.compile(r"[:\-]\s*Split View\b")
 # Codex gate (wave-2) P1: a unit carrying a genuine finding SIGNAL — a decimal, a percentage, or a
 # finding VERB — must NEVER be dropped by the SOFT furniture legs (doc-title recital, >=2 md-links),
 # because a real finding legitimately mentions a title ("A study titled X FOUND +14%") or carries a
@@ -3301,6 +3368,11 @@ def _contains_source_furniture_chrome(text: str) -> bool:
         return True
     if _FURN_NAVCTA_RE.search(s):  # "view details" / "click here" (never inside a finding)
         return True
+    # I-deepfix-001 F2 (#1371) — the 7 F2 furniture legs (grant/cookie/media-player/paywall/Crossref/
+    # gov-banner/Split-View) are NOT screened here: they feed ONLY the F2 PLACEMENT path
+    # (``_contains_f2_placement_furniture``), never this shared predicate. Codex F2 gate iter-1 (HC-2):
+    # this predicate ALSO feeds pre-existing DROP seams, so adding vocabulary here would WIDEN a drop of
+    # a real source. §-1.3 keeps furniture a placement (move to the ledger), never a drop.
     # SOFT legs (Codex P1/P1-cont: guarded — a unit with a real finding SIGNAL is never dropped here.
     # Phone is under the guard AND format-tight AND context-gated so a signed statistic like
     # "Recruitment increased employment by +0.123 (0.045)" is triple-safe from a false drop):
@@ -3375,6 +3447,347 @@ def is_render_chrome_or_unrenderable(
     if require_sentence_form and _is_unrenderable_sentence_form(s):
         return True
     return False
+
+
+def _contains_f2_placement_furniture(text: Any) -> bool:
+    """The F2 (#1371) PLACEMENT-ONLY furniture vocabulary — the 7 legs (grant/ack back-matter,
+    cookie-consent notice, media-player reader control, paywall unlock-code token, Crossref widget,
+    US-gov site banner, glued "Split View" control) that the F2 fix added.
+
+    Codex F2 gate iter-1 (HC-2): these legs are consulted EXCLUSIVELY by the F2 body/ledger PLACEMENT
+    path (``is_offtopic_or_chrome_for_placement`` / ``_row_routes_to_ledger``) — deliberately NOT by the
+    shared ``is_render_chrome_or_unrenderable`` predicate, because that shared predicate ALSO feeds
+    pre-existing DROP seams (retrieval fetch-furniture screen, verified_compose, key_findings,
+    run_honest_sweep). Keeping the F2 vocab out of the shared predicate means a match here can ONLY MOVE
+    a unit below the appendix boundary into the ledger (§-1.3 PLACEMENT), never a drop / cap / thin. The
+    faithfulness engine is untouched. Gated by ``render_chrome_screen_enabled()`` so a
+    ``PG_RENDER_CHROME_SCREEN=0`` run is inert (the F2 furniture legs disappear) — matching the base
+    screen's own kill-switch. PURE."""
+    if not render_chrome_screen_enabled():
+        return False
+    s = str(text or "")
+    if not s.strip():
+        return False
+    if _FURN_GRANT_RE.search(s):  # grant/ack back-matter ("under Grant 435-…", "Corresponding author:")
+        return True
+    if _FURN_COOKIE_RE.search(s) and _FURN_COOKIE_CTX_RE.search(s):  # cookie-consent notice (noun + signature)
+        return True
+    if _FURN_MEDIAPLAYER_RE.search(s):  # media-player reader control ("… playback rate …")
+        return True
+    if _FURN_PAYWALL_RE.search(s):  # paywall unlock-code token ("unlocked article code of …")
+        return True
+    if _FURN_CROSSREF_RE.search(s):  # Crossref citation-count widget ("Crossref 0 Crossref 0")
+        return True
+    if _FURN_GOVSITE_RE.search(s):  # US-gov site banner
+        return True
+    if _FURN_SPLITVIEW_RE.search(s):  # glued "Split View" reader-pane control ("Design: - Split View")
+        return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-001 F2 (#1371) — UNIFIED BODY-PLACEMENT SCREEN + Low-relevance ledger partition.
+#
+# THE BUG (Fable F2 root cause): a grammatical sentence ABOUT junk (page furniture that renders as a
+# coherent line, or an on-topic-looking sentence that is actually off the research question's topic)
+# self-entails its own verbatim span, so it PASSES the frozen strict_verify gate and survives into the
+# raw carry-up surfaces (Verified Findings / Abstract / Key Findings / Conclusion / Evidence base /
+# CWF facet sections). Those surfaces have a FORM-chrome screen (``is_render_chrome_or_unrenderable``)
+# but NO topicality screen. Meanwhile the pipeline ALREADY computes per-row judged relevance
+# (``selection_relevance`` + the W2 ``content_relevance_label``) that these seams ignore.
+#
+# THE FIX — §-1.3 WEIGHT / PLACEMENT, NEVER DELETE: make body PLACEMENT respect the weight already
+# computed. A unit that is FURNITURE or confidently OFF-topic is MOVED BELOW the appendix boundary into
+# a clearly-labelled "Low-relevance evidence (kept at weight)" ledger — it STAYS in the evidence pool,
+# the bibliography, and the disclosure; nothing is dropped, capped, or thinned. The frozen faithfulness
+# engine (strict_verify / NLI / 4-role D8 / provenance / span-grounding) is UNTOUCHED. The topicality
+# leg reuses the EXISTING grounding tokenizer (``provenance_generator._content_words``) — no new model.
+#
+# SHIPPED SCOPE (F2 gate iter-3, resolving the dual-gate scope-wiring finding): the ledger PLACEMENT is
+# wired into the two EV-ID-ordered raw carry-up surfaces — the "Evidence base" breadth section AND the
+# weighted-enrichment "Corroborated Weighted Findings" (CWF) facet/flat sections — via the SINGLE
+# order-preserving production entry ``partition_evidence_base_ids_for_ledger`` (both surfaces consume
+# its BODY partition; the ledger rows render once below the appendix; see multi_section_generator.py at
+# the CWF plan-build seam + assembly). The Verified Findings / Abstract / Key Findings / Conclusion
+# surfaces are SYNTHESIZED PROSE, not ev-id lists, and stay covered by the pre-existing FORM-chrome +
+# strict_verify screen; F2 does NOT retrofit a topicality screen onto synthesized prose in this ship.
+# ``is_offtopic_or_chrome_for_placement`` (the unified TEXT predicate) and
+# ``partition_body_and_low_relevance_ledger`` (the row-list form) are the general/reusable forms the
+# unit tests exercise directly; they share the SAME ``_row_routes_to_ledger`` / furniture / topicality
+# core that ships to production through ``partition_evidence_base_ids_for_ledger``.
+_OFFTOPIC_PLACEMENT_MIN_WORDS = 6  # a zero-overlap unit this long is confidently off-topic; below it,
+#                                    only a unit ALSO carrying no finding signal is demoted (fail-open).
+
+# Report-INSTRUCTION scaffolding words (deliverable-format vocabulary, NOT topic). A verbose benchmark
+# question ("write a COMPREHENSIVE research REPORT drawing on credible SOURCES … with COLUMNS …") is
+# laden with these; if they stay in the topical reference an off-topic intruder that merely says
+# "publication"/"comprehensive"/"analysis" escapes the topicality demotion. Stripping them from the
+# PLACEMENT reference ONLY (never from the production ``_question_topic_terms`` the ordering/promotion/
+# span gates use) sharpens the lexical FALLBACK without touching any live ordering. Domain-agnostic
+# (these describe the deliverable, not any field), fail-open (an over-strip keeps a source in body,
+# never a drop — §-1.3). The clearly-topical words (impact, employment, occupation, industry, risk,
+# …) are deliberately NOT here.
+#
+# Codex F2 gate iter-1 (HC-5 P2): the plausibly-TOPICAL words are pruned OUT of this set so they stay
+# as live topic terms — ``evidence``, ``literature``, ``application(s)``, ``area(s)``, ``case(s)``,
+# ``country/countries``, ``region(s)``, ``view(s)``, ``example(s)``, ``detail(s)``. In a grants /
+# bibliometrics / geography / privacy report those ARE the topic, so stripping them could have
+# over-routed a real on-topic source to the ledger when one of them was its only shared term. They are
+# NOT deliverable-only words. Only the unambiguous deliverable-FORMAT vocabulary remains below.
+_REPORT_SCAFFOLDING_TERMS = frozenset({
+    "publication", "comprehensive", "analysis", "report", "reports", "research", "researching",
+    "source", "sources", "provide", "provides", "summary", "summarizing", "table", "tables",
+    "column", "columns", "section", "sections", "structure", "specific", "specifically",
+    "key", "main", "detailing", "drawing", "please", "write", "written", "available", "credible",
+    "relevant", "restriction", "date", "dates", "type", "types", "aspect", "aspects",
+    "particular", "regarding", "limitation", "limitations", "support",
+    "supporting", "end", "separate",
+})
+
+
+def _placement_topic_terms(research_question: str) -> frozenset[str]:
+    """The PLACEMENT topical reference: ``_question_topic_terms`` minus the report-instruction
+    scaffolding words. Used ONLY by the F2 body-placement predicate + ledger routing so the noisy
+    lexical FALLBACK is sharpened; the production ordering/promotion/span gates keep the full
+    ``_question_topic_terms`` (byte-identical). Empty question => empty set => fail-open (keep-all)."""
+    return frozenset(_question_topic_terms(research_question)) - _REPORT_SCAFFOLDING_TERMS
+
+
+def _is_offtopic_for_placement(text: Any, question_terms: "frozenset[str] | set[str]") -> bool:
+    """True iff a grammatical unit is confidently OFF the research question's topic — a PLACEMENT
+    demotion signal, NEVER a drop. FAIL-OPEN (return False => keep in body) whenever: there are no
+    question terms (empty/blank research question => every legacy caller is byte-identical), the unit
+    carries no content words, or the unit shares ANY content word with the question. A unit with ZERO
+    question overlap is off-topic only when it is long enough to judge (``>= _OFFTOPIC_PLACEMENT_MIN_
+    WORDS`` content words) OR — for a terse unit — it ALSO carries no finding signal (a real terse
+    finding carries a percentage / decimal / finding verb, so it is never demoted here). PURE."""
+    if not question_terms:
+        return False
+    try:
+        from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+            _content_words,
+        )
+        unit_terms = _content_words(str(text or ""))
+    except Exception:  # noqa: BLE001 — fail-safe: a tokenizer/import failure must never DEMOTE a real
+        return False  #                    source to the ledger (§-1.3 fail-open, mirrors _ledger_relevance_floor)
+    if not unit_terms:
+        return False
+    if unit_terms & set(question_terms):
+        return False  # any shared topic term => on-topic, KEEP in body
+    if len(unit_terms) >= _OFFTOPIC_PLACEMENT_MIN_WORDS:
+        return True   # long, zero-overlap => confidently foreign to the question
+    # terse + zero-overlap: demote only when it also lacks a finding signal (guard a real terse finding)
+    return not bool(_FINDING_SIGNAL_RE.search(str(text or "")))
+
+
+def is_offtopic_or_chrome_for_placement(text: Any, *, research_question: str = "") -> bool:
+    """The unified F2 BODY-PLACEMENT screen. True iff a grammatical, strict_verify-passable unit is
+    page/source FURNITURE (``is_render_chrome_or_unrenderable`` — the FORM screen, honouring its
+    ``render_chrome_screen_enabled()`` kill-switch) OR confidently OFF the research question's topic
+    (``_is_offtopic_for_placement`` — the topicality screen this seam previously lacked).
+
+    A True verdict routes the unit BELOW the appendix boundary into the labelled "Low-relevance
+    evidence (kept at weight)" ledger — a §-1.3 PLACEMENT demotion, NEVER a drop / cap / thin. The
+    source stays in the pool, the bibliography, and the disclosure. The faithfulness engine is
+    untouched. FAIL-OPEN for the topicality leg on an empty research question (byte-identical legacy).
+
+    The FORM leg is the shared ``is_render_chrome_or_unrenderable`` predicate PLUS the F2 placement-only
+    furniture vocabulary (``_contains_f2_placement_furniture``) — the F2 vocab lives on the PLACEMENT
+    path only, never on the shared drop predicate (Codex F2 iter-1 HC-2).
+
+    SCOPE (F2 gate iter-3): this unified TEXT predicate is the general/reusable form the unit tests
+    exercise directly. The SHIPPED production placement is the order-preserving, judged-relevance-aware
+    ``partition_evidence_base_ids_for_ledger`` (wired into both ev-id carry-up surfaces: Evidence base +
+    CWF), which shares this predicate's furniture + topicality legs via ``_row_routes_to_ledger``."""
+    if is_render_chrome_or_unrenderable(text) or _contains_f2_placement_furniture(text):
+        return True
+    return _is_offtopic_for_placement(text, _placement_topic_terms(research_question))
+
+
+# ── Low-relevance ledger: the labelled below-the-appendix partition (§-1.3 PLACEMENT, never a drop) ──
+_LOW_RELEVANCE_LEDGER_TITLE = "Low-relevance evidence (kept at weight)"
+_ENV_LOW_RELEVANCE_LEDGER = "PG_LOW_RELEVANCE_LEDGER"  # default ON
+
+
+def low_relevance_ledger_enabled() -> bool:
+    """Kill-switch ``PG_LOW_RELEVANCE_LEDGER`` (default ON). OFF => the ledger partition never fires
+    => every row stays in the body order => byte-identical to the legacy single-surface render."""
+    return os.environ.get(_ENV_LOW_RELEVANCE_LEDGER, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _ledger_relevance_floor() -> float:
+    """The judged-relevance floor for the body/ledger split — the SAME ``PG_RELEVANCE_FLOOR`` the
+    retrieval + enrichment gates use (default 0.30), with its fail-loud (0.0, 1.0] validation. A row
+    whose JUDGED ``selection_relevance`` sits below this is routed to the ledger (placement, not a
+    drop). Lazy import keeps this module import-time independent of the retrieval side."""
+    try:
+        from src.polaris_graph.retrieval.evidence_selector import (  # noqa: PLC0415
+            parse_relevance_floor,
+        )
+        return parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+    except Exception:  # noqa: BLE001 — fail-safe default; a broken import must never crash placement
+        return 0.30
+
+
+def _ledger_row_text(row: Any) -> str:
+    """The render text a placement screen should judge: the member's direct quote / statement, else a
+    join of the standard topic text fields. PURE read; never a faithfulness touch."""
+    if not isinstance(row, dict):
+        return ""
+    quote = _member_quote(row)
+    if quote:
+        return quote
+    return " ".join(str(row.get(f) or "") for f in _TOPIC_TEXT_FIELDS).strip()
+
+
+def _ledger_weight_relevance_key(row: Any) -> "tuple[float, float]":
+    """The ``(weight, relevance)`` ordering key (both DESC when negated by the caller). Reads the
+    row's basket ``weight_mass`` (else ``credibility_weight``/``weight``) and its judged
+    ``selection_relevance`` (missing => the keep-neutral sentinel). Ordering only — never a filter."""
+    weight = 0.0
+    for field in ("weight_mass", "credibility_weight", "weight"):
+        raw = row.get(field) if isinstance(row, dict) else None
+        if raw is not None:
+            try:
+                weight = float(raw)
+                break
+            except (TypeError, ValueError):
+                continue
+    rel = _row_relevance(row)
+    return (weight, _relevance_sort_key(rel))
+
+
+def _row_routes_to_ledger(
+    row: Any, question_terms: "frozenset[str] | set[str]", relevance_floor: float
+) -> bool:
+    """Per-row body-vs-ledger verdict. POSITIVE judged relevance FIRST, then furniture, then the rest
+    (Codex F2 gate iter-1 P1: positive-relevance-first ordering):
+      1. A POSITIVE judged ``content_relevance_label`` (relevant / escalated_relevant) => BODY. A real
+         upstream judge that SAW the content wins over every heuristic leg (§-1.3 WEIGHT-not-FILTER), so
+         a judged-relevant row whose text incidentally trips a broad furniture regex is NOT demoted.
+      2. FURNITURE (``is_render_chrome_or_unrenderable`` OR the F2 placement-only vocab
+         ``_contains_f2_placement_furniture``) => ledger. The F2 vocab lives on the PLACEMENT path only,
+         never on the shared drop predicate (HC-2); a match is a placement (move to the ledger), never a
+         drop — the source stays in the pool + bibliography + disclosure.
+      3. A confirmed-OFF judged label (``topic_offtopic_demoted`` True or a demoted/escalated_demoted
+         ``content_relevance_label``) => ledger.
+      4. A JUDGED numeric ``selection_relevance`` below the floor => ledger (placement, not a drop).
+      5. NO judgment => fall back to lexical question-term overlap (``_is_offtopic_for_placement``).
+    PURE read of already-computed state; the faithfulness engine is untouched."""
+    label = ""
+    if isinstance(row, dict):
+        label = str(row.get("content_relevance_label", "") or "").strip().lower()
+    if label in _POSITIVE_RELEVANCE_LABELS:
+        return False  # judged relevant => ALWAYS body (positive-relevance-first; never buried)
+    text = _ledger_row_text(row)
+    if is_render_chrome_or_unrenderable(text) or _contains_f2_placement_furniture(text):
+        return True  # furniture => ledger (placement, never a drop; F2 vocab never feeds a drop seam)
+    if not isinstance(row, dict):
+        return False
+    if row.get("topic_offtopic_demoted") is True or label in _CONFIRMED_OFFTOPIC_LABELS:
+        return True
+    rel = _row_relevance(row)
+    if rel is not None:
+        return rel < relevance_floor  # judged below-floor => ledger (placement)
+    return _is_offtopic_for_placement(text, question_terms)  # unjudged => lexical fallback
+
+
+def partition_body_and_low_relevance_ledger(
+    rows: Any, *, research_question: str = ""
+) -> "tuple[list[Any], list[Any]]":
+    """Split ordered ``rows`` into ``(body, ledger)`` by JUDGED weight/relevance then FURNITURE/off-
+    topic, ordering EACH partition by ``weight * relevance`` DESC. §-1.3 PLACEMENT, NEVER a drop:
+
+      * ``body``   — rows kept in the report's carry-up prose (on-topic, at/above judged floor).
+      * ``ledger`` — rows MOVED BELOW the appendix boundary into the "Low-relevance evidence (kept at
+        weight)" section: furniture, confirmed-off-topic, judged-below-floor, or (unjudged) lexically
+        off-topic. STILL present in the pool, bibliography, and disclosure — nothing is dropped.
+
+    CONSERVATION (asserted by the caller's test): ``body`` and ``ledger`` are disjoint and their union
+    equals ``rows`` (deduped by identity of order) — no row vanishes, none is duplicated. When the
+    kill-switch is OFF, every row stays in ``body`` (byte-identical). PURE; no faithfulness touch.
+
+    SCOPE (F2 gate iter-3): this row-list form is the general/reusable variant the unit tests exercise.
+    The pipeline's raw carry-up surfaces are all ev-id ORDERED (weight order the render relies on), so
+    the SHIPPED production entry is the order-preserving ``partition_evidence_base_ids_for_ledger`` —
+    which shares the SAME per-row ``_row_routes_to_ledger`` verdict as this function."""
+    row_list = list(rows or [])
+    if not low_relevance_ledger_enabled() or not row_list:
+        return row_list, []
+    q_terms = _placement_topic_terms(research_question)
+    floor = _ledger_relevance_floor()
+    body: list[Any] = []
+    ledger: list[Any] = []
+    for row in row_list:
+        (ledger if _row_routes_to_ledger(row, q_terms, floor) else body).append(row)
+
+    def _order(partition: list[Any]) -> list[Any]:
+        # Stable weight*relevance DESC (a demotion order, never a filter). Index tiebreak preserves the
+        # caller's incoming order within an equal-key group so the sort is deterministic.
+        indexed = list(enumerate(partition))
+        indexed.sort(
+            key=lambda pair: (
+                -(lambda wr: wr[0] * wr[1])(_ledger_weight_relevance_key(pair[1])),
+                pair[0],
+            )
+        )
+        return [row for _, row in indexed]
+
+    return _order(body), _order(ledger)
+
+
+def partition_evidence_base_ids_for_ledger(
+    ev_ids: Any, evidence_pool: Any, *, research_question: str = ""
+) -> "tuple[list[str], list[str]]":
+    """Order-PRESERVING split of the ordered Evidence-base ``ev_ids`` into ``(body, ledger)`` using the
+    same per-row body/ledger verdict as ``partition_body_and_low_relevance_ledger``.
+
+    The incoming order (already weight*relevance from ``select_unbound_supports_by_weight``) is
+    PRESERVED within each partition — the render (``build_evidence_base_section``) relies on that
+    order, so this NEVER re-sorts. A ledger id is FURNITURE / confirmed-off-topic / judged-below-floor
+    / (unjudged) lexically off-topic — it is MOVED BELOW the appendix boundary into the labelled
+    "Low-relevance evidence (kept at weight)" section, and STAYS in the pool + bibliography + disclosure
+    (§-1.3 PLACEMENT, never a drop). A pool-absent id stays in ``body`` (the render skips it exactly as
+    before — no placement change for a non-resolvable id). Conservation: ``body`` + ``ledger`` equals
+    the de-duplicated non-empty input. OFF (``PG_LOW_RELEVANCE_LEDGER=0``) => ``(list(ev_ids), [])``."""
+    # HC-7 (Codex F2 iter-1 P2): the OFF check is FIRST, before any dedup / empty-strip, so a
+    # PG_LOW_RELEVANCE_LEDGER=0 run feeds the body section the ORIGINAL ids untouched — strictly
+    # byte-identical to legacy even when duplicate / empty ids are present in the input.
+    #
+    # F2 gate iter-6 (Codex NOVEL P0 — decoupled-flag placement-becomes-DROP): the ledger partition is
+    # RENDERED only through ``build_evidence_base_section`` — BOTH the Evidence base body AND the ledger
+    # section are gated internally by ``PG_BREADTH_EVIDENCE_BASE_SECTION``. If that flag is OFF the ledger
+    # section CANNOT render, so routing rows into it while the CWF body-feed (multi_section_generator)
+    # consumes only the body partition would make those rows vanish from the report prose AND the
+    # bibliography — a §-1.3 DROP. COUPLE the split to the render gate: when the Evidence base surface
+    # cannot render, the split returns ``(full-surface, [])`` so every row stays in the body order (fed
+    # to CWF), the ledger is empty, and PG_BREADTH_EVIDENCE_BASE_SECTION=0 stays byte-identical to legacy
+    # (its documented kill-switch contract). The move-half NEVER fires without the place-half.
+    if not low_relevance_ledger_enabled() or not evidence_base_section_enabled():
+        return list(ev_ids or []), []
+    ids: list[str] = []
+    seen: set[str] = set()
+    for e in (ev_ids or []):
+        e = str(e or "")
+        if e and e not in seen:
+            seen.add(e)
+            ids.append(e)
+    if not ids:
+        return list(ev_ids or []), []
+    pool = evidence_pool or {}
+    q_terms = _placement_topic_terms(research_question)
+    floor = _ledger_relevance_floor()
+    body: list[str] = []
+    ledger: list[str] = []
+    for eid in ids:
+        row = pool.get(eid)
+        if not isinstance(row, dict):
+            body.append(eid)  # pool-absent => leave in body; the render skips it as before (no change)
+            continue
+        (ledger if _row_routes_to_ledger(row, q_terms, floor) else body).append(eid)
+    return body, ledger
 
 
 # ─────────────────────────────────────────────────────────────────────────────

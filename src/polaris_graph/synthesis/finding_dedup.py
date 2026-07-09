@@ -899,6 +899,48 @@ _FINDING_DEDUP_NLI_MAX_PAIRS_DEFAULT = "20000"
 _FINDING_DEDUP_NLI_WALL_SECONDS_ENV = "PG_FINDING_DEDUP_NLI_WALL_SECONDS"
 _FINDING_DEDUP_NLI_WALL_SECONDS_DEFAULT = "180"
 
+# ─────────────────────────────────────────────────────────────────────────
+# 3a — WIDENED qualitative CANDIDATE NOMINATION (F3, I-deepfix-001 #1369)
+# ─────────────────────────────────────────────────────────────────────────
+# ROOT CAUSE (Fable F3-3a, forensic on the drb_72 real run): the qualitative
+# candidate NOMINATION is lexical NEAR-VERBATIM only. `_build_qualitative_groups`
+# greedy-clusters rows by content-word shingle Jaccard >= 0.82, and the keystone
+# `_apply_finding_dedup_nli_grouping` then NLI-confirms only cluster REPRESENTATIVES
+# among the survivors. So a cross-document PARAPHRASE whose surface wording differs
+# enough that its shingle-Jaccard falls below 0.82 stays its OWN singleton cluster —
+# and when the corpus is large the O(n^2) rep-pair count trips the MAX_PAIRS cap and
+# the whole directional grouping SKIPS (an under-merge), so the paraphrase never even
+# becomes a CANDIDATE for the NLI union. The multi-source basket collapses.
+#
+# THE FIX (widen the NOMINATION only, NLI stays the sole MERGE decision — §-1.3 +
+# the F3 anti-fabrication law): NOMINATE additional cross-cluster candidate PAIRS by
+# TOKEN-CONTAINMENT (the smaller cluster's content-token set is largely CONTAINED in
+# the other's — an ASYMMETRIC overlap that catches paraphrase/expansion pairs the
+# symmetric Jaccard 0.82 near-verbatim gate misses), then CONFIRM each nominated pair
+# through the SAME strict bidirectional-entailment NLI gate the keystone uses
+# (`consolidation_nli.entails_directional`, BOTH directions True) plus the polarity
+# hard-block. A pair MERGES iff the NLI confirms it — token-containment is ONLY a
+# recall-oriented candidate BLOCKER, never a merge. This is strictly MORE recall than
+# rep-only near-verbatim, and it is BOUNDED (only containment-passing pairs are ever
+# NLI-scored), so it also RECALLS in the over-cap regime where the all-pairs keystone
+# skips. NO row is dropped (keep-all); no numeric value-bucket rule is touched; the
+# faithfulness engine (strict_verify / the entailment verifier / 4-role D8 /
+# provenance / span-grounding) is untouched. LAW VI: env-tunable, kill-switchable.
+_QUAL_NOMINATE_ENV = "PG_FINDING_DEDUP_QUALITATIVE_NOMINATE"
+# Asymmetric content-token containment threshold: nominate a cluster pair when
+# |Ti ∩ Tj| / min(|Ti|, |Tj|) >= this. Below the near-verbatim Jaccard (0.82) on
+# purpose — the whole point is to nominate paraphrases Jaccard misses; the STRICT
+# bidirectional NLI is what keeps a merely-token-overlapping-but-distinct pair apart.
+_QUAL_NOMINATE_CONTAINMENT_ENV = "PG_FINDING_DEDUP_QUALITATIVE_NOMINATE_CONTAINMENT"
+_QUAL_NOMINATE_CONTAINMENT_DEFAULT = "0.60"
+# Minimum content tokens a cluster representative must carry to be nominatable (a
+# 1-2 token stub cannot be a reliable containment signal — a false-positive guard).
+_QUAL_NOMINATE_MIN_TOKENS = 4
+# O(n^2) nominated-pair cap (LAW VI). Over the cap the pass SKIPS (under-merge, §-1.3
+# keep-all — never drops a corroborator). Shares the finding-dedup-NLI default.
+_QUAL_NOMINATE_MAX_PAIRS_ENV = "PG_FINDING_DEDUP_QUALITATIVE_NOMINATE_MAX_PAIRS"
+_QUAL_NOMINATE_MAX_PAIRS_DEFAULT = "20000"
+
 
 def _qualitative_enabled() -> bool:
     """``PG_FINDING_DEDUP_QUALITATIVE`` kill switch (LAW VI). DEFAULT-ON: the
@@ -1192,6 +1234,227 @@ def _apply_qualitative_nli_union(
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# 3a — WIDENED qualitative candidate NOMINATION helpers (F3, I-deepfix-001 #1369)
+# ─────────────────────────────────────────────────────────────────────────
+def _qual_nominate_enabled() -> bool:
+    """``PG_FINDING_DEDUP_QUALITATIVE_NOMINATE`` kill switch (LAW VI). DEFAULT-ON: the
+    token-containment candidate widening. The widened pass's NLI-CONFIRM only actually
+    invokes the cross-encoder when an ``entail_fn`` is injected (tests) OR a cross-encoder
+    NLI path is already active (``_consolidation_nli_enabled`` / ``_finding_dedup_nli_enabled``),
+    so a default run with every NLI flag OFF is BYTE-IDENTICAL (no model load, no merge) even
+    with this flag ON — the widening rides the SAME resident cross-encoder the run slate already
+    loads. Set to ``0`` to force the pre-F3 behavior even under the slate."""
+    return os.getenv(_QUAL_NOMINATE_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _qual_nominate_containment() -> float:
+    """The asymmetric content-token containment threshold in (0, 1]. Malformed / out-of-range
+    => the default 0.60 (logged once, never raised — a typo must not crash a paid run)."""
+    raw = os.environ.get(_QUAL_NOMINATE_CONTAINMENT_ENV, "").strip() or _QUAL_NOMINATE_CONTAINMENT_DEFAULT
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "[finding_dedup] %s=%r not a float; using default %s",
+            _QUAL_NOMINATE_CONTAINMENT_ENV, raw, _QUAL_NOMINATE_CONTAINMENT_DEFAULT,
+        )
+        return float(_QUAL_NOMINATE_CONTAINMENT_DEFAULT)
+    if not (0.0 < value <= 1.0):
+        logger.warning(
+            "[finding_dedup] %s=%s out of (0,1]; using default %s",
+            _QUAL_NOMINATE_CONTAINMENT_ENV, value, _QUAL_NOMINATE_CONTAINMENT_DEFAULT,
+        )
+        return float(_QUAL_NOMINATE_CONTAINMENT_DEFAULT)
+    return value
+
+
+def _qual_nominate_max_pairs() -> int:
+    """The O(n^2) nominated-pair cap (LAW VI). Over the cap the widened pass SKIPS
+    (under-merge, §-1.3 keep-all — never drops a corroborator). Malformed => default."""
+    raw = os.environ.get(_QUAL_NOMINATE_MAX_PAIRS_ENV, "").strip() or _QUAL_NOMINATE_MAX_PAIRS_DEFAULT
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        logger.warning(
+            "[finding_dedup] %s=%r not an int; using default %s",
+            _QUAL_NOMINATE_MAX_PAIRS_ENV, raw, _QUAL_NOMINATE_MAX_PAIRS_DEFAULT,
+        )
+        return int(_QUAL_NOMINATE_MAX_PAIRS_DEFAULT)
+    return max(1, value)
+
+
+def _content_tokens(text: str) -> frozenset:
+    """The content-word token SET of a claim body: lowercased, citation-tokens stripped,
+    alnum word-tokenized, stopwords dropped. Reuses fact_dedup's citation/stopword/word
+    predicates (lazy import — the same defer-to-dodge-cycles discipline this module uses) so
+    the normalization is byte-consistent with the qualitative shingle/key path."""
+    from src.polaris_graph.generator.fact_dedup import (  # noqa: PLC0415
+        _CITATION_TOKEN_RE,
+        _STOPWORDS,
+        _WORD_RE,
+    )
+
+    low = _CITATION_TOKEN_RE.sub(" ", (text or "").lower())
+    return frozenset(w for w in _WORD_RE.findall(low) if w not in _STOPWORDS)
+
+
+def _token_containment(a: frozenset, b: frozenset) -> float:
+    """ASYMMETRIC content-token containment: ``|a ∩ b| / min(|a|, |b|)``. Unlike the
+    SYMMETRIC Jaccard (``|a ∩ b| / |a ∪ b|``) the near-verbatim greedy pass uses, containment
+    stays HIGH when one claim is a paraphrase/expansion of the other (very different lengths,
+    so Jaccard is low) as long as the SHORTER token set is largely contained in the longer —
+    exactly the cross-document paraphrase the near-verbatim gate misses. Returns 0.0 when
+    either set is empty (never nominates on emptiness)."""
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    if not inter:
+        return 0.0
+    return inter / float(min(len(a), len(b)))
+
+
+def _apply_qualitative_containment_nli_grouping(
+    rows: list[dict[str, Any]],
+    clusters: list[list[Any]],
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+    telemetry: Optional[dict[str, Any]] = None,
+) -> list[list[Any]]:
+    """F3-3a (I-deepfix-001 #1369) — WIDEN the qualitative candidate NOMINATION beyond lexical
+    near-verbatim, keeping the STRICT bidirectional-NLI as the SOLE merge DECISION.
+
+    ``clusters`` is the greedy list of ``[rep_shingles, rep_polarity, [member_ris]]`` triples
+    (INCLUDING lexical singletons). This pass:
+
+      1. NOMINATES cross-cluster candidate pairs (i < j) by ASYMMETRIC content-token
+         CONTAINMENT of the two representatives (``_token_containment`` >= the configured
+         threshold), with the POLARITY hard-block excluding a mismatched-polarity pair from
+         nomination entirely. Token-containment catches a paraphrase/expansion pair whose
+         surface Jaccard falls below the 0.82 near-verbatim gate — the exact recall the greedy
+         stage leaves as singletons. This is ONLY a recall-oriented candidate BLOCKER; a
+         nomination is NEVER a merge.
+      2. CONFIRMS each nominated pair through the SAME strict bidirectional-entailment gate the
+         keystone uses (``consolidation_nli.entails_directional`` in BOTH directions returning
+         True). One-direction-only (extension), contradiction, or an infra ``None`` on either
+         direction => NO merge (fail-closed to a singleton; the run CONTINUES — ``entails_directional``
+         never raises). The polarity guard is applied AGAIN at confirm (defense-in-depth).
+      3. MERGES confirmed pairs via DIRECT-EDGE keep-first grouping (NOT transitive union-find),
+         the exact safe direct-to-primary pattern ``_apply_finding_dedup_nli_grouping`` /
+         ``fact_dedup`` FIX-D use — so a basket head's corroboration_count can never be inflated
+         by a claim that only entails a SIBLING (the false-'corroborated' render chain §-1.1 calls
+         clinical-lethal).
+
+    KEEP-ALL / WEIGHT-ONLY (§-1.3): ONLY member-index lists are unioned; NO row is dropped, NO
+    verify gate is touched. BOUNDED: over ``_qual_nominate_max_pairs`` NOMINATED pairs the pass
+    SKIPS (an under-merge, keep-all). Because only containment-passing pairs are ever NLI-scored,
+    this RECALLS even in the over-cap regime where the all-pairs keystone skips entirely — the
+    drb_72 large-corpus scenario. Deterministic + order-independent (ascending cluster index,
+    keep-first, sorted edges). ``entail_fn(premise, hypothesis) -> True/False/None`` is the
+    deterministic test-injection seam; production passes None => the lazy resident
+    ``entails_directional`` (the SAME cross-encoder the consolidation leg already loads — ZERO
+    new model, ZERO paid spend)."""
+    from src.polaris_graph.generator.fact_dedup import (  # noqa: PLC0415
+        _polarity_signature,
+    )
+
+    n = len(clusters)
+    if n < 2:
+        return clusters
+
+    rep_texts = [_row_text(rows[cluster[2][0]]) for cluster in clusters]
+    rep_polarity = [cluster[1] for cluster in clusters]
+    rep_tokens = [_content_tokens(t) for t in rep_texts]
+
+    # (1) NOMINATE: containment-passing, polarity-matched cross-cluster pairs. A representative
+    # with too few content tokens is not a reliable containment signal (false-positive guard).
+    threshold = _qual_nominate_containment()
+    nominated: list[tuple[int, int]] = []
+    for i in range(n):
+        ti = rep_tokens[i]
+        if len(ti) < _QUAL_NOMINATE_MIN_TOKENS:
+            continue
+        for j in range(i + 1, n):
+            tj = rep_tokens[j]
+            if len(tj) < _QUAL_NOMINATE_MIN_TOKENS:
+                continue
+            if rep_polarity[i] != rep_polarity[j]:
+                continue  # polarity hard-block: never nominate an opposite-polarity pair
+            if _token_containment(ti, tj) >= threshold:
+                nominated.append((i, j))
+    if not nominated:
+        if telemetry is not None:
+            telemetry["nominated_pairs"] = 0
+            telemetry["containment_merges"] = 0
+        return clusters
+    max_pairs = _qual_nominate_max_pairs()
+    if len(nominated) > max_pairs:
+        logger.warning(
+            "[finding_dedup] F3-3a: %d nominated candidate pairs exceeds %s=%d — SKIPPING the "
+            "containment-NLI widening for this section (clusters pass through UNMERGED; no basket "
+            "dropped, §-1.3). Raise %s to score more pairs.",
+            len(nominated), _QUAL_NOMINATE_MAX_PAIRS_ENV, max_pairs, _QUAL_NOMINATE_MAX_PAIRS_ENV,
+        )
+        if telemetry is not None:
+            telemetry["nominated_pairs"] = len(nominated)
+            telemetry["containment_merges"] = 0
+            telemetry["over_cap"] = True
+        return clusters
+
+    # (2) CONFIRM: the strict bidirectional-entailment gate is the SOLE merge decision.
+    if entail_fn is None:
+        from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+            entails_directional,
+        )
+        entail_fn = entails_directional
+
+    edges: list[tuple[int, int]] = []
+    for i, j in nominated:
+        # Defense-in-depth: re-assert the polarity hard-block on the actual member bodies
+        # (mirrors _apply_finding_dedup_nli_grouping's model-independent guard).
+        if _polarity_signature(rep_texts[i]) != _polarity_signature(rep_texts[j]):
+            continue
+        fwd = entail_fn(rep_texts[i], rep_texts[j])
+        if fwd is not True:
+            continue  # one-direction / contradiction / infra None => no edge (fail-closed)
+        rev = entail_fn(rep_texts[j], rep_texts[i])
+        if rev is not True:
+            continue
+        edges.append((i, j))
+    edges.sort()
+    if telemetry is not None:
+        telemetry["nominated_pairs"] = len(nominated)
+    if not edges:
+        if telemetry is not None:
+            telemetry["containment_merges"] = 0
+        return clusters
+
+    # (3) DIRECT-EDGE keep-first grouping (NOT transitive union-find).
+    entails: dict[int, set] = {}
+    for i, j in edges:
+        entails.setdefault(i, set()).add(j)
+        entails.setdefault(j, set()).add(i)
+    out: list[list[Any]] = []
+    consumed = [False] * n
+    for i in range(n):
+        if consumed[i]:
+            continue
+        merged_ris: list[int] = list(clusters[i][2])
+        direct = entails.get(i, set())
+        for j in range(i + 1, n):
+            if consumed[j] or j not in direct:
+                continue  # require a DIRECT mutual-entailment edge with THIS primary
+            merged_ris.extend(clusters[j][2])
+            consumed[j] = True
+        consumed[i] = True
+        out.append([clusters[i][0], clusters[i][1], sorted(set(merged_ris))])
+    if telemetry is not None:
+        telemetry["containment_merges"] = n - len(out)
+    return out
+
+
 def _apply_finding_dedup_nli_grouping(
     rows: list[dict[str, Any]],
     clusters: list[list[Any]],
@@ -1410,6 +1673,7 @@ def _build_qualitative_groups(
     dropped: set[int],
     *,
     threshold: float,
+    nominate_entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
 ) -> dict[tuple, list[int]]:
     """Cluster the NO-numeric-finding (qualitative) rows that assert the SAME
     claim into corroboration baskets. Returns ``{qualitative_key: [row_idx, ...]}``
@@ -1423,6 +1687,17 @@ def _build_qualitative_groups(
     whose polarity signature matches; else it opens a new cluster. Deterministic +
     order-stable (candidates are visited in ascending row order). Two DIFFERENT
     qualitative claims never merge (low shingle overlap OR a polarity mismatch).
+
+    F3-3a (I-deepfix-001 #1369): after the near-verbatim greedy pass + the existing
+    NLI unions, a WIDENED candidate-NOMINATION pass
+    (``_apply_qualitative_containment_nli_grouping``) nominates additional cross-cluster
+    pairs by ASYMMETRIC token-containment (catching paraphrases the greedy Jaccard 0.82
+    gate misses) and CONFIRMS them through the SAME strict bidirectional-NLI gate — the
+    NLI stays the SOLE merge decision. ``nominate_entail_fn`` is the deterministic
+    test-injection seam for that pass (production passes None => the lazy resident
+    cross-encoder). The widened pass is a no-op unless its kill switch is ON AND either
+    a cross-encoder NLI path is already active OR ``nominate_entail_fn`` is injected — so a
+    default run with every NLI flag OFF stays byte-identical.
     """
     from src.polaris_graph.generator.fact_dedup import (  # noqa: PLC0415
         _PROSE_NO_MATCH,
@@ -1518,6 +1793,31 @@ def _build_qualitative_groups(
             int(_nli_telemetry.get("directional_merges", 0)),
             bool(_nli_telemetry.get("degraded", False)),
             bool(_nli_telemetry.get("wall_truncated", False)),
+        )
+
+    # FOURTH pass — F3-3a WIDENED candidate NOMINATION (I-deepfix-001 #1369). Nominate cross-cluster
+    # pairs by ASYMMETRIC token-containment (recalls paraphrases the near-verbatim greedy gate + the
+    # rep-only keystone leave as singletons, INCLUDING in the over-cap regime where the all-pairs
+    # passes above SKIP) and CONFIRM them through the SAME strict bidirectional-NLI gate — the NLI
+    # stays the SOLE merge decision (token-containment is only a candidate blocker). Runs ONLY when
+    # the kill switch is ON AND either an entail_fn is injected (tests) OR a cross-encoder NLI path is
+    # already active — so a default run with every NLI flag OFF is byte-identical (no model load, no
+    # merge). The widening rides the SAME resident cross-encoder the run slate already loads (ZERO new
+    # spend). Additive / keep-all / faithfulness-neutral (§-1.3).
+    if _qual_nominate_enabled() and (
+        nominate_entail_fn is not None
+        or _consolidation_nli_enabled()
+        or _finding_dedup_nli_enabled()
+    ):
+        _nom_telemetry: dict[str, Any] = {}
+        clusters = _apply_qualitative_containment_nli_grouping(
+            rows, clusters, entail_fn=nominate_entail_fn, telemetry=_nom_telemetry,
+        )
+        logger.info(
+            "[activation] qualitative_nominate: nominated_pairs=%d containment_merges=%d over_cap=%s",
+            int(_nom_telemetry.get("nominated_pairs", 0)),
+            int(_nom_telemetry.get("containment_merges", 0)),
+            bool(_nom_telemetry.get("over_cap", False)),
         )
 
     out: dict[tuple, list[int]] = {}

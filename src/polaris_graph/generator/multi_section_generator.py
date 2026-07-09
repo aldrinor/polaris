@@ -7233,6 +7233,9 @@ def _append_evidence_base_section(
     ev_ids: "list[str]",
     evidence_pool: "dict[str, Any]",
     research_question: str = "",
+    *,
+    section_title: str = "",
+    section_focus: str = "",
 ) -> bool:
     """I-deepfix-001 WS-3 (#1344) — append the numbered "Evidence base" breadth surface.
 
@@ -7355,12 +7358,20 @@ def _append_evidence_base_section(
         )
         return False
 
+    # I-deepfix-001 F2 (#1371): the SectionResult TITLE/FOCUS are parametrized so the SAME frozen
+    # verified-span render path can also emit the "Low-relevance evidence (kept at weight)" ledger
+    # (furniture / off-topic / below-floor entries MOVED below the appendix boundary — §-1.3 placement,
+    # never a drop). The block's OWN "## Evidence base" header strip above stays bound to
+    # ``_EVIDENCE_BASE_TITLE`` (that is what ``build_evidence_base_section`` emits); only the rendered
+    # SECTION title/focus differ. Empty params => byte-identical legacy Evidence base section.
+    _section_title = section_title or _EVIDENCE_BASE_TITLE
+    _section_focus = section_focus or (
+        "Breadth surface: every source carrying a surviving isolated-SUPPORTS span, each entry "
+        "strict_verify-VERIFIED and 4-role D8-judged (routed through the frozen gate, no bypass)."
+    )
     section_results.append(SectionResult(
-        title=_EVIDENCE_BASE_TITLE,
-        focus=(
-            "Breadth surface: every source carrying a surviving isolated-SUPPORTS span, each entry "
-            "strict_verify-VERIFIED and 4-role D8-judged (routed through the frozen gate, no bypass)."
-        ),
+        title=_section_title,
+        focus=_section_focus,
         ev_ids_assigned=[str(e) for e in (ev_ids or []) if e],
         raw_draft=block,
         rewritten_draft=rewritten,
@@ -9402,7 +9413,15 @@ async def generate_multi_section_report(
     # assembly stage so the numbered "Evidence base" section can surface every span-verified source
     # with a [N]. Empty ([] => no Evidence base section => byte-identical) unless the breadth
     # enrichment ran and found unbound SUPPORTS members.
+    #
+    # I-deepfix-001 F2 (#1371) gate-fix: after the F2 body/ledger split (computed once at the CWF plan-
+    # build seam below), ``_evidence_base_ev_ids`` holds the furniture-free BODY partition (consumed by
+    # BOTH the CWF facet/flat plans AND the Evidence base section) and ``_evidence_base_ledger_ev_ids``
+    # holds the "Low-relevance evidence (kept at weight)" LEDGER partition (furniture / off-topic /
+    # below-floor rows MOVED below the appendix boundary — §-1.3 placement, never a drop). Empty unless
+    # the breadth enrichment ran AND routed >=1 row to the ledger.
     _evidence_base_ev_ids: list[str] = []
+    _evidence_base_ledger_ev_ids: list[str] = []
     if partial_mode:
         logger.info(
             "[multi_section] I-arch-007 breadth: enrichment NOT attempted "
@@ -9427,7 +9446,32 @@ async def generate_multi_section_report(
         )
         # I-deepfix-001 WS-3 (#1344): carry the UNCAPPED ordered SUPPORTS surface to the assembly
         # stage for the numbered "Evidence base" section (§-1.3: SURFACE the keep-all set, no cap).
-        _evidence_base_ev_ids = list(_wfe.ev_ids)
+        #
+        # I-deepfix-001 F2 (#1371) gate-fix: SPLIT that ordered surface ONCE, here at the weighted-
+        # enrichment (CWF) plan-build seam, into a BODY partition and a "Low-relevance evidence (kept at
+        # weight)" LEDGER partition. Furniture / confidently-off-topic / judged-below-floor rows route to
+        # the ledger (rendered BELOW the appendix boundary at assembly). BOTH the CWF facet/flat plans
+        # below AND the Evidence base section then consume the furniture-free BODY partition, so no
+        # grounded-but-junk row renders in CWF body prose ABOVE the appendix and no row double-renders
+        # (the U17 near-duplicate collapse now sees two furniture-free surfaces). §-1.3 PLACEMENT, NEVER
+        # a drop: every ledger row still gets a real [N], lists in the Bibliography, and appears in the
+        # disclosure. Order-PRESERVING (the render relies on the weight order). OFF
+        # (PG_LOW_RELEVANCE_LEDGER=0) => body = full surface, ledger = [] => byte-identical legacy.
+        from .weighted_enrichment import (  # noqa: PLC0415
+            _LOW_RELEVANCE_LEDGER_TITLE,
+            partition_evidence_base_ids_for_ledger as _partition_evidence_base_ids_for_ledger,
+        )
+        _evidence_base_ev_ids, _evidence_base_ledger_ev_ids = _partition_evidence_base_ids_for_ledger(
+            list(_wfe.ev_ids), evidence_pool, research_question=research_question,
+        )
+        if _evidence_base_ledger_ev_ids:
+            logger.info(
+                "[multi_section] I-deepfix-001 F2 low-relevance ledger split (CWF + Evidence base): "
+                "%d body id(s) kept in the corroborated-findings body prose, %d id(s) MOVED below the "
+                "appendix boundary into %r (furniture / off-topic / below-floor — kept at weight, still "
+                "in pool + bibliography + disclosure; faithfulness engine untouched)",
+                len(_evidence_base_ev_ids), len(_evidence_base_ledger_ev_ids), _LOW_RELEVANCE_LEDGER_TITLE,
+            )
         # I-deepfix-001 (#1344) DEFER-1: DISCLOSE the SEMANTIC confirmed-off-topic
         # members withheld from the cited breadth surface (kept in evidence_pool +
         # the credibility disclosure — never deleted). LOUD so the suppression is
@@ -9494,7 +9538,7 @@ async def generate_multi_section_report(
         _wfe_plans: list = []
         if _facet_titles:
             _wfe_plans = _build_weighted_enrichment_plans_by_facet(
-                _wfe.ev_ids, _facet_titles,
+                _evidence_base_ev_ids, _facet_titles,
                 section_plan_cls=SectionPlan, text_of=_enrichment_text_of,
             )
         if _wfe_plans:
@@ -9503,19 +9547,21 @@ async def generate_multi_section_report(
             plans.extend(_wfe_plans)
             logger.info(
                 "[multi_section] I-deepfix-001 D4 breadth: appended %d FACET-ROUTED enrichment "
-                "section(s) over %d unbound SUPPORTS candidates (pre-strict_verify) across %d facet "
+                "section(s) over %d unbound SUPPORTS body candidates (pre-strict_verify; furniture/off-"
+                "topic/below-floor routed to the low-relevance ledger) across %d facet "
                 "title(s) [baskets=%d supports_members=%d excluded_bound=%d pool_absent=%d below_floor=%d]",
-                len(_wfe_plans), len(_wfe.ev_ids), len(_facet_titles), _wfe.baskets_seen,
+                len(_wfe_plans), len(_evidence_base_ev_ids), len(_facet_titles), _wfe.baskets_seen,
                 _wfe.supports_members_seen, _wfe.excluded_bound, _wfe.excluded_pool_absent,
                 _wfe.excluded_below_floor,
             )
-        elif (_wfe_plan := _build_weighted_enrichment_plan(_wfe.ev_ids, section_plan_cls=SectionPlan)) is not None:
+        elif (_wfe_plan := _build_weighted_enrichment_plan(_evidence_base_ev_ids, section_plan_cls=SectionPlan)) is not None:
             plans.append(_wfe_plan)
             logger.info(
                 "[multi_section] I-arch-007 breadth: appended weighted-enrichment section "
-                "with %d unbound SUPPORTS candidates (pre-strict_verify) "
+                "with %d unbound SUPPORTS body candidates (pre-strict_verify; furniture/off-topic/"
+                "below-floor routed to the low-relevance ledger) "
                 "[baskets=%d supports_members=%d excluded_bound=%d pool_absent=%d below_floor=%d]",
-                len(_wfe.ev_ids), _wfe.baskets_seen, _wfe.supports_members_seen,
+                len(_evidence_base_ev_ids), _wfe.baskets_seen, _wfe.supports_members_seen,
                 _wfe.excluded_bound, _wfe.excluded_pool_absent, _wfe.excluded_below_floor,
             )
         elif _wfe.reason == "credibility_analysis_none":
@@ -10465,10 +10511,64 @@ async def generate_multi_section_report(
     # renders through the normal `section_results` -> report-body assembly like every other section.
     # §-1.3: SURFACE the already-uncapped keep-all SUPPORTS set — NO cap added. Default-ON
     # (PG_BREADTH_EVIDENCE_BASE_SECTION); empty ev_ids / flag OFF => no-op => byte-identical.
+    #
+    # I-deepfix-001 F2 (#1371): the ordered surface is SPLIT into a BODY partition and a "Low-relevance
+    # evidence (kept at weight)" LEDGER — furniture / confirmed-off-topic / judged-below-floor entries
+    # are MOVED BELOW the appendix boundary into a clearly-labelled ledger section appended AFTER the
+    # Evidence base. §-1.3 PLACEMENT, NEVER a drop: every ledger source still gets a real [N], still
+    # lists in the Bibliography, and still appears in the disclosure — nothing is capped, thinned, or
+    # deleted. The ledger renders through the SAME frozen strict_verify + 4-role D8 path (no bypass).
+    #
+    # F2 gate-fix: the split is computed ONCE at the weighted-enrichment (CWF) plan-build seam above,
+    # over the SAME unbound-SUPPORTS surface, so the CWF facet sections AND this Evidence base BOTH
+    # render the furniture-free body and the ledger rows render ONCE below (no junk in CWF body prose,
+    # no double-render). Consume the pre-computed partitions here — no second split. Default-ON via
+    # PG_LOW_RELEVANCE_LEDGER; OFF => body=all, ledger=[] => byte-identical to the single Evidence base.
+    from .weighted_enrichment import _LOW_RELEVANCE_LEDGER_TITLE  # noqa: PLC0415
+
+    _eb_body_ids = _evidence_base_ev_ids
+    _eb_ledger_ids = _evidence_base_ledger_ev_ids
     _append_evidence_base_section(
-        section_results, global_biblio, _evidence_base_ev_ids, evidence_pool,
+        section_results, global_biblio, _eb_body_ids, evidence_pool,
         research_question=research_question,
     )
+    if _eb_ledger_ids:
+        # F2 gate iter-6 (Codex P1-adjunct — mis-logged placement): capture the ledger append's return
+        # and emit the "MOVED below the appendix boundary" placement log ONLY when the ledger section
+        # actually rendered (append returned True). Previously the log fired on `if _eb_ledger_ids:`
+        # regardless, so a ledger append that no-op'd (every ledger span dropped by the frozen
+        # strict_verify gate, or the Evidence base surface flag off) was mis-logged as a successful
+        # placement. On a False return the placement did NOT happen — log LOUDLY so the discrepancy is
+        # auditable, never silently mis-reported as a §-1.3 placement.
+        _eb_ledger_appended = _append_evidence_base_section(
+            section_results, global_biblio, _eb_ledger_ids, evidence_pool,
+            research_question=research_question,
+            section_title=_LOW_RELEVANCE_LEDGER_TITLE,
+            section_focus=(
+                "Low-relevance evidence kept at weight (§-1.3 placement, never a drop): sources whose "
+                "span is page furniture, confidently off the research question's topic, or judged "
+                "below the relevance floor. Each still carries a real [N], lists in the Bibliography, "
+                "and appears in the disclosure; moved below the appendix boundary, never deleted. Each "
+                "entry is strict_verify-VERIFIED and 4-role D8-judged (routed through the frozen gate)."
+            ),
+        )
+        if _eb_ledger_appended:
+            logger.info(
+                "[multi_section] I-deepfix-001 F2 low-relevance ledger: %d source id(s) MOVED below the "
+                "appendix boundary into %r (kept at weight — still in pool + bibliography + disclosure; "
+                "faithfulness engine untouched)",
+                len(_eb_ledger_ids), _LOW_RELEVANCE_LEDGER_TITLE,
+            )
+        else:
+            logger.warning(
+                "[multi_section] I-deepfix-001 F2 low-relevance ledger: the ledger section did NOT "
+                "render for %d routed id(s) into %r (append returned False — every ledger span was "
+                "dropped by the frozen strict_verify gate, or the Evidence base surface is off). These "
+                "id(s) were NOT placed below the appendix boundary; NOT mis-logged as a successful "
+                "placement. Ledger ids: %s",
+                len(_eb_ledger_ids), _LOW_RELEVANCE_LEDGER_TITLE,
+                ", ".join(_eb_ledger_ids[:30]),
+            )
 
     # I-gen-005 Step 3b commit 4 (Codex APPROVE_DESIGN iter-3 + iter-2 P2.1):
     # post-hoc atom validation hook. Runs AFTER final citation remap

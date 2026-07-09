@@ -94,13 +94,31 @@ _ROLE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 # --- header-list detection cues (prompt asked for a table with named columns) -
+# I-wire-001 F1 (missing-summary-table wiring): the cue also matches the run-bound
+# paraphrase form "... with columns: <a>, <b>, ..." / a bare "columns: <a>, <b>, ..."
+# so a prompt that names the headers AFTER a colon (no quotes) is still detected. The
+# authoritative header source is the per-task output CONTRACT (threaded as
+# ``contract_headers``); this parser is the belt-and-suspenders fallback.
 _HEADER_CUE_RE = re.compile(
     r"(column\s+headers?|table\s+columns?|columns?\s+(?:should\s+be|are)|"
-    r"headers?\s+(?:should\s+be|are))",
+    r"headers?\s+(?:should\s+be|are)|with\s+columns?\s*:?|columns?\s*:)",
     re.IGNORECASE,
 )
 _SMART_QUOTED_RE = re.compile(r"“(.+?)”")
 _STRAIGHT_QUOTED_RE = re.compile(r"\"(.+?)\"")
+# Connector words that stay lowercase inside a header phrase when the belt-and-suspenders
+# UNQUOTED fallback title-cases an all-lowercase header (so "specific applications and
+# impacts" -> "Specific Applications and Impacts", never "... And ..."). A header that
+# already carries its own casing is preserved verbatim (see :func:`_smart_titlecase`).
+_UNQUOTED_HEADER_SMALL_WORDS = frozenset(
+    {"and", "or", "of", "the", "in", "to", "a", "an", "for", "on", "with", "by"}
+)
+# The unquoted header list runs from the cue to the END of its sentence (first ``. `` /
+# trailing period); a header list is comma-separated (with an optional ", and" before the
+# last item), so we split on ',' ONLY — never on a bare " and " (which lives INSIDE a real
+# header like "Specific Applications and Impacts").
+_UNQUOTED_SENTENCE_END_RE = re.compile(r"\.(?:\s|$)")
+_UNQUOTED_LEADING_AND_RE = re.compile(r"^and\s+", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
 # High-precision, curated verbatim vocabularies. A term is surfaced into a cell
@@ -379,12 +397,30 @@ def summary_table_enabled() -> bool:
     return os.environ.get(_ENABLE_FLAG, "1").strip().lower() not in _OFF_VALUES
 
 
+def _smart_titlecase(phrase: str) -> str:
+    """Title-case an ALL-lowercase header phrase (keeping connector words lowercase after
+    the first word); a phrase that ALREADY carries any uppercase letter is returned
+    VERBATIM (so "Country/Region" / "Specific Applications and Impacts" are preserved
+    byte-for-byte and never mangled by a naive ``str.title``). PURE."""
+    phrase = phrase.strip()
+    if not phrase or any(c.isupper() for c in phrase):
+        return phrase
+    words = phrase.split()
+    out: list[str] = []
+    for i, w in enumerate(words):
+        if i > 0 and w in _UNQUOTED_HEADER_SMALL_WORDS:
+            out.append(w)
+        else:
+            out.append(w[:1].upper() + w[1:])
+    return " ".join(out)
+
+
 def parse_requested_headers(research_question: str) -> list[str]:
     """The exact column headers the prompt requests, or ``[]`` when the prompt does
     not ask for a titled summary table. Detection is CUE-anchored (a "column
-    headers"/"columns should be" phrase) so ordinary quoted text elsewhere in the
-    prompt is never mistaken for a header list. Handles smart and straight quotes.
-    PURE."""
+    headers"/"columns should be"/"with columns:" phrase) so ordinary quoted text
+    elsewhere in the prompt is never mistaken for a header list. Handles smart and
+    straight quotes, then an UNQUOTED comma-list fallback (I-wire-001 F1). PURE."""
     if not research_question:
         return []
     cue = _HEADER_CUE_RE.search(research_question)
@@ -403,6 +439,20 @@ def parse_requested_headers(research_question: str) -> list[str]:
     straight = [h.strip() for h in _STRAIGHT_QUOTED_RE.findall(tail) if h.strip()]
     if len(straight) >= 2:
         return straight
+    # I-wire-001 F1 — UNQUOTED fallback (belt-and-suspenders; the CONTRACT path is
+    # primary). The cue matched but quote-extraction found < 2 header names, so the
+    # prompt named the headers as a plain comma list ("... with columns: A, B, C, and
+    # D."). Bound to the cue's SENTENCE, split on ',' ONLY (a bare " and " lives inside a
+    # real header), drop a leading ", and", strip a trailing period, smart-title-case.
+    sentence_end = _UNQUOTED_SENTENCE_END_RE.search(tail)
+    sentence_tail = tail[: sentence_end.start()] if sentence_end else tail
+    unquoted: list[str] = []
+    for raw in sentence_tail.split(","):
+        piece = _UNQUOTED_LEADING_AND_RE.sub("", raw.strip()).strip().rstrip(".").strip()
+        if piece:
+            unquoted.append(_smart_titlecase(piece))
+    if len(unquoted) >= 2:
+        return unquoted
     return []
 
 
@@ -1373,6 +1423,7 @@ def render_requested_summary_table(
     existing_report_md: str = "",
     appendix_boundary_marker: str = "",
     chrome_screen: Callable[[str], bool] | None = None,
+    contract_headers: list[str] | None = None,
 ) -> SummaryTableResult:
     """Build and insert the prompt-requested summary table into ``existing_report_md``.
 
@@ -1380,12 +1431,24 @@ def render_requested_summary_table(
     does not request a titled table, the report already carries the table marker
     (idempotent / resume-safe), or no source carries a verified claim. Otherwise
     returns the report text with the table inserted at the end of the scored body.
-    PURE (reads only the env kill-switch)."""
+    PURE (reads only the env kill-switch).
+
+    I-wire-001 F1 — the header source is resolved as ``contract_headers or
+    parse_requested_headers(research_question)``: when the caller supplies the per-task
+    output CONTRACT's ``required_table.columns`` (>= 2 clean names) those are
+    AUTHORITATIVE (they are transcribed verbatim from the gold prompt and are exactly
+    what the run-validity gate matches against), otherwise the parser recovers the
+    headers from the bound question. None/empty ``contract_headers`` => byte-identical to
+    the prior parse-from-question behaviour."""
     if not summary_table_enabled():
         return SummaryTableResult(text=existing_report_md, changed=False, canary="disabled")
     if existing_report_md and TABLE_MARKER in existing_report_md:
         return SummaryTableResult(text=existing_report_md, changed=False, canary="already_present")
-    headers = parse_requested_headers(research_question)
+    # CONTRACT path is primary (authoritative when it yields >= 2 clean columns); the
+    # bound-question parser is the fallback.
+    headers = [str(h).strip() for h in (contract_headers or []) if str(h).strip()]
+    if len(headers) < 2:
+        headers = parse_requested_headers(research_question)
     if len(headers) < 2:
         return SummaryTableResult(text=existing_report_md, changed=False, canary="no_table_requested")
     rows = _build_rows(bibliography or [], section_claims, chrome_screen)

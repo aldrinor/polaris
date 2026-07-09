@@ -4505,6 +4505,47 @@ def assert_coverage_levers_armed() -> None:
         )
 
 
+def assert_table_contract_columns_available(q: dict) -> None:
+    """I-wire-001 F1 — FAIL CLOSED (pre-spend, at LAUNCH) if this slug's task_output_contract REQUIRES a
+    summary table but the exact required columns will NOT reach the table builder.
+
+    The builder (summary_table.render_requested_summary_table) resolves its headers as ``contract_headers
+    or parse_requested_headers(bound_question)``. So a table-requiring slug is safe iff EITHER the contract
+    supplies the columns (the authoritative path threaded through render_summary_table_into_artifact) OR the
+    bound question parses to >= 2 header names. When NEITHER holds, the paid run would render NO table and the
+    run-validity contract-scaffold gate would fail the presentation rubric AFTER full spend — this tripwire
+    fails LOUD at launch instead. A slug whose contract declares no ``required_table`` (or has no contract at
+    all) is a documented NO-OP. FAITHFULNESS-NEUTRAL: reads the contract file + the bound question text only;
+    touches no gate / evidence / verdict. Kill-switch ``PG_TABLE_CONTRACT_PRESPEND_ASSERT`` (default ON; LAW VI)."""
+    if os.getenv("PG_TABLE_CONTRACT_PRESPEND_ASSERT", "1").strip().lower() not in ("1", "true", "yes", "on"):
+        return
+    slug = str(q.get("slug", "") or "")
+    if not slug:
+        return
+    from scripts.dr_benchmark.run_validity_gate import load_task_output_contract
+    contract = load_task_output_contract(slug)
+    required_table = (contract or {}).get("required_table") or {}
+    if not required_table:
+        return  # this slug's contract does not require a summary table => documented no-op
+    columns = [str(c).strip() for c in (required_table.get("columns") or []) if str(c).strip()]
+    if len(columns) >= 2:
+        return  # contract supplies the authoritative columns => the builder WILL receive them (F1 wire)
+    # The contract declares a required table but provides < 2 usable columns — the builder would fall back
+    # to parsing the bound question; assert that recovers >= 2 headers, else fail loud.
+    from src.polaris_graph.generator.summary_table import parse_requested_headers
+    parsed = parse_requested_headers(str(q.get("question", "") or ""))
+    if len(parsed) >= 2:
+        return
+    raise RuntimeError(
+        "benchmark preflight FAILED [TABLE-CONTRACT-UNRESOLVED] (pre-spend, at launch): slug "
+        f"{slug!r} declares a required summary table in task_output_contracts.yaml but NEITHER the contract "
+        f"columns ({columns!r}) NOR the bound question yield >= 2 header names — the paid run would render NO "
+        "table and the run-validity contract-scaffold gate would fail AFTER full spend. Fix the contract's "
+        "required_table.columns (>= 2 verbatim gold-prompt headers) or the bound question's column list; set "
+        "PG_TABLE_CONTRACT_PRESPEND_ASSERT=0 ONLY for a deliberate operator experiment."
+    )
+
+
 def _assert_mineru25_http_backend_ready() -> None:
     """I-deepfix-001 Item-10 (#1344): FAIL-LOUD pre-spend readiness probe for the W4 mineru25 clinical-PDF
     winner — so a mis-provisioned GPU box can NEVER silently ship the Docling loser.
@@ -5660,6 +5701,13 @@ async def run_gate_b_query(
                 f"GOLD) — cannot resolve the official question (would silently run the wrong prompt). "
                 f"Register the slug's gold idx or list it no-gold."
             )
+
+    # I-wire-001 F1 — PRE-SPEND, AT-LAUNCH assertion (bound question now finalized above): if this slug's
+    # output contract requires a summary table, assert the exact required columns WILL reach the table
+    # builder (contract present with >= 2 columns, OR the bound question parses to >= 2 headers). Fails LOUD
+    # here — before the heavy sweep import + any token spend — instead of shipping a table-less report the
+    # run-validity gate would only reject AFTER full spend. Default-ON kill-switch; faithfulness-neutral.
+    assert_table_contract_columns_available(q)
 
     from scripts.run_honest_sweep_r3 import run_one_query
 
