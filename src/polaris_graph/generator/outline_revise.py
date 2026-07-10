@@ -39,6 +39,9 @@ PG_OUTLINE_REVISE_MAX_RECOMPOSE_DEFAULT = 8  # compute-safety ceiling, NOT a qua
 _ORPHAN_CORROBORATION_MIN = 2
 
 _VALID_OPS = frozenset({"keep", "merge", "split", "retitle", "reassign", "add"})
+# reassign op fields (WP-3a compose-stage prompt schema): `add_ev_ids` = pool members to ADD
+# into this section, `drop_ev_ids` = members to REMOVE. A bare `ev_ids` on a reassign is aliased
+# to `add_ev_ids` (fail-open, §-1.3); a reassign carrying neither is rejected as no_op_reassign.
 
 
 def _env_int(name: str, default: int) -> int:
@@ -223,6 +226,16 @@ def parse_revision_ops(
                 rejected.append({"op": dict(op), "reason_code": "missing_new_title"})
                 continue
 
+        # reassign fail-open alias (§-1.3): a reassign carrying a bare ``ev_ids`` but neither
+        # ``add_ev_ids`` nor ``drop_ev_ids`` means "assign these members INTO this section".
+        # Alias ev_ids -> add_ev_ids BEFORE validation so the payload is KEPT — the apply branch
+        # reads ONLY add_ev_ids/drop_ev_ids, so without this the members are silently dropped
+        # while the op still fakes accepted=1 and burns a recompose slot (the reproduced no-op).
+        if kind == "reassign" and "add_ev_ids" not in op and "drop_ev_ids" not in op and "ev_ids" in op:
+            aliased = {k: v for k, v in op.items() if k != "ev_ids"}
+            aliased["add_ev_ids"] = op["ev_ids"]
+            op = aliased
+
         # ev_id references, wherever they appear
         bad_all: list[str] = []
         for key in ("ev_ids", "add_ev_ids", "drop_ev_ids"):
@@ -252,6 +265,11 @@ def parse_revision_ops(
             continue
         if bad_all:
             rejected.append({"op": dict(op), "reason_code": f"unknown_ev_ids:{bad_all[:5]}"})
+            continue
+        if kind == "reassign" and not op.get("add_ev_ids") and not op.get("drop_ev_ids"):
+            # a reassign that moves nothing must NOT fake changed=True or consume a recompose
+            # slot in the apply branch — reject it here (one source of truth in the parser).
+            rejected.append({"op": dict(op), "reason_code": "no_op_reassign"})
             continue
         accepted.append(dict(op))
 

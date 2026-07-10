@@ -112,6 +112,70 @@ def test_apply_recompose_set_is_the_reopen_signal() -> None:
     final_titles = [p["title"] for p in applied.new_plans]
     assert "Weight and Safety" not in final_titles  # retitled away
     assert "Cardiovascular Outcomes" in final_titles
+    # the reassign must actually MUTATE the plan, not merely recompose the title: ev07 is a
+    # genuinely-new member for Cost and must appear in the recomposed plan's ev_ids.
+    cost = next(p for p in applied.new_plans if p["title"] == "Cost")
+    assert "ev07" in cost["ev_ids"]  # add_ev_ids member landed
+    assert "ev06" in cost["ev_ids"]  # original member preserved
+
+
+def test_reassign_ev_ids_alias_lands_members() -> None:
+    # (a) a reassign carrying a bare `ev_ids` (no add_ev_ids/drop_ev_ids) must alias ev_ids ->
+    # add_ev_ids so the members actually LAND in the target plan after apply. This is the fix for
+    # the reproduced silent no-op: apply reads only add_ev_ids/drop_ev_ids, so an ev_ids-shaped
+    # reassign used to recompose the section while dropping the payload.
+    plans = [{"title": "Target", "ev_ids": ["e1"], "basket_ids": []}]
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "reassign", "title": "Target", "ev_ids": ["e2"]}]},
+        allowed_ev_ids={"e1", "e2"}, plan_titles=["Target"],
+    )
+    assert [op["op"] for op in parsed.ops] == ["reassign"]  # accepted, not rejected
+    applied = apply_revision_ops(plans, parsed)
+    target = next(p for p in applied.new_plans if p["title"] == "Target")
+    assert "e2" in target["ev_ids"]  # aliased member landed in the plan
+    assert "e1" in target["ev_ids"]  # original member preserved
+    assert "Target" in applied.recompose_titles
+    assert applied.changed is True
+
+
+def test_reassign_payloadless_is_rejected_no_op() -> None:
+    # (b) a reassign with neither add_ev_ids nor drop_ev_ids (nor a bare ev_ids) moves nothing:
+    # reject it as no_op_reassign so it cannot fake changed=True or burn a recompose slot.
+    plans = [{"title": "Target", "ev_ids": ["e1"], "basket_ids": []}]
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "reassign", "title": "Target", "reason": "moves nothing"}]},
+        allowed_ev_ids={"e1"}, plan_titles=["Target"],
+    )
+    assert parsed.ops == []
+    assert any(r["reason_code"] == "no_op_reassign" for r in parsed.rejected)
+    applied = apply_revision_ops(plans, parsed)
+    assert applied.changed is False
+    assert applied.recompose_titles == []
+    assert "Target" not in applied.recompose_titles
+
+
+def test_reassign_empty_lists_is_rejected_no_op() -> None:
+    # a reassign that explicitly carries empty add_ev_ids AND empty drop_ev_ids is also a no-op.
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "reassign", "title": "S", "add_ev_ids": [], "drop_ev_ids": []}]},
+        allowed_ev_ids={"e1"}, plan_titles=["S"],
+    )
+    assert parsed.ops == []
+    assert any(r["reason_code"] == "no_op_reassign" for r in parsed.rejected)
+
+
+def test_reassign_pure_drop_is_kept() -> None:
+    # a reassign that only DROPs members (empty/absent add) is a real op, not a no-op.
+    plans = [{"title": "S", "ev_ids": ["e1", "e2"], "basket_ids": []}]
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "reassign", "title": "S", "drop_ev_ids": ["e2"]}]},
+        allowed_ev_ids={"e1", "e2"}, plan_titles=["S"],
+    )
+    assert [op["op"] for op in parsed.ops] == ["reassign"]
+    applied = apply_revision_ops(plans, parsed)
+    s = next(p for p in applied.new_plans if p["title"] == "S")
+    assert s["ev_ids"] == ["e1"]  # e2 dropped
+    assert "S" in applied.recompose_titles
 
 
 def test_apply_merge_unions_ev_ids() -> None:

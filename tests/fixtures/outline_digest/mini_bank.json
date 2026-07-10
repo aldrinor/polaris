@@ -32,7 +32,7 @@
     "ops": [
       {"op": "keep", "title": "Glycemic Efficacy"},
       {"op": "retitle", "title": "Weight and Safety", "new_title": "Weight Reduction and Adverse Events", "reason": "safety warrants its own heading"},
-      {"op": "reassign", "title": "Cost", "add_ev_ids": ["ev06"], "drop_ev_ids": [], "reason": "confirm the single cost row is anchored"},
+      {"op": "reassign", "title": "Cost", "add_ev_ids": ["ev06", "ev07"], "drop_ev_ids": [], "reason": "anchor the cost row and pull the adverse-events row into Cost"},
       {"op": "add", "title": "Cardiovascular Outcomes", "focus": "SURPASS-CVOT status", "ev_ids": ["ev08"], "reason": "uncited on-topic cardiovascular evidence"},
       {"op": "reassign", "title": "Nonexistent Section", "add_ev_ids": ["ev01"], "reason": "must be rejected: unknown title"},
       {"op": "reassign", "title": "Glycemic Efficacy", "add_ev_ids": ["ev999"], "reason": "must be rejected: unknown ev_id"}
