@@ -29,7 +29,18 @@ from typing import Any, Callable, Mapping, Sequence
 # ── knob defaults (LAW VI; exact names/defaults from Design 5 §6 + master §6). These are
 # the resolver-swap seam per master §1.5: when run_config.py (WP-0b) lands, each read below
 # becomes ``run_config.get(<id>)`` — same names, same defaults, byte-identical when unset.
-PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT = 60000
+# PUSH 3 (de-starve the digest, §9.1.8 read-the-API-don't-guess): the prior 60000 default
+# STARVED a routine 686-row cp3 pool — its FULL verbose digest is 85712 chars, so the guard
+# tersed all 512 singletons to title-only (degraded=True) even though the tersed menu was
+# only 54145 chars. The serving model is GLM-5.2 (OpenRouter `z-ai/glm-5.2`): context_length
+# 1,048,576 tokens, top-provider max_completion 131,072 (queried live, not guessed). The outline
+# INPUT budget = context - reasoning(PG_OUTLINE_REASONING_MAX_TOKENS=6144) - content
+# (PG_OUTLINE_MIN_MAX_TOKENS=16384) - system prompt; 200000 chars is ~50K input tokens, which
+# leaves >20% margin against even a conservative 200K-token GLM-5.x context floor and is trivial
+# against GLM-5.2's real 1M window. This is >2x the measured full-verbose size (85712), so the
+# routine cp3 pool renders degraded=False with room to spare. The guard MECHANISM is unchanged —
+# only the default budget rose (LAW VI: still env-overridable via PG_OUTLINE_DIGEST_MAX_CHARS).
+PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT = 200000
 
 _CLAIM_MAX_CHARS = 200          # basket representative claim, per Design 5 ORCH-1 (~200c)
 _TITLE_MAX_CHARS = 120          # singleton title, matches the small-pool menu (:2616)
@@ -127,6 +138,26 @@ def _singleton_line(
     return f"{ev_id} [{tier}]: {statement}"
 
 
+def _is_title_like(statement: str, title: str) -> bool:
+    """PUSH 4 (S4-local title-like mitigation): True when a candidate basket claim is really a
+    bare TITLE, not a claim sentence — an S3 representative_statement that fell back to the row
+    title (measured title-like on a large fraction of cp3 baskets). Detected deterministically:
+    empty; a ``[PDF]`` / ``(PDF)`` chrome prefix; a truncated ``...`` tail; or byte-equal to the
+    row title. This is a LOCAL display mitigation (pick a better member statement), never a drop
+    — the upstream fix (S3 should emit a claim sentence) is filed as a separate note."""
+    s = (statement or "").strip()
+    if not s:
+        return True
+    low = s.lower()
+    if low.startswith("[pdf]") or low.startswith("(pdf)"):
+        return True
+    if s.endswith("..."):
+        return True
+    if title and s == title.strip():
+        return True
+    return False
+
+
 def build_outline_digest(
     evidence: Sequence[Mapping[str, Any]],
     clusters: Sequence[Any],
@@ -174,9 +205,24 @@ def build_outline_digest(
         member_ev_ids = sorted(_ev_id_at(evidence, i) for i in getattr(c, "member_indices"))
         member_ev_ids = [e for e in member_ev_ids if e]
         rep_row = evidence[int(getattr(c, "representative_index"))]
-        claim = _clean(str(rep_row.get("statement", "") or rep_row.get("title", "") or ""))[
-            :_CLAIM_MAX_CHARS
-        ]
+        # PUSH 4 (title-like claim mitigation, S4-local): the basket claim is the representative
+        # statement, falling back to the title. When that representative statement is title-like
+        # (a chrome/PDF prefix, a truncated tail, or byte-equal to the row title), scan THIS
+        # basket's OTHER member statements (in member order) for the first non-title-like one and
+        # use it instead — so the planner reads a real claim sentence, not a bare title. Falls back
+        # to the representative when no member has a claim sentence (deterministic, never a drop).
+        rep_stmt = str(rep_row.get("statement", "") or "")
+        rep_title = str(rep_row.get("title", "") or "")
+        chosen_claim = rep_stmt or rep_title
+        if _is_title_like(rep_stmt, rep_title):
+            for _mi in getattr(c, "member_indices"):
+                _m_row = evidence[int(_mi)]
+                _m_stmt = str(_m_row.get("statement", "") or "")
+                _m_title = str(_m_row.get("title", "") or "")
+                if _m_stmt and not _is_title_like(_m_stmt, _m_title):
+                    chosen_claim = _m_stmt
+                    break
+        claim = _clean(chosen_claim)[:_CLAIM_MAX_CHARS]
         tiers = [str(evidence[i].get("tier", "") or "") for i in getattr(c, "member_indices")]
         basket_specs.append(
             {

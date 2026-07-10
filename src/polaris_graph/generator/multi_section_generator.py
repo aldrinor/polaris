@@ -1111,6 +1111,17 @@ class SectionPlan:
     # tag here so M-44/M-47 route on archetype, not on a clinical title.
     # Appended LAST in the field list to preserve positional construction.
     archetype: str = ""
+    # S4 ORCH-2 PUSH 1(d): a REQUIRED (user-asked) section is emitted even when the evidence is
+    # thin — ev_ids may be empty; the pipeline DISCLOSES the gap (never fakes content — strict_verify
+    # makes fabrication impossible downstream regardless). Set True by _parse_outline when a required
+    # title is accepted below the normal >=2 ev_id floor. Appended LAST to preserve positional
+    # construction (same safety note as ``archetype`` above).
+    undersupplied: bool = False
+    # S4 ORCH-1 PUSH 2: deterministic basket_ids backfilled from the digest's ev_id -> basket map
+    # AFTER a successful parse (zero LLM, cannot be spoofed). Drives find_orphan_baskets so only
+    # TRUE orphans surface. Default empty so every OFF-path SectionPlan is byte-identical. Appended
+    # LAST (positional-safe).
+    basket_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1370,6 +1381,11 @@ class OutlineParseResult:
     ok: bool
     reason_codes: list[str] = field(default_factory=list)
     raw: str = ""
+    # S4 ORCH PUSH 1(e): the outline-build telemetry surfaced by _call_outline for the cp4 digest
+    # stats block (basket-digest degraded/size + whether the ORCH-2 requirements block was actually
+    # wired into the outline call + its char length). DATA ONLY (never a verdict). Default empty so
+    # every existing OutlineParseResult construction is byte-identical.
+    digest_stats: dict = field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1496,6 +1512,7 @@ def _parse_outline(
     allowed_ev_ids: set[str] | None = None,
     allowed_sections: list[str] | None = None,
     facet_titles: bool = False,
+    required_sections: list[str] | None = None,
 ) -> OutlineParseResult:
     """Extract JSON from an outline response and validate.
 
@@ -1579,6 +1596,11 @@ def _parse_outline(
 
     plans: list[SectionPlan] = []
     allowed = {s.lower() for s in (allowed_sections or _ALLOWED_SECTIONS)}
+    # S4 ORCH-2 PUSH 1(c)/(d): the user's REQUIRED titles GOVERN validation. A required title is
+    # accepted regardless of the allow-list AND regardless of the >=2 ev_id floor, and is tagged
+    # ``undersupplied`` when it lands below that floor (disclosed, never faked). Empty (the OFF
+    # default) => every branch below is byte-identical to HEAD.
+    required_lower = {str(s).strip().lower() for s in (required_sections or []) if str(s).strip()}
     seen_titles: set[str] = set()
     all_ev_ids: list[str] = []  # tracks overlap across sections
     for entry in sections_raw:
@@ -1586,13 +1608,15 @@ def _parse_outline(
             continue
         title = str(entry.get("title", "")).strip()
         title_lower = title.lower()
+        _is_required = title_lower in required_lower
         # O1 (#1344): facet mode accepts ANY non-empty topical title (the fixed 6-title
         # allow-list is the container being removed); legacy mode keeps the allow-list drop.
+        # PUSH 1(c): a required title is never dropped by the allow-list.
         if facet_titles:
             if not title:
                 logger.info("[multi_section] facet outline dropped empty title")
                 continue
-        elif title_lower not in allowed:
+        elif title_lower not in allowed and not _is_required:
             logger.info("[multi_section] outline dropped off-list title %r", title)
             continue
         if title_lower in seen_titles:
@@ -1611,9 +1635,19 @@ def _parse_outline(
             if unknown:
                 reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
                 continue
+        # PUSH 1(d): a required title is accepted with ANY ev_id count (including 0) and tagged
+        # ``undersupplied`` when below the >=2 floor — the section is DISCLOSED, never faked. A
+        # non-required title keeps the exact legacy <2 drop (byte-identical when required is empty).
+        _undersupplied = False
         if len(ev_ids) < 2:
-            logger.info("[multi_section] outline dropped %r (<2 unique ev_ids)", title)
-            continue
+            if not _is_required:
+                logger.info("[multi_section] outline dropped %r (<2 unique ev_ids)", title)
+                continue
+            _undersupplied = True
+            logger.info(
+                "[multi_section] required section %r accepted undersupplied (%d ev_ids) — "
+                "disclosed, not faked", title, len(ev_ids),
+            )
         plans.append(SectionPlan(
             title=title, focus=focus or title, ev_ids=ev_ids,
             # O1 (#1344): facet sections carry an M-44/M-47 archetype (Mechanism-titled ->
@@ -1621,6 +1655,7 @@ def _parse_outline(
             # validators fire on EVERY facet section — never weaker than legacy. Legacy mode
             # keeps archetype="" (title-based routing, byte-identical).
             archetype=_storm_section_archetype(title) if facet_titles else "",
+            undersupplied=_undersupplied,
         ))
         seen_titles.add(title_lower)
         all_ev_ids.extend(ev_ids)
@@ -1674,6 +1709,56 @@ def _parse_outline(
     return OutlineParseResult(
         plans=plans, ok=ok, reason_codes=reason_codes, raw=raw,
     )
+
+
+def _conform_plans_to_required(
+    plans: list[SectionPlan],
+    required_sections: list[str],
+    *,
+    facet_titles: bool = False,
+) -> list[SectionPlan]:
+    """S4 ORCH-2 PUSH 1(c): make the final plan set EXACTLY the user's required sections, in the
+    required order — deterministically, never trusting LLM ordering.
+
+    For each required title (in order): reuse the LLM-emitted plan whose title matches
+    case-insensitively (carrying its ev_ids / undersupplied / basket_ids); when the LLM emitted no
+    such section, synthesize an EMPTY ``undersupplied=True`` plan (the pipeline DISCLOSES the gap,
+    never fakes content). Non-required emitted titles are dropped from the outline (their evidence
+    is not lost — it stays in the pool and is re-homed by the orphan router / reviser downstream).
+    ``required_sections`` empty => ``plans`` returned unchanged (byte-identical OFF path)."""
+    if not required_sections:
+        return plans
+    by_title: dict[str, SectionPlan] = {}
+    for p in plans:
+        by_title.setdefault(str(p.title).strip().lower(), p)
+    conformed: list[SectionPlan] = []
+    for title in required_sections:
+        title = str(title).strip()
+        if not title:
+            continue
+        existing = by_title.get(title.lower())
+        if existing is not None:
+            # Preserve the LLM's evidence selection; keep the exact required title casing.
+            existing.title = title
+            conformed.append(existing)
+        else:
+            conformed.append(SectionPlan(
+                title=title, focus=title, ev_ids=[],
+                archetype=_storm_section_archetype(title) if facet_titles else "",
+                undersupplied=True,
+            ))
+    return conformed
+
+
+def _spec_read(spec: Any, key: str, default: Any) -> Any:
+    """Read ``key`` off a plain dict OR an object (Design 3 DeliverableSpec attr surface). Mirrors
+    ``outline_digest._spec_get`` so a deliverable/scope spec works as either shape (build-to-
+    interface, no fake stand-in). ``None`` spec => ``default``."""
+    if spec is None:
+        return default
+    if isinstance(spec, dict):
+        return spec.get(key, default)
+    return getattr(spec, key, default)
 
 
 def _ev_is_span_groundable(row: dict[str, Any] | None) -> bool:
@@ -2553,6 +2638,8 @@ async def _call_outline(
     retry_on_invalid: bool = True,
     domain: str = "",
     finding_clusters: Any = None,
+    deliverable_spec: Any = None,
+    scope_spec: Any = None,
 ) -> tuple[OutlineParseResult, bool, int, int]:
     """Call the planner. Returns (parse_result, retry_attempted, in_tok, out_tok).
 
@@ -2560,11 +2647,29 @@ async def _call_outline(
     validation fails. Retries are capped at 1. I-ready-009 (#1081):
     `domain` selects the clinical (byte-identical) or generic outline
     prompt + the allowed section titles validation uses.
+
+    S4 ORCH-2 PUSH 1: ``deliverable_spec`` + ``scope_spec`` (both default None => every prompt
+    string byte-identical to HEAD) carry the user's structural asks. When the deliverable names
+    REQUIRED sections, they GOVERN validation (passed as the parse allow-list) and the final plan
+    set is deterministically conformed to exactly those titles, in order; the ORCH-2 requirements
+    block is appended to the outline USER prompt; and each plan's ``basket_ids`` is deterministically
+    backfilled from the digest ev_id -> basket map. ``parse_result.digest_stats`` carries the cp4
+    digest telemetry.
     """
     _outline_allowed_sections = _allowed_sections_for_domain(domain)
     _outline_system_prompt = _select_outline_system_prompt(domain)
     # O1 (#1344): facet mode governs the non-clinical outline title/count parsing.
     _facet_mode = _facet_outline_active_for_domain(domain)
+    # S4 ORCH-2 PUSH 1(c): the user's REQUIRED section titles (empty => OFF => byte-identical). When
+    # non-empty they GOVERN the parse allow-list AND the deterministic post-parse conform/reorder.
+    _required_sections = [
+        str(t).strip()
+        for t in (_spec_read(deliverable_spec, "required_sections", []) or [])
+        if str(t).strip()
+    ]
+    # Required titles WIN: the parse allow-list becomes exactly the required set (so a straggler
+    # generic title the LLM emits is dropped), while the reorder guarantees the exact set + order.
+    _parse_allowed_sections = _required_sections or _outline_allowed_sections
     from src.polaris_graph.llm.openrouter_client import (
         OpenRouterClient,
         set_reasoning_call_context,
@@ -2673,6 +2778,7 @@ async def _call_outline(
     # passed => the legacy title menu is used, BYTE-IDENTICAL. Fail-open: a digest-build error
     # falls back to the legacy menu (the outline menu is not a faithfulness gate; never crash a
     # paid outline). §-1.3: CONSOLIDATE-keep-all — the digest accounts for 100% of the pool.
+    _digest_menu = None  # hoisted: needed AFTER parse for the PUSH 2 basket_ids backfill
     if (
         os.getenv("PG_OUTLINE_BASKET_DIGEST", "0").strip().lower() in ("1", "true", "yes", "on")
         and finding_clusters
@@ -2691,10 +2797,30 @@ async def _call_outline(
                 f"Return the JSON section plan."
             )
         except Exception as _digest_exc:  # noqa: BLE001 — fall back to the legacy title menu
+            _digest_menu = None
             logger.warning(
                 "[multi_section] S4 ORCH-1 basket-digest build failed; falling back to the "
                 "legacy title menu (never crash the outline): %s", _digest_exc,
             )
+
+    # S4 ORCH-2 PUSH 1(b): append the deliverable/scope REQUIREMENTS block to the outline USER
+    # prompt ONCE, right after the digest branch — the retry reuses `prompt`, so one append covers
+    # BOTH the primary and retry calls. Empty deliverable + empty scope => "" => byte-identical
+    # no-append (the OFF path). Never a faithfulness gate; a required-but-thin section is disclosed
+    # downstream (undersupplied), never faked.
+    _requirements_block = ""
+    try:
+        from src.polaris_graph.generator.outline_digest import build_requirements_block
+
+        _requirements_block = build_requirements_block(deliverable_spec, scope_spec)
+    except Exception as _req_exc:  # noqa: BLE001 — never crash a paid outline on the block build
+        _requirements_block = ""
+        logger.warning(
+            "[multi_section] S4 ORCH-2 requirements-block build failed; proceeding without it "
+            "(never crash the outline): %s", _req_exc,
+        )
+    if _requirements_block:
+        prompt = prompt + _requirements_block
 
     # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
     # ev_id the LLM picks is accepted iff it is anywhere in the pool, and full-text resolution
@@ -2742,8 +2868,9 @@ async def _call_outline(
         raw = (response.content or "").strip()
         parse_result = _parse_outline(
             raw, allowed_ev_ids=allowed_ev_ids,
-            allowed_sections=_outline_allowed_sections,
+            allowed_sections=_parse_allowed_sections,
             facet_titles=_facet_mode,
+            required_sections=_required_sections,
         )
 
         # BUG-M-203 + M-25b hardening + M-41a pass-2: retry the outline
@@ -2835,8 +2962,9 @@ async def _call_outline(
             retry_raw = (retry_response.content or "").strip()
             retry_parse = _parse_outline(
                 retry_raw, allowed_ev_ids=allowed_ev_ids,
-                allowed_sections=_outline_allowed_sections,
+                allowed_sections=_parse_allowed_sections,
                 facet_titles=_facet_mode,
+                required_sections=_required_sections,
             )
             # BUG-18 (#1262, §-1.3): accept the retry only if it is VALID — NOT
             # merely because it produced MORE sections (that was count bias that
@@ -2859,6 +2987,35 @@ async def _call_outline(
                 await client.close()
             except Exception:
                 pass
+
+    # S4 ORCH-2 PUSH 1(c): the final plan set is EXACTLY the required titles, in the required order
+    # — deterministic, never trusting the LLM ordering. Empty required => plans unchanged.
+    if _required_sections:
+        parse_result.plans = _conform_plans_to_required(
+            parse_result.plans, _required_sections, facet_titles=_facet_mode,
+        )
+
+    # S4 ORCH-1 PUSH 2: deterministically backfill each plan's basket_ids from the digest's
+    # ev_id -> basket map (zero LLM, cannot be spoofed). Drives find_orphan_baskets so only TRUE
+    # orphans surface downstream. No digest built (OFF / no clusters) => no basket_ids (unchanged).
+    if _digest_menu is not None:
+        _ev2b = _digest_menu.ev_id_to_basket
+        for _p in parse_result.plans:
+            _p.basket_ids = sorted({_ev2b[e] for e in _p.ev_ids if e in _ev2b})
+
+    # S4 ORCH PUSH 1(e): surface the cp4 digest telemetry (DATA ONLY — never a verdict). The
+    # ``requirements_block_wired_into_call_outline`` flag is now a COMPUTED value: True iff a
+    # non-empty ORCH-2 block was actually appended to the outline prompt this call.
+    parse_result.digest_stats = {
+        "basket_digest_enabled": bool(_digest_menu is not None),
+        "digest_degraded": bool(getattr(_digest_menu, "degraded", False)) if _digest_menu is not None else False,
+        "digest_total_chars": int(getattr(_digest_menu, "total_chars", 0)) if _digest_menu is not None else 0,
+        "digest_baskets": len(_digest_menu.basket_lines) if _digest_menu is not None else 0,
+        "digest_singletons": len(_digest_menu.singleton_lines) if _digest_menu is not None else 0,
+        "requirements_block_wired_into_call_outline": bool(_requirements_block),
+        "requirements_block_chars": len(_requirements_block),
+        "required_sections_count": len(_required_sections),
+    }
 
     return parse_result, retry_attempted, total_in, total_out
 
@@ -8889,6 +9046,12 @@ async def generate_multi_section_report(
     # None/[] => the legacy title menu (byte-identical). Threaded by run_one_query ONLY when
     # PG_OUTLINE_BASKET_DIGEST is on; _call_outline reads the flag itself and fails open.
     finding_clusters: Any = None,
+    # S4 ORCH-2 (Design 5) PUSH 1(a): the user's deliverable/scope structural asks. Both None (the
+    # default) => every outline prompt string byte-identical to HEAD. Threaded straight into
+    # _call_outline (mirrors the finding_clusters threading exactly); _call_outline renders the
+    # requirements block, lets required titles govern validation, and conforms the plan set.
+    deliverable_spec: Any = None,
+    scope_spec: Any = None,
     model: Optional[str] = None,
     outline_temperature: float = 0.2,
     section_temperature: float = 0.3,
@@ -9153,6 +9316,8 @@ async def generate_multi_section_report(
                 outline_temperature, outline_max_tokens,
                 domain=domain,
                 finding_clusters=finding_clusters,
+                deliverable_spec=deliverable_spec,
+                scope_spec=scope_spec,
             )
         plans = outline_parse.plans
         # N6-FIX-B (I-deepfix-001 wave-2): strip SEMANTIC confirmed-off-topic ev_ids from the LEGACY

@@ -12,9 +12,12 @@ seconds per iteration so a defect can be read line-by-line, root-caused, patched
                the recompose (RE-OPEN) set, the kept-byte-identical set, and deferred/rejected
                ops. This is where apply-logic bugs are hunted (Design 5 §8 mode `apply-dry`).
 
-The LIVE ``plan`` / ``revise`` modes each make one real LLM call and belong to the VM hamster
-(the running generator) — they are NOT runnable offline and this harness refuses them loudly
-rather than faking a call.
+The LIVE ``plan`` mode makes ONE real GLM outline call and belongs to the VM hamster (the running
+generator, box2) — it is NOT runnable offline (no model creds) and refuses loudly rather than
+faking a call (LAW II). It drives the full S4 outline path on a banked cp3 bank: basket-digest +
+ORCH-2 requirements block -> live outline -> required-title conform/reorder -> deterministic
+basket_ids backfill -> orphan check -> cp4 write+load (verdict-leak guarded). ``revise`` (the live
+reviser leg) still belongs to the compose stage and this offline-first harness refuses it.
 
 Bank file shape (JSON): {evidence:[{evidence_id,title,statement,tier},...],
 clusters:[{representative_index,member_indices,corroboration_count,member_hosts},...],
@@ -25,7 +28,10 @@ reviser_output:{ops:[...],gap_queries:[...],revision_needed:bool}, deliverable:{
 from __future__ import annotations
 
 import argparse
+import asyncio
+import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -129,22 +135,147 @@ def _mode_apply_dry(bank: dict) -> int:
     return 0
 
 
+def _plan_to_dict(p) -> dict:
+    """SectionPlan -> plain DATA dict for the cp4 payload (no verdict keys, ever)."""
+    return {
+        "title": str(getattr(p, "title", "")),
+        "focus": str(getattr(p, "focus", "")),
+        "ev_ids": list(getattr(p, "ev_ids", []) or []),
+        "basket_ids": list(getattr(p, "basket_ids", []) or []),
+        "archetype": str(getattr(p, "archetype", "")),
+        "undersupplied": bool(getattr(p, "undersupplied", False)),
+    }
+
+
+def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
+    """LIVE S4 outline (ONE real GLM call, box2 VM hamster). Drives the full path and writes cp4.
+
+    Proves the ITER-2 acceptance on a banked cp3 bank: (a) final_plans headings == required aspects
+    in exact order; (b) basket_ids non-empty where members intersect + orphan list shrinks to only
+    genuine orphans; (c) degraded=False; (d) cp4 verdict-leak guard passes on write AND load."""
+    # The whole point of `plan` is to exercise the basket-digest path — arm the flag loudly.
+    if os.getenv("PG_OUTLINE_BASKET_DIGEST", "0").strip().lower() not in ("1", "true", "yes", "on"):
+        os.environ["PG_OUTLINE_BASKET_DIGEST"] = "1"
+        print("[plan] armed PG_OUTLINE_BASKET_DIGEST=1 (the basket-digest outline path under test)")
+
+    from src.polaris_graph.generator.multi_section_generator import _call_outline  # noqa: E402
+    from src.polaris_graph.generator.outline_checkpoint import (  # noqa: E402
+        build_cp4_payload,
+        load_cp4_outline_snapshot,
+        write_cp4_outline_snapshot,
+    )
+    from src.polaris_graph.generator.outline_revise import find_orphan_baskets  # noqa: E402
+
+    evidence = bank.get("evidence", [])
+    clusters = _clusters(bank)
+    deliverable = bank.get("deliverable")
+    scope = bank.get("scope")
+    question = str(bank.get("question", ""))
+    domain = str(bank.get("domain", ""))
+    required = [str(t).strip() for t in ((deliverable or {}).get("required_sections", []) or [])]
+
+    # Rebuild the digest ONCE (deterministic, identical to _call_outline's own build) to derive the
+    # basket corroboration/member maps used by the orphan check + the coverage cross-read.
+    menu = build_outline_digest(evidence, clusters)
+    basket_members = {bid: list(members) for bid, members in menu.basket_member_ev_ids.items()}
+    basket_corroboration = {bid: len(members) for bid, members in menu.basket_member_ev_ids.items()}
+
+    print(f"[plan] LIVE outline call: model={model} pool={len(evidence)} "
+          f"baskets={len(menu.basket_lines)} singletons={len(menu.singleton_lines)} "
+          f"required={required}")
+
+    parse_result, retry_attempted, in_tok, out_tok = asyncio.run(_call_outline(
+        question, evidence, model, 0.2, 2500,
+        domain=domain, finding_clusters=clusters,
+        deliverable_spec=deliverable, scope_spec=scope,
+    ))
+    plans = parse_result.plans
+    stats = parse_result.digest_stats
+
+    # (a) headings == required aspects, exact order
+    headings = [str(p.title) for p in plans]
+    order_ok = (headings == required) if required else None
+    print("\n=== (a) FINAL PLAN HEADINGS ===")
+    for p in plans:
+        print(f"  {p.title!r} ev_ids={len(p.ev_ids)} basket_ids={len(p.basket_ids)} "
+              f"undersupplied={p.undersupplied}")
+    print(f"[a] headings == required (exact order): {order_ok}  (retry_attempted={retry_attempted})")
+
+    # (b) basket_ids non-empty where members intersect + orphan list shrinks
+    # baseline: plans WITHOUT the backfill (all multi-member baskets look orphaned)
+    baseline_plans = [{"title": p.title, "ev_ids": p.ev_ids, "basket_ids": []} for p in plans]
+    baseline_orphans = find_orphan_baskets(baseline_plans, basket_corroboration)
+    final_orphans = find_orphan_baskets(plans, basket_corroboration)
+    with_baskets = [p.title for p in plans if p.basket_ids]
+    print("\n=== (b) BASKET_IDS BACKFILL + ORPHAN SHRINK ===")
+    print(f"[b] sections carrying basket_ids: {with_baskets}")
+    print(f"[b] orphan baskets BEFORE backfill: {len(baseline_orphans)}  "
+          f"AFTER backfill: {len(final_orphans)}  (shrunk by {len(baseline_orphans) - len(final_orphans)})")
+    # each surviving orphan is DISCLOSED in the revision audit as a reassign candidate
+    revision_audit = {
+        "rounds": 0,
+        "orphan_baskets_after_plan": list(final_orphans),
+        "orphan_reassign_candidates": [
+            {"basket_id": bid, "members": basket_members.get(bid, []),
+             "disposition": "reassign_candidate"}
+            for bid in final_orphans
+        ],
+        "note": ("orphans routed to sections by the compose-stage reviser / "
+                 "route_orphan_baskets_to_section_plans; each is disclosed here, never dropped"),
+    }
+
+    # (c) degraded flag from the digest telemetry
+    print("\n=== (c) DIGEST TELEMETRY (digest_stats) ===")
+    print(json.dumps(stats, indent=1))
+    degraded_ok = (stats.get("digest_degraded") is False)
+    print(f"[c] degraded == False: {degraded_ok}")
+
+    # (d) cp4 write + load (verdict-leak guarded on BOTH)
+    payload = build_cp4_payload(
+        question_sha=hashlib.sha256(question.encode("utf-8")).hexdigest(),
+        upstream=[{"stage": "basket", "sha": str(bank.get("cp3_sha", ""))}],
+        run_config_sha="",
+        flag_slate={"PG_OUTLINE_BASKET_DIGEST": "1"},
+        adjustments_applied=[],
+        final_plans=[_plan_to_dict(p) for p in plans],
+        revision_audit=revision_audit,
+        digest_stats=stats,
+    )
+    run_dir.mkdir(parents=True, exist_ok=True)
+    written = write_cp4_outline_snapshot(run_dir, payload)
+    reloaded = load_cp4_outline_snapshot(run_dir) if written else None
+    load_ok = bool(reloaded) and reloaded.get("payload", {}).get("final_plans") is not None
+    print("\n=== (d) cp4 CHECKPOINT (verdict-leak guarded) ===")
+    print(f"[d] wrote: {written}  reloaded_ok: {load_ok}")
+
+    ok = bool(load_ok) and (order_ok in (True, None)) and degraded_ok
+    print(f"\n[plan] ACCEPTANCE (a,c,d) ok={ok}  in_tok={in_tok} out_tok={out_tok}")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="S4 outline offline hamster harness")
     parser.add_argument("--bank", required=True, help="bank JSON file (fixture or exported run)")
     parser.add_argument("--mode", required=True,
                         choices=["digest", "apply-dry", "plan", "revise"])
+    parser.add_argument("--model", default=os.getenv("PG_S4_OUTLINE_MODEL",
+                        os.getenv("PG_GENERATOR_MODEL", "z-ai/glm-5.2")),
+                        help="outline model for `plan` mode (default GLM-5.2)")
+    parser.add_argument("--run-dir", default="outputs/s4_plan_lab",
+                        help="cp4 checkpoint output dir for `plan` mode")
     args = parser.parse_args(argv)
 
-    if args.mode in ("plan", "revise"):
-        print(f"[{args.mode}] LIVE LLM mode — requires the running generator (VM hamster). "
-              "This offline harness refuses to fake a model call (LAW II). Use `digest` / "
-              "`apply-dry` offline.")
+    if args.mode == "revise":
+        print("[revise] LIVE reviser leg — belongs to the compose stage (VM hamster). "
+              "This offline-first harness refuses to fake a model call (LAW II). Use "
+              "`digest` / `apply-dry` offline, or `plan` for the live outline call.")
         return 2
 
     bank = _load_bank(Path(args.bank))
     if args.mode == "digest":
         return _mode_digest(bank)
+    if args.mode == "plan":
+        return _mode_plan(bank, model=args.model, run_dir=Path(args.run_dir))
     return _mode_apply_dry(bank)
 
 
