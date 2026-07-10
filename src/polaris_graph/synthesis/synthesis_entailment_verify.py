@@ -230,7 +230,7 @@ def entailment_grounds_sentence(
         return False
     span_texts: list[str] = []
     for row in (cited_rows or []):
-        if not isinstance(row, dict):
+        if not hasattr(row, "get"):  # accept any Mapping (dict / evidence record), skip non-mappings
             continue
         span = str(row.get("direct_quote") or row.get("statement") or "")
         if span.strip():

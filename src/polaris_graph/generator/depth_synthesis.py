@@ -745,9 +745,12 @@ def synthesize_cross_source_findings(
         # honestly labeled "(single source)", never a blanket "corroborated" (§-1.1 lethal-if-misstated).
         tier = _TIER_CROSS_SOURCE if len(basket_origins) >= floor else _TIER_SINGLE_SOURCE
         label = "" if tier == _TIER_CROSS_SOURCE else _SINGLE_SOURCE_LABEL
-        # Attach the D8 seam inputs when EITHER the legacy D8 gate OR the C3 promote flag is on, so a C1
-        # entailment-RESCUED sentence is never rendered as body prose without D8 adjudication.
-        carry_d8 = depth_synthesis_d8_gate_enabled() or synth_d8_promote_enabled()
+        # The legacy D8 gate attaches the seam inputs to EVERY finding (existing behavior). C3 ADDITIVELY
+        # attaches them to a C1 entailment-RESCUED finding when the promote flag is on — so a rescued
+        # paraphrase is never rendered as body prose without D8 adjudication even if the legacy gate is
+        # off. A NON-entailment finding with the legacy gate off carries NO seam keys (byte-identical).
+        carry_d8_legacy = depth_synthesis_d8_gate_enabled()
+        promote_d8 = synth_d8_promote_enabled()
         for rendered, audit_sentence, toks, is_entailment in basket_sentences:
             # #1335 body-vs-DS duplicate guard: the FIX-1 deterministic span-join reuses the SAME
             # compose_basket_multicited_sentence the BODY composer runs on the SAME basket, so a DS-*
@@ -772,11 +775,11 @@ def synthesize_cross_source_findings(
                 continue
             seen.add(key)
             finding: dict = {"sentence": rendered, "tier": tier, "label": label}
-            if carry_d8:
+            if carry_d8_legacy or (promote_d8 and is_entailment):
                 # The PRE-resolve audit sentence (carries [#ev:...] tokens) + its ProvenanceToken list
                 # are the D8 seam inputs. ``build_depth_layer`` reads ONLY sentence/tier/label, so these
-                # extra keys are inert to the render; the native Gate-B builder consumes them. Both gates
-                # OFF => keys omitted => the dict is byte-identical to the pre-change shape.
+                # extra keys are inert to the render; the native Gate-B builder consumes them. Legacy gate
+                # OFF + not an entailment rescue => keys omitted (byte-identical to the pre-change shape).
                 finding["audit_sentence"] = audit_sentence
                 finding["tokens"] = toks
                 # C3: mark a C1 entailment-RESCUED finding so the native Gate-B builder routes it into the

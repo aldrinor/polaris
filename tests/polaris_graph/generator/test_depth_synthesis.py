@@ -198,8 +198,12 @@ def test_depth_model_resolves_via_central_lock(monkeypatch):
     assert _resolve_model() == orc.PG_GENERATOR_MODEL
 
 
-def test_below_corroboration_floor_basket_is_skipped():
+def test_below_corroboration_floor_basket_is_skipped(monkeypatch):
     # A basket with a single SUPPORTS member is NOT a cross-source finding (definitional, not a filter).
+    # I-deepfix-006-compose C2 makes single-source synthesis default-ON (a 1-member basket is synthesized
+    # and labeled "(single source)"); this test pins that flag OFF to assert the DEFINITIONAL >=2 floor
+    # (the byte-identical OFF path). The default-ON single-source behavior is covered by the C2 tests.
+    monkeypatch.setenv("PG_SYNTH_SINGLE_SOURCE", "0")
     basket, evidence_pool = _fixture_basket()
     one_member = ClaimBasket(
         "c2", "x", "x", "y", [basket.supporting_members[0]], (), 1.0, 1, 1, "partial",

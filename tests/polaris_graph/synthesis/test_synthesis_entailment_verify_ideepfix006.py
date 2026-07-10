@@ -111,3 +111,60 @@ def test_entailment_grounds_sentence_promote_hook():
     assert entailment_grounds_sentence(_PARAPHRASE_OK, rows, entails_fn=_entails_true) is True
     assert entailment_grounds_sentence(_PARAPHRASE_OK, rows, entails_fn=_entails_false) is False
     assert entailment_grounds_sentence(_PARAPHRASE_BAD_NUM, rows, entails_fn=_entails_true) is False
+
+
+# ── C1 on/off integration through synthesize_cross_source_findings ────────────────────────────────────
+def _two_member_basket():
+    from src.polaris_graph.synthesis.credibility_pass import (
+        MEMBER_TIER_ENTAILMENT_VERIFIED,
+        BasketMember,
+        ClaimBasket,
+    )
+    span_b = "A 25% reduction in mortality was seen across the pooled cohorts."
+    pool = {
+        "ev_a": {"source_url": "https://nejm.org/a", "tier": "T1", "direct_quote": _SPAN},
+        "ev_b": {"source_url": "https://lancet.com/b", "tier": "T1", "direct_quote": span_b},
+    }
+    members = [
+        BasketMember("ev_a", "https://nejm.org/a", "T1", "o1", 0.95, 0.9,
+                     (0, len(_SPAN)), _SPAN, "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED),
+        BasketMember("ev_b", "https://lancet.com/b", "T1", "o2", 0.90, 0.85,
+                     (0, len(span_b)), span_b, "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED),
+    ]
+    basket = ClaimBasket("c1", "Mortality fell 25%", "mortality", "fell 25%", members, (), 1.85, 2, 2, "full")
+    return basket, pool, {"ev_a": 3, "ev_b": 4}
+
+
+# An ENTAILED paraphrase that shares < 2 verbatim content words with EITHER span -> strict_verify drops it.
+_PARA_CROSS = f"Fatalities declined 25% among the combined study populations [#ev:ev_a:0-{len(_SPAN)}]."
+
+
+def test_c1_on_rescues_entailed_paraphrase_off_drops_it(monkeypatch):
+    from src.polaris_graph.generator.depth_synthesis import synthesize_cross_source_findings
+
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
+    # isolate C1: disable the deterministic span-join fallback so the ONLY rescue path is the entailment leg
+    monkeypatch.setenv("PG_DEPTH_SYNTHESIS_SPANJOIN_FALLBACK", "0")
+    monkeypatch.setattr(
+        "src.polaris_graph.synthesis.consolidation_nli.entails_directional",
+        lambda _p, _h, **_k: True,
+    )
+    basket, pool, bib = _two_member_basket()
+
+    # C1 OFF: strict_verify drops the paraphrase (no >=2 verbatim overlap), no fallback -> nothing.
+    monkeypatch.setenv("PG_SYNTH_ENTAILMENT_VERIFY", "0")
+    off = synthesize_cross_source_findings(
+        [basket], pool, synthesizer=lambda _b, _p: _PARA_CROSS,
+        verify_fn=strict_verify, bib_num_by_evidence_id=bib,
+    )
+    assert off == []
+
+    # C1 ON: the entailment leg RESCUES the paraphrase.
+    monkeypatch.setenv("PG_SYNTH_ENTAILMENT_VERIFY", "1")
+    on = synthesize_cross_source_findings(
+        [basket], pool, synthesizer=lambda _b, _p: _PARA_CROSS,
+        verify_fn=strict_verify, bib_num_by_evidence_id=bib,
+    )
+    assert len(on) == 1, on
+    assert "[3]" in on[0]["sentence"]
+    assert on[0].get("is_synth_entailment") is True  # marked for C3 D8 promote

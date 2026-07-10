@@ -140,6 +140,20 @@ def _depth_synthesis_d8_gate_enabled() -> bool:
     )
 
 
+def _synth_d8_promote_enabled() -> bool:
+    """I-deepfix-006-compose C3 D8-promote flag (default ON; env ``PG_SYNTH_D8_PROMOTE``).
+
+    Mirrors ``generator.depth_synthesis.synth_d8_promote_enabled`` — the SAME env var, read locally to
+    keep this pure-roles module free of a generator import. When ON, a C1 entailment-RESCUED synthesis
+    finding (``is_synth_entailment``) is routed into the D8 4-role input set as a DS-* claim even when
+    the legacy ``PG_DEPTH_SYNTHESIS_D8_GATE`` is OFF, so a rescued paraphrase is NEVER rendered as body
+    prose without VERIFIED/UNSUPPORTED adjudication. OFF => only the legacy gate routes (byte-identical).
+    """
+    return os.getenv("PG_SYNTH_D8_PROMOTE", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
 def _row_text(row: Mapping[str, Any]) -> str:
     """The evidence text the strict_verify spans were validated against (first non-empty).
 
@@ -1120,15 +1134,47 @@ def build_native_gate_b_inputs(
     # evidence is resolved against the SAME ``evidence_lookup`` the section loop uses — never the gold
     # rubric. The >=2 distinct-origin floor + cross/single tier split live upstream and are untouched.
     synthesized_findings = getattr(multi, "synthesized_findings", None) or []
-    if synthesized_findings and _depth_synthesis_d8_gate_enabled():
+    # I-deepfix-006-compose C3: the DS-* second loop fires when EITHER the legacy PG_DEPTH_SYNTHESIS_D8_GATE
+    # OR the C3 PG_SYNTH_D8_PROMOTE flag is on. Per-finding routing (``route_d8`` below) keeps the DEFAULT
+    # path (legacy gate on) byte-identical while ALSO routing a C1 entailment-RESCUED finding into D8 when
+    # the legacy gate is off (so a rescued paraphrase is never rendered un-adjudicated).
+    _legacy_d8 = _depth_synthesis_d8_gate_enabled()
+    _promote_d8 = _synth_d8_promote_enabled()
+    if synthesized_findings and (_legacy_d8 or _promote_d8):
         for ds_index, finding in enumerate(synthesized_findings):
             if not isinstance(finding, Mapping):
                 continue
             rendered_sentence = str(finding.get("sentence", "") or "").strip()
             if not rendered_sentence:
                 continue  # nothing rendered in report.md -> nothing to gate / drop
+            is_synth_entailment = bool(finding.get("is_synth_entailment"))
+            # ROUTE this finding into D8 iff the legacy gate is on (all findings, existing behavior) OR it
+            # is a C1 entailment-rescued finding under the C3 promote flag. A finding not routed is left
+            # entirely UNTOUCHED (no audit row, no claim) so it renders exactly as the legacy-off path did.
+            route_d8 = _legacy_d8 or (_promote_d8 and is_synth_entailment)
+            if not route_d8:
+                continue
             audit_sentence = str(finding.get("audit_sentence", "") or "").strip()
             tokens = list(finding.get("tokens", None) or [])
+            # C3 promote-only branch (legacy gate OFF, routed only because this is an entailment-rescued
+            # finding): reuse the analyst-module D3-analog entailment promote hook as a fail-OPEN grounding
+            # confirmation. FAIL-OPEN: any hook fault keeps the finding routed (never drop a real rescue on
+            # an infra flake); a definitive non-entailment verdict skips the promotion (the fail-closed
+            # depth reconcile then removes the rendered finding). In the DEFAULT path (legacy gate on) the
+            # confirmation is skipped entirely — no extra judge call, behavior byte-identical.
+            if not _legacy_d8 and is_synth_entailment and audit_sentence and tokens:
+                try:
+                    from src.polaris_graph.generator.analyst_synthesis_deviation_check import (
+                        promote_synthesis_entailment_finding,
+                    )
+                    _, _promote_records = _resolve_evidence(tokens, evidence_lookup)
+                    if promote_synthesis_entailment_finding(audit_sentence, _promote_records) is False:
+                        continue  # a definitive non-entailment verdict -> not promoted
+                except Exception:  # noqa: BLE001 — FAIL-OPEN: an infra fault keeps the rescued finding routed
+                    logger.warning(
+                        "[native_gate_b] C3 entailment promote confirmation faulted (fail-open keep)",
+                        exc_info=True,
+                    )
             ds_evidence_ids = [token.evidence_id for token in tokens]
             ds_normalized = _normalize_sentence(audit_sentence or rendered_sentence)
             ds_digest = hashlib.sha256(ds_normalized.encode("utf-8")).hexdigest()[:_CLAIM_HASH_HEX_LEN]
