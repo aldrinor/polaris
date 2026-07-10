@@ -1,0 +1,1 @@
+Researchers found that the [proposed method](https://example.org/m) substantially outperformed the [baseline approach](https://example.org/b) on held-out clinical text, improving recall without sacrificing precision.
