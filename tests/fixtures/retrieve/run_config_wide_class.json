@@ -1,0 +1,7 @@
+{
+  "_comment": "RunConfig fixture — a parsed WIDE breadth directive (e.g. the prompt said 'comprehensive'). No explicit numbers; the resolver sizes EVERY knob from the WIDE class row of config/settings/breadth_classes.yaml (query_budget 80, serper_k 20, s2_k 20, serper_total 100, fetch_cap 740).",
+  "breadth": {
+    "breadth_class": "WIDE"
+  },
+  "scope": {}
+}

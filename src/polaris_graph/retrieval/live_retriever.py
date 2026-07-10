@@ -793,13 +793,21 @@ _SERPER_PAGE_MAX = 20
 
 
 def _serper_fetch_page(
-    query: str, per_page: int, page: int, headers: dict[str, str]
+    query: str, per_page: int, page: int, headers: dict[str, str],
+    scope_params: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], bool, float, int, str]:
     """FX-17 (#1126): fetch ONE Serper page. Returns (items, ok, latency_ms, resp_bytes, error).
-    Byte-identical to the legacy single call when page==1 (no `page` key in the payload)."""
+    Byte-identical to the legacy single call when page==1 (no `page` key in the payload).
+
+    Design 7 D3: ``scope_params`` (``tbs``/``gl``/``hl`` from ``scope_search_lanes``) are merged
+    into the payload for the ADDITIVE scoped Serper lane. None/{} => byte-identical (base lane)."""
     payload: dict[str, Any] = {"q": query, "num": per_page}
     if page > 1:
         payload["page"] = page
+    if scope_params:
+        for _k, _v in scope_params.items():
+            if _v not in (None, ""):
+                payload[_k] = _v
     _t0 = time.time()
     try:
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
@@ -819,7 +827,8 @@ def _serper_fetch_page(
 
 
 def _serper_search(
-    query: str, num: int = 10, api_calls: dict[str, int] | None = None
+    query: str, num: int = 10, api_calls: dict[str, int] | None = None,
+    scope_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     api_key = os.getenv("SERPER_API_KEY", "").strip()
     if not api_key:
@@ -877,7 +886,7 @@ def _serper_search(
     _last_err = ""
     for _page in range(1, _n_pages + 1):
         items, ok, _last_latency, _last_bytes, _last_err = _serper_fetch_page(
-            query, per_page, _page, headers
+            query, per_page, _page, headers, scope_params=scope_params
         )
         # FX-17 (#1126) iter-2: count EACH HTTP page request (a real Serper API call), not once
         # per query. P2 fix — api_calls['serper'] used to undercount paginated breadth.
@@ -921,7 +930,9 @@ def _serper_search(
     return out
 
 
-def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
+def _s2_bulk_search(
+    query: str, limit: int = 20, scope_params: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
     # I-safety-002b (#925) PR-2: record S2 backend attempt (lazy, best-effort).
     try:
@@ -937,6 +948,13 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
         "fields": "title,abstract,url,openAccessPdf,externalIds,year,venue",
         "limit": max(1, min(limit, 100)),
     }
+    # Design 7 D3: ADDITIVE scoped-lane params (``year`` / ``publicationTypes`` from
+    # ``scope_search_lanes``). None/{} => byte-identical base S2 call. Scoped lane ONLY —
+    # journal-only stays a DORMANT global drop per operator veto (§-1.3: adds discovery, drops none).
+    if scope_params:
+        for _k, _v in scope_params.items():
+            if _v not in (None, ""):
+                params[_k] = _v
     # I-meta-007b: wall-clock for the tool tracer (record-only).
     _t0 = time.time()
     try:
@@ -5688,6 +5706,34 @@ def run_live_retrieval(
             "(flag on; question states no publication window; additive dated lane idle)"
         )
 
+    # Design 7 D3 (ruling R11): build the parsed scope ONCE (deterministic, no network/LLM) and
+    # derive the ADDITIVE scoped-lane request params for Serper (tbs/gl/hl), S2 (year/
+    # publicationTypes) and OpenAlex (language/author). Each builder is flag-gated + fail-open:
+    # flag OFF / no scope / build fault => {} => the scoped lane never fires => byte-identical.
+    # These lanes are strictly ADDITIVE (union on top of the untouched base lanes); they remove
+    # no base source (§-1.3). `seed_only` short-circuits the fan-out, so no scoped lane there.
+    _serper_scope_params: dict[str, Any] = {}
+    _s2_scope_params: dict[str, Any] = {}
+    _oa_scope_params: dict[str, Any] = {}
+    if not seed_only:
+        try:
+            from src.polaris_graph.retrieval.scope_intent import build_scope_intent_from_protocol
+            from src.polaris_graph.retrieval.scope_search_lanes import (
+                build_serper_scope_params, build_s2_scope_params, build_openalex_scope_params,
+            )
+            _scope_intent = build_scope_intent_from_protocol(protocol)
+            _serper_scope_params = build_serper_scope_params(_scope_intent)
+            _s2_scope_params = build_s2_scope_params(_scope_intent)
+            _oa_scope_params = build_openalex_scope_params(_scope_intent)
+            if _serper_scope_params or _s2_scope_params or _oa_scope_params:
+                logger.info(
+                    "[activation] scope_search_lanes: serper=%s s2=%s openalex=%s",
+                    sorted(_serper_scope_params), sorted(_s2_scope_params), sorted(_oa_scope_params),
+                )
+        except Exception:  # noqa: BLE001 — fail-open: any fault => no scoped lanes => base only
+            logger.debug("[live_retriever] scope-lane param build fell open (base lanes only)", exc_info=True)
+            _serper_scope_params, _s2_scope_params, _oa_scope_params = {}, {}, {}
+
     # ── Step 2: run Serper + S2 across queries ──────────────────────
     seen_urls: set[str] = set()
     candidates: list[SearchCandidate] = []
@@ -5806,6 +5852,21 @@ def run_live_retrieval(
                 query_origin=q,
             ))
 
+        # Design 7 D3: ADDITIVE scoped Serper lane (tbs/gl/hl). Fires ONLY when PG_SERPER_SCOPE_FILTER
+        # is ON and the question carries scope (params non-empty). One EXTRA call beside the untouched
+        # base lane above; hits UNION via _emit_candidate's shared dedup (no base source removed).
+        if _serper_scope_params:
+            logger.info("[activation] serper_scope_lane: fired params=%s", sorted(_serper_scope_params))
+            for hit in _serper_search(q, num=max_serper, api_calls=api_calls,
+                                      scope_params=_serper_scope_params):
+                url = hit.get("url", "")
+                if not url:
+                    continue
+                _emit_candidate("serper", SearchCandidate(
+                    url=url, title=hit.get("title", ""), snippet=hit.get("snippet", ""),
+                    source="serper", query_origin=q,
+                ))
+
         # FX-18 (#1122): S2 bulk is a KEYWORD index — feeding it the 40-70-word NL query returned ~0
         # for 4/5 golden questions. Send a SHORT content-keyword distillation of `q` instead (pure,
         # stopword-filtered, capped). Flag-gated PG_S2_KEYWORD_DISTILL (default on); an empty
@@ -5832,6 +5893,22 @@ def run_live_retrieval(
                 metadata={"doi": hit.get("doi"), "year": hit.get("year")},
                 query_origin=q,
             ))
+
+        # Design 7 D3: ADDITIVE scoped S2 lane (year + publicationTypes=JournalArticle on the SCOPED
+        # lane ONLY). Fires only when PG_S2_SCOPE_FILTER is ON and scope is present. One EXTRA call
+        # beside the untouched base S2 lane; union+dedup via _emit_candidate. Drops nothing (§-1.3).
+        if _s2_scope_params:
+            logger.info("[activation] s2_scope_lane: fired params=%s", sorted(_s2_scope_params))
+            api_calls["s2"] += 1
+            for hit in _s2_bulk_search(_s2_query, limit=max_s2, scope_params=_s2_scope_params):
+                url = hit.get("url", "")
+                if not url:
+                    continue
+                _emit_candidate("s2", SearchCandidate(
+                    url=url, title=hit.get("title", ""), snippet=hit.get("snippet", ""),
+                    source="s2", metadata={"doi": hit.get("doi"), "year": hit.get("year")},
+                    query_origin=q,
+                ))
 
         # FX-18 (#1122): OpenAlex /works?search handles NL queries that the S2 keyword index does not,
         # and is already built (domain_backends.openalex_search, fail-open). Wire it as a PARALLEL
@@ -5936,6 +6013,42 @@ def run_live_retrieval(
                         # openalex round-trip per query. LOCAL deadline only (the shared per-question
                         # wall passed from the spine is never mutated).
                         _retrieval_deadline += max(0.0, time.monotonic() - _oad_t0_mono)
+                # Design 7 D3: ADDITIVE language/author-scoped OpenAlex lane. Fires ONLY when
+                # PG_OPENALEX_SCOPE_FILTER is ON and the question carries a language or named-author
+                # scope (params non-empty). ONE extra scoped openalex_search unioned on top of the
+                # base + dated lanes; removes no source (§-1.3). Fail-open; time credited to the wall.
+                if _oa_scope_params:
+                    _oas_t0 = time.time()
+                    _oas_t0_mono = time.monotonic()
+                    try:
+                        _oas_hits = openalex_search(
+                            q, limit=max_s2,
+                            language=_oa_scope_params.get("language"),
+                            authors=_oa_scope_params.get("authors"),
+                        )
+                        api_calls["openalex_search"] = api_calls.get("openalex_search", 0) + 1
+                        _trace_query(
+                            "openalex_search_scoped", q,
+                            [getattr(c, "url", "") for c in _oas_hits],
+                        )
+                        logger.info(
+                            "[activation] openalex_scope_lane: params=%s scoped_hits=%d",
+                            sorted(_oa_scope_params), len(_oas_hits),
+                        )
+                        for cand in _oas_hits:
+                            url = getattr(cand, "url", "")
+                            if not url:
+                                continue
+                            if not getattr(cand, "query_origin", ""):
+                                cand.query_origin = q
+                            _emit_candidate("openalex_search", cand)
+                    except Exception as _oas_exc:
+                        logger.warning(
+                            "[live_retriever] openalex_search scope lane failed for %r "
+                            "(fail-open): %s", q[:60], _oas_exc,
+                        )
+                    finally:
+                        _retrieval_deadline += max(0.0, time.monotonic() - _oas_t0_mono)
             except Exception as exc:
                 # U25: an HTTP error (the 503 anonymous-search rate-limit now RAISES
                 # OpenAlexHTTPError from openalex_search) is recorded as a real failure —

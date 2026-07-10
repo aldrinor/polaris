@@ -1,0 +1,7 @@
+{
+  "_comment": "RunConfig fixture (master §1.1 contract shape) — an EXPLICIT user query budget of 60, well above the legacy hardcode of 35. Proves the resolver HONORS a 35+ ask (condition a). serper_k/s2_k/fetch_cap left unset => sized from the STANDARD breadth-class row.",
+  "breadth": {
+    "query_budget": 60
+  },
+  "scope": {}
+}

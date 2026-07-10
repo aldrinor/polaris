@@ -252,7 +252,7 @@ def _deterministic_floor_facets(question: str) -> list[str]:
     return facets
 
 
-def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
+def plan_expert_facets(question: str, llm: LlmFn, scope: object = None) -> list[Facet]:
     """Build the facet tree for ``question`` and expand each facet into angle queries.
 
     ONE bounded LLM call elicits the facet tree across the taxonomy dimensions (sub-topics, actors /
@@ -270,7 +270,7 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
 
     facet_names: list[str] = []
     try:
-        reply = llm(
+        _facet_prompt = (
             "You are an expert research planner. Decompose the RESEARCH QUESTION into its distinct "
             "expert facets so an exhaustive literature review can be planned. Cover these dimensions "
             "where they exist: sub-topics, actors/stakeholders, time-slices, geographies, mechanisms, "
@@ -278,6 +278,16 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
             "carry its subject, domain and key entities; do NOT generalise a facet into its broad "
             "field. One facet per line, no numbering.\n\nRESEARCH QUESTION:\n" + (question or "")
         )
+        # Design 7 D2: weave the parsed SCOPE DIRECTIVES into the facet-elicitation prompt so the
+        # facets themselves carry the user's scope (no-op when PG_SCOPE_TO_QGEN is OFF / scope
+        # empty / build faults => byte-identical facet tree). Lazy import + fail-open.
+        if scope is not None:
+            try:
+                from src.polaris_graph.retrieval.scope_directives import append_scope_directives
+                _facet_prompt = append_scope_directives(_facet_prompt, scope)
+            except Exception:  # noqa: BLE001 — fail-open: unchanged prompt on any fault
+                pass
+        reply = llm(_facet_prompt)
         facet_names = _clean_facet_lines(reply, cap)
     except Exception:
         facet_names = []

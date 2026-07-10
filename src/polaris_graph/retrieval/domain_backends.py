@@ -777,6 +777,8 @@ def openalex_search(
     *,
     from_date: str | None = None,
     to_date: str | None = None,
+    language: str | None = None,
+    authors: list[str] | None = None,
 ) -> list[SearchCandidate]:
     """Keyword-SEARCH OpenAlex /works for primary-literature discovery.
 
@@ -811,6 +813,24 @@ def openalex_search(
     # I-deepfix-001 Wave-3 (#1344): the publication-date window filter (None when
     # no bound supplied => byte-identical: no `filter` param is ever attached).
     date_filter = _openalex_date_filter(from_date, to_date)
+    # Design 7 D3: combine the date clause with the ADDITIVE scoped-lane clauses (language / author)
+    # into ONE OpenAlex `filter` string (comma-separated = AND). All None/empty => no `filter` key =>
+    # byte-identical to the legacy request. Author names use OpenAlex `raw_author_name.search` (OR
+    # within the key via `|`); colons/commas/pipes in a name are neutralised so they cannot break the
+    # filter grammar. §-1.3: these clauses only ADD an in-scope discovery lane; nothing is dropped.
+    _filter_clauses: list[str] = []
+    if date_filter:
+        _filter_clauses.append(date_filter)
+    if language and str(language).strip():
+        _filter_clauses.append(f"language:{str(language).strip().lower()}")
+    if authors:
+        _names = "|".join(
+            str(a).replace(":", " ").replace(",", " ").replace("|", " ").strip()
+            for a in authors if a and str(a).strip()
+        )
+        if _names:
+            _filter_clauses.append(f"raw_author_name.search:{_names}")
+    combined_filter = ",".join(c for c in _filter_clauses if c)
     try:
         per_page = _openalex_per_page(limit)
         max_pages = _openalex_max_pages()
@@ -823,9 +843,9 @@ def openalex_search(
             # (max_pages > 1). A single-page run sends the exact legacy params.
             if max_pages > 1:
                 params["cursor"] = cursor
-            # I-deepfix-001 Wave-3: attach the date-window filter ONLY when supplied.
-            if date_filter:
-                params["filter"] = date_filter
+            # I-deepfix-001 Wave-3 + Design 7 D3: attach the combined scope filter ONLY when supplied.
+            if combined_filter:
+                params["filter"] = combined_filter
             # U25: merge auth/politeness params LAST (never override search/per_page/
             # cursor); empty dict when unset => exact legacy keyless request.
             params.update(auth_params)

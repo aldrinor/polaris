@@ -1,0 +1,57 @@
+# breadth_classes.yaml — S1.b RETRIEVE breadth lookup table (Design 7 D1, master §6).
+#
+# The breadth resolver (`src/polaris_graph/retrieval/breadth_resolver.py`) maps a
+# resolved breadth CLASS (WIDE / STANDARD / NARROW) to concrete per-run sizing knobs.
+# LAW VI: no magic numbers in code — every sizing value lives here and is env-overridable
+# per-row via the `PG_*` knobs the resolver reads (see breadth_resolver._env_override).
+#
+# The five sizing knobs per class (exactly the resolver's BreadthPlan fields):
+#   query_budget : max FS-Researcher sub-queries issued  (spine -> max_queries kwarg;
+#                  today's hardcode default is 35 => STANDARD deliberately equals 35)
+#   serper_k     : Serper results requested per sub-query (spine _max_serper; today 12)
+#   s2_k         : Semantic Scholar / OpenAlex results per sub-query (spine _max_s2; today 12)
+#   serper_total : paginated Serper total per sub-query    (PG_SERPER_TOTAL_PER_QUERY)
+#   fetch_cap    : URLs actually fetched per retrieval call (spine _fetch_cap; today 200)
+#
+# STANDARD carries today's per-query result counts (serper_k=s2_k=12) so a resolver-ON run
+# with no user ask drifts minimally from the current defaults; NARROW narrows discovery,
+# WIDE widens it. These are COMPUTE-SAFETY sizing rows, never a target the loop pads to
+# (§-1.3): the issued count still EMERGES from facets + dedup + wall + checklist saturation.
+#
+# The design's three canonical numbers per class {query_budget, serper_total, fetch_cap}
+# (master §6) are NARROW {15,20,120} / STANDARD {35,60,300} / WIDE {80,100,740}; serper_k /
+# s2_k scale with the class (discovery breadth per sub-query), operator-tunable, disclosed
+# in the manifest breadth rationale.
+
+classes:
+  NARROW:
+    query_budget: 15
+    serper_k: 10
+    s2_k: 10
+    serper_total: 20
+    fetch_cap: 120
+  STANDARD:
+    query_budget: 35
+    serper_k: 12
+    s2_k: 12
+    serper_total: 60
+    fetch_cap: 300
+  WIDE:
+    query_budget: 80
+    serper_k: 20
+    s2_k: 20
+    serper_total: 100
+    fetch_cap: 740
+
+# Absolute compute-safety ceilings (generous — protect the box + wallet, NEVER a quality
+# target, §-1.3). A resolved or user-asked value above the ceiling clamps LOUDLY (disclosed
+# in the breadth rationale + run log), never silently. Each is env-overridable.
+abs_max:
+  query_budget: 500      # PG_QGEN_ABS_MAX_QUERIES
+  serper_k: 200          # PG_SERPER_K_ABS_MAX
+  s2_k: 100              # PG_S2_K_ABS_MAX  (Semantic Scholar API hard-caps 100/call)
+  serper_total: 500      # PG_SERPER_TOTAL_ABS_MAX
+  fetch_cap: 2000        # PG_FETCH_CAP_ABS_MAX
+
+# The class chosen when nothing (user number, breadth directive, structural width) resolves.
+default_class: STANDARD

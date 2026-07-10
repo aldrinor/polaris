@@ -1,0 +1,27 @@
+{
+  "_comment": "Protocol-scope slice (the shape scope_gate writes into protocol.json) — a rich, ALL-dimension scope: publication window 2019..June-2023, German language, EU + US geography, peer-reviewed-journal preference, and a named author. Drives the SCOPE DIRECTIVES block (b) + Serper tbs/gl/hl (c) + S2 year/publicationTypes + OpenAlex language/author (d).",
+  "user_constraints": {
+    "date_start_year": 2019,
+    "date_end_year": 2023,
+    "date_start_month": 1,
+    "date_end_month": 6,
+    "date_start_iso": "2019-01-01",
+    "date_end_iso": "2023-06",
+    "language": "de",
+    "journal_only_dormant": false,
+    "timeline_strictness": "weight",
+    "source": "regex"
+  },
+  "scope_constraints": {
+    "facets": [
+      {"facet_id": "jurisdiction:eu", "dimension": "jurisdiction", "op": "include", "strictness": "weight", "trigger_span": "European sources", "source": "regex"},
+      {"facet_id": "jurisdiction:us", "dimension": "jurisdiction", "op": "prefer", "strictness": "weight", "trigger_span": "and US", "source": "regex"},
+      {"facet_id": "peer_reviewed_journal", "dimension": "source_type", "op": "prefer", "strictness": "weight", "trigger_span": "peer-reviewed", "source": "regex"}
+    ],
+    "named_include": [
+      {"label": "Jane Doe", "op": "include", "strictness": "weight", "identity": {"acronym": "Jane"}, "source": "regex"}
+    ],
+    "named_exclude": [],
+    "source": "regex"
+  }
+}

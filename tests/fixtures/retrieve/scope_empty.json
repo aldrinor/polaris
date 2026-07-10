@@ -1,0 +1,5 @@
+{
+  "_comment": "Empty protocol-scope slice — NO scope stated. Proves fail-open (condition e): every scoped-lane builder returns {} and no SCOPE DIRECTIVES block is emitted even with every scope flag ON.",
+  "user_constraints": {},
+  "scope_constraints": {"facets": [], "named_include": [], "named_exclude": []}
+}

@@ -9735,6 +9735,36 @@ async def run_one_query(
         _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
         _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "200"))
 
+        # Design 7 D1 (ruling R11): size the retrieval budget from the USER'S ASK. When
+        # PG_BREADTH_RESOLVER is ON, the resolver reads the RunConfig breadth block (when the
+        # protocol carries one — foundation-core writes protocol['run_config']) + the prompt's
+        # breadth directive + structural width, and resolves serper_k/s2_k/fetch_cap (and the
+        # query_budget wired below into the FS max_queries kwarg). Flag OFF => byte-identical env
+        # defaults (35/12/12/200). Fail-open: any resolver fault keeps the env defaults above.
+        _breadth_plan = None
+        try:
+            from src.polaris_graph.retrieval.breadth_resolver import (
+                breadth_resolver_enabled as _breadth_resolver_enabled,
+                resolve_breadth as _resolve_breadth,
+            )
+            if _breadth_resolver_enabled():
+                _rc = protocol.get("run_config") if isinstance(protocol, dict) else None
+                _breadth_plan = _resolve_breadth(
+                    _clean_question, protocol=protocol, facets=None, run_config=_rc,
+                )
+                _max_serper = _breadth_plan.serper_k
+                _max_s2 = _breadth_plan.s2_k
+                _fetch_cap = _breadth_plan.fetch_cap
+                _log(
+                    f"[breadth_resolver] {_breadth_plan.breadth_class}: query_budget="
+                    f"{_breadth_plan.query_budget} serper_k={_max_serper} s2_k={_max_s2} "
+                    f"fetch_cap={_fetch_cap} serper_total={_breadth_plan.serper_total} "
+                    f"| {_breadth_plan.rationale}"
+                )
+        except Exception as _br_exc:  # noqa: BLE001 — fail-open: keep the env defaults
+            _log(f"[breadth_resolver] fell open (env defaults kept): {_br_exc}")
+            _breadth_plan = None
+
         # I-ready-006 (#1082): query-complexity router (CAP-ONLY — Codex diff-gate iter-5 §-1.2 rule 6).
         # Default OFF (PG_COMPLEXITY_ROUTING) -> the full heavyweight path, BYTE-IDENTICAL. When ON, a
         # confidently-SIMPLE factual query gets a lower FETCH CAP (PG_SIMPLE_FETCH_CAP) only — a cost/
@@ -10435,7 +10465,13 @@ async def run_one_query(
                 if _fs_researcher_enabled():
                     retrieval, _iter_queries = _run_fs_researcher_retrieval(
                         _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR,  # I-deepfix-001 B3 P1-B: clean query seed
+                        # Design 7 D1: the resolved query_budget sizes the FS sub-query cap (None =>
+                        # the module's PG_QGEN_FS_RESEARCHER_MAX_QUERIES=35 default => byte-identical).
+                        max_queries=(_breadth_plan.query_budget if _breadth_plan is not None else None),
                         retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 WALL-03 (#1344): SHARED per-question wall gates the adaptive GLM rounds
+                        # Design 7 D2: thread the parsed scope so SCOPE DIRECTIVES weave into the qgen
+                        # prompts (no-op when PG_SCOPE_TO_QGEN is OFF / scope empty => byte-identical).
+                        scope=_retrieval_protocol,
                     )
                     _log(
                         f"[fs_researcher] #1296 FS-Researcher (arXiv 2602.01566) recency-completion "

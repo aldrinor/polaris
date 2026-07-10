@@ -384,6 +384,23 @@ def _scope_anchored() -> bool:
     return os.getenv("PG_FS_RESEARCHER_SCOPE_ANCHOR", "1").strip() not in ("0", "false", "False")
 
 
+def _append_scope_directives(prompt: str, scope: Any) -> str:
+    """Design 7 D2: append the STRUCTURED SCOPE DIRECTIVES block to a qgen prompt so the generated
+    query carries the user's parsed scope (dates / geography / language / source-type / named
+    authors). FAIL-OPEN and flag-gated inside ``scope_directives`` — when ``PG_SCOPE_TO_QGEN`` is
+    OFF, ``scope`` is None/empty, or the block build faults, the prompt is returned UNCHANGED
+    (byte-identical). §-1.3: this only STEERS discovery toward the user's stated scope; it drops
+    nothing. Lazy import keeps this module's cold-import contract (no live_retriever at load)."""
+    if scope is None:
+        return prompt
+    try:
+        from src.polaris_graph.retrieval.scope_directives import append_scope_directives
+        return append_scope_directives(prompt, scope)
+    except Exception:  # noqa: BLE001 — fail-open: any fault leaves the prompt untouched
+        logger.debug("[fs_researcher] scope-directive append fell open (unchanged prompt)", exc_info=True)
+        return prompt
+
+
 def _landmark_expander_enabled() -> bool:
     """I-deepfix-001 Wave-3 (#1344): env gate for the in-window landmark-study expander, read WITHOUT
     importing ``landmark_study_expander`` so a flag-OFF run NEVER imports that module — the expert-facet
@@ -540,6 +557,7 @@ def _plan_expert_facet_queries(
     max_queries: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    scope: Any = None,
 ) -> tuple[list[str], list[Any]]:
     """R1+R2 (I-deepfix-001, #1344) facet-driven frontier: seed queries from the expert-facet tree,
     issue them directly, then (when R2 is enabled) run the facet-completeness expansion loop over the
@@ -580,7 +598,9 @@ def _plan_expert_facet_queries(
         return queries, results
 
     # R1: build the facet tree (one bounded LLM call) and its scope-anchored angle queries.
-    facets = _efp.plan_expert_facets(question, llm)
+    # Design 7 D2: the parsed SCOPE DIRECTIVES thread into the facet-elicitation prompt too
+    # (no-op OFF/empty => byte-identical facet tree).
+    facets = _efp.plan_expert_facets(question, llm, scope=scope)
     # I-deepfix-001 Wave-3a (#1344): expert-facet-planner ACTIVATION fire marker. Emitted ONLY when
     # PG_EXPERT_FACET_PLANNER is ON (this whole facet path is reached only under the flag; the guard keeps
     # the marker OFF byte-identical even if a test drives this helper directly). facets=0 with the flag ON
@@ -852,6 +872,7 @@ def plan_fs_researcher_queries(
     max_rounds: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    scope: Any = None,
 ) -> tuple[list[str], list[Any]]:
     """Run the FS-Researcher TOC/todo-queue + 6-item-checklist loop; return
     (queries_issued, per_query_results).
@@ -897,6 +918,7 @@ def plan_fs_researcher_queries(
             question, llm, per_query_retrieve,
             max_queries=max_queries, retrieve_kwargs=retrieve_kwargs,
             retrieval_deadline_monotonic=retrieval_deadline_monotonic,
+            scope=scope,
         )
 
     # index.md TOC: deconstruct the question into sub-topics (the todo queue).
@@ -914,6 +936,9 @@ def plan_fs_researcher_queries(
             "Deconstruct this research topic into sub-topics (the index.md table of contents). "
             "One sub-topic per line.\n\n" + question
         )
+    # Design 7 D2: weave the parsed SCOPE DIRECTIVES into the TOC prompt (no-op when
+    # PG_SCOPE_TO_QGEN is OFF / scope empty => byte-identical).
+    _toc_prompt = _append_scope_directives(_toc_prompt, scope)
     # I-qgen-001 (#1373): screen the TOC reply for validator/status prose BEFORE it
     # becomes the todo queue — a status line must never become a sub-topic.
     todos = _screen_status_lines(_lines(llm(_toc_prompt), cap=10), question) or [question]
@@ -936,14 +961,16 @@ def plan_fs_researcher_queries(
             # (e.g. 'manufacturing and supply chain automation') keeps the question's subject and
             # does not drift into its generic field. Default-ON; OFF => the legacy bare prompt.
             if _scope_anchored():
-                raw = llm(
+                _todo_prompt = (
                     "Write ONE web-search query for the SUB-TOPIC below, kept STRICTLY within the "
                     "scope of the RESEARCH QUESTION (carry its subject, domain and key entities; do "
                     "NOT broaden the query into the sub-topic's generic field). Query only.\n\n"
                     f"RESEARCH QUESTION:\n{question}\n\nSUB-TOPIC:\n{todo}"
                 )
             else:
-                raw = llm("Write ONE search query for this sub-topic. Query only.\n\n" + todo)
+                _todo_prompt = "Write ONE search query for this sub-topic. Query only.\n\n" + todo
+            # Design 7 D2: append SCOPE DIRECTIVES to the per-todo derivation prompt (no-op OFF/empty).
+            raw = llm(_append_scope_directives(_todo_prompt, scope))
             query = ""
             if raw and raw.strip():
                 query = raw.strip().splitlines()[0].strip().strip('"').strip()
@@ -1124,6 +1151,7 @@ def run_fs_researcher_retrieval(
     max_rounds: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    scope: Any = None,
 ) -> tuple[Any, list[str]]:
     """The production entry point: run the FS-Researcher loop over `per_query_retrieve` and return
     (merged LiveRetrievalResult, queries_issued). Faithful to the bake-off winner — each query goes
@@ -1136,5 +1164,6 @@ def run_fs_researcher_retrieval(
         question, llm, per_query_retrieve,
         max_queries=max_queries, max_rounds=max_rounds, retrieve_kwargs=retrieve_kwargs,
         retrieval_deadline_monotonic=retrieval_deadline_monotonic,
+        scope=scope,
     )
     return merge_retrieval_results(results, result_factory), queries
