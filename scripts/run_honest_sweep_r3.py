@@ -15123,6 +15123,37 @@ async def run_one_query(
                 run_dir=run_dir, log=_log,
             )
 
+        # I-arch-plan S-X (ruling R10 / doc-00 R8 / Design 5 ORCH-4): resolve + DISCLOSE the
+        # thin-section gap-refetch spend budget every run. The bounded re-fetch LOOP itself
+        # (ORCH-3 reviser emits gap_queries -> retrieval/gap_refetch.run_gap_refetch routes them
+        # through the SAME per_query_retrieve lane -> fold_gap_delta -> recompose) is driven by the
+        # S4/S5 recompose seam (WP-3a). This seam only RESOLVES the budget
+        # (RunConfig.stages.gap_refetch_budget > env PG_OUTLINE_GAP_QUERIES > default 0) and carries
+        # it to the SUCCESS manifest below so Methods + the forensic monitor SEE the S-X state on
+        # every run. Budget 0 (default = OFF) => no fetch, byte-identical. It is a SPEND cap on
+        # queries issued, never a source cap or a quality target (§-1.3). run_config=None until
+        # WP-0b lands the RunConfig object (forward-compatible: becomes run_config=<RunConfig> then).
+        _gap_refetch_disclosure: dict | None = None
+        try:
+            from src.polaris_graph.retrieval.gap_refetch import (
+                resolve_gap_refetch_budget as _resolve_gap_refetch_budget,
+            )
+            _gap_budget = _resolve_gap_refetch_budget(run_config=None)
+            _gap_refetch_disclosure = {
+                "budget": _gap_budget.value,
+                "active": _gap_budget.value > 0,
+                "source": _gap_budget.source,
+                "abs_max_ceiling": _gap_budget.ceiling,
+                "clamped": _gap_budget.clamped,
+            }
+            _log(
+                f"[gap_refetch][activation] S-X thin-section re-fetch budget={_gap_budget.value} "
+                f"(source={_gap_budget.source}; "
+                f"{'ACTIVE' if _gap_budget.value > 0 else 'OFF'})"
+            )
+        except Exception as _gap_exc:  # noqa: BLE001 — disclosure is best-effort, never abort a paid run
+            _log(f"[gap_refetch] budget disclosure skipped (fail-open): {_gap_exc}")
+
         _pathb_gen_tok = _pathb.set_role("generator")
         _hb("generation_started")  # GH #1258 PART 2: stage-tick before the multi-section generator
         # BUG-3 (#1262): generation + per-sentence verification is ONE batched `await` with no
@@ -17923,6 +17954,16 @@ async def run_one_query(
                 else {}
             ),
             "protocol_sha256": scope.protocol_sha256,
+            # I-arch-plan S-X (R10): thin-section gap-refetch budget disclosure. Added ONLY when the
+            # loop is ACTIVE (budget > 0), so a default/OFF run keeps a byte-identical manifest
+            # (matching every other flag-gated field in this literal). The [activation] run-log line
+            # emitted at the pre-generation seam carries the OFF signal to the forensic monitor
+            # without touching manifest bytes.
+            **(
+                {"gap_refetch": _gap_refetch_disclosure}
+                if (_gap_refetch_disclosure is not None and _gap_refetch_disclosure.get("active"))
+                else {}
+            ),
             # #958 (S2): use the shared retrieval-section writer so the
             # corpus-truncation flag + counts land on the SUCCESS path too
             # (this inline block previously bypassed _base_manifest_envelope).
