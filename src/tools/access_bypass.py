@@ -3939,8 +3939,14 @@ class AccessBypass:
         # fragment/query, not `.pdf`, so a valid cited-work PDF is scraped as HTML
         # and the page anchor is thrown away. Test the fragment-/query-STRIPPED
         # `urlparse(url).path` so a `...pdf#page=N` still enters the PDF extractor.
-        _url_path_lower = urlparse(url).path.lower()
-        if _url_path_lower.endswith(".pdf") or "/pdf/" in url.lower():
+        # Flag-gated: OFF => exact pre-F6 raw-url `url.lower().endswith('.pdf')`
+        # predicate (byte-identical rollback; a bare `...pdf#page=N` / `...pdf?token=`
+        # reverts to the old raw-url MISS, so no new URL enters the extractor).
+        if _slice_on:
+            _pdf_ext_match = urlparse(url).path.lower().endswith(".pdf")
+        else:
+            _pdf_ext_match = url.lower().endswith(".pdf")
+        if _pdf_ext_match or "/pdf/" in url.lower():
             try:
                 # B4: collect blob identity only when STEP B is ON (out_meta
                 # None when OFF => no sha computed, metadata byte-identical).
