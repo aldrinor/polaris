@@ -8368,6 +8368,46 @@ _FEATURE_TELEMETRY_CTX: "contextvars.ContextVar[dict[str, dict] | None]" = conte
 )
 
 
+def _attach_junk_deletion_disclosure(manifest: dict, run_dir: "Path | None") -> dict:
+    """I-deepfix-003 (#1374) Fix 5: attach the split junk-deletion disclosure
+    (``deleted_chrome_nonsources`` + ``deleted_offtopic_sources``) to ``manifest`` from the
+    DURABLE ``run_dir/junk_deletion_disclosure.json`` the seam wrote. Called from
+    ``_attach_tool_utilization`` so EVERY manifest write path (success + every abort/error site)
+    carries it — a deletion is never silent (§-1.3.1 fail-loud), and the deleted_* keys land on
+    abort manifests too.
+
+    Keys are attached ONLY when the durable file EXISTS (i.e. the seam actually ran this pass):
+    a pre-seam abort leaves the manifest byte-identical (no keys), so this never changes an
+    abort shape for a run that never reached the gate. ``deleted_offtopic_sources`` matches ANY
+    ``confirmed_offtopic*`` reason (Fix 1 emits ``confirmed_offtopic_subject``; the legacy path
+    emits ``confirmed_offtopic``) — the prior ``== "confirmed_offtopic"`` filter silently MISSED
+    the Fix-1 reason. FAIL-OPEN: any error leaves the manifest untouched (never abort a run for
+    a disclosure read)."""
+    try:
+        if run_dir is None:
+            return manifest
+        _p = Path(run_dir) / "junk_deletion_disclosure.json"
+        if not _p.is_file():
+            return manifest  # gate did not run this pass — byte-identical (no keys)
+        _payload = json.loads(_p.read_text(encoding="utf-8"))
+        _recs = _payload.get("deleted", []) if isinstance(_payload, dict) else []
+        if not isinstance(_recs, list):
+            _recs = []
+        manifest["deleted_chrome_nonsources"] = [
+            r for r in _recs
+            if isinstance(r, dict)
+            and str(r.get("deletion_reason", "")).startswith("content_integrity_junk")
+        ]
+        manifest["deleted_offtopic_sources"] = [
+            r for r in _recs
+            if isinstance(r, dict)
+            and str(r.get("deletion_reason", "")).startswith("confirmed_offtopic")
+        ]
+    except Exception as _jd_disc_exc:  # noqa: BLE001 — disclosure attach must never abort a run
+        print(f"[junk-deletion-gate] disclosure attach skipped: {_jd_disc_exc}")
+    return manifest
+
+
 def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
     """I-meta-007b (#meta-007) P1: attach the per-run tool-utilization summary
     to ``manifest`` (and write ``run_dir/tool_summary.json``) immediately before
@@ -8387,6 +8427,10 @@ def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
     if _feat:
         for _k, _v in _feat.items():
             manifest[_k] = _v
+    # I-deepfix-003 (#1374) Fix 5: attach the durable junk-deletion disclosure on EVERY manifest
+    # write path (this hook is the single pre-write chokepoint). Fail-open; no-op (no keys) when
+    # the seam did not run this pass.
+    _attach_junk_deletion_disclosure(manifest, run_dir)
     try:
         from src.polaris_graph.telemetry.tool_tracer import (
             attach_tool_utilization as _attach,
@@ -14954,6 +14998,26 @@ async def run_one_query(
                 "[junk-deletion-gate] SKIPPED (fail-open): "
                 f"{_jd_exc} — evidence_for_gen UNCHANGED, no deletion this run"
             )
+        # I-deepfix-003 (#1374) Fix 5: write the junk-deletion disclosure to run_dir IMMEDIATELY
+        # at the seam — a DURABLE fail-loud record (§-1.3.1) that survives even if the run later
+        # aborts before the manifest is built. Written on EVERY path out of the seam (even zero
+        # deletions / a fail-open skip) so the file's PRESENCE proves the gate ran. Every manifest
+        # write (`_attach_junk_deletion_disclosure` inside `_attach_tool_utilization`) reads THIS
+        # file, so the deleted_* keys land on abort manifests too. Best-effort: a disclosure write
+        # failure must not abort the paid run.
+        try:
+            (run_dir / "junk_deletion_disclosure.json").write_text(
+                json.dumps(
+                    {
+                        "deleted": _run_junk_deleted_disclosed,
+                        "count": len(_run_junk_deleted_disclosed),
+                    },
+                    indent=2, sort_keys=True, default=str,
+                ) + "\n",
+                encoding="utf-8",
+            )
+        except Exception as _jdw_exc:  # noqa: BLE001 — disclosure file write is best-effort
+            _log(f"[junk-deletion-gate] disclosure file write skipped (fail-open): {_jdw_exc}")
 
         # I-arch-004 F04 (#539/#629): persist the pre-generation corpus snapshot HERE — the
         # single seam where evidence_for_gen is FULLY constructed (selection + saturation +
@@ -17141,6 +17205,49 @@ async def run_one_query(
                     _log("[activation] summary_table: unavailable_failopen")
                 except Exception:  # noqa: BLE001 — a telemetry emit must never abort a render
                     pass
+        # I-deepfix-003 (#1374) Fix 5: the promised source-hygiene "## Methods" line. Appended to
+        # the reliability/audit APPENDIX (NOT the scored body) via compose_report_with_reliability,
+        # so it lands in the trailing typed appendix and can NEVER be read as an uncited
+        # reformulation of the question by run_validity_gate's body-wide framing scan. Counts are
+        # best-effort from the durable in-memory records; a missing count defaults to 0 and the
+        # line still ships (fail-loud disclosure — a deletion is never silent). §-1.3.1.
+        try:
+            _mh_disc = list(_run_junk_deleted_disclosed or [])
+            _mh_chrome = sum(
+                1 for r in _mh_disc
+                if str(r.get("deletion_reason", "")).startswith("content_integrity_junk")
+            )
+            _mh_offtopic = sum(
+                1 for r in _mh_disc
+                if str(r.get("deletion_reason", "")).startswith("confirmed_offtopic")
+            )
+            try:
+                _mh_degraded = int(getattr(_topic_result, "n_demoted_offtopic", 0) or 0)
+            except NameError:
+                _mh_degraded = 0
+            try:
+                _mh_consolidated = int(
+                    (_finding_dedup_telemetry or {}).get("collapsed_row_count", 0) or 0
+                )
+            except (NameError, AttributeError, TypeError):
+                _mh_consolidated = 0
+            _methods_line = (
+                "## Methods — source hygiene\n\n"
+                f"Before generation the grounding pool was cleaned: deleted {_mh_chrome} chrome "
+                "non-source page(s) (failed fetches — bot / cookie / 404 / login / empty) and "
+                f"{_mh_offtopic} confirmed off-topic source(s); demoted {_mh_degraded} "
+                "off-topic-adjacent source(s) to low weight (kept, not deleted); consolidated "
+                f"{_mh_consolidated} duplicate finding row(s). Every deleted source is itemized in "
+                "manifest.json (deleted_chrome_nonsources / deleted_offtopic_sources) and "
+                "junk_deletion_disclosure.json.\n"
+            )
+            _reliability_md = (
+                (_reliability_md or "").rstrip() + "\n\n" + _methods_line
+                if (_reliability_md or "").strip()
+                else _methods_line
+            )
+        except Exception as _mh_exc:  # noqa: BLE001 — Methods line is additive; never abort report
+            _log(f"[junk-deletion-gate] Methods line skipped (fail-open): {_mh_exc}")
         (run_dir / "report.md").write_text(
             compose_report_with_reliability(_report_artifact_body, _reliability_md), encoding="utf-8"
         )
@@ -17913,19 +18020,15 @@ async def run_one_query(
         manifest["retraction_disclosed"] = _merged_retraction_disclosed
         manifest["body_syndication"] = getattr(multi, "body_syndication_telemetry", {})
 
-        # GH I-deepfix-003 (#1374): surface the JUNK-DELETION disclosure on the success manifest
-        # (§-1.3.1 fail-loud — deletion is never silent). _run_junk_deleted_disclosed is built at
-        # the run-level junk-deletion seam above; split by reason so a §-1.1 auditor sees exactly
-        # which chrome non-sources and which confirmed-off-topic sources were removed from the
-        # grounding pool before generation. Additive observability keys (present even at zero).
-        _jd_disc = list(_run_junk_deleted_disclosed or [])
-        manifest["deleted_chrome_nonsources"] = [
-            r for r in _jd_disc
-            if str(r.get("deletion_reason", "")).startswith("content_integrity_junk")
-        ]
-        manifest["deleted_offtopic_sources"] = [
-            r for r in _jd_disc if r.get("deletion_reason") == "confirmed_offtopic"
-        ]
+        # GH I-deepfix-003 (#1374) Fix 5: the JUNK-DELETION disclosure (deleted_chrome_nonsources
+        # + deleted_offtopic_sources) is now attached on EVERY manifest write path by
+        # `_attach_junk_deletion_disclosure` inside `_attach_tool_utilization` (called on the
+        # success path at the manifest-finalize below and on every abort/error site), reading the
+        # DURABLE run_dir/junk_deletion_disclosure.json the seam wrote. That is the single decision
+        # surface — split by reason (``confirmed_offtopic*`` for off-topic, ``content_integrity_junk``
+        # for chrome) — so the prior success-only block that MISSED the Fix-1 ``confirmed_offtopic_subject``
+        # reason (``== "confirmed_offtopic"``) is retired here. _run_junk_deleted_disclosed stays the
+        # in-memory record for the Methods line (below).
 
         # I-cred-006b (#1170): surface the weighted-corpus credibility disclosure in the per-run
         # manifest (ON-mode only — the key is ABSENT when the flag is off, preserving the legacy
