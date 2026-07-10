@@ -2891,6 +2891,20 @@ def _md_nav_strip_v2_enabled() -> bool:
     return os.getenv(_ENV_MD_NAV_STRIP_V2, "1") != "0"
 
 
+# I-fetchclean-001 round-3 (2026-07-10) — the residual welded-chrome leaks from the live retest
+# round 2. Every round-3 addition is gated DEFAULT-ON by ``PG_FETCH_MD_NAV_STRIP_V3``; OFF ("0") ⇒
+# the round-3 helpers are never invoked ⇒ byte-identical to round-2. The SACRED GUARD is unchanged:
+# ref-mode + citation-signal lines are byte-identical; a reference/citation line — a line whose
+# VISIBLE text (link text, not href) carries a DOI / year / et-al / pp. — survives byte-for-byte.
+# INPUT HYGIENE ONLY — strict_verify / NLI / 4-role / span-grounding are untouched.
+_ENV_MD_NAV_STRIP_V3 = "PG_FETCH_MD_NAV_STRIP_V3"
+
+
+def _md_nav_strip_v3_enabled() -> bool:
+    """Round-3 additions (F1-F8) default-ON; OFF ("0") ⇒ byte-identical to round-2."""
+    return os.getenv(_ENV_MD_NAV_STRIP_V3, "1") != "0"
+
+
 # Fix 2 (RC2 core) — inline markdown-link policy, applied per link on a KEPT line.
 # (a) empty-anchor link ``[]()`` / ``[ ]()`` — no anchor text = pure chrome.
 # (b) image token ``![alt](url)`` + a dangling line-trailing ``![alt`` (window cut).
@@ -2987,9 +3001,24 @@ def _strip_inline_chrome_tokens_v2(line: str, ref_mode: bool) -> str:
     return line
 
 
+def _visible_text(line: str) -> str:
+    """Round-3 F2 — the line's VISIBLE text: images dropped, every ``[text](url)`` reduced to its
+    anchor ``text`` (the href discarded). A bare ``http://…`` URL not inside a markdown link is
+    kept (a real reference often writes its DOI/URL bare). Pure / deterministic."""
+    t = _MD_IMAGE_TOKEN_RE.sub(" ", line)
+    return _MD_LINK_ANCHOR_TARGET_RE.sub(lambda m: m.group(1), t)
+
+
 def _line_is_reference_like(line: str) -> bool:
-    """True iff the line carries >=1 citation signal (KEEP guard, §Fix B step 4)."""
-    return any(rx.search(line) for rx in _CITATION_SIGNAL_RES)
+    """True iff the line carries >=1 citation signal (KEEP guard, §Fix B step 4).
+
+    Round-3 F2 STRENGTHENS this guard without touching a signal regex: under
+    ``PG_FETCH_MD_NAV_STRIP_V3`` the signals are measured on the line's VISIBLE text (link anchor
+    text, not the href), so a nav link whose ONLY year lives in its URL no longer masquerades as a
+    reference — while a real citation, which carries its DOI / year / et-al in the visible text
+    (incl. link TEXT), is still KEPT. OFF ("0") ⇒ the round-2 behaviour (scan the full line)."""
+    target = _visible_text(line) if _md_nav_strip_v3_enabled() else line
+    return any(rx.search(target) for rx in _CITATION_SIGNAL_RES)
 
 
 def _line_is_prose_like(stripped: str, link_chars: int) -> bool:
@@ -3082,6 +3111,230 @@ def _strip_nav_link_runs(line: str, ref_mode: bool) -> str:
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-fetchclean-001 round-3 (2026-07-10) — residual welded-chrome leaks from the live retest
+# round 2. Every helper below is invoked ONLY when ``_md_nav_strip_v3_enabled()`` (default-ON;
+# ``PG_FETCH_MD_NAV_STRIP_V3=0`` ⇒ never called ⇒ byte-identical to round-2). SACRED GUARD held:
+# a ref-mode / reference-like line (visible-text signal) is byte-preserved. INPUT HYGIENE ONLY —
+# strict_verify / NLI / 4-role / span-grounding untouched.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# F4 — inline cookie-consent chrome welded mid-line (token-only; surrounding prose byte-preserved).
+# Each pattern is a CTA-link / CMP-widget / structure-anchored consent SENTENCE that never occurs
+# in real article prose. Applied ONLY on a NON-ref / NON-reference-like line.
+_INLINE_COOKIE_CHROME_RES_V3: "tuple[re.Pattern, ...]" = (
+    # Cookie Information / Cookiebot "Powered by: [Cookie Information](url)" CMP attribution link.
+    re.compile(r"Powered by:?\s*\[Cookie ?Information[^\]]*\]\([^)]*\)", re.IGNORECASE),
+    # CMP category checkbox run — >=2 of the four category toggles ``Category - [x]`` in a row.
+    re.compile(
+        r"(?:(?:Necessary|Functional|Preferences|Statistical|Statistics|Marketing)"
+        r"\s*[-–]\s*\[[ xX]\]\s*){2,}",
+        re.IGNORECASE,
+    ),
+    # "Accept all cookies" / "cookies policy page" markdown CTA links.
+    re.compile(r"\[\s*Accept all cookies\s*\]\([^)]*\)", re.IGNORECASE),
+    re.compile(r"\[\s*cookies? policy page\s*\]\([^)]*\)", re.IGNORECASE),
+    # AMA-style "… use cookies, pixels and other technology …" consent SENTENCE (enclosing
+    # sentence, token-only). ``[^.\n]*`` is capped so it can never cross a sentence boundary.
+    re.compile(
+        r"[^.\n]{0,200}\bcookies, pixels and other technolog\w*[^.\n]{0,200}\.",
+        re.IGNORECASE,
+    ),
+    # "We use cookies to <verb> …" consent SENTENCE (multi-token anchored to the CTA verb, so a
+    # research sentence "we use cookies from the browser cache" is NOT matched).
+    re.compile(
+        r"[^.\n]{0,120}\bwe use cookies to (?:ensure|give|provide|improve|make|offer|personaliz)"
+        r"\w*[^.\n]{0,200}\.",
+        re.IGNORECASE,
+    ),
+    # "This (web)site uses cookies to …" consent SENTENCE.
+    re.compile(
+        r"[^.\n]{0,120}\bthis (?:web)?site uses cookies to[^.\n]{0,200}\.",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _strip_inline_cookie_chrome_v3(line: str, ref_mode: bool) -> str:
+    """F4 — remove welded cookie-consent CTA / CMP / sentence chrome inline (surrounding prose
+    byte-preserved). GUARDED: never touches a ref-mode / reference-like line."""
+    if ref_mode or _line_is_reference_like(line):
+        return line
+    for rx in _INLINE_COOKIE_CHROME_RES_V3:
+        line = rx.sub(" ", line)
+    return line
+
+
+# F3 — extended consent-banner LINE detection (welded cookie HEADING / label at line start). A
+# whole line whose text (after optional heading marks / bullets) OPENS with a cookie label AND
+# carries a consent SIGNAL later is a banner → drop. ref_mode / reference-like lines never match.
+_CONSENT_ANCHOR_RE_V3 = re.compile(
+    r"^[\s#>*\-]*"
+    r"(?:cookies on this website"
+    r"|the cookie settings on this website"
+    r"|we use cookies"
+    r"|this (?:web)?site uses cookies)\b",
+    re.IGNORECASE,
+)
+_CONSENT_SIGNAL_RE_V3 = re.compile(
+    r"allow all"
+    r"|accept all"
+    r"|manage your (?:cookie )?preferences"
+    r"|cookie policy"
+    r"|change your settings"
+    r"|withdraw (?:your )?consent"
+    r"|best experience",
+    re.IGNORECASE,
+)
+
+
+def _is_consent_line_v3(line: str, ref_mode: bool) -> bool:
+    """F3 — True iff the line is a welded cookie-consent banner/heading: a cookie ANCHOR at line
+    start AND >=1 consent SIGNAL later. ref_mode / reference-like lines are never banners."""
+    if ref_mode or _line_is_reference_like(line):
+        return False
+    m = _CONSENT_ANCHOR_RE_V3.match(line)
+    if not m:
+        return False
+    return _CONSENT_SIGNAL_RE_V3.search(line[m.end():]) is not None
+
+
+# F4/RC4 — single-link bullet-nav line ("* [Open submenu](…)"). A bullet/breadcrumb-led line with
+# 1-2 links, <=4 visible words, NO citation signal and NO sentence-ending punctuation is site nav.
+_BULLET_NAV_MARKER_RE = re.compile(r"^\s*[*>+\-]\s+")
+_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def _is_bullet_nav_line_v3(line: str, ref_mode: bool) -> bool:
+    """F4/RC4 — True iff the line is a single-/double-link bullet-nav item to drop. A reference
+    bullet ("* [Smith et al., 2019](doi…)") carries a citation signal or a long title, so it is
+    KEPT; a real prose bullet ends with sentence punctuation, so it is KEPT."""
+    if ref_mode:
+        return False
+    if not _BULLET_NAV_MARKER_RE.match(line):
+        return False
+    links = _MD_LINK_RE.findall(line)
+    if not (1 <= len(links) <= 2):
+        return False
+    if _line_is_reference_like(line):
+        return False
+    stripped = line.strip()
+    if _SENTENCE_END_RE.search(stripped):
+        return False  # a real prose bullet ending in punctuation
+    vis = _BULLET_NAV_MARKER_RE.sub("", _visible_text(stripped))
+    if len(_WORD_RE.findall(vis)) > 4:
+        return False
+    return True
+
+
+# F7 — masthead running-header / CONTACT furniture (token-only; structure impossible in prose or a
+# title-case reference). Case-SENSITIVE all-caps so a lowercase "please contact john@x.com" or a
+# title-case journal reference is NEVER matched.
+_MASTHEAD_CONTACT_RE_V3 = re.compile(r"CONTACT\s+\S+(?:\s+\S+){0,3}\s+\S+@\S+\.\S+")
+_MASTHEAD_RUNNING_HEADER_RE_V3 = re.compile(
+    r"(?:>\s*)?THE\s+[A-Z][A-Z ,&]{10,}\s+(?:19|20)\d{2},\s*VOL\.?\s*\d+,\s*NO\b[.\d\s,–-]{0,20}"
+)
+
+
+def _strip_masthead_furniture_v3(line: str) -> str:
+    """F7 — remove ``CONTACT <name> <email>`` masthead + all-caps journal running-header furniture
+    token-only. Structure-anchored so a real title-case reference to the same journal survives."""
+    line = _MASTHEAD_CONTACT_RE_V3.sub(" ", line)
+    line = _MASTHEAD_RUNNING_HEADER_RE_V3.sub(" ", line)
+    return line
+
+
+# F6 — empty markdown table skeleton (header row + separator, NO data row). A table WITH any data
+# row is byte-preserved.
+_MD_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?(?:\s*:?-{2,}:?\s*\|)+(?:\s*:?-{2,}:?\s*)?$")
+
+
+def _row_has_content_cell(line: str) -> bool:
+    """True iff a table row carries a non-separator alnum cell (a real data row)."""
+    return bool(re.sub(r"[|:\-\s]", "", line))
+
+
+def _empty_table_drop_indices_v3(lines: "list[str]") -> "set[int]":
+    """F6 — indices of header+separator rows of an EMPTY markdown table (no data row follows)."""
+    drop: "set[int]" = set()
+    n = len(lines)
+    for i in range(n):
+        if not _MD_TABLE_SEPARATOR_RE.match(lines[i]):
+            continue
+        h = i - 1
+        while h >= 0 and not lines[h].strip():
+            h -= 1
+        if h < 0 or "|" not in lines[h] or _MD_TABLE_SEPARATOR_RE.match(lines[h]):
+            continue
+        d = i + 1
+        while d < n and not lines[d].strip():
+            d += 1
+        has_data = (
+            d < n
+            and "|" in lines[d]
+            and not _MD_TABLE_SEPARATOR_RE.match(lines[d])
+            and _row_has_content_cell(lines[d])
+        )
+        if not has_data:
+            drop.add(h)
+            drop.add(i)
+    return drop
+
+
+# F8 — line-level bot-wall interstitial strip (precision-first): drop a SHORT, non-prose line that
+# carries a STRONG (unambiguous) access-denial marker and no citation signal. The vocabulary is the
+# ONE shared shell_detector source of truth (LAW V), lazily imported (fail-open) so this leaf module
+# keeps no import-time dependency on the retrieval package.
+_ENV_BOTWALL_LINE_MAX_CHARS = "PG_BOTWALL_LINE_MAX_CHARS"
+_DEFAULT_BOTWALL_LINE_MAX_CHARS = 300
+_BOTWALL_MARKERS_CACHE: "Optional[tuple[str, ...]]" = None
+
+
+def _botwall_line_max_chars() -> int:
+    try:
+        return int(os.getenv(_ENV_BOTWALL_LINE_MAX_CHARS, str(_DEFAULT_BOTWALL_LINE_MAX_CHARS)))
+    except (TypeError, ValueError):
+        return _DEFAULT_BOTWALL_LINE_MAX_CHARS
+
+
+def _botwall_markers() -> "tuple[str, ...]":
+    """STRONG (non-ambiguous) access-denial phrases, from the shared shell_detector vocabulary."""
+    global _BOTWALL_MARKERS_CACHE
+    if _BOTWALL_MARKERS_CACHE is not None:
+        return _BOTWALL_MARKERS_CACHE
+    try:
+        from src.polaris_graph.retrieval.shell_detector import (
+            ACCESS_DENIAL_MARKERS,
+            AMBIGUOUS_SHELL_PHRASES,
+        )
+        markers = tuple(m for m in ACCESS_DENIAL_MARKERS if m not in AMBIGUOUS_SHELL_PHRASES)
+    except Exception:  # noqa: BLE001 — no vocab ⇒ no line drop (fail-open, never invent a drop)
+        markers = ()
+    _BOTWALL_MARKERS_CACHE = markers
+    return markers
+
+
+def _is_botwall_interstitial_line_v3(line: str, ref_mode: bool) -> bool:
+    """F8 — True iff the line is a SHORT welded bot-wall interstitial to drop. A long welded
+    transcript line (>max) or a prose-like sentence naming a bot phrase is NOT dropped (the honest
+    residual is harness-side); ref-mode / reference-like lines are never dropped."""
+    if ref_mode:
+        return False
+    stripped = line.strip()
+    if not stripped or len(stripped) > _botwall_line_max_chars():
+        return False
+    if _line_is_reference_like(line):
+        return False
+    low = stripped.lower()
+    if not any(m in low for m in _botwall_markers()):
+        return False
+    links = _MD_LINK_RE.findall(stripped)
+    link_chars = sum(len(m) for m in links)
+    if _line_is_prose_like(stripped, link_chars):
+        return False
+    return True
+
+
 def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
     """I-fetchclean-001 B1 — remove full-page markdown nav / boilerplate / structure-
     anchored chrome from a fetched markdown body, byte-preserving reference lists and
@@ -3097,7 +3350,15 @@ def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
     out: "list[str]" = []
     ref_mode = False
     ref_level = 0
-    for raw in text.split("\n"):
+    v3 = _md_nav_strip_v3_enabled()
+    raw_lines = text.split("\n")
+    # F6 (round-3): pre-scan for EMPTY markdown table skeletons (header + separator, no data row).
+    table_drop = _empty_table_drop_indices_v3(raw_lines) if v3 else set()
+    for idx, raw in enumerate(raw_lines):
+        # F6: drop the header+separator rows of an empty table skeleton (a data-bearing table is
+        # never in this set → byte-preserved).
+        if idx in table_drop:
+            continue
         # (step 1) heading-context tracking — headings are never chrome, kept byte-identical.
         ref_h = _MD_REFERENCE_HEADING_RE.match(raw)
         if ref_h:
@@ -3115,10 +3376,20 @@ def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
             # cleaned to only marks/whitespace falls back to the raw line). A LONG `#`-prefixed line
             # is a welded nav/banner region → fall through to the token/segment rules below.
             if len(raw) <= _md_heading_max_chars():
+                # F1 (round-3): a SHORT heading whose rest (after the ``#`` marks) is a link-nav
+                # run is a welded nav rail masquerading as a heading → drop it whole. Guarded by V3
+                # + non-reference (a real heading "## Results" has no 2-link 0.5-density tail).
+                if v3 and not ref_mode:
+                    rest_r3 = re.sub(r"^#{1,6}\s*", "", raw)
+                    if _is_nav_link_line(rest_r3, ref_mode):
+                        continue
                 if _md_nav_strip_v2_enabled():
                     hline = _apply_inline_link_policy(
                         _strip_inline_chrome_tokens_v2(raw, ref_mode), ref_mode
                     )
+                    # F4 (round-3): also strip welded cookie-consent chrome from the kept heading.
+                    if v3:
+                        hline = _strip_inline_cookie_chrome_v3(hline, ref_mode)
                     out.append(hline if hline.strip("# \t") else raw)
                 else:
                     out.append(raw)
@@ -3131,16 +3402,30 @@ def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
         # F2: inline chrome tokens welded into the line (gov banner / reading-time / skip-nav
         # paren+bare anchor / video-player chrome / IAB consent anchor / T&F cover sheet / Crossref).
         line = _strip_inline_chrome_tokens(line, ref_mode)
+        # F7 (round-3): remove masthead running-header / CONTACT furniture token-only (structure
+        # impossible in prose or a title-case reference).
+        if v3:
+            line = _strip_masthead_furniture_v3(line)
         # F4: remove welded nav-link RUNs (per-run guards) inside a long line; prose tail preserved.
         line = _strip_nav_link_runs(line, ref_mode)
         # A line that became whitespace-only after token removal was pure chrome → drop (round-1).
         if raw.strip() and not line.strip():
+            continue
+        # F3 (round-3): welded cookie-consent banner/heading LINE (extended anchor + signal) → drop.
+        if v3 and _is_consent_line_v3(line, ref_mode):
             continue
         # F3: cookie-consent banner line (multilingual, anchor + signal) → drop (guarded by
         # ref_mode / reference-like). Runs BEFORE the round-2 inline vocab so a PURE consent line
         # (banner label at line start) is dropped WHOLE (round-1 behaviour preserved); a welded
         # prose+consent line (anchor NOT at line start) falls to the inline vocab below.
         if _is_consent_banner_line(line, ref_mode):
+            continue
+        # F4/RC4 (round-3): a single-/double-link bullet-nav line ("* [Open submenu](…)") → drop.
+        # Runs BEFORE the round-2 link unwrap so the still-wrapped links are visible to the rule.
+        if v3 and _is_bullet_nav_line_v3(line, ref_mode):
+            continue
+        # F8 (round-3): a SHORT welded bot-wall interstitial line → drop (precision-first).
+        if v3 and _is_botwall_interstitial_line_v3(line, ref_mode):
             continue
         # Round-2 Fix 3 then Fix 2, in that ORDER: the inline chrome vocab (login-wall / cookie-CMP
         # sentence welded mid-line / CMP label / news-ticker) deletes CTA links wholesale FIRST, then
@@ -3149,6 +3434,11 @@ def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
         # Both guarded so a ref-mode / reference-like line only loses an empty/symbolic back-link.
         if _md_nav_strip_v2_enabled():
             line = _strip_inline_chrome_tokens_v2(line, ref_mode)
+            # F4 (round-3): strip welded cookie CTA / CMP / consent-sentence chrome inline BEFORE the
+            # link-policy unwrap, so an ``[Accept all cookies](url)`` CTA is deleted (not unwrapped
+            # to text). Guarded so a ref-mode / reference-like line is byte-identical.
+            if v3:
+                line = _strip_inline_cookie_chrome_v3(line, ref_mode)
             line = _apply_inline_link_policy(line, ref_mode)
             if raw.strip() and not line.strip():
                 continue
