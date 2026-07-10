@@ -3334,6 +3334,24 @@ def refetch_for_extraction_with_diagnostics(
             )
             diagnostics["failure_mode"] = "fetch_shell"
             return "", diagnostics  # failure (settled in finally)
+        # I-fetchclean-001 A2: the ONLY prior whole-body junk gate here is
+        # ``_cf.shell_reason`` (is_boilerplate_or_nonassertional), which has ZERO
+        # bot-wall / security-verification vocabulary — so a Cloudflare/SSRN
+        # "Performing security verification…" wall leaked through as a cited span
+        # (replay-proven on the drb_72 corpus). ``shell_detector.is_cited_span_shell``
+        # is the correct any-length detector (bot-wall co-occurrence + short-body
+        # markers) and is ALREADY the cited-span faithfulness gate — run it here too
+        # (LAW V single source) so the SAME wall is refused at fetch time. Gated
+        # DEFAULT-ON by ``PG_FETCH_SHELL_VOCAB_GATE``; OFF ⇒ byte-identical. A refused
+        # wall is a FAILED fetch / chrome non-source (§-1.3.1a), not a deleted source.
+        if _fetch_shell_vocab_gate_enabled() and shell_detector.is_cited_span_shell(content):
+            logger.info(
+                "[refetch_for_extraction] FETCH_SHELL_REFUSED shell-vocab rejected "
+                "url=%s len=%d → not-extractable (bot-wall / error page is not a source)",
+                (url or "")[:200], len(content),
+            )
+            diagnostics["failure_mode"] = "fetch_shell"
+            return "", diagnostics  # failure (settled in finally)
         # I-deepfix-004 D (step 1): an A15 recovery re-fetch must NEVER adopt a
         # journal-issue COVER / TABLE-OF-CONTENTS / MASTHEAD span as the cited
         # article. AFTER clean_fetch_body, if the default-ON cited-work span screen
@@ -4199,7 +4217,35 @@ def _fetch_content(
     result = result_holder["value"]
 
     method = getattr(result, "access_method", "unknown") or "unknown"
-    if not result.success or not result.content:
+    # I-fetchclean-001 A3: a WINNING backend whose body is a bot-wall / security-
+    # verification / crawler-error page previously exited this function ok=True with NO
+    # shell check at all (the ``clean_fetch_body(...).cleaned_text`` at the success path
+    # below DISCARDS ``shell_reason``). Probe the winner ONCE here; on a shell verdict,
+    # REROUTE into the EXISTING miss branch so the OA resolver still gets its recovery
+    # shot (recover-before-refuse), else the caller sees an honest MISS. Gated DEFAULT-ON
+    # by ``PG_FETCH_SHELL_VOCAB_GATE``; OFF ⇒ ``_probe_cf`` stays None, ``_shell_reroute``
+    # stays "" ⇒ byte-identical control flow. The probe is REUSED at the success path
+    # below so ``clean_fetch_body`` runs at most once (and the shell_reason-discard bug is
+    # fixed — the discard site becomes the reuse site). A refused wall is a FAILED fetch /
+    # chrome non-source (§-1.3.1a), logged LOUD + telemetry-recorded, never a deleted source.
+    _probe_cf = None
+    _shell_reroute = ""
+    if result.success and result.content and _fetch_shell_vocab_gate_enabled():
+        from src.tools.access_bypass import clean_fetch_body as _clean_fetch_body_probe
+        _probe_cf = _clean_fetch_body_probe(_strip_html(result.content))
+        if _probe_cf.shell_reason:
+            _shell_reroute = _probe_cf.shell_reason
+        elif shell_detector.is_cited_span_shell(_probe_cf.cleaned_text):
+            _shell_reroute = "bot_wall_shell_vocab"
+        if _shell_reroute:
+            logger.info(
+                "[live_retriever] FETCH_SHELL_REFUSED url=%s method=%s reason=%s "
+                "→ reroute to miss branch (recover-before-refuse; bot-wall/error page "
+                "is not a source, §-1.3.1a)",
+                url[:80], method, _shell_reroute,
+            )
+            _m45_record_fetch_telemetry(url, method, f"fetch_shell_{_shell_reroute}")
+    if not result.success or not result.content or _shell_reroute:
         reason = (result.metadata or {}).get("reason") if hasattr(result, "metadata") else None
         logger.info(
             "[live_retriever] fetch_miss %s (method=%s reason=%s)",
@@ -4275,8 +4321,17 @@ def _fetch_content(
     # Input hygiene only — strict_verify / NLI / 4-role / span-grounding untouched.
     _stripped_body = _strip_html(result.content)
     if os.getenv("PG_FETCH_COOKIE_CHROME_STRIP", "1") != "0":
-        from src.tools.access_bypass import clean_fetch_body
-        _stripped_body = clean_fetch_body(_stripped_body).cleaned_text
+        # I-fetchclean-001 A3: reuse the A3 probe's already-cleaned body when it was
+        # computed (``PG_FETCH_SHELL_VOCAB_GATE`` on) so ``clean_fetch_body`` runs at
+        # most once. ``_probe_cf.cleaned_text`` == ``clean_fetch_body(_strip_html(
+        # result.content)).cleaned_text`` (same composition), so this is byte-identical
+        # to the prior recompute; when the probe is None (gate OFF) the recompute runs
+        # exactly as before.
+        if _probe_cf is not None:
+            _stripped_body = _probe_cf.cleaned_text
+        else:
+            from src.tools.access_bypass import clean_fetch_body
+            _stripped_body = clean_fetch_body(_stripped_body).cleaned_text
     content = _stripped_body[:max_chars]
     # BB5-C05 (#1177): "fetched-200-but-empty-extract" — the backend fetched
     # real content (success + non-empty result.content) yet the extractor chain
@@ -4505,6 +4560,20 @@ _FORMATTING_NOISE_MARKERS = (
 _ACCESS_DENIAL_MARKERS = shell_detector.ACCESS_DENIAL_MARKERS
 _ACCESS_DENIAL_MAX_CHARS = int(os.getenv("PG_ACCESS_DENIAL_MAX_CHARS", "3000"))
 _CHALLENGE_PAGE_COOCCURRENCE = shell_detector.CHALLENGE_PAGE_COOCCURRENCE
+
+
+def _fetch_shell_vocab_gate_enabled() -> bool:
+    """I-fetchclean-001 A2/A3 — True (default) ⇒ the fetch seam refuses a whole-body
+    fetch-shell (bot-wall / security-verification / crawler-error page) via
+    ``shell_detector.is_cited_span_shell`` before it can become a cited quote.
+
+    ``PG_FETCH_SHELL_VOCAB_GATE=0`` (or off/false/no/disabled) ⇒ byte-identical to the
+    pre-fix control flow (the shell probe/reroute is never entered). Read at call time
+    so tests toggle without re-import. A refused shell is a FAILED fetch (a chrome
+    non-source per §-1.3.1a), never a deleted credible source."""
+    return os.environ.get("PG_FETCH_SHELL_VOCAB_GATE", "1").strip().lower() not in {
+        "0", "false", "off", "no", "disabled",
+    }
 
 
 def _is_access_denial_stub(content: str) -> bool:
