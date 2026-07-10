@@ -13265,12 +13265,26 @@ async def run_one_query(
                 )
                 _parent_cost_before = _RUN_COST_CTX.get()
                 _worker_cost_after_holder: list[float] = [_parent_cost_before]
+                # I-deepfix-003 (#1374) Fix 6 + §9.1.8: the topic judge's completion budget is
+                # env-governed (PG_SCOPE_TOPIC_MAX_TOKENS). A REASONING scope model starved at the
+                # old hardcoded 1200 truncates its hidden reasoning before emitting the verdict
+                # lines -> empty content -> the whole batch FAILS OPEN (every off-topic source
+                # silently survives). The launch manifest raises this to the serving provider's
+                # real completion cap. Default 1200 keeps the unset env byte-identical.
+                try:
+                    _topic_max_tokens = int(
+                        os.getenv("PG_SCOPE_TOPIC_MAX_TOKENS", "1200").strip() or "1200"
+                    )
+                except ValueError:
+                    _topic_max_tokens = 1200
+                if _topic_max_tokens <= 0:
+                    _topic_max_tokens = 1200
 
                 async def _run() -> str:
                     _client = OpenRouterClient(model=_model)
                     try:
                         _resp = await _client.generate(
-                            prompt=prompt, max_tokens=1200, temperature=0.0,
+                            prompt=prompt, max_tokens=_topic_max_tokens, temperature=0.0,
                         )
                         return (_resp.content or "").strip()
                     finally:
