@@ -595,6 +595,13 @@ def classify_topic_relevance(
     # ONLY rows that receive the deletable ``topic_off_subject=True`` sidecar. Empty
     # unless the subject/aspect split is enabled.
     offsubject_rows: list[dict[str, Any]] = []
+    # I-deepfix-003 gate-fix (Codex P1): confident-OFF_ASPECT rows (same entity, wrong
+    # aspect — demote-KEEP, NEVER deletable). Tracked so the deletable ``topic_off_subject``
+    # sidecar can be CLEARED to False on them (demote path below) — a STALE True baked into
+    # corpus_snapshot by an earlier run must NEVER survive on a row THIS run re-verdicts
+    # OFF_ASPECT (it would be misread as a fresh OFF_SUBJECT and deleted). Empty unless the
+    # subject/aspect split is enabled.
+    offaspect_rows: list[dict[str, Any]] = []
 
     for start in range(0, len(judged_rows), size):
         end = min(start + size, len(judged_rows))
@@ -638,6 +645,7 @@ def classify_topic_relevance(
                 elif v == "OFF_ASPECT":
                     offtopic_rows.append(row)
                     offtopic_titles.append(batch_meta[local_idx][0] or "(no title)")
+                    offaspect_rows.append(row)
                 elif v == "ON":
                     ontopic_rows.append(row)
                 continue
@@ -681,6 +689,21 @@ def classify_topic_relevance(
         # deletable). The downstream junk-deletion gate keys deletion on this sidecar.
         for row in offsubject_rows:
             row["topic_off_subject"] = True
+        # I-deepfix-003 gate-fix (Codex P1): CLEAR the deletable sidecar on every row THIS
+        # run re-judged NON-OFF_SUBJECT (confident-ON or OFF_ASPECT). The sidecar was only
+        # ever SET True (above) and never cleared, so a STALE topic_off_subject=True reloaded
+        # from an earlier run's corpus_snapshot survived on a row the CURRENT judge verdicts
+        # OFF_ASPECT — run_honest_sweep_r3 builds its fresh OFF_SUBJECT id set from
+        # ``demoted_rows where topic_off_subject is True``, so that stale row entered the set
+        # and was deleted as ``confirmed_offtopic_subject`` (defeating Fix 2 fresh-verdict-only
+        # AND Fix 3 OFF_ASPECT=demote-KEEP). Clearing makes the sidecar reflect ONLY THIS run's
+        # verdict. Guarded by ``split`` so PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT=0 is byte-identical
+        # (the legacy two-verdict path never writes the sidecar at all).
+        if split:
+            for row in offaspect_rows:
+                row["topic_off_subject"] = False
+            for row in ontopic_rows:
+                row["topic_off_subject"] = False
         dropped_rows, dropped_titles = [], []
         demoted_rows, demoted_titles = offtopic_rows, offtopic_titles
 
