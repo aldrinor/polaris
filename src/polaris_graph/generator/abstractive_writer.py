@@ -44,9 +44,16 @@ import dataclasses
 import logging
 import math
 import os
+import re
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+# Provenance token shape (``[#ev:<id>:<a>-<b>]``) — stripped before the anti-verbatim check so the
+# token itself never counts as shared content between a sentence and its cited span.
+_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+# Content-word tokenizer (Unicode letters/digits, underscore excluded) for the anti-verbatim run.
+_CONTENT_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 
 # ── env knobs (LAW VI — all parameters env-configurable; defaults documented) ────────────────────
 _ENV_ENABLE = "PG_ABSTRACTIVE_WRITER"
@@ -129,6 +136,16 @@ _DEFAULT_WALL_DEADLINE_S = 720.0               # outer wall -> abandon stuck bas
 _ENV_WALL_BASKET_SCALED = "PG_WRITER_WALL_BASKET_SCALED"
 _ENV_KSPAN_RECOVERY_PASS = "PG_WRITER_KSPAN_RECOVERY_PASS"
 _ENV_DEADLINE_TRANSPORT_AWARE = "PG_WRITER_DEADLINE_TRANSPORT_AWARE"
+
+# ── P0-1(d) ANTI-VERBATIM gate (2026-07-10 compose gear-loop) ──────────────────────────────────────
+# The LLM writer must SYNTHESIZE in its own words, never copy a raw span. A lazy GLM draft that pastes
+# a span verbatim self-entails its own span and passes strict_verify trivially (quote-dump). FAIL any
+# writer sentence that shares a contiguous run of >= this many CONTENT WORDS verbatim with its cited
+# span, feeding the "verbatim_copy" reason back into the existing repair loop. General + question-
+# agnostic (a form/structure test, no topic list). Numbers-only and short quoted phrases are exempt by
+# the run-length floor (a lone figure or a <8-word phrase never reaches the threshold). Env-tunable.
+_ENV_VERBATIM_COPY_MAX_RUN = "PG_WRITER_VERBATIM_COPY_MAX_CONTENT_WORDS"
+_DEFAULT_VERBATIM_COPY_MAX_RUN = 8
 
 # Sentinel returned by _call_writer when (and only when) the transport-aware catch swallows an httpx
 # disconnect — a value that can NEVER appear in real model content, so _pre_pass_one_basket can tell a
@@ -327,6 +344,59 @@ def _numeral_appears_verbatim(numeral: str, sentence: str) -> bool:
     return numeral in _numbers_in(_strip_dose_patterns(sentence or ""))
 
 
+def _verbatim_copy_max_run() -> int:
+    """``PG_WRITER_VERBATIM_COPY_MAX_CONTENT_WORDS`` (default 8, clamp >= 2). The contiguous-content-word
+    run length at/above which a writer sentence is judged a verbatim COPY of its cited span. A value < 2
+    would flag trivial single-word overlaps, so it floors at 2."""
+    raw = os.getenv(_ENV_VERBATIM_COPY_MAX_RUN, "").strip()
+    if not raw:
+        return _DEFAULT_VERBATIM_COPY_MAX_RUN
+    try:
+        return max(2, int(raw))
+    except ValueError:
+        return _DEFAULT_VERBATIM_COPY_MAX_RUN
+
+
+def _content_word_sequence(text: str) -> list[str]:
+    """The lowercased CONTENT-WORD token sequence of ``text`` with provenance tokens removed — the unit
+    over which the anti-verbatim contiguous-run is measured. Pure."""
+    stripped = _EV_TOKEN_RE.sub(" ", text or "")
+    return [w.lower() for w in _CONTENT_WORD_RE.findall(stripped)]
+
+
+def _max_contiguous_shared_run(a_words: list[str], b_words: list[str]) -> int:
+    """Longest CONTIGUOUS run of content words appearing verbatim (in order) in BOTH sequences — a
+    classic longest-common-substring over token lists (rolling DP, O(len_a * len_b)). Pure; used to
+    detect a writer sentence that pasted a chunk of its cited span verbatim instead of synthesizing."""
+    if not a_words or not b_words:
+        return 0
+    prev = [0] * (len(b_words) + 1)
+    best = 0
+    for i in range(1, len(a_words) + 1):
+        cur = [0] * (len(b_words) + 1)
+        ai = a_words[i - 1]
+        for j in range(1, len(b_words) + 1):
+            if ai == b_words[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                if cur[j] > best:
+                    best = cur[j]
+        prev = cur
+    return best
+
+
+def _sentence_is_verbatim_copy(sentence: str, span_text: str) -> bool:
+    """True iff ``sentence`` shares a contiguous run of >= ``_verbatim_copy_max_run()`` content words
+    verbatim with its cited ``span_text`` (both provenance-token-stripped, content-word tokenized). A
+    lazy verbatim paste is caught; a genuine rephrase (that reorders/reworks the wording) is not, because
+    a long IDENTICAL contiguous run only survives copy-paste. Numbers-only / short quoted phrases never
+    reach the run floor. Fail-open: an empty span (unresolved) returns False (never flags on no evidence)."""
+    span_words = _content_word_sequence(span_text)
+    if not span_words:
+        return False
+    sent_words = _content_word_sequence(sentence)
+    return _max_contiguous_shared_run(sent_words, span_words) >= _verbatim_copy_max_run()
+
+
 def _cited_span_text_for(tokens: list, scoped_pool: dict) -> str:
     """The combined CITED sub-span text for the parsed provenance ``tokens`` against ``scoped_pool``,
     i.e. ``direct_quote[token.start:token.end]`` per token (NOT the whole row — the whole-row text
@@ -398,6 +468,20 @@ def make_writer_verify_fn(base_verify: Callable[..., Any]) -> Callable[..., Any]
                     failure_reasons=[*list(getattr(res, "failure_reasons", []) or []),
                                      "writer_numeric_dropped"],
                 )
+        # P0-1(d) ANTI-VERBATIM (2026-07-10): a writer sentence that pasted a long verbatim run of its
+        # cited span is a quote-dump, not synthesis — FAIL it (only when still verified; a sentence
+        # already failing needs no escalation) so the existing repair loop re-drafts it. The reason
+        # string is fed back to the writer verbatim. Only the WRITER path is wrapped, so a deliberate
+        # verbatim K-span (bare verify_fn, never this wrapper) is untouched.
+        if bool(getattr(res, "is_verified", False)) and _sentence_is_verbatim_copy(
+            sentence, cited_span_text
+        ):
+            res = dataclasses.replace(
+                res,
+                is_verified=False,
+                failure_reasons=[*list(getattr(res, "failure_reasons", []) or []),
+                                 "verbatim_copy — rewrite in your own words"],
+            )
         return res
 
     return _wrapped
@@ -449,18 +533,43 @@ _WRITER_SYSTEM_GROUP = (
 )
 
 
+def _section_outline_lead(section_context: "dict | None") -> str:
+    """P0-2 OUTLINE-ECHO (2026-07-10): the prompt lead that grounds the writer in the SECTION it is
+    composing — its title, focus, and the research question — so it synthesizes prose that FULFILLS the
+    focus and OMITS spans irrelevant to it. General + question-agnostic (the title/focus/question are
+    threaded from the plan, never hardcoded). Empty when no section context is supplied (byte-identical)."""
+    if not section_context:
+        return ""
+    title = " ".join(str(section_context.get("title", "") or "").split())
+    focus = " ".join(str(section_context.get("focus", "") or "").split())
+    question = " ".join(str(section_context.get("research_question", "") or "").split())
+    if not (title or focus or question):
+        return ""
+    return (
+        f"You are writing the section titled \"{title}\" whose focus is \"{focus}\" for the research "
+        f"question \"{question}\". Synthesize the spans into prose that FULFILLS this focus; OMIT a span "
+        "irrelevant to this focus; never describe the document — state what it FOUND; skip "
+        "chrome/boilerplate/bibliographic-export text entirely."
+    )
+
+
 def _build_writer_prompt(
     members: list,
     evidence_pool: dict,
     *,
     revise_reasons: Optional[list[str]] = None,
     group_mode: bool = False,
+    section_context: "dict | None" = None,
 ) -> str:
     """Build the user prompt: one SUPPORTS member per line, each given its verified span text and
     the EXACT canonical token (the same ``[#ev:<id>:<start>-<end>]`` ``build_verified_span_draft``
     would emit, computed by ``_member_global_span``). The writer rephrases each span into one
     declarative sentence ending with that token. On a retry, the specific wrapper failure reasons
-    are fed back (RARR-style revise)."""
+    are fed back (RARR-style revise).
+
+    P0-2 OUTLINE-ECHO: when ``section_context`` (``{title, focus, research_question}``) is supplied it
+    is echoed as the FIRST prompt line so the writer synthesizes to the section's focus and omits
+    off-focus spans. None => byte-identical to the pre-outline-echo prompt."""
     from src.polaris_graph.generator.verified_compose import _member_global_span  # noqa: PLC0415
 
     # I-deepfix-001 Wave-1a (#1344): the lead instruction is the ONLY difference in group mode; the
@@ -481,7 +590,8 @@ def _build_writer_prompt(
             "copied character-for-character. Copy every number verbatim. Output one sentence per span, "
             "in order, one per line, and nothing else."
         )
-    lines: list[str] = [lead, ""]
+    outline_lead = _section_outline_lead(section_context)
+    lines: list[str] = ([outline_lead, ""] if outline_lead else []) + [lead, ""]
     for i, m in enumerate(members, start=1):
         eid = str(getattr(m, "evidence_id", "") or "")
         gspan = _member_global_span(m, evidence_pool)
@@ -515,6 +625,7 @@ async def _call_writer(
     revise_reasons: Optional[list[str]] = None,
     group_mode: bool = False,
     catch_transport: bool = False,
+    section_context: "dict | None" = None,
 ) -> str:
     """ONE LLM writer call for a basket: rephrase the SUPPORTS members' verified spans into clean
     declarative prose carrying the canonical tokens. Returns the raw draft text (re-verified by the
@@ -536,6 +647,7 @@ async def _call_writer(
 
     prompt = _build_writer_prompt(
         members, evidence_pool, revise_reasons=revise_reasons, group_mode=group_mode,
+        section_context=section_context,
     )
     system = _WRITER_SYSTEM_GROUP if group_mode else _WRITER_SYSTEM
     client = OpenRouterClient(model=model)
@@ -620,6 +732,7 @@ async def _pre_pass_one_basket(
     temperature: float,
     call_deadline_s: float,
     group_mode: bool = False,
+    section_context: "dict | None" = None,
 ) -> Optional[str]:
     """Compute one basket's draft: call the LLM writer, verify the candidate with the writer wrapper,
     and on failure retry up to ``max_retries`` times feeding the specific failure reasons back. The
@@ -673,6 +786,7 @@ async def _pre_pass_one_basket(
                         model=model, max_tokens=max_tokens,
                         reasoning_max_tokens=reasoning_max_tokens, temperature=temperature,
                         revise_reasons=revise_reasons, group_mode=group_mode,
+                        section_context=section_context,
                     ),
                     timeout=call_deadline_s,
                 )
@@ -693,8 +807,11 @@ async def _pre_pass_one_basket(
             if passed:
                 return draft
             revise_reasons = reasons or None
-        # Return the last (failing) draft; the unchanged compose loop will fall back to the K-span.
-        return last_draft
+        # P0-1(a) (2026-07-10): on TRUE exhaustion (nothing produced) return None — the basket is then
+        # ABSENT from the precomputed dict (eligible for the K-span recovery pass) and the exhaust path
+        # emits the LABELED unverified-synthesis line, never a raw span. A non-empty failing draft is
+        # still returned so the synth-primary repair loop can work on it.
+        return last_draft if last_draft.strip() else None
 
     # ── transport-aware branch (PG_WRITER_DEADLINE_TRANSPORT_AWARE ON) ────────────────────────────
     # A transport DISCONNECT / per-call stall does NOT consume a PRODUCTIVE retry attempt: it is granted
@@ -717,7 +834,7 @@ async def _pre_pass_one_basket(
                     model=model, max_tokens=max_tokens,
                     reasoning_max_tokens=reasoning_max_tokens, temperature=temperature,
                     revise_reasons=revise_reasons, group_mode=group_mode,
-                    catch_transport=True,
+                    catch_transport=True, section_context=section_context,
                 ),
                 timeout=call_deadline_s,
             )
@@ -767,7 +884,9 @@ async def _pre_pass_one_basket(
             return draft
         revise_reasons = reasons or None
         productive_attempt += 1
-    return last_draft
+    # P0-1(a) (2026-07-10): true exhaustion with nothing produced => None (absent from the dict, the
+    # exhaust path emits the LABELED line, never a span). A non-empty failing draft is kept for repair.
+    return last_draft if last_draft.strip() else None
 
 
 async def abstractive_pre_pass(
@@ -776,6 +895,7 @@ async def abstractive_pre_pass(
     *,
     writer_verify_fn: Callable[..., Any],
     group_mode: bool = False,
+    section_context: "dict | None" = None,
 ) -> dict:
     """ASYNC pre-pass (design §3.4a): precompute one verified draft per basket up front, under a
     ``PG_ABSTRACTIVE_WRITER_CONCURRENCY`` semaphore with a per-call total deadline AND an OUTER
@@ -822,6 +942,15 @@ async def abstractive_pre_pass(
     if _deadline_transport_aware_enabled():
         wall_deadline_s += call_deadline_s
 
+    # P0-2 OUTLINE-ECHO activation marker: prove the section {title, focus} reached the writer.
+    if section_context:
+        logger.info(
+            "[activation] outline_echo: title=%r focus_len=%d q_len=%d",
+            str(section_context.get("title", "") or "")[:80],
+            len(str(section_context.get("focus", "") or "")),
+            len(str(section_context.get("research_question", "") or "")),
+        )
+
     sem = asyncio.Semaphore(concurrency)
     out: dict = {}
 
@@ -836,7 +965,7 @@ async def abstractive_pre_pass(
                 model=model, max_retries=max_retries,
                 max_tokens=max_tokens, reasoning_max_tokens=reasoning_max_tokens,
                 temperature=temperature, call_deadline_s=call_deadline_s,
-                group_mode=group_mode,
+                group_mode=group_mode, section_context=section_context,
             )
         if draft is not None:
             # mutate the shared dict as a SIDE EFFECT so an abandoned (never-awaited) task's

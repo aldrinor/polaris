@@ -71,15 +71,20 @@ _ENV_MIN_WORDS = "PG_CROSS_SECTION_REPETITION_MIN_WORDS"
 
 _MIN_WORDS_DEFAULT = 6
 
-_OFF_TOKENS = frozenset({"0", "false", "off", "no", ""})
+_OFF_TOKENS = frozenset({"0", "false", "off", "no"})
 
-# NUMERIC citation marker ONLY (``[1]``, ``[12]``). This is the renderer-guaranteed citation syntax
-# at this pre-global-remap stage (§9.1 invariant 2). It is the ONLY thing stripped from the
-# equivalence signature and is what a unit's eligibility ("is this a strict_verify-kept CLAIM
-# sentence?") is keyed on. NON-citation bracketed content (a bracketed entity/label such as
-# ``[Alpha]``) is deliberately NOT matched here, so it stays IN the signature and two units that
-# differ only by such an entity are never clustered (Codex diff-gate iter-2 P1 — no faithfulness leak).
-_CITATION_NUM_RE = re.compile(r"\[\d+\]")
+# NUMERIC citation marker (``[1]``, ``[12]``, and the GROUPED ``[1, 2]`` form the renderer can emit).
+# This is the renderer-guaranteed citation syntax at this pre-global-remap stage (§9.1 invariant 2). It
+# is the ONLY thing stripped from the equivalence signature and is what a unit's eligibility ("is this a
+# strict_verify-kept CLAIM sentence?") is keyed on. NON-citation bracketed content (a bracketed
+# entity/label such as ``[Alpha]``) is deliberately NOT matched here, so it stays IN the signature and
+# two units that differ only by such an entity are never clustered (Codex diff-gate iter-2 P1 — no
+# faithfulness leak). P0-4 (2026-07-10): the GROUPED ``[1, 2]`` alternative makes the signature
+# citation-token-INSENSITIVE so a rotated-citation duplicate is detected regardless of its marker shape.
+_CITATION_NUM_RE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
+# A raw provenance token (``[#ev:...]``) — also stripped from the signature in case an unresolved token
+# survives to this report-level stage (citation-token-insensitive P0-4).
+_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
 
 # Content-word tokenizer for the min-content-words eligibility gate ONLY (never the equivalence
 # signature). Unicode-aware (Codex diff-gate iter-2 P2): ``[^\W_]+`` matches runs of Unicode letters
@@ -102,13 +107,13 @@ _BACKREF_FALLBACK_TITLE = "the section above"
 
 
 def guard_enabled() -> bool:
-    """Kill-switch ``PG_CROSS_SECTION_REPETITION_GUARD`` — DEFAULT OFF.
-
-    Unset or an off token (``0`` / ``false`` / ``off`` / ``no`` / empty) => the guard is a no-op and
-    the assembled report is byte-identical to the legacy path."""
+    """Kill-switch ``PG_CROSS_SECTION_REPETITION_GUARD`` — DEFAULT ON (2026-07-10 compose gear-loop,
+    P0-4). The guard is a render-only, faithfulness-NEUTRAL consolidate-keep-all pass (every recycled
+    citation is preserved as a back-reference), so it is safe to run by default. Only an explicit off
+    token (``0`` / ``false`` / ``off`` / ``no``) disables it; unset or blank => ON."""
     raw = os.environ.get(_ENV_ENABLED)
-    if raw is None:
-        return False
+    if raw is None or not str(raw).strip():
+        return True
     return str(raw).strip().lower() not in _OFF_TOKENS
 
 
@@ -148,8 +153,10 @@ def _signature(sentence: str) -> str:
     signatures are EQUAL — any difference in content (year / figure / entity / a bracketed label such
     as ``[Alpha]`` / direction / extra clause) yields a different signature, so distinct verified
     content can NEVER be clustered (no faithfulness leak). Non-citation bracketed content is preserved
-    verbatim in the signature (Codex diff-gate iter-2 P1)."""
-    no_cite = _CITATION_NUM_RE.sub(" ", sentence)
+    verbatim in the signature (Codex diff-gate iter-2 P1). P0-4 (2026-07-10): raw ``[#ev:...]`` tokens
+    and the grouped ``[N, M]`` marker form are also stripped so the signature is citation-token-
+    INSENSITIVE (a rotated-citation duplicate clusters regardless of marker shape)."""
+    no_cite = _CITATION_NUM_RE.sub(" ", _EV_TOKEN_RE.sub(" ", sentence))
     collapsed = " ".join(no_cite.split()).lower()
     return collapsed.rstrip(".!?;:, ")
 

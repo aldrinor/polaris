@@ -80,11 +80,78 @@ def build_baskets(cp3_baskets, evidence_pool):
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _EV_TOKEN = re.compile(r"\[#ev:[^\]]+\]")
 _NUM_CITE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
+_CONTENT_WORD = re.compile(r"[^\W_]+", re.UNICODE)
+# P2-1 CITATION SEAM: a stray sentence-period wedged between two numeric citations (".[1].[2]" ->
+# "[1][2]"). The lookahead requires the very next non-space to be another numeric citation, so a real
+# sentence boundary (period then a WORD) is never touched.
+_CITE_SEAM = re.compile(r"(\[\d+(?:\s*,\s*\d+)*\])\s*\.\s*(?=\[\d+)")
+# P1-5 quote-dump n-gram length: a contiguous run of this many CONTENT WORDS shared verbatim between an
+# emitted sentence and any fetched source span marks a raw quote-dump (context-level, not a length guess).
+_QUOTE_DUMP_NGRAM = int(os.environ.get("PG_AUDIT_QUOTE_DUMP_NGRAM", "12"))
 
 
-def _audit_section(idx, title, verified_text):
+def _content_words(text: str) -> list:
+    """Lowercased content-word token sequence (provenance/citation markers stripped)."""
+    s = _NUM_CITE.sub(" ", _EV_TOKEN.sub(" ", text or ""))
+    return [w.lower() for w in _CONTENT_WORD.findall(s)]
+
+
+def _fix_citation_seams(text: str) -> str:
+    """P2-1: collapse the stray period between adjacent numeric citations ("] . [" -> "][")."""
+    return _CITE_SEAM.sub(r"\1", text or "")
+
+
+def _build_source_shingles(evidence_pool: dict, n: int) -> set:
+    """P1-5: the set of all length-``n`` CONTENT-WORD shingles across every fetched source span. A
+    sentence that contains ANY of these shingles verbatim is a raw quote-dump of that source."""
+    shingles = set()
+    if n < 2:
+        return shingles
+    for row in (evidence_pool or {}).values():
+        words = _content_words(_text_of(row))
+        for i in range(len(words) - n + 1):
+            shingles.add(tuple(words[i:i + n]))
+    return shingles
+
+
+def _max_verbatim_run(words: list, shingles: set, n: int) -> bool:
+    """P1-5: True iff ``words`` contains any length-``n`` shingle present in ``shingles`` (a verbatim
+    ``n``-content-word run copied from a source span)."""
+    if n < 2 or len(words) < n or not shingles:
+        return False
+    for i in range(len(words) - n + 1):
+        if tuple(words[i:i + n]) in shingles:
+            return True
+    return False
+
+
+def _report_title(question: str, cp4: dict) -> str:
+    """P3-1: a clean H1 — a cp4-provided report title if present, else the research question's first
+    sentence/clause word-safe truncated (never a raw mid-word 200-char slice of the whole question)."""
+    pl = (cp4 or {}).get("payload", {}) or {}
+    for key in ("report_title", "title"):
+        t = str(pl.get(key) or (cp4 or {}).get(key) or "").strip()
+        if t:
+            return t
+    q = " ".join(str(question or "").split())
+    if not q:
+        return "Research Report"
+    m = re.search(r"[?.]", q)
+    head = q[: m.end()] if (m and m.end() <= 220) else q
+    if len(head) <= 200:
+        return head
+    cut = head[:200].rsplit(" ", 1)[0]
+    return (cut.rstrip() + "…") if cut else head[:200]
+
+
+def _audit_section(idx, title, verified_text, shingles, ngram):
     """Line-by-line audit of one section's composed prose (§-1.1).
-    Returns per-sentence records + counts. A 'sentence' is a heading-stripped prose unit."""
+    Returns per-sentence records + counts. A 'sentence' is a heading-stripped prose unit.
+
+    P1-5 (2026-07-10): the quote-dump predicate now measures VERBATIM n-gram overlap between each
+    emitted sentence and the fetched source spans (context-level) — a cited verbatim copy is STILL a
+    quote-dump, so a ~95%-copy report can no longer read quote_dump=0. The old length+no-citation
+    heuristic was blind to cited quote-dumps."""
     from src.polaris_graph.generator.block_page_chrome_scrub import is_block_page_chrome_sentence
     records = []
     n_sent = n_with_cite = n_chrome = n_quote_dump = 0
@@ -112,10 +179,9 @@ def _audit_section(idx, title, verified_text):
                 is_chrome = False
             if is_chrome:
                 n_chrome += 1
-            # quote-dump heuristic: a very long clause with NO citation and heavy quoting marks,
-            # OR an unbroken >320-char run that reads as a raw pasted span.
-            stripped_cites = _NUM_CITE.sub("", _EV_TOKEN.sub("", s)).strip()
-            is_quote_dump = (len(stripped_cites) > 320) and (not has_cite)
+            # P1-5 quote-dump = a verbatim n-content-word run copied from any fetched source span
+            # (context-level; independent of whether the sentence carries a citation).
+            is_quote_dump = _max_verbatim_run(_content_words(s), shingles, ngram)
             if is_quote_dump:
                 n_quote_dump += 1
             if (not has_cite) or is_chrome or is_quote_dump:
@@ -310,13 +376,42 @@ async def main():
         tasks.append(asyncio.ensure_future(_compose_one(idx, section)))
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
+    import types
     section_results = []
+    acceptance = True
+    excepted_sections = []
     for oi, r in zip(order, results):
         if isinstance(r, Exception):
+            # P1-3 SECTION VANISH (2026-07-10): a section whose compose raised must NOT silently vanish
+            # from the report. Ship a LOUD gap stub in its place and set acceptance=False so the run is
+            # marked degraded (never a silent drop).
             print(f"[section {oi}] EXCEPTION: {r!r}", flush=True)
+            acceptance = False
+            excepted_sections.append({"section_index": oi, "error": repr(r)})
+            _sec = plans[oi] if 0 <= oi < len(plans) else None
+            _stub = types.SimpleNamespace(
+                title=str(getattr(_sec, "title", "") or f"Section {oi}"),
+                focus=str(getattr(_sec, "focus", "") or ""),
+                ev_ids_assigned=[],
+                verified_text=(
+                    f"[section unavailable — composition raised an exception and this section was not "
+                    f"produced: {repr(r)[:200]}]"
+                ),
+                sentences_verified=0, sentences_dropped=0, regen_attempted=False,
+                dropped_due_to_failure=True, is_gap_stub=True, error=repr(r),
+            )
+            section_results.append((oi, _stub))
         else:
             section_results.append((oi, r))
     section_results.sort(key=lambda t: t[0])
+
+    # P2-1 CITATION SEAM (2026-07-10): tidy the ".[1].[2]" citation seams in every section body BEFORE
+    # the holistic passes + audit so both the report and the audit read the same clean text.
+    for _oi, _r in section_results:
+        try:
+            _r.verified_text = _fix_citation_seams(_r.verified_text or "")
+        except Exception:
+            pass
 
     # ---- HOLISTIC report-level pass A: cross-section repetition guard (verbatim finding dedup) ----
     guard_telemetry = {}
@@ -327,7 +422,9 @@ async def main():
     print(f"[holistic] cross_section_repetition_guard = {json.dumps(guard_telemetry)[:300]}", flush=True)
 
     # ---- Assemble the whole report markdown from composed sections ----
-    parts = [f"# {question[:200]}" if question else "# Research Report"]
+    # P3-1 (2026-07-10): a clean H1 (cp4 report title or the question's first clause, word-safe) — not a
+    # raw mid-word 200-char slice of the whole multi-paragraph question.
+    parts = [f"# {_report_title(question, cp4)}"]
     for oi, r in section_results:
         parts.append(f"\n## {r.title}\n\n{r.verified_text or ''}")
     report_md_pre = "\n".join(parts) + "\n"
@@ -342,9 +439,13 @@ async def main():
           f"pre_chars={len(report_md_pre)} post_chars={len(report_md_post)}", flush=True)
 
     # ---- Line-by-line audit (§-1.1) on the POST-holistic sections ----
+    # P1-5 (2026-07-10): build the source n-gram shingle index once so the quote-dump predicate can
+    # measure verbatim overlap between every emitted sentence and the fetched source spans.
+    source_shingles = _build_source_shingles(evidence_pool, _QUOTE_DUMP_NGRAM)
+    print(f"[audit] source_shingles={len(source_shingles)} ngram={_QUOTE_DUMP_NGRAM}", flush=True)
     audits = []
     for oi, r in section_results:
-        audits.append(_audit_section(oi, r.title, r.verified_text or ""))
+        audits.append(_audit_section(oi, r.title, r.verified_text or "", source_shingles, _QUOTE_DUMP_NGRAM))
     tot_sent = sum(a["sentences"] for a in audits)
     tot_cite = sum(a["with_citation"] for a in audits)
     tot_chrome = sum(a["chrome_sentences"] for a in audits)
@@ -376,6 +477,9 @@ async def main():
         "schema_version": 1,
         "stage": "s5_generation_live_compose",
         "iter": 3,
+        # P1-3 (2026-07-10): acceptance=False when any section raised and was replaced by a gap stub.
+        "acceptance": acceptance,
+        "excepted_sections": excepted_sections,
         "question_sha": cp4.get("question_sha"),
         "flag_slate": {k: os.environ.get(k) for k in [
             "PG_SECTION_BASKET_MAP", "PG_SECTION_BASKET_MAP_REFINE_NLI", "PG_SECTION_BASKET_ROLE_POLICY",

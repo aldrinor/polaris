@@ -65,6 +65,9 @@ _WRITER_REPAIR_MAX_DEFAULT = 2  # bounded whole-paragraph re-draft attempts (LAW
 
 # A provenance token: ``[#ev:<evidence_id>:<start>-<end>]`` (the same shape strict_verify parses).
 _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+# A resolved numeric citation marker (``[1]`` / ``[1, 2]``) — stripped from the P0-4 same-meaning
+# signature so a rotated-citation duplicate is detected regardless of which markers it carries.
+_NUM_CITE_MARKER_RE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
 # Resolved-span grammar for idx8 seen-span dedup: parse the ``(evidence_id, start, end)`` identity out
 # of every provenance token so a byte-identical re-emission of the same span can be detected and dropped
 # (faithfulness-neutral — same resolved span, no new claim).
@@ -345,6 +348,91 @@ def _tokens_within_basket_regions(sentence: str, regions: dict) -> bool:
 _JUNK_SCREEN = None
 
 
+# ── P0-3 / P1-2 / P2-2 STRUCTURAL CHROME FORM detectors (2026-07-10 compose gear-loop) ──────────────
+# FORM-anchored, question-agnostic (NEVER a topic keyword): detect page-furniture / citation-export /
+# bibliographic-fragment / document-meta FORMS that a paraphrase can smuggle past strict_verify.
+# Precision-first — every pattern keys on a STRUCTURAL signature a real synthesized finding never
+# carries, so a real numeric/qualitative finding (even one that states a figure) is never screened.
+# Applied at BOTH the writer INPUT (raw span, via _compose_junk_screen) and the writer OUTPUT
+# (via _sentence_is_render_chrome). Edge case: a numeric RESULTS row is fine ONLY as a rephrased
+# sentence (numbers intact) — these FORM detectors screen raw table/export dumps, never rephrased numbers.
+_CHROME_BIBTEX_RE = re.compile(
+    r"@(?:article|inproceedings|book|incollection|techreport|misc|phdthesis|mastersthesis|"
+    r"conference|proceedings|unpublished)\s*\{",
+    re.I,
+)
+# a RUN of >=2 bibtex "key = {value}" / key = "value" fields (a lone "x = y" prose clause is not chrome).
+_CHROME_BIBTEX_FIELDS_RE = re.compile(r"(?:\b\w+\s*=\s*[{\"][^}\"\n]*[}\"]\s*,?\s*){2,}")
+_CHROME_RIS_RE = re.compile(
+    r"(?m)^\s*(?:TY|A[0-9U]|ER|PY|Y1|JO|JF|VL|IS|SP|EP|DO|UR|N1|AB|KW|T1|T2)\s{1,2}-\s"
+)
+# a citation-format EXPORT menu: an explicit copy/export-citation control OR >=2 named citation formats.
+_CHROME_CITE_MENU_RE = re.compile(
+    r"\b(?:copy|export|download)\s+citation\b|"
+    r"(?:\b(?:bibtex|endnote|refworks|harvard|vancouver|zotero|mendeley|refman)\b[\s,/|]*){2,}",
+    re.I,
+)
+_CHROME_UPLOAD_MASTHEAD_RE = re.compile(
+    r"content uploaded by|may be subject to copyright|this content downloaded|"
+    r"downloaded from https?://",
+    re.I,
+)
+# a markdown heading INSIDE a unit: line-start ##.. , mid-string  ##.. , or the "[ ## 1.2." bracket
+# class. Requires 2+ '#', so a provenance token ([#ev:...], one '#') is NEVER matched.
+_CHROME_MD_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{2,6}\s|\s#{2,6}\s|\[\s*#{2,6}")
+# unresolved link furniture: %20-bearing tails, tracking querystrings, an open '[' with a comma that
+# never closes before the next '[' (the "[text ," dangling-link class). A closed "[1, 2]" never matches.
+_CHROME_LINK_FRAGMENT_RE = re.compile(
+    r"%[0-9A-Fa-f]{2}|[?&](?:utm_|ref=|fbclid=|gclid=)|\[[^\]\n]{0,60},(?![^\[\n]*\])"
+)
+# CrossRef / DOI anchor-hash fragment furniture.
+_CHROME_CROSSREF_RE = re.compile(r"crossref|doi\.org/10\.\d|#(?:page|section|ref|cite)[-_a-z0-9]*\b", re.I)
+# hyphen-broken word + page-number seam ("com- 11Another", "effec- 12Section").
+_CHROME_HYPHEN_PAGESEAM_RE = re.compile(r"[A-Za-z]{2}-\s+\d+[A-Za-z]")
+# a pipe-delimited raw table row (>=2 pipes forming cells) — a raw table dump, not prose.
+_CHROME_TABLE_ROW_RE = re.compile(r"\|[^|\n]{0,40}\|[^|\n]{0,40}\|")
+# P1-2 document-META: a sentence describing the DOCUMENT/publication rather than a finding.
+_CHROME_SOURCE_META_RE = re.compile(
+    r"working paper is distributed|objective of the (?:working paper )?series|"
+    r"papers? carry the names of the authors|research output\s*:\s*contribution|"
+    r"is circulated for discussion|comments? (?:are )?welcome|"
+    r"views expressed[^.]{0,80}do not necessarily|for informational purposes only",
+    re.I,
+)
+# P2-2 a bare bibliographic NON-SENTENCE fragment: a lone (year), a year-range, an author-et-al-year.
+_CHROME_FRAGMENT_RE = re.compile(
+    r"^\(?\d{4}[a-z]?\)\.?$|^\d{4}\s*[-–]\s*\d{4}\.?$|"
+    r"^[A-Z][A-Za-z.'’-]+(?:\s+(?:and|&|et)\s+[A-Za-z.'’-]+)*(?:\s+et al\.?)?,?\s*\(?\d{4}[a-z]?\)?\.?$"
+)
+
+
+def _structural_chrome_form(text: str) -> bool:
+    """True iff ``text`` carries a STRUCTURAL chrome FORM (bibtex / RIS / citation-export menu /
+    upload-masthead / markdown-heading / link-fragment / crossref / hyphen-page-seam / raw-table-row /
+    document-meta / bibliographic-fragment). Pure, precision-first, question-agnostic. FAIL-OPEN on any
+    error (never withhold a real finding on a helper fault)."""
+    s = (text or "").strip()
+    if not s:
+        return False
+    try:
+        return bool(
+            _CHROME_BIBTEX_RE.search(s)
+            or _CHROME_BIBTEX_FIELDS_RE.search(s)
+            or _CHROME_RIS_RE.search(s)
+            or _CHROME_CITE_MENU_RE.search(s)
+            or _CHROME_UPLOAD_MASTHEAD_RE.search(s)
+            or _CHROME_MD_HEADING_RE.search(s)
+            or _CHROME_LINK_FRAGMENT_RE.search(s)
+            or _CHROME_CROSSREF_RE.search(s)
+            or _CHROME_HYPHEN_PAGESEAM_RE.search(s)
+            or _CHROME_TABLE_ROW_RE.search(s)
+            or _CHROME_SOURCE_META_RE.search(s)
+            or _CHROME_FRAGMENT_RE.match(s)
+        )
+    except Exception:  # pragma: no cover — pure regexes; fail-open never withholds a real finding
+        return False
+
+
 def _compose_junk_screen(
     unit: str,
     known_words: "set[str] | frozenset[str] | None" = None,
@@ -366,6 +454,12 @@ def _compose_junk_screen(
     previously inert here because they were called without these arguments. Safe on this path: K-span
     units are whole lifted SOURCE sentences (not the render seam's mid-clause ``[N]`` fragments).
     Still suppress-only; the fallback screens (which take no kwargs) are called positionally."""
+    # P0-3 (2026-07-10): the structural chrome-FORM screen runs FIRST (bibtex/RIS/citation-export/
+    # markdown-heading/link-fragment/table-row/document-meta/bibliographic-fragment) so it catches
+    # furniture the allowlist multi-word screen misses. Precision-first + fail-open (a real finding
+    # never matches a FORM signature). Covers the abstractive-writer INPUT screen (which calls this).
+    if _structural_chrome_form(unit):
+        return True
     global _JUNK_SCREEN
     if _JUNK_SCREEN is None:
         try:
@@ -1375,6 +1469,9 @@ def _is_composed_disclosure_paragraph(text: Any) -> bool:
     return (
         _is_degraded_verify_disclosure_unit(text)
         or lowered.startswith(_UNCOVERED_FACT_DISCLOSURE_PREFIX)
+        # P1-4 (2026-07-10): the labeled unverified-synthesis line is also a held-aside disclosure so it
+        # is routed out of the strict_verify-bound body and re-appended as its own paragraph.
+        or lowered.startswith(_UNVERIFIED_SYNTH_PREFIX.lower())
     )
 
 
@@ -1464,6 +1561,11 @@ def _sentence_is_render_chrome(sentence: str) -> bool:
     whole-unit furniture screen). Import-safe / fails OPEN so a helper import error never withholds a
     real verified sentence. Used at compose time to catch writer-paraphrased chrome that self-entails
     strict_verify."""
+    # P0-3 (2026-07-10): the structural chrome-FORM screen (bibtex/RIS/citation-export/markdown-heading/
+    # link-fragment/table-row/document-meta/bibliographic-fragment) — the writer OUTPUT leg, matching the
+    # writer INPUT leg in _compose_junk_screen. Precision-first + question-agnostic.
+    if _structural_chrome_form(sentence):
+        return True
     try:
         from src.polaris_graph.generator.chrome_furniture_screen import (  # noqa: PLC0415
             is_furniture_dominant,
@@ -1988,7 +2090,10 @@ def _compose_one_basket(
     # verbatim span) so the report never quote-dumps; kept verified prose is preserved.
     if _no_raw_span_fallback_enabled():
         disclosure = _unverified_synthesis_disclosure(basket)
-        return " ".join(kept + [disclosure]) if kept else disclosure
+        # P1-4 (2026-07-10): join the LABELED disclosure to any kept prose with a PARAGRAPH break, not a
+        # mid-line " ", so partition_composed_disclosures can hold the labeled line aside (a " "-glued
+        # line stays welded inside the body paragraph and leaks the marker into report prose).
+        return (" ".join(kept) + "\n\n" + disclosure) if kept else disclosure
     # Legacy verbatim-span fallback (kill-switch PG_COMPOSE_NO_RAW_SPAN_FALLBACK=0): the
     # basket-id-bound verbatim K-span, else honest disclosure. L2 sub-topic decomposition
     # (I-deepfix-001 #1344): one verified verbatim-span sentence per DISTINCT atomic fact.
@@ -2048,6 +2153,8 @@ def _per_basket_verified_clause(
     *,
     writer_fn: Callable[[Any, dict], str],
     verify_fn: Callable[..., Any],
+    redraft_fn: Optional[Callable[..., str]] = None,
+    research_question: str = "",
 ) -> Optional[str]:
     """Produce ONE per-member-VERIFIED clause for a single basket, suitable for co-location.
 
@@ -2059,8 +2166,12 @@ def _per_basket_verified_clause(
     insufficient-evidence disclosure) — such a basket contributes NO clause to the multi-cited sentence
     (it is surfaced separately by the existing per-basket path, never fabricated into the synthesis).
     """
+    # P0-1(b) (2026-07-10): thread the synth-primary redraft_fn (+ research_question) so a multicited
+    # clause is LLM-AUTHORED (compose-then-verify + bounded repair) not the legacy first-failure K-span,
+    # when the caller supplies them. Default None/"" => byte-identical legacy _compose_one_basket path.
     composed = _compose_one_basket(
         basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+        redraft_fn=redraft_fn, research_question=research_question,
     )
     if not composed or not composed.strip():
         return None
@@ -2084,6 +2195,29 @@ def _lowercase_first_alpha(text: str) -> str:
         if ch.isalnum():
             return text  # leading digit — nothing to lowercase
     return text
+
+
+# ── P1-1 CONNECTIVE LICENSE (2026-07-10 compose gear-loop) ──────────────────────────────────────────
+_JOIN_SUBJECT_MIN_OVERLAP_ENV = "PG_JOIN_CLAUSE_MIN_SUBJECT_OVERLAP"
+_JOIN_SUBJECT_MIN_OVERLAP_DEFAULT = 2
+
+
+def _join_subject_min_overlap() -> int:
+    """Min shared content words for two clauses to be co-located under a neutral ``"; "`` continuation
+    (``PG_JOIN_CLAUSE_MIN_SUBJECT_OVERLAP``, default 2). Non-int / < 1 => default. LAW VI."""
+    try:
+        v = int(os.getenv(_JOIN_SUBJECT_MIN_OVERLAP_ENV, "").strip())
+        return v if v >= 1 else _JOIN_SUBJECT_MIN_OVERLAP_DEFAULT
+    except (TypeError, ValueError):
+        return _JOIN_SUBJECT_MIN_OVERLAP_DEFAULT
+
+
+def _clauses_share_subject(a: str, b: str) -> bool:
+    """P1-1: a SEMANTIC license for co-locating two clauses with a neutral ``"; "`` continuation — they
+    must share a subject (>= ``_join_subject_min_overlap()`` content words in common). Two opposing
+    claims about the SAME topic still share subject words (a genuine same-topic tension is KEPT joined);
+    two UNRELATED clauses share nothing and are emitted as SEPARATE sentences instead. Pure."""
+    return len(_repair_content_words(a) & _repair_content_words(b)) >= _join_subject_min_overlap()
 
 
 def _join_verified_clauses(clauses: list, *, connective: str = "; ") -> Optional[str]:
@@ -2116,15 +2250,24 @@ def _join_verified_clauses(clauses: list, *, connective: str = "; ") -> Optional
     # (or any non-terminal char) is returned unchanged by the helper, so the
     # connective still lands right after the token. First clause keeps its
     # leading capital (it opens the sentence) — only continuations are lowercased.
-    parts = [_strip_terminal_punct(clean[0])]
+    # P1-1 CONNECTIVE LICENSE (2026-07-10): only co-locate two clauses under the neutral ``"; "``
+    # continuation when they share a subject; otherwise emit them as SEPARATE sentences (no forced
+    # co-location of unrelated claims). A same-topic tension shares subject words and stays joined.
+    sentence = _strip_terminal_punct(clean[0]).rstrip()
+    prev_clause = clean[0]
     for clause in clean[1:]:
-        cont = _strip_terminal_punct(clause).lstrip()
-        cont = _lowercase_first_alpha(cont)
-        # Append the connective to the PREVIOUS part (after its provenance token), then the
-        # continuation — the splitter sees ``...] ; <lower>...`` and keeps it as one sentence.
-        parts[-1] = parts[-1].rstrip()
-        parts.append(cont)
-    sentence = connective.join(parts)
+        stripped = _strip_terminal_punct(clause).lstrip()
+        if _clauses_share_subject(prev_clause, clause):
+            # licensed co-location: connective + lowercased continuation stays ONE multi-cited sentence.
+            sentence = sentence.rstrip() + connective + _lowercase_first_alpha(stripped)
+        else:
+            # no shared subject: close the prior sentence and start a NEW one (continuation keeps its
+            # leading capital). The splitter sees ``...]. <Capital>`` / ``....  <Capital>`` and splits.
+            seg = sentence.rstrip()
+            if seg[-1:] not in ".!?]":
+                seg = seg + "."
+            sentence = seg + " " + stripped
+        prev_clause = clause
     if sentence and sentence[-1:] not in ".!?]":
         sentence = sentence + "."
     return sentence
@@ -2137,6 +2280,8 @@ def compose_multicited_sentence(
     writer_fn: Callable[[Any, dict], str],
     verify_fn: Callable[..., Any],
     connective: str = "; ",
+    redraft_fn: Optional[Callable[..., str]] = None,
+    research_question: str = "",
 ) -> Optional[str]:
     """Co-locate per-member-VERIFIED clauses from N corroborating baskets into ONE multi-cited
     synthesized sentence carrying citations from >1 basket.
@@ -2157,6 +2302,7 @@ def compose_multicited_sentence(
     for basket in (baskets or []):
         clause = _per_basket_verified_clause(
             basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+            redraft_fn=redraft_fn, research_question=research_question,
         )
         if clause is not None:
             clauses.append(clause)
@@ -2781,6 +2927,58 @@ def compose_distinct_fact_units(
     return kept
 
 
+# ── P0-4 SEMANTIC DEDUP AT EMIT (2026-07-10 compose gear-loop) ──────────────────────────────────────
+def _same_meaning_signature(unit: str) -> str:
+    """The citation-INSENSITIVE meaning signature of a composed unit: strip every provenance token
+    (``[#ev:...]``) and resolved numeric citation (``[N]`` / ``[N, M]``), collapse whitespace, lowercase,
+    trim trailing sentence punctuation. Two units with the IDENTICAL signature are the same claim written
+    the same way with (possibly) DIFFERENT source citations — the rotated-citation duplication. ANY
+    difference in non-citation content (a number, entity, or population) yields a different signature, so
+    a genuinely distinct claim is NEVER collapsed. Pure."""
+    s = _EV_TOKEN_RE.sub(" ", unit or "")
+    s = _NUM_CITE_MARKER_RE.sub(" ", s)
+    return " ".join(s.split()).lower().rstrip(".!?;:, ")
+
+
+def _union_ev_tokens(kept: str, dup: str) -> str:
+    """UNION the ``dup`` unit's provenance tokens onto ``kept`` (P0-4 keep-all: a collapsed duplicate's
+    citations are PRESERVED, never dropped). The extra tokens are spliced in right after ``kept``'s last
+    existing provenance token so they render as appended ``[N]`` markers on the same sentence. Pure."""
+    existing = set(_EV_TOKEN_RE.findall(kept))
+    extra = [t for t in _EV_TOKEN_RE.findall(dup) if t not in existing]
+    if not extra:
+        return kept
+    add = "".join(extra)
+    matches = list(_EV_TOKEN_RE.finditer(kept))
+    if matches:
+        pos = matches[-1].end()
+        return kept[:pos] + add + kept[pos:]
+    return kept.rstrip() + " " + add
+
+
+def _consolidate_same_meaning_units(units: list) -> list:
+    """P0-4 SEMANTIC DEDUP AT EMIT: collapse cross-basket units whose CITATION-STRIPPED meaning is
+    identical (the rotated-citation whole-block duplication cp3 ships as per-source duplicate baskets)
+    down to ONE unit, UNIONING every collapsed instance's citations onto the kept unit — NEVER dropping a
+    source (§-1.3 consolidate-keep-all). A unit that differs in ANY non-citation content (a number,
+    entity, or population) has a DIFFERENT signature and is kept as its own distinct claim. Order-stable;
+    pure. A unit with an empty signature (no prose) passes through untouched."""
+    kept_by_sig: dict[str, int] = {}
+    out: list = []
+    for unit in (units or []):
+        sig = _same_meaning_signature(unit)
+        if not sig:
+            out.append(unit)
+            continue
+        if sig not in kept_by_sig:
+            kept_by_sig[sig] = len(out)
+            out.append(unit)
+            continue
+        idx = kept_by_sig[sig]
+        out[idx] = _union_ev_tokens(out[idx], unit)
+    return out
+
+
 def _compose_section_per_basket(
     section_baskets: list,
     evidence_pool: dict,
@@ -3058,6 +3256,11 @@ def _compose_section_per_basket(
             seen_spans |= spans
             seen_texts.add(norm)
             out.append(unit)
+    # P0-4 SEMANTIC DEDUP AT EMIT (2026-07-10): consolidate cross-basket same-MEANING units (the rotated-
+    # citation whole-block duplication) to ONE, unioning every collapsed instance's citations so NO source
+    # is dropped (§-1.3). Runs LAST so it sees every per-basket + companion + analytical unit. A distinct
+    # claim (different number/entity/population) has a different signature and survives.
+    out = _consolidate_same_meaning_units(out)
     return out
 
 

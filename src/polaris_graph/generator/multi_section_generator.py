@@ -4922,7 +4922,9 @@ def _repair_llm_draft_untokened(
     )
 
 
-def _make_group_redraft_fn(evidence_pool: dict) -> "Callable[..., str]":
+def _make_group_redraft_fn(
+    evidence_pool: dict, section_context: "dict | None" = None,
+) -> "Callable[..., str]":
     """I-deepfix-001 Wave-1a (#1344): build the SYNTH_PRIMARY group-mode re-draft closure threaded into
     ``_compose_section_per_basket`` -> ``_compose_one_basket``'s bounded repair loop. A SYNC callable
     ``(basket, scoped_pool, *, revise_reasons=None) -> str`` that re-calls the async GROUP writer
@@ -4971,6 +4973,7 @@ def _make_group_redraft_fn(evidence_pool: dict) -> "Callable[..., str]":
                     model=model, max_tokens=max_tokens,
                     reasoning_max_tokens=reasoning_max_tokens, temperature=temperature,
                     revise_reasons=revise_reasons, group_mode=True,
+                    section_context=section_context,
                 ),
                 timeout=call_deadline_s,
             )
@@ -5416,6 +5419,14 @@ async def _run_section(
             )
             assert_activation_preconditions()
             _vc_writer_verify = make_writer_verify_fn(_vc_verify)
+            # P0-2 OUTLINE-ECHO (2026-07-10): thread the section {title, focus} + research_question into
+            # the abstractive writer so it synthesizes prose that FULFILLS this section's focus and omits
+            # off-focus spans. General/question-agnostic — the values come from the plan, never hardcoded.
+            _vc_section_context = {
+                "title": str(getattr(section, "title", "") or ""),
+                "focus": str(getattr(section, "focus", "") or ""),
+                "research_question": str(research_question or ""),
+            }
             # I-deepfix-001 Wave-1a (#1344) KEYSTONE (Codex P1 / Fable P1): thread group_mode into the
             # pre-pass so that under PG_SYNTH_PRIMARY the ATTEMPT-0 precomputed draft is already the GROUP
             # contract (one coherent multi-sentence narrative per basket). Without this the pre-pass emits
@@ -5426,6 +5437,7 @@ async def _run_section(
             _vc_precomputed = await abstractive_pre_pass(
                 _vc_baskets, evidence_pool, writer_verify_fn=_vc_writer_verify,
                 group_mode=_synth_primary_active,
+                section_context=_vc_section_context,
             )
             # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the no-token-repair
             # pass (below, after `raw`) uses the SAME ones composing this section. Under PG_SYNTH_PRIMARY
@@ -5439,7 +5451,8 @@ async def _run_section(
             # _compose_one_basket keeps its legacy path (byte-identical). No new hot-path module import —
             # constructed inline behind the flag.
             _vc_redraft_fn = (
-                _make_group_redraft_fn(evidence_pool) if _synth_primary_active else None
+                _make_group_redraft_fn(evidence_pool, _vc_section_context)
+                if _synth_primary_active else None
             )
             _vc_composed = _compose_section_per_basket(
                 _vc_baskets, evidence_pool,
