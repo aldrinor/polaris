@@ -43,6 +43,13 @@ _DEGRADED_FLAGS = (
     "fetch_failed",
     "landing_page",
     "resume_refresh_pending",
+    # F5 (I-deepfix-004): a row the live path stamped ``wrong_content_span`` (its
+    # fetched span is journal-issue FRONT-MATTER — cover/TOC/masthead, NOT the cited
+    # article) is a DEGRADED row. A15 resume recovery must clear this flag on a
+    # genuine re-fetch to real full text (below), and ``is_row_genuinely_recovered``
+    # must treat a row that still carries it as NOT recovered — so a still-front-matter
+    # span can never be propagated into a hollow FrameRow as a real anchor.
+    "wrong_content_span",
 )
 
 

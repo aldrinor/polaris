@@ -5442,6 +5442,12 @@ def run_live_retrieval(
         # bare title+@article{}). Telemetry label only — a §-1.3 weight, never a
         # drop. Stays 0 unless PG_CITATION_SHELL_REFETCH is ON.
         "citation_metadata_shell": 0,
+        # F1 (I-deepfix-004): rows stamped wrong_content_span because the fetched
+        # body is journal-issue FRONT-MATTER (cover/TOC/masthead), NOT the cited
+        # article. Telemetry label only — a §-1.3 degrade+disclose (kept in the
+        # pool, down-weighted), never a drop. Stays 0 unless PG_SPAN_CITED_WORK_SCREEN
+        # is ON (default ON) AND a front-matter span is seen.
+        "wrong_content_span": 0,
     }
     # Populated inside the Step-3 off-topic block; stays None when the filter is
     # disabled or only seeds are present (honest absence, never a faked count).
@@ -7293,10 +7299,21 @@ def run_live_retrieval(
                 _recovered_error = (
                     _recovered_content_error_class(_refetched) if _refetched else ""
                 )
+                # F7 (I-deepfix-004): RE-SCREEN the recovered body for cited-work
+                # FRONT-MATTER. A forced Zyte re-fetch of a whole-issue / TOC / masthead
+                # URL comes back the SAME front-matter body — non-starved and not an error
+                # page — so the length + error-class adoption test alone would LAUNDER it
+                # in as RECOVERED full text (a re-fetch of the wrong content is not a
+                # recovery). Adopt ONLY when the re-fetched body is NOT itself front-matter.
+                # Fail-open (screen OFF / detector fault => False => byte-identical).
+                _refetched_is_front_matter = (
+                    _span_is_issue_front_matter(_refetched) if _refetched else False
+                )
                 if (
                     _refetched
                     and not is_content_starved(_refetched)
                     and not _recovered_error
+                    and not _refetched_is_front_matter
                 ):
                     logger.info(
                         "[live_retriever] B02/B04 RE-FETCH RECOVERED %r "
@@ -7312,9 +7329,28 @@ def run_live_retrieval(
                     # citation-metadata shell either, so clear the flag before the
                     # down-weight branch below (a recovered body is full-weight).
                     _is_shell = False
+                    # F1 (I-deepfix-004): full text adopted — the row is no longer a
+                    # wrong-content front-matter span, so clear the flag before the
+                    # down-weight branch below (a recovered body is full-weight and must
+                    # NOT enter the wrong_content_span degrade+disclose branch).
+                    _is_front_matter = False
                     # I-deepfix-001 (Codex P1 #2): full text adopted — the row is no longer
                     # degraded, so the stale tier ``fetch_degraded`` is NOT propagated below.
                     _refetch_recovered = True
+                elif _refetched and _refetched_is_front_matter:
+                    # F7 (I-deepfix-004): the forced Zyte re-fetch returned the SAME
+                    # whole-issue / TOC / masthead body — still WRONG-CONTENT front-matter,
+                    # NOT the cited article. Refuse to adopt it as RECOVERED. Keep
+                    # ``_is_front_matter`` set so the wrong_content_span degrade+disclose
+                    # branch below LABELS + down-weights it (never passed off as full text,
+                    # never hard-dropped — §-1.3 recover→degrade→disclose).
+                    logger.warning(
+                        "[live_retriever] B02/B04 RE-FETCH STILL-FRONT-MATTER %r "
+                        "(zyte_len=%d) — forced Zyte returned journal-issue front-matter "
+                        "(cover/TOC/masthead), NOT the cited article; row stays LABELED "
+                        "wrong_content_span (NOT adopted as full text, NOT dropped).",
+                        cand.url, len(_refetched),
+                    )
                 elif _refetched and _recovered_error:
                     # The forced Zyte fetch returned a REGISTRY/ERROR/BLOCK page, not the
                     # article — refuse to adopt it (F4). Mark the row degraded so the
@@ -7352,8 +7388,14 @@ def run_live_retrieval(
                         cand.url, len(content), ok,
                     )
             _redesign_on = _credibility_redesign_enabled()
-            if _starved and not _redesign_on:
+            if _starved and not _redesign_on and not _is_front_matter:
                 # LEGACY OFF path — byte-identical hard-drop (no row appended).
+                # F1 (I-deepfix-004): a confirmed wrong-content FRONT-MATTER span is
+                # EXCLUDED from this legacy hard-DROP leg even if a forced-Zyte re-fetch
+                # failure marked it ``_starved`` — a front-matter body is a CREDIBLE
+                # ON-TOPIC source (right journal, wrong article) and §-1.3 forbids
+                # deleting it. It is routed to the wrong_content_span degrade+disclose
+                # branch below instead (kept in the pool, down-weighted, disclosed).
                 logger.info(
                     "[live_retriever] skipping content-starved evidence "
                     "for %r (len=%d)", cand.url, len(content),
@@ -7605,6 +7647,45 @@ def run_live_retrieval(
                         drop_reasons["landing_page"] += 1
                     if _is_shell:
                         drop_reasons["citation_metadata_shell"] += 1
+                # F1 (I-deepfix-004): INDEPENDENT wrong-content FRONT-MATTER consumer.
+                # A confirmed journal-issue FRONT-MATTER span (cover / TOC / masthead) is
+                # WRONG-CONTENT — right journal, right topic, but NOT the cited article, so
+                # it is not full-text-capable and must NEVER be admitted as normal citable
+                # evidence. Before this fix ``_is_front_matter`` was consumed ONLY to enter
+                # the default-OFF forced-Zyte re-fetch (line ~7282): with that flag OFF (the
+                # default) a front-matter span sailed through as a normal full-weight row.
+                # This consumer stamps ``wrong_content_span`` + degraded + disclosed and
+                # down-weights the row REGARDLESS of the Zyte/refetch flag AND of the
+                # redesign flag — a front-matter span left un-recovered (re-fetch flag OFF,
+                # or a re-fetch that failed / came back still front-matter per F7) is
+                # degraded+disclosed, never passed through as normal evidence. §-1.3
+                # recover→degrade→disclose: the CREDIBLE ON-TOPIC source is KEPT in the pool
+                # (never hard-dropped), only the wrong SPAN is marked unusable for grounding.
+                # ``_is_front_matter`` is False whenever ``PG_SPAN_CITED_WORK_SCREEN`` is OFF
+                # (fail-open) or the body was recovered to real full text, so the OFF path
+                # and a recovered row stay byte-identical. Idempotent vs the down-weight
+                # branch above (only the post-re-fetch ``_starved`` overlap can co-fire).
+                if _is_front_matter:
+                    if not _row.get("down_weighted"):
+                        _row["retrieval_weight"] = _down_weight_retrieval()
+                        _row["down_weighted"] = True
+                    _row["wrong_content_span"] = True
+                    # a cover / TOC / masthead carries no article prose — a claim can
+                    # NEVER be grounded on it (mirror of the landing/shell disposition).
+                    _row["full_text_capable"] = False
+                    # EXCLUDE it from the corpus-adequacy grounded-content count exactly
+                    # like any other fetch-degraded row (never launders into "adequate").
+                    _row["fetch_degraded"] = True
+                    logger.info(
+                        "[live_retriever] WRONG-CONTENT front-matter span for %r "
+                        "(len=%d) — journal-issue cover/TOC/masthead, NOT the cited "
+                        "article; stamped wrong_content_span + degraded + down-weighted "
+                        "(weight=%.3f), KEPT in the pool + DISCLOSED, never admitted as "
+                        "normal evidence, never dropped (§-1.3).",
+                        cand.url, len(content), _row.get("retrieval_weight", 0.0),
+                    )
+                    _trace_drop(cand.url, "wrong_content_span")
+                    drop_reasons["wrong_content_span"] += 1
                 # NOTE: on the OFF path (redesign flag unset) a landing page is
                 # NOT flagged or mutated — the row stays byte-identical to the
                 # pre-F30 row. F30's flag+down-weight is ON-path only (the weight
