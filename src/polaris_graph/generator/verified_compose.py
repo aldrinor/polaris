@@ -988,7 +988,9 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict, research_quest
         # verified=0). tok_start/tok_end are UNCHANGED (they still index the member's real global span),
         # so faithfulness is identical — only the display punctuation moves.
         first_display = _strip_terminal_punct(first)
-        return f"{first_display} [#ev:{eid}:{tok_start}-{tok_end}]."
+        # fix 4: this deterministic verbatim span is a QUOTATION (the source's own words), not
+        # synthesized analysis — label it explicitly (verify-neutral: the token/offsets are unchanged).
+        return _label_verbatim_as_quotation(f"{first_display} [#ev:{eid}:{tok_start}-{tok_end}].")
     return ""
 
 
@@ -1034,6 +1036,52 @@ def _subtopic_max_facts() -> int:
     except (TypeError, ValueError):
         n = 0
     return n if n > 0 else _SUBTOPIC_MAX_FACTS_DEFAULT
+
+
+# fix 3 (operator 2026-07-10): the per-basket verify-FAIL used to paste the basket's raw verbatim
+# K-span as INLINE body prose that TRIVIALLY self-passes verification — the quote-dump / chrome-leak
+# root the operator killed. DEFAULT (flag OFF) routes that K-span through the labeled evidence-block
+# disclosure instead (an explicit LABELED quotation, never passed off as verified synthesized prose).
+_RAW_SPAN_INLINE_FALLBACK_ENV = "PG_COMPOSE_RAW_SPAN_INLINE_FALLBACK"
+
+
+def _raw_span_inline_fallback_enabled() -> bool:
+    """True => legacy inline raw-span paste (byte-identical). Default OFF => labeled-disclosure route."""
+    raw = os.environ.get(_RAW_SPAN_INLINE_FALLBACK_ENV, "0").strip().lower()
+    return raw not in ("", "0", "false", "off", "no")
+
+
+# fix 4 (operator 2026-07-10): a deterministic VERBATIM span emitted as body prose is a QUOTATION, not
+# synthesized analysis. When ON each such span is wrapped in explicit quotation marks so it reads as an
+# honest labeled quotation rather than passed-off-as-synthesized prose; the [#ev] token + offsets are
+# UNCHANGED (verify-neutral). DEFAULT-OFF: fix 4's PRIMARY mechanism is the abstractive-writer default
+# (abstractive_writer.py PG_ABSTRACTIVE_WRITER/PG_SYNTH_PRIMARY default-ON) which makes the verbatim
+# deterministic writers a FALLBACK stub only; this quotation label is a belt-and-suspenders for that
+# stub path, held OFF pending live-run validation of the rendered quotation shape. OFF => byte-identical.
+_VERBATIM_AS_QUOTATION_ENV = "PG_VERBATIM_AS_QUOTATION"
+
+
+def _verbatim_as_quotation_enabled() -> bool:
+    raw = os.environ.get(_VERBATIM_AS_QUOTATION_ENV, "0").strip().lower()
+    return raw not in ("", "0", "false", "off", "no")
+
+
+def _label_verbatim_as_quotation(sentence_with_token: str) -> str:
+    """Wrap the PROSE portion of a ``<prose> [#ev:id:a-b].`` verbatim clause in quotation marks so it
+    renders as an explicit quotation. Idempotent (already-quoted prose is untouched) and verify-safe
+    (the [#ev] token/offsets are preserved verbatim; only display quote marks are added around the same
+    text the token already grounds). fix 4. OFF or a non-conforming shape => returned unchanged."""
+    if not _verbatim_as_quotation_enabled():
+        return sentence_with_token
+    s = sentence_with_token or ""
+    m = re.search(r"\s*(\[#ev:[^\]]*\])", s)
+    if not m:
+        return sentence_with_token
+    prose = s[:m.start()].rstrip()
+    tail = s[m.start():]
+    if not prose or prose.startswith('"') or prose.startswith("“"):
+        return sentence_with_token  # empty or already a quotation
+    return f'"{prose}"{tail}'
 
 
 def _atomic_fact_key(unit: str) -> str:
@@ -1094,7 +1142,8 @@ def build_multi_member_sentences(basket: Any, evidence_pool: dict, research_ques
             tok_start = start + off
             tok_end = tok_start + len(u)
             u_core = _strip_terminal_punct(u)
-            out.append(f"{u_core} [#ev:{eid}:{tok_start}-{tok_end}].")
+            # fix 4: L2 verbatim writer output is a QUOTATION — label it explicitly (verify-neutral).
+            out.append(_label_verbatim_as_quotation(f"{u_core} [#ev:{eid}:{tok_start}-{tok_end}]."))
             seen.add(key)
             if len(out) >= limit:
                 return " ".join(out)
@@ -1965,9 +2014,17 @@ def _compose_one_basket(
         if _compose_render_chrome_enabled():
             fallback = _screen_fallback_chrome(fallback)
         if fallback and fallback.strip():
-            # If some sentences were kept before the failure, keep them + the verbatim span (never lose
-            # already-verified prose); else the span alone.
-            return " ".join(kept + [fallback]) if kept else fallback
+            if _raw_span_inline_fallback_enabled():
+                # Legacy inline paste (flag ON, byte-identical): keep already-verified prose + the span.
+                return " ".join(kept + [fallback]) if kept else fallback
+            # fix 3 (default): NEVER paste the raw span as body prose. Route the basket's verbatim
+            # K-span through the SYNTH_PRIMARY labeled-disclosure machinery so it renders as an explicit
+            # LABELED evidence block (its own paragraph), keeping any already-verified prose above it.
+            labeled = _uncovered_fact_disclosure(basket, fallback)
+            if labeled and labeled.strip():
+                body = (" ".join(kept)).strip()
+                return "\n\n".join([x for x in (body, labeled) if x]) if kept else labeled
+            # labeled screened empty (furniture chrome) -> fall through to the honest gap disclosure.
     # I-deepfix-001 Wave-3 PART 2 ARM B (#1344): no verified span. Default the honest gap, BUT when a
     # transient judge outage left DETERMINISTIC_ONLY (grounded-but-unentailed) members, disclose THAT
     # instead of "no evidence". Only the LABEL changes — no DETERMINISTIC_ONLY prose is ever promoted
@@ -2190,8 +2247,13 @@ def _member_verbatim_clause(basket: Any, member: Any, evidence_pool: dict) -> Op
     span, so it re-passes the UNCHANGED ``strict_verify`` trivially and carries the source's OWN words
     (a quantifier in the source's words is what the source SAID, never a fabricated aggregate — so the
     relational-quantifier guard MUST NOT touch this path). Returns None when the member has no resolvable
-    verified span (the producer then skips this member)."""
-    return build_verified_span_draft(_single_member_basket(basket, member), evidence_pool)
+    verified span (the producer then skips this member).
+
+    fix 4 (operator 2026-07-10): the member's verbatim span is a QUOTATION — label it explicitly so a
+    multi-cite fallback co-locates honest quotations, not passed-off-as-synthesized prose (verify-neutral;
+    the [#ev] token/offsets are unchanged)."""
+    _clause = build_verified_span_draft(_single_member_basket(basket, member), evidence_pool)
+    return _label_verbatim_as_quotation(_clause) if _clause else _clause
 
 
 def _member_writer_clause(
@@ -3114,20 +3176,43 @@ def _section_basket_map_consume_enabled() -> bool:
         return False
 
 
+def _sbm_get(obj: Any, key: str, default: Any = None) -> Any:
+    """Dict-or-attr accessor (fix 13): the map BUILDER (section_basket_map._get) accepts both a
+    production dataclass AND a fixture dict, but this consumer read via ``getattr`` ONLY — so a dict
+    basket / dict view silently resolved to empty and the section composed NOTHING. Align the accessor
+    so dict baskets (fixtures, replay harness) resolve identically to the builder."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def _baskets_from_section_map(section_basket_map: Any, section_index: int, baskets: list) -> list:
-    """Resolve a section's precomputed ``SectionBasketView`` list to basket objects (primary +
-    corroborating), by ``claim_cluster_id``, in the map's deterministic order. Baskets with a
-    cluster id absent from the map's section views are omitted (they compose in their own home)."""
+    """Resolve a section's precomputed ``SectionBasketView`` list to the basket objects that compose
+    HERE, by ``claim_cluster_id``, in the map's deterministic order.
+
+    fix 12 (operator 2026-07-10): return ONLY the PRIMARY-role views' baskets. A basket has exactly ONE
+    primary home; a CORROBORATING view used to pull the FULL basket into a SECOND section and RECOMPOSE
+    its whole claim prose there — the same claim rendered twice across sections. The corroboration is
+    already carried once, as multi-citation on the basket in its primary home (the map keeps the
+    basket's GLOBAL identity and counts corroboration once), so a corroborating role is a cross-reference
+    that must NOT full-recompose. An empty-facet primary still resolves to the whole basket object here,
+    so its compose cites from the basket's whole member set (empty-facet primary semantics, explicit).
+
+    fix 13: read views + baskets through the dict-or-attr accessor so a dict basket (fixture / replay)
+    resolves identically to the builder (was ``getattr``-only => dict baskets silently empty)."""
     lookup: dict[str, Any] = {}
     for b in baskets:
-        cid = str(getattr(b, "claim_cluster_id", "") or "")
+        cid = str(_sbm_get(b, "claim_cluster_id", "") or "")
         if cid and cid not in lookup:
             lookup[cid] = b
-    views = getattr(section_basket_map, "views_by_section", None) or {}
+    views = _sbm_get(section_basket_map, "views_by_section", None) or {}
     out: list = []
     seen: set[str] = set()
     for view in views.get(section_index, []) or []:
-        cid = str(getattr(view, "claim_cluster_id", "") or "")
+        role = str(_sbm_get(view, "role", "") or "")
+        if role != "primary":
+            continue  # corroborating views cross-reference in the primary home; never full-recompose
+        cid = str(_sbm_get(view, "claim_cluster_id", "") or "")
         if cid in lookup and cid not in seen:
             seen.add(cid)
             out.append(lookup[cid])

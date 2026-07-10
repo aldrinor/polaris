@@ -151,13 +151,40 @@ def test_weights_resolve_from_env(monkeypatch):
     assert w == {"provenance": 7, "subquery": 5, "topical": 0}
 
 
-def test_weights_change_primary_home():
+def test_primary_selection_is_tiered_not_weighted():
+    """Fix 5(c): primary selection is TIERED-LEXICOGRAPHIC (provenance, then sub-query, then
+    discriminative topical, then lowest index) — NOT a flat weighted sum. A real provenance/
+    sub-query assignment can never be outvoted by an accumulation of weak lexical matches, and
+    the env weights no longer flip a placement. This is the fix for the 84%-single-word leak."""
     fx = _load()
-    # Default weights: cc_robots_reduce_employment primary = sec3 (topical breaks the prov tie).
+    # cc_robots_reduce_employment: sec0 and sec3 both carry provenance=1; the discriminative
+    # topical tier breaks the tie -> sec3 (more discriminative shared words).
     assert _build(fx).primary_section_by_cluster["cc_robots_reduce_employment"] == 3
-    # Zero topical weight: sec0/sec3 tie on provenance -> lowest index (sec0) wins.
+    # Zeroing the topical WEIGHT must NOT change the outcome — tiers, not weights, decide.
     flipped = _build(fx, weights={"provenance": 3, "subquery": 2, "topical": 0})
-    assert flipped.primary_section_by_cluster["cc_robots_reduce_employment"] == 0
+    assert flipped.primary_section_by_cluster["cc_robots_reduce_employment"] == 3
+
+
+def test_provenance_tier_dominates_topical_regardless_of_weights():
+    """A basket with ONE real provenance match in section A but a LARGE topical overlap with
+    section B lands in A — provenance is a higher tier than topical, so no topical weight (even
+    a huge one) can move it. This is the structural guarantee fix 5(c) adds; it holds for any
+    question because it reads only the runtime signals, never a hardcoded section/word."""
+    baskets = [{
+        "claim_cluster_id": "cc_prov_wins",
+        "claim_text": "beta gamma delta epsilon zeta",  # heavy lexical overlap with section B
+        "subject": "", "predicate": "",
+        "member_ev_ids": ["e_prov"],  # provenance match with section A only
+    }]
+    sections = [
+        {"title": "Alpha", "focus": "", "ev_ids": ["e_prov"], "sub_query_indices": []},
+        {"title": "beta gamma", "focus": "delta epsilon zeta", "ev_ids": ["e_other"],
+         "sub_query_indices": []},
+    ]
+    for w in ({"provenance": 3, "subquery": 2, "topical": 1},
+              {"provenance": 1, "subquery": 1, "topical": 999}):
+        m = sbm.build_section_basket_map(baskets, sections, weights=w)
+        assert m.primary_section_by_cluster["cc_prov_wins"] == 0
 
 
 def test_residual_title_env_override(monkeypatch):
@@ -175,6 +202,90 @@ def test_a6_master_flag_default_off(monkeypatch):
     assert sbm.section_basket_map_enabled() is True
     monkeypatch.setenv("PG_SECTION_BASKET_MAP", "off")
     assert sbm.section_basket_map_enabled() is False
+
+
+# ── Fix 3 — the map serializes AND deserializes (the checkpoint round-trip) ──────────────────────
+
+def test_fix3_load_map_round_trip_is_byte_identical():
+    fx = _load()
+    m = _build(fx)
+    raw = sbm.dumps_map(m)
+    rehydrated = sbm.load_map(raw)
+    # A JSON-rehydrated map must be byte-for-byte equal to the in-memory one (int-normalized keys,
+    # rebuilt view objects) — the seam that consumed a rehydrated map used to see ZERO views.
+    assert sbm.dumps_map(rehydrated) == raw
+    # Section keys rehydrate as ints, and views rehydrate as SectionBasketView objects.
+    assert all(isinstance(k, int) for k in rehydrated.views_by_section)
+    any_view = next(iter(next(iter(rehydrated.views_by_section.values()))))
+    assert isinstance(any_view, sbm.SectionBasketView)
+
+
+# ── Fix 4 — no silent basket loss: duplicate + empty cids are counted, never collapsed ───────────
+
+def test_fix4_duplicate_cid_baskets_do_not_collapse():
+    # Two DISTINCT baskets share a cluster id; the old build overwrote one (stranded read 0).
+    baskets = [
+        {"claim_cluster_id": "dup", "claim_text": "alpha", "member_ev_ids": ["e1"]},
+        {"claim_cluster_id": "dup", "claim_text": "beta", "member_ev_ids": ["e2"]},
+        {"claim_cluster_id": "solo", "claim_text": "gamma", "member_ev_ids": ["e3"]},
+    ]
+    sections = [{"title": "S", "focus": "", "ev_ids": ["e1", "e2", "e3"], "sub_query_indices": []}]
+    m = sbm.build_section_basket_map(baskets, sections)
+    # Every INPUT basket produces a map entry — none collapse, none vanish.
+    assert len(m.primary_section_by_cluster) == 3
+    assert m.stranded_count == 0
+
+
+def test_fix4_empty_cid_basket_is_not_dropped():
+    baskets = [
+        {"claim_cluster_id": "", "claim_text": "orphan", "member_ev_ids": ["e9"]},
+        {"claim_cluster_id": "real", "claim_text": "kept", "member_ev_ids": ["e1"]},
+    ]
+    sections = [{"title": "S", "focus": "", "ev_ids": ["e1"], "sub_query_indices": []}]
+    m = sbm.build_section_basket_map(baskets, sections)
+    # The empty-cid basket gets a deterministic synthetic id and is counted, not silently skipped.
+    assert len(m.primary_section_by_cluster) == 2
+    assert m.stranded_count == 0
+    assert any(k.startswith("__nocid__#") for k in m.primary_section_by_cluster)
+
+
+# ── Fix 6 — a non-Latin question yields content words (topical signal survives) ──────────────────
+
+def test_fix6_unicode_tokenizer_yields_content_words():
+    # Cyrillic content words; the ASCII-only tokenizer produced an empty set (all-residual).
+    words = sbm._content_words("автоматизация вытесняет рабочие места")
+    assert words  # non-empty: the topical signal can fire for a non-English question
+    assert "автоматизация" in words
+
+
+# ── Fix 7a — a dead signal is visible in the serialized stats, never a hidden zero ───────────────
+
+def test_fix7a_signal_availability_surfaced():
+    fx = _load()
+    m = _build(fx)
+    assert set(m.signals_available) == {"provenance", "subquery", "topical"}
+    assert m.signals_available["subquery"] is True  # fixture wires ev_027 -> sub_query 4
+    # No sub_queries passed => the sub-query signal is structurally unavailable and SAID so.
+    m_nosq = sbm.build_section_basket_map(fx["baskets"], fx["section_plans"])
+    assert m_nosq.signals_available["subquery"] is False
+    assert "subquery" in m_nosq.signal_totals
+
+
+# ── Fix 9 — a topical-only primary carries the FULL member list (uniform with residual) ──────────
+
+def test_fix9_topical_only_primary_carries_full_member_facet():
+    # basket matches section 0 by TITLE word only; no member ev_id is in the section's ev_ids.
+    baskets = [{
+        "claim_cluster_id": "cc_top", "claim_text": "zeta signal",
+        "subject": "", "predicate": "", "member_ev_ids": ["e_x", "e_y"],
+    }]
+    sections = [{"title": "Zeta Section", "focus": "", "ev_ids": ["e_other"], "sub_query_indices": []}]
+    m = sbm.build_section_basket_map(baskets, sections)
+    assert m.primary_section_by_cluster["cc_top"] == 0
+    view = m.views_by_section[0][0]
+    assert view.role == "primary"
+    # Uniform with the residual branch: the full member set is the facet, never empty.
+    assert view.section_member_ev_ids == ["e_x", "e_y"]
 
 
 if __name__ == "__main__":  # pragma: no cover

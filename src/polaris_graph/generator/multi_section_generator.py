@@ -4858,8 +4858,13 @@ def _repair_untokened_draft(
             repaired.append(rep)
             changed += 1
         else:
-            # Tokened sentence (returned unchanged), no bindable span, or flag off -> keep as-is
-            # so the UNCHANGED strict_verify tail applies its normal verdict (drop if untokened).
+            # fix 8 (operator 2026-07-10): a REPAIRED clause now re-verifies under the CONTEXT-LEVEL
+            # entailment bar (the overlap leg is gone — strict_verify / verify_sentence_provenance judge
+            # entailment + numbers), so a genuine paraphrase the lexical ghost used to drop now survives.
+            # A tokened sentence is kept as-is (strict_verify judges it). An UNBINDABLE UNTOKENED sentence
+            # is kept as-is and dropped no_provenance_token by strict_verify — that drop is DISCLOSED (not
+            # silent): verify_sentence_to_record records it in dropped_sentences_final. We do NOT keep an
+            # ungrounded, source-less sentence as body prose (that would be fabrication, not a LABEL).
             repaired.append(sentence)
     if not changed:
         return raw  # byte-identical: nothing was repaired
@@ -4875,6 +4880,9 @@ def _repair_llm_draft_untokened(
     section: Any,
     credibility_analysis: Any,
     evidence_pool: dict,
+    *,
+    section_basket_map: Any = None,
+    section_index: int | None = None,
 ) -> str:
     """I-deepfix-001 WS-3 (#1344) — wire the SAME no-provenance-token leak repair into the LLM
     ``_call_section`` ELSE-branch.
@@ -4906,7 +4914,12 @@ def _repair_llm_draft_untokened(
         return rewritten
     # N1-FIX-1 / N6-FIX-A (merged): thread evidence_pool so the off-topic basket screen applies to the
     # no-token repair pass too. Default OFF (PG_COMPOSE_OFFTOPIC_BASKET_SCREEN) => byte-identical.
-    baskets = _section_baskets_for_compose(section, credibility_analysis, evidence_pool=evidence_pool)
+    # fix 9 (operator 2026-07-10): thread the section-basket map + index so the no-token repair binds
+    # against the SAME map-assigned baskets the body compose used (map/index None => legacy, identical).
+    baskets = _section_baskets_for_compose(
+        section, credibility_analysis, evidence_pool=evidence_pool,
+        section_basket_map=section_basket_map, section_index=section_index,
+    )
     if not baskets:
         return rewritten
     from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
@@ -5185,6 +5198,8 @@ async def _run_section(
     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
     research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
+    section_basket_map: Any = None,  # fix 9 (operator 2026-07-10): precomputed basket->section placement
+    section_index: int | None = None,  # fix 9: THIS section's index in the map's section list
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -5257,7 +5272,13 @@ async def _run_section(
         # N1-FIX-1 / N6-FIX-A (merged): thread evidence_pool so the off-topic basket screen applies to
         # the body-prose compose set AND (automatically) the B2 boundary-line call at :5911 that reuses
         # _vc_baskets. Default OFF (PG_COMPOSE_OFFTOPIC_BASKET_SCREEN) => byte-identical selection.
-        _section_baskets_for_compose(section, credibility_analysis, evidence_pool=evidence_pool)
+        # fix 9 (operator 2026-07-10): thread the precomputed section-basket map + this section's index so
+        # (when PG_SECTION_BASKET_MAP is ON) the section composes its MAP-assigned primary baskets, not the
+        # recomputed intersection. Map/index None (default) => the legacy intersection path, byte-identical.
+        _section_baskets_for_compose(
+            section, credibility_analysis, evidence_pool=evidence_pool,
+            section_basket_map=section_basket_map, section_index=section_index,
+        )
         if (
             _verified_compose_enabled()
             and credibility_analysis is not None
@@ -5606,6 +5627,7 @@ async def _run_section(
     if not _draft_directly_tokened:
         rewritten = _repair_llm_draft_untokened(
             rewritten, section, credibility_analysis, evidence_pool,
+            section_basket_map=section_basket_map, section_index=section_index,
         )
 
     # Strict verify against full evidence_pool (not subset — the model
@@ -5752,6 +5774,7 @@ async def _run_section(
         # unbindable untokened sentence is left AS-IS so strict_verify still drops it.
         rewritten2 = _repair_llm_draft_untokened(
             rewritten2, section, credibility_analysis, evidence_pool,
+            section_basket_map=section_basket_map, section_index=section_index,
         )
         # I-deepfix-001 W03-strict-verify-offload (#1344): the regeneration-pass verify,
         # offloaded for the same reason as the primary verify above.
@@ -9758,10 +9781,80 @@ async def generate_multi_section_report(
     # Default-OFF (PG_ROUTE_ALL_BASKETS) => plans unchanged (byte-identical). §-1.3: pure CONSOLIDATE
     # placement — drops no source, caps nothing, targets no number; every routed basket's rendered
     # sentence re-passes the UNCHANGED strict_verify per clause below (faithfulness untouched).
+    # fix 9/10/11 (operator 2026-07-10): WIRE the section-basket map (built-but-not-called until now —
+    # PG_SECTION_BASKET_MAP changed NOTHING in a real run). When ON, build the map ONCE from the FINAL
+    # plans + consolidated baskets and thread it through the per-section compose so it BEHAVIORALLY
+    # decides which baskets each section composes (every basket ONE primary home; residual for the
+    # no-candidate ones). Acceptance = the map changes which baskets a section composes in a live run.
+    section_basket_map = None
+    _plan_index_by_id: dict[int, int] = {}
+    _sbm_on = False
     if credibility_analysis is not None:
+        try:
+            from src.polaris_graph.synthesis.section_basket_map import (  # noqa: PLC0415
+                build_section_basket_map as _build_sbm,
+                section_basket_map_enabled as _sbm_enabled,
+            )
+            _sbm_on = bool(_sbm_enabled())
+        except Exception as _sbm_imp_err:  # noqa: BLE001 — additive; any fault => legacy orphan-router
+            logger.warning("[multi_section] section_basket_map import failed (%s); legacy path", _sbm_imp_err)
+            _sbm_on = False
+
+    if credibility_analysis is not None and not _sbm_on:
+        # fix 11 MUTUAL EXCLUSION: the legacy orphan-router runs ONLY when the map is OFF — otherwise
+        # both would home residual baskets and conflict on placement.
         plans = route_orphan_baskets_to_section_plans(
             plans, credibility_analysis, section_plan_cls=SectionPlan,
         )
+    elif credibility_analysis is not None and _sbm_on:
+        _sbm_baskets = list(getattr(credibility_analysis, "baskets", None) or [])
+        # fix 15: thread the resident directional cross-encoder as the NLI-refine scorer. It only fires
+        # when PG_SECTION_BASKET_MAP_REFINE_NLI is ON (the map gates it); else the map stays pure-lexical.
+        try:
+            from src.polaris_graph.synthesis.synthesis_entailment_verify import (  # noqa: PLC0415
+                _default_entails_fn as _sbm_entails,
+            )
+        except Exception:  # noqa: BLE001
+            _sbm_entails = None
+        try:
+            section_basket_map = _build_sbm(
+                _sbm_baskets, plans,
+                evidence_pool=evidence_pool,
+                sub_queries=list(getattr(research_plan, "sub_queries", []) or []),
+                entails_fn=_sbm_entails,
+            )
+        except Exception as _sbm_bld_err:  # noqa: BLE001 — additive; a build fault => legacy compose
+            logger.warning("[multi_section] section_basket_map build failed (%s); legacy compose", _sbm_bld_err)
+            section_basket_map = None
+        # fix 10 RESIDUAL SECTION: the residual index == len(plans) has NO SectionPlan (on drb_72 ~36%
+        # of baskets would never compose). Append a residual SectionPlan carrying the residual baskets'
+        # member ev_ids (so _run_section does not early-return the no-evidence gap stub), preserving
+        # index alignment with the map's residual_section_index.
+        if section_basket_map is not None and section_basket_map.residual_section_index is not None:
+            _resid_idx = section_basket_map.residual_section_index
+            if _resid_idx == len(plans):
+                _resid_evids: list[str] = []
+                _seen_ev: set[str] = set()
+                for _v in section_basket_map.views_by_section.get(_resid_idx, []) or []:
+                    for _e in (getattr(_v, "section_member_ev_ids", None) or []):
+                        _e = str(_e)
+                        if _e and _e not in _seen_ev:
+                            _seen_ev.add(_e)
+                            _resid_evids.append(_e)
+                plans.append(SectionPlan(
+                    title=section_basket_map.residual_title or "Additional Corroborated Findings",
+                    focus="Corroborated findings grouped under no primary outline section.",
+                    ev_ids=_resid_evids,
+                ))
+                logger.info(
+                    "[multi_section] section_basket_map: appended residual section (idx=%d, ev_ids=%d, "
+                    "nocid_synthetic=%d, stranded=%d)",
+                    _resid_idx, len(_resid_evids), section_basket_map.nocid_synthetic_count,
+                    section_basket_map.stranded_count,
+                )
+        if section_basket_map is not None:
+            # id-keyed index map over the FINAL plans (post-residual-append), for the per-section dispatch.
+            _plan_index_by_id = {id(p): i for i, p in enumerate(plans)}
 
     # Stage 2: per-section generation (bounded parallelism)
     # fix#19 (#1262), SPEED / faithfulness-NEUTRAL: the 4-7 sections are ALREADY
@@ -9990,6 +10083,11 @@ async def generate_multi_section_report(
                 # I-arch-004 F21 (#1255): thread the real research_question
                 # (framing-only) into legacy section prompts + distill MAP/REDUCE.
                 research_question=research_question,
+                # fix 9 (operator 2026-07-10): thread the precomputed map + THIS plan's index in the
+                # final plans list so the section composes its MAP-assigned primary baskets. None (map
+                # OFF / build failed) => the legacy intersection path, byte-identical.
+                section_basket_map=section_basket_map,
+                section_index=_plan_index_by_id.get(id(plan)),
             )
 
     # V33 unified dispatch helper for downstream (M-44 regen) callers

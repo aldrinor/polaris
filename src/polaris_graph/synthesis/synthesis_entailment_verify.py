@@ -25,9 +25,11 @@ FAITHFULNESS (the frozen engine is UNTOUCHED — nothing here relaxes it):
     invariant #3 is byte-for-byte the same predicate the frozen engine applies.
   * A NON-entailed paraphrase (the judge returns False) is DROPPED. Only a directionally-ENTAILED
     span->sentence relation is kept — the ALCE / DeepTRACE citation direction (span entails claim).
-  * On a judge DEGRADE (the cross-encoder is unavailable / faulted => ``None``) we do NOT fight
-    breadth on an infra fault: we fall back to the SAME strict >=2 verbatim content-word overlap the
-    frozen engine uses, so a degrade can never keep an ungrounded paraphrase.
+  * On a judge DEGRADE (the cross-encoder is unavailable / faulted => ``None``) we KEEP the sentence
+    with a disclosed ``judge-unavailable`` LABEL (fix 5, operator 2026-07-10). The sentence is already
+    provenance-resolved AND number-matched; the OLD >=2 lexical content-word fallback resurrected the
+    killed lexical ghost on every judge outage, so it is removed. A degrade never lexical-gates and
+    never silently keeps unlabeled — the label IS the faithfulness signal.
 
 The default entailment judge is the SAME resident cross-encoder the consolidation leg already loads
 (``entails_directional``, lazy) — ZERO new model / OpenRouter spend. Tests inject a deterministic
@@ -47,7 +49,6 @@ from src.polaris_graph.generator.provenance_generator import (
     _THRESHOLD_RE,
     ProvenanceToken,
     SentenceVerification,
-    _content_words,
     _decimals_in,
     _numbers_in,
     _strip_dose_patterns,
@@ -62,14 +63,14 @@ logger = logging.getLogger(__name__)
 # re-grounds through the FROZEN strict_verify ALONE (byte-identical to pre-C1).
 _ENV_ENTAILMENT_VERIFY = "PG_SYNTH_ENTAILMENT_VERIFY"
 
-# The degrade fallback overlap floor — the SAME >=2 the frozen engine's content-word leg uses.
-_MIN_CONTENT_OVERLAP_DEGRADE = 2
-
 # A resolved provenance token, for the dedup key of the union wrapper.
 _EV_TOKEN_RE = re.compile(r"\[#ev:[A-Za-z0-9_]+:\d+-\d+\]")
 
 # The soft-warning that marks a sentence KEPT by the entailment leg (read by the C3 D8-promote routing).
 SYNTH_ENTAILMENT_SOFT_WARNING = "synthesis_entailment_verified"
+# fix 5 (operator 2026-07-10): the disclosed label a KEPT sentence carries when the entailment judge was
+# unavailable/degraded (number-matched + provenance-resolved but the semantic judge could not run).
+SYNTH_ENTAILMENT_JUDGE_UNAVAILABLE = "synthesis_entailment_judge_unavailable"
 
 # entails_fn(premise, hypothesis) -> True (entails) | False (does not) | None (judge unavailable / degrade)
 EntailsFn = Callable[[str, str], Optional[bool]]
@@ -165,17 +166,26 @@ def _numbers_match(sentence_core: str, span_texts: list[str]) -> bool:
     return True
 
 
-def _entails_or_degrade(premise: str, hypothesis: str, entails_fn: EntailsFn) -> bool:
-    """Leg (c): the span (premise) must ENTAIL the sentence (hypothesis). True => keep; False => drop.
-    ``None`` (the judge is unavailable / degraded) => do NOT fight breadth on an infra fault: fall back
-    to the SAME strict >=2 verbatim content-word overlap the frozen engine uses (so a degrade can never
-    keep an ungrounded paraphrase)."""
+def _entails_or_degrade(premise: str, hypothesis: str, entails_fn: EntailsFn) -> "tuple[bool, str | None]":
+    """Leg (c): the span (premise) must ENTAIL the sentence (hypothesis). Returns ``(keep, label)``.
+
+    fix 5 (operator 2026-07-10): a judge DEGRADE (``None`` — the cross-encoder is unavailable / faulted)
+    NO LONGER falls back to the >=2 lexical content-word overlap. That fallback RESURRECTED the killed
+    lexical ghost on every judge outage. The sentence at this point is ALREADY provenance-resolved AND
+    number-matched (the caller checked both), so a judge outage is a pure infra fault, not a faithfulness
+    signal: KEEP the sentence with a disclosed ``judge-unavailable`` LABEL — never lexical-gate, never
+    silently keep unlabeled.
+
+      * True  => (True, None)     keep, verified.
+      * False => (False, None)    drop, the span does not entail the sentence.
+      * None  => (True, LABEL)    keep with the disclosed judge-unavailable label.
+    """
     verdict = entails_fn(premise, hypothesis)
     if verdict is True:
-        return True
+        return True, None
     if verdict is False:
-        return False
-    return len(_content_words(hypothesis) & _content_words(premise)) >= _MIN_CONTENT_OVERLAP_DEGRADE
+        return False, None
+    return True, SYNTH_ENTAILMENT_JUDGE_UNAVAILABLE
 
 
 def entailment_verify(
@@ -203,14 +213,18 @@ def entailment_verify(
         if not _numbers_match(core, span_texts):
             continue
         premise = " ".join(span_texts)
-        if not _entails_or_degrade(premise, core, entails_fn):
+        keep, degrade_label = _entails_or_degrade(premise, core, entails_fn)
+        if not keep:
             continue
+        warnings = [SYNTH_ENTAILMENT_SOFT_WARNING]
+        if degrade_label:
+            warnings.append(degrade_label)
         kept.append(
             SentenceVerification(
                 sentence=sentence,
                 tokens=valid_tokens,
                 is_verified=True,
-                soft_warnings=[SYNTH_ENTAILMENT_SOFT_WARNING],
+                soft_warnings=warnings,
             )
         )
     return _EntailmentVerificationReport(kept_sentences=kept)
@@ -240,7 +254,8 @@ def entailment_grounds_sentence(
     if not _numbers_match(core, span_texts):
         return False
     premise = " ".join(span_texts)
-    return _entails_or_degrade(premise, core, entails_fn)
+    keep, _label = _entails_or_degrade(premise, core, entails_fn)
+    return keep
 
 
 def _norm_key(sentence: str) -> str:

@@ -110,7 +110,7 @@ def _spy_both(monkeypatch):
 # ── (a) OFF byte-identical routing ─────────────────────────────────────────────────────────────────
 def test_off_corroborated_routes_to_multicited_not_synth(monkeypatch):
     monkeypatch.setenv("PG_VERIFIED_COMPOSE_MULTICITED", "1")
-    monkeypatch.delenv("PG_SYNTH_PRIMARY", raising=False)
+    monkeypatch.setenv("PG_SYNTH_PRIMARY", "0")  # Fix 2: default-ON now; pin OFF to test the legacy route
     basket, pool = _corroborated_basket()
     calls = _spy_both(monkeypatch)
 

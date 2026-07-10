@@ -135,21 +135,32 @@ def _content_tokens(text: str) -> "set[str]":
             if len(w) >= 3 and w not in _GROUND_STOPWORDS}
 
 
-def _span_grounds_sentence(sentence: str, span: str) -> bool:
-    """Deterministic span-grounding leg of the D3 frozen-engine gate (strict_verify §9.1.3 principle).
+def _span_grounds_sentence(sentence: str, span: str, *, entails_fn=None) -> bool:
+    """Span-grounding leg of the D3 frozen-engine gate.
 
     True iff the sentence's prose is anchored in the cited span: (a) EVERY decimal in the sentence
     appears in the span (a synthesis sentence must not invent or alter a number the cited source did
-    not state), AND (b) the sentence and the span share >= ``_MIN_CONTENT_OVERLAP`` content words. A
-    blank span never grounds. PURE. This is a CONSERVATIVE gate — it can only REFUSE to promote (drop
-    to the fail-closed audit tail); it never admits a sentence the judge rejected."""
+    not state — kept byte-identical), AND (b) the span ENTAILS the sentence at context level.
+
+    fix 6 (operator 2026-07-10): leg (b) was ``>= _MIN_CONTENT_OVERLAP`` shared content words — the
+    LEXICAL GHOST. With strict_verify's overlap leg killed (fix 1/7), a topically-thin but ENTAILED
+    synthesis paraphrase now PASSES the frozen engine, so a lexical-overlap floor HERE would veto every
+    such paraphrase the new verify keeps. Replace it with the SAME context-level entailment bar. The
+    judge is lazy + injectable (``entails_fn``); judge-unavailable DEGRADE => KEEP (label philosophy,
+    parity with synthesis_entailment_verify fix 5), never lexical-regress. A blank span never grounds."""
     if not span or not span.strip():
         return False
     core = _strip_markers(sentence)
     sent_nums = _decimals(core)
     if sent_nums and not sent_nums.issubset(_decimals(span)):
         return False
-    return len(_content_tokens(core) & _content_tokens(span)) >= _MIN_CONTENT_OVERLAP
+    from src.polaris_graph.synthesis.synthesis_entailment_verify import (  # noqa: PLC0415
+        _default_entails_fn,
+        _entails_or_degrade,
+    )
+    fn = entails_fn or _default_entails_fn
+    keep, _label = _entails_or_degrade(span, core, fn)   # premise=span, hypothesis=sentence
+    return keep
 
 
 def promote_grounded_enabled() -> bool:

@@ -394,26 +394,22 @@ def verify_sentence(
     Pass: returns (True, None).
     Fail: returns (False, drop_reason) with reason from DropReason literal.
 
-    Implements CLAUDE.md §9.1 invariant 3 in order:
+    Implements CLAUDE.md §9.1 invariant 3 in order (operator 2026-07-10 killed the lexical
+    overlap leg; faithfulness is now context-level entailment + strict numbers):
       1. at least one well-formed token        → no_provenance_token
       2. every token references known source_id → invalid_token
       3. spans within source bounds            → span_out_of_range
       4. every decimal in sentence in spans    → numeric_mismatch
-      5. >=N shared content words              → overlap_too_low
-      6. (I-bug-092) span entails sentence     → entailment_failed
-         (gated by PG_STRICT_VERIFY_ENTAILMENT, off by default)
+      5. (I-bug-092) span entails sentence     → entailment_failed  (default mode = enforce)
+
+    ``min_content_overlap`` is accepted for call-site compatibility but no longer gates the
+    verdict (the >=N content-word overlap leg was removed).
 
     If `is_synthesis_claim=True` AND the sentence has no tokens, return
     (True, None) — synthesis claims pass without provenance by definition
     (I-f5-006). If a synthesis claim DOES carry tokens, that's a generator
     bug; we still run token checks so the underlying invariant holds.
     """
-    threshold = (
-        min_content_overlap
-        if min_content_overlap is not None
-        else _min_overlap_threshold()
-    )
-
     tokens = extract_tokens(sentence_text)
     if not tokens:
         if is_synthesis_claim:
@@ -494,36 +490,29 @@ def verify_sentence(
                     ):
                         return False, "binding_qualifier_dropped"
 
-    # I-deepfix-001 L4 (#1344): FAIL-CLOSED on unsegmentable script content. A
-    # claim carrying a run of letters in a script we cannot segment
-    # (Thai/Lao/Khmer/Myanmar/Tibetan) yields no content tokens; rather than let
-    # it slip past the overlap floor on a coincidental decimal match, we drop it
-    # — we cannot establish lexical grounding and MUST NOT guess a pass (the
-    # lethal weakened-positive). CJK / Arabic / Cyrillic etc. tokenize correctly
-    # via _content_words and never reach here. Reverts byte-identical under
-    # PG_STRICT_VERIFY_SCRIPT_AWARE=0.
+    # fix 2 (operator 2026-07-10): unsegmentable-script content is LABELED, not fail-closed dropped.
+    # A claim carrying a run of letters in a script we cannot segment (Thai/Lao/Khmer/Myanmar/Tibetan)
+    # yields no content tokens; the numbers above are ALREADY strict-checked, and the operator killed
+    # the lexical-overlap fail-closed. So we KEEP-with-disclosed-label rather than silently dropping a
+    # number-grounded claim. CJK / Arabic / Cyrillic tokenize correctly via _content_words and never
+    # reach here. Reverts under PG_STRICT_VERIFY_SCRIPT_AWARE=0 (has_unsegmentable_content => False).
     if has_unsegmentable_content(sentence_clean):
-        return False, "unsegmentable_script"
+        return True, "unverified_unsegmentable_script"
 
-    # Content-word overlap
+    # fix 1 (operator 2026-07-10, OVERRIDES §9.1.3/§9.2): the >=2 content-word overlap leg — the
+    # LEXICAL GHOST — is REMOVED. Faithfulness is now CONTEXT-LEVEL: (a) provenance token resolves
+    # (above), (b) every number matches the cited span (above, byte-identical), (c) the span ENTAILS
+    # the sentence (the entailment judge below, in enforce). A topically-thin but ENTAILED paraphrase
+    # is no longer lexically vetoed. The truly-contentless sentence (no content words AND no decimals)
+    # still fails explicitly (a sentence with nothing to entail cannot be span-grounded).
     sentence_words = _content_words(sentence_clean)
-    span_words = _content_words(combined_span)
-    # BUG-03 (FX-02, #1106): a truly contentless sentence — NO content words AND no decimals —
-    # is dropped EXPLICITLY here (mirrors the provenance_generator floor). With the default
-    # threshold=2 it would already fail as overlap_too_low, but this fail-closes the
-    # PG_PROVENANCE_MIN_CONTENT_OVERLAP=0 edge (where overlap=0 is not < 0) and gives a precise
-    # reason. Faithfulness-TIGHTENING: any content word OR decimal routes to the numeric/overlap
-    # floors, so a real clinical sentence can never trip this.
     if not sentence_words and not sentence_decimals:
         return False, "empty_or_contentless_sentence"
-    overlap = len(sentence_words & span_words)
-    if overlap < threshold:
-        return False, "overlap_too_low"
 
-    # Check (f) — entailment judge (I-bug-092). Synthesis claims with no
-    # tokens already short-circuited above; if a synthesis claim DOES
-    # carry tokens it must clear the same content-correctness bar as
-    # any other cited sentence.
+    # Check (f) — entailment judge (I-bug-092) is now the SEMANTIC gate IN PLACE OF the overlap leg
+    # (default mode = enforce). Synthesis claims with no tokens already short-circuited above; if a
+    # synthesis claim DOES carry tokens it must clear the same context-level entailment bar as any
+    # other cited sentence.
     mode = _entailment_mode()
     if mode in ("warn", "enforce"):
         verdict, reason = _get_judge().judge(sentence_clean, combined_span)

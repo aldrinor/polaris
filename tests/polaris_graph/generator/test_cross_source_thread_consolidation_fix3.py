@@ -219,7 +219,10 @@ def test_caller_seam_builds_and_threads_map(monkeypatch, caplog):
     monkeypatch.delenv("PG_VERIFIED_COMPOSE_MULTICITED", raising=False)
     monkeypatch.delenv("PG_SUBTOPIC_ADDITIVE_FACTS", raising=False)
     monkeypatch.delenv("PG_QUALIFIER_ELABORATION", raising=False)
-    monkeypatch.delenv("PG_ABSTRACTIVE_WRITER", raising=False)
+    # Fix 2 (2026-07-10): PG_ABSTRACTIVE_WRITER / PG_SYNTH_PRIMARY now DEFAULT-ON; this offline test
+    # exercises the deterministic legacy body (no model), so pin BOTH flags OFF explicitly.
+    monkeypatch.setenv("PG_ABSTRACTIVE_WRITER", "0")
+    monkeypatch.setenv("PG_SYNTH_PRIMARY", "0")
     # The caller builds the map with NO entail_fn => it uses _default_entail_fn; stub that to both-True so
     # the section's corroborating pair agrees OFFLINE (no model load).
     monkeypatch.setattr(css, "_default_entail_fn", lambda: _both_true)
