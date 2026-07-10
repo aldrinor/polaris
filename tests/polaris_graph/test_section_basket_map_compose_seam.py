@@ -3,6 +3,9 @@
 Proves Design 4 acceptance 6 for the seam: PG_SECTION_BASKET_MAP OFF (or no map attached)
 => the legacy intersection runs byte-identically; ON with a precomputed map => the section's
 baskets come from the map's placement. No LLM, no network. Faithfulness engine untouched.
+
+2026-07-10 UNFREEZE Fable fix wave: Fix 6 (topical-only -> residual), Fix 9 (a corroborating
+view is NOT re-composed -- the basket composes once, in its primary home).
 """
 
 from __future__ import annotations
@@ -82,26 +85,68 @@ def test_seam_on_uses_precomputed_map(monkeypatch):
     assert [b.claim_cluster_id for b in out1] == ["cc_b"]
 
 
-def test_seam_on_recovers_a_stranded_basket(monkeypatch):
+def test_seam_reads_map_off_section_attribute(monkeypatch):
+    # Fix 10 wiring path: the map + index ride on the SectionPlan object (attributes), so
+    # the seam resolves them via getattr when the kwargs are not passed explicitly.
     monkeypatch.setenv("PG_SECTION_BASKET_MAP", "1")
     monkeypatch.delenv("PG_COMPOSE_OFFTOPIC_BASKET_SCREEN", raising=False)
-    # basket_c has a topical home (title word match) but NO member in any section's ev_ids:
-    # the legacy intersection strands it; the map gives it a primary home.
+    baskets, sections = _fixture()
+    ca = _analysis(baskets)
+    m = sbm.build_section_basket_map(baskets, sections)
+    sections[1]._section_basket_map = m
+    sections[1]._section_index = 1
+    out1 = vc._section_baskets_for_compose(sections[1], ca)
+    assert [b.claim_cluster_id for b in out1] == ["cc_b"]
+
+
+def test_seam_on_topical_only_routes_to_residual(monkeypatch):
+    monkeypatch.setenv("PG_SECTION_BASKET_MAP", "1")
+    monkeypatch.delenv("PG_COMPOSE_OFFTOPIC_BASKET_SCREEN", raising=False)
+    # basket_c has ONLY a topical title-word home ("zeta"/"Zeta") and NO member in any
+    # section's ev_ids. Fix 6: a topical-only match is NOT enough to home a real section while
+    # D4 NLI is inert -> it routes to the keep-all RESIDUAL (zero drops), NOT sec1.
     a = _basket("cc_a", ["e1"], claim="alpha")
     c = _basket("cc_c", ["e9"], claim="zeta signal")
     baskets = [a, c]
     sections = [_section("Alpha Section", ["e1"]), _section("Zeta Section", ["e2"])]
     ca = _analysis(baskets)
-    # Legacy section 1 strands cc_c (e9 not in e2).
-    legacy = vc._section_baskets_for_compose(sections[1], ca)
-    assert [b.claim_cluster_id for b in legacy] == []
-    # Map routes cc_c to section 1 by topical overlap ("zeta"/"Zeta").
     m = sbm.build_section_basket_map(baskets, sections)
     assert m.stranded_count == 0
-    mapped = vc._section_baskets_for_compose(
+    # cc_c did NOT home into real section 1 (topical-only, prov=0/subq=0).
+    mapped1 = vc._section_baskets_for_compose(
         sections[1], ca, section_basket_map=m, section_index=1
     )
-    assert "cc_c" in [b.claim_cluster_id for b in mapped]
+    assert "cc_c" not in [b.claim_cluster_id for b in mapped1]
+    # It lives in the residual home instead (kept-all, never dropped).
+    assert m.residual_section_index == len(sections)
+    assert m.primary_section_by_cluster["cc_c"] == m.residual_section_index
+    residual = vc._section_baskets_for_compose(
+        sections[0], ca, section_basket_map=m, section_index=m.residual_section_index
+    )
+    assert "cc_c" in [b.claim_cluster_id for b in residual]
+
+
+def test_seam_corroborating_view_not_recomposed(monkeypatch):
+    monkeypatch.setenv("PG_SECTION_BASKET_MAP", "1")
+    monkeypatch.delenv("PG_COMPOSE_OFFTOPIC_BASKET_SCREEN", raising=False)
+    # cc_x is provenance-grounded in BOTH sections (e1 in sec0, e2 in sec1). Its PRIMARY home is
+    # sec0 (the 'alpha' title word lifts sec0's weighted score); sec1 is a CORROBORATING facet.
+    x = _basket("cc_x", ["e1", "e2"], claim="alpha finding")
+    baskets = [x]
+    sections = [_section("Alpha Section", ["e1"]), _section("Beta Section", ["e2"])]
+    ca = _analysis(baskets)
+    m = sbm.build_section_basket_map(baskets, sections)
+    assert m.primary_section_by_cluster["cc_x"] == 0
+    out0 = vc._section_baskets_for_compose(
+        sections[0], ca, section_basket_map=m, section_index=0
+    )
+    assert [b.claim_cluster_id for b in out0] == ["cc_x"]
+    # Fix 9: the corroborating view in sec1 does NOT re-compose the full basket (avoids the
+    # repeated-composition leak) -- the basket composes once, in its primary home.
+    out1 = vc._section_baskets_for_compose(
+        sections[1], ca, section_basket_map=m, section_index=1
+    )
+    assert [b.claim_cluster_id for b in out1] == []
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -132,8 +132,11 @@ def test_unknown_mode_falls_back_to_enforce(monkeypatch):
         f"Adults with chronic pain showed clinical benefit from treatment [#ev:src-1:0-{len(full_text)}].",
         pool,
     )
-    assert passed is False, "unknown -> default-enforce drops on NEUTRAL"
-    assert reason == "entailment_failed"
+    # Fix 3 (2026-07-10 UNFREEZE): unknown -> default-enforce still RUNS the judge; a
+    # NEUTRAL verdict now KEEPS-with-label (labels-never-guts) rather than dropping. The
+    # invariant this pins is that an unknown mode falls back to enforce (judge invoked).
+    assert passed is True, "unknown -> default-enforce; NEUTRAL keeps with label"
+    assert reason == "entailment_neutral_unverified"
     assert len(fake.calls) == 1, "fall-back-to-enforce must invoke the judge"
 
 
@@ -165,10 +168,12 @@ def test_warn_mode_does_not_drop_on_neutral(monkeypatch, caplog):
 
 # ---------- Enforce mode — M2 fabricated mechanistic granularity ----------
 
-def test_enforce_mode_drops_m2_fabricated_granularity(monkeypatch):
+def test_enforce_mode_neutral_m2_keeps_with_label(monkeypatch):
     """M2 audit case: span says 'adipocyte metabolism', sentence adds
-    'pancreatic β-cells', 'lipid metabolism', 'energy storage' — strict_verify
-    checks (a)-(e) all pass, but the entailment judge must reject.
+    'pancreatic β-cells', 'lipid metabolism', 'energy storage'. Fix 3 (2026-07-10
+    UNFREEZE): a NEUTRAL verdict is UNVERIFIED (not verified-FALSE), so enforce mode
+    now KEEPS-with-disclosure-label instead of silently dropping (labels-never-guts).
+    A CONTRADICTED verdict still hard-drops (see test_enforce_mode_drops_on_contradicted).
     """
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     _install_fake_judge(monkeypatch, [("β-cells", "NEUTRAL")])
@@ -183,8 +188,8 @@ def test_enforce_mode_drops_m2_fabricated_granularity(monkeypatch):
         f"metabolism and energy storage [#ev:src-1:0-{len(full_text)}]."
     )
     passed, reason = verify_sentence(sentence, pool)
-    assert passed is False
-    assert reason == "entailment_failed"
+    assert passed is True
+    assert reason == "entailment_neutral_unverified"
 
 
 # ---------- Enforce mode — C2 specificity inflation ----------
@@ -206,8 +211,9 @@ def test_enforce_mode_drops_c2_specificity_inflation(monkeypatch):
         f"at the highest studied doses [#ev:src-1:0-{len(full_text)}]."
     )
     passed, reason = verify_sentence(sentence, pool)
-    assert passed is False
-    assert reason == "entailment_failed"
+    # Fix 3 (2026-07-10 UNFREEZE): NEUTRAL keeps-with-disclosure-label, not a silent drop.
+    assert passed is True
+    assert reason == "entailment_neutral_unverified"
 
 
 # ---------- Enforce mode — C1 numbers nearby but not entailed ----------
@@ -235,8 +241,13 @@ def test_enforce_mode_drops_c1_unentailed_numbers(monkeypatch):
         f"64% with semaglutide [#ev:src-1:0-{len(full_text)}]."
     )
     passed, reason = verify_sentence(sentence, pool)
+    # The sentence prints percents (80%, 6.5%, 64%) the span carries only as BARE numbers
+    # (no % / "percent"), so the percent-role gate (PG_PROVENANCE_PERCENT_ROLE_MATCH,
+    # default ON — unrelated to the 2026-07-10 unfreeze) rejects it BEFORE the judge. It
+    # is still dropped (the unentailed-numbers claim is rejected), just at the numeric
+    # percent-role gate rather than the NLI judge.
     assert passed is False
-    assert reason == "entailment_failed"
+    assert reason == "percent_not_in_cited_span"
 
 
 # ---------- Enforce mode — CONTRADICTED also drops ----------
@@ -299,8 +310,10 @@ def test_synthesis_claim_with_tokens_still_runs_entailment(monkeypatch):
     passed, reason = verify_sentence(
         sentence, pool, is_synthesis_claim=True
     )
-    assert passed is False
-    assert reason == "entailment_failed"
+    # The judge STILL runs for a synthesis-flagged claim carrying tokens (the exemption
+    # only short-circuits the no-token path). Fix 3: NEUTRAL keeps-with-label.
+    assert passed is True
+    assert reason == "entailment_neutral_unverified"
 
 
 def test_synthesis_claim_without_tokens_skips_entailment(monkeypatch):
@@ -336,9 +349,12 @@ def test_record_carries_entailment_failed_reason(monkeypatch):
         f"metabolism and energy storage [#ev:src-1:0-{len(full_text)}]."
     )
     record = verify_sentence_to_record(sentence, "sec_m", pool)
-    assert record.verifier_pass is False
-    assert record.drop_reason == "entailment_failed"
-    assert record.evaluator_agrees is False
+    # Fix 3 (2026-07-10 UNFREEZE): a NEUTRAL verdict is KEPT-with-disclosure-label — the
+    # caveat rides in kept_disclosure_label, verifier_pass=True, drop_reason=None.
+    assert record.verifier_pass is True
+    assert record.drop_reason is None
+    assert record.kept_disclosure_label == "entailment_neutral_unverified"
+    assert record.evaluator_agrees is True
 
 
 # ---------- Mode helper — env interpretation ----------
@@ -427,7 +443,11 @@ def test_numeric_mismatch_short_circuits_before_judge(monkeypatch):
     assert fake.calls == [], "judge must not run after a mechanical failure"
 
 
-def test_overlap_too_low_short_circuits_before_judge(monkeypatch):
+def test_no_overlap_gate_so_judge_now_runs(monkeypatch):
+    # Fix 1 (2026-07-10 UNFREEZE): the content-word-overlap gate that used to
+    # short-circuit BEFORE the judge is DELETED. A content-bearing sentence with zero
+    # lexical overlap now reaches the judge; with a NEUTRAL fake verdict (Fix 3) it is
+    # KEPT-with-label. The judge IS invoked (no lexical short-circuit anymore).
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     fake = _install_fake_judge(monkeypatch, [("", "NEUTRAL")])
     full_text = "Tomato basil mozzarella pizza dough recipe pasta"
@@ -436,9 +456,9 @@ def test_overlap_too_low_short_circuits_before_judge(monkeypatch):
         f"Adults with chronic pain experienced relief [#ev:src-1:0-{len(full_text)}].",
         pool,
     )
-    assert passed is False
-    assert reason == "overlap_too_low"
-    assert fake.calls == []
+    assert passed is True
+    assert reason == "entailment_neutral_unverified"
+    assert len(fake.calls) == 1, "no overlap short-circuit; the judge now runs"
 
 
 # ---------- I-ready-002 (#1071): judge_error fail-closed ----------

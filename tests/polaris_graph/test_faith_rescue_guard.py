@@ -132,6 +132,9 @@ def test_numeric_dropped_contract_sentence_is_not_rescued():
 # (2) Fix A — a content-overlap-dropped "not extractable" disclosure IS still
 #     rescue-eligible (the guard does NOT over-drop honest gap disclosures).
 # ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.skip(reason=(
+    "The writer-side no_content_word_overlap_any_cited_span drop this rescue guard targets was REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): with the content-word-overlap floor deleted the sentence is no longer dropped for that reason, so there is nothing to rescue. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_content_overlap_dropped_not_extractable_sentence_is_rescued():
     """The honest "not extractable" slot gap-disclosure drops for a NON-numeric
     (content-overlap) reason, so the REAL guard keeps it rescue-eligible."""
@@ -260,6 +263,9 @@ def _content_overlap_drop_setup() -> tuple[str, dict[str, dict[str, str]]]:
     return raw_draft, pool
 
 
+@pytest.mark.skip(reason=(
+    "The writer-side no_content_word_overlap_any_cited_span drop this rescue guard targets was REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): with the content-word-overlap floor deleted the sentence is no longer dropped for that reason, so there is nothing to rescue. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_fix_b_deterministic_stream_rescues_content_overlap_drop():
     """Deterministic stream (allow_rescue=True): the content-overlap-dropped
     contract sentence IS rescued — preserving the legitimate "not extractable"
@@ -295,6 +301,9 @@ def test_fix_b_deterministic_stream_rescues_content_overlap_drop():
     assert len(dropped) == 0
 
 
+@pytest.mark.skip(reason=(
+    "The writer-side no_content_word_overlap_any_cited_span drop this rescue guard targets was REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): with the content-word-overlap floor deleted the sentence is no longer dropped for that reason, so there is nothing to rescue. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_fix_b_narrative_stream_does_not_rescue_content_overlap_drop():
     """Narrative stream (allow_rescue=False): the IDENTICAL content-overlap-
     dropped contract sentence is NOT rescued — it stays dropped. This is the
@@ -491,6 +500,9 @@ def test_fix_c_narrative_stream_drops_entailment_fabrication_not_rescued(
 #     locks that a content-overlap-dropped regulatory-shaped sentence stays
 #     dropped, where the deterministic stream would rescue the identical input.
 # ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.skip(reason=(
+    "The writer-side no_content_word_overlap_any_cited_span drop this rescue guard targets was REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): with the content-word-overlap floor deleted the sentence is no longer dropped for that reason, so there is nothing to rescue. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_regulatory_stream_is_rescue_ineligible(monkeypatch):
     """The regulatory stream (allow_rescue=False) does NOT rescue a dropped
     contract sentence, mirroring the narrative stream — so an LLM-synthesized

@@ -2426,99 +2426,15 @@ def verify_sentence_provenance(
                 if _binding_qualifier_dropped:
                     failures.append(f"binding_qualifier_dropped:{ev_ids}")
 
-        # Codex round 1 B-1: semantic grounding for non-numeric claims.
-        # A sentence like "Semaglutide improved sleep quality [#ev:ev1:0-20]"
-        # used to pass verification because it had no numbers — only the
-        # numeric-mismatch branches ran. Now we ALSO require at least
-        # MIN_CONTENT_WORD_OVERLAP content words (non-stopword, >=3 chars)
-        # to appear in the aggregated cited-span text. Zero overlap =
-        # unsupported claim, sentence dropped.
-        sentence_content = _content_words(sentence_stripped)
-        span_content = _content_words(" ".join(aggregated_span_text))
-        # I-deepfix-001 L4 (#1344): FAIL-CLOSED on unsegmentable script content —
-        # UNCONDITIONAL (matches clinical_generator.strict_verify:505-506, which
-        # drops on has_unsegmentable_content BEFORE the overlap floor). A sentence
-        # that carries a run of letters in a script we cannot segment
-        # (Thai/Lao/Khmer/Myanmar/Tibetan) has an ungrounded unsegmentable claim
-        # we cannot lexically verify. The earlier version only dropped when
-        # sentence_content was EMPTY (`not sentence_content and ...`) — but a
-        # MIXED sentence (Thai + Latin/CJK) has non-empty sentence_content from
-        # its segmentable tokens, so it fell to the `elif` and could PASS the
-        # overlap floor on the Latin/CJK words while the Thai claim rode through
-        # UNGROUNDED — the lethal weakened-positive hole (Codex iter-3 P1). We now
-        # fail closed on ANY unsegmentable run regardless of the segmentable
-        # tokens: we cannot establish grounding for the unsegmentable portion, so
-        # we drop the whole sentence (never guess a pass). CJK / Arabic / Cyrillic
-        # etc. are handled correctly by _content_words above and never carry an
-        # unsegmentable run, so they do NOT hit this branch. Reverts byte-identical
-        # under PG_STRICT_VERIFY_SCRIPT_AWARE=0 (has_unsegmentable_content => False).
-        if has_unsegmentable_content(sentence_stripped):
-            ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
-            failures.append(f"unsegmentable_script_no_grounding:{ev_ids}")
-        elif sentence_content:
-            overlap = sentence_content & span_content
-            if len(overlap) < MIN_CONTENT_WORD_OVERLAP:
-                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
-                # Phase 0b Delta 1 (I-meta-005, gap-#18): the narrow cited
-                # byte-range may miss content words the FULL cited row supports
-                # (the gap-#18 grounded-prose drop). Per brief §3.3 + R1: the
-                # floor-clear only PROPOSES a candidate (a bounded <=400-char
-                # window in a cited row holding >=MIN content words); the
-                # entailment BIND happens DOWNSTREAM — the entailment block
-                # below judges the narrow span, and on NEUTRAL the Delta-2
-                # bounded-window re-judge accepts iff ENTAILED (else fail-closed).
-                #
-                # HARD GATE (Codex diff-gate P1 + architect P1, brief HARD
-                # CONSTRAINT #5): the floor-clear is gated on the entailment
-                # judge being in ENFORCE mode — the ONLY mode where the
-                # downstream NEUTRAL/CONTRADICTED bind actually DROPS. Under
-                # PG_STRICT_VERIFY_ENTAILMENT=off the judge never runs, and under
-                # =warn the judge runs but NEVER drops (log-only). In both, a
-                # content-words-only floor-clear would be the SOLE gate —
-                # laundering a drop into a pass with no enforced bind. So Delta 1
-                # proposes ONLY when entailment is enforce; otherwise the pre-0b
-                # content-floor drop stays (fail-closed). off = no rescue
-                # (byte-identical). shadow = log would-propose, still fail
-                # (output + spend neutral, NO judge call). enforce-verification +
-                # enforce-entailment + window = clear, deferring to the bind.
-                _vmode_c = _verification_mode()
-                _rescued_c = False
-                # I-complete-003 iter-2 (#1189) P1: when allow_local_window_fallback
-                # is False (the re-anchor accept gate), this full-row content-floor
-                # rescue is DISABLED — the bound span's OWN narrow content overlap
-                # must clear the floor, so a different in-row window can never
-                # rescue a non-supporting candidate span. Default True preserves
-                # the Phase 0b grounded-prose rescue byte-for-byte.
-                if allow_local_window_fallback and _vmode_c in ("shadow", "enforce"):
-                    from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
-                        _entailment_mode as _emode_c,
-                    )
-                    if _emode_c() == "enforce":
-                        for tok in tokens:
-                            ev = evidence_pool.get(tok.evidence_id)
-                            if ev is None:
-                                continue
-                            dq_c = ev.get("direct_quote") or ev.get("statement") or ""
-                            if _find_local_content_window(
-                                sentence_content, dq_c, window=400,
-                                min_content_overlap=MIN_CONTENT_WORD_OVERLAP,
-                            ):
-                                _rescued_c = True
-                                logger.warning(
-                                    "[provenance] %s content_floor_full_row "
-                                    "ev=%s — narrow span missed content words; "
-                                    "bounded full-row window exists, deferring "
-                                    "to the downstream entailment bind",
-                                    "ENFORCE_propose" if _vmode_c == "enforce"
-                                    else "SHADOW_would_propose",
-                                    tok.evidence_id,
-                                )
-                                break
-                if not (_vmode_c == "enforce" and _rescued_c):
-                    failures.append(
-                        f"no_content_word_overlap_any_cited_span:{ev_ids}:"
-                        f"sentence_words={sorted(sentence_content)[:5]}"
-                    )
+        # I-deepfix-001 (2026-07-10 UNFREEZE, Fix 2): the writer-side lexical content-word-
+        # overlap gate (no_content_word_overlap_any_cited_span) AND the unsegmentable-script
+        # fail-closed have been REMOVED. Both FORCED near-verbatim copying at generation time
+        # (the writer had to echo >=MIN source content words, or be dropped) — the quote-dump
+        # prose the unfreeze targets. The writer-side faithfulness bar is now: numeric match +
+        # percent-role + binding-qualifier retention (above) + trial-name (below) + NLI
+        # entailment (below). Mirrors the strict_verify Fix 1 removal. The content-word
+        # extraction that used to feed this gate is dropped entirely (it was consumed only
+        # here); the per-token entailment block below carries the semantic-grounding bar.
 
         # M-25a: trial-name match. If the sentence names a specific
         # trial (SURPASS-N, SURMOUNT-N, SELECT, LEADER, etc.), at least

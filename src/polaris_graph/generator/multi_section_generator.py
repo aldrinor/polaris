@@ -9763,6 +9763,62 @@ async def generate_multi_section_report(
             plans, credibility_analysis, section_plan_cls=SectionPlan,
         )
 
+    # I-arch-s5-001 Fix 10/11 (2026-07-10 UNFREEZE): WIRE the deterministic basket->section map.
+    # Winners-built-but-default-OFF was the loop root: nothing in production passed the map into
+    # _section_baskets_for_compose, so enabling PG_SECTION_BASKET_MAP did nothing. Build it AFTER
+    # every plan mutation, append the keep-all RESIDUAL section (Fix 11 — else the map's residual
+    # baskets, ~36% of the corpus, would silently never render), and ATTACH the map + each
+    # section's index onto the SectionPlan objects so the seam consumes them via getattr. Guarded
+    # by PG_SECTION_BASKET_MAP (default OFF) => plans untouched + byte-identical legacy compose.
+    if credibility_analysis is not None:
+        try:
+            from src.polaris_graph.synthesis.section_basket_map import (  # noqa: PLC0415
+                section_basket_map_enabled as _sbm_enabled,
+                build_section_basket_map as _build_sbm,
+            )
+            if _sbm_enabled():
+                _sbm_baskets = list(getattr(credibility_analysis, "baskets", None) or [])
+                if _sbm_baskets:
+                    _sbm_map = _build_sbm(_sbm_baskets, plans, evidence_pool=evidence_pool)
+                    _resid_idx = _sbm_map.residual_section_index
+                    # Fix 11: append the residual SectionPlan so views_by_section[residual]
+                    # composes (its ev_ids = the union of the residual baskets' facets, so
+                    # _run_section builds a real ev_subset for it). residual_index was computed
+                    # as len(plans) BEFORE this append, i.e. the index it now occupies.
+                    if _resid_idx is not None and _resid_idx == len(plans):
+                        _resid_ev: list[str] = []
+                        _seen_resid_ev: set[str] = set()
+                        for _rv in _sbm_map.views_by_section.get(_resid_idx, []) or []:
+                            for _re in getattr(_rv, "section_member_ev_ids", None) or []:
+                                _re_s = str(_re)
+                                if _re_s and _re_s not in _seen_resid_ev:
+                                    _seen_resid_ev.add(_re_s)
+                                    _resid_ev.append(_re_s)
+                        plans.append(SectionPlan(
+                            title=_sbm_map.residual_title or "Additional Corroborated Findings",
+                            focus="Corroborated findings that did not bind to a primary outline section.",
+                            ev_ids=_resid_ev,
+                        ))
+                    # Attach the map + a stable section index onto each plan object (SectionPlan
+                    # is a plain dataclass, so arbitrary attributes are permitted). The index is
+                    # bound to the OBJECT, so downstream reordering never desyncs it.
+                    for _p_idx, _p_obj in enumerate(plans):
+                        try:
+                            _p_obj._section_index = _p_idx
+                            _p_obj._section_basket_map = _sbm_map
+                        except Exception:  # noqa: BLE001
+                            pass
+                    logger.info(
+                        "[multi_section] I-arch-s5-001 section_basket_map WIRED: baskets=%d "
+                        "sections=%d residual_index=%s stranded=%d signals=%s",
+                        len(_sbm_baskets), len(plans), _resid_idx,
+                        _sbm_map.stranded_count, _sbm_map.stats.get("signals_available"),
+                    )
+        except Exception as _sbm_wire_exc:  # noqa: BLE001 — additive wiring; never break generation
+            logger.warning(
+                "[multi_section] section_basket_map wiring skipped (fail-open): %r", _sbm_wire_exc
+            )
+
     # Stage 2: per-section generation (bounded parallelism)
     # fix#19 (#1262), SPEED / faithfulness-NEUTRAL: the 4-7 sections are ALREADY
     # generated concurrently (the _gather_sections_isolated asyncio.gather below) but

@@ -128,6 +128,9 @@ def test_provenance_grounded_cjk_verifies_recall_restored(monkeypatch):
     assert result.is_verified is True, result.failure_reasons
 
 
+@pytest.mark.skip(reason=(
+    "L4 lexical/unsegmentable grounding gate REMOVED per 2026-07-10 UNFREEZE (fixes 1+2, GH I-arch-s5-001): the content-word-overlap floor + the unsegmentable-script fail-closed no longer gate strict_verify / verify_sentence_provenance. The NLI entailment judge is now the sole multilingual grounding bar and requires the live judge (VM hamster surface, not offline)."
+))
 def test_provenance_fabricated_cjk_dropped_hole_closed(monkeypatch):
     """RED->GREEN: a fabricated Chinese claim sharing only the printed number 7.0
     with its cited span. Pre-L4 (aware=0) it VERIFIES — the empty Latin content
@@ -152,6 +155,9 @@ def test_provenance_fabricated_cjk_dropped_hole_closed(monkeypatch):
     )
 
 
+@pytest.mark.skip(reason=(
+    "L4 lexical/unsegmentable grounding gate REMOVED per 2026-07-10 UNFREEZE (fixes 1+2, GH I-arch-s5-001): the content-word-overlap floor + the unsegmentable-script fail-closed no longer gate strict_verify / verify_sentence_provenance. The NLI entailment judge is now the sole multilingual grounding bar and requires the live judge (VM hamster surface, not offline)."
+))
 def test_provenance_unsegmentable_thai_fails_closed(monkeypatch):
     """RED->GREEN: a Thai claim whose only cross-script match is the number 7.0.
     Thai has no word spaces and no bigram convention we trust, so pre-L4 it rode
@@ -172,6 +178,9 @@ def test_provenance_unsegmentable_thai_fails_closed(monkeypatch):
     ), green.failure_reasons
 
 
+@pytest.mark.skip(reason=(
+    "L4 lexical/unsegmentable grounding gate REMOVED per 2026-07-10 UNFREEZE (fixes 1+2, GH I-arch-s5-001): the content-word-overlap floor + the unsegmentable-script fail-closed no longer gate strict_verify / verify_sentence_provenance. The NLI entailment judge is now the sole multilingual grounding bar and requires the live judge (VM hamster surface, not offline)."
+))
 def test_provenance_mixed_thai_latin_fails_closed(monkeypatch):
     """RED->GREEN (Codex iter-3 P1): a MIXED sentence — grounded Latin content PLUS
     an ungrounded unsegmentable Thai run — must FAIL CLOSED.
@@ -270,6 +279,9 @@ def test_clinical_grounded_cjk_passes(monkeypatch):
     assert passed is True, reason
 
 
+@pytest.mark.skip(reason=(
+    "L4 lexical/unsegmentable grounding gate REMOVED per 2026-07-10 UNFREEZE (fixes 1+2, GH I-arch-s5-001): the content-word-overlap floor + the unsegmentable-script fail-closed no longer gate strict_verify / verify_sentence_provenance. The NLI entailment judge is now the sole multilingual grounding bar and requires the live judge (VM hamster surface, not offline)."
+))
 def test_clinical_fabricated_cjk_overlap_too_low(monkeypatch):
     """RED->GREEN: pre-L4 the fabricated CJK claim mis-counts zero content words
     and, with a matching decimal, slips to overlap_too_low only by accident; the
@@ -293,6 +305,9 @@ def test_clinical_arabic_grounded_passes(monkeypatch):
     assert passed is True, reason
 
 
+@pytest.mark.skip(reason=(
+    "L4 lexical/unsegmentable grounding gate REMOVED per 2026-07-10 UNFREEZE (fixes 1+2, GH I-arch-s5-001): the content-word-overlap floor + the unsegmentable-script fail-closed no longer gate strict_verify / verify_sentence_provenance. The NLI entailment judge is now the sole multilingual grounding bar and requires the live judge (VM hamster surface, not offline)."
+))
 def test_clinical_unsegmentable_thai_fails_closed(monkeypatch):
     """RED->GREEN: a Thai claim carrying a matching decimal. Pre-L4 (aware=0) the
     decimal passes and the empty content set falls to overlap_too_low ONLY if the
@@ -306,6 +321,9 @@ def test_clinical_unsegmentable_thai_fails_closed(monkeypatch):
     assert reason == "unsegmentable_script", reason
 
 
+@pytest.mark.skip(reason=(
+    "L4 lexical/unsegmentable grounding gate REMOVED per 2026-07-10 UNFREEZE (fixes 1+2, GH I-arch-s5-001): the content-word-overlap floor + the unsegmentable-script fail-closed no longer gate strict_verify / verify_sentence_provenance. The NLI entailment judge is now the sole multilingual grounding bar and requires the live judge (VM hamster surface, not offline)."
+))
 def test_clinical_mixed_thai_latin_fails_closed(monkeypatch):
     """Parity with the provenance mixed-script fix (Codex iter-3 P1): a MIXED
     Thai+Latin sentence whose Latin content is grounded must ALSO fail closed here.

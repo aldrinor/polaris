@@ -11,11 +11,16 @@ This module GROUPS every global basket UNDER the outline sections: one designate
 PRIMARY home per basket plus any number of CORROBORATING memberships. The basket
 KEEPS its GLOBAL identity (``claim_cluster_id`` never forks; corroboration counted
 once) -- the map is pure PLACEMENT + ROLE tagging. It drops nothing, caps nothing,
-targets no number (CLAUDE.md §-1.3 WEIGHT-and-CONSOLIDATE). The faithfulness engine
-(strict_verify / NLI / 4-role D8 / provenance / span-grounding) is never touched: the
-map only decides WHICH baskets a section's writer is submitted and in what role -- the
-same class of decision the intersection bridge already makes today, made complete and
-deterministic.
+targets no number (CLAUDE.md §-1.3 WEIGHT-and-CONSOLIDATE).
+
+This module makes NO faithfulness decision itself (placement + role tagging only). The
+faithfulness engine (strict_verify / NLI / 4-role D8 / provenance / span-grounding) is
+UNFROZEN as of 2026-07-10 and is tuned elsewhere; this module neither enforces nor
+relaxes it. The map only decides WHICH baskets a section's writer is submitted and in
+what role -- the same class of decision the intersection bridge already makes today,
+made complete and deterministic. (Pre-2026-07-10 this docstring called the engine
+"never touched / untouchable"; that framing is retired with the UNFREEZE -- the engine
+is simply not this module's concern.)
 
 Provenance-token neutrality (operator 2026-07-10, per-sentence SOURCE-TIE): this module
 never reads or mutates sentence text or the ``[#ev:<id>:<start>-<end>]`` provenance
@@ -32,11 +37,15 @@ legacy intersection path is byte-identical).
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ── Env knobs (LAW VI; read at call time; defaults reproduce today's absence-of-map) ─────────────
 _MASTER_ENV = "PG_SECTION_BASKET_MAP"                 # D1 build + D2 consume master switch
@@ -175,6 +184,54 @@ def _head_claim(basket: Any) -> str:
     return txt[:_HEAD_CLAIM_CHARS]
 
 
+def _synth_cid(basket: Any) -> str:
+    """Fix 12: a DETERMINISTIC synthesized cluster id for a basket that arrives with an
+    empty ``claim_cluster_id``. Hashes the basket's member ev_ids (sorted) + its head
+    claim so the SAME cid-less basket always maps to the SAME id across builds -- never a
+    silent DROP (§-1.3 consolidate-keep-all), never a wall-clock/order dependence."""
+    member_ids = _basket_member_ev_ids(basket)
+    claim = str(_get(basket, "claim_text", "") or _get(basket, "subject", "") or "")
+    seed = "|".join(sorted(member_ids)) + "||" + claim
+    return "synthcid_" + hashlib.blake2b(seed.encode("utf-8"), digest_size=8).hexdigest()
+
+
+def _stable_tiebreak(cid: str, idx: int) -> str:
+    """Fix 14: a NEUTRAL deterministic tie-break key (stable hash of cid+section idx).
+    Replaces the old ``(-weighted, i)`` key whose second element was the LOWEST section
+    index -- a systematic bias toward section 0 (e.g. 'Positive Views' first on a
+    controversy question). blake2b is process-independent (unlike salted ``hash()``)."""
+    return hashlib.blake2b(f"{cid}::{idx}".encode("utf-8"), digest_size=8).hexdigest()
+
+
+def _nli_confirm_placement(
+    nli_placement_judge: Any,
+    basket: Any,
+    candidates: dict[int, dict[str, int]],
+    section_plans: list,
+) -> int | None:
+    """Fix 6 seam: when a LIVE NLI/topic judge is supplied, ask it to CONFIRM a
+    real-section home for a basket that has ONLY topical candidates (prov=0 AND subq=0).
+
+    FAIL-OPEN by contract: any exception, a missing judge, or an unconfirmed verdict
+    returns ``None`` so the basket routes to the keep-all residual -- the judge can only
+    PROMOTE a topical-only basket into a real section, NEVER force one, NEVER drop one.
+    The judge is any callable ``judge(claim_text, section_title) -> truthy``.
+    """
+    if nli_placement_judge is None:
+        return None
+    try:
+        claim = str(_get(basket, "claim_text", "") or _get(basket, "subject", "") or "")
+        if not claim:
+            return None
+        for idx in sorted(candidates):
+            title = str(_get(section_plans[idx], "title", "") or "")
+            if nli_placement_judge(claim, title):
+                return idx
+    except Exception:  # noqa: BLE001 — fail-open to residual (never force a real-section home)
+        return None
+    return None
+
+
 def _section_ev_ids(plan: Any) -> set[str]:
     return {str(x) for x in (_get(plan, "ev_ids", None) or []) if x}
 
@@ -249,6 +306,16 @@ class SectionBasketView:
             "match_signals": dict(self.match_signals),
         }
 
+    @classmethod
+    def from_json_dict(cls, d: dict) -> "SectionBasketView":
+        """Fix 8: rebuild a view from its JSON form (resume/harness load)."""
+        return cls(
+            claim_cluster_id=str(d.get("claim_cluster_id", "") or ""),
+            role=str(d.get("role", "primary") or "primary"),
+            section_member_ev_ids=list(d.get("section_member_ev_ids", []) or []),
+            match_signals=dict(d.get("match_signals", {}) or {}),
+        )
+
 
 @dataclass
 class SectionBasketMap:
@@ -260,24 +327,68 @@ class SectionBasketMap:
     residual_title: str | None
     stranded_count: int
     assignment_table: list[dict] = field(default_factory=list)
+    # Fix 7/17: which signals were actually LIVE this build + honest placement counts,
+    # so a dead signal (e.g. sub-query lineage) is DISCLOSED, never silent.
+    stats: dict = field(default_factory=dict)
 
     def to_json_dict(self) -> dict:
         return {
             "views_by_section": {
                 str(idx): [v.to_json_dict() for v in views]
-                for idx, views in sorted(self.views_by_section.items())
+                for idx, views in sorted(self.views_by_section.items(), key=lambda kv: str(kv[0]))
             },
             "primary_section_by_cluster": dict(sorted(self.primary_section_by_cluster.items())),
             "residual_section_index": self.residual_section_index,
             "residual_title": self.residual_title,
             "stranded_count": self.stranded_count,
             "assignment_table": list(self.assignment_table),
+            "stats": dict(self.stats),
         }
+
+    @classmethod
+    def from_json_dict(cls, d: dict) -> "SectionBasketMap":
+        """Fix 8: RESUME loader. Restores INT section keys + ``SectionBasketView`` objects
+        from the cp5-JSON serialization (which carries STRING keys + plain dicts). Without
+        this, a JSON-loaded map yields str keys + dict views and the compose seam finds
+        ZERO baskets for every section SILENTLY."""
+        raw_views = d.get("views_by_section", {}) or {}
+        views_by_section: dict[int, list[SectionBasketView]] = {}
+        for k, vlist in raw_views.items():
+            try:
+                ik: Any = int(k)
+            except (TypeError, ValueError):
+                ik = k  # tolerate a non-int key rather than drop the whole section
+            views_by_section[ik] = [
+                SectionBasketView.from_json_dict(v) for v in (vlist or [])
+            ]
+        prim_raw = d.get("primary_section_by_cluster", {}) or {}
+        primary_section_by_cluster: dict[str, int] = {}
+        for cid, sidx in prim_raw.items():
+            try:
+                primary_section_by_cluster[str(cid)] = int(sidx)
+            except (TypeError, ValueError):
+                primary_section_by_cluster[str(cid)] = sidx
+        return cls(
+            views_by_section=views_by_section,
+            primary_section_by_cluster=primary_section_by_cluster,
+            residual_section_index=d.get("residual_section_index"),
+            residual_title=d.get("residual_title"),
+            stranded_count=int(d.get("stranded_count", 0) or 0),
+            assignment_table=list(d.get("assignment_table", []) or []),
+            stats=dict(d.get("stats", {}) or {}),
+        )
 
 
 def dumps_map(m: SectionBasketMap) -> str:
     """Deterministic JSON bytes (sorted keys) — the checkpoint/harness serialization."""
     return json.dumps(m.to_json_dict(), sort_keys=True, ensure_ascii=False, indent=2)
+
+
+def load_map(payload: dict | str) -> SectionBasketMap:
+    """Fix 8: parse a serialized map (dict or JSON string) back to a live object."""
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    return SectionBasketMap.from_json_dict(payload)
 
 
 # ── The build (deterministic, three signals, §-1.3 weight-not-filter) ───────────────────────────
@@ -289,11 +400,22 @@ def build_section_basket_map(
     evidence_pool: Any = None,
     sub_queries: list | None = None,
     weights: dict[str, int] | None = None,
+    nli_placement_judge: Any = None,
 ) -> SectionBasketMap:
     """Group every basket under the outline sections with primary/corroborating roles.
 
-    Deterministic and pure. Nothing is dropped: a basket with no candidate section goes
-    primary into ONE appended residual section, so ``stranded_count`` is structurally 0.
+    Deterministic and pure. Nothing is dropped: a basket with no GROUNDED candidate
+    section goes primary into ONE appended residual section, so ``stranded_count`` is
+    structurally 0 (Fix 12/13: a cid-less basket gets a synthesized deterministic cid and
+    is placed + counted like any other).
+
+    Fix 6 (2026-07-10): a real-section PRIMARY requires a GROUNDED signal -- a shared
+    provenance ev_id OR a shared sub-query origin. A topical-only match (one generic
+    shared word, prov=0 AND subq=0) is NOT sufficient to home a basket into a real
+    controversy section while the D4 NLI refine is inert (measured: 86% of real-section
+    primaries had provenance=0 and an EMPTY facet). Such baskets route to the keep-all
+    residual (zero drops, §-1.3). When ``nli_placement_judge`` is supplied it MAY confirm
+    a real-section home; it FAILS OPEN to residual and never forces a real-section home.
     """
     w = weights or resolve_weights()
     topical_min = _topical_min()
@@ -312,20 +434,36 @@ def build_section_basket_map(
     sec_words = [_content_words(f"{_get(p, 'title', '') or ''} {_get(p, 'focus', '') or ''}")
                  for p in section_plans]
 
+    # Fix 7/17: DISCLOSE which signals were actually live this build. The sub-query signal
+    # is DEAD unless cp4 plans carry sub_query_indices AND the caller threaded both an
+    # evidence_pool and sub_queries -- surface that, never let a dead signal stay silent.
+    any_plan_subq = any(bool(s) for s in sec_subq)
+    signals_available = {
+        "provenance": True,  # always computable (member ev_ids ∩ section ev_ids)
+        "subquery": bool(subquery_to_index) and bool(pool) and any_plan_subq,
+        "topical": True,
+    }
+
     views_by_section: dict[int, list[SectionBasketView]] = {}
     primary_section_by_cluster: dict[str, int] = {}
     assignment_table: list[dict] = []
     residual_index: int | None = None
+    topical_only_to_residual = 0
+    synthesized_cids = 0
 
     for basket in baskets:
         cid = _cluster_id(basket)
         if not cid:
-            continue
+            # Fix 12: never silently DROP a cid-less basket (§-1.3 consolidate-keep-all).
+            # Synthesize a DETERMINISTIC cid so it is placed + counted like any other.
+            cid = _synth_cid(basket)
+            synthesized_cids += 1
         member_ids = set(_basket_member_ev_ids(basket))
         b_words = _basket_words(basket)
         member_subq = {ev: _member_subquery_index(ev, pool, subquery_to_index) for ev in member_ids}
 
         candidates: dict[int, dict[str, int]] = {}
+        grounded: list[int] = []
         for idx in range(n_sections):
             prov = len(member_ids & sec_ev_ids[idx])
             plan_subq = sec_subq[idx]
@@ -333,22 +471,34 @@ def build_section_basket_map(
             top = len(b_words & sec_words[idx])
             if prov > 0 or subq > 0 or top >= topical_min:
                 candidates[idx] = {"provenance": prov, "subquery": subq, "topical": top}
+                if prov > 0 or subq > 0:
+                    grounded.append(idx)
 
-        if candidates:
-            # Primary = highest weighted score; keep-first tie -> LOWEST section index.
-            def _score(i: int) -> tuple[int, int]:
+        # Fix 6: a real-section PRIMARY must be GROUNDED (prov>0 OR subq>0). A topical-only
+        # candidate cannot home a real section while D4 NLI is inert -> route to residual.
+        placement = grounded
+        if not placement and candidates and nli_placement_judge is not None:
+            confirmed = _nli_confirm_placement(nli_placement_judge, basket, candidates, section_plans)
+            if confirmed is not None:
+                placement = [confirmed]
+
+        if placement:
+            def _score(i: int, _cid: str = cid) -> tuple[int, str]:
                 s = candidates[i]
                 weighted = (
                     w["provenance"] * s["provenance"]
                     + w["subquery"] * s["subquery"]
                     + w["topical"] * s["topical"]
                 )
-                return (-weighted, i)
+                # Fix 14: neutral deterministic tie-break, NOT the lowest section index.
+                return (-weighted, _stable_tiebreak(_cid, i))
 
-            primary_idx = min(candidates, key=_score)
+            primary_idx = min(placement, key=_score)
             corroborating = sorted(i for i in candidates if i != primary_idx)
         else:
-            # No candidate section: keep-all residual home (Design 4 D1 step 4).
+            # No GROUNDED candidate (topical-only or none): keep-all residual home.
+            if candidates:
+                topical_only_to_residual += 1
             if residual_index is None:
                 residual_index = n_sections
             primary_idx = residual_index
@@ -394,15 +544,43 @@ def build_section_basket_map(
             }
         )
 
-    # Determinism: sort views within each section by cluster id, then role
-    # (primary before corroborating) so byte output is input-order-independent.
+    # Determinism: sort views within each section by cluster id, then role. Fix 16: sort
+    # PRIMARY before CORROBORATING by an explicit role RANK (0 before 1) -- lexically
+    # 'corroborating' < 'primary' would otherwise put corroborating first.
     for idx in views_by_section:
-        views_by_section[idx].sort(key=lambda v: (v.claim_cluster_id, v.role))
+        views_by_section[idx].sort(
+            key=lambda v: (v.claim_cluster_id, 0 if v.role == "primary" else 1)
+        )
     assignment_table.sort(key=lambda r: r["claim_cluster_id"])
 
-    stranded = len(
-        [b for b in baskets if _cluster_id(b) and _cluster_id(b) not in primary_section_by_cluster]
-    )
+    # Fix 13: HONEST stranded count. Compare EVERY input basket (including cid-less rows,
+    # via their synthesized cid) against the placed set -- NOT the self-referential
+    # ``primary_section_by_cluster`` the loop just filled (which excluded cid-less rows).
+    placed = set(primary_section_by_cluster)
+    stranded = 0
+    for b in baskets:
+        bcid = _cluster_id(b) or _synth_cid(b)
+        if bcid not in placed:
+            stranded += 1
+
+    stats = {
+        "signals_available": signals_available,
+        "n_baskets_in": len(baskets),
+        "n_placed": len(primary_section_by_cluster),
+        "synthesized_cids": synthesized_cids,
+        "topical_only_to_residual": topical_only_to_residual,
+        "residual_used": residual_index is not None,
+        "stranded_count": stranded,
+    }
+    # Fix 17: FAIL-LOUD envelope invariant. stranded MUST be 0 by construction (every
+    # basket, incl. cid-less, is placed). If it is not, a basket lost its home -- surface
+    # it LOUDLY (never a silent stranded_count==0-on-paper while baskets vanish).
+    if stranded != 0:
+        logger.error(
+            "[section_basket_map] INVARIANT VIOLATION: stranded_count=%d (expected 0) — "
+            "%d input baskets, %d placed. A basket lost its home; this is a bug.",
+            stranded, len(baskets), len(primary_section_by_cluster),
+        )
 
     return SectionBasketMap(
         views_by_section=views_by_section,
@@ -411,4 +589,5 @@ def build_section_basket_map(
         residual_title=_residual_title() if residual_index is not None else None,
         stranded_count=stranded,
         assignment_table=assignment_table,
+        stats=stats,
     )

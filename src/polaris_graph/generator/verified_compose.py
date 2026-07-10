@@ -1773,6 +1773,15 @@ def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str,
     selection) for the verbatim span text + the same render-chrome fallback screen. When no K-span
     resolves, falls to the honest gap disclosure (also as its own ``\\n\\n`` paragraph when a body
     exists). Failed AUTHORED sentences are already discarded by the caller (never in ``body``)."""
+    if _no_raw_span_fallback_enabled():
+        # Fix 4 (2026-07-10 UNFREEZE): no verbatim K-span disclosure. On exhaustion emit a
+        # LABELED unverified-synthesis line (basket claim, not a raw span) as its own
+        # paragraph; ship real authored body when one survived.
+        _body = (body or "").strip()
+        labeled = _unverified_synthesis_disclosure(basket)
+        if _body:
+            return f"{_body}\n\n{labeled}" if labeled.startswith(_UNVERIFIED_SYNTH_PREFIX) else _body
+        return labeled
     fallback = (
         build_verified_span_draft_multi(basket, evidence_pool, research_question=research_question)
         if _subtopic_decomposition_enabled()
@@ -1801,6 +1810,34 @@ def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str,
     if body:
         return body
     return _no_verified_span_disclosure(basket)
+
+
+_NO_RAW_SPAN_FALLBACK_ENV = "PG_COMPOSE_NO_RAW_SPAN_FALLBACK"
+_UNVERIFIED_SYNTH_PREFIX = "[unverified synthesis — abstractive re-write exhausted]"
+
+
+def _no_raw_span_fallback_enabled() -> bool:
+    """2026-07-10 UNFREEZE (Fix 4), default-ON. When ON, the compose FAILURE path never dumps
+    a raw source span as body prose: after the bounded abstractive re-write exhausts, it emits
+    a LABELED unverified-synthesis line (the basket's own claim + label), never the verbatim
+    K-span. Kill-switch ``PG_COMPOSE_NO_RAW_SPAN_FALLBACK=0`` restores the legacy verbatim-span
+    fallback byte-identical for emergency rollback. Read at call time (LAW VI)."""
+    return os.getenv(_NO_RAW_SPAN_FALLBACK_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _unverified_synthesis_disclosure(basket: Any) -> str:
+    """Fix 4 (2026-07-10 UNFREEZE): the LABELED unverified-synthesis line emitted when the
+    bounded abstractive re-write exhausts — the basket's own consolidated CLAIM (NOT a raw
+    source span) wrapped in an explicit unverified label. This is NOT a faithfulness claim
+    (the label discloses it); it replaces the raw span-dump the unfreeze targets. It is a pure
+    disclosure unit (``[``-prefixed) so it is held aside from strict_verify like the other
+    disclosure lines. Falls to the honest no-verified-span gap when the basket carries no
+    claim text (never empty)."""
+    claim = str(getattr(basket, "claim_text", "") or getattr(basket, "subject", "") or "").strip()
+    claim = _EV_TOKEN_RE.sub("", claim).strip()
+    if not claim:
+        return _no_verified_span_disclosure(basket)
+    return f"{_UNVERIFIED_SYNTH_PREFIX} {claim}"
 
 
 def _emit_synth_primary_marker(kept: list) -> None:
@@ -1945,33 +1982,26 @@ def _compose_one_basket(
             break
     if kept and not fell_back:
         return " ".join(kept)
-    # prose failed (or produced nothing): basket-id-bound verbatim fallback, else honest disclosure.
-    # L2 sub-topic decomposition (I-deepfix-001 #1344): emit ONE verified verbatim-span sentence per
-    # DISTINCT atomic fact the basket grounds (deduped, keep-all consolidation) instead of the first
-    # member's single span. Covers BOTH the abstractive (paid) and deterministic paths — any writer
-    # sentence that fails the per-basket verify falls here. Faithfulness-neutral (each unit re-passes
-    # strict_verify trivially — it IS a verbatim span). OFF => build_verified_span_draft (byte-identical).
+    # prose failed (or produced nothing). Fix 4 (2026-07-10 UNFREEZE): the failure path no
+    # longer DUMPS a raw source span as body prose. When PG_COMPOSE_NO_RAW_SPAN_FALLBACK is
+    # ON (default), emit a LABELED unverified-synthesis line (the basket's own claim, NOT a
+    # verbatim span) so the report never quote-dumps; kept verified prose is preserved.
+    if _no_raw_span_fallback_enabled():
+        disclosure = _unverified_synthesis_disclosure(basket)
+        return " ".join(kept + [disclosure]) if kept else disclosure
+    # Legacy verbatim-span fallback (kill-switch PG_COMPOSE_NO_RAW_SPAN_FALLBACK=0): the
+    # basket-id-bound verbatim K-span, else honest disclosure. L2 sub-topic decomposition
+    # (I-deepfix-001 #1344): one verified verbatim-span sentence per DISTINCT atomic fact.
     fallback = (
         build_verified_span_draft_multi(basket, evidence_pool, research_question=research_question)
         if _subtopic_decomposition_enabled()
         else build_verified_span_draft(basket, evidence_pool)
     )
     if fallback is not None:
-        # Correction 4 (Codex+Fable gate): the K-span fallback RE-DERIVES from the SAME verified span, so
-        # a chrome unit withheld above (the keep-loop ``continue``) can RE-ENTER here. Screen the fallback
-        # with the SAME unblinded render-chrome predicate. Gated by the default-ON kill-switch. FAIL-SAFE:
-        # if screening empties the fallback, fall THROUGH to the honest gap disclosure below (never blank a
-        # real section). Faithfulness-neutral (render-side WITHHOLD; the source stays in the pool).
         if _compose_render_chrome_enabled():
             fallback = _screen_fallback_chrome(fallback)
         if fallback and fallback.strip():
-            # If some sentences were kept before the failure, keep them + the verbatim span (never lose
-            # already-verified prose); else the span alone.
             return " ".join(kept + [fallback]) if kept else fallback
-    # I-deepfix-001 Wave-3 PART 2 ARM B (#1344): no verified span. Default the honest gap, BUT when a
-    # transient judge outage left DETERMINISTIC_ONLY (grounded-but-unentailed) members, disclose THAT
-    # instead of "no evidence". Only the LABEL changes — no DETERMINISTIC_ONLY prose is ever promoted
-    # into verified text; the ENTAILMENT_VERIFIED gate is untouched. OFF => the bare gap => byte-identical.
     disclosure = _no_verified_span_disclosure(basket)
     return " ".join(kept + [disclosure]) if kept else disclosure
 
@@ -3114,23 +3144,68 @@ def _section_basket_map_consume_enabled() -> bool:
         return False
 
 
+def _map_get(obj: Any, key: str, default: Any = None) -> Any:
+    """Duck-typed accessor (Fix 8): a live SectionBasketView/SectionBasketMap object OR a
+    plain dict (a cp5-JSON-loaded map) both resolve."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def _baskets_from_section_map(section_basket_map: Any, section_index: int, baskets: list) -> list:
-    """Resolve a section's precomputed ``SectionBasketView`` list to basket objects (primary +
-    corroborating), by ``claim_cluster_id``, in the map's deterministic order. Baskets with a
-    cluster id absent from the map's section views are omitted (they compose in their own home)."""
+    """Resolve a section's precomputed ``SectionBasketView`` list to basket objects, by
+    ``claim_cluster_id``, in the map's deterministic order.
+
+    Fix 9 (2026-07-10): ONLY ``primary``-role views full-compose here. A ``corroborating``
+    view is NOT re-composed — the basket composes fully ONCE, in its primary home; that is
+    exactly the repeated-composition leak this module exists to fix. Its corroboration is a
+    citation carried by that single primary composition, never a second full render.
+
+    Fix 8: DUCK-TYPED — tolerates object OR dict views AND str OR int section keys (a
+    cp5-JSON-loaded map carries STRING keys + plain dicts; without this the seam silently
+    yields ZERO baskets for every section on resume).
+
+    Fix 15: FAIL-LOUD counters — duplicate cluster ids (keep-first) and map views whose cid
+    is absent from the baskets list are COUNTED and logged, never silently swallowed."""
     lookup: dict[str, Any] = {}
+    dup_cids = 0
     for b in baskets:
-        cid = str(getattr(b, "claim_cluster_id", "") or "")
-        if cid and cid not in lookup:
-            lookup[cid] = b
-    views = getattr(section_basket_map, "views_by_section", None) or {}
+        cid = str(_map_get(b, "claim_cluster_id", "") or "")
+        if not cid:
+            continue
+        if cid in lookup:
+            dup_cids += 1
+            continue
+        lookup[cid] = b
+    views_map = _map_get(section_basket_map, "views_by_section", None) or {}
+    # Fix 8: a JSON-loaded map has STRING section keys; try the native key then its str form.
+    section_views = views_map.get(section_index)
+    if section_views is None:
+        section_views = views_map.get(str(section_index))
+    section_views = section_views or []
     out: list = []
     seen: set[str] = set()
-    for view in views.get(section_index, []) or []:
-        cid = str(getattr(view, "claim_cluster_id", "") or "")
-        if cid in lookup and cid not in seen:
-            seen.add(cid)
-            out.append(lookup[cid])
+    missing_views = 0
+    corroborating_skipped = 0
+    for view in section_views:
+        cid = str(_map_get(view, "claim_cluster_id", "") or "")
+        role = str(_map_get(view, "role", "primary") or "primary")
+        if cid not in lookup:
+            missing_views += 1
+            continue
+        if role != "primary":
+            corroborating_skipped += 1
+            continue
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(lookup[cid])
+    if dup_cids or missing_views:
+        logger.warning(
+            "[section_basket_map] compose seam section_index=%s: duplicate_cids=%d "
+            "map_views_absent_from_baskets=%d primaries=%d corroborating_not_recomposed=%d",
+            section_index, dup_cids, missing_views, len(out), corroborating_skipped,
+        )
     return out
 
 
@@ -3161,8 +3236,36 @@ def _section_baskets_for_compose(
     baskets = list(getattr(credibility_analysis, "baskets", None) or [])
     if not baskets:
         return []
+    # Fix 10 wiring: the map + section index ride on the SectionPlan object (attributes attached
+    # by generate_multi_section_report). Read them off ``section`` when not passed explicitly, so
+    # the two production call sites need no signature change.
+    if section_basket_map is None:
+        section_basket_map = getattr(section, "_section_basket_map", None)
+    if section_index is None:
+        section_index = getattr(section, "_section_index", None)
     if section_basket_map is not None and section_index is not None and _section_basket_map_consume_enabled():
         out: list = _baskets_from_section_map(section_basket_map, section_index, baskets)
+        # Fix 8 FAIL-LOUD guard: map-mode returned NOTHING while legacy-intersecting baskets
+        # exist that are ABSENT from the map placement entirely (TRUE stranding — not the
+        # expected corroboration-dedup where a basket's primary home is another section).
+        if not out:
+            _legacy_ev = _section_assigned_ev_ids(section)
+            if _legacy_ev:
+                _placed = _map_get(section_basket_map, "primary_section_by_cluster", None) or {}
+                _stranded_cids = []
+                for b in baskets:
+                    _mem = {str(getattr(m, "evidence_id", "") or "") for m in getattr(b, "supporting_members", None) or []}
+                    if _mem & _legacy_ev:
+                        _bcid = str(getattr(b, "claim_cluster_id", "") or "")
+                        if _bcid and _bcid not in _placed:
+                            _stranded_cids.append(_bcid)
+                if _stranded_cids:
+                    logger.warning(
+                        "[section_basket_map] MAP-MODE ZERO-BASKET for section_index=%s while "
+                        "%d legacy-intersecting basket(s) are ABSENT from the map placement "
+                        "entirely (true stranding, not corroboration-dedup): %s",
+                        section_index, len(_stranded_cids), _stranded_cids[:10],
+                    )
     else:
         section_ev_ids = _section_assigned_ev_ids(section)
         if not section_ev_ids:

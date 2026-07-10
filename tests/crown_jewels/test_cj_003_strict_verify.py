@@ -80,10 +80,20 @@ def test_cj_003_reject_numeric_mismatch() -> None:
     assert not ok and reason == "numeric_mismatch"
 
 
-def test_cj_003_reject_overlap_too_low() -> None:
+def test_cj_003_overlap_gate_removed_but_contentless_still_drops() -> None:
+    # 2026-07-10 UNFREEZE (Fix 1): the lexical content-word-overlap gate was DELETED
+    # (it forced near-verbatim copying — the "ghost" behind quote-dump prose). A
+    # non-numeric sentence that shares no content words with its span is NO LONGER
+    # dropped by a lexical floor; the NLI entailment judge (off in this offline pool)
+    # is the semantic bar, so the mechanical gates now pass it.
     sentence = "Apples bananas oranges grapes [#ev:src-A:0-50]."
     ok, reason = verify_sentence(sentence, _pool(), min_content_overlap=2)
-    assert not ok and reason == "overlap_too_low"
+    assert ok and reason is None
+    # A truly CONTENTLESS sentence (no content words, no decimals, no percents) still
+    # drops with the explicit empty_or_contentless_sentence reason.
+    contentless = "[#ev:src-A:0-50]."
+    ok2, reason2 = verify_sentence(contentless, _pool(), min_content_overlap=2)
+    assert not ok2 and reason2 == "empty_or_contentless_sentence"
 
 
 def test_cj_003_synthesis_claim_passes_without_token() -> None:

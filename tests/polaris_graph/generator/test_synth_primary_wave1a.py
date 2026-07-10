@@ -102,6 +102,38 @@ def _stub_verify(sentence, _scoped_pool, *args, **kwargs):
     return _sv(sentence, is_verified=True)
 
 
+@pytest.fixture(autouse=True)
+def _legacy_kspan_fallback(monkeypatch):
+    """2026-07-10 UNFREEZE (Fix 4): PG_COMPOSE_NO_RAW_SPAN_FALLBACK defaults ON, which replaces the
+    verbatim K-span exhaustion fallback with a LABELED unverified-synthesis line (never a raw span
+    dump). The Wave-1a proofs below validate the LEGACY K-span fallback path, which is PRESERVED under
+    the kill-switch — pin it OFF here so these tests exercise the path they were written for.
+    ``test_fix4_no_raw_span_fallback_emits_labeled_line`` covers the default-ON behavior explicitly."""
+    monkeypatch.setenv("PG_COMPOSE_NO_RAW_SPAN_FALLBACK", "0")
+    yield
+
+
+def test_fix4_no_raw_span_fallback_emits_labeled_line(monkeypatch):
+    """Fix 4 (2026-07-10 UNFREEZE) default-ON: when the writer draft fails verification and
+    PG_COMPOSE_NO_RAW_SPAN_FALLBACK is ON (default), the exhaustion fallback is a LABELED
+    unverified-synthesis line (the basket's own claim, NOT a raw verbatim K-span span dump)."""
+    from src.polaris_graph.generator.verified_compose import _UNVERIFIED_SYNTH_PREFIX
+    monkeypatch.delenv("PG_SYNTH_PRIMARY", raising=False)
+    monkeypatch.setenv("PG_COMPOSE_NO_RAW_SPAN_FALLBACK", "1")  # overrides the autouse pin
+    quote = "Robots reduced factory employment by two percentage points."
+    m = _member("eva", quote)
+    basket, pool = _basket([m], subject="Automation reshapes labor demand"), _pool(m)
+    bad = _line(f"{_FAIL_MARKER} this sentence fails", "eva", quote)
+    out = _compose_one_basket(
+        basket, pool, writer_fn=lambda _b, _p: bad, verify_fn=_stub_verify,
+    )
+    assert _UNVERIFIED_SYNTH_PREFIX in out
+    assert "Automation reshapes labor demand" in out
+    # It must NOT dump the raw source span as body prose (the quote-dump the unfreeze targets).
+    assert quote not in out
+    assert _FAIL_MARKER not in out
+
+
 # ── 1. OFF byte-identical ───────────────────────────────────────────────────────────────────────
 def test_off_all_pass_is_byte_identical(monkeypatch):
     monkeypatch.delenv("PG_SYNTH_PRIMARY", raising=False)

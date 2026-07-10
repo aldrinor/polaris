@@ -9,10 +9,14 @@ check asks an LLM-as-judge whether the cited span semantically ENTAILS
 the sentence. It is gated by `PG_STRICT_VERIFY_ENTAILMENT={off,warn,
 enforce}` and defaults to `off`.
 
-This Crown Jewel pins the architectural invariant:
-  Under enforce mode, a sentence whose cited span does NOT entail it
-  (judge returns NEUTRAL or CONTRADICTED) MUST be dropped with
-  drop_reason='entailment_failed'.
+This Crown Jewel pins the architectural invariant. 2026-07-10 UNFREEZE (Fix 3)
+UPDATED the NEUTRAL leg per the operator-locked labels-never-guts rewire:
+  Under enforce mode, a CONTRADICTED verdict (span REFUTES the sentence =
+  verified-FALSE) is still hard-DROPPED with drop_reason='entailment_failed'.
+  A NEUTRAL verdict (not entailed, not contradicted = UNVERIFIED) is now KEPT
+  with a DISCLOSED caveat ('entailment_neutral_unverified' in
+  kept_disclosure_label) instead of silently dropped. The judge is still
+  invoked in enforce/warn; only the NEUTRAL disposition changed (drop -> keep+label).
 
 The 2026-05-09 audit found that 1 fabricated mechanistic claim and
 2 specificity-inflation claims passed the 5 mechanical checks because
@@ -125,15 +129,21 @@ def _install(monkeypatch, fake: _FakeJudge) -> None:
 
 # ---------- Core invariant: enforce mode + NEUTRAL -> entailment_failed ----------
 
-def test_cj_008_enforce_neutral_drops_with_entailment_failed(monkeypatch) -> None:
-    """The audit-revealed M2 fabrication MUST be dropped under enforce
-    mode when the judge returns NEUTRAL.
+def test_cj_008_enforce_neutral_keeps_with_disclosure_label(monkeypatch) -> None:
+    """2026-07-10 UNFREEZE (Fix 3): a NEUTRAL verdict is "not entailed, not
+    contradicted" = UNVERIFIED, not verified-FALSE. Under the operator-locked
+    labels-never-guts rewire, enforce mode now KEEPS the span-grounded sentence with
+    a DISCLOSED caveat ('entailment_neutral_unverified' — carried in
+    kept_disclosure_label) instead of silently DROPPING it. The audit-revealed M2
+    fabrication is therefore KEPT-and-DISCLOSED as unverified, not silently deleted.
+    (CONTRADICTED still hard-drops — see the next test — so the gate keeps its teeth
+    against a verified-FALSE claim.)
     """
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     _install(monkeypatch, _FakeJudge("NEUTRAL"))
     ok, reason = verify_sentence(_M2_SENTENCE, _m2_pool(), min_content_overlap=2)
-    assert ok is False
-    assert reason == "entailment_failed"
+    assert ok is True
+    assert reason == "entailment_neutral_unverified"
 
 
 def test_cj_008_enforce_contradicted_drops_with_entailment_failed(
@@ -193,8 +203,11 @@ def test_cj_008_unset_mode_defaults_enforce(monkeypatch) -> None:
     ok, reason = verify_sentence(
         _M2_SENTENCE, _m2_pool(), min_content_overlap=2,
     )
-    assert ok is False, "default-enforce must drop NEUTRAL"
-    assert reason == "entailment_failed"
+    # Fix 3 (2026-07-10 UNFREEZE): default-enforce still RUNS the judge, but a NEUTRAL
+    # verdict now KEEPS-with-label instead of dropping (labels-never-guts). The judge
+    # invocation (the gate being live by default) is the invariant this test pins.
+    assert ok is True, "default-enforce NEUTRAL keeps with disclosure label"
+    assert reason == "entailment_neutral_unverified"
     assert len(fake.calls) == 1, "default-enforce must invoke the judge"
 
 
@@ -247,15 +260,18 @@ def test_cj_008_synthesis_with_tokens_still_runs_entailment(monkeypatch) -> None
     without-token semantics).
     """
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
-    _install(monkeypatch, _FakeJudge("NEUTRAL"))
+    fake = _install_and_return(monkeypatch, _FakeJudge("NEUTRAL"))
     ok, reason = verify_sentence(
         _M2_SENTENCE,
         _m2_pool(),
         min_content_overlap=2,
         is_synthesis_claim=True,
     )
-    assert ok is False
-    assert reason == "entailment_failed"
+    # The judge STILL runs for a synthesis-flagged claim carrying tokens (the exemption
+    # only short-circuits the no-token path). Fix 3: NEUTRAL keeps-with-label.
+    assert len(fake.calls) == 1
+    assert ok is True
+    assert reason == "entailment_neutral_unverified"
 
 
 def test_cj_008_synthesis_without_tokens_skips_entailment(monkeypatch) -> None:
@@ -279,13 +295,16 @@ def test_cj_008_synthesis_without_tokens_skips_entailment(monkeypatch) -> None:
 
 # ---------- Drop reason propagation through VerifiedSentence record ----------
 
-def test_cj_008_record_carries_entailment_failed_drop_reason(
+def test_cj_008_record_carries_neutral_disclosure_label(
     monkeypatch,
 ) -> None:
-    """The orchestrator-level record (VerifiedSentence) MUST faithfully
-    carry drop_reason='entailment_failed' so downstream section gates
-    + the audit bundle can attribute the drop. Without this, the gate
-    drops would be invisible to the operator-facing surface.
+    """Fix 3 (2026-07-10 UNFREEZE): the orchestrator-level record (VerifiedSentence)
+    for a NEUTRAL verdict now carries verifier_pass=True with the caveat riding in
+    kept_disclosure_label ('entailment_neutral_unverified') and drop_reason=None (the
+    schema forbids a drop_reason when verifier_pass=True). This is how the KEEP-with-
+    disclosure surfaces to downstream section gates + the audit bundle instead of a
+    silent drop. A CONTRADICTED verdict still carries verifier_pass=False +
+    drop_reason='entailment_failed' (the gate teeth against a verified-FALSE claim).
     """
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     _install(monkeypatch, _FakeJudge("NEUTRAL"))
@@ -295,6 +314,7 @@ def test_cj_008_record_carries_entailment_failed_drop_reason(
         pool=_m2_pool(),
         min_content_overlap=2,
     )
-    assert record.verifier_pass is False
-    assert record.drop_reason == "entailment_failed"
-    assert record.evaluator_agrees is False
+    assert record.verifier_pass is True
+    assert record.drop_reason is None
+    assert record.kept_disclosure_label == "entailment_neutral_unverified"
+    assert record.evaluator_agrees is True

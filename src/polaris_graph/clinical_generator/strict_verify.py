@@ -494,31 +494,18 @@ def verify_sentence(
                     ):
                         return False, "binding_qualifier_dropped"
 
-    # I-deepfix-001 L4 (#1344): FAIL-CLOSED on unsegmentable script content. A
-    # claim carrying a run of letters in a script we cannot segment
-    # (Thai/Lao/Khmer/Myanmar/Tibetan) yields no content tokens; rather than let
-    # it slip past the overlap floor on a coincidental decimal match, we drop it
-    # — we cannot establish lexical grounding and MUST NOT guess a pass (the
-    # lethal weakened-positive). CJK / Arabic / Cyrillic etc. tokenize correctly
-    # via _content_words and never reach here. Reverts byte-identical under
-    # PG_STRICT_VERIFY_SCRIPT_AWARE=0.
-    if has_unsegmentable_content(sentence_clean):
-        return False, "unsegmentable_script"
-
-    # Content-word overlap
+    # I-deepfix-001 (2026-07-10 UNFREEZE, Fix 1): the content-word-overlap gate
+    # (overlap_too_low / PG_PROVENANCE_MIN_CONTENT_OVERLAP) and the unsegmentable-
+    # script fail-closed have been DELETED. Lexical overlap FORCED near-verbatim copying
+    # (the "ghost" behind the quote-dump prose), and the unsegmentable guard existed ONLY
+    # because lexical grounding was the bar. The per-sentence faithfulness bar is now:
+    # strict numeric (above) + percent-role (above) + binding-qualifier retention (above)
+    # + NLI entailment (check (f) below). A pure CONTENTLESS sentence — NO content words
+    # AND no decimals AND no percents — is still dropped (a genuinely empty sentence must
+    # never ship); this is a content-only check, never a span-overlap check.
     sentence_words = _content_words(sentence_clean)
-    span_words = _content_words(combined_span)
-    # BUG-03 (FX-02, #1106): a truly contentless sentence — NO content words AND no decimals —
-    # is dropped EXPLICITLY here (mirrors the provenance_generator floor). With the default
-    # threshold=2 it would already fail as overlap_too_low, but this fail-closes the
-    # PG_PROVENANCE_MIN_CONTENT_OVERLAP=0 edge (where overlap=0 is not < 0) and gives a precise
-    # reason. Faithfulness-TIGHTENING: any content word OR decimal routes to the numeric/overlap
-    # floors, so a real clinical sentence can never trip this.
-    if not sentence_words and not sentence_decimals:
+    if not sentence_words and not sentence_decimals and not _percents(sentence_clean):
         return False, "empty_or_contentless_sentence"
-    overlap = len(sentence_words & span_words)
-    if overlap < threshold:
-        return False, "overlap_too_low"
 
     # Check (f) — entailment judge (I-bug-092). Synthesis claims with no
     # tokens already short-circuited above; if a synthesis claim DOES
@@ -562,10 +549,29 @@ def verify_sentence(
                     )
                     return True, "entailment_unverified_judge_error"
                 return False, "entailment_judge_error_fail_closed"
-        if verdict in ("NEUTRAL", "CONTRADICTED"):
+        if verdict == "NEUTRAL":
+            # I-deepfix-001 (2026-07-10 UNFREEZE, Fix 3): NEUTRAL = "not entailed, not
+            # contradicted" = UNVERIFIED, not verified-FALSE. Labels-never-guts: in enforce
+            # mode KEEP the span-grounded sentence with a DISCLOSED caveat (rides in
+            # kept_disclosure_label via verify_sentence_to_record) instead of the old silent
+            # DROP ('entailment_failed'). The mechanical provenance gates already passed; a
+            # NEUTRAL verdict downgrades to disclosure, it never deletes evidence.
             logger.warning(
-                "entailment %s (mode=%s): sentence=%r reason=%r",
-                verdict, mode, sentence_clean, reason,
+                "entailment NEUTRAL (mode=%s): sentence=%r reason=%r — KEEP-with-label",
+                mode, sentence_clean, reason,
+            )
+            if mode == "enforce":
+                return True, "entailment_neutral_unverified"
+        elif verdict == "CONTRADICTED":
+            # A CONTRADICTED verdict is verified-FALSE (the span REFUTES the claim), not
+            # merely unverified. It is DROPPED as 'entailment_failed' so the existing
+            # sentence-repair loop attempts a bounded abstractive re-write; if repair
+            # exhausts it is removed with a DISCLOSED count. Faithfulness is NOT relaxed.
+            # (NEUTRAL no longer drops, so 'entailment_failed' now uniquely marks a
+            # contradicted claim for the repair loop.)
+            logger.warning(
+                "entailment CONTRADICTED (mode=%s): sentence=%r reason=%r — DROP->repair",
+                mode, sentence_clean, reason,
             )
             if mode == "enforce":
                 return False, "entailment_failed"

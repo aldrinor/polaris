@@ -176,30 +176,34 @@ def test_sentence_with_no_decimals_skips_numeric_check():
     assert passed is True, f"expected pass, got reason={reason}"
 
 
-# ---------- overlap_too_low ----------
+# ---------- content-word-overlap gate REMOVED (2026-07-10 UNFREEZE, Fix 1) ----------
 
-def test_low_content_overlap_fails():
-    """Sentence content has zero overlap with span content."""
+def test_low_content_overlap_no_longer_dropped():
+    """2026-07-10 UNFREEZE (Fix 1): the lexical content-word-overlap gate was DELETED
+    (it forced near-verbatim copying). A non-numeric sentence sharing no content words
+    with its span is NO LONGER dropped by a lexical floor — the NLI entailment judge
+    (off in these offline unit pools) is the semantic bar, so it now passes.
+    """
     full_text = "Tomato basil mozzarella pizza dough recipe pasta"
     pool = _pool(_src(source_id="src-1", full_text=full_text))
     passed, reason = verify_sentence(
         f"Adults with chronic pain experienced relief [#ev:src-1:0-{len(full_text)}].",
         pool,
     )
-    assert passed is False
-    assert reason == "overlap_too_low"
+    assert passed is True, f"overlap gate removed; expected pass, got reason={reason}"
 
 
-def test_one_shared_word_fails_default_threshold():
-    """Default min_content_overlap=2 — one shared word should fail."""
+def test_one_shared_word_no_longer_dropped():
+    """Fix 1: with the overlap threshold gone, one (or zero) shared content word no
+    longer fails — the sentence carries content, so only the numeric/percent/qualifier
+    gates + the NLI judge remain."""
     full_text = "Adults entered the cafeteria for lunch."
     pool = _pool(_src(source_id="src-1", full_text=full_text))
     passed, reason = verify_sentence(
         f"Adults reported severe migraines after taking aspirin [#ev:src-1:0-{len(full_text)}].",
         pool,
     )
-    assert passed is False
-    assert reason == "overlap_too_low"
+    assert passed is True, f"overlap gate removed; expected pass, got reason={reason}"
 
 
 def test_two_shared_words_pass_default_threshold():
@@ -223,16 +227,18 @@ def test_explicit_min_overlap_zero_relaxes_check():
     assert passed is True
 
 
-def test_env_override_min_overlap(monkeypatch: pytest.MonkeyPatch):
+def test_env_override_min_overlap_no_longer_gates(monkeypatch: pytest.MonkeyPatch):
+    # Fix 1: PG_PROVENANCE_MIN_CONTENT_OVERLAP no longer gates strict_verify — the
+    # content-word-overlap floor was DELETED, so raising the threshold has no effect
+    # and a content-bearing sentence passes (the numeric/percent/qualifier/NLI bar
+    # is what remains).
     monkeypatch.setenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "5")
     full_text = "Adults benefited from aspirin therapy in the trial."
     pool = _pool(_src(source_id="src-1", full_text=full_text))
     passed, reason = verify_sentence(
         f"Adults benefited from aspirin [#ev:src-1:0-{len(full_text)}].", pool
     )
-    # Only 3 content words shared; threshold 5 -> fail
-    assert passed is False
-    assert reason == "overlap_too_low"
+    assert passed is True, f"overlap threshold no longer gates; got reason={reason}"
 
 
 # ---------- multi-token sentences ----------

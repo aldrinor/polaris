@@ -144,6 +144,9 @@ def test_s0b1_off_byte_identity_grounded_pass(monkeypatch):
     assert res.judge_error is False  # additive field inert in off mode
 
 
+@pytest.mark.skip(reason=(
+    "Writer-side content-word-overlap floor + the Phase-0b Delta-1 full-row rescue were REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): the no_content_word_overlap_any_cited_span gate forced near-verbatim copying and is deleted, so the Delta-1/shadow/enforce rescue machinery it gated no longer exists. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_s0b1_off_byte_identity_content_floor_miss(monkeypatch):
     """Narrow byte-range missing content words drops with the EXACT pre-0b
     failure reason under off."""
@@ -193,6 +196,9 @@ def test_s0b1_off_byte_identity_trial_name_miss(monkeypatch):
     assert any(r.startswith("trial_name_mismatch:") for r in res.failure_reasons)
 
 
+@pytest.mark.skip(reason=(
+    "Writer-side content-word-overlap floor + the Phase-0b Delta-1 full-row rescue were REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): the no_content_word_overlap_any_cited_span gate forced near-verbatim copying and is deleted, so the Delta-1/shadow/enforce rescue machinery it gated no longer exists. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_s0b1_off_strict_wall_exact_reasons(monkeypatch):
     """Strict byte-identity wall (Codex diff-gate P2): off-mode failure_reasons
     pinned EXACTLY for a deterministic content-floor-miss case, so ANY added
@@ -228,6 +234,9 @@ _S0B2_SENTENCE = (
 )
 
 
+@pytest.mark.skip(reason=(
+    "Writer-side content-word-overlap floor + the Phase-0b Delta-1 full-row rescue were REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): the no_content_word_overlap_any_cited_span gate forced near-verbatim copying and is deleted, so the Delta-1/shadow/enforce rescue machinery it gated no longer exists. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_s0b2_delta1_off_dropped(monkeypatch):
     res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
     assert res.is_verified is False
@@ -257,6 +266,9 @@ def test_s0b2_delta1_enforce_rescued(monkeypatch):
     assert len(judge.calls) >= 2
 
 
+@pytest.mark.skip(reason=(
+    "Writer-side content-word-overlap floor + the Phase-0b Delta-1 full-row rescue were REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): the no_content_word_overlap_any_cited_span gate forced near-verbatim copying and is deleted, so the Delta-1/shadow/enforce rescue machinery it gated no longer exists. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_s0b2_delta1_shadow_output_eq_off_and_logs(monkeypatch, caplog):
     """Shadow: entailment active so the propose-branch runs and logs, but output
     == off (still dropped) AND the entailment judge is never reached (the
@@ -280,6 +292,9 @@ def test_s0b2_delta1_shadow_output_eq_off_and_logs(monkeypatch, caplog):
     assert len(judge.calls) == 0
 
 
+@pytest.mark.skip(reason=(
+    "Writer-side content-word-overlap floor + the Phase-0b Delta-1 full-row rescue were REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): the no_content_word_overlap_any_cited_span gate forced near-verbatim copying and is deleted, so the Delta-1/shadow/enforce rescue machinery it gated no longer exists. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_s0b8_delta1_entailment_off_no_launder(monkeypatch):
     """Architect P1 (the proven hole): PG_VERIFICATION_MODE=enforce AND
     PG_STRICT_VERIFY_ENTAILMENT=off must NOT let Delta 1 launder a content-floor
@@ -318,6 +333,9 @@ def test_s0b9_delta1_window_not_entailed_stays_dropped(monkeypatch):
     assert len(judge.calls) >= 2
 
 
+@pytest.mark.skip(reason=(
+    "Writer-side content-word-overlap floor + the Phase-0b Delta-1 full-row rescue were REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): the no_content_word_overlap_any_cited_span gate forced near-verbatim copying and is deleted, so the Delta-1/shadow/enforce rescue machinery it gated no longer exists. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_s0b10_delta1_warn_mode_no_launder(monkeypatch):
     """Codex diff-gate P1 (the proven warn hole): PG_VERIFICATION_MODE=enforce +
     PG_STRICT_VERIFY_ENTAILMENT=warn. warn runs the judge but NEVER drops on
@@ -570,6 +588,9 @@ def test_s0b4_delta3_enforce_fails_closed(monkeypatch):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.skip(reason=(
+    "Writer-side content-word-overlap floor + the Phase-0b Delta-1 full-row rescue were REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): the no_content_word_overlap_any_cited_span gate forced near-verbatim copying and is deleted, so the Delta-1/shadow/enforce rescue machinery it gated no longer exists. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_s0b5_anti_laundering_scattered_stays_dropped(monkeypatch):
     """A fabrication whose two content words are placed >400 chars apart in the
     cited row MUST NOT be rescued under enforce. This is the clinical-safety
@@ -626,6 +647,9 @@ def test_s0b6_finder_none_when_words_beyond_window():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.skip(reason=(
+    "Writer-side content-word-overlap floor + the Phase-0b Delta-1 full-row rescue were REMOVED per 2026-07-10 UNFREEZE (fix 2, GH I-arch-s5-001): the no_content_word_overlap_any_cited_span gate forced near-verbatim copying and is deleted, so the Delta-1/shadow/enforce rescue machinery it gated no longer exists. The NLI entailment judge is now the semantic bar (live-judge surface, not offline)."
+))
 def test_s0b7_reproduction_gap18_fixture(monkeypatch):
     """The gap-#18 wrongful content-floor drop (rediagnose_gap18.py CASE 3b):
     a narrow byte-range whose FULL cited rows share the synthesis vocabulary.
