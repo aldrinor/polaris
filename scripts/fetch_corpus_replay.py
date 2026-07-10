@@ -123,6 +123,8 @@ def main() -> int:
     parser.add_argument("--urls-file", default=None,
                         help="newline-delimited urls OR evidence_ids; restrict the run to just these "
                              "(fast re-test of the leaking subset)")
+    parser.add_argument("--resume", action="store_true",
+                        help="skip urls already present in <out>/results.jsonl (crash-resilient resume)")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
@@ -147,9 +149,30 @@ def main() -> int:
     total = len(work)
     print(f"[replay] {total} unique urls | snapshot={args.snapshot} | max_chars={args.max_chars}", flush=True)
 
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_dir = Path(args.out or f"/workspace/POLARIS/outputs/fetch_corpus_replay_{stamp}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = out_dir / "results.jsonl"
+
     results: list[dict] = []
+    done_urls: set[str] = set()
+    if args.resume and jsonl_path.exists():
+        for _ln in open(jsonl_path, encoding="utf-8"):
+            _ln = _ln.strip()
+            if not _ln:
+                continue
+            try:
+                _rec = json.loads(_ln)
+            except Exception:
+                continue
+            results.append(_rec)
+            done_urls.add(_rec.get("url"))
+        work = [w for w in work if w[1] not in done_urls]
+        print(f"[replay] resume: {len(done_urls)} already done, {len(work)} remaining", flush=True)
+    jsonl_fh = open(jsonl_path, "a", encoding="utf-8")
+
     lock = threading.Lock()
-    counter = {"done": 0, "leak": 0}
+    counter = {"done": len(results), "leak": 0}
 
     def do_one(item):
         ev, url, banked, tier, title = item
@@ -190,8 +213,13 @@ def main() -> int:
         return rec
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as pool:
-        for rec in pool.map(do_one, work):
+        futures = [pool.submit(do_one, item) for item in work]
+        for fut in concurrent.futures.as_completed(futures):
+            rec = fut.result()
             results.append(rec)
+            jsonl_fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            jsonl_fh.flush()
+    jsonl_fh.close()
 
     mode_tally = Counter(r["failure_mode"] or "accepted" for r in results)
     accepted = [r for r in results if r["accepted"]]
@@ -208,9 +236,6 @@ def main() -> int:
     print(f"[replay] SUMMARY real_junk={len(real_junk_urls)} reference_fp={len(fp_only)} "
           f"total_high_leaks={len(leaks_high)}", flush=True)
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_dir = Path(args.out or f"/workspace/POLARIS/outputs/fetch_corpus_replay_{stamp}")
-    out_dir.mkdir(parents=True, exist_ok=True)
     json.dump(results, open(out_dir / "results.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 
     with open(out_dir / "report.md", "w", encoding="utf-8") as fh:
