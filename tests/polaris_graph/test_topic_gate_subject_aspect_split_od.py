@@ -174,6 +174,55 @@ def test_on_source_never_demoted_or_flagged():
     assert "topic_off_subject" not in r_on
 
 
+def test_stale_off_subject_popped_on_fresh_off_aspect_and_on(monkeypatch):
+    """Codex P1 regression — a STALE ``topic_off_subject=True`` reloaded from an earlier
+    corpus_snapshot MUST be popped when THIS run's judge re-verdicts the row OFF_ASPECT (or
+    ON). run_honest_sweep_r3 builds its fresh OFF_SUBJECT delete set from ``demoted_rows
+    where topic_off_subject is True``; without the pop the stale stamp is misread as a fresh
+    OFF_SUBJECT and the on-topic hub is deleted as confirmed_offtopic_subject (defeating Fix
+    2 fresh-verdict-only AND Fix 3 OFF_ASPECT=demote-KEEP)."""
+    # Both rows carry a stale True baked in by an earlier run.
+    r_aspect = {
+        "title": _OFF_ASPECT_TITLE, "source_url": "https://doi.org/10.0/edu",
+        "topic_off_subject": True, "evidence_id": "aspect1",
+    }
+    r_on = {
+        "title": _ON_TITLE, "source_url": "https://doi.org/10.0/labor",
+        "topic_off_subject": True, "evidence_id": "on1",
+    }
+
+    result = classify_topic_relevance([r_on, r_aspect], _RESEARCH_QUESTION, _split_llm)
+
+    # This run re-verdicts r_aspect=OFF_ASPECT (demote-keep), r_on=ON: the stale stamp is gone.
+    assert "topic_off_subject" not in r_aspect
+    assert "topic_off_subject" not in r_on
+    assert r_aspect.get("topic_offtopic_demoted") is True  # still demoted (weight), not deletable
+    # The fresh OFF_SUBJECT id set the run script derives must NOT include the stale-stamped hub.
+    fresh_off_subject = {
+        r.get("evidence_id") for r in result.demoted_rows
+        if r.get("topic_off_subject") is True
+    }
+    assert "aspect1" not in fresh_off_subject
+    assert "on1" not in fresh_off_subject
+
+
+def test_fresh_off_subject_verdict_still_stamps_deletable():
+    """Control for the pop fix — a row THIS run genuinely re-verdicts OFF_SUBJECT KEEPS the
+    deletable stamp (the pop clears ONLY non-OFF_SUBJECT verdicts, never a fresh confirmed
+    one)."""
+    r_subject = {
+        "title": _OFF_SUBJECT_TITLE, "source_url": "https://doi.org/10.0/chain",
+        "evidence_id": "subj1",
+    }
+    result = classify_topic_relevance([r_subject], _RESEARCH_QUESTION, _split_llm)
+    assert r_subject.get("topic_off_subject") is True
+    fresh = {
+        r.get("evidence_id") for r in result.demoted_rows
+        if r.get("topic_off_subject") is True
+    }
+    assert fresh == {"subj1"}
+
+
 def test_split_fail_open_on_llm_error_no_flags():
     """A raising llm_callable keeps the whole batch and stamps nothing."""
     r_on = {"title": _ON_TITLE, "source_url": "https://doi.org/10.0/labor"}

@@ -124,6 +124,43 @@ def test_attach_junk_deletion_disclosure_none_run_dir():
     assert manifest == {"status": "error_setup"}
 
 
+def test_timeout_finalizer_manifest_carries_junk_disclosure(tmp_path):
+    """Codex P1 regression — a run that times out AFTER the seam wrote the durable
+    junk_deletion_disclosure.json but BEFORE any report/success manifest must STILL ship the
+    deletions on its timeout-abort manifest. finalize_timeout_run_and_maybe_write_error_manifest
+    previously wrote manifest.json directly, bypassing the _attach_tool_utilization chokepoint
+    (the only site that attaches the disclosure) — a §-1.3.1 fail-loud breach. The fix routes
+    the timeout finalizer through that chokepoint."""
+    from scripts.run_honest_sweep_r3 import (
+        finalize_timeout_run_and_maybe_write_error_manifest,
+    )
+
+    recs = [
+        {"evidence_id": "c1", "deletion_reason": "content_integrity_junk:bot_challenge"},
+        {"evidence_id": "s1", "deletion_reason": "confirmed_offtopic_subject"},
+    ]
+    (tmp_path / "junk_deletion_disclosure.json").write_text(
+        json.dumps({"deleted": recs, "count": len(recs)}), encoding="utf-8"
+    )
+    # No report.md exists => a GENUINE no-report hang => the error_unexpected manifest path.
+    preserved = finalize_timeout_run_and_maybe_write_error_manifest(
+        tmp_path,
+        {"error": "wall-clock hang"},
+        {"question": "the impact of generative AI on the labor market"},
+        wall_clock_seconds=3600.0,
+    )
+    assert preserved is False  # no prior render => error manifest was written
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "error_unexpected"
+    assert manifest["run_wall_clock_timeout"] is True
+    # The durable disclosure rode onto the timeout-abort manifest (fail-loud, never silent).
+    chrome_ids = {r["evidence_id"] for r in manifest["deleted_chrome_nonsources"]}
+    off_ids = {r["evidence_id"] for r in manifest["deleted_offtopic_sources"]}
+    assert chrome_ids == {"c1"}
+    assert off_ids == {"s1"}
+
+
 # ── Fix 5: the run-validity SUMMARY TABLE emit path fires for the official DRB-72 slug ────
 
 def test_drb72_contract_resolves_five_column_table():

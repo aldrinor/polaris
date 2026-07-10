@@ -689,21 +689,23 @@ def classify_topic_relevance(
         # deletable). The downstream junk-deletion gate keys deletion on this sidecar.
         for row in offsubject_rows:
             row["topic_off_subject"] = True
-        # I-deepfix-003 gate-fix (Codex P1): CLEAR the deletable sidecar on every row THIS
-        # run re-judged NON-OFF_SUBJECT (confident-ON or OFF_ASPECT). The sidecar was only
-        # ever SET True (above) and never cleared, so a STALE topic_off_subject=True reloaded
-        # from an earlier run's corpus_snapshot survived on a row the CURRENT judge verdicts
-        # OFF_ASPECT — run_honest_sweep_r3 builds its fresh OFF_SUBJECT id set from
-        # ``demoted_rows where topic_off_subject is True``, so that stale row entered the set
-        # and was deleted as ``confirmed_offtopic_subject`` (defeating Fix 2 fresh-verdict-only
-        # AND Fix 3 OFF_ASPECT=demote-KEEP). Clearing makes the sidecar reflect ONLY THIS run's
-        # verdict. Guarded by ``split`` so PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT=0 is byte-identical
-        # (the legacy two-verdict path never writes the sidecar at all).
+        # I-deepfix-003 gate-fix (Codex P1): POP the deletable sidecar off every row THIS run
+        # re-judged NON-OFF_SUBJECT (confident-ON or OFF_ASPECT). The sidecar was only ever SET
+        # True (above) and never cleared, so a STALE topic_off_subject=True reloaded from an
+        # earlier run's corpus_snapshot survived on a row the CURRENT judge verdicts OFF_ASPECT
+        # — run_honest_sweep_r3 builds its fresh OFF_SUBJECT id set from ``demoted_rows where
+        # topic_off_subject is True``, so that stale row entered the set and was deleted as
+        # ``confirmed_offtopic_subject`` (defeating Fix 2 fresh-verdict-only AND Fix 3
+        # OFF_ASPECT=demote-KEEP). Popping makes the sidecar reflect ONLY THIS run's verdict.
+        # ``pop(..., None)`` REMOVES a stale True but is a no-op on a clean row (key never
+        # present) — so a fresh non-OFF_SUBJECT row stays sidecar-ABSENT (the contract downstream
+        # and the tests both assert absence, not False). Guarded by ``split`` so
+        # PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT=0 is byte-identical (legacy path never writes it).
         if split:
             for row in offaspect_rows:
-                row["topic_off_subject"] = False
+                row.pop("topic_off_subject", None)
             for row in ontopic_rows:
-                row["topic_off_subject"] = False
+                row.pop("topic_off_subject", None)
         dropped_rows, dropped_titles = [], []
         demoted_rows, demoted_titles = offtopic_rows, offtopic_titles
 
