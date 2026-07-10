@@ -368,6 +368,105 @@ def test_pipeline_verdict_no_report_is_unreachable():
     assert verdict == h.UNREACHABLE
 
 
+# ── leg A binds gate RESULTS, not file presence (I-comp-fastloop gate P1) ────
+def _leg_a_checks(status="success", failed=None, gate_reasons=None,
+                  checks=None, verification=None, release_allowed=None):
+    """Build a leg_a dict in the shape _read_leg_a now emits (parsed rule_checks +
+    manifest evaluator_gate.reasons), so pipeline_verdict is exercised against gate
+    RESULTS rather than mere file presence."""
+    return {
+        "rule_checks": {"checks": checks or [], "failed": failed or [],
+                        "pt11_present": True, "pt13_present": True, "raw_keys": ["rule_checks"]},
+        "manifest": {"status": status, "verification": verification,
+                     "release_allowed": release_allowed, "gate_reasons": gate_reasons or []},
+    }
+
+
+def test_pipeline_verdict_failed_pt11_rule_check_cannot_pass_on_success_manifest():
+    # The exact Codex probe: manifest.status='success', PT11 passed=false, leg B clean.
+    # A presence-only leg A false-PASSed this. It MUST now FAIL with the detail QUOTED.
+    leg_a = _leg_a_checks(status="success", failed=[
+        {"item_id": "PT11", "passed": False, "waived": False,
+         "details": "2 uncited numeric claims: '14% increase', '9.1M jobs'"}])
+    verdict, findings, note = h.pipeline_verdict(leg_a, 0, "", report_exists=True, leg_b_findings=[])
+    assert verdict == h.FAIL
+    rc = [f for f in findings if f["kind"] == "leg_a_rule_check_failed"]
+    assert rc and "uncited numeric" in rc[0]["span"]        # failing detail is quoted, not a count
+    assert "PT11" in note
+
+
+def test_pipeline_verdict_advisory_pt13_trip_cannot_pass():
+    # PT13 is ADVISORY in production → a trip keeps manifest.status=='success'. The
+    # harness must still FAIL (never PASS) with the example strings quoted.
+    leg_a = _leg_a_checks(status="success", failed=[
+        {"item_id": "PT13", "passed": False, "waived": False,
+         "details": "2 unhedged: [\"'largest' in: 'AI is the largest driver of job loss'\"]"}])
+    verdict, findings, _ = h.pipeline_verdict(leg_a, 0, "", report_exists=True, leg_b_findings=[])
+    assert verdict == h.FAIL
+    rc = [f for f in findings if f["kind"] == "leg_a_rule_check_failed"]
+    assert rc and "largest" in rc[0]["span"]                # example string quoted
+
+
+def test_pipeline_verdict_manifest_gate_reason_binds_fail_independently():
+    # Second independent artifact (I-wire-013): even with an all-pass rule_checks list,
+    # a manifest evaluator_gate.reasons advisory_pt13 trip binds FAIL.
+    leg_a = _leg_a_checks(status="success", failed=[],
+                          gate_reasons=["advisory_pt13_unhedged_superlatives"])
+    verdict, findings, _ = h.pipeline_verdict(leg_a, 0, "", report_exists=True, leg_b_findings=[])
+    assert verdict == h.FAIL
+    assert any("advisory_pt13" in f["span"] for f in findings if f["kind"] == "leg_a_rule_check_failed")
+
+
+def test_leg_a_rule_findings_dedup_across_both_artifacts():
+    # PT11 present in BOTH the failed list and the manifest reason must produce ONE finding.
+    leg_a = _leg_a_checks(status="success",
+                          failed=[{"item_id": "PT11", "passed": False, "waived": False,
+                                   "details": "1 uncited numeric claim"}],
+                          gate_reasons=["rule_pt11_uncited_numeric_claims"])
+    findings = h._leg_a_rule_findings(leg_a)
+    assert len(findings) == 1, findings
+
+
+def test_leg_a_rule_findings_waived_check_is_not_a_fail():
+    # An HONEST WAIVER (passed True carried through _read_leg_a's failed filter) never
+    # reaches the failed list; a waived entry passed straight in must also not FAIL.
+    leg_a = _leg_a_checks(status="success", failed=[])   # waived checks never enter 'failed'
+    assert h._leg_a_rule_findings(leg_a) == []
+
+
+def test_read_leg_a_parses_failed_pt11_end_to_end_and_pipeline_verdict_fails(tmp_path):
+    """END-TO-END: a real evaluator_rule_checks.json (PT11 passed=false) + a
+    manifest.json (status='success') on disk → _read_leg_a parses the CONTENT →
+    pipeline_verdict FAILs with PT11's detail quoted. Reproduces the Codex probe and
+    guards the exact half r1 missed (the parse discarding passed/details)."""
+    query_dir = tmp_path / "workforce" / "drb_72_ai_labor"
+    query_dir.mkdir(parents=True)
+    (query_dir / "evaluator_rule_checks.json").write_text(json.dumps({
+        "generator_model": "deepseek/deepseek-v4-pro",
+        "evaluator_model": "qwen/qwen3.6-35b-a3b",
+        "rule_checks": [
+            {"item_id": "PT08", "name": "Contradiction disclosure", "passed": True, "details": ""},
+            {"item_id": "PT11", "name": "Numeric claims have citation markers",
+             "passed": False, "details": "2 uncited: '14% increase', '9.1M jobs'"},
+            {"item_id": "PT13", "name": "Superlatives hedged", "passed": True, "details": ""},
+        ],
+    }), encoding="utf-8")
+    (query_dir / "manifest.json").write_text(json.dumps({
+        "status": "success", "release_allowed": True,
+        "evaluator_gate": {"gate_class": "abort", "reasons": ["rule_pt11_uncited_numeric_claims"]},
+    }), encoding="utf-8")
+
+    leg_a = h._read_leg_a(query_dir)
+    assert isinstance(leg_a["rule_checks"], dict)
+    assert [c["item_id"] for c in leg_a["rule_checks"]["failed"]] == ["PT11"]
+
+    verdict, findings, note = h.pipeline_verdict(leg_a, 0, "", report_exists=True, leg_b_findings=[])
+    assert verdict == h.FAIL, (verdict, note)
+    rc = [f for f in findings if f["kind"] == "leg_a_rule_check_failed"]
+    assert rc and "uncited" in rc[0]["span"]
+    assert "PT11" in note
+
+
 def test_summarize_degraded_ok_blocks_authorize():
     ok = h._summarize([{"name": "clean_controls", "verdict": h.PASS}, {"name": "x", "verdict": h.PASS}])
     assert ok["authorize_full_pipeline"] is True
