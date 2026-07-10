@@ -2685,6 +2685,177 @@ class CleanedFetch:
     shell_reason: "Optional[str]"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-fetchclean-001 B1 (2026-07-10) — markdown nav / boilerplate line filter.
+#
+# Jina Reader / crawl4ai return FULL-PAGE markdown: nav menus, gov banners, skip-
+# nav links, reading-time widgets, Cookiebot/Scopus chrome all welded into the real
+# article. The existing ``clean_fetch_body`` allowlist is literal-pattern whack-a-mole;
+# there is NO generic main-content pass on the markdown, so every new site's nav leaks.
+# This ports the jusText / boilerpipe CORE HEURISTIC (link-density + prose-density block
+# classification) to markdown LINES — the data shape the HTML-DOM extractors (trafilatura
+# et al) cannot ingest — plus a few structure-anchored standalone-chrome patterns the
+# density test cannot see. Pure / deterministic / zero new deps.
+#
+# GUARDS (byte-preserve real content — §-1.3 never drop a real claim / reference):
+#   * REFERENCE MODE: a "References"/"Bibliography"/... heading opens keep-all mode until
+#     the next same-or-higher-level heading (the ev_037 bipartisanpolicy guard case).
+#   * reference-like line (DOI / et al / year / pp. / vol(issue) / arxiv|pmid|isbn /
+#     "retrieved from"|accessed) is KEPT even outside reference mode.
+#   * prose-like line (>=60% chars outside link markup AND ends with sentence punctuation)
+#     is KEPT — a real sentence with incidental inline links survives.
+# INPUT HYGIENE ONLY: strict_verify / NLI / 4-role / span-grounding untouched.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# A markdown inline link ``[text](url)`` — the exact span the density heuristic measures.
+_MD_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+
+# A markdown ATX heading ``#..###### Title`` (space required, standard form).
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
+
+# A reference-section heading (``\s*`` per design, so ``#References`` also opens the mode).
+_MD_REFERENCE_HEADING_RE = re.compile(
+    r"^(#{1,6})\s*(?:references|bibliography|works cited|notes|endnotes|sources|"
+    r"citations|further reading)\b",
+    re.IGNORECASE,
+)
+
+# Per-line citation signals — ANY one makes the line reference-like (KEEP). A nav menu
+# carries none of these; a citation line with URLs carries at least one.
+_CITATION_SIGNAL_RES: tuple[re.Pattern, ...] = (
+    re.compile(r"10\.\d{4,9}/"),                       # DOI
+    re.compile(r"\bet al\b", re.IGNORECASE),           # author-list marker
+    re.compile(r"\b(?:19|20)\d{2}\b"),                 # 4-digit year
+    re.compile(r"\bpp?\.\s*\d"),                        # p. / pp. page
+    re.compile(r"\d+\s*\(\d+\)"),                       # volume(issue)
+    re.compile(r"\b(?:arxiv|pmid|isbn)\b", re.IGNORECASE),
+    re.compile(r"\b(?:retrieved from|accessed)\b", re.IGNORECASE),
+)
+
+# Line ends with sentence punctuation (allowing trailing quote/paren/bracket).
+_SENTENCE_END_RE = re.compile(r"[.!?…][\"')\]]*\s*$")
+
+# STRUCTURE-ANCHORED standalone chrome — a WHOLE line that IS one of these is dropped
+# (single-link / no-link chrome the density test cannot see).
+_STANDALONE_CHROME_LINE_RE = re.compile(
+    r"^\s*(?:"
+    r"An official website of the United States government"
+    r"|Here'?s how you know"
+    r"|Official websites use \.gov"
+    r"|Secure \.gov websites use HTTPS"
+    r"|\d+\s*(?:Minute Read Time|min(?:ute)? read)"
+    r"|\[?Skip to (?:main )?content\]?(?:\([^)]*\))?"
+    r"|#main-?content"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+# INLINE token-only removals (surrounding prose preserved).
+# Skip-nav link used as a line PREFIX before real content.
+_SKIP_NAV_LINK_RE = re.compile(r"\[Skip to (?:main )?content\]\([^)]*\)", re.IGNORECASE)
+# Scopus citation-count chrome (ev_1048 wustl) — token-only, prose preserved.
+_SCOPUS_CHROME_RE = re.compile(
+    r"\[\d+\s*Link opens in a new tab\]\(https?://www\.scopus\.com[^)]*\)"
+    r"(?:\s*Scopus citations)?",
+    re.IGNORECASE,
+)
+# Cookiebot marker on the line gates removal of the empty cookiebot link + the adjacent
+# Consent/Details/About consent-link run (the ev_954 ACM strip). The Consent/Details/About
+# links are removed ONLY on a confirmed-cookiebot line so a real footer "About" link elsewhere
+# is never touched.
+_COOKIEBOT_MARKER_RE = re.compile(r"cookiebot\.com", re.IGNORECASE)
+_COOKIEBOT_CHROME_RE = re.compile(
+    r"\[\]\(https?://www\.cookiebot\.com[^)]*\)"
+    r"|\[(?:Consent|Details|About)\]\([^)]*\)",
+    re.IGNORECASE,
+)
+
+
+def _line_is_reference_like(line: str) -> bool:
+    """True iff the line carries >=1 citation signal (KEEP guard, §Fix B step 4)."""
+    return any(rx.search(line) for rx in _CITATION_SIGNAL_RES)
+
+
+def _line_is_prose_like(stripped: str, link_chars: int) -> bool:
+    """True iff >=60% of the line's chars sit OUTSIDE link markup AND the line ends
+    with sentence punctuation — a real sentence with incidental inline links (step 5)."""
+    n = len(stripped)
+    if n == 0:
+        return False
+    if (n - link_chars) / n < 0.6:
+        return False
+    return bool(_SENTENCE_END_RE.search(stripped))
+
+
+def _is_nav_link_line(line: str, ref_mode: bool) -> bool:
+    """§Fix B step 3 — DROP iff link-density >= 0.5 AND link_count >= 2 AND NOT
+    reference-like AND NOT prose-like. Pure; measures markdown-link density on the line."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    links = _MD_LINK_RE.findall(stripped)
+    if len(links) < 2:
+        return False
+    link_chars = sum(len(m) for m in links)
+    if link_chars / len(stripped) < 0.5:
+        return False
+    if ref_mode or _line_is_reference_like(line):
+        return False  # reference-like → KEEP
+    if _line_is_prose_like(stripped, link_chars):
+        return False  # prose-like → KEEP
+    return True
+
+
+def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
+    """I-fetchclean-001 B1 — remove full-page markdown nav / boilerplate / structure-
+    anchored chrome from a fetched markdown body, byte-preserving reference lists and
+    real prose. Pure / deterministic. See the module block above for the guards.
+
+    NEVER a faithfulness gate: this is INPUT hygiene. A page that is ONLY nav becomes
+    empty here → the caller's existing ``empty_after_clean`` shell path refuses it (a
+    failed fetch, not a source). A reference section / real prose paragraph survives via
+    the reference-mode / citation-signal / prose-like guards.
+    """
+    if not text:
+        return text or ""
+    out: "list[str]" = []
+    ref_mode = False
+    ref_level = 0
+    for raw in text.split("\n"):
+        # (step 1) heading-context tracking — headings are never chrome, kept byte-identical.
+        ref_h = _MD_REFERENCE_HEADING_RE.match(raw)
+        if ref_h:
+            ref_mode = True
+            ref_level = len(ref_h.group(1))
+            out.append(raw)
+            continue
+        h = _MD_HEADING_RE.match(raw)
+        if h:
+            if ref_mode and len(h.group(1)) <= ref_level:
+                ref_mode = False
+                ref_level = 0
+            out.append(raw)
+            continue
+        # (step 6) inline structure-anchored token removals — surrounding prose preserved.
+        line = _SKIP_NAV_LINK_RE.sub("", raw)
+        line = _SCOPUS_CHROME_RE.sub("", line)
+        if _COOKIEBOT_MARKER_RE.search(line):
+            line = _COOKIEBOT_CHROME_RE.sub("", line)
+        # A line that became whitespace-only after token removal was pure chrome → drop.
+        if raw.strip() and not line.strip():
+            continue
+        # (step 6) whole-line standalone chrome (gov banner / skip-nav / reading-time).
+        if _STANDALONE_CHROME_LINE_RE.match(line):
+            continue
+        # (steps 2-5) high link-density nav line → drop (guarded by reference / prose keeps).
+        if _is_nav_link_line(line, ref_mode):
+            continue
+        out.append(line)
+    # (step 7) collapse the blank-line runs left behind; preserve paragraph breaks.
+    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(out))
+    return cleaned.strip()
+
+
 def clean_fetch_body(content: "Optional[str]") -> CleanedFetch:
     """Strip Jina/Crawl4AI reader chrome from fetched content (I-beatboth-010).
 
@@ -2724,6 +2895,14 @@ def clean_fetch_body(content: "Optional[str]") -> CleanedFetch:
     # distinctive multi-token nav literals, anchored so prose is never touched.
     text = _INLINE_SOCIAL_CHROME_RE.sub(" ", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
+    # I-fetchclean-001 B1: generic markdown nav/boilerplate line filter (link-density
+    # heuristic + structure-anchored standalone chrome) — removes full-page nav menus /
+    # gov banners / skip-nav / reading-time / Cookiebot & Scopus chrome that Jina/crawl4ai
+    # markdown welds into real articles, while byte-preserving reference lists and real
+    # prose (guards). Gated DEFAULT-ON by PG_FETCH_MD_NAV_STRIP; flag OFF ("0") ⇒ never
+    # applied ⇒ byte-identical. Input hygiene only.
+    if os.getenv("PG_FETCH_MD_NAV_STRIP", "1") != "0":
+        text = strip_markdown_nav_chrome(text)
     text = text.strip()
 
     shell_reason: "Optional[str]" = None
@@ -5370,6 +5549,16 @@ class AccessBypass:
                         "User-Agent": self.user_agent,
                         "Accept": "text/markdown",
                     }
+                    # I-fetchclean-001 B2: ask Jina Reader to drop chrome elements at the
+                    # SOURCE via the supported ``X-Remove-Selector`` header so nav/header/
+                    # footer/aside never enter the pipe. Defense-in-depth — B1 remains the
+                    # guarantee (covers crawl4ai/Zyte/httpx too). Empty ⇒ header NOT sent ⇒
+                    # byte-identical request.
+                    _jina_remove_selector = os.getenv(
+                        "PG_JINA_REMOVE_SELECTOR", "nav,header,footer,aside"
+                    ).strip()
+                    if _jina_remove_selector:
+                        headers["X-Remove-Selector"] = _jina_remove_selector
 
                     jina_api_key = os.getenv("JINA_API_KEY")
                     if jina_api_key:
