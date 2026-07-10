@@ -118,13 +118,25 @@ def test_b1_references_section_byte_identical_guard() -> None:
     assert "[Preprint](https://arxiv.org/abs/2001.01234)" in out
 
 
-def test_b1_prose_with_inline_links_kept() -> None:
-    """A real sentence with incidental inline links is KEPT byte-identical (prose-like)."""
+def test_b1_prose_with_inline_links_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round-2 Fix 2 (RC2): a real sentence with incidental inline links keeps its ANCHOR TEXT
+    while the URL chrome is unwrapped (the density-dilution leak fix — the URL inside a quote-body
+    link is chrome; the real citation URL lives in evidence metadata, not the quote text). The
+    OFF path (PG_FETCH_MD_NAV_STRIP_V2=0) is byte-identical to round-1 (links kept wrapped)."""
     text = _load("prose_with_inline_links.md")
-    out = strip_markdown_nav_chrome(text)
-    assert out == text.strip()
-    assert "[proposed method](https://example.org/m)" in out
-    assert "[baseline approach](https://example.org/b)" in out
+    # Default-ON: links unwrapped to anchor text, URLs gone, every prose word preserved.
+    on = strip_markdown_nav_chrome(text)
+    assert "proposed method" in on
+    assert "baseline approach" in on
+    assert "https://example.org/m" not in on
+    assert "https://example.org/b" not in on
+    assert "improving recall without sacrificing precision" in on
+    # OFF (V2 gate off): byte-identical to round-1 — the wrapped links survive.
+    monkeypatch.setenv("PG_FETCH_MD_NAV_STRIP_V2", "0")
+    off = strip_markdown_nav_chrome(text)
+    assert off == text.strip()
+    assert "[proposed method](https://example.org/m)" in off
+    assert "[baseline approach](https://example.org/b)" in off
 
 
 def test_b1_pure_nav_page_becomes_empty() -> None:
@@ -339,3 +351,194 @@ def test_f1_short_heading_guard_byte_identical() -> None:
     assert out == text.strip()
     assert "## Results" in out
     assert "primary endpoint" in out
+
+
+# ---------------------------------------------------------------------------
+# Fix round-2 (I-fetchclean-001, 2026-07-10) — the 15 residual welded-chrome leaks
+# from the live retest. RC1 heading-line bypass · RC2 density-dilution (chrome welded
+# inside a prose line, unwrapped to anchor text) · RC3 vocab gaps · RC4 span-window
+# link-boundary snap (live_retriever). Every leak fixture must clean to junk-free; every
+# round-2 guard stays byte-identical; the OFF path (PG_FETCH_MD_NAV_STRIP_V2=0) is
+# byte-identical to round-1.
+# ---------------------------------------------------------------------------
+
+
+def test_r2_wharton_image_and_welded_heading_stripped() -> None:
+    """RC1 (ev_880): the long welded heading's image markdown is removed (F1 fall-through + F2
+    image delete); the article prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_880_wharton_image_heading.md"))
+    assert "![Image" not in out
+    assert "campus-banner-image.png" not in out
+    assert "remote onboarding reduces first-year attrition" in out
+
+
+def test_r2_thehill_ticker_and_nav_stripped() -> None:
+    """RC1/RC3 (ev_195): a short welded heading loses its nav-link URLs (unwrapped) and the
+    'N hours ago' ticker token; the article prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_195_thehill_ticker_nav.md"))
+    assert "thehill.com" not in out
+    assert "hours ago" not in out
+    assert "appropriations bill advanced out of committee" in out
+
+
+def test_r2_appunite_welded_prose_consent_inline_stripped() -> None:
+    """RC1/RC3 (ev_244): a CMP consent sentence welded MID-line after real prose is removed inline
+    (F3, not a whole-line drop); the surrounding article prose on the SAME line survives."""
+    out = strip_markdown_nav_chrome(_load("ev_244_appunite_welded_prose_consent.md"))
+    assert "business partners use technologies" not in out
+    assert "including cookies" not in out
+    assert "storage from compute" in out
+    assert "schema registry lets producers evolve message formats" in out
+
+
+def test_r2_ama_empty_anchor_and_bare_url_stripped() -> None:
+    """RC1/RC3 (ev_441): the welded heading's empty-anchor link and bare parenthesised URL echo are
+    removed; the ethics prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_441_ama_empty_anchor_heading.md"))
+    assert "journalofethics.ama-assn.org" not in out
+    assert "[]" not in out
+    assert "ethical obligation to disclose financial conflicts of interest" in out
+
+
+def test_r2_commerce_prose_inline_links_unwrapped() -> None:
+    """RC2 (ev_011): inline absolute-URL study links welded into real prose are unwrapped to their
+    anchor text (density-dilution leak); the URL chrome is gone, every prose word preserved."""
+    out = strip_markdown_nav_chrome(_load("ev_011_commerce_prose_study_links.md"))
+    assert "commerce.nc.gov" not in out
+    assert "](http" not in out
+    assert "recent study" in out and "follow-up analysis" in out
+    assert "broadband expansion in rural counties increased small-business formation" in out
+
+
+def test_r2_oamg_related_posts_run_stripped() -> None:
+    """RC2 (ev_896): a welded related-posts link RUN after the article prose is removed; the
+    conclusion prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_896_oamg_related_posts.md"))
+    assert "oa.mg" not in out
+    assert "[Scaling laws revisited]" not in out
+    assert "transformer models scale predictably with data and compute" in out
+
+
+def test_r2_oecd_toc_share_run_stripped() -> None:
+    """RC2 (ev_045): the welded TOC/share link RUN is removed; the labour-market prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_045_oecd_toc_share.md"))
+    assert "oecd.org/share" not in out
+    assert "[Print]" not in out and "[Cite]" not in out
+    assert "active labour-market policies improve reemployment rates" in out
+
+
+def test_r2_oska_download_cta_unwrapped() -> None:
+    """RC2 (ev_191): a single welded download-CTA link is unwrapped to anchor text (URL gone); the
+    retraining prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_191_oska_download_cta.md"))
+    assert "oska.example.org" not in out
+    assert ".pdf)" not in out
+    assert "vocational retraining raises median wages" in out
+
+
+def test_r2_punku_relative_related_links_deleted() -> None:
+    """RC2 (ev_891): welded related-posts links with RELATIVE (/blog/…) targets are deleted whole
+    (site nav, not prose); the payment-rails prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_891_punku_related_list.md"))
+    assert "/blog/" not in out
+    assert "[Onboarding merchants]" not in out and "[Dispute handling]" not in out
+    assert "staged rollout of new payment rails to limit settlement risk" in out
+
+
+def test_r2_bipartisanpolicy_backlink_deleted_citation_kept() -> None:
+    """RC2/RC4 (ev_037): a reference-like endnote keeps its DOI + citation text byte-preserved; ONLY
+    the empty-anchor same-page footnote back-link (the sole ref-mode exception) is deleted."""
+    out = strip_markdown_nav_chrome(_load("ev_037_backlink_endnote.md"))
+    assert "#4468eeee-endnote-link" not in out
+    assert "bipartisanpolicy.org/report/work-future" not in out
+    assert "10.1353/eca.2018.0000" in out
+    assert "Is automation labor-displacing?" in out
+
+
+def test_r2_nationalacademies_login_wall_stripped() -> None:
+    """RC3 (ev_117): the login-wall sentence and the 'Download as guest' CTA link are removed (the
+    line collapses and drops); the report prose on the next line survives."""
+    out = strip_markdown_nav_chrome(_load("ev_117_nationalacademies_loginwall.md"))
+    assert "You must be logged in" not in out
+    assert "Download as guest" not in out
+    assert "federal research funding yields measurable long-term economic returns" in out
+
+
+def test_r2_scale_stanford_empty_anchor_and_bare_urls_stripped() -> None:
+    """RC3/RC4 (ev_933): an empty-anchor link and the bare parenthesised same-page URL echoes are
+    removed; the RL-curriculum prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_933_scale_stanford_bare_urls.md"))
+    assert "scale.stanford.edu" not in out
+    assert "#site-content" not in out and "#page-footer" not in out
+    assert "curriculum ordering improves sample efficiency" in out
+
+
+def test_r2_repec_serial_index_is_shell() -> None:
+    """RC3 (ev_748): a RePEc serial INDEX page (not an article) is a whole-source fetch-shell via
+    the new any-length co-occurrence tuple, so it is refused at the is_cited_span_shell fetch seam."""
+    wall = _load("ev_748_repec_serial_index.txt")
+    assert shell_detector.is_cited_span_shell(wall) is True
+    # A real economics article that merely cites a RePEc URL once is NOT a shell (needs both tokens).
+    prose = (
+        "The working paper, archived at https://ideas.repec.org/p/example, estimates that minimum "
+        "wage increases raised earnings for low-tenure workers without measurable employment loss."
+    )
+    assert shell_detector.is_cited_span_shell(prose) is False
+
+
+# --- round-2 guards: byte-identical / OFF-path ----------------------------
+
+
+def test_r2_reference_line_inline_link_guard_byte_identical() -> None:
+    """RC2 GUARD: a reference-like citation line (year + author) keeps its inline absolute-URL link
+    WRAPPED byte-identical — the unwrap policy never touches a reference/citation line."""
+    text = _load("reference_line_inline_link_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "[Full text](https://www.brookings.edu/bpea/2018/autor-salomons)" in out
+
+
+def test_r2_v2_off_is_byte_identical_to_round1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OFF path: with PG_FETCH_MD_NAV_STRIP_V2=0 the round-2 unwrap/vocab is never applied, so a
+    prose line with incidental inline links is byte-identical to its (round-1 prose-like KEEP)
+    input; ON, the links are unwrapped."""
+    text = _load("ev_011_commerce_prose_study_links.md")
+    monkeypatch.setenv("PG_FETCH_MD_NAV_STRIP_V2", "0")
+    off = strip_markdown_nav_chrome(text)
+    assert off == text.strip()
+    assert "commerce.nc.gov" in off  # links preserved when V2 OFF
+    monkeypatch.delenv("PG_FETCH_MD_NAV_STRIP_V2", raising=False)
+    on = strip_markdown_nav_chrome(text)
+    assert "commerce.nc.gov" not in on  # links unwrapped when V2 ON
+
+
+def test_r2_span_window_link_boundary_snap() -> None:
+    """RC4 Fix 5: _build_provenance_quote trims a leading dangling link URL tail and a trailing
+    incomplete link token off a windowed span; OFF ⇒ byte-identical. Never eats a decimal/word."""
+    from src.polaris_graph.retrieval.live_retriever import (
+        _trim_span_link_fragments,
+        _span_window_link_snap_enabled,
+    )
+    import os
+
+    # leading dangling URL tail (no '[' before the first ')') is trimmed.
+    assert _trim_span_link_fragments(
+        'work-future/#4468eeee-link) the study reports a 12.4 percent reduction in mortality.'
+    ) == 'the study reports a 12.4 percent reduction in mortality.'
+    # trailing incomplete '[anchor](partial' token is trimmed.
+    assert _trim_span_link_fragments(
+        'Mortality fell to 12.4 percent in the treatment arm [Read more](https://example.org/rea'
+    ) == 'Mortality fell to 12.4 percent in the treatment arm'
+    # a clean span (a complete link, a decimal, no dangling fragment) is byte-identical.
+    clean = 'The reduction was 12.4 percent, per the [trial report](https://example.org/t).'
+    assert _trim_span_link_fragments(clean) == clean
+    # gate default-ON, honours OFF.
+    prev = os.environ.pop("PG_SPAN_WINDOW_LINK_SNAP", None)
+    try:
+        assert _span_window_link_snap_enabled() is True
+        os.environ["PG_SPAN_WINDOW_LINK_SNAP"] = "0"
+        assert _span_window_link_snap_enabled() is False
+    finally:
+        os.environ.pop("PG_SPAN_WINDOW_LINK_SNAP", None)
+        if prev is not None:
+            os.environ["PG_SPAN_WINDOW_LINK_SNAP"] = prev

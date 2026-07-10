@@ -1,0 +1,1 @@
+OECD analysis finds that active labour-market policies improve reemployment rates for displaced workers. [Share](https://oecd.org/share) [Print](https://oecd.org/print) [Download](https://oecd.org/download) [Cite](https://oecd.org/cite)

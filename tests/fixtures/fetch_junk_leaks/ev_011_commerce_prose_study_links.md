@@ -1,0 +1,1 @@
+The Commerce Department reports that broadband expansion in rural counties increased small-business formation, according to a [recent study](https://commerce.nc.gov/study) and a [follow-up analysis](https://commerce.nc.gov/followup) released by the agency.

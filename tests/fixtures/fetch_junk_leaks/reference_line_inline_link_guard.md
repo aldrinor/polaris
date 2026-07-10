@@ -1,0 +1,1 @@
+Autor, D., & Salomons, A. (2018). Is automation labor-displacing? Productivity growth, employment, and the labor share. [Full text](https://www.brookings.edu/bpea/2018/autor-salomons). Brookings Papers on Economic Activity.

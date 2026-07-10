@@ -1,0 +1,1 @@
+Punku's guidance recommends staged rollout of new payment rails to limit settlement risk. - [Onboarding merchants](/blog/onboarding)- a practical guide - [Dispute handling](/blog/disputes)- reducing chargebacks

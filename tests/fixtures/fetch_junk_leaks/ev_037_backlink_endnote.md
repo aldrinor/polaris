@@ -1,0 +1,1 @@
+4. Autor, D., & Salomons, A. (2018). Is automation labor-displacing? Brookings Papers on Economic Activity. https://doi.org/10.1353/eca.2018.0000 [](https://www.bipartisanpolicy.org/report/work-future/#4468eeee-endnote-link)

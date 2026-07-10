@@ -1,0 +1,1 @@
+The paper concludes that transformer models scale predictably with data and compute across model families. Related posts: [Scaling laws revisited](https://oa.mg/p/scaling) [Emergent abilities](https://oa.mg/p/emergent) [Chinchilla optimal](https://oa.mg/p/chinchilla)

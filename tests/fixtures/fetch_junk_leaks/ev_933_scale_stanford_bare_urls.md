@@ -1,0 +1,1 @@
+Stanford researchers show that curriculum ordering improves sample efficiency for reinforcement-learning agents. [](https://scale.stanford.edu/) (https://scale.stanford.edu/#site-content)(https://scale.stanford.edu/#page-footer)

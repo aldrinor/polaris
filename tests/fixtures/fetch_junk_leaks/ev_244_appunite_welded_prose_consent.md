@@ -1,0 +1,1 @@
+Modern data platforms separate storage from compute so teams scale query capacity independently. We and our business partners use technologies, including cookies, to collect information about you for analytics. A schema registry lets producers evolve message formats without breaking downstream consumers.
