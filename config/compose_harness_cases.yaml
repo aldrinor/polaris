@@ -1,0 +1,128 @@
+# Compose fast-loop harness — labeled case set (I-comp-fastloop-001 / Fable design 2026-07-09).
+#
+# Each case is a NAMED SUBSET of REAL evidence_ids, every id VERIFIED PRESENT in the banked
+# snapshot named by `snapshot` below (drb_72_ai_labor, 529 rows in evidence_for_gen). No id is
+# invented (§-1.3 / LAW II). Subsetting a TEST INPUT is NOT a production cap — the pipeline under
+# test still runs its normal uncapped weight-and-consolidate path on whatever rows it is given;
+# the subset is disclosed in every report header.
+#
+# `expect`:
+#   compose_clean   — the row set must compose into clean prose (breaking it FAILS the harness).
+#   defect_absent   — the row set CARRIES a known defect class; the I-deepfix-006 fix must keep
+#                     that defect OUT of the rendered prose. PASS = defect absent from report.md.
+#
+# `must_not_render` / `must_render` — span fingerprints for the harness-owned leg-B oracle. They are
+# squash-matched (NFKD -> strip marks -> casefold -> letters+digits) so PDF hyphen-breaks / case /
+# diacritics do not hide a hit. `must_not_render` firing in BODY prose => FAIL, with the offending
+# sentence QUOTED (never a count). `must_render` (truncated-number cases) is the full published form
+# that MUST survive.
+#
+# `requires: diag_snapshot` — the real defect rows for this class (TRU/AACSB marketing preamble,
+# ev_865 BLS 175.2M truncated number) live ONLY in the fresh drb_72 DIAGNOSTIC snapshot, not banked
+# locally. The harness reports UNREACHABLE for these cases until that snapshot is banked under
+# outputs/corpus_backups/extracted/drb_72_ai_labor_diag/ — NEVER a silent skip.
+
+domain: workforce
+slug: drb_72_ai_labor
+snapshot: outputs/corpus_backups/extracted/drb_72_ai_labor/corpus_snapshot.json
+diag_snapshot: outputs/corpus_backups/extracted/drb_72_ai_labor_diag/corpus_snapshot.json
+
+cases:
+  # ── Clean control — MUST compose clean (breaking this FAILS the harness) ──
+  - name: clean_controls
+    expect: compose_clean
+    evidence_ids: [acemoglu_restrepo_automation_tasks, autor_why_still_jobs, brynjolfsson_genai_at_work]
+    must_not_render:
+      - would like to thank
+      - suggested citation
+      - crossref
+      - an official website of the united states government
+      - skip to main content
+    note: >
+      Three clean T1 anchors (Acemoglu-Restrepo automation framework, Autor 2015, Brynjolfsson
+      generative-AI-at-work 15% productivity). No front-matter / chrome / shell content. If the
+      compose stage injects any furniture into these, that is a regression the harness must catch.
+
+  # ── Paper front-matter welded as evidence ──
+  - name: defect_frontmatter_weld
+    expect: defect_absent
+    evidence_ids: [ev_019, ev_321, ev_552, ev_713, ev_733, acemoglu_restrepo_automation_tasks, autor_why_still_jobs]
+    must_not_render:
+      - would like to thank
+      - acknowledgements this report
+      - suggested citation
+      - beis research report number
+    note: >
+      ev_019 / ev_321 / ev_552 carry "would like to thank ..." acknowledgements front-matter;
+      ev_713 / ev_733 carry "Suggested Citation:" masthead. Two clean anchors give the section real
+      claims to compose. The PG_INLINE_FURNITURE_STRIP / front-matter machinery must keep the
+      acknowledgements + suggested-citation furniture out of the rendered prose.
+
+  # ── Delivery chrome (Crossref, gov banner, agentpanel non-source) welded into prose ──
+  - name: defect_chrome_crossref
+    expect: defect_absent
+    evidence_ids: [ev_114, ev_384, ev_379, ev_181, ev_006, ev_009, acemoglu_restrepo_automation_tasks]
+    must_not_render:
+      - crossref
+      - an official website of the united states government
+      - google scholar
+      - web of science
+      - view all access options
+    note: >
+      ev_114 / ev_384 / ev_379 / ev_181 carry "Crossref" + "Web of Science" + "Google Scholar"
+      citation-widget chrome; ev_006 is the BLS "An official website of the United States
+      government" gov banner; ev_009 is an agentpanel.net non-source (Chinese link-farm blurb). The
+      chrome screen must keep all of it out of the rendered prose.
+
+  # ── Empty-shell / link-farm source narrated as a finding ──
+  - name: defect_shell_narration
+    expect: defect_absent
+    evidence_ids: [ev_249, ev_270, ev_013, ev_512, acemoglu_restrepo_automation_tasks]
+    must_not_render:
+      - skip to main content
+      - read more and follow media debates
+      - read more recent content from brookings
+      - cookie policy
+    note: >
+      ev_249 leads with "Skip to Main Content" nav chrome; ev_270 / ev_013 are "read more and
+      follow ..." media-hub link-farms; ev_512 is a LinkedIn cookie-policy shell. The
+      PG_SHELL_SOURCE_INPUT_SCREEN + link-density rule must refuse to narrate these as findings.
+
+  # ── Marketing preamble as findings (TRU top-10 predictions, AACSB self-praise) ──
+  - name: defect_marketing_preamble
+    expect: defect_absent
+    requires: diag_snapshot
+    evidence_ids: []
+    must_not_render:
+      - top 10 predictions
+      - proud to announce
+      - transforming business education
+    note: >
+      The TRU "top 10 predictions" + AACSB self-praise rows exist ONLY in the fresh drb_72
+      diagnostic snapshot (the run the defect list came from). Until that snapshot is banked under
+      diag_snapshot, this case reports UNREACHABLE — never a silent skip.
+
+  # ── Truncated published number (175.2M -> "175") ──
+  - name: defect_truncated_number
+    expect: defect_absent
+    requires: diag_snapshot
+    evidence_ids: []
+    must_render: ["175.2"]
+    must_not_render: ["to 175 "]
+    note: >
+      ev_865 (BLS employment 175.2M) lives ONLY in the fresh diagnostic snapshot. Until banked, this
+      case reports UNREACHABLE. The truncated-number ORACLE itself is exercised offline in
+      tests/polaris_graph/test_compose_harness_oracle.py against the banked ev_202 14.2% span.
+
+  # ── >=3-corroborator synthesis basket (C1 entailment path + quote-dump tripwire) ──
+  - name: synthesis_multi_source
+    expect: compose_clean
+    evidence_ids: [acemoglu_restrepo_automation_tasks, acemoglu_restrepo_robots_jobs, autor_why_still_jobs, frey_osborne_computerisation]
+    must_not_render:
+      - crossref
+      - would like to thank
+    note: >
+      Four T1 sources corroborating the same qualitative claim — automation / robots displace routine
+      labor tasks and reinstate new ones. Exercises the C1 entailment-union synthesis verifier and the
+      extractive/quote-dump ADVISORY tripwire (the worst stitched paragraph is quoted; the number is
+      never the verdict — the §-1.1 read stays the binding decision).
