@@ -171,6 +171,16 @@ SHELL_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
     ("new comments cannot be posted", "votes cannot be cast"),
     ("subscribe", "watch later", "share"),
     ("autoplay is paused", "up next"),
+    # I-fetchclean-001 round-3 (2026-07-10) — additional cookie-consent CMP banners seen whole-body
+    # in the live retest round 2 (ev_865 / ev_244 / AMS-Bologna ev_661). Each is an ALL-of chrome
+    # co-occurrence, SHORT-body gated (``_chrome_class_present``) exactly like the cookie classes
+    # above: a long real article carrying one of these words as an incidental footer is NOT a shell.
+    # The Italian tuple is anchored to the banner's distinctive "nel nostro sito utilizziamo" phrase
+    # (NEVER clinical prose), so a clinical sentence about informed consent is not false-dropped.
+    ("cookies on this website", "allow all cookies"),
+    ("cookie settings on this website", "continue without changing"),
+    ("we and our business partners use technologies", "cookies"),
+    ("nel nostro sito utilizziamo", "cookie", "consenso"),
 )
 
 # Single-phrase shell markers that ARE challenge/error/chrome-specific but might appear in a
