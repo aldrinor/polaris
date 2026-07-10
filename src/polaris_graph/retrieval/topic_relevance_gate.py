@@ -110,6 +110,24 @@ def topic_gate_hard_drop_enabled() -> bool:
     return raw not in ("0", "false", "no", "off", "")
 
 
+def topic_gate_subject_aspect_split_enabled() -> bool:
+    """Flag ``PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT`` (default ON — I-deepfix-003 #1374 Fix 3).
+
+    Splits the single confident-OFF verdict into two kinds:
+      - ``OFF_ASPECT`` — the SAME subject entity but a DIFFERENT aspect / use-case /
+        population than the question asks about (a topic-adjacent hub, e.g. an
+        education-AI paper for a labor-market question). DEMOTE-and-keep, NEVER deletable.
+      - ``OFF_SUBJECT`` — a CLEARLY DIFFERENT subject entity (different field / domain —
+        scholar-mill / unrelated-domain junk). This is the ONLY deletable OFF: it alone
+        carries the ``topic_off_subject=True`` sidecar the downstream junk-deletion gate
+        keys on.
+    A legacy plain ``OFF`` parses as OFF_ASPECT (conservative — never delete on the old
+    verdict form). Set ``PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT=0`` to restore the
+    byte-identical legacy ON/OFF prompt + parser (no ``topic_off_subject`` stamp)."""
+    raw = os.environ.get("PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
 def topic_batch_size() -> int:
     """``PG_SCOPE_TOPIC_BATCH`` (default 25), the max sources per LLM call.
     A non-positive / unparseable value falls back to the default (FAIL-SAFE:
@@ -194,11 +212,74 @@ def _row_is_marquee_anchor(row: dict[str, Any]) -> bool:
 def _build_batch_prompt(
     research_question: str,
     batch: list[tuple[int, str, str]],
+    *,
+    subject_aspect_split: bool = False,
 ) -> str:
     """Build a single ON/OFF-topic classification prompt for a batch of
     sources. ``batch`` is a list of (local_index, title, snippet). The LLM is
     asked to return exactly one line per source: ``<index>: ON`` or
-    ``<index>: OFF``. Confident-OFF-only is enforced at parse time."""
+    ``<index>: OFF``. Confident-OFF-only is enforced at parse time.
+
+    ``subject_aspect_split`` (I-deepfix-003 #1374 Fix 3): when True the OFF verdict
+    is split into ``OFF_ASPECT`` (same subject, wrong aspect — kept/demoted) and
+    ``OFF_SUBJECT`` (clearly different subject — the only deletable OFF). When False
+    (the byte-identical legacy) the prompt asks only for ``ON`` / ``OFF``."""
+    # I-deepfix-003 #1374 Fix 3: the STEP-2 rubric, the domain-neutral example, the
+    # OUTPUT CONTRACT, and the trailer are the ONLY segments that differ between the
+    # legacy two-verdict form and the three-verdict subject/aspect split. Everything
+    # else (STEP 1, the date-blind rule, the fail-open) is byte-identical in both. The
+    # ``else`` strings below reproduce the legacy prompt EXACTLY (byte-identical OFF).
+    if subject_aspect_split:
+        step2_line = (
+            "STEP 2 — for EACH numbered source below, choose EXACTLY ONE verdict: "
+            "ON if the source plausibly bears on BOTH the subject entity AND that "
+            "specific aspect; OFF_ASPECT if the source is about the SAME subject "
+            "entity but a DIFFERENT aspect / use-case / population than the question "
+            "asks about (same subject, wrong question — a topic-adjacent hub that is "
+            "KEPT and only demoted, never removed); OFF_SUBJECT if the source is "
+            "about a CLEARLY DIFFERENT subject entity (different field, disease, "
+            "domain — e.g. an unrelated-domain or scholar-mill paper). When you are "
+            "unsure between OFF_ASPECT and OFF_SUBJECT, choose OFF_ASPECT (the "
+            "safer, keep-and-demote verdict)."
+        )
+        example_line = (
+            "Example (domain-neutral): if the question is about entity X and aspect "
+            "A, then a source about entity X but aspect B is OFF_ASPECT; a source "
+            "about a clearly different entity Y is OFF_SUBJECT; a source about entity "
+            "X and aspect A is ON."
+        )
+        output_contract_line = (
+            "OUTPUT CONTRACT (strict — the parser accepts nothing else): OUTPUT ONLY "
+            "THE VERDICT LINES, exactly one per source, each line EXACTLY in the form "
+            "`<index>: ON`, `<index>: OFF_ASPECT`, or `<index>: OFF_SUBJECT`. Do NOT "
+            "write the entity or aspect names, any reasoning, any explanation, or any "
+            "other words — not on a verdict line and not anywhere else in the output."
+        )
+        trailer_line = (
+            "VERDICTS (one `<index>: ON|OFF_ASPECT|OFF_SUBJECT` line per source):"
+        )
+    else:
+        step2_line = (
+            "STEP 2 — for EACH numbered source below, mark it ON only if it plausibly "
+            "bears on BOTH the subject entity AND that specific aspect. A source about "
+            "the SAME entity but a DIFFERENT aspect / use-case / population than the "
+            "question asks about is OFF-TOPIC — same subject, wrong question. A source "
+            "about a clearly different subject entity (different field, disease, "
+            "population) is also OFF-TOPIC."
+        )
+        example_line = (
+            "Example (domain-neutral): if the question is about entity X and aspect A, "
+            "then a source about entity X but aspect B is OFF; a source about entity X "
+            "and aspect A is ON."
+        )
+        output_contract_line = (
+            "OUTPUT CONTRACT (strict — the parser accepts nothing else): OUTPUT ONLY "
+            "THE VERDICT LINES, exactly one per source, each line EXACTLY in the form "
+            "`<index>: ON` or `<index>: OFF`. Do NOT write the entity or aspect names, "
+            "any reasoning, any explanation, or any other words — not on a verdict "
+            "line and not anywhere else in the output."
+        )
+        trailer_line = "VERDICTS (one `<index>: ON|OFF` line per source):"
     lines = [
         "You are a strict topic-relevance classifier for a research report.",
         "",
@@ -229,16 +310,9 @@ def _build_batch_prompt(
         "about that entity (the outcome, relation, sub-domain, use-case, or "
         "population the question is actually asking about).",
         "",
-        "STEP 2 — for EACH numbered source below, mark it ON only if it plausibly "
-        "bears on BOTH the subject entity AND that specific aspect. A source about "
-        "the SAME entity but a DIFFERENT aspect / use-case / population than the "
-        "question asks about is OFF-TOPIC — same subject, wrong question. A source "
-        "about a clearly different subject entity (different field, disease, "
-        "population) is also OFF-TOPIC.",
+        step2_line,
         "",
-        "Example (domain-neutral): if the question is about entity X and aspect A, "
-        "then a source about entity X but aspect B is OFF; a source about entity X "
-        "and aspect A is ON.",
+        example_line,
         "",
         # I-deepfix-001 (drb_72 forensic): the seminal on-topic papers were wrongly marked OFF
         # because the question text embeds a DATE window ("before June 2023") and the judge read a
@@ -252,11 +326,7 @@ def _build_batch_prompt(
         "FAIL-OPEN: if you genuinely cannot tell whether the source addresses the "
         "question's specific aspect, mark it ON. When in doubt, answer ON.",
         "",
-        "OUTPUT CONTRACT (strict — the parser accepts nothing else): OUTPUT ONLY "
-        "THE VERDICT LINES, exactly one per source, each line EXACTLY in the form "
-        "`<index>: ON` or `<index>: OFF`. Do NOT write the entity or aspect names, "
-        "any reasoning, any explanation, or any other words — not on a verdict "
-        "line and not anywhere else in the output.",
+        output_contract_line,
         "",
         "SOURCES:",
     ]
@@ -268,7 +338,7 @@ def _build_batch_prompt(
             text = "(no title or snippet)"
         lines.append(f"{local_idx}: {text}")
     lines.append("")
-    lines.append("VERDICTS (one `<index>: ON|OFF` line per source):")
+    lines.append(trailer_line)
     return "\n".join(lines)
 
 
@@ -307,6 +377,54 @@ def _parse_batch_verdicts(
         # else: leave unset -> count mismatch -> fail-open
     if set(verdicts.keys()) != wanted:
         # Missing / extra / unparseable verdicts: keep the whole batch.
+        return None
+    return verdicts
+
+
+def _parse_batch_verdicts_split(
+    raw: str,
+    expected_indices: list[int],
+) -> dict[int, str] | None:
+    """Parse the three-verdict (subject/aspect split) LLM response into
+    ``{local_index: "ON" | "OFF_ASPECT" | "OFF_SUBJECT"}``.
+
+    Returns None (FAIL-OPEN — keep the whole batch) on the SAME conditions as the
+    legacy :func:`_parse_batch_verdicts`: empty/blank input, or any result that is
+    not exactly one recognised verdict per requested index. Recognised verdict
+    tokens (case-insensitive, separator-tolerant so ``off subject`` / ``off-subject``
+    / ``off_subject`` all match): ``on`` -> ON, ``off_subject`` -> OFF_SUBJECT,
+    ``off_aspect`` -> OFF_ASPECT, and a legacy bare ``off`` -> OFF_ASPECT
+    (conservative — the old verdict form is NEVER treated as deletable). Anything
+    unrecognised is ignored so the count check below trips fail-open."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    verdicts: dict[int, str] = {}
+    wanted = set(expected_indices)
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or ":" not in stripped:
+            continue
+        idx_part, _, verdict_part = stripped.partition(":")
+        idx_token = idx_part.strip().lstrip("-").strip()
+        if not idx_token.isdigit():
+            continue
+        idx = int(idx_token)
+        if idx not in wanted:
+            continue
+        # Normalise separators so "off subject"/"off-subject"/"off_subject" collapse.
+        norm = verdict_part.strip().lower().replace("-", "_").replace(" ", "_")
+        if norm.startswith("on"):
+            verdicts[idx] = "ON"
+        elif norm.startswith("off_subject") or norm.startswith("offsubject"):
+            verdicts[idx] = "OFF_SUBJECT"
+        elif norm.startswith("off_aspect") or norm.startswith("offaspect"):
+            verdicts[idx] = "OFF_ASPECT"
+        elif norm.startswith("off"):
+            # Legacy bare OFF -> OFF_ASPECT (conservative: never delete on the
+            # old verdict form).
+            verdicts[idx] = "OFF_ASPECT"
+        # else: unrecognised -> leave unset -> count mismatch -> fail-open.
+    if set(verdicts.keys()) != wanted:
         return None
     return verdicts
 
@@ -407,9 +525,17 @@ def classify_topic_relevance(
     rescue_on_stamp = os.environ.get("PG_TOPIC_GATE_RESCUE_ON_STAMP", "1").strip().lower() not in (
         "0", "false", "no", "off",
     )
+    # I-deepfix-003 #1374 Fix 3: split the OFF verdict into OFF_ASPECT (demote-keep) vs
+    # OFF_SUBJECT (the only deletable OFF). Default ON; OFF = byte-identical legacy prompt
+    # + two-verdict parser + no ``topic_off_subject`` sidecar.
+    split = topic_gate_subject_aspect_split_enabled()
     offtopic_rows: list[dict[str, Any]] = []
     offtopic_titles: list[str] = []
     ontopic_rows: list[dict[str, Any]] = []  # I-deepfix-001: confident-ON, for the rescue False-stamp
+    # I-deepfix-003 Fix 3: confident-OFF_SUBJECT rows (a subset of offtopic_rows) — the
+    # ONLY rows that receive the deletable ``topic_off_subject=True`` sidecar. Empty
+    # unless the subject/aspect split is enabled.
+    offsubject_rows: list[dict[str, Any]] = []
 
     for start in range(0, len(judged_rows), size):
         end = min(start + size, len(judged_rows))
@@ -420,7 +546,9 @@ def classify_topic_relevance(
             for local_idx in range(len(batch_rows))
         ]
         expected = [b[0] for b in batch]
-        prompt = _build_batch_prompt(research_question, batch)
+        prompt = _build_batch_prompt(
+            research_question, batch, subject_aspect_split=split,
+        )
         try:
             raw = llm_callable(prompt)
         except Exception as exc:  # FAIL-OPEN on any LLM error -> keep batch.
@@ -429,7 +557,10 @@ def classify_topic_relevance(
                 "%d sources: %s", len(batch_rows), str(exc)[:200],
             )
             continue
-        verdicts = _parse_batch_verdicts(raw, expected)
+        if split:
+            verdicts = _parse_batch_verdicts_split(raw, expected)
+        else:
+            verdicts = _parse_batch_verdicts(raw, expected)
         if verdicts is None:  # FAIL-OPEN on count mismatch / unparseable.
             _LOGGER.warning(
                 "[scope] topic_gate batch unparseable / count mismatch — "
@@ -438,6 +569,19 @@ def classify_topic_relevance(
             continue
         for local_idx, row in enumerate(batch_rows):
             v = verdicts.get(local_idx)
+            if split:
+                # Three-verdict split. Both OFF kinds are DEMOTED (weight); only
+                # OFF_SUBJECT additionally carries the deletable sidecar below.
+                if v == "OFF_SUBJECT":
+                    offtopic_rows.append(row)
+                    offtopic_titles.append(batch_meta[local_idx][0] or "(no title)")
+                    offsubject_rows.append(row)
+                elif v == "OFF_ASPECT":
+                    offtopic_rows.append(row)
+                    offtopic_titles.append(batch_meta[local_idx][0] or "(no title)")
+                elif v == "ON":
+                    ontopic_rows.append(row)
+                continue
             if v is True:  # confident OFF only
                 offtopic_rows.append(row)
                 # batch_meta is already the per-batch slice -> index locally.
@@ -472,6 +616,12 @@ def classify_topic_relevance(
         if rescue_on_stamp:
             for row in ontopic_rows:
                 row["topic_offtopic_demoted"] = False
+        # I-deepfix-003 #1374 Fix 3: stamp the deletable sidecar ONLY on OFF_SUBJECT
+        # rows (a clearly different subject — scholar-mill / unrelated-domain junk).
+        # OFF_ASPECT rows carry ONLY ``topic_offtopic_demoted`` (demote-keep, never
+        # deletable). The downstream junk-deletion gate keys deletion on this sidecar.
+        for row in offsubject_rows:
+            row["topic_off_subject"] = True
         dropped_rows, dropped_titles = [], []
         demoted_rows, demoted_titles = offtopic_rows, offtopic_titles
 
