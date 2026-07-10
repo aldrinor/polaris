@@ -146,6 +146,23 @@ def test_front_matter_fail_open_on_short_stub():
     assert shell_detector.is_issue_front_matter("") is False
 
 
+def test_front_matter_false_on_long_report_with_deep_toc():
+    """I-deepfix-004 F3: a legit LONG report whose HEAD is clean article prose but whose
+    BODY carries a normal list-of-tables index DEEP inside (past the head window) must NOT
+    be flagged — the screen reads only the HEAD, not the whole body. The absolute full-body
+    dot-leader count WOULD have tripped the pre-fix whole-body scan."""
+    clean_head = "A systematic review of automation and employment outcomes. " * 40  # ~2360 chars, 0 dot-leaders
+    deep_toc = "\n".join(f"Table {i} description ....... {100 + i}" for i in range(1, 15))  # 14 dot-leader lines
+    span = clean_head + "\n\n" + deep_toc
+    # Precondition: the FULL-body absolute count trips the floor (the old whole-body bug).
+    assert len(shell_detector._FRONT_MATTER_DOT_LEADER_RE.findall(span)) >= (
+        shell_detector._front_matter_toc_line_min()
+    )
+    # The clean head fills the whole scan window, so the head carries zero dot-leaders.
+    assert len(clean_head) >= shell_detector._front_matter_head_chars()
+    assert shell_detector.is_issue_front_matter(span) is False
+
+
 def test_front_matter_screen_flag_off_is_byte_identical(monkeypatch):
     """The default-ON gate: OFF => the screen wrapper never fires => byte-identical KEEP,
     even on the real dot-leader masthead. The pure detector itself is flag-agnostic (still
@@ -208,13 +225,27 @@ def test_collision_unique_spans_none_flagged():
     assert shell_detector.identical_span_collision(rows) == set()
 
 
-def test_collision_blob_sha_key_different_dois_flagged():
-    """The content-identity key prefers fetched_blob_sha (B4 stamp): two rows sharing one
-    blob sha but citing different works => container => both flagged, even if the stored
-    direct_quote strings differ (a windowed slice of the same blob)."""
+def test_collision_distinct_sliced_articles_same_blob_not_merged():
+    """I-deepfix-004 F4: two CORRECTLY-sliced DISTINCT articles from ONE issue PDF share
+    the same whole-PDF fetched_blob_sha but carry DIFFERENT stored spans (direct_quote).
+    Keying the collision on the whole-PDF blob sha would FALSELY merge them; keying on the
+    STORED SPAN keeps them distinct => NOT flagged."""
     rows = [
-        _row("ev_a", "windowed slice one", doi="10.1/aaa", blob_sha="deadbeef" * 8),
-        _row("ev_b", "a different window", doi="10.2/bbb", blob_sha="deadbeef" * 8),
+        _row("ev_a", "sliced alpha article text", doi="10.1/aaa", blob_sha="deadbeef" * 8),
+        _row("ev_b", "sliced beta article text", doi="10.2/bbb", blob_sha="deadbeef" * 8),
+    ]
+    assert shell_detector.identical_span_collision(rows) == set()
+
+
+def test_collision_same_masthead_text_across_dois_still_flagged():
+    """I-deepfix-004 F4 (anti-laundering intent preserved): when slicing FAILS the rows
+    carry the IDENTICAL masthead TEXT across DIFFERENT DOIs — that identical stored span
+    still collides => both flagged, even though they also share a blob sha. The blob-sha
+    key change does not weaken the real container-collision detection."""
+    masthead = SPANS["toc_dot_leader_masthead"]
+    rows = [
+        _row("ev_a", masthead, doi="10.1/aaa", blob_sha="deadbeef" * 8),
+        _row("ev_b", masthead, doi="10.2/bbb", blob_sha="deadbeef" * 8),
     ]
     assert shell_detector.identical_span_collision(rows) == {"ev_a", "ev_b"}
 
@@ -504,3 +535,154 @@ def test_refetch_masthead_screen_off_is_byte_identical(monkeypatch):
     )
 
     assert diag["failure_mode"] != "wrong_content_front_matter"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F2 (B3) — SLICE-IDENTITY VERIFICATION (printed-page slice must be confirmed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_slice_identity_verified_printed_page_at_top():
+    """Signal 2: the printed start page number as a standalone token near the top confirms."""
+    top = "Journal of X, p. 203  Automation and Employment: an alpha study. Abstract..."
+    assert ab._slice_identity_verified(top, 203) is True
+
+
+def test_slice_identity_unverified_when_page_absent():
+    """No title, printed page absent from the top => UNVERIFIED (the caller recovers)."""
+    top = "A completely different article about five unrelated things. Introduction only."
+    assert ab._slice_identity_verified(top, 203) is False
+
+
+def test_slice_identity_page_number_deep_does_not_confirm():
+    """Precision-first: an incidental page-number token DEEP past the top window must NOT
+    confirm (the dangerous direction is a false-CONFIRM of a wrong slice)."""
+    top = "x" * 500 + " 203 patients were enrolled in the unrelated cohort "
+    assert ab._slice_identity_verified(top, 203, top_chars=400) is False
+
+
+def test_slice_identity_verified_by_title():
+    """Signal 1: the cited TITLE appearing near the top confirms (title-when-present); an
+    unrelated title does not."""
+    top = "Automation and Employment Effects\nAbstract: we study ... 42.577 percent."
+    assert ab._slice_identity_verified(
+        top, None, cited_title="Automation and Employment Effects"
+    ) is True
+    assert ab._slice_identity_verified(
+        top, None, cited_title="Some Other Unrelated Title Text"
+    ) is False
+
+
+def test_slice_identity_verify_flag_default_on_and_off():
+    """The default-ON gate + its explicit-OFF values."""
+    orig = os.environ.pop("PG_PDF_SLICE_IDENTITY_VERIFY", None)
+    try:
+        assert ab.pdf_slice_identity_verify_enabled() is True  # unset => default ON
+        for off in ("0", "false", "no", "off"):
+            os.environ["PG_PDF_SLICE_IDENTITY_VERIFY"] = off
+            assert ab.pdf_slice_identity_verify_enabled() is False
+        for on in ("1", "true", "yes", "on"):
+            os.environ["PG_PDF_SLICE_IDENTITY_VERIFY"] = on
+            assert ab.pdf_slice_identity_verify_enabled() is True
+    finally:
+        os.environ.pop("PG_PDF_SLICE_IDENTITY_VERIFY", None)
+        if orig is not None:
+            os.environ["PG_PDF_SLICE_IDENTITY_VERIFY"] = orig
+
+
+def _build_printed_page_match_pdf() -> bytes:
+    """A 3-page combined PDF whose cited article (physical page 2) opens with a standalone
+    printed page number '2' at the top — so an anchor of 2 verifies."""
+    import fitz
+
+    doc = fitz.open()
+    for text in (
+        "ISSN 2500-2953  СОДЕРЖАНИЕ  Table of Contents  cover masthead page one.",
+        "2  ARTICLE_GAMMA_MARKER the cited study begins on printed page two. Abstract.",
+        "ARTICLE_GAMMA_MARKER continued: discussion, conclusion and references list.",
+    ):
+        page = doc.new_page()
+        page.insert_text((72, 100), text, fontsize=11)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def test_printed_page_slice_unverified_recovers_whole_doc(monkeypatch):
+    """I-deepfix-004 F2: a PRINTED-page anchor whose slice cannot be identity-confirmed at
+    the top is NOT adopted — the whole doc is recovered (kept + disclosed), so the masthead
+    AND both articles reappear instead of a silently-wrong sliced article."""
+    monkeypatch.setenv("PG_MAX_DOCLING_PDF_PAGES", "1")
+    monkeypatch.setenv("PG_PDF_SLICE_IDENTITY_VERIFY", "1")
+    pdf = _build_multi_article_pdf()
+    # page_anchor=2 as a PRINTED page number; the alpha slice top carries no standalone "2".
+    body = _extract_impl(pdf, page_anchor=2, page_end=3, anchor_is_printed_page=True)
+    assert "ISSN 2500-2953" in body        # recovered whole doc includes the masthead
+    assert "ARTICLE_ALPHA_MARKER" in body
+    assert "ARTICLE_BETA_MARKER" in body   # both articles present => slice was NOT adopted
+
+
+def test_printed_page_slice_verify_off_adopts_blindly(monkeypatch):
+    """OFF flag => byte-identical to the pre-fix blind adoption: the printed-page slice is
+    taken as-is (alpha only, no masthead, no beta) even though it is unverified."""
+    monkeypatch.setenv("PG_MAX_DOCLING_PDF_PAGES", "1")
+    monkeypatch.setenv("PG_PDF_SLICE_IDENTITY_VERIFY", "0")
+    pdf = _build_multi_article_pdf()
+    body = _extract_impl(pdf, page_anchor=2, page_end=3, anchor_is_printed_page=True)
+    assert "ARTICLE_ALPHA_MARKER" in body
+    assert "ISSN 2500-2953" not in body
+    assert "ARTICLE_BETA_MARKER" not in body
+
+
+def test_fragment_anchor_slice_trusted_not_verified(monkeypatch):
+    """A `#page=N` FRAGMENT anchor is a PHYSICAL page reference and is trusted — it is NOT
+    identity-verified, so the slice is adopted even with verification ON (anchor_is_printed_
+    page=False). Proves verification is scoped to printed-page anchors only."""
+    monkeypatch.setenv("PG_MAX_DOCLING_PDF_PAGES", "1")
+    monkeypatch.setenv("PG_PDF_SLICE_IDENTITY_VERIFY", "1")
+    pdf = _build_multi_article_pdf()
+    body = _extract_impl(pdf, page_anchor=2, page_end=3, anchor_is_printed_page=False)
+    assert "ARTICLE_ALPHA_MARKER" in body
+    assert "ISSN 2500-2953" not in body    # fragment anchor trusted => slice adopted
+    assert "ARTICLE_BETA_MARKER" not in body
+
+
+def test_printed_page_slice_verified_adopted(monkeypatch):
+    """I-deepfix-004 F2: a PRINTED-page anchor whose slice TOP carries the printed start
+    page number IS identity-confirmed => the slice is adopted (cited article only, not the
+    masthead)."""
+    monkeypatch.setenv("PG_MAX_DOCLING_PDF_PAGES", "1")
+    monkeypatch.setenv("PG_PDF_SLICE_IDENTITY_VERIFY", "1")
+    pdf = _build_printed_page_match_pdf()
+    body = _extract_impl(pdf, page_anchor=2, page_end=3, anchor_is_printed_page=True)
+    assert "ARTICLE_GAMMA_MARKER" in body
+    assert "ISSN 2500-2953" not in body    # masthead excluded => the slice was adopted
+
+
+def test_resolve_doi_pdf_target_marks_printed_page_anchor(monkeypatch):
+    """STEP B1 + F2: when the anchor falls back to the DOI printed-page suffix (no #page=N
+    fragment on the chain), the resolver marks anchor_is_printed_page=True so the extractor
+    knows to identity-verify that slice."""
+    orig = "https://doi.org/10.34142/2312-2919-2026-9-2-203-210"
+    final = "https://journals.example.org/vol9/reb-t-9-2-2026.pdf"  # no fragment anywhere
+    resp = _FakeResp(final, "application/pdf", [])  # empty history => no Location fragment
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _FakeSession(resp))
+
+    result = asyncio.run(ab.AccessBypass()._resolve_doi_pdf_target(orig))
+
+    assert result["page_anchor"] == 203               # from the DOI suffix -203-210
+    assert result["anchor_is_printed_page"] is True   # printed page => must be verified
+
+
+def test_resolve_doi_pdf_target_fragment_anchor_not_printed(monkeypatch):
+    """STEP B1 + F2: a #page=N fragment anchor is physical => anchor_is_printed_page=False
+    (trusted, not verified)."""
+    orig = "https://doi.org/10.34142/2312-2919-2026-9-2-203-210"
+    final = "https://journals.example.org/vol9/reb-t-9-2-2026.pdf#page=7"
+    resp = _FakeResp(final, "application/pdf", [])
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _FakeSession(resp))
+
+    result = asyncio.run(ab.AccessBypass()._resolve_doi_pdf_target(orig))
+
+    assert result["page_anchor"] == 7                 # from the #page=7 fragment
+    assert result["anchor_is_printed_page"] is False  # physical => trusted
