@@ -269,6 +269,9 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     # reassign candidate — DISCLOSURE ONLY, zero plan mutation (§-1.3 consolidate, never dropped).
     revision_audit = {
         "rounds": 0,
+        # S4 collapse fix 1(b): every content-word-overlap title re-map is DISCLOSED here (§-1.3) so
+        # the cp4 audit shows which required titles were mapped from a paraphrased emitted heading.
+        "title_conformed": list(getattr(parse_result, "title_conformed", []) or []),
         "orphan_baskets_after_plan": list(final_orphans),
         "orphan_reassign_candidates": [
             {"basket_id": bid, "members": basket_members.get(bid, []),
@@ -330,8 +333,28 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     print("\n=== (d) cp4 CHECKPOINT (verdict-leak guarded) ===")
     print(f"[d] wrote: {written}  reloaded_ok: {load_ok}")
 
-    ok = bool(load_ok) and (order_ok in (True, None)) and degraded_ok
-    print(f"\n[plan] ACCEPTANCE (a,c,d) ok={ok}  distinct_work_frac_ok={frac_ok}  "
+    # P2 HONESTY GATE (b/e): a passing (a)/(c)/(d) signal on a HOLLOW outline (every final plan
+    # empty while the bank carries evidence) is a false green — the exact failure that shipped a
+    # collapsed outline as "ok". FAIL when the final plans carry ZERO ev_ids while the bank is
+    # non-empty; and on a real (non-fixture) bank additionally require >=1 required section that is
+    # NOT undersupplied (at least one required heading must actually be evidence-backed).
+    ev_total = sum(len(p.ev_ids) for p in plans)
+    bank_nonempty = len(evidence) > 0
+    hollow_collapse = (ev_total == 0 and bank_nonempty)
+    required_supplied_ok = (any(not p.undersupplied for p in plans) if required else True)
+    be_gate_ok = (not hollow_collapse) and required_supplied_ok
+    print("\n=== (b/e) HONESTY GATE (no hollow collapse) ===")
+    print(f"[b/e] ev_id_total={ev_total} bank_nonempty={bank_nonempty} "
+          f"hollow_collapse={hollow_collapse} required_supplied_ok={required_supplied_ok} "
+          f">>> be_gate_ok={be_gate_ok}")
+
+    ok = (
+        bool(load_ok)
+        and (order_ok in (True, None))
+        and degraded_ok
+        and be_gate_ok
+    )
+    print(f"\n[plan] ACCEPTANCE (a,c,d,b/e) ok={ok}  distinct_work_frac_ok={frac_ok}  "
           f"in_tok={in_tok} out_tok={out_tok}")
     return 0 if ok else 1
 

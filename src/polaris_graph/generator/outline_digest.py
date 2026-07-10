@@ -450,8 +450,11 @@ def build_requirements_block(
         ordered = "; ".join(f"{i + 1}. {t}" for i, t in enumerate(required_sections))
         lines.append(
             "The user REQUIRES this section structure, in this order: "
-            f"[{ordered}]. Map the evidence facets INTO these sections. Do not invent "
-            "sections outside this list. If a required section has no supporting evidence, "
+            f"[{ordered}]. Emit EXACTLY these {len(required_sections)} sections — no more, no "
+            "fewer. Each section's `title` field MUST be a CHARACTER-FOR-CHARACTER copy of the "
+            "required title above: no paraphrase, no renaming, no extra sections. Map the evidence "
+            "facets INTO these sections and express each section's specific angle in the `focus` "
+            "field, never by altering the title. If a required section has no supporting evidence, "
             'still emit it with `ev_ids: []` and set `"undersupplied": true` — the pipeline '
             "will disclose the gap, never fake content."
         )

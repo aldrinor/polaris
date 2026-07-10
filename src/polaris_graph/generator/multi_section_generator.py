@@ -1386,6 +1386,12 @@ class OutlineParseResult:
     # wired into the outline call + its char length). DATA ONLY (never a verdict). Default empty so
     # every existing OutlineParseResult construction is byte-identical.
     digest_stats: dict = field(default_factory=dict)
+    # S4 collapse fix 1(b): the deterministic title-conform disclosure trail — one record
+    # ``{"required": <required title>, "from_title": <emitted title>, "score": <overlap>}`` per
+    # required title that was mapped by the content-word-overlap fallback (NOT an exact match). The
+    # cp4 ``revision_audit`` surfaces this so every re-map is DISCLOSED (§-1.3), never silent. Empty
+    # on the exact-match / OFF (no required_sections) path, so those constructions are byte-identical.
+    title_conformed: list = field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1617,8 +1623,19 @@ def _parse_outline(
                 logger.info("[multi_section] facet outline dropped empty title")
                 continue
         elif title_lower not in allowed and not _is_required:
-            logger.info("[multi_section] outline dropped off-list title %r", title)
-            continue
+            if required_lower:
+                # S4 collapse fix 1(a): when the user gave REQUIRED sections, those titles GOVERN.
+                # The model routinely paraphrases them (an IMRaD outline whose facet evidence lives
+                # under renamed headings). Dropping such an evidence-bearing section HERE is what
+                # starved the required plans to empty (the collapse). KEEP it — the existing ev_id
+                # validation below still applies — and DISCLOSE the mismatch as a reason code (was
+                # log-only, invisible in telemetry) so ``_conform_plans_to_required`` can re-map it
+                # onto a required title and the cp4 audit records that a re-map happened.
+                reason_codes.append(f"required_title_mismatch:{title_lower}")
+                # fall through — do NOT `continue` — so ev_ids are parsed/validated below.
+            else:
+                logger.info("[multi_section] outline dropped off-list title %r", title)
+                continue
         if title_lower in seen_titles:
             reason_codes.append(f"duplicate_title:{title_lower}")
             continue
@@ -1711,43 +1728,147 @@ def _parse_outline(
     )
 
 
+# S4 collapse fix 1(b): a MINIMAL generic stopword set for the title-conform overlap scorer. It
+# strips only function words / possessives so DISTINCTIVE content words survive; words shared across
+# several required titles are neutralised by the document-frequency filter in the conformer (they
+# never drive a mapping), so this set stays small + domain-neutral (a fixed helper, not a tunable).
+_CONFORM_STOPWORDS = frozenset({
+    "the", "a", "an", "of", "on", "in", "for", "to", "and", "or", "from", "with", "by", "at",
+    "as", "into", "onto", "over", "under", "s", "its", "their", "this", "that", "these", "those",
+    "is", "are", "be", "vs", "versus", "about", "toward", "towards",
+})
+
+
+def _conform_content_words(text: str) -> set[str]:
+    """Lowercase ``text`` -> the set of alphanumeric content-word tokens (stopwords stripped). Pure,
+    deterministic; used ONLY by the S4 title-conform overlap fallback — never a faithfulness gate."""
+    toks = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    return {t for t in toks if len(t) >= 2 and t not in _CONFORM_STOPWORDS}
+
+
 def _conform_plans_to_required(
     plans: list[SectionPlan],
     required_sections: list[str],
     *,
     facet_titles: bool = False,
+    disclosure: list | None = None,
 ) -> list[SectionPlan]:
-    """S4 ORCH-2 PUSH 1(c): make the final plan set EXACTLY the user's required sections, in the
-    required order — deterministically, never trusting LLM ordering.
+    """S4 ORCH-2 PUSH 1(c) + collapse fix 1(b): make the final plan set EXACTLY the user's required
+    sections, in the required order — deterministically, never trusting LLM ordering.
 
-    For each required title (in order): reuse the LLM-emitted plan whose title matches
-    case-insensitively (carrying its ev_ids / undersupplied / basket_ids); when the LLM emitted no
-    such section, synthesize an EMPTY ``undersupplied=True`` plan (the pipeline DISCLOSES the gap,
-    never fakes content). Non-required emitted titles are dropped from the outline (their evidence
-    is not lost — it stays in the pool and is re-homed by the orphan router / reviser downstream).
-    ``required_sections`` empty => ``plans`` returned unchanged (byte-identical OFF path)."""
+    Two-tier assignment per required title (in order):
+      1. EXACT case-insensitive title match — reuse that emitted plan (carrying its ev_ids /
+         undersupplied / basket_ids), keeping the exact required title casing. Highest priority.
+      2. CONTENT-WORD-OVERLAP fallback (collapse fix 1(b)) — when NO exact match exists, score the
+         still-unassigned emitted plans by how many DISTINCTIVE content words the required title
+         shares with the emitted plan's title+focus. "Distinctive" = a content word appearing in
+         exactly ONE required title (so a word shared across several required titles never drives a
+         mapping). Greedy one-to-one in required order; threshold = at least 1 distinctive hit. On
+         assignment the emitted plan KEEPS its ev_ids / basket_ids / undersupplied and adopts the
+         required title, and a ``{"required","from_title","score"}`` record is appended to
+         ``disclosure`` (surfaced in the cp4 revision_audit — §-1.3 disclosed, never silent).
+
+    When neither tier assigns a plan, synthesize an EMPTY ``undersupplied=True`` plan (the pipeline
+    DISCLOSES the gap, never fakes content). Non-required emitted titles are dropped from the outline
+    (their evidence is not lost — it stays in the pool and is re-homed by the orphan router / reviser
+    downstream). ``required_sections`` empty => ``plans`` returned unchanged (byte-identical OFF path);
+    an all-exact-match outline is likewise byte-identical (tier 2 never fires, ``disclosure`` empty)."""
     if not required_sections:
         return plans
     by_title: dict[str, SectionPlan] = {}
     for p in plans:
         by_title.setdefault(str(p.title).strip().lower(), p)
+
+    # tier-2 setup: required content words + document frequency (across required titles) -> distinctive
+    _req_norm = [str(t).strip() for t in required_sections if str(t).strip()]
+    _req_words = [_conform_content_words(t) for t in _req_norm]
+    _df: dict[str, int] = {}
+    for _ws in _req_words:
+        for _w in _ws:
+            _df[_w] = _df.get(_w, 0) + 1
+    _distinctive = [{w for w in ws if _df.get(w, 0) == 1} for ws in _req_words]
+    _emitted_tokens = [
+        _conform_content_words(f"{getattr(p, 'title', '')} {getattr(p, 'focus', '')}")
+        for p in plans
+    ]
+    _lower_to_idx: dict[str, int] = {}
+    for _i, _p in enumerate(plans):
+        _lower_to_idx.setdefault(str(_p.title).strip().lower(), _i)
+    _consumed: set[int] = set()  # emitted-plan indices already assigned (exact OR overlap)
+
     conformed: list[SectionPlan] = []
-    for title in required_sections:
-        title = str(title).strip()
-        if not title:
-            continue
+    for _ri, title in enumerate(_req_norm):
         existing = by_title.get(title.lower())
         if existing is not None:
-            # Preserve the LLM's evidence selection; keep the exact required title casing.
+            # tier 1 — exact match. Preserve the LLM's evidence selection; keep required casing.
             existing.title = title
+            _consumed.add(_lower_to_idx.get(title.lower(), -1))
             conformed.append(existing)
-        else:
-            conformed.append(SectionPlan(
-                title=title, focus=title, ev_ids=[],
-                archetype=_storm_section_archetype(title) if facet_titles else "",
-                undersupplied=True,
-            ))
+            continue
+        # tier 2 — content-word-overlap fallback (greedy, one-to-one, distinctive-hit threshold)
+        _dist = _distinctive[_ri]
+        _reqw = _req_words[_ri]
+        best_idx, best_score, best_dist = -1, 0, 0
+        for _ei, toks in enumerate(_emitted_tokens):
+            if _ei in _consumed:
+                continue
+            dist_hits = len(_dist & toks)
+            if dist_hits < 1:
+                continue  # need >=1 DISTINCTIVE content-word hit
+            score = len(_reqw & toks)
+            if (dist_hits, score) > (best_dist, best_score):
+                best_dist, best_score, best_idx = dist_hits, score, _ei
+        if best_idx >= 0:
+            mapped = plans[best_idx]
+            from_title = str(mapped.title)
+            mapped.title = title  # adopt required title; KEEP ev_ids / basket_ids / undersupplied
+            _consumed.add(best_idx)
+            conformed.append(mapped)
+            if disclosure is not None:
+                disclosure.append(
+                    {"required": title, "from_title": from_title, "score": int(best_score)}
+                )
+            continue
+        # no exact match and no overlap above threshold -> empty undersupplied plan (disclosed gap)
+        conformed.append(SectionPlan(
+            title=title, focus=title, ev_ids=[],
+            archetype=_storm_section_archetype(title) if facet_titles else "",
+            undersupplied=True,
+        ))
     return conformed
+
+
+def _targeted_retry_system_message(
+    base_system: str,
+    emitted_titles: list[str],
+    required_sections: list[str],
+    allowed_ev_ids: set[str],
+) -> str:
+    """S4 collapse fix 1(c): the TARGETED outline-retry system message. Names the model's own emitted
+    titles, then DEMANDS each ``title`` field be a character-for-character copy of the required titles
+    (listed in order) while KEEPING the evidence assignments. Pure/deterministic so it is unit-testable
+    without a live model call."""
+    _emitted = "; ".join(f"{t!r}" for t in emitted_titles) or "(none)"
+    _required_lines = "\n".join(
+        f"  {i + 1}. {t}" for i, t in enumerate(required_sections)
+    )
+    return (
+        base_system
+        + "\n\nYOUR PREVIOUS OUTLINE DID NOT USE THE REQUIRED SECTION TITLES.\n"
+        + "You emitted these section titles: " + _emitted + ".\n"
+        + f"The user REQUIRES EXACTLY these {len(required_sections)} sections, in THIS order:\n"
+        + _required_lines + "\n"
+        + "HARD REQUIREMENTS — NO EXCEPTIONS:\n"
+        + "1. Each section's `title` field MUST be a CHARACTER-FOR-CHARACTER copy of the required "
+        + "title listed above — no paraphrase, no renaming, no extra sections, no missing sections. "
+        + "Emit EXACTLY these titles, in this order.\n"
+        + "2. KEEP your evidence assignments: re-map the SAME ev_ids you already chose onto these "
+        + "required titles (place each evidence facet under the required section it best fits). "
+        + "Express the section's specific angle in the `focus` field, NOT in the title.\n"
+        + "3. Only use evidence IDs from this allowed set: "
+        + ", ".join(sorted(allowed_ev_ids)[:100])
+        + "\n4. Return ONLY the JSON object — no preamble, no markdown, no explanation.\n"
+    )
 
 
 def _spec_read(spec: Any, key: str, default: Any) -> Any:
@@ -2893,10 +3014,47 @@ async def _call_outline(
         # model to PAD to a hardcoded section count (a banned breadth TARGET).
         # Breadth must EMERGE from the evidence, so a VALID but small outline is
         # accepted as-is rather than re-prompted to pad.
-        if (not parse_result.ok) and retry_on_invalid:
+        #
+        # S4 collapse fix 1(c): a TARGETED retry for the required-sections collapse. When the user
+        # gave required sections, the failure mode is not "invalid outline" but a HOLLOW conform —
+        # the model emitted evidence-bearing sections under PARAPHRASED titles, so exact-title
+        # conform strands the required plans empty. Detect that (or any `required_title_mismatch`
+        # reason code) and fire a retry whose system message names the emitted titles and DEMANDS
+        # character-for-character required titles. Empty ``_required_sections`` => every signal below
+        # is False => the retry condition reduces EXACTLY to the legacy `(not ok) and retry_on_invalid`
+        # (byte-identical OFF path). ``_conformed_ev_total`` measures an attempt by the total ev_ids
+        # that SURVIVE the deterministic conform (a throwaway conform — the real one runs once below).
+        def _conformed_ev_total(pr: OutlineParseResult) -> int:
+            if not _required_sections:
+                return sum(len(p.ev_ids) for p in pr.plans)
+            _tmp = _conform_plans_to_required(
+                list(pr.plans), _required_sections, facet_titles=_facet_mode,
+            )
+            return sum(len(p.ev_ids) for p in _tmp)
+
+        _first_conf_total = _conformed_ev_total(parse_result) if _required_sections else 0
+        _evidence_bearing_seen = any(len(p.ev_ids) > 0 for p in parse_result.plans)
+        _required_mismatch = any(
+            str(c).startswith("required_title_mismatch:") for c in parse_result.reason_codes
+        )
+        _hollow = bool(_required_sections) and _first_conf_total == 0 and _evidence_bearing_seen
+        _want_targeted = bool(_required_sections) and (_hollow or _required_mismatch)
+        # 1(e): persist the first-attempt raw model output whenever the parse failed OR collapsed —
+        # the prior "provider-side" mis-dismissal happened because the raw was never read. Bounded.
+        _primary_raw_head = raw[:2000] if ((not parse_result.ok) or _hollow) else ""
+        _retry_raw_head = ""
+        if ((not parse_result.ok) or _want_targeted) and retry_on_invalid:
             retry_attempted = True
             reason_summary = "; ".join(parse_result.reason_codes[:5]) or "invalid"
-            if str(domain or "").strip().lower() in ("", "clinical"):
+            if _want_targeted:
+                # TARGETED collapse retry — required titles WIN, evidence assignments kept.
+                tighter_system = _targeted_retry_system_message(
+                    _outline_system_prompt,
+                    [str(p.title) for p in parse_result.plans],
+                    _required_sections,
+                    allowed_ev_ids,
+                )
+            elif str(domain or "").strip().lower() in ("", "clinical"):
                 # Clinical / unknown — BYTE-IDENTICAL to the prior retry behavior.
                 tighter_system = (
                     OUTLINE_SYSTEM_PROMPT
@@ -2966,16 +3124,34 @@ async def _call_outline(
             total_in += retry_response.input_tokens
             total_out += retry_response.output_tokens
             retry_raw = (retry_response.content or "").strip()
+            _retry_raw_head = retry_raw[:2000]
             retry_parse = _parse_outline(
                 retry_raw, allowed_ev_ids=allowed_ev_ids,
                 allowed_sections=_parse_allowed_sections,
                 facet_titles=_facet_mode,
                 required_sections=_required_sections,
             )
+            if _required_sections:
+                # S4 collapse fix 1(c): accept whichever attempt yields MORE ev_ids that SURVIVE the
+                # deterministic conform (the collapse metric). Ties keep the first attempt. This is
+                # what lets the targeted retry rescue a hollow first pass WITHOUT ever preferring a
+                # padded-but-emptier outline. The single real conform runs once, below.
+                _retry_conf_total = _conformed_ev_total(retry_parse)
+                if _retry_conf_total > _first_conf_total:
+                    parse_result = retry_parse
+                else:
+                    parse_result = OutlineParseResult(
+                        plans=parse_result.plans,
+                        ok=parse_result.ok,
+                        reason_codes=parse_result.reason_codes
+                                     + [f"retry_not_better:{c}" for c in retry_parse.reason_codes],
+                        raw=raw,
+                        digest_stats=parse_result.digest_stats,
+                    )
             # BUG-18 (#1262, §-1.3): accept the retry only if it is VALID — NOT
             # merely because it produced MORE sections (that was count bias that
             # rewarded padding). A valid small outline from the first pass stands.
-            if retry_parse.ok:
+            elif retry_parse.ok:
                 parse_result = retry_parse
             else:
                 # Retry didn't help — keep first result's plans but append
@@ -2995,11 +3171,16 @@ async def _call_outline(
                 pass
 
     # S4 ORCH-2 PUSH 1(c): the final plan set is EXACTLY the required titles, in the required order
-    # — deterministic, never trusting the LLM ordering. Empty required => plans unchanged.
+    # — deterministic, never trusting the LLM ordering. Empty required => plans unchanged. This is
+    # the SINGLE real conform (the retry block only measured throwaway conforms); collapse fix 1(b)
+    # records every content-word-overlap re-map into ``_title_conformed`` for the cp4 revision_audit.
     if _required_sections:
+        _title_conformed: list = []
         parse_result.plans = _conform_plans_to_required(
             parse_result.plans, _required_sections, facet_titles=_facet_mode,
+            disclosure=_title_conformed,
         )
+        parse_result.title_conformed = _title_conformed
 
     # S4 ORCH-1 PUSH 2: deterministically backfill each plan's basket_ids from the digest's
     # ev_id -> basket map (zero LLM, cannot be spoofed). Drives find_orphan_baskets so only TRUE
@@ -3021,6 +3202,13 @@ async def _call_outline(
         "requirements_block_wired_into_call_outline": bool(_requirements_block),
         "requirements_block_chars": len(_requirements_block),
         "required_sections_count": len(_required_sections),
+        # S4 collapse fix 1(c)/1(e): re-map + collapse-diagnosis telemetry (DATA ONLY). ``title_conformed``
+        # count mirrors the revision_audit disclosure; the raw heads make the model's actual outline
+        # output DURABLE on any parse failure / hollow collapse (the prior "provider-side" mis-dismissal
+        # happened because the raw was never read). Bounded to 2000 chars; empty on the clean path.
+        "title_conformed_count": len(getattr(parse_result, "title_conformed", []) or []),
+        "outline_raw_head": _primary_raw_head,
+        "outline_retry_raw_head": _retry_raw_head,
     }
 
     return parse_result, retry_attempted, total_in, total_out
