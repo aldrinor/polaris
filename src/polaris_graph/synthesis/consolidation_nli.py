@@ -100,7 +100,10 @@ ENV_SUBBUCKET_JACCARD = "PG_CONSOLIDATION_NLI_SUBBUCKET_JACCARD"
 _DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-base"
 _DEFAULT_WORKERS = "8"
 _DEFAULT_MARGIN = "0.0"      # entailment must be the argmax (logit > the other two)
-_DEFAULT_MAX_PAIRS = "20000"
+# S2/S3 re-pass P1-4: raised 20000 -> 60000 so the qualitative/numeric NLI NOMINATION is not
+# starved on a large drb_72-scale section (the pre-bucket route + wall still bound wall-clock;
+# MAX_PAIRS only bounds the per-call pair COUNT). Fully env-overridable (LAW VI).
+_DEFAULT_MAX_PAIRS = "60000"
 # I-deepfix-001 C2 (#1344): raised 90 -> 180. The prose path runs score_pairs ONCE PER
 # SECTION; on a large corpus (890+ sources) with a CPU-degraded cross-encoder the 90s wall
 # STARVED the consolidation — it truncated mid-scoring and UNDER-merged, dropping real

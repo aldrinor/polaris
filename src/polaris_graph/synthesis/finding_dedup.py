@@ -56,6 +56,7 @@ import math
 import os
 import re
 import time
+import unicodedata
 from concurrent.futures import (
     FIRST_COMPLETED,
     ThreadPoolExecutor,
@@ -165,6 +166,192 @@ def _is_garbage_subject(folded: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Unicode / LaTeX text normalization — S2/S3 re-pass P1-4
+# ─────────────────────────────────────────────────────────────────────────
+# A ligature ('signiﬁcant'), a full-width digit, or a compatibility glyph gave two
+# byte-different-but-same-claim rows DISTINCT merge/NLI signals, so they never merged
+# (B011/B074 'signiﬁcant' variant, LaTeX '$1.5\%$' surface). NFKC compatibility-fold
+# collapses those variants to their ASCII base BEFORE the text becomes a merge/NLI signal.
+# NFKC (not NFKD+strip-combining) PRESERVES accented multilingual letters (é stays é) — it
+# only folds compatibility variants, so it is byte-safe for legitimate multilingual content.
+_LATEX_MATH_WRAP_RE = re.compile(r"\$+")
+_LATEX_PERCENT_RE = re.compile(r"\\%")
+_LATEX_CMD_RE = re.compile(r"\\[a-zA-Z]+")
+
+
+def _normalize_unicode_text(text: Any) -> str:
+    """NFKC compatibility-fold + minimal LaTeX de-mark so ligatures / full-width digits /
+    ``$..$`` math wrappers / ``\\%`` collapse to a plain-text signal (P1-4). Pure; fail-open
+    (returns the input as a plain string on any error). Used ONLY for merge/NLI signals — the
+    displayed source text is never touched."""
+    if text is None:
+        return ""
+    s = str(text)
+    try:
+        s = unicodedata.normalize("NFKC", s)
+    except Exception:  # noqa: BLE001 — a normalization defect must never crash a paid run
+        return str(text)
+    # Minimal LaTeX: '\%' -> '%', drop '$' math wrappers + bare '\cmd' control words so a
+    # '$1.5\%$' surface reads as '1.5%' for the numeric/NLI signal. Conservative: only these.
+    s = _LATEX_PERCENT_RE.sub("%", s)
+    s = _LATEX_MATH_WRAP_RE.sub("", s)
+    s = _LATEX_CMD_RE.sub(" ", s)
+    return s
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Measurement-numeral gate — S2/S3 re-pass P0-3b
+# ─────────────────────────────────────────────────────────────────────────
+# A chrome / bibliographic LINE that survived the line screen could still mint a FAKE numeric
+# basket: an SSRN download id (4637198), a phone number (7721), a citation year, a page range,
+# a print-run. §-1.3 keeps the LINE (as qualitative context) but a NON-measurement numeral must
+# NOT mint a numeric CLAIM. This deterministic gate demotes ONLY when it is CONFIDENT the
+# numeral is a locator/date/id, and NEVER when the line carries a real measurement unit
+# (%/$/mg/...) — fail-open toward keeping the numeric claim. General, question-agnostic.
+_MEASUREMENT_GATE_ENV = "PG_FINDING_MEASUREMENT_GATE"
+# A real reported statistic almost always carries one of these unit/scale markers in-line.
+_MEASUREMENT_UNIT_HINT_RE = re.compile(
+    r"[%$€£¥]|\bpercent|\bper\s*cent|\bpercentage\b|\bpts?\b|\bbps\b|\bbasis points?\b|"
+    r"\bmg\b|\bkg\b|\bml\b|\bmm\b|\bcm\b|\bkm\b|\bmmhg\b|\bmol\b|\bgb\b|\btb\b|"
+    r"\bmillion\b|\bbillion\b|\btrillion\b|\bfold\b|\btimes\b|\bratio\b|±|"
+    r"\bp\s*[<=>]\s*0?\.\d|\bn\s*=\s*\d|confidence interval|\bCI\b",
+    re.IGNORECASE,
+)
+_CITATION_CONTEXT_RE = re.compile(
+    r"\bet al\b|\bdoi\b|\bvol\.?\b|\bno\.\s*\d|\bpp?\.\b|\bissn\b|\bisbn\b|\barxiv\b|"
+    r"\bssrn\b|\bretrieved\b|\baccessed\b|\beds?\.\b|\bjournal\b|\bworking paper\b",
+    re.IGNORECASE,
+)
+_PHONE_RE = re.compile(
+    r"\btel\b|\bphone\b|\bfax\b|\+?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}",
+    re.IGNORECASE,
+)
+_PAGE_RANGE_RE = re.compile(
+    r"\bpp?\.\s*\d+(?:\s*[-–—]\s*\d+)?|\bpages?\s+\d+\s*[-–—]\s*\d+", re.IGNORECASE
+)
+_URL_OR_DOCID_RE = re.compile(
+    r"https?://|\bdoi\.org\b|/abstract=|[?&]id=|arxiv\.org|ssrn\.com|\bisbn\b|\bissn\b|"
+    r"javascript:|mailto:|tel:",
+    re.IGNORECASE,
+)
+_YEAR_TOKEN_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _measurement_gate_enabled() -> bool:
+    """``PG_FINDING_MEASUREMENT_GATE`` kill switch (LAW VI). DEFAULT-ON: a confidently
+    non-measurement numeral (phone / page-range / URL-or-doc id / bibliographic year) mints
+    NO numeric claim (the LINE is still kept as qualitative context). OFF => byte-identical
+    legacy (every extracted numeral mints a numeric key)."""
+    return os.getenv(_MEASUREMENT_GATE_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _is_nonmeasurement_numeral(claim: Any, line_text: str) -> bool:
+    """True ONLY when the claim's numeral is CONFIDENTLY a locator / date / id, not a reported
+    measurement. Fail-open: any doubt -> False (mint the numeric claim). A claim the extractor
+    tagged with a unit, OR a line carrying a measurement marker (%/$/mg/n=/CI/...), is ALWAYS a
+    measurement (returns False first) so a real statistic on a line that also has a URL is never
+    demoted. Pure/deterministic, question-agnostic."""
+    unit = str(getattr(claim, "unit", "") or "").strip()
+    if unit and unit not in ("-", "—"):
+        return False
+    line = _normalize_unicode_text(line_text or "")
+    if not line:
+        return False
+    if _MEASUREMENT_UNIT_HINT_RE.search(line):
+        return False  # a real measurement marker is present -> keep numeric (fail-open)
+    if _PHONE_RE.search(line):
+        return True
+    if _PAGE_RANGE_RE.search(line):
+        return True
+    if _URL_OR_DOCID_RE.search(line):
+        return True
+    # A bibliographic year (citation context + a 19xx/20xx token, no measurement marker) is a
+    # date, not a statistic.
+    if _CITATION_CONTEXT_RE.search(line) and _YEAR_TOKEN_RE.search(line):
+        return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Metadata-less same-work fallback — S2/S3 re-pass P1-5
+# ─────────────────────────────────────────────────────────────────────────
+# A byte-identical long title with NO year/author/venue/host discriminator fell through the
+# same-work legs to a per-URL singleton, so two mirrors of ONE work (ev_932 vs ev_945, exact
+# title) fragmented and inflated the distinct-works count. Two general, bounded fallbacks:
+#   (1) TITLE-ALONE key when the folded title is LONG + multi-token (discriminative) so a short
+#       generic title never merges two distinct works. Safe under §-1.3: a work-merge only links
+#       CITATIONS; the CLAIM merge still requires NLI same-meaning, so even a rare title-alone
+#       over-merge cannot fabricate a corroborated CLAIM.
+#   (2) A strong arXiv id extracted from the BODY header (first chars) when the URL carries none.
+# Both LAW VI kill-switched (default ON).
+_SAMEWORK_TITLE_ALONE_ENV = "PG_SAMEWORK_TITLE_ALONE"
+_SAMEWORK_BODY_ID_ENV = "PG_SAMEWORK_BODY_ID"
+_TITLE_ALONE_MIN_LEN = 40      # folded-title char floor (a long exact title rarely collides)
+_TITLE_ALONE_MIN_TOKENS = 6    # word-token floor (discriminative)
+_FILENAME_EXT_RE = re.compile(r"\.(pdf|html?|docx?|txt|epub|xml|ps)$", re.IGNORECASE)
+_FILENAME_VERSION_TAIL_RE = re.compile(r"[_\-\s]+\d+([_\-\.]\d+)*$")
+_BODY_ARXIV_ID_RE = re.compile(r"arxiv[:\s]*?(\d{4}\.\d{4,5})", re.IGNORECASE)
+
+
+def _samework_title_alone_enabled() -> bool:
+    """``PG_SAMEWORK_TITLE_ALONE`` kill switch (LAW VI). DEFAULT-ON."""
+    return os.getenv(_SAMEWORK_TITLE_ALONE_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _samework_body_id_enabled() -> bool:
+    """``PG_SAMEWORK_BODY_ID`` kill switch (LAW VI). DEFAULT-ON."""
+    return os.getenv(_SAMEWORK_BODY_ID_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _strip_filename_artifacts(title: Any) -> str:
+    """Strip a trailing file extension + a trailing version/segment tail ('Noy_Zhang_1_0.pdf'
+    -> 'Noy Zhang') BEFORE folding, so a filename-derived title matches its clean-metadata
+    sibling. Pure. Only used on the title-alone fallback path (never on the shared _fold_title,
+    so render parity is preserved)."""
+    s = str(title or "").strip()
+    if not s:
+        return ""
+    s = _FILENAME_EXT_RE.sub("", s)
+    s = _FILENAME_VERSION_TAIL_RE.sub("", s)
+    return s
+
+
+def _title_alone_key(row: dict[str, Any]) -> str:
+    """A same-work key on a LONG, discriminative folded title ALONE (P1-5). Returns '' when the
+    folded (filename-stripped) title is too short/too-few-tokens to be discriminative — such a
+    row stays a singleton (never merged on a weak title). General."""
+    folded = _fold_title(_strip_filename_artifacts(_row_title(row)))
+    if not folded:
+        return ""
+    if len(folded) < _TITLE_ALONE_MIN_LEN:
+        return ""
+    if len(folded.split()) < _TITLE_ALONE_MIN_TOKENS:
+        return ""
+    return "titlealone:" + folded
+
+
+def _body_work_identifier(row: dict[str, Any]) -> str:
+    """A STRONG arXiv id extracted from the BODY HEADER (first ~400 chars) when the URL carries
+    no id (P1-5). Bounded to the header so a body that merely CITES another arXiv id in its
+    references never mis-merges. Returns '' when none. Pure."""
+    for key in ("direct_quote", "statement", "evidence_summary", "abstract", "text"):
+        body = row.get(key)
+        if not body:
+            continue
+        head = str(body)[:400]
+        m = _BODY_ARXIV_ID_RE.search(head)
+        if m:
+            return "arxiv:" + m.group(1).lower()
+    return ""
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Corroboration = DISTINCT WORKS + derivative-press label — Fix 5 + Fix 6
 # ─────────────────────────────────────────────────────────────────────────
 # Fix 5: ``corroboration_count`` must be the number of DISTINCT WORKS carrying the claim,
@@ -216,6 +403,27 @@ def _is_derivative_press(row: dict[str, Any]) -> bool:
         if v and any(t in v for t in _PRESS_TYPE_TOKENS):
             return True
     return False
+
+
+# S2/S3 re-pass P2-8: a member confirmed as derivative press/blog/slide/column coverage of a
+# primary work already in the pool is KEPT (keep-all) but WEIGHT-lowered + LABELLED so
+# composition can present it as coverage, not an independent corroborator (it is already
+# excluded from the distinct-works count). The factor is a disclosed multiplier (LAW VI env).
+_DERIVATIVE_WEIGHT_FACTOR_ENV = "PG_DERIVATIVE_WEIGHT_FACTOR"
+_DERIVATIVE_WEIGHT_FACTOR_DEFAULT = 0.5
+
+
+def _derivative_weight_factor() -> float:
+    """``PG_DERIVATIVE_WEIGHT_FACTOR`` in (0, 1] — the disclosed weight multiplier stamped on a
+    derivative-press member (P2-8). Malformed / out-of-range => the 0.5 default (never raised)."""
+    raw = os.environ.get(_DERIVATIVE_WEIGHT_FACTOR_ENV, "").strip()
+    if not raw:
+        return _DERIVATIVE_WEIGHT_FACTOR_DEFAULT
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        return _DERIVATIVE_WEIGHT_FACTOR_DEFAULT
+    return value if 0.0 < value <= 1.0 else _DERIVATIVE_WEIGHT_FACTOR_DEFAULT
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -769,11 +977,26 @@ def _same_work_key(row: dict[str, Any]) -> str:
     uid = _url_work_identifier(row)
     if uid:
         return "id:" + uid
+    # P1-5: a strong arXiv id carried in the BODY header when the URL leg had none (a
+    # metadata-less mirror). Bounded to the header so a reference-list id never mis-merges.
+    if _samework_body_id_enabled():
+        bid = _body_work_identifier(row)
+        if bid:
+            return "id:" + bid
     folded = _fold_title(_row_title(row))
     if folded:
         discriminator = _title_discriminator(row)
         if discriminator:
             return "title:" + folded + "|" + discriminator
+    # P1-5: a LONG, discriminative folded title ALONE (byte-identical long-title mirrors with
+    # NO year/author/venue discriminator, e.g. ev_932 vs ev_945). Gated + length/token-floored
+    # so a short/generic title never merges two distinct works; the CLAIM merge still requires
+    # NLI same-meaning downstream, so a rare title-alone over-link cannot fabricate a
+    # corroborated claim (§-1.3-safe). Runs BEFORE the per-URL leg so mirrors merge on title.
+    if _samework_title_alone_enabled():
+        ta = _title_alone_key(row)
+        if ta:
+            return ta
     if _samework_url_leg_enabled():
         url_key = _normalize_source_url(row)
         if url_key:
@@ -1532,6 +1755,92 @@ def _qual_key_token(text: str) -> str:
     return " ".join(sorted(set(words))[:_QUAL_KEY_MAX_WORDS])
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Qualitative greedy-cluster NLI CONFIRMATION — S2/S3 re-pass P0-2
+# ─────────────────────────────────────────────────────────────────────────
+# The greedy shingle-Jaccard pass groups NEAR-VERBATIM rows, but citation-scaffold lines
+# ("Author, A. (2024). Title. Journal.") share so much formatting vocabulary that ~18 UNRELATED
+# reference lines greedily clustered into one corrob=18 fake-corroboration basket. §-1.1 names a
+# misstated 'corroborated' as clinical-lethal. Fix: the greedy pass is only a CANDIDATE
+# NOMINATOR — each within-cluster member must BIDIRECTIONALLY entail the cluster rep (the SAME
+# strict NLI bar the numeric path uses) to stay merged; an unconfirmed member (or NLI
+# unavailable) splits to a singleton (corroboration stays 1). LAW VI kill-switched (default ON).
+def _qual_merge_requires_nli_enabled() -> bool:
+    """``PG_QUAL_MERGE_REQUIRES_NLI`` kill switch (LAW VI, DEFAULT-ON, P0-2). A qualitative
+    greedy (shingle-Jaccard) cluster is a CANDIDATE only: every member must BIDIRECTIONALLY
+    entail the cluster representative to stay merged. No NLI verdict (unconfirmed / model
+    unavailable / no NLI path active this run) => the member splits to a singleton
+    (corroboration_count 1). OFF => byte-identical legacy (greedy Jaccard alone mints the
+    basket, the fake-corroboration behavior)."""
+    return os.getenv("PG_QUAL_MERGE_REQUIRES_NLI", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _confirm_greedy_clusters_via_nli(
+    rows: list[dict[str, Any]],
+    clusters: list[list[Any]],
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+) -> list[list[Any]]:
+    """P0-2: turn every greedy (shingle-Jaccard) qualitative cluster into an NLI-CONFIRMED
+    cluster. A member is kept ONLY when it BIDIRECTIONALLY entails the cluster representative
+    (the lowest-row-index member) through the SAME strict 3-state gate the qualitative keystone
+    uses (``consolidation_nli.entails_directional`` in BOTH directions returning True); an
+    unconfirmed member (one-direction / contradiction / infra ``None`` / polarity mismatch)
+    splits into its own singleton (corroboration_count 1). ``entails_directional`` NEVER raises
+    (an infra fault returns ``None`` => no merge), so a model outage degrades to a safe
+    UNDER-merge, never fake corroboration.
+
+    §-1.3-safe: this only ever SPLITS a greedy cluster; it never drops a row (every member still
+    flows through ``deduped_rows`` as its own keep-all row) and never invents a new merge. The
+    strict NLI union passes that run AFTER this can RE-merge a genuine paraphrase, so real
+    corroboration is preserved while the citation-scaffold false cluster dissolves. Deterministic
+    + order-independent (the rep is the lowest-index member; each member is judged against it).
+    ``entail_fn(premise, hypothesis) -> True/False/None`` is the deterministic test-injection
+    seam; production passes None => the lazy resident ``entails_directional``."""
+    from src.polaris_graph.generator.fact_dedup import (  # noqa: PLC0415
+        _polarity_signature, _prose_shingles,
+    )
+    if entail_fn is None:
+        from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+            entails_directional,
+        )
+        entail_fn = entails_directional
+
+    def _singleton(ri: int) -> list[Any]:
+        body = _row_text(rows[ri])
+        return [_prose_shingles(body), _polarity_signature(body), [ri]]
+
+    out: list[list[Any]] = []
+    for cluster in clusters:
+        members = cluster[2]
+        if len(members) < 2:
+            out.append(cluster)
+            continue
+        rep_ri = members[0]
+        rep_body = _row_text(rows[rep_ri])
+        rep_text = _normalize_unicode_text(rep_body)
+        rep_pol = _polarity_signature(rep_body)
+        confirmed = [rep_ri]
+        for k in range(1, len(members)):
+            mri = members[k]
+            m_body = _row_text(rows[mri])
+            # Polarity hard-block (defense-in-depth): an antonym/negation flip never corroborates.
+            if _polarity_signature(m_body) != rep_pol:
+                out.append(_singleton(mri))
+                continue
+            m_text = _normalize_unicode_text(m_body)
+            fwd = entail_fn(rep_text, m_text)
+            rev = entail_fn(m_text, rep_text) if fwd is True else None
+            if fwd is True and rev is True:
+                confirmed.append(mri)
+            else:
+                out.append(_singleton(mri))  # no verdict / one-way => keep, corrob 1
+        out.append([cluster[0], cluster[1], confirmed])
+    return out
+
+
 def _apply_qualitative_nli_union(
     rows: list[dict[str, Any]],
     clusters: list[list[Any]],
@@ -2119,6 +2428,59 @@ def _apply_finding_dedup_nli_grouping(
     return out
 
 
+# ── Chrome-dominant body guard for qualitative candidates — S2/S3 re-pass P0-2 (real-run fix)
+# A banked drb_72 S3 replay proved the NLI-confirm alone does NOT dissolve the fake corr=19/12
+# qualitative mega-baskets: the members were CHROME non-sources (markdown nav menus
+# "* [Summary](url)", bare-URL link lists, javascript:void, a %PDF xref) whose structurally-
+# identical formatting the cross-encoder SPURIOUSLY entails. §-1.3.1 (chrome IS deletable) +
+# §-1.3 keep-all: the ROW still flows through (keep-all); it is only excluded from qual
+# CLUSTERING so it can never seed/join a corroboration basket. General/structural, fail-open.
+_MD_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+_URL_TOKEN_RE = re.compile(r"https?://\S+")
+_QUAL_CHROME_LINE_RE = re.compile(
+    r"^[\*\-•·]?\s*(?:\[[^\]]*\]\([^)]*\)|\(https?://|https?://)", re.IGNORECASE
+)
+_QUAL_CHROME_GUARD_ENV = "PG_QUAL_CHROME_GUARD"
+
+
+def _qual_chrome_guard_enabled() -> bool:
+    """``PG_QUAL_CHROME_GUARD`` kill switch (LAW VI, DEFAULT-ON, P0-2 real-run fix). OFF =>
+    byte-identical legacy (a chrome/nav/URL/binary body may still seed a qualitative basket)."""
+    return os.getenv(_QUAL_CHROME_GUARD_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _body_is_chrome_dominant(body: str) -> bool:
+    """True iff the body is dominated by nav/link-list / URL / binary chrome and carries no real
+    propositional claim, so it must NOT seed/join a qualitative corroboration basket. Signals
+    (any one): (a) >= 3 markdown-links / bare-URLs with < 30 real prose words outside them
+    (a nav / link dump); (b) a PDF xref / javascript:void marker; (c) >= 60% of the body's
+    non-empty lines begin with a markdown-link / bare-URL (a nav menu). Pure/deterministic,
+    fail-open (empty => False). §-1.3-safe: only excludes from CLUSTERING, never drops the row."""
+    if not body:
+        return False
+    low = body.lower()
+    if "%pdf" in low or "javascript:void" in low or "endobj" in low or "flatedecode" in low:
+        return True
+    md = len(_MD_LINK_RE.findall(body))
+    urls = len(_URL_TOKEN_RE.findall(body))
+    if (md + urls) >= 1:
+        prose = _URL_TOKEN_RE.sub(" ", _MD_LINK_RE.sub(" ", body))
+        prose_words = len(re.findall(r"[A-Za-z]{3,}", prose))
+        # A lone markdown-link / bare-URL fragment with almost no prose (< 8 words) is chrome
+        # (e.g. "[ ](https://blog.hospitalmedicine.org/)"); a dense link dump (>=3 links) with
+        # < 30 prose words is a nav / link list. Both carry no propositional claim.
+        if prose_words < 8 or ((md + urls) >= 3 and prose_words < 30):
+            return True
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    if len(lines) >= 3:
+        junk = sum(1 for ln in lines if _QUAL_CHROME_LINE_RE.match(ln))
+        if junk >= max(2, int(0.6 * len(lines))):
+            return True
+    return False
+
+
 def _build_qualitative_groups(
     rows: list[dict[str, Any]],
     row_has_finding: list[bool],
@@ -2172,6 +2534,11 @@ def _build_qualitative_groups(
         # claim -> never seeds/joins a basket. Row still KEPT (keep-all); only excluded from clustering.
         if is_furniture_dominant(body):
             continue
+        # P0-2 real-run fix: a nav/link-list / bare-URL / javascript:void / %PDF-xref body is chrome
+        # the cross-encoder spuriously entails into a fake corroboration mega-basket. Exclude it from
+        # CLUSTERING (still KEPT, keep-all). is_furniture_dominant missed these markdown-nav bodies.
+        if _qual_chrome_guard_enabled() and _body_is_chrome_dominant(body):
+            continue
         shingles = _prose_shingles(body)
         if shingles is _PROSE_NO_MATCH or not shingles:
             continue  # too short to cluster (false-positive guard) — safe singleton
@@ -2190,6 +2557,38 @@ def _build_qualitative_groups(
                 break
         if not placed:
             clusters.append([shingles, polarity, [ri]])
+
+    # P0-2 (S2/S3 re-pass): the greedy shingle-Jaccard pass above NOMINATES near-verbatim
+    # candidates only — it must NOT mint a multi-member basket on lexical overlap ALONE. Citation
+    # / reference-list lines share so much formatting vocabulary that a batch of UNRELATED lines
+    # greedily clustered into a fake corrob=18 mega-basket (§-1.1 clinical-lethal misstated
+    # corroboration). Every within-cluster member is now CONFIRMED against the rep by the SAME
+    # strict bidirectional NLI the numeric path uses; an unconfirmed member (or NLI unavailable)
+    # splits to a singleton (corroboration stays 1). Runs BEFORE the union passes so a genuine
+    # paraphrase can still RE-merge downstream. Kill switch OFF => byte-identical legacy greedy.
+    if _qual_merge_requires_nli_enabled() and any(len(c[2]) >= 2 for c in clusters):
+        nli_active = (
+            nominate_entail_fn is not None
+            or _consolidation_nli_enabled()
+            or _finding_dedup_nli_enabled()
+            or _qualitative_nli_enabled()
+        )
+        if nli_active:
+            clusters = _confirm_greedy_clusters_via_nli(
+                rows, clusters, entail_fn=nominate_entail_fn,
+            )
+        else:
+            # No NLI path active this run => a greedy multi-member cluster has no verdict =>
+            # explode to singletons (corroboration stays 1; never fake corroboration).
+            exploded: list[list[Any]] = []
+            for c in clusters:
+                if len(c[2]) < 2:
+                    exploded.append(c)
+                    continue
+                for ri in c[2]:
+                    body = _row_text(rows[ri])
+                    exploded.append([_prose_shingles(body), _polarity_signature(body), [ri]])
+            clusters = exploded
 
     # SECOND semantic-recall pass (I-deepfix-001 P4 recall rung-1, #1344). The greedy pass
     # above is the cheap near-verbatim CANDIDATE stage; when BOTH the master
@@ -2409,14 +2808,26 @@ def dedup_by_finding(
             if domain is not None else extract_numeric_claims([row])
         )
         row_clinical = is_clinical_domain(domain, [row])
-        if claims:
-            row_has_finding[ri] = True
         ev_id = str(row.get("evidence_id", ri))
+        # P0-3b (S2/S3 re-pass): a numeral that is a locator / date / id (SSRN download id,
+        # phone number, citation year, page range) is NOT a reported measurement — it must not
+        # mint a FAKE numeric basket. The LINE is still KEPT (as qualitative context: a row that
+        # mints no measurement keeps row_has_finding False and flows to the qualitative path);
+        # only the non-measurement numeric CLAIM is suppressed. Fail-open (any doubt / any
+        # measurement unit present keeps the numeric claim). Kill switch OFF => byte-identical.
+        measurement_gate = _measurement_gate_enabled()
+        row_line_text = _row_text(row)
+        minted = 0
         for cj, claim in enumerate(claims):
+            if measurement_gate and _is_nonmeasurement_numeral(claim, row_line_text):
+                continue  # non-measurement numeral: keep the line, mint no numeric claim
             key = _finding_key(
                 claim, ev_id, cj, exact_value=redesign_on, clinical=row_clinical,
             )
             groups.setdefault(key, []).append(ri)
+            minted += 1
+        if minted:
+            row_has_finding[ri] = True
 
     def _rank(ri: int) -> tuple:
         r = rows[ri]
@@ -2550,6 +2961,14 @@ def dedup_by_finding(
             new_row["corroboration_count"] = meta["corr"]
             new_row["independent_hosts"] = sorted(meta["hosts"])
             new_row["finding_keys"] = meta["keys"]
+        # P2-8 (S2/S3 re-pass): a press/blog/slide/column that merely REPORTS a primary work is
+        # corroboration-OF-REPORTING, not independent evidence. KEEP it (keep-all) but LABEL it
+        # derivative + surface a disclosed WEIGHT multiplier so composition presents it as
+        # coverage, not a distinct corroborator (it is already excluded from the distinct-works
+        # count). Additive sidecars only (no existing weight field is overwritten). Gated.
+        if derivative_press_on and _is_derivative_press(row):
+            new_row["derivative_of_primary"] = True
+            new_row["derivative_weight_factor"] = _derivative_weight_factor()
         work_id = same_work.work_id_by_index.get(ri)
         if work_id is not None:
             canon = same_work.canonical_index_by_index[ri]

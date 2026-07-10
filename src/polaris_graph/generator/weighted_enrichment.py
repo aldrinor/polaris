@@ -5226,6 +5226,70 @@ def _url_work_identifier(ev: dict[str, Any]) -> str:
     return ""
 
 
+# S2/S3 re-pass P1-5 (render-side mirror of finding_dedup): a metadata-less mirror merges on a
+# strong arXiv id in the BODY header, or on a LONG discriminative title ALONE — kept in lockstep
+# with ``finding_dedup._same_work_key`` so the two consolidators group the SAME work.
+_BODY_ARXIV_ID_RE = re.compile(r"arxiv[:\s]*?(\d{4}\.\d{4,5})", re.IGNORECASE)
+_FILENAME_EXT_RE = re.compile(r"\.(pdf|html?|docx?|txt|epub|xml|ps)$", re.IGNORECASE)
+_FILENAME_VERSION_TAIL_RE = re.compile(r"[_\-\s]+\d+([_\-\.]\d+)*$")
+_TITLE_ALONE_MIN_LEN = 40
+_TITLE_ALONE_MIN_TOKENS = 6
+
+
+def _samework_title_alone_on() -> bool:
+    """Render-side mirror of ``finding_dedup._samework_title_alone_enabled`` (default ON)."""
+    import os  # noqa: PLC0415
+    return os.getenv("PG_SAMEWORK_TITLE_ALONE", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _samework_body_id_on() -> bool:
+    """Render-side mirror of ``finding_dedup._samework_body_id_enabled`` (default ON)."""
+    import os  # noqa: PLC0415
+    return os.getenv("PG_SAMEWORK_BODY_ID", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _strip_filename_artifacts(title: Any) -> str:
+    """Mirror of ``finding_dedup._strip_filename_artifacts``: strip a trailing extension +
+    version/segment tail before folding a filename-derived title."""
+    s = str(title or "").strip()
+    if not s:
+        return ""
+    s = _FILENAME_EXT_RE.sub("", s)
+    s = _FILENAME_VERSION_TAIL_RE.sub("", s)
+    return s
+
+
+def _title_alone_key(ev: dict[str, Any]) -> str:
+    """Mirror of ``finding_dedup._title_alone_key``: a same-work key on a LONG, discriminative
+    folded title ALONE (byte-identical prefix ``titlealone:``). '' when too short/few tokens."""
+    folded = _normalize_title(_strip_filename_artifacts(_record_title(ev)))
+    if not folded:
+        return ""
+    if len(folded) < _TITLE_ALONE_MIN_LEN:
+        return ""
+    if len(folded.split()) < _TITLE_ALONE_MIN_TOKENS:
+        return ""
+    return "titlealone:" + folded
+
+
+def _body_work_identifier(ev: dict[str, Any]) -> str:
+    """Mirror of ``finding_dedup._body_work_identifier``: a strong arXiv id from the BODY header
+    (first ~400 chars) when the URL leg had none. '' when absent."""
+    for key in ("direct_quote", "statement", "evidence_summary", "abstract", "text"):
+        body = ev.get(key)
+        if not body:
+            continue
+        head = str(body)[:400]
+        m = _BODY_ARXIV_ID_RE.search(head)
+        if m:
+            return "arxiv:" + m.group(1).lower()
+    return ""
+
+
 def _work_identity(eid: str, ev: dict[str, Any]) -> str:
     """Same-work group key for one member. Matches ``finding_dedup._same_work_key``.
 
@@ -5262,11 +5326,22 @@ def _work_identity(eid: str, ev: dict[str, Any]) -> str:
     uid = _url_work_identifier(ev)
     if uid:
         return f"id:{uid}"
+    # P1-5: a strong arXiv id in the BODY header when the URL leg had none.
+    if _samework_body_id_on():
+        bid = _body_work_identifier(ev)
+        if bid:
+            return f"id:{bid}"
     title = _normalize_title(_record_title(ev))
     if title:
         discriminator = _title_discriminator(ev)
         if discriminator:
             return f"title:{title}|{discriminator}"
+    # P1-5: a LONG discriminative title ALONE (metadata-less mirror). Kept in lockstep with
+    # ``finding_dedup._same_work_key`` so render and consolidation group the SAME work.
+    if _samework_title_alone_on():
+        ta = _title_alone_key(ev)
+        if ta:
+            return ta
     if _samework_url_leg_on():
         _u = _samework_url_norm(ev)
         if _u:

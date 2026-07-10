@@ -49,6 +49,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -217,6 +218,70 @@ def _line_is_deterministic_junk(line: str) -> bool:
         return False
     low = line.lower()
     return any(all(tok in low for tok in combo) for combo in SHELL_COOCCURRENCE)
+
+
+# ── Content-integrity line classifiers (P0-3a, S2/S3 re-pass) ────────────────
+# Chrome LINES that survived the V2 co-occurrence pass still minted fake baskets downstream:
+# a PDF xref/FlateDecode byte run from a partially-failed extraction, a nav/menu link-list, a
+# license/copyright footer, a table-of-contents dot-leader, a javascript:/mailto:/tel: fragment.
+# These are GENERAL classifiers (structure, not a phrase blocklist), fail-open on any doubt.
+_ENV_CI_JUNK = "PG_LINE_SCREEN_CI_JUNK"                # default ON
+_XREF_MARKER_RE = re.compile(
+    r"%PDF|FlateDecode|endstream|endobj|startxref|\bxref\b|/Type\s*/|/Font\b|/MediaBox|"
+    r"/Contents\b|/Annots\b|\bobj\b\s*<<",
+    re.IGNORECASE,
+)
+_HEX_RUN_RE = re.compile(r"[0-9a-fA-F]{24,}")           # long unbroken hex run (binary dump)
+_NAV_SEP_RE = re.compile(r"[|·•»›►▸•▪]")
+_LICENSE_RE = re.compile(
+    r"all rights reserved|creative commons|\bcc[\s-]?by(?:-[a-z]{2})?\b|"
+    r"terms of (?:use|service)|privacy policy|licensed under|©\s*\d{4}|"
+    r"copyright\s*(?:©|\(c\))|©\s*copyright",
+    re.IGNORECASE,
+)
+_TOC_LEADER_RE = re.compile(r"\.{5,}\s*\d+\s*$|…\s*\d+\s*$|\.{8,}")
+_URI_FRAGMENT_RE = re.compile(r"javascript:|mailto:|tel:")
+_WORD_TOKEN_RE = re.compile(r"[A-Za-zÀ-ɏ]{2,}")
+
+
+def ci_junk_enabled() -> bool:
+    """Kill-switch ``PG_LINE_SCREEN_CI_JUNK`` for the content-integrity line classifiers
+    (P0-3a). DEFAULT ON. OFF ⇒ only the legacy V2 co-occurrence pre-pass runs (byte-identical
+    to before this fix)."""
+    return os.environ.get(_ENV_CI_JUNK, "1").strip().lower() not in _OFF_VALUES
+
+
+def _line_is_content_integrity_junk(line: str) -> bool:
+    """DETERMINISTIC content-integrity junk (P0-3a): True iff the LINE is a binary/xref byte
+    run, a nav/menu link-list, a license/copyright footer, a TOC dot-leader, or a
+    javascript:/mailto:/tel: fragment. GENERAL structural classifiers (not a phrase blocklist);
+    FAIL-OPEN on any doubt. A line carrying substantive propositional prose is never junked by
+    the SOFT classes (license/nav/toc/uri stay short by construction), so a real statistic /
+    sentence survives (§-1.3 keep-all; P2-10 fail-open at line level)."""
+    if not ci_junk_enabled():
+        return False
+    text = (line or "").strip()
+    if not text:
+        return False
+    # HARD: PDF operator markers or a long hex byte run — never real prose.
+    if _XREF_MARKER_RE.search(text) or _HEX_RUN_RE.search(text):
+        return True
+    words = _WORD_TOKEN_RE.findall(text)
+    # SOFT: a javascript:/mailto:/tel:-dominated fragment (few real words around the URI).
+    if _URI_FRAGMENT_RE.search(text) and len(words) < 6:
+        return True
+    # SOFT: license / copyright footer (a short chrome line, not a paragraph mentioning rights).
+    if _LICENSE_RE.search(text) and len(words) < 25:
+        return True
+    # SOFT: table-of-contents dot-leaders.
+    if _TOC_LEADER_RE.search(text):
+        return True
+    # SOFT: a nav / menu link-list — several SHORT segments split by nav separators.
+    if len(_NAV_SEP_RE.findall(text)) >= 3:
+        segs = [s.strip() for s in _NAV_SEP_RE.split(text) if s.strip()]
+        if len(segs) >= 4 and all(len(s.split()) <= 4 for s in segs):
+            return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -673,7 +738,10 @@ def screen_source(
     verdict_by_idx: dict[int, str] = {}
     to_judge: list[tuple[int, str]] = []
     for idx, text in enumerate(units):
-        if _line_is_deterministic_junk(text):
+        if _line_is_deterministic_junk(text) or _line_is_content_integrity_junk(text):
+            # P0-3a: a binary/xref byte run, nav link-list, license footer, TOC leader, or
+            # javascript:/mailto:/tel: fragment is chrome — dropped deterministically before the
+            # judge so it can never mint a downstream basket (§-1.3-safe: only the LINE drops).
             verdict_by_idx[idx] = JUNK
         else:
             to_judge.append((idx, text))

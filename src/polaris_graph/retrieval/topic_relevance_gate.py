@@ -39,8 +39,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -258,11 +261,104 @@ def _row_is_marquee_anchor(row: dict[str, Any]) -> bool:
     return False
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# P0-1 (S2/S3 re-pass) — category-consistency fail-open + on-topic anchors
+# ─────────────────────────────────────────────────────────────────────────
+# ev_308 (BLS OES Paralegals), ev_310, ev_318 were whole-dropped OFF_SUBJECT while same-class
+# sibling wage/occupational pages were KEPT — a §-1.3.1 violation ("credible on-topic NEVER
+# deleted"). Two general, question-agnostic guards:
+#   (b) CATEGORY-CONSISTENCY fail-open (deterministic, DEFAULT ON): a row about to be stamped the
+#       deletable OFF_SUBJECT is DOWNGRADED to OFF_ASPECT (demote-KEEP) when a sibling in the SAME
+#       category (registrable host + numeric-template path family) was verdicted ON / OFF_ASPECT —
+#       inconsistency ⇒ uncertainty ⇒ KEEP.
+#   (a) ON-TOPIC ANCHORS (prompt context, DEFAULT OFF pending eval): salient corpus-recurrent
+#       entity phrases injected as ON-TOPIC context so an occupational-outlook/wage page for an
+#       exposed entity reads ON. Default OFF so an un-vetted judge-prompt nudge never silently
+#       lowers precision; (b) is the active deterministic fix.
+def _topic_category_consistency_enabled() -> bool:
+    """``PG_TOPIC_CATEGORY_CONSISTENCY`` kill switch (LAW VI, DEFAULT ON, P0-1b). OFF =>
+    byte-identical legacy (no OFF_SUBJECT downgrade)."""
+    return os.environ.get("PG_TOPIC_CATEGORY_CONSISTENCY", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _ontopic_anchors_enabled() -> bool:
+    """``PG_TOPIC_ONTOPIC_ANCHORS`` kill switch (LAW VI, DEFAULT OFF, P0-1a). ON => inject
+    corpus-salient entity phrases as ON-TOPIC context in the judge prompt. Default OFF: the
+    deterministic category-consistency guard (b) is the shipped fix; the prompt nudge is opt-in
+    (an un-vetted judge-prompt change must never silently degrade precision)."""
+    return os.environ.get("PG_TOPIC_ONTOPIC_ANCHORS", "0").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _category_signature(row: dict[str, Any]) -> str:
+    """A category signature = registrable host + URL path with DIGIT-BEARING segments templated
+    to ``#`` (P0-1b). This groups a NUMERIC-TEMPLATE page family (BLS OES ``/oes/current/
+    oes232011.htm`` ~ ``oes436014.htm`` -> ``host/oes/current/#``) without collapsing distinct
+    slug-articles (two different ``/wiki/<article>`` pages keep distinct signatures — no false
+    grouping). Returns "" when the URL is missing OR has no numeric-template segment (the guard
+    is then inert for that row — fail-safe, never over-groups). Pure/deterministic."""
+    url = str(row.get("source_url") or row.get("url") or "").strip()
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url)
+    except Exception:  # noqa: BLE001
+        return ""
+    host = (parsed.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if not host:
+        return ""
+    segs = [s for s in (parsed.path or "").split("/") if s]
+    templated: list[str] = []
+    has_digit_seg = False
+    for s in segs:
+        if any(ch.isdigit() for ch in s):
+            templated.append("#")
+            has_digit_seg = True
+        else:
+            templated.append(s.lower())
+    if not has_digit_seg:
+        return ""  # no numeric-template family signal -> no grouping (guard inert for this row)
+    return host + "/" + "/".join(templated)
+
+
+# 2-4 capitalized words = a candidate entity phrase (BLS occupation names, org names, etc.).
+_ONTOPIC_ANCHOR_PHRASE_RE = re.compile(
+    r"\b([A-Z][A-Za-z0-9&.\-]+(?:\s+[A-Z][A-Za-z0-9&.\-]+){1,3})\b"
+)
+
+
+def _derive_ontopic_anchors(
+    judged_meta: list[tuple[str, str]], *, min_occurrences: int = 3, cap: int = 12,
+) -> list[str]:
+    """Corpus-salient entity phrases: capitalized 2-4-word phrases recurring across >=
+    ``min_occurrences`` judged titles, capped to ``cap`` (P0-1a). General/question-agnostic —
+    derived at runtime from the corpus, nothing hardcoded. Empty when nothing recurs."""
+    counter: Counter[str] = Counter()
+    seen_per_title: list[set[str]] = []
+    for title, _snippet in judged_meta:
+        phrases: set[str] = set()
+        for m in _ONTOPIC_ANCHOR_PHRASE_RE.finditer(title or ""):
+            phrase = m.group(1).strip()
+            if len(phrase) >= 6:
+                phrases.add(phrase)
+        seen_per_title.append(phrases)
+    for phrases in seen_per_title:
+        for p in phrases:
+            counter[p] += 1
+    return [p for p, c in counter.most_common() if c >= min_occurrences][:cap]
+
+
 def _build_batch_prompt(
     research_question: str,
     batch: list[tuple[int, str, str]],
     *,
     subject_aspect_split: bool = False,
+    ontopic_anchors: list[str] | None = None,
 ) -> str:
     """Build a single ON/OFF-topic classification prompt for a batch of
     sources. ``batch`` is a list of (local_index, title, snippet). The LLM is
@@ -334,6 +430,15 @@ def _build_batch_prompt(
         "",
         f"RESEARCH QUESTION:\n{research_question.strip()}",
         "",
+        *(
+            [
+                "ON-TOPIC CONTEXT (entities recurring across this research corpus — a source "
+                "whose subject is one of these is ON-topic for the question's subject; this "
+                "does NOT waive the aspect test): " + "; ".join(ontopic_anchors),
+                "",
+            ]
+            if ontopic_anchors else []
+        ),
         # I-deepfix-001 FF4-ASPECT (v2, forensic-corrected): FACET-SCOPED rubric
         # (was entity-only) + a STRICT verdict-only output contract. An
         # entity-only "different subject?" prompt is structurally blind to a
@@ -603,6 +708,11 @@ def classify_topic_relevance(
     # subject/aspect split is enabled.
     offaspect_rows: list[dict[str, Any]] = []
 
+    # P0-1a (default OFF): corpus-salient on-topic anchors derived once from the judged titles.
+    ontopic_anchors = (
+        _derive_ontopic_anchors(judged_meta) if _ontopic_anchors_enabled() else []
+    )
+
     for start in range(0, len(judged_rows), size):
         end = min(start + size, len(judged_rows))
         batch_rows = judged_rows[start:end]
@@ -614,6 +724,7 @@ def classify_topic_relevance(
         expected = [b[0] for b in batch]
         prompt = _build_batch_prompt(
             research_question, batch, subject_aspect_split=split,
+            ontopic_anchors=ontopic_anchors,
         )
         try:
             raw = llm_callable(prompt)
@@ -662,6 +773,41 @@ def classify_topic_relevance(
                 # (_is_confirmed_offtopic keys on `is True`; is_topic_unjudged on `is not None`) already
                 # handles False. Gated PG_TOPIC_GATE_RESCUE_ON_STAMP (default ON); OFF = byte-identical.
                 ontopic_rows.append(row)
+
+    # P0-1b (S2/S3 re-pass) — CATEGORY-CONSISTENCY fail-open (§-1.3.1: credible on-topic NEVER
+    # deleted). A row this run verdicted the DELETABLE OFF_SUBJECT is DOWNGRADED to OFF_ASPECT
+    # (demote-KEEP, deletable sidecar cleared) when a sibling in the SAME category (registrable
+    # host + numeric-template path family, e.g. the BLS OES /oes/current/# occupational-wage
+    # family) was verdicted ON or OFF_ASPECT — an inconsistent whole-drop is uncertainty by
+    # definition, so KEEP. Deterministic, fail-open, disclosed. Only under the subject/aspect
+    # split (OFF_SUBJECT is the only deletable verdict). Kill switch OFF => byte-identical.
+    if split and _topic_category_consistency_enabled() and offsubject_rows:
+        kept_categories: set[str] = set()
+        for row in ontopic_rows:
+            sig = _category_signature(row)
+            if sig:
+                kept_categories.add(sig)
+        for row in offaspect_rows:
+            sig = _category_signature(row)
+            if sig:
+                kept_categories.add(sig)
+        if kept_categories:
+            retained_offsubject: list[dict[str, Any]] = []
+            n_downgraded = 0
+            for row in offsubject_rows:
+                sig = _category_signature(row)
+                if sig and sig in kept_categories:
+                    offaspect_rows.append(row)  # same-category sibling kept => KEEP (demote only)
+                    n_downgraded += 1
+                else:
+                    retained_offsubject.append(row)
+            offsubject_rows = retained_offsubject
+            if n_downgraded:
+                _LOGGER.info(
+                    "[scope] topic_gate P0-1b category-consistency: %d OFF_SUBJECT source(s) "
+                    "downgraded to OFF_ASPECT (same-category sibling kept — credible on-topic "
+                    "never deleted, §-1.3.1)", n_downgraded,
+                )
 
     if hard_drop:
         # LEGACY (explicit opt-in): hard-drop the confident-OFF set.
