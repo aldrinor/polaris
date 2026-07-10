@@ -151,6 +151,19 @@ def _synth(spec: rc.KnobSpec, layer: str) -> Any:
     return {"panel": "panelval", "prompt": "promptval", "env": "envval"}[layer]
 
 
+def _prompt_directive(spec: rc.KnobSpec) -> tuple[str, Any]:
+    """A crafted explicit-directive phrase + the expected coerced value (behavioral A5)."""
+    raw = {"int": "7", "float": "0.5", "bool": "true"}.get(spec.type)
+    if raw is None:
+        if spec.type == "str_enum":
+            raw = (spec.enum or ("x",))[0]
+        elif spec.type == "list":
+            raw = "alpha, beta"
+        else:
+            raw = "alpha"
+    return f"Research question here. set {spec.id} to {raw}.", rc._coerce(spec, raw)
+
+
 def case_a4(REG: dict[str, rc.KnobSpec]) -> tuple[str, str, str]:
     """A4 — FULL 38-knob precedence matrix (HOLD expected; the core matrix)."""
     panel_wins = prompt_wins = env_wins = default_ok = 0
@@ -199,13 +212,10 @@ def case_a4(REG: dict[str, rc.KnobSpec]) -> tuple[str, str, str]:
 
 
 def case_a5(REG: dict[str, rc.KnobSpec]) -> tuple[str, str, str]:
-    """A5 — EVERY knob settable from BOTH prompt AND panel (BREAK expected — key finding)."""
-    rule_knob_ids = {r[0] for r in rc._PROMPT_RULES}
+    """A5 — EVERY knob settable from BOTH prompt AND panel (HOLD expected — behavioral)."""
     panel_ok = 0
     prompt_ok = 0
     not_prompt: list[str] = []
-    parse_false: list[str] = []
-    true_but_no_rule: list[str] = []
     for kid, spec in REG.items():
         # panel side: from_sources must accept a type-valid override and resolve to panel.
         try:
@@ -214,21 +224,25 @@ def case_a5(REG: dict[str, rc.KnobSpec]) -> tuple[str, str, str]:
                 panel_ok += 1
         except rc.RunConfigError:
             pass
-        # prompt side: settable iff prompt_parseable AND a _PROMPT_RULES entry exists.
-        settable = spec.prompt_parseable and kid in rule_knob_ids
-        if settable:
+        # prompt side: BEHAVIORAL — a crafted directive phrase must yield the parsed
+        # value with a verbatim span AND win resolution as source='prompt', regardless
+        # of which parser layer (specific _PROMPT_RULES rule or the generic
+        # explicit-directive layer, run_config.py §1) recognises it.
+        phrase, expected = _prompt_directive(spec)
+        parsed = rc.parse_prompt_knobs(phrase, REG)
+        hit = parsed.get(kid)
+        span_ok = hit is not None and hit[1] and hit[1] in phrase
+        value_ok = hit is not None and hit[0] == expected
+        prov = rc.get(rc.RunConfig.from_sources(prompt_text=phrase, registry=REG),
+                      kid, registry=REG, env={})
+        if span_ok and value_ok and prov.source == "prompt" and prov.value == expected:
             prompt_ok += 1
         else:
-            not_prompt.append(kid)
-            if not spec.prompt_parseable:
-                parse_false.append(kid)
-            else:
-                true_but_no_rule.append(kid)
+            not_prompt.append(
+                f"{kid}({'no-parse' if hit is None else 'bad-value-or-span'})")
     ok = (panel_ok == 38 and prompt_ok == 38)
-    ev = (f"both-surface coverage panel={panel_ok}/38 prompt={prompt_ok}/38 "
-          f"NOT_PROMPT_SETTABLE={sorted(not_prompt)} "
-          f"({len(parse_false)} prompt_parseable:false + "
-          f"{len(true_but_no_rule)} flagged-true-but-no-rule={sorted(true_but_no_rule)})")
+    ev = (f"both-surface coverage panel={panel_ok}/38 prompt(BEHAVIORAL)={prompt_ok}/38 "
+          f"NOT_PROMPT_SETTABLE={sorted(not_prompt)}")
     return "A5", ("HOLD" if ok else "BREAK"), ev
 
 
