@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections import Counter
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -563,6 +564,79 @@ def _apply_synthesis_deviation_screen(
         return cleaned
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-006 C5 — clean analyst-synthesis render (PG_SYNTH_RENDER_CLEAN, default ON)
+# ─────────────────────────────────────────────────────────────────────────────
+# De-clutters the rendered "Analyst Synthesis" block WITHOUT touching the frozen faithfulness engine
+# or any claim. Two render-only edits:
+#   (1) DEDUPE the DOUBLED disclosure. ``_apply_synthesis_deviation_screen`` prepends the
+#       ``ANALYST_SYNTHESIS_DISCLOSURE`` INTO ``analyst_synthesis_text`` whenever the analyst block
+#       renders, AND the sole report renderer (run_honest_sweep_r3.py ~L15436) ALSO emits that same
+#       disclosure as the italic "## Analyst Synthesis" section preamble. Result in report.md: the
+#       disclosure twice, back-to-back. This pass removes the IN-TEXT copy so the renderer's canonical
+#       preamble is the single one. The section STAYS labeled interpretive (the renderer always adds
+#       the preamble — it is the only consumer of ``analyst_synthesis_text`` — so the section is never
+#       left unlabeled).
+#   (2) LIFT the per-sentence ``[confidence: <bucket> — …]`` markers (appended by the B13/D3 deviation
+#       check via ``claim_labeler.render_confidence_marker``) OUT of the prose into ONE compact
+#       per-section confidence note (bucket counts). The section-level disclosure remains the binding
+#       honesty signal; no claim is upgraded, none dropped — the labels are aggregated, not discarded.
+# Faithfulness-neutral + render-only. Default-ON; OFF => byte-identical (returns the text unchanged);
+# ON with an already-clean block (no in-text disclosure, no markers) is also byte-identical.
+_RENDER_CLEAN_ENV = "PG_SYNTH_RENDER_CLEAN"
+_RENDER_CLEAN_OFF_VALUES = ("0", "false", "off", "no")
+# Mirrors analyst_synthesis_deviation_check._CONFIDENCE_MARKER_RE (leading whitespace + the bracket).
+_RENDER_CLEAN_CONF_MARKER_RE = re.compile(r"[ \t]*\[confidence:[^\]]*\]")
+# The bucket label is the first token after "[confidence:" up to the " — " separator; buckets are the
+# claim_labeler VALID_BUCKETS (high / moderate / low / no-source-found — lowercase, may carry hyphens).
+_RENDER_CLEAN_CONF_BUCKET_RE = re.compile(r"\[confidence:\s*([A-Za-z-]+)")
+_RENDER_CLEAN_BUCKET_ORDER = ("high", "moderate", "low", "no-source-found")
+
+
+def _render_clean_enabled() -> bool:
+    """C5 kill-switch. Default-ON; OFF only for an explicit off-value (byte-identical legacy render)."""
+    return (
+        os.environ.get(_RENDER_CLEAN_ENV, "1").strip().lower()
+        not in _RENDER_CLEAN_OFF_VALUES
+    )
+
+
+def _render_clean_synthesis(text: str) -> str:
+    """Return the render-cleaned analyst-synthesis text (C5). See module block above.
+
+    Pure, no-network, faithfulness-neutral. Returns the input UNCHANGED when the flag is OFF or when
+    there is nothing to clean (no in-text disclosure copy AND no inline confidence markers)."""
+    if not text or not text.strip() or not _render_clean_enabled():
+        return text
+    had_disclosure = ANALYST_SYNTHESIS_DISCLOSURE in text
+    buckets = [b.lower() for b in _RENDER_CLEAN_CONF_BUCKET_RE.findall(text)]
+    if not had_disclosure and not buckets:
+        return text  # already clean -> byte-identical
+    cleaned = text
+    if had_disclosure:
+        # Remove EVERY in-text copy (guarded ≤1 upstream, but be defensive) — the renderer re-adds one.
+        cleaned = cleaned.replace(ANALYST_SYNTHESIS_DISCLOSURE, "")
+    if buckets:
+        cleaned = _RENDER_CLEAN_CONF_MARKER_RE.sub("", cleaned)
+    # Tidy whitespace the strips left behind (trailing spaces, >2 consecutive blank lines, leading blanks).
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).lstrip("\n")
+    if buckets:
+        counts = Counter(buckets)
+        ordered = [f"{counts[b]} {b}" for b in _RENDER_CLEAN_BUCKET_ORDER if counts.get(b)]
+        for b in counts:  # any non-standard label -> keep it, appended after the known order
+            if b not in _RENDER_CLEAN_BUCKET_ORDER:
+                ordered.append(f"{counts[b]} {b}")
+        note = (
+            "_Confidence labels for this interpretive section: "
+            + ", ".join(ordered)
+            + ". Each was a per-sentence groundedness check, summarized here; the whole section is "
+            "interpretive and not individually span-verified._"
+        )
+        cleaned = f"{note}\n\n{cleaned}" if cleaned.strip() else note
+    return cleaned
+
+
 async def generate_analyst_synthesis(
     *,
     verified_prose: str,
@@ -711,4 +785,8 @@ async def generate_analyst_synthesis(
     cleaned = _apply_synthesis_deviation_screen(
         cleaned, bibliography, evidence_rows, deviation_judge_fn,
     )
+    # I-deepfix-006 C5 (PG_SYNTH_RENDER_CLEAN, default ON): dedupe the doubled section disclosure +
+    # lift the per-sentence [confidence:…] markers into a compact per-section note. Render-only, runs
+    # LAST (after the deviation screen has appended its confidence markers). OFF => byte-identical.
+    cleaned = _render_clean_synthesis(cleaned)
     return cleaned, in_tok, out_tok
