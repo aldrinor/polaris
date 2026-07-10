@@ -537,6 +537,55 @@ def _snap_span_end_to_sentence(haystack: str, start: int, end: int) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# I-deepfix-006 F (#1376) — FULL-QUOTE-WINDOW SNAP (the P0 truncated-number fix).
+#
+# THE BUG (drb_72): a verified span byte-range whose START or END lands MID-VALUE (the extractor cut the
+# member's direct_quote at "…exposure rises to 4" from "…46%", or at "6% of tasks" from "46%…") composes
+# a garbled clause with a truncated number/word. This SNAPS both window ends against the evidence-pool
+# row's FULL direct_quote at window-mining time, so a number/word is never cut mid-value.
+#
+# Extend-ONLY within the SAME row => a SUPERSET of the verified span => grounded by construction (the
+# emitted text is a verbatim slice of the row; strict_verify re-checks the whole number is present in
+# both sentence and span). Bounded so a pathological token can never swallow the row. Default-ON;
+# PG_FULL_QUOTE_WINDOW_SNAP=0 restores byte-identical legacy behaviour.
+_ENV_FULL_QUOTE_WINDOW_SNAP = "PG_FULL_QUOTE_WINDOW_SNAP"
+# A whole "value" token: a number (with decimal / thousands separators + a trailing %) OR an alphabetic
+# word. Matching these lets the snap recognise a mid-value cut ("46%", "3.75", "reinstatement").
+_WHOLE_VALUE_TOKEN_RE = re.compile(r"\d[\d.,]*%?|[^\W\d_]+")
+_MAX_WHOLE_VALUE_EXTEND = 64  # cap the per-end extension so a runaway token can never swallow the row
+
+
+def _full_quote_window_snap_enabled() -> bool:
+    """PG_FULL_QUOTE_WINDOW_SNAP gate (mirrors ``_snap_span_enabled``): default-ON; only an explicit
+    0/false/off/no disables. An EMPTY string behaves like UNSET (stays ON)."""
+    return os.getenv(_ENV_FULL_QUOTE_WINDOW_SNAP, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _snap_window_to_whole_value(haystack: str, start: int, end: int) -> "tuple[int, int]":
+    """Snap ``(start, end)`` outward to whole-value token boundaries in ``haystack`` so neither end cuts
+    a number or word mid-value. Extend-ONLY (the result is a SUPERSET within the same row); bounded by
+    ``_MAX_WHOLE_VALUE_EXTEND`` per end; a no-op on out-of-range input. Pure."""
+    n = len(haystack)
+    if not haystack or not (0 <= start < end <= n):
+        return start, end
+    new_start, new_end = start, end
+    for m in _WHOLE_VALUE_TOKEN_RE.finditer(haystack):
+        ms, me = m.start(), m.end()
+        if ms < start < me:
+            new_start = min(new_start, ms)
+        if ms < end < me:
+            new_end = max(new_end, me)
+        if ms >= end:
+            break  # tokens are ordered; nothing past ``end`` can contain ``start`` or ``end``
+    # Bound each extension so a pathological token can never swallow the row.
+    if start - new_start > _MAX_WHOLE_VALUE_EXTEND:
+        new_start = start
+    if new_end - end > _MAX_WHOLE_VALUE_EXTEND:
+        new_end = end
+    return new_start, new_end
+
+
+# ─────────────────────────────────────────────────────────────────────
 # I-deepfix-001 Wave-3 PART 1 (#1344) — COMPANION-FIGURE COMPOSE
 #
 # THE OMISSION (drb_72 one-sidedness): the composed headline states ONE percent (e.g.
@@ -745,9 +794,19 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
         # snap applies (snap_end == end) the path is byte-identical to legacy. Default-ON.
         snap_end = end
         span_text = quote
+        row = (evidence_pool or {}).get(eid) or {}
+        haystack = str(row.get("direct_quote") or row.get("statement") or "")
+        # I-deepfix-006 F (#1376): snap BOTH window ends against the row's FULL direct_quote so a
+        # number/word is never cut mid-value (the P0 truncated-number fix). Extend-only within the same
+        # row => a SUPERSET of the verified span; span_text is rebuilt from the widened slice so the
+        # emitted text and the [#ev] token bounds always agree. Byte-identical when PG_FULL_QUOTE_WINDOW_
+        # SNAP=0 (no widening) — the token then stays start-end == gspan and span_text stays ``quote``.
+        if _full_quote_window_snap_enabled() and haystack:
+            w_start, w_end = _snap_window_to_whole_value(haystack, start, end)
+            if (w_start, w_end) != (start, end) and 0 <= w_start < w_end <= len(haystack):
+                start, end, snap_end = w_start, w_end, w_end
+                span_text = haystack[start:end]
         if _snap_span_enabled():
-            row = (evidence_pool or {}).get(eid) or {}
-            haystack = str(row.get("direct_quote") or row.get("statement") or "")
             snap_end = _snap_span_end_to_sentence(haystack, start, end)
             # finding #8: never let the forward snap cross into a sibling member's span (which would
             # emit that sibling's text under THIS member's single [#ev] token / [N]).
@@ -1242,6 +1301,47 @@ _DEGRADED_VERIFY_DISCLOSURE_PREFIX = "[verification incomplete:"
 # honest labeled block. ONLY produced on the SYNTH_PRIMARY ON path => byte-identical when OFF.
 _UNCOVERED_FACT_DISCLOSURE_PREFIX = "[uncovered supporting evidence for:"
 
+# I-deepfix-006 C3 (#1376) — REFORMAT the SYNTH_PRIMARY uncovered-fact disclosure into human prose at
+# RENDER time. The block "[uncovered supporting evidence for: {subject}] {span}" is an INTENTIONAL honest
+# disclosure (never a leak) but renders raw with brackets. This rewrites it to a readable sentence, NEVER
+# deletes it. Applied ONLY at ``render_degraded_disclosures`` (after ``partition_composed_disclosures``
+# has already routed the block aside by its ``[`` prefix), so the partition/classification is untouched.
+# Default-ON; PG_UNCOVERED_DISCLOSURE_REFORMAT=0 keeps the raw bracket block byte-for-byte.
+_ENV_UNCOVERED_DISCLOSURE_REFORMAT = "PG_UNCOVERED_DISCLOSURE_REFORMAT"
+_UNCOVERED_DISCLOSURE_HUMAN_LEAD = (
+    "Evidence was retrieved for the following claims but no span met the verification floor: "
+)
+_UNCOVERED_FACT_BLOCK_RE = re.compile(
+    r"^\[uncovered supporting evidence for:\s*(?P<subject>.*?)\]\s*(?P<span>.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _uncovered_disclosure_reformat_enabled() -> bool:
+    """PG_UNCOVERED_DISCLOSURE_REFORMAT gate (default ON). OFF / empty => the raw bracket block renders
+    byte-for-byte (legacy)."""
+    return os.getenv(_ENV_UNCOVERED_DISCLOSURE_REFORMAT, "1").strip().lower() not in (
+        "0", "false", "off", "no",
+    )
+
+
+def _reformat_uncovered_disclosure(text: str) -> str:
+    """Rewrite one "[uncovered supporting evidence for: {subject}] {span}" block into human prose
+    ("Evidence was retrieved for the following claims but no span met the verification floor: {subject}.
+    {span}"). Returns ``text`` unchanged when the kill-switch is OFF or the text is not an uncovered-fact
+    block (byte-identical). NEVER deletes — the subject + span are preserved verbatim. Pure."""
+    if not _uncovered_disclosure_reformat_enabled():
+        return text
+    m = _UNCOVERED_FACT_BLOCK_RE.match(str(text or "").strip())
+    if not m:
+        return text
+    subject = (m.group("subject") or "").strip()
+    span = (m.group("span") or "").strip()
+    lead = _UNCOVERED_DISCLOSURE_HUMAN_LEAD + (subject or "this claim")
+    if not lead.endswith("."):
+        lead += "."
+    return f"{lead} {span}".strip() if span else lead
+
 
 def _is_degraded_verify_disclosure_unit(text: Any) -> bool:
     """True iff a whole composed unit IS the degraded-verify disclosure placeholder (``[verification
@@ -1327,6 +1427,10 @@ def render_degraded_disclosures(body: str, disclosures: list) -> str:
     kept_disclosures = [str(d).strip() for d in (disclosures or []) if d and str(d).strip()]
     if not kept_disclosures:
         return body
+    # I-deepfix-006 C3 (#1376): reformat the raw "[uncovered supporting evidence for: …]" block into
+    # human prose (never delete). Byte-identical when PG_UNCOVERED_DISCLOSURE_REFORMAT=0 or the block is
+    # a degraded-verify disclosure (only the uncovered-fact prefix matches).
+    kept_disclosures = [_reformat_uncovered_disclosure(d) for d in kept_disclosures]
     parts: list[str] = []
     body_str = str(body or "").rstrip()
     if body_str:
