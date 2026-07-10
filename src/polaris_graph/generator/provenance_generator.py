@@ -878,6 +878,39 @@ _HEDGE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# I-deepfix-006 PT13 lexicon v2 (#1376) — PG_PT13_LEXICON_V2. Two precision fixes to the unhedged-
+# superlative detector:
+#   (1) ATTRIBUTION VERBS are source-anchoring hedges too. "The IMF warns that unemployment is the
+#       highest since 2008" ATTRIBUTES the superlative to a source, so it is hedged — not an unhedged
+#       generator assertion. The legacy hedge list omitted them, causing a false PT13 flag.
+#   (2) "top" is NOT a superlative when it is a LIST rank ("top 10 predictions", "top 5") or a POSITIONAL
+#       phrase ("at the top of", "to the top") — those are not comparative quality claims (they were the
+#       TRU "top 10 predictions" false flag).
+# Default-ON; PG_PT13_LEXICON_V2=0 restores the legacy detector byte-for-byte.
+_ATTRIBUTION_VERB_RE = re.compile(
+    r"\b(?:say|says|said|saying|warn|warns|warned|warning|argue|argues|argued|arguing|"
+    r"claim|claims|claimed|claiming|predict|predicts|predicted|predicting|"
+    r"project|projects|projected|projecting|forecast|forecasts|forecasted|forecasting|"
+    r"state|states|stated|stating|wrote|writes|writing)\b",
+    re.IGNORECASE,
+)
+
+
+def _pt13_lexicon_v2_enabled() -> bool:
+    """PG_PT13_LEXICON_V2 (default ON). OFF / empty => the legacy unhedged-superlative detector is used
+    byte-for-byte (no attribution-verb hedge, no ``top`` list/positional exemption)."""
+    return os.getenv("PG_PT13_LEXICON_V2", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _top_match_is_exempt(clean: str, start: int, end: int) -> bool:
+    """True iff a matched ``top`` is a LIST rank ("top 10") or a POSITIONAL phrase ("at the top of",
+    "to the top") rather than a comparative quality claim. Pure."""
+    following = clean[end:]
+    if re.match(r"[\s\-]*\d", following):
+        return True  # "top 10 predictions" / "top-5" — a list rank, not a superlative
+    preceding = clean[:start].rstrip().lower()
+    return preceding.endswith("at the") or preceding.endswith("to the")
+
 
 def _detect_unhedged_superlative(sentence: str) -> Optional[str]:
     """Return the matched superlative phrase if the sentence is an unhedged
@@ -885,19 +918,32 @@ def _detect_unhedged_superlative(sentence: str) -> Optional[str]:
 
     Heuristic: a sentence is unhedged if it contains a superlative phrase
     AND does not contain any of the source-anchoring hedge words.
+
+    I-deepfix-006 PT13 lexicon v2 (#1376): when PG_PT13_LEXICON_V2 is ON (default) attribution verbs
+    (warns / says / argues / predicts / …) also count as source-anchoring hedges, and a ``top`` that is
+    a list rank ("top 10") or positional ("at the top") is skipped. OFF => byte-identical legacy.
     """
     if not sentence:
         return None
     # Strip provenance tokens so they don't consume characters the
     # superlative regex might otherwise miss.
     clean = _PROVENANCE_TOKEN_RE.sub(" ", sentence)
-    m = _SUPERLATIVE_RE.search(clean)
-    if not m:
+    if not _pt13_lexicon_v2_enabled():
+        m = _SUPERLATIVE_RE.search(clean)
+        if not m:
+            return None
+        if _HEDGE_RE.search(clean):
+            return None
+        return m.group(0)
+    # v2: attribution verbs are hedges too.
+    if _HEDGE_RE.search(clean) or _ATTRIBUTION_VERB_RE.search(clean):
         return None
-    # Look for a hedge anywhere in the same sentence.
-    if _HEDGE_RE.search(clean):
-        return None
-    return m.group(0)
+    # v2: skip a ``top`` that is a list rank / positional phrase; return the first REAL superlative.
+    for m in _SUPERLATIVE_RE.finditer(clean):
+        if m.group(0).lower() == "top" and _top_match_is_exempt(clean, m.start(), m.end()):
+            continue
+        return m.group(0)
+    return None
 
 
 def _strip_dose_patterns(text: str) -> str:
@@ -2926,6 +2972,32 @@ _SENTENCE_SPLIT_RE = re.compile(
     r"(?<=[.!?])\s+(?=[A-Z\[])|(?<=\])\s+(?=[A-Z])",
 )
 
+# I-deepfix-006 splitter widening (#1376) — PG_SENTENCE_SPLIT_SYMBOL_BOUNDARY. A Franken-sentence often
+# glues two source sentences where the second starts with a SYMBOL or a DIGIT rather than a capital
+# ("… adoption.* Bullet furniture", "… 2020. 15 firms reported", '… rate. "Next" said'). The legacy
+# regex only splits before ``[A-Z\[]``, so the glue survives as one blob and a trailing furniture symbol
+# rides a real finding. This widens the split with THREE guarded legs:
+#   • hard furniture symbols ``* © •`` — whitespace OPTIONAL (they glue right after the period);
+#   • a DIGIT — whitespace MANDATORY, so a decimal ("3.75", no space) is NEVER split;
+#   • an opening / straight QUOTE — whitespace MANDATORY, so a glued CLOSING quote ("done." ) is NEVER
+#     split off its own sentence.
+# Direction TIGHTENS (more, shorter units — an un-tokened split unit is dropped by the frozen
+# strict_verify, isolating the furniture). Default-ON; byte-identical OFF.
+_SENTENCE_SPLIT_RE_V2 = re.compile(
+    r"(?<=[.!?])\s+(?=[A-Z\[])"        # legacy: capital / bracket after whitespace
+    r"|(?<=\])\s+(?=[A-Z])"            # legacy: capital after a citation marker
+    r"|(?<=[.!?])\s*(?=[*©•])"         # hard furniture symbols — whitespace optional (glued)
+    r"|(?<=[.!?])\s+(?=[\d\"'“‘])",    # digit / opening quote — whitespace mandatory (protect decimals)
+)
+
+
+def _sentence_split_symbol_boundary_enabled() -> bool:
+    """PG_SENTENCE_SPLIT_SYMBOL_BOUNDARY (default ON). OFF / empty => the legacy split regex is used =>
+    byte-identical sentence segmentation."""
+    return os.getenv("PG_SENTENCE_SPLIT_SYMBOL_BOUNDARY", "1").strip().lower() not in (
+        "0", "false", "off", "no",
+    )
+
 
 def split_into_sentences(text: str) -> list[str]:
     """Lightweight sentence splitter. Good enough for our generator output.
@@ -2934,10 +3006,15 @@ def split_into_sentences(text: str) -> list[str]:
     `.[1][2]` — the second alternative in the split regex triggers on
     the closing `]` so the marker stays attached to the preceding
     sentence rather than being eaten.
+
+    I-deepfix-006 (#1376): when PG_SENTENCE_SPLIT_SYMBOL_BOUNDARY is ON (default) alternative (1) also
+    splits after ``.!?`` + whitespace before a symbol (``* © •`` / quote) or a digit, catching a
+    Franken-sentence glue the capital-only rule missed. OFF => byte-identical legacy segmentation.
     """
     if not text:
         return []
-    parts = _SENTENCE_SPLIT_RE.split(text.strip())
+    rx = _SENTENCE_SPLIT_RE_V2 if _sentence_split_symbol_boundary_enabled() else _SENTENCE_SPLIT_RE
+    parts = rx.split(text.strip())
     return [p.strip() for p in parts if p.strip()]
 
 
