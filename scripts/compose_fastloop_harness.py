@@ -456,8 +456,11 @@ def apply_bridge(rows: list[dict], bridge_index: dict, case: dict) -> tuple[list
     """For each row whose bridged fetch verdict is PASS, REPLACE ``direct_quote`` with
     the recovered full body (+ statement head). Tier / authority / title / url stay
     from the banked row — content changes, weight never. FAIL/UNREACHABLE fetch rows
-    are NOT bridged (banked row kept) and disclosed. Returns (rows, stats)."""
+    (and PASS rows with an empty body) are NOT bridged — the banked row is kept and the
+    row id is recorded as STALE so ``run_case`` can VOID a mixed bridge (any fetch-RED
+    row) unless ``--allow-unbridged`` (design §3 item 3). Returns (rows, stats)."""
     bridged, offered_not, no_body = 0, 0, 0
+    stale_ids: list[str] = []
     new_rows: list[dict] = []
     for row in rows:
         rec = bridge_index.get(f"ev:{row.get('evidence_id')}")
@@ -468,11 +471,13 @@ def apply_bridge(rows: list[dict], bridge_index: dict, case: dict) -> tuple[list
             continue
         if str(rec.get("verdict", "")).upper() != PASS:
             offered_not += 1
+            stale_ids.append(str(row.get("evidence_id")))
             new_rows.append(row)
             continue
         body = rec.get("quote") or rec.get("body") or ""
         if not body.strip():
             no_body += 1
+            stale_ids.append(str(row.get("evidence_id")))
             new_rows.append(row)
             continue
         merged = dict(row)
@@ -481,7 +486,8 @@ def apply_bridge(rows: list[dict], bridge_index: dict, case: dict) -> tuple[list
         new_rows.append(merged)
         bridged += 1
     stats = {"bridged": bridged, "offered_but_not_bridged": offered_not,
-             "no_body_kept_banked": no_body, "total_rows": len(rows)}
+             "no_body_kept_banked": no_body, "stale_evidence_ids": stale_ids,
+             "total_rows": len(rows)}
     return new_rows, stats
 
 
@@ -613,6 +619,59 @@ class _ChildRegistry:
             _kill_proc(p)
 
 
+def pipeline_verdict(leg_a: dict, subprocess_exit: Optional[int],
+                     subprocess_tail: Optional[str], report_exists: bool,
+                     leg_b_findings: list[dict]) -> tuple[str, list[dict], str]:
+    """Bind the pipeline-profile per-case verdict to ALL legs, not leg B alone (pure —
+    imported by the offline oracle tests). A green PASS requires ``manifest.status ==
+    'success'`` AND a readable leg A; a nonzero subprocess exit or an ``abort_*`` /
+    ``error_*`` manifest status is a FAIL with the status/tail QUOTED (per §9.1
+    invariant 4 the abort still writes a report.md, so a leg-B-only verdict would
+    false-PASS on zero verified prose); a clean report whose leg A was skipped /
+    absent / unreadable is DEGRADED_OK — never PASS, never authorized. Returns
+    (verdict, findings_that_bind, note)."""
+    findings = list(leg_b_findings or [])
+    manifest = leg_a.get("manifest") if isinstance(leg_a, dict) else None
+    status = manifest.get("status") if isinstance(manifest, dict) else None
+
+    # 1) Hard pipeline failure: a nonzero subprocess exit binds FAIL (tail quoted).
+    if isinstance(subprocess_exit, int) and subprocess_exit != 0:
+        tail = (subprocess_tail or "").strip()
+        findings.insert(0, {
+            "kind": "pipeline_subprocess_fail",
+            "span": (tail[-300:] if tail else f"exit={subprocess_exit}"),
+            "detail": f"run_gate_b exited nonzero ({subprocess_exit}); compose did not complete"})
+        return FAIL, findings, f"pipeline subprocess exit {subprocess_exit}"
+
+    # 2) abort_* / error_* manifest status binds FAIL (status quoted) — zero verified prose.
+    if isinstance(status, str) and (status.startswith("abort_") or status.startswith("error_")):
+        findings.insert(0, {
+            "kind": "manifest_abort_status", "span": status,
+            "detail": f"manifest.status={status!r}: compose produced no verified prose"})
+        return FAIL, findings, f"manifest.status={status}"
+
+    # 3) No report.md and not an abort we caught above => pipeline error before render.
+    if not report_exists:
+        return UNREACHABLE, findings, (
+            f"pipeline produced no report.md (manifest.status={status!r})")
+
+    # 4) Leg-B harness-owned defects bind FAIL (spans already quoted by the oracle).
+    if leg_b_findings:
+        return FAIL, findings, ""
+
+    # 5) Clean report: PASS only on a fully-green, readable leg A; else DEGRADED_OK.
+    rule_checks = leg_a.get("rule_checks") if isinstance(leg_a, dict) else None
+    verification = manifest.get("verification") if isinstance(manifest, dict) else None
+    leg_a_green = (status == "success"
+                   and isinstance(rule_checks, dict)
+                   and verification not in (False, "failed", "FAILED"))
+    if leg_a_green:
+        return PASS, findings, ""
+    return DEGRADED_OK, findings, (
+        f"leg B clean but leg A not fully green (status={status!r}, "
+        f"rule_checks_present={isinstance(rule_checks, dict)}) => DEGRADED_OK, not authorized")
+
+
 def run_case(case: dict, cfg: dict, run_dir: Path, profile: str,
              bridge_index: Optional[dict], allow_unbridged: bool,
              case_timeout: int, registry: _ChildRegistry) -> dict:
@@ -630,20 +689,25 @@ def run_case(case: dict, cfg: dict, run_dir: Path, profile: str,
         "note": "", "elapsed_s": 0.0,
     }
 
-    # requires: diag_snapshot but the diag snapshot is not banked => UNREACHABLE (never skipped).
+    # requires: diag_snapshot — the case's real defect rows live ONLY in the fresh
+    # diagnostic snapshot; if it is not banked => UNREACHABLE (never skipped). When it
+    # IS banked the case must be composed FROM the diag snapshot, not the default one.
+    snapshot_rel = cfg["snapshot"]
     if case.get("requires") == "diag_snapshot":
-        diag = _REPO_ROOT / cfg.get("diag_snapshot", "")
-        if not (cfg.get("diag_snapshot") and diag.is_file()):
+        diag_rel = cfg.get("diag_snapshot", "")
+        diag = _REPO_ROOT / diag_rel
+        if not (diag_rel and diag.is_file()):
             base["note"] = "requires diag_snapshot (not banked) — UNREACHABLE, not skipped"
             base["elapsed_s"] = round(time.monotonic() - start, 2)
             return base
+        snapshot_rel = diag_rel
 
     case_out_root = run_dir / name / "run"
     query_dir = case_out_root / domain / slug
     report_path = query_dir / "report.md"
 
     try:
-        snapshot = _load_snapshot(_REPO_ROOT / cfg["snapshot"])
+        snapshot = _load_snapshot(_REPO_ROOT / snapshot_rel)
     except Exception as exc:  # noqa: BLE001
         base["note"] = f"snapshot unreadable: {exc}"
         base["elapsed_s"] = round(time.monotonic() - start, 2)
@@ -652,9 +716,21 @@ def run_case(case: dict, cfg: dict, run_dir: Path, profile: str,
     rows = _subset_rows(snapshot, case.get("evidence_ids", []))
     if bridge_index is not None:
         rows, base["bridge"] = apply_bridge(rows, bridge_index, case)
-        if base["bridge"]["bridged"] == 0 and not allow_unbridged:
+        stats = base["bridge"]
+        # Design §3 item 3: a compose run on bridged content with ANY fetch-RED row is
+        # REFUSED (VOID/exit 2) unless --allow-unbridged. A mixed bridge (one PASS row +
+        # one FAIL/UNREACHABLE/no-body row) must NOT compose a fix "green" on partly-stale
+        # banked content — so VOID on any stale row, not only when zero rows bridged.
+        stale = stats["offered_but_not_bridged"] + stats["no_body_kept_banked"]
+        if not allow_unbridged and (stats["bridged"] == 0 or stale > 0):
             base["verdict"] = VOID
-            base["note"] = "no rows bridged (fetch not PASS) and --allow-unbridged not set"
+            if stale > 0:
+                base["note"] = (
+                    f"fetch RED on {stale} selected row(s) "
+                    f"{stats.get('stale_evidence_ids', [])} (offered-but-not-bridged / "
+                    f"no-body, banked content kept) and --allow-unbridged not set")
+            else:
+                base["note"] = "no rows bridged (fetch not PASS) and --allow-unbridged not set"
             base["elapsed_s"] = round(time.monotonic() - start, 2)
             return base
 
@@ -705,18 +781,28 @@ def run_case(case: dict, cfg: dict, run_dir: Path, profile: str,
             registry.discard(proc)
 
     base["leg_a"] = _read_leg_a(query_dir)
-    if not report_path.is_file():
-        base["note"] = "pipeline produced no report.md (compose aborted before render)"
-        base["elapsed_s"] = round(time.monotonic() - start, 2)
-        return base
+    report_exists = report_path.is_file()
+    leg_b_findings: list[dict] = []
+    if report_exists:
+        report_text = report_path.read_text(encoding="utf-8")
+        oracle = run_leg_b_oracle(report_text, pool_rows, case)
+        leg_b_findings = oracle["findings"]
+        base["advisory"] = oracle["advisory"]
+        base["acceptance"] = _run_acceptance_leg(report_path, query_dir / "acceptance.json")
+        base["report_path"] = str(report_path)
 
-    report_text = report_path.read_text(encoding="utf-8")
-    oracle = run_leg_b_oracle(report_text, pool_rows, case)
-    base["leg_b_findings"] = oracle["findings"]
-    base["advisory"] = oracle["advisory"]
-    base["acceptance"] = _run_acceptance_leg(report_path, query_dir / "acceptance.json")
-    base["verdict"] = FAIL if oracle["findings"] else PASS
-    base["report_path"] = str(report_path)
+    # Verdict binds to ALL legs, not leg B alone: a nonzero subprocess exit or an
+    # abort_* / error_* manifest.status FAILs even when leg B is empty (§9.1 invariant 4
+    # writes a report.md on abort_no_verified_sections — a leg-B-only PASS there would
+    # green-light the paid run on ZERO verified prose); a clean report whose leg A was
+    # skipped / unreadable is DEGRADED_OK (never PASS, never authorized).
+    verdict, bound_findings, note = pipeline_verdict(
+        base["leg_a"], base.get("subprocess_exit"), base.get("subprocess_tail"),
+        report_exists, leg_b_findings)
+    base["verdict"] = verdict
+    base["leg_b_findings"] = bound_findings
+    if note:
+        base["note"] = note
     base["elapsed_s"] = round(time.monotonic() - start, 2)
     return base
 
@@ -810,8 +896,12 @@ def _summarize(results: list[dict]) -> dict:
     clean_ok = all(r["verdict"] == PASS for r in results if r["name"] == "clean_controls") or \
         not any(r["name"] == "clean_controls" for r in results)
     no_fail = not any(r["verdict"] in (FAIL, UNREACHABLE) for r in results)
+    # AUTHORIZE the hours-long paid run ONLY when every case is a strict green PASS: a
+    # FAIL / UNREACHABLE / VOID or a DEGRADED_OK (leg A red or unexpectedly skipped) must
+    # block it, so a partly-verified compose stage can never green-light the full pipeline.
+    all_pass = bool(results) and all(r["verdict"] == PASS for r in results)
     return {"tally": tally, "clean_controls_pass": clean_ok, "no_fail": no_fail,
-            "authorize_full_pipeline": no_fail and clean_ok}
+            "all_pass": all_pass, "authorize_full_pipeline": all_pass and clean_ok}
 
 
 def write_outputs(results: list[dict], flag_states: dict, cfg: dict, profile: str,
