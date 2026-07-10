@@ -193,3 +193,41 @@ def test_disclosure_records_per_source_signal_and_verdict():
     assert chrome_recs[0]["signal"] == "chrome:bot_challenge"
     assert chrome_recs[0]["tier"] == "T4"
     assert "content_integrity_class=bot_challenge" in chrome_recs[0]["judge_verdict"]
+
+
+# ── Fix 2: fresh-verdict-only deletion; a STALE snapshot OFF_SUBJECT stamp demote-KEEPs ──
+
+def test_deletable_predicate_stale_stamp_not_deleted(monkeypatch):
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY", "1")
+    row = _fresh_off_subject()  # carries topic_off_subject=True but is a STALE (reloaded) stamp
+    # id NOT in this run's fresh set (a plain resume => empty set) => demote-KEEP (not deletable)
+    assert jd.is_row_deletable_offtopic(row, fresh_off_subject_ids=set()) is False
+    # id IN the fresh set (the judge re-confirmed it THIS run) => deletable
+    assert jd.is_row_deletable_offtopic(row, fresh_off_subject_ids={"ev_subj"}) is True
+
+
+def test_deletable_predicate_fresh_none_is_byte_identical():
+    # fresh_off_subject_ids=None => freshness un-enforced => Fix-1 behaviour (deletable)
+    assert jd.is_row_deletable_offtopic(_fresh_off_subject(), fresh_off_subject_ids=None) is True
+    assert jd.is_row_deletable_offtopic(_fresh_off_subject()) is True
+
+
+def test_deletable_predicate_fresh_flag_off_ignores_set(monkeypatch):
+    # flag OFF => freshness NOT checked even with an empty set (byte-identical Fix-1)
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY", "0")
+    assert jd.is_row_deletable_offtopic(_fresh_off_subject(), fresh_off_subject_ids=set()) is True
+
+
+def test_partition_fresh_verdict_only_stale_kept(monkeypatch):
+    monkeypatch.setenv("PG_DELETE_CHROME_NONSOURCE", "1")
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_SOURCE", "1")
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY", "1")
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY", "1")
+    rows = [_clean(), _fresh_off_subject()]
+    # empty fresh set (stale-only stamps, e.g. a plain resume) => nothing deleted
+    kept, deleted = jd.partition_rows(rows, fresh_off_subject_ids=set())
+    assert len(deleted) == 0 and {r.get("evidence_id") for r in kept} == {"ev_ok", "ev_subj"}
+    # the id IS fresh this run => the OFF_SUBJECT source is deleted
+    kept2, deleted2 = jd.partition_rows(rows, fresh_off_subject_ids={"ev_subj"})
+    assert len(deleted2) == 1 and deleted2[0]["evidence_id"] == "ev_subj"
+    assert deleted2[0]["deletion_reason"] == "confirmed_offtopic_subject"
