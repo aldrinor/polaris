@@ -31,10 +31,13 @@ Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH fram
 - Sample-based audits ("we audited 5 of 50 claims")
 - String-presence PASS/FAIL checks (e.g., gate tables)
 - Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
+- **The agent's OWN mechanical judgments** — a field/member COUNT, keyword scan, or string-match used to state a quality number about the pipeline's own data (e.g. "98% single-source", "40% junk", "N chrome hits", coverage %, "is it usable"). This is the SAME ban applied inward: a count/match is NEVER a quality verdict, even when Claude itself is the one judging. Only a context-level read of the MEANING is.
+
+**§-1.1.1 The ghost is a MINDSET, not just the deleted lexical code gate (operator-locked 2026-07-10 — ROOT-CAUSE naming).** The "faithfulness ghost" is not only the removed `PG_PROVENANCE_MIN_CONTENT_OVERLAP` gate; it is a way of THINKING — judging by exact-word match, field/member count, keyword/pattern presence, sample, or cherry-picked example instead of reading the actual meaning. The operator names this mindset the **root cause of months of stalled progress**: mechanical judgment gives confident-but-wrong numbers, aims fixes at the wrong target, and never converges. It BINDS every judgment, including Claude's own spoken claims — to answer ANY quality question (single-source rate, junk rate, corroboration, coverage, off-topic, "is it usable"), **deploy an Opus (or read it yourself) LINE BY LINE at the CONTEXT level**; same-meaning = same claim even in different words; junk only if context-confirmed chrome/off-topic, FAIL-OPEN (doubt ⇒ keep). Be honest whatever the truth is — run a READ to find the truth, never a COUNT to prove a number. Self-check before stating any quality judgment: *did this come from reading the meaning, or from counting/matching?* If counting/matching — STOP, it is the ghost, go read. See memory `feedback_faithfulness_ghost_is_a_mindset_not_just_code_2026_07_10.md`.
 
 **Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
 
-**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, or state a quality number from a count instead of a read, you have failed the user.
 
 ### §-1.2 Standard debug workflow (no §3.0 bypass)
 
