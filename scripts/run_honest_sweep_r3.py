@@ -7310,6 +7310,16 @@ def finalize_timeout_run_and_maybe_write_error_manifest(
         _to_manifest["error"] = (
             timeout_summary.get("error") if isinstance(timeout_summary, dict) else None
         )
+        # I-deepfix-003 (#1374) Fix 5 (Codex P1): route the timeout error-manifest through the
+        # single pre-write chokepoint so it carries the durable junk-deletion disclosure
+        # (deleted_chrome_nonsources / deleted_offtopic_sources) exactly like every OTHER
+        # manifest.json write site. Without this, a run that times out AFTER the seam wrote
+        # the durable junk_deletion_disclosure.json but BEFORE the report/success manifest
+        # would ship a timeout-abort manifest with the deletions silently omitted — a
+        # §-1.3.1 fail-loud breach (a deletion must be disclosed on EVERY manifest path).
+        # _attach_tool_utilization is fully fail-safe (no-op with no keys when the seam did
+        # not run this pass) and is itself wrapped by the enclosing try/except.
+        _to_manifest = _attach_tool_utilization(_to_manifest, Path(run_dir))
         (Path(run_dir) / "manifest.json").write_text(
             json.dumps(_to_manifest, indent=2, sort_keys=True, default=str) + "\n",
             encoding="utf-8",
