@@ -2463,6 +2463,26 @@ def _body_is_chrome_dominant(body: str) -> bool:
     low = body.lower()
     if "%pdf" in low or "javascript:void" in low or "endobj" in low or "flatedecode" in low:
         return True
+    # S2/S3 re-pass iter-3: garbled byte-stream body (a mangled PDF / flate stream rendered as
+    # text) whose %pdf/endobj markers were lost, so the literals above miss it. Signal: almost
+    # none of its whitespace tokens are word-like (>=2 ASCII letters) AND its alphabetic-char
+    # fraction is low. Empirically separated on drb_72: real prose scores >=0.80 word-like /
+    # >=0.86 alpha, this gibberish scores ~0.0 / ~0.45. Excludes from CLUSTERING ONLY (never
+    # drops the row): a real off-topic paper (word-like ~0.81) is untouched and a genuine dense
+    # source merely falls to a singleton basket => fail-open / §-1.3-safe, never inflates a count.
+    head = body[:800]
+    toks = head.split()
+    if len(toks) >= 20:
+        wordlike = sum(1 for t in toks if re.fullmatch(r"[A-Za-z]{2,}[.,;:]?", t))
+        nonspace = [c for c in head if not c.isspace()]
+        alpha_ratio = (sum(1 for c in nonspace if c.isalpha()) / len(nonspace)) if nonspace else 1.0
+        if (wordlike / len(toks)) < 0.10 and alpha_ratio < 0.65:
+            return True
+    # A fetch-navigation shell ("Navigated to <title> page (https://...)") carries only page-
+    # title chrome, no propositional body => a failed/again-chrome fetch, never a claim. Same
+    # exclude-from-CLUSTERING-only contract, so refetch triplets can no longer corroborate.
+    if re.match(r"navigated to .{0,300}\bpage\b\s*\(https?://", body.strip(), re.I | re.S):
+        return True
     md = len(_MD_LINK_RE.findall(body))
     urls = len(_URL_TOKEN_RE.findall(body))
     if (md + urls) >= 1:
@@ -2471,7 +2491,17 @@ def _body_is_chrome_dominant(body: str) -> bool:
         # A lone markdown-link / bare-URL fragment with almost no prose (< 8 words) is chrome
         # (e.g. "[ ](https://blog.hospitalmedicine.org/)"); a dense link dump (>=3 links) with
         # < 30 prose words is a nav / link list. Both carry no propositional claim.
-        if prose_words < 8 or ((md + urls) >= 3 and prose_words < 30):
+        # S2/S3 re-pass iter-3: link-density clause. A NAV DUMP has >=50% of its chars
+        # inside markdown-links / bare-URLs AND very few prose words per link. Empirically
+        # separated on drb_72: real prose scores linkfrac <= 0.34 with >= 14 prose words per
+        # link; nav pages score linkfrac 0.66-0.87 with < 4 words per link. Exclude from
+        # CLUSTERING only (never drops the row) => fail-open / §-1.3-safe.
+        linkfrac = (len(body) - len(prose)) / max(1, len(body))
+        if (
+            prose_words < 8
+            or ((md + urls) >= 3 and prose_words < 30)
+            or ((md + urls) >= 3 and linkfrac >= 0.5 and prose_words < (md + urls) * 8)
+        ):
             return True
     lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
     if len(lines) >= 3:
