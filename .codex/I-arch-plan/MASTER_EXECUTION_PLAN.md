@@ -202,7 +202,7 @@ EXISTING seams in `run_one_query` — surgical re-wire, no pipeline rewrite.
 |---|---|---|---|---|
 | S0 | INTAKE | question + FULL RunConfig assembly: scope extraction (exists) + deliverable-spec extraction (Design 3) + breadth directive (Design 7 D1 parse side) + panel-override merge + provenance | `cp0_run_config.json` (NEW — is the pinned RunConfig) | Design 3 + Design 7 + §1 |
 | S1.b | RETRIEVE (query-gen + search) | breadth resolver sizing query_budget/serper_k/s2_k/fetch_cap from RunConfig; scope → query WORDING (structured SCOPE DIRECTIVES block in TOC/facet/per-todo prompts, author lanes); scope → EVERY backend's filters as ADDITIVE scoped lanes (Serper `tbs/gl/hl`, S2 `year/publicationTypes`, OpenAlex `language/author` beyond the existing date lane); fetch cascade AS LOCKED (S1.a) | `cp1_fetch_snapshot.json` (exists) + intra-section `qgen_checkpoint.json` (Design 7 §3) | Design 7 D1-D3 |
-| S2 | SELECT+WEIGH | rerank, scope-weight demote, topic gate, junk-deletion gate, selection | `cp2_corpus_snapshot.json` (exists) | Design 1 (sub-query-aware off-topic judge) |
+| S2 | SELECT+WEIGH | rerank, scope-weight demote, topic gate (sub-query-aware), junk-deletion gate, LINE-LEVEL three-way select/drop reader (off_topic \| out_of_scope \| junk — operator sharpening 2026-07-10), selection | `cp2_corpus_snapshot.json` (exists) + intra-section `line_screen_verdicts.jsonl` | Design 1 + Design 1 §6 (SELECT+WEIGH v2) |
 | S3 | CONSOLIDATE | finding/claim baskets, contradiction detectors | `cp3_basket_snapshot.json` (NEW) | Design 6 (checkpoint only; dedup loop already landed) |
 | S4 | OUTLINE | outline planner + basket-digest menu + RunConfig requirement block + revise loop with section RE-OPEN | `cp4_outline_snapshot.json` (NEW) | Design 5 (ORCH-1/2/3) + Design 4 D3 (merged, ruling R2) — FS-completion C2 + C1(structural half) |
 | S5 | COMPOSE | multi-section generation, section-basket map (roles), depth/analyst synthesis, fact_dedup, HOLISTIC REVIEW (tail), repetition guard, style block | `cp5_generation_snapshot.json` (exists; land ITEM 5a re-entry) | Design 4 + Design 2 + Design 3 consumer 2 — FS-completion C1(prose half) + C3 |
@@ -379,6 +379,23 @@ panel-adjustable within the locked band only.
   disclosure, read line-by-line; determinism at parallel 32; crash-resume identity; zero
   faithfulness diffs; dual gate.
 - **Checkpoint boundary:** cp1 in → `topic_gate_verdicts.jsonl` intra → cp2 out.
+- **v2 AMENDMENT (operator sharpening 2026-07-10 — Design 1 §6, SELECT+WEIGH v2):** add the
+  LINE-LEVEL three-way select/drop reader. §-1.3 reconciliation: credibility is the WEIGHT axis
+  (a credible on-topic in-scope source is NEVER dropped — low tier = low weight; `credibility_pass`
+  untouched); the ONLY drop triggers are (1) OFF_TOPIC against BOTH anchors (dual-anchor rule),
+  (2) OUT_OF_USER_SCOPE — the user's EXPLICIT RunConfig scope (date window / recency / source type /
+  peer-reviewed-only / geography / language / author; the user's own hard filter, activation-gated
+  on a verbatim trigger span or panel override, never pipeline-initiated), (3) JUNK
+  (chrome/nav/cookie/boilerplate). Decided PER LINE: new leaf `retrieval/line_screen.py` reads every
+  line of each kept source's widest body and verdicts `KEEP | OFF_TOPIC | OUT_OF_SCOPE | JUNK`; a
+  80%-relevant source keeps its 80%; whole-drop stays two-key (line screen + concurring whole-source
+  verdict) with the marquee exemption + positive-relevance veto intact. Fail-open on every doubt
+  (line KEPT); every drop disclosed VERBATIM (`line_screen_disclosure.json` + Methods counts).
+  Reuses the topic gate scaffold, `junk_deletion_gate` partition/disclosure,
+  `intake_constraint_extractor`/`scope_facet_classifier`/`constraint_enforcement` for scope, the
+  `shell_detector` chrome vocab as line hints. Parallel `PG_LINE_SCREEN_PARALLEL` (slate 32);
+  intra-checkpoint `line_screen_verdicts.jsonl`; cp2 unchanged. Bar: Design 1 §6.4 (a)-(e) on the
+  real drb_72 corpus, read line-by-line. Faithfulness engine untouched.
 
 ### S3 — CONSOLIDATE (Design 6 checkpoint only)
 - **Fix:** none to consolidation logic (finding_dedup/credibility_pass/detectors stand as deployed).
@@ -552,6 +569,7 @@ fresh-vs-cp2-resumed parity of verified-claim sets.
 | Breadth classes | `config/settings/breadth_classes.yaml` — NARROW `{15,20,120}` / STANDARD `{35,60,300}` / WIDE `{80,100,740}` starting rows, all registry knobs, user-overridable per §1.3; abs env ceilings generous | S1.b |
 | Scope lanes | `PG_SCOPE_TO_QGEN`, `PG_SERPER_SCOPE_FILTER`, `PG_S2_SCOPE_FILTER`, `PG_OPENALEX_SCOPE_FILTER` — additive, fail-open, slate ON after S1.b bar | S1.b |
 | Topic gate | `PG_TOPIC_GATE_SUBQUERY_AWARE=1` (default ON), `PG_SCOPE_TOPIC_PARALLEL=32`, `PG_TOPIC_SUBQ_MIN_TOKENS=3` | S2 |
+| Line screen (v2) | `PG_LINE_SCREEN=1` after §6.4 bar (kill-switch OFF = byte-identical), `PG_LINE_SCREEN_PARALLEL=32`, `PG_LINE_SCREEN_MAX_LINES_PER_CALL=120`, `PG_LINE_SCREEN_SCOPE` auto-inert without explicit RunConfig scope | S2 |
 | Deliverable spec | `PG_DELIVERABLE_SPEC=1` (slate; default OFF), `PG_DELIVERABLE_SPEC_LLM=1`, `PG_DELIVERABLE_RENDER=1` | S0/S7 |
 | Outline | `PG_OUTLINE_BASKET_DIGEST=1`, `PG_OUTLINE_DIGEST_MAX_CHARS=60000`, `PG_OUTLINE_REVISE=1`, revise_rounds=1 (hard max 2), max_recompose=8 | S4 |
 | Gap re-fetch | `gap_refetch_budget` default 0 (OFF) until WAVE-5 activation; then slate 4 | S-X |
@@ -589,7 +607,9 @@ only per §8.3.1 at iter-5 with residuals filed as Issues.
   build queue.)
 
 **WAVE 1 — independent section fixes (all five concurrent; no shared files).**
-- WP-1a: S2 sub-query-aware topic judge, PR-1 core + PR-2 parallel/checkpoint/harness (Design 1).
+- WP-1a: S2 sub-query-aware topic judge, PR-1 core + PR-2 parallel/checkpoint/harness (Design 1),
+  then PR-3 line-screen core + PR-4 scope leg/throughput/harness (Design 1 §6 SELECT+WEIGH v2 —
+  operator sharpening 2026-07-10; PR-3/PR-4 depend on PR-1's anchor accessors, same package).
 - WP-1b: S0 deliverable-spec extractor + breadth-directive parse + scope-gate seam + cp0 population
   + provenance (Design 3 PRs 1-2 + Design 7 D1 parse side) — unblocks four downstream consumers.
 - WP-1c: S5 `holistic_review.py` module + fake-LLM unit battery + harness (Design 2 PRs 1+3 module
