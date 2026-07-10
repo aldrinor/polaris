@@ -5038,6 +5038,14 @@ class AccessBypass:
             ):
                 return self._finalize_clean_fetch(zyte_result, _block_state)
 
+        # I-fetch-lock (FETCH SECTION 1): last-ditch paid-tail retry BEFORE the
+        # final give-up — ONE more exhaustive Zyte (breaker-bypassed) + Archive.org
+        # pass on the fetch_failed bucket. Default-ON (PG_FETCH_PAID_TAIL_RETRY);
+        # OFF => returns None => byte-identical fall-through to the failure return.
+        _paid_tail = await self._paid_tail_retry(url, _block_state)
+        if _paid_tail is not None:
+            return _paid_tail
+
         # SF-40: Log total failure at WARNING (was completely silent)
         logger.warning("[ACCESS] ALL access methods exhausted for %s", url[:80])
         # F14 (GH #1245 / D9, D10): when a PAYWALLED-publisher URL exhausts every
@@ -5060,6 +5068,67 @@ class AccessBypass:
             success=False,
             metadata={"error": "All access methods failed"}
         )
+
+    async def _paid_tail_retry(
+        self, url: str, block_state: Dict[str, bool]
+    ) -> "Optional[AccessResult]":
+        """I-fetch-lock (FETCH SECTION 1): last-ditch paid-tail retry.
+
+        Called at the VERY END of ``fetch_with_bypass``, on a source the entire
+        cascade would otherwise mark ``fetch_failed``. Runs ONE final exhaustive
+        pass through Zyte + Archive.org — the two backends under-exercised on the
+        fetch_failed bucket (Zyte because a mid-cascade circuit-breaker-open
+        skipped it; Archive.org because its earlier hop may have raced/errored).
+        The Zyte pass BYPASSES the circuit breaker for this single last-ditch
+        attempt (Fable's one improvement).
+
+        Default-ON via ``PG_FETCH_PAID_TAIL_RETRY``. When set to ``"0"`` this
+        returns ``None`` immediately WITHOUT any network call, so the caller
+        falls through to the identical pre-existing failure return —
+        byte-identical behaviour.
+
+        FAITHFULNESS-NEUTRAL: recovers only RAW content, routed through the SAME
+        extractor + strict_verify / 4-role gates as every other backend. Returns
+        an ``AccessResult`` on recovery, else ``None``.
+        """
+        if os.getenv("PG_FETCH_PAID_TAIL_RETRY", "1") == "0":
+            return None
+
+        # (1) Zyte — breaker BYPASSED for this one last-ditch paid attempt. Only
+        # attempted when the key is present (strict no-op / zero spend otherwise).
+        if os.getenv("ZYTE_API_KEY"):
+            logger.info(
+                "[ACCESS] PAID-TAIL: last-ditch Zyte (breaker bypassed) for %s",
+                url[:60],
+            )
+            zyte_result = await self._try_zyte(url, bypass_circuit_breaker=True)
+            if zyte_result.success and not self._is_block_page(
+                url, zyte_result.content, block_state
+            ):
+                logger.info(
+                    "[ACCESS] PAID-TAIL: Zyte recovered %s after cascade give-up",
+                    url[:60],
+                )
+                return self._finalize_clean_fetch(zyte_result, block_state)
+
+        # (2) Archive.org — one fresh Wayback attempt (no breaker to bypass).
+        logger.info("[ACCESS] PAID-TAIL: last-ditch Archive.org for %s", url[:60])
+        archive_result = await self._try_archive_org(url)
+        if archive_result.success and not self._is_block_page(
+            url, archive_result.content, block_state
+        ):
+            archive_result.content = _strip_navigation_boilerplate(
+                archive_result.content
+            )
+            if not self._detect_paywall(archive_result.content):
+                logger.info(
+                    "[ACCESS] PAID-TAIL: Archive.org recovered %s after cascade "
+                    "give-up",
+                    url[:60],
+                )
+                return self._finalize_clean_fetch(archive_result, block_state)
+
+        return None
 
     async def _try_crawl4ai(self, url: str) -> AccessResult:
         """
@@ -6279,7 +6348,9 @@ class AccessBypass:
             metadata={"error": "Unexpected loop exit"},
         )
 
-    async def _try_zyte(self, url: str) -> AccessResult:
+    async def _try_zyte(
+        self, url: str, *, bypass_circuit_breaker: bool = False
+    ) -> AccessResult:
         """I-fetch-004 (#1185): PAID Zyte fallback — the genuine last resort.
 
         Called by `fetch_with_bypass` ONLY after the entire free chain
@@ -6331,9 +6402,12 @@ class AccessBypass:
                 metadata={"error": "ZYTE_API_KEY not set"},
             )
 
-        # CIRCUIT BREAKER: skip (no paid call) while open.
+        # CIRCUIT BREAKER: skip (no paid call) while open. I-fetch-lock paid-tail:
+        # the last-ditch retry passes bypass_circuit_breaker=True to force ONE final
+        # paid attempt even while the breaker is open — the fetch_failed bucket was
+        # under-exercised on Zyte because a mid-cascade breaker-open skipped it.
         now = _time_module.time()
-        if _zyte_circuit_open_until > now:
+        if not bypass_circuit_breaker and _zyte_circuit_open_until > now:
             remaining = _zyte_circuit_open_until - now
             logger.debug(
                 "[ACCESS] Zyte circuit breaker OPEN for %s (%.0fs remaining)",
