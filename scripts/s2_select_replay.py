@@ -151,6 +151,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--stub", action="store_true", help="offline deterministic stub LLM (no key)")
     ap.add_argument("--model", default="", help="override the judge model")
     ap.add_argument("--max-tokens", type=int, default=4096, help="judge completion budget")
+    ap.add_argument("--no-topic-judge", action="store_true",
+                    help="skip the whole-source semantic topic judge (Fix 2a); default runs it "
+                         "to stamp topic_off_subject before the line screen")
     args = ap.parse_args(argv)
 
     # Activate the line screen (defaults are OFF ⇒ byte-identical when unset).
@@ -195,6 +198,28 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[s2] sources={len(rows)} parallel={args.parallel} scope_armed={scope.armed} "
           f"scope_active={scope.is_active()} stub={args.stub} resume={args.resume}")
     print(f"[s2] question: {question[:140]}")
+
+    # S2/S3 re-pass Fix 2(a): wire the WHOLE-SOURCE semantic topic judge into the S2 path.
+    # classify_topic_relevance stamps topic_off_subject=True (in place) on rows a meaning-level
+    # judge confirms are OFF_SUBJECT (a CLEARLY DIFFERENT subject entity than the FULL research
+    # question) — the OFF_TOPIC whole-drop CONCURRENCE key the line screen keys on
+    # (_row_stamped_off_subject). FAIL-OPEN (doubt => KEEP); marquee / occupation-page sources
+    # are exempt / on-topic; judge verdict ONLY (never tier / keyword / number). A stub LLM
+    # cannot judge topicality (fail-open => zero stamps), so this is inert under --stub.
+    topic_off_subject_stamped = 0
+    if not args.no_topic_judge and question.strip():
+        try:
+            from src.polaris_graph.retrieval.topic_relevance_gate import (  # noqa: PLC0415
+                classify_topic_relevance,
+            )
+            tg = classify_topic_relevance(rows, question, llm)
+            topic_off_subject_stamped = sum(1 for r in rows if r.get("topic_off_subject") is True)
+            print(f"[s2] topic-judge: off_subject_stamped={topic_off_subject_stamped} "
+                  f"gate_dropped_offtopic={tg.n_dropped_offtopic} "
+                  f"gate_demoted={getattr(tg, 'n_demoted_offtopic', 0)} "
+                  f"gate_exempt={tg.n_exempt}")
+        except Exception as exc:  # noqa: BLE001 — fail-open: a judge defect never blocks S2
+            print(f"[s2] topic-judge SKIPPED (fail-open): {str(exc)[:160]}", file=sys.stderr)
 
     # Incremental per-source printer (read-every-line forensic surface, §-1.1).
     def _on_result(result: ls.SourceScreenResult, row: dict) -> None:
@@ -324,6 +349,9 @@ def main(argv: list[str] | None = None) -> int:
             "n_whole_dropped": len(whole_drop_records),
             "whole_drop_reasons": [w["reason"] for w in whole_drop_records],
             "n_marquee_or_disagreement_protected": corpus.n_disagreement,
+            # Fix 2(a): the semantic topic-judge OFF_SUBJECT stamps that ARMED the OFF_TOPIC
+            # whole-drop concurrence key (0 under --stub / --no-topic-judge, as expected).
+            "n_topic_off_subject_stamped": topic_off_subject_stamped,
             "note": "whole-drop fires only on the two-key concurrence; marquee never whole-drops",
         },
         # (c) a rich MIXED source keeps its relevant lines and drops only the bad ones

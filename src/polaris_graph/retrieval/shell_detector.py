@@ -375,6 +375,35 @@ def _ambiguous_phrase_fires(low: str, body_len: int) -> bool:
     return False
 
 
+# S2/S3 re-pass Fix 1(c): raw %PDF / compressed-stream byte-dump detector. A DEGRADED PDF
+# extraction sometimes leaks the RAW PDF bytes as the "body" (a "%PDF-…FlateDecode…endstream
+# …endobj" dump) — never readable prose, can never ground a claim. HIGH-PRECISION: a real
+# article body never starts with a "%PDF-" header, and real prose never carries a dense cluster
+# of PDF-stream markers. Kill-switch ``PG_SHELL_WHOLE_BODY_NAV`` (default ON). The whole-body
+# NAV-shell / furniture-welded case (TOC / catalog / repository-landing / job-board homepage)
+# is handled by the existing B1 furniture-density machinery (``is_furniture_dominant``).
+_WHOLE_BODY_NAV_ENV = "PG_SHELL_WHOLE_BODY_NAV"
+_PDF_STREAM_MARKERS = (
+    "flatedecode", "endstream", "endobj", "startxref", " obj",
+    "/type", "/filter", "/contents", "xref", "/mediabox",
+)
+
+
+def _whole_body_nav_enabled() -> bool:
+    return os.getenv(_WHOLE_BODY_NAV_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _is_raw_byte_dump(low: str) -> bool:
+    """True iff the body is a raw PDF / compressed-stream byte dump. Requires a leading
+    ``%pdf-`` header OR >= 4 distinct PDF-stream markers (both high-precision — a real article
+    body carries neither). Pure/deterministic."""
+    if "%pdf-" in low[:512]:
+        return True
+    return sum(1 for m in _PDF_STREAM_MARKERS if m in low) >= 4
+
+
 def is_cited_span_shell(direct_quote: str) -> bool:
     """I-beatboth-001 (#1276) — True iff the cited source body is a fetch-shell / web-boilerplate
     page that can NEVER ground a clinical claim (CAPTCHA / security-verification interstitial,
@@ -406,6 +435,10 @@ def is_cited_span_shell(direct_quote: str) -> bool:
         return False
     low = direct_quote.lower()
     body_len = len(direct_quote.strip())
+    # Fix 1(c): a raw PDF / compressed-stream byte dump (a degraded extraction that leaked the
+    # raw bytes) is a shell at ANY length — it can never ground a claim.
+    if _whole_body_nav_enabled() and _is_raw_byte_dump(low):
+        return True
     # ANY-length unambiguous signatures: bot-wall challenge pages (shared with the retrieval gate)
     # + the cited-span-only crawler HTTP-error wrappers (never appear in real article prose).
     for combo in (*CHALLENGE_PAGE_COOCCURRENCE, *CITED_SPAN_ANY_LENGTH_COOCCURRENCE):

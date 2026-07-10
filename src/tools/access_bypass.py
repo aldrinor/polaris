@@ -913,6 +913,74 @@ def is_block_page_or_stub(body: str = "", url: str = "") -> bool:
     return bool(classify_block_page(body, url))
 
 
+# S2/S3 re-pass Fix 1(a)(b) + Fix 8: a GENERAL anti-bot / shell CHROME class evaluated on
+# the TITLE+BODY UNION and GUARDED by "the body carries no propositional prose sentence" so a
+# real (Zyte-recovered) body is NEVER chrome-flagged. The base detector's Zyte-recovery guard
+# (`len(body) >= 200 => keep`) let a 200+-char SHELL body slip (ev_065: "## Security check
+# required ... ResearchGate GmbH ... Ray ID: ..."). This anchor set + guard fire BEFORE that
+# length guard so a shell body is caught while real recovered prose is kept. Kill-switch
+# `PG_CI_ANTIBOT_SHELL` (default ON) — the SAME flag the finding_dedup / render mirrors read.
+_ANTIBOT_SHELL_PATTERNS = (
+    "just a moment",
+    "security check required",
+    "security check",
+    "checking your browser",
+    "checking if the site connection is secure",
+    "enable javascript and cookies",
+    "please enable javascript",
+    "please enable cookies",
+    "verify you are human",
+    "verify you are not a robot",
+    "verifying you are human",
+    "verifying your browser",
+    "are you a robot",
+    "attention required",
+    "one more step",
+    "access denied",
+    "performing security verification",
+    "needs to review the security of your connection",
+    "ray id",
+    "cf-ray",
+    "unusual activity",
+    "unusual traffic",
+    "ddos protection by",
+)
+_ANTIBOT_CONTENT_WORD_RE = re.compile(r"[A-Za-zÀ-ɏ]{2,}")
+_ANTIBOT_SENTENCE_SPLIT_RE = re.compile(r"[.!?\n。！？]+")
+
+
+def _antibot_shell_enabled() -> bool:
+    """``PG_CI_ANTIBOT_SHELL`` kill switch (LAW VI, default ON)."""
+    return os.getenv("PG_CI_ANTIBOT_SHELL", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _antibot_has_propositional_sentence(body: str) -> bool:
+    """True iff ``body`` has a substantive prose sentence (>= floor content words, not an
+    anti-bot phrase). FAIL-OPEN guard: real recovered prose is never chrome-flagged. Mirror
+    of ``finding_dedup._has_propositional_sentence``."""
+    if not body:
+        return False
+    raw = os.getenv("PG_CHROME_PROPOSITIONAL_MIN_WORDS", "").strip()
+    try:
+        floor = int(raw) if raw else 8
+    except ValueError:
+        floor = 8
+    if floor <= 0:
+        floor = 8
+    for sent in _ANTIBOT_SENTENCE_SPLIT_RE.split(body):
+        low = sent.lower()
+        # Remove any anti-bot phrase SPAN, then count remaining word tokens (leans toward KEEP —
+        # a real sentence mentioning a security term is prose; a bare chrome line collapses).
+        for p in _ANTIBOT_SHELL_PATTERNS:
+            if p in low:
+                low = low.replace(p, " ")
+        if len(_ANTIBOT_CONTENT_WORD_RE.findall(low)) >= floor:
+            return True
+    return False
+
+
 def detect_content_integrity_junk(
     fetched_body: str, url: str, title: str
 ) -> tuple[bool, str]:
@@ -943,6 +1011,17 @@ def detect_content_integrity_junk(
     try:
         if is_block_page_or_stub(fetched_body, url):
             return (True, "block_page")
+        # S2/S3 re-pass Fix 1(a)(b) + Fix 8: a GENERAL anti-bot / shell page whose BODY carries
+        # an anti-bot anchor but NO propositional prose sentence is chrome — evaluated on the
+        # title+body UNION and run BEFORE the Zyte-recovery length guard so a 200+-char SHELL
+        # body ("## Security check required ... ResearchGate GmbH ... Ray ID: ...") is caught.
+        # GUARDED by the propositional-sentence check so a real Zyte-recovered body (which has
+        # substantive prose) is NEVER chrome-flagged (route-by-body).
+        if _antibot_shell_enabled():
+            _combined = ((title or "") + "\n" + (fetched_body or "")).lower()
+            if (any(p in _combined for p in _ANTIBOT_SHELL_PATTERNS)
+                    and not _antibot_has_propositional_sentence(fetched_body or "")):
+                return (True, "bot_challenge")
         # ZYTE-RECOVERY GUARD (GH I-deepfix-003 #1374): the A15 AccessBypass+Zyte re-fetch
         # runs BEFORE this stamp. If Zyte recovered REAL content the body is substantial —
         # KEEP the source even when its TITLE is a stale bot/error page (a real journal whose

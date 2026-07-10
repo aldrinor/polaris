@@ -14,12 +14,27 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+# S2/S3 re-pass Fix 3(b): the deployed S3 slate now flips the SEMANTIC merge authority ON —
+# ``PG_CONSOLIDATION_NLI`` (bidirectional-NLI over the literal clusters) and
+# ``PG_FINDING_DEDUP_NLI`` — so same-meaning-different-words findings MERGE instead of
+# fragmenting on the numeric-tuple key. The Fix-1/3c/4/5/6 kill-switches are pinned ON here
+# for an explicit, self-documenting deployed slate (each defaults ON in code; pinning makes
+# the run reproducible and the parity with the production sweep visible).
 _SLATE = {
     'PG_BASKET_CONSUME_FINDING_DEDUP': '1',
-    'PG_CONSOLIDATION_NLI': '0',
-    'PG_FINDING_DEDUP_NLI': '0',
+    'PG_CONSOLIDATION_NLI': '1',            # Fix 3(b): semantic merge authority ON
+    'PG_FINDING_DEDUP_NLI': '1',            # Fix 3(b): finding-dedup NLI leg ON
     'PG_FINDING_DEDUP_QUALITATIVE': '1',
     'PG_SWEEP_CREDIBILITY_REDESIGN': '1',
+    'PG_SAMEWORK_CROSSMIRROR': '1',         # Fix 4: cross-mirror same-work identity
+    'PG_CI_ANTIBOT_SHELL': '1',             # Fix 1(a)(b): general anti-bot / shell chrome
+    'PG_FINDING_DEDUP_KEY_HYGIENE': '1',    # Fix 3(c): garbage subject/value key guard
+    'PG_CORROBORATION_DISTINCT_WORKS': '1',  # Fix 5: corroboration = distinct works
+    'PG_CORROBORATION_DERIVATIVE_PRESS': '1',  # Fix 6: derivative-press excluded from count
+    'PG_CONSOLIDATION_NLI_QUALITATIVE': '1',  # Fix 3(a): NLI merges qualitative baskets too
+    'PG_CONSOLIDATION_NLI_SUBBUCKET': '1',    # Fix 3: pre-bucket over-cap buckets so large
+                                              # same-value clusters still NLI-merge (the two
+                                              # 44k/51k-pair buckets were skipped otherwise)
 }
 
 
@@ -63,7 +78,30 @@ def main() -> int:
         return (str(rows[i].get('tier', '') or 'UNKNOWN')) if 0 <= i < len(rows) else 'UNKNOWN'
 
     def _stmt(i):
-        return _row_field(rows[i], 'title', 'statement') if 0 <= i < len(rows) else ''
+        # Fix 7: representative_statement must be a CLAIM, not the page title. Prefer the
+        # numeric claim sentence (the actual finding), else the first substantive body
+        # sentence, else the statement, and fall back to the title ONLY when no claim text
+        # exists. General/question-agnostic.
+        if not (0 <= i < len(rows)):
+            return ''
+        row = rows[i]
+        try:
+            from src.polaris_graph.retrieval.contradiction_detector import extract_numeric_claims
+            claims = extract_numeric_claims([row])
+            if claims:
+                snip = (getattr(claims[0], 'context_snippet', '') or '').strip()
+                if snip:
+                    return snip[:300]
+        except Exception:
+            pass
+        body = _row_field(row, 'direct_quote', 'statement')
+        if body.strip():
+            import re as _re
+            for s in _re.split(r'(?<=[.!?])\s+', body.strip()):
+                if len(s.split()) >= 5:
+                    return s.strip()[:300]
+            return body.strip()[:300]
+        return _row_field(row, 'title', 'statement')
 
     baskets = []
     for c in res.clusters:
@@ -112,7 +150,25 @@ def main() -> int:
         'same_work_multi_member': sw_multi,
         'same_work_dropped_captcha': len(sw.dropped_captcha_indices) if sw else 0,
         'same_work_dropped_prefix': len(sw.dropped_prefix_indices) if sw else 0,
+        # Fix 1(e): recover-before-delete disclosure counts (§-1.3.1 fail-loud).
+        'same_work_dropped_captcha_recovered': len(sw.dropped_captcha_recovered) if sw else 0,
+        'same_work_dropped_captcha_gap': len(sw.dropped_captcha_gap) if sw else 0,
     }
+
+    # Fix 1(e): DISCLOSE every chrome deletion (row count + reason) — §-1.3.1(a) fail-loud,
+    # never silent. A RECOVERED drop's work survives via a clean same-work sibling; a GAP
+    # drop is a coverage loss disclosed here, never fabricated.
+    chrome_deletion_disclosure = []
+    if sw is not None:
+        for i in sorted(sw.dropped_captcha_indices):
+            chrome_deletion_disclosure.append({
+                'evidence_id': _eid(i),
+                'url': _url(i),
+                'title': (_row_field(rows[i], 'title', 'statement')[:120] if 0 <= i < len(rows) else ''),
+                'reason': 'chrome_non_source',
+                'recovery': ('recovered_via_same_work_sibling'
+                             if i in sw.dropped_captcha_recovered else 'coverage_gap'),
+            })
 
     upstream_sha = hashlib.sha256(cp2_path.read_bytes()).hexdigest()
     envelope = {
@@ -133,6 +189,7 @@ def main() -> int:
             'consolidation_summary': consolidation_summary,
             'contradiction_edges': [],
             'same_work_groups': sw_groups_payload,
+            'chrome_deletion_disclosure': chrome_deletion_disclosure,
         },
     }
     out_dir = Path(args.out)

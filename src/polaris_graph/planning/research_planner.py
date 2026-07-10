@@ -640,6 +640,83 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
     return base
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Sub-query subject-anchoring — S2/S3 re-pass Fix 2(b)
+# ─────────────────────────────────────────────────────────────────────────
+# ROOT-CAUSE upstream fix for the S2 off-topic mass: the planner sometimes emits a GENERIC
+# facet ("cost-benefit analysis", "literature review", "governance", "regulation") with NO
+# subject anchor, so retrieval drifts to a DIFFERENT field (cost-benefit-analysis methodology,
+# social-work literature reviews, education policy) and pours off-topic sources into the pool.
+# THE FIX (general, question-agnostic, deterministic): a sub-query that shares NO content token
+# with the research question's SUBJECT (the frame's LLM-extracted entities, else the question)
+# is generic — PREPEND the primary subject phrase so the query is self-contained and on-topic.
+# Preserves the sub_query list LENGTH + ORDER (the outline facet-index mapping is unchanged, so
+# `_validate_outline_facet_mapping` still passes). Kill-switch (default ON); OFF => byte-identical.
+_SUBQUERY_ANCHOR_ENV = "PG_SUBQUERY_ANCHOR_SCOPE"
+_ANCHOR_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "from", "into", "over", "under", "about", "that", "this",
+    "these", "those", "what", "which", "when", "where", "how", "why", "who", "whom", "are",
+    "was", "were", "has", "have", "had", "does", "did", "will", "would", "could", "should",
+    "its", "their", "your", "our", "his", "her", "them", "they", "you", "not", "but", "any",
+    "all", "can", "may", "per", "via", "than", "then", "such", "each", "some", "more", "most",
+    "analysis", "review", "study", "studies", "research", "report", "evidence", "effect",
+    "effects", "impact", "impacts", "role", "overview", "trends", "trend", "data", "using",
+})
+_ANCHOR_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-]{1,}")
+
+
+def _subquery_anchor_scope_enabled() -> bool:
+    """``PG_SUBQUERY_ANCHOR_SCOPE`` kill switch (LAW VI, default ON)."""
+    return os.getenv(_SUBQUERY_ANCHOR_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Lowercased content tokens (>= 3 chars, non-stopword). Pure/deterministic."""
+    return {
+        t.lower() for t in _ANCHOR_TOKEN_RE.findall(text or "")
+        if len(t) >= 3 and t.lower() not in _ANCHOR_STOPWORDS
+    }
+
+
+def _anchor_subqueries(
+    sub_queries: list[str], frame: "ResearchFrame", question: str,
+) -> list[str]:
+    """Fix 2(b): scope each GENERIC sub-query with the research question's subject anchor.
+    A sub-query that shares NO content token with the subject (frame entities, else the
+    question) is prepended with the primary subject phrase. Length + order preserved."""
+    if not _subquery_anchor_scope_enabled():
+        return list(sub_queries)
+    entities = [str(e).strip() for e in (getattr(frame, "entities", []) or []) if str(e).strip()]
+    subject_tokens: set[str] = set()
+    for e in entities:
+        subject_tokens |= _content_tokens(e)
+    if not subject_tokens:
+        subject_tokens = _content_tokens(question)
+    # The anchor phrase: the most specific (longest) entity, else the question's salient head.
+    anchor_phrase = ""
+    if entities:
+        anchor_phrase = max(entities, key=len)
+    if not anchor_phrase:
+        head = [w for w in _ANCHOR_TOKEN_RE.findall(question or "")
+                if w.lower() not in _ANCHOR_STOPWORDS]
+        anchor_phrase = " ".join(head[:6])
+    if not anchor_phrase or not subject_tokens:
+        return list(sub_queries)
+    out: list[str] = []
+    for sq in sub_queries:
+        if _content_tokens(sq) & subject_tokens:
+            out.append(sq)  # already anchored to the subject entity
+        else:
+            logger.info(
+                "[research_planner] Fix 2(b): scoping generic sub-query %r with subject "
+                "anchor %r", sq[:80], anchor_phrase[:60],
+            )
+            out.append(f"{anchor_phrase}: {sq}")
+    return out
+
+
 def plan_research(
     question: str,
     *,
@@ -707,6 +784,12 @@ def plan_research(
                 "(< min %d) after retry — NOT padding",
                 len(plan.sub_queries), min_subqueries,
             )
+    # Fix 2(b): scope any GENERIC sub-query with the research question's subject anchor at
+    # query-gen time (ROOT-cause fix for the S2 off-topic mass). Applied AFTER the sub_query
+    # list is FINAL and BEFORE facet validation; it preserves list length + order, so the
+    # outline facet-index mapping is unchanged and the validation below still holds.
+    plan.sub_queries = _anchor_subqueries(plan.sub_queries, plan.frame, plan.research_question)
+
     # I-meta-005 Phase 3 (#987): FAIL-CLOSED post-finalization facet validation.
     # The sub_queries list is now FINAL (post-truncation / retry-winner). Any
     # outline section whose facet mapping is empty / stale / out-of-range, OR a

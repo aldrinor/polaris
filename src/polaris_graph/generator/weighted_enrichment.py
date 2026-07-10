@@ -1730,6 +1730,74 @@ def _strip_control_bytes(text: str) -> str:
     )
 
 
+# S2/S3 re-pass Fix 1(a)(b) + Fix 8 render-side mirror — a GENERAL anti-bot / shell CHROME
+# class GUARDED by "the text carries no propositional prose sentence" so a real recovered
+# body is never dropped. Byte-aligned with ``finding_dedup._ANTIBOT_SHELL_PATTERNS`` /
+# ``_has_propositional_sentence``. LAW VI kill-switch ``PG_CI_ANTIBOT_SHELL`` (default ON).
+_ANTIBOT_SHELL_PATTERNS = (
+    "just a moment",
+    "security check required",
+    "security check",
+    "checking your browser",
+    "checking if the site connection is secure",
+    "enable javascript and cookies",
+    "please enable javascript",
+    "please enable cookies",
+    "verify you are human",
+    "verify you are not a robot",
+    "verifying you are human",
+    "verifying your browser",
+    "are you a robot",
+    "attention required",
+    "one more step",
+    "access denied",
+    "performing security verification",
+    "needs to review the security of your connection",
+    "ray id",
+    "cf-ray",
+    "unusual activity",
+    "unusual traffic",
+    "ddos protection by",
+)
+_PROPOSITIONAL_MIN_WORDS_ENV = "PG_CHROME_PROPOSITIONAL_MIN_WORDS"
+_DEFAULT_PROPOSITIONAL_MIN_WORDS = 8
+_CONTENT_WORD_RE = re.compile(r"[A-Za-zÀ-ɏ]{2,}")
+_SENTENCE_SPLIT_RE = re.compile(r"[.!?\n。！？]+")
+
+
+def _ci_antibot_shell_enabled() -> bool:
+    """``PG_CI_ANTIBOT_SHELL`` kill switch (LAW VI, default ON) — mirror of
+    ``finding_dedup._ci_antibot_shell_enabled``."""
+    return os.getenv("PG_CI_ANTIBOT_SHELL", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _has_propositional_sentence(body: str) -> bool:
+    """Mirror of ``finding_dedup._has_propositional_sentence``: True iff ``body`` carries a
+    substantive prose sentence (>= floor content words, not an anti-bot phrase). FAIL-OPEN
+    guard — real recovered prose is never chrome-dropped."""
+    if not body:
+        return False
+    raw = os.getenv(_PROPOSITIONAL_MIN_WORDS_ENV, "").strip()
+    try:
+        floor = int(raw) if raw else _DEFAULT_PROPOSITIONAL_MIN_WORDS
+    except ValueError:
+        floor = _DEFAULT_PROPOSITIONAL_MIN_WORDS
+    if floor <= 0:
+        floor = _DEFAULT_PROPOSITIONAL_MIN_WORDS
+    for sent in _SENTENCE_SPLIT_RE.split(body):
+        low = sent.lower()
+        # Remove any anti-bot phrase SPAN, then count remaining word tokens (leans toward KEEP —
+        # a real sentence mentioning a security term is prose; a bare chrome line collapses).
+        for p in _ANTIBOT_SHELL_PATTERNS:
+            if p in low:
+                low = low.replace(p, " ")
+        if len(_CONTENT_WORD_RE.findall(low)) >= floor:
+            return True
+    return False
+
+
 def _is_captcha_stub(text: str) -> bool:
     """True iff ``text`` is a CAPTCHA / security-interstitial stub (allowlist-only).
 
@@ -1738,9 +1806,19 @@ def _is_captcha_stub(text: str) -> bool:
     trigger AND a strong WAF / security co-token (BYTE-IDENTICAL predicate shared with
     ``finding_dedup._is_captcha_stub``). §-1.3 keep-all: real prose carrying a bare
     "just a moment" with no security co-token is never dropped.
+
+    S2/S3 re-pass Fix 1(a)(b) + Fix 8: a GENERAL anti-bot / shell anchor is self-sufficient
+    chrome, but ONLY when ``text`` carries NO propositional prose sentence — so a real
+    recovered body (or a real sentence that merely mentions a security term) is never dropped.
     """
     low = text.lower()
-    return (_CAPTCHA_STUB_TRIGGER in low) and any(tok in low for tok in _WAF_CO_TOKENS)
+    if (_CAPTCHA_STUB_TRIGGER in low) and any(tok in low for tok in _WAF_CO_TOKENS):
+        return True
+    if _ci_antibot_shell_enabled():
+        if (any(p in low for p in _ANTIBOT_SHELL_PATTERNS)
+                and not _has_propositional_sentence(text)):
+            return True
+    return False
 
 
 def is_enrichment_section(section: Any) -> bool:
@@ -5083,33 +5161,99 @@ def _samework_url_norm(ev: dict[str, Any]) -> str:
     return prefix + path + (("?" + query) if query else "")
 
 
-def _work_identity(eid: str, ev: dict[str, Any]) -> str:
-    """Same-work group key for one member: DOI, else title(+discriminator), else its
-    own ev_id.
+_ARXIV_ID_RE = re.compile(
+    r"arxiv\.org/(?:abs|pdf|html|format)/"
+    r"(?:([a-z-]+(?:\.[a-z]{2})?/\d{7})|(\d{4}\.\d{4,5}))",
+    re.IGNORECASE,
+)
+_NBER_ID_RE = re.compile(
+    r"nber\.org/(?:system/files/working_papers/|papers/)?w(\d{3,6})", re.IGNORECASE
+)
+_SSRN_ID_RE = re.compile(
+    r"(?:ssrn\.com/abstract=|ssrn_id=|abstract_id=)(\d{4,9})", re.IGNORECASE
+)
+_DOI_IN_URL_RE = re.compile(r"(10\.\d{4,9}/[^\s?#&]+)")
 
-    I-beatboth-011 #4 (#1289): the no-DOI branch NEVER merges on folded title ALONE
-    (two different works can share a title). It requires the folded title AND the
-    FIRST present discriminator (year → first-author surname → venue → host).
-    Title-with-no-discriminator falls through to the evidence_id (never a constant),
-    so a member with neither a DOI nor (usable title + discriminator) stays its OWN
-    distinct unit — consolidation can only MERGE genuine same-work duplicates, never
-    collapse unrelated works. Matches ``finding_dedup._same_work_key``.
+
+def _samework_crossmirror_on() -> bool:
+    """Render-side mirror of ``finding_dedup._samework_crossmirror_enabled`` — reads the
+    SAME ``PG_SAMEWORK_CROSSMIRROR`` env flag (default ON) so the two consolidators are in
+    lockstep. OFF => byte-identical URL-leg-first ``_work_identity``."""
+    import os  # noqa: PLC0415
+    return os.getenv("PG_SAMEWORK_CROSSMIRROR", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _url_work_identifier(ev: dict[str, Any]) -> str:
+    """Byte-identical mirror of ``finding_dedup._url_work_identifier``: a strong
+    cross-mirror work id (arXiv / NBER / SSRN / DOI-in-path) from the URL, else ""."""
+    raw = str(ev.get("source_url", "") or ev.get("url", "") or "")
+    if not raw:
+        return ""
+    m = _ARXIV_ID_RE.search(raw)
+    if m:
+        return "arxiv:" + (m.group(1) or m.group(2)).lower()
+    m = _NBER_ID_RE.search(raw)
+    if m:
+        return "nber:w" + m.group(1)
+    m = _SSRN_ID_RE.search(raw)
+    if m:
+        return "ssrn:" + m.group(1)
+    m = _DOI_IN_URL_RE.search(raw)
+    if m:
+        doi = m.group(1).rstrip("/").lower()
+        if doi.endswith(".pdf"):
+            doi = doi[:-4]
+        return "doi:" + doi
+    return ""
+
+
+def _work_identity(eid: str, ev: dict[str, Any]) -> str:
+    """Same-work group key for one member. Matches ``finding_dedup._same_work_key``.
+
+    Fix 4 (``PG_SAMEWORK_CROSSMIRROR`` ON, default): id-bearing legs FIRST, full-URL leg
+    LAST — DOI → URL-embedded id (arXiv / NBER / SSRN / DOI-in-path) → title+discriminator
+    → normalized full source_url → ``ev:<eid>``. Lets the SAME work fetched at different
+    mirror URLs merge instead of each mirror keying a distinct ``url:`` unit.
+
+    OFF: byte-identical pre-Fix-4 ordering — normalized source_url FIRST (STEP 4), else DOI,
+    else title(+discriminator), else ``ev:<eid>``.
+
+    I-beatboth-011 #4 (#1289): the no-DOI title branch NEVER merges on folded title alone —
+    it requires a corroborating discriminator.
     """
-    # STEP 4 render-parity (GH I-deepfix-003 #1374, Fable gate P1-C): FIRST url leg mirrors
-    # finding_dedup._normalize_source_url behind the SAME PG_SAMEWORK_URL_LEG switch, so a
-    # no-DOI / weak-title multi-chunk PDF collapses to ONE Evidence-base / CWF entry (not 18).
-    if _samework_url_leg_on():
-        _u = _samework_url_norm(ev)
-        if _u:
-            return f"url:{_u}"
+    if not _samework_crossmirror_on():
+        # Byte-identical legacy ordering (URL leg first).
+        if _samework_url_leg_on():
+            _u = _samework_url_norm(ev)
+            if _u:
+                return f"url:{_u}"
+        doi = _normalize_doi(ev.get("doi"))
+        if doi:
+            return f"doi:{doi}"
+        title = _normalize_title(_record_title(ev))
+        if title:
+            discriminator = _title_discriminator(ev)
+            if discriminator:
+                return f"title:{title}|{discriminator}"
+        return f"ev:{eid}"
+    # Cross-mirror ordering (Fix 4): id-bearing legs first, full-URL leg last.
     doi = _normalize_doi(ev.get("doi"))
     if doi:
         return f"doi:{doi}"
+    uid = _url_work_identifier(ev)
+    if uid:
+        return f"id:{uid}"
     title = _normalize_title(_record_title(ev))
     if title:
         discriminator = _title_discriminator(ev)
         if discriminator:
             return f"title:{title}|{discriminator}"
+    if _samework_url_leg_on():
+        _u = _samework_url_norm(ev)
+        if _u:
+            return f"url:{_u}"
     return f"ev:{eid}"
 
 

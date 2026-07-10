@@ -117,6 +117,108 @@ def _fold_nonclinical_subject(subject: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Claim-key hygiene guard — S2/S3 re-pass Fix 3(c)
+# ─────────────────────────────────────────────────────────────────────────
+# The numeric-claim extractor sometimes names a GARBAGE token as the subject or reads a
+# GARBAGE numeric as the value, producing garbage MERGE keys (drb_72 live: 'com', 'wp096',
+# 'wp166', 'flatedecode', value 9.78e17 = an ISBN, 1.72e18 = a Ray-ID). §-1.3 keeps every
+# row (never drop), but such a key must never be a same-claim MERGE key. When the folded
+# NON-clinical subject is a PDF-stream artifact, a bare file/working-paper code, a lone
+# TLD/scheme token, or a long digit run — or the value is an absurd magnitude no real
+# statistic reaches — the key COLLAPSES to the UNKNOWN sentinel (a safe per-row singleton:
+# never a false merge, never a drop). CLINICAL rows are unaffected (their strict verbatim
+# key never routes through the fold). LAW VI kill-switch (default ON).
+_KEY_HYGIENE_ENV = "PG_FINDING_DEDUP_KEY_HYGIENE"
+_GARBAGE_SUBJECT_TOKENS = frozenset({
+    "flatedecode", "endstream", "endobj", "startxref", "xref", "obj", "stream",
+    "pdf", "html", "http", "https", "www", "com", "org", "net", "gov", "edu", "io",
+})
+_GARBAGE_CODE_RE = re.compile(r"^[a-z]{1,3}\d{2,}$")   # wp096 / w31161 / id1234 — code tokens
+_LONG_DIGIT_RE = re.compile(r"^\d{7,}$")               # ISBN / Ray-ID-like numeric run
+# Above this magnitude a "numeric finding" is almost certainly a mis-read identifier
+# (ISBN ~9.78e17, Ray-ID ~1.7e18), never a real reported statistic (world GDP ~1e14).
+_ABSURD_VALUE_MAGNITUDE = 1e15
+
+
+def _key_hygiene_enabled() -> bool:
+    """``PG_FINDING_DEDUP_KEY_HYGIENE`` kill switch (LAW VI). DEFAULT-ON: garbage
+    subject/value keys collapse to the UNKNOWN sentinel (safe singleton). OFF => the
+    byte-identical raw key (garbage tokens may key a basket, the pre-Fix-3c behavior)."""
+    return os.getenv(_KEY_HYGIENE_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _is_garbage_subject(folded: str) -> bool:
+    """True iff the folded non-clinical subject is a garbage token (PDF-stream artifact,
+    bare file/working-paper code, lone TLD/scheme token, or a long digit run) that must
+    never be a same-claim merge key. Pure/deterministic."""
+    if not folded:
+        return False
+    if folded in _GARBAGE_SUBJECT_TOKENS:
+        return True
+    if _GARBAGE_CODE_RE.match(folded):
+        return True
+    if _LONG_DIGIT_RE.match(folded):
+        return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Corroboration = DISTINCT WORKS + derivative-press label — Fix 5 + Fix 6
+# ─────────────────────────────────────────────────────────────────────────
+# Fix 5: ``corroboration_count`` must be the number of DISTINCT WORKS carrying the claim,
+# not the number of distinct registrable-domains (which double-counts one work hosted at N
+# mirrors and, without same-work folding, inflated the count). After Fix 4 collapses mirror
+# copies into one work id, a basket's true corroboration is its distinct same-work-id count.
+# A row with no same-work group is its own singleton work (counts as 1). Single-source
+# claims honestly stay 1 — never inflated.
+#
+# Fix 6: derivative press/blog coverage of a primary paper is corroboration-OF-REPORTING at
+# LOWER weight, NEVER independent evidence. It is KEPT in the basket (§-1.3 principle 1 —
+# credible on-topic sources are only weighted, never deleted) but EXCLUDED from the
+# distinct-works independent count. Detected conservatively from an EXPLICIT source-type /
+# tier stamp the row already carries (news / press / blog / magazine / media); no stamp =>
+# NOT flagged (fail-open: counted as independent). LAW VI kill-switches (default ON).
+_DISTINCT_WORKS_ENV = "PG_CORROBORATION_DISTINCT_WORKS"
+_DERIVATIVE_PRESS_ENV = "PG_CORROBORATION_DERIVATIVE_PRESS"
+_PRESS_TYPE_TOKENS = (
+    "news", "press", "blog", "magazine", "media outlet", "newspaper",
+    "journalism", "op-ed", "opinion", "trade press",
+)
+
+
+def _distinct_works_enabled() -> bool:
+    """``PG_CORROBORATION_DISTINCT_WORKS`` kill switch (LAW VI, default ON). OFF =>
+    byte-identical independent-registrable-domain corroboration count."""
+    return os.getenv(_DISTINCT_WORKS_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _derivative_press_enabled() -> bool:
+    """``PG_CORROBORATION_DERIVATIVE_PRESS`` kill switch (LAW VI, default ON). OFF =>
+    derivative press is counted as independent evidence (the pre-Fix-6 behavior)."""
+    return os.getenv(_DERIVATIVE_PRESS_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _is_derivative_press(row: dict[str, Any]) -> bool:
+    """True iff the row carries an EXPLICIT news / press / blog / magazine source-type or
+    tier stamp — derivative reporting of a primary work (Fix 6). Conservative: a row with
+    no such stamp is NOT flagged (fail-open, counted as independent). Pure/deterministic."""
+    for key in (
+        "source_type", "content_type", "doc_type", "material_type",
+        "source_category", "tier_label", "publication_type",
+    ):
+        v = str(row.get(key) or "").strip().lower()
+        if v and any(t in v for t in _PRESS_TYPE_TOKENS):
+            return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Same-work consolidation — I-beatboth-011 #7 CORE (#1289)
 # ─────────────────────────────────────────────────────────────────────────
 #
@@ -195,6 +297,86 @@ _WAF_CO_TOKENS = (
     "verifying you are human",            # hCaptcha / Cloudflare Turnstile
     "needs to review the security of your connection",  # Cloudflare interstitial body
 )
+# S2/S3 re-pass Fix 1(a)(b) + Fix 8: a GENERAL anti-bot / shell CHROME class evaluated on
+# the TITLE+BODY UNION and GUARDED by "the body carries no propositional prose sentence" so
+# a real article whose FIRST fetch hit a bot wall (but whose body was recovered) is NEVER
+# chrome-deleted. The base ``_is_captcha_stub`` read only the BODY and fired only on the
+# literal "just a moment" trigger, so a stub carrying the tell ONLY in its TITLE (ev_065:
+# body "## Security check required ... ResearchGate GmbH", no body trigger) survived
+# (30/33 chrome rows survived). These anchors are high-precision anti-bot / WAF /
+# challenge-shell phrases a genuine research sentence (any language) does not carry.
+# LAW VI kill-switch ``PG_CI_ANTIBOT_SHELL`` (default ON).
+_CI_ANTIBOT_SHELL_ENV = "PG_CI_ANTIBOT_SHELL"
+_ANTIBOT_SHELL_PATTERNS = (
+    "just a moment",
+    "security check required",
+    "security check",
+    "checking your browser",
+    "checking if the site connection is secure",
+    "enable javascript and cookies",
+    "please enable javascript",
+    "please enable cookies",
+    "verify you are human",
+    "verify you are not a robot",
+    "verifying you are human",
+    "verifying your browser",
+    "are you a robot",
+    "attention required",
+    "one more step",
+    "access denied",
+    "performing security verification",
+    "needs to review the security of your connection",
+    "ray id",
+    "cf-ray",
+    "unusual activity",
+    "unusual traffic",
+    "ddos protection by",
+)
+_PROPOSITIONAL_MIN_WORDS_ENV = "PG_CHROME_PROPOSITIONAL_MIN_WORDS"
+_DEFAULT_PROPOSITIONAL_MIN_WORDS = 8
+_CONTENT_WORD_RE = re.compile(r"[A-Za-zÀ-ɏ]{2,}")
+_SENTENCE_SPLIT_RE = re.compile(r"[.!?\n。！？]+")
+
+
+def _ci_antibot_shell_enabled() -> bool:
+    """``PG_CI_ANTIBOT_SHELL`` kill switch (LAW VI). DEFAULT-ON: the general anti-bot /
+    shell chrome class (title+body union, propositional-sentence guarded). OFF => the
+    byte-identical legacy trigger+WAF-only ``_is_captcha_stub``."""
+    return os.getenv(_CI_ANTIBOT_SHELL_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _has_propositional_sentence(body: str) -> bool:
+    """True iff ``body`` carries at least one substantive PROSE sentence — a sentence with
+    >= ``PG_CHROME_PROPOSITIONAL_MIN_WORDS`` alphabetic content words that is NOT itself an
+    anti-bot / chrome phrase. FAIL-OPEN guard on the general chrome class: a real article
+    (or a Zyte-recovered body) always has propositional prose so it is never chrome-deleted;
+    a bare shell ("Security check required. To continue, enable JavaScript and cookies.")
+    has none. Pure/deterministic; shared with the render/access_bypass mirrors."""
+    if not body:
+        return False
+    raw = os.getenv(_PROPOSITIONAL_MIN_WORDS_ENV, "").strip()
+    try:
+        floor = int(raw) if raw else _DEFAULT_PROPOSITIONAL_MIN_WORDS
+    except ValueError:
+        floor = _DEFAULT_PROPOSITIONAL_MIN_WORDS
+    if floor <= 0:
+        floor = _DEFAULT_PROPOSITIONAL_MIN_WORDS
+    for sent in _SENTENCE_SPLIT_RE.split(body):
+        low = sent.lower()
+        # Remove any anti-bot phrase SPAN, then count the remaining word tokens: a REAL sentence
+        # that merely MENTIONS a security term ("access denied errors rose 12% after the upgrade")
+        # keeps its other words and counts as prose; a bare chrome line collapses to near-nothing.
+        # Leans toward KEEP — the §-1.3 / clinical-safe direction (never delete real prose).
+        for p in _ANTIBOT_SHELL_PATTERNS:
+            if p in low:
+                low = low.replace(p, " ")
+        if len(_CONTENT_WORD_RE.findall(low)) >= floor:
+            return True
+    return False
+
+
 _DOI_PREFIX_RE = re.compile(
     r"^(?:doi:|https?://(?:dx\.)?doi\.org/)", re.IGNORECASE
 )
@@ -457,36 +639,128 @@ def _normalize_source_url(row: dict[str, Any]) -> str:
     return prefix + path + (("?" + query) if query else "")
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Cross-mirror same-work identity — S2/S3 re-pass Fix 4
+# ─────────────────────────────────────────────────────────────────────────
+# §-1.3 CONSOLIDATE-don't-DROP + "over-merge corrupts attribution; under-merge is safe":
+# the base ``_same_work_key`` put the full-URL leg FIRST, so the SAME work fetched at
+# DIFFERENT mirror URLs (Eloundou "GPTs are GPTs" across governance.ai / openai.com /
+# repec / newyorkfed / worldbank.org; an arXiv paper at arxiv.org vs a repec mirror; an
+# NBER working paper at nber.org vs a university mirror; Noy & Zhang across several hosts)
+# got a DISTINCT ``url:`` key per mirror and NEVER merged — every mirror counted as an
+# independent work, padding breadth/attribution.
+#
+# FIX (general, no host/entity/basket hardcoding):
+#   1. Extract a STRONG cross-mirror identifier from the URL itself — an arXiv id, an
+#      NBER working-paper number, an SSRN abstract id, or a DOI embedded in the path. Two
+#      rows carrying the SAME such id are the SAME work regardless of host.
+#   2. Let the DOI + URL-identifier + folded-title(+author/discriminator) legs run BEFORE
+#      the full-URL leg, so a cross-mirror work merges on its shared id / title+author while
+#      a chunked no-id/no-title PDF still falls through to the full-URL leg (its last resort).
+# Both gated behind ``PG_SAMEWORK_CROSSMIRROR`` (default ON); OFF => byte-identical to the
+# URL-leg-first ordering. SHARED byte-for-byte with ``weighted_enrichment._work_identity``.
+_SAMEWORK_CROSSMIRROR_ENV = "PG_SAMEWORK_CROSSMIRROR"
+_ARXIV_ID_RE = re.compile(
+    r"arxiv\.org/(?:abs|pdf|html|format)/"
+    r"(?:([a-z-]+(?:\.[a-z]{2})?/\d{7})|(\d{4}\.\d{4,5}))",
+    re.IGNORECASE,
+)
+_NBER_ID_RE = re.compile(
+    r"nber\.org/(?:system/files/working_papers/|papers/)?w(\d{3,6})", re.IGNORECASE
+)
+_SSRN_ID_RE = re.compile(
+    r"(?:ssrn\.com/abstract=|ssrn_id=|abstract_id=)(\d{4,9})", re.IGNORECASE
+)
+_DOI_IN_URL_RE = re.compile(r"(10\.\d{4,9}/[^\s?#&]+)")
+
+
+def _samework_crossmirror_enabled() -> bool:
+    """``PG_SAMEWORK_CROSSMIRROR`` kill switch (LAW VI). DEFAULT-ON: URL-embedded
+    identifier extraction + id/title-before-full-URL ordering (Fix 4). OFF => the
+    byte-identical URL-leg-first ``_same_work_key`` (pre-Fix-4 behavior)."""
+    return os.getenv(_SAMEWORK_CROSSMIRROR_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _url_work_identifier(row: dict[str, Any]) -> str:
+    """A STRONG cross-mirror work id extracted from the row's URL(s), else ``""``.
+
+    Priority arXiv id > NBER wNNNNN > SSRN abstract id > DOI-embedded-in-path. Every
+    such id is HOST-INDEPENDENT, so two mirrors of ONE work share it and merge (Fix 4).
+    Pure/deterministic; matches ``weighted_enrichment._url_work_identifier`` byte-for-byte.
+    Returns ``""`` when no strong id is present (the caller falls through to title/URL)."""
+    raw = str(row.get("source_url", "") or row.get("url", "") or "")
+    if not raw:
+        return ""
+    m = _ARXIV_ID_RE.search(raw)
+    if m:
+        return "arxiv:" + (m.group(1) or m.group(2)).lower()
+    m = _NBER_ID_RE.search(raw)
+    if m:
+        return "nber:w" + m.group(1)
+    m = _SSRN_ID_RE.search(raw)
+    if m:
+        return "ssrn:" + m.group(1)
+    m = _DOI_IN_URL_RE.search(raw)
+    if m:
+        doi = m.group(1).rstrip("/").lower()
+        if doi.endswith(".pdf"):
+            doi = doi[:-4]
+        return "doi:" + doi
+    return ""
+
+
 def _same_work_key(row: dict[str, Any]) -> str:
-    """The SHARED same-work key: normalized source_url FIRST (STEP 4), else normalized
-    DOI, else folded title PLUS a corroborating discriminator, else ``""`` (no same-work
-    grouping — the row is its own singleton work).
+    """The SHARED same-work key.
 
-    I-deepfix-003 STEP 4 (#1374): a FIRST, highest-precedence leg — a normalized
-    source_url (``_normalize_source_url``). Two rows fetched from the SAME document are the
-    SAME work regardless of a missing/noisy DOI or a weak per-chunk title (the ~18-chunk
-    PDF breadth-padding bug). Behind the ``PG_SAMEWORK_URL_LEG`` kill switch (default ON);
-    OFF => this leg is skipped and the key is byte-identical DOI/title-only keying.
+    Fix 4 (``PG_SAMEWORK_CROSSMIRROR`` ON, default): id-bearing legs FIRST, full-URL
+    leg LAST — explicit DOI → URL-embedded id (arXiv / NBER / SSRN / DOI-in-path) →
+    folded title + discriminator (year → author → venue, or year+host) → normalized
+    full source_url (chunked-PDF last resort) → ``""`` (singleton). This lets the SAME
+    work fetched at different mirror URLs merge on its shared id / title+author instead
+    of each mirror getting a distinct ``url:`` key (the breadth-padding bug).
 
-    I-beatboth-011 #4 (#1289): the no-DOI branch NEVER merges on folded title
-    ALONE (two different works can share a title). It requires the folded title
-    AND the FIRST present discriminator (year → first-author surname → venue →
-    host). Title-with-no-discriminator → ``""`` → singleton. The DOI + title legs
-    match ``weighted_enrichment._work_identity`` so those two consolidators put the same
-    members in the same work; the STEP-4 URL leg is added HERE only (see the module note).
+    OFF (``PG_SAMEWORK_CROSSMIRROR=0``): byte-identical to the pre-Fix-4 ordering —
+    normalized source_url FIRST (STEP 4), else DOI, else folded title + discriminator.
+
+    I-deepfix-003 STEP 4 (#1374): the full-URL leg (``_normalize_source_url``) groups
+    chunks of one fetched document that carry no DOI / no usable title. Behind
+    ``PG_SAMEWORK_URL_LEG`` (default ON). I-beatboth-011 #4 (#1289): the no-DOI title
+    branch NEVER merges on folded title ALONE — it requires a corroborating discriminator.
+    The DOI + title legs match ``weighted_enrichment._work_identity`` (render parity).
     """
-    if _samework_url_leg_enabled():
-        url_key = _normalize_source_url(row)
-        if url_key:
-            return "url:" + url_key
+    if not _samework_crossmirror_enabled():
+        # Byte-identical legacy ordering (URL leg first).
+        if _samework_url_leg_enabled():
+            url_key = _normalize_source_url(row)
+            if url_key:
+                return "url:" + url_key
+        doi = _normalize_doi(row.get("doi"))
+        if doi:
+            return "doi:" + doi
+        folded = _fold_title(_row_title(row))
+        if folded:
+            discriminator = _title_discriminator(row)
+            if discriminator:
+                return "title:" + folded + "|" + discriminator
+        return ""
+    # Cross-mirror ordering (Fix 4): id-bearing legs first, full-URL leg last.
     doi = _normalize_doi(row.get("doi"))
     if doi:
         return "doi:" + doi
+    uid = _url_work_identifier(row)
+    if uid:
+        return "id:" + uid
     folded = _fold_title(_row_title(row))
     if folded:
         discriminator = _title_discriminator(row)
         if discriminator:
             return "title:" + folded + "|" + discriminator
+    if _samework_url_leg_enabled():
+        url_key = _normalize_source_url(row)
+        if url_key:
+            return "url:" + url_key
     return ""
 
 
@@ -511,9 +785,28 @@ def _is_captcha_stub(row: dict[str, Any]) -> bool:
     trigger AND a strong WAF / security co-token (BYTE-IDENTICAL predicate shared with
     ``weighted_enrichment._is_captcha_stub``). §-1.3 keep-all: real prose carrying a
     bare "just a moment" with no security co-token is never dropped.
+
+    S2/S3 re-pass Fix 1(a)(b) + Fix 8: the tell is evaluated on the TITLE+BODY UNION (the
+    base read only the body, so a stub whose challenge tell is only in the TITLE — ev_065
+    "## Security check required ... ResearchGate GmbH" — survived). A GENERAL anti-bot /
+    shell anchor (``_ANTIBOT_SHELL_PATTERNS``) is self-sufficient chrome, but ONLY when the
+    body carries NO propositional prose sentence (``_has_propositional_sentence`` FAIL-OPEN
+    guard): a real article whose first fetch hit a bot wall but whose body was recovered has
+    propositional prose and is routed by BODY, never chrome-deleted on a stale title alone.
     """
-    low = _row_text(row).lower()
-    return (_CAPTCHA_STUB_TRIGGER in low) and any(tok in low for tok in _WAF_CO_TOKENS)
+    body = _row_text(row)
+    title = _row_title(row)
+    combined = (title + "\n" + body).lower()
+    # Legacy high-precision: the trigger phrase + a strong WAF co-token (title+body union).
+    if (_CAPTCHA_STUB_TRIGGER in combined) and any(tok in combined for tok in _WAF_CO_TOKENS):
+        return True
+    # General anti-bot / shell class — an anchor in the title OR body, GUARDED by the
+    # body having no propositional prose sentence (substantive prose is never deleted).
+    if _ci_antibot_shell_enabled():
+        if (any(p in combined for p in _ANTIBOT_SHELL_PATTERNS)
+                and not _has_propositional_sentence(body)):
+            return True
+    return False
 
 
 def _host_of(url: str) -> str:
@@ -565,10 +858,19 @@ def _finding_key(
     if not clinical and _nonclinical_fold_enabled():
         # Fold ONLY the non-clinical subject to a surface-invariant signature.
         # An empty fold (pure-punctuation subject) becomes the UNKNOWN sentinel.
-        subject = _fold_nonclinical_subject(subject) or _UNKNOWN_SUBJECT
+        folded = _fold_nonclinical_subject(subject)
+        # Fix 3(c): a garbage folded subject (PDF-stream artifact / file-code / TLD /
+        # long digit run) collapses to the UNKNOWN sentinel — never a false merge key.
+        if _key_hygiene_enabled() and _is_garbage_subject(folded):
+            folded = ""
+        subject = folded or _UNKNOWN_SUBJECT
     if not subject or subject == _UNKNOWN_SUBJECT:
         return ("__unknown__", evidence_id, claim_index)
     raw_value = float(getattr(claim, "value", 0.0) or 0.0)
+    # Fix 3(c): an absurd-magnitude value is a mis-read identifier (ISBN / Ray-ID), not a
+    # real statistic — collapse to the UNKNOWN sentinel (safe per-row singleton).
+    if not clinical and _key_hygiene_enabled() and abs(raw_value) >= _ABSURD_VALUE_MAGNITUDE:
+        return ("__unknown__", evidence_id, claim_index)
     value_slot = raw_value if exact_value else round(raw_value, 3)
     return (
         subject,
@@ -607,6 +909,13 @@ class SameWorkResult:
     dropped_indices: set[int]
     dropped_captcha_indices: set[int]
     dropped_prefix_indices: set[int]
+    # S2/S3 re-pass Fix 1(d)(e): recover-before-delete disclosure. A dropped chrome row
+    # whose SAME-WORK sibling has a clean (non-chrome) copy is RECOVERED — the work survives
+    # via the sibling, no coverage lost. A dropped chrome row with NO clean sibling is a
+    # coverage GAP — the whole work was only ever reachable as chrome (disclosed, never
+    # fabricated). Both are empty when the same-work consolidation is off.
+    dropped_captcha_recovered: set[int] = field(default_factory=set)
+    dropped_captcha_gap: set[int] = field(default_factory=set)
 
 
 def _row_rank_key(row: dict[str, Any], index: int) -> tuple:
@@ -642,15 +951,31 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
     """
     dropped_captcha: set[int] = set()
     work_members: dict[str, list[int]] = {}
+    captcha_keys: dict[int, str] = {}
     for ri, row in enumerate(rows):
         if _is_captcha_stub(row):
             dropped_captcha.add(ri)
+            # Fix 1(d): remember the chrome row's same-work key so we can check for a
+            # clean sibling (recover-before-delete) after the surviving rows are grouped.
+            captcha_keys[ri] = _same_work_key(row)
             continue
         key = _same_work_key(row)
         if not key:
             # No same-work key: a per-row singleton key so it can never collide.
             key = "__singleton__:%d" % ri
         work_members.setdefault(key, []).append(ri)
+
+    # Fix 1(d): recover-before-delete. A dropped chrome row whose real same-work key is
+    # also carried by a SURVIVING (clean) sibling is RECOVERED — the work is not lost.
+    # A dropped chrome row with a real key but NO surviving sibling (or no usable key at
+    # all) is a coverage GAP — disclosed, never fabricated.
+    dropped_captcha_recovered: set[int] = set()
+    dropped_captcha_gap: set[int] = set()
+    for ri, key in captcha_keys.items():
+        if key and key in work_members:
+            dropped_captcha_recovered.add(ri)
+        else:
+            dropped_captcha_gap.add(ri)
 
     dropped_prefix: set[int] = set()
     groups: list[SameWorkGroup] = []
@@ -692,6 +1017,7 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
         is_real_work = (
             key.startswith("url:")
             or key.startswith("doi:")
+            or key.startswith("id:")       # Fix 4: cross-mirror arXiv/NBER/SSRN/DOI id
             or key.startswith("title:")
         )
         member_evidence_ids = [
@@ -719,6 +1045,8 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
         dropped_indices=dropped_captcha | dropped_prefix,
         dropped_captcha_indices=dropped_captcha,
         dropped_prefix_indices=dropped_prefix,
+        dropped_captcha_recovered=dropped_captcha_recovered,
+        dropped_captcha_gap=dropped_captcha_gap,
     )
 
 
@@ -2026,6 +2354,14 @@ def dedup_by_finding(
         canon = same_work.canonical_index_by_index.get(ri, ri)
         return _host_of(str(rows[canon].get("source_url", "")))
 
+    # Fix 5/6: the WORK a row belongs to (its same-work id, else a per-row singleton work).
+    # Corroboration is counted over DISTINCT works, excluding derivative press (fail-open).
+    distinct_works_on = redesign_on and _distinct_works_enabled()
+    derivative_press_on = _derivative_press_enabled()
+
+    def _work_of(ri: int) -> str:
+        return same_work.work_id_by_index.get(ri) or ("__row__:%d" % ri)
+
     # 1. Extract claims per row, group by conservative finding key.
     #
     # B9 domain-generalization: `extract_numeric_claims` now routes a NON-clinical
@@ -2134,7 +2470,19 @@ def dedup_by_finding(
         member_hosts = sorted(
             {registrable_domain(h, gov_suffixes) for h in hosts_raw} - {""}
         )
-        corroboration = count_independent_hosts(hosts_raw, gov_suffixes)
+        if distinct_works_on:
+            # Fix 5: corroboration = number of DISTINCT WORKS among members (mirror copies
+            # of one work already share one work id via Fix 4). Fix 6: derivative press is
+            # excluded from the independent count but kept in the basket; if a claim is
+            # carried ONLY by press, fall back to its distinct-press-work count (never 0).
+            works_primary = {
+                _work_of(ri) for ri in distinct_ris
+                if not (derivative_press_on and _is_derivative_press(rows[ri]))
+            }
+            works_all = {_work_of(ri) for ri in distinct_ris}
+            corroboration = len(works_primary) or len(works_all)
+        else:
+            corroboration = count_independent_hosts(hosts_raw, gov_suffixes)
         clusters.append(
             FindingCluster(
                 finding_key=key,
