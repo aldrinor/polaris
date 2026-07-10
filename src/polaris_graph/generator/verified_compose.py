@@ -3602,6 +3602,7 @@ def route_orphan_baskets_to_section_plans(
     section_plan_cls: Any,
     residual_title: str = _RESIDUAL_COVERAGE_TITLE,
     off_topic_ev_ids: set | None = None,
+    singleton_candidates: Any = None,
 ) -> list:
     """F1: route EVERY consolidated basket to a section so no verified basket is stranded.
 
@@ -3627,11 +3628,23 @@ def route_orphan_baskets_to_section_plans(
     FAIL-OPEN: if ANY member is not judge-confirmed off-topic the basket is KEPT and routed as usual
     (uncertainty => keep). Every deletion is DISCLOSED via the counter + log (never silent). ``None``/
     empty => byte-identical keep-all behaviour (no basket is ever deleted by tier/lexeme/number).
+
+    ``singleton_candidates`` (item 3c, §-1.3.1 + item-4 backstop): the caller's UNASSIGNED
+    high-tier/unjudged SINGLETON rows (pool rows that are NOT a ClaimBasket member, so the basket
+    loop above can never reach them — much of the drb_72 unassigned-singleton list, incl. the seminal
+    T1 works Acemoglu-Restrepo / Autor). Each is a Mapping ``{evidence_id, text}`` (``text`` = title +
+    statement for the overlap match). Routed by the SAME title+focus content-word overlap rule as
+    baskets (residual otherwise), AFTER the basket loop. Same FAIL-OPEN off-topic gate: a candidate
+    whose ev_id is in ``off_topic_ev_ids`` is DELETED (disclosed) before routing; uncertainty => KEEP.
+    ``None``/empty => byte-identical to the basket-only behaviour (no singleton is ever routed).
     """
     if not route_all_baskets_enabled():
         return plans
     baskets = list(getattr(credibility_analysis, "baskets", None) or [])
-    if not plans or not baskets:
+    # item 3c: proceed when there is ANYTHING to route — baskets OR singleton candidates. (The old
+    # ``not baskets`` early-return would skip the singleton leg on a basket-less pool, stranding the
+    # very high-tier singletons the leg exists to route.)
+    if not plans or (not baskets and not singleton_candidates):
         return plans
 
     claimed: set[str] = set()
@@ -3676,15 +3689,49 @@ def route_orphan_baskets_to_section_plans(
         claimed |= set(member_ids)
         routed += 1
 
+    # Item 3c: the SINGLETON leg — route the caller-supplied unassigned high-tier/unjudged pool
+    # singletons the basket loop can never reach (they are not ClaimBasket members). Same overlap
+    # placement + same FAIL-OPEN off-topic delete gate as baskets. This is the compose-time home for
+    # the seminal T1 works (item 4 backstop) so a GenAI-labor report actually anchors Acemoglu/Autor.
+    routed_singletons = 0
+    for cand in (singleton_candidates or []):
+        if not isinstance(cand, dict):
+            continue
+        eid = str(cand.get("evidence_id", "") or "")
+        if not eid or eid in claimed:
+            continue  # empty, or already reachable by some section — never double-route
+        if off_topic_ev_ids and eid in off_topic_ev_ids:
+            deleted_offtopic += 1
+            deleted_offtopic_members.append(eid)
+            continue  # judge-confirmed off-topic singleton — DELETED before routing (disclosed)
+        cw = _repair_content_words(str(cand.get("text", "") or ""))
+        best_plan = None
+        best_overlap = 0
+        for p, pw in plan_words:
+            overlap = len(cw & pw)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_plan = p
+        if best_plan is not None and best_overlap >= 1:
+            _extend_plan_ev_ids(best_plan, [eid])
+        else:
+            if residual_plan is None:
+                residual_plan = section_plan_cls(
+                    title=residual_title, focus=residual_title, ev_ids=[], archetype="",
+                )
+            _extend_plan_ev_ids(residual_plan, [eid])
+        claimed.add(eid)
+        routed_singletons += 1
+
     out_plans = list(plans)
     if residual_plan is not None and residual_plan.ev_ids:
         out_plans.append(residual_plan)
-    if routed or deleted_offtopic:
+    if routed or routed_singletons or deleted_offtopic:
         logger.info(
-            "[verified_compose] F1 route-all-baskets: routed %d orphan basket(s) to sections; "
-            "DELETED %d judge-confirmed off-topic basket(s) (%d member rows) before routing "
-            "(§-1.3.1 fail-open, disclosed); residual section=%s",
-            routed, deleted_offtopic, len(deleted_offtopic_members),
+            "[verified_compose] F1 route-all-baskets: routed %d orphan basket(s) + %d unassigned "
+            "singleton(s) to sections; DELETED %d judge-confirmed off-topic item(s) (%d member rows) "
+            "before routing (§-1.3.1 fail-open, disclosed); residual section=%s",
+            routed, routed_singletons, deleted_offtopic, len(deleted_offtopic_members),
             "yes" if residual_plan is not None else "no",
         )
     return out_plans

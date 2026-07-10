@@ -76,6 +76,12 @@ def _effective_s4_flag_slate(model: str) -> dict[str, str]:
     here; listing them would falsely imply they were validated/active this run."""
     return {
         "PG_OUTLINE_BASKET_DIGEST": os.getenv("PG_OUTLINE_BASKET_DIGEST", "0"),
+        # Item 3a: coverage-routing arm-state — the cp4 checkpoint MUST record whether the compose
+        # wheel routes orphan baskets + unassigned high-tier singletons to sections
+        # (PG_ROUTE_ALL_BASKETS, default-OFF; the S5-compose run slate arms it). Operator law:
+        # "a winner built but left default-OFF is the still-broken loop root" — so the checkpoint
+        # proves whether it was armed rather than leaving it invisible.
+        "PG_ROUTE_ALL_BASKETS": os.getenv("PG_ROUTE_ALL_BASKETS", "0"),
         "PG_OUTLINE_DIGEST_MAX_CHARS": os.getenv(
             "PG_OUTLINE_DIGEST_MAX_CHARS", str(PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT)),
         "PG_OUTLINE_MIN_MAX_TOKENS": os.getenv("PG_OUTLINE_MIN_MAX_TOKENS", "16384"),
@@ -86,6 +92,21 @@ def _effective_s4_flag_slate(model: str) -> dict[str, str]:
             "PG_OUTLINE_REVISE_MAX_RECOMPOSE", str(PG_OUTLINE_REVISE_MAX_RECOMPOSE_DEFAULT)),
         "model": str(model),
     }
+
+
+def _row_topic_verdict(row: dict) -> str:
+    """Item 3b: the cp4 per-candidate semantic topic verdict, read from the row's topic-judge stamp
+    via the SAME fail-open predicate the compose router + run-level junk gate consume (a single
+    source of truth so cp4, the router, and the gate can never disagree). Returns ``"off_subject"``
+    ONLY on an affirmative OFF_SUBJECT stamp (a positive-relevance verdict vetoes it); any
+    uncertainty / missing stamp / import-or-predicate error => ``"unjudged"`` (FAIL-OPEN => KEEP)."""
+    try:
+        from src.polaris_graph.generator.junk_deletion_gate import (  # noqa: PLC0415
+            is_row_deletable_offtopic,
+        )
+        return "off_subject" if is_row_deletable_offtopic(row or {}) else "unjudged"
+    except Exception:  # noqa: BLE001 — fail-open: a judge/import error never flips a row off-topic
+        return "unjudged"
 
 
 def _load_bank(path: Path) -> dict:
@@ -240,7 +261,12 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     # Rebuild the digest ONCE (deterministic, identical to _call_outline's own build) to derive the
     # basket corroboration/member maps used by the orphan check + the coverage cross-read. PUSH A:
     # same_work_groups threaded so basket corroboration is WORK-level (matches what the model saw).
-    menu = build_outline_digest(evidence, clusters, same_work_groups=same_work_groups)
+    # item 4a: prioritize_tier1 matches the live _call_outline build (T1 singletons lead). Sorting is
+    # display-only, so the basket/singleton MAPS derived below are unchanged — the flag only keeps the
+    # cross-read faithful to what the planner actually read.
+    menu = build_outline_digest(
+        evidence, clusters, same_work_groups=same_work_groups, prioritize_tier1=True,
+    )
     basket_members = {bid: list(members) for bid, members in menu.basket_member_ev_ids.items()}
     basket_corroboration = dict(menu.basket_work_corroboration)
 
@@ -265,7 +291,12 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     # the 0.90 PUSH-A bar). Deterministic, DISCLOSED — the folded same-work aliases are recorded in
     # the cp4 audit (`plan_work_folds`) and the aliases stay in the pool/bibliography (§-1.3
     # consolidate, never a silent drop). Fixes the metric honestly instead of excluding it.
-    alias_of = _build_alias_map(same_work_groups)
+    # item 2: pass the pool so the alias map ALSO folds TITLE-identical works the cp3 URL/DOI groups
+    # missed (>=12 such groups measured on cp4 — e.g. eloundou "GPTs are GPTs" + its GovAI mirror).
+    # This folds them out of the per-section anchors below AND lifts the distinct-work fraction
+    # honestly (consolidate the same-work anchors; never hide the metric). §-1.3: folded + disclosed
+    # in plan_work_folds, the aliases stay in the pool/bibliography — never a silent drop.
+    alias_of = _build_alias_map(same_work_groups, evidence)
     plan_work_folds: list[dict] = []
     folded_alias_ev_ids: set[str] = set()
     for _p in plans:
@@ -317,11 +348,12 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
             "tier": str(row_by_id[e].get("tier", "") or ""),
             "title": str(row_by_id[e].get("title", "") or "")[:90],
             "disposition": "reassign_candidate",
-            # item 8: no lexical/tier off-topic guess here — the compose-stage router must run the
-            # fail-open semantic topic judge before residual routing (§-1.3.1). Until that verdict
-            # exists this candidate is UNJUDGED (fail-open => KEEP); a confirmed off-topic verdict
-            # populated here lets the router skip it (disclosed deletion).
-            "topic_verdict": "unjudged",
+            # item 3b: the per-candidate topic verdict, read from the row's SEMANTIC topic-judge
+            # stamp via the fail-open predicate (§-1.3.1). "off_subject" ONLY on an affirmative
+            # OFF_SUBJECT stamp (positive relevance vetoes); any uncertainty/missing => "unjudged"
+            # (fail-open => KEEP). The compose router consumes the SAME predicate to DELETE only
+            # confirmed off-topic candidates before residual routing (disclosed).
+            "topic_verdict": _row_topic_verdict(row_by_id[e]),
         }
         for e in unassigned_singletons
         if str(row_by_id[e].get("tier", "") or "").upper() in _HIGH_TIERS
@@ -336,12 +368,20 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         "title_conformed": list(getattr(parse_result, "title_conformed", []) or []),
         "orphan_baskets_after_plan": list(final_orphans),
         "orphan_reassign_candidates": [
-            # item 8: carry a per-candidate topic verdict slot. "unjudged" (fail-open => KEEP) until
-            # the compose-stage semantic topic judge runs; a confirmed off-topic verdict here lets
-            # the router DELETE it before residual routing (§-1.3.1, disclosed) instead of dumping
-            # zero-overlap off-topic junk into the keep-all section.
+            # item 3b: per-candidate topic verdict, read from the members' topic-judge stamps via the
+            # fail-open predicate. An orphan basket is "off_subject" ONLY when EVERY member is
+            # confirmed OFF_SUBJECT (all-members rule => the router deletes it before residual
+            # routing, §-1.3.1 disclosed); if ANY member is not confirmed off-topic => "unjudged"
+            # (fail-open => KEEP + route). Empty-members => "unjudged".
             {"basket_id": bid, "members": basket_members.get(bid, []),
-             "disposition": "reassign_candidate", "topic_verdict": "unjudged"}
+             "disposition": "reassign_candidate",
+             "topic_verdict": (
+                 "off_subject"
+                 if (basket_members.get(bid)
+                     and all(_row_topic_verdict(row_by_id.get(m, {})) == "off_subject"
+                             for m in basket_members.get(bid, [])))
+                 else "unjudged"
+             )}
             for bid in final_orphans
         ],
         "unassigned_singletons_count": len(unassigned_singletons),
@@ -349,16 +389,21 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         # item 14: same-work anchor folds per section (canonical kept, aliases disclosed) — §-1.3
         # consolidate; the folded aliases remain in the pool/bibliography, never dropped.
         "plan_work_folds": plan_work_folds,
-        "note": ("orphan baskets AND unassigned singletons are routed to section plans at COMPOSE "
-                 "via PG_ROUTE_ALL_BASKETS (verified_compose.py route_orphan_baskets_to_section_plans, "
-                 "default-OFF). Item 8 (§-1.3.1): before residual routing the router runs the "
-                 "fail-open semantic topic judge (or consumes the per-candidate `topic_verdict` "
-                 "above) and DELETES only judge-CONFIRMED off-topic baskets (disclosed) — uncertainty "
-                 "=> KEEP; it never routes zero-overlap off-topic junk into the keep-all residual "
-                 "section. This cp4 audit is DISCLOSURE ONLY — zero plan mutation here. Every pool "
-                 "member is accounted for: assigned to a section, same-work-folded (plan_work_folds), "
-                 "orphan-basket-disclosed, or unassigned-singleton-disclosed (§-1.3 consolidate — "
-                 "none silently dropped)."),
+        "note": ("orphan baskets AND unassigned high-tier singletons are routed to section plans at "
+                 "COMPOSE via PG_ROUTE_ALL_BASKETS (verified_compose.py "
+                 "route_orphan_baskets_to_section_plans, default-OFF). Item 3b/3c (§-1.3.1): the "
+                 "compose call site computes the JUDGE-CONFIRMED off-topic ev_id set from the pool "
+                 "via the SAME fail-open predicate that stamps `topic_verdict` above "
+                 "(is_row_deletable_offtopic — affirmative OFF_SUBJECT only, positive relevance "
+                 "vetoes) and hands it to the router with the unassigned high-tier singleton "
+                 "candidates; the router's BASKET leg routes each orphan basket and its SINGLETON "
+                 "leg routes each candidate by the same title+focus overlap rule (keep-all residual "
+                 "otherwise), DELETING only judge-CONFIRMED off-topic items before routing "
+                 "(disclosed) — uncertainty => KEEP, so no zero-overlap off-topic junk lands in the "
+                 "keep-all residual section. This cp4 audit is DISCLOSURE ONLY — zero plan mutation "
+                 "here. Every pool member is accounted for: assigned to a section, same-work-folded "
+                 "(plan_work_folds), orphan-basket-disclosed, or unassigned-singleton-disclosed "
+                 "(§-1.3 consolidate — none silently dropped)."),
     }
     print("\n=== (b') FULL POOL DISCLOSURE (cp4 audit-level honesty) ===")
     print(f"[b'] assigned_ev_ids={len(assigned_ev_ids)} unassigned_singletons={len(unassigned_singletons)} "

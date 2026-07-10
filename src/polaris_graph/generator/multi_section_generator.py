@@ -80,6 +80,7 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
     repair_untokened_sentence,
     # I-deepfix-001 F1 (#1344): route EVERY consolidated basket to a section so no verified
     # basket is stranded with no home (~600 stranded baskets in drb_72). Default-OFF.
+    route_all_baskets_enabled,
     route_orphan_baskets_to_section_plans,
     split_into_sentences,
 )
@@ -1428,6 +1429,8 @@ A top-tier Deep Research report cites pivotal primary trials by their NEJM/Lance
 
 A Lilly-authored review or guidance article classified T1 is NOT equivalent evidence authority to an NEJM/Lancet SURPASS/SURMOUNT RCT paper. When in doubt, prefer the RCT trial paper whose title names the phase-3 trial (SURPASS-1/2/3/4/5, SURMOUNT-1/2/3, SELECT, LEADER, SUSTAIN, REWIND, PIONEER, STEP).
 
+Consider EVERY [T1] row for anchoring: do NOT skip a foundational study because it is not recent. A pivotal primary trial in the corpus (some are flagged "[seminal T1 — consider for anchoring]") must be assigned to the section it grounds — expert readers expect the field's landmark trials cited, not only the newest sources.
+
 OUTPUT: return ONLY the JSON object. No preamble, no sign-off, no markdown fence."""
 
 
@@ -1461,6 +1464,7 @@ Each evidence row is tagged with a tier marker [T1] through [T7]. You MUST prior
 - [T5]-[T7] = trade press, press releases, blogs, abstracts, social posts. AVOID for any factual claim when T1-T3 evidence on the same topic is available in the corpus.
 
 A top-tier Deep Research report cites the PRIMARY source (the original study, dataset, or official document) directly, NOT the press release or secondary summary reporting it. If you see both a primary source AND a derivative covering the same finding, assign the primary source to the relevant section and exclude the derivative.
+- Consider EVERY [T1] row for anchoring: do NOT skip a foundational work because it is not recent. A seminal primary study in the corpus (some are flagged "[seminal T1 — consider for anchoring]") must be assigned to the section it grounds — expert readers expect the field's foundational works cited, not only the newest sources.
 
 OUTPUT: return ONLY the JSON object. No preamble, no sign-off, no markdown fence."""
 
@@ -1496,6 +1500,7 @@ Each evidence row is tagged with a tier marker [T1] through [T7]. Prioritize by 
 - [T5]-[T7] = trade press, press releases, blogs, abstracts, social posts. Lower weight; prefer T1-T3 on the same facet when available, but a lower-tier source that carries a real claim STILL earns a place at its honest weight.
 
 A top-tier Deep Research report cites the PRIMARY source (the original study, dataset, or official document) directly, NOT the press release or secondary summary reporting it.
+- Consider EVERY [T1] row for anchoring: do NOT skip a foundational work because it is not recent. A seminal primary study in the corpus (some are flagged "[seminal T1 — consider for anchoring]") must be assigned to the facet it grounds — expert readers expect the field's foundational works cited, not only the newest sources.
 
 OUTPUT: return ONLY the JSON object. No preamble, no sign-off, no markdown fence."""
 
@@ -1636,9 +1641,8 @@ def _parse_outline(
             else:
                 logger.info("[multi_section] outline dropped off-list title %r", title)
                 continue
-        if title_lower in seen_titles:
-            reason_codes.append(f"duplicate_title:{title_lower}")
-            continue
+        # Parse this entry's ev_ids FIRST (dedup + strip-unknown per item 5a) so a DUPLICATE title
+        # (item 5b) can MERGE its valid ev_ids into the first occurrence instead of losing them.
         focus = str(entry.get("focus", "")).strip()
         ev_ids_raw = entry.get("ev_ids", [])
         if not isinstance(ev_ids_raw, list):
@@ -1646,12 +1650,32 @@ def _parse_outline(
         ev_ids = [str(e).strip() for e in ev_ids_raw if isinstance(e, (str, int))]
         # Deduplicate within a section BEFORE counting.
         ev_ids = list(dict.fromkeys(ev_ids))
-        # Reject unknown evidence IDs if pool is supplied.
+        # Item 5a: reject-and-STRIP unknown evidence IDs (was: `continue`, discarding the WHOLE
+        # section incl. its VALID ids — the conform then resurrected a required title EMPTY/
+        # undersupplied). One hallucinated id must not hollow a section: keep the valid remainder +
+        # the disclosed reason code; the <2 floor below still governs the remainder (a required title
+        # with 0 valid ids stays undersupplied-disclosed, a non-required one is dropped as before).
         if allowed_ev_ids is not None:
             unknown = [e for e in ev_ids if e not in allowed_ev_ids]
             if unknown:
                 reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
-                continue
+                ev_ids = [e for e in ev_ids if e in allowed_ev_ids]
+        # Item 5b: a DUPLICATE title (a model splitting ONE required heading across two JSON blocks)
+        # MERGES its valid ev_ids into the FIRST occurrence (dedup preserved) instead of silently
+        # losing the second block's half; keep the reason code. If the merge lifts an undersupplied
+        # section to the >=2 floor, clear the flag. Was: `continue` (the second block's ev_ids died).
+        if title_lower in seen_titles:
+            reason_codes.append(f"duplicate_title:{title_lower}")
+            target = next((p for p in plans if p.title.lower() == title_lower), None)
+            if target is not None:
+                _have = set(target.ev_ids)
+                _added = [e for e in ev_ids if e not in _have]
+                if _added:
+                    target.ev_ids.extend(_added)
+                    all_ev_ids.extend(_added)
+                    if getattr(target, "undersupplied", False) and len(target.ev_ids) >= 2:
+                        target.undersupplied = False
+            continue
         # PUSH 1(d): a required title is accepted with ANY ev_id count (including 0) and tagged
         # ``undersupplied`` when below the >=2 floor — the section is DISCLOSED, never faked. A
         # non-required title keeps the exact legacy <2 drop (byte-identical when required is empty).
@@ -2929,8 +2953,12 @@ async def _call_outline(
         try:
             from src.polaris_graph.generator.outline_digest import build_outline_digest
 
+            # Item 4a: prioritize_tier1=True so seminal T1 singletons (Acemoglu-Restrepo, Autor) LEAD
+            # the singleton block + carry a seminal marker — they must not sink in a 58k-char menu and
+            # get skipped by the planner. Display-only reorder (§-1.3 weight-guidance, never a cap).
             _digest_menu = build_outline_digest(
-                evidence, finding_clusters, same_work_groups=same_work_groups
+                evidence, finding_clusters, same_work_groups=same_work_groups,
+                prioritize_tier1=True,
             )
             summary_text = _digest_menu.render()
             prompt = (
@@ -10172,8 +10200,50 @@ async def generate_multi_section_report(
     # placement — drops no source, caps nothing, targets no number; every routed basket's rendered
     # sentence re-passes the UNCHANGED strict_verify per clause below (faithfulness untouched).
     if credibility_analysis is not None:
+        # Item 3b/3c: when coverage routing is armed (PG_ROUTE_ALL_BASKETS), also hand the router
+        # (a) the JUDGE-CONFIRMED off-topic ev_ids so an all-off-topic basket/singleton is DELETED
+        # before routing (§-1.3.1 FAIL-OPEN — only an affirmative OFF_SUBJECT stamp deletes; a
+        # positive-relevance verdict vetoes; any uncertainty => KEEP), reusing the SAME predicate the
+        # run-level junk gate uses so gate and router can never disagree; and (b) the UNASSIGNED
+        # high-tier pool SINGLETONS (rows reachable by NO section yet, incl. seminal T1 works
+        # Acemoglu-Restrepo / Autor) so they get a compose-time home (item 4 backstop). Both are
+        # skipped when the flag is OFF (the router early-returns unchanged => byte-identical).
+        _off_topic_ev_ids: set[str] = set()
+        _singleton_candidates: list[dict[str, str]] = []
+        if route_all_baskets_enabled():
+            from src.polaris_graph.generator.junk_deletion_gate import (  # noqa: PLC0415
+                is_row_deletable_offtopic,
+            )
+            _claimed_ev_ids: set[str] = set()
+            for _p in plans:
+                for _e in (getattr(_p, "ev_ids", None) or []):
+                    _claimed_ev_ids.add(str(_e))
+            for _row in (evidence_pool or {}).values():
+                if not isinstance(_row, dict):
+                    continue
+                _eid = str(_row.get("evidence_id", "") or "")
+                if not _eid:
+                    continue
+                # (a) fail-open confirmed-off-topic set (affirmative OFF_SUBJECT only; positive
+                #     relevance vetoes; any uncertainty/error => row NOT added => KEEP).
+                if is_row_deletable_offtopic(_row):
+                    _off_topic_ev_ids.add(_eid)
+                    continue
+                # (b) unassigned high-tier singleton candidate (not reachable by any section yet).
+                #     The router de-dups against basket-routed members, so a basket member listed
+                #     here is safely skipped there — never double-routed.
+                if _eid in _claimed_ev_ids:
+                    continue
+                if str(_row.get("tier", "") or "").strip().upper() in ("T1", "T2", "T3"):
+                    _text = (
+                        str(_row.get("title", "") or "") + " "
+                        + str(_row.get("statement", "") or "")
+                    ).strip()
+                    _singleton_candidates.append({"evidence_id": _eid, "text": _text})
         plans = route_orphan_baskets_to_section_plans(
             plans, credibility_analysis, section_plan_cls=SectionPlan,
+            off_topic_ev_ids=(_off_topic_ev_ids or None),
+            singleton_candidates=(_singleton_candidates or None),
         )
 
     # Stage 2: per-section generation (bounded parallelism)

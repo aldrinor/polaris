@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
@@ -57,6 +58,11 @@ PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT = 200000
 _CLAIM_MAX_CHARS = 200          # basket representative claim, per Design 5 ORCH-1 (~200c)
 _TITLE_MAX_CHARS = 120          # singleton title, matches the small-pool menu (:2616)
 _STATEMENT_MAX_CHARS = 160      # singleton statement, matches the small-pool menu (:2617)
+# Item 2 (same-work TITLE fallback): the MINIMUM normalized-title length that may fold two rows as
+# one work. Long enough that a distinctive paper title ("GPTs are GPTs..." -> ~40 alnum chars) folds
+# while a short/generic heading (two DIFFERENT OECD reg-policy docs) does NOT false-merge (§-1.3: a
+# fold keeps ALL rows; a false fold would misstate corroboration, so the guard stays conservative).
+_TITLE_FALLBACK_MIN_CHARS = 25
 
 
 def _env_int(name: str, default: int) -> int:
@@ -153,17 +159,42 @@ def _ev_id_at(evidence: Sequence[Mapping[str, Any]], index: int) -> str:
     return str(evidence[index].get("evidence_id", "") or "")
 
 
+def _normalized_title_key(title: str) -> str | None:
+    """Item 2 (same-work TITLE fallback): a work_key derived from a source TITLE, for folding
+    TITLE-IDENTICAL works the cp3 URL/DOI ``same_work_groups`` missed (the same paper posted at two
+    URLs — an arXiv PDF + a GovAI mirror of "GPTs are GPTs", or Noy_Zhang_1.pdf + "Experimental
+    Evidence on the Productivity Effects..."). Lowercase, keep only alphanumerics. Returns
+    ``title:<norm>`` ONLY when the normalized title is >= ``_TITLE_FALLBACK_MIN_CHARS`` — a
+    short/generic title (two DIFFERENT OECD reg-policy docs) returns ``None`` and is NEVER folded,
+    so the fallback cannot false-merge distinct works. Never a drop (§-1.3): a fold keeps ALL rows,
+    it only reports them as ONE work for corroboration."""
+    norm = re.sub(r"[^a-z0-9]", "", (title or "").lower())
+    if len(norm) < _TITLE_FALLBACK_MIN_CHARS:
+        return None
+    return f"title:{norm}"
+
+
 def _build_alias_map(
     same_work_groups: Sequence[Mapping[str, Any]] | None,
+    evidence: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, str]:
-    """ev_id -> work_key from the cp3 ``same_work_groups`` payload (PUSH A).
+    """ev_id -> work_key from the cp3 ``same_work_groups`` payload (PUSH A) + the item-2 TITLE fold.
 
     Each group carries ``member_evidence_ids`` (all corroborating rows of ONE underlying work)
     and a stable ``same_work_id`` string (``url:`` / ``doi:`` / ``title:`` key). The work_key is
     that ``same_work_id`` (falling back to ``canon:<canonical_index>`` only if the id is blank).
     ``setdefault`` keeps the first group to claim an ev_id, so the map is deterministic regardless
-    of group order. Returns ``{}`` when no groups are supplied (=> every row is its own work =>
-    byte-identical to the pre-PUSH-A path)."""
+    of group order. Returns ``{}`` when no groups are supplied AND no ``evidence`` is passed (=>
+    every row is its own work => byte-identical to the pre-PUSH-A path).
+
+    Item 2 (normalized-TITLE fallback): when ``evidence`` is supplied, rows the cp3 groups did NOT
+    unify are folded by ``_normalized_title_key`` whenever >= 2 rows share ONE distinctive (>=25
+    alnum-char) title — the same underlying work the URL/DOI ``same_work_id`` missed (measured on
+    cp4: >=12 title-identical work groups the 51 URL/DOI groups left split, e.g. eloundou "GPTs are
+    GPTs" + its GovAI mirror). Deterministic (evidence order = canonical). A title group that
+    OVERLAPS an existing cp3 group ADOPTS that group's key (so the two are UNIFIED into one work,
+    not left as two); a title group the cp3 groups never touched takes the ``title:`` key itself.
+    ``evidence=None`` => no title fold (byte-identical to the cp3-only map)."""
     alias_of: dict[str, str] = {}
     for group in (same_work_groups or []):
         if not isinstance(group, Mapping):
@@ -177,6 +208,29 @@ def _build_alias_map(
             continue
         for ev_id in members:
             alias_of.setdefault(ev_id, work_key)
+
+    # Item 2: normalized-TITLE fallback fold for TITLE-identical works the cp3 groups missed.
+    if evidence:
+        title_groups: dict[str, list[str]] = {}
+        for row in evidence:
+            if not isinstance(row, Mapping):
+                continue
+            ev_id = str(row.get("evidence_id", "") or "")
+            if not ev_id:
+                continue
+            tkey = _normalized_title_key(str(row.get("title", "") or ""))
+            if tkey is None:
+                continue
+            title_groups.setdefault(tkey, []).append(ev_id)
+        for tkey, members in title_groups.items():
+            if len(members) < 2:
+                continue  # a unique title is its own work — never fold a lone title
+            # Adopt any existing cp3 work_key a member already carries (first in evidence order) so
+            # a cp3 group and a title-only group of the SAME work UNIFY onto one key; else use the
+            # distinctive title key itself. Then key EVERY member of the title group to it.
+            canonical_key = next((alias_of[e] for e in members if e in alias_of), tkey)
+            for ev_id in members:
+                alias_of[ev_id] = canonical_key
     return alias_of
 
 
@@ -210,16 +264,20 @@ def _basket_line(
 
 def _singleton_line(
     ev_id: str, tier: str, title: str, statement: str, alias_ev_ids: list[str],
-    *, title_only: bool,
+    *, title_only: bool, seminal: bool = False,
 ) -> str:
     # PUSH A: same-work copies collapsed onto this line are disclosed inline after the tier;
     # empty ``alias_ev_ids`` (the no-same_work_groups path) => no tag => byte-identical.
     tag = f" (+{len(alias_ev_ids)} same-work: {','.join(alias_ev_ids)})" if alias_ev_ids else ""
+    # Item 4a: an explicit seminal marker on a T1 singleton (the tier tag alone reads as one more
+    # row in an 58k-char menu). Placed AFTER the ev_id token so ``covered_ev_ids`` still parses the
+    # head. ``seminal=False`` (default) => "" => byte-identical.
+    seminal_tag = " [seminal T1 — consider for anchoring]" if seminal else ""
     if title and statement and not title_only:
-        return f"{ev_id} [{tier}]{tag} | title: {title} | {statement}"
+        return f"{ev_id} [{tier}]{seminal_tag}{tag} | title: {title} | {statement}"
     if title:
-        return f"{ev_id} [{tier}]{tag} | title: {title}"
-    return f"{ev_id} [{tier}]{tag}: {statement}"
+        return f"{ev_id} [{tier}]{seminal_tag}{tag} | title: {title}"
+    return f"{ev_id} [{tier}]{seminal_tag}{tag}: {statement}"
 
 
 def _is_title_like(statement: str, title: str) -> bool:
@@ -249,6 +307,7 @@ def build_outline_digest(
     max_chars: int | None = None,
     sanitizer: Callable[[str], tuple[str, int]] | None = None,
     same_work_groups: Sequence[Mapping[str, Any]] | None = None,
+    prioritize_tier1: bool = False,
 ) -> OutlineDigestMenu:
     """Build the basket-digest menu from the evidence pool + finding clusters.
 
@@ -279,7 +338,9 @@ def build_outline_digest(
     # ``same_work_groups=None`` stays byte-identical (an explicit ``[]`` opts into the new render
     # with an empty alias map => work count == row count, zero singleton folds).
     work_aware = same_work_groups is not None
-    alias_of = _build_alias_map(same_work_groups)
+    # Item 2: feed the pool so ``_build_alias_map`` also folds TITLE-identical works the cp3 groups
+    # missed — but ONLY on the work-aware path, so ``same_work_groups=None`` stays byte-identical.
+    alias_of = _build_alias_map(same_work_groups, evidence if work_aware else None)
 
     def _work_key(ev_id: str) -> str:
         return alias_of.get(ev_id, ev_id)
@@ -398,6 +459,19 @@ def build_outline_digest(
     # drop empty alias entries so the map holds only genuine folds (keeps covered_ev_ids clean)
     singleton_alias_ev_ids = {k: v for k, v in singleton_alias_ev_ids.items() if v}
 
+    # Item 4a (seminal-T1 survival): when armed, stable-sort the singleton block so T1 rows LEAD.
+    # A foundational T1 work on no multi-member basket (Acemoglu-Restrepo automation-tasks, Autor
+    # why-still-jobs) must not sink to the bottom of a 58k-char menu and lose the planner's attention
+    # — a GenAI-labor report that never anchors Acemoglu/Autor loses to ChatGPT/Gemini on expert eyes.
+    # Python's sort is STABLE, so pool order is preserved WITHIN each tier band; this reorders the
+    # DISPLAY only (the fold + ev_id_to_basket map are already finalised above), so the 100%-of-pool
+    # invariant below is untouched. §-1.3: weight-GUIDANCE (surface order), never a cap/drop.
+    # ``prioritize_tier1=False`` (default) => no reorder => byte-identical.
+    if prioritize_tier1:
+        singleton_specs.sort(
+            key=lambda s: 0 if str(s.get("tier", "")).strip().upper() == "T1" else 1
+        )
+
     def _render(*, title_only: bool, elide_members: bool) -> tuple[list[str], list[str], int]:
         b_lines = [
             _basket_line(
@@ -412,6 +486,7 @@ def build_outline_digest(
             _singleton_line(
                 s["ev_id"], s["tier"], s["title"], s["statement"], s["alias_ev_ids"],
                 title_only=title_only,
+                seminal=(prioritize_tier1 and str(s.get("tier", "")).strip().upper() == "T1"),
             )
             for s in singleton_specs
         ]
