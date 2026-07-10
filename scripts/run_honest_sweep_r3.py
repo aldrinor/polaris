@@ -15391,6 +15391,47 @@ async def run_one_query(
         except Exception as _a12_pg_exc:  # noqa: BLE001 — checkpoint is best-effort
             _log(f"[checkpoint]  post-generation snapshot skipped (fail-open): {_a12_pg_exc}")
 
+        # S3 CONSOLIDATE checkpoint (Master Execution Plan v2 §4 S3): persist cp3_basket_snapshot.json
+        # at the post-consolidation seam — the consolidation baskets (ALL members kept, corroboration
+        # counts, credibility WEIGHTS) + the contradiction pairs, DATA ONLY. Written right after the
+        # multi-section generation (where credibility_pass produced multi.credibility_analysis.baskets)
+        # so a --resume can land at cp3 and re-run only S4-S7 from the reloaded DATA. Stores NO
+        # per-member span_verdict / basket_verdict / release verdict (§-1.3 ABSOLUTE — a resume
+        # re-runs the per-member verify + every gate). cp3 pins cp2 (corpus_snapshot.json) in its
+        # upstream hash-chain. Best-effort + kill-switched (PG_CP3_BASKET_SNAPSHOT): a write failure
+        # never aborts the paid run, and a checkpoint FILE changes no report byte.
+        try:
+            from datetime import datetime as _cp3_datetime, timezone as _cp3_timezone
+            from src.polaris_graph.generator.cp3_basket_snapshot import (
+                cp3_snapshot_enabled as _cp3_enabled,
+                file_sha256 as _cp3_file_sha256,
+                save_cp3_basket_snapshot as _save_cp3_basket_snapshot,
+            )
+            _cp3_analysis = getattr(multi, "credibility_analysis", None)
+            if _cp3_enabled() and _cp3_analysis is not None:
+                _cp3_upstream = run_dir / "corpus_snapshot.json"
+                _cp3_path = _save_cp3_basket_snapshot(
+                    run_dir,
+                    run_id=run_id,
+                    question=q.get("question", ""),
+                    slug=q.get("slug", ""),
+                    domain=q.get("domain", ""),
+                    credibility_analysis=_cp3_analysis,
+                    upstream_name="corpus_snapshot.json",
+                    upstream_sha256=(
+                        _cp3_file_sha256(_cp3_upstream) if _cp3_upstream.is_file() else ""
+                    ),
+                    created_utc=_cp3_datetime.now(_cp3_timezone.utc).isoformat(),
+                )
+                if _cp3_path is not None:
+                    _cp3_baskets = getattr(_cp3_analysis, "baskets", None) or []
+                    _log(
+                        f"[checkpoint]  cp3 basket snapshot saved: {_cp3_path.name} "
+                        f"(baskets={len(_cp3_baskets)}; DATA ONLY; --resume re-runs all gates)"
+                    )
+        except Exception as _cp3_exc:  # noqa: BLE001 — checkpoint is best-effort
+            _log(f"[checkpoint]  cp3 basket snapshot skipped (fail-open): {_cp3_exc}")
+
         # I-cd-706: per-section SSE events (ALL sections incl. dropped, so the
         # staged-progress UI shows what was proposed + dropped). Emit the
         # verifier verdict then the generator section-complete for each.
