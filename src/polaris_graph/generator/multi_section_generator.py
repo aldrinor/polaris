@@ -2640,6 +2640,10 @@ async def _call_outline(
     finding_clusters: Any = None,
     deliverable_spec: Any = None,
     scope_spec: Any = None,
+    # PUSH A: OPTIONAL cp3 payload.same_work_groups (the {member_evidence_ids, canonical_index,
+    # same_work_id} shape). None (every production caller today) => byte-identical outline;
+    # the S4 lab passes the real cp3 groups so the planner reads WORK-level corroboration.
+    same_work_groups: Any = None,
 ) -> tuple[OutlineParseResult, bool, int, int]:
     """Call the planner. Returns (parse_result, retry_attempted, in_tok, out_tok).
 
@@ -2786,7 +2790,9 @@ async def _call_outline(
         try:
             from src.polaris_graph.generator.outline_digest import build_outline_digest
 
-            _digest_menu = build_outline_digest(evidence, finding_clusters)
+            _digest_menu = build_outline_digest(
+                evidence, finding_clusters, same_work_groups=same_work_groups
+            )
             summary_text = _digest_menu.render()
             prompt = (
                 f"Research question: {research_question}\n\n"

@@ -131,6 +131,63 @@ def test_sanitizer_is_applied() -> None:
     assert "[STRIP]" in menu.singleton_lines[0]
 
 
+# ── PUSH A: same-work-aware digest (work-level corroboration + singleton fold) ──────────────
+def _same_work_evidence() -> list[dict]:
+    """Six rows: a 3-member basket that is really 2 works (ev1==ev2), plus three singletons of
+    which two (ev4==ev5) are the same work and ev6 is distinct."""
+    return [
+        {"evidence_id": "ev1", "tier": "T1", "title": "A", "statement": "claim one"},
+        {"evidence_id": "ev2", "tier": "T1", "title": "A2", "statement": "claim two"},
+        {"evidence_id": "ev3", "tier": "T2", "title": "B", "statement": "claim three"},
+        {"evidence_id": "ev4", "tier": "T1", "title": "C", "statement": "s4"},
+        {"evidence_id": "ev5", "tier": "T1", "title": "C2", "statement": "s5"},
+        {"evidence_id": "ev6", "tier": "T3", "title": "D", "statement": "s6"},
+    ]
+
+
+def _same_work_cluster() -> list[SimpleNamespace]:
+    return [SimpleNamespace(representative_index=0, member_indices=[0, 1, 2],
+                            corroboration_count=3, member_hosts=[])]
+
+
+_SAME_WORK_GROUPS = [
+    {"member_evidence_ids": ["ev1", "ev2"], "canonical_index": 0, "same_work_id": "url:w1"},
+    {"member_evidence_ids": ["ev4", "ev5"], "canonical_index": 3, "same_work_id": "url:w2"},
+]
+
+
+def test_same_work_none_is_byte_identical() -> None:
+    """same_work_groups=None (default) must render byte-identical to omitting the argument."""
+    ev, cl = _same_work_evidence(), _same_work_cluster()
+    a = build_outline_digest(ev, cl, sanitizer=_IDENTITY)
+    b = build_outline_digest(ev, cl, sanitizer=_IDENTITY, same_work_groups=None)
+    assert a.render() == b.render()
+    assert a.basket_lines[0].startswith("B00 [x3 sources:")  # legacy row-count head
+    assert len(a.singleton_lines) == 3                        # no fold
+    assert a.singleton_alias_ev_ids == {}
+
+
+def test_same_work_basket_renders_work_level_keeping_all_members() -> None:
+    ev, cl = _same_work_evidence(), _same_work_cluster()
+    menu = build_outline_digest(ev, cl, sanitizer=_IDENTITY, same_work_groups=_SAME_WORK_GROUPS)
+    line = menu.basket_lines[0]
+    assert line.startswith("B00 [x2 works (3 rows):")   # 3 rows corroborate 2 distinct works
+    assert "members: ev1,ev2,ev3" in line               # every member id still disclosed
+    assert menu.basket_work_corroboration["B00"] == 2
+
+
+def test_same_work_singletons_collapse_and_stay_covered() -> None:
+    ev, cl = _same_work_evidence(), _same_work_cluster()
+    menu = build_outline_digest(ev, cl, sanitizer=_IDENTITY, same_work_groups=_SAME_WORK_GROUPS)
+    # ev4 + ev5 are one work => ONE singleton line (ev4 canonical, ev5 folded); ev6 stands alone.
+    assert len(menu.singleton_lines) == 2
+    assert menu.singleton_alias_ev_ids == {"ev4": ["ev5"]}
+    ev4_line = [ln for ln in menu.singleton_lines if ln.startswith("ev4 ")][0]
+    assert "(+1 same-work: ev5)" in ev4_line
+    # every alias is still accounted for — 100%-of-pool invariant holds
+    assert menu.covered_ev_ids() == {"ev1", "ev2", "ev3", "ev4", "ev5", "ev6"}
+
+
 # ── ORCH-2 requirements block ───────────────────────────────────────────────
 def test_requirements_block_empty_is_byte_identical_noappend() -> None:
     assert build_requirements_block(None, None) == ""

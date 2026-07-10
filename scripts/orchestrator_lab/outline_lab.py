@@ -21,6 +21,8 @@ reviser leg) still belongs to the compose stage and this offline-first harness r
 
 Bank file shape (JSON): {evidence:[{evidence_id,title,statement,tier},...],
 clusters:[{representative_index,member_indices,corroboration_count,member_hosts},...],
+same_work_groups:[{member_evidence_ids,canonical_index,same_work_id},...] (PUSH A, OPTIONAL — the
+exact cp3 payload shape; absent => the digest is byte-identical to the pre-PUSH-A menu),
 plans:[{title,focus,ev_ids,basket_ids}], section_results:{title:{...}},
 reviser_output:{ops:[...],gap_queries:[...],revision_needed:bool}, deliverable:{...}, scope:{...}}.
 """
@@ -41,6 +43,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from src.polaris_graph.generator.outline_digest import (  # noqa: E402
+    _build_alias_map,
     build_outline_digest,
     build_requirements_block,
 )
@@ -51,6 +54,10 @@ from src.polaris_graph.generator.outline_revise import (  # noqa: E402
     parse_revision_ops,
     plan_signature,
 )
+
+# PUSH B: the tiers a still-unassigned singleton is disclosed BY NAME for (a T1-T3 credible source
+# on no section plan is a reassign candidate the compose-stage router should pick up).
+_HIGH_TIERS = {"T1", "T2", "T3"}
 
 
 def _load_bank(path: Path) -> dict:
@@ -64,11 +71,16 @@ def _clusters(bank: dict) -> list[SimpleNamespace]:
 
 def _mode_digest(bank: dict) -> int:
     evidence = bank.get("evidence", [])
-    menu = build_outline_digest(evidence, _clusters(bank))
+    # PUSH A: feed the cp3 same_work_groups so the menu reports WORK-level corroboration and folds
+    # same-work singleton copies. Absent in the bank => None => byte-identical menu.
+    menu = build_outline_digest(
+        evidence, _clusters(bank), same_work_groups=bank.get("same_work_groups")
+    )
     print("=== BASKET-DIGEST MENU ===")
     print(menu.render())
     print(f"\n[menu] total_chars={menu.total_chars} degraded={menu.degraded} "
-          f"baskets={len(menu.basket_lines)} singletons={len(menu.singleton_lines)}")
+          f"baskets={len(menu.basket_lines)} singletons={len(menu.singleton_lines)} "
+          f"singleton_folds={sum(len(v) for v in menu.singleton_alias_ev_ids.values())}")
 
     block = build_requirements_block(bank.get("deliverable"), bank.get("scope"))
     print("\n=== ORCH-2 REQUIREMENTS BLOCK ===")
@@ -76,9 +88,21 @@ def _mode_digest(bank: dict) -> int:
 
     print("\n=== COVERAGE TABLE (100%-of-pool honesty) ===")
     covered = menu.covered_ev_ids()
+    # PUSH A: map each folded alias back to the canonical singleton line it joined, so the table
+    # still lists 100% of the pool (folded aliases are covered, never dropped).
+    alias_to_canonical = {
+        a: canonical
+        for canonical, aliases in menu.singleton_alias_ev_ids.items()
+        for a in aliases
+    }
     for row in evidence:
         ev_id = str(row.get("evidence_id", ""))
-        where = menu.ev_id_to_basket.get(ev_id, "singleton")
+        if ev_id in menu.ev_id_to_basket:
+            where = menu.ev_id_to_basket[ev_id]
+        elif ev_id in alias_to_canonical:
+            where = f"singleton(=same-work of {alias_to_canonical[ev_id]})"
+        else:
+            where = "singleton"
         print(f"  {ev_id:<10} -> {where}")
     pool = {str(r.get('evidence_id', '')) for r in evidence if r.get('evidence_id')}
     missing = pool - covered
@@ -95,7 +119,9 @@ def _mode_apply_dry(bank: dict) -> int:
     allowed = {str(e) for p in plans for e in (p.get("ev_ids") or [])}
     for p in plans:
         allowed |= {str(e) for e in (p.get("ev_ids") or [])}
-    # allow ev_ids referenced by the reviser that live in the pool but not yet on a plan
+    # allow ev_ids referenced by the reviser that live in the pool but not yet on a plan. PUSH A
+    # part (3): pool_ev_ids carries EVERY member incl. every same-work alias, so a planner/reviser
+    # reference to a folded alias is never rejected as unknown.
     allowed |= {str(e) for e in bank.get("pool_ev_ids", [])}
     titles = [str(p.get("title", "")) for p in plans]
 
@@ -152,7 +178,8 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
 
     Proves the ITER-2 acceptance on a banked cp3 bank: (a) final_plans headings == required aspects
     in exact order; (b) basket_ids non-empty where members intersect + orphan list shrinks to only
-    genuine orphans; (c) degraded=False; (d) cp4 verdict-leak guard passes on write AND load."""
+    genuine orphans; (c) degraded=False; (d) cp4 verdict-leak guard passes on write AND load; plus
+    PUSH A (e) per-section distinct-work fraction and PUSH B full unassigned-singleton disclosure."""
     # The whole point of `plan` is to exercise the basket-digest path — arm the flag loudly.
     if os.getenv("PG_OUTLINE_BASKET_DIGEST", "0").strip().lower() not in ("1", "true", "yes", "on"):
         os.environ["PG_OUTLINE_BASKET_DIGEST"] = "1"
@@ -172,22 +199,28 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     scope = bank.get("scope")
     question = str(bank.get("question", ""))
     domain = str(bank.get("domain", ""))
+    same_work_groups = bank.get("same_work_groups")  # PUSH A: cp3 payload shape (may be None)
     required = [str(t).strip() for t in ((deliverable or {}).get("required_sections", []) or [])]
 
     # Rebuild the digest ONCE (deterministic, identical to _call_outline's own build) to derive the
-    # basket corroboration/member maps used by the orphan check + the coverage cross-read.
-    menu = build_outline_digest(evidence, clusters)
+    # basket corroboration/member maps used by the orphan check + the coverage cross-read. PUSH A:
+    # same_work_groups threaded so basket corroboration is WORK-level (matches what the model saw).
+    menu = build_outline_digest(evidence, clusters, same_work_groups=same_work_groups)
     basket_members = {bid: list(members) for bid, members in menu.basket_member_ev_ids.items()}
-    basket_corroboration = {bid: len(members) for bid, members in menu.basket_member_ev_ids.items()}
+    basket_corroboration = dict(menu.basket_work_corroboration)
 
     print(f"[plan] LIVE outline call: model={model} pool={len(evidence)} "
           f"baskets={len(menu.basket_lines)} singletons={len(menu.singleton_lines)} "
+          f"singleton_folds={sum(len(v) for v in menu.singleton_alias_ev_ids.values())} "
           f"required={required}")
 
+    # PUSH A: feed the same_work_groups INTO the live outline call so the PLANNER reads work-level
+    # corroboration + folded singletons (the model's actual input, not just the cross-read rebuild).
     parse_result, retry_attempted, in_tok, out_tok = asyncio.run(_call_outline(
         question, evidence, model, 0.2, 2500,
         domain=domain, finding_clusters=clusters,
         deliverable_spec=deliverable, scope_spec=scope,
+        same_work_groups=same_work_groups,
     ))
     plans = parse_result.plans
     stats = parse_result.digest_stats
@@ -211,7 +244,29 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     print(f"[b] sections carrying basket_ids: {with_baskets}")
     print(f"[b] orphan baskets BEFORE backfill: {len(baseline_orphans)}  "
           f"AFTER backfill: {len(final_orphans)}  (shrunk by {len(baseline_orphans) - len(final_orphans)})")
-    # each surviving orphan is DISCLOSED in the revision audit as a reassign candidate
+
+    # PUSH B: full pool accounting for the cp4 audit — every pool member is assigned to a section,
+    # OR disclosed as an orphan-basket reassign candidate, OR disclosed as an unassigned singleton.
+    assigned_ev_ids = {str(e) for p in plans for e in (p.ev_ids or [])}
+    row_by_id = {str(r.get("evidence_id", "")): r for r in evidence}
+    singleton_ev_ids = [
+        str(r.get("evidence_id", "")) for r in evidence
+        if str(r.get("evidence_id", "")) and str(r.get("evidence_id", "")) not in menu.ev_id_to_basket
+    ]
+    unassigned_singletons = [e for e in singleton_ev_ids if e not in assigned_ev_ids]
+    unassigned_high_tier = [
+        {
+            "ev_id": e,
+            "tier": str(row_by_id[e].get("tier", "") or ""),
+            "title": str(row_by_id[e].get("title", "") or "")[:90],
+            "disposition": "reassign_candidate",
+        }
+        for e in unassigned_singletons
+        if str(row_by_id[e].get("tier", "") or "").upper() in _HIGH_TIERS
+    ]
+
+    # each surviving orphan basket + every unassigned high-tier singleton is DISCLOSED here as a
+    # reassign candidate — DISCLOSURE ONLY, zero plan mutation (§-1.3 consolidate, never dropped).
     revision_audit = {
         "rounds": 0,
         "orphan_baskets_after_plan": list(final_orphans),
@@ -220,15 +275,42 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
              "disposition": "reassign_candidate"}
             for bid in final_orphans
         ],
-        "note": ("orphans routed to sections by the compose-stage reviser / "
-                 "route_orphan_baskets_to_section_plans; each is disclosed here, never dropped"),
+        "unassigned_singletons_count": len(unassigned_singletons),
+        "unassigned_high_tier": unassigned_high_tier,
+        "note": ("orphan baskets AND unassigned singletons are routed to section plans at COMPOSE "
+                 "via PG_ROUTE_ALL_BASKETS (verified_compose.py:3598 "
+                 "route_orphan_baskets_to_section_plans, default-OFF); this cp4 audit is DISCLOSURE "
+                 "ONLY — zero plan mutation here. Every pool member is accounted for: assigned to a "
+                 "section, orphan-basket-disclosed, or unassigned-singleton-disclosed (§-1.3 "
+                 "consolidate — none dropped)."),
     }
+    print("\n=== (b') FULL POOL DISCLOSURE (cp4 audit-level honesty) ===")
+    print(f"[b'] assigned_ev_ids={len(assigned_ev_ids)} unassigned_singletons={len(unassigned_singletons)} "
+          f"unassigned_high_tier={len(unassigned_high_tier)}")
+    for item in unassigned_high_tier:
+        print(f"     {item['ev_id']:<10} {item['tier']:<4} {item['title']}")
 
     # (c) degraded flag from the digest telemetry
     print("\n=== (c) DIGEST TELEMETRY (digest_stats) ===")
     print(json.dumps(stats, indent=1))
     degraded_ok = (stats.get("digest_degraded") is False)
     print(f"[c] degraded == False: {degraded_ok}")
+
+    # PUSH A (e): per-section distinct-work fraction — of a section's anchor ev_ids, how many are
+    # DISTINCT works (rows sharing a same_work_id count once). Rises toward 1.0 as the planner reads
+    # the work-level digest and stops anchoring twice on the same underlying work.
+    alias_of = _build_alias_map(same_work_groups)
+    print("\n=== (e) PER-SECTION DISTINCT-WORK FRACTION (PUSH A) ===")
+    section_fracs = []
+    for p in plans:
+        ev = [str(x) for x in (p.ev_ids or [])]
+        works = {alias_of.get(e, e) for e in ev}
+        frac = (len(works) / len(ev)) if ev else 1.0
+        section_fracs.append(frac)
+        print(f"  {p.title!r}: anchors={len(ev)} distinct_works={len(works)} frac={frac:.3f}")
+    min_frac = min(section_fracs) if section_fracs else 1.0
+    frac_ok = min_frac >= 0.90
+    print(f"[e] all sections distinct-work fraction >= 0.90: {frac_ok} (min={min_frac:.3f})")
 
     # (d) cp4 write + load (verdict-leak guarded on BOTH)
     payload = build_cp4_payload(
@@ -249,7 +331,8 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     print(f"[d] wrote: {written}  reloaded_ok: {load_ok}")
 
     ok = bool(load_ok) and (order_ok in (True, None)) and degraded_ok
-    print(f"\n[plan] ACCEPTANCE (a,c,d) ok={ok}  in_tok={in_tok} out_tok={out_tok}")
+    print(f"\n[plan] ACCEPTANCE (a,c,d) ok={ok}  distinct_work_frac_ok={frac_ok}  "
+          f"in_tok={in_tok} out_tok={out_tok}")
     return 0 if ok else 1
 
 

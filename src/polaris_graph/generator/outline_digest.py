@@ -18,6 +18,15 @@ audience, tone, reference style, length ask) + explicit scope constraints into a
 the caller appends to the outline USER prompt. Empty spec => "" => byte-identical no-append.
 The spec is read via ``.get`` so it works against either Design 3's DeliverableSpec (once
 WP-1b lands) or a plain protocol dict today — build-to-interface, no fake stand-in.
+
+PUSH A (same-work-aware digest, Fable push-to-ceiling): ``build_outline_digest`` gains an
+OPTIONAL ``same_work_groups`` argument — the exact cp3 ``payload.same_work_groups`` shape
+(``{member_evidence_ids, canonical_index, same_work_id}``). When supplied it (a) renders each
+basket's corroboration at WORK level (dedupe members through the alias map) as ``xK works (N
+rows)`` while KEEPING every member ev_id disclosed (§-1.3 consolidate, drop nothing), and (b)
+collapses same-work SINGLETON copies into ONE line carrying the canonical ev_id + its alias
+ids — every alias still accounted for by ``covered_ev_ids()`` so the 100%-of-pool invariant
+holds. ``same_work_groups=None`` (the default) is BYTE-IDENTICAL to the pre-PUSH-A behaviour.
 """
 
 from __future__ import annotations
@@ -84,17 +93,32 @@ class OutlineDigestMenu:
     total_chars: int                        # rendered menu size (headroom accounting)
     degraded: bool = False                  # a headroom-guard terse pass fired
     basket_member_ev_ids: dict[str, list[str]] = field(default_factory=dict)
+    # PUSH A: canonical singleton ev_id -> its FOLDED same-work alias ev_ids (the copies of the
+    # same underlying work that collapsed onto that one singleton line). Empty when
+    # ``same_work_groups`` was not supplied. ``covered_ev_ids()`` unions these so every alias is
+    # still accounted for by the 100%-of-pool invariant (§-1.3 consolidate — folded, never dropped).
+    singleton_alias_ev_ids: dict[str, list[str]] = field(default_factory=dict)
+    # PUSH A: basket id -> WORK-level corroboration (distinct works among the basket's members,
+    # deduped through the same-work alias map). Equals the row count when no members share a work
+    # (so it is byte-identical to ``len(members)`` when ``same_work_groups`` is absent). This is the
+    # honest corroboration the orphan check reads — 4 rows of 2 works corroborate a claim TWICE.
+    basket_work_corroboration: dict[str, int] = field(default_factory=dict)
 
     def render(self) -> str:
         """The prompt menu text — baskets first (heaviest claims), then singletons."""
         return "\n".join(self.basket_lines + self.singleton_lines)
 
     def covered_ev_ids(self) -> set[str]:
-        """Every ev_id the menu accounts for (basket member OR singleton)."""
+        """Every ev_id the menu accounts for (basket member OR singleton OR a folded alias)."""
         covered = set(self.ev_id_to_basket)
         for line in self.singleton_lines:
-            # singleton lines start with the ev_id token (see _singleton_line)
+            # singleton lines start with the canonical ev_id token (see _singleton_line)
             covered.add(line.split(" ", 1)[0])
+        # PUSH A: same-work aliases collapsed onto a singleton line are still covered rows —
+        # union them explicitly (the line only prints the canonical head token).
+        for canonical, aliases in self.singleton_alias_ev_ids.items():
+            covered.add(canonical)
+            covered.update(aliases)
         return covered
 
 
@@ -110,6 +134,33 @@ def _ev_id_at(evidence: Sequence[Mapping[str, Any]], index: int) -> str:
     return str(evidence[index].get("evidence_id", "") or "")
 
 
+def _build_alias_map(
+    same_work_groups: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, str]:
+    """ev_id -> work_key from the cp3 ``same_work_groups`` payload (PUSH A).
+
+    Each group carries ``member_evidence_ids`` (all corroborating rows of ONE underlying work)
+    and a stable ``same_work_id`` string (``url:`` / ``doi:`` / ``title:`` key). The work_key is
+    that ``same_work_id`` (falling back to ``canon:<canonical_index>`` only if the id is blank).
+    ``setdefault`` keeps the first group to claim an ev_id, so the map is deterministic regardless
+    of group order. Returns ``{}`` when no groups are supplied (=> every row is its own work =>
+    byte-identical to the pre-PUSH-A path)."""
+    alias_of: dict[str, str] = {}
+    for group in (same_work_groups or []):
+        if not isinstance(group, Mapping):
+            continue
+        work_key = str(group.get("same_work_id") or "").strip()
+        if not work_key:
+            canonical_index = group.get("canonical_index")
+            work_key = f"canon:{canonical_index}" if canonical_index is not None else ""
+        members = [str(m) for m in (group.get("member_evidence_ids") or []) if str(m)]
+        if not work_key or not members:
+            continue
+        for ev_id in members:
+            alias_of.setdefault(ev_id, work_key)
+    return alias_of
+
+
 def _basket_line(
     bid: str,
     corroboration: int,
@@ -118,6 +169,8 @@ def _basket_line(
     member_ev_ids: list[str],
     *,
     elide_members: bool,
+    work_corroboration: int | None = None,
+    row_count: int | None = None,
 ) -> str:
     tier_csv = ",".join(tiers)
     members = (
@@ -125,17 +178,29 @@ def _basket_line(
         if elide_members
         else "members: " + ",".join(member_ev_ids)
     )
-    return f'{bid} [x{corroboration} sources: {tier_csv}] claim: "{claim}" {members}'
+    # PUSH A: when work-level corroboration is known, render the HONEST count — how many distinct
+    # WORKS (not rows) back the claim — while still listing every member row (aliases stay).
+    # ``work_corroboration is None`` (no same_work_groups) => the legacy ``xN sources`` head =>
+    # byte-identical.
+    if work_corroboration is None:
+        head = f"[x{corroboration} sources: {tier_csv}]"
+    else:
+        head = f"[x{work_corroboration} works ({row_count} rows): {tier_csv}]"
+    return f'{bid} {head} claim: "{claim}" {members}'
 
 
 def _singleton_line(
-    ev_id: str, tier: str, title: str, statement: str, *, title_only: bool
+    ev_id: str, tier: str, title: str, statement: str, alias_ev_ids: list[str],
+    *, title_only: bool,
 ) -> str:
+    # PUSH A: same-work copies collapsed onto this line are disclosed inline after the tier;
+    # empty ``alias_ev_ids`` (the no-same_work_groups path) => no tag => byte-identical.
+    tag = f" (+{len(alias_ev_ids)} same-work: {','.join(alias_ev_ids)})" if alias_ev_ids else ""
     if title and statement and not title_only:
-        return f"{ev_id} [{tier}] | title: {title} | {statement}"
+        return f"{ev_id} [{tier}]{tag} | title: {title} | {statement}"
     if title:
-        return f"{ev_id} [{tier}] | title: {title}"
-    return f"{ev_id} [{tier}]: {statement}"
+        return f"{ev_id} [{tier}]{tag} | title: {title}"
+    return f"{ev_id} [{tier}]{tag}: {statement}"
 
 
 def _is_title_like(statement: str, title: str) -> bool:
@@ -164,6 +229,7 @@ def build_outline_digest(
     *,
     max_chars: int | None = None,
     sanitizer: Callable[[str], tuple[str, int]] | None = None,
+    same_work_groups: Sequence[Mapping[str, Any]] | None = None,
 ) -> OutlineDigestMenu:
     """Build the basket-digest menu from the evidence pool + finding clusters.
 
@@ -172,6 +238,13 @@ def build_outline_digest(
     imports finding_dedup. A cluster with >= 2 members becomes a BASKET line; every other
     pool row becomes a SINGLETON line — so the menu accounts for 100% of the pool
     (invariant, asserted below; §-1.3 CONSOLIDATE-keep-all, zero rows dropped).
+
+    ``same_work_groups`` (PUSH A, OPTIONAL — the exact cp3 ``payload.same_work_groups`` shape:
+    ``{member_evidence_ids, canonical_index, same_work_id}``). When supplied, an alias map
+    ev_id->work_key is built; basket lines then report corroboration at WORK level (``xK works
+    (N rows)``) with every member id still listed, and same-work SINGLETON copies collapse into
+    ONE line (canonical ev_id + alias ids). ``None`` (default) => byte-identical to the
+    pre-PUSH-A menu.
 
     Headroom guard (Design 5 ORCH-1): if the rendered menu exceeds ``max_chars`` the
     singleton statements terse away FIRST (row kept), then basket member lists elide to
@@ -182,6 +255,15 @@ def build_outline_digest(
         sanitizer = _default_sanitizer()
     if max_chars is None:
         max_chars = _env_int("PG_OUTLINE_DIGEST_MAX_CHARS", PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT)
+
+    # PUSH A: alias map ev_id -> work_key. ``work_aware`` gates the honest work-level render so
+    # ``same_work_groups=None`` stays byte-identical (an explicit ``[]`` opts into the new render
+    # with an empty alias map => work count == row count, zero singleton folds).
+    work_aware = same_work_groups is not None
+    alias_of = _build_alias_map(same_work_groups)
+
+    def _work_key(ev_id: str) -> str:
+        return alias_of.get(ev_id, ev_id)
 
     def _clean(text: str) -> str:
         return sanitizer(text or "")[0]
@@ -200,6 +282,7 @@ def build_outline_digest(
     basket_specs: list[dict[str, Any]] = []
     ev_id_to_basket: dict[str, str] = {}
     basket_member_ev_ids: dict[str, list[str]] = {}
+    basket_work_corroboration: dict[str, int] = {}
     for idx, c in enumerate(multi_sorted):
         bid = f"B{idx:02d}"
         member_ev_ids = sorted(_ev_id_at(evidence, i) for i in getattr(c, "member_indices"))
@@ -224,6 +307,9 @@ def build_outline_digest(
                     break
         claim = _clean(chosen_claim)[:_CLAIM_MAX_CHARS]
         tiers = [str(evidence[i].get("tier", "") or "") for i in getattr(c, "member_indices")]
+        # PUSH A: distinct WORKS among the members (rows sharing a same_work_id count once).
+        # Equals len(member_ev_ids) when no members share a work (byte-identical default).
+        work_corroboration = len({_work_key(e) for e in member_ev_ids})
         basket_specs.append(
             {
                 "bid": bid,
@@ -231,19 +317,35 @@ def build_outline_digest(
                 "tiers": tiers,
                 "claim": claim,
                 "members": member_ev_ids,
+                "work_corroboration": work_corroboration,
+                "row_count": len(member_ev_ids),
             }
         )
         basket_member_ev_ids[bid] = member_ev_ids
+        basket_work_corroboration[bid] = work_corroboration
         for e in member_ev_ids:
             # keep-first on a rare cross-basket collision (deterministic ordering fixes it)
             ev_id_to_basket.setdefault(e, bid)
 
-    # ── 2. singletons = every pool row not claimed by a multi-member basket.
+    # ── 2. singletons = every pool row not claimed by a multi-member basket. PUSH A: same-work
+    #        copies among the singletons COLLAPSE into one line (canonical = first seen in pool
+    #        order; the rest become disclosed aliases). A row with no same-work group is its own
+    #        work and stays a standalone line. ``work_aware=False`` => no fold => byte-identical.
     singleton_specs: list[dict[str, Any]] = []
+    singleton_alias_ev_ids: dict[str, list[str]] = {}
+    work_to_canonical: dict[str, str] = {}
     for row in evidence:
         ev_id = str(row.get("evidence_id", "") or "")
         if not ev_id or ev_id in ev_id_to_basket:
             continue
+        work_key = _work_key(ev_id) if work_aware else ev_id
+        if work_aware and work_key in work_to_canonical:
+            # a same-work copy of an already-emitted singleton — fold, never drop (§-1.3)
+            canonical = work_to_canonical[work_key]
+            singleton_alias_ev_ids[canonical].append(ev_id)
+            continue
+        work_to_canonical[work_key] = ev_id
+        singleton_alias_ev_ids.setdefault(ev_id, [])
         singleton_specs.append(
             {
                 "ev_id": ev_id,
@@ -252,18 +354,26 @@ def build_outline_digest(
                 "statement": _clean(str(row.get("statement", "") or ""))[:_STATEMENT_MAX_CHARS],
             }
         )
+    # attach the (possibly appended-to) alias lists to each canonical spec
+    for spec in singleton_specs:
+        spec["alias_ev_ids"] = singleton_alias_ev_ids.get(spec["ev_id"], [])
+    # drop empty alias entries so the map holds only genuine folds (keeps covered_ev_ids clean)
+    singleton_alias_ev_ids = {k: v for k, v in singleton_alias_ev_ids.items() if v}
 
     def _render(*, title_only: bool, elide_members: bool) -> tuple[list[str], list[str], int]:
         b_lines = [
             _basket_line(
                 s["bid"], s["corroboration"], s["tiers"], s["claim"], s["members"],
                 elide_members=elide_members,
+                work_corroboration=(s["work_corroboration"] if work_aware else None),
+                row_count=(s["row_count"] if work_aware else None),
             )
             for s in basket_specs
         ]
         s_lines = [
             _singleton_line(
-                s["ev_id"], s["tier"], s["title"], s["statement"], title_only=title_only
+                s["ev_id"], s["tier"], s["title"], s["statement"], s["alias_ev_ids"],
+                title_only=title_only,
             )
             for s in singleton_specs
         ]
@@ -286,10 +396,13 @@ def build_outline_digest(
         total_chars=total,
         degraded=degraded,
         basket_member_ev_ids=basket_member_ev_ids,
+        singleton_alias_ev_ids=singleton_alias_ev_ids,
+        basket_work_corroboration=basket_work_corroboration,
     )
 
     # ── 4. 100%-of-pool honesty invariant (Design 5 §9 bar #2): every non-empty ev_id in the
-    #        pool is a basket member OR a singleton line. Fail loud if a row went missing.
+    #        pool is a basket member OR a singleton line OR a folded same-work alias. Fail loud
+    #        if a row went missing (PUSH A: folded aliases are covered via covered_ev_ids()).
     pool_ev_ids = {str(r.get("evidence_id", "") or "") for r in evidence}
     pool_ev_ids.discard("")
     missing = pool_ev_ids - menu.covered_ev_ids()
