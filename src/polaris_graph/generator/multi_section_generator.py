@@ -7240,6 +7240,77 @@ _EVIDENCE_BASE_MARKER_RE = re.compile(r"\[([^\[\]]+)\]")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-006 PT11 — compose-time numeric-citation guarantee (suppress-only)
+# ─────────────────────────────────────────────────────────────────────────────
+# Mirrors the external_evaluator PT11 rule at COMPOSE time so a verbatim-span breadth surface can
+# never ship a decimal-bearing sentence with no adjacent citation (the F "truncated number" garble,
+# and the class that would later fail PT11 and abort the report). Reuses external_evaluator's
+# abbreviation-aware sentence-boundary helper so "vs." / "e.g." / "Fig." do not split a sentence.
+# SUPPRESS-ONLY + DISCLOSED: an uncited-decimal SENTENCE is removed (never a source, never the pool) and
+# the removal is disclosed in the section. Faithfulness-safe (removing an UNCITED number is the safe
+# direction; nothing is added). Default-ON (PG_COMPOSE_NUMERIC_CITE_GUARANTEE); OFF => byte-identical.
+_PT11_DECIMAL_RE = re.compile(r"(?<![A-Za-z0-9.])(-?\d+\.\d+)")
+_PT11_CITATION_RE = re.compile(r"\[\d+\]|\[#ev:")
+_PT11_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
+
+
+def _compose_numeric_cite_guarantee_enabled() -> bool:
+    """PT11 kill-switch (``PG_COMPOSE_NUMERIC_CITE_GUARANTEE``). Default-ON; OFF only for an off-value."""
+    return (
+        os.environ.get("PG_COMPOSE_NUMERIC_CITE_GUARANTEE", "1").strip().lower()
+        not in ("0", "false", "off", "no")
+    )
+
+
+def _suppress_uncited_decimal_sentences(text: str) -> "tuple[str, list[str]]":
+    """Return ``(cleaned_text, removed_sentences)`` — every SENTENCE that carries a decimal number but
+    no in-bounds ``[N]`` / ``[#ev:]`` citation is removed (I-deepfix-006 PT11, suppress-only).
+
+    Splits ``text`` into sentences with external_evaluator's abbreviation-aware boundary helper (the
+    SAME unit the PT11 rule scores), so an abbreviation period never splits a sentence. A decimal is
+    detected AFTER stripping ``[#ev:…]`` tokens (their integer offsets are not empirical decimals), and
+    the citation test reads the RAW sentence (an ``[#ev:]`` provenance token OR an ``[N]`` marker both
+    count as cited). Pure, no-network, faithfulness-neutral. Returns the input UNCHANGED (and an empty
+    removed list) when nothing qualifies. Fail-safe: if the boundary helper cannot be imported, the text
+    is returned untouched (never blind-drop). OFF (``PG_COMPOSE_NUMERIC_CITE_GUARANTEE``) => the input
+    is returned unchanged (byte-identical) regardless of content."""
+    if not text or not text.strip() or not _compose_numeric_cite_guarantee_enabled():
+        return text, []
+    try:
+        from src.polaris_graph.evaluator.external_evaluator import (  # noqa: PLC0415
+            _next_real_sentence_end,
+        )
+    except Exception:  # noqa: BLE001 — cannot split safely -> never suppress blind
+        return text, []
+    parts: list[str] = []
+    pos = 0
+    n = len(text)
+    while pos < n:
+        rel_end = _next_real_sentence_end(text[pos:])
+        if rel_end is None:
+            parts.append(text[pos:])
+            break
+        parts.append(text[pos:pos + rel_end])
+        pos += rel_end
+    kept: list[str] = []
+    removed: list[str] = []
+    for seg in parts:
+        has_citation = bool(_PT11_CITATION_RE.search(seg))
+        decimal_scan = _PT11_EV_TOKEN_RE.sub("", seg)
+        has_decimal = bool(_PT11_DECIMAL_RE.search(decimal_scan))
+        if has_decimal and not has_citation:
+            stripped = seg.strip()
+            if stripped:
+                removed.append(stripped)
+            continue
+        kept.append(seg)
+    if not removed:
+        return text, []
+    cleaned = re.sub(r"[ \t]{2,}", " ", "".join(kept)).strip()
+    return cleaned, removed
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # I-deepfix-006 C4 — synthesized body leads; verbatim breadth surfaces -> supporting appendix
 # ─────────────────────────────────────────────────────────────────────────────
 def _body_lead_enabled() -> bool:
@@ -7399,6 +7470,31 @@ def _append_evidence_base_section(
     body = re.sub(r"\[(\d+)\]", _local_to_global_marker, local_text).strip()
     if not body:
         return False
+
+    # I-deepfix-006 PT11 (PG_COMPOSE_NUMERIC_CITE_GUARANTEE, default ON): compose-time numeric-citation
+    # guarantee for the verbatim-span breadth surface (Evidence base + low-relevance ledger — both routed
+    # through here at final assembly). Every span sentence normally carries an [#ev:] provenance token
+    # that resolved to a global [N] above, so this is a SAFETY BACKSTOP: a decimal-bearing sentence that
+    # lost its citation (the F "truncated number" garble) is SUPPRESSED (never a source drop) and the
+    # removal is DISCLOSED in the section — never ships an uncited number that would later fail PT11 and
+    # abort the report. Faithfulness-neutral (suppress-only, no add). OFF => byte-identical.
+    if _compose_numeric_cite_guarantee_enabled():
+        body, _pt11_removed = _suppress_uncited_decimal_sentences(body)
+        if _pt11_removed:
+            body = body.strip()
+            logger.warning(
+                "[multi_section] I-deepfix-006 PT11 numeric-citation guarantee: suppressed %d "
+                "uncited-decimal sentence(s) from %r (compose-time backstop, disclosed): %s",
+                len(_pt11_removed), (section_title or _EVIDENCE_BASE_TITLE),
+                " | ".join(s[:80] for s in _pt11_removed[:5]),
+            )
+            if not body:
+                return False  # every span line was an uncited decimal -> no section (nothing verified ships)
+            body = (
+                f"{body}\n\n_Numeric-citation guarantee: {len(_pt11_removed)} sentence(s) carrying an "
+                "uncited decimal number were suppressed from this breadth surface at compose time "
+                "(PG_COMPOSE_NUMERIC_CITE_GUARANTEE)._"
+            )
 
     # I-deepfix-001 U17 (#1335): NEAR-DUPLICATE collapse. The Corroborated Weighted Findings
     # section (built from the SAME uncapped unbound-SUPPORTS ev_ids surface) renders the same
