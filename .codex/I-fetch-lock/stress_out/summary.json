@@ -1,0 +1,123 @@
+{
+  "break": 0,
+  "breaks": [],
+  "cases": [
+    {
+      "evidence": "query_count ladder panel=99>prompt=60(span='run 60 quer')>env=45>default=35 sources=[panel,prompt,env,default]",
+      "id": "A1",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "adjust=7 beats panel=99 source=adjust val=7",
+      "id": "A2",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "searches_per_query prompt=12>env=20; empty+env source=env; empty+noenv source=default(val=20)",
+      "id": "A3",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "matrix 38 knobs: panel-wins=38/38 prompt-wins=38/38 env-wins=14/14 default=38/38 mismatches=none",
+      "id": "A4",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "both-surface coverage panel=38/38 prompt(BEHAVIORAL)=38/38 NOT_PROMPT_SETTABLE=[]",
+      "id": "A5",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "malformed int fail-loud: 'abc' raised=True '3.5' raised=True; OBSERVATION negative '-5' accepted=True (value=-5) -- resolver contracts type-only, no range guard",
+      "id": "A6",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "top-level verdict key refused=True :: checkpoint payload at cp3.payload contains FORBIDDEN verdict key(s) ['",
+      "id": "B1",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "nested verdict key refused=True :: checkpoint payload at cp3.payload.baskets[0].meta contains FORBIDDEN v",
+      "id": "B2",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "cp0 re-serialize == on-disk bytes: True (926B)",
+      "id": "B3",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "schema_version=999 refused on load=True :: resume: cp0 schema_version 999 != 1; refusing a stale-shaped",
+      "id": "B4",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "cp0-envelope-in-cp1-file refused=True :: resume: cp1 stage 's0_intake' != 's1_fetch' (wrong checkpoin",
+      "id": "B5",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "golden#75 correct-sha loads=True; golden#76 sha refused=True :: resume: cp0 question_sha mismatch (checkpoint buil",
+      "id": "B6",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "slate 0!=1 refused on load=True :: resume: cp0 flag_slate differs from active {'PG_HOLISTIC_REV",
+      "id": "B7",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "tampered payload caught by index-sha=True :: resume: cp0 on-disk sha256 does not match the index rec",
+      "id": "B8",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "clean chain=['cp0', 'cp1', 'cp2'] valid=True; cp1 tamper caught=True :: chain: cp1 on-disk sha256 != index record \u2014 T",
+      "id": "B9",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "resume cp2 entry=cp2 rerun=('cp3', 'cp4', 'cp5', 'cp6') ok=True; absent cp5 refused=True",
+      "id": "B10",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "load-side verdict guard fired=True :: checkpoint payload at cp0.payload.section.nested contai",
+      "id": "B11",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "valid_at: query_count@cp3=False tone@cp3=True query_count@cp0=True section_concurrency@cp5=False",
+      "id": "C1",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "query_count adjust @cp3 refused=True :: resume --adjust: knob 'query_count' cannot be adjusted when resuming a",
+      "id": "C2",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "tone adjust @cp3 resolves ('executive_brief', 'adjust')",
+      "id": "C3",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "config_sha deterministic=True sensitive=True (7a8f6e7326f4 vs 7368ddc17753)",
+      "id": "C4",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "panel=academic then adjust=executive_brief -> ('executive_brief', 'adjust')",
+      "id": "C5",
+      "verdict": "HOLD"
+    },
+    {
+      "evidence": "resume cp3 rerun=('cp4', 'cp5', 'cp6'); upstream_untouched=True; downstream_superseded=True archived=2026-07-10T110613Z recorded=True; chain<=cp3 ok=True",
+      "id": "C6",
+      "verdict": "HOLD"
+    }
+  ],
+  "hold": 23,
+  "total": 23
+}
