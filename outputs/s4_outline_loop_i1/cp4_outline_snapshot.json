@@ -1,0 +1,1498 @@
+{
+  "adjustments_applied": [],
+  "faithfulness_invariant": "DATA ONLY; no verdict/release_outcome stored anywhere in this checkpoint; a resume re-enters at section composition with these plans and MUST re-run every faithfulness gate (strict_verify / NLI / 4-role / D8) \u2014 it can never replay a stored decision.",
+  "flag_slate": {
+    "PG_OUTLINE_BASKET_DIGEST": "1",
+    "PG_OUTLINE_DIGEST_MAX_CHARS": "200000",
+    "PG_OUTLINE_MIN_MAX_TOKENS": "16384",
+    "PG_OUTLINE_REASONING_MAX_TOKENS": "6144",
+    "PG_OUTLINE_REVISE_MAX_RECOMPOSE": "8",
+    "PG_OUTLINE_REVISE_ROUNDS": "1",
+    "PG_ROUTE_ALL_BASKETS": "0",
+    "model": "z-ai/glm-5.2"
+  },
+  "payload": {
+    "digest_stats": {
+      "basket_digest_enabled": true,
+      "digest_baskets": 69,
+      "digest_degraded": false,
+      "digest_singletons": 503,
+      "digest_total_chars": 64900,
+      "outline_raw_head": "",
+      "outline_retry_raw_head": "",
+      "required_sections_count": 4,
+      "requirements_block_chars": 1248,
+      "requirements_block_wired_into_call_outline": true,
+      "title_conformed_count": 0,
+      "undersupplied_count": 0,
+      "undersupplied_sections": []
+    },
+    "final_plans": [
+      {
+        "archetype": "",
+        "basket_ids": [
+          "B00",
+          "B01",
+          "B05",
+          "B09",
+          "B12",
+          "B14"
+        ],
+        "ev_ids": [
+          "acemoglu_restrepo_automation_tasks",
+          "autor_why_still_jobs",
+          "eloundou_gpts_are_gpts",
+          "ev_024",
+          "ev_884",
+          "ev_887",
+          "ev_931",
+          "ev_932",
+          "ev_941",
+          "ev_945",
+          "ev_027",
+          "ev_1200",
+          "ev_000",
+          "ev_1057",
+          "ev_220",
+          "ev_739",
+          "ev_499",
+          "ev_156",
+          "ev_020",
+          "ev_205",
+          "ev_217"
+        ],
+        "focus": "Synthesizes academic evidence that GenAI augments worker productivity, creates complementarities rather than pure displacement, and may sustain or increase labor demand through new task generation and efficiency gains.",
+        "title": "Positive Views on Generative AI's Impact on Employment",
+        "undersupplied": false
+      },
+      {
+        "archetype": "",
+        "basket_ids": [
+          "B07",
+          "B13",
+          "B27",
+          "B49"
+        ],
+        "ev_ids": [
+          "frey_osborne_computerisation",
+          "acemoglu_restrepo_robots_jobs",
+          "ev_019",
+          "ev_160",
+          "ev_133",
+          "ev_026",
+          "ev_092",
+          "ev_095",
+          "ev_006",
+          "ev_014",
+          "ev_136",
+          "ev_043",
+          "ev_213"
+        ],
+        "focus": "Surveys the literature documenting job displacement risks, automation exposure of cognitive and creative occupations, wage polarization, and disproportionate vulnerability of certain demographic and occupational groups to GenAI-driven labor market disruption.",
+        "title": "Negative Views on Generative AI's Impact on Employment",
+        "undersupplied": false
+      },
+      {
+        "archetype": "",
+        "basket_ids": [
+          "B13",
+          "B27",
+          "B29"
+        ],
+        "ev_ids": [
+          "ev_499",
+          "ev_156",
+          "ev_020",
+          "ev_136",
+          "ev_205",
+          "ev_1061",
+          "ev_1106",
+          "ev_019",
+          "ev_006",
+          "ev_014",
+          "ev_026",
+          "ev_067",
+          "ev_064",
+          "ev_214",
+          "ev_148"
+        ],
+        "focus": "Examines implementation and governance challenges including skill gaps and reskilling needs, algorithmic bias in hiring, regulatory uncertainty, occupational exposure measurement difficulties, and the tension between rapid GenAI deployment and workforce adaptation capacity.",
+        "title": "Specific Challenges of Generative AI in the Labor Market",
+        "undersupplied": false
+      },
+      {
+        "archetype": "",
+        "basket_ids": [
+          "B01",
+          "B09",
+          "B12",
+          "B14"
+        ],
+        "ev_ids": [
+          "acemoglu_restrepo_automation_tasks",
+          "autor_why_still_jobs",
+          "eloundou_gpts_are_gpts",
+          "ev_027",
+          "ev_1200",
+          "ev_205",
+          "ev_000",
+          "ev_1057",
+          "ev_220",
+          "ev_739",
+          "ev_499",
+          "ev_156",
+          "ev_020",
+          "ev_141",
+          "ev_069",
+          "ev_217",
+          "ev_058",
+          "ev_1006",
+          "ev_965"
+        ],
+        "focus": "Explores forward-looking opportunities including new occupation creation, human-AI collaborative workflows, productivity-driven economic growth, labor market matching improvements, and the potential for GenAI to serve as a general-purpose technology generating broad-based employment gains.",
+        "title": "Future Opportunities from Generative AI for Employment",
+        "undersupplied": false
+      }
+    ],
+    "revision_audit": {
+      "note": "orphan baskets AND unassigned high-tier singletons are routed to section plans at COMPOSE via PG_ROUTE_ALL_BASKETS (verified_compose.py route_orphan_baskets_to_section_plans, default-OFF). Item 3b/3c (\u00a7-1.3.1): the compose call site computes the JUDGE-CONFIRMED off-topic ev_id set from the pool via the SAME fail-open predicate that stamps `topic_verdict` above (is_row_deletable_offtopic \u2014 affirmative OFF_SUBJECT only, positive relevance vetoes) and hands it to the router with the unassigned high-tier singleton candidates; the router's BASKET leg routes each orphan basket and its SINGLETON leg routes each candidate by the same title+focus overlap rule (keep-all residual otherwise), DELETING only judge-CONFIRMED off-topic items before routing (disclosed) \u2014 uncertainty => KEEP, so no zero-overlap off-topic junk lands in the keep-all residual section. This cp4 audit is DISCLOSURE ONLY \u2014 zero plan mutation here. Every pool member is accounted for: assigned to a section, same-work-folded (plan_work_folds), orphan-basket-disclosed, or unassigned-singleton-disclosed (\u00a7-1.3 consolidate \u2014 none silently dropped).",
+      "orphan_baskets_after_plan": [
+        "B02",
+        "B03",
+        "B04",
+        "B06",
+        "B08",
+        "B10",
+        "B11",
+        "B58",
+        "B59",
+        "B60",
+        "B61",
+        "B62",
+        "B63",
+        "B64",
+        "B65",
+        "B66",
+        "B67",
+        "B68"
+      ],
+      "orphan_reassign_candidates": [
+        {
+          "basket_id": "B02",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_100",
+            "ev_1179",
+            "ev_615"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B03",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_219",
+            "ev_763",
+            "ev_860"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B04",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_077",
+            "ev_1116",
+            "ev_1256",
+            "ev_913"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B06",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_079",
+            "ev_1078",
+            "ev_1193"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B08",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_060",
+            "ev_215"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B10",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_090",
+            "ev_356"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B11",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_449",
+            "ev_455"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B58",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_084",
+            "ev_602",
+            "ev_792",
+            "ev_969"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B59",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_430",
+            "ev_529",
+            "ev_604",
+            "ev_895"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B60",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_065",
+            "ev_1077",
+            "ev_903"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B61",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1231",
+            "ev_447",
+            "ev_683"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B62",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_778",
+            "ev_885",
+            "ev_956"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B63",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1251",
+            "ev_419"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B64",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_342",
+            "ev_710"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B65",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_458",
+            "ev_468"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B66",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_717",
+            "ev_756"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B67",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_539",
+            "ev_798"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B68",
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_810",
+            "ev_900"
+          ],
+          "topic_verdict": "unjudged"
+        }
+      ],
+      "plan_work_folds": [
+        {
+          "folded": {
+            "ev_000": [
+              "ev_1013",
+              "ev_1150"
+            ],
+            "ev_884": [
+              "ev_886",
+              "ev_890"
+            ],
+            "ev_945": [
+              "ev_929",
+              "ev_933"
+            ]
+          },
+          "section": "Positive Views on Generative AI's Impact on Employment"
+        },
+        {
+          "folded": {
+            "ev_014": [
+              "ev_1050",
+              "ev_1194"
+            ],
+            "ev_026": [
+              "ev_050",
+              "ev_1027",
+              "ev_1170"
+            ],
+            "ev_043": [
+              "ev_1176"
+            ],
+            "ev_095": [
+              "ev_110"
+            ]
+          },
+          "section": "Negative Views on Generative AI's Impact on Employment"
+        },
+        {
+          "folded": {
+            "ev_014": [
+              "ev_1050",
+              "ev_1194"
+            ],
+            "ev_026": [
+              "ev_050",
+              "ev_1027",
+              "ev_1170"
+            ],
+            "ev_1061": [
+              "ev_1187",
+              "ev_289"
+            ]
+          },
+          "section": "Specific Challenges of Generative AI in the Labor Market"
+        },
+        {
+          "folded": {
+            "ev_000": [
+              "ev_1013",
+              "ev_1150"
+            ]
+          },
+          "section": "Future Opportunities from Generative AI for Employment"
+        }
+      ],
+      "rounds": 0,
+      "s5_acceptance": [
+        "PG_ROUTE_ALL_BASKETS=1 in the S5 compose run slate \u2014 the orphan-basket + unassigned high-tier singleton router MUST FIRE; disclose routed_basket_count + routed_singleton_count (router-fired + routed-counts-disclosed is a NAMED S5 acceptance item).",
+        "PG_OUTLINE_REVISE_ROUNDS=1 exercised LIVE at the compose stage (rounds=0 here in plan mode is correct) \u2014 its firing is an explicit S5 acceptance criterion; do not let the revise loop fall silently between section loops."
+      ],
+      "title_conformed": [],
+      "unassigned_high_tier": [
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_101",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "How is generative AI impacting SMEs\u2019 skill and labour needs?: Generative AI and the SME Wo",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1245",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "The decline in reading for pleasure over 20 years of the American Time Use Survey",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_968",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Revisiting the occupational impact of AI in the generative AI era",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_187",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "What is the possible effect of generative AI on employment?",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_856",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "7 Addressing Equity Issues in Policymaking - IMF e-Library",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_308",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Paralegals and Legal Assistants - Bureau of Labor Statistics",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_972",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] GOV.UK Impact of AI on UK jobs and training",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_492",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "A Refined Global Index of Occupational Exposure",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_940",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Generative AI's Impact on Student Achievement and ...",
+          "topic_verdict": "unjudged"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_454",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "An initial investigation of the effect of quality factors on Agile test case quality throu",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_085",
+          "same_work_aliases": [
+            "ev_1110"
+          ],
+          "tier": "T3",
+          "title": "[PDF] The Potential Impact of Artificial Intelligence on UK Employment and ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1032",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Artificial Intelligence in Science | OECD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_975",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "The potential impact of AI innovations on US occupations - PMC - NIH",
+          "topic_verdict": "unjudged"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_287",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Producer prices in the legal services industry after the Great Recession : Monthly Labor R",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_182",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "AI impacts in BLS employment projections : The Economics Daily : U.S. Bureau of Labor Stat",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_039",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Publication: Labor Demand in the Age of Generative AI",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_568",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] News versus Sentiment: Predicting Stock Returns from News Stories",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_494",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "92B09_241_engl.pdf",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_471",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "15-1253 Software Quality Assurance Analysts and Testers",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1155",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Artificial Intelligence and the Future of Teaching and ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_951",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "The influence of generative artificial intelligence usage on ... - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_102",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "How artificial intelligence affects the labour force employment ... - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_782",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "The State of Generative AI Adoption in 2025 | St. Louis Fed",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1114",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Generation Z job seekers\u2019 expectations and their job pursuit intention: Evidence from tran",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_119",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Artificial Intelligence and Employment: New Cross-Country Evidence - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_505",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Technology Adoption and the Changing Role and Background of Clerical Workers",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_944",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Speech by Governor Barr on artificial intelligence and the labor market",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_151",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Artificial Intelligence and Employment Futures for the Arab Region",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1213",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Artificial intelligence, data and competition - Background Note - OECD",
+          "topic_verdict": "unjudged"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_962",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Experimental Estimates of Potential Artificial Intelligence ...",
+          "topic_verdict": "unjudged"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_150",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] The impact of Artificial Intelligence on productivity, distribution and ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1107",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Skills and the Future of Work - International Labour Organization",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_802",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "The Fed - Monitoring AI Adoption in the US Economy",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_963",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Occupational Exposure to Artificial Intelligence by Geography and ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_691",
+          "same_work_aliases": [
+            "ev_685"
+          ],
+          "tier": "T3",
+          "title": "[PDF] Cost-Benefit Analysis and the Environment | OECD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_216",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "URL Source: https://www.congress.gov/crs_external_products/IF/HTML/IF12762.html",
+          "topic_verdict": "unjudged"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_586",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "The Impact of Artificial Intelligence Replacing Humans in Making Human Resource Management",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_839",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Feasibility Study of Methods and Data to Understand the Impact of ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1105",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Skills Gaps: A Review of Underlying Concepts and Evidence",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_639",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "U.S. Bureau of Labor Statistics",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1177",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "cee48ca4-8b40-4da8-bbff-19200d77384c_14205_-_eric_jensen_v2_(1).pdf",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_381",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "The Role of Digital Platforms in Shaping the Conditions of Creative Work",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_501",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] NON-STANDARD EMPLOYMENT AROUND THE WORLD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1065",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Global Economic Prospects -- June 2025 - The World Bank",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1047",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Industry and occupational employment projections overview and highlights, 2023\u201333 : Monthl",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_776",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Adopting open innovation for SMEs and industrial revolution 4.0",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_524",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "The hard-working virtual agent in the service encounter boosts customer satisfaction",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_960",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Artificial Intelligence and Productivity in Europe, WP/25/67, April 2025",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_767",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Governance of artificial intelligence | Policy and Society | Oxford Academic",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_389",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Careers for creative people - Bureau of Labor Statistics",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_788",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Interventions to promote technology adoption in firms - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_391",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Cultural and creative jobs and skills: who, what, where, and ... - OECD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_775",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Adoption of Industry 4.0 technologies by organizations - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_397",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Creativity as a Catalyst for Economic Development and Social Change",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_758",
+          "same_work_aliases": [
+            "ev_744"
+          ],
+          "tier": "T3",
+          "title": "A pro-innovation approach to AI regulation",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_399",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Working Paper No.301 Employment relationships in arts and culture",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_659",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Publication: Can Cost-Benefit Analysis Guide Education Policy in ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_689",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Impact and cost\u2013benefit analysis: a unifying approach",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_383",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] The status and working conditions of artists and cultural and creative ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_765",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Regulatory Policy in Perspective | OECD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_729",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Open Knowledge Repository",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_555",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "13-2099.01 - Financial Quantitative Analysts",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1035",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] An Annotated Bibliography of Privacy-Violating Attacks and Related ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_757",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Regulatory policy 2.0 (EN) - OECD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_508",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Announcements | U.S. Department of Labor",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_443",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "A Survey on Factors Preventing the Adoption of Automated Software Testing: A Principal Com",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1248",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "College Student's Academic Help-Seeking Behavior - PMC - NIH",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_636",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Employment Situation Summary - 2026 M06 Results",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1140",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Basel Committee on Banking Supervision Working Paper 45",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1076",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Cash transfers: what does the evidence say? - The World Bank",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_726",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Measuring social impact: a new era for the social economy?",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_570",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Can you help someone become financially capable?",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_564",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Finance, Growth, and Inequality, WP/21/164, June 2021",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_566",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Academic and Think Tank Assessment of the IEO and Its Evaluations",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_634",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Writers and Authors : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_461",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Software Developers, Quality Assurance Analysts, and Testers",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1043",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Impact Evaluation in Practice - World Bank Document",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1195",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Unpleasant Surprises? Elections and Tax News Shocks",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1185",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Bridging the research-practice gap in education - OECD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_821",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] ASSESSMENT OF HIGHER EDUCATION LEARNING OUTCOMES",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1211",
+          "same_work_aliases": [
+            "ev_1067"
+          ],
+          "tier": "T3",
+          "title": "Open Knowledge Repository",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_862",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] An updated OECD framework on drivers of trust in public institutions ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_387",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Thematic discussion paper.pdf",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_224",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Web Developers and Digital Designers",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_824",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Outcomes-Based Financing in the New Financing for Development ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_572",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Management Analysts : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_831",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] The Impact and Effectiveness of Innovation Policy: Evidence from ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_393",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Graphic Designers : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1132",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Hybrid working from home improves retention without ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1037",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Stiglitz-Sen-Fitoussi-Commission-report.pdf",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_562",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Market Research Analysts : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1026",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Unfair trading practices in the food supply chain - JRC Publications",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_343",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Medical Transcriptionists : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_349",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] SCHEER Opinion on EMF - Public Health",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_446",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Exploring human factors of the agile software tester - Springer Nature",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_679",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "A Review and Analysis of Economic Models of Prevention Benefits",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_622",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Technical Writers : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_702",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Nonprofit capacity and social performance: mapping the field ... - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1041",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Strategic Dialogue on the Future of EU Agriculture",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_858",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "9781464809507_Ch06.pdf",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_864",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Economic Issues No. 16 -- Should Equity Be a Goal of Economic Policy?",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_548",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Financial Analysts : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_272",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Lawyers : Occupational Outlook Handbook - Bureau of Labor Statistics",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_285",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] THE ICSID CONVENTION: A COMMENTARY, SECOND EDITION",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_385",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Craft and Fine Artists : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_774",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Governance and Regulations | Springer Nature Link",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_574",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Effects of Information Overload on Financial Markets - Federal Reserve",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_296",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Paralegals and Legal Assistants : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_264",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "2024 Formal Ethics Opinion 1 | North Carolina State Bar",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1240",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "EU-China relations: De-risking or de-coupling - the future of ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_354",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Scientific Committee on Consumer Safety SCCS - Public Health",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1156",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] 20-1199 Students for Fair Admissions, Inc. v. President and Fellows ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1093",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Wrongful Convictions: The Literature, the Issues, and the Unheard ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_800",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "SME Technology Adoption in the United Kingdom | OECD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1183",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Study longer or study effectively? Better study strategies can ... - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1090",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "2026 CONNECTICUT PRACTICE BOOK (Revision of 1998) \u00a9 Copyrighted by the Secretary of the St",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_648",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] READ@HOME - The World Bank",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1226",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Overemphasis on publications may disadvantage historically ... - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_360",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Opinion on triclosan - European Commission",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1181",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Is it still worth writing a research paper in 2024? - PMC - NIH",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_280",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] ICSID CASE NO. ARB/07/23 [CL-0276]",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_345",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] OPINION on Homosalate - Public Health",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_644",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Comparative analysis of public and expert perceptions of electrified ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_576",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "UNCERTAINTY AND INVESTMENT: AN EMPIRICAL INVESTIGATION USING DATA ON ANALYSTS' PROFITS FOR",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_512",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Customer Service Representatives",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_362",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] the sccs notes of guidance for the testing of cosmetic ingredients ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_709",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Harnessing the Power of Community Engagement for Population Health",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1146",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Guideline on good pharmacovigilance practices (GVP) - Module VI \u2013 Collection, management a",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_855",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Confidentiality, public interest, and the human right to science: when can confidential in",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_347",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "sccs_o_243.pdf",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_646",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "September 2024: Theodor Seuss Geisel and Children's Literature",
+          "topic_verdict": "demoted_weight"
+        }
+      ],
+      "unassigned_singletons_count": 477
+    }
+  },
+  "question_sha": "146597e3a837074d92cfbc7fdb0fba5e9a54456bf66cc69fc5134972504dca94",
+  "run_config_sha": "c6a2a73b10b42f8ca2f28d0fcfdeff1a5f681a964394af956f1290eed94dd4a6",
+  "schema_version": 1,
+  "stage": "outline",
+  "upstream": [
+    {
+      "sha": "54688c7d6c19c16d8c6b5c8a7e694250ff832838ec835243483f872f4c329758",
+      "stage": "basket"
+    }
+  ]
+}
