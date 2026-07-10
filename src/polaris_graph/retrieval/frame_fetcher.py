@@ -1162,6 +1162,20 @@ def _is_fetch_shell(content: str) -> tuple[bool, str]:
         except Exception:  # noqa: BLE001
             pass
 
+    # I-fetchclean-001 A4: an any-length whole-body fetch-shell (bot-wall /
+    # security-verification interstitial / crawler HTTP-error wrapper) is a failed
+    # fetch, not an index page — the link-density test below does not see it. Reuse
+    # the SINGLE-SOURCE cited-span shell detector (LAW V; same package) so the SAME
+    # bot-wall vocabulary that guards the cited-span gate also guards this seam. Local
+    # import keeps this leaf's import-time deps unchanged; the detector is pure.
+    try:
+        from src.polaris_graph.retrieval import shell_detector
+
+        if shell_detector.is_cited_span_shell(stripped):
+            return True, "bot_wall_shell_vocab"
+    except Exception:  # noqa: BLE001 — detector fault must never break fetch-shell check
+        pass
+
     # Navigation-index / docket-listing structure (high link density) —
     # a fetch-integrity STRUCTURE signal, never a topic signal.
     if _link_density(stripped) >= _MAX_LINK_DENSITY:
