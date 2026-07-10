@@ -60,6 +60,21 @@ MED_MARKERS: list[tuple[str, re.Pattern]] = [
                                  r"Get full access|Subscribe to (?:read|continue)", re.I)),
 ]
 _LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")  # markdown link / empty-anchor [](url)
+# A nav_link_density hit that carries a citation signal is a LEGIT reference line (false positive),
+# not junk. Every other high marker (bot_wall/cookie/gov_banner/error_page/skip_nav/reading_time) is
+# always real junk. This is the deterministic real-vs-FP split the fix→retest loop judges on.
+_CITATION_SIGNAL = re.compile(
+    r"10\.\d{4,9}/|\bet\s+al\b|\b(?:19|20)\d{2}\b|\bpp?\.\s*\d|\d+\s*\(\d+\)|"
+    r"\barxiv\b|\bpmid\b|\bisbn\b|\bdoi\b|retrieved from|accessed", re.I)
+
+
+def _real_high_hits(record: dict) -> list[dict]:
+    """The subset of a record's HIGH hits that are genuine junk (not a legit citation/reference line)."""
+    out: list[dict] = []
+    for hit in record.get("high_hits", []):
+        if hit["marker"] != "nav_link_density" or not _CITATION_SIGNAL.search(hit["text"]):
+            out.append(hit)
+    return out
 
 
 def _link_density(line: str) -> float:
@@ -182,9 +197,16 @@ def main() -> int:
     accepted = [r for r in results if r["accepted"]]
     leaks_high = [r for r in accepted if r["high_hits"]]
     leaks_med = [r for r in accepted if r["med_hits"] and not r["high_hits"]]
+    # REAL junk vs legit-reference false positives (the loop's stop condition = real_junk == 0)
+    real_junk = [{"url": r["url"], "ev": r["ev"], "hits": _real_high_hits(r)}
+                 for r in leaks_high if _real_high_hits(r)]
+    real_junk_urls = sorted({r["url"] for r in real_junk})
+    fp_only = [r for r in leaks_high if not _real_high_hits(r)]
     print(f"[replay] DONE. accepted={len(accepted)}/{total} | "
           f"LEAK(high junk inside accepted)={len(leaks_high)} | med-flag={len(leaks_med)} | "
           f"failure_modes={dict(mode_tally)}", flush=True)
+    print(f"[replay] SUMMARY real_junk={len(real_junk_urls)} reference_fp={len(fp_only)} "
+          f"total_high_leaks={len(leaks_high)}", flush=True)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = Path(args.out or f"/workspace/POLARIS/outputs/fetch_corpus_replay_{stamp}")
@@ -217,7 +239,16 @@ def main() -> int:
         clean = [r for r in accepted if not r["high_hits"] and not r["med_hits"]][:12]
         for r in clean:
             fh.write(f"\n### {r['ev']} T{r['tier']} {r['url']}\n  head: {r['head']!r}\n")
-    print(f"[replay] report: {out_dir}/report.md", flush=True)
+    # machine-readable summary + the still-real-junk urls for the next loop round
+    json.dump(
+        {"total": total, "accepted": len(accepted), "real_junk_count": len(real_junk_urls),
+         "reference_fp_count": len(fp_only), "real_junk": real_junk[:80],
+         "failure_modes": dict(mode_tally)},
+        open(out_dir / "summary.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    with open(out_dir / "next_leaks.txt", "w", encoding="utf-8") as nf:
+        nf.write("\n".join(real_junk_urls))
+    print(f"[replay] report: {out_dir}/report.md | summary: {out_dir}/summary.json | "
+          f"next_leaks: {out_dir}/next_leaks.txt", flush=True)
     return 0
 
 
