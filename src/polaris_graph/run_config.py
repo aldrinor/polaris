@@ -431,6 +431,9 @@ _PROMPT_RULES: list[tuple[str, re.Pattern[str], Any]] = [
     ("geography", re.compile(r"\b(US|U\.S\.|USA|United States|American)\b"), lambda m: "US"),
     ("geography", re.compile(r"\b(UK|United Kingdom|British)\b"), lambda m: "UK"),
     ("geography", re.compile(r"\b(Canada|Canadian)\b", re.I), lambda m: "Canada"),
+    # scope: jurisdiction (regulator lexicon + explicit jurisdiction phrase)
+    ("jurisdiction", re.compile(r"\b(FDA|EMA|MHRA|PMDA|NMPA|TGA|ANVISA|Swissmedic|Health Canada|NICE)\b"), lambda m: m.group(1)),
+    ("jurisdiction", re.compile(r"\b(?:under|within)\s+([A-Z][A-Za-z .]{1,40}?)\s+jurisdiction\b"), lambda m: m.group(1).strip()),
     # scope: language
     ("language", re.compile(r"\b(?:in|written in)\s+(French|Spanish|German|Chinese|Japanese|Portuguese|Italian)\b", re.I), lambda m: m.group(1).lower()),
     ("language", re.compile(r"\b(French|Spanish|German|Chinese|Japanese|Portuguese|Italian)[- ]language\b", re.I), lambda m: m.group(1).lower()),
@@ -490,6 +493,33 @@ def parse_prompt_knobs(prompt_text: str, registry: dict[str, KnobSpec]) -> dict[
             continue
         span = m.group(0).strip()
         out[knob_id] = (value, span)
+    # Generic explicit-directive layer: "<knob_id> = V", "<knob_id>: V", "set <knob_id> to V".
+    # Deterministic + anti-invention: the trigger IS the knob's own registered id (verbatim
+    # span recorded). Guarantees surface (a) for EVERY registered knob (§1 HARD requirement);
+    # specific NL rules above win (first match per knob).
+    for kid, spec in registry.items():
+        if kid in out or not spec.prompt_parseable:
+            continue
+        vpat = {
+            "int": r"[+-]?\d{1,9}",
+            "float": r"[+-]?\d+(?:\.\d+)?",
+            "bool": r"(?:true|false|on|off|yes|no|1|0)",
+        }.get(spec.type)
+        if vpat is None:
+            if spec.type == "str_enum" and spec.enum:
+                vpat = "(?:" + "|".join(re.escape(v) for v in spec.enum) + ")"
+            elif spec.type == "list":
+                vpat = r"[^.;\n]{1,120}"
+            else:
+                vpat = r"[^.;,\n]{1,80}"
+        name = re.escape(kid).replace(r"\_", r"[ _]")
+        m = re.search(rf"\b(?:set\s+)?{name}\s*(?:=|:|\s+to\s+)\s*({vpat})", prompt_text, re.I)
+        if not m:
+            continue
+        try:
+            out[kid] = (_coerce(spec, m.group(1).strip()), m.group(0).strip())
+        except RunConfigError:
+            continue
     return out
 
 

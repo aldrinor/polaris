@@ -67,7 +67,7 @@ knobs:
     code_default: 20            # PG_LIVE_MAX_S2 default "20"
     env_var: PG_LIVE_MAX_S2
     earliest_resume_checkpoint: cp0
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: breadth_budget
   - id: serper_total
@@ -76,7 +76,7 @@ knobs:
     code_default: 20            # PG_SERPER_TOTAL_PER_QUERY defaults to per_page (==serper_k)
     env_var: PG_SERPER_TOTAL_PER_QUERY
     earliest_resume_checkpoint: cp0
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: breadth_budget
   - id: fetch_cap
@@ -85,7 +85,7 @@ knobs:
     code_default: 200           # PG_LIVE_FETCH_CAP default "200"
     env_var: PG_LIVE_FETCH_CAP
     earliest_resume_checkpoint: cp0
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: breadth_budget
   - id: rounds
@@ -94,7 +94,7 @@ knobs:
     code_default: 6             # PG_QGEN_FS_RESEARCHER_MAX_ROUNDS default "6"
     env_var: PG_QGEN_FS_RESEARCHER_MAX_ROUNDS
     earliest_resume_checkpoint: cp0
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: breadth_budget
   - id: breadth_class
@@ -226,7 +226,7 @@ knobs:
     code_default: null
     env_var: null
     earliest_resume_checkpoint: cp3
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: select
     dna_class: presentation
   - id: structure
@@ -244,7 +244,7 @@ knobs:
     code_default: null
     env_var: null
     earliest_resume_checkpoint: cp3
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: text
     dna_class: presentation
   - id: reference_style
@@ -320,7 +320,7 @@ knobs:
     code_default: md
     env_var: null
     earliest_resume_checkpoint: cp3
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: select
     dna_class: presentation
 
@@ -331,7 +331,7 @@ knobs:
     code_default: 32            # PG_SCOPE_TOPIC_PARALLEL default 32
     env_var: PG_SCOPE_TOPIC_PARALLEL
     earliest_resume_checkpoint: cp1
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: stage_tuning
   - id: line_screen_parallel
@@ -340,7 +340,7 @@ knobs:
     code_default: 1             # PG_LINE_SCREEN_PARALLEL real code default 1 (serial); slate 32 is the ON value
     env_var: PG_LINE_SCREEN_PARALLEL
     earliest_resume_checkpoint: cp1
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: stage_tuning
   - id: outline_digest_budget
@@ -349,7 +349,7 @@ knobs:
     code_default: 60000         # PG_OUTLINE_DIGEST_MAX_CHARS default 60000
     env_var: PG_OUTLINE_DIGEST_MAX_CHARS
     earliest_resume_checkpoint: cp3
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: stage_tuning
   - id: revise_rounds
@@ -358,7 +358,7 @@ knobs:
     code_default: 1             # PG_OUTLINE_REVISE_ROUNDS default 1 (hard max 2 at call site)
     env_var: PG_OUTLINE_REVISE_ROUNDS
     earliest_resume_checkpoint: cp3
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: stage_tuning
   - id: max_recompose
@@ -367,7 +367,7 @@ knobs:
     code_default: 8            # PG_OUTLINE_MAX_RECOMPOSE default 8
     env_var: PG_OUTLINE_MAX_RECOMPOSE
     earliest_resume_checkpoint: cp3
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: stage_tuning
   - id: gap_refetch_budget
@@ -376,7 +376,7 @@ knobs:
     code_default: 0             # PG_OUTLINE_GAP_QUERIES default 0 (OFF until WAVE-5)
     env_var: PG_OUTLINE_GAP_QUERIES
     earliest_resume_checkpoint: cp3
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: stage_tuning
   - id: holistic_review
@@ -385,7 +385,7 @@ knobs:
     code_default: false         # PG_HOLISTIC_REVIEW default OFF
     env_var: PG_HOLISTIC_REVIEW
     earliest_resume_checkpoint: cp4
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: toggle
     dna_class: stage_tuning
   - id: section_concurrency
@@ -394,6 +394,6 @@ knobs:
     code_default: 6             # PG_PARALLEL_SECTIONS slate default 6 (plan raises to 32)
     env_var: PG_PARALLEL_SECTIONS
     earliest_resume_checkpoint: cp4
-    prompt_parseable: false
+    prompt_parseable: true
     panel_widget: number
     dna_class: stage_tuning
