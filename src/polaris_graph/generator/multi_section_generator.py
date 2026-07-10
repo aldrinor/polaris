@@ -2552,6 +2552,7 @@ async def _call_outline(
     max_tokens: int,
     retry_on_invalid: bool = True,
     domain: str = "",
+    finding_clusters: Any = None,
 ) -> tuple[OutlineParseResult, bool, int, int]:
     """Call the planner. Returns (parse_result, retry_attempted, in_tok, out_tok).
 
@@ -2664,6 +2665,36 @@ async def _call_outline(
             f"{summary_text}\n\n"
             f"Return the JSON section plan."
         )
+
+    # S4 ORCH-1 (Design 5, ruling R2 / PG_OUTLINE_BASKET_DIGEST): feed the planner
+    # CONSOLIDATED-CLAIM DIGESTS (claim text + corroboration + tier mix + member ev_ids) — the
+    # semantic equivalent of FS-Researcher's knowledge_base/ — instead of the bare title menu
+    # built above. FS-completion piece C2 (Gap #3, title-starved outline). OFF, or no clusters
+    # passed => the legacy title menu is used, BYTE-IDENTICAL. Fail-open: a digest-build error
+    # falls back to the legacy menu (the outline menu is not a faithfulness gate; never crash a
+    # paid outline). §-1.3: CONSOLIDATE-keep-all — the digest accounts for 100% of the pool.
+    if (
+        os.getenv("PG_OUTLINE_BASKET_DIGEST", "0").strip().lower() in ("1", "true", "yes", "on")
+        and finding_clusters
+    ):
+        try:
+            from src.polaris_graph.generator.outline_digest import build_outline_digest
+
+            _digest_menu = build_outline_digest(evidence, finding_clusters)
+            summary_text = _digest_menu.render()
+            prompt = (
+                f"Research question: {research_question}\n\n"
+                f"Evidence summaries ({len(evidence)} rows consolidated into "
+                f"{len(_digest_menu.basket_lines)} corroboration baskets + "
+                f"{len(_digest_menu.singleton_lines)} singletons):\n"
+                f"{summary_text}\n\n"
+                f"Return the JSON section plan."
+            )
+        except Exception as _digest_exc:  # noqa: BLE001 — fall back to the legacy title menu
+            logger.warning(
+                "[multi_section] S4 ORCH-1 basket-digest build failed; falling back to the "
+                "legacy title menu (never crash the outline): %s", _digest_exc,
+            )
 
     # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
     # ev_id the LLM picks is accepted iff it is anywhere in the pool, and full-text resolution
@@ -8854,6 +8885,10 @@ async def generate_multi_section_report(
     # byte-identical. Threaded by the sweep runner ONLY when PG_SWEEP_CREDIBILITY_REDESIGN is on.
     credibility_pass_judge: Any = None,
     credibility_pass_gov_suffixes: tuple[str, ...] | None = None,
+    # S4 ORCH-1 (Design 5, ruling R2): finding_dedup clusters for the basket-digest outline menu.
+    # None/[] => the legacy title menu (byte-identical). Threaded by run_one_query ONLY when
+    # PG_OUTLINE_BASKET_DIGEST is on; _call_outline reads the flag itself and fails open.
+    finding_clusters: Any = None,
     model: Optional[str] = None,
     outline_temperature: float = 0.2,
     section_temperature: float = 0.3,
@@ -9117,6 +9152,7 @@ async def generate_multi_section_report(
                 research_question, evidence, gen_model,
                 outline_temperature, outline_max_tokens,
                 domain=domain,
+                finding_clusters=finding_clusters,
             )
         plans = outline_parse.plans
         # N6-FIX-B (I-deepfix-001 wave-2): strip SEMANTIC confirmed-off-topic ev_ids from the LEGACY

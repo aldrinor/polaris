@@ -14647,6 +14647,11 @@ async def run_one_query(
         # finding to one representative + corroboration_count (independent
         # registrable-domains); applies to the full-plan AND the partial pruned pool.
         # OFF (_use_finding_dedup False) -> evidence_for_gen unchanged.
+        # S4 ORCH-1 (Design 5, ruling R2): the finding_dedup clusters feed the basket-digest
+        # outline menu. Initialised None so the generate call below is always defined; set below
+        # only when dedup ran. _call_outline ignores it unless PG_OUTLINE_BASKET_DIGEST is on
+        # (byte-identical when the flag is off).
+        _outline_finding_clusters = None
         if _use_finding_dedup:
             from src.polaris_graph.authority.data_loader import (
                 load_authority_data,
@@ -14663,6 +14668,8 @@ async def run_one_query(
                 evidence_for_gen, gov_suffixes=_gov_suffixes,
                 domain=q["domain"],
             )
+            # S4 ORCH-1: hand the same clusters to the outline for the basket-digest menu.
+            _outline_finding_clusters = _dedup.clusters
             # I-arch-002 (#1246) P3.3 (member-drop bypass): under the redesign flag,
             # SKIP replacing evidence_for_gen with the deduped (member-DROPPED) rows so
             # ALL same-claim rows flow to composition (CONSOLIDATE-keep-all, DNA §-1.3
@@ -15172,6 +15179,9 @@ async def run_one_query(
                 prior_verified_context=_prior_verified_context,
                 credibility_pass_judge=_cred_judge,
                 credibility_pass_gov_suffixes=_cred_gov,
+            # S4 ORCH-1 (Design 5, ruling R2): finding_dedup clusters for the basket-digest
+            # outline menu. None unless dedup ran; ignored unless PG_OUTLINE_BASKET_DIGEST is on.
+            finding_clusters=_outline_finding_clusters,
             # F23 (I-arch-004 A3): env-overridable section temperature; default
             # keeps the historical literal 0.3 so an unset env is byte-identical.
             section_temperature=float(os.environ.get(

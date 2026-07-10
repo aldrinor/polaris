@@ -1,0 +1,55 @@
+{
+  "_note": "HAND-BUILT branch-coverage miniature for the S4 outline offline harness/tests. NOT a live corpus — the real drb_72 replay is the VM hamster (LAW II: fixtures live only under tests/fixtures/). Rows are plausible clinical claims chosen to exercise every code branch: a 3-member basket, a 2-member basket, four singletons incl. one with no title.",
+  "evidence": [
+    {"evidence_id": "ev01", "tier": "T1", "title": "Tirzepatide 15mg HbA1c reduction", "statement": "tirzepatide 15mg reduced HbA1c by -2.1% vs placebo at 40 weeks"},
+    {"evidence_id": "ev02", "tier": "T1", "title": "SURPASS-2 primary endpoint", "statement": "SURPASS-2: tirzepatide 15mg lowered HbA1c by -2.30% at 40 weeks"},
+    {"evidence_id": "ev03", "tier": "T2", "title": "Semaglutide 1mg comparison", "statement": "semaglutide 1mg reduced HbA1c by -1.86% at 40 weeks in the same population"},
+    {"evidence_id": "ev04", "tier": "T6", "title": "Patient forum thread on tirzepatide", "statement": "forum users report tirzepatide 15mg lowered their a1c by roughly 2 points"},
+    {"evidence_id": "ev05", "tier": "T3", "title": "Weight-loss meta-analysis", "statement": "tirzepatide produced a 20.9% mean body-weight reduction across trials"},
+    {"evidence_id": "ev06", "tier": "T4", "title": "GLP-1 cost analysis", "statement": "the US list price of tirzepatide remains substantially higher than older agents"},
+    {"evidence_id": "ev07", "tier": "T5", "title": "", "statement": "adverse events were predominantly gastrointestinal, with nausea most common"},
+    {"evidence_id": "ev08", "tier": "T2", "title": "Cardiovascular outcomes program", "statement": "SURPASS-CVOT is ongoing to test cardiovascular endpoints for tirzepatide"},
+    {"evidence_id": "ev09", "tier": "T2", "title": "SURMOUNT-1 body weight", "statement": "tirzepatide 15mg reduced body weight by -20.9% at 72 weeks"}
+  ],
+  "clusters": [
+    {"finding_key": ["hba1c", "tirzepatide", "15mg"], "representative_index": 0, "member_indices": [0, 1, 3], "member_hosts": ["nejm.org", "jamanetwork.com", "reddit.com"], "corroboration_count": 3},
+    {"finding_key": ["weight", "tirzepatide", "reduction"], "representative_index": 4, "member_indices": [4, 8], "member_hosts": ["thelancet.com", "nejm.org"], "corroboration_count": 2}
+  ],
+  "pool_ev_ids": ["ev01", "ev02", "ev03", "ev04", "ev05", "ev06", "ev07", "ev08", "ev09"],
+  "basket_members": {"B00": ["ev01", "ev02", "ev04"], "B01": ["ev05", "ev09"]},
+  "basket_corroboration": {"B00": 3, "B01": 2},
+  "plans": [
+    {"title": "Glycemic Efficacy", "focus": "HbA1c reduction", "ev_ids": ["ev01", "ev02", "ev04"], "basket_ids": ["B00"], "archetype": "facet"},
+    {"title": "Weight and Safety", "focus": "weight and adverse events", "ev_ids": ["ev05", "ev09", "ev07"], "basket_ids": ["B01"], "archetype": "facet"},
+    {"title": "Cost", "focus": "pricing", "ev_ids": ["ev06"], "basket_ids": [], "archetype": "facet"}
+  ],
+  "section_results": {
+    "Glycemic Efficacy": {"verified_sentence_count": 4, "cited_ev_ids": ["ev01", "ev02"], "kept_fraction": 0.9, "dropped": false},
+    "Weight and Safety": {"verified_sentence_count": 2, "cited_ev_ids": ["ev05", "ev09"], "kept_fraction": 0.7, "dropped": false},
+    "Cost": {"verified_sentence_count": 0, "cited_ev_ids": [], "kept_fraction": 0.0, "dropped": true}
+  },
+  "reviser_output": {
+    "ops": [
+      {"op": "keep", "title": "Glycemic Efficacy"},
+      {"op": "retitle", "title": "Weight and Safety", "new_title": "Weight Reduction and Adverse Events", "reason": "safety warrants its own heading"},
+      {"op": "reassign", "title": "Cost", "add_ev_ids": ["ev06"], "drop_ev_ids": [], "reason": "confirm the single cost row is anchored"},
+      {"op": "add", "title": "Cardiovascular Outcomes", "focus": "SURPASS-CVOT status", "ev_ids": ["ev08"], "reason": "uncited on-topic cardiovascular evidence"},
+      {"op": "reassign", "title": "Nonexistent Section", "add_ev_ids": ["ev01"], "reason": "must be rejected: unknown title"},
+      {"op": "reassign", "title": "Glycemic Efficacy", "add_ev_ids": ["ev999"], "reason": "must be rejected: unknown ev_id"}
+    ],
+    "gap_queries": ["tirzepatide cardiovascular outcomes SURPASS-CVOT results"],
+    "revision_needed": true
+  },
+  "deliverable": {
+    "required_sections": ["Executive Summary", "Efficacy", "Safety", "Cost"],
+    "audience": "hospital formulary committee",
+    "tone": "clinical, cautious",
+    "reference_style": "Vancouver",
+    "length_target": "about 2000 words"
+  },
+  "scope": {
+    "date_window": "2019-2024",
+    "geography": "United States",
+    "source_types": ["randomized controlled trial", "guideline"]
+  }
+}
