@@ -10239,6 +10239,29 @@ async def run_one_query(
             if (_use_research_planner and _planner_protocol is not None)
             else protocol
         )
+        # S1.b Design 7 D3 (ruling R11): the frame-derived planner protocol
+        # (research_planner.to_anchor_protocol) does NOT carry the parsed scope blocks, but the
+        # additive scoped backend lanes in run_live_retrieval read scope from the protocol they
+        # receive. When any scope-filter lane is enabled, copy the base protocol's user_constraints /
+        # scope_constraints ONTO the (distinct) planner protocol so the scoped lanes are not silently
+        # dark on the planner path. Purely additive (fills only absent keys) + guarded by the D3 flags
+        # => byte-identical when they are OFF. Fail-open. (D2 already reads the base protocol at the
+        # qgen seam, so only D3 needs this bridge.)
+        try:
+            if (
+                isinstance(_retrieval_protocol, dict)
+                and _retrieval_protocol is not protocol
+                and isinstance(protocol, dict)
+                and any(
+                    os.getenv(_sf, "0").strip().lower() in ("1", "true", "on", "yes")
+                    for _sf in ("PG_SERPER_SCOPE_FILTER", "PG_S2_SCOPE_FILTER", "PG_OPENALEX_SCOPE_FILTER")
+                )
+            ):
+                for _sk in ("user_constraints", "scope_constraints"):
+                    if _sk not in _retrieval_protocol and _sk in protocol:
+                        _retrieval_protocol[_sk] = protocol[_sk]
+        except Exception:  # noqa: BLE001 — fail-open: scoped lanes simply stay idle on the planner path
+            pass
         _retrieval_seed_urls = [] if _use_research_planner else _trial_doi_seeds
         _retrieval_frame = (
             _research_plan.frame
