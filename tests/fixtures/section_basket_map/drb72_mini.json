@@ -1,0 +1,144 @@
+{
+  "_provenance": "Real evidence_ids + titles drawn from tests/fixtures/drb72/evidence_pool.json (DRB-EN #72, AI impact on labor markets). Baskets and section plans are the test SCENARIO built from that real data (LAW II real-data-only; the scenario grouping is the fixture, tests/fixtures exemption LAW VI). Exercises every map branch: multi-home, corroborating facet, tie-break -> lowest index, orphan -> residual (x2), sub-query-lineage signal, refuter-shape pass-through.",
+  "sub_queries": [
+    "how does automation displace routine job tasks",
+    "does AI raise worker productivity and complement labor",
+    "which occupations are exposed to generative AI",
+    "empirical AI effects on employment wages and vacancies",
+    "policy responses and distributional effects of AI on labor"
+  ],
+  "section_plans": [
+    {
+      "title": "Displacement and Task Automation",
+      "focus": "How automation and robots displace routine job tasks and lower the labor share.",
+      "ev_ids": ["acemoglu_restrepo_automation_tasks", "acemoglu_restrepo_robots_jobs", "frey_osborne_computerisation"],
+      "sub_query_indices": [0]
+    },
+    {
+      "title": "Productivity and Complementarity",
+      "focus": "Evidence that AI raises productivity and complements rather than replaces workers.",
+      "ev_ids": ["autor_why_still_jobs", "brynjolfsson_genai_at_work", "ev_037"],
+      "sub_query_indices": [1]
+    },
+    {
+      "title": "Generative AI Exposure",
+      "focus": "Which occupations and tasks are exposed to large language models.",
+      "ev_ids": ["eloundou_gpts_are_gpts", "brynjolfsson_genai_at_work"],
+      "sub_query_indices": [2]
+    },
+    {
+      "title": "Empirical Labor Market Outcomes",
+      "focus": "Empirical studies of AI effects on employment, wages, and vacancies.",
+      "ev_ids": ["ev_028", "ev_025", "ev_022"],
+      "sub_query_indices": [3]
+    },
+    {
+      "title": "Policy and Distributional Effects",
+      "focus": "Policy responses and distributional consequences of AI on the labor market.",
+      "ev_ids": ["ev_002", "ev_026"],
+      "sub_query_indices": [4]
+    }
+  ],
+  "baskets": [
+    {
+      "claim_cluster_id": "cc_automation_displaces",
+      "claim_text": "Automation and new technology displace routine tasks and lower the labor share.",
+      "subject": "automation",
+      "predicate": "displaces routine tasks",
+      "corroboration_count": 2,
+      "member_ev_ids": ["acemoglu_restrepo_automation_tasks", "frey_osborne_computerisation"]
+    },
+    {
+      "claim_cluster_id": "cc_robots_reduce_employment",
+      "claim_text": "Robot adoption reduces employment and wages in exposed local labor markets.",
+      "subject": "robots",
+      "predicate": "reduce employment and wages",
+      "corroboration_count": 2,
+      "member_ev_ids": ["acemoglu_restrepo_robots_jobs", "ev_028"]
+    },
+    {
+      "claim_cluster_id": "cc_estimates_vary",
+      "claim_text": "Susceptibility estimates vary widely across studies.",
+      "subject": "estimates",
+      "predicate": "vary widely",
+      "corroboration_count": 2,
+      "member_ev_ids": ["frey_osborne_computerisation", "ev_037"]
+    },
+    {
+      "claim_cluster_id": "cc_genai_exposure",
+      "claim_text": "Generative AI exposes a large share of occupations to task automation.",
+      "subject": "generative AI",
+      "predicate": "exposes occupations",
+      "corroboration_count": 2,
+      "member_ev_ids": ["eloundou_gpts_are_gpts", "brynjolfsson_genai_at_work"]
+    },
+    {
+      "claim_cluster_id": "cc_new_jobs_created",
+      "claim_text": "Technological change historically created new jobs even as it destroyed old ones.",
+      "subject": "technological change",
+      "predicate": "creates new jobs",
+      "corroboration_count": 1,
+      "member_ev_ids": ["autor_why_still_jobs"]
+    },
+    {
+      "claim_cluster_id": "cc_firm_productivity",
+      "claim_text": "Firm level artificial intelligence adoption is associated with higher productivity.",
+      "subject": "firms",
+      "predicate": "raise productivity",
+      "corroboration_count": 1,
+      "member_ev_ids": ["ev_037"]
+    },
+    {
+      "claim_cluster_id": "cc_vacancy_signal",
+      "claim_text": "AI exposure appears in online job vacancy postings.",
+      "subject": "vacancies",
+      "predicate": "show AI exposure",
+      "corroboration_count": 1,
+      "member_ev_ids": ["ev_028"]
+    },
+    {
+      "claim_cluster_id": "cc_effects_uncertain",
+      "claim_text": "The labor market effects of AI remain uncertain and contested.",
+      "subject": "AI effects",
+      "predicate": "remain uncertain",
+      "corroboration_count": 2,
+      "refuter_cluster_ids": ["cc_new_jobs_created"],
+      "member_ev_ids": ["ev_022", "ev_026"]
+    },
+    {
+      "claim_cluster_id": "cc_policy_shapes",
+      "claim_text": "AI will disrupt the labor market but policy can shape the distributional outcome.",
+      "subject": "policy",
+      "predicate": "shapes outcomes",
+      "corroboration_count": 1,
+      "member_ev_ids": ["ev_002"]
+    },
+    {
+      "claim_cluster_id": "cc_subquery_only",
+      "claim_text": "An institutional review synthesizes distributional evidence.",
+      "subject": "review",
+      "predicate": "synthesizes evidence",
+      "corroboration_count": 1,
+      "member_ev_ids": ["ev_027"]
+    },
+    {
+      "claim_cluster_id": "cc_fourth_revolution",
+      "claim_text": "The fourth industrial revolution framing shapes the automation debate.",
+      "subject": "framing",
+      "predicate": "shapes debate",
+      "corroboration_count": 1,
+      "member_ev_ids": ["fourth_industrial_revolution_framing"]
+    },
+    {
+      "claim_cluster_id": "cc_unclassified_residual",
+      "claim_text": "Miscellaneous unclassified corroborated finding.",
+      "subject": "finding",
+      "predicate": "unclassified",
+      "corroboration_count": 1,
+      "member_ev_ids": ["ev_035"]
+    }
+  ],
+  "evidence_rows": {
+    "ev_027": {"evidence_id": "ev_027", "retrieval_subquery": "policy responses and distributional effects of AI on labor"}
+  }
+}

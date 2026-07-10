@@ -3100,13 +3100,59 @@ def _basket_confirmed_offtopic(basket: Any, evidence_pool: Any) -> bool:
         return False
 
 
+def _section_basket_map_consume_enabled() -> bool:
+    """Kill-switch for the Design 4 D2 precomputed-map fast path (``PG_SECTION_BASKET_MAP``).
+
+    OFF (default) or an import fault => the fast path is never taken and
+    ``_section_baskets_for_compose`` recomputes the legacy intersection (byte-identical)."""
+    try:
+        from src.polaris_graph.synthesis.section_basket_map import (  # noqa: PLC0415
+            section_basket_map_enabled,
+        )
+        return bool(section_basket_map_enabled())
+    except Exception:  # noqa: BLE001 — additive fast path; any fault falls back to legacy
+        return False
+
+
+def _baskets_from_section_map(section_basket_map: Any, section_index: int, baskets: list) -> list:
+    """Resolve a section's precomputed ``SectionBasketView`` list to basket objects (primary +
+    corroborating), by ``claim_cluster_id``, in the map's deterministic order. Baskets with a
+    cluster id absent from the map's section views are omitted (they compose in their own home)."""
+    lookup: dict[str, Any] = {}
+    for b in baskets:
+        cid = str(getattr(b, "claim_cluster_id", "") or "")
+        if cid and cid not in lookup:
+            lookup[cid] = b
+    views = getattr(section_basket_map, "views_by_section", None) or {}
+    out: list = []
+    seen: set[str] = set()
+    for view in views.get(section_index, []) or []:
+        cid = str(getattr(view, "claim_cluster_id", "") or "")
+        if cid in lookup and cid not in seen:
+            seen.add(cid)
+            out.append(lookup[cid])
+    return out
+
+
 def _section_baskets_for_compose(
-    section: Any, credibility_analysis: Any, evidence_pool: Any = None
+    section: Any,
+    credibility_analysis: Any,
+    evidence_pool: Any = None,
+    *,
+    section_basket_map: Any = None,
+    section_index: int | None = None,
 ) -> list:
     """ALL baskets whose verified members back evidence assigned to THIS section (primary, not
     augment: contract-entity baskets are a SUBSET). A basket belongs to the section if any of its
     member evidence_ids is in the section's assigned ev_ids. Deterministic; order follows the
     credibility_analysis.baskets order. None/empty => [] (caller keeps the legacy path).
+
+    Design 4 D2 fast path (S5): when a precomputed ``section_basket_map`` + ``section_index`` are
+    attached AND ``PG_SECTION_BASKET_MAP`` is ON, the section's baskets come from the map's
+    deterministic placement (primary + corroborating views) instead of the recomputed intersection —
+    so no basket is stranded and each basket's PRIMARY home is exactly one section. Map absent OR flag
+    OFF => the legacy intersection runs, byte-identical. The B1 con-basket augment and the off-topic
+    basket screen below run on the returned list unchanged in both modes.
 
     N1-FIX-1 / N6-FIX-A (merged): when ``evidence_pool`` is provided AND
     ``PG_COMPOSE_OFFTOPIC_BASKET_SCREEN`` is ON, off-topic-ONLY baskets are WITHHELD from the returned
@@ -3115,14 +3161,17 @@ def _section_baskets_for_compose(
     baskets = list(getattr(credibility_analysis, "baskets", None) or [])
     if not baskets:
         return []
-    section_ev_ids = _section_assigned_ev_ids(section)
-    if not section_ev_ids:
-        return []
-    out: list = []
-    for b in baskets:
-        member_ids = {str(getattr(m, "evidence_id", "") or "") for m in getattr(b, "supporting_members", None) or []}
-        if member_ids & section_ev_ids:
-            out.append(b)
+    if section_basket_map is not None and section_index is not None and _section_basket_map_consume_enabled():
+        out: list = _baskets_from_section_map(section_basket_map, section_index, baskets)
+    else:
+        section_ev_ids = _section_assigned_ev_ids(section)
+        if not section_ev_ids:
+            return []
+        out = []
+        for b in baskets:
+            member_ids = {str(getattr(m, "evidence_id", "") or "") for m in getattr(b, "supporting_members", None) or []}
+            if member_ids & section_ev_ids:
+                out.append(b)
     # B1 (I-deepfix-001 #1344): DEBATE-CLASS con-basket consolidation. When a SELECTED pro-basket
     # refutes another cluster (``refuter_cluster_ids``), CONSOLIDATE the referenced con-basket into
     # this section's compose set even if its evidence was not assigned here — so the minority side
