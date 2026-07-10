@@ -470,6 +470,30 @@ def _frozen_engine_verifies_sentence(
         return False
 
 
+def promote_synthesis_entailment_finding(
+    audit_sentence: str, cited_rows: "list[dict[str, Any]]", *, entails_fn=None
+) -> bool:
+    """I-deepfix-006-compose C3 — the ENTAILMENT analog of the D3 ``_frozen_engine_verifies_sentence``
+    promote hook, living beside it in the analyst module. A cross-source SYNTHESIS finding is a
+    PARAPHRASE that fuses several corroborating spans, so the D3 verbatim ``_span_grounds_sentence`` leg
+    (>=2 content-word overlap) wrongly drops it. This hook instead confirms the finding is (a) number-
+    grounded in the union of its cited spans AND (b) ENTAILED by that union — delegating to the C1
+    ``synthesis_entailment_verify.entailment_grounds_sentence`` (the SAME numeric + directional-NLI legs
+    the C1 verify path uses). Returns True => the finding may be PROMOTED into the D8 4-role input set;
+    a NON-entailed / number-mismatched finding => False (not promoted). FAIL-CLOSED on a wiring fault
+    (a missing module / import error returns False, never a silent True)."""
+    if not cited_rows:
+        return False
+    try:
+        from src.polaris_graph.synthesis.synthesis_entailment_verify import (
+            entailment_grounds_sentence,
+        )
+    except Exception as exc:  # pragma: no cover — synthesis_entailment_verify is stable in-tree
+        logger.warning("[analyst_deviation] C3 entailment promote hook unavailable (fail-closed): %s", exc)
+        return False
+    return bool(entailment_grounds_sentence(audit_sentence, cited_rows, entails_fn=entails_fn))
+
+
 def _default_sentinel_judge() -> "Callable[[str, str], bool]":
     """Build the real groundedness judge: the certified MiniMax-M2 Sentinel decomposition (a SECOND
     family vs the GLM/DeepSeek writer, so two-family holds). Returns a ``judge_fn(claim, span) -> bool``

@@ -205,6 +205,53 @@ def min_corroboration() -> int:
     return max(_DEFAULT_MIN_SOURCES, _env_int(_ENV_MIN_SOURCES, _DEFAULT_MIN_SOURCES))
 
 
+# ── I-deepfix-006-compose SYNTHESIS-VERIFY (C1 / C2 / C3) flag readers ───────────────────────────────
+# C1: the ADDITIVE entailment verify path (default-ON). When ON, ``synthesize_cross_source_findings``
+# wraps the incoming ``verify_fn`` (= the FROZEN strict_verify — untouched) with the entailment UNION
+# wrapper so an ENTAILED paraphrase the >=2-verbatim-content-word leg drops is RESCUED. OFF => verify_fn
+# is used unchanged (byte-identical). LAW VI: env-overridable, read at call time.
+_ENV_SYNTH_ENTAILMENT_VERIFY = "PG_SYNTH_ENTAILMENT_VERIFY"
+# C2: single-source synthesis (default-ON). When ON *and C1 is also on*, a 1-distinct-origin basket is
+# ALSO synthesized (labeled "(single source)", never dropped) instead of being dropped at the >=2
+# eligibility floor. OFF => the eligibility floor stays 2 (byte-identical).
+_ENV_SYNTH_SINGLE_SOURCE = "PG_SYNTH_SINGLE_SOURCE"
+# C3: D8 promote (default-ON). When ON, the entailment-rescued synthesis sentences are routed into the
+# D8 4-role input set even if the legacy PG_DEPTH_SYNTHESIS_D8_GATE is off, so a rescued paraphrase is
+# NEVER rendered as body prose without VERIFIED/UNSUPPORTED adjudication. OFF => byte-identical (only the
+# legacy gate routes DS-* claims).
+_ENV_SYNTH_D8_PROMOTE = "PG_SYNTH_D8_PROMOTE"
+
+
+def synthesis_entailment_verify_enabled() -> bool:
+    """C1 default-ON. OFF (``PG_SYNTH_ENTAILMENT_VERIFY=0``) => no entailment union; the synthesis pass
+    re-grounds through the frozen ``strict_verify`` alone (byte-identical)."""
+    return os.getenv(_ENV_SYNTH_ENTAILMENT_VERIFY, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def single_source_synthesis_enabled() -> bool:
+    """C2 fine flag (default-ON). See ``single_source_synthesis_active`` for the combined gate."""
+    return os.getenv(_ENV_SYNTH_SINGLE_SOURCE, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def single_source_synthesis_active() -> bool:
+    """C2 fires ONLY when C1 (entailment verify) is ALSO on — a single-origin basket's consolidated
+    sentence needs the entailment leg to survive (the verbatim leg would drop the paraphrase). Both flags
+    default-ON; either OFF => the eligibility floor stays the DEFINITIONAL 2 (byte-identical)."""
+    return synthesis_entailment_verify_enabled() and single_source_synthesis_enabled()
+
+
+def synth_d8_promote_enabled() -> bool:
+    """C3 default-ON. OFF (``PG_SYNTH_D8_PROMOTE=0``) => only the legacy PG_DEPTH_SYNTHESIS_D8_GATE routes
+    DS-* claims (byte-identical)."""
+    return os.getenv(_ENV_SYNTH_D8_PROMOTE, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+# The soft-warning ``synthesis_entailment_verify.make_entailment_union_verify_fn`` stamps on a sentence
+# the entailment leg RESCUED (kept when the frozen >=2-verbatim-content-word leg dropped it). Mirrors
+# ``synthesis_entailment_verify.SYNTH_ENTAILMENT_SOFT_WARNING`` — the C3 routing reads it per finding.
+_SYNTH_ENTAILMENT_SOFT_WARNING = "synthesis_entailment_verified"
+
+
 def depth_synthesis_d8_gate_enabled() -> bool:
     """Default ON. When ON, each grounded cross-source finding carries its PRE-resolve audit sentence
     + ``ProvenanceToken`` list so the runner can thread it through the SAME 4-role D8 seam the body
@@ -557,6 +604,26 @@ def synthesize_cross_source_findings(
     cap = _env_int(_ENV_MAX_FINDINGS, _DEFAULT_MAX_FINDINGS) if max_findings is None else int(max_findings)
     screen = _default_chrome_screen if chrome_screen is None else chrome_screen
 
+    # I-deepfix-006-compose C1: ADDITIVE entailment verify. Wrap the incoming verify_fn (= the FROZEN
+    # strict_verify — never edited) with the entailment UNION wrapper so a synthesized sentence the
+    # >=2-verbatim-content-word leg drops but that (a) resolves a provenance token, (b) matches every
+    # number in its span, and (c) is ENTAILED by that span is RESCUED. Union => strict_verify passes are
+    # ALWAYS kept; the entailment leg only ADDS. OFF (PG_SYNTH_ENTAILMENT_VERIFY=0) => verify_fn unchanged.
+    if synthesis_entailment_verify_enabled():
+        try:
+            from src.polaris_graph.synthesis.synthesis_entailment_verify import (  # noqa: PLC0415
+                make_entailment_union_verify_fn,
+            )
+            verify_fn = make_entailment_union_verify_fn(verify_fn)
+        except Exception:  # noqa: BLE001 — the entailment union is ADDITIVE; a wiring fault keeps strict_verify
+            logger.warning("[depth_synthesis] C1 entailment union wrap failed => strict_verify only", exc_info=True)
+
+    # I-deepfix-006-compose C2: single-source synthesis. When C1 AND PG_SYNTH_SINGLE_SOURCE are both on,
+    # a 1-distinct-origin basket is ALSO synthesized (the per-basket tier decision below labels it
+    # "(single source)", never dropped — §-1.3 "don't drop, label weak weak"). The TIER boundary (cross
+    # vs single) stays the DEFINITIONAL 2. OFF => the eligibility floor stays 2 (byte-identical).
+    eligibility_floor = 1 if single_source_synthesis_active() else floor
+
     # #1335: the BODY composer's already-rendered sentences, normalized for duplicate detection so a FIX-1
     # span-join digest that is text-identical to a body line is dropped (the body line is kept). None /
     # empty => no dedup (byte-identical to the pre-fix render — the guard is a no-op).
@@ -565,18 +632,21 @@ def synthesize_cross_source_findings(
     }
     body_norm.discard("")
 
-    def _collect(report: Any) -> "tuple[list[tuple[str, str, list]], set[str]]":
-        """Process a verify report's ``kept_sentences`` into (rendered/audit/token triples, distinct
-        surviving report-``[N]`` origins). SHARED per-sentence resolution + chrome screen used for BOTH
-        the LLM draft AND the FIX-1 deterministic span-join fallback, so the fallback re-grounds through
-        the EXACT same faithfulness path (token->[N] resolution, origin identity, chrome screen)."""
-        out_sentences: list[tuple[str, str, list]] = []
+    def _collect(report: Any) -> "tuple[list[tuple[str, str, list, bool]], set[str]]":
+        """Process a verify report's ``kept_sentences`` into (rendered/audit/token/is_entailment quads,
+        distinct surviving report-``[N]`` origins). SHARED per-sentence resolution + chrome screen used
+        for BOTH the LLM draft AND the FIX-1 deterministic span-join fallback, so the fallback re-grounds
+        through the EXACT same faithfulness path (token->[N] resolution, origin identity, chrome screen)."""
+        out_sentences: list[tuple[str, str, list, bool]] = []
         out_origins: set[str] = set()
         for sv in (getattr(report, "kept_sentences", None) or []):
             # PRE-resolve audit sentence + its provenance tokens (the D8 inputs), captured BEFORE the
             # token->[N] resolution below mutates ``sentence`` into the rendered form.
             audit_sentence = str(getattr(sv, "sentence", "") or "").strip()
             toks = list(getattr(sv, "tokens", None) or [])
+            # C3: True when the C1 entailment leg RESCUED this sentence (the frozen >=2-verbatim leg
+            # dropped it). Read from the SentenceVerification soft-warnings the union wrapper stamps.
+            is_entailment = _SYNTH_ENTAILMENT_SOFT_WARNING in list(getattr(sv, "soft_warnings", None) or [])
             sentence = audit_sentence
             if not sentence:
                 continue
@@ -608,7 +678,7 @@ def synthesize_cross_source_findings(
                 origin_keys = set(surviving_ids)
             if not sentence or screen(sentence):
                 continue
-            out_sentences.append((sentence, audit_sentence, toks))
+            out_sentences.append((sentence, audit_sentence, toks, is_entailment))
             out_origins |= origin_keys
         return out_sentences, out_origins
 
@@ -633,13 +703,14 @@ def synthesize_cross_source_findings(
         # a corpus-source filter — the source stays in the basket + disclosure; only its chrome span is
         # kept out of the cross-source count. OFF => byte-identical ``_distinct_origin_supports``.
         members = _dechrome_distinct_origin_supports(basket)
-        if len(members) < floor:
-            continue  # not a CROSS-source CANDIDATE basket (definitional, not a filter of corpus sources)
+        if len(members) < eligibility_floor:
+            continue  # not a CANDIDATE basket (definitional, not a filter of corpus sources)
         scoped_pool = _scoped_pool(basket, evidence_pool)
-        # (1) LLM draft -> re-ground through the UNCHANGED verify_fn. Each collected element is a TRIPLE
-        # (rendered_[N]_sentence, audit_sentence_pre-resolve, tokens): the audit sentence carries the
-        # ``[#ev:...]`` tokens for the D8 seam; the rendered sentence is the post-resolution [N] form.
-        basket_sentences: list[tuple[str, str, list]] = []
+        # (1) LLM draft -> re-ground through the UNCHANGED verify_fn. Each collected element is a QUAD
+        # (rendered_[N]_sentence, audit_sentence_pre-resolve, tokens, is_entailment): the audit sentence
+        # carries the ``[#ev:...]`` tokens for the D8 seam; the rendered sentence is the post-resolution
+        # [N] form; is_entailment marks a C1 entailment-RESCUED sentence for the C3 D8-promote routing.
+        basket_sentences: list[tuple[str, str, list, bool]] = []
         basket_origins: set[str] = set()
         draft = ""
         try:
@@ -674,8 +745,13 @@ def synthesize_cross_source_findings(
         # honestly labeled "(single source)", never a blanket "corroborated" (§-1.1 lethal-if-misstated).
         tier = _TIER_CROSS_SOURCE if len(basket_origins) >= floor else _TIER_SINGLE_SOURCE
         label = "" if tier == _TIER_CROSS_SOURCE else _SINGLE_SOURCE_LABEL
-        carry_d8 = depth_synthesis_d8_gate_enabled()
-        for rendered, audit_sentence, toks in basket_sentences:
+        # The legacy D8 gate attaches the seam inputs to EVERY finding (existing behavior). C3 ADDITIVELY
+        # attaches them to a C1 entailment-RESCUED finding when the promote flag is on — so a rescued
+        # paraphrase is never rendered as body prose without D8 adjudication even if the legacy gate is
+        # off. A NON-entailment finding with the legacy gate off carries NO seam keys (byte-identical).
+        carry_d8_legacy = depth_synthesis_d8_gate_enabled()
+        promote_d8 = synth_d8_promote_enabled()
+        for rendered, audit_sentence, toks, is_entailment in basket_sentences:
             # #1335 body-vs-DS duplicate guard: the FIX-1 deterministic span-join reuses the SAME
             # compose_basket_multicited_sentence the BODY composer runs on the SAME basket, so a DS-*
             # digest can be text-identical (modulo citation markers) to a body line. Drop the DS-*
@@ -699,13 +775,17 @@ def synthesize_cross_source_findings(
                 continue
             seen.add(key)
             finding: dict = {"sentence": rendered, "tier": tier, "label": label}
-            if carry_d8:
+            if carry_d8_legacy or (promote_d8 and is_entailment):
                 # The PRE-resolve audit sentence (carries [#ev:...] tokens) + its ProvenanceToken list
                 # are the D8 seam inputs. ``build_depth_layer`` reads ONLY sentence/tier/label, so these
-                # two extra keys are inert to the render; the native Gate-B builder consumes them. Gate
-                # OFF => keys omitted => the dict is byte-identical to the pre-change shape.
+                # extra keys are inert to the render; the native Gate-B builder consumes them. Legacy gate
+                # OFF + not an entailment rescue => keys omitted (byte-identical to the pre-change shape).
                 finding["audit_sentence"] = audit_sentence
                 finding["tokens"] = toks
+                # C3: mark a C1 entailment-RESCUED finding so the native Gate-B builder routes it into the
+                # D8 4-role input set under PG_SYNTH_D8_PROMOTE (independent of the legacy D8 gate).
+                if is_entailment:
+                    finding["is_synth_entailment"] = True
             findings.append(finding)
             if cap > 0 and len(findings) >= cap:
                 break
@@ -785,7 +865,11 @@ async def _synthesize_one_basket(
         m for m in _dechrome_distinct_origin_supports(basket, log_drops=False)
         if not _compose_junk_screen(str(getattr(m, "direct_quote", "") or ""))
     ]
-    if len(members) < min_corroboration():
+    # C2: when single-source synthesis is active (C1 + PG_SYNTH_SINGLE_SOURCE both on), a 1-member basket
+    # IS drafted (labeled "(single source)" downstream, never dropped). OFF => the DEFINITIONAL >=2 floor
+    # holds (byte-identical: a single-member basket is not drafted).
+    _draft_floor = 1 if single_source_synthesis_active() else min_corroboration()
+    if len(members) < _draft_floor:
         return ""
     prompt = _build_synthesis_prompt(basket, members, evidence_pool)
     if not prompt:
@@ -837,6 +921,10 @@ async def depth_synthesis_pre_pass(
     # `min_sources` so the two-tier guarantee holds even if that knob is raised. `min_sources` is
     # accepted for back-compat but never widens the boundary above 2.
     floor = _CROSS_SOURCE_MIN_ORIGINS
+    # C2: single-source synthesis lowers the pre-pass DRAFT eligibility to 1 (a 1-origin basket is drafted
+    # and labeled "(single source)" downstream, never dropped) when C1 + PG_SYNTH_SINGLE_SOURCE are both
+    # on. OFF => the DEFINITIONAL >=2 floor holds (byte-identical: single-member baskets are not drafted).
+    eligibility_floor = 1 if single_source_synthesis_active() else floor
     model = _resolve_model()
     max_tokens, reasoning_max_tokens = _resolve_token_budget()
     max_tokens = max(1, max_tokens)
@@ -853,7 +941,7 @@ async def depth_synthesis_pre_pass(
     eligible = [
         b for b in (baskets or [])
         if str(getattr(b, "claim_cluster_id", "") or "")
-        and len(_dechrome_distinct_origin_supports(b)) >= floor
+        and len(_dechrome_distinct_origin_supports(b)) >= eligibility_floor
     ]
     out: dict = {}
     if not eligible:
