@@ -1329,15 +1329,19 @@ def _content_words(text: str) -> set[str]:
     return latin | extra_script_tokens(text)
 
 
-# Minimum content-word overlap between a sentence and any of its cited
-# spans. Default is 2 (Codex round 2 finding): overlap=1 is exploitable
-# because a fabricated predicate sharing one anchor noun with the source
-# (e.g., "Aspirin reduced pain" cited to "Aspirin caused bleeding") would
-# verify with nothing but "aspirin" in common. The operator can lower
-# via PG_PROVENANCE_MIN_CONTENT_OVERLAP=1 for legitimate short sentences,
-# but the default must enforce a real semantic floor.
+# Fix 1 (operator 2026-07-10 — ABSOLUTE FIRST; grounded in, but never tuned to, the drb_72 run):
+# the LEXICAL content-word-overlap span-grounding FLOOR is KILLED. Faithfulness is CONTEXT-LEVEL
+# (NLI entailment) + NUMERIC (every decimal/figure in the sentence must appear in the span) — NOT
+# lexical shared-word overlap. The old >=2-content-word floor was the measured ROOT of the chrome-
+# leak / quote-dump / shallow output (it forced the composer to fall back to the verbatim K-span),
+# and it drops a faithful paraphrase that reuses few of the source's exact words while passing a
+# fabrication that happens to share two nouns. So the floor now DEFAULTS TO 0 (disabled): every leg
+# that reads this constant becomes inert, numeric matching is UNCHANGED, and the downstream
+# entailment judge is the semantic gate. This is a single config-driven constant (LAW VI,
+# PG_PROVENANCE_MIN_CONTENT_OVERLAP), question-agnostic — a clinical, economics, or any-domain
+# sentence flows through the identical path. An operator may restore a positive floor via the env.
 MIN_CONTENT_WORD_OVERLAP = int(
-    os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "2")
+    os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "0")
 )
 
 # I-complete-003 (#1189) — PROVENANCE RE-ANCHOR.
@@ -4115,6 +4119,40 @@ def _corroborator_nli_co_supports(claim: str, span: str) -> Optional[bool]:
     return None if saw_unknown else False
 
 
+def _corroborator_numeric_ok(sentence_claim: str, corroborator_span: str) -> bool:
+    """Fix 1 (2026-07-10) helper. Returns ``True`` UNLESS the span fails to carry a FIGURE the claim
+    asserts. It mirrors the numeric legs of :func:`corroborator_span_grounds_sentence` EXACTLY
+    (percent-role, decimals, %-expressed integers, standalone integers) so numeric faithfulness is
+    byte-for-byte the same — only the lexical ``>=1`` coincidence guards are dropped (the lexical
+    floor is disabled). A purely QUALITATIVE claim (no figures) returns ``True`` and defers the
+    grounding decision to the wrapper's NLI co-support gate. Question-agnostic: reads only the
+    claim/span figures, never a hardcoded value."""
+    _span_decimals = _decimals_in(corroborator_span)
+    _span_numbers = _numbers_in(corroborator_span)
+    _span_int_only = _span_numbers - _span_decimals
+    if _percent_role_match_enabled():
+        _claim_pcts = _percents_in(sentence_claim)
+        if _claim_pcts and not _claim_pcts.issubset(_percents_in(corroborator_span)):
+            return False
+    _claim_decimals = _decimals_in(sentence_claim)
+    if _claim_decimals:
+        if not _claim_decimals.issubset(_span_decimals):
+            return False
+        _claim_pct_ints = {
+            m.group(1) for m in _INTEGER_PERCENT_RE.finditer(sentence_claim)
+        } - _claim_decimals
+        if _claim_pct_ints and not _claim_pct_ints.issubset(_span_int_only):
+            return False
+        return True
+    _claim_numbers = _numbers_in(sentence_claim)
+    if _claim_numbers and not _claim_numbers.issubset(_span_numbers):
+        return False
+    _claim_pct_ints = {m.group(1) for m in _INTEGER_PERCENT_RE.finditer(sentence_claim)}
+    if _claim_pct_ints and not _claim_pct_ints.issubset(_span_int_only):
+        return False
+    return True
+
+
 def corroborator_span_grounds_sentence(
     sentence_claim: str,
     corroborator_span: str,
@@ -4167,6 +4205,14 @@ def corroborator_span_grounds_sentence(
         # No claim text or no span to compare => cannot affirm grounding. Conservative:
         # an empty span carries no claim, so it must not be attached as inline support.
         return False
+    if min_content_overlap <= 0:
+        # Fix 1 (2026-07-10): the lexical corroboration floor is disabled. A corroborator is
+        # DETACHED here ONLY on a NUMERIC MISMATCH (a figure the claim asserts that its span does
+        # not carry) — numeric faithfulness kept EXACTLY. Qualitative grounding is decided by the
+        # NLI co-support gate in ``corroborator_grounds_sentence_via_basket`` (the wrapper), not by
+        # lexical shared words. Keeps genuine paraphrase corroborators; the NLI backstop detaches a
+        # non-entailing one, and a number-contradicting span is dropped here regardless.
+        return _corroborator_numeric_ok(sentence_claim, corroborator_span)
     _claim_words = _content_words(sentence_claim)
     _span_words = _content_words(corroborator_span)
     _overlap = len(_claim_words & _span_words)

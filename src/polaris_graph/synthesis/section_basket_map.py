@@ -33,10 +33,13 @@ legacy intersection path is byte-identical).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ── Env knobs (LAW VI; read at call time; defaults reproduce today's absence-of-map) ─────────────
 _MASTER_ENV = "PG_SECTION_BASKET_MAP"                 # D1 build + D2 consume master switch
@@ -62,7 +65,15 @@ _HEAD_CLAIM_CHARS = 80
 # verified_compose._repair_content_words: lowercased words >= 3 chars, minus stopwords,
 # provenance tokens stripped first.
 _EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
-_CONTENT_WORD_RE = re.compile(r"[A-Za-z0-9]+")
+# Fix 6 (2026-07-10, question-agnostic i18n; grounded in — but never tuned to — drb_72): a UNICODE
+# word regex so a non-Latin corpus (CJK / Arabic / Cyrillic / Devanagari / Greek …) yields content
+# words instead of the empty set the ASCII-only ``[A-Za-z0-9]+`` produced — which killed the topical
+# signal and dumped every basket to residual for any non-English research question. ``[^\W_]+`` with
+# re.UNICODE matches any run of unicode word characters (letters + digits) minus underscore; paired
+# with ``str.casefold`` (not ``.lower``) below it folds case across the widest set of scripts. The
+# length / stopword rules still apply (they gate Latin-script connective noise); a non-Latin run
+# passes through as a single content token, which is strictly better than zero.
+_CONTENT_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _STOPWORDS = frozenset(
     {
         "the", "and", "for", "are", "was", "were", "has", "have", "had", "with", "that",
@@ -127,10 +138,11 @@ def _get(obj: Any, key: str, default: Any = None) -> Any:
 
 def _content_words(text: str) -> set[str]:
     stripped = _EV_TOKEN_RE.sub(" ", text or "")
+    # Fix 6: casefold (not lower) so non-Latin scripts fold correctly; length + stopword rules kept.
     return {
-        w.lower()
+        w.casefold()
         for w in _CONTENT_WORD_RE.findall(stripped)
-        if len(w) >= _MIN_CONTENT_WORD_LEN and w.lower() not in _STOPWORDS
+        if len(w) >= _MIN_CONTENT_WORD_LEN and w.casefold() not in _STOPWORDS
     }
 
 
@@ -249,6 +261,16 @@ class SectionBasketView:
             "match_signals": dict(self.match_signals),
         }
 
+    @classmethod
+    def from_json_dict(cls, data: dict) -> "SectionBasketView":
+        """Rebuild a view from its ``to_json_dict`` form (Fix 3 — the missing loader)."""
+        return cls(
+            claim_cluster_id=str(data.get("claim_cluster_id", "") or ""),
+            role=str(data.get("role", "") or ""),
+            section_member_ev_ids=[str(x) for x in (data.get("section_member_ev_ids") or [])],
+            match_signals=dict(data.get("match_signals") or {}),
+        )
+
 
 @dataclass
 class SectionBasketMap:
@@ -260,6 +282,12 @@ class SectionBasketMap:
     residual_title: str | None
     stranded_count: int
     assignment_table: list[dict] = field(default_factory=list)
+    # Fix 7a — per-signal availability + realized totals, surfaced so a DEAD signal (e.g. the
+    # sub-query lineage when the upstream S4 outline carries no sub_query_indices — the known
+    # cp4 defect this run exposed) is VISIBLE in every checkpoint instead of a silent hidden zero.
+    # ``signals_available`` is a bool per signal; ``signal_totals`` is the summed nonzero count.
+    signals_available: dict = field(default_factory=dict)
+    signal_totals: dict = field(default_factory=dict)
 
     def to_json_dict(self) -> dict:
         return {
@@ -272,12 +300,51 @@ class SectionBasketMap:
             "residual_title": self.residual_title,
             "stranded_count": self.stranded_count,
             "assignment_table": list(self.assignment_table),
+            "signals_available": dict(self.signals_available),
+            "signal_totals": dict(self.signal_totals),
         }
+
+    @classmethod
+    def from_json_dict(cls, data: dict) -> "SectionBasketMap":
+        """Rehydrate a map from its ``to_json_dict`` form (Fix 3 — the loader the checkpoint
+        architecture needs). Int-normalizes ``views_by_section`` keys (JSON object keys are always
+        strings) and rebuilds the ``SectionBasketView`` objects, so a JSON-round-tripped map is
+        byte-for-byte equivalent to the in-memory one the build produced — the seam that consumed
+        a rehydrated map used to silently see ZERO views per section (string keys never matched the
+        int ``section_index`` lookup)."""
+        views_by_section: dict[int, list[SectionBasketView]] = {}
+        for raw_idx, raw_views in (data.get("views_by_section") or {}).items():
+            idx = int(raw_idx)
+            views_by_section[idx] = [
+                SectionBasketView.from_json_dict(v) for v in (raw_views or [])
+            ]
+        primary_section_by_cluster: dict[str, int] = {
+            str(k): int(v) for k, v in (data.get("primary_section_by_cluster") or {}).items()
+        }
+        residual_raw = data.get("residual_section_index", None)
+        residual_index = int(residual_raw) if residual_raw is not None else None
+        return cls(
+            views_by_section=views_by_section,
+            primary_section_by_cluster=primary_section_by_cluster,
+            residual_section_index=residual_index,
+            residual_title=data.get("residual_title", None),
+            stranded_count=int(data.get("stranded_count", 0) or 0),
+            assignment_table=list(data.get("assignment_table") or []),
+            signals_available=dict(data.get("signals_available") or {}),
+            signal_totals=dict(data.get("signal_totals") or {}),
+        )
 
 
 def dumps_map(m: SectionBasketMap) -> str:
     """Deterministic JSON bytes (sorted keys) — the checkpoint/harness serialization."""
     return json.dumps(m.to_json_dict(), sort_keys=True, ensure_ascii=False, indent=2)
+
+
+def load_map(raw: str) -> SectionBasketMap:
+    """Fix 3 — inverse of :func:`dumps_map`: parse the deterministic JSON bytes back into a
+    :class:`SectionBasketMap`. The build side and this loader are now a matched pair, so a map
+    persisted to a checkpoint rehydrates to an equivalent object (round-trip stable)."""
+    return SectionBasketMap.from_json_dict(json.loads(raw))
 
 
 # ── The build (deterministic, three signals, §-1.3 weight-not-filter) ───────────────────────────
@@ -295,7 +362,11 @@ def build_section_basket_map(
     Deterministic and pure. Nothing is dropped: a basket with no candidate section goes
     primary into ONE appended residual section, so ``stranded_count`` is structurally 0.
     """
-    w = weights or resolve_weights()
+    # Fix 5(c): primary selection is now TIERED-LEXICOGRAPHIC, so the flat weighted sum is gone.
+    # ``weights`` stays in the signature for API/back-compat (and ``resolve_weights`` for the env
+    # contract), but it no longer drives placement — a real provenance/sub-query assignment can
+    # never be outweighed by weak lexical matches. Resolved here only to keep the env knobs live.
+    _ = weights or resolve_weights()
     topical_min = _topical_min()
     pool = _index_evidence_pool(evidence_pool)
     subquery_to_index: dict[str, int] | None = None
@@ -312,15 +383,41 @@ def build_section_basket_map(
     sec_words = [_content_words(f"{_get(p, 'title', '') or ''} {_get(p, 'focus', '') or ''}")
                  for p in section_plans]
 
+    # Fix 5(a) — structural cross-section IDF. A content word that appears in >=2 sections cannot
+    # tell those sections apart, so it is NON-discriminative and is removed from every section's
+    # topical match set. This is pure document-frequency over the outline word-sets: no hardcoded
+    # word list, no question-specific constant, no threshold tuned to this corpus. A clinical drug
+    # outline or an economics outline is filtered by exactly the same rule at runtime.
+    _section_df: dict[str, int] = {}
+    for _ws in sec_words:
+        for _word in _ws:
+            _section_df[_word] = _section_df.get(_word, 0) + 1
+    sec_disc_words = [{word for word in ws if _section_df.get(word, 0) < 2} for ws in sec_words]
+
     views_by_section: dict[int, list[SectionBasketView]] = {}
     primary_section_by_cluster: dict[str, int] = {}
     assignment_table: list[dict] = []
     residual_index: int | None = None
+    # Fix 7a — realized per-signal totals so a DEAD signal is visible, never a hidden zero.
+    signal_totals: dict[str, int] = {"provenance": 0, "subquery": 0, "topical": 0}
 
-    for basket in baskets:
-        cid = _cluster_id(basket)
-        if not cid:
-            continue
+    for pos, basket in enumerate(baskets):
+        raw_cid = _cluster_id(basket)
+        if raw_cid:
+            cid = raw_cid
+        else:
+            # Fix 4: an empty-cid basket must NOT silently vanish (the old ``continue`` dropped it
+            # while ``stranded_count`` still read 0). Give it a deterministic synthetic id and let it
+            # flow to a home, so it is COUNTED and disclosed, never discarded.
+            cid = f"__nocid__#{pos}"
+        # Fix 4: a DUPLICATE cid must NOT overwrite an earlier distinct basket (the old
+        # ``primary_section_by_cluster[cid] = ...`` collapsed two baskets into one map row while
+        # ``stranded_count`` still read 0). Uniquify the MAP KEY deterministically; the VIEW keeps
+        # the original ``cid`` for the downstream basket lookup, and the loud mismatch check in the
+        # compose seam surfaces any genuine cid collision.
+        map_key = cid
+        if map_key in primary_section_by_cluster:
+            map_key = f"{cid}#{pos}"
         member_ids = set(_basket_member_ev_ids(basket))
         b_words = _basket_words(basket)
         member_subq = {ev: _member_subquery_index(ev, pool, subquery_to_index) for ev in member_ids}
@@ -330,22 +427,24 @@ def build_section_basket_map(
             prov = len(member_ids & sec_ev_ids[idx])
             plan_subq = sec_subq[idx]
             subq = sum(1 for ev in member_ids if member_subq[ev] & plan_subq) if plan_subq else 0
-            top = len(b_words & sec_words[idx])
+            # Fix 5(b): topical = count of DISCRIMINATIVE shared words (non-discriminative words
+            # removed above), so 84%-single-generic-word placements can no longer accrue.
+            top = len(b_words & sec_disc_words[idx])
             if prov > 0 or subq > 0 or top >= topical_min:
                 candidates[idx] = {"provenance": prov, "subquery": subq, "topical": top}
 
         if candidates:
-            # Primary = highest weighted score; keep-first tie -> LOWEST section index.
-            def _score(i: int) -> tuple[int, int]:
-                s = candidates[i]
-                weighted = (
-                    w["provenance"] * s["provenance"]
-                    + w["subquery"] * s["subquery"]
-                    + w["topical"] * s["topical"]
-                )
-                return (-weighted, i)
+            # Fix 5(c) — TIERED-LEXICOGRAPHIC primary selection (provenance, then sub-query, then
+            # discriminative topical, then lowest section index) REPLACES the flat weighted sum. A
+            # single real provenance (or sub-query) assignment can never be outvoted by an
+            # accumulation of weak lexical matches — the flat-sum bug that produced the measured
+            # 84%-single-word placements and the ev_1041 'future' leak. Structural + question-
+            # agnostic; the env weights are retained only for the diagnostic assignment_table.
+            def _rank(i: int, _c: dict[int, dict[str, int]] = candidates) -> tuple[int, int, int, int]:
+                s = _c[i]
+                return (-s["provenance"], -s["subquery"], -s["topical"], i)
 
-            primary_idx = min(candidates, key=_score)
+            primary_idx = min(candidates, key=_rank)
             corroborating = sorted(i for i in candidates if i != primary_idx)
         else:
             # No candidate section: keep-all residual home (Design 4 D1 step 4).
@@ -354,11 +453,17 @@ def build_section_basket_map(
             primary_idx = residual_index
             corroborating = []
 
-        primary_section_by_cluster[cid] = primary_idx
+        primary_section_by_cluster[map_key] = primary_idx
 
         # Primary view.
         if primary_idx < n_sections:
             primary_facet = sorted(member_ids & sec_ev_ids[primary_idx])
+            if not primary_facet:
+                # Fix 9: a topical/sub-query-only primary (no member ev_id in the section) carries
+                # the basket's FULL member list as its facet — uniform with the residual branch
+                # below and with the rule the corroborating branch uses to decide emission — so a
+                # primary home is never an empty-facet placeholder.
+                primary_facet = sorted(member_ids)
             primary_signals = candidates[primary_idx]
         else:
             # Residual: the basket's full member set is its facet; signals are all zero.
@@ -367,6 +472,8 @@ def build_section_basket_map(
         views_by_section.setdefault(primary_idx, []).append(
             SectionBasketView(cid, "primary", primary_facet, primary_signals)
         )
+        for _k in signal_totals:
+            signal_totals[_k] += int(primary_signals.get(_k, 0))
 
         # Corroborating views: only where the section-matched facet is non-empty (there is
         # something to cite there). A candidate matched purely by topical/sub-query overlap
@@ -381,6 +488,8 @@ def build_section_basket_map(
                 SectionBasketView(cid, "corroborating", facet, candidates[idx])
             )
             corroborating_emitted.append(idx)
+            for _k in signal_totals:
+                signal_totals[_k] += int(candidates[idx].get(_k, 0))
 
         assignment_table.append(
             {
@@ -398,11 +507,35 @@ def build_section_basket_map(
     # (primary before corroborating) so byte output is input-order-independent.
     for idx in views_by_section:
         views_by_section[idx].sort(key=lambda v: (v.claim_cluster_id, v.role))
-    assignment_table.sort(key=lambda r: r["claim_cluster_id"])
+    # (cid, primary_section, member_count) keeps the table deterministic even if two baskets share
+    # a cid (Fix 4 edge case); for the healthy unique-cid case this sorts identically to cid alone.
+    assignment_table.sort(key=lambda r: (r["claim_cluster_id"], r["primary_section"], r["member_count"]))
 
-    stranded = len(
-        [b for b in baskets if _cluster_id(b) and _cluster_id(b) not in primary_section_by_cluster]
-    )
+    # Fix 4 — honest stranded count: INPUT baskets minus baskets that produced a (unique) map entry.
+    # Every basket now yields exactly one entry, so this is structurally 0; if a future path ever
+    # skips a basket it is caught here instead of masked by a duplicate/empty-cid collapse.
+    stranded = len(baskets) - len(primary_section_by_cluster)
+
+    # Fix 7a — per-signal availability. ``subquery`` is structurally unavailable when the caller
+    # passes no ``sub_queries`` (the wiring gap) even before any count; the upstream cp4 outline
+    # carrying ``sub_query_indices=None`` is a SEPARATE S4 defect that MUST be filed as an S4
+    # follow-on, never absorbed silently into S5 — surfacing it here (LOUD log + serialized stat)
+    # is how S5 refuses to hide it.
+    subquery_wired = subquery_to_index is not None
+    signals_available = {
+        "provenance": signal_totals["provenance"] > 0,
+        "subquery": bool(subquery_wired and signal_totals["subquery"] > 0),
+        "topical": signal_totals["topical"] > 0,
+    }
+    for _sig, _ok in signals_available.items():
+        if not _ok:
+            logger.warning(
+                "[section_basket_map] signal '%s' is DEAD (available=False, total=%d, wired=%s) — "
+                "placement fell back to the remaining signals; a dead sub-query signal is the "
+                "upstream S4 outline defect (file as an S4 follow-on, do not absorb into S5).",
+                _sig, signal_totals.get(_sig, 0),
+                subquery_wired if _sig == "subquery" else True,
+            )
 
     return SectionBasketMap(
         views_by_section=views_by_section,
@@ -411,4 +544,6 @@ def build_section_basket_map(
         residual_title=_residual_title() if residual_index is not None else None,
         stranded_count=stranded,
         assignment_table=assignment_table,
+        signals_available=signals_available,
+        signal_totals=dict(signal_totals),
     )

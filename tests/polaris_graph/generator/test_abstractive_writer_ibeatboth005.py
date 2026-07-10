@@ -24,10 +24,10 @@ from src.polaris_graph.generator.provenance_generator import (
 )
 
 
-# ── default-OFF flag (byte-identity precondition) ────────────────────────────────────────────────
-def test_writer_disabled_by_default(monkeypatch):
+# ── default-ON flag (Fix 2, operator 2026-07-10 — abstractive prose is the DEFAULT compose path) ──
+def test_writer_enabled_by_default(monkeypatch):
     monkeypatch.delenv(aw._ENV_ENABLE, raising=False)
-    assert aw._abstractive_writer_enabled() is False
+    assert aw._abstractive_writer_enabled() is True
 
 
 @pytest.mark.parametrize("val", ["0", "", "false", "off", "no", "FALSE", "Off"])

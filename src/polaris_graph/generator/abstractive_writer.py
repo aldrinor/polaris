@@ -5,8 +5,13 @@ that ships SPAN-FAITHFUL but BROKEN prose (dangling markdown-link fragments, orp
 numbers, HR/Reddit chrome) with an LLM writer that rephrases each verified span into CLEAN plain
 declarative news-style prose carrying the EXACT canonical provenance token + every span numeric
 verbatim. Each rewritten sentence is RE-RUN through the UNCHANGED ``verify_sentence_provenance``
-(+ the existing region gate) by the unchanged ``_compose_one_basket`` loop; on FAIL the loop falls
-back to today's verbatim K-span. Default-OFF behind ``PG_ABSTRACTIVE_WRITER``; byte-identical OFF.
+(+ the existing region gate) by the ``_compose_one_basket`` loop; on FAIL the writer RETRIES
+(bounded re-draft under ``PG_SYNTH_PRIMARY``) and, if still unverified, the uncovered span renders
+as a SEPARATE LABELED disclosure paragraph — never silently substituted as verified prose. Fix 2
+(operator 2026-07-10): this is now the DEFAULT compose path (``PG_ABSTRACTIVE_WRITER`` +
+``PG_SYNTH_PRIMARY`` DEFAULT-ON); the old deterministic ``build_short_member_sentence`` stub shipped
+the verbatim-fallback-copy (chrome / quote-dump / dangling fragments) the operator killed. Set
+``PG_ABSTRACTIVE_WRITER=0`` to restore the deterministic stub (e.g. an offline unit test, no model).
 
 ARCHITECTURE (design §3, ABSTRACTIVE_WRITER_DESIGN.md):
   * The writer is async (OpenRouter) but ``_compose_one_basket`` calls ``writer_fn`` SYNCHRONOUSLY.
@@ -16,13 +21,14 @@ ARCHITECTURE (design §3, ABSTRACTIVE_WRITER_DESIGN.md):
   * The writer-specific verify wrapper (:func:`make_writer_verify_fn`) is STRICTER than the K-span
     path — the four P1 closures, all in the wrapper / pre-pass, ENGINE UNTOUCHED:
       - P1-1: a TRANSPORT entailment ``judge_error`` is a WRITER FAILURE (the wrapper forces
-        ``is_verified=False`` -> retry -> K-span). An advisory judge-error never ships as a
-        paraphrase, only ever as the grounded-by-construction K-span.
+        ``is_verified=False`` -> retry -> labeled K-span disclosure). An advisory judge-error never
+        ships as a paraphrase, only ever as the grounded-by-construction K-span (labeled, never glued
+        into verified prose under the default-ON ``PG_SYNTH_PRIMARY`` path — Fix 2).
       - P1-2: the wrapper verifies with ``allow_local_window_fallback=False`` (the K-span path keeps
         the ``True`` default via the unwrapped ``verify_fn``); a NEUTRAL/CONTRADICTED bound span
         cannot pass on a same-row local window.
       - P1-3: a numeric COMPLETENESS guard (span->sentence) — every substantive span numeric must
-        appear verbatim in the rewrite, else ``is_verified=False`` -> retry -> K-span. The
+        appear verbatim in the rewrite, else ``is_verified=False`` -> retry -> labeled K-span. The
         guard reuses the ENGINE'S OWN substantive-numeral definition (``_decimals_in`` /
         ``_numbers_in`` / ``_INTEGER_PERCENT_RE`` / ``_strip_dose_patterns``), so "substantive"
         means the same thing in both directions; it lives HERE, never in ``verify_sentence_provenance``.
@@ -34,8 +40,9 @@ ARCHITECTURE (design §3, ABSTRACTIVE_WRITER_DESIGN.md):
 
 FAITHFULNESS: ``verify_sentence_provenance`` / NLI / 4-role D8 / provenance / ``build_verified_span_draft``
 / ``_compose_one_basket`` / ``_compose_section_per_basket`` / the region gate are UNTOUCHED. Every
-abstractive rewrite is re-run through the unchanged verifier + region gate; fabrication degrades to
-the verbatim K-span. Always-release; never strand; never empty.
+abstractive rewrite is re-run through the unchanged verifier + region gate; fabrication degrades to a
+SEPARATE LABELED K-span disclosure (retry-then-label under the default-ON ``PG_SYNTH_PRIMARY`` path),
+never a raw verbatim K-span glued into verified prose (Fix 2). Always-release; never strand; never empty.
 """
 from __future__ import annotations
 
@@ -242,10 +249,14 @@ def install_teardown_drain_hook(loop: "asyncio.AbstractEventLoop") -> None:
 
 
 def _abstractive_writer_enabled() -> bool:
-    """``PG_ABSTRACTIVE_WRITER`` gate. DEFAULT-OFF => the caller keeps the deterministic
-    ``build_short_member_sentence`` stub + bare ``_vc_verify`` byte-identical; ON => the LLM
-    abstractive writer is the per-basket prose producer (behind the fail-closed activation guard)."""
-    return os.getenv(_ENV_ENABLE, "0").strip().lower() not in ("", "0", "false", "off", "no")
+    """``PG_ABSTRACTIVE_WRITER`` gate. Fix 2 (operator 2026-07-10): abstractive prose is now the
+    DEFAULT compose path — the deterministic ``build_short_member_sentence`` stub shipped span-
+    faithful but BROKEN prose (dangling link fragments, chrome, quote-dump), which is exactly the
+    verbatim-fallback-copy the operator killed. DEFAULT-ON => the LLM abstractive writer is the per-
+    basket prose producer (behind the fail-closed activation guard that still hard-requires
+    ``PG_STRICT_VERIFY_ENTAILMENT=enforce``). Set ``PG_ABSTRACTIVE_WRITER=0`` to restore the
+    deterministic stub (e.g. an offline unit test with no model)."""
+    return os.getenv(_ENV_ENABLE, "1").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def _env_int(name: str, default: int) -> int:

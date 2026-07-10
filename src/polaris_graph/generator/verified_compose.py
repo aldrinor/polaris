@@ -1517,11 +1517,14 @@ def _screen_fallback_chrome(text: str) -> str:
 
 # ── I-deepfix-001 Wave-1a (#1344) — SYNTH_PRIMARY: compose-then-verify + bounded repair + labeled block ─
 def _synth_primary_enabled() -> bool:
-    """``PG_SYNTH_PRIMARY`` gate (default OFF, LAW VI). Shares the off-token set with
-    ``_compose_render_chrome_enabled`` but is DEFAULT-OFF: unset/blank/off-token => OFF. Only when ON
-    (and the caller threads a group-capable ``redraft_fn``) does ``_compose_one_basket`` take the
-    bounded-repair + labeled-fallback path; otherwise the legacy body runs byte-identical."""
-    raw = str(os.environ.get(_SYNTH_PRIMARY_ENV, "")).strip().lower()
+    """``PG_SYNTH_PRIMARY`` gate. Fix 2 (operator 2026-07-10): DEFAULT-ON. This is the compose-then-
+    verify path that makes abstractive prose the PRIMARY body producer and, on a writer-verify
+    failure, RETRIES (bounded whole-paragraph re-draft) and then emits the uncovered K-span as a
+    SEPARATE LABELED disclosure paragraph — never silently substituted as verified prose. Only fires
+    when the caller ALSO threads a group-capable ``redraft_fn`` (the paid compose path); a caller
+    that threads no ``redraft_fn`` (most unit tests) keeps the legacy body byte-identical regardless
+    of this flag. Set ``PG_SYNTH_PRIMARY=0`` to force the legacy body path."""
+    raw = str(os.environ.get(_SYNTH_PRIMARY_ENV, "1")).strip().lower()
     return bool(raw) and raw not in _COMPOSE_CHROME_OFF_TOKENS
 
 
@@ -3114,24 +3117,86 @@ def _section_basket_map_consume_enabled() -> bool:
         return False
 
 
+def _sbm_get(obj: Any, key: str, default: Any = None) -> Any:
+    """Duck-typed read for the section-basket-map seam (Fix 3): the map / its views / the baskets
+    may be LIVE objects (attribute access) OR a JSON-rehydrated dict (``.get``). The seam used
+    ``getattr`` ONLY, so a dict-rehydrated map — the checkpoint architecture's canonical flow —
+    silently yielded ZERO baskets for every section. Mirrors the duck-typed ``_get`` on the build
+    side of ``section_basket_map``."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _sbm_views_for_section(section_basket_map: Any, section_index: int) -> list:
+    """The precomputed views for one section, tolerant of int OR str keys (Fix 3). ``load_map``
+    int-normalizes keys, but a map rehydrated by a bare ``json.loads`` keeps string object keys —
+    so the ``int`` ``section_index`` lookup would miss. Try both."""
+    views_map = _sbm_get(section_basket_map, "views_by_section", None) or {}
+    if not isinstance(views_map, dict):
+        return []
+    section_views = views_map.get(section_index)
+    if section_views is None:
+        section_views = views_map.get(str(section_index))
+    return list(section_views or [])
+
+
+def _section_compose_entries_from_map(
+    section_basket_map: Any, section_index: int, baskets: list
+) -> list:
+    """Resolve a section's precomputed views to ``(basket, role, section_member_ev_ids)`` tuples,
+    in the map's deterministic order (Fix 3 duck-typed + int-normalized; Fix 8 role/facet plumbing).
+
+    Fix 8 — the seam's OWN contract: a straddling basket appears as a PRIMARY view in exactly one
+    section and as CORROBORATING views elsewhere. Threading ``role`` + the section-matched ``facet``
+    here lets the (deferred) live compose treat a PRIMARY as a full compose and a CORROBORATING as a
+    citation-only / one-line cross-reference, instead of fully re-composing the same claim in every
+    candidate section (the duplicate-claim leak this module exists to fix). Landing the plumbing now
+    keeps that contract available even though live compose consumes it later.
+
+    Fix 3 — LOUD mismatch disclosure (LAW II fail-loud): a view whose ``claim_cluster_id`` is absent
+    from the live basket lookup is LOGGED (count + ids), never silently omitted."""
+    lookup: dict[str, Any] = {}
+    for b in baskets:
+        cid = str(_sbm_get(b, "claim_cluster_id", "") or "")
+        if cid and cid not in lookup:
+            lookup[cid] = b
+    entries: list = []
+    seen: set[str] = set()
+    missing: list[str] = []
+    for view in _sbm_views_for_section(section_basket_map, section_index):
+        cid = str(_sbm_get(view, "claim_cluster_id", "") or "")
+        if cid not in lookup:
+            missing.append(cid)
+            continue
+        if cid in seen:
+            continue
+        seen.add(cid)
+        role = str(_sbm_get(view, "role", "primary") or "primary")
+        facet = [str(x) for x in (_sbm_get(view, "section_member_ev_ids", None) or [])]
+        entries.append((lookup[cid], role, facet))
+    if missing:
+        logger.warning(
+            "[verified_compose] section_basket_map seam: %d view(s) in section %s cite a "
+            "claim_cluster_id absent from the live basket lookup — DISCLOSED, not silently "
+            "omitted (fail-loud, LAW II): %s",
+            len(missing), section_index, missing[:20],
+        )
+    return entries
+
+
 def _baskets_from_section_map(section_basket_map: Any, section_index: int, baskets: list) -> list:
     """Resolve a section's precomputed ``SectionBasketView`` list to basket objects (primary +
     corroborating), by ``claim_cluster_id``, in the map's deterministic order. Baskets with a
-    cluster id absent from the map's section views are omitted (they compose in their own home)."""
-    lookup: dict[str, Any] = {}
-    for b in baskets:
-        cid = str(getattr(b, "claim_cluster_id", "") or "")
-        if cid and cid not in lookup:
-            lookup[cid] = b
-    views = getattr(section_basket_map, "views_by_section", None) or {}
-    out: list = []
-    seen: set[str] = set()
-    for view in views.get(section_index, []) or []:
-        cid = str(getattr(view, "claim_cluster_id", "") or "")
-        if cid in lookup and cid not in seen:
-            seen.add(cid)
-            out.append(lookup[cid])
-    return out
+    cluster id absent from the map's section views are DISCLOSED (Fix 3) not silently omitted. The
+    ``(basket, role, facet)`` plumbing is available via ``_section_compose_entries_from_map`` for the
+    deferred live-compose consumer (Fix 8: corroborating -> citation-only)."""
+    return [
+        basket
+        for basket, _role, _facet in _section_compose_entries_from_map(
+            section_basket_map, section_index, baskets
+        )
+    ]
 
 
 def _section_baskets_for_compose(
@@ -3517,21 +3582,29 @@ def repair_untokened_sentence(
     sentence_words = _repair_content_words(sentence)
     if not sentence_words:
         return None
-    # Rank candidate baskets that carry an isolated-``SUPPORTS`` span by content-word overlap
-    # (nearest first). A basket with no SUPPORTS span cannot bind a verified clause -> skipped.
+    # Fix 2c (2026-07-10): REBIND BY ENTAILMENT, not by a >=2 shared-content-word floor. The lexical
+    # floor that fix 1 killed elsewhere selected the wrong basket (shared vocabulary != carries this
+    # claim). Here the actual BIND is ``_per_basket_verified_clause`` -> the UNCHANGED strict_verify,
+    # which is now context-level (NLI entailment) + numeric — so the clause is entailment-grounded,
+    # never chosen by shared words, and it is that basket's OWN verified compose (abstractive when the
+    # writer is on), never a raw-span paste into prose. Lexical overlap is retained ONLY as a cheap
+    # ORDERING prefilter (higher first) to bound the strict_verify calls; a basket with SOME lexical
+    # signal is tried first, but the entailment gate — not the overlap — decides what binds. Any
+    # basket with zero shared words is skipped as a work bound (it cannot entail this sentence), which
+    # is a cost prefilter, not the >=2 semantic floor. Question-agnostic.
     ranked: list = []
     for basket in (baskets or []):
         if not _basket_supports_members(basket):
             continue
         overlap = len(sentence_words & _basket_repair_content_words(basket))
-        if overlap >= min_overlap:
+        if overlap > 0:
             ranked.append((basket, overlap))
     ranked.sort(key=lambda t: t[1], reverse=True)
     for basket, _overlap in ranked:
         clause = _per_basket_verified_clause(
             basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
         )
-        if clause:  # carries a real [#ev] token + passed strict_verify per clause
+        if clause:  # carries a real [#ev] token + passed the entailment-gated strict_verify per clause
             return clause
     # I-deepfix-001 V3 (#1344): FALLBACK — direct evidence-span grounding. The basket path above binds
     # a sentence only when a consolidated basket carries a matching isolated-SUPPORTS claim; the ~15

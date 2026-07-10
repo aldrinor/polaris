@@ -5405,7 +5405,11 @@ async def _run_section(
         # (via the FIX-K demotion above) makes this the primary body producer. OFF (both flags) =>
         # byte-identical: the condition is exactly the pre-Wave-1a PG_ABSTRACTIVE_WRITER read.
         if (
-            os.getenv("PG_ABSTRACTIVE_WRITER", "0").strip().lower() not in ("", "0", "false", "off", "no")
+            # Fix 2 (operator 2026-07-10): abstractive prose is the DEFAULT compose path (default ON).
+            # The fail-closed ``assert_activation_preconditions()`` below still hard-requires
+            # entailment=enforce, so an env without enforce fails LOUD rather than shipping unchecked
+            # prose. Set PG_ABSTRACTIVE_WRITER=0 to restore the deterministic stub.
+            os.getenv("PG_ABSTRACTIVE_WRITER", "1").strip().lower() not in ("", "0", "false", "off", "no")
             or _synth_primary_active
         ):
             from src.polaris_graph.generator.abstractive_writer import (  # noqa: PLC0415

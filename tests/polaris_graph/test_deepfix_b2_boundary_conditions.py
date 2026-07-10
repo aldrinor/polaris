@@ -281,7 +281,8 @@ def _install_compose_stubs(monkeypatch, *, resolve_text):
     """Stub ONLY the heavy upstream seams so _run_section reaches the REAL verified-compose branch
     + boundary-line block offline. _section_baskets_for_compose and the boundary block run for real."""
     monkeypatch.setenv("PG_VERIFIED_COMPOSE", "1")          # take the deterministic compose branch
-    monkeypatch.delenv("PG_ABSTRACTIVE_WRITER", raising=False)  # off => NO LLM
+    monkeypatch.setenv("PG_ABSTRACTIVE_WRITER", "0")        # Fix 2: default-ON now; pin OFF => NO LLM
+    monkeypatch.setenv("PG_SYNTH_PRIMARY", "0")             # Fix 2: default-ON now; pin OFF => legacy body
     monkeypatch.delenv("PG_NUMERIC_CITE_ENFORCE", raising=False)
     monkeypatch.setattr(_msg, "_section_distill_enabled", lambda: False)
     # The compose machinery is a DIFFERENT track's scope; stub it deterministically. _vc_baskets is
