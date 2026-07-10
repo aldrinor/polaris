@@ -542,3 +542,218 @@ def test_r2_span_window_link_boundary_snap() -> None:
         os.environ.pop("PG_SPAN_WINDOW_LINK_SNAP", None)
         if prev is not None:
             os.environ["PG_SPAN_WINDOW_LINK_SNAP"] = prev
+
+
+# ---------------------------------------------------------------------------
+# Fix round-3 (I-fetchclean-001, 2026-07-10) — the residual welded-chrome leaks
+# from the live retest round 2. Six root causes (see
+# .codex/I-fetchclean-001/fable_fix_round3.md):
+#   RC1 heading-line bypass (nav-density drop) · RC2 cookie welded mid-line /
+#   CMP vocab / non-English · RC3 citation guard measured on VISIBLE text (year in
+#   href no longer shields a nav line) · RC4 single-link bullet nav ·
+#   RC5 micro-chrome (masthead furniture) · RC6 empty-table / bot-wall interstitial.
+# Every leak fixture must clean to junk-free; every round-3 guard stays
+# byte-identical; the OFF path (PG_FETCH_MD_NAV_STRIP_V3=0) is byte-identical to
+# round-2. INPUT HYGIENE ONLY — the faithfulness engine is untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_r3_f1_welded_nav_heading_dropped_prose_kept() -> None:
+    """F1 (ev_296): a SHORT welded nav heading (link-run after ``## Menu``) is dropped whole via
+    the nav-density check on the heading's rest; the article prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_296_welded_nav_heading.md"))
+    assert "commission.example.gov" not in out
+    assert "Newsroom" not in out and "Homepage" not in out
+    assert "annual enforcement statistics" in out
+    assert "monetary relief ordered rose" in out
+
+
+def test_r3_f2_year_in_href_nav_dropped_prose_kept() -> None:
+    """F2 (ev_195): a nav line whose ONLY year lives in a link HREF is no longer mistaken for a
+    reference line (visible-text guard); the nav line drops, the article prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_195_year_in_href_nav.md"))
+    assert "thehill.com" not in out
+    assert "[Budget]" not in out and "[Defense]" not in out
+    assert "appropriations subcommittee approved the measure" in out
+    assert "take up the bill after the recess" in out
+
+
+def test_r3_f3_welded_cookie_heading_dropped_prose_kept() -> None:
+    """F3 (ev_865): a welded ``### Cookies on this website We use cookies…`` heading is dropped as a
+    consent banner (extended anchor + signal); the monetary-policy prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_865_welded_cookie_heading.md"))
+    assert "Cookies on this website" not in out
+    assert "We use cookies" not in out
+    assert "allow all cookies" not in out
+    assert "data-dependent stance" in out
+    assert "two percent target" in out
+
+
+def test_r3_f3_single_link_bullet_nav_dropped_prose_kept() -> None:
+    """F4/RC4 (ev_275): single-link bullet-nav lines (``* [Open submenu](…#mm-24)``) are dropped
+    even though each carries only one link (below the 2-link nav floor); the prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_275_bullet_nav.md"))
+    assert "agency.example.gov" not in out
+    assert "Open submenu" not in out and "Newsroom" not in out
+    assert "public-records request process" in out
+    assert "acknowledged within ten business days" in out
+
+
+def test_r3_f4_accept_all_cta_stripped_prose_kept() -> None:
+    """F4 (ev_726): an ``[Accept all cookies](url)`` CTA welded between two real clauses is removed
+    inline (token-only); both halves of the real prose survive on the same line."""
+    out = strip_markdown_nav_chrome(_load("ev_726_accept_all_cta.md"))
+    assert "Accept all cookies" not in out
+    assert "ec.example.eu" not in out
+    assert "publish transparency reports" in out
+    assert "independent audits of recommender systems" in out
+
+
+def test_r3_f4_ama_cookies_pixels_sentence_stripped_prose_kept() -> None:
+    """F4 (ev_441): the ``… use cookies, pixels and other technology …`` consent sentence welded
+    between two real sentences is removed; the surrounding ethics prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_441_ama_cookies_pixels.md"))
+    assert "cookies, pixels" not in out
+    assert "enhance your experience and analyze site usage" not in out
+    assert "financial conflicts of interest" in out
+    assert "disclose all industry relationships" in out
+
+
+def test_r3_f4_cookieinformation_cmp_stripped_prose_kept() -> None:
+    """F4 (ev_244 hit2): the Cookie Information CMP checkbox run + ``Powered by: [Cookie
+    Information](…)`` welded mid-line is removed; the data-platform prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_244_cookieinformation_cmp.md"))
+    assert "Cookie Information" not in out
+    assert "cookieinformation.com" not in out
+    assert "[x]" not in out
+    assert "storage from compute" in out
+    assert "schema registry lets producers evolve" in out
+
+
+def test_r3_f6_empty_table_skeleton_dropped_prose_kept() -> None:
+    """F6 (ev_1242): an empty markdown table skeleton (header + ``| --- | --- |`` separator, no
+    data row) is dropped; the surrounding prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_1242_empty_table.md"))
+    assert "| Metric | Value |" not in out
+    assert "| --- | --- |" not in out
+    assert "base-case scenario" in out
+    assert "sharper-than-expected slowdown in global trade" in out
+
+
+def test_r3_f7_masthead_contact_running_header_stripped_prose_kept() -> None:
+    """F7 (ev_524): the ``CONTACT <name> <email>`` masthead + the all-caps journal running-header
+    (``THE … 2022, VOL. 32, NO. 3``) welded before real prose are removed token-only; the prose
+    survives."""
+    out = strip_markdown_nav_chrome(_load("ev_524_masthead_contact.md"))
+    assert "Magnus Soderlund" not in out
+    assert "magnus.soderlund@hhs.se" not in out
+    assert "INTERNATIONAL REVIEW" not in out
+    assert "VOL. 32" not in out
+    assert "perceived service quality mediates" in out
+    assert "repurchase intention" in out
+
+
+def test_r3_f8_botwall_interstitial_line_dropped_prose_kept() -> None:
+    """F8 (ev_672): a SHORT non-prose bot-wall interstitial line welded inside a real body is
+    dropped; the long real transcript prose above and below survives."""
+    out = strip_markdown_nav_chrome(_load("ev_672_botwall_interstitial.md"))
+    assert "Checking your browser" not in out
+    assert "enable javascript and cookies to continue" not in out
+    assert "automation is reshaping the American labor market" in out
+    assert "reskilling investment must scale" in out
+
+
+# --- round-3 guards: every one stays byte-identical -----------------------
+
+
+def test_r3_f7_masthead_journal_reference_guard_byte_identical() -> None:
+    """F7 GUARD: a real title-case reference to the SAME journal (comma-authored, year, DOI) never
+    matches the all-caps running-header structure — kept byte-identical."""
+    text = _load("masthead_journal_reference_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "The International Review of Retail" in out
+    assert "10.1080/09593969.2022.1234567" in out
+
+
+def test_r3_f6_data_table_guard_byte_identical() -> None:
+    """F6 GUARD: a markdown table WITH data rows is byte-preserved (only the empty skeleton drops)."""
+    text = _load("data_table_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "| Mortality | 12.4% |" in out
+
+
+def test_r3_f8_botwall_long_article_guard_byte_identical() -> None:
+    """F8 GUARD: a long, prose-like sentence that merely NAMES a bot-wall phrase (verify you are
+    human / captcha challenge) is kept byte-identical (precision-first: never drop a real body)."""
+    text = _load("botwall_long_article_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "verify you are human" in out
+
+
+def test_r3_f3_italian_clinical_cookie_guard_byte_identical() -> None:
+    """F3/F9 GUARD: Italian clinical prose that mentions cookie/consenso WITHOUT the banner anchor
+    ('nel nostro sito utilizziamo') is kept byte-identical."""
+    text = _load("italian_clinical_cookie_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "consenso informato dei" in out
+
+
+def test_r3_f3_bullet_reference_guard_byte_identical() -> None:
+    """F4/RC4 GUARD: a reference bullet (long title + year + DOI) carries a citation signal, so the
+    single-link bullet-nav rule does not fire — kept byte-identical."""
+    text = _load("bullet_reference_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "Automation and employment" in out
+    assert "10.1086/701590" in out
+
+
+def test_r3_f9_cookie_and_italian_banner_shell() -> None:
+    """F9 (shell backstop): a SHORT cookie-banner page and the Italian AMS-Bologna consent banner
+    are whole-source shells via the new SHELL_COOCCURRENCE tuples; long real prose carrying the same
+    words is NOT a shell (short-body gated)."""
+    banner = (
+        "Cookies on this website. We use cookies to ensure you get the best experience. "
+        "You can allow all cookies or manage your preferences."
+    )
+    assert shell_detector.is_cited_span_shell(banner) is True
+    italian = (
+        "Nel nostro sito utilizziamo sia cookie tecnici sia, previo il tuo consenso, "
+        "cookie di profilazione per migliorare la tua esperienza di navigazione."
+    )
+    assert shell_detector.is_cited_span_shell(italian) is True
+    # A real economics article that merely mentions cookies once is NOT a shell.
+    prose = (
+        "The paper documents that websites deploying cookies on this website disclosures saw a "
+        "measurable drop in opt-in rates, and the authors allow all cookies analyses to be "
+        "replicated from the public dataset they archived alongside the manuscript for review."
+    ) * 20
+    assert shell_detector.is_cited_span_shell(prose) is False
+
+
+def test_r3_v3_off_is_byte_identical_to_round2(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OFF path: with PG_FETCH_MD_NAV_STRIP_V3=0 the round-3 additions are never applied, so a
+    round-3 leak fixture is byte-identical to its round-2 output (the welded nav heading survives
+    as unwrapped text); ON, the heading drops."""
+    text = _load("ev_296_welded_nav_heading.md")
+    monkeypatch.setenv("PG_FETCH_MD_NAV_STRIP_V3", "0")
+    off = strip_markdown_nav_chrome(text)
+    assert "Newsroom" in off  # round-2 unwraps the nav links to anchor text, keeps them
+    monkeypatch.delenv("PG_FETCH_MD_NAV_STRIP_V3", raising=False)
+    on = strip_markdown_nav_chrome(text)
+    assert "Newsroom" not in on  # round-3 drops the whole welded nav heading
+
+
+def test_r3_master_flag_off_byte_identical(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Master OFF path: PG_FETCH_MD_NAV_STRIP=0 leaves a round-3 leak body byte-identical to input
+    through clean_fetch_body (no markdown nav strip at all)."""
+    text = _load("ev_296_welded_nav_heading.md")
+    monkeypatch.setenv("PG_FETCH_MD_NAV_STRIP", "0")
+    monkeypatch.setenv("PG_FETCH_COOKIE_CHROME_STRIP", "0")
+    off = clean_fetch_body(text).cleaned_text
+    assert off == text.strip()
+    assert "commission.example.gov" in off

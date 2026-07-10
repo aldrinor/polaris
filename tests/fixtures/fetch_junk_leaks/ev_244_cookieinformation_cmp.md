@@ -1,0 +1,1 @@
+Modern data platforms separate storage from compute for elastic scaling. Necessary - [x] Functional - [x] Statistical - [x] Marketing - [x] Powered by: [Cookie Information](https://cookieinformation.com) A schema registry lets producers evolve message formats safely.

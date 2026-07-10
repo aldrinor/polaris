@@ -1,0 +1,1 @@
+CONTACT Magnus Soderlund magnus.soderlund@hhs.se > THE INTERNATIONAL REVIEW OF RETAIL DISTRIBUTION AND CONSUMER RESEARCH 2022, VOL. 32, NO. 3 The study reports that perceived service quality mediates the relationship between store atmospherics and repurchase intention.

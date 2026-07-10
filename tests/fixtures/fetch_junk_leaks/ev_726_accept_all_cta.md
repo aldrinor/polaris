@@ -1,0 +1,1 @@
+The Digital Services Act requires platforms to publish transparency reports. [Accept all cookies](https://ec.example.eu/cookies) The framework also mandates independent audits of recommender systems.
