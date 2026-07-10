@@ -170,3 +170,26 @@ def test_off_subject_marquee_exempt_never_deleted(monkeypatch):
     monkeypatch.setenv("PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY", "1")
     kept, deleted = jd.partition_rows([_fresh_off_subject()], exempt_ids={"ev_subj"})
     assert len(deleted) == 0 and kept[0]["evidence_id"] == "ev_subj"
+
+
+# ── Fix 5 (records half): per-source disclosure carries signal + judge verdict + tier ────
+
+def test_disclosure_records_per_source_signal_and_verdict():
+    # a deleted OFF_SUBJECT row carries its signal + judge verdict + tier for the manifest
+    _kept, deleted = jd.partition_rows([_fresh_off_subject()])
+    recs = jd.disclosure_records(deleted)
+    assert len(recs) == 1
+    rec = recs[0]
+    assert rec["evidence_id"] == "ev_subj"
+    assert rec["signal"] == "topic_judge_off_subject"
+    assert rec["tier"] == "T6"
+    assert "OFF_SUBJECT" in rec["judge_verdict"]
+    assert rec["excluded_from_grounding"] is True
+    # chrome disclosure keeps the chrome signal + class + tier
+    chrome_recs = jd.disclosure_records([{
+        "evidence_id": "c1", "deletion_reason": "content_integrity_junk:bot_challenge",
+        "content_integrity_class": "bot_challenge", "tier": "T4",
+    }])
+    assert chrome_recs[0]["signal"] == "chrome:bot_challenge"
+    assert chrome_recs[0]["tier"] == "T4"
+    assert "content_integrity_class=bot_challenge" in chrome_recs[0]["judge_verdict"]

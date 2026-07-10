@@ -225,18 +225,60 @@ def partition_rows(
     return kept, deleted
 
 
+def _deletion_signal(reason: str) -> str:
+    """Human-readable 'which signal fired' derived from the deletion_reason — a chrome class
+    or the topic-judge OFF_SUBJECT stamp. Keeps the disclosure honest about the exact
+    category (chrome non-source vs confirmed-off-topic) that removed each row."""
+    if reason.startswith("content_integrity_junk"):
+        cls = reason.split(":", 1)[1] if ":" in reason else "chrome"
+        return "chrome:" + (cls or "chrome")
+    if reason.startswith("confirmed_offtopic"):
+        return "topic_judge_off_subject"
+    return reason or "unknown"
+
+
+def _judge_verdict_summary(row: Mapping[str, Any]) -> str:
+    """Compact per-source verdict trail the row carried at deletion time (read-only — never a
+    delete trigger here). Surfaces WHY the source was judged, so a reviewer can second-guess
+    any deletion from the manifest alone."""
+    parts: list[str] = []
+    if _stamped_off_subject(row):
+        parts.append("topic=OFF_SUBJECT")
+    if row.get("topic_offtopic_demoted") is True:
+        parts.append("topic_offtopic_demoted=True")
+    label = str(row.get("content_relevance_label", "") or "").strip()
+    if label:
+        parts.append("content_relevance_label=" + label)
+    verdict = str(row.get("topic_relevance_verdict", "") or "").strip()
+    if verdict:
+        parts.append("topic_relevance_verdict=" + verdict)
+    ci_class = str(row.get("content_integrity_class", "") or "").strip()
+    if ci_class:
+        parts.append("content_integrity_class=" + ci_class)
+    return ";".join(parts)
+
+
 def disclosure_records(deleted_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Compact disclosure rows for the run telemetry — the audit trail that proves the
-    pipeline found and DELETED each junk / off-topic source (recorded, never silent)."""
+    pipeline found and DELETED each junk / off-topic source (recorded, never silent).
+
+    Fix 5 (records half): each record now carries the per-source SIGNAL that fired
+    (chrome class vs topic-judge OFF_SUBJECT), the JUDGE VERDICT trail, and the source TIER
+    alongside the existing evidence_id / title / url / deletion_reason — enough to second-
+    guess any single deletion straight from the manifest (fail-loud, never silent)."""
     out: list[dict[str, Any]] = []
     for row in deleted_rows:
         if not isinstance(row, Mapping):
             continue
+        reason = str(row.get("deletion_reason", "") or "")
         out.append({
             "evidence_id": row.get("evidence_id", ""),
             "title": row.get("source_title") or row.get("title") or "",
             "url": row.get("url") or row.get("source_url") or "",
-            "deletion_reason": row.get("deletion_reason", ""),
+            "tier": row.get("tier") or row.get("source_tier") or "",
+            "deletion_reason": reason,
+            "signal": _deletion_signal(reason),
+            "judge_verdict": _judge_verdict_summary(row),
             "excluded_from_grounding": True,
         })
     return out
