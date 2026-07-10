@@ -53,6 +53,12 @@ _OFFTOPIC_FLAG = "PG_DELETE_OFFTOPIC_SOURCE"
 # affirmative OFF_SUBJECT stamp; a weight/reranker ``content_relevance_label`` can NEVER
 # delete. DEFAULT ON. OFF => byte-identical legacy weight-label path.
 _TOPIC_JUDGE_ONLY_FLAG = "PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY"
+# Fix 2 (I-deepfix-003 over-deletion): the off-topic DELETE fires ONLY on an OFF_SUBJECT
+# stamp THIS run's topic judge produced. A STALE stamp reloaded from an earlier run's
+# corpus_snapshot (the judge did NOT re-run this pass) demote-KEEPs. DEFAULT ON. OFF =>
+# freshness is NOT enforced (byte-identical to the Fix-1-only path: any OFF_SUBJECT stamp
+# deletes regardless of provenance).
+_FRESH_VERDICT_FLAG = "PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY"
 _OFF_VALUES = frozenset({"0", "false", "no", "off", "disabled", ""})
 
 # An affirmative positive-relevance verdict from the content-relevance judge. A row carrying
@@ -84,6 +90,16 @@ def topic_judge_only_deletion_enabled() -> bool:
     legacy path (``is_row_confirmed_offtopic``, the weight-label reuse that hard-deleted 197
     on-topic rows in the I-deepfix-003 pass)."""
     return os.getenv(_TOPIC_JUDGE_ONLY_FLAG, "1").strip().lower() not in _OFF_VALUES
+
+
+def fresh_verdict_only_deletion_enabled() -> bool:
+    """Kill-switch ``PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY`` (DEFAULT ON, Fix 2). ON => an
+    off-topic DELETE fires ONLY on an OFF_SUBJECT stamp THIS run's topic judge produced (the
+    caller passes the fresh evidence_id set); a STALE snapshot stamp (reloaded from an earlier
+    run, judge did NOT re-run) demote-KEEPs instead of deleting. OFF => freshness is NOT
+    checked (byte-identical to the Fix-1-only path — any OFF_SUBJECT stamp is deletable). No
+    effect when the caller passes ``fresh_off_subject_ids=None`` (freshness un-enforced)."""
+    return os.getenv(_FRESH_VERDICT_FLAG, "1").strip().lower() not in _OFF_VALUES
 
 
 def is_row_content_junk(row: Mapping[str, Any]) -> bool:
@@ -137,11 +153,14 @@ def _stamped_off_subject(row: Mapping[str, Any]) -> bool:
     return verdict == "off_subject"
 
 
-def is_row_deletable_offtopic(row: Mapping[str, Any]) -> bool:
-    """DELETE predicate for the confirmed-off-topic class (topic-judge-only path, Fix 1).
+def is_row_deletable_offtopic(
+    row: Mapping[str, Any],
+    fresh_off_subject_ids: "Iterable[str] | None" = None,
+) -> bool:
+    """DELETE predicate for the confirmed-off-topic class (topic-judge-only path, Fix 1 + Fix 2).
 
     Returns True (row is DELETABLE) iff the topic judge AFFIRMATIVELY stamped this WHOLE
-    source OFF_SUBJECT. Two hard guarantees keep this from over-deleting:
+    source OFF_SUBJECT. Three hard guarantees keep this from over-deleting:
 
     * A weight/reranker ``content_relevance_label`` (``demoted`` / ``escalated_demoted``) is
       NEVER a delete trigger — those are weight-demote-to-0.25 KEEP labels (a Qwen3-Reranker
@@ -151,16 +170,30 @@ def is_row_deletable_offtopic(row: Mapping[str, Any]) -> bool:
     * An affirmative positive-relevance verdict (``content_relevance_label`` in
       {relevant, escalated_relevant}) VETOES deletion UNCONDITIONALLY — even against a
       stale/false OFF stamp. When the two judges disagree, the positive relevance wins.
+    * Fix 2 (fresh-verdict-only): when ``fresh_off_subject_ids`` is supplied (a concrete set —
+      the evidence_ids THIS run's topic judge freshly confirmed OFF_SUBJECT) AND
+      ``PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY`` is ON, a row whose OFF_SUBJECT stamp is NOT in
+      that set is a STALE snapshot stamp (an earlier run's verdict reloaded from
+      corpus_snapshot) and demote-KEEPs — only a fresh verdict deletes. ``None`` (the default)
+      => freshness is un-enforced (byte-identical to the Fix-1-only path).
 
-    FAIL-OPEN: not a Mapping / no OFF_SUBJECT stamp / missing verdict / any error => NOT
-    deletable (row KEPT). A predicate bug must NEVER delete a source."""
+    FAIL-OPEN: not a Mapping / no OFF_SUBJECT stamp / stale-only stamp / missing verdict / any
+    error => NOT deletable (row KEPT). A predicate bug must NEVER delete a source."""
     try:
         if not isinstance(row, Mapping):
             return False
         label = str(row.get("content_relevance_label", "") or "").strip().lower()
         if label in _POSITIVE_RELEVANCE_LABELS:
             return False  # affirmative positive-relevance verdict — KEEP (unconditional veto)
-        return _stamped_off_subject(row)
+        if not _stamped_off_subject(row):
+            return False
+        # Fix 2: a STALE snapshot OFF_SUBJECT stamp (not in this run's fresh set) demote-KEEPs.
+        # Enforced only when the caller passes a concrete set AND the flag is ON.
+        if fresh_off_subject_ids is not None and fresh_verdict_only_deletion_enabled():
+            eid = str(row.get("evidence_id", "") or "")
+            if eid not in {str(e) for e in fresh_off_subject_ids}:
+                return False  # stale stamp — demote-keep, never delete on an old verdict
+        return True
     except Exception as exc:  # noqa: BLE001 — never delete on a predicate bug
         logger.warning(
             "[junk_deletion_gate] deletable-offtopic predicate errored (%s) — row KEPT "
@@ -172,6 +205,7 @@ def is_row_deletable_offtopic(row: Mapping[str, Any]) -> bool:
 def partition_rows(
     rows: list[dict[str, Any]],
     exempt_ids: "Iterable[str] | None" = None,
+    fresh_off_subject_ids: "Iterable[str] | None" = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split the run-level grounding pool (``evidence_for_gen``) into
     ``(kept, deleted)``.
@@ -191,6 +225,10 @@ def partition_rows(
     if not chrome_on and not offtopic_on:
         return list(rows), []
     exempt = {str(e) for e in (exempt_ids or ())}
+    # Fix 2: materialize the fresh OFF_SUBJECT id set ONCE (or None to leave freshness
+    # un-enforced). A stale-stamp row whose id is absent demote-KEEPs (see
+    # is_row_deletable_offtopic).
+    fresh_ids = None if fresh_off_subject_ids is None else {str(e) for e in fresh_off_subject_ids}
     kept: list[dict[str, Any]] = []
     deleted: list[dict[str, Any]] = []
     for row in rows:
@@ -212,7 +250,7 @@ def partition_rows(
             # weight-label predicate stays reachable ONLY behind the OFF kill-switch so
             # ``PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY=0`` is byte-identical to pre-Fix-1.
             if topic_judge_only_deletion_enabled():
-                if is_row_deletable_offtopic(row):
+                if is_row_deletable_offtopic(row, fresh_off_subject_ids=fresh_ids):
                     reason = "confirmed_offtopic_subject"
             elif is_row_confirmed_offtopic(row):
                 reason = "confirmed_offtopic"

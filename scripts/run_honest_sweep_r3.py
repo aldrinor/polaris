@@ -13197,6 +13197,13 @@ async def run_one_query(
         # rows get a topic verdict stamped. Flag OFF => `_run_topic_judge` == `not
         # _resume_active` => the condition is byte-identical to the prior behaviour.
         _run_topic_judge = (not _resume_active) or resume_run_topic_judge_enabled()
+        # I-deepfix-003 (#1374) Fix 2: the evidence_ids THIS run's topic judge freshly confirmed
+        # OFF_SUBJECT. The junk-deletion seam (below) deletes an off-topic row ONLY when its id is
+        # in this set — a STALE OFF_SUBJECT stamp reloaded from an earlier run's corpus_snapshot
+        # (topic judge did NOT re-run, e.g. a plain --resume) yields an EMPTY set => every stale
+        # stamp demote-KEEPs instead of deleting. Defined here (before the gate block) so it is
+        # ALWAYS bound on every path reaching the deletion seam, even when the gate is skipped.
+        _fresh_off_subject_ids: set[str] = set()
         if _run_topic_judge and topic_gate_enabled() and evidence_for_gen:
             def _topic_llm(prompt: str) -> str:
                 import asyncio as _asyncio
@@ -13263,6 +13270,16 @@ async def run_one_query(
             # downstream unjudged-topic quarantine keys on, so a row that STILL lacks a
             # verdict is treated as a genuine leak, never a skipped-judge false positive.
             mark_topic_judge_ran()
+            # I-deepfix-003 (#1374) Fix 2: capture the FRESH OFF_SUBJECT verdicts THIS run
+            # produced (the deletable class — Fix 3 stamps ``topic_off_subject=True`` on the
+            # OFF_SUBJECT subset of demoted_rows). The deletion seam keys on these ids so a stale
+            # snapshot stamp can never delete on a re-entered resume corpus.
+            _fresh_off_subject_ids = {
+                str(r.get("evidence_id", "") or "")
+                for r in _topic_result.demoted_rows
+                if isinstance(r, dict) and r.get("topic_off_subject") is True
+            }
+            _fresh_off_subject_ids.discard("")
             if _topic_result.n_dropped_offtopic:
                 _log(
                     f"[scope]       topic_gate dropped "
@@ -14884,7 +14901,11 @@ async def run_one_query(
             }
             _jd_exempt_ids.discard("")
             _jd_kept, _junk_deleted_for_disclosure = _junk_gate.partition_rows(
-                evidence_for_gen, exempt_ids=_jd_exempt_ids
+                evidence_for_gen,
+                exempt_ids=_jd_exempt_ids,
+                # Fix 2: only ids THIS run's topic judge freshly confirmed OFF_SUBJECT are
+                # deletable; a stale snapshot stamp (empty set on a plain resume) demote-KEEPs.
+                fresh_off_subject_ids=_fresh_off_subject_ids,
             )
             # Codex iter-2 P1 (ATOMICITY): compute the disclosure records + LOUD log FIRST,
             # while evidence_for_gen is STILL the original (un-pruned) pool. Only after ALL
