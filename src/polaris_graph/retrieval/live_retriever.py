@@ -7338,12 +7338,16 @@ def run_live_retrieval(
                     # degraded, so the stale tier ``fetch_degraded`` is NOT propagated below.
                     _refetch_recovered = True
                 elif _refetched and _refetched_is_front_matter:
-                    # F7 (I-deepfix-004): the forced Zyte re-fetch returned the SAME
-                    # whole-issue / TOC / masthead body — still WRONG-CONTENT front-matter,
-                    # NOT the cited article. Refuse to adopt it as RECOVERED. Keep
-                    # ``_is_front_matter`` set so the wrong_content_span degrade+disclose
-                    # branch below LABELS + down-weights it (never passed off as full text,
-                    # never hard-dropped — §-1.3 recover→degrade→disclose).
+                    # F7 (I-deepfix-004): the forced Zyte re-fetch returned journal-issue
+                    # FRONT-MATTER (cover / TOC / masthead), NOT the cited article — the URL
+                    # yields WRONG-CONTENT, so the re-fetch did NOT recover this row. Refuse
+                    # to adopt it as RECOVERED and PROMOTE ``_is_front_matter`` (the original
+                    # body may not itself have been front-matter — it was the RE-FETCH that
+                    # confirmed a whole-issue container) so the wrong_content_span
+                    # degrade+disclose branch below LABELS + down-weights the row. It is
+                    # KEPT in the pool, never passed off as full text and never hard-dropped
+                    # (§-1.3 recover→degrade→disclose).
+                    _is_front_matter = True
                     logger.warning(
                         "[live_retriever] B02/B04 RE-FETCH STILL-FRONT-MATTER %r "
                         "(zyte_len=%d) — forced Zyte returned journal-issue front-matter "
