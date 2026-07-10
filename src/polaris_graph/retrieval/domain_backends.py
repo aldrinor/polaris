@@ -771,12 +771,35 @@ def _openalex_date_filter(
     return ",".join(parts) if parts else None
 
 
+def _openalex_scope_filter(
+    from_date: str | None, to_date: str | None,
+    language: str | None, author: str | None,
+) -> str | None:
+    """S1.b Design 7 D3 (ruling R11): build the OpenAlex ``filter`` value combining the publication-
+    date window (existing) with an OPTIONAL ``language:<code>`` and ``author.id:<Axxxx>`` fragment.
+    Returns a comma-joined filter string, or ``None`` when NO bound is supplied (=> no ``filter``
+    param => byte-identical to the legacy request). Pure string construction; no network."""
+    parts: list[str] = []
+    date_part = _openalex_date_filter(from_date, to_date)
+    if date_part:
+        parts.append(date_part)
+    lang = (language or "").strip().lower()
+    if lang:
+        parts.append(f"language:{lang}")
+    auth = (author or "").strip()
+    if auth:
+        parts.append(f"author.id:{auth}")
+    return ",".join(parts) if parts else None
+
+
 def openalex_search(
     query: str,
     limit: int = PG_DOMAIN_MAX_HITS,
     *,
     from_date: str | None = None,
     to_date: str | None = None,
+    language: str | None = None,
+    author: str | None = None,
 ) -> list[SearchCandidate]:
     """Keyword-SEARCH OpenAlex /works for primary-literature discovery.
 
@@ -808,9 +831,10 @@ def openalex_search(
     that honest zero from the rate-limited failure.
     """
     auth_params = _openalex_auth_params()
-    # I-deepfix-001 Wave-3 (#1344): the publication-date window filter (None when
-    # no bound supplied => byte-identical: no `filter` param is ever attached).
-    date_filter = _openalex_date_filter(from_date, to_date)
+    # I-deepfix-001 Wave-3 (#1344): the publication-date window filter, now S1.b Design 7 D3-extended
+    # with optional language / author fragments (None when NO bound supplied => byte-identical: no
+    # `filter` param is ever attached; date-only callers are unchanged).
+    date_filter = _openalex_scope_filter(from_date, to_date, language, author)
     try:
         per_page = _openalex_per_page(limit)
         max_pages = _openalex_max_pages()

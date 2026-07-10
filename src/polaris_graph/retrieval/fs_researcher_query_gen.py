@@ -366,6 +366,14 @@ def _reserve_native_within_budget(
     return english_head + reserved_native + english_tail + leftover_native
 
 
+def _with_scope(prompt: str, scope_directives: str | None) -> str:
+    """S1.b Design 7 D2: append the SCOPE DIRECTIVES block to a qgen prompt when present. Empty /
+    None => the prompt is returned unchanged (byte-identical legacy prompt). Pure."""
+    if scope_directives and scope_directives.strip():
+        return prompt + "\n\n" + scope_directives.strip()
+    return prompt
+
+
 def _scope_anchored() -> bool:
     """I-deepfix-001 (#1344): True iff sub-query generation anchors each derived query to the
     ORIGINAL research question's scope. Default ON.
@@ -540,6 +548,7 @@ def _plan_expert_facet_queries(
     max_queries: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    scope_directives: str | None = None,
 ) -> tuple[list[str], list[Any]]:
     """R1+R2 (I-deepfix-001, #1344) facet-driven frontier: seed queries from the expert-facet tree,
     issue them directly, then (when R2 is enabled) run the facet-completeness expansion loop over the
@@ -580,7 +589,9 @@ def _plan_expert_facet_queries(
         return queries, results
 
     # R1: build the facet tree (one bounded LLM call) and its scope-anchored angle queries.
-    facets = _efp.plan_expert_facets(question, llm)
+    # S1.b Design 7 D2: thread the SCOPE DIRECTIVES block into the facet-planner prompt (None =>
+    # byte-identical). Passed positionally-safe as a keyword so an older signature is unaffected.
+    facets = _efp.plan_expert_facets(question, llm, scope_directives=scope_directives)
     # I-deepfix-001 Wave-3a (#1344): expert-facet-planner ACTIVATION fire marker. Emitted ONLY when
     # PG_EXPERT_FACET_PLANNER is ON (this whole facet path is reached only under the flag; the guard keeps
     # the marker OFF byte-identical even if a test drives this helper directly). facets=0 with the flag ON
@@ -852,9 +863,15 @@ def plan_fs_researcher_queries(
     max_rounds: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    scope_directives: str | None = None,
 ) -> tuple[list[str], list[Any]]:
     """Run the FS-Researcher TOC/todo-queue + 6-item-checklist loop; return
     (queries_issued, per_query_results).
+
+    S1.b Design 7 D2 (ruling R11): ``scope_directives`` (the SCOPE DIRECTIVES block) is appended to
+    the TOC + per-todo prompts when present (and threaded into the expert-facet planner) so a
+    generated query carries the user's scope. ``None``/empty => byte-identical legacy prompts; the
+    FS-Researcher method is unchanged.
 
     index.md TOC: deconstruct the question into sub-topics (a todo queue). Each round: for every
     todo, derive ONE query and retrieve via the production `per_query_retrieve`; then a fixed 6-item
@@ -897,6 +914,7 @@ def plan_fs_researcher_queries(
             question, llm, per_query_retrieve,
             max_queries=max_queries, retrieve_kwargs=retrieve_kwargs,
             retrieval_deadline_monotonic=retrieval_deadline_monotonic,
+            scope_directives=scope_directives,
         )
 
     # index.md TOC: deconstruct the question into sub-topics (the todo queue).
@@ -914,6 +932,8 @@ def plan_fs_researcher_queries(
             "Deconstruct this research topic into sub-topics (the index.md table of contents). "
             "One sub-topic per line.\n\n" + question
         )
+    # S1.b Design 7 D2: carry the user's SCOPE DIRECTIVES into the TOC prompt (None => unchanged).
+    _toc_prompt = _with_scope(_toc_prompt, scope_directives)
     # I-qgen-001 (#1373): screen the TOC reply for validator/status prose BEFORE it
     # becomes the todo queue — a status line must never become a sub-topic.
     todos = _screen_status_lines(_lines(llm(_toc_prompt), cap=10), question) or [question]
@@ -936,14 +956,18 @@ def plan_fs_researcher_queries(
             # (e.g. 'manufacturing and supply chain automation') keeps the question's subject and
             # does not drift into its generic field. Default-ON; OFF => the legacy bare prompt.
             if _scope_anchored():
-                raw = llm(
+                raw = llm(_with_scope(
                     "Write ONE web-search query for the SUB-TOPIC below, kept STRICTLY within the "
                     "scope of the RESEARCH QUESTION (carry its subject, domain and key entities; do "
                     "NOT broaden the query into the sub-topic's generic field). Query only.\n\n"
-                    f"RESEARCH QUESTION:\n{question}\n\nSUB-TOPIC:\n{todo}"
-                )
+                    f"RESEARCH QUESTION:\n{question}\n\nSUB-TOPIC:\n{todo}",
+                    scope_directives,  # S1.b Design 7 D2 (None => unchanged)
+                ))
             else:
-                raw = llm("Write ONE search query for this sub-topic. Query only.\n\n" + todo)
+                raw = llm(_with_scope(
+                    "Write ONE search query for this sub-topic. Query only.\n\n" + todo,
+                    scope_directives,  # S1.b Design 7 D2 (None => unchanged)
+                ))
             query = ""
             if raw and raw.strip():
                 query = raw.strip().splitlines()[0].strip().strip('"').strip()
@@ -1124,6 +1148,7 @@ def run_fs_researcher_retrieval(
     max_rounds: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    scope_directives: str | None = None,
 ) -> tuple[Any, list[str]]:
     """The production entry point: run the FS-Researcher loop over `per_query_retrieve` and return
     (merged LiveRetrievalResult, queries_issued). Faithful to the bake-off winner — each query goes
@@ -1131,10 +1156,17 @@ def run_fs_researcher_retrieval(
 
     I-deepfix-001 WALL-03 (#1344): ``retrieval_deadline_monotonic`` is the SHARED per-question
     retrieval wall threaded from the spine; the adaptive GLM rounds stop firing once it passes
-    (``None`` = default = byte-identical)."""
+    (``None`` = default = byte-identical).
+
+    S1.b Design 7 D2 (ruling R11): ``scope_directives`` is the compact SCOPE DIRECTIVES block built
+    by ``scope_directives.scope_directives_block`` from the user's parsed scope. When non-empty it is
+    appended to the TOC / facet-planner / per-todo prompts so a generated query CARRIES the user's
+    window / geography / language. ``None``/empty (default) => byte-identical legacy prompts. The
+    FS-Researcher METHOD is unchanged — this only adds scope WORDING to the prompts."""
     queries, results = plan_fs_researcher_queries(
         question, llm, per_query_retrieve,
         max_queries=max_queries, max_rounds=max_rounds, retrieve_kwargs=retrieve_kwargs,
         retrieval_deadline_monotonic=retrieval_deadline_monotonic,
+        scope_directives=scope_directives,
     )
     return merge_retrieval_results(results, result_factory), queries

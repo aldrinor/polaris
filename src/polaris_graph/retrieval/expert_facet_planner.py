@@ -252,7 +252,9 @@ def _deterministic_floor_facets(question: str) -> list[str]:
     return facets
 
 
-def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
+def plan_expert_facets(
+    question: str, llm: LlmFn, *, scope_directives: str | None = None
+) -> list[Facet]:
     """Build the facet tree for ``question`` and expand each facet into angle queries.
 
     ONE bounded LLM call elicits the facet tree across the taxonomy dimensions (sub-topics, actors /
@@ -260,6 +262,10 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
     multiplied deterministically at $0. When the LLM reply is unusable, the deterministic split of
     the question is used as the facet floor. Returns an ordered list of ``Facet`` (each with >=1
     scope-anchored angle query). Pure control flow over the injected ``llm`` — no network here.
+
+    S1.b Design 7 D2 (ruling R11): ``scope_directives`` (the SCOPE DIRECTIVES block) is appended to
+    the facet-planning prompt when present so the elicited facets stay inside the user's scope.
+    ``None``/empty (default) => the prompt is byte-identical.
     """
     cap = _max_facets()
     n_angles = _angles_per_facet()
@@ -270,7 +276,7 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
 
     facet_names: list[str] = []
     try:
-        reply = llm(
+        _facet_prompt = (
             "You are an expert research planner. Decompose the RESEARCH QUESTION into its distinct "
             "expert facets so an exhaustive literature review can be planned. Cover these dimensions "
             "where they exist: sub-topics, actors/stakeholders, time-slices, geographies, mechanisms, "
@@ -278,6 +284,11 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
             "carry its subject, domain and key entities; do NOT generalise a facet into its broad "
             "field. One facet per line, no numbering.\n\nRESEARCH QUESTION:\n" + (question or "")
         )
+        # S1.b Design 7 D2: carry the user's SCOPE DIRECTIVES into the facet-planner prompt when
+        # present (None/empty => unchanged, byte-identical).
+        if scope_directives and scope_directives.strip():
+            _facet_prompt = _facet_prompt + "\n\n" + scope_directives.strip()
+        reply = llm(_facet_prompt)
         facet_names = _clean_facet_lines(reply, cap)
     except Exception:
         facet_names = []

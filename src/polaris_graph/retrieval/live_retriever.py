@@ -793,13 +793,20 @@ _SERPER_PAGE_MAX = 20
 
 
 def _serper_fetch_page(
-    query: str, per_page: int, page: int, headers: dict[str, str]
+    query: str, per_page: int, page: int, headers: dict[str, str],
+    scope_params: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], bool, float, int, str]:
     """FX-17 (#1126): fetch ONE Serper page. Returns (items, ok, latency_ms, resp_bytes, error).
-    Byte-identical to the legacy single call when page==1 (no `page` key in the payload)."""
+    Byte-identical to the legacy single call when page==1 (no `page` key in the payload).
+
+    S1.b Design 7 D3 (ruling R11): ``scope_params`` (``tbs`` / ``gl`` / ``hl`` from the user's parsed
+    scope) is merged into the JSON body for the ADDITIVE scoped lane. None/empty (default) => the
+    exact legacy payload (byte-identical)."""
     payload: dict[str, Any] = {"q": query, "num": per_page}
     if page > 1:
         payload["page"] = page
+    if scope_params:
+        payload.update(scope_params)
     _t0 = time.time()
     try:
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
@@ -819,7 +826,8 @@ def _serper_fetch_page(
 
 
 def _serper_search(
-    query: str, num: int = 10, api_calls: dict[str, int] | None = None
+    query: str, num: int = 10, api_calls: dict[str, int] | None = None,
+    scope_params: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     api_key = os.getenv("SERPER_API_KEY", "").strip()
     if not api_key:
@@ -877,7 +885,7 @@ def _serper_search(
     _last_err = ""
     for _page in range(1, _n_pages + 1):
         items, ok, _last_latency, _last_bytes, _last_err = _serper_fetch_page(
-            query, per_page, _page, headers
+            query, per_page, _page, headers, scope_params=scope_params
         )
         # FX-17 (#1126) iter-2: count EACH HTTP page request (a real Serper API call), not once
         # per query. P2 fix — api_calls['serper'] used to undercount paginated breadth.
@@ -921,7 +929,9 @@ def _serper_search(
     return out
 
 
-def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
+def _s2_bulk_search(
+    query: str, limit: int = 20, scope_params: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
     api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
     # I-safety-002b (#925) PR-2: record S2 backend attempt (lazy, best-effort).
     try:
@@ -937,6 +947,12 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
         "fields": "title,abstract,url,openAccessPdf,externalIds,year,venue",
         "limit": max(1, min(limit, 100)),
     }
+    # S1.b Design 7 D3 (ruling R11): merge the scoped-lane params (``year`` window /
+    # ``publicationTypes``) for the ADDITIVE scoped S2 lane. None/empty (default) => the exact
+    # legacy params (byte-identical). The global journal-only DROP stays dormant; this only ADDS a
+    # scoped discovery lane.
+    if scope_params:
+        params.update(scope_params)
     # I-meta-007b: wall-clock for the tool tracer (record-only).
     _t0 = time.time()
     try:
@@ -2496,6 +2512,38 @@ def _openalex_date_window(research_question: str) -> tuple[str | None, str | Non
         return from_date, to_date
     except Exception:
         return None, None
+
+
+def _serper_scope_filter_enabled() -> bool:
+    """S1.b Design 7 D3 (ruling R11): kill-switch for the ADDITIVE scoped Serper lane (``tbs`` date /
+    ``gl`` geography / ``hl`` language). Default OFF => the scoped Serper lane never fires and Serper
+    is byte-identical. The slate pins it ON after the S1.b bar. Additive: the base lane always runs."""
+    return os.getenv("PG_SERPER_SCOPE_FILTER", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _s2_scope_filter_enabled() -> bool:
+    """S1.b Design 7 D3 (ruling R11): kill-switch for the ADDITIVE scoped S2 lane (``year`` window /
+    ``publicationTypes``). Default OFF => byte-identical. Additive: the base S2 lane always runs; the
+    global journal-only DROP stays dormant (this only ADDS a scoped discovery lane)."""
+    return os.getenv("PG_S2_SCOPE_FILTER", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _openalex_scope_filter_enabled() -> bool:
+    """S1.b Design 7 D3 (ruling R11): kill-switch for the OpenAlex language/author scoped extras.
+    Default OFF => no language/author scoping (the existing date lane is unaffected). Distinct from
+    the date alias ``PG_OPENALEX_DATE_FILTER`` so turning ON the date lane never silently adds
+    language/author scoping."""
+    return os.getenv("PG_OPENALEX_SCOPE_FILTER", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _scope_dicts_from_protocol(protocol: Any) -> tuple[dict | None, dict | None]:
+    """(user_constraints_dict, scope_constraints_dict) from a protocol.json dict, or (None, None).
+    Pure; the scope gate writes both as ``to_dict()`` shapes."""
+    if not isinstance(protocol, dict):
+        return None, None
+    uc = protocol.get("user_constraints")
+    sc = protocol.get("scope_constraints")
+    return (uc if isinstance(uc, dict) else None), (sc if isinstance(sc, dict) else None)
 
 
 def _prefetch_openalex_enrich_parallel(
@@ -5688,6 +5736,35 @@ def run_live_retrieval(
             "(flag on; question states no publication window; additive dated lane idle)"
         )
 
+    # S1.b Design 7 D3 (ruling R11): build the ADDITIVE scoped-lane params ONCE from the parsed
+    # scope (protocol.json user_constraints + scope_constraints). Each lane is flag-gated + fail-open
+    # + purely ADDITIVE (an EXTRA in-scope call beside the untouched base call; drops nothing). Empty
+    # params / flag-OFF => the lane never fires => byte-identical. §-1.3: adds in-scope discovery only.
+    _serper_scope_on = _serper_scope_filter_enabled() and not seed_only
+    _s2_scope_on = _s2_scope_filter_enabled() and not seed_only
+    _oa_scope_on = _openalex_scope_filter_enabled() and not seed_only
+    _serper_scope_params: dict[str, str] = {}
+    _s2_scope_params: dict[str, str] = {}
+    _oa_scope_lang: str | None = None
+    _oa_scope_author: str | None = None
+    if _serper_scope_on or _s2_scope_on or _oa_scope_on:
+        try:
+            from src.polaris_graph.retrieval import scope_directives as _scope_d
+            _sc_uc, _sc_sc = _scope_dicts_from_protocol(protocol)
+            if _serper_scope_on:
+                _serper_scope_params = _scope_d.serper_scope_params(_sc_uc, _sc_sc)
+                logger.info(_scope_d.activation_marker("serper", _serper_scope_params))
+            if _s2_scope_on:
+                _s2_scope_params = _scope_d.s2_scope_params(_sc_uc, _sc_sc)
+                logger.info(_scope_d.activation_marker("s2", _s2_scope_params))
+            if _oa_scope_on:
+                _oap = _scope_d.openalex_scope_params(_sc_uc, _sc_sc)
+                _oa_scope_lang = _oap.get("language")
+                _oa_scope_author = _oap.get("author")
+                logger.info(_scope_d.activation_marker("openalex", _oap))
+        except Exception as _scope_exc:  # noqa: BLE001 — fail-open: no scoped lanes, base lanes stand
+            logger.warning("[live_retriever] scope-lane params failed (%s); scoped lanes idle", _scope_exc)
+
     # ── Step 2: run Serper + S2 across queries ──────────────────────
     seen_urls: set[str] = set()
     candidates: list[SearchCandidate] = []
@@ -5806,6 +5883,27 @@ def run_live_retrieval(
                 query_origin=q,
             ))
 
+        # S1.b Design 7 D3 (ruling R11): ADDITIVE scoped Serper lane — an EXTRA in-scope call
+        # (tbs date / gl geography / hl language) UNIONED on top of the base hits above via
+        # _emit_candidate's shared seen_urls dedup. Fires only when PG_SERPER_SCOPE_FILTER is ON and
+        # the parsed scope produced params; drops NOTHING (the base lane already landed). Fail-open.
+        if _serper_scope_on and _serper_scope_params:
+            try:
+                _serper_scoped = _serper_search(
+                    q, num=max_serper, api_calls=api_calls, scope_params=_serper_scope_params,
+                )
+                for hit in _serper_scoped:
+                    url = hit.get("url", "")
+                    if not url:
+                        continue
+                    _emit_candidate("serper", SearchCandidate(
+                        url=url, title=hit.get("title", ""), snippet=hit.get("snippet", ""),
+                        source="serper", query_origin=q,
+                    ))
+                _trace_query("serper_scoped", q, [h.get("url", "") for h in _serper_scoped])
+            except Exception as _sse:  # noqa: BLE001 — fail-open: base Serper lane already landed
+                logger.warning("[live_retriever] scoped Serper lane failed (%s); base lane stands", _sse)
+
         # FX-18 (#1122): S2 bulk is a KEYWORD index — feeding it the 40-70-word NL query returned ~0
         # for 4/5 golden questions. Send a SHORT content-keyword distillation of `q` instead (pure,
         # stopword-filtered, capped). Flag-gated PG_S2_KEYWORD_DISTILL (default on); an empty
@@ -5832,6 +5930,27 @@ def run_live_retrieval(
                 metadata={"doi": hit.get("doi"), "year": hit.get("year")},
                 query_origin=q,
             ))
+
+        # S1.b Design 7 D3 (ruling R11): ADDITIVE scoped S2 lane — an EXTRA in-scope call (year
+        # window / publicationTypes=JournalArticle) UNIONED via the shared dedup. Fires only when
+        # PG_S2_SCOPE_FILTER is ON and the scope produced params; drops NOTHING (base S2 lane already
+        # landed); the global journal-only DROP stays dormant. Fail-open.
+        if _s2_scope_on and _s2_scope_params:
+            try:
+                _s2_scoped = _s2_bulk_search(_s2_query, limit=max_s2, scope_params=_s2_scope_params)
+                api_calls["s2"] += 1
+                for hit in _s2_scoped:
+                    url = hit.get("url", "")
+                    if not url:
+                        continue
+                    _emit_candidate("s2", SearchCandidate(
+                        url=url, title=hit.get("title", ""), snippet=hit.get("snippet", ""),
+                        source="s2", metadata={"doi": hit.get("doi"), "year": hit.get("year")},
+                        query_origin=q,
+                    ))
+                _trace_query("s2_scoped", _s2_query, [h.get("url", "") for h in _s2_scoped])
+            except Exception as _s2e:  # noqa: BLE001 — fail-open: base S2 lane already landed
+                logger.warning("[live_retriever] scoped S2 lane failed (%s); base lane stands", _s2e)
 
         # FX-18 (#1122): OpenAlex /works?search handles NL queries that the S2 keyword index does not,
         # and is already built (domain_backends.openalex_search, fail-open). Wire it as a PARALLEL
@@ -5881,13 +6000,20 @@ def run_live_retrieval(
                 # above (via _emit_candidate's shared seen_urls dedup) — surfacing in-window primaries
                 # a plain keyword search buries. Strictly ADDITIVE: removes no base source. Fail-open
                 # (a fault adds 0 hits; the base lane already landed). §-1.3; faithfulness untouched.
-                if _oa_date_filter_on and (_oa_date_from or _oa_date_to):
+                # S1.b Design 7 D3 (ruling R11): the additive scoped lane now also carries the
+                # language / author scope (PG_OPENALEX_SCOPE_FILTER). It fires when a date window
+                # (existing) OR a language/author scope is present; date-only callers with the scope
+                # flag OFF are byte-identical (language/author stay None).
+                if (_oa_date_filter_on and (_oa_date_from or _oa_date_to)) or (
+                    _oa_scope_on and (_oa_scope_lang or _oa_scope_author)
+                ):
                     _oad_t0 = time.time()
                     _oad_t0_mono = time.monotonic()
                     try:
                         _oad_hits = openalex_search(
                             q, limit=max_s2,
                             from_date=_oa_date_from, to_date=_oa_date_to,
+                            language=_oa_scope_lang, author=_oa_scope_author,
                         )
                         api_calls["openalex_search"] = api_calls.get("openalex_search", 0) + 1
                         _oad_zero = not _oad_hits

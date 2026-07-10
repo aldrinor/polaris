@@ -9735,6 +9735,30 @@ async def run_one_query(
         _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
         _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "200"))
 
+        # S1.b Design 7 D1 (ruling R11): size the retrieval budget from the user ask when
+        # PG_BREADTH_RESOLVER=1. Default OFF => the three raw env reads above STAND, byte-identical.
+        # Fail-open: any resolver fault leaves the env-derived values intact (a paid run is never
+        # aborted by breadth sizing). The plan is DISCLOSED (manifest + run log). serper_total is
+        # carried for disclosure only; the spine wires the four consumed knobs. §-1.3: a compute-
+        # safety CEILING sized to the requirement, never a target the loop pads to.
+        _breadth_plan = None
+        try:
+            from src.polaris_graph.retrieval.breadth_resolver import (
+                breadth_resolver_enabled as _breadth_enabled,
+                resolve_breadth as _resolve_breadth,
+            )
+            if _breadth_enabled():
+                _rc = protocol.get("run_config") if isinstance(protocol, dict) else None
+                _breadth_plan = _resolve_breadth(
+                    _clean_question, protocol=protocol, facets=None, run_config=_rc,
+                )
+                _max_serper = _breadth_plan.serper_k
+                _max_s2 = _breadth_plan.s2_k
+                _fetch_cap = _breadth_plan.fetch_cap
+                _log(f"[breadth_resolver] {_breadth_plan.rationale}")
+        except Exception as _breadth_exc:  # noqa: BLE001 — fail-open to the env defaults above
+            _log(f"[breadth_resolver] fail-open (env defaults stand): {_breadth_exc}")
+
         # I-ready-006 (#1082): query-complexity router (CAP-ONLY — Codex diff-gate iter-5 §-1.2 rule 6).
         # Default OFF (PG_COMPLEXITY_ROUTING) -> the full heavyweight path, BYTE-IDENTICAL. When ON, a
         # confidently-SIMPLE factual query gets a lower FETCH CAP (PG_SIMPLE_FETCH_CAP) only — a cost/
@@ -10432,9 +10456,33 @@ async def run_one_query(
                         retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 fix-2: SHARED per-question wall (IterResearch/FS lane)
                     )
 
+                # S1.b Design 7 D1 (max_queries) + D2 (scope->query wording). D1: when the breadth
+                # resolver ran, size the query budget from the plan (the kwarg already threads
+                # end-to-end; today it is just never used). D2: when PG_SCOPE_TO_QGEN=1, build the
+                # SCOPE DIRECTIVES block from the protocol's parsed scope so each generated query
+                # CARRIES the user's window/geo/language instead of hoping the LLM keeps it. Both
+                # default OFF / None => byte-identical prompts + the env-default budget. Fail-open.
+                _fs_max_queries = _breadth_plan.query_budget if _breadth_plan is not None else None
+                _scope_directives_text = None
+                try:
+                    if os.getenv("PG_SCOPE_TO_QGEN", "0").strip().lower() in ("1", "true", "on", "yes"):
+                        from src.polaris_graph.retrieval.scope_directives import (
+                            scope_directives_block as _scope_block,
+                        )
+                        _scope_directives_text = _scope_block(
+                            protocol.get("user_constraints") if isinstance(protocol, dict) else None,
+                            protocol.get("scope_constraints") if isinstance(protocol, dict) else None,
+                        ) or None
+                        if _scope_directives_text:
+                            _log("[activation] scope_to_qgen: fired (SCOPE DIRECTIVES block attached)")
+                except Exception as _scope_exc:  # noqa: BLE001 — fail-open to legacy prompts
+                    _log(f"[scope_to_qgen] fail-open (legacy prompts): {_scope_exc}")
+
                 if _fs_researcher_enabled():
                     retrieval, _iter_queries = _run_fs_researcher_retrieval(
                         _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR,  # I-deepfix-001 B3 P1-B: clean query seed
+                        max_queries=_fs_max_queries,  # S1.b Design 7 D1: budget from the breadth resolver (None => env default)
+                        scope_directives=_scope_directives_text,  # S1.b Design 7 D2: scope->query wording (None => legacy prompts)
                         retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 WALL-03 (#1344): SHARED per-question wall gates the adaptive GLM rounds
                     )
                     _log(

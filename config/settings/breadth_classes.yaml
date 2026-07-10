@@ -1,0 +1,51 @@
+# S1.b breadth-class sizing table (Design 7 D1 + master execution plan v2 §6).
+#
+# LAW VI: every number here is a config knob — env-overridable (the legacy PG_* vars in
+# breadth_resolver._KNOB_ENV win over a class value) and RunConfig-overridable (panel / prompt).
+# §-1.3: these are compute-safety CEILINGS sized to the requirement, NOT breadth targets the loop
+# pads to. Issued counts still EMERGE from facets + dedup + the retrieval wall + checklist
+# saturation; the widen lanes still raise the budget additively at run time.
+#
+# The three headline rows per class are operator-pinned in master §6:
+#   NARROW {15, 20, 120} / STANDARD {35, 60, 300} / WIDE {80, 100, 740}
+#   = {query_budget, serper_total, fetch_cap}.
+#
+# serper_k / s2_k (results requested PER sub-query from Serper / Semantic Scholar) are HELD at the
+# historical code default (12) across ALL classes. The operator pinned no per-class value for them;
+# the Gate-B benchmark slate's explicit env (PG_SWEEP_MAX_SERPER / PG_SWEEP_MAX_S2 = 100) wins when
+# a run needs it. Per-class serper_k / s2_k scaling is a DEFERRED gate decision — introducing a
+# per-class number here now would be an un-disclosed invented breadth number (§-1.3 day-waster ban).
+# Breadth on these backends already scales via query_budget (more sub-queries) and serper_total
+# (Serper pagination depth per query).
+
+schema_version: 1
+default_class: STANDARD
+
+classes:
+  NARROW:
+    query_budget: 15
+    serper_total: 20
+    fetch_cap: 120
+    serper_k: 12
+    s2_k: 12
+  STANDARD:
+    query_budget: 35
+    serper_total: 60
+    fetch_cap: 300
+    serper_k: 12
+    s2_k: 12
+  WIDE:
+    query_budget: 80
+    serper_total: 100
+    fetch_cap: 740
+    serper_k: 12
+    s2_k: 12
+
+# How the class is chosen when neither a RunConfig directive nor PG_BREADTH_CLASS sets it, from the
+# STRUCTURAL width of the ask (breadth_resolver._structural_class). Deterministic, pure.
+structural_width:
+  # facet count from the expert-facet planner: >= wide_facets => WIDE; <= narrow_facets => NARROW.
+  narrow_facets: 3
+  wide_facets: 8
+  # a stated publication window wider than this many years is a WIDE signal on its own.
+  wide_window_years: 10
