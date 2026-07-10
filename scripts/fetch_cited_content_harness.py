@@ -282,7 +282,8 @@ def _select(cases: list[dict], only: Optional[list[str]]) -> list[dict]:
 
 
 # ── Run one case ────────────────────────────────────────────────────────────
-def run_case(case: dict, seam: Callable[..., tuple[str, dict]], quote_max: int) -> dict:
+def run_case(case: dict, seam: Callable[..., tuple[str, dict]], quote_max: int,
+             dump_bodies: bool = False) -> dict:
     start = time.monotonic()
     try:
         quote, diag = seam(case["url"], max_chars=quote_max)
@@ -293,7 +294,7 @@ def run_case(case: dict, seam: Callable[..., tuple[str, dict]], quote_max: int) 
         }
     elapsed = round(time.monotonic() - start, 2)
     verdict, checks = verdict_for(case["expect"], quote, diag, case)
-    return {
+    result = {
         "name": case["name"],
         "ev": case.get("ev", ""),
         "url": case["url"],
@@ -313,6 +314,9 @@ def run_case(case: dict, seam: Callable[..., tuple[str, dict]], quote_max: int) 
         "eligible": checks["eligible"],
         "collision_reason": "",
     }
+    if dump_bodies:                        # bridge: retain the FULL recovered body
+        result["quote_full"] = quote or ""
+    return result
 
 
 def _timeout_result(case: dict, elapsed_s: float = 0.0) -> dict:
@@ -334,7 +338,8 @@ def _timeout_result(case: dict, elapsed_s: float = 0.0) -> dict:
 
 
 def run_all(cases: list[dict], max_parallel: int, case_timeout: int,
-            total_timeout: int, quote_max: int) -> list[dict]:
+            total_timeout: int, quote_max: int,
+            dump_bodies: bool = False) -> list[dict]:
     """Run every case on a bounded pool of DAEMON worker threads under a HARD
     total wall-clock deadline.
 
@@ -363,7 +368,7 @@ def run_all(cases: list[dict], max_parallel: int, case_timeout: int,
                 if time.monotonic() >= deadline:      # deadline blew while queued
                     result = _timeout_result(case)
                 else:
-                    result = run_case(case, seam, quote_max)
+                    result = run_case(case, seam, quote_max, dump_bodies)
         except BaseException:                          # noqa: BLE001 — never die silently
             result = _timeout_result(case, time.monotonic() - started)
         with result_lock:
@@ -466,6 +471,36 @@ def write_outputs(results: list[dict], flag_states: dict, run_dir: Path) -> dict
     return summary
 
 
+# ── Content bridge (fetch -> compose): --dump-bodies ────────────────────────
+def bodies_from_results(results: list[dict]) -> list[dict]:
+    """PURE, non-mutating. Project each result to the bridge row the compose
+    harness consumes: ``{name, ev, url, verdict, access_method, quote}`` where
+    ``quote`` is the FULL recovered body (``quote_full``, captured only under
+    ``--dump-bodies``); falls back to the 300-char ``quote_head`` (and to "" for
+    timeout rows that carry neither). Imported by the offline unit test."""
+    rows: list[dict] = []
+    for r in results:
+        rows.append({
+            "name": r.get("name", ""),
+            "ev": r.get("ev", ""),
+            "url": r.get("url", ""),
+            "verdict": r.get("verdict", ""),
+            "access_method": r.get("access_method", "none"),
+            "quote": r.get("quote_full", r.get("quote_head", "")) or "",
+        })
+    return rows
+
+
+def write_bodies(results: list[dict], run_dir: Path) -> Path:
+    """Write ``bodies.json`` (the bridge file) into the run dir; return its path."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    path = run_dir / "bodies.json"
+    path.write_text(
+        json.dumps(bodies_from_results(results), indent=2, ensure_ascii=False),
+        encoding="utf-8")
+    return path
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────────
 def _build_url_case(url: str, expect: str, contains: Optional[list[str]]) -> dict:
     stems: list[str] = []
@@ -487,7 +522,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--url", help="ad-hoc single URL (needs --expect)")
     ap.add_argument("--expect", help="expect class for --url")
     ap.add_argument("--contains", action="append", help="fingerprint stem(s) for --url")
+    ap.add_argument("--dump-bodies", action="store_true",
+                    help="bridge: also write outputs/fetch_harness/<utc>/bodies.json "
+                         "with the FULL recovered body per case (lifts quote_max to "
+                         ">=20000 and forces PG_REFETCH_FULL_BODY=1 for this run)")
     args = ap.parse_args(argv)
+
+    # Bridge run: force full-body refetch BEFORE the flag gate so an operator's
+    # PG_REFETCH_FULL_BODY=0 cannot VOID a dump; the default path is untouched.
+    if args.dump_bodies:
+        os.environ["PG_REFETCH_FULL_BODY"] = "1"
 
     try:
         all_cases = load_cases()
@@ -531,14 +575,22 @@ def main(argv: Optional[list[str]] = None) -> int:
     case_timeout = _env_int("PG_HARNESS_CASE_TIMEOUT_S", 240)
     total_timeout = _env_int("PG_HARNESS_TOTAL_TIMEOUT_S", 900)
     quote_max = _env_int("PG_HARNESS_QUOTE_MAX", 2000)
+    if args.dump_bodies:                   # bridge needs the full body, not a head
+        quote_max = max(quote_max, 20000)
 
     try:
-        results = run_all(cases, max_parallel, case_timeout, total_timeout, quote_max)
+        results = run_all(cases, max_parallel, case_timeout, total_timeout,
+                          quote_max, args.dump_bodies)
     except Exception as exc:               # noqa: BLE001 — harness bug, not a data FAIL
         print(f"RESULT ERROR - harness crashed: {exc}", file=sys.stderr)
         return 3
 
     run_dir = _OUTPUT_ROOT / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    bodies_path = None
+    if args.dump_bodies:                   # write bodies.json, THEN strip quote_full
+        bodies_path = write_bodies(results, run_dir)   # so results.json stays lean
+        for r in results:
+            r.pop("quote_full", None)
     summary = write_outputs(results, flag_states, run_dir)
 
     for r in results:
@@ -548,6 +600,9 @@ def main(argv: Optional[list[str]] = None) -> int:
           f"{summary['good_controls_all_pass']}  "
           f"authorize={summary['authorize_full_pipeline']}")
     print(f"report: {run_dir / 'report.md'}")
+    if bodies_path is not None:
+        print(f"bodies: {bodies_path}  (full-body dump; verdicts computed at "
+              f"quote_max={quote_max} and MAY differ from a default-cap run)")
     return 0 if summary["no_fail"] else 1
 
 
