@@ -65,6 +65,32 @@ def test_fix4_arxiv_id_merges_across_mirrors():
     assert fd._same_work_key(a) == fd._same_work_key(b) == "id:arxiv:2303.10130"
 
 
+def test_fix4_bare_arxiv_id_merges_nonarxiv_mirrors():
+    # S2/S3 re-pass iter 2: repec (/arx/papers/<id>) and HuggingFace (/papers/<id>) host the
+    # SAME arXiv work but on a non-arxiv.org host. The bare-id path matcher must extract the
+    # same id so all mirrors share one work id (the Eloundou fragmentation fix). A genuinely
+    # different arXiv id must NOT collide.
+    arx = {"source_url": "https://arxiv.org/abs/2303.10130"}
+    repec = {"source_url": "https://ideas.repec.org/p/arx/papers/2303.10130.html"}
+    hf = {"source_url": "https://huggingface.co/papers/2303.10130"}
+    ar5 = {"source_url": "https://ar5iv.labs.arxiv.org/html/2303.10130"}
+    other = {"source_url": "https://huggingface.co/papers/2401.99999"}
+    keys = {fd._same_work_key(r) for r in (arx, repec, hf, ar5)}
+    assert keys == {"id:arxiv:2303.10130"}, keys
+    assert fd._same_work_key(other) == "id:arxiv:2401.99999"
+    # render-side mirror stays byte-identical
+    assert we._url_work_identifier(repec) == "arxiv:2303.10130"
+    assert we._url_work_identifier(hf) == "arxiv:2303.10130"
+
+
+def test_fix4_bare_id_no_false_match_on_doi_or_nber():
+    # A DOI path (10.NNNN/...) and an NBER /papers/wNNNNN must not be mis-read as a bare
+    # arXiv id (the dotted YYMM.NNNNN form is arXiv-specific).
+    assert we._url_work_identifier({"source_url": "https://x.org/papers/w31161"}) != "arxiv:w31161"
+    doi = we._url_work_identifier({"source_url": "https://doi.org/10.1126/science.adj0998"})
+    assert not doi.startswith("arxiv:")
+
+
 def test_fix4_nber_id_merges_across_mirrors():
     a = {"source_url": "https://www.nber.org/system/files/working_papers/w31161/w31161.pdf", "title": "x"}
     b = {"source_url": "https://nber.org/papers/w31161", "title": "y"}

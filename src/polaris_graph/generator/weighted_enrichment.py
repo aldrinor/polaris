@@ -5173,6 +5173,19 @@ _SSRN_ID_RE = re.compile(
     r"(?:ssrn\.com/abstract=|ssrn_id=|abstract_id=)(\d{4,9})", re.IGNORECASE
 )
 _DOI_IN_URL_RE = re.compile(r"(10\.\d{4,9}/[^\s?#&]+)")
+# S2/S3 re-pass iter 2: a bare arXiv id embedded in a NON-arxiv.org MIRROR path. repec
+# (ideas.repec.org/p/arx/papers/2303.10130.html) and HuggingFace (huggingface.co/papers/
+# 2303.10130) host the SAME work under a /papers/<id> path, but the base _ARXIV_ID_RE fires
+# only on the arxiv.org host, so those mirror copies kept a distinct url: key and inflated
+# the distinct-works corroboration count (Eloundou "GPTs are GPTs" fragmented). The modern
+# arXiv id form YYMM.NNNNN is a GLOBALLY UNIQUE work id, so matching it as a BOUNDED path
+# segment after a papers/abs/pdf/html/format token (or an arxiv: scheme) is a SAFE
+# cross-mirror merge that never over-merges two different works. Bounded by an optional
+# version suffix + a delimiter/end lookahead so a longer digit run is never mis-captured.
+_ARXIV_BARE_ID_RE = re.compile(
+    r"(?:/(?:abs|pdf|html|format|papers?)/|arxiv[:/])(\d{4}\.\d{4,5})(?:v\d+)?(?=[/.?#]|$)",
+    re.IGNORECASE,
+)
 
 
 def _samework_crossmirror_on() -> bool:
@@ -5194,6 +5207,10 @@ def _url_work_identifier(ev: dict[str, Any]) -> str:
     m = _ARXIV_ID_RE.search(raw)
     if m:
         return "arxiv:" + (m.group(1) or m.group(2)).lower()
+    # iter 2: a bare arXiv id carried in a non-arxiv.org mirror /papers/ path (repec, HF).
+    m = _ARXIV_BARE_ID_RE.search(raw)
+    if m:
+        return "arxiv:" + m.group(1).lower()
     m = _NBER_ID_RE.search(raw)
     if m:
         return "nber:w" + m.group(1)
