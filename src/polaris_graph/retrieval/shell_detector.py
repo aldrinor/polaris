@@ -129,6 +129,13 @@ CHALLENGE_PAGE_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
 # conference-404 nav-page passed the short-body gate.
 CITED_SPAN_ANY_LENGTH_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
     ("target url returned error", "not found"),
+    # I-fetchclean-001 round-2 (2026-07-10) — a RePEc serial INDEX page (ev_748), NOT an
+    # article. The "Printed from https://ideas.repec.org" footer + the "Follow this serial"
+    # subscribe CTA co-occur ONLY on a journal/serial index listing; the pair NEVER appears in
+    # real article prose. ALL-of at ANY length so the whole-source refusal fires at the existing
+    # ``is_cited_span_shell`` fetch seam (frame_fetcher A4) — a §-1.3.1a chrome non-source
+    # (failed fetch / non-article), disclosed, never a deleted credible on-topic source.
+    ("printed from https://ideas.repec.org", "follow this serial"),
 )
 
 # I-beatboth-001 — ADDITIONAL high-precision chrome shell classes beyond bot-walls. Each is an
