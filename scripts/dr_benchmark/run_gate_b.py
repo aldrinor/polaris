@@ -6399,6 +6399,21 @@ def main(argv: list[str] | None = None) -> int:
             "No snapshot for a slug => that query runs fresh + logs loud (no silent re-bill)."
         ),
     )
+    # WAVE-0 foundation (MASTER_EXECUTION_PLAN §1.3 surface b): the RunConfig control-panel / CLI
+    # override intake. The backend contract is a RunConfig-overrides JSON file (panel/parsed knob
+    # values) and nothing else; pipeline B's web panel writes the same shape. Default None =>
+    # byte-identical to today (no override surface). When passed, the file is fail-loud VALIDATED
+    # here at startup (a malformed override aborts before any spend, LAW II); the resolved overrides
+    # are threaded into the S0 intake seam (scope_gate -> protocol["run_config"] -> cp0_run_config
+    # .json) by the S0 wave-1 package (WP-1b). Registered here now so the CLI surface is stable.
+    parser.add_argument(
+        "--run-config", type=str, default=None, metavar="FILE",
+        help=(
+            "RunConfig override file (JSON: {\"panel\": {...}, \"parsed\": {...}}). The control-panel "
+            "/ CLI adjustability surface; knob ids come from config/settings/run_config_knobs.yaml. "
+            "Default None = no override (byte-identical). Malformed file fails loud at startup."
+        ),
+    )
     parser.add_argument(
         "--smoke-scale", action="store_true", default=False,
         help=(
@@ -6436,6 +6451,22 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(
             f"--only {args.only!r} is not a locked benchmark slug. "
             f"Valid: {', '.join(LOCKED_BENCHMARK_SLUGS)}."
+        )
+
+    # --run-config (WAVE-0 foundation): fail-loud VALIDATE the override file at startup so a
+    # malformed RunConfig override aborts before any spend (LAW II), not mid-run. Parsing only —
+    # the S0 seam (WP-1b) builds the RunConfig + writes cp0_run_config.json from these overrides.
+    if getattr(args, "run_config", None):
+        from src.polaris_graph.run_config import load_overrides_file  # noqa: PLC0415
+        try:
+            _rc_overrides = load_overrides_file(args.run_config)
+        except Exception as exc:  # RunConfigError et al. — surface as a clean CLI error
+            parser.error(f"--run-config {args.run_config!r}: {exc}")
+        print(
+            f"[run_gate_b] --run-config loaded: "
+            f"{len(_rc_overrides.get('panel', {}))} panel + "
+            f"{len(_rc_overrides.get('parsed', {}))} parsed override(s) "
+            "(threaded into the S0 intake seam by WP-1b)."
         )
 
     requested_slugs: tuple[str, ...] | None

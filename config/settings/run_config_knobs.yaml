@@ -1,0 +1,405 @@
+# RunConfig knob registry — the SINGLE SOURCE OF KNOB TRUTH
+# =========================================================
+# MASTER_EXECUTION_PLAN v2 §1.2. Every knob that shapes a run's behavior gets exactly one
+# row here; the resolver (src/polaris_graph/run_config.py) reads this file to know each knob's
+# code default, env-var alias, block, type, the section stage it shapes, and its DNA class.
+#
+# LAW VI (zero hard-coding): a stage NEVER hardcodes a threshold. It reads through
+# run_config.get(knob_id); the value resolves by precedence panel/CLI > prompt-parsed > env >
+# code_default (§1.3). This registry is the ONLY place a code_default literal is written.
+#
+# §-1.3 DAY-WASTER BAN, enforced STRUCTURALLY at load (not by vigilance):
+#   * dna_class MUST be one of {breadth_budget, scope_constraint, presentation, stage_tuning}.
+#   * A knob whose PURPOSE is "make a quality number hit X" is REJECTED. The known day-waster
+#     env vars (PG_SPAN_PER_SOURCE_CITE_CAP / PG_LEGACY_SECTION_BREADTH_TARGET /
+#     PG_BREADTH_CANARY_MIN and kin) are on an explicit denylist in the loader and refuse to
+#     register. Breadth/quality EMERGE from honest weighted multi-attribution; they are never
+#     forced by a knob.
+#
+# NOT REGISTERED (operator-locked, NOT user knobs — §1.2 / §1.7 / §9.1.8):
+#   * Model choice (generator / mirror / sentinel / judge) — the runtime lock owns these.
+#   * max_tokens / reasoning-effort caps — operator-locked to real provider caps.
+#   * The faithfulness engine's thresholds (strict_verify / NLI / D8 / span-grounding).
+#   Because the foundation registers ZERO model/token knobs, "read the OpenRouter API, never
+#   guess a cap" has nothing to bite on in this layer — the foundation sets no model/token param.
+#
+# code_default provenance: for a knob with a LIVE read site today (status: existing), code_default
+# is the EXACT literal at that os.getenv read site (cited in read_site) — NOT the Gate-B slate
+# value and NOT the operator-locked value (both of those live at the ENV layer, R9). For a knob
+# whose feature is not yet built (status: planned), code_default is the design default from
+# MASTER_EXECUTION_PLAN §6 and env_var is the planned flag; nothing reads it yet, so an unset env
+# resolves to this default with no behavior change.
+#
+# affects_stage: the earliest section stage (checkpoint_envelope.STAGE_*) the knob shapes. It
+# drives the resume validity matrix uniformly (run_config.assert_adjustment_valid): an adjustment
+# to a knob is valid at resume_from=cpN iff the stage it shapes still RE-RUNS, i.e.
+# index(affects_stage) > index(resume_from). Reproduces the three plan anchors exactly:
+# breadth (affects s1_fetch) valid only at cp0; scope (affects s2_select) valid at cp0/cp1;
+# deliverable (affects s4_outline) valid at cp0..cp3.
+
+registry_version: 1
+
+# Which single dna_class each block carries (block<->dna_class must be consistent; enforced at load).
+block_dna_class:
+  breadth: breadth_budget
+  scope: scope_constraint
+  deliverable: presentation
+  stages: stage_tuning
+
+knobs:
+  # ── BREADTH (dna_class breadth_budget; affects s1_fetch → resume-valid only at cp0) ──────────
+  - id: query_budget
+    block: breadth
+    type: int
+    env_var: PG_QUERY_BUDGET
+    code_default: 35
+    affects_stage: s1_fetch
+    status: planned            # breadth_resolver.py is WP-1e; wired at run_honest_sweep_r3.py:10436
+    prompt_parseable: true      # "run at least 60 queries" → honored verbatim (§1.3)
+    panel_widget: number
+    abs_max_env: PG_QUERY_BUDGET_ABS_MAX   # safety ceiling stays env-side (§1.3); generous, never a target
+    note: total sub-query budget for FS-Researcher query-gen; STANDARD-class starting value.
+  - id: serper_k
+    block: breadth
+    type: int
+    env_var: PG_SERPER_K
+    code_default: 12
+    affects_stage: s1_fetch
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: Serper results per sub-query.
+  - id: s2_k
+    block: breadth
+    type: int
+    env_var: PG_S2_K
+    code_default: 12
+    affects_stage: s1_fetch
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: Semantic Scholar results per sub-query.
+  - id: serper_total_per_query
+    block: breadth
+    type: int
+    env_var: PG_SERPER_TOTAL_PER_QUERY
+    code_default: 0
+    affects_stage: s1_fetch
+    status: existing
+    read_site: scripts/run_honest_sweep_r3.py:5568   # _env_int("PG_SERPER_TOTAL_PER_QUERY", 0)
+    prompt_parseable: false
+    panel_widget: number
+    note: cap on total Serper hits per query; 0 = uncapped (existing behavior).
+  - id: fetch_cap
+    block: breadth
+    type: int
+    env_var: PG_FETCH_CAP
+    code_default: 200
+    affects_stage: s1_fetch
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: max candidate URLs handed to the LOCKED fetch cascade.
+  - id: breadth_class
+    block: breadth
+    type: str
+    env_var: PG_BREADTH_CLASS
+    code_default: STANDARD
+    affects_stage: s1_fetch
+    status: planned
+    prompt_parseable: true      # "comprehensive/exhaustive" → WIDE; "brief overview" → NARROW (§1.3)
+    panel_widget: select
+    choices: [NARROW, STANDARD, WIDE]
+    note: breadth lookup class; resolves the starting row set in breadth_classes.yaml.
+
+  # ── SCOPE (dna_class scope_constraint; affects s2_select → resume-valid at cp0/cp1) ──────────
+  # Scope block wraps the EXISTING UserConstraints + ScopeConstraints structured objects
+  # (intake_constraint_extractor). The user's EXPLICIT scope is their own hard filter — distinct
+  # from credibility weighting (§-1.3 reconciliation): dates / recency / source-type / geo /
+  # language / author / peer-reviewed-only.
+  - id: extract_user_constraints
+    block: scope
+    type: bool
+    env_var: PG_EXTRACT_USER_CONSTRAINTS
+    code_default: false
+    affects_stage: s2_select
+    status: existing
+    read_site: src/polaris_graph/retrieval/intake_constraint_extractor.py:130
+    prompt_parseable: false     # the extractor itself parses the prompt; this is its kill-switch
+    panel_widget: toggle
+    note: B10 kill-switch for date/language HARD-constraint extraction. DEFAULT OFF.
+  - id: extract_scope_constraints
+    block: scope
+    type: bool
+    env_var: PG_EXTRACT_SCOPE_CONSTRAINTS
+    code_default: false
+    affects_stage: s2_select
+    status: existing
+    read_site: src/polaris_graph/retrieval/intake_constraint_extractor.py:782
+    prompt_parseable: false
+    panel_widget: toggle
+    note: I-scope-001 kill-switch for source-type/jurisdiction facet extraction. DEFAULT OFF.
+  - id: serper_scope_filter
+    block: scope
+    type: bool
+    env_var: PG_SERPER_SCOPE_FILTER
+    code_default: false
+    affects_stage: s2_select
+    status: planned            # additive scoped lane; base lane never removed; fail-open (Design 7 D3)
+    prompt_parseable: false
+    panel_widget: toggle
+    note: additive Serper tbs/cdr+gl+hl scoped lane beside the untouched base lane.
+  - id: s2_scope_filter
+    block: scope
+    type: bool
+    env_var: PG_S2_SCOPE_FILTER
+    code_default: false
+    affects_stage: s2_select
+    status: planned
+    prompt_parseable: false
+    panel_widget: toggle
+    note: additive Semantic-Scholar year/publicationTypes scoped lane.
+  - id: openalex_scope_filter
+    block: scope
+    type: bool
+    env_var: PG_OPENALEX_SCOPE_FILTER
+    code_default: false
+    affects_stage: s2_select
+    status: planned
+    prompt_parseable: false
+    panel_widget: toggle
+    note: additive OpenAlex language/author scoped lane beside the existing date lane.
+  - id: peer_reviewed_only
+    block: scope
+    type: bool
+    env_var: PG_PEER_REVIEWED_ONLY
+    code_default: false
+    affects_stage: s2_select
+    status: planned            # the user's EXPLICIT hard filter; activation-gated on a verbatim span
+    prompt_parseable: true
+    panel_widget: toggle
+    note: user's explicit peer-reviewed-only hard filter (weight/mask/disclose; never pipeline-initiated).
+
+  # ── DELIVERABLE (dna_class presentation; affects s4_outline → resume-valid at cp0..cp3) ──────
+  # Wraps Design 3's DeliverableSpec (structured sub-object). Presentation touches wording /
+  # order / render only — NEVER drops a source or weakens the faithfulness engine (§1.7).
+  - id: deliverable_spec
+    block: deliverable
+    type: bool
+    env_var: PG_DELIVERABLE_SPEC
+    code_default: false
+    affects_stage: s4_outline
+    status: planned            # Design 3 extractor is WP-1b
+    prompt_parseable: false
+    panel_widget: toggle
+    note: master kill-switch for deliverable-spec extraction + rendering.
+  - id: tone
+    block: deliverable
+    type: str
+    env_var: PG_DELIVERABLE_TONE
+    code_default: ""
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: true
+    panel_widget: text
+    note: e.g. executive_brief / clinical / academic; empty = report's own dominant register.
+  - id: audience
+    block: deliverable
+    type: str
+    env_var: PG_DELIVERABLE_AUDIENCE
+    code_default: ""
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: true
+    panel_widget: text
+    note: intended reader; planning context for the outline + compose prompts.
+  - id: reference_style
+    block: deliverable
+    type: str
+    env_var: PG_DELIVERABLE_REFERENCE_STYLE
+    code_default: numeric
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: true
+    panel_widget: select
+    choices: [numeric, author_year, apa, harvard, vancouver]
+    note: bibliography render style; numeric = today's byte-identical default.
+  - id: length_target
+    block: deliverable
+    type: int
+    env_var: PG_DELIVERABLE_LENGTH_TARGET
+    code_default: 0
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: true      # "cap 3000 words" → honored verbatim
+    panel_widget: number
+    note: target word count; 0 = no length target. Brevity compresses sentences, never drops sources.
+  - id: length_strictness
+    block: deliverable
+    type: str
+    env_var: PG_DELIVERABLE_LENGTH_STRICTNESS
+    code_default: soft
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: true
+    panel_widget: select
+    choices: [soft, hard]
+    note: hard strictness routes to the CONCISE section variant.
+  - id: summary_first
+    block: deliverable
+    type: bool
+    env_var: PG_DELIVERABLE_SUMMARY_FIRST
+    code_default: false
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: true
+    panel_widget: toggle
+    note: place the summary block first (re-order of verbatim-extractive blocks only).
+  - id: recommendations_last
+    block: deliverable
+    type: bool
+    env_var: PG_DELIVERABLE_RECOMMENDATIONS_LAST
+    code_default: false
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: true
+    panel_widget: toggle
+    note: place recommendations last (memo shape).
+
+  # ── STAGES (dna_class stage_tuning; affects_stage varies → per-knob resume validity) ─────────
+  - id: bypass_max_inflight
+    block: stages
+    type: int
+    env_var: PG_BYPASS_MAX_INFLIGHT
+    code_default: 32            # _BYPASS_INFLIGHT_DEFAULT_LIMIT — NOT slate 20, NOT locked 14
+    affects_stage: s1_fetch
+    status: existing
+    read_site: src/tools/access_bypass.py:1646
+    operator_locked_band: [14, 16]   # LOCKED S1.a; panel-adjustable only within the band
+    prompt_parseable: false
+    panel_widget: number
+    note: AccessBypass concurrent-fetch ceiling. LOCKED band; the slate sets 14 at the env layer.
+  - id: storm_concurrency
+    block: stages
+    type: int
+    env_var: PG_STORM_CONCURRENCY
+    code_default: 4             # storm_interviews.py:1410 default — NOT slate 8
+    affects_stage: s1_fetch
+    status: existing
+    read_site: src/polaris_graph/agents/storm_interviews.py:1410
+    prompt_parseable: false
+    panel_widget: number
+    note: parallel STORM interviews (discovery throughput; faithfulness-neutral).
+  - id: max_parallel_sections
+    block: stages
+    type: int
+    env_var: PG_MAX_PARALLEL_SECTIONS
+    code_default: 3             # run_honest_sweep_r3.py:15237 default — NOT slate 6
+    affects_stage: s5_compose
+    status: existing
+    read_site: scripts/run_honest_sweep_r3.py:15237
+    prompt_parseable: false
+    panel_widget: number
+    note: section-compose concurrency (kwarg default path); the slate raises it, plan targets 32.
+  - id: parallel_sections
+    block: stages
+    type: str                  # read as a raw string then .strip()-ed; "" = unset (fall to max_parallel_sections)
+    env_var: PG_PARALLEL_SECTIONS
+    code_default: ""
+    affects_stage: s5_compose
+    status: existing
+    read_site: src/polaris_graph/generator/multi_section_generator.py:9778
+    prompt_parseable: false
+    panel_widget: number
+    note: section-compose concurrency override; empty = unset (keeps caller kwarg).
+  - id: topic_gate_parallel
+    block: stages
+    type: int
+    env_var: PG_SCOPE_TOPIC_PARALLEL
+    code_default: 32
+    affects_stage: s2_select
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: sub-query-aware topic-gate batch dispatch slate (S2, WP-1a).
+  - id: line_screen_parallel
+    block: stages
+    type: int
+    env_var: PG_LINE_SCREEN_PARALLEL
+    code_default: 32
+    affects_stage: s2_select
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: line-level three-way select/drop reader slate (S2 v2, WP-1a).
+  - id: outline_digest_max_chars
+    block: stages
+    type: int
+    env_var: PG_OUTLINE_DIGEST_MAX_CHARS
+    code_default: 60000
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: basket-digest menu headroom guard (S4, WP-2a).
+  - id: outline_revise_rounds
+    block: stages
+    type: int
+    env_var: PG_OUTLINE_REVISE_ROUNDS
+    code_default: 1
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    max: 2                      # hard max per §6
+    note: ORCH-3 revise rounds (section RE-OPEN); default 1, hard max 2.
+  - id: outline_max_recompose
+    block: stages
+    type: int
+    env_var: PG_OUTLINE_MAX_RECOMPOSE
+    code_default: 8
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: max sections recomposed per revise round (S4).
+  - id: gap_refetch_budget
+    block: stages
+    type: int
+    env_var: PG_OUTLINE_GAP_QUERIES
+    code_default: 0            # OFF until WAVE-5 activation; a SPEND budget, never a quality target
+    affects_stage: s4_outline
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: bounded thin-section re-fetch budget (S-X EXCEED move); 0 = OFF.
+  - id: holistic_review
+    block: stages
+    type: bool
+    env_var: PG_HOLISTIC_REVIEW
+    code_default: false
+    affects_stage: s5_compose
+    status: planned
+    prompt_parseable: false
+    panel_widget: toggle
+    note: report-level holistic review pass (S5 tail; Design 2).
+  - id: holistic_review_concurrency
+    block: stages
+    type: int
+    env_var: PG_HOLISTIC_REVIEW_CONCURRENCY
+    code_default: 32
+    affects_stage: s5_compose
+    status: planned
+    prompt_parseable: false
+    panel_widget: number
+    note: per-section revise concurrency inside holistic review.
+  - id: section_basket_map
+    block: stages
+    type: bool
+    env_var: PG_SECTION_BASKET_MAP
+    code_default: false
+    affects_stage: s5_compose
+    status: planned
+    prompt_parseable: false
+    panel_widget: toggle
+    note: deterministic basket->section map = the paper's per-section KB subtree (S5, Design 4).

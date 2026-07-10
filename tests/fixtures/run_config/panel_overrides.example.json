@@ -1,0 +1,15 @@
+{
+  "_comment": "Example RunConfig control-panel / --run-config override file. The backend contract is this JSON shape and nothing else (MASTER_EXECUTION_PLAN §1.3 surface b). 'panel' values are explicit overrides that beat prompt-parsed and env; 'parsed' entries are [value, verbatim_prompt_span] pairs the S0 extractors would have produced. Keys are knob ids from config/settings/run_config_knobs.yaml.",
+  "panel": {
+    "query_budget": 80,
+    "breadth_class": "WIDE",
+    "peer_reviewed_only": true,
+    "reference_style": "harvard",
+    "length_target": 2000,
+    "summary_first": true
+  },
+  "parsed": {
+    "tone": ["executive_brief", "write an executive brief"],
+    "recommendations_last": [true, "put recommendations at the end"]
+  }
+}
