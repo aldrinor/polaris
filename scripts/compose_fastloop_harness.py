@@ -108,6 +108,12 @@ _LINK_DENSITY_MIN_TOKENS = 4
 _PROV_TOKEN_RE = re.compile(r"\[#ev:([^:\]]+):[^\]]*\]")
 _NUMBER_RE = re.compile(r"(?<![\d.])(\d[\d,]*)(?![\d.])")   # an integer NOT already carrying a decimal
 _CONFIDENCE_RE = re.compile(r"\[confidence\s*:", re.IGNORECASE)
+# Extract the PTnn item id out of a manifest evaluator_gate reason code such as
+# ``rule_pt11_uncited_numeric_claims`` / ``advisory_pt13_unhedged_superlatives``.
+# NO ``\b`` boundary: the id is embedded between underscores (``_pt11_``), so a word
+# boundary never fires there — a boundary anchor would silently match nothing and
+# break cross-artifact dedup (I-comp-fastloop gate follow-up).
+_LEG_A_RULE_REASON_RE = re.compile(r"(pt\d{2})", re.IGNORECASE)
 _MARKUP_RE = re.compile(
     r"\]\((?:https?://|/)[^)]+\)"     # markdown link target
     r"|https?://\S{6,}"               # naked URL
@@ -538,17 +544,40 @@ def _write_subset_snapshot(snapshot: dict, rows: list[dict], out_path: Path) -> 
 
 def _read_leg_a(query_dir: Path) -> dict:
     """Read the production gates' OWN artifacts, defensively (absent => SKIPPED, never
-    a false green): evaluator_rule_checks.json PT11/PT13, manifest verification /
-    synthesis_entailment_verified."""
+    a false green). PARSES the structured rule_checks entries (item_id / passed /
+    details) — NOT file presence — so a FAILED production rule check (PT11 release-
+    blocking, PT13 advisory) is bound into the verdict with its failing detail QUOTED
+    (I-comp-fastloop gate P1: presence booleans discarded each check's passed/details,
+    letting a manifest.status=='success' run with PT11 passed=false false-PASS). Also
+    surfaces the manifest evaluator_gate.reasons as an INDEPENDENT second detection
+    path (I-wire-013 two-artifact defense), plus verification /
+    synthesis_entailment_verified / release_allowed."""
     leg_a: dict = {"rule_checks": "SKIPPED (absent)", "manifest": "SKIPPED (absent)"}
     rc_path = query_dir / "evaluator_rule_checks.json"
     if rc_path.is_file():
         try:
             rc = json.loads(rc_path.read_text(encoding="utf-8"))
-            blob = json.dumps(rc).lower()
+            raw_checks = rc.get("rule_checks", []) if isinstance(rc, dict) else []
+            parsed: list[dict] = []
+            failed: list[dict] = []
+            for item in raw_checks:
+                if not isinstance(item, dict):
+                    continue
+                entry = {
+                    "item_id": str(item.get("item_id", "")),
+                    "passed": bool(item.get("passed", False)),
+                    "waived": bool(item.get("waived", False)),
+                    "details": str(item.get("details", "")),
+                }
+                parsed.append(entry)
+                # A genuine FAIL = passed False AND not an honest operator waiver.
+                if not entry["passed"] and not entry["waived"]:
+                    failed.append(entry)
             leg_a["rule_checks"] = {
-                "pt11_present": "pt11" in blob or "uncited" in blob,
-                "pt13_present": "pt13" in blob or "superlative" in blob,
+                "checks": parsed,
+                "failed": failed,
+                "pt11_present": any(e["item_id"].upper() == "PT11" for e in parsed),
+                "pt13_present": any(e["item_id"].upper() == "PT13" for e in parsed),
                 "raw_keys": list(rc.keys()) if isinstance(rc, dict) else "list",
             }
         except Exception as exc:  # noqa: BLE001
@@ -557,10 +586,14 @@ def _read_leg_a(query_dir: Path) -> dict:
     if mf_path.is_file():
         try:
             mf = json.loads(mf_path.read_text(encoding="utf-8"))
+            eg = mf.get("evaluator_gate") if isinstance(mf, dict) else None
+            gate_reasons = [str(r) for r in (eg.get("reasons") or [])] if isinstance(eg, dict) else []
             leg_a["manifest"] = {
                 "status": mf.get("status"),
                 "synthesis_entailment_verified": mf.get("synthesis_entailment_verified"),
                 "verification": mf.get("verification"),
+                "release_allowed": mf.get("release_allowed"),
+                "gate_reasons": gate_reasons,
             }
         except Exception as exc:  # noqa: BLE001
             leg_a["manifest"] = f"UNREADABLE: {exc}"
@@ -619,6 +652,60 @@ class _ChildRegistry:
             _kill_proc(p)
 
 
+def _leg_a_rule_findings(leg_a: dict) -> list[dict]:
+    """Bind a FAILED production rule check to a leg-A FAIL finding with the offending
+    detail QUOTED (never a count, never mere file presence). Two INDEPENDENT sources
+    per the I-wire-013 two-artifact lesson:
+      1. the parsed ``evaluator_rule_checks.json`` ``failed`` list (item_id + the
+         gate's own ``details`` string, which carries the example strings), and
+      2. the manifest ``evaluator_gate.reasons`` trip codes (``rule_pt*`` release-
+         blocking, ``advisory_pt*`` — e.g. ``advisory_pt13_unhedged_superlatives`` —
+         and ``rule_model_disclosure_*``).
+    PT13 is ADVISORY in production (evaluator_gate.ADVISORY_RULES): a trip keeps
+    manifest.status=='success', so a status-only verdict false-PASSes exactly one of
+    the 14 fixes under test (PG_PT13_LEXICON_V2). Reading the check CONTENT / the
+    reason code catches it. Deduped by PT id across the two sources. Pure — imported
+    by the offline oracle tests; never re-implements a rule, only reads its verdict."""
+    out: list[dict] = []
+    if not isinstance(leg_a, dict):
+        return out
+    flagged_ids: set[str] = set()
+    rule_checks = leg_a.get("rule_checks")
+    if isinstance(rule_checks, dict):
+        for entry in rule_checks.get("failed", []) or []:
+            if not isinstance(entry, dict):
+                continue
+            item_id = str(entry.get("item_id", "")).upper()
+            detail = str(entry.get("details", ""))
+            flagged_ids.add(item_id or detail[:24])
+            out.append({
+                "kind": "leg_a_rule_check_failed",
+                "span": (detail or f"rule {item_id or '?'} passed=false")[:300],
+                "detail": f"production rule {item_id or '?'} FAILED (passed=false) in "
+                          f"evaluator_rule_checks.json",
+            })
+    manifest = leg_a.get("manifest")
+    if isinstance(manifest, dict):
+        for reason in manifest.get("gate_reasons", []) or []:
+            code = str(reason)
+            low = code.lower()
+            if not (low.startswith("rule_pt") or low.startswith("advisory_pt")
+                    or low.startswith("rule_model_disclosure")):
+                continue
+            match = _LEG_A_RULE_REASON_RE.search(code)
+            item_id = match.group(1).upper() if match else code
+            if item_id in flagged_ids:
+                continue                       # already caught by the rule_checks parse
+            flagged_ids.add(item_id)
+            out.append({
+                "kind": "leg_a_rule_check_failed",
+                "span": code[:300],
+                "detail": f"manifest evaluator_gate.reasons trip {code!r} "
+                          f"(production rule {item_id})",
+            })
+    return out
+
+
 def pipeline_verdict(leg_a: dict, subprocess_exit: Optional[int],
                      subprocess_tail: Optional[str], report_exists: bool,
                      leg_b_findings: list[dict]) -> tuple[str, list[dict], str]:
@@ -655,20 +742,36 @@ def pipeline_verdict(leg_a: dict, subprocess_exit: Optional[int],
         return UNREACHABLE, findings, (
             f"pipeline produced no report.md (manifest.status={status!r})")
 
-    # 4) Leg-B harness-owned defects bind FAIL (spans already quoted by the oracle).
-    if leg_b_findings:
-        return FAIL, findings, ""
+    # 3b) A FAILED production rule check (PT11 release-blocking, PT13 advisory) binds
+    # FAIL even when manifest.status=='success' AND leg B is clean. PT13 is ADVISORY —
+    # a trip never aborts, so status stays 'success' — but a fix under test that trips
+    # its own production gate must NEVER PASS (I-comp-fastloop gate P1: presence-only
+    # leg A false-PASSed a probe with PT11 passed=false). Failing detail already QUOTED.
+    leg_a_rule_findings = _leg_a_rule_findings(leg_a)
+    findings = leg_a_rule_findings + findings
+
+    # 4) Leg-A rule trips OR leg-B harness defects bind FAIL (spans already quoted).
+    if leg_a_rule_findings or leg_b_findings:
+        note = (f"leg A production rule check failed: {leg_a_rule_findings[0]['detail']}"
+                if leg_a_rule_findings else "")
+        return FAIL, findings, note
 
     # 5) Clean report: PASS only on a fully-green, readable leg A; else DEGRADED_OK.
+    # Reaching here means NO failed rule check (step 3b returned otherwise), so a
+    # dict rule_checks is genuinely all-pass. release_allowed=False (a partial gate)
+    # also blocks PASS.
     rule_checks = leg_a.get("rule_checks") if isinstance(leg_a, dict) else None
     verification = manifest.get("verification") if isinstance(manifest, dict) else None
+    release_allowed = manifest.get("release_allowed") if isinstance(manifest, dict) else None
     leg_a_green = (status == "success"
                    and isinstance(rule_checks, dict)
-                   and verification not in (False, "failed", "FAILED"))
+                   and verification not in (False, "failed", "FAILED")
+                   and release_allowed is not False)
     if leg_a_green:
         return PASS, findings, ""
     return DEGRADED_OK, findings, (
         f"leg B clean but leg A not fully green (status={status!r}, "
+        f"release_allowed={release_allowed!r}, "
         f"rule_checks_present={isinstance(rule_checks, dict)}) => DEGRADED_OK, not authorized")
 
 
