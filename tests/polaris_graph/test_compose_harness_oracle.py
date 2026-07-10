@@ -287,6 +287,94 @@ def test_flag_registry_has_the_14_deepfix006_flags():
             "PG_PT13_LEXICON_V2"} == envs
 
 
+# ── bridge: a MIXED PASS+FAIL bridge must VOID (never compose on partly-stale content) ─
+def test_apply_bridge_records_stale_rows_on_mixed_input():
+    rows = [{"evidence_id": "a", "direct_quote": "banked A", "source_url": "http://a"},
+            {"evidence_id": "b", "direct_quote": "banked B", "source_url": "http://b"}]
+    bridge = {"ev:a": {"ev": "a", "verdict": "PASS", "quote": "full recovered body for A row"},
+              "ev:b": {"ev": "b", "verdict": "FAIL", "quote": ""}}
+    new_rows, stats = h.apply_bridge(rows, bridge, {})
+    assert stats["bridged"] == 1
+    assert stats["offered_but_not_bridged"] == 1
+    assert "b" in stats["stale_evidence_ids"]
+    # PASS row content replaced; FAIL row keeps its banked content.
+    by_id = {r["evidence_id"]: r for r in new_rows}
+    assert by_id["a"]["direct_quote"].startswith("full recovered body")
+    assert by_id["b"]["direct_quote"] == "banked B"
+
+
+def test_run_case_voids_on_mixed_bridge_without_allow_unbridged(tmp_path):
+    snap = {"evidence_for_gen": [
+        {"evidence_id": "a", "direct_quote": "banked A", "source_url": "http://a"},
+        {"evidence_id": "b", "direct_quote": "banked B", "source_url": "http://b"}]}
+    snap_path = tmp_path / "snap.json"
+    snap_path.write_text(json.dumps(snap), encoding="utf-8")
+    cfg = {"slug": "s", "domain": "d", "snapshot": str(snap_path), "diag_snapshot": ""}
+    case = {"name": "mixed", "expect": "defect_absent", "evidence_ids": ["a", "b"]}
+    bridge = {"ev:a": {"ev": "a", "verdict": "PASS", "quote": "full recovered body for A row"},
+              "ev:b": {"ev": "b", "verdict": "FAIL", "quote": ""}}
+    res = h.run_case(case, cfg, tmp_path / "run", "pipeline", bridge,
+                     allow_unbridged=False, case_timeout=1, registry=h._ChildRegistry())
+    assert res["verdict"] == h.VOID, res
+    assert "b" in res["note"]              # the stale row id is disclosed in the VOID note
+
+
+# ── pipeline_verdict: leg B alone must NOT decide the verdict ────────────────
+def _leg_a(status=None, verification=None, rule_checks=None):
+    manifest = {"status": status, "verification": verification} if status is not None else "SKIPPED (absent)"
+    return {"manifest": manifest, "rule_checks": rule_checks if rule_checks is not None else "SKIPPED (absent)"}
+
+
+def test_pipeline_verdict_abort_status_binds_fail_even_with_empty_leg_b():
+    # abort_no_verified_sections still writes report.md (§9.1 invariant 4); a leg-B-only
+    # verdict would false-PASS. The abort status must bind FAIL with the status quoted.
+    verdict, findings, note = h.pipeline_verdict(
+        _leg_a(status="abort_no_verified_sections"), 0, "tail", report_exists=True, leg_b_findings=[])
+    assert verdict == h.FAIL
+    assert any(f["kind"] == "manifest_abort_status" and f["span"] == "abort_no_verified_sections"
+               for f in findings)
+    assert "abort_no_verified_sections" in note
+
+
+def test_pipeline_verdict_nonzero_exit_binds_fail():
+    verdict, findings, _ = h.pipeline_verdict(
+        _leg_a(status="success", rule_checks={"x": 1}), 7, "boom traceback", True, [])
+    assert verdict == h.FAIL
+    assert any(f["kind"] == "pipeline_subprocess_fail" for f in findings)
+
+
+def test_pipeline_verdict_pass_requires_success_manifest_and_readable_leg_a():
+    verdict, _, _ = h.pipeline_verdict(
+        _leg_a(status="success", rule_checks={"pt11": True}), 0, "", True, [])
+    assert verdict == h.PASS
+
+
+def test_pipeline_verdict_skipped_leg_a_is_degraded_ok_not_pass():
+    # Clean report + leg B empty, but manifest / rule_checks skipped => DEGRADED_OK.
+    verdict, _, note = h.pipeline_verdict(_leg_a(), 0, "", True, [])
+    assert verdict == h.DEGRADED_OK
+    assert "not authorized" in note
+
+
+def test_pipeline_verdict_leg_b_findings_bind_fail():
+    verdict, _, _ = h.pipeline_verdict(
+        _leg_a(status="success", rule_checks={"pt11": True}), 0, "", True,
+        [{"kind": "chrome_weld", "span": "Crossref widget", "detail": "x"}])
+    assert verdict == h.FAIL
+
+
+def test_pipeline_verdict_no_report_is_unreachable():
+    verdict, _, _ = h.pipeline_verdict(_leg_a(status="success"), 0, "", report_exists=False, leg_b_findings=[])
+    assert verdict == h.UNREACHABLE
+
+
+def test_summarize_degraded_ok_blocks_authorize():
+    ok = h._summarize([{"name": "clean_controls", "verdict": h.PASS}, {"name": "x", "verdict": h.PASS}])
+    assert ok["authorize_full_pipeline"] is True
+    degraded = h._summarize([{"name": "clean_controls", "verdict": h.PASS}, {"name": "x", "verdict": h.DEGRADED_OK}])
+    assert degraded["authorize_full_pipeline"] is False
+
+
 # ── run_all: a wedged case CANNOT hold the harness past the total deadline ────
 def test_run_all_returns_at_total_deadline_when_case_wedges(monkeypatch):
     """With a 1s total timeout and a run_case that wedges ~3s, run_all must return at
