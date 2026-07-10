@@ -109,6 +109,13 @@ CHALLENGE_PAGE_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
     # says "something went wrong" in prose cannot trip it (the second token is the
     # retry-CTA that never occurs in article prose).
     ("something went wrong", "wait a moment and try again"),
+    # I-fetchclean-001 round-1 (2026-07-10) — the UQ (uq.edu.au) PDF bot-wall (ev_688).
+    # "solve a puzzle" + "confirm you are" (the wall copy; "confirm you are" without the
+    # trailing noun so both "confirm you are a human" and "confirm you are human" match)
+    # never co-occur in article prose; ALL-of fires at ANY length, so it catches the
+    # >3000-char PDF-wall body the short-body gate misses.
+    ("solve a puzzle", "confirm you are"),
+    ("before proceeding to your request", "solve a puzzle"),
 )
 
 # I-beatboth-001 iter-2 (replay-found on the real drb_78 corpus) — ADDITIONAL any-length signatures
@@ -185,6 +192,12 @@ SHORT_BODY_SHELL_MARKERS: tuple[str, ...] = (
     # I-fetchclean-001 (2026-07-10) — the exact replay error_page marker; short-body
     # gated so a long article that merely quotes the phrase is never false-dropped.
     "something went wrong. wait a moment",
+    # I-fetchclean-001 round-1 (2026-07-10) — additional bot-wall / transient-error stub
+    # copy (ev_688 UQ wall short-body form + generic transient-error interstitial). Each
+    # is page-chrome that never constitutes a clinical claim; short-body-gated so a long
+    # article that merely quotes the phrase is never false-dropped.
+    "let's confirm you are human",
+    "temporary error. please try again",
 )
 
 # I-beatboth-001 iter-2 (Codex P1 #2): the subset of single phrases that are NOT shell-specific
