@@ -128,6 +128,55 @@ def topic_gate_subject_aspect_split_enabled() -> bool:
     return raw not in ("0", "false", "no", "off", "")
 
 
+def junk_chrome_before_offtopic_enabled() -> bool:
+    """Flag ``PG_JUNK_CHROME_BEFORE_OFFTOPIC`` (default ON — I-deepfix-003 #1374 Fix 4).
+
+    A chrome non-source (bot/captcha/cookie/404/login/empty — a FAILED FETCH, not a source)
+    has nothing real to judge for topicality. When ON, such a row is NOT sent to the topic
+    judge at all: it is KEPT (flows to the downstream content-integrity stamp + chrome-delete
+    leg) and is NEVER stamped ``topic_off_subject`` / ``topic_offtopic_demoted``, so a garbled
+    body + a chrome title can never be mislabeled ``confirmed_offtopic`` (Cause 3). OFF =>
+    byte-identical legacy (every non-exempt row with judgeable text is judged)."""
+    raw = os.environ.get("PG_JUNK_CHROME_BEFORE_OFFTOPIC", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
+# Content fields scanned (widest-first) for the chrome detector — mirrors the
+# run_honest_sweep_r3 content-integrity stamp pass so the two screens judge the SAME body.
+_CHROME_BODY_FIELDS = (
+    "fetched_body", "full_text", "content", "extracted_text", "raw_content",
+    "raw_text", "page_text", "direct_quote", "statement", "source_text", "body", "text",
+)
+
+
+def _row_is_chrome_nonsource(row: dict[str, Any]) -> bool:
+    """True iff the CONTENT-INTEGRITY detector confirms this row is a chrome non-source
+    (bot/captcha/cookie/404/login/empty). Reads a pre-existing ``content_integrity_junk``
+    stamp first (cheap), else runs the pure leaf detector on the WIDEST body + url + title
+    (the long-body Zyte-recovery guard inside the detector protects a real source whose title
+    is a stale bot page). FAIL-OPEN: any import / error / non-dict => False (row is judged
+    normally — a detector bug must never silently skip a real source)."""
+    try:
+        if not isinstance(row, dict):
+            return False
+        v = row.get("content_integrity_junk")
+        if bool(v) and str(v).strip().lower() not in ("0", "false", "no", "off", ""):
+            return True
+        from src.tools.access_bypass import (  # noqa: PLC0415
+            detect_content_integrity_junk as _detect_ci_junk,
+        )
+        body = max(
+            (str(row.get(_bk) or "") for _bk in _CHROME_BODY_FIELDS),
+            key=len, default="",
+        )
+        url = str(row.get("source_url") or row.get("url") or "")
+        title = str(row.get("title") or row.get("source_title") or row.get("statement") or "")
+        is_junk, _cls = _detect_ci_junk(body, url, title)
+        return bool(is_junk)
+    except Exception:  # noqa: BLE001 — a detector defect must never skip a real source
+        return False
+
+
 def topic_batch_size() -> int:
     """``PG_SCOPE_TOPIC_BATCH`` (default 25), the max sources per LLM call.
     A non-positive / unparseable value falls back to the default (FAIL-SAFE:
@@ -491,9 +540,19 @@ def classify_topic_relevance(
     exempt_rows: list[dict[str, Any]] = []
     judged_rows: list[dict[str, Any]] = []
     judged_meta: list[tuple[str, str]] = []  # (title, snippet) per judged row
+    # I-deepfix-003 (#1374) Fix 4 (topic-side): chrome non-sources are NOT judged (nothing real
+    # to judge) — tracked separately so they never inflate the marquee-``exempt`` telemetry, and
+    # they stay in ``sources`` so the DEFAULT keep-all path still returns them (the chrome-delete
+    # leg removes them later). Read the flag ONCE.
+    chrome_skip = junk_chrome_before_offtopic_enabled()
+    n_chrome_skipped = 0
     for row in sources:
         if _is_exempt(row):
             exempt_rows.append(row)
+            continue
+        if chrome_skip and _row_is_chrome_nonsource(row):
+            # A failed fetch, not a source — never judge it, never stamp it off-topic.
+            n_chrome_skipped += 1
             continue
         title = _row_title_text(row)
         snippet = _row_snippet_text(row)
@@ -629,6 +688,7 @@ def classify_topic_relevance(
     notes = [
         f"topic_gate: in={n_in} kept={len(kept_rows)} "
         f"{verb}={len(offtopic_rows)} exempt={len(exempt_rows)} "
+        f"chrome_skipped={n_chrome_skipped} "
         f"batch_size={size}"
     ]
     if offtopic_titles:

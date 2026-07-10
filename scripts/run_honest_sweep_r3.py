@@ -14833,6 +14833,17 @@ async def run_one_query(
                     _final_zyte = None
             _ci_stamped = 0
             _ci_zyte_saved = 0
+            # I-deepfix-003 (#1374) Fix 4 (stamp-side): a confirmed chrome non-source is routed
+            # to the chrome-delete leg ONLY — it must NEVER be counted or deleted as off-topic
+            # (Cause 3: a garbled/bot body scored low + a chrome title mislabeled it
+            # confirmed_offtopic, so chrome_nonsource read 0 while real junk hid in the off-topic
+            # bucket). partition_rows already prefers chrome (if/elif chrome-first); this clears
+            # any stale/fresh OFF_SUBJECT delete-sidecar on the chrome row as a belt to that
+            # suspenders so chrome_nonsource is honest. DEFAULT ON; OFF => sidecar untouched
+            # (byte-identical). Fail-open: read once, tolerate a bad flag value.
+            _chrome_before_offtopic = os.environ.get(
+                "PG_JUNK_CHROME_BEFORE_OFFTOPIC", "1"
+            ).strip().lower() not in ("0", "false", "no", "off", "")
             for _r in evidence_for_gen:
                 if not isinstance(_r, dict) or _r.get("content_integrity_junk"):
                     continue
@@ -14870,6 +14881,12 @@ async def run_one_query(
                         _log(f"[content-integrity] final Zyte skipped for {_url[:60]}: {_fz_exc}")
                 _r["content_integrity_junk"] = True
                 _r["content_integrity_class"] = _cls
+                if _chrome_before_offtopic:
+                    # Fix 4: a confirmed chrome non-source is chrome-only — strip any off-subject
+                    # delete-sidecar so the off-topic leg can never claim it (chrome_nonsource
+                    # stays honest; the row still demote-KEEPs as chrome and is deleted by the
+                    # chrome leg, not the off-topic leg).
+                    _r["topic_off_subject"] = False
                 _ci_stamped += 1
             if _ci_stamped or _ci_zyte_saved:
                 _log(
