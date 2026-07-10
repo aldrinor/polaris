@@ -105,8 +105,16 @@ def main() -> int:
     parser.add_argument("--max-chars", type=int, default=8000)
     parser.add_argument("--parallel", type=int, default=12)
     parser.add_argument("--limit", type=int, default=0, help="0 = all unique urls")
+    parser.add_argument("--urls-file", default=None,
+                        help="newline-delimited urls OR evidence_ids; restrict the run to just these "
+                             "(fast re-test of the leaking subset)")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
+
+    subset: set[str] | None = None
+    if args.urls_file:
+        subset = {ln.strip() for ln in open(args.urls_file, encoding="utf-8") if ln.strip()}
+        print(f"[replay] subset mode: {len(subset)} urls/ids from {args.urls_file}", flush=True)
 
     rows = load_rows(args.snapshot)
     seen: set[str] = set()
@@ -114,6 +122,8 @@ def main() -> int:
     for row in rows:
         url = row.get("source_url")
         if not url or url in seen:
+            continue
+        if subset is not None and url not in subset and row.get("evidence_id") not in subset:
             continue
         seen.add(url)
         work.append((row.get("evidence_id"), url, row.get("direct_quote") or "", row.get("tier"), row.get("title")))
