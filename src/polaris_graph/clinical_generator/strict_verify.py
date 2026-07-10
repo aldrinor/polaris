@@ -54,6 +54,10 @@ from src.polaris_graph.clinical_generator.provenance import (
     strip_tokens,
     validate_token_against_pool,
 )
+# S6 UNFREEZE (operator 2026-07-10): DROP -> LABEL + REPAIR policy. Top-level import is
+# cycle-safe — verify_label_repair imports NOTHING from this module at import time (its
+# strict_verify uses are all lazy, inside functions).
+from src.polaris_graph.clinical_generator import verify_label_repair as _label_repair
 # I-deepfix-001 L4 (#1344): CJK / multilingual-aware content tokenization + the
 # unsegmentable-script fail-closed guard for the strict_verify overlap floor.
 from src.polaris_graph.generator.script_aware_grounding import (
@@ -573,16 +577,37 @@ def verify_sentence(
     return True, None
 
 
+def _collect_span_texts(sentence_text: str, pool: EvidencePool) -> list[str]:
+    """Best-effort collect the cited-span texts for a sentence (mirrors the span
+    collection inside ``verify_sentence``). Used ONLY by the S6 LABEL+REPAIR qualifier
+    repair; skips any invalid / out-of-range token rather than raising."""
+    spans: list[str] = []
+    for token in extract_tokens(sentence_text):
+        if validate_token_against_pool(token, pool) is not None:
+            continue
+        span = get_span_text(token, pool)
+        if span is not None:
+            spans.append(span)
+    return spans
+
+
 def verify_sentence_to_record(
     sentence_text: str,
     section_id: str,
     pool: EvidencePool,
     min_content_overlap: int | None = None,
     is_synthesis_claim: bool = False,
+    *,
+    repair_fn=None,
 ) -> VerifiedSentence:
     """Convenience: wrap verify_sentence into a VerifiedSentence record.
 
     Used by the generator orchestrator to build Section.verified_sentences.
+
+    S6 UNFREEZE (operator 2026-07-10): ``repair_fn`` is the optional live NLI
+    re-grounder ``(sentence, span_texts, drop_reason) -> repaired_sentence`` for the
+    ``nli`` repair mode; ``None`` (default) uses the deterministic hedge repair. See
+    ``verify_label_repair`` for the full DROP->LABEL+REPAIR contract.
     """
     passed, reason = verify_sentence(
         sentence_text,
@@ -590,6 +615,44 @@ def verify_sentence_to_record(
         min_content_overlap=min_content_overlap,
         is_synthesis_claim=is_synthesis_claim,
     )
+
+    # S6 UNFREEZE (operator 2026-07-10): DROP -> LABEL + REPAIR. When a sentence FAILED
+    # strict_verify for a LABEL-ELIGIBLE (grounded-but-weak) reason AND the policy flag
+    # is ON, KEEP it with a confidence label instead of silently dropping it — the
+    # operator's "verifier labels weak claims weak, never holds a report" rule. FATAL
+    # reasons (fabricated citation / unsupported number / contradicted / ungrounded)
+    # still DROP: that is the policy's own clinical-safety boundary (§-1.1). Synthesis
+    # claims are excluded — their no-token schema invariant conflicts with a token-bearing
+    # label-keep. Default-OFF (PG_STRICT_VERIFY_LABEL_REPAIR unset) => byte-identical DROP.
+    if (
+        not passed
+        and reason is not None
+        and not is_synthesis_claim
+        and _label_repair.label_repair_enabled()
+    ):
+        _decision = _label_repair.apply_label_repair_policy(
+            sentence_text,
+            reason,
+            _collect_span_texts(sentence_text, pool),
+            repair_fn=repair_fn,
+        )
+        if _decision.kept:
+            _kept_text = _decision.sentence_text
+            _kept_tokens = [t.raw for t in extract_tokens(_kept_text)]
+            return VerifiedSentence(
+                section_id=section_id,
+                sentence_text=_kept_text,
+                provenance_tokens=_kept_tokens,
+                verifier_pass=True,
+                drop_reason=None,
+                # The confidence label IS the preserved grounding signal (D8 + the
+                # §-1.1 auditor both read it). evaluator_agrees stays None (pending) —
+                # the two-family evaluator has NOT confirmed a label-kept weak sentence.
+                kept_disclosure_label=_decision.disclosure_label,
+                evaluator_agrees=None,
+                is_synthesis_claim=is_synthesis_claim,
+            )
+
     tokens = [t.raw for t in extract_tokens(sentence_text)]
     # I-deepfix-001 (Codex e2e gate P1): verify_sentence can return (passed=True, reason=<label>)
     # for the judge-error always-release path (span-grounded sentence KEPT with a disclosed

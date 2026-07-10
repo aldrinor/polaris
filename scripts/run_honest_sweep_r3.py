@@ -17538,6 +17538,39 @@ async def run_one_query(
         except Exception as _a12_pv_exc:  # noqa: BLE001 — checkpoint is best-effort
             _log(f"[checkpoint]  post-verification snapshot skipped (fail-open): {_a12_pv_exc}")
 
+        # S6 UNFREEZE (operator 2026-07-10): the cp6 checkpoint — DATA-ONLY per-sentence
+        # kept/labeled/repaired/dropped accounting for the DROP->LABEL+REPAIR policy. It is
+        # the SECTION-boundary cp6 file (master §2 S6 row: cp6_postverify_checkpoint.json).
+        # Gated by the SAME master flag as the policy (PG_STRICT_VERIFY_LABEL_REPAIR) so a
+        # run with the flag OFF writes NOTHING here => byte-identical. Best-effort; a write
+        # failure never aborts the paid run. Stores NO D8/release verdict (recursive
+        # forbidden-verdict-key guard in the writer).
+        try:
+            from src.polaris_graph.clinical_generator import verify_label_repair as _lr  # noqa: PLC0415
+
+            if _lr.label_repair_enabled():
+                _cp6_records = _lr.build_cp6_records_from_verif_details(verif_details)
+                _cp6_payload = _lr.build_cp6_postverify_payload(
+                    run_id=run_id,
+                    question=q.get("question", ""),
+                    records=_cp6_records,
+                    evidence_ids=[
+                        ev.get("evidence_id") for ev in evidence_for_gen
+                        if isinstance(ev, dict) and ev.get("evidence_id")
+                    ],
+                )
+                _cp6_path = _lr.write_cp6_postverify_checkpoint(run_dir, _cp6_payload)
+                if _cp6_path is not None:
+                    _log(
+                        f"[checkpoint]  cp6 label-repair snapshot saved: {_cp6_path.name} "
+                        f"(DATA ONLY; kept={_cp6_payload['rollup']['kept']} "
+                        f"labeled={_cp6_payload['rollup']['labeled']} "
+                        f"repaired={_cp6_payload['rollup']['repaired']} "
+                        f"dropped={_cp6_payload['rollup']['dropped']})"
+                    )
+        except Exception as _cp6_exc:  # noqa: BLE001 — cp6 is best-effort accounting
+            _log(f"[checkpoint]  cp6 label-repair snapshot skipped (fail-open): {_cp6_exc}")
+
         # I-beat-001: persist evidence_pool.json so the line-by-line
         # audit harness (scripts/run_line_by_line_audit.py
         # --resolved-report) can run on delivered output. Without
