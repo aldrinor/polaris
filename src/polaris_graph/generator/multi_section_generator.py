@@ -38,7 +38,7 @@ import logging
 import os
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 import httpx
@@ -1799,11 +1799,25 @@ def _conform_plans_to_required(
     conformed: list[SectionPlan] = []
     for _ri, title in enumerate(_req_norm):
         existing = by_title.get(title.lower())
-        if existing is not None:
+        _existing_idx = _lower_to_idx.get(title.lower(), -1)
+        # item 2: an exact-title match is only usable if that emitted plan has NOT already been
+        # CONSUMED by an earlier tier-2 (content-word-overlap) mapping. Without this guard, an
+        # emitted plan whose title exactly matches a LATER required title, but whose focus overlap-
+        # mapped it onto an EARLIER required title, gets aliased into the outline TWICE (the SAME
+        # object) while the earlier required section vanishes (reproduced: required [Positive,
+        # Negative] + one emitted "Negative" plan whose focus mentions "positive" -> two "Negative"
+        # sections, Positive gone). When consumed, fall through to tier-2 / empty-undersupplied.
+        if existing is not None and _existing_idx not in _consumed:
             # tier 1 — exact match. Preserve the LLM's evidence selection; keep required casing.
-            existing.title = title
-            _consumed.add(_lower_to_idx.get(title.lower(), -1))
-            conformed.append(existing)
+            # item 3: build a COPY — never mutate the caller's SectionPlan. The retry-measurement
+            # path calls this conform on a throwaway ``list(pr.plans)`` that shares the SAME objects;
+            # mutating ``.title`` there pre-renamed the plans so the REAL conform below saw exact
+            # matches and returned an EMPTY title_conformed disclosure (§-1.3 disclosure contract).
+            conformed.append(replace(
+                existing, title=title,
+                ev_ids=list(existing.ev_ids), basket_ids=list(existing.basket_ids),
+            ))
+            _consumed.add(_existing_idx)
             continue
         # tier 2 — content-word-overlap fallback (greedy, one-to-one, distinctive-hit threshold)
         _dist = _distinctive[_ri]
@@ -1821,9 +1835,13 @@ def _conform_plans_to_required(
         if best_idx >= 0:
             mapped = plans[best_idx]
             from_title = str(mapped.title)
-            mapped.title = title  # adopt required title; KEEP ev_ids / basket_ids / undersupplied
+            # item 3: adopt the required title on a COPY — KEEP ev_ids / basket_ids / undersupplied,
+            # never mutate the caller's SectionPlan (same throwaway-conform hazard as tier 1).
+            conformed.append(replace(
+                mapped, title=title,
+                ev_ids=list(mapped.ev_ids), basket_ids=list(mapped.basket_ids),
+            ))
             _consumed.add(best_idx)
-            conformed.append(mapped)
             if disclosure is not None:
                 disclosure.append(
                     {"required": title, "from_title": from_title, "score": int(best_score)}

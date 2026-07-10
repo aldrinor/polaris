@@ -31,9 +31,12 @@ holds. ``same_work_groups=None`` (the default) is BYTE-IDENTICAL to the pre-PUSH
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
+
+logger = logging.getLogger(__name__)
 
 # ── knob defaults (LAW VI; exact names/defaults from Design 5 §6 + master §6). These are
 # the resolver-swap seam per master §1.5: when run_config.py (WP-0b) lands, each read below
@@ -72,14 +75,26 @@ def _identity_sanitizer(text: str) -> tuple[str, int]:
 
 def _default_sanitizer() -> Callable[[str], tuple[str, int]]:
     """Resolve the real provenance sanitizer lazily so importing this module needs no
-    generator-package dependency. Tests inject an identity sanitizer directly."""
+    generator-package dependency. Tests inject an identity sanitizer directly.
+
+    Item 15: the fallback is narrowed to ``ImportError`` ONLY and LOGGED loudly. Previously a bare
+    ``except Exception`` swallowed ANY failure inside the sanitizer (a bug, a bad signature) and
+    silently returned identity — which DISABLES the §9.1.7 prompt-injection defense without a trace.
+    Now a genuine sanitizer error PROPAGATES (fail loud), and the only-legitimate offline/unit case
+    (the module is not importable) still fails open to identity BUT emits a WARNING so the disabled
+    defense is DISCLOSED, never silent (§-1.3 fail-loud-never-silent)."""
     try:
         from src.polaris_graph.generator.provenance_generator import (
             sanitize_evidence_text,
         )
 
         return sanitize_evidence_text
-    except Exception:  # noqa: BLE001 — offline/unit context: fall back to identity, fail-open
+    except ImportError as exc:  # offline/unit context ONLY: fail open to identity, but DISCLOSE it
+        logger.warning(
+            "outline_digest: real provenance sanitizer unimportable (%s) — falling back to the "
+            "IDENTITY sanitizer; the §9.1.7 prompt-injection defense is DISABLED for this digest "
+            "build. Inject a real sanitizer in production.", exc,
+        )
         return _identity_sanitizer
 
 
@@ -92,6 +107,10 @@ class OutlineDigestMenu:
     ev_id_to_basket: dict[str, str]         # member ev_id -> basket id (full map; never elided)
     total_chars: int                        # rendered menu size (headroom accounting)
     degraded: bool = False                  # a headroom-guard terse pass fired
+    # item 11: True when EVEN the fully-tersed+elided menu is STILL over ``max_chars`` — a
+    # pathological pool that would ship a silently oversized prompt. Disclosed (never silent): the
+    # builder also logs a WARNING, and the caller must surface/act on this flag (fail loud).
+    oversized: bool = False
     basket_member_ev_ids: dict[str, list[str]] = field(default_factory=dict)
     # PUSH A: canonical singleton ev_id -> its FOLDED same-work alias ev_ids (the copies of the
     # same underlying work that collapsed onto that one singleton line). Empty when
@@ -285,8 +304,16 @@ def build_outline_digest(
     basket_work_corroboration: dict[str, int] = {}
     for idx, c in enumerate(multi_sorted):
         bid = f"B{idx:02d}"
-        member_ev_ids = sorted(_ev_id_at(evidence, i) for i in getattr(c, "member_indices"))
-        member_ev_ids = [e for e in member_ev_ids if e]
+        # item 9: pair each member's ev_id with its tier and sort them TOGETHER by ev_id, so the
+        # tier at position k lines up with member_ev_ids[k]. Previously ``tiers`` was built in
+        # member_indices order while ``member_ev_ids`` was sorted, so the planner read a scrambled
+        # tier<->member pairing (a reproduced mismatch).
+        member_pairs = sorted(
+            (_ev_id_at(evidence, i), str(evidence[i].get("tier", "") or ""))
+            for i in getattr(c, "member_indices")
+        )
+        member_pairs = [(e, t) for (e, t) in member_pairs if e]
+        member_ev_ids = [e for (e, _t) in member_pairs]
         rep_row = evidence[int(getattr(c, "representative_index"))]
         # PUSH 4 (title-like claim mitigation, S4-local): the basket claim is the representative
         # statement, falling back to the title. When that representative statement is title-like
@@ -306,7 +333,7 @@ def build_outline_digest(
                     chosen_claim = _m_stmt
                     break
         claim = _clean(chosen_claim)[:_CLAIM_MAX_CHARS]
-        tiers = [str(evidence[i].get("tier", "") or "") for i in getattr(c, "member_indices")]
+        tiers = [t for (_e, t) in member_pairs]   # item 9: aligned with member_ev_ids (same order)
         # PUSH A: distinct WORKS among the members (rows sharing a same_work_id count once).
         # Equals len(member_ev_ids) when no members share a work (byte-identical default).
         work_corroboration = len({_work_key(e) for e in member_ev_ids})
@@ -346,12 +373,23 @@ def build_outline_digest(
             continue
         work_to_canonical[work_key] = ev_id
         singleton_alias_ev_ids.setdefault(ev_id, [])
+        _raw_title = str(row.get("title", "") or "")
+        _raw_stmt = str(row.get("statement", "") or "")
+        # item 10: when the statement is just the title (or title-like), render TITLE-ONLY. Printing
+        # both duplicates the same text on nearly every singleton (the real 686-row menu did this),
+        # wasting tens of KB of prompt for zero added information. Emptying the statement here makes
+        # ``_singleton_line`` fall through to its title-only branch (§-1.3: nothing is dropped from
+        # the pool — the row + tier stay; only the redundant second copy of its own title is elided).
+        _stmt_render = (
+            "" if (_raw_title and _is_title_like(_raw_stmt, _raw_title))
+            else _clean(_raw_stmt)[:_STATEMENT_MAX_CHARS]
+        )
         singleton_specs.append(
             {
                 "ev_id": ev_id,
                 "tier": str(row.get("tier", "") or ""),
-                "title": _clean(str(row.get("title", "") or ""))[:_TITLE_MAX_CHARS],
-                "statement": _clean(str(row.get("statement", "") or ""))[:_STATEMENT_MAX_CHARS],
+                "title": _clean(_raw_title)[:_TITLE_MAX_CHARS],
+                "statement": _stmt_render,
             }
         )
     # attach the (possibly appended-to) alias lists to each canonical spec
@@ -389,12 +427,26 @@ def build_outline_digest(
     if total > max_chars:
         basket_lines, singleton_lines, total = _render(title_only=True, elide_members=True)
 
+    # item 11: even the fully-tersed+elided menu is STILL over budget — DISCLOSE, never ship a
+    # silently oversized prompt. Fail loud via a WARNING + a returned ``oversized`` flag the caller
+    # surfaces. We do NOT drop rows to force the number down (§-1.3: consolidate-keep-all holds; the
+    # 100%-of-pool invariant below still applies) — the honest signal is "this pool is pathological".
+    oversized = total > max_chars
+    if oversized:
+        logger.warning(
+            "outline_digest: menu STILL over budget after full terse+elide degradation "
+            "(total_chars=%d > max_chars=%d, baskets=%d singletons=%d) — shipping an OVERSIZED "
+            "prompt; the pool is pathological. Raise PG_OUTLINE_DIGEST_MAX_CHARS or investigate.",
+            total, max_chars, len(basket_lines), len(singleton_lines),
+        )
+
     menu = OutlineDigestMenu(
         basket_lines=basket_lines,
         singleton_lines=singleton_lines,
         ev_id_to_basket=ev_id_to_basket,
         total_chars=total,
         degraded=degraded,
+        oversized=oversized,
         basket_member_ev_ids=basket_member_ev_ids,
         singleton_alias_ev_ids=singleton_alias_ev_ids,
         basket_work_corroboration=basket_work_corroboration,
@@ -412,6 +464,36 @@ def build_outline_digest(
             "the menu must account for 100% of the pool (§-1.3 CONSOLIDATE-keep-all)."
         )
     return menu
+
+
+def dedup_plan_ev_ids_by_work(
+    ev_ids: Sequence[str],
+    alias_of: Mapping[str, str],
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Fold a section plan's anchor ev_ids to ONE per underlying WORK (item 14 / PUSH A).
+
+    A section that anchors twice on the SAME work (two rows sharing a ``same_work_id``) is not
+    twice-corroborated — it is the same source counted twice, which is what dragged the lab's
+    per-section distinct-work fraction below the 0.90 PUSH-A bar. This keeps the FIRST ev_id seen
+    per work (deterministic: input order = canonical) and returns the folded same-work aliases per
+    canonical so the cp4 audit DISCLOSES them (§-1.3: consolidate — folded + disclosed, never a
+    silent drop; the folded aliases stay in the pool, bibliography, and corroboration counts).
+    ``alias_of`` maps ev_id -> work_key (a missing ev_id is its own work). Empty ``alias_of`` =>
+    byte-identical passthrough (canonical == the deduped-preserving-order input, no folds)."""
+    canonical: list[str] = []
+    folded: dict[str, list[str]] = {}
+    work_to_canon: dict[str, str] = {}
+    for raw in ev_ids:
+        e = str(raw)
+        work_key = alias_of.get(e, e)
+        if work_key in work_to_canon:
+            canon = work_to_canon[work_key]
+            if e != canon:
+                folded.setdefault(canon, []).append(e)
+        else:
+            work_to_canon[work_key] = e
+            canonical.append(e)
+    return canonical, folded
 
 
 # ─────────────────────────────────────────────────────────────────────────

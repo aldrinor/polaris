@@ -43,11 +43,15 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from src.polaris_graph.generator.outline_digest import (  # noqa: E402
+    PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT,
     _build_alias_map,
     build_outline_digest,
     build_requirements_block,
+    dedup_plan_ev_ids_by_work,
 )
 from src.polaris_graph.generator.outline_revise import (  # noqa: E402
+    PG_OUTLINE_REVISE_MAX_RECOMPOSE_DEFAULT,
+    PG_OUTLINE_REVISE_ROUNDS_DEFAULT,
     apply_revision_ops,
     build_section_outcomes,
     find_orphan_baskets,
@@ -58,6 +62,30 @@ from src.polaris_graph.generator.outline_revise import (  # noqa: E402
 # PUSH B: the tiers a still-unassigned singleton is disclosed BY NAME for (a T1-T3 credible source
 # on no section plan is a reassign candidate the compose-stage router should pick up).
 _HIGH_TIERS = {"T1", "T2", "T3"}
+
+
+def _effective_s4_flag_slate(model: str) -> dict[str, str]:
+    """Item 6: capture the FULL effective S4 knob set for the cp4 checkpoint. Until RunConfig (WP-0b)
+    lands, these env reads ARE the run config — the checkpoint MUST record what produced it or it
+    cannot prove its own provenance (the whole point of the checkpoint pivot). Values are EFFECTIVE
+    (env override OR the same default the reader uses; the two token knobs mirror
+    ``multi_section_generator``'s ``os.getenv(name, "16384"/"6144")`` readers).
+
+    Item 7 (honest reporting): ``PG_OUTLINE_REVISE`` and ``PG_EXTRACT_DELIVERABLE_SPEC`` are read
+    NOWHERE in the worktree (grep-verified) — they are NO-OPS, so they are deliberately NOT recorded
+    here; listing them would falsely imply they were validated/active this run."""
+    return {
+        "PG_OUTLINE_BASKET_DIGEST": os.getenv("PG_OUTLINE_BASKET_DIGEST", "0"),
+        "PG_OUTLINE_DIGEST_MAX_CHARS": os.getenv(
+            "PG_OUTLINE_DIGEST_MAX_CHARS", str(PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT)),
+        "PG_OUTLINE_MIN_MAX_TOKENS": os.getenv("PG_OUTLINE_MIN_MAX_TOKENS", "16384"),
+        "PG_OUTLINE_REASONING_MAX_TOKENS": os.getenv("PG_OUTLINE_REASONING_MAX_TOKENS", "6144"),
+        "PG_OUTLINE_REVISE_ROUNDS": os.getenv(
+            "PG_OUTLINE_REVISE_ROUNDS", str(PG_OUTLINE_REVISE_ROUNDS_DEFAULT)),
+        "PG_OUTLINE_REVISE_MAX_RECOMPOSE": os.getenv(
+            "PG_OUTLINE_REVISE_MAX_RECOMPOSE", str(PG_OUTLINE_REVISE_MAX_RECOMPOSE_DEFAULT)),
+        "model": str(model),
+    }
 
 
 def _load_bank(path: Path) -> dict:
@@ -140,7 +168,14 @@ def _mode_apply_dry(bank: dict) -> int:
 
     sigs_before = {str(p.get('title', '')): plan_signature(p) for p in plans}
     parsed = parse_revision_ops(reviser_output, allowed_ev_ids=allowed, plan_titles=titles)
-    applied = apply_revision_ops(plans, parsed, outcomes=outcomes)
+    # item 13: when the bank has a required-section structure, thread it so apply restricts ops to
+    # keep/reassign and cannot break the user's exact-N-in-order contract.
+    _required = [
+        str(t).strip()
+        for t in ((bank.get("deliverable") or {}).get("required_sections", []) or [])
+        if str(t).strip()
+    ]
+    applied = apply_revision_ops(plans, parsed, outcomes=outcomes, required_titles=_required)
 
     print("\n=== APPLY RESULT ===")
     print(f"[parse] accepted={len(parsed.ops)} rejected={len(parsed.rejected)} "
@@ -225,6 +260,22 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     plans = parse_result.plans
     stats = parse_result.digest_stats
 
+    # item 14: fold each plan's anchor ev_ids to ONE per underlying WORK (a section anchoring twice
+    # on the same source is not twice-corroborated — that is what dragged distinct_work_frac below
+    # the 0.90 PUSH-A bar). Deterministic, DISCLOSED — the folded same-work aliases are recorded in
+    # the cp4 audit (`plan_work_folds`) and the aliases stay in the pool/bibliography (§-1.3
+    # consolidate, never a silent drop). Fixes the metric honestly instead of excluding it.
+    alias_of = _build_alias_map(same_work_groups)
+    plan_work_folds: list[dict] = []
+    folded_alias_ev_ids: set[str] = set()
+    for _p in plans:
+        _canon, _folded = dedup_plan_ev_ids_by_work(_p.ev_ids or [], alias_of)
+        if _folded:
+            plan_work_folds.append({"section": str(_p.title), "folded": _folded})
+            for _aliases in _folded.values():
+                folded_alias_ev_ids.update(_aliases)
+        _p.ev_ids = _canon
+
     # (a) headings == required aspects, exact order
     headings = [str(p.title) for p in plans]
     order_ok = (headings == required) if required else None
@@ -253,13 +304,24 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         str(r.get("evidence_id", "")) for r in evidence
         if str(r.get("evidence_id", "")) and str(r.get("evidence_id", "")) not in menu.ev_id_to_basket
     ]
-    unassigned_singletons = [e for e in singleton_ev_ids if e not in assigned_ev_ids]
+    # item 14: a same-work alias folded OUT of a plan's anchors is NOT truly unassigned — it is
+    # accounted for by its canonical (assigned) copy and disclosed in ``plan_work_folds``. Exclude it
+    # so the pool accounting stays honest and the fold is not double-counted as a coverage gap.
+    unassigned_singletons = [
+        e for e in singleton_ev_ids
+        if e not in assigned_ev_ids and e not in folded_alias_ev_ids
+    ]
     unassigned_high_tier = [
         {
             "ev_id": e,
             "tier": str(row_by_id[e].get("tier", "") or ""),
             "title": str(row_by_id[e].get("title", "") or "")[:90],
             "disposition": "reassign_candidate",
+            # item 8: no lexical/tier off-topic guess here — the compose-stage router must run the
+            # fail-open semantic topic judge before residual routing (§-1.3.1). Until that verdict
+            # exists this candidate is UNJUDGED (fail-open => KEEP); a confirmed off-topic verdict
+            # populated here lets the router skip it (disclosed deletion).
+            "topic_verdict": "unjudged",
         }
         for e in unassigned_singletons
         if str(row_by_id[e].get("tier", "") or "").upper() in _HIGH_TIERS
@@ -274,18 +336,29 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         "title_conformed": list(getattr(parse_result, "title_conformed", []) or []),
         "orphan_baskets_after_plan": list(final_orphans),
         "orphan_reassign_candidates": [
+            # item 8: carry a per-candidate topic verdict slot. "unjudged" (fail-open => KEEP) until
+            # the compose-stage semantic topic judge runs; a confirmed off-topic verdict here lets
+            # the router DELETE it before residual routing (§-1.3.1, disclosed) instead of dumping
+            # zero-overlap off-topic junk into the keep-all section.
             {"basket_id": bid, "members": basket_members.get(bid, []),
-             "disposition": "reassign_candidate"}
+             "disposition": "reassign_candidate", "topic_verdict": "unjudged"}
             for bid in final_orphans
         ],
         "unassigned_singletons_count": len(unassigned_singletons),
         "unassigned_high_tier": unassigned_high_tier,
+        # item 14: same-work anchor folds per section (canonical kept, aliases disclosed) — §-1.3
+        # consolidate; the folded aliases remain in the pool/bibliography, never dropped.
+        "plan_work_folds": plan_work_folds,
         "note": ("orphan baskets AND unassigned singletons are routed to section plans at COMPOSE "
-                 "via PG_ROUTE_ALL_BASKETS (verified_compose.py:3598 "
-                 "route_orphan_baskets_to_section_plans, default-OFF); this cp4 audit is DISCLOSURE "
-                 "ONLY — zero plan mutation here. Every pool member is accounted for: assigned to a "
-                 "section, orphan-basket-disclosed, or unassigned-singleton-disclosed (§-1.3 "
-                 "consolidate — none dropped)."),
+                 "via PG_ROUTE_ALL_BASKETS (verified_compose.py route_orphan_baskets_to_section_plans, "
+                 "default-OFF). Item 8 (§-1.3.1): before residual routing the router runs the "
+                 "fail-open semantic topic judge (or consumes the per-candidate `topic_verdict` "
+                 "above) and DELETES only judge-CONFIRMED off-topic baskets (disclosed) — uncertainty "
+                 "=> KEEP; it never routes zero-overlap off-topic junk into the keep-all residual "
+                 "section. This cp4 audit is DISCLOSURE ONLY — zero plan mutation here. Every pool "
+                 "member is accounted for: assigned to a section, same-work-folded (plan_work_folds), "
+                 "orphan-basket-disclosed, or unassigned-singleton-disclosed (§-1.3 consolidate — "
+                 "none silently dropped)."),
     }
     print("\n=== (b') FULL POOL DISCLOSURE (cp4 audit-level honesty) ===")
     print(f"[b'] assigned_ev_ids={len(assigned_ev_ids)} unassigned_singletons={len(unassigned_singletons)} "
@@ -301,8 +374,10 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
 
     # PUSH A (e): per-section distinct-work fraction — of a section's anchor ev_ids, how many are
     # DISTINCT works (rows sharing a same_work_id count once). Rises toward 1.0 as the planner reads
-    # the work-level digest and stops anchoring twice on the same underlying work.
-    alias_of = _build_alias_map(same_work_groups)
+    # the work-level digest and stops anchoring twice on the same underlying work. (``alias_of`` was
+    # already built above for the item-14 anchor fold — reuse it; do not rebuild. After that fold the
+    # per-section fraction is ~1.0 because each remaining anchor is a distinct work, which is the
+    # honest fix — the bar is met by consolidating same-work anchors, not by hiding the metric.)
     print("\n=== (e) PER-SECTION DISTINCT-WORK FRACTION (PUSH A) ===")
     section_fracs = []
     for p in plans:
@@ -316,11 +391,20 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     print(f"[e] all sections distinct-work fraction >= 0.90: {frac_ok} (min={min_frac:.3f})")
 
     # (d) cp4 write + load (verdict-leak guarded on BOTH)
+    # item 6: record the FULL effective S4 knob set + a sha256 of it as run_config_sha (until
+    # RunConfig WP-0b lands) so the checkpoint can PROVE what produced it — the prior hardcoded
+    # {"PG_OUTLINE_BASKET_DIGEST":"1"} + run_config_sha="" proved nothing about the actual run.
+    flag_slate = _effective_s4_flag_slate(model)
+    run_config_sha = hashlib.sha256(
+        json.dumps(flag_slate, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    print(f"\n[d] effective S4 flag_slate={json.dumps(flag_slate, sort_keys=True)} "
+          f"run_config_sha={run_config_sha[:12]}")
     payload = build_cp4_payload(
         question_sha=hashlib.sha256(question.encode("utf-8")).hexdigest(),
         upstream=[{"stage": "basket", "sha": str(bank.get("cp3_sha", ""))}],
-        run_config_sha="",
-        flag_slate={"PG_OUTLINE_BASKET_DIGEST": "1"},
+        run_config_sha=run_config_sha,
+        flag_slate=flag_slate,
         adjustments_applied=[],
         final_plans=[_plan_to_dict(p) for p in plans],
         revision_audit=revision_audit,

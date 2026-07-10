@@ -3601,6 +3601,7 @@ def route_orphan_baskets_to_section_plans(
     *,
     section_plan_cls: Any,
     residual_title: str = _RESIDUAL_COVERAGE_TITLE,
+    off_topic_ev_ids: set | None = None,
 ) -> list:
     """F1: route EVERY consolidated basket to a section so no verified basket is stranded.
 
@@ -3617,6 +3618,15 @@ def route_orphan_baskets_to_section_plans(
     §-1.3: pure CONSOLIDATE placement — it stops DISCARDING baskets with no home; it drops no source,
     caps nothing, targets no number. The frozen faithfulness engine is untouched: every routed
     basket's rendered sentence re-passes the UNCHANGED strict_verify per clause downstream.
+
+    ``off_topic_ev_ids`` (item 8, §-1.3.1 off-topic carve-out): the set of evidence_ids a SEMANTIC
+    topic judge CONFIRMED off-topic (supplied by the caller from the cp4 topic-judge dispositions).
+    A basket whose EVERY member is in this set is DELETED here — never routed into the report (the
+    keep-all residual section is exactly where zero-overlap off-topic junk — book-banning, climate
+    policy, IPCC, medical-transcriptionist rows — would otherwise land when this flag fires). This is
+    FAIL-OPEN: if ANY member is not judge-confirmed off-topic the basket is KEPT and routed as usual
+    (uncertainty => keep). Every deletion is DISCLOSED via the counter + log (never silent). ``None``/
+    empty => byte-identical keep-all behaviour (no basket is ever deleted by tier/lexeme/number).
     """
     if not route_all_baskets_enabled():
         return plans
@@ -3631,12 +3641,22 @@ def route_orphan_baskets_to_section_plans(
     plan_words = [(p, _plan_topic_words(p)) for p in plans]
     residual_plan = None
     routed = 0
+    deleted_offtopic = 0
+    deleted_offtopic_members: list[str] = []
     for basket in baskets:
         member_ids = _basket_member_ev_ids(basket)
         if not member_ids:
             continue  # no evidence to route (cannot give it a home)
         if set(member_ids) & claimed:
             continue  # already reachable by some section — not an orphan
+        # item 8 (§-1.3.1): a basket whose EVERY member a semantic topic judge CONFIRMED off-topic is
+        # DELETED before routing — it never reaches a section or the keep-all residual. FAIL-OPEN: any
+        # non-confirmed member => KEEP + route. Disclosed via the counter/log; ``claimed`` is left
+        # untouched so an on-topic basket sharing a member is still routed (never masked as reachable).
+        if off_topic_ev_ids and all(m in off_topic_ev_ids for m in member_ids):
+            deleted_offtopic += 1
+            deleted_offtopic_members.extend(member_ids)
+            continue
         bw = _basket_topic_words(basket)
         best_plan = None
         best_overlap = 0
@@ -3659,10 +3679,12 @@ def route_orphan_baskets_to_section_plans(
     out_plans = list(plans)
     if residual_plan is not None and residual_plan.ev_ids:
         out_plans.append(residual_plan)
-    if routed:
+    if routed or deleted_offtopic:
         logger.info(
-            "[verified_compose] F1 route-all-baskets: routed %d orphan basket(s) to sections "
-            "(residual section=%s)",
-            routed, "yes" if residual_plan is not None else "no",
+            "[verified_compose] F1 route-all-baskets: routed %d orphan basket(s) to sections; "
+            "DELETED %d judge-confirmed off-topic basket(s) (%d member rows) before routing "
+            "(§-1.3.1 fail-open, disclosed); residual section=%s",
+            routed, deleted_offtopic, len(deleted_offtopic_members),
+            "yes" if residual_plan is not None else "no",
         )
     return out_plans

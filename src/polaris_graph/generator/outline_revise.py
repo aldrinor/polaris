@@ -211,7 +211,11 @@ def parse_revision_ops(
                 return None
             return t
 
-        if kind in ("keep", "retitle", "reassign") and _need_title() is None:
+        # item 1: ``split`` MUST validate its source ``title`` here too. Without it a split with a
+        # missing title passes parse then crashes ``KeyError`` at apply (``op["title"]``), and a split
+        # with an UNKNOWN title silently keeps the original section AND adds the children (content
+        # duplication). Validating here rejects both before apply.
+        if kind in ("keep", "retitle", "reassign", "split") and _need_title() is None:
             continue
         if kind == "retitle" and not str(op.get("new_title", "")).strip():
             rejected.append({"op": dict(op), "reason_code": "missing_new_title"})
@@ -273,6 +277,54 @@ def parse_revision_ops(
             continue
         accepted.append(dict(op))
 
+    # ── item 5: TITLE-COLLISION pass. A duplicate section title (case-insensitive) is silently
+    # lossy downstream — ``by_title`` (last-wins) and the title-keyed ``section_results`` drop one
+    # plan's ev_ids. Reject any op that introduces a NEW title (``add``/``retitle``/``merge`` new
+    # title, or a ``split`` child title) equal (case-insensitive) to a SURVIVING plan title or to
+    # another new title. Op-sequence aware: a title removed by an accepted op (merge source / split
+    # source / retitle source) is NOT "surviving", so reusing a freed name is allowed. Runs over
+    # ``accepted`` so the main per-op validation above is untouched.
+    def _op_removed_titles(o: dict) -> list[str]:
+        k = o.get("op")
+        if k == "merge":
+            return [str(t) for t in (o.get("titles", []) or [])]
+        if k in ("split", "retitle"):
+            return [str(o.get("title", ""))]
+        return []
+
+    def _op_new_titles(o: dict) -> list[str]:
+        k = o.get("op")
+        if k == "add":
+            return [str(o.get("title", ""))]
+        if k in ("retitle", "merge"):
+            return [str(o.get("new_title", ""))]
+        if k == "split":
+            return [str(c.get("title", "")) for c in (o.get("into", []) or [])]
+        return []
+
+    _removed_lower = {t.lower() for o in accepted for t in _op_removed_titles(o)}
+    _surviving_lower = {t.lower() for t in plan_titles if t.lower() not in _removed_lower}
+    _seen_new_lower: set[str] = set()
+    _collision_filtered: list[dict[str, Any]] = []
+    for op in accepted:
+        _collide = None
+        for _nt in _op_new_titles(op):
+            _ntl = _nt.strip().lower()
+            if not _ntl:
+                continue
+            if _ntl in _surviving_lower or _ntl in _seen_new_lower:
+                _collide = _nt
+                break
+        if _collide is not None:
+            rejected.append({"op": dict(op), "reason_code": f"title_collision:{_collide}"})
+            continue
+        for _nt in _op_new_titles(op):
+            _ntl = _nt.strip().lower()
+            if _ntl:
+                _seen_new_lower.add(_ntl)
+        _collision_filtered.append(op)
+    accepted = _collision_filtered
+
     return RevisionParseResult(
         ops=accepted,
         rejected=rejected,
@@ -332,6 +384,7 @@ def apply_revision_ops(
     *,
     max_recompose_cap: int | None = None,
     outcomes: Sequence[SectionOutcome] | None = None,
+    required_titles: Sequence[str] | None = None,
 ) -> RevisionApplyResult:
     """Apply validated ops deterministically and return the new plan set + the recompose set.
 
@@ -341,10 +394,26 @@ def apply_revision_ops(
     Wholesale-invalid input (parse failed, or zero accepted ops) => original plans unchanged,
     empty recompose set (fail-open to wave-1). Over the ``max_recompose`` ceiling, highest-impact
     ops win (dropped/undersupplied sections first) and the rest are DEFERRED as disclosed no-ops.
-    """
+
+    ``required_titles`` (item 13): when the run has a user-required section structure, only
+    ``keep``/``reassign`` may run (they preserve the exact-N-in-order contract); ``merge``/
+    ``split``/``add``/``retitle`` are DEFERRED as disclosed no-ops so the structure cannot break,
+    and the assembled order stays the required order. ``None``/empty => no restriction (unchanged).
+
+    Item 4: an op whose target title was already consumed by an earlier op (merged/split away, or
+    retitled) is skipped as a disclosed no-op (never a ghost recompose title); retitled sections are
+    resolved by their CURRENT title. Item 5 (apply half): a NEW title colliding with a live section
+    is deferred. Item 12: an ``add`` with no evidence, or a ``reassign`` that empties a section, is
+    marked ``undersupplied=True`` (the gap is disclosed, never faked)."""
     cap = max_recompose_cap if max_recompose_cap is not None else max_recompose()
     base = [_as_dict(p) for p in plans]
     by_title = {p["title"]: p for p in base}
+
+    def _ci(s: Any) -> str:
+        return str(s).strip().lower()
+
+    # item 13: required-structure lock — restrict ops to keep/reassign when required_titles present.
+    required_lock = bool([t for t in (required_titles or []) if str(t).strip()])
 
     if parse_result.parse_failed or not parse_result.ops:
         return RevisionApplyResult(
@@ -377,19 +446,42 @@ def apply_revision_ops(
     )
 
     recompose: list[str] = []
-    kept: list[str] = []
     applied: list[dict[str, Any]] = []
     deferred: list[dict[str, Any]] = []
-    removed_titles: set[str] = set()
+    removed_titles: set[str] = set()      # merge/split SOURCES — dropped from assembly
+    title_remap: dict[str, str] = {}       # retitle old->new — resolve later op targets + assembly
     added_plans: list[dict[str, Any]] = []
+    # item 5 (apply half): live section titles (case-insensitive) for the collision guard.
+    live_lower: set[str] = {_ci(p["title"]) for p in base}
 
     def _recompose_budget_left() -> int:
         return cap - len(recompose)
+
+    def _resolve_current(t: str) -> str:
+        """Follow the retitle chain so a later op referencing the ORIGINAL title lands on the
+        section's CURRENT name (item 4)."""
+        seen: set[str] = set()
+        while t in title_remap and t not in seen:
+            seen.add(t)
+            t = title_remap[t]
+        return t
 
     for op in ordered:
         kind = op["op"]
         if kind == "keep":
             applied.append(op)
+            continue
+
+        # item 13: required-structure lock — merge/split/add/retitle can break exact-N-in-order.
+        if required_lock and kind not in ("keep", "reassign"):
+            deferred.append({**op, "reason_code": "required_structure_locked"})
+            continue
+
+        # item 4: an op whose target was already consumed (merged/split away, or retitled) is a
+        # disclosed no-op — never let it burn a recompose slot or emit a ghost title.
+        _targets = [_resolve_current(t) for t in _op_touches(op)]
+        if any(t in removed_titles for t in _targets):
+            deferred.append({**op, "reason_code": "stale_target_removed"})
             continue
 
         need = 1
@@ -402,7 +494,12 @@ def apply_revision_ops(
             continue
 
         if kind == "merge":
-            titles = [str(t) for t in op["titles"]]
+            titles = [_resolve_current(str(t)) for t in op["titles"]]
+            new_title = str(op["new_title"])
+            prospective = live_lower - {_ci(t) for t in titles}
+            if _ci(new_title) in prospective:   # item 5: merged title collides with a survivor
+                deferred.append({**op, "reason_code": f"title_collision:{new_title}"})
+                continue
             union_ev: list[str] = []
             union_bask: list[str] = []
             for t in titles:
@@ -410,66 +507,106 @@ def apply_revision_ops(
                 union_ev += [str(e) for e in (src.get("ev_ids", []) or [])]
                 union_bask += [str(b) for b in (src.get("basket_ids", []) or [])]
                 removed_titles.add(t)
-            new_title = str(op["new_title"])
+            merged_ev = sorted(set(union_ev))
             added_plans.append({
                 "title": new_title, "focus": str(op.get("reason", "")),
-                "ev_ids": sorted(set(union_ev)), "basket_ids": sorted(set(union_bask)),
-                "archetype": "merged",
+                "ev_ids": merged_ev, "basket_ids": sorted(set(union_bask)),
+                "archetype": "merged", "undersupplied": not merged_ev,
             })
+            live_lower = prospective | {_ci(new_title)}
             recompose.append(new_title)
             applied.append(op)
         elif kind == "split":
-            src_title = str(op["title"])
+            src_title = _resolve_current(str(op["title"]))
+            child_titles = [str(child["title"]) for child in op["into"]]
+            prospective = live_lower - {_ci(src_title)}
+            _lowered = [_ci(ct) for ct in child_titles]
+            if len(set(_lowered)) != len(_lowered) or any(cl in prospective for cl in _lowered):
+                deferred.append({**op, "reason_code": "title_collision:split_children"})
+                continue
             removed_titles.add(src_title)
+            live_lower = prospective
             for child in op["into"]:
                 ct = str(child["title"])
+                child_ev = sorted({str(e) for e in (child.get("ev_ids", []) or [])})
                 added_plans.append({
                     "title": ct, "focus": str(child.get("focus", "")),
-                    "ev_ids": sorted({str(e) for e in (child.get("ev_ids", []) or [])}),
-                    "basket_ids": [], "archetype": "split",
+                    "ev_ids": child_ev,
+                    "basket_ids": [], "archetype": "split", "undersupplied": not child_ev,
                 })
+                live_lower.add(_ci(ct))
                 recompose.append(ct)
             applied.append(op)
         elif kind == "retitle":
-            src_title = str(op["title"])
+            src_title = _resolve_current(str(op["title"]))
+            new_title = str(op["new_title"])
+            prospective = live_lower - {_ci(src_title)}
+            if _ci(new_title) in prospective:   # item 5: retitle onto a surviving section's name
+                deferred.append({**op, "reason_code": f"title_collision:{new_title}"})
+                continue
             plan = dict(by_title.get(src_title, {}))
-            plan["title"] = str(op["new_title"])
-            by_title[src_title] = plan
-            recompose.append(plan["title"])
+            plan["title"] = new_title
+            # item 4: keep by_title keyed by the CURRENT title + record the remap so later ops and
+            # the assembly resolve the renamed section correctly.
+            by_title.pop(src_title, None)
+            by_title[new_title] = plan
+            title_remap[src_title] = new_title
+            live_lower = prospective | {_ci(new_title)}
+            recompose.append(new_title)
             applied.append(op)
         elif kind == "reassign":
-            src_title = str(op["title"])
+            src_title = _resolve_current(str(op["title"]))
             plan = dict(by_title.get(src_title, {}))
             evset = {str(e) for e in (plan.get("ev_ids", []) or [])}
             evset |= {str(e) for e in (op.get("add_ev_ids", []) or [])}
             evset -= {str(e) for e in (op.get("drop_ev_ids", []) or [])}
             plan["ev_ids"] = sorted(evset)
+            if not evset:   # item 12: a reassign that empties a section discloses the gap
+                plan["undersupplied"] = True
             by_title[src_title] = plan
             recompose.append(plan["title"])
             applied.append(op)
         elif kind == "add":
             at = str(op["title"])
+            if _ci(at) in live_lower:   # item 5: add colliding with a live section title
+                deferred.append({**op, "reason_code": f"title_collision:{at}"})
+                continue
+            # item 12: an add carries evidence via ev_ids and/or add_ev_ids; empty => undersupplied.
+            add_ev = sorted(
+                {str(e) for e in (op.get("ev_ids", []) or [])}
+                | {str(e) for e in (op.get("add_ev_ids", []) or [])}
+            )
             added_plans.append({
                 "title": at, "focus": str(op.get("focus", "")),
-                "ev_ids": sorted({str(e) for e in (op.get("ev_ids", []) or [])}),
-                "basket_ids": [], "archetype": "added",
+                "ev_ids": add_ev,
+                "basket_ids": [], "archetype": "added", "undersupplied": not add_ev,
             })
+            live_lower.add(_ci(at))
             recompose.append(at)
             applied.append(op)
 
-    # assemble: original order minus removed/retitled-away, then appended new sections
-    recompose_set = set(recompose)
+    # assemble: original order minus removed/retitled-away, then appended new sections. A retitled
+    # section is resolved to its CURRENT object via ``title_remap`` (item 4) so the rename + any
+    # later reassign survive assembly. Under the required-structure lock nothing is added/removed, so
+    # the base (required) ORDER is preserved (item 13).
     new_plans: list[dict[str, Any]] = []
     for p in base:
-        current = by_title.get(p["title"], p)
-        if p["title"] in removed_titles:
+        cur_title = _resolve_current(p["title"])
+        if p["title"] in removed_titles or cur_title in removed_titles:
             continue
-        if current["title"] in removed_titles:
-            continue
-        new_plans.append(current)
-        if current["title"] not in recompose_set:
-            kept.append(current["title"])
+        new_plans.append(by_title.get(cur_title, p))
     new_plans += added_plans
+
+    # item 4: dedupe recompose_titles AND drop any GHOST title not present in the final plan set —
+    # a ghost would make the compose stage re-open a section that does not exist.
+    _final_titles = {p["title"] for p in new_plans}
+    _seen_rc: set[str] = set()
+    recompose = [
+        t for t in recompose
+        if t in _final_titles and not (t in _seen_rc or _seen_rc.add(t))
+    ]
+    _recompose_final = set(recompose)
+    kept = [p["title"] for p in new_plans if p["title"] not in _recompose_final]
 
     changed = bool(recompose or removed_titles)
     return RevisionApplyResult(
