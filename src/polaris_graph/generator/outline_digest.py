@@ -159,6 +159,34 @@ def _ev_id_at(evidence: Sequence[Mapping[str, Any]], index: int) -> str:
     return str(evidence[index].get("evidence_id", "") or "")
 
 
+# Item 3a/10: leading fetch/format chrome tokens that must be peeled off a TITLE before it is
+# normalized to a work key. "(PDF) GPTs are GPTs" must key IDENTICALLY to "GPTs are GPTs" — the
+# leading "pdf" is alphanumeric, so it survives the alnum-normalize and would otherwise SPLIT the
+# same work into two. Exact known tokens only (content-integrity, not a lexical quality guess).
+_TITLE_CHROME_PREFIXES = ("[pdf]", "(pdf)", "url source:", "pdf source:")
+
+
+def _strip_title_chrome(title: str) -> str:
+    """Peel leading chrome tokens (``[pdf]`` / ``(pdf)`` / ``url source:``) and trailing ellipsis
+    (``...`` / unicode ``…``) off a title so a chrome-prefixed or truncated title normalizes to the
+    SAME key as its clean form (item 3a). Loops so stacked prefixes ("[PDF] URL Source:") all peel.
+    Never drops the row — only cleans the KEY input (§-1.3: a fold keeps every row, it only reports
+    them as one work)."""
+    t = (title or "").strip()
+    changed = True
+    while changed:
+        changed = False
+        low = t.lower()
+        for pref in _TITLE_CHROME_PREFIXES:
+            if low.startswith(pref):
+                t = t[len(pref):].strip()
+                changed = True
+                break
+    while t.endswith("...") or t.endswith("…"):
+        t = (t[:-3] if t.endswith("...") else t[:-1]).rstrip()
+    return t
+
+
 def _normalized_title_key(title: str) -> str | None:
     """Item 2 (same-work TITLE fallback): a work_key derived from a source TITLE, for folding
     TITLE-IDENTICAL works the cp3 URL/DOI ``same_work_groups`` missed (the same paper posted at two
@@ -167,8 +195,12 @@ def _normalized_title_key(title: str) -> str | None:
     ``title:<norm>`` ONLY when the normalized title is >= ``_TITLE_FALLBACK_MIN_CHARS`` — a
     short/generic title (two DIFFERENT OECD reg-policy docs) returns ``None`` and is NEVER folded,
     so the fallback cannot false-merge distinct works. Never a drop (§-1.3): a fold keeps ALL rows,
-    it only reports them as ONE work for corroboration."""
-    norm = re.sub(r"[^a-z0-9]", "", (title or "").lower())
+    it only reports them as ONE work for corroboration.
+
+    Item 3a: leading fetch/format chrome ("(PDF)", "URL Source:") and trailing ellipsis are peeled
+    FIRST (``_strip_title_chrome``), so a chrome-prefixed or truncated title keys IDENTICALLY to its
+    clean form instead of splitting the same underlying work into two."""
+    norm = re.sub(r"[^a-z0-9]", "", _strip_title_chrome(title).lower())
     if len(norm) < _TITLE_FALLBACK_MIN_CHARS:
         return None
     return f"title:{norm}"
@@ -222,16 +254,85 @@ def _build_alias_map(
             if tkey is None:
                 continue
             title_groups.setdefault(tkey, []).append(ev_id)
-        for tkey, members in title_groups.items():
+
+        # Item 3b (PREFIX FOLD): a TRUNCATED title keys to a PREFIX of the full title's key
+        # ("...Impact ..." truncations vs the full paper title — ev_884/ev_890 vs ev_886/ev_882).
+        # Fold each key onto the shortest STRICTLY-longer key it is a full prefix of, so the
+        # truncated rows unify with the full-title rows. Every key here is already
+        # >= _TITLE_FALLBACK_MIN_CHARS alnum chars (the floor), so an exact-prefix match on 25+
+        # identical leading chars is a strong same-work signal — Fable: keep the 25-char floor so
+        # distinct works never merge. Deterministic (length then lexicographic).
+        fold_target: dict[str, str] = {}
+        _keys_by_len = sorted(title_groups.keys(), key=lambda k: (len(k), k))
+        for _i, _short in enumerate(_keys_by_len):
+            for _long in _keys_by_len[_i + 1:]:
+                if len(_long) > len(_short) and _long.startswith(_short):
+                    fold_target[_short] = _long
+                    break
+
+        def _final_key(k: str) -> str:
+            _seen: set[str] = set()
+            while k in fold_target and k not in _seen:
+                _seen.add(k)
+                k = fold_target[k]
+            return k
+
+        merged_groups: dict[str, list[str]] = {}
+        for _k, _members in title_groups.items():
+            merged_groups.setdefault(_final_key(_k), []).extend(_members)
+
+        for tkey, members in merged_groups.items():
             if len(members) < 2:
                 continue  # a unique title is its own work — never fold a lone title
-            # Adopt any existing cp3 work_key a member already carries (first in evidence order) so
-            # a cp3 group and a title-only group of the SAME work UNIFY onto one key; else use the
-            # distinctive title key itself. Then key EVERY member of the title group to it.
-            canonical_key = next((alias_of[e] for e in members if e in alias_of), tkey)
-            for ev_id in members:
-                alias_of[ev_id] = canonical_key
+            # Item 4 (ALIAS-MAP FALSE-MERGE GUARD): collect the DISTINCT cp3 work keys the members
+            # already carry. If TWO OR MORE different cp3 works share this normalized title, do NOT
+            # false-merge them onto one key — leave each stamped member on its OWN cp3 key and fold
+            # only the UNCLAIMED (title-only) members onto the title key. Only when the group carries
+            # exactly ONE (or zero) cp3 key do we unify the whole group onto it. §-1.3: a fold never
+            # drops a row; a WRONG fold would misstate corroboration, so the guard stays conservative.
+            stamped = {alias_of[e] for e in members if e in alias_of}
+            if len(stamped) >= 2:
+                for ev_id in members:
+                    if ev_id not in alias_of:
+                        alias_of[ev_id] = tkey
+            else:
+                canonical_key = next(iter(stamped)) if stamped else tkey
+                for ev_id in members:
+                    alias_of[ev_id] = canonical_key
     return alias_of
+
+
+# Item 6c (§-1.3.1(a) content-integrity, NOT a lexical quality guess): a row whose TITLE is a known
+# fetch INTERSTITIAL is a failed fetch surfaced as a Cloudflare/bot/404 page — not a source. The row
+# is KEPT (disclosure), but TAGGED so the planner never anchors on it. Exact/known-prefix match only.
+_CHROME_INTERSTITIAL_TAG = " [CHROME — failed fetch, do not anchor]"
+_CHROME_INTERSTITIAL_PREFIXES = (
+    "just a moment",
+    "attention required",
+    "access denied",
+    "verifying you are human",
+    "are you a robot",
+    "one moment, please",
+    "please wait",
+    "checking your browser",
+)
+_CHROME_INTERSTITIAL_EXACT = frozenset({
+    "404", "404 not found", "404: not found", "page not found",
+    "403 forbidden", "error 404", "error 403",
+})
+
+
+def _is_chrome_interstitial(title: str) -> bool:
+    """True when a row TITLE is a known fetch interstitial (Cloudflare "Just a moment...", "Access
+    Denied", a bare "404", "Attention Required"). Exact / known-prefix match only — content-integrity
+    under §-1.3.1(a), NEVER a lexical quality judgement. Conservative: an unknown title => ``False``
+    (KEEP + present normally; the tag only fires on a confirmed interstitial string)."""
+    t = (title or "").strip().lower().rstrip(" .!")
+    if not t:
+        return False
+    if any(t.startswith(p) for p in _CHROME_INTERSTITIAL_PREFIXES):
+        return True
+    return t in _CHROME_INTERSTITIAL_EXACT
 
 
 def _basket_line(
@@ -244,6 +345,7 @@ def _basket_line(
     elide_members: bool,
     work_corroboration: int | None = None,
     row_count: int | None = None,
+    chrome: bool = False,
 ) -> str:
     tier_csv = ",".join(tiers)
     members = (
@@ -259,12 +361,16 @@ def _basket_line(
         head = f"[x{corroboration} sources: {tier_csv}]"
     else:
         head = f"[x{work_corroboration} works ({row_count} rows): {tier_csv}]"
-    return f'{bid} {head} claim: "{claim}" {members}'
+    # item 6c: a basket built from a fetch-interstitial title (32 "Just a moment..." Cloudflare rows
+    # consolidated into whole baskets this run) is tagged so the planner does not anchor on it. Kept
+    # (disclosure), just not sold as evidence (§-1.3.1(a) content-integrity).
+    chrome_tag = _CHROME_INTERSTITIAL_TAG if chrome else ""
+    return f'{bid} {head}{chrome_tag} claim: "{claim}" {members}'
 
 
 def _singleton_line(
     ev_id: str, tier: str, title: str, statement: str, alias_ev_ids: list[str],
-    *, title_only: bool, seminal: bool = False,
+    *, title_only: bool, seminal: bool = False, chrome: bool = False,
 ) -> str:
     # PUSH A: same-work copies collapsed onto this line are disclosed inline after the tier;
     # empty ``alias_ev_ids`` (the no-same_work_groups path) => no tag => byte-identical.
@@ -273,11 +379,16 @@ def _singleton_line(
     # row in an 58k-char menu). Placed AFTER the ev_id token so ``covered_ev_ids`` still parses the
     # head. ``seminal=False`` (default) => "" => byte-identical.
     seminal_tag = " [seminal T1 — consider for anchoring]" if seminal else ""
+    # item 6c: a singleton whose title is a known fetch interstitial (Cloudflare "Just a moment...",
+    # "Access Denied", "404") is tagged — kept for disclosure, but never sold to the planner as an
+    # anchorable source (§-1.3.1(a) content-integrity). Placed after the tier so ``covered_ev_ids``
+    # still parses the ev_id head token. ``chrome=False`` (default) => "" => byte-identical.
+    chrome_tag = _CHROME_INTERSTITIAL_TAG if chrome else ""
     if title and statement and not title_only:
-        return f"{ev_id} [{tier}]{seminal_tag}{tag} | title: {title} | {statement}"
+        return f"{ev_id} [{tier}]{chrome_tag}{seminal_tag}{tag} | title: {title} | {statement}"
     if title:
-        return f"{ev_id} [{tier}]{seminal_tag}{tag} | title: {title}"
-    return f"{ev_id} [{tier}]{seminal_tag}{tag}: {statement}"
+        return f"{ev_id} [{tier}]{chrome_tag}{seminal_tag}{tag} | title: {title}"
+    return f"{ev_id} [{tier}]{chrome_tag}{seminal_tag}{tag}: {statement}"
 
 
 def _is_title_like(statement: str, title: str) -> bool:
@@ -291,9 +402,11 @@ def _is_title_like(statement: str, title: str) -> bool:
     if not s:
         return True
     low = s.lower()
-    if low.startswith("[pdf]") or low.startswith("(pdf)"):
+    # item 10: also treat a "URL Source:" chrome prefix and a unicode-ellipsis "…" truncation tail
+    # as title-like (the ascii "..." tail + "[pdf]"/"(pdf)" prefixes were already covered).
+    if low.startswith("[pdf]") or low.startswith("(pdf)") or low.startswith("url source:"):
         return True
-    if s.endswith("..."):
+    if s.endswith("...") or s.endswith("…"):
         return True
     if title and s == title.strip():
         return True
@@ -352,9 +465,28 @@ def build_outline_digest(
     #        ties by representative ev_id then member set) so line order is worker-independent.
     multi = [c for c in clusters if len(getattr(c, "member_indices", []) or []) >= 2]
 
-    def _sort_key(c: Any) -> tuple[int, str, tuple[str, ...]]:
+    def _sort_key(c: Any) -> tuple[Any, ...]:
+        _member_ev = [e for e in (_ev_id_at(evidence, i) for i in getattr(c, "member_indices")) if e]
         rep = _ev_id_at(evidence, int(getattr(c, "representative_index")))
-        members = tuple(sorted(_ev_id_at(evidence, i) for i in getattr(c, "member_indices")))
+        members = tuple(sorted(_member_ev))
+        if work_aware:
+            # Item 5: order baskets by WORK-level corroboration (distinct works), NOT raw ROW count.
+            # B00 must be the basket backed by the MOST distinct works — 4 duplicate rows of ONE work
+            # (work_corroboration=1) must sink BELOW a genuine 2-work basket. 44 of 69 baskets this
+            # run were x1-work clusters leading the menu by row count. Tie-break by row count, then
+            # rep + member set for worker-independent determinism.
+            #
+            # Item 6c composed with item 5: a basket whose representative row is a fetch interstitial
+            # ("Just a moment..." Cloudflare) is a failed fetch, NOT corroboration — its members are N
+            # distinct FAILED urls, which would otherwise float it to the TOP of the menu by work
+            # count (the exact opposite of item 6c's "stop selling chrome to the planner"). Sink such
+            # baskets BELOW every real basket (leading sort dim), keeping work-sort WITHIN the real and
+            # within the chrome groups. Still KEPT + tagged (disclosure, §-1.3.1(a)) — only its RANK
+            # drops. Non-work-aware path is byte-identical (this whole branch is work-aware only).
+            _rep_title = str(evidence[int(getattr(c, "representative_index"))].get("title", "") or "")
+            _chrome = 1 if _is_chrome_interstitial(_rep_title) else 0
+            _wc = len({_work_key(e) for e in _member_ev})
+            return (_chrome, -_wc, -len(_member_ev), rep, members)
         return (-int(getattr(c, "corroboration_count", 0)), rep, members)
 
     multi_sorted = sorted(multi, key=_sort_key)
@@ -407,6 +539,9 @@ def build_outline_digest(
                 "members": member_ev_ids,
                 "work_corroboration": work_corroboration,
                 "row_count": len(member_ev_ids),
+                # item 6c: a basket consolidated from fetch-interstitial rows (whole "Just a
+                # moment..." Cloudflare baskets this run) — tagged, kept, never anchored.
+                "chrome": _is_chrome_interstitial(rep_title),
             }
         )
         basket_member_ev_ids[bid] = member_ev_ids
@@ -451,6 +586,9 @@ def build_outline_digest(
                 "tier": str(row.get("tier", "") or ""),
                 "title": _clean(_raw_title)[:_TITLE_MAX_CHARS],
                 "statement": _stmt_render,
+                # item 6c: a singleton whose title is a known fetch interstitial — tagged, kept
+                # (disclosure), never sold to the planner as anchorable evidence (§-1.3.1(a)).
+                "chrome": _is_chrome_interstitial(_raw_title),
             }
         )
     # attach the (possibly appended-to) alias lists to each canonical spec
@@ -479,6 +617,7 @@ def build_outline_digest(
                 elide_members=elide_members,
                 work_corroboration=(s["work_corroboration"] if work_aware else None),
                 row_count=(s["row_count"] if work_aware else None),
+                chrome=bool(s.get("chrome")),
             )
             for s in basket_specs
         ]
@@ -487,6 +626,7 @@ def build_outline_digest(
                 s["ev_id"], s["tier"], s["title"], s["statement"], s["alias_ev_ids"],
                 title_only=title_only,
                 seminal=(prioritize_tier1 and str(s.get("tier", "")).strip().upper() == "T1"),
+                chrome=bool(s.get("chrome")),
             )
             for s in singleton_specs
         ]

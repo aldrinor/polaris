@@ -330,34 +330,54 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     # PUSH B: full pool accounting for the cp4 audit — every pool member is assigned to a section,
     # OR disclosed as an orphan-basket reassign candidate, OR disclosed as an unassigned singleton.
     assigned_ev_ids = {str(e) for p in plans for e in (p.ev_ids or [])}
+    # item 9(a): the WORK keys already anchored by an assigned ev_id. A still-unassigned singleton
+    # whose WORK is anchored via a DIFFERENT ev_id of the same paper is NOT a coverage gap — ev_882
+    # is the same work as the anchored eloundou "GPTs are GPTs" and must not read as unassigned. Uses
+    # the SAME alias_of that fix-3/item-2 built (now chrome-stripped + prefix-folded + false-merge
+    # guarded), so the exclusion tracks the honest work identity. §-1.3: the row stays in the pool/
+    # bibliography (disclosed via its canonical); it just stops double-reporting as a gap. This is
+    # why the prior 136 unassigned-high-tier count was OVERSTATED.
+    assigned_work_keys = {alias_of.get(e, e) for e in assigned_ev_ids}
     row_by_id = {str(r.get("evidence_id", "")): r for r in evidence}
     singleton_ev_ids = [
         str(r.get("evidence_id", "")) for r in evidence
         if str(r.get("evidence_id", "")) and str(r.get("evidence_id", "")) not in menu.ev_id_to_basket
     ]
-    # item 14: a same-work alias folded OUT of a plan's anchors is NOT truly unassigned — it is
-    # accounted for by its canonical (assigned) copy and disclosed in ``plan_work_folds``. Exclude it
-    # so the pool accounting stays honest and the fold is not double-counted as a coverage gap.
+    # item 14 + item 9(a): exclude a singleton that is (i) an assigned ev_id, (ii) a same-work alias
+    # folded OUT of a plan's anchors (accounted for by its canonical, disclosed in plan_work_folds),
+    # or (iii) a copy whose WORK is already anchored by an assigned ev_id. All three keep the pool
+    # accounting honest and stop the unassigned count from being overstated (§-1.3: never a drop).
     unassigned_singletons = [
         e for e in singleton_ev_ids
-        if e not in assigned_ev_ids and e not in folded_alias_ev_ids
+        if e not in assigned_ev_ids
+        and e not in folded_alias_ev_ids
+        and alias_of.get(e, e) not in assigned_work_keys
     ]
-    unassigned_high_tier = [
-        {
+    # item 9(b): collapse same-work unassigned candidates to ONE line carrying the aliases (ev_085 +
+    # ev_1110 are the same UK-employment PDF listed twice today). §-1.3 consolidate: aliased +
+    # disclosed, never dropped. The FIRST candidate seen per work is canonical (deterministic: pool
+    # order). ``topic_verdict`` reads the row's SEMANTIC topic-judge stamp via the fail-open predicate
+    # (§-1.3.1): "off_subject" ONLY on an affirmative OFF_SUBJECT stamp (positive relevance vetoes);
+    # any uncertainty/missing => "unjudged" (KEEP). The compose router consumes the SAME predicate.
+    unassigned_high_tier: list[dict] = []
+    _seen_work: dict[str, dict] = {}
+    for e in unassigned_singletons:
+        if str(row_by_id[e].get("tier", "") or "").upper() not in _HIGH_TIERS:
+            continue
+        _wk = alias_of.get(e, e)
+        if _wk in _seen_work:
+            _seen_work[_wk]["same_work_aliases"].append(e)
+            continue
+        _entry = {
             "ev_id": e,
             "tier": str(row_by_id[e].get("tier", "") or ""),
             "title": str(row_by_id[e].get("title", "") or "")[:90],
             "disposition": "reassign_candidate",
-            # item 3b: the per-candidate topic verdict, read from the row's SEMANTIC topic-judge
-            # stamp via the fail-open predicate (§-1.3.1). "off_subject" ONLY on an affirmative
-            # OFF_SUBJECT stamp (positive relevance vetoes); any uncertainty/missing => "unjudged"
-            # (fail-open => KEEP). The compose router consumes the SAME predicate to DELETE only
-            # confirmed off-topic candidates before residual routing (disclosed).
             "topic_verdict": _row_topic_verdict(row_by_id[e]),
+            "same_work_aliases": [],
         }
-        for e in unassigned_singletons
-        if str(row_by_id[e].get("tier", "") or "").upper() in _HIGH_TIERS
-    ]
+        _seen_work[_wk] = _entry
+        unassigned_high_tier.append(_entry)
 
     # each surviving orphan basket + every unassigned high-tier singleton is DISCLOSED here as a
     # reassign candidate — DISCLOSURE ONLY, zero plan mutation (§-1.3 consolidate, never dropped).
@@ -389,6 +409,19 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         # item 14: same-work anchor folds per section (canonical kept, aliases disclosed) — §-1.3
         # consolidate; the folded aliases remain in the pool/bibliography, never dropped.
         "plan_work_folds": plan_work_folds,
+        # item 7 (operator rule 2026-07-05 — "a winner built but left default-OFF is the still-broken
+        # loop root"): the cp4 checkpoint NAMES the compose-stage (S5) acceptance criteria so the S5
+        # run slate ARMS the flags rather than leaving them invisibly OFF. The S4 flag_slate above
+        # already RECORDS PG_ROUTE_ALL_BASKETS + PG_OUTLINE_REVISE_ROUNDS; the ARMING (=1) belongs to
+        # the S5 compose lab run config (a different section/branch), and these are its gates:
+        "s5_acceptance": [
+            "PG_ROUTE_ALL_BASKETS=1 in the S5 compose run slate — the orphan-basket + unassigned "
+            "high-tier singleton router MUST FIRE; disclose routed_basket_count + routed_singleton_"
+            "count (router-fired + routed-counts-disclosed is a NAMED S5 acceptance item).",
+            "PG_OUTLINE_REVISE_ROUNDS=1 exercised LIVE at the compose stage (rounds=0 here in plan "
+            "mode is correct) — its firing is an explicit S5 acceptance criterion; do not let the "
+            "revise loop fall silently between section loops.",
+        ],
         "note": ("orphan baskets AND unassigned high-tier singletons are routed to section plans at "
                  "COMPOSE via PG_ROUTE_ALL_BASKETS (verified_compose.py "
                  "route_orphan_baskets_to_section_plans, default-OFF). Item 3b/3c (§-1.3.1): the "

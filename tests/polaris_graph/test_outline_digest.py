@@ -213,3 +213,137 @@ def test_requirements_block_reads_object_spec() -> None:
     block = build_requirements_block(spec, None)
     assert "1. A; 2. B" in block
     assert "formal" in block
+
+
+# ── Fable fix wave (I-arch s4-outline): items 3, 4, 5, 6c, 10 ────────────────────────────────
+from src.polaris_graph.generator.outline_digest import (  # noqa: E402
+    _build_alias_map,
+    _is_chrome_interstitial,
+    _is_title_like,
+    _normalized_title_key,
+)
+
+
+def _row(ev_id: str, title: str, stmt: str = "", tier: str = "T1") -> dict:
+    return {"evidence_id": ev_id, "title": title, "statement": stmt, "tier": tier}
+
+
+def _cl(rep: int, members: list[int], corr: int) -> SimpleNamespace:
+    return SimpleNamespace(representative_index=rep, member_indices=members,
+                           corroboration_count=corr, member_hosts=[])
+
+
+def test_item3a_chrome_prefix_title_keys_identically() -> None:
+    """item 3a: '(PDF) X' must key IDENTICALLY to 'X' (the leading 'pdf' is alnum and would
+    otherwise split one work into two). The two rows fold to ONE work."""
+    ev = [
+        _row("e1", "GPTs are GPTs: Labor Market Impact Potential of LLMs"),
+        _row("e2", "(PDF) GPTs are GPTs: Labor Market Impact Potential of LLMs"),
+    ]
+    alias = _build_alias_map([], ev)  # work-aware, cp3 empty => title fold only
+    assert alias["e1"] == alias["e2"]
+    # the raw normalized key of the clean title equals the chrome-stripped one
+    assert _normalized_title_key("GPTs are GPTs: Labor Market Impact Potential of LLMs") \
+        == _normalized_title_key("(PDF) GPTs are GPTs: Labor Market Impact Potential of LLMs")
+
+
+def test_item3b_truncation_prefix_fold() -> None:
+    """item 3b: a truncated title whose key is a PREFIX of the full title's key folds to one work."""
+    ev = [
+        _row("e1", "Experimental Evidence on the Productivity Effects of Generative AI at Work"),
+        _row("e2", "Experimental Evidence on the Productivity Effects of ..."),
+        _row("e3", "Experimental Evidence on the Productivity Effects of Generative AI…"),
+    ]
+    alias = _build_alias_map([], ev)
+    assert alias["e1"] == alias["e2"] == alias["e3"]  # all one work
+
+
+def test_item4_false_merge_guard_two_cp3_works_stay_separate() -> None:
+    """item 4: two DISTINCT cp3 works sharing one normalized title do NOT false-merge; each keeps
+    its own cp3 key, and an unclaimed title-only third member folds onto the title key."""
+    ev = [
+        _row("e1", "Recommendation of the Council on Artificial Intelligence", tier="T3"),
+        _row("e2", "Recommendation of the Council on Artificial Intelligence", tier="T3"),
+        _row("e3", "Recommendation of the Council on Artificial Intelligence", tier="T3"),
+    ]
+    swg = [
+        {"member_evidence_ids": ["e1"], "canonical_index": 0, "same_work_id": "doi:workA"},
+        {"member_evidence_ids": ["e2"], "canonical_index": 1, "same_work_id": "doi:workB"},
+    ]
+    alias = _build_alias_map(swg, ev)
+    assert alias["e1"] == "doi:workA"          # stays on its own cp3 key
+    assert alias["e2"] == "doi:workB"          # stays on its own cp3 key
+    assert alias["e1"] != alias["e2"]          # the two cp3 works are NOT merged
+    assert alias["e3"] not in ("doi:workA", "doi:workB")  # unclaimed folds onto the title key
+
+
+def test_item4_single_cp3_key_unifies_group() -> None:
+    """item 4: a title group carrying exactly ONE cp3 key unifies the whole group onto it."""
+    ev = [
+        _row("e1", "GPTs are GPTs An Early Look at the Labor Market Impact"),
+        _row("e2", "GPTs are GPTs An Early Look at the Labor Market Impact"),
+    ]
+    swg = [{"member_evidence_ids": ["e1"], "canonical_index": 0, "same_work_id": "doi:gpts"}]
+    alias = _build_alias_map(swg, ev)
+    assert alias["e1"] == "doi:gpts"
+    assert alias["e2"] == "doi:gpts"
+
+
+def test_item5_baskets_sort_by_work_not_rows() -> None:
+    """item 5: a 4-row/1-work basket sinks BELOW a 2-row/2-work basket (distinct works lead)."""
+    ev = [
+        _row("a1", "Same Paper Title That Is Quite Long Enough Here", tier="T5"),
+        _row("a2", "Same Paper Title That Is Quite Long Enough Here", tier="T5"),
+        _row("a3", "Same Paper Title That Is Quite Long Enough Here", tier="T5"),
+        _row("a4", "Same Paper Title That Is Quite Long Enough Here", tier="T5"),
+        _row("b1", "First Distinct Work On Some Topic Alpha Here"),
+        _row("b2", "Second Distinct Work On Some Topic Beta Here"),
+    ]
+    clusters = [_cl(0, [0, 1, 2, 3], 4), _cl(4, [4, 5], 2)]
+    menu = build_outline_digest(ev, clusters, sanitizer=_IDENTITY, same_work_groups=[])
+    assert "x2 works (2 rows)" in menu.basket_lines[0]   # the 2-work basket LEADS
+    assert "x1 works (4 rows)" in menu.basket_lines[1]   # the 1-work/4-row basket SINKS
+
+
+def test_item6c_chrome_basket_tagged_and_sinks() -> None:
+    """item 6c: an all-'Just a moment...' basket is TAGGED [CHROME] and sinks below a real basket."""
+    ev = [
+        _row("c1", "Just a moment...", stmt="Real Paper About X", tier="T7"),
+        _row("c2", "Just a moment...", stmt="Real Paper About X", tier="T7"),
+        _row("r1", "A Real On Topic Source Title Here Enough", stmt="finding one"),
+        _row("r2", "Another Real On Topic Source Title Here", stmt="finding two"),
+    ]
+    clusters = [_cl(0, [0, 1], 2), _cl(2, [2, 3], 2)]
+    menu = build_outline_digest(ev, clusters, sanitizer=_IDENTITY, same_work_groups=[])
+    assert "[CHROME — failed fetch, do not anchor]" in "\n".join(menu.basket_lines)
+    assert "CHROME" not in menu.basket_lines[0]   # real basket leads
+    assert "CHROME" in menu.basket_lines[1]       # chrome basket sinks
+    # kept for disclosure — 100%-of-pool invariant still holds (never dropped)
+    assert menu.covered_ev_ids() == {"c1", "c2", "r1", "r2"}
+
+
+def test_item6c_chrome_singleton_tagged_kept() -> None:
+    """item 6c: a chrome singleton ('Access Denied') is tagged but KEPT (disclosure), head parses."""
+    ev = [_row("s1", "Access Denied", tier="T3")]
+    menu = build_outline_digest(ev, [], sanitizer=_IDENTITY)
+    assert "[CHROME — failed fetch, do not anchor]" in menu.singleton_lines[0]
+    assert menu.singleton_lines[0].split(" ", 1)[0] == "s1"   # head token still the ev_id
+    assert menu.covered_ev_ids() == {"s1"}
+
+
+def test_item6c_interstitial_predicate_conservative() -> None:
+    """item 6c: exact/known interstitials only; an unknown/real title is NOT tagged (fail-open)."""
+    assert _is_chrome_interstitial("Just a moment...") is True
+    assert _is_chrome_interstitial("Attention Required! | Cloudflare") is True
+    assert _is_chrome_interstitial("404") is True
+    assert _is_chrome_interstitial("Access Denied") is True
+    assert _is_chrome_interstitial("GPTs are GPTs: Labor Market Impact") is False
+    assert _is_chrome_interstitial("The Moment of Truth in Labor Economics") is False
+
+
+def test_item10_is_title_like_unicode_ellipsis_and_url_source() -> None:
+    """item 10: unicode '…' tails and 'url source:' prefixes are title-like (join the ascii cases)."""
+    assert _is_title_like("Some truncated heading…", "T") is True     # unicode ellipsis tail
+    assert _is_title_like("URL Source: http://example.org/x", "T") is True  # url source prefix
+    assert _is_title_like("[PDF] A Working Paper", "T") is True       # existing case still holds
+    assert _is_title_like("A real claim sentence with a finding of 12.3%.", "Diff title") is False

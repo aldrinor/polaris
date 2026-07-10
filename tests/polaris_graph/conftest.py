@@ -86,9 +86,18 @@ def _reset_phase_b_singletons():
     try:
         from src.polaris_graph.audit_ir import inspector_router as _ir
         from src.polaris_graph.audit_ir.job_runner import _reset_runners_for_tests
-    except ImportError:
-        # If audit_ir hasn't been loaded yet (test doesn't touch it),
-        # there's nothing to reset.
+    except Exception as _exc:  # noqa: BLE001
+        # item 2 (box2 lab harness fix): audit_ir.registry raises RegistryError (NOT ImportError) at
+        # IMPORT time when an allowlisted Phase-A artifact dir is absent — which it is on box2 (only
+        # SHIP_MANIFEST.md is present). The prior ``except ImportError`` did NOT catch RegistryError,
+        # so this autouse fixture crashed at setup and ERRORED all 46 outline tests that never touch
+        # audit_ir. Broaden the guard beyond ImportError and DISCLOSE which import failed (fail-loud
+        # but continue): a test that doesn't touch audit_ir has nothing to reset.
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "conftest _reset_phase_b_singletons: audit_ir import skipped (%r) — nothing to reset.",
+            _exc,
+        )
         yield
         return
 
