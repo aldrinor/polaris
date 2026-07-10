@@ -2770,6 +2770,106 @@ _COOKIEBOT_CHROME_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-fetchclean-001 round-1 (2026-07-10) — remaining welded-chrome leaks. Jina/crawl4ai
+# weld a whole page region onto ONE line, so the per-line rules above miss chrome that a
+# real heading / a year / a trailing period elsewhere in the mega-line shields. All of the
+# additions below stay INSIDE ``strip_markdown_nav_chrome`` and its helpers, so the existing
+# ``PG_FETCH_MD_NAV_STRIP`` default-ON gate ("0" ⇒ never applied ⇒ byte-identical) governs
+# every one. INPUT HYGIENE ONLY: strict_verify / NLI / 4-role / span-grounding untouched.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# F1 — welded-mega-line heading cap. A ``#..######`` heading line is kept unconditionally
+# only when it is SHORT (real headings are short); a long ``#``-prefixed line is a welded
+# nav / banner region and must fall through to the token/segment rules. Env-tunable.
+_ENV_MD_HEADING_MAX_CHARS = "PG_MD_HEADING_MAX_CHARS"
+_DEFAULT_MD_HEADING_MAX_CHARS = 160
+
+# F4 — a welded nav-link RUN is removed only when the run itself is pure nav (this many of the
+# run's own characters sit inside markdown-link markup). Per-run, so a year in the welded
+# line's prose tail no longer shields the nav head.
+_NAV_RUN_MIN_LINK_DENSITY = 0.8
+
+
+def _md_heading_max_chars() -> int:
+    """F1 — max chars for a markdown heading kept unconditionally (env, default 160)."""
+    try:
+        return int(os.getenv(_ENV_MD_HEADING_MAX_CHARS, str(_DEFAULT_MD_HEADING_MAX_CHARS)))
+    except (TypeError, ValueError):
+        return _DEFAULT_MD_HEADING_MAX_CHARS
+
+
+# F2 — inline token-only chrome removals (surrounding prose byte-preserved). Each shape NEVER
+# occurs inside real article prose or a reference/citation line, so removal is safe ANYWHERE in
+# the line; a line reduced to whitespace was pure chrome and drops downstream (as now).
+_INLINE_CHROME_TOKEN_RES: "tuple[re.Pattern, ...]" = (
+    # F2.1 — US-gov site banner welded inline with real prose (ev_497 bls.gov).
+    re.compile(
+        r"An official website of the United States government"
+        r"(?:\s+Here'?s how you know)?",
+        re.IGNORECASE,
+    ),
+    # F2.2 — reading-time widget welded inline with date/title/prose (ev_957 cbreim).
+    re.compile(r"\b\d+\s*Minute Read Time\b", re.IGNORECASE),
+    # F2.3 — skip-nav in paren-title form (ev_258) + line-leading bare ``#content`` anchor (ev_195).
+    re.compile(
+        r"\(\s*https?://[^)\s]+\s+\"skip to (?:main )?content\"\s*\)", re.IGNORECASE
+    ),
+    re.compile(r"^\(\s*https?://[^)\s]+#content\s*\)", re.IGNORECASE),
+    # F2.4 — inline video-player chrome (ev_272 bls lawyers, likely ev_672).
+    re.compile(r"Please enable javascript to play this video\.?", re.IGNORECASE),
+    re.compile(r"\[Video transcript available at [^\]]*\]\([^)]*\)", re.IGNORECASE),
+    # F2.5 — IAB TCF consent anchor (ev_954 ACM).
+    re.compile(r"\[\[#IABV2SETTINGS#\]\]\([^)]*\)"),
+    # F2.6 — Taylor & Francis PDF cover-sheet tokens (ev_524): the print/online ISSN pair token
+    # and the "Journal homepage:" URL never occur in article prose or a reference line (a real
+    # citation writes "ISSN 1466-4402", never the "(Print) … (Online)" pair token).
+    re.compile(r"\(Print\)\s*\d{4}-\d{3}[\dxX]\s*\(Online\)", re.IGNORECASE),
+    re.compile(r"Journal homepage:\s*\S+", re.IGNORECASE),
+)
+
+# F2.7 — Crossref citation-count widget (ev_497) — GUARDED: removed only when the line is NOT
+# reference-like / not ref_mode, so a bibliography line naming Crossref near a year/DOI survives.
+_CROSSREF_WIDGET_RE = re.compile(r"\bCrossref\s+\d+\b", re.IGNORECASE)
+
+# F3 — consent-banner LINE rule (multilingual, 2-signal). A line is dropped iff a consent ANCHOR
+# matches at line start (after optional bullets / heading marks) AND ≥1 additional consent SIGNAL
+# appears later in the line. Two anchored consent signals on one line is not natural article prose;
+# ref_mode / reference-like lines WIN (a cited privacy-paper title with a year survives).
+_CONSENT_ANCHOR_RE = re.compile(
+    r"^[\s#>*\-]*"
+    r"(?:we use cookies"
+    r"|this (?:web)?site uses cookies"
+    r"|you control your data"
+    r"|we and our (?:business )?partners use (?:technologies|cookies)"
+    r"|nel nostro sito utilizziamo"
+    r"|questo sito utilizza(?: i)? cookie)",
+    re.IGNORECASE,
+)
+_CONSENT_SIGNAL_RE = re.compile(
+    r"cookies? policy"
+    r"|accept all"
+    r"|personaliz(?:e|ation of) content(?: and ads)?"
+    r"|analyz(?:e|ing) our traffic"
+    r"|il tuo consenso"
+    r"|cookie tecnici"
+    r"|withdraw (?:your )?consent"
+    r"|\bconsent\b",
+    re.IGNORECASE,
+)
+
+# F4 — welded nav-RUN detection. A maximal run of ≥3 markdown links (empty-anchor ``[ ](url)`` /
+# ``[](url)`` included) separated ONLY by whitespace / separator tokens (``| * ** • > · \``).
+_MD_LINK_TOKEN_PATTERN = r"\[[^\]]*\]\([^)]*\)"
+_NAV_RUN_SEP_PATTERN = r"[\s|*•·>\\]*"
+_NAV_LINK_RUN_RE = re.compile(
+    _MD_LINK_TOKEN_PATTERN
+    + r"(?:" + _NAV_RUN_SEP_PATTERN + _MD_LINK_TOKEN_PATTERN + r"){2,}"
+)
+# Link TEXT only (the ``[text]`` part) — a run whose links are mostly pure digits is citation
+# apparatus (footnote markers ``[1](#fn1)[2](#fn2)``), NOT nav, and is kept.
+_MD_LINK_TEXT_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+
 
 def _line_is_reference_like(line: str) -> bool:
     """True iff the line carries >=1 citation signal (KEEP guard, §Fix B step 4)."""
@@ -2806,6 +2906,66 @@ def _is_nav_link_line(line: str, ref_mode: bool) -> bool:
     return True
 
 
+def _strip_inline_chrome_tokens(line: str, ref_mode: bool) -> str:
+    """F2 — remove inline chrome tokens welded into a real line (surrounding prose preserved).
+    The unguarded tokens are shapes that never occur in article prose / a reference line; the
+    Crossref citation-count widget is guarded so a bibliography line naming Crossref survives."""
+    for rx in _INLINE_CHROME_TOKEN_RES:
+        line = rx.sub("", line)
+    if not ref_mode and not _line_is_reference_like(line):
+        line = _CROSSREF_WIDGET_RE.sub("", line)
+    return line
+
+
+def _is_consent_banner_line(line: str, ref_mode: bool) -> bool:
+    """F3 — True iff the line is a cookie-consent banner: a consent ANCHOR at line start AND ≥1
+    additional consent SIGNAL later in the line. ref_mode / reference-like lines are never banners
+    (KEEP guard — a cited privacy-paper title with a year survives)."""
+    if ref_mode or _line_is_reference_like(line):
+        return False
+    m = _CONSENT_ANCHOR_RE.match(line)
+    if not m:
+        return False
+    return _CONSENT_SIGNAL_RE.search(line[m.end():]) is not None
+
+
+def _strip_nav_link_runs(line: str, ref_mode: bool) -> str:
+    """F4 — remove each maximal ≥3-link nav RUN welded into a line, evaluating the guards PER RUN
+    so a year in the welded line's prose tail no longer shields the nav head. A run carrying a
+    citation signal, or one whose links are mostly pure digits (footnote markers), is KEPT. Prose
+    outside a removed run is byte-preserved. A line with no markdown link is returned unchanged."""
+    if ref_mode or "](" not in line:
+        return line
+    removed = False
+
+    def _repl(match):
+        nonlocal removed
+        run = match.group(0)
+        links = _MD_LINK_RE.findall(run)
+        if len(links) < 3:
+            return run
+        link_chars = sum(len(x) for x in links)
+        if not run or (link_chars / len(run)) < _NAV_RUN_MIN_LINK_DENSITY:
+            return run
+        if _line_is_reference_like(run):
+            return run  # a citation signal inside the run → citation apparatus, KEEP
+        texts = [t.strip() for t in _MD_LINK_TEXT_RE.findall(run)]
+        if texts and sum(1 for t in texts if t.isdigit()) * 2 >= len(texts):
+            return run  # footnote-marker run (mostly digit link texts) → KEEP
+        removed = True
+        return " "
+
+    out = _NAV_LINK_RUN_RE.sub(_repl, line)
+    if not removed:
+        return line
+    # collapse stray separator tokens left behind by a removed run (whitespace-bounded only, so
+    # markdown emphasis ``**word**`` that hugs its text is untouched).
+    out = re.sub(r"(?<=\s)[|*•·>\\]+(?=\s)", " ", out)
+    out = re.sub(r"^[\s|*•·>\\]+", "", out)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    return out
+
+
 def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
     """I-fetchclean-001 B1 — remove full-page markdown nav / boilerplate / structure-
     anchored chrome from a fetched markdown body, byte-preserving reference lists and
@@ -2834,15 +2994,29 @@ def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
             if ref_mode and len(h.group(1)) <= ref_level:
                 ref_mode = False
                 ref_level = 0
-            out.append(raw)
-            continue
+            # F1: a SHORT heading is real → kept byte-identical (as before). A LONG `#`-prefixed
+            # line is a welded nav/banner region (Jina/crawl4ai weld a page region onto one line)
+            # → fall through to the token/segment rules below (heading marks stay in what survives).
+            if len(raw) <= _md_heading_max_chars():
+                out.append(raw)
+                continue
         # (step 6) inline structure-anchored token removals — surrounding prose preserved.
         line = _SKIP_NAV_LINK_RE.sub("", raw)
         line = _SCOPUS_CHROME_RE.sub("", line)
         if _COOKIEBOT_MARKER_RE.search(line):
             line = _COOKIEBOT_CHROME_RE.sub("", line)
+        # F2: inline chrome tokens welded into the line (gov banner / reading-time / skip-nav
+        # paren+bare anchor / video-player chrome / IAB consent anchor / T&F cover sheet / Crossref).
+        line = _strip_inline_chrome_tokens(line, ref_mode)
+        # F4: remove welded nav-link RUNs (per-run guards) inside a long line; prose tail preserved.
+        line = _strip_nav_link_runs(line, ref_mode)
         # A line that became whitespace-only after token removal was pure chrome → drop.
         if raw.strip() and not line.strip():
+            continue
+        # F3: cookie-consent banner line (multilingual, anchor + signal) → drop (guarded by
+        # ref_mode / reference-like). Runs BEFORE the prose-like keep — the banner ends with a
+        # period, which is exactly why it leaked past the density/prose heuristics.
+        if _is_consent_banner_line(line, ref_mode):
             continue
         # (step 6) whole-line standalone chrome (gov banner / skip-nav / reading-time).
         if _STANDALONE_CHROME_LINE_RE.match(line):
