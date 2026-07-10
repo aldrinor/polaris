@@ -3853,7 +3853,15 @@ class AccessBypass:
         # Academic open-access PDFs (from S2 openAccessPdf) need PDF parsing,
         # not HTML scraping. This gives the analyzer full paper content with
         # forest plots, I² values, GRADE ratings — the detail Gemini captures.
-        if url.lower().endswith(".pdf") or "/pdf/" in url.lower():
+        #
+        # I-deepfix-004 F6: a resolved final PDF URL can carry a `#page=N` fragment
+        # (e.g. `.../article.pdf#page=5`) or a `?token=…` query. `url.lower()
+        # .endswith('.pdf')` then MISSES it because the raw string ends with the
+        # fragment/query, not `.pdf`, so a valid cited-work PDF is scraped as HTML
+        # and the page anchor is thrown away. Test the fragment-/query-STRIPPED
+        # `urlparse(url).path` so a `...pdf#page=N` still enters the PDF extractor.
+        _url_path_lower = urlparse(url).path.lower()
+        if _url_path_lower.endswith(".pdf") or "/pdf/" in url.lower():
             try:
                 # B4: collect blob identity only when STEP B is ON (out_meta
                 # None when OFF => no sha computed, metadata byte-identical).
