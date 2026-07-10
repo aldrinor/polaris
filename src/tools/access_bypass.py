@@ -2871,6 +2871,122 @@ _NAV_LINK_RUN_RE = re.compile(
 _MD_LINK_TEXT_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-fetchclean-001 round-2 (2026-07-10) — the 15 residual welded-chrome leaks from the
+# live retest. Four root causes (see .codex/I-fetchclean-001/fable_fix_round2.md):
+#   RC1 heading-line bypass · RC2 density-dilution (chrome welded inside a prose line) ·
+#   RC3 vocab gaps · RC4 span windows cut mid-link (fixed in live_retriever, not here).
+# Every addition below is gated DEFAULT-ON by ``PG_FETCH_MD_NAV_STRIP_V2``; OFF ("0") ⇒
+# the round-2 helpers are never invoked ⇒ byte-identical to round-1. The SACRED GUARD is
+# unchanged: ref-mode + citation-signal lines are byte-identical (the sole exception is an
+# empty/symbolic-anchor same-page back-link, which carries zero citation content). INPUT
+# HYGIENE ONLY — strict_verify / NLI / 4-role / span-grounding are untouched.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ENV_MD_NAV_STRIP_V2 = "PG_FETCH_MD_NAV_STRIP_V2"
+
+
+def _md_nav_strip_v2_enabled() -> bool:
+    """Round-2 additions (Fix 1-4) default-ON; OFF ("0") ⇒ byte-identical to round-1."""
+    return os.getenv(_ENV_MD_NAV_STRIP_V2, "1") != "0"
+
+
+# Fix 2 (RC2 core) — inline markdown-link policy, applied per link on a KEPT line.
+# (a) empty-anchor link ``[]()`` / ``[ ]()`` — no anchor text = pure chrome.
+# (b) image token ``![alt](url)`` + a dangling line-trailing ``![alt`` (window cut).
+# (c)/(d) per-link classify+rewrite via ``_MD_LINK_ANCHOR_TARGET_RE`` (anchor, target groups).
+_MD_IMAGE_TOKEN_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_MD_DANGLING_IMAGE_RE = re.compile(r"!\[[^\]]*$")
+_MD_LINK_ANCHOR_TARGET_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
+# An anchor that is EMPTY or SYMBOLIC (no letter/digit at all — e.g. "", "↩", "^", "#", "*").
+_ANCHOR_HAS_ALNUM_RE = re.compile(r"[^\W_]", re.UNICODE)
+# Fix 3 (RC3) — a bare parenthesised URL echo ``(https://… )`` NOT preceded by ``]`` (so a real
+# markdown link's ``(url)`` tail is never touched); dropped only OFF a reference-like line.
+_BARE_PAREN_URL_RE = re.compile(r"(?<!\])\(\s*https?://[^)\s]+\s*\)")
+
+# Fix 3 (RC3) — chrome vocab additions, all structure-anchored token-only inline removals
+# applied ONLY on a NON-ref / NON-reference-like line (surrounding prose byte-preserved).
+_INLINE_CHROME_TOKEN_RES_V2: "tuple[re.Pattern, ...]" = (
+    # Login-wall (ev_117 nationalacademies): the wall sentence + the "Download as guest" CTA.
+    re.compile(r"You must be logged in to \w+ this publication\.?", re.IGNORECASE),
+    re.compile(r"\[Download as guest\]\([^)]*\)", re.IGNORECASE),
+    # Cookie/CMP sentence runs, CTA-anchored so real prose ABOUT cookies never matches
+    # (ev_726 social-economy-gateway; ev_244 appunite IAB copy welded MID-line after prose).
+    re.compile(
+        r"This site uses cookies\.\s*Visit our \[cookies policy page\]\([^)]*\)[^.]*\.?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"We and our (?:business )?partners use technologies, including cookies,.*?(?:\.|:)",
+        re.IGNORECASE,
+    ),
+    # Standalone CMP heading text (ev_244) — exact, so it only strips the banner label.
+    re.compile(r"You control your data", re.IGNORECASE),
+    # News-ticker relative-time token (ev_195 thehill "2 hours ago").
+    re.compile(r"\b\d+\s+(?:hour|minute|day)s?\s+ago\b", re.IGNORECASE),
+)
+
+
+def _link_policy_repl(match: "re.Match") -> str:
+    """Fix 2 (c)+(d) — classify one ``[anchor](target)`` on a NON-guarded line:
+      * empty / symbolic anchor            → DELETE (pure chrome / back-link).
+      * numeric anchor into a ``#`` frag   → KEEP wrapped (footnote MARKER, citation apparatus).
+      * relative ``/…`` or ``#…`` target   → DELETE whole link (site nav / in-page ToC).
+      * anything else (absolute URL, …)    → UNWRAP to the anchor text (prose byte-preserved).
+    """
+    anchor = match.group(1)
+    target = match.group(2).strip()
+    a = anchor.strip()
+    if not a or not _ANCHOR_HAS_ALNUM_RE.search(a):
+        return ""  # empty / symbolic anchor → chrome / back-link
+    if a.isdigit() and target.startswith("#"):
+        return match.group(0)  # numeric footnote marker → keep wrapped
+    if target.startswith("/") or target.startswith("#"):
+        return ""  # relative / in-page fragment nav link → drop whole link
+    return anchor  # absolute-URL (or other) link → unwrap to anchor text
+
+
+def _symbolic_backlink_repl(match: "re.Match") -> str:
+    """The ref-mode / reference-like EXCEPTION — delete ONLY an empty/symbolic-anchor same-page
+    ``#…`` back-link (ev_037 footnote back-link); every real citation link is byte-preserved."""
+    anchor = match.group(1)
+    target = match.group(2)
+    a = anchor.strip()
+    if (not a or not _ANCHOR_HAS_ALNUM_RE.search(a)) and "#" in target:
+        return ""
+    return match.group(0)
+
+
+def _apply_inline_link_policy(line: str, ref_mode: bool) -> str:
+    """Fix 2 — the inline markdown-link policy. On a NON-ref, NON-reference-like line: delete
+    images / empty-anchor / relative-nav links, unwrap remaining links to anchor text, and drop
+    bare parenthesised URL echoes. On a ref-mode / reference-like line (the sacred guard): only an
+    empty/symbolic-anchor same-page back-link is deleted; everything else is byte-identical."""
+    if "[" not in line and "(" not in line:
+        return line
+    if ref_mode or _line_is_reference_like(line):
+        return _MD_LINK_ANCHOR_TARGET_RE.sub(_symbolic_backlink_repl, line)
+    # (b) images first — an image's ``[alt](url)`` sub-token must not reach the link policy.
+    line = _MD_IMAGE_TOKEN_RE.sub("", line)
+    line = _MD_DANGLING_IMAGE_RE.sub("", line)
+    # (Fix 3) bare parenthesised URL echo — lookbehind protects a real link's ``(url)`` tail.
+    line = _BARE_PAREN_URL_RE.sub("", line)
+    # (a)+(c)+(d) per-link classify / delete / unwrap.
+    line = _MD_LINK_ANCHOR_TARGET_RE.sub(_link_policy_repl, line)
+    return line
+
+
+def _strip_inline_chrome_tokens_v2(line: str, ref_mode: bool) -> str:
+    """Fix 3 — remove the round-2 chrome vocab tokens inline (login-wall / cookie-CMP sentence /
+    CMP heading label / news-ticker). GUARDED: never touches a ref-mode or reference-like line, so
+    a cited privacy/cookie-policy paper title with a year survives byte-identical."""
+    if ref_mode or _line_is_reference_like(line):
+        return line
+    for rx in _INLINE_CHROME_TOKEN_RES_V2:
+        line = rx.sub("", line)
+    return line
+
+
 def _line_is_reference_like(line: str) -> bool:
     """True iff the line carries >=1 citation signal (KEEP guard, §Fix B step 4)."""
     return any(rx.search(line) for rx in _CITATION_SIGNAL_RES)
@@ -2994,11 +3110,18 @@ def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
             if ref_mode and len(h.group(1)) <= ref_level:
                 ref_mode = False
                 ref_level = 0
-            # F1: a SHORT heading is real → kept byte-identical (as before). A LONG `#`-prefixed
-            # line is a welded nav/banner region (Jina/crawl4ai weld a page region onto one line)
-            # → fall through to the token/segment rules below (heading marks stay in what survives).
+            # F1: a SHORT heading is real → kept (round-1 byte-identical). Round-2 Fix 1: run the
+            # SAME inline token/link removals on it (heading TEXT is never dropped — a heading that
+            # cleaned to only marks/whitespace falls back to the raw line). A LONG `#`-prefixed line
+            # is a welded nav/banner region → fall through to the token/segment rules below.
             if len(raw) <= _md_heading_max_chars():
-                out.append(raw)
+                if _md_nav_strip_v2_enabled():
+                    hline = _apply_inline_link_policy(
+                        _strip_inline_chrome_tokens_v2(raw, ref_mode), ref_mode
+                    )
+                    out.append(hline if hline.strip("# \t") else raw)
+                else:
+                    out.append(raw)
                 continue
         # (step 6) inline structure-anchored token removals — surrounding prose preserved.
         line = _SKIP_NAV_LINK_RE.sub("", raw)
@@ -3010,14 +3133,25 @@ def strip_markdown_nav_chrome(text: "Optional[str]") -> str:
         line = _strip_inline_chrome_tokens(line, ref_mode)
         # F4: remove welded nav-link RUNs (per-run guards) inside a long line; prose tail preserved.
         line = _strip_nav_link_runs(line, ref_mode)
-        # A line that became whitespace-only after token removal was pure chrome → drop.
+        # A line that became whitespace-only after token removal was pure chrome → drop (round-1).
         if raw.strip() and not line.strip():
             continue
         # F3: cookie-consent banner line (multilingual, anchor + signal) → drop (guarded by
-        # ref_mode / reference-like). Runs BEFORE the prose-like keep — the banner ends with a
-        # period, which is exactly why it leaked past the density/prose heuristics.
+        # ref_mode / reference-like). Runs BEFORE the round-2 inline vocab so a PURE consent line
+        # (banner label at line start) is dropped WHOLE (round-1 behaviour preserved); a welded
+        # prose+consent line (anchor NOT at line start) falls to the inline vocab below.
         if _is_consent_banner_line(line, ref_mode):
             continue
+        # Round-2 Fix 3 then Fix 2, in that ORDER: the inline chrome vocab (login-wall / cookie-CMP
+        # sentence welded mid-line / CMP label / news-ticker) deletes CTA links wholesale FIRST, then
+        # the inline link policy unwraps any REMAINING prose links to anchor text. Order matters — a
+        # ``[Download as guest](url)`` CTA must be deleted before the unwrap would turn it into text.
+        # Both guarded so a ref-mode / reference-like line only loses an empty/symbolic back-link.
+        if _md_nav_strip_v2_enabled():
+            line = _strip_inline_chrome_tokens_v2(line, ref_mode)
+            line = _apply_inline_link_policy(line, ref_mode)
+            if raw.strip() and not line.strip():
+                continue
         # (step 6) whole-line standalone chrome (gov banner / skip-nav / reading-time).
         if _STANDALONE_CHROME_LINE_RE.match(line):
             continue
