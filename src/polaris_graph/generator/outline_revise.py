@@ -267,9 +267,17 @@ def parse_revision_ops(
         if kind == "add" and not str(op.get("title", "")).strip():
             rejected.append({"op": dict(op), "reason_code": "missing_add_title"})
             continue
+        # item 8 (STRIP-AND-KEEP, consistent with the outline's item-5a): a reassign/add/split that
+        # references some UNKNOWN ev_ids KEEPS its valid remainder — the good ids were already retained
+        # in ``op`` above; only the bad ones are stripped — and the strip is DISCLOSED as a
+        # rejected-style note (``unknown_ev_ids_stripped``). The op is NOT dropped wholesale. When the
+        # strip leaves NOTHING actionable the op is still rejected: a reassign that now moves nothing is
+        # caught by the ``no_op_reassign`` guard just below; a wholly-unknown add/split child is marked
+        # ``undersupplied`` downstream (item 12 — the gap is DISCLOSED, never faked). §-1.3: an ev_id
+        # reference is a routing hint, not the source itself, so one bad hint never deletes the good
+        # remainder (the prior blanket reject discarded valid reassignments over a single stale id).
         if bad_all:
-            rejected.append({"op": dict(op), "reason_code": f"unknown_ev_ids:{bad_all[:5]}"})
-            continue
+            rejected.append({"op": dict(op), "reason_code": f"unknown_ev_ids_stripped:{bad_all[:5]}"})
         if kind == "reassign" and not op.get("add_ev_ids") and not op.get("drop_ev_ids"):
             # a reassign that moves nothing must NOT fake changed=True or consume a recompose
             # slot in the apply branch — reject it here (one source of truth in the parser).
@@ -556,6 +564,12 @@ def apply_revision_ops(
             applied.append(op)
         elif kind == "reassign":
             src_title = _resolve_current(str(op["title"]))
+            # item 10: guard the lookup — a reassign whose target section is somehow gone (never in
+            # ``by_title``, or resolved to a name no plan carries) DEFERS as a disclosed no-op instead
+            # of KeyError-ing on the empty-plan ``title`` at ``recompose.append(plan["title"])`` below.
+            if src_title not in by_title:
+                deferred.append({**op, "reason_code": "missing_target"})
+                continue
             plan = dict(by_title.get(src_title, {}))
             evset = {str(e) for e in (plan.get("ev_ids", []) or [])}
             evset |= {str(e) for e in (op.get("add_ev_ids", []) or [])}

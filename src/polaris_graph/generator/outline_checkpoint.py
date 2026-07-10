@@ -20,9 +20,12 @@ silently loads — LAW II).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+logger = logging.getLogger(__name__)
 
 CP4_OUTLINE_SNAPSHOT_FILENAME = "cp4_outline_snapshot.json"
 CP4_SCHEMA_VERSION = 1
@@ -114,7 +117,14 @@ def write_cp4_outline_snapshot(run_dir: str | Path, payload: Mapping[str, Any]) 
         )
         os.replace(tmp, target)
         return target
-    except Exception:  # noqa: BLE001 — checkpoint durability is best-effort, never a run blocker
+    except Exception as exc:  # noqa: BLE001 — checkpoint durability is best-effort, never a run blocker
+        # item 11: keep best-effort semantics (return None, never abort a paid run) but LOG the failure
+        # so a run silently losing its cp4 checkpoint leaves a trace instead of vanishing (a verdict
+        # leak caught here also surfaces via this warning rather than being swallowed without a word).
+        logger.warning(
+            "cp4 outline checkpoint write FAILED (best-effort, run continues without a cp4 snapshot "
+            "at %s): %s", run_dir, exc,
+        )
         return None
 
 

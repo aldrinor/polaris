@@ -95,18 +95,36 @@ def _effective_s4_flag_slate(model: str) -> dict[str, str]:
 
 
 def _row_topic_verdict(row: dict) -> str:
-    """Item 3b: the cp4 per-candidate semantic topic verdict, read from the row's topic-judge stamp
-    via the SAME fail-open predicate the compose router + run-level junk gate consume (a single
-    source of truth so cp4, the router, and the gate can never disagree). Returns ``"off_subject"``
-    ONLY on an affirmative OFF_SUBJECT stamp (a positive-relevance verdict vetoes it); any
-    uncertainty / missing stamp / import-or-predicate error => ``"unjudged"`` (FAIL-OPEN => KEEP)."""
+    """Item 3 (THREE-VALUED): the cp4 per-candidate semantic topic verdict, read from the row's
+    topic-judge stamps. THREE values so the disclosure never overstates ignorance (395/686 rows this
+    run carry ``topic_offtopic_demoted``, 445 carry ``content_relevance_label=demoted`` — yet every
+    candidate read as ``unjudged`` before, starving the S5 router):
+
+      "off_subject"   — an AFFIRMATIVE deletable off-topic stamp (the SAME fail-open predicate the
+                        compose router + run-level junk gate consume; a positive-relevance verdict
+                        vetoes it). This is the ONLY value the orphan-basket all-members rule treats
+                        as deletable — deletion semantics UNCHANGED (§-1.3.1 judge-only, fail-open).
+      "demoted_weight" — a WEIGHT-demote stamp (``topic_offtopic_demoted`` truthy, OR
+                        ``content_relevance_label`` in {demoted, escalated_demoted}). DISCLOSURE only:
+                        the row is KEPT and routed; the S5 router now sees it is relevance-demoted.
+      "unjudged"      — no stamp / any uncertainty / import-or-predicate error (FAIL-OPEN => KEEP).
+
+    Zero routing/deletion change — only the disclosure is richer (a demoted row no longer hides as
+    ``unjudged``)."""
+    r = row or {}
     try:
         from src.polaris_graph.generator.junk_deletion_gate import (  # noqa: PLC0415
             is_row_deletable_offtopic,
         )
-        return "off_subject" if is_row_deletable_offtopic(row or {}) else "unjudged"
+        if is_row_deletable_offtopic(r):
+            return "off_subject"
     except Exception:  # noqa: BLE001 — fail-open: a judge/import error never flips a row off-topic
-        return "unjudged"
+        pass
+    if r.get("topic_offtopic_demoted") or str(
+        r.get("content_relevance_label", "") or ""
+    ).strip().lower() in ("demoted", "escalated_demoted"):
+        return "demoted_weight"
+    return "unjudged"
 
 
 def _load_bank(path: Path) -> dict:
@@ -468,6 +486,16 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     frac_ok = min_frac >= 0.90
     print(f"[e] all sections distinct-work fraction >= 0.90: {frac_ok} (min={min_frac:.3f})")
 
+    # item 7: undersupplied disclosure. The honesty gate below passes on any() non-empty section, so a
+    # mostly-hollow outline (3 of 4 required sections undersupplied) can read as a clean green. Surface
+    # the count + the per-section list on the gate line AND record it into cp4 digest_stats so the
+    # hollowness is visible in the checkpoint, never silently green.
+    undersupplied_sections = [str(p.title) for p in plans if p.undersupplied]
+    undersupplied_count = len(undersupplied_sections)
+    if isinstance(stats, dict):
+        stats["undersupplied_count"] = undersupplied_count
+        stats["undersupplied_sections"] = list(undersupplied_sections)
+
     # (d) cp4 write + load (verdict-leak guarded on BOTH)
     # item 6: record the FULL effective S4 knob set + a sha256 of it as run_config_sha (until
     # RunConfig WP-0b lands) so the checkpoint can PROVE what produced it — the prior hardcoded
@@ -508,6 +536,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     print("\n=== (b/e) HONESTY GATE (no hollow collapse) ===")
     print(f"[b/e] ev_id_total={ev_total} bank_nonempty={bank_nonempty} "
           f"hollow_collapse={hollow_collapse} required_supplied_ok={required_supplied_ok} "
+          f"undersupplied_count={undersupplied_count} undersupplied_sections={undersupplied_sections} "
           f">>> be_gate_ok={be_gate_ok}")
 
     ok = (

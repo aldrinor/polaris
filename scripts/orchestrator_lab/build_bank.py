@@ -62,7 +62,9 @@ def build_bank(
 ) -> dict:
     """Assemble the S4 bank from cp2 + cp3 and write ``out_path``. Returns the bank dict."""
     cp2 = json.loads(cp2_path.read_text(encoding="utf-8"))
-    by_id = {str(r.get("evidence_id", "")): r for r in cp2.get("evidence_for_gen", [])}
+    _cp2_rows = cp2.get("evidence_for_gen", []) or []
+    cp2_rows_total = len(_cp2_rows)  # item 6: the FULL cp2 candidate pool (pre-basket)
+    by_id = {str(r.get("evidence_id", "")): r for r in _cp2_rows}
 
     d = json.loads(cp3_path.read_text(encoding="utf-8"))
     baskets = d["payload"]["baskets"]
@@ -74,10 +76,15 @@ def build_bank(
     evidence: list[dict] = []
     index_of: dict[str, int] = {}
     missing: list[str] = []
+    dedup_skipped: list[str] = []  # item 9: member ev_ids already banked (duplicate basket references)
     for b in baskets:
         for ev_id in (b.get("member_evidence_ids", []) or []):
             ev_id = str(ev_id)
             if ev_id in index_of:
+                # item 9: a member ev_id already banked (the same source cited by >1 basket, or a
+                # genuinely duplicated cp3 id). Deduped to ONE bank row (so the S4 digest never sees a
+                # duplicate evidence_id -> spurious self-alias) and the skip is DISCLOSED below.
+                dedup_skipped.append(ev_id)
                 continue
             row = by_id.get(ev_id)
             if row is None:
@@ -115,6 +122,13 @@ def build_bank(
             "member_hosts": list(b.get("member_hosts", []) or []),
         })
 
+    # item 6: pool-delta disclosure. The bank pool = cp3 basket MEMBERS only; any cp2 candidate never
+    # basketed by S3 silently vanishes from the S4 pool. Record the counts + the delta so the drop is
+    # VISIBLE (never silent). VERIFY on the S3 wheel: prove cp3 basket membership covers 100% of its
+    # cp2 input, OR that this delta equals the disclosed S2/S3 (off-topic/junk/chrome) deletions.
+    # item 9: ``cp3_member_dedup_skipped`` = duplicate member references collapsed to one bank row.
+    bank_rows = len(evidence)
+    cp2_to_bank_delta = cp2_rows_total - bank_rows
     bank = {
         "question": question,
         "domain": domain,
@@ -123,6 +137,13 @@ def build_bank(
         "clusters": clusters,
         "same_work_groups": same_work_groups,
         "pool_ev_ids": [e["evidence_id"] for e in evidence],
+        # item 6 (pool-delta disclosure):
+        "cp2_rows_total": cp2_rows_total,
+        "bank_rows": bank_rows,
+        "cp2_to_bank_delta": cp2_to_bank_delta,
+        # item 9 (duplicate-ev_id disclosure): total dup member refs + distinct ev_ids affected.
+        "cp3_member_dedup_skipped": len(dedup_skipped),
+        "cp3_member_dedup_distinct": len(set(dedup_skipped)),
     }
     if deliverable is not None:
         bank["deliverable"] = deliverable
@@ -136,6 +157,10 @@ def build_bank(
     print(f"evidence_rows {len(evidence)} clusters(multi>=2) {len(clusters)} "
           f"same_work_groups {len(same_work_groups)} missing_in_cp2 {len(missing)} "
           f"stamped_rows {stamped_rows}")
+    # item 6/9: pool-delta + duplicate-ev_id disclosure (a cp2 candidate never basketed by S3 drops
+    # out of the S4 pool; the delta must equal disclosed S2/S3 deletions — VERIFY on the S3 wheel).
+    print(f"cp2_rows_total {cp2_rows_total} bank_rows {bank_rows} cp2_to_bank_delta {cp2_to_bank_delta} "
+          f"cp3_member_dedup_skipped {len(dedup_skipped)} (distinct {len(set(dedup_skipped))})")
     print(f"cp3_sha {cp3_sha[:16]}")
     return bank
 

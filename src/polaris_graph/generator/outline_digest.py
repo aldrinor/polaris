@@ -244,16 +244,26 @@ def _build_alias_map(
     # Item 2: normalized-TITLE fallback fold for TITLE-identical works the cp3 groups missed.
     if evidence:
         title_groups: dict[str, list[str]] = {}
+        # Item 3b guard: the set of title keys that have at least one member row whose RAW title was
+        # TRUNCATED (ended with "..."/"…" BEFORE _strip_title_chrome peeled it). Only a truncated key
+        # may PREFIX-fold onto a longer full-title key — a non-truncated short title that merely happens
+        # to be a prefix of a longer distinct work (ev_044 "Artificial Intelligence and the Labor
+        # Market" vs ev_073 "...- Sciences Po") must NOT false-merge. §-1.3: a WRONG fold misstates
+        # corroboration, so the prefix fold now requires the truncation signal.
+        truncated_keys: set[str] = set()
         for row in evidence:
             if not isinstance(row, Mapping):
                 continue
             ev_id = str(row.get("evidence_id", "") or "")
             if not ev_id:
                 continue
-            tkey = _normalized_title_key(str(row.get("title", "") or ""))
+            _raw_title = str(row.get("title", "") or "").strip()
+            tkey = _normalized_title_key(_raw_title)
             if tkey is None:
                 continue
             title_groups.setdefault(tkey, []).append(ev_id)
+            if _raw_title.endswith("...") or _raw_title.endswith("…"):
+                truncated_keys.add(tkey)
 
         # Item 3b (PREFIX FOLD): a TRUNCATED title keys to a PREFIX of the full title's key
         # ("...Impact ..." truncations vs the full paper title — ev_884/ev_890 vs ev_886/ev_882).
@@ -265,6 +275,12 @@ def _build_alias_map(
         fold_target: dict[str, str] = {}
         _keys_by_len = sorted(title_groups.keys(), key=lambda k: (len(k), k))
         for _i, _short in enumerate(_keys_by_len):
+            # Item 3b guard: only a TRUNCATED short key may fold onto a longer full-title key. A short
+            # key that is merely a prefix of a longer DISTINCT work (never truncated) stays its own
+            # work — this is the ev_044/ev_073 false-merge fix. Non-truncated identical titles still
+            # fold by EXACT key equality (same title_groups bucket, untouched by this prefix pass).
+            if _short not in truncated_keys:
+                continue
             for _long in _keys_by_len[_i + 1:]:
                 if len(_long) > len(_short) and _long.startswith(_short):
                     fold_target[_short] = _long
@@ -335,6 +351,25 @@ def _is_chrome_interstitial(title: str) -> bool:
     return t in _CHROME_INTERSTITIAL_EXACT
 
 
+# Item 4 (§-1.3 principle 1 — WEIGHT surfaced, never a drop): a row the topic judge WEIGHT-demoted for
+# relevance (topic_offtopic_demoted, or content_relevance_label in {demoted, escalated_demoted}) is
+# KEPT and presented, but marked so the planner PREFERS non-demoted sources when both support a claim.
+# This is GUIDANCE only — never a filter. The stamp fields ride onto the bank row from cp2 (build_bank).
+_DEMOTED_WEIGHT_TAG = " [w:demoted]"
+_DEMOTED_LABELS = frozenset({"demoted", "escalated_demoted"})
+
+
+def _is_weight_demoted(row: Mapping[str, Any]) -> bool:
+    """True when a bank row carries a relevance WEIGHT-demote stamp (item 4). Surfaced to the planner
+    as a compact ``[w:demoted]`` marker — §-1.3 principle 1: the weight is DISCLOSED, never a drop.
+    A missing stamp => not demoted (present normally). Never raises on a malformed row (fail-open)."""
+    if not isinstance(row, Mapping):
+        return False
+    if row.get("topic_offtopic_demoted"):
+        return True
+    return str(row.get("content_relevance_label", "") or "").strip().lower() in _DEMOTED_LABELS
+
+
 def _basket_line(
     bid: str,
     corroboration: int,
@@ -346,6 +381,7 @@ def _basket_line(
     work_corroboration: int | None = None,
     row_count: int | None = None,
     chrome: bool = False,
+    demoted: bool = False,
 ) -> str:
     tier_csv = ",".join(tiers)
     members = (
@@ -365,12 +401,16 @@ def _basket_line(
     # consolidated into whole baskets this run) is tagged so the planner does not anchor on it. Kept
     # (disclosure), just not sold as evidence (§-1.3.1(a) content-integrity).
     chrome_tag = _CHROME_INTERSTITIAL_TAG if chrome else ""
-    return f'{bid} {head}{chrome_tag} claim: "{claim}" {members}'
+    # item 4: a WEIGHT-demoted basket (its representative row demoted for relevance) is marked after
+    # the head so the planner prefers non-demoted baskets when both support a claim (§-1.3 principle 1
+    # — weight surfaced, never dropped). ``demoted=False`` (default) => "" => byte-identical.
+    demoted_tag = _DEMOTED_WEIGHT_TAG if demoted else ""
+    return f'{bid} {head}{demoted_tag}{chrome_tag} claim: "{claim}" {members}'
 
 
 def _singleton_line(
     ev_id: str, tier: str, title: str, statement: str, alias_ev_ids: list[str],
-    *, title_only: bool, seminal: bool = False, chrome: bool = False,
+    *, title_only: bool, seminal: bool = False, chrome: bool = False, demoted: bool = False,
 ) -> str:
     # PUSH A: same-work copies collapsed onto this line are disclosed inline after the tier;
     # empty ``alias_ev_ids`` (the no-same_work_groups path) => no tag => byte-identical.
@@ -384,11 +424,16 @@ def _singleton_line(
     # anchorable source (§-1.3.1(a) content-integrity). Placed after the tier so ``covered_ev_ids``
     # still parses the ev_id head token. ``chrome=False`` (default) => "" => byte-identical.
     chrome_tag = _CHROME_INTERSTITIAL_TAG if chrome else ""
+    # item 4: a WEIGHT-demoted singleton (demoted for relevance) is marked right after the tier so the
+    # planner prefers non-demoted sources when both support a claim (§-1.3 principle 1 — weight
+    # surfaced, never a drop). Placed after ``[{tier}]`` so ``covered_ev_ids`` still parses the ev_id
+    # head token. ``demoted=False`` (default) => "" => byte-identical.
+    demoted_tag = _DEMOTED_WEIGHT_TAG if demoted else ""
     if title and statement and not title_only:
-        return f"{ev_id} [{tier}]{chrome_tag}{seminal_tag}{tag} | title: {title} | {statement}"
+        return f"{ev_id} [{tier}]{demoted_tag}{chrome_tag}{seminal_tag}{tag} | title: {title} | {statement}"
     if title:
-        return f"{ev_id} [{tier}]{chrome_tag}{seminal_tag}{tag} | title: {title}"
-    return f"{ev_id} [{tier}]{chrome_tag}{seminal_tag}{tag}: {statement}"
+        return f"{ev_id} [{tier}]{demoted_tag}{chrome_tag}{seminal_tag}{tag} | title: {title}"
+    return f"{ev_id} [{tier}]{demoted_tag}{chrome_tag}{seminal_tag}{tag}: {statement}"
 
 
 def _is_title_like(statement: str, title: str) -> bool:
@@ -525,7 +570,12 @@ def build_outline_digest(
                 if _m_stmt and not _is_title_like(_m_stmt, _m_title):
                     chosen_claim = _m_stmt
                     break
-        claim = _clean(chosen_claim)[:_CLAIM_MAX_CHARS]
+        # item 5: strip leading fetch/format chrome ("[PDF] ", "URL Source:") + trailing ellipsis off
+        # the chosen claim BEFORE cleaning, so a basket whose members are all title-like renders a
+        # CLEAN title instead of "[PDF] ... ...". Cosmetic display fix only — the underlying S3 defect
+        # (representative_statement is a title, not a ~200-char claim sentence) stays FILED on the S3
+        # wheel; this never papers over it there. Harmless on a real claim sentence (no chrome to peel).
+        claim = _clean(_strip_title_chrome(chosen_claim))[:_CLAIM_MAX_CHARS]
         tiers = [t for (_e, t) in member_pairs]   # item 9: aligned with member_ev_ids (same order)
         # PUSH A: distinct WORKS among the members (rows sharing a same_work_id count once).
         # Equals len(member_ev_ids) when no members share a work (byte-identical default).
@@ -542,6 +592,9 @@ def build_outline_digest(
                 # item 6c: a basket consolidated from fetch-interstitial rows (whole "Just a
                 # moment..." Cloudflare baskets this run) — tagged, kept, never anchored.
                 "chrome": _is_chrome_interstitial(rep_title),
+                # item 4: WEIGHT-demote marker (representative row demoted for relevance) — surfaced,
+                # never a drop (§-1.3 principle 1). Falls back to False on a bank row with no stamp.
+                "demoted": _is_weight_demoted(rep_row),
             }
         )
         basket_member_ev_ids[bid] = member_ev_ids
@@ -565,7 +618,11 @@ def build_outline_digest(
         if work_aware and work_key in work_to_canonical:
             # a same-work copy of an already-emitted singleton — fold, never drop (§-1.3)
             canonical = work_to_canonical[work_key]
-            singleton_alias_ev_ids[canonical].append(ev_id)
+            # item 9: a DUPLICATE evidence_id row in the pool resolves work_key -> itself, so canonical
+            # == ev_id — appending would emit a spurious "(+1 same-work: ev_X)" self-alias. Skip the
+            # self-append; the row is already covered by its canonical line (no double-count).
+            if ev_id != canonical:
+                singleton_alias_ev_ids[canonical].append(ev_id)
             continue
         work_to_canonical[work_key] = ev_id
         singleton_alias_ev_ids.setdefault(ev_id, [])
@@ -589,6 +646,9 @@ def build_outline_digest(
                 # item 6c: a singleton whose title is a known fetch interstitial — tagged, kept
                 # (disclosure), never sold to the planner as anchorable evidence (§-1.3.1(a)).
                 "chrome": _is_chrome_interstitial(_raw_title),
+                # item 4: WEIGHT-demote marker (row demoted for relevance) — surfaced to the planner,
+                # never a drop (§-1.3 principle 1). False on a bank row with no demote stamp.
+                "demoted": _is_weight_demoted(row),
             }
         )
     # attach the (possibly appended-to) alias lists to each canonical spec
@@ -618,6 +678,7 @@ def build_outline_digest(
                 work_corroboration=(s["work_corroboration"] if work_aware else None),
                 row_count=(s["row_count"] if work_aware else None),
                 chrome=bool(s.get("chrome")),
+                demoted=bool(s.get("demoted")),
             )
             for s in basket_specs
         ]
@@ -627,6 +688,7 @@ def build_outline_digest(
                 title_only=title_only,
                 seminal=(prioritize_tier1 and str(s.get("tier", "")).strip().upper() == "T1"),
                 chrome=bool(s.get("chrome")),
+                demoted=bool(s.get("demoted")),
             )
             for s in singleton_specs
         ]
@@ -744,16 +806,22 @@ def build_requirements_block(
 
     lines: list[str] = []
     if required_sections:
-        ordered = "; ".join(f"{i + 1}. {t}" for i, t in enumerate(required_sections))
+        # item 1c: render each required title QUOTED and instruct the model that the title is EXACTLY
+        # the text inside the quotes — NOT the list number. The model was copying the "1. " enumerator
+        # into the `title` field, which broke the exact-match required-title check and burned a whole
+        # extra GLM retry every run. The quotes + the explicit "do NOT include the list number"
+        # sentence remove the enumerator ambiguity at the source.
+        ordered = "; ".join(f'{i + 1}. "{t}"' for i, t in enumerate(required_sections))
         lines.append(
             "The user REQUIRES this section structure, in this order: "
-            f"[{ordered}]. Emit EXACTLY these {len(required_sections)} sections — no more, no "
+            f"[{ordered}]. The title is EXACTLY the text inside the quotes — do NOT include the list "
+            f"number. Emit EXACTLY these {len(required_sections)} sections — no more, no "
             "fewer. Each section's `title` field MUST be a CHARACTER-FOR-CHARACTER copy of the "
-            "required title above: no paraphrase, no renaming, no extra sections. Map the evidence "
-            "facets INTO these sections and express each section's specific angle in the `focus` "
-            "field, never by altering the title. If a required section has no supporting evidence, "
-            'still emit it with `ev_ids: []` and set `"undersupplied": true` — the pipeline '
-            "will disclose the gap, never fake content."
+            "quoted required title above: no paraphrase, no renaming, no list number, no extra "
+            "sections. Map the evidence facets INTO these sections and express each section's "
+            "specific angle in the `focus` field, never by altering the title. If a required section "
+            "has no supporting evidence, still emit it with `ev_ids: []` and set "
+            '`"undersupplied": true` — the pipeline will disclose the gap, never fake content.'
         )
     if audience:
         lines.append(

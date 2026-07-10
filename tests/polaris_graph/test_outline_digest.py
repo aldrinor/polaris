@@ -199,7 +199,10 @@ def test_requirements_block_required_sections_and_scope() -> None:
     block = build_requirements_block(bank["deliverable"], bank["scope"])
     assert block.startswith("\n\nDELIVERABLE REQUIREMENTS:\n")
     assert "REQUIRES this section structure, in this order" in block
-    assert "1. Executive Summary" in block and "4. Cost" in block
+    # item 1c: required titles are rendered QUOTED (so the model copies the text inside the quotes,
+    # not the list number) with an explicit "do NOT include the list number" instruction.
+    assert '1. "Executive Summary"' in block and '4. "Cost' in block
+    assert "do NOT include the list number" in block
     assert '"undersupplied": true' in block  # undersupplied disclosure rule stated
     assert "hospital formulary committee" in block
     assert "Vancouver" in block
@@ -211,7 +214,7 @@ def test_requirements_block_reads_object_spec() -> None:
     spec = SimpleNamespace(required_sections=["A", "B"], audience="", tone="formal",
                            reference_style="", length_target="")
     block = build_requirements_block(spec, None)
-    assert "1. A; 2. B" in block
+    assert '1. "A"; 2. "B"' in block  # item 1c: quoted required titles
     assert "formal" in block
 
 
@@ -256,6 +259,31 @@ def test_item3b_truncation_prefix_fold() -> None:
     ]
     alias = _build_alias_map([], ev)
     assert alias["e1"] == alias["e2"] == alias["e3"]  # all one work
+
+
+def test_item3b_prefix_fold_false_merge_guard_non_truncated_stays_separate() -> None:
+    """item 2/3b guard (reproduced false merge): ev_044 'Artificial Intelligence and the Labor
+    Market' (a distinct paper) is a full, NON-truncated title that merely happens to be a PREFIX of
+    ev_073 '...- Sciences Po' (a different work). Because ev_044's title was never truncated, the
+    prefix fold must NOT fire — the two stay two works. Only a TRUNCATED short key may prefix-fold."""
+    ev = [
+        _row("ev044", "Artificial Intelligence and the Labor Market"),
+        _row("ev073", "Artificial Intelligence and the Labor Market - Sciences Po"),
+    ]
+    alias = _build_alias_map([], ev)
+    # neither folds onto the other -> resolve to DIFFERENT work keys (each its own work)
+    assert alias.get("ev044", "ev044") != alias.get("ev073", "ev073")
+
+
+def test_item3b_truncated_variant_of_same_still_folds() -> None:
+    """item 2/3b: the guard keeps REAL truncations folding — a truncated copy of ev_044's title
+    (ending '...') DOES fold onto the full ev_044 title (the truncation signal is present)."""
+    ev = [
+        _row("ev044", "Artificial Intelligence and the Labor Market"),
+        _row("ev044b", "Artificial Intelligence and the Labor Mark..."),
+    ]
+    alias = _build_alias_map([], ev)
+    assert alias["ev044"] == alias["ev044b"]  # truncated variant folds onto the full title
 
 
 def test_item4_false_merge_guard_two_cp3_works_stay_separate() -> None:
