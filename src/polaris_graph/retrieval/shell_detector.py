@@ -104,6 +104,11 @@ CHALLENGE_PAGE_COOCCURRENCE: tuple[tuple[str, ...], ...] = (
     ("datadome", "you have been blocked"),
     ("perimeterx", "press & hold"),
     ("verifying you are human", "needs to review the security of your connection"),
+    # I-fetchclean-001 (2026-07-10) — the replay error_page shell ("Something went
+    # wrong. Wait a moment and try again."). ALL-of, so a real article that merely
+    # says "something went wrong" in prose cannot trip it (the second token is the
+    # retry-CTA that never occurs in article prose).
+    ("something went wrong", "wait a moment and try again"),
 )
 
 # I-beatboth-001 iter-2 (replay-found on the real drb_78 corpus) — ADDITIONAL any-length signatures
@@ -177,6 +182,9 @@ SHORT_BODY_SHELL_MARKERS: tuple[str, ...] = (
     "subscribe to continue reading",
     "to continue reading this article",
     "create a free account to continue",
+    # I-fetchclean-001 (2026-07-10) — the exact replay error_page marker; short-body
+    # gated so a long article that merely quotes the phrase is never false-dropped.
+    "something went wrong. wait a moment",
 )
 
 # I-beatboth-001 iter-2 (Codex P1 #2): the subset of single phrases that are NOT shell-specific
