@@ -2941,6 +2941,93 @@ def strip_pdf_frontmatter(text: "Optional[str]") -> str:
     return body
 
 
+# ---------------------------------------------------------------------------
+# I-deepfix-004 STEP B — cited-work slice extraction for PDFs.
+#
+# Root cause (Fable 5, 2026-07-09): the pipeline defines a citable span by
+# POSITION ("first N chars of whatever bytes came back") and never checks
+# IDENTITY ("is this text the article the citation names?"). DOI->PDF
+# redirects never reach the PDF extractor (the branch keys on
+# url.endswith('.pdf')), so a `doi.org/...` that redirects to a WHOLE-issue
+# combined PDF is scraped as one blob and the `#page=N` anchor is thrown away.
+# STEP B resolves the redirect, captures the page anchor, and slices the cited
+# work out of the combined PDF.
+#
+# All of STEP B is gated by PG_PDF_CITED_WORK_SLICE (default ON; OFF =>
+# byte-identical). Faithfulness engine (strict_verify / provenance / NLI /
+# 4-role) is UNTOUCHED — this only changes WHICH verbatim span is extracted,
+# never how a claim is verified against it. No fixed page-count window and no
+# per-source cap: the end page comes from real metadata only, and slicing
+# accumulates under the SAME existing char budget the caller already applies.
+# ---------------------------------------------------------------------------
+
+# The caller (fetch_with_bypass PDF branch) already caps PDF content at 50 000
+# chars (`content=pdf_text[:50000]`). The cited-work slice accumulates forward
+# under that SAME budget when no explicit end page is known — it is NOT a new
+# page-count window, just the existing char ceiling surfaced as a named
+# constant so the accumulation loop stops at parity with the caller cap.
+_PDF_EXTRACT_CHAR_CAP = 50000
+
+
+def pdf_cited_work_slice_enabled() -> bool:
+    """True iff STEP B (cited-work PDF slice extraction) is enabled.
+
+    Gated by PG_PDF_CITED_WORK_SLICE. DEFAULT ON — enabled by
+    '1'/'true'/'yes'/'on' (case-insensitive) AND by unset/empty (default).
+    Only an explicit falsey value ('0'/'false'/'no'/'off') turns it OFF, in
+    which case every STEP-B call site is byte-identical to the prior behaviour
+    (no redirect resolution, no page slice, no extra metadata keys)."""
+    raw = os.getenv("PG_PDF_CITED_WORK_SLICE")
+    if raw is None or not raw.strip():
+        return True
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _parse_pdf_page_fragment(text: "Optional[str]") -> "Optional[int]":
+    """Parse a 1-indexed PDF page anchor from a `#page=N` fragment.
+
+    Accepts a raw fragment, a full URL, or a Location-header value. Prefers the
+    canonical PDF open-parameter form `#page=N`; falls back to a `?page=` /
+    `&page=` query form. Returns the integer N (>=1) or None. Pure / no
+    network — a malformed value simply yields None (fail-open: no anchor)."""
+    if not text:
+        return None
+    m = re.search(r"#page=(\d+)", text, re.IGNORECASE)
+    if not m:
+        m = re.search(r"[?&]page=(\d+)", text, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 1 else None
+
+
+def _parse_doi_page_range(doi: "Optional[str]") -> "tuple[Optional[int], Optional[int]]":
+    """Parse a (start_page, end_page) range from a DOI whose suffix encodes the
+    article's page span, e.g. `10.34142/...-2026-9-2-203-210` => (203, 210).
+
+    Matches the LAST two hyphen-separated numeric groups at the end of the DOI
+    (`-<start>-<end>`). Returns (None, None) when the DOI does not end that way
+    or when end < start (an inconsistent range is discarded, not trusted). Pure
+    / deterministic — no network. Fail-open: any parse miss yields (None, None)
+    so the caller simply carries no page anchor from the DOI suffix."""
+    if not doi:
+        return (None, None)
+    m = re.search(r"-(\d+)-(\d+)\s*$", doi)
+    if not m:
+        return (None, None)
+    try:
+        start = int(m.group(1))
+        end = int(m.group(2))
+    except (TypeError, ValueError):
+        return (None, None)
+    if start < 1 or end < start:
+        return (None, None)
+    return (start, end)
+
+
 # M-23c: Structural markers for content quality scoring.
 # Presence of academic-paper markers indicates full article body
 # (vs paywall stub or landing page).
@@ -3739,13 +3826,44 @@ class AccessBypass:
                                           "source": "pmc_bioc_oa_via_unpaywall"},
                             )
 
+        # I-deepfix-004 STEP B1 (gated by PG_PDF_CITED_WORK_SLICE, default ON;
+        # OFF => this block is skipped and the url/anchors are untouched =>
+        # byte-identical). A `doi.org` / `dx.doi.org` citation URL currently
+        # never reaches the PDF branch below (it fails `.endswith('.pdf')`), so a
+        # DOI that redirects to a WHOLE-issue combined PDF is scraped as one blob
+        # and the `#page=N` cited-work anchor is thrown away. Resolve the
+        # redirect: if the FINAL target is a PDF, swap `url` to it so the branch
+        # below fires, and carry the parsed page anchor/range into the slice.
+        _slice_on = pdf_cited_work_slice_enabled()
+        _pdf_page_anchor: "Optional[int]" = None
+        _pdf_page_end: "Optional[int]" = None
+        if _slice_on and "doi.org/" in url.lower():
+            _doi_target = await self._resolve_doi_pdf_target(url)
+            if _doi_target and _doi_target.get("is_pdf"):
+                logger.info(
+                    "[B1-DOI] doi->pdf resolved %s -> %s (page_anchor=%s page_end=%s)",
+                    url[:50], str(_doi_target.get("final_url"))[:70],
+                    _doi_target.get("page_anchor"), _doi_target.get("page_end"),
+                )
+                url = _doi_target["final_url"]
+                _pdf_page_anchor = _doi_target.get("page_anchor")
+                _pdf_page_end = _doi_target.get("page_end")
+
         # FIX-CITE-3/GAP4: Detect PDF URLs and extract text directly.
         # Academic open-access PDFs (from S2 openAccessPdf) need PDF parsing,
         # not HTML scraping. This gives the analyzer full paper content with
         # forest plots, I² values, GRADE ratings — the detail Gemini captures.
         if url.lower().endswith(".pdf") or "/pdf/" in url.lower():
             try:
-                pdf_text = await self._extract_pdf_text(url)
+                # B4: collect blob identity only when STEP B is ON (out_meta
+                # None when OFF => no sha computed, metadata byte-identical).
+                _pdf_out_meta: "Optional[Dict[str, Any]]" = {} if _slice_on else None
+                pdf_text = await self._extract_pdf_text(
+                    url,
+                    page_anchor=_pdf_page_anchor,
+                    page_end=_pdf_page_end,
+                    out_meta=_pdf_out_meta,
+                )
                 if pdf_text and len(pdf_text) > 500:
                     # ev_461: strip a leading journal-masthead block (running-head /
                     # author-affiliation list / submission-date line) from the
@@ -3757,6 +3875,19 @@ class AccessBypass:
                         "[ACCESS] FIX-GAP4: PDF text extracted for %s (%d chars)",
                         url[:60], len(pdf_text),
                     )
+                    # B4: stamp blob identity onto the evidence row's metadata so
+                    # downstream content-identity consolidation (STEP E) can fold
+                    # combined-issue PDFs that share one blob but carry many DOIs.
+                    # Only when STEP B is ON (out_meta populated) => flag-OFF keeps
+                    # metadata byte-identical to the prior {"content_type": ...}.
+                    _pdf_metadata: "Dict[str, Any]" = {"content_type": "application/pdf"}
+                    if _slice_on and _pdf_out_meta:
+                        _blob_sha = _pdf_out_meta.get("fetched_blob_sha")
+                        _src_url = _pdf_out_meta.get("content_source_url")
+                        if _blob_sha:
+                            _pdf_metadata["fetched_blob_sha"] = _blob_sha
+                        if _src_url:
+                            _pdf_metadata["content_source_url"] = _src_url
                     return AccessResult(
                         url=url,
                         content=pdf_text[:50000],  # Cap at 50K chars
@@ -3769,7 +3900,7 @@ class AccessBypass:
                         access_method="pdf_extract",
                         legal_alternative=None,
                         success=True,
-                        metadata={"content_type": "application/pdf"},
+                        metadata=_pdf_metadata,
                     )
             except Exception as pdf_exc:
                 logger.warning(
@@ -4483,11 +4614,104 @@ class AccessBypass:
             # concurrent Crawl4AI calls race: one call's restore undoes
             # another call's reconfigure. utf-8 is strictly superior.
 
-    async def _extract_pdf_text(self, url: str) -> str:
+    async def _resolve_doi_pdf_target(
+        self, url: str
+    ) -> "Optional[Dict[str, Any]]":
+        """I-deepfix-004 STEP B1 — resolve a doi.org / dx.doi.org URL to its
+        FINAL target and, when that target is a PDF, capture the cited-work page
+        anchor.
+
+        Does a lightweight aiohttp GET (``allow_redirects=True``) and inspects
+        ONLY the response headers + redirect chain — it never reads the body
+        (the real byte fetch stays in :meth:`_extract_pdf_text`). Captures:
+
+          * the FINAL url (``resp.url`` after redirects) so the existing
+            ``.pdf`` / ``/pdf/`` PDF branch fires on the resolved publisher URL;
+          * a 1-indexed page anchor ``N`` from a ``#page=N`` fragment found on
+            any redirect-chain ``Location`` header, on ``resp.url``, or on the
+            original url. The Location headers are checked FIRST because
+            ``resp.url`` frequently drops the fragment across a redirect;
+          * a page range ``(start, end)`` parsed from a DOI suffix such as
+            ``...-2026-9-2-203-210`` (=> pages 203-210) when the DOI ends
+            ``-<start>-<end>``.
+
+        Returns ``{"final_url", "is_pdf", "page_anchor", "page_end"}`` or
+        ``None`` on any error (fail-open: the caller then leaves the url
+        untouched and the pre-existing fetch path runs unchanged).
+
+        Faithfulness-neutral: this only decides WHICH url + page span is handed
+        to the extractor; no faithfulness gate is touched.
+        """
+        import aiohttp
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, allow_redirects=True) as resp:
+                    final_url = str(resp.url)
+                    content_type = (resp.headers.get("Content-Type") or "").lower()
+                    # Redirect-chain Location headers are the authoritative
+                    # fragment source (resp.url can drop `#page=N`); check them
+                    # first, then the final url, then the original url.
+                    frag_sources: list[str] = []
+                    for _hist in resp.history:
+                        _loc = _hist.headers.get("Location")
+                        if _loc:
+                            frag_sources.append(_loc)
+                    frag_sources.append(final_url)
+                    frag_sources.append(url)
+        except Exception as _exc:  # noqa: BLE001 — resolver must never break a fetch
+            logger.debug(
+                "[B1-DOI] doi->pdf resolve failed for %s: %s",
+                url[:60], str(_exc)[:100],
+            )
+            return None
+
+        final_path = urlparse(final_url).path.lower()
+        is_pdf = final_path.endswith(".pdf") or "application/pdf" in content_type
+
+        page_anchor: "Optional[int]" = None
+        for _s in frag_sources:
+            _n = _parse_pdf_page_fragment(_s)
+            if _n is not None:
+                page_anchor = _n
+                break
+
+        doi = self._extract_doi(url) or self._extract_doi(final_url)
+        doi_start, doi_end = _parse_doi_page_range(doi) if doi else (None, None)
+        # Fragment anchor wins; fall back to the DOI-suffix start page.
+        if page_anchor is None:
+            page_anchor = doi_start
+        page_end = doi_end
+
+        return {
+            "final_url": final_url,
+            "is_pdf": bool(is_pdf),
+            "page_anchor": page_anchor,
+            "page_end": page_end,
+        }
+
+    async def _extract_pdf_text(
+        self,
+        url: str,
+        page_anchor: "Optional[int]" = None,
+        page_end: "Optional[int]" = None,
+        out_meta: "Optional[Dict[str, Any]]" = None,
+    ) -> str:
         """FIX-CITE-3/GAP4: Download and extract text from academic PDF.
 
         Uses PyMuPDF (fitz) for extraction. Falls back to basic text
         extraction if PyMuPDF is not available.
+
+        I-deepfix-004 STEP B (gated by PG_PDF_CITED_WORK_SLICE, default ON;
+        OFF => byte-identical because all three new params stay None):
+          * ``page_anchor`` / ``page_end`` — thread a 1-indexed cited-work page
+            slice down to :meth:`_extract_pdf_text_from_bytes_impl` (B2);
+          * ``out_meta`` — when a dict is supplied, stamp ``fetched_blob_sha``
+            (sha256 of the fetched PDF bytes) + ``content_source_url`` (the
+            final resolved url that produced those bytes) so the caller can put
+            them on the evidence row's ``AccessResult.metadata`` (B4). When
+            ``out_meta`` is None nothing is computed and the path is unchanged.
         """
         import aiohttp
 
@@ -4499,10 +4723,33 @@ class AccessBypass:
                 pdf_bytes = await resp.read()
                 if len(pdf_bytes) < 1000:
                     return ""
+                _final_source_url = str(resp.url)
 
-        return await self._extract_pdf_text_from_bytes(url, pdf_bytes)
+        # B4: stamp blob identity for the caller (only when an out_meta dict is
+        # supplied — i.e. the STEP-B branch with the flag ON). Best-effort:
+        # a hashing error must never break extraction.
+        if out_meta is not None:
+            try:
+                import hashlib
+                out_meta["fetched_blob_sha"] = hashlib.sha256(pdf_bytes).hexdigest()
+                out_meta["content_source_url"] = _final_source_url
+            except Exception as _sha_exc:  # noqa: BLE001 — stamp is best-effort
+                logger.debug(
+                    "[B4-BLOB] blob sha stamp skipped for %s: %s",
+                    url[:60], str(_sha_exc)[:80],
+                )
 
-    async def _extract_pdf_text_from_bytes(self, url: str, pdf_bytes: bytes) -> str:
+        return await self._extract_pdf_text_from_bytes(
+            url, pdf_bytes, page_anchor=page_anchor, page_end=page_end
+        )
+
+    async def _extract_pdf_text_from_bytes(
+        self,
+        url: str,
+        pdf_bytes: bytes,
+        page_anchor: "Optional[int]" = None,
+        page_end: "Optional[int]" = None,
+    ) -> str:
         """I-deepfix-001 B1 (wave-2, 2026-07-08) — extraction-time FURNITURE screen.
 
         Delegates to the UNCHANGED extractor selector
@@ -4518,8 +4765,22 @@ class AccessBypass:
         Both flags default OFF => this returns the impl output unchanged =>
         BYTE-IDENTICAL. Faithfulness engine untouched — only WHICH extractor's
         verbatim text is returned can change.
+
+        I-deepfix-004 STEP B2: ``page_anchor`` / ``page_end`` (default None =>
+        byte-identical) thread the cited-work page slice to the impl's fitz
+        path. The furniture screen below is UNCHANGED and runs on whatever body
+        (whole-doc or sliced) the impl returns.
         """
-        body = await self._extract_pdf_text_from_bytes_impl(url, pdf_bytes)
+        # Byte-identical when no slice is requested: call the impl EXACTLY as
+        # before (positional only) so pre-existing callers / stubs that use the
+        # old 2-arg signature are unaffected. Only thread the page-slice kwargs
+        # when an anchor was actually resolved (STEP B1).
+        if page_anchor is None and page_end is None:
+            body = await self._extract_pdf_text_from_bytes_impl(url, pdf_bytes)
+        else:
+            body = await self._extract_pdf_text_from_bytes_impl(
+                url, pdf_bytes, page_anchor=page_anchor, page_end=page_end
+            )
         try:
             from src.polaris_graph.retrieval import shell_detector as _sd
         except Exception:  # noqa: BLE001 — detector import must never break extraction
@@ -4632,7 +4893,13 @@ class AccessBypass:
                 return _cand
         return ""
 
-    async def _extract_pdf_text_from_bytes_impl(self, url: str, pdf_bytes: bytes) -> str:
+    async def _extract_pdf_text_from_bytes_impl(
+        self,
+        url: str,
+        pdf_bytes: bytes,
+        page_anchor: "Optional[int]" = None,
+        page_end: "Optional[int]" = None,
+    ) -> str:
         """Extract text from already-fetched PDF bytes (offline-testable).
 
         Split out of :meth:`_extract_pdf_text` (which owns the network fetch)
@@ -4642,6 +4909,18 @@ class AccessBypass:
         Faithfulness-neutral: this only decides WHICH extractor produces the
         verbatim text that strict_verify later grounds — no faithfulness gate
         (strict_verify / NLI / 4-role / provenance) is touched.
+
+        I-deepfix-004 STEP B2 (gated upstream by PG_PDF_CITED_WORK_SLICE;
+        ``page_anchor`` default None => byte-identical): when ``page_anchor`` is
+        set on a multi-page doc, the PyMuPDF (fitz) fallback path below extracts
+        the cited work as a page SLICE starting at page ``page_anchor`` (1-indexed
+        -> ``doc[page_anchor-1]``) forward — stopping at ``page_end`` when known,
+        else accumulating under the EXISTING char budget (the caller's 50 000-char
+        cap, surfaced as ``_PDF_EXTRACT_CHAR_CAP``; no new page-count window). If
+        ``page_anchor`` exceeds the page count the whole-doc extraction runs
+        (fail-open). ``strip_pdf_frontmatter`` still runs on the slice (in the
+        caller's PDF branch). The docling / mineru paths are unchanged — for the
+        big combined-issue PDFs this targets they are OOM-gated to this fitz path.
         """
         import tempfile
 
@@ -4798,8 +5077,38 @@ class AccessBypass:
 
             doc = fitz.open(tmp_path)
             pages_text = []
-            for page in doc:
-                pages_text.append(page.get_text())
+            _page_count = doc.page_count
+            # I-deepfix-004 STEP B2: cited-work page slice. Fires ONLY when a
+            # page anchor was resolved (STEP B1) AND the doc is multi-page AND
+            # the anchor is within range; otherwise the whole-doc extraction
+            # below runs byte-identically (also the fail-open path when
+            # page_anchor > page_count).
+            if (
+                page_anchor is not None
+                and _page_count > 1
+                and 1 <= page_anchor <= _page_count
+            ):
+                start_idx = page_anchor - 1  # 1-indexed anchor -> 0-indexed page
+                _end_valid = page_end is not None and page_end >= page_anchor
+                # page_end is 1-indexed INCLUSIVE; clamp to the real page count.
+                stop_idx = min(page_end, _page_count) if _end_valid else _page_count
+                _acc_chars = 0
+                for _pi in range(start_idx, stop_idx):
+                    _ptext = doc[_pi].get_text()
+                    pages_text.append(_ptext)
+                    _acc_chars += len(_ptext)
+                    # No explicit end page: accumulate forward only until the
+                    # existing char budget (NOT a new page-count window).
+                    if not _end_valid and _acc_chars >= _PDF_EXTRACT_CHAR_CAP:
+                        break
+                logger.info(
+                    "[B2-SLICE] cited-work page slice pages %d..%d of %d (%d chars) url=%s",
+                    page_anchor, min(stop_idx, _page_count), _page_count,
+                    _acc_chars, url[:60],
+                )
+            else:
+                for page in doc:
+                    pages_text.append(page.get_text())
             doc.close()
 
             import os as _os
