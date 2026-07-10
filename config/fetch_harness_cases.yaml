@@ -1,0 +1,169 @@
+# Fetch cited-content harness — labeled case set (I-deepfix-004 / Fable design 2026-07-09).
+#
+# Each case is a REAL, verified URL. `expect` is the class the oracle grades against:
+#   article              — must return the cited article (breaking a good control FAILS the harness)
+#   article_or_degrade   — real article text via recovery, or an honest degrade
+#   recover_or_disclose  — real text via Zyte, or an honest refusal (never delivery chrome)
+#   no_front_matter_span — must NOT adopt a cover/TOC/masthead/committee-list span
+#   refused              — a hub/landing/error shell must be refused (not eligible)
+#
+# `contains` / `not_contains` are span fingerprints. They are stored ALREADY SQUASHED
+# (NFKD -> strip marks -> casefold -> letters+digits only); the harness squashes again
+# at load (idempotent). `contains` is ANY-match; `not_contains` is a banned-head list.
+# `doi` / `group` feed the cross-work collision + distinct-group oracles.
+
+cases:
+  # ── A. Good controls — expect `article` (breaking these FAILS the harness) ──
+  - name: good_arxiv_html
+    ev: ev_752
+    url: https://arxiv.org/html/2503.00079v1
+    expect: article
+    contains: [ailiteracy]
+
+  - name: good_feds_note
+    ev: ev_508
+    url: https://www.federalreserve.gov/econres/notes/feds-notes/ai-adoption-and-firms-job-posting-behavior-20260327.html
+    expect: article
+    contains: [jobposting]
+
+  - name: good_oa_pdf_nber
+    ev: ev_023
+    url: https://www.nber.org/system/files/working_papers/w31161/w31161.pdf
+    expect: article
+    contains: [generativeaiatwork, brynjolfsson]
+
+  - name: good_oecd_fullreport
+    ev: ev_590
+    url: https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-the-labour-market-introduction_ea35d1c5.html
+    expect: article
+    contains: [broecke, employmentoutlook2023]
+
+  # ── B. Combined-PDF w/ page anchor — expect `article` (B must RECOVER; degrade = FAIL) ──
+  - name: dgpu_sport_managers
+    ev: ev_664
+    url: https://doi.org/10.58224/2658-5286-2026-9-2-203-210
+    doi: 10.58224/2658-5286-2026-9-2-203-210
+    group: dgpu_reb_9_2
+    expect: article
+    contains: [спортивныхменеджеров, волонтерск, карьерныхтраекторий]
+
+  - name: dgpu_poultry
+    ev: ev_700
+    url: https://doi.org/10.58224/2658-5286-2026-9-2-87-95
+    doi: 10.58224/2658-5286-2026-9-2-87-95
+    group: dgpu_reb_9_2
+    expect: article
+    contains: [птицепродуктов, птицеводств]
+
+  - name: ecsoc_parinov
+    ev: ev_232
+    url: https://doi.org/10.17323/1726-3247-2025-5-53-86
+    doi: 10.17323/1726-3247-2025-5-53-86
+    expect: article
+    contains: [институциональн, паринов]
+    not_contains: [социальныйпортреткластеров]
+
+  # ── C. No-anchor multi-work containers — expect `no_front_matter_span` ──
+  - name: dgpu_whole_issue
+    url: https://doi.org/10.58224/2658-5286-2025-8-5
+    doi: 10.58224/2658-5286-2025-8-5
+    expect: no_front_matter_span
+    not_contains: [редакционнаяколлегия]
+
+  - name: naukarus_japan
+    ev: ev_487
+    url: https://doi.org/10.34660/inf.2024.42.58.280
+    doi: 10.34660/inf.2024.42.58.280
+    group: naukarus_sco
+    expect: no_front_matter_span
+    contains: [distributionnetworks, kharlanov]
+
+  - name: naukarus_food
+    ev: ev_490
+    url: https://doi.org/10.34660/inf.2024.63.64.277
+    doi: 10.34660/inf.2024.63.64.277
+    group: naukarus_sco
+    expect: no_front_matter_span
+    contains: [foodexports, chinesemarket, razumnova]
+
+  - name: isg_2026
+    ev: ev_470
+    url: https://doi.org/10.46299/isg.2026.1.10
+    doi: 10.46299/isg.2026.1.10
+    group: isg
+    expect: no_front_matter_span
+    not_contains: [marchenkodmytro]
+
+  - name: isg_2025
+    ev: ev_358
+    url: https://doi.org/10.46299/isg.2025.2.9
+    doi: 10.46299/isg.2025.2.9
+    group: isg
+    expect: no_front_matter_span
+    not_contains: [marchenkodmytro]
+
+  - name: auspicia_energy
+    ev: ev_624
+    url: https://doi.org/10.36682/a_2025_2_4
+    doi: 10.36682/a_2025_2_4
+    group: auspicia
+    expect: no_front_matter_span
+    contains: [energysecurity, invasionofukraine, kovacova]
+    not_contains: [recenzovanyvedeckycasopis]
+
+  - name: auspicia_2
+    ev: ev_599
+    url: https://doi.org/10.36682/a_2025_2_5
+    doi: 10.36682/a_2025_2_5
+    group: auspicia
+    expect: no_front_matter_span
+    not_contains: [recenzovanyvedeckycasopis]
+
+  # ── D. Hub/landing/error shells — expect `refused` (PASS iff not eligible) ──
+  - name: hub_hbr
+    ev: ev_527
+    url: https://hbr.org/topic/subject/generative-ai
+    expect: refused
+
+  - name: hub_oecd
+    ev: ev_726
+    url: https://www.oecd.org/en/topics/policy-issues/future-of-work.html
+    expect: refused
+
+  - name: hub_voced
+    ev: ev_734
+    url: https://www.voced.edu.au/focus-ai-and-education-and-employment
+    expect: refused
+
+  - name: challenge_voced
+    url: https://www.voced.edu.au/challenge?destination=%2Ffocus-ai-and-education-and-employment
+    expect: refused
+
+  - name: quora
+    ev: ev_337
+    url: https://www.quora.com/What-is-the-potential-impact-of-generative-AI-on-individual-workers-activities
+    expect: refused
+
+  # ── E. Paywalled — expect `recover_or_disclose` (real text via Zyte OR honest refusal) ──
+  - name: ssrn_1
+    ev: ev_398
+    url: https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+    expect: recover_or_disclose
+    contains: [labormarketeffectsofgenerative, hartley]
+    not_contains: [suggestedcitation, pagesposted]
+
+  - name: ssrn_2
+    ev: ev_747
+    url: https://papers.ssrn.com/sol3/Delivery.cfm/5133376.pdf?abstractid=5133376&mirid=1
+    expect: recover_or_disclose
+    contains: [agenticgenai, workforcedevelopment]
+    not_contains: [suggestedcitation, pagesposted]
+
+  # ── F. OA wrong-work swap — expect `article_or_degrade` ──
+  - name: oa_swap
+    ev: ev_349
+    url: https://doi.org/10.9728/dcs.2025.26.12.3433
+    doi: 10.9728/dcs.2025.26.12.3433
+    expect: article_or_degrade
+    contains: [innovationstrategies, ecosystemcompanies]
+    not_contains: [reveliolabs]
