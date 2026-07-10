@@ -615,6 +615,16 @@ _DEFAULT_FRONT_MATTER_TOC_LINE_MIN = 8
 _ENV_FRONT_MATTER_MIN_BODY_CHARS = "PG_FRONT_MATTER_MIN_BODY_CHARS"
 _DEFAULT_FRONT_MATTER_MIN_BODY_CHARS = 400
 
+# I-deepfix-004 F3: the screen reads ONLY the HEAD of the span, never the whole body.
+# A legit LONG report / guideline / systematic review carries a normal contents index
+# or list-of-tables DEEP in its body whose dot-leader lines would, SUMMED over the full
+# body, cross the absolute TOC floor and FALSELY flag a real article. Capping the scan to
+# the head keeps the calibration head-span-only regardless of the caller's span length
+# (genuine issue/report TOC heads carry 13–14 dot-leaders in the first 2000 chars; every
+# real article head carries 0). A head of <=0 disables the cap (whole-body scan).
+_ENV_FRONT_MATTER_HEAD_CHARS = "PG_FRONT_MATTER_HEAD_CHARS"
+_DEFAULT_FRONT_MATTER_HEAD_CHARS = 2000
+
 # Dot-leader run (three-or-more dots) followed by a page number (arabic or roman) — the
 # canonical Table-of-Contents line shape, robust to the space-collapsed single-line PDF
 # extraction output. High-precision: a run of ``...`` before a page number never occurs
@@ -662,6 +672,11 @@ def _front_matter_min_body_chars() -> int:
     return _env_int(_ENV_FRONT_MATTER_MIN_BODY_CHARS, _DEFAULT_FRONT_MATTER_MIN_BODY_CHARS)
 
 
+def _front_matter_head_chars() -> int:
+    """Character window at the HEAD of the span the screen scans (<=0 => whole body)."""
+    return _env_int(_ENV_FRONT_MATTER_HEAD_CHARS, _DEFAULT_FRONT_MATTER_HEAD_CHARS)
+
+
 def is_issue_front_matter(body: str) -> bool:
     """I-deepfix-004 D — True iff ``body`` (a STORED cited SPAN) is a journal-issue
     COVER / TABLE-OF-CONTENTS / MASTHEAD rather than the cited article's prose.
@@ -686,13 +701,19 @@ def is_issue_front_matter(body: str) -> bool:
         return False
     if len(body.strip()) < _front_matter_min_body_chars():
         return False  # fail-open: too short to read a structural verdict
-    low = body.lower()
+    # I-deepfix-004 F3: read ONLY the HEAD of the span (a masthead/TOC lives at the
+    # top). Scanning the FULL body let dot-leader lines from a normal contents index
+    # / list-of-tables DEEP in a long report accumulate past the absolute TOC floor
+    # and FALSELY flag a real article. Head-span-only regardless of caller span length.
+    _head_chars = _front_matter_head_chars()
+    head = body[:_head_chars] if _head_chars > 0 else body
+    low = head.lower()
     # Signal 1 — dot-leader TOC density (any-length; the run-of-dots-before-a-page-number
     # shape never occurs in real article prose).
-    if len(_FRONT_MATTER_DOT_LEADER_RE.findall(body)) >= _front_matter_toc_line_min():
+    if len(_FRONT_MATTER_DOT_LEADER_RE.findall(head)) >= _front_matter_toc_line_min():
         return True
     # Signal 2 — ISSN masthead AND contents/editorial vocab co-occur (both required).
-    if _FRONT_MATTER_ISSN_RE.search(body) and any(
+    if _FRONT_MATTER_ISSN_RE.search(head) and any(
         marker in low for marker in _FRONT_MATTER_CONTENTS_VOCAB
     ):
         return True
