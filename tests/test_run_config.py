@@ -28,7 +28,8 @@ def test_registry_loads_and_block_dna_class_is_consistent():
         # dna_class is derived from the block; block<->dna_class must be the 1:1 map.
         assert spec.dna_class == reg._block_dna_class[spec.block]
         assert spec.dna_class in rc.ALLOWED_DNA_CLASSES
-        assert spec.affects_stage in ce.STAGE_ORDER
+        # affects_stage is a checkpointed section stage OR the terminal render stage (s7_render).
+        assert spec.affects_stage in rc.RESUME_STAGE_ORDER
 
 
 def test_existing_knobs_cite_a_read_site():
@@ -172,36 +173,43 @@ def test_non_default_knobs_disclosure_set():
 
 # ── the two-sided resume validity matrix (§1.4) ─────────────────────────────────────────────────
 
-def test_validity_matrix_reproduces_the_three_anchors():
-    cfg = rc.build_run_config(registry=rc.default_registry(), env={})
+def _valid_cps(cfg, knob_id):
+    """The set of cpN aliases at which an adjustment for knob_id is accepted (no raise)."""
+    ok = []
+    for cp in ("cp0", "cp1", "cp2", "cp3", "cp4", "cp5", "cp6"):
+        try:
+            cfg.assert_adjustment_valid(knob_id, cp)
+            ok.append(cp)
+        except rc.RunConfigError:
+            pass
+    return ok
 
+
+def test_validity_matrix_per_knob_anchors():
+    cfg = rc.build_run_config(registry=rc.default_registry(), env={})
     # breadth (affects s1_fetch) → valid ONLY at cp0.
-    cfg.assert_adjustment_valid("query_budget", "cp0")
+    assert _valid_cps(cfg, "query_budget") == ["cp0"]
     with pytest.raises(rc.RunConfigError, match="does NOT re-run"):
         cfg.assert_adjustment_valid("query_budget", "cp1")
-
-    # scope (affects s2_select) → valid at cp0, cp1; a scope adjustment at cp2/cp4 is a hard error.
-    cfg.assert_adjustment_valid("extract_user_constraints", "cp0")
-    cfg.assert_adjustment_valid("extract_user_constraints", "cp1")
-    with pytest.raises(rc.RunConfigError):
-        cfg.assert_adjustment_valid("extract_user_constraints", "cp2")
-    with pytest.raises(rc.RunConfigError):
-        cfg.assert_adjustment_valid("extract_user_constraints", "cp4")
-
-    # deliverable (affects s4_outline) → valid cp0..cp3 (the "resume from the outline step" ask),
-    # rejected once the outline is frozen (cp4+).
-    for cp in ("cp0", "cp1", "cp2", "cp3"):
-        cfg.assert_adjustment_valid("tone", cp)
-    for cp in ("cp4", "cp5", "cp6"):
-        with pytest.raises(rc.RunConfigError):
-            cfg.assert_adjustment_valid("tone", cp)
+    # scope (affects s2_select) → valid at cp0, cp1; scope-at-cp2/cp4 is a hard error.
+    assert _valid_cps(cfg, "extract_user_constraints") == ["cp0", "cp1"]
+    # deliverable STRUCTURE (affects s4_outline) → valid cp0..cp3 ("resume from the outline step").
+    assert _valid_cps(cfg, "audience") == ["cp0", "cp1", "cp2", "cp3"]
+    # deliverable TONE/LENGTH (affects s5_compose) → valid cp0..cp4 (compose re-runs).
+    assert _valid_cps(cfg, "tone") == ["cp0", "cp1", "cp2", "cp3", "cp4"]
+    assert _valid_cps(cfg, "length_target") == ["cp0", "cp1", "cp2", "cp3", "cp4"]
+    # deliverable RENDER (affects s7_render) → valid at EVERY resume (render re-runs each time).
+    assert _valid_cps(cfg, "reference_style") == ["cp0", "cp1", "cp2", "cp3", "cp4", "cp5", "cp6"]
+    assert _valid_cps(cfg, "summary_first") == ["cp0", "cp1", "cp2", "cp3", "cp4", "cp5", "cp6"]
 
 
 def test_earliest_resume_checkpoint_vocabulary():
     reg = rc.default_registry()
-    assert reg.earliest_resume_checkpoint("query_budget") == ce.STAGE_S0_INTAKE
-    assert reg.earliest_resume_checkpoint("extract_user_constraints") == ce.STAGE_S1_FETCH
-    assert reg.earliest_resume_checkpoint("tone") == ce.STAGE_S3_CONSOLIDATE
+    assert reg.earliest_resume_checkpoint("query_budget") == ce.STAGE_S0_INTAKE       # s1 -> cp0
+    assert reg.earliest_resume_checkpoint("extract_user_constraints") == ce.STAGE_S1_FETCH  # s2 -> cp1
+    assert reg.earliest_resume_checkpoint("audience") == ce.STAGE_S3_CONSOLIDATE       # s4 -> cp3
+    assert reg.earliest_resume_checkpoint("tone") == ce.STAGE_S4_OUTLINE               # s5 -> cp4
+    assert reg.earliest_resume_checkpoint("reference_style") == ce.STAGE_S6_VERIFY     # render -> cp6
 
 
 # ── --run-config override file intake ────────────────────────────────────────────────────────────

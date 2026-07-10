@@ -32,11 +32,21 @@ NOT REGISTERED (operator-locked, NOT user knobs — §1.2 / §1.7 / §9.1.8)
 THE RESUME VALIDITY MATRIX IS TWO-SIDED (§1.4)
     A resume loads checkpoint cpN and re-runs stages S(N+1)..S7. An adjustment to a knob is valid
     at ``resume_from=cpN`` iff the stage the knob shapes (``affects_stage``) still RE-RUNS, i.e.
-    ``index(affects_stage) > index(resume_from)``. This single uniform comparison reproduces the
-    three plan anchors exactly:
-        breadth (affects s1_fetch) → valid ONLY at cp0
-        scope   (affects s2_select) → valid at cp0, cp1   (scope-at-cp4 is a hard error)
-        deliverable (affects s4_outline) → valid at cp0..cp3 (the "resume from the outline step" ask)
+    ``index(affects_stage) > index(resume_from)`` over the resume-stage order (the 7 checkpointed
+    stages plus the terminal render stage S7, which re-runs on EVERY resume). ``affects_stage`` is
+    the REAL stage each knob shapes — knob-dependent, not one anchor per block:
+        breadth (s1_fetch)          → valid ONLY at cp0
+        scope   (s2_select)         → valid at cp0, cp1                (scope-at-cp4 is a hard error)
+        deliverable structure (s4)  → valid at cp0..cp3               ("resume from the outline step")
+        deliverable tone/length (s5)→ valid at cp0..cp4               (compose re-runs)
+        deliverable render (s7)     → valid at cp0..cp6               (render re-runs on every resume)
+    This spans the plan's terse "deliverable valid from cp3+": different deliverable knobs are
+    honorable at different — and later — resume points, up to render-only at cp6.
+
+    NOTE (foundation → WP-4a): the exact per-knob deliverable ``affects_stage`` values are grounded
+    in Design 3's consumer wiring (style block = compose §4-S5-FixC; reference-style + assembler
+    ordering = render §4-S7) but that wiring is not yet built; the deliverable-knob assignments are
+    finalized under the Codex+Fable gate in WP-4a. breadth (cp0) and scope (cp0/cp1) are stable.
 """
 
 from __future__ import annotations
@@ -61,6 +71,14 @@ ALLOWED_DNA_CLASSES = frozenset(
     {"breadth_budget", "scope_constraint", "presentation", "stage_tuning"}
 )
 ALLOWED_BLOCKS = frozenset({"breadth", "scope", "deliverable", "stages"})
+
+# S7 ADJUDICATE+RENDER is terminal — it has NO checkpoint (D8 verdicts are never replayed, §-1.3)
+# so it is absent from checkpoint_envelope.STAGE_ORDER. But render (assembler / reference-style /
+# ordering) DOES re-run on every resume, so a render knob is honorable at any resume point. This
+# resume-stage order appends the terminal render stage for the validity-matrix index ONLY (never a
+# resumable-past checkpoint). ``affects_stage: s7_render`` marks a render-only deliverable knob.
+STAGE_S7_RENDER = "s7_render"
+RESUME_STAGE_ORDER: tuple[str, ...] = ce.STAGE_ORDER + (STAGE_S7_RENDER,)
 
 # The precedence layer labels, weakest→strongest (recorded in KnobProvenance.source).
 SOURCE_DEFAULT = "default"
@@ -214,10 +232,10 @@ class RunConfigRegistry:
                 "cap/target/thinner) and is REFUSED at the registry. Breadth/quality EMERGE from "
                 "honest weighted multi-attribution; they are never forced by a knob."
             )
-        if affects_stage not in ce.STAGE_ORDER:
+        if affects_stage not in RESUME_STAGE_ORDER:
             raise RunConfigError(
                 f"knob {knob_id!r} affects_stage {affects_stage!r} is not a section stage "
-                f"(expected one of {list(ce.STAGE_ORDER)})"
+                f"(expected one of {list(RESUME_STAGE_ORDER)})"
             )
         if type_name not in ("str", "bool", "int", "float", "list", "json"):
             raise RunConfigError(f"knob {knob_id!r} has unknown type {type_name!r}")
@@ -253,12 +271,14 @@ class RunConfigRegistry:
 
     def earliest_resume_checkpoint(self, knob_id: str) -> str:
         """The checkpoint immediately upstream of the stage the knob shapes — the LATEST resume
-        entry at which an adjustment for this knob is still honorable in full (disclosure vocab)."""
+        entry at which an adjustment for this knob is still honorable in full (disclosure vocab).
+        A render-only knob (affects s7_render) clamps to the last checkpoint (cp6): render re-runs
+        on every resume, so it is honorable even resuming at cp6."""
         spec = self.spec(knob_id)
-        idx = ce.STAGE_ORDER.index(spec.affects_stage)
+        idx = RESUME_STAGE_ORDER.index(spec.affects_stage)
         if idx == 0:
             return ce.STAGE_ORDER[0]
-        return ce.STAGE_ORDER[idx - 1]
+        return ce.STAGE_ORDER[min(idx - 1, len(ce.STAGE_ORDER) - 1)]
 
 
 # ── stage normalization (cpN alias → canonical stage id), local so block-1 stays untouched ──────
@@ -327,9 +347,9 @@ class RunConfig:
         Reproduces the three plan anchors (breadth cp0-only; scope cp0/cp1; deliverable cp0..cp3).
         """
         spec = self.registry.spec(knob_id)
-        entry_stage = normalize_stage(resume_from)
-        affect_idx = ce.STAGE_ORDER.index(spec.affects_stage)
-        entry_idx = ce.STAGE_ORDER.index(entry_stage)
+        entry_stage = normalize_stage(resume_from)   # a real checkpoint stage (S7 is never a resume entry)
+        affect_idx = RESUME_STAGE_ORDER.index(spec.affects_stage)
+        entry_idx = RESUME_STAGE_ORDER.index(entry_stage)
         if affect_idx <= entry_idx:
             latest = self.registry.earliest_resume_checkpoint(knob_id)
             raise RunConfigError(

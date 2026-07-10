@@ -6453,20 +6453,23 @@ def main(argv: list[str] | None = None) -> int:
             f"Valid: {', '.join(LOCKED_BENCHMARK_SLUGS)}."
         )
 
-    # --run-config (WAVE-0 foundation): fail-loud VALIDATE the override file at startup so a
-    # malformed RunConfig override aborts before any spend (LAW II), not mid-run. Parsing only —
-    # the S0 seam (WP-1b) builds the RunConfig + writes cp0_run_config.json from these overrides.
+    # --run-config (WAVE-0 foundation): the CLI surface is REGISTERED now (stable arg for the panel
+    # + docs), but the S0 threading (scope_gate -> protocol["run_config"] -> cp0_run_config.json)
+    # lands in WP-1b. Until then, passing --run-config would be a SILENT NO-OP on a paid run — the
+    # exact LAW-II failure the operator forbids. So: fail-loud validate the file shape (a malformed
+    # override reports its parse error), then REFUSE with a clear reason rather than run while
+    # silently dropping the operator's overrides.
     if getattr(args, "run_config", None):
         from src.polaris_graph.run_config import load_overrides_file  # noqa: PLC0415
         try:
-            _rc_overrides = load_overrides_file(args.run_config)
+            load_overrides_file(args.run_config)  # fail-loud shape validation (malformed => error)
         except Exception as exc:  # RunConfigError et al. — surface as a clean CLI error
             parser.error(f"--run-config {args.run_config!r}: {exc}")
-        print(
-            f"[run_gate_b] --run-config loaded: "
-            f"{len(_rc_overrides.get('panel', {}))} panel + "
-            f"{len(_rc_overrides.get('parsed', {}))} parsed override(s) "
-            "(threaded into the S0 intake seam by WP-1b)."
+        parser.error(
+            f"--run-config {args.run_config!r} parses OK but is NOT yet wired to the run path "
+            "(the S0 intake threading lands in WP-1b). It would be silently ignored on a real run, "
+            "so it is refused rather than applied. Remove --run-config to run; use "
+            "scripts/run_config_harness.py to exercise the RunConfig resolution offline today."
         )
 
     requested_slugs: tuple[str, ...] | None

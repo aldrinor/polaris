@@ -180,15 +180,18 @@ knobs:
     panel_widget: toggle
     note: user's explicit peer-reviewed-only hard filter (weight/mask/disclose; never pipeline-initiated).
 
-  # ── DELIVERABLE (dna_class presentation; affects s4_outline → resume-valid at cp0..cp3) ──────
+  # ── DELIVERABLE (dna_class presentation) ────────────────────────────────────────────────────
   # Wraps Design 3's DeliverableSpec (structured sub-object). Presentation touches wording /
   # order / render only — NEVER drops a source or weakens the faithfulness engine (§1.7).
+  # affects_stage is the REAL stage each knob shapes (knob-dependent, grounded in Design 3's
+  # consumers; finalized under the WP-4a gate): structure/audience -> s4 outline; tone/length ->
+  # s5 compose (style block, §4-S5-FixC); reference_style + block ordering -> s7_render (§4-S7).
   - id: deliverable_spec
     block: deliverable
     type: bool
     env_var: PG_DELIVERABLE_SPEC
     code_default: false
-    affects_stage: s4_outline
+    affects_stage: s4_outline   # master switch; the requirement block enters at outline
     status: planned            # Design 3 extractor is WP-1b
     prompt_parseable: false
     panel_widget: toggle
@@ -198,7 +201,7 @@ knobs:
     type: str
     env_var: PG_DELIVERABLE_TONE
     code_default: ""
-    affects_stage: s4_outline
+    affects_stage: s5_compose   # style block appended by the section-prompt selector (compose)
     status: planned
     prompt_parseable: true
     panel_widget: text
@@ -208,7 +211,7 @@ knobs:
     type: str
     env_var: PG_DELIVERABLE_AUDIENCE
     code_default: ""
-    affects_stage: s4_outline
+    affects_stage: s4_outline   # planning context for the outline (ORCH-2)
     status: planned
     prompt_parseable: true
     panel_widget: text
@@ -218,7 +221,7 @@ knobs:
     type: str
     env_var: PG_DELIVERABLE_REFERENCE_STYLE
     code_default: numeric
-    affects_stage: s4_outline
+    affects_stage: s7_render    # bibliography render (_render_bibliography_lines); re-runs on every resume
     status: planned
     prompt_parseable: true
     panel_widget: select
@@ -229,7 +232,7 @@ knobs:
     type: int
     env_var: PG_DELIVERABLE_LENGTH_TARGET
     code_default: 0
-    affects_stage: s4_outline
+    affects_stage: s5_compose   # derived sentence budget in the compose style block
     status: planned
     prompt_parseable: true      # "cap 3000 words" → honored verbatim
     panel_widget: number
@@ -239,7 +242,7 @@ knobs:
     type: str
     env_var: PG_DELIVERABLE_LENGTH_STRICTNESS
     code_default: soft
-    affects_stage: s4_outline
+    affects_stage: s5_compose   # routes to the CONCISE compose variant when hard
     status: planned
     prompt_parseable: true
     panel_widget: select
@@ -250,7 +253,7 @@ knobs:
     type: bool
     env_var: PG_DELIVERABLE_SUMMARY_FIRST
     code_default: false
-    affects_stage: s4_outline
+    affects_stage: s7_render    # assemble_report_md block ordering (render); re-runs on every resume
     status: planned
     prompt_parseable: true
     panel_widget: toggle
@@ -260,7 +263,7 @@ knobs:
     type: bool
     env_var: PG_DELIVERABLE_RECOMMENDATIONS_LAST
     code_default: false
-    affects_stage: s4_outline
+    affects_stage: s7_render    # assemble_report_md block ordering (render)
     status: planned
     prompt_parseable: true
     panel_widget: toggle
