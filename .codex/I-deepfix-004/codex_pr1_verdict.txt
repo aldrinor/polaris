@@ -1,0 +1,25 @@
+**Findings**
+
+P0 continuing: `src/polaris_graph/retrieval/live_retriever.py:7242-7283` only uses `_is_front_matter` to enter the default-OFF Zyte retry. If `PG_REFETCH_DEGRADED_VIA_ZYTE` is unset or wall-rescue skips it, the detected front-matter span proceeds to normal row construction at `:7363-7399` with no degraded/wrong-content stamp. That preserves the original wrong-content citable-span failure on the fresh live path.
+
+P1: `shell_detector.is_issue_front_matter` scans the entire body for dot-leader count (`src/polaris_graph/retrieval/shell_detector.py:665-693`), and Step A now feeds full bodies into the refetch path before quote windowing (`live_retriever.py:3347`). A legitimate long report/article with a normal TOC can be rejected as `wrong_content_front_matter`, violating the explicit “normal TOC in long body” constraint.
+
+P1: `identical_span_collision` keys on `fetched_blob_sha` before `direct_quote` (`shell_detector.py:702-713`). That is the whole fetched PDF blob identity, not stored span identity, so correctly sliced distinct articles from the same issue PDF can be falsely collision-flagged.
+
+P1: Resume recovery does not clear `wrong_content_span`. The stamp is added in `scripts/run_honest_sweep_r3.py:13048`, but `resume_refetch._DEGRADED_FLAGS` lacks it (`resume_refetch.py:41-46`), and recovery clears only those flags (`:145-147`).
+
+P1: The DOI resolver can return a final URL with a fragment, but the PDF branch tests the raw URL with `url.lower().endswith(".pdf")` (`src/tools/access_bypass.py:3848-3856`). A valid `...pdf#page=N` final URL can miss the PDF extractor despite `urlparse(final_url).path` already proving it is a PDF.
+
+P2: The PR claims `fetched_blob_sha` / `content_source_url` are stamped on the row, but the changed code only puts them in `AccessResult.metadata` (`src/tools/access_bypass.py:3878-3890`); `live_retriever._fetch_content` still discards that metadata.
+
+P2: Claimed OpenAlex biblio end-page and per-run blob cache are not present in the diff; only DOI suffix parsing exists.
+
+```text
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: ["Fresh live path can still admit a detected front-matter span as normal citable evidence when the separate default-OFF degraded-refetch flag is not active or retry is skipped."]
+p1: ["Full-body front-matter screen can false-flag legitimate long reports/articles with normal TOCs.", "identical_span_collision keys on whole-PDF fetched_blob_sha instead of stored span identity.", "A15 resume recovery does not clear wrong_content_span after successful re-fetch.", "Resolved final PDF URLs with #page fragments can bypass the PDF extractor."]
+p2: ["PDF blob/source metadata is stamped only on AccessResult.metadata, not evidence rows.", "No OpenAlex biblio end-page support or per-run blob cache is implemented despite PR claims."]
+convergence_call: continue
+remaining_blockers_for_execution: ["Make wrong-content detection independently degrade/disclose rows on live and resume paths, not only conditionally retry.", "Key collisions solely on stored span/direct_quote identity.", "Clear wrong_content_span on successful recovery.", "Constrain front-matter screening to the stored span/head slice or otherwise prove long-body TOCs cannot fire.", "Use parsed PDF path/is_pdf for final URLs with fragments."]
+```

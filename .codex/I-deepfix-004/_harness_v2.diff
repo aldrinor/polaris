@@ -1,0 +1,1056 @@
+diff --git a/.codex/I-deepfix-004/fable_fetch_harness_design.md b/.codex/I-deepfix-004/fable_fetch_harness_design.md
+new file mode 100644
+index 00000000..821c0b44
+--- /dev/null
++++ b/.codex/I-deepfix-004/fable_fetch_harness_design.md
+@@ -0,0 +1,75 @@
++# Fast fetch cited-content harness — Fable design (2026-07-09)
++
++Opus builds this. Proves in ~5 min (parallel) whether the fetch/search module returns the CITED article — replaces the hours-long full-pipeline test loop. Grounded in real code + the live banked corpus + Crossref; every URL/fingerprint verified.
++
++## Seam under test
++`refetch_for_extraction_with_diagnostics(url, max_chars=2000)` (live_retriever.py:3181). One call exercises the whole chain: `_fetch_content` → AccessBypass cascade (B1 DOI-redirect resolution access_bypass.py:3840, `#page` anchor, B2 fitz page-slice access_bypass.py:4896, Zyte, PDF extractors) → clean_fetch_body → fetch-shell screen → step-D front-matter screen (live_retriever.py:3347) → provenance quote. Returns `(quote, diagnostics)`; `quote` = EXACTLY the stored span; `diagnostics["failure_mode"]` ∈ {'', wrong_content_front_matter, fetch_shell, paywall_shell, thin_content, fetch_failed, timeout, exception}. Already thread-parallel-safe (daemon thread + own loop, joined at PG_FETCH_DEADLINE_SECONDS=90; PG_BYPASS_MAX_INFLIGHT sem=32) → fan-out = plain ThreadPoolExecutor, no asyncio surgery.
++NOT-yet-built (day-one RED = fix-loop targets, not harness bugs): step H challenge co-signal; step B3 title-locate (no-anchor containers can only pass via honest degrade today).
++
++## Files
++- `scripts/fetch_cited_content_harness.py` (~300 LOC, read-only imports from src/).
++- `config/fetch_harness_cases.yaml` (the labeled set — data, editable without code).
++- `tests/polaris_graph/test_fetch_harness_oracle.py` (offline oracle unit tests vs the REAL banked span heads).
++- Results: `outputs/fetch_harness/<utc>/results.json` + report.md. GitHub issue first (§-1.2).
++
++## squash(text)
++NFKD → strip combining marks → casefold → keep letters+digits only. Survives PDF hyphen-breaks, diacritics, case. All fingerprints below already squashed.
++
++## 22 labeled cases (all real, verified)
++**A. Good controls — expect `article` (breaking these FAILS the harness):**
++- good_arxiv_html ev_752 `https://arxiv.org/html/2503.00079v1` → contains `ailiteracy`
++- good_feds_note ev_508 `https://www.federalreserve.gov/econres/notes/feds-notes/ai-adoption-and-firms-job-posting-behavior-20260327.html` → `jobposting`
++- good_oa_pdf_nber ev_023 `https://www.nber.org/system/files/working_papers/w31161/w31161.pdf` → `generativeaiatwork`/`brynjolfsson`
++- good_oecd_fullreport ev_590 `https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-the-labour-market-introduction_ea35d1c5.html` → `broecke`/`employmentoutlook2023`
++
++**B. Combined-PDF w/ page anchor — expect `article` (B must RECOVER; degrade = FAIL):**
++- dgpu_sport_managers ev_664 `https://doi.org/10.58224/2658-5286-2026-9-2-203-210` → contains `спортивныхменеджеров`/`волонтерск`/`карьерныхтраекторий` (Грушина 203–210); group dgpu_reb_9_2
++- dgpu_poultry ev_700 `https://doi.org/10.58224/2658-5286-2026-9-2-87-95` → `птицепродуктов`/`птицеводств` (Сарсадских 87–95); group dgpu_reb_9_2
++- ecsoc_parinov ev_232 `https://doi.org/10.17323/1726-3247-2025-5-53-86` → `институциональн`/`паринов` ; NOT `социальныйпортреткластеров` (banked wrong head)
++Live proof: ev_664 & ev_700 today share identical head "физическое развитие…" (2 articles, 1 blob).
++
++**C. No-anchor multi-work containers — expect `no_front_matter_span` (PASS = wrong_content_front_matter degrade OR a non-front-matter real span; FAIL = front-matter/committee-list adopted):**
++- dgpu_whole_issue `https://doi.org/10.58224/2658-5286-2025-8-5` → NOT `редакционнаяколлегия`
++- naukarus_japan ev_487 `https://doi.org/10.34660/inf.2024.42.58.280` (if eligible: `distributionnetworks`/`kharlanov`); group naukarus_sco
++- naukarus_food ev_490 `https://doi.org/10.34660/inf.2024.63.64.277` (if eligible: `foodexports`/`chinesemarket`/`razumnova`); group naukarus_sco
++- isg_2026 ev_470 `https://doi.org/10.46299/isg.2026.1.10` → NOT `marchenkodmytro` (banked committee-list head); group isg
++- isg_2025 ev_358 `https://doi.org/10.46299/isg.2025.2.9` → NOT `marchenkodmytro`; group isg
++- auspicia_energy ev_624 `https://doi.org/10.36682/a_2025_2_4` → NOT `recenzovanyvedeckycasopis` (masthead); if eligible `energysecurity`/`invasionofukraine`/`kovacova`; group auspicia
++- auspicia_2 ev_599 `https://doi.org/10.36682/a_2025_2_5` → NOT `recenzovanyvedeckycasopis`; group auspicia
++Live proof: ev_358 & ev_470 (different volumes!) share the committee-list head; ev_624 & ev_599 share the "AUSPICIA Recenzovaný vědecký časopis" masthead. Detector gaps for the loop: is_issue_front_matter contents-vocab has no Czech `obsah`, nothing catches a committee list.
++
++**D. Hub/landing/error shells — expect `refused` (PASS iff eligible=False):**
++- hub_hbr ev_527 `https://hbr.org/topic/subject/generative-ai`
++- hub_oecd ev_726 `https://www.oecd.org/en/topics/policy-issues/future-of-work.html`
++- hub_voced ev_734 `https://www.voced.edu.au/focus-ai-and-education-and-employment`
++- challenge_voced `https://www.voced.edu.au/challenge?destination=%2Ffocus-ai-and-education-and-employment`
++- quora ev_337 `https://www.quora.com/What-is-the-potential-impact-of-generative-AI-on-individual-workers-activities`
++
++**E. Paywalled — expect `recover_or_disclose` (PASS = real text via Zyte OR honest refusal; FAIL = SSRN delivery chrome adopted):**
++- ssrn_1 ev_398 `https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1` (if eligible `labormarketeffectsofgenerative`/`hartley`); NOT `suggestedcitation`/`pagesposted`
++- ssrn_2 ev_747 `https://papers.ssrn.com/sol3/Delivery.cfm/5133376.pdf?abstractid=5133376&mirid=1` (if eligible `agenticgenai`/`workforcedevelopment`); NOT `suggestedcitation`/`pagesposted`
++
++**F. OA wrong-work swap — expect `article_or_degrade`:**
++- oa_swap ev_349 `https://doi.org/10.9728/dcs.2025.26.12.3433` (if eligible `innovationstrategies`/`ecosystemcompanies`); NOT `reveliolabs` (banked swapped-in wrong work)
++
++## Oracle (harness-owned; NEVER import the production predicate — I-wire-013 independence)
++- squash / contains_any / contains_none (substring on squashed).
++- front_matter_structural(quote): (≥3 dot-leader-then-page lines regex `\.{3,}\s*[ivxlcdm\d]{1,5}\b`) OR (`редакционнаяколлегия`) OR (`tableofcontents`) OR (`editorialboard` AND `issn`). Co-signals — a lone `содержание` must NOT fire (real poultry prose has "содержание белка").
++- global collision: group ELIGIBLE quotes by squash; two cases with different DOIs sharing one squash → FAIL both `container_collision`.
++- distinct_group: within a group every eligible pair must differ after squash.
++Eligible = quote ≥200 chars. Verdict per class: article=PASS iff failure_mode=='' AND eligible AND contains_any AND contains_none AND NOT front_matter_structural (fetch_failed/timeout/exception→UNREACHABLE, blocks green but labeled honestly; else FAIL). article_or_degrade / recover_or_disclose = PASS as above else DEGRADED_OK on {wrong_content_front_matter,fetch_shell,paywall_shell,thin_content,fetch_failed,timeout} else FAIL. no_front_matter_span = PASS iff failure_mode=='wrong_content_front_matter' OR (eligible AND contains_none AND NOT front_matter_structural AND contains_any-where-listed); DEGRADED_OK other refusals; FAIL iff front-matter span adopted. refused = PASS iff NOT eligible; FAIL iff eligible.
++
++## Fan-out / isolation
++ThreadPoolExecutor(PG_HARNESS_MAX_PARALLEL default 12; use 6 if the main pipeline is mid-run). Per case future.result(PG_HARNESS_CASE_TIMEOUT_S=240); total PG_HARNESS_TOTAL_TIMEOUT_S=900. ~4–6 min for 22. First-class: `--only <case|ev>` (seconds), `--rerun-failures <results.json>`, `--list`, `--url <u> --expect <cls> --contains <stem>`.
++
++## Output / exit
++Console + report.md + results.json. Every FAIL quotes the first 300 chars of the offending span (repr) — the span text IS the proof (§-1.1, never a count). results.json per case: url, expect, verdict, failure_mode, access_method, raw_char_count, elapsed, quote head, each check bool. Exit: 0 green (no FAIL/UNREACHABLE), 1 any FAIL/UNREACHABLE, 2 VOID (flags off/key missing), 3 internal.
++
++## Flag-gate refusal (can't fake a pass)
++At startup assert pdf_cited_work_slice_enabled(), span_cited_work_screen_enabled()+cited_span_shell_detect_enabled(), PG_REFETCH_FULL_BODY not falsey, PG_DISABLE_ACCESS_BYPASS!=1, ZYTE_API_KEY non-empty. Any off → print "RESULT VOID — FIX FLAGS OFF", write no PASS, exit 2. Flag states stamped into report header + results.json.
++
++## Fast fix-loop
++Run full set on VM (~5 min) → read report.md fails (quoted bad span + failure_mode + access method) → `--only <case>` with INFO logging, read trace (`[B1-DOI]`,`[ACCESS]`,`[refetch_for_extraction]`,`[B1-FURNITURE]`) → surgical fix in src/ (detector vocab / anchor mapping / screen wiring — never a cap) → `--rerun-failures` (~1–2 min) → repeat. GREEN = 0 FAIL + all 4 good controls PASS in the SAME run → only THEN authorize the full pipeline. Day-one RED targets: isg committee-list (no detector), Auspicia Czech masthead (`obsah` missing), dgpu journal-page-vs-PDF-index anchor offset (content fingerprint catches offset errors), hubs (no fetch-side hub signal), voced challenge (step H unbuilt).
++
++## Run on VM
++`ssh -p 20988 root@ssh9.vast.ai`, `cd /workspace/POLARIS && set -a && . .env && set +a && PYTHONIOENCODING=utf-8 PYTHONPATH=/workspace/POLARIS python3 scripts/fetch_cited_content_harness.py`. §8.4: PG_HARNESS_MAX_PARALLEL=6 if main run active; leave PG_CLINICAL_PDF_EXTRACTOR unset unless mineru confirmed up. No mocks (live net is the point); oracle unit tests are the only offline part, use real banked span strings as fixtures.
+diff --git a/config/fetch_harness_cases.yaml b/config/fetch_harness_cases.yaml
+new file mode 100644
+index 00000000..be5bcde3
+--- /dev/null
++++ b/config/fetch_harness_cases.yaml
+@@ -0,0 +1,169 @@
++# Fetch cited-content harness — labeled case set (I-deepfix-004 / Fable design 2026-07-09).
++#
++# Each case is a REAL, verified URL. `expect` is the class the oracle grades against:
++#   article              — must return the cited article (breaking a good control FAILS the harness)
++#   article_or_degrade   — real article text via recovery, or an honest degrade
++#   recover_or_disclose  — real text via Zyte, or an honest refusal (never delivery chrome)
++#   no_front_matter_span — must NOT adopt a cover/TOC/masthead/committee-list span
++#   refused              — a hub/landing/error shell must be refused (not eligible)
++#
++# `contains` / `not_contains` are span fingerprints. They are stored ALREADY SQUASHED
++# (NFKD -> strip marks -> casefold -> letters+digits only); the harness squashes again
++# at load (idempotent). `contains` is ANY-match; `not_contains` is a banned-head list.
++# `doi` / `group` feed the cross-work collision + distinct-group oracles.
++
++cases:
++  # ── A. Good controls — expect `article` (breaking these FAILS the harness) ──
++  - name: good_arxiv_html
++    ev: ev_752
++    url: https://arxiv.org/html/2503.00079v1
++    expect: article
++    contains: [ailiteracy]
++
++  - name: good_feds_note
++    ev: ev_508
++    url: https://www.federalreserve.gov/econres/notes/feds-notes/ai-adoption-and-firms-job-posting-behavior-20260327.html
++    expect: article
++    contains: [jobposting]
++
++  - name: good_oa_pdf_nber
++    ev: ev_023
++    url: https://www.nber.org/system/files/working_papers/w31161/w31161.pdf
++    expect: article
++    contains: [generativeaiatwork, brynjolfsson]
++
++  - name: good_oecd_fullreport
++    ev: ev_590
++    url: https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-the-labour-market-introduction_ea35d1c5.html
++    expect: article
++    contains: [broecke, employmentoutlook2023]
++
++  # ── B. Combined-PDF w/ page anchor — expect `article` (B must RECOVER; degrade = FAIL) ──
++  - name: dgpu_sport_managers
++    ev: ev_664
++    url: https://doi.org/10.58224/2658-5286-2026-9-2-203-210
++    doi: 10.58224/2658-5286-2026-9-2-203-210
++    group: dgpu_reb_9_2
++    expect: article
++    contains: [спортивныхменеджеров, волонтерск, карьерныхтраекторий]
++
++  - name: dgpu_poultry
++    ev: ev_700
++    url: https://doi.org/10.58224/2658-5286-2026-9-2-87-95
++    doi: 10.58224/2658-5286-2026-9-2-87-95
++    group: dgpu_reb_9_2
++    expect: article
++    contains: [птицепродуктов, птицеводств]
++
++  - name: ecsoc_parinov
++    ev: ev_232
++    url: https://doi.org/10.17323/1726-3247-2025-5-53-86
++    doi: 10.17323/1726-3247-2025-5-53-86
++    expect: article
++    contains: [институциональн, паринов]
++    not_contains: [социальныйпортреткластеров]
++
++  # ── C. No-anchor multi-work containers — expect `no_front_matter_span` ──
++  - name: dgpu_whole_issue
++    url: https://doi.org/10.58224/2658-5286-2025-8-5
++    doi: 10.58224/2658-5286-2025-8-5
++    expect: no_front_matter_span
++    not_contains: [редакционнаяколлегия]
++
++  - name: naukarus_japan
++    ev: ev_487
++    url: https://doi.org/10.34660/inf.2024.42.58.280
++    doi: 10.34660/inf.2024.42.58.280
++    group: naukarus_sco
++    expect: no_front_matter_span
++    contains: [distributionnetworks, kharlanov]
++
++  - name: naukarus_food
++    ev: ev_490
++    url: https://doi.org/10.34660/inf.2024.63.64.277
++    doi: 10.34660/inf.2024.63.64.277
++    group: naukarus_sco
++    expect: no_front_matter_span
++    contains: [foodexports, chinesemarket, razumnova]
++
++  - name: isg_2026
++    ev: ev_470
++    url: https://doi.org/10.46299/isg.2026.1.10
++    doi: 10.46299/isg.2026.1.10
++    group: isg
++    expect: no_front_matter_span
++    not_contains: [marchenkodmytro]
++
++  - name: isg_2025
++    ev: ev_358
++    url: https://doi.org/10.46299/isg.2025.2.9
++    doi: 10.46299/isg.2025.2.9
++    group: isg
++    expect: no_front_matter_span
++    not_contains: [marchenkodmytro]
++
++  - name: auspicia_energy
++    ev: ev_624
++    url: https://doi.org/10.36682/a_2025_2_4
++    doi: 10.36682/a_2025_2_4
++    group: auspicia
++    expect: no_front_matter_span
++    contains: [energysecurity, invasionofukraine, kovacova]
++    not_contains: [recenzovanyvedeckycasopis]
++
++  - name: auspicia_2
++    ev: ev_599
++    url: https://doi.org/10.36682/a_2025_2_5
++    doi: 10.36682/a_2025_2_5
++    group: auspicia
++    expect: no_front_matter_span
++    not_contains: [recenzovanyvedeckycasopis]
++
++  # ── D. Hub/landing/error shells — expect `refused` (PASS iff not eligible) ──
++  - name: hub_hbr
++    ev: ev_527
++    url: https://hbr.org/topic/subject/generative-ai
++    expect: refused
++
++  - name: hub_oecd
++    ev: ev_726
++    url: https://www.oecd.org/en/topics/policy-issues/future-of-work.html
++    expect: refused
++
++  - name: hub_voced
++    ev: ev_734
++    url: https://www.voced.edu.au/focus-ai-and-education-and-employment
++    expect: refused
++
++  - name: challenge_voced
++    url: https://www.voced.edu.au/challenge?destination=%2Ffocus-ai-and-education-and-employment
++    expect: refused
++
++  - name: quora
++    ev: ev_337
++    url: https://www.quora.com/What-is-the-potential-impact-of-generative-AI-on-individual-workers-activities
++    expect: refused
++
++  # ── E. Paywalled — expect `recover_or_disclose` (real text via Zyte OR honest refusal) ──
++  - name: ssrn_1
++    ev: ev_398
++    url: https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
++    expect: recover_or_disclose
++    contains: [labormarketeffectsofgenerative, hartley]
++    not_contains: [suggestedcitation, pagesposted]
++
++  - name: ssrn_2
++    ev: ev_747
++    url: https://papers.ssrn.com/sol3/Delivery.cfm/5133376.pdf?abstractid=5133376&mirid=1
++    expect: recover_or_disclose
++    contains: [agenticgenai, workforcedevelopment]
++    not_contains: [suggestedcitation, pagesposted]
++
++  # ── F. OA wrong-work swap — expect `article_or_degrade` ──
++  - name: oa_swap
++    ev: ev_349
++    url: https://doi.org/10.9728/dcs.2025.26.12.3433
++    doi: 10.9728/dcs.2025.26.12.3433
++    expect: article_or_degrade
++    contains: [innovationstrategies, ecosystemcompanies]
++    not_contains: [reveliolabs]
+diff --git a/scripts/fetch_cited_content_harness.py b/scripts/fetch_cited_content_harness.py
+new file mode 100644
+index 00000000..65cf8c3a
+--- /dev/null
++++ b/scripts/fetch_cited_content_harness.py
+@@ -0,0 +1,513 @@
++#!/usr/bin/env python3
++"""Fast fetch cited-content harness (I-deepfix-004 / Fable design 2026-07-09).
++
++Proves in ~5 min (parallel) whether the fetch/search module returns the CITED
++article for a labeled set of real URLs — replacing the hours-long full-pipeline
++loop. It exercises ONE production seam:
++
++    ``refetch_for_extraction_with_diagnostics(url, max_chars)`` (live_retriever)
++
++which runs the whole chain (``_fetch_content`` -> AccessBypass cascade -> DOI
++redirect / ``#page`` anchor / fitz page-slice / Zyte / PDF extractors ->
++``clean_fetch_body`` -> fetch-shell screen -> step-D front-matter screen ->
++provenance quote) and returns ``(quote, diagnostics)``.
++
++The verdict oracle here is HARNESS-OWNED and INDEPENDENT: it NEVER imports the
++production predicate under test (``is_issue_front_matter`` / shell detectors) —
++I-wire-013 independence, so a production regression cannot mask itself. The
++oracle re-derives front-matter / collision structure from its own rules.
++
++Exit codes: 0 green (no FAIL / UNREACHABLE), 1 any FAIL / UNREACHABLE,
++2 VOID (a required fix-flag is OFF or ZYTE_API_KEY is empty — no PASS is ever
++written), 3 internal harness error.
++
++No mocks: the live network IS the test (§-1.1 — the span text is the proof,
++never a count). The only offline part is ``tests/.../test_fetch_harness_oracle.py``,
++which unit-tests the oracle functions below against the real banked span heads.
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import re
++import sys
++import time
++import unicodedata
++from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Callable, Iterable, Optional
++
++import yaml
++
++# Make ``src`` importable when run directly (sys.path[0] is scripts/, not root).
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
++
++_CASES_PATH = _REPO_ROOT / "config" / "fetch_harness_cases.yaml"
++_OUTPUT_ROOT = _REPO_ROOT / "outputs" / "fetch_harness"
++
++# ── Verdict labels ──────────────────────────────────────────────────────────
++PASS = "PASS"
++FAIL = "FAIL"
++UNREACHABLE = "UNREACHABLE"
++DEGRADED_OK = "DEGRADED_OK"
++VOID = "VOID"
++
++# ── Oracle tuning (harness-owned; deliberately distinct from production) ─────
++ELIGIBLE_MIN_CHARS = 200            # a quote < 200 chars is a refusal, not a span
++ORACLE_DOT_LEADER_MIN = 3           # >=3 dot-leader TOC lines => front matter
++GOOD_CONTROLS = (
++    "good_arxiv_html", "good_feds_note", "good_oa_pdf_nber", "good_oecd_fullreport",
++)
++# Failure modes that mean "could not reach the source" (block green for `article`).
++_UNREACHABLE_MODES = frozenset({"fetch_failed", "timeout", "exception"})
++# Failure modes that are an HONEST degrade for `article_or_degrade` /
++# `recover_or_disclose` (recover-or-disclose, never a silent wrong span).
++_DEGRADE_OK_MODES = frozenset({
++    "wrong_content_front_matter", "fetch_shell", "paywall_shell",
++    "thin_content", "fetch_failed", "timeout",
++})
++
++# Dot-leader run (three-or-more dots) then a page number — the canonical TOC line
++# shape, robust to space-collapsed single-line PDF extraction. Runs on RAW text
++# (squash strips the dots). High precision: never occurs in real article prose.
++_ORACLE_DOT_LEADER_RE = re.compile(r"\.{3,}\s*[ivxlcdm\d]{1,5}\b", re.IGNORECASE)
++
++
++# ── Oracle primitives (pure; imported by the offline unit tests) ────────────
++def squash(text: Optional[str]) -> str:
++    """NFKD -> strip combining marks -> casefold -> keep letters+digits only.
++
++    Survives PDF hyphen-breaks, diacritics, case, and whitespace. Idempotent, so
++    the yaml fingerprints (already squashed) can be squashed again at load time.
++    """
++    if not text:
++        return ""
++    nfkd = unicodedata.normalize("NFKD", text)
++    no_marks = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
++    return "".join(ch for ch in no_marks.casefold() if ch.isalnum())
++
++
++def contains_any(squashed_text: str, needles: Iterable[str]) -> bool:
++    """True iff ANY squashed needle is a substring. Empty needle-set => True
++    (vacuous — ``contains_any-where-listed`` per the design)."""
++    needle_list = [n for n in (needles or []) if n]
++    if not needle_list:
++        return True
++    return any(n in squashed_text for n in needle_list)
++
++
++def contains_none(squashed_text: str, forbidden: Iterable[str]) -> bool:
++    """True iff NO squashed forbidden fingerprint is a substring. Empty => True."""
++    return not any(f in squashed_text for f in (forbidden or []) if f)
++
++
++def front_matter_structural(quote: Optional[str]) -> bool:
++    """INDEPENDENT front-matter detector (does NOT import the production predicate).
++
++    Fires on any one high-precision signal:
++      1. >= ORACLE_DOT_LEADER_MIN dot-leader-then-page TOC lines (on RAW text).
++      2. Cyrillic editorial-board masthead (``редакционная коллегия``).
++      3. ``table of contents``.
++      4. ``editorial board`` AND an ``issn`` marker co-occur.
++
++    Deliberately does NOT fire on a lone ``содержание`` — real poultry-article
++    prose ("содержание белка" = protein content) carries that word.
++    """
++    raw = quote or ""
++    if len(_ORACLE_DOT_LEADER_RE.findall(raw)) >= ORACLE_DOT_LEADER_MIN:
++        return True
++    sq = squash(raw)
++    if "редакционнаяколлегия" in sq:
++        return True
++    if "tableofcontents" in sq:
++        return True
++    if "editorialboard" in sq and "issn" in sq:
++        return True
++    return False
++
++
++def _work_id(case: dict) -> str:
++    """Cited-WORK identity for the collision oracle: DOI when present, else URL."""
++    doi = str(case.get("doi") or "").strip().lower()
++    if doi:
++        return f"doi:{doi}"
++    return "url:" + str(case.get("url") or "").strip().lower()
++
++
++def identical_span_collision(entries: list[dict]) -> set[str]:
++    """Global content-identity collision: group ELIGIBLE entries by squashed span;
++    any group whose entries cite >= 2 DIFFERENT works (DOIs/URLs) is a single
++    multi-article CONTAINER blob laundered into distinct citations — FAIL them all.
++
++    ``entries`` are dicts with keys: name, work_id, squashed_quote, eligible.
++    Returns the set of flagged case names.
++    """
++    by_span: dict[str, list[dict]] = {}
++    for e in entries:
++        if not e.get("eligible") or not e.get("squashed_quote"):
++            continue
++        by_span.setdefault(e["squashed_quote"], []).append(e)
++    flagged: set[str] = set()
++    for group in by_span.values():
++        works = {e["work_id"] for e in group}
++        if len(works) >= 2:
++            flagged.update(e["name"] for e in group)
++    return flagged
++
++
++def group_distinctness_violations(entries: list[dict]) -> set[str]:
++    """Within each declared ``distinct_group``, every ELIGIBLE pair must differ
++    after squash. Two same-group entries sharing a squashed span are the same
++    laundered blob — flag them. Returns the set of flagged case names."""
++    by_group: dict[str, list[dict]] = {}
++    for e in entries:
++        grp = e.get("group")
++        if not grp or not e.get("eligible") or not e.get("squashed_quote"):
++            continue
++        by_group.setdefault(grp, []).append(e)
++    flagged: set[str] = set()
++    for members in by_group.values():
++        seen: dict[str, str] = {}
++        for e in members:
++            sq = e["squashed_quote"]
++            if sq in seen and seen[sq] != e["name"]:
++                flagged.add(e["name"])
++                flagged.add(seen[sq])
++            seen.setdefault(sq, e["name"])
++    return flagged
++
++
++# ── Per-class verdict ───────────────────────────────────────────────────────
++def verdict_for(expect: str, quote: str, diag: dict, case: dict) -> tuple[str, dict]:
++    """Return (verdict, checks). Pure — depends only on the quote/diagnostics and
++    the case labels, never on the production predicate."""
++    fm = diag.get("failure_mode", "") or ""
++    sq = squash(quote)
++    eligible = len(quote or "") >= ELIGIBLE_MIN_CHARS
++    c_any = contains_any(sq, case.get("contains_squashed") or [])
++    c_none = contains_none(sq, case.get("not_contains_squashed") or [])
++    fms = front_matter_structural(quote)
++    checks = {
++        "eligible": eligible, "contains_any": c_any,
++        "contains_none": c_none, "front_matter_structural": fms,
++    }
++    article_pass = (fm == "" and eligible and c_any and c_none and not fms)
++    has_positive = bool(case.get("contains_squashed"))
++
++    if expect == "article":
++        if article_pass:
++            return PASS, checks
++        if fm in _UNREACHABLE_MODES:
++            return UNREACHABLE, checks
++        return FAIL, checks
++
++    if expect in ("article_or_degrade", "recover_or_disclose"):
++        if article_pass:
++            return PASS, checks
++        if fm in _DEGRADE_OK_MODES:
++            return DEGRADED_OK, checks
++        return FAIL, checks
++
++    if expect == "no_front_matter_span":
++        if fm == "wrong_content_front_matter":
++            return PASS, checks           # production screen caught it — best case
++        if eligible:
++            if fms or not c_none:
++                return FAIL, checks       # adopted a cover / TOC / masthead / banned head
++            if has_positive and not c_any:
++                return FAIL, checks       # adopted a non-front-matter but wrong-work span
++            return PASS, checks           # recovered a real non-front-matter span
++        return DEGRADED_OK, checks        # honest refusal — no bad span adopted
++
++    if expect == "refused":
++        return (FAIL if eligible else PASS), checks
++
++    return FAIL, checks                   # unknown expect class => fail loud
++
++
++# ── Flag gate (can't fake a pass) ───────────────────────────────────────────
++def _falsey(value: Optional[str]) -> bool:
++    return (value or "").strip().lower() in ("0", "false", "off", "no", "disabled")
++
++
++def check_flags() -> tuple[bool, dict]:
++    """Assert every fix-flag is ON and ZYTE_API_KEY is present. Returns
++    (ok, flag_states). Any OFF => not ok => the caller writes RESULT VOID."""
++    from src.tools.access_bypass import pdf_cited_work_slice_enabled
++    from src.polaris_graph.retrieval.shell_detector import (
++        cited_span_shell_detect_enabled, span_cited_work_screen_enabled,
++    )
++    states = {
++        "pdf_cited_work_slice_enabled": bool(pdf_cited_work_slice_enabled()),
++        "span_cited_work_screen_enabled": bool(span_cited_work_screen_enabled()),
++        "cited_span_shell_detect_enabled": bool(cited_span_shell_detect_enabled()),
++        "PG_REFETCH_FULL_BODY_on": not _falsey(os.environ.get("PG_REFETCH_FULL_BODY", "1")),
++        "PG_DISABLE_ACCESS_BYPASS_off": os.environ.get("PG_DISABLE_ACCESS_BYPASS", "0") != "1",
++        "ZYTE_API_KEY_present": bool((os.environ.get("ZYTE_API_KEY") or "").strip()),
++    }
++    return all(states.values()), states
++
++
++def _load_seam() -> Callable[..., tuple[str, dict]]:
++    from src.polaris_graph.retrieval.live_retriever import (
++        refetch_for_extraction_with_diagnostics,
++    )
++    return refetch_for_extraction_with_diagnostics
++
++
++# ── Case loading ────────────────────────────────────────────────────────────
++def load_cases(path: Path = _CASES_PATH) -> list[dict]:
++    """Load + normalize the labeled cases. Squashes every fingerprint at load
++    (idempotent) so the oracle compares like-for-like."""
++    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
++    cases: list[dict] = []
++    for entry in raw.get("cases", []):
++        case = dict(entry)
++        case["contains_squashed"] = [squash(x) for x in (entry.get("contains") or [])]
++        case["not_contains_squashed"] = [squash(x) for x in (entry.get("not_contains") or [])]
++        cases.append(case)
++    return cases
++
++
++def _select(cases: list[dict], only: Optional[list[str]]) -> list[dict]:
++    if not only:
++        return cases
++    wanted = {w.strip() for chunk in only for w in chunk.split(",") if w.strip()}
++    sel = [c for c in cases if c.get("name") in wanted or str(c.get("ev") or "") in wanted]
++    return sel
++
++
++# ── Run one case ────────────────────────────────────────────────────────────
++def run_case(case: dict, seam: Callable[..., tuple[str, dict]], quote_max: int) -> dict:
++    start = time.monotonic()
++    try:
++        quote, diag = seam(case["url"], max_chars=quote_max)
++    except Exception as exc:               # seam-level exception -> honest failure
++        quote, diag = "", {
++            "failure_mode": "exception", "exception_type": type(exc).__name__,
++            "method": "none", "raw_char_count": 0,
++        }
++    elapsed = round(time.monotonic() - start, 2)
++    verdict, checks = verdict_for(case["expect"], quote, diag, case)
++    return {
++        "name": case["name"],
++        "ev": case.get("ev", ""),
++        "url": case["url"],
++        "doi": case.get("doi", ""),
++        "group": case.get("group", ""),
++        "expect": case["expect"],
++        "verdict": verdict,
++        "failure_mode": diag.get("failure_mode", "") or "",
++        "access_method": diag.get("method", "none"),
++        "raw_char_count": int(diag.get("raw_char_count", 0) or 0),
++        "elapsed_s": elapsed,
++        "quote_head": (quote or "")[:300],
++        "quote_len": len(quote or ""),
++        "checks": checks,
++        "work_id": _work_id(case),
++        "squashed_quote": squash(quote),
++        "eligible": checks["eligible"],
++        "collision_reason": "",
++    }
++
++
++def run_all(cases: list[dict], max_parallel: int, case_timeout: int,
++            total_timeout: int, quote_max: int) -> list[dict]:
++    seam = _load_seam()
++    results: dict[str, dict] = {}
++    deadline = time.monotonic() + total_timeout
++    with ThreadPoolExecutor(max_workers=max_parallel) as pool:
++        futures = {pool.submit(run_case, c, seam, quote_max): c for c in cases}
++        for fut, case in futures.items():
++            remaining = max(1, min(case_timeout, int(deadline - time.monotonic())))
++            try:
++                results[case["name"]] = fut.result(timeout=remaining)
++            except FutureTimeout:
++                results[case["name"]] = {
++                    "name": case["name"], "ev": case.get("ev", ""), "url": case["url"],
++                    "doi": case.get("doi", ""), "group": case.get("group", ""),
++                    "expect": case["expect"], "verdict": UNREACHABLE,
++                    "failure_mode": "timeout", "access_method": "none",
++                    "raw_char_count": 0, "elapsed_s": float(case_timeout),
++                    "quote_head": "", "quote_len": 0,
++                    "checks": {"eligible": False, "contains_any": False,
++                               "contains_none": True, "front_matter_structural": False},
++                    "work_id": _work_id(case), "squashed_quote": "",
++                    "eligible": False, "collision_reason": "",
++                }
++    ordered = [results[c["name"]] for c in cases]
++    _apply_collisions(ordered)
++    return ordered
++
++
++def _apply_collisions(results: list[dict]) -> None:
++    """Override to FAIL any case whose eligible span collides across works
++    (global) or within its distinct-group. Mutates results in place."""
++    flagged = identical_span_collision(results) | group_distinctness_violations(results)
++    for r in results:
++        if r["name"] in flagged and r["verdict"] in (PASS, DEGRADED_OK):
++            r["verdict"] = FAIL
++            r["collision_reason"] = "container_collision"
++
++
++# ── Reporting ───────────────────────────────────────────────────────────────
++def _summarize(results: list[dict]) -> dict:
++    tally: dict[str, int] = {}
++    for r in results:
++        tally[r["verdict"]] = tally.get(r["verdict"], 0) + 1
++    good_pass = all(
++        any(r["name"] == g and r["verdict"] == PASS for r in results)
++        for g in GOOD_CONTROLS
++    )
++    no_fail = not any(r["verdict"] in (FAIL, UNREACHABLE) for r in results)
++    return {"tally": tally, "good_controls_all_pass": good_pass, "no_fail": no_fail,
++            "authorize_full_pipeline": no_fail and good_pass}
++
++
++def write_outputs(results: list[dict], flag_states: dict, run_dir: Path) -> dict:
++    run_dir.mkdir(parents=True, exist_ok=True)
++    summary = _summarize(results)
++    payload = {
++        "generated_utc": datetime.now(timezone.utc).isoformat(),
++        "flag_states": flag_states,
++        "summary": summary,
++        "cases": results,
++    }
++    (run_dir / "results.json").write_text(
++        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
++
++    lines = [
++        "# Fetch cited-content harness report",
++        f"generated_utc: {payload['generated_utc']}",
++        "",
++        "## Flag states",
++    ]
++    for k, v in flag_states.items():
++        lines.append(f"- {k}: {v}")
++    lines += [
++        "",
++        "## Summary",
++        f"- tally: {summary['tally']}",
++        f"- all 4 good controls PASS: {summary['good_controls_all_pass']}",
++        f"- no FAIL / UNREACHABLE: {summary['no_fail']}",
++        f"- AUTHORIZE full pipeline: {summary['authorize_full_pipeline']}",
++        "",
++        "## Cases",
++    ]
++    for r in results:
++        lines.append(
++            f"- [{r['verdict']}] {r['name']} ({r['ev'] or '-'}) expect={r['expect']} "
++            f"mode={r['failure_mode'] or 'ok'} via={r['access_method']} "
++            f"chars={r['raw_char_count']} {r['elapsed_s']}s"
++            + (f" collision={r['collision_reason']}" if r["collision_reason"] else "")
++        )
++    fails = [r for r in results if r["verdict"] in (FAIL, UNREACHABLE)]
++    if fails:
++        lines += ["", "## FAIL / UNREACHABLE — offending span heads (first 300 chars)"]
++        for r in fails:
++            lines.append(f"\n### {r['name']} [{r['verdict']}] mode={r['failure_mode'] or 'ok'}")
++            lines.append(f"checks={r['checks']}")
++            lines.append(f"span={r['quote_head']!r}")
++    (run_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
++    return summary
++
++
++# ── CLI ─────────────────────────────────────────────────────────────────────
++def _build_url_case(url: str, expect: str, contains: Optional[list[str]]) -> dict:
++    stems: list[str] = []
++    for chunk in (contains or []):
++        stems.extend(s for s in chunk.split(",") if s.strip())
++    return {
++        "name": "adhoc_url", "url": url, "expect": expect,
++        "contains": stems, "not_contains": [],
++        "contains_squashed": [squash(s) for s in stems], "not_contains_squashed": [],
++    }
++
++
++def main(argv: Optional[list[str]] = None) -> int:
++    ap = argparse.ArgumentParser(description="Fetch cited-content harness")
++    ap.add_argument("--only", action="append", help="case name(s) or ev id(s), comma-ok")
++    ap.add_argument("--rerun-failures", metavar="RESULTS_JSON",
++                    help="rerun only FAIL/UNREACHABLE cases from a prior results.json")
++    ap.add_argument("--list", action="store_true", help="list cases and exit")
++    ap.add_argument("--url", help="ad-hoc single URL (needs --expect)")
++    ap.add_argument("--expect", help="expect class for --url")
++    ap.add_argument("--contains", action="append", help="fingerprint stem(s) for --url")
++    args = ap.parse_args(argv)
++
++    try:
++        all_cases = load_cases()
++    except Exception as exc:               # noqa: BLE001 — surface load errors as exit 3
++        print(f"RESULT ERROR - could not load cases: {exc}", file=sys.stderr)
++        return 3
++
++    if args.list:
++        for c in all_cases:
++            print(f"{c['name']:<22} {c['expect']:<20} {c.get('ev', '-'):<8} {c['url']}")
++        return 0
++
++    if args.url:
++        if not args.expect:
++            print("ERROR: --url requires --expect", file=sys.stderr)
++            return 3
++        cases = [_build_url_case(args.url, args.expect, args.contains)]
++    elif args.rerun_failures:
++        try:
++            prior = json.loads(Path(args.rerun_failures).read_text(encoding="utf-8"))
++        except Exception as exc:           # noqa: BLE001
++            print(f"RESULT ERROR - bad --rerun-failures file: {exc}", file=sys.stderr)
++            return 3
++        fail_names = {c["name"] for c in prior.get("cases", [])
++                      if c.get("verdict") in (FAIL, UNREACHABLE)}
++        cases = [c for c in all_cases if c["name"] in fail_names]
++    else:
++        cases = _select(all_cases, args.only)
++
++    if not cases:
++        print("ERROR: no cases selected", file=sys.stderr)
++        return 3
++
++    ok, flag_states = check_flags()
++    if not ok:
++        off = [k for k, v in flag_states.items() if not v]
++        print(f"RESULT VOID - FIX FLAGS OFF: {off}", file=sys.stderr)
++        return 2
++
++    max_parallel = _env_int("PG_HARNESS_MAX_PARALLEL", 12)
++    case_timeout = _env_int("PG_HARNESS_CASE_TIMEOUT_S", 240)
++    total_timeout = _env_int("PG_HARNESS_TOTAL_TIMEOUT_S", 900)
++    quote_max = _env_int("PG_HARNESS_QUOTE_MAX", 2000)
++
++    try:
++        results = run_all(cases, max_parallel, case_timeout, total_timeout, quote_max)
++    except Exception as exc:               # noqa: BLE001 — harness bug, not a data FAIL
++        print(f"RESULT ERROR - harness crashed: {exc}", file=sys.stderr)
++        return 3
++
++    run_dir = _OUTPUT_ROOT / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
++    summary = write_outputs(results, flag_states, run_dir)
++
++    for r in results:
++        print(f"[{r['verdict']:<11}] {r['name']:<22} expect={r['expect']:<20} "
++              f"mode={r['failure_mode'] or 'ok'}")
++    print(f"\ntally={summary['tally']}  good_controls_all_pass="
++          f"{summary['good_controls_all_pass']}  "
++          f"authorize={summary['authorize_full_pipeline']}")
++    print(f"report: {run_dir / 'report.md'}")
++    return 0 if summary["no_fail"] else 1
++
++
++def _env_int(name: str, default: int) -> int:
++    try:
++        value = int(os.environ.get(name, default) or default)
++    except (TypeError, ValueError):
++        return default
++    return value if value > 0 else default
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/polaris_graph/test_fetch_harness_oracle.py b/tests/polaris_graph/test_fetch_harness_oracle.py
+new file mode 100644
+index 00000000..915ce8e9
+--- /dev/null
++++ b/tests/polaris_graph/test_fetch_harness_oracle.py
+@@ -0,0 +1,275 @@
++"""Offline unit tests for the fetch cited-content harness oracle
++(I-deepfix-004 / Fable design 2026-07-09).
++
++These are the ONLY offline part of the harness (the live network IS the rest of
++the test). They exercise the HARNESS-OWNED oracle — squash / contains / the
++INDEPENDENT front_matter_structural detector / the cross-work collision +
++distinct-group screens / the per-class verdict — against the REAL banked span
++heads named in the design doc. No network, no mocks, no production predicate.
++
++The harness is loaded by file path (scripts/ is not a package); its heavy seam
++and flag imports are lazy, so importing it here stays offline and cheap.
++"""
++from __future__ import annotations
++
++import importlib.util
++from pathlib import Path
++
++import pytest
++
++_HARNESS_PATH = Path(__file__).resolve().parents[2] / "scripts" / "fetch_cited_content_harness.py"
++_spec = importlib.util.spec_from_file_location("fetch_cited_content_harness", _HARNESS_PATH)
++h = importlib.util.module_from_spec(_spec)
++_spec.loader.exec_module(h)
++
++
++# ── squash: survives PDF hyphen-breaks, diacritics, case, whitespace ────────
++def test_squash_survives_pdf_hyphen_break():
++    # A PDF line-wrap hyphenates "generative" and inserts a newline; squash must
++    # reunite it so the fingerprint still matches the unbroken title form.
++    assert h.squash("Gener-\native AI at Work") == "generativeaiatwork"
++    assert h.squash("Generative AI at Work") == "generativeaiatwork"
++    assert h.squash("gener-  ative  ai  at  work") == "generativeaiatwork"
++
++
++def test_squash_strips_diacritics():
++    # Czech + Icelandic diacritics fold to ASCII; the real Auspicia masthead and
++    # the NBER author name must squash to their fingerprint stems.
++    assert h.squash("Kováčová") == "kovacova"
++    assert h.squash("Recenzovaný vědecký časopis") == "recenzovanyvedeckycasopis"
++    assert h.squash("Brynjólfsson") == "brynjolfsson"
++
++
++def test_squash_is_idempotent():
++    for token in ("ailiteracy", "редакционнаяколлегия", "employmentoutlook2023"):
++        assert h.squash(token) == token
++
++
++def test_squash_preserves_cyrillic_letters_and_digits():
++    assert h.squash("СОДЕРЖАНИЕ") == "содержание"
++    assert h.squash("ISSN 2658-5286") == "issn26585286"
++    assert h.squash("") == ""
++    assert h.squash(None) == ""
++
++
++# ── front_matter_structural: fires on real front matter, not on article prose ──
++def test_front_matter_fires_on_editorial_board_masthead():
++    # Real dgpu-class Russian journal masthead head.
++    body = "РЕДАКЦИОННАЯ КОЛЛЕГИЯ\nГлавный редактор ... Заместитель главного редактора ..."
++    assert h.front_matter_structural(body) is True
++
++
++def test_front_matter_fires_on_dot_leader_toc():
++    toc = (
++        "Introduction ........... 5\n"
++        "Methods ................. 12\n"
++        "Results ................. 20\n"
++        "Discussion .............. 28\n"
++    )
++    assert h.front_matter_structural(toc) is True
++
++
++def test_front_matter_fires_on_table_of_contents_and_issn_masthead():
++    assert h.front_matter_structural("Table of Contents\n1. First article ...") is True
++    assert h.front_matter_structural("Editorial Board\nISSN 2658-5286\nEditor-in-Chief") is True
++
++
++def test_front_matter_does_not_fire_on_lone_soderzhanie():
++    # A lone "СОДЕРЖАНИЕ" (contents) heading must NOT trip the oracle — it is a
++    # co-signal, not a standalone one (the production is_issue_front_matter needs
++    # ISSN + vocab; the independent oracle drops содержание entirely).
++    assert h.front_matter_structural("СОДЕРЖАНИЕ") is False
++    assert h.front_matter_structural("Содержание") is False
++
++
++def test_front_matter_does_not_fire_on_poultry_protein_prose():
++    # Real poultry-article prose: "содержание белка" == "protein content". This is
++    # the exact false-positive the design forbids.
++    prose = (
++        "Содержание белка в мясе птицепродуктов составляет важный показатель "
++        "качества. Птицеводство обеспечивает высокое содержание белка."
++    )
++    assert h.front_matter_structural(prose) is False
++
++
++def test_front_matter_does_not_fire_on_good_article_head():
++    head = (
++        "This paper studies AI literacy among workers and job posting behavior. "
++        "We find generative AI at work shifts task composition substantially."
++    )
++    assert h.front_matter_structural(head) is False
++
++
++def test_front_matter_editorial_board_needs_issn_cosignal():
++    # "editorial board" alone (no ISSN) must not fire; two dot-leaders (< 3) must not fire.
++    assert h.front_matter_structural("Editorial Board of the Society") is False
++    assert h.front_matter_structural("A ...... 5\nB ...... 9") is False
++
++
++# ── contains_any / contains_none semantics ──────────────────────────────────
++def test_contains_any_and_none_semantics():
++    sq = h.squash("Generative AI at Work by Erik Brynjolfsson")
++    assert h.contains_any(sq, ["generativeaiatwork", "nomatch"]) is True
++    assert h.contains_any(sq, ["nomatch"]) is False
++    assert h.contains_any(sq, []) is True            # vacuous where no list
++    assert h.contains_none(sq, ["reveliolabs"]) is True
++    assert h.contains_none(sq, ["brynjolfsson"]) is False
++    assert h.contains_none(sq, []) is True
++
++
++# ── The 4 good-control fingerprints match their real source-form heads ──────
++@pytest.mark.parametrize("name, natural_head, fingerprints", [
++    ("good_arxiv_html",
++     "This work measures AI literacy across the workforce.",
++     ["ailiteracy"]),
++    ("good_feds_note",
++     "AI Adoption and Firms' Job Posting Behavior, FEDS Notes.",
++     ["jobposting"]),
++    ("good_oa_pdf_nber",
++     "Generative AI at Work. Erik Brynjolfsson, Danielle Li, Lindsey Raymond.",
++     ["generativeaiatwork", "brynjolfsson"]),
++    ("good_oecd_fullreport",
++     "Artificial intelligence and the labour market, by Stijn Broecke, "
++     "OECD Employment Outlook 2023.",
++     ["broecke", "employmentoutlook2023"]),
++])
++def test_good_control_fingerprints_match_source_form(name, natural_head, fingerprints):
++    sq = h.squash(natural_head)
++    assert h.contains_any(sq, fingerprints) is True, name
++    # A good-control article head is NEVER front matter.
++    assert h.front_matter_structural(natural_head) is False, name
++
++
++def test_good_control_fingerprints_present_in_yaml():
++    cases = {c["name"]: c for c in h.load_cases()}
++    for name in h.GOOD_CONTROLS:
++        assert name in cases, name
++        assert cases[name]["expect"] == "article"
++        assert cases[name]["contains_squashed"], name
++
++
++# ── collision: 2 different DOIs sharing one squashed span => FAIL both ───────
++def test_identical_span_collision_flags_two_dois_same_blob():
++    # ev_664 & ev_700 today share the identical first-article head "физическое
++    # развитие …" under TWO different DOIs (2 articles, 1 blob) — the 31x-dgpu
++    # false-corroboration signature.
++    shared = h.squash("Физическое развитие и физическая подготовленность студентов вузов")
++    entries = [
++        {"name": "dgpu_sport_managers", "work_id": "doi:a", "squashed_quote": shared, "eligible": True},
++        {"name": "dgpu_poultry", "work_id": "doi:b", "squashed_quote": shared, "eligible": True},
++    ]
++    assert h.identical_span_collision(entries) == {"dgpu_sport_managers", "dgpu_poultry"}
++
++
++def test_identical_span_collision_ignores_same_work_duplicate():
++    shared = h.squash("Same article body cited twice under one DOI")
++    entries = [
++        {"name": "a", "work_id": "doi:same", "squashed_quote": shared, "eligible": True},
++        {"name": "b", "work_id": "doi:same", "squashed_quote": shared, "eligible": True},
++    ]
++    assert h.identical_span_collision(entries) == set()
++
++
++def test_identical_span_collision_ignores_unique_and_ineligible():
++    entries = [
++        {"name": "a", "work_id": "doi:a", "squashed_quote": "uniquea", "eligible": True},
++        {"name": "b", "work_id": "doi:b", "squashed_quote": "uniqueb", "eligible": True},
++        {"name": "c", "work_id": "doi:c", "squashed_quote": "shared", "eligible": False},
++        {"name": "d", "work_id": "doi:d", "squashed_quote": "shared", "eligible": False},
++    ]
++    assert h.identical_span_collision(entries) == set()
++
++
++def test_group_distinctness_violation_within_group():
++    shared = h.squash("committee list marchenko dmytro editorial")
++    entries = [
++        {"name": "isg_2026", "group": "isg", "squashed_quote": shared, "eligible": True},
++        {"name": "isg_2025", "group": "isg", "squashed_quote": shared, "eligible": True},
++        {"name": "other", "group": "auspicia", "squashed_quote": "distinct", "eligible": True},
++    ]
++    assert h.group_distinctness_violations(entries) == {"isg_2026", "isg_2025"}
++
++
++# ── per-class verdict ───────────────────────────────────────────────────────
++def _case(expect, contains=None, not_contains=None, doi="", group=""):
++    return {
++        "name": "t", "url": "u", "expect": expect, "doi": doi, "group": group,
++        "contains_squashed": [h.squash(x) for x in (contains or [])],
++        "not_contains_squashed": [h.squash(x) for x in (not_contains or [])],
++    }
++
++
++def test_verdict_article_pass_and_fail():
++    good = "AI literacy shapes how workers adopt generative tools. " * 6
++    v, _ = h.verdict_for("article", good, {"failure_mode": ""}, _case("article", ["ailiteracy"]))
++    assert v == h.PASS
++    # Wrong span (fingerprint absent) but eligible => FAIL.
++    wrong = "An unrelated body of text about weather patterns and rainfall. " * 6
++    v2, _ = h.verdict_for("article", wrong, {"failure_mode": ""}, _case("article", ["ailiteracy"]))
++    assert v2 == h.FAIL
++
++
++def test_verdict_article_unreachable_on_fetch_failure():
++    v, _ = h.verdict_for("article", "", {"failure_mode": "fetch_failed"}, _case("article", ["x"]))
++    assert v == h.UNREACHABLE
++
++
++def test_verdict_no_front_matter_pass_on_production_screen():
++    v, _ = h.verdict_for(
++        "no_front_matter_span", "",
++        {"failure_mode": "wrong_content_front_matter"},
++        _case("no_front_matter_span", not_contains=["редакционнаяколлегия"]),
++    )
++    assert v == h.PASS
++
++
++def test_verdict_no_front_matter_fail_when_masthead_span_adopted():
++    masthead = "РЕДАКЦИОННАЯ КОЛЛЕГИЯ главный редактор заместитель редакции журнала. " * 4
++    v, checks = h.verdict_for(
++        "no_front_matter_span", masthead, {"failure_mode": ""},
++        _case("no_front_matter_span", not_contains=["редакционнаяколлегия"]),
++    )
++    assert v == h.FAIL
++    assert checks["front_matter_structural"] is True
++    assert checks["contains_none"] is False
++
++
++def test_verdict_refused_pass_when_not_eligible():
++    v, _ = h.verdict_for("refused", "short hub blurb", {"failure_mode": "fetch_shell"},
++                         _case("refused"))
++    assert v == h.PASS
++    # A hub that leaked a full eligible body is a FAIL.
++    big = "x" * 300
++    v2, _ = h.verdict_for("refused", big, {"failure_mode": ""}, _case("refused"))
++    assert v2 == h.FAIL
++
++
++def test_verdict_recover_or_disclose_degrades_honestly():
++    v, _ = h.verdict_for("recover_or_disclose", "", {"failure_mode": "paywall_shell"},
++                         _case("recover_or_disclose", ["hartley"], ["suggestedcitation"]))
++    assert v == h.DEGRADED_OK
++
++
++# ── case set loads, is complete, and is well-formed ─────────────────────────
++def test_case_set_loads_all_22_expected_classes():
++    cases = h.load_cases()
++    assert len(cases) == 22
++    valid_classes = {
++        "article", "article_or_degrade", "recover_or_disclose",
++        "no_front_matter_span", "refused",
++    }
++    names = set()
++    for c in cases:
++        assert c["url"].startswith("http"), c["name"]
++        assert c["expect"] in valid_classes, c["name"]
++        assert c["name"] not in names, "duplicate case name"
++        names.add(c["name"])
++    # Class tallies per the design (A4 + B3 + C7 + D5 + E2 + F1).
++    tally: dict[str, int] = {}
++    for c in cases:
++        tally[c["expect"]] = tally.get(c["expect"], 0) + 1
++    assert tally["article"] == 7            # 4 good controls + 3 combined-PDF
++    assert tally["no_front_matter_span"] == 7
++    assert tally["refused"] == 5
++    assert tally["recover_or_disclose"] == 2
++    assert tally["article_or_degrade"] == 1
