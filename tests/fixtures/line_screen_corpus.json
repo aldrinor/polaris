@@ -1,0 +1,69 @@
+{
+  "question": "Please write a literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market and how AI is affecting various industries.",
+  "domain": "workforce",
+  "slug": "line_screen_fixture",
+  "run_id": "fixture_line_screen",
+  "schema_version": 1,
+  "stage": "pre_generation",
+  "retrieval": {},
+  "section_drafts": {},
+  "evidence_for_gen": [
+    {
+      "evidence_id": "mixed_wef_page",
+      "title": "Technological Innovation | World Economic Forum",
+      "tier": "T2",
+      "source_url": "https://www.weforum.org/about/the-fourth-industrial-revolution",
+      "query_origin": "impact of AI on the labor market fourth industrial revolution",
+      "direct_quote": "# Technological Innovation | World Economic Forum\nWe use cookies to improve your experience. Accept all cookies to continue.\n* [Consent](https://www.weforum.org/#) [Details](https://www.weforum.org/#)\nArtificial intelligence is a key driver of the Fourth Industrial Revolution, reshaping how work is organized across manufacturing, services, and knowledge industries.\nAutomation of routine cognitive tasks has displaced some clerical roles while creating demand for data and oversight roles.\nSubscribe to our newsletter for the latest World Economic Forum reports.\nStudies of firm-level adoption find that AI complements high-skill labor and substitutes for a subset of mid-skill routine tasks.",
+      "statement": "Technological Innovation | World Economic Forum"
+    },
+    {
+      "evidence_id": "clean_journal_paper",
+      "title": "Automation and New Tasks: How Technology Displaces and Reinstates Labor",
+      "tier": "T1",
+      "source_url": "https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.33.2.3",
+      "query_origin": "automation task displacement reinstatement labor demand",
+      "direct_quote": "We present a framework for understanding the effects of automation on labor demand and use it to interpret changes in US employment.\nAt the center of our framework is the allocation of tasks to capital and labor and how new technologies change that allocation.\nAutomation displaces labor from tasks it previously performed, exerting downward pressure on wages and employment.\nThe reinstatement effect creates new labor-intensive tasks that raise the demand for labor and can offset displacement.",
+      "statement": "Automation and New Tasks: How Technology Displaces and Reinstates Labor"
+    },
+    {
+      "evidence_id": "offsubject_stamped",
+      "title": "Spinal cord stimulation for chronic pain: a systematic review",
+      "tier": "T1",
+      "source_url": "https://example.org/spinal-cord-stimulation",
+      "query_origin": "spinal cord stimulation chronic pain outcomes",
+      "topic_off_subject": true,
+      "direct_quote": "Spinal cord stimulation is a neuromodulation therapy used for chronic neuropathic pain.\nThe systematic review pooled twelve randomized trials of dorsal column stimulation.\nPain relief at twelve months favored stimulation over conventional medical management.",
+      "statement": "Spinal cord stimulation for chronic pain: a systematic review"
+    },
+    {
+      "evidence_id": "marquee_anchor_chrome",
+      "title": "Required entity anchor source",
+      "tier": "T3",
+      "source_url": "https://anchor.example.org/entity",
+      "is_marquee": true,
+      "query_origin": "required_entity_retrieval anchor",
+      "direct_quote": "We use cookies to improve your experience. Accept all cookies to continue.\nSubscribe to our newsletter. Sign in to your account.\nSkip to main content. Share on social media. Watch later.",
+      "statement": "Required entity anchor source"
+    },
+    {
+      "evidence_id": "dated_2019_paper",
+      "title": "Early evidence on AI and employment, 2019",
+      "tier": "T1",
+      "source_url": "https://example.org/ai-employment-2019",
+      "query_origin": "AI adoption employment early evidence",
+      "pub_date": "2019-05-01",
+      "direct_quote": "This 2019 study examines early firm adoption of machine learning and its association with employment growth.\nFirms adopting AI reported reallocation of workers toward non-routine analytical tasks.\nThe results are descriptive and predate large-language-model diffusion.",
+      "statement": "Early evidence on AI and employment, 2019"
+    },
+    {
+      "evidence_id": "undated_paper",
+      "title": "AI and labor demand: a conceptual synthesis",
+      "tier": "T1",
+      "source_url": "https://example.org/ai-labor-synthesis",
+      "query_origin": "AI labor demand conceptual synthesis",
+      "direct_quote": "This synthesis integrates task-based models of AI and labor demand across industries.\nIt argues that the net employment effect depends on the balance of displacement and reinstatement.\nIndustry heterogeneity shapes which occupations are most exposed to automation.",
+      "statement": "AI and labor demand: a conceptual synthesis"
+    }
+  ]
+}
