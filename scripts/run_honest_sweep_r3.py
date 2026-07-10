@@ -12964,6 +12964,39 @@ async def run_one_query(
                 except Exception:  # noqa: BLE001 — no predicate => no furniture flag (fail-open)
                     _b1_furniture_screen_on = False
                     _b1_is_furniture_dominant = None
+                # I-deepfix-004 D (RESUME WIRING, 2026-07-09) — extend the A15 degraded
+                # predicate with the cited-work span screen so a banked row whose stored
+                # span is journal-issue FRONT-MATTER (cover / TOC / masthead) OR whose
+                # evidence_id is in the pool-level identical-span COLLISION set (one issue
+                # PDF cited under ≥2 distinct DOIs = the 31x dgpu false corroboration) is
+                # ALSO flagged degraded and re-fetched through the SAME step-B sliced
+                # extractor to RECOVER the real cited article — REPAIRING the current banked
+                # corpus in place. READ-ONLY reuse of shell_detector.is_issue_front_matter +
+                # identical_span_collision (never forked, LAW V). Gated STRICTLY on the
+                # default-ON PG_SPAN_CITED_WORK_SCREEN: OFF => the screen is never consulted
+                # => NO extra rows flagged => byte-identical. Isolated try/except so a step-D
+                # import error never perturbs the existing A15 detection (fail-open: no
+                # front-matter/collision flag). §-1.3 recover→degrade→disclose: a flagged
+                # row is RE-FETCHED then, if unrecovered, kept as a DISCLOSED degraded row —
+                # NEVER deleted.
+                _d_span_screen_on = False
+                _d_is_front_matter = None
+                _d_collision_eids: set = set()
+                try:
+                    from src.polaris_graph.retrieval.shell_detector import (  # noqa: PLC0415
+                        identical_span_collision as _d_collision,
+                        is_issue_front_matter as _d_is_front_matter,
+                        span_cited_work_screen_enabled as _d_screen_enabled,
+                    )
+                    _d_span_screen_on = _d_screen_enabled()
+                    if _d_span_screen_on:
+                        _d_collision_eids = _d_collision(
+                            [_r for _r in evidence_for_gen if isinstance(_r, dict)]
+                        )
+                except Exception:  # noqa: BLE001 — no predicate => no wrong-content flag (fail-open)
+                    _d_span_screen_on = False
+                    _d_is_front_matter = None
+                    _d_collision_eids = set()
                 _a15_stale_rows: list[str] = []
                 _a15_degraded_dicts: list[dict] = []
                 for _row in evidence_for_gen:
@@ -12973,6 +13006,21 @@ async def run_one_query(
                     _grounding = (
                         _row.get("direct_quote") or _row.get("statement") or ""
                     )
+                    # I-deepfix-004 D: wrong-CONTENT verdict for THIS banked row — its
+                    # stored span is journal-issue FRONT-MATTER, OR its evidence_id is in
+                    # the pool-level identical-span COLLISION set (a multi-work container
+                    # blob laundered into ≥2 distinct citations). Fail-open: screen OFF or
+                    # any detector error => False (never flags).
+                    _d_wrong_content = False
+                    if _d_span_screen_on:
+                        try:
+                            _d_wrong_content = (
+                                (_d_is_front_matter is not None
+                                 and bool(_d_is_front_matter(_grounding)))
+                                or (str(_eid) in _d_collision_eids)
+                            )
+                        except Exception:  # noqa: BLE001 — fail-open: never flag on detector error
+                            _d_wrong_content = False
                     _is_degraded = (
                         bool(_row.get("content_starved"))
                         or bool(_row.get("fetch_failed"))
@@ -12983,6 +13031,7 @@ async def run_one_query(
                             screen_on=_b1_furniture_screen_on,
                             is_dominant_fn=_b1_is_furniture_dominant,
                         )
+                        or _d_wrong_content
                     )
                     if _is_degraded:
                         _a15_stale_rows.append(str(_eid))
@@ -12990,6 +13039,13 @@ async def run_one_query(
                         # FLAG the row so a downstream refresh / composition layer can see it needs a
                         # re-fetch (additive key; asserts nothing, drops nothing).
                         _row["resume_refresh_pending"] = True
+                        # I-deepfix-004 D: stamp wrong_content_span on rows the cited-work
+                        # span screen flagged (front-matter / identical-span container) so
+                        # disclosure + compose see the wrong-CONTENT reason distinctly. The
+                        # row is RE-FETCHED (recover) then, if unrecovered, kept as a
+                        # DISCLOSED degraded row — §-1.3 NEVER deleted. Additive key.
+                        if _d_wrong_content:
+                            _row["wrong_content_span"] = True
                 if _a15_stale_rows:
                     _log(
                         f"[resume]      A15 refresh: {len(_a15_stale_rows)} reloaded row(s) are "

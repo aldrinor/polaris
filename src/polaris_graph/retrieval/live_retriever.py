@@ -3208,9 +3208,13 @@ def refetch_for_extraction_with_diagnostics(
           eligible: bool — True iff quote was emitted (≥100 chars)
           failure_mode: str — one of:
             '' (eligible), 'exception', 'fetch_failed',
-            'thin_content', 'paywall_shell', 'fetch_shell'
+            'thin_content', 'paywall_shell', 'fetch_shell',
+            'wrong_content_front_matter'
             ('fetch_shell' = clean_fetch_body reported the whole body is a
-            boilerplate/interstitial shell — not extractable, not cited)
+            boilerplate/interstitial shell — not extractable, not cited;
+            'wrong_content_front_matter' = I-deepfix-004 D: the cleaned body is
+            a journal-issue cover/TOC/masthead, not the cited article — an A15
+            recovery must NEVER adopt a front-matter span as the cited work)
           exception_type: str — class name when failure_mode=exception
     """
     diagnostics: dict[str, Any] = {
@@ -3329,6 +3333,25 @@ def refetch_for_extraction_with_diagnostics(
                 (url or "")[:200], _cf.shell_reason, len(content),
             )
             diagnostics["failure_mode"] = "fetch_shell"
+            return "", diagnostics  # failure (settled in finally)
+        # I-deepfix-004 D (step 1): an A15 recovery re-fetch must NEVER adopt a
+        # journal-issue COVER / TABLE-OF-CONTENTS / MASTHEAD span as the cited
+        # article. AFTER clean_fetch_body, if the default-ON cited-work span screen
+        # (``PG_SPAN_CITED_WORK_SCREEN``) confirms the cleaned body is issue
+        # FRONT-MATTER (structural TOC dot-leader density OR ISSN masthead + contents
+        # vocab), route it to the SAME EXISTING not-extractable failure branch used for
+        # a fetch shell (return "" with a diagnostic failure_mode) — recover→degrade→
+        # disclose, NEVER a DROP of the source (the caller keeps the row as a disclosed
+        # degraded gap). Fail-open: the screen OFF or any detector error => skipped =>
+        # byte-identical. Adds NO new cap/threshold; consumes the EXISTING early-return.
+        if _span_is_issue_front_matter(content):
+            logger.info(
+                "[refetch_for_extraction] front-matter rejected url=%s len=%d → "
+                "not-extractable (A15 recovery must not adopt a cover/TOC/masthead span "
+                "as the cited article; §-1.3 recover→degrade→disclose, source kept)",
+                (url or "")[:200], len(content),
+            )
+            diagnostics["failure_mode"] = "wrong_content_front_matter"
             return "", diagnostics  # failure (settled in finally)
         quote = _build_provenance_quote(
             content, head_chars=min(_PROVENANCE_HEAD_CHARS_CAP, max_chars),
@@ -4496,6 +4519,27 @@ def _is_access_denial_stub(content: str) -> bool:
     short-body ceiling stays governed by ``PG_ACCESS_DENIAL_MAX_CHARS`` — byte-identical to the
     prior inline implementation."""
     return shell_detector.is_access_denial_stub(content, max_chars=_ACCESS_DENIAL_MAX_CHARS)
+
+
+def _span_is_issue_front_matter(content: str) -> bool:
+    """I-deepfix-004 D — fail-open wrapper around the cited-work FRONT-MATTER screen
+    (``shell_detector.is_issue_front_matter``), gated by the default-ON
+    ``PG_SPAN_CITED_WORK_SCREEN`` (``shell_detector.span_cited_work_screen_enabled``).
+
+    True iff the screen is ON AND ``content`` (a cited SPAN / fetched body) is a
+    journal-issue COVER / TABLE-OF-CONTENTS / MASTHEAD rather than the cited article's
+    prose (structural TOC dot-leader density OR ISSN masthead + contents vocab). The
+    screen OFF, or ANY detector/import error, returns ``False`` (skip) so the OFF path
+    is byte-identical and a detector fault NEVER breaks retrieval. DETECTS only — a True
+    verdict routes the span into the EXISTING recover→degrade→disclose branch, NEVER a
+    DROP of the source (§-1.3: never delete a credible on-topic source; only the wrong
+    SPAN is unusable for grounding)."""
+    try:
+        if not shell_detector.span_cited_work_screen_enabled():
+            return False
+        return bool(shell_detector.is_issue_front_matter(content))
+    except Exception:  # noqa: BLE001 — fail-open: any detector error => skip the screen
+        return False
 
 
 def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
@@ -7186,6 +7230,21 @@ def run_live_retrieval(
                 and (not _is_landing)
                 and _is_citation_metadata_shell(content)
             )
+            # I-deepfix-004 D (step 2): a cited SPAN that is journal-issue FRONT-MATTER
+            # (cover / TOC / masthead) is wrong-CONTENT — right topic, right journal, but
+            # NOT the cited article. Route it into the SAME EXISTING degraded re-fetch /
+            # down-weight / disclose branch as a starved/landing/shell row (§-1.3:
+            # recover→degrade→disclose, NEVER a DROP). Disjoint from the other signals
+            # (only flagged when NOT already starved/landing/shell) so the telemetry stays
+            # clean. Fail-open via ``_span_is_issue_front_matter``: the screen OFF
+            # (``PG_SPAN_CITED_WORK_SCREEN`` off) or any detector error => False => never
+            # computed into the union => byte-identical.
+            _is_front_matter = (
+                (not _starved)
+                and (not _is_landing)
+                and (not _is_shell)
+                and _span_is_issue_front_matter(content)
+            )
             # I-deepfix-001 (Codex P1 #2): tracks whether the forced re-fetch below upgraded a
             # degraded stub to full text. A recovered row is a NORMAL full-text row, so the stale
             # classification-time ``tier_result.fetch_degraded`` must NOT be propagated onto it
@@ -7220,7 +7279,7 @@ def run_live_retrieval(
             # would MISS it). Reusing the fetch layer's settled ok=False here is
             # NOT a new cap — it is the same stub decision already made upstream.
             if (
-                _starved or _is_landing or _is_shell or not ok
+                _starved or _is_landing or _is_shell or _is_front_matter or not ok
             ) and _refetch_degraded_enabled() and not _wall_rescue_mode:
                 _refetched = _try_refetch_degraded_row(
                     cand.url, DEFAULT_CONTENT_MAX_CHARS,
