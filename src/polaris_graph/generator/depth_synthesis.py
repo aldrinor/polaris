@@ -862,7 +862,11 @@ async def _synthesize_one_basket(
         m for m in _dechrome_distinct_origin_supports(basket, log_drops=False)
         if not _compose_junk_screen(str(getattr(m, "direct_quote", "") or ""))
     ]
-    if len(members) < min_corroboration():
+    # C2: when single-source synthesis is active (C1 + PG_SYNTH_SINGLE_SOURCE both on), a 1-member basket
+    # IS drafted (labeled "(single source)" downstream, never dropped). OFF => the DEFINITIONAL >=2 floor
+    # holds (byte-identical: a single-member basket is not drafted).
+    _draft_floor = 1 if single_source_synthesis_active() else min_corroboration()
+    if len(members) < _draft_floor:
         return ""
     prompt = _build_synthesis_prompt(basket, members, evidence_pool)
     if not prompt:
@@ -914,6 +918,10 @@ async def depth_synthesis_pre_pass(
     # `min_sources` so the two-tier guarantee holds even if that knob is raised. `min_sources` is
     # accepted for back-compat but never widens the boundary above 2.
     floor = _CROSS_SOURCE_MIN_ORIGINS
+    # C2: single-source synthesis lowers the pre-pass DRAFT eligibility to 1 (a 1-origin basket is drafted
+    # and labeled "(single source)" downstream, never dropped) when C1 + PG_SYNTH_SINGLE_SOURCE are both
+    # on. OFF => the DEFINITIONAL >=2 floor holds (byte-identical: single-member baskets are not drafted).
+    eligibility_floor = 1 if single_source_synthesis_active() else floor
     model = _resolve_model()
     max_tokens, reasoning_max_tokens = _resolve_token_budget()
     max_tokens = max(1, max_tokens)
@@ -930,7 +938,7 @@ async def depth_synthesis_pre_pass(
     eligible = [
         b for b in (baskets or [])
         if str(getattr(b, "claim_cluster_id", "") or "")
-        and len(_dechrome_distinct_origin_supports(b)) >= floor
+        and len(_dechrome_distinct_origin_supports(b)) >= eligibility_floor
     ]
     out: dict = {}
     if not eligible:
