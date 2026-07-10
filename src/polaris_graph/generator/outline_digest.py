@@ -931,6 +931,32 @@ def _spec_get(spec: Any, key: str, default: Any) -> Any:
     return getattr(spec, key, default)
 
 
+def assert_unique_required_sections(required_sections: Any) -> None:
+    """Fix 7 (P3): a user deliverable spec listing the SAME required section title twice — even
+    case-insensitively, or differing only by surrounding whitespace — is DEGENERATE input. It would
+    be silently lossy downstream: the title-keyed ``by_title`` (last-wins) and ``section_results``
+    would drop one section's evidence with no trace. Fail LOUD here with a disclosed error that names
+    the collision, rather than losing a section silently (§-1.3 fail-loud-never-silent).
+
+    Question-agnostic: it compares the caller's own titles to each other and hardcodes no title.
+    Empty / single / all-distinct required_sections => no-op (byte-identical to before)."""
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for t in (required_sections or []):
+        key = str(t).strip().lower()
+        if not key:
+            continue
+        if key in seen:
+            dupes.append(str(t))
+        else:
+            seen.add(key)
+    if dupes:
+        raise ValueError(
+            "duplicate required_sections (case-insensitive) in the deliverable spec — degenerate "
+            "input, refusing to silently drop a section's evidence: " + repr(sorted(set(dupes)))
+        )
+
+
 def build_requirements_block(
     deliverable: Any = None,
     scope: Any = None,
@@ -944,6 +970,9 @@ def build_requirements_block(
     downstream regardless.
     """
     required_sections = list(_spec_get(deliverable, "required_sections", []) or [])
+    # fix 7 (P3): reject duplicate required titles at the source (fail loud), before the outline
+    # prompt is built — a case-insensitive dup would silently lose one section's evidence downstream.
+    assert_unique_required_sections(required_sections)
     audience = str(_spec_get(deliverable, "audience", "") or "").strip()
     tone = str(_spec_get(deliverable, "tone", "") or "").strip()
     reference_style = str(_spec_get(deliverable, "reference_style", "") or "").strip()

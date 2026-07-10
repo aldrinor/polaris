@@ -182,6 +182,16 @@ def parse_revision_ops(
     reason code (the op is dropped, the round is not aborted). Unparseable / shape-invalid input
     => ``parse_failed`` with zero ops (caller keeps wave-1 — fail-open to the existing good
     result; the reviser can only improve or no-op, never lose a report).
+
+    ONE-ROUND PROTOCOL LIMIT (fix 4, P3 — DOCUMENTED, not a two-pass title space): existing-section
+    titles are validated against the ORIGINAL ``plan_titles`` ONLY. A ``reassign``/``retitle`` (or a
+    ``merge`` source) whose target section was CREATED by an earlier ``add``/``merge``/``split`` in
+    the SAME op list is therefore REJECTED as ``unknown_title`` — and, symmetrically, apply's
+    ``by_title`` never gains the mid-list added sections, so even an accepted chain could not resolve.
+    The reviser MUST NOT chain "create a section, then target that new section" within a single
+    round; express such intent across the bounded revise rounds (``PG_OUTLINE_REVISE_ROUNDS``, hard
+    max 2). This limit is DISCLOSED (the chained op becomes a rejected fail-open no-op, never a silent
+    loss); it is intentionally not a two-pass title space, to keep the apply order deterministic.
     """
     if isinstance(raw, str):
         try:
@@ -393,6 +403,7 @@ def apply_revision_ops(
     max_recompose_cap: int | None = None,
     outcomes: Sequence[SectionOutcome] | None = None,
     required_titles: Sequence[str] | None = None,
+    ev_id_to_basket: Mapping[str, str] | None = None,
 ) -> RevisionApplyResult:
     """Apply validated ops deterministically and return the new plan set + the recompose set.
 
@@ -407,6 +418,12 @@ def apply_revision_ops(
     ``keep``/``reassign`` may run (they preserve the exact-N-in-order contract); ``merge``/
     ``split``/``add``/``retitle`` are DEFERRED as disclosed no-ops so the structure cannot break,
     and the assembled order stays the required order. ``None``/empty => no restriction (unchanged).
+
+    ``ev_id_to_basket`` (fix 5, P3): the digest's member ev_id -> basket id map. When provided,
+    ``split`` children get their ``basket_ids`` backfilled by the SAME deterministic rule the plan
+    stage uses (each child basket_id = the baskets its ev_ids belong to), so the cp4 plan record is
+    consistent instead of emitting empty child baskets. ``None``/absent => children carry
+    ``basket_ids: []`` (byte-identical to before; compose re-derives baskets from ev_ids regardless).
 
     Item 4: an op whose target title was already consumed by an earlier op (merged/split away, or
     retitled) is skipped as a disclosed no-op (never a ghost recompose title); retitled sections are
@@ -537,10 +554,19 @@ def apply_revision_ops(
             for child in op["into"]:
                 ct = str(child["title"])
                 child_ev = sorted({str(e) for e in (child.get("ev_ids", []) or [])})
+                # fix 5 (P3): partition the parent's baskets across children by member-intersection,
+                # via the SAME deterministic ev_id -> basket backfill the plan stage uses (each ev_id
+                # maps to exactly one basket). ``ev_id_to_basket`` None/absent => [] (byte-identical to
+                # before; compose re-derives baskets from ev_ids regardless). §-1.3: never a drop.
+                child_baskets = (
+                    sorted({ev_id_to_basket[e] for e in child_ev if e in ev_id_to_basket})
+                    if ev_id_to_basket else []
+                )
                 added_plans.append({
                     "title": ct, "focus": str(child.get("focus", "")),
                     "ev_ids": child_ev,
-                    "basket_ids": [], "archetype": "split", "undersupplied": not child_ev,
+                    "basket_ids": child_baskets, "archetype": "split",
+                    "undersupplied": not child_ev,
                 })
                 live_lower.add(_ci(ct))
                 recompose.append(ct)

@@ -46,6 +46,8 @@ from src.polaris_graph.generator.outline_digest import (  # noqa: E402
     PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT,
     _build_alias_map,
     _is_chrome_interstitial,
+    _is_weight_demoted,
+    assert_unique_required_sections,
     build_outline_digest,
     build_requirements_block,
     dedup_plan_ev_ids_by_work,
@@ -240,7 +242,15 @@ def _mode_apply_dry(bank: dict) -> int:
         for t in ((bank.get("deliverable") or {}).get("required_sections", []) or [])
         if str(t).strip()
     ]
-    applied = apply_revision_ops(plans, parsed, outcomes=outcomes, required_titles=_required)
+    # fix 5 (P3): thread the ev_id -> basket map (built from the bank's basket_members) so a split
+    # op's children get their basket_ids backfilled by the SAME rule the plan stage uses. Absent
+    # basket_members => None => children keep basket_ids=[] (byte-identical to before).
+    _bm = bank.get("basket_members", {}) or {}
+    _ev2b = {str(e): str(bid) for bid, members in _bm.items() for e in (members or [])}
+    applied = apply_revision_ops(
+        plans, parsed, outcomes=outcomes, required_titles=_required,
+        ev_id_to_basket=(_ev2b or None),
+    )
 
     print("\n=== APPLY RESULT ===")
     print(f"[parse] accepted={len(parsed.ops)} rejected={len(parsed.rejected)} "
@@ -301,6 +311,10 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     domain = str(bank.get("domain", ""))
     same_work_groups = bank.get("same_work_groups")  # PUSH A: cp3 payload shape (may be None)
     required = [str(t).strip() for t in ((deliverable or {}).get("required_sections", []) or [])]
+    # fix 7 (P3): fail loud on a degenerate duplicate required title BEFORE the expensive live outline
+    # call — a case-insensitive dup would silently drop one section's evidence at compose (by_title
+    # last-wins). Same predicate the requirements-block builder uses; question-agnostic.
+    assert_unique_required_sections(required)
 
     # Rebuild the digest ONCE (deterministic, identical to _call_outline's own build) to derive the
     # basket corroboration/member maps used by the orphan check + the coverage cross-read. PUSH A:
@@ -343,7 +357,13 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     alias_of = _build_alias_map(same_work_groups, evidence)
     plan_work_folds: list[dict] = []
     folded_alias_ev_ids: set[str] = set()
+    # P2-1 (fix 2): capture each section's PRE-fold anchor ev_ids BEFORE the same-work fold below, so
+    # the INFORMATIVE per-section distinct-work fraction (the planner's RAW anchoring behaviour) can be
+    # computed. The POST-fold fraction is ~1.0 by construction (the fold makes anchors distinct-by-
+    # work), so grading acceptance on it is tautological — the pre-fold fraction is the real signal.
+    pre_fold_anchor_ev_ids: list[list[str]] = []
     for _p in plans:
+        pre_fold_anchor_ev_ids.append([str(x) for x in (_p.ev_ids or [])])
         _canon, _folded = dedup_plan_ev_ids_by_work(_p.ev_ids or [], alias_of)
         if _folded:
             plan_work_folds.append({"section": str(_p.title), "folded": _folded})
@@ -427,6 +447,46 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         _seen_work[_wk] = _entry
         unassigned_high_tier.append(_entry)
 
+    # P1 (fix 1 — dark-basket disclosure gap): find_orphan_baskets(min=2) above only flags
+    # multi-WORK unassigned baskets. A SINGLE-work multi-row basket (work_corroboration==1) whose
+    # rows are basket members — NOT singletons (they live in menu.ev_id_to_basket) — that reaches NO
+    # section therefore falls through BOTH the orphan list AND the unassigned-singleton list, and the
+    # cp4 note's "every pool member is accounted for" claim was FALSE for those rows (32 of 66 baskets
+    # this run). Compute the COMPLETE unassigned-basket set by the SAME reachability rule the S5
+    # router uses (route_orphan_baskets_to_section_plans, verified_compose.py — it thresholds NOTHING
+    # on corroboration): a basket is unassigned iff it is on NO plan's basket_ids AND none of its
+    # members is an assigned ev_id. Disclose EVERY such basket; the work_corroboration>=2 ones are
+    # already in orphan_reassign_candidates (find_orphan_baskets(min=2), kept untouched for the
+    # reviser uncovered-baskets checklist), so the REMAINDER go to a parallel list. §-1.3: DISCLOSURE
+    # ONLY — zero plan mutation, no drop. Each entry mirrors an orphan candidate's shape.
+    assigned_basket_ids = {str(b) for p in plans for b in (getattr(p, "basket_ids", []) or [])}
+    _final_orphans_set = set(final_orphans)
+    unassigned_single_work_baskets: list[dict] = []
+    for _bid in menu.basket_member_ev_ids:
+        _members = [str(m) for m in basket_members.get(_bid, [])]
+        if _bid in assigned_basket_ids:
+            continue                                   # covered by the basket_ids backfill
+        if set(_members) & assigned_ev_ids:
+            continue                                   # reachable via an assigned member ev_id
+        if _bid in _final_orphans_set:
+            continue                                   # already an orphan_reassign_candidate (corr>=2)
+        unassigned_single_work_baskets.append({
+            "basket_id": _bid,
+            "members": _members,
+            "work_corroboration": int(basket_corroboration.get(_bid, 0)),
+            "disposition": "reassign_candidate",
+            # same all-members fail-open rule as the orphan candidates: "off_subject" ONLY when EVERY
+            # member is affirmatively judge-confirmed off-topic; any uncertainty => "unjudged" (KEEP).
+            "topic_verdict": (
+                "off_subject"
+                if (_members and all(
+                    _row_topic_verdict(row_by_id.get(m, {})) == "off_subject" for m in _members))
+                else "unjudged"
+            ),
+            # chrome disclosure (§-1.3.1(a)) — DELETION stays with the S5/junk gate; None otherwise.
+            "content_flag": ("chrome_interstitial" if menu.basket_chrome.get(_bid) else None),
+        })
+
     # each surviving orphan basket + every unassigned high-tier singleton is DISCLOSED here as a
     # reassign candidate — DISCLOSURE ONLY, zero plan mutation (§-1.3 consolidate, never dropped).
     revision_audit = {
@@ -459,6 +519,11 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         ],
         "unassigned_singletons_count": len(unassigned_singletons),
         "unassigned_high_tier": unassigned_high_tier,
+        # P1 (fix 1): the COMPLETE remainder of unassigned baskets (single-work / low-corroboration)
+        # not already disclosed in orphan_reassign_candidates — so EVERY unassigned basket in the pool
+        # is named here + reaches the S5 router (which thresholds nothing on corroboration).
+        "unassigned_single_work_baskets": unassigned_single_work_baskets,
+        "unassigned_single_work_basket_count": len(unassigned_single_work_baskets),
         # item 14: same-work anchor folds per section (canonical kept, aliases disclosed) — §-1.3
         # consolidate; the folded aliases remain in the pool/bibliography, never dropped.
         "plan_work_folds": plan_work_folds,
@@ -474,6 +539,15 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
             "PG_OUTLINE_REVISE_ROUNDS=1 exercised LIVE at the compose stage (rounds=0 here in plan "
             "mode is correct) — its firing is an explicit S5 acceptance criterion; do not let the "
             "revise loop fall silently between section loops.",
+            # P1 (fix 1) S5 hand-off contract: the unassigned_single_work_baskets above (every "
+            # remaining unassigned basket, regardless of work_corroboration) MUST also reach "
+            # route_orphan_baskets_to_section_plans — the router thresholds NOTHING on corroboration "
+            # (verified_compose.py:3598), so a single-work basket is routed by the same title+focus "
+            # overlap rule as a multi-work orphan (keep-all residual otherwise). Disclose "
+            # routed_single_work_basket_count alongside routed_basket_count.
+            "unassigned_single_work_baskets (work_corroboration<2) MUST reach "
+            "route_orphan_baskets_to_section_plans in the S5 compose slate — the router thresholds "
+            "nothing on corroboration; disclose routed_single_work_basket_count.",
         ],
         "note": ("orphan baskets AND unassigned high-tier singletons are routed to section plans at "
                  "COMPOSE via PG_ROUTE_ALL_BASKETS (verified_compose.py "
@@ -487,15 +561,25 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
                  "otherwise), DELETING only judge-CONFIRMED off-topic items before routing "
                  "(disclosed) — uncertainty => KEEP, so no zero-overlap off-topic junk lands in the "
                  "keep-all residual section. This cp4 audit is DISCLOSURE ONLY — zero plan mutation "
-                 "here. Every pool member is accounted for: assigned to a section, same-work-folded "
-                 "(plan_work_folds), orphan-basket-disclosed, or unassigned-singleton-disclosed "
+                 "here. Every pool row is now accounted for (fix 1): assigned to a section, "
+                 "same-work-folded (plan_work_folds), a member of a basket reachable by a section "
+                 "(its basket_id is on a plan OR a member ev_id is assigned), a member of a disclosed "
+                 "UNASSIGNED basket (orphan_reassign_candidates for work_corroboration>=2, "
+                 "unassigned_single_work_baskets otherwise — the COMPLETE unassigned-basket set by "
+                 "the S5 router's own reachability rule), or an unassigned-singleton-disclosed "
                  "(§-1.3 consolidate — none silently dropped)."),
     }
     print("\n=== (b') FULL POOL DISCLOSURE (cp4 audit-level honesty) ===")
     print(f"[b'] assigned_ev_ids={len(assigned_ev_ids)} unassigned_singletons={len(unassigned_singletons)} "
-          f"unassigned_high_tier={len(unassigned_high_tier)}")
+          f"unassigned_high_tier={len(unassigned_high_tier)} "
+          f"orphan_reassign_candidates={len(final_orphans)} "
+          f"unassigned_single_work_baskets={len(unassigned_single_work_baskets)}")
     for item in unassigned_high_tier:
         print(f"     {item['ev_id']:<10} {item['tier']:<4} {item['title']}")
+    for _b in unassigned_single_work_baskets:
+        print(f"     basket {_b['basket_id']:<8} rows={len(_b['members'])} "
+              f"work_corr={_b['work_corroboration']} verdict={_b['topic_verdict']}"
+              + (f" [{_b['content_flag']}]" if _b['content_flag'] else ""))
 
     # (c) degraded flag from the digest telemetry
     print("\n=== (c) DIGEST TELEMETRY (digest_stats) ===")
@@ -503,52 +587,109 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     degraded_ok = (stats.get("digest_degraded") is False)
     print(f"[c] degraded == False: {degraded_ok}")
 
-    # PUSH A (e): per-section distinct-work fraction — of a section's anchor ev_ids, how many are
-    # DISTINCT works (rows sharing a same_work_id count once). Rises toward 1.0 as the planner reads
-    # the work-level digest and stops anchoring twice on the same underlying work. (``alias_of`` was
-    # already built above for the item-14 anchor fold — reuse it; do not rebuild. After that fold the
-    # per-section fraction is ~1.0 because each remaining anchor is a distinct work, which is the
-    # honest fix — the bar is met by consolidating same-work anchors, not by hiding the metric.)
-    print("\n=== (e) PER-SECTION DISTINCT-WORK FRACTION (PUSH A) ===")
-    section_fracs = []
-    per_section_work: list[dict] = []  # P2-3(a): structured per-section record for cp4 digest_stats
-    for p in plans:
+    # (e) per-section distinct-work fractions — TWO per section (P2-1 / fix 2):
+    #   PRE-fold (INFORMATIVE): of the planner's RAW anchors, how many are distinct works. This is the
+    #     real anchoring-quality signal — it rises toward 1.0 as the planner stops anchoring twice on
+    #     the same underlying work; it can legitimately be < 1.0 and is NOT a pass/fail bar.
+    #   POST-fold (INVARIANT): after the item-14 same-work fold, each remaining anchor is a distinct
+    #     work BY CONSTRUCTION, so this MUST be ~1.0. It is kept ONLY as a fail-loud sanity assertion —
+    #     a post-fold value < 1.0 means dedup_plan_ev_ids_by_work / alias_of is inconsistent (a real
+    #     bug), never a quality bar. The prior code graded acceptance on the post-fold value against
+    #     >=0.90, which could NEVER fail (a false-green-shaped gate; min=1.000 was cited as "quality").
+    # Also disclosed per section (DISCLOSURE ONLY — deletion stays with S2/S3 + the junk gate):
+    #   demoted_anchors + chrome_anchors (fix 3, corpus dirt an anchor carries) and shared_anchor_count
+    #   (fix 6, anchors this section shares with another section).
+    print("\n=== (e) PER-SECTION DISTINCT-WORK FRACTION (pre-fold informative / post-fold invariant) ===")
+    # fix 6: how many sections each POST-fold anchor ev_id appears in, for the shared-anchor count.
+    _ev_section_count: dict[str, int] = {}
+    for _p in plans:
+        for _e in {str(x) for x in (_p.ev_ids or [])}:
+            _ev_section_count[_e] = _ev_section_count.get(_e, 0) + 1
+
+    post_fold_fracs: list[float] = []
+    pre_fold_fracs: list[float] = []
+    per_section_work: list[dict] = []      # POST-fold structured record for cp4 digest_stats
+    pre_fold_per_section: list[dict] = []  # fix 2: the INFORMATIVE pre-fold record
+    for _idx, p in enumerate(plans):
         ev = [str(x) for x in (p.ev_ids or [])]
         works = {alias_of.get(e, e) for e in ev}
-        frac = (len(works) / len(ev)) if ev else 1.0
-        section_fracs.append(frac)
-        # P2-3(c): INDEPENDENT cross-check. The distinct-work frac grades itself with the SAME alias_of
-        # the item-14 anchor fold already applied to p.ev_ids (so it reads ~1.0 by construction). Basket
-        # co-membership is an INDEPENDENT signal: count anchors that share a MULTI-member basket with
-        # another anchor in the SAME section (menu.ev_id_to_basket) — corroboration via the finding-
-        # cluster path, not the same-work alias path. Disclosure only.
+        frac = (len(works) / len(ev)) if ev else 1.0          # POST-fold (~1.0 by construction)
+        post_fold_fracs.append(frac)
+
+        # fix 2: PRE-fold fraction over the planner's RAW anchors (captured before the item-14 fold).
+        _pre = pre_fold_anchor_ev_ids[_idx] if _idx < len(pre_fold_anchor_ev_ids) else ev
+        _pre_works = {alias_of.get(e, e) for e in _pre}
+        _pre_frac = (len(_pre_works) / len(_pre)) if _pre else 1.0
+        pre_fold_fracs.append(_pre_frac)
+
+        # INDEPENDENT cross-check: anchors sharing a MULTI-member basket with another anchor in the
+        # SAME section (menu.ev_id_to_basket) — corroboration via the finding-cluster path, not the
+        # same-work alias path. Disclosure only.
         _bhits: dict[str, int] = {}
         for e in ev:
             _b = menu.ev_id_to_basket.get(e)
             if _b is not None:
                 _bhits[_b] = _bhits.get(_b, 0) + 1
         _co_basket_anchors = sum(c for c in _bhits.values() if c >= 2)
+
+        # fix 3: corpus-dirt disclosure per section (DISCLOSURE ONLY). demoted_anchors via the existing
+        # weight-demote predicate; chrome_anchors via the four-valued topic verdict — so the S5
+        # reviser/router sees WHICH sections carry demoted / chrome anchors without re-deriving stamps.
+        _demoted_anchors = sum(1 for e in ev if _is_weight_demoted(row_by_id.get(e, {})))
+        _chrome_anchors = sum(
+            1 for e in ev if _row_topic_verdict(row_by_id.get(e, {})) == "chrome_interstitial")
+        # fix 6: anchors also present in another section (legitimate cross-angle reuse — but visible).
+        _shared_anchors = sum(1 for e in set(ev) if _ev_section_count.get(e, 0) >= 2)
+
         per_section_work.append({
             "section": str(p.title),
             "anchors": len(ev),
             "distinct_works": len(works),
             "frac": round(frac, 4),
+            "pre_fold_frac": round(_pre_frac, 4),
             "distinct_baskets": len(_bhits),
             "co_basket_anchors": _co_basket_anchors,
+            "demoted_anchors": _demoted_anchors,
+            "chrome_anchors": _chrome_anchors,
+            "shared_anchor_count": _shared_anchors,
         })
-        print(f"  {p.title!r}: anchors={len(ev)} distinct_works={len(works)} frac={frac:.3f} "
-              f"co_basket_anchors={_co_basket_anchors}")
-    min_frac = min(section_fracs) if section_fracs else 1.0
-    frac_ok = min_frac >= 0.90
-    print(f"[e] all sections distinct-work fraction >= 0.90: {frac_ok} (min={min_frac:.3f})")
+        pre_fold_per_section.append({
+            "section": str(p.title),
+            "anchors": len(_pre),
+            "distinct_works": len(_pre_works),
+            "frac": round(_pre_frac, 4),
+        })
+        print(f"  {p.title!r}: anchors={len(ev)} distinct_works={len(works)} "
+              f"pre_fold_frac={_pre_frac:.3f} post_fold_frac={frac:.3f} "
+              f"co_basket_anchors={_co_basket_anchors} demoted_anchors={_demoted_anchors} "
+              f"chrome_anchors={_chrome_anchors} shared_anchors={_shared_anchors}")
 
-    # P2-3(a): persist the PUSH-A per-section fractions + same-work fold count + digest oversized flag
-    # into the cp4 digest_stats so the NAMED bar is DURABLE in the checkpoint, not print-only (a bar the
-    # checkpoint never records is a false green by omission). §-1.3: disclosure, never a drop.
+    pre_fold_min_frac = min(pre_fold_fracs) if pre_fold_fracs else 1.0
+    post_fold_min_frac = min(post_fold_fracs) if post_fold_fracs else 1.0
+    # fix 2: the post-fold value is an INVARIANT, not a quality bar. It must be ~1.0; anything lower
+    # means the same-work fold left two anchors of one work on a section (alias map broke) — fail LOUD
+    # (§-1.3) rather than pass a tautological >=0.90 check.
+    _POST_FOLD_EPS = 1e-9
+    post_fold_invariant_ok = post_fold_min_frac >= (1.0 - _POST_FOLD_EPS)
+    if not post_fold_invariant_ok:
+        print(
+            f"[e] INVARIANT VIOLATION: post-fold distinct-work frac {post_fold_min_frac:.4f} < 1.0 — "
+            "the same-work fold (dedup_plan_ev_ids_by_work / alias_of) is INCONSISTENT; a section "
+            "still carries two anchors of one work after the fold. This is a real fold/alias bug.",
+            file=sys.stderr,
+        )
+    print(f"[e] pre-fold min distinct-work frac (INFORMATIVE) = {pre_fold_min_frac:.3f}")
+    print(f"[e] post-fold min distinct-work frac (INVARIANT, must be ~1.0) = {post_fold_min_frac:.3f} "
+          f"invariant_ok={post_fold_invariant_ok}")
+
+    # persist BOTH the informative pre-fold metric and the post-fold invariant into cp4 digest_stats
+    # (durable in the checkpoint, not print-only). §-1.3: disclosure, never a drop.
     if isinstance(stats, dict):
         stats["per_section_distinct_work"] = per_section_work
-        stats["min_distinct_work_frac"] = round(min_frac, 4)
-        stats["distinct_work_frac_ok"] = bool(frac_ok)
+        stats["pre_fold_per_section_distinct_work"] = pre_fold_per_section
+        stats["pre_fold_min_distinct_work_frac"] = round(pre_fold_min_frac, 4)
+        stats["post_fold_min_distinct_work_frac"] = round(post_fold_min_frac, 4)
+        stats["post_fold_distinct_work_invariant_ok"] = bool(post_fold_invariant_ok)
         stats["plan_work_fold_count"] = sum(
             len(_a) for _f in plan_work_folds for _a in _f.get("folded", {}).values()
         )
@@ -612,17 +753,25 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         and (order_ok in (True, None))
         and degraded_ok
         and be_gate_ok
-        # P2-3(b): the PUSH-A distinct-work fraction is a NAMED bar — a bar that never gates is a false
-        # green by construction. It now GATES acceptance (after the item-14 same-work anchor fold it is
-        # honestly met by CONSOLIDATION, not by hiding the metric).
-        and frac_ok
+        # fix 2: gate on the post-fold INVARIANT (the same-work fold must have made anchors distinct-
+        # by-work), NOT the old tautological >=0.90 post-fold bar that could never fail. The pre-fold
+        # fraction is disclosed as an informative metric (pre_fold_min_distinct_work_frac), never a bar.
+        and post_fold_invariant_ok
     )
-    print(f"\n[plan] ACCEPTANCE (a,c,d,b/e,frac) ok={ok}  distinct_work_frac_ok={frac_ok}  "
+    print(f"\n[plan] ACCEPTANCE (a,c,d,b/e,post-fold-invariant) ok={ok}  "
+          f"pre_fold_min_frac={pre_fold_min_frac:.3f} post_fold_invariant_ok={post_fold_invariant_ok}  "
           f"in_tok={in_tok} out_tok={out_tok}")
     return 0 if ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
+    # P3-3 / fix 8: reset the once-per-run junk-gate warning latch at every run entry. It is a
+    # MODULE global, so in a long-lived process that runs main() more than once the collapsed-
+    # predicate warning would otherwise fire only ONCE EVER (first run), silently swallowing the
+    # collapse on every later run — the opposite of the fail-loud intent (§-1.3).
+    global _JUNK_GATE_PREDICATE_WARNED
+    _JUNK_GATE_PREDICATE_WARNED = False
+
     parser = argparse.ArgumentParser(description="S4 outline offline hamster harness")
     parser.add_argument("--bank", required=True, help="bank JSON file (fixture or exported run)")
     parser.add_argument("--mode", required=True,
