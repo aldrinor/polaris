@@ -9,7 +9,7 @@ NOT-yet-built (day-one RED = fix-loop targets, not harness bugs): step H challen
 ## Files
 - `scripts/fetch_cited_content_harness.py` (~300 LOC, read-only imports from src/).
 - `config/fetch_harness_cases.yaml` (the labeled set — data, editable without code).
-- `tests/polaris_graph/test_fetch_harness_oracle.py` (offline oracle unit tests vs the REAL banked span heads).
+- `tests/harness/test_fetch_harness_oracle.py` (offline oracle unit tests vs the REAL banked span heads; kept OUT of `tests/polaris_graph/` so it inherits no audit_ir-importing conftest and is truly offline-runnable in a clean checkout).
 - Results: `outputs/fetch_harness/<utc>/results.json` + report.md. GitHub issue first (§-1.2).
 
 ## squash(text)

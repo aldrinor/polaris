@@ -32,9 +32,9 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -315,30 +315,80 @@ def run_case(case: dict, seam: Callable[..., tuple[str, dict]], quote_max: int) 
     }
 
 
+def _timeout_result(case: dict, elapsed_s: float = 0.0) -> dict:
+    """UNREACHABLE(timeout) result for a case abandoned at the total wall-clock
+    deadline or on a wedged seam. Same shape as ``run_case`` output so the
+    collision + reporting stages treat it uniformly."""
+    return {
+        "name": case["name"], "ev": case.get("ev", ""), "url": case["url"],
+        "doi": case.get("doi", ""), "group": case.get("group", ""),
+        "expect": case["expect"], "verdict": UNREACHABLE,
+        "failure_mode": "timeout", "access_method": "none",
+        "raw_char_count": 0, "elapsed_s": round(float(elapsed_s), 2),
+        "quote_head": "", "quote_len": 0,
+        "checks": {"eligible": False, "contains_any": False,
+                   "contains_none": True, "front_matter_structural": False},
+        "work_id": _work_id(case), "squashed_quote": "",
+        "eligible": False, "collision_reason": "",
+    }
+
+
 def run_all(cases: list[dict], max_parallel: int, case_timeout: int,
             total_timeout: int, quote_max: int) -> list[dict]:
+    """Run every case on a bounded pool of DAEMON worker threads under a HARD
+    total wall-clock deadline.
+
+    A wedged seam thread can NEVER keep the harness alive past ``total_timeout``:
+    the workers are daemon threads (abandoned at interpreter exit, never joined)
+    and the collector stops waiting at the deadline instead of relying on a
+    ``ThreadPoolExecutor`` context-manager exit — whose ``shutdown(wait=True)``,
+    plus the executor's atexit join of its NON-daemon workers, would otherwise
+    block the whole process on the wedged thread until it finished (Codex P1-2).
+
+    Per-case ``case_timeout`` still bounds an individual case, and concurrency is
+    still capped at ``max_parallel`` via a semaphore, so no behaviour is lost.
+    """
     seam = _load_seam()
+    deadline = time.monotonic() + float(total_timeout)
     results: dict[str, dict] = {}
-    deadline = time.monotonic() + total_timeout
-    with ThreadPoolExecutor(max_workers=max_parallel) as pool:
-        futures = {pool.submit(run_case, c, seam, quote_max): c for c in cases}
-        for fut, case in futures.items():
-            remaining = max(1, min(case_timeout, int(deadline - time.monotonic())))
-            try:
-                results[case["name"]] = fut.result(timeout=remaining)
-            except FutureTimeout:
-                results[case["name"]] = {
-                    "name": case["name"], "ev": case.get("ev", ""), "url": case["url"],
-                    "doi": case.get("doi", ""), "group": case.get("group", ""),
-                    "expect": case["expect"], "verdict": UNREACHABLE,
-                    "failure_mode": "timeout", "access_method": "none",
-                    "raw_char_count": 0, "elapsed_s": float(case_timeout),
-                    "quote_head": "", "quote_len": 0,
-                    "checks": {"eligible": False, "contains_any": False,
-                               "contains_none": True, "front_matter_structural": False},
-                    "work_id": _work_id(case), "squashed_quote": "",
-                    "eligible": False, "collision_reason": "",
-                }
+    result_lock = threading.Lock()
+    done_events: dict[str, threading.Event] = {c["name"]: threading.Event() for c in cases}
+    sem = threading.BoundedSemaphore(max(1, min(max_parallel, len(cases))))
+
+    def _worker(case: dict) -> None:
+        name = case["name"]
+        started = time.monotonic()
+        try:
+            with sem:
+                if time.monotonic() >= deadline:      # deadline blew while queued
+                    result = _timeout_result(case)
+                else:
+                    result = run_case(case, seam, quote_max)
+        except BaseException:                          # noqa: BLE001 — never die silently
+            result = _timeout_result(case, time.monotonic() - started)
+        with result_lock:
+            results.setdefault(name, result)           # first writer wins
+        done_events[name].set()
+
+    threads = [threading.Thread(target=_worker, args=(c,),
+                                name=f"harness-{c['name']}", daemon=True) for c in cases]
+    for t in threads:
+        t.start()
+
+    # Collect in submission order; each case waits at most case_timeout AND never
+    # past the total deadline. A case still unfinished at the deadline is recorded
+    # UNREACHABLE(timeout) and its daemon worker is abandoned (never joined).
+    for case in cases:
+        name = case["name"]
+        remaining = min(float(case_timeout), deadline - time.monotonic())
+        if not done_events[name].wait(timeout=max(0.0, remaining)):
+            with result_lock:
+                results.setdefault(name, _timeout_result(case, float(case_timeout)))
+
+    for case in cases:                                 # backstop: fill any gap
+        with result_lock:
+            results.setdefault(case["name"], _timeout_result(case))
+
     ordered = [results[c["name"]] for c in cases]
     _apply_collisions(ordered)
     return ordered

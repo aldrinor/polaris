@@ -13,6 +13,8 @@ and flag imports are lazy, so importing it here stays offline and cheap.
 from __future__ import annotations
 
 import importlib.util
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -273,3 +275,34 @@ def test_case_set_loads_all_22_expected_classes():
     assert tally["refused"] == 5
     assert tally["recover_or_disclose"] == 2
     assert tally["article_or_degrade"] == 1
+
+
+# ── run_all: a wedged seam CANNOT hold the harness past the total deadline ────
+def test_run_all_returns_at_total_deadline_when_seam_wedges(monkeypatch):
+    """Codex P1-2: with a 1s total timeout and a seam that wedges for 3s, run_all
+    must return at ~1s (the hard wall-clock), recording the case UNREACHABLE and
+    abandoning the daemon worker — never blocking on a ThreadPoolExecutor
+    shutdown(wait=True). case_timeout is set LARGER than total so this proves the
+    TOTAL deadline is the binding hard stop."""
+    release = threading.Event()
+
+    def _wedged_seam(url, max_chars):
+        release.wait(timeout=3.0)                 # simulate a wedged fetch (~3s)
+        return "x" * 500, {"failure_mode": "", "method": "wedge", "raw_char_count": 500}
+
+    monkeypatch.setattr(h, "_load_seam", lambda: _wedged_seam)
+    case = {
+        "name": "wedged", "url": "http://example.test/wedge", "expect": "article",
+        "doi": "", "group": "", "ev": "",
+        "contains_squashed": [], "not_contains_squashed": [],
+    }
+    start = time.monotonic()
+    results = h.run_all([case], max_parallel=1, case_timeout=10,
+                        total_timeout=1, quote_max=500)
+    elapsed = time.monotonic() - start
+    release.set()                                 # let the abandoned daemon worker exit
+    assert elapsed < 2.0, f"run_all ignored the total deadline: {elapsed:.2f}s"
+    assert len(results) == 1
+    assert results[0]["name"] == "wedged"
+    assert results[0]["verdict"] == h.UNREACHABLE
+    assert results[0]["failure_mode"] == "timeout"
