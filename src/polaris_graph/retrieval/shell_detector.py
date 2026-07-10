@@ -721,15 +721,21 @@ def is_issue_front_matter(body: str) -> bool:
 
 
 def _collision_span_key(row: "dict") -> str:
-    """The content-identity key for the identical-span collision screen: the stamped
-    ``fetched_blob_sha`` when present (a raw-blob / span fingerprint), else the raw
-    ``direct_quote`` text. Empty when neither is present (an empty-keyed row can never
-    collide). Pure."""
+    """The content-identity key for the identical-span collision screen: the STORED
+    SPAN (``direct_quote`` / sliced text).
+
+    I-deepfix-004 F4 — NOT the whole-PDF ``fetched_blob_sha``: two CORRECTLY-sliced
+    DISTINCT articles from one issue PDF share the same whole-PDF blob sha but carry
+    DIFFERENT stored spans, so keying on the blob sha FALSELY merged them into a
+    container collision. The span the pool actually STORES + CITES is the identity
+    that matters — when slicing fails, the identical masthead TEXT still collides
+    across DOIs via identical ``direct_quote`` (the anti-laundering intent holds);
+    when slicing succeeds, the distinct sliced text correctly does not collide. The
+    ``fetched_blob_sha`` stamp remains available for STEP-E blob consolidation
+    elsewhere; it is simply not the span-collision key. Empty when no stored span is
+    present (an empty-keyed row can never collide). Pure."""
     if not isinstance(row, dict):
         return ""
-    sha = str(row.get("fetched_blob_sha") or "").strip()
-    if sha:
-        return f"sha:{sha}"
     quote = str(row.get("direct_quote") or "").strip()
     return f"q:{quote}" if quote else ""
 
