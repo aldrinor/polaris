@@ -162,3 +162,180 @@ def test_flags_off_nav_preserved_byte_identical(monkeypatch: pytest.MonkeyPatch)
     on = clean_fetch_body(text).cleaned_text
     assert "openai.com/research" not in on  # nav removed when flag ON
     assert "alignment technique" in on  # prose kept
+
+
+# ---------------------------------------------------------------------------
+# Fix round-1 (I-fetchclean-001, 2026-07-10) — the remaining 15 welded-chrome
+# leaks. F1 welded-heading cap · F2 inline token removals · F3 consent-banner
+# line rule · F4 nav-run token removal · F5 shell vocab. Each fixture is a
+# realistic reproduction of the replay leak's junk mechanism; every guard
+# fixture stays byte-identical (reference / footnote / prose / short heading).
+# ---------------------------------------------------------------------------
+
+
+def test_f5_uq_bot_wall_is_shell() -> None:
+    """F5 (ev_688): the UQ 'solve a puzzle / confirm you are' PDF bot-wall is a shell at
+    ANY length via the new CHALLENGE_PAGE_COOCCURRENCE tuples."""
+    wall = _load("ev_688_uq_bot_wall.txt")
+    assert shell_detector.is_cited_span_shell(wall) is True
+    # A real article that merely designs a puzzle task is NOT a shell (needs both tokens).
+    prose = (
+        "The researchers designed a puzzle task to measure working memory across two "
+        "hundred participants over twelve weeks and reported robust and replicable effects."
+    )
+    assert shell_detector.is_cited_span_shell(prose) is False
+
+
+def test_f5_short_body_markers_added() -> None:
+    """F5 (ev_688 short form): the transient-error and 'confirm you are human' stub copy are
+    short-body shell markers now."""
+    assert shell_detector.is_cited_span_shell("Temporary error. Please try again.") is True
+    assert shell_detector.is_cited_span_shell("Let's confirm you are human.") is True
+
+
+def test_f2_gov_banner_and_crossref_inline_stripped() -> None:
+    """F2.1/F2.7 (ev_497): the welded US-gov site banner and the 'Crossref 0' citation-count
+    widget are removed inline; the real prose survives on the same line."""
+    out = strip_markdown_nav_chrome(_load("ev_497_bls_gov_banner.md"))
+    assert "official website of the United States government" not in out
+    assert "Here's how you know" not in out
+    assert "Crossref 0" not in out
+    assert "professional and business services" in out
+
+
+def test_f2_reading_time_inline_stripped() -> None:
+    """F2.2 (ev_957): the '10 Minute Read Time' widget welded inline with the article is removed;
+    prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_957_cbreim_reading_time.md"))
+    assert "Minute Read Time" not in out
+    assert "Office vacancy rates" in out
+
+
+def test_f2_skip_nav_paren_title_stripped() -> None:
+    """F2.3 (ev_258): the paren-title skip-nav form ``(url "skip to main content")`` is removed;
+    prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_258_growthlab_skip_nav.md"))
+    assert "skip to main content" not in out
+    assert "growthlab.hks.harvard.edu" not in out
+    assert "Economic complexity" in out
+
+
+def test_f2_tandfonline_cover_sheet_stripped() -> None:
+    """F2.6 (ev_524): the Taylor & Francis PDF cover-sheet tokens (print/online ISSN pair,
+    'Journal homepage:' URL) are removed; the article prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_524_tandfonline_cover_sheet.md"))
+    assert "(Print)" not in out
+    assert "1466-4402" not in out
+    assert "Journal homepage:" not in out
+    assert "tandfonline.com" not in out
+    assert "funding formulas" in out
+
+
+def test_f2_f3_iab_consent_stripped_prose_kept() -> None:
+    """F2.5 + F3 (ev_954): the IAB TCF anchor is removed and the consent-banner line is dropped;
+    the surrounding real prose on the other lines survives."""
+    out = strip_markdown_nav_chrome(_load("ev_954_iab_tcf_consent.md"))
+    assert "IABV2SETTINGS" not in out
+    assert "This website uses cookies" not in out
+    assert "Cookie Policy" not in out
+    assert "Retrieval-augmented generation reduced unsupported claims" in out
+    assert "improved factual precision" in out
+
+
+def test_f3_ec_europa_consent_line_dropped_prose_kept() -> None:
+    """F3 (ev_726): the 'This site uses cookies' banner line is dropped; the article prose above
+    and below survives."""
+    out = strip_markdown_nav_chrome(_load("ev_726_ec_europa_consent.md"))
+    assert "This site uses cookies" not in out
+    assert "browsing experience" not in out
+    assert "Digital Services Act" in out
+    assert "national digital services coordinators" in out
+
+
+def test_f3_italian_consent_line_dropped_prose_kept() -> None:
+    """F3 multilingual (ev_661): the Italian 'Nel nostro sito utilizziamo … il tuo consenso'
+    banner line is dropped; the Italian article prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_661_unibo_consent_italian.md"))
+    assert "Nel nostro sito utilizziamo" not in out
+    assert "cookie di profilazione" not in out
+    assert "politiche di coesione" in out
+    assert "investimenti infrastrutturali" in out
+
+
+def test_f1_f3_welded_heading_consent_dropped_prose_kept() -> None:
+    """F1 + F3 (ev_244): the long ``## You control your data …`` welded heading no longer bypasses
+    chrome rules (F1 cap) and is dropped as a consent banner (F3); real prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_244_appunite_consent_heading.md"))
+    assert "You control your data" not in out
+    assert "business partners use technologies" not in out
+    assert "storage from compute" in out
+    assert "schema registry" in out
+
+
+def test_f4_hackernews_nav_run_stripped_prose_kept() -> None:
+    """F4 (ev_255): the welded Hacker News header nav run is removed even though the line's prose
+    tail carries a year; the real prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_255_hackernews_nav.md"))
+    assert "news.ycombinator.com" not in out
+    assert "[past]" not in out and "[comments]" not in out
+    assert "asynchronous written communication" in out
+
+
+def test_f4_repec_browse_nav_run_stripped_prose_kept() -> None:
+    """F4 (ev_748): the welded RePEc browse-nav link run is removed even though the series tail
+    carries a year (per-run guard, not whole-line); the prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_748_repec_browse_nav.md"))
+    assert "ideas.repec.org/w.html" not in out
+    assert "[Journal articles]" not in out and "[Books]" not in out
+    assert "RePEc Biblio curated reading list" in out
+    assert "2019" in out  # the real prose tail (with its year) is preserved
+
+
+def test_f1_f2_video_chrome_after_heading_stripped() -> None:
+    """F1 + F2.4 (ev_272): the inline video-player chrome welded after ``## Summary`` is removed
+    (the long heading line falls through the F1 cap into F2); the wage prose survives."""
+    out = strip_markdown_nav_chrome(_load("ev_272_bls_video_chrome.md"))
+    assert "enable javascript to play this video" not in out
+    assert "Video transcript available" not in out
+    assert "median annual wage" in out
+
+
+# --- guards: every one stays byte-identical -------------------------------
+
+
+def test_f2_crossref_reference_line_guard_byte_identical() -> None:
+    """F2.7 GUARD: a reference line naming Crossref near a year/DOI is reference-like, so the
+    Crossref widget rule is skipped and the whole line survives byte-identical."""
+    text = _load("crossref_reference_line_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "Crossref 12" in out
+    assert "10.1086/709228" in out
+
+
+def test_f4_footnote_marker_run_guard_byte_identical() -> None:
+    """F4 GUARD: a run of pure-digit footnote markers is citation apparatus, not nav — kept
+    byte-identical."""
+    text = _load("footnote_marker_run_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "[1](#fn1)" in out and "[4](#fn4)" in out
+
+
+def test_f3_privacy_cookie_sentence_guard_byte_identical() -> None:
+    """F3 GUARD: a real sentence that mentions cookies once but does NOT open with a consent
+    anchor is kept byte-identical."""
+    text = _load("privacy_cookie_sentence_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "cookie consent banners" in out
+
+
+def test_f1_short_heading_guard_byte_identical() -> None:
+    """F1 GUARD: a short real heading (<= the char cap) is still kept byte-identical; the prose
+    below survives."""
+    text = _load("short_heading_guard.md")
+    out = strip_markdown_nav_chrome(text)
+    assert out == text.strip()
+    assert "## Results" in out
+    assert "primary endpoint" in out

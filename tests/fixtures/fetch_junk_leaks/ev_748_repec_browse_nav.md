@@ -1,0 +1,1 @@
+[Working papers](https://ideas.repec.org/w.html) [Journal articles](https://ideas.repec.org/j.html) [Books](https://ideas.repec.org/b.html) [Chapters](https://ideas.repec.org/h.html) [Software](https://ideas.repec.org/s.html) The RePEc Biblio curated reading list, last revised in 2019, organizes the economics literature by topic for newcomers to each field.

@@ -1,0 +1,1 @@
+Journal of Education Policy (Print) 1466-4402 (Online) Journal homepage: https://www.tandfonline.com/loi/tedp20 This study examines how per-pupil funding formulas shape resource allocation across school districts and finds persistent gaps between high- and low-income catchments.

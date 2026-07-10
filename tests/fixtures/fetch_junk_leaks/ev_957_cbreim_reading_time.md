@@ -1,0 +1,1 @@
+Commercial Real Estate Outlook 10 Minute Read Time Office vacancy rates climbed to their highest level in three decades as hybrid work reduced demand for downtown space, while industrial and logistics assets continued to outperform.

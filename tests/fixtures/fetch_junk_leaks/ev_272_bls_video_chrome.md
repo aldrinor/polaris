@@ -1,0 +1,1 @@
+## Summary Please enable javascript to play this video. [Video transcript available at bls.gov/video/transcript.htm](https://www.bls.gov/video/transcript.htm) Lawyers earned a median annual wage well above the all-occupations median, with employment concentrated in legal services and government.
