@@ -3486,6 +3486,247 @@ def _contains_f2_placement_furniture(text: Any) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-006 A/B (#1376) — INLINE furniture strip (SPAN-LEVEL, suppress-only, source NEVER deleted).
+#
+# THE GAP (Fable A/B root cause): the furniture predicates above route a WHOLE unit to the ledger or
+# drop it, but a fixed boilerplate FRAGMENT welded INSIDE an otherwise-real clause survives — e.g.
+# "An official website of the United States government The unemployment rate fell 0.4%", a "Crossref 0"
+# citation-count widget glued to a finding, a "5 Minute Read Time" reader token, a "02-10-2025" date
+# stamp, or IMF working-paper front-matter ("© 2025 International Monetary Fund", "WP/25/123",
+# "Prepared by …", "Authorized for distribution by …", "The authors would like to thank …") lifted into
+# the same extraction blob as a real sentence. This EXCISES the boilerplate fragment while KEEPING the
+# surrounding clause. It never touches the evidence pool, the bibliography, or a faithfulness verdict —
+# removing furniture text can only SHORTEN a rendered unit, never fabricate a number/word (all numeric
+# comparison stays with the frozen strict_verify). §-1.3.1 span-level carve-out.
+#
+# FAITHFULNESS SAFETY: fixed-token furniture (gov banner / Crossref widget / reading-time / WP number /
+# date stamp) never carries a finding, so it is excised unconditionally. The clause-form front-matter
+# (IMF copyright / "Prepared by" / "Authorized for distribution by" / acknowledgements) is excised ONLY
+# when the matched clause carries NO finding signal (``_FINDING_SIGNAL_RE``) — so a real attribution
+# such as "prepared by the OECD, which found unemployment rose 2%" is KEPT (fail-open). Default-ON;
+# ``PG_INLINE_FURNITURE_STRIP=0`` restores byte-identical legacy text.
+_INLINE_FURNITURE_STRIP_ENV = "PG_INLINE_FURNITURE_STRIP"
+
+# Fixed-token furniture — excised unconditionally (never carries a finding).
+_INLINE_GOVBANNER_RE = re.compile(
+    r"An official website of the United States government\.?", re.IGNORECASE
+)
+_INLINE_CROSSREF_RE = re.compile(r"\bCrossref\s+\d+")
+_INLINE_READTIME_RE = re.compile(r"\b\d+\s+Minute\s+Read\s+Time\b", re.IGNORECASE)
+_INLINE_WP_NUMBER_RE = re.compile(r"\bWP/\d+/\d+\b")
+# A standalone dd-mm-yyyy / mm-dd-yyyy date stamp (scrape furniture). A real finding never renders a
+# figure in this hyphenated calendar-stamp form, so removing it never drops a finding number.
+_INLINE_DATESTAMP_RE = re.compile(r"\b\d{2}-\d{2}-\d{4}\b")
+
+# Clause-form front-matter — excised ONLY when the matched clause carries no finding signal (fail-open).
+_INLINE_IMF_COPYRIGHT_RE = re.compile(
+    r"©\s*\d{0,4}\s*International Monetary Fund", re.IGNORECASE
+)
+_INLINE_PREPARED_RE = re.compile(r"\bPrepared by\b[^.!?\n]*[.!?]?", re.IGNORECASE)
+_INLINE_AUTHORIZED_RE = re.compile(
+    r"\bAuthorized for distribution by\b[^.!?\n]*[.!?]?", re.IGNORECASE
+)
+_INLINE_ACK_RE = re.compile(
+    r"(?:\b(?:the\s+authors?|we|i)\s+)?would\s+like\s+to\s+thank\b[^.!?\n]*[.!?]?",
+    re.IGNORECASE,
+)
+_INLINE_ORPHAN_LEAD_RE = re.compile(r"^[\s,;:.\-–—]+")
+_INLINE_WS_RUN_RE = re.compile(r"[ \t]{2,}")
+
+
+def _inline_furniture_strip_enabled() -> bool:
+    """Kill-switch PG_INLINE_FURNITURE_STRIP (default ON). OFF / empty => the inline strip never runs =>
+    byte-identical legacy text. Mirrors the ``_snap_span_enabled`` off-token convention."""
+    return os.getenv(_INLINE_FURNITURE_STRIP_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _strip_clause_if_no_finding(rx: "re.Pattern[str]", text: str) -> str:
+    """Remove every match of ``rx`` from ``text`` UNLESS the matched clause itself carries a finding
+    signal (a decimal / percentage / finding verb) — in which case the clause is a real attribution and
+    is KEPT untouched (fail-open). Pure."""
+    def _repl(m: "re.Match[str]") -> str:
+        frag = m.group(0)
+        if _FINDING_SIGNAL_RE.search(frag):
+            return frag  # a real finding is welded to the phrase — keep it whole
+        return " "
+    return rx.sub(_repl, text)
+
+
+def strip_inline_furniture(text: Any) -> str:
+    """Excise fixed boilerplate FRAGMENTS from inside a kept unit while keeping the surrounding clause
+    (I-deepfix-006 A/B). SUPPRESS-only, faithfulness-neutral: it can only remove furniture text, never
+    fabricate. Byte-identical to the input when the kill-switch is OFF or nothing matches. Pure."""
+    if not _inline_furniture_strip_enabled():
+        return str(text or "")
+    s = str(text or "")
+    if not s.strip():
+        return s
+    # Fixed-token furniture: excised unconditionally (never a finding).
+    for rx in (
+        _INLINE_GOVBANNER_RE,
+        _INLINE_CROSSREF_RE,
+        _INLINE_READTIME_RE,
+        _INLINE_WP_NUMBER_RE,
+        _INLINE_DATESTAMP_RE,
+    ):
+        s = rx.sub(" ", s)
+    # Clause-form front-matter: excised only when the clause carries no finding signal (fail-open).
+    for rx in (
+        _INLINE_IMF_COPYRIGHT_RE,
+        _INLINE_PREPARED_RE,
+        _INLINE_AUTHORIZED_RE,
+        _INLINE_ACK_RE,
+    ):
+        s = _strip_clause_if_no_finding(rx, s)
+    # Tidy whitespace + orphan leading punctuation left by a removed prefix fragment.
+    s = _INLINE_WS_RUN_RE.sub(" ", s)
+    s = _INLINE_ORPHAN_LEAD_RE.sub("", s)
+    return s.strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-006 C (#1376) — INLINE markup strip (SPAN-LEVEL, suppress-only). Removes raw render markup a
+# strict_verify-passing unit can carry: a "](http…)" markdown-link remnant, a bare URL, a bare URL-path
+# fragment with a query string ("/search/researchers?query=*&page=1"), an orphan markdown heading
+# ("## 2"), and a stray emphasis marker ("_**"). Over-stripping markup is faithfulness-safe — a URL /
+# heading marker / emphasis token is never a finding number or word. Default-ON; PG_INLINE_MARKUP_STRIP=0
+# restores byte-identical legacy text.
+_INLINE_MARKUP_STRIP_ENV = "PG_INLINE_MARKUP_STRIP"
+_INLINE_MDLINK_REMNANT_RE = re.compile(r"\]\(https?://[^)]*\)")
+_INLINE_BARE_URL_RE = re.compile(r"https?://\S+")
+# A bare URL-PATH query fragment ("/search/researchers?institution=41ILO_INST&query=*&page=1"): a "/"
+# path carrying a "?...=" query param. Requiring the "=" avoids matching real prose like "what/why?".
+_INLINE_URL_PATH_QUERY_RE = re.compile(r"(?<![\w])/[^\s)\]]*\?[^\s)\]]*=[^\s)\]]*")
+# An orphan markdown heading welded MID-line ("… adoption grew. ## 2 firms invested") — the leading
+# ``(?<=\S)`` guard means a REAL numbered header at line start ("## 2 Results") is NEVER matched.
+_INLINE_ORPHAN_HEADING_RE = re.compile(r"(?<=\S)\s+#{1,6}\s+\d+(?=\s|$)")
+_INLINE_STRAY_EMPHASIS_RE = re.compile(r"_\*\*|\*\*_")
+
+
+def _inline_markup_strip_enabled() -> bool:
+    """Kill-switch PG_INLINE_MARKUP_STRIP (default ON). OFF / empty => byte-identical legacy text."""
+    return os.getenv(_INLINE_MARKUP_STRIP_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def strip_inline_markup(text: Any) -> str:
+    """Excise raw render-markup fragments (markdown-link remnants, bare URLs / URL-path query fragments,
+    orphan markdown headings, stray emphasis markers) while keeping the surrounding prose. SUPPRESS-only,
+    faithfulness-neutral. Byte-identical when the kill-switch is OFF or nothing matches. Pure."""
+    if not _inline_markup_strip_enabled():
+        return str(text or "")
+    s = str(text or "")
+    if not s.strip():
+        return s
+    s = _INLINE_MDLINK_REMNANT_RE.sub(" ", s)
+    s = _INLINE_BARE_URL_RE.sub(" ", s)
+    s = _INLINE_URL_PATH_QUERY_RE.sub(" ", s)
+    s = _INLINE_ORPHAN_HEADING_RE.sub(" ", s)
+    s = _INLINE_STRAY_EMPHASIS_RE.sub(" ", s)
+    s = _INLINE_WS_RUN_RE.sub(" ", s)
+    s = _INLINE_ORPHAN_LEAD_RE.sub("", s)
+    return s.strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-006 D (#1376) — SHELL-SOURCE input screen (held out of the generator's drafting INPUT; the
+# source STAYS in the pool + bibliography + disclosure — never deleted). A "shell" source is one whose
+# direct_quote is DOMINATED by bracketed empty-anchor markdown links ("[](…)") and/or search-query URLs
+# with NO finding sentence (ev_716 = a pure nav/search link-farm). Its honest meta-description
+# ("The span consists of a repository collection link …") self-entails its own span and PASSES
+# strict_verify, so it must be screened at the drafting INPUT. A per-unit narration-detector belt also
+# withholds a shell-narration sentence lifted into an otherwise-real source. Default-ON;
+# PG_SHELL_SOURCE_INPUT_SCREEN=0 restores byte-identical legacy behaviour.
+_SHELL_SOURCE_INPUT_SCREEN_ENV = "PG_SHELL_SOURCE_INPUT_SCREEN"
+_SHELL_EMPTY_ANCHOR_RE = re.compile(r"\[\]\(")
+_SHELL_SEARCH_URL_RE = re.compile(
+    r"/search\b|[?&](?:query|q|page|institution|search)=|query=\*", re.IGNORECASE
+)
+_SHELL_NARRATION_RE = re.compile(
+    r"the\s+span\s+consists\s+of|repository\s+collection\s+link|"
+    r"search\s+query\s+for\s+all\s+results",
+    re.IGNORECASE,
+)
+# Once the bracketed empty-anchor links and URLs are removed, a shell has very little real prose left.
+_SHELL_RESIDUAL_PROSE_MIN_CHARS = 40
+
+
+def _shell_source_input_screen_enabled() -> bool:
+    """Kill-switch PG_SHELL_SOURCE_INPUT_SCREEN (default ON). OFF / empty => byte-identical legacy."""
+    return os.getenv(_SHELL_SOURCE_INPUT_SCREEN_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _is_shell_narration(text: Any) -> bool:
+    """True iff a unit is SHELL NARRATION — a meta-description of a nav/search link-farm ("The span
+    consists of …", "repository collection link", "search query for all results"). Pure."""
+    return bool(_SHELL_NARRATION_RE.search(str(text or "")))
+
+
+def is_shell_source_quote(direct_quote: Any) -> bool:
+    """True iff a source's whole ``direct_quote`` is a nav/search SHELL — dominated by bracketed
+    empty-anchor markdown links and/or search-query URLs, carrying NO finding sentence and almost no
+    real prose once the link/URL scaffolding is removed. FAIL-CLOSED to KEEP (return False) on anything
+    ambiguous: a quote carrying a finding signal, or one with substantial residual prose, is NEVER a
+    shell. Pure — the source is only held out of drafting INPUT, never dropped from the pool."""
+    if not _shell_source_input_screen_enabled():
+        return False
+    s = str(direct_quote or "")
+    if not s.strip():
+        return False
+    # A real finding sentence anywhere => never a shell (fail-open to KEEP).
+    if _FINDING_SIGNAL_RE.search(s):
+        return False
+    empty_anchors = len(_SHELL_EMPTY_ANCHOR_RE.findall(s))
+    has_search_url = bool(_SHELL_SEARCH_URL_RE.search(s))
+    if empty_anchors < 1 and not has_search_url and not _SHELL_NARRATION_RE.search(s):
+        return False  # no link-farm / search / narration signature at all => not a shell
+    # Measure residual prose after stripping the link/URL scaffolding: a shell has almost none.
+    residual = _SHELL_EMPTY_ANCHOR_RE.sub(" ", s)
+    residual = _INLINE_MDLINK_REMNANT_RE.sub(" ", residual)
+    residual = _INLINE_BARE_URL_RE.sub(" ", residual)
+    residual = _INLINE_URL_PATH_QUERY_RE.sub(" ", residual)
+    residual = _SHELL_NARRATION_RE.sub(" ", residual)
+    residual_alpha = "".join(ch for ch in residual if ch.isalpha() or ch.isspace()).strip()
+    # Dominated by link/URL scaffolding + shell narration, with little real prose left => a shell.
+    if (empty_anchors >= 2) or (empty_anchors >= 1 and has_search_url) or _SHELL_NARRATION_RE.search(s):
+        return len(residual_alpha) < _SHELL_RESIDUAL_PROSE_MIN_CHARS
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-006 E (#1376) — EVIDENCE-BASE finding-signal PREFERENCE (a §-1.3 WEIGHT/PLACEMENT: DEMOTE
+# to the low-relevance ledger, NEVER a drop). An on-topic marketing PREAMBLE with no finding signal
+# (Thompson Rivers "top 10 predictions for 2025", AACSB "is leading the way in business education")
+# self-entails its own span and passes strict_verify, polluting the "Evidence base" body. Because such a
+# source is credible + on-topic (§-1.3: never deleted, only weighted), E DEMOTES it BELOW the appendix
+# boundary into the "Low-relevance evidence (kept at weight)" ledger — it STAYS in the pool, bibliography,
+# and disclosure. The demotion is a LAST-RESORT leg in ``_row_routes_to_ledger``: it fires ONLY for an
+# UNJUDGED source (no positive judged relevance label, no numeric selection_relevance) whose representative
+# text carries no finding signal — a real judge that SAW the content (rules 1/4) always wins. Default-ON;
+# PG_EVIDENCE_BASE_FINDING_PREFERENCE=0 removes the leg => byte-identical legacy routing.
+_EVIDENCE_BASE_FINDING_PREFERENCE_ENV = "PG_EVIDENCE_BASE_FINDING_PREFERENCE"
+
+
+def _evidence_base_finding_preference_enabled() -> bool:
+    """Kill-switch PG_EVIDENCE_BASE_FINDING_PREFERENCE (default ON). OFF / empty => the ledger-routing
+    leg never fires => byte-identical legacy body/ledger partition."""
+    return os.getenv(_EVIDENCE_BASE_FINDING_PREFERENCE_ENV, "1").strip().lower() not in (
+        "0", "false", "off", "no",
+    )
+
+
+def _row_is_marketing_only_preamble(text: Any) -> bool:
+    """True iff ``text`` is a marketing PREAMBLE with no finding signal (no decimal / percentage /
+    finding verb) — the TRU/AACSB shape. A demotion signal for an UNJUDGED row only; NEVER a drop.
+    FAIL-OPEN to KEEP (False) on empty text or when the kill-switch is OFF. Pure."""
+    if not _evidence_base_finding_preference_enabled():
+        return False
+    s = str(text or "").strip()
+    if not s:
+        return False
+    return not bool(_FINDING_SIGNAL_RE.search(s))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # I-deepfix-001 F2 (#1371) — UNIFIED BODY-PLACEMENT SCREEN + Low-relevance ledger partition.
 #
 # THE BUG (Fable F2 root cause): a grammatical sentence ABOUT junk (page furniture that renders as a
@@ -3691,7 +3932,14 @@ def _row_routes_to_ledger(
     rel = _row_relevance(row)
     if rel is not None:
         return rel < relevance_floor  # judged below-floor => ledger (placement)
-    return _is_offtopic_for_placement(text, question_terms)  # unjudged => lexical fallback
+    # Unjudged: lexical off-topic => ledger.
+    if _is_offtopic_for_placement(text, question_terms):
+        return True
+    # I-deepfix-006 E (#1376): an UNJUDGED marketing-only preamble (no finding signal — TRU/AACSB) is
+    # DEMOTED to the ledger (kept at weight, never a drop). A real judge (rules 1/4) always wins first.
+    if _row_is_marketing_only_preamble(text):
+        return True
+    return False
 
 
 def partition_body_and_low_relevance_ledger(
@@ -4333,7 +4581,12 @@ def _sanitize_report_line(line: str, known_words: "set[str] | frozenset[str] | N
     # ("(1, 2)") on the kept prose. No-op (byte-identical) when the kill-switch is OFF or the line
     # carries no such marker; never touches the report's OWN ``[N]`` / ``[#ev:...]`` square-bracket
     # markers (they are seg_marker parts, and the rule matches PARENTHESES only). Faithfulness-neutral.
-    return strip_source_internal_refs("".join(kept)), dropped
+    # I-deepfix-006 A/B/C (#1376): also excise fixed boilerplate furniture fragments + raw markup that
+    # were welded INSIDE the kept prose. Suppress-only; byte-identical when both kill-switches are OFF.
+    cleaned = strip_source_internal_refs("".join(kept))
+    cleaned = strip_inline_furniture(cleaned)
+    cleaned = strip_inline_markup(cleaned)
+    return cleaned, dropped
 
 
 def _is_scaffolding_section_title(title: str) -> bool:
@@ -4558,12 +4811,27 @@ def _substantive_units(direct_quote: str, *, is_junk: Any) -> list[str]:
     )
 
     max_chars = max_unit_chars()
+    # I-deepfix-006 D (#1376): a nav/search SHELL source (dominated by empty-anchor links / search-query
+    # URLs, no finding sentence — ev_716) is held OUT of the drafting INPUT. The source stays in the
+    # pool + bibliography + disclosure; only its verbatim spans are withheld from drafting. Default-ON;
+    # byte-identical when PG_SHELL_SOURCE_INPUT_SCREEN=0 (``is_shell_source_quote`` returns False).
+    if is_shell_source_quote(direct_quote):
+        return []
     units: list[str] = []
     for raw_unit in split_into_sentences(direct_quote) or []:
         # I-beatboth-011 #4 (#1289): strip C0 control bytes (incl. a literal NUL) from
         # the unit BEFORE any length/screen check so a control byte can never reach the
         # render and the bound measures clean printable chars.
         unit = _strip_control_bytes(raw_unit or "").strip()
+        # I-deepfix-006 A/B/C (#1376): excise fixed boilerplate furniture fragments + raw markup from
+        # INSIDE the unit while keeping the surrounding clause. Suppress-only, faithfulness-neutral;
+        # byte-identical when both kill-switches are OFF.
+        unit = strip_inline_furniture(unit)
+        unit = strip_inline_markup(unit)
+        # I-deepfix-006 D (#1376): withhold a per-unit shell-narration sentence ("The span consists of …",
+        # "repository collection link", "search query for all results") lifted into an otherwise-real source.
+        if _shell_source_input_screen_enabled() and _is_shell_narration(unit):
+            continue
         if len(unit) < _MIN_UNIT_CHARS:
             continue
         # I-beatboth-011 #4 (#1289): a unit longer than the render bound is structurally
