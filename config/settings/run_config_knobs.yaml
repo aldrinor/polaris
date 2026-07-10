@@ -1,0 +1,340 @@
+# POLARIS RunConfig knob registry — the single source of knob truth (master plan §1.2).
+#
+# Every knob the pipeline exposes to the user gets ONE row here. S0 INTAKE
+# (src/polaris_graph/run_config.py) reads this file to know:
+#   * the code_default for each knob (so NO default lives as a literal in .py — LAW VI),
+#   * the legacy PG_* env alias that overrides the code_default,
+#   * which knobs the natural-language prompt can set (prompt_parseable),
+#   * the earliest checkpoint a resume --adjust may change the knob at,
+#   * the dna_class used for the §-1.3 day-waster review at registry time.
+#
+# dna_class review (§-1.3): a knob whose PURPOSE is "make a quality/breadth number
+# hit X" is REJECTED here. Allowed classes:
+#   breadth_budget   — a compute SPEND budget (never a target the loop pads to)
+#   scope_constraint — the user's own explicit hard filter (dates/type/geo/lang/author)
+#   presentation     — wording / order / render only; never touches evidence selection
+#   stage_tuning     — parallelism / rounds; never a quality target
+# Model + token locks (§9.1.8) and faithfulness thresholds are NOT registered.
+#
+# Precedence when a knob is set in more than one place (master §1.3 / ruling R9):
+#   code_default (this file) < env var < prompt-parsed < panel / CLI override
+schema_version: "cp0-runconfig-1"
+
+knobs:
+  # ── BREADTH block — compute spend budgets sized by the ask (Design 7 D1) ───────
+  - id: query_budget
+    block: breadth
+    type: int
+    code_default: 35
+    env_var: PG_QGEN_FS_RESEARCHER_MAX_QUERIES
+    earliest_resume_checkpoint: cp0
+    prompt_parseable: true
+    panel_widget: number_input
+    dna_class: breadth_budget
+    description: FS-Researcher sub-query budget (spend ceiling, not a target).
+  - id: rounds
+    block: breadth
+    type: int
+    code_default: 6
+    env_var: PG_QGEN_FS_RESEARCHER_MAX_ROUNDS
+    earliest_resume_checkpoint: cp0
+    prompt_parseable: true
+    panel_widget: number_input
+    dna_class: breadth_budget
+    description: FS-Researcher re-plan round cap.
+  - id: serper_k
+    block: breadth
+    type: int
+    code_default: 12
+    env_var: PG_SWEEP_MAX_SERPER
+    earliest_resume_checkpoint: cp0
+    prompt_parseable: true
+    panel_widget: number_input
+    dna_class: breadth_budget
+    description: Serper web results requested per generated sub-query.
+  - id: s2_k
+    block: breadth
+    type: int
+    code_default: 12
+    env_var: PG_SWEEP_MAX_S2
+    earliest_resume_checkpoint: cp0
+    prompt_parseable: true
+    panel_widget: number_input
+    dna_class: breadth_budget
+    description: Semantic Scholar / OpenAlex results requested per sub-query.
+  - id: serper_total
+    block: breadth
+    type: int
+    code_default: null
+    env_var: PG_SERPER_TOTAL_PER_QUERY
+    earliest_resume_checkpoint: cp0
+    prompt_parseable: false
+    panel_widget: number_input
+    dna_class: breadth_budget
+    description: Paginated Serper total per query (null = single page).
+  - id: fetch_cap
+    block: breadth
+    type: int
+    code_default: 200
+    env_var: PG_SWEEP_FETCH_CAP
+    earliest_resume_checkpoint: cp0
+    prompt_parseable: false
+    panel_widget: number_input
+    dna_class: breadth_budget
+    description: URLs actually fetched per retrieval call after dedup (spend ceiling).
+  - id: breadth_class
+    block: breadth
+    type: str
+    code_default: null
+    env_var: PG_BREADTH_CLASS
+    earliest_resume_checkpoint: cp0
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: breadth_budget
+    description: NARROW / STANDARD / WIDE directive from the ask (null = STANDARD).
+
+  # ── SCOPE block — the user's OWN explicit hard filters (never credibility) ─────
+  - id: date_start
+    block: scope
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: date_input
+    dna_class: scope_constraint
+    description: Inclusive publication-date floor (ISO YYYY-MM-DD).
+  - id: date_end
+    block: scope
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: date_input
+    dna_class: scope_constraint
+    description: Inclusive publication-date ceiling (ISO YYYY-MM or YYYY-MM-DD).
+  - id: recency_years
+    block: scope
+    type: int
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: number_input
+    dna_class: scope_constraint
+    description: Relative recency window ("last N years").
+  - id: source_types
+    block: scope
+    type: list
+    code_default: []
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: multiselect
+    dna_class: scope_constraint
+    description: Requested source-type facets (ontology ids).
+  - id: geography
+    block: scope
+    type: list
+    code_default: []
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: multiselect
+    dna_class: scope_constraint
+    description: Requested geographic region labels.
+  - id: jurisdiction
+    block: scope
+    type: list
+    code_default: []
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: multiselect
+    dna_class: scope_constraint
+    description: Requested jurisdiction ISO codes.
+  - id: language
+    block: scope
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: scope_constraint
+    description: Requested source language (ISO code).
+  - id: authors
+    block: scope
+    type: list
+    code_default: []
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: tags
+    dna_class: scope_constraint
+    description: Named authors / named sources the user asked to pin.
+  - id: peer_reviewed_only
+    block: scope
+    type: bool
+    code_default: false
+    env_var: null
+    earliest_resume_checkpoint: cp1
+    prompt_parseable: true
+    panel_widget: toggle
+    dna_class: scope_constraint
+    description: User asked for peer-reviewed sources only (extracted; enforcement dormant per operator veto).
+
+  # ── DELIVERABLE block — presentation only (Design 3) ──────────────────────────
+  - id: deliverable_type
+    block: deliverable
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: presentation
+    description: report / brief / memo / literature_review / white_paper / faq / letter.
+  - id: audience
+    block: deliverable
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: presentation
+    description: clinician / policymaker / executive / general_public / academic.
+  - id: tone
+    block: deliverable
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: presentation
+    description: formal / plain_language / critical / neutral.
+  - id: reading_level
+    block: deliverable
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: presentation
+    description: lay / expert reading level.
+  - id: reference_style
+    block: deliverable
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: presentation
+    description: numeric / author_year / apa / harvard / vancouver / footnote / inline_url.
+  - id: length_target_words
+    block: deliverable
+    type: int
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: number_input
+    dna_class: presentation
+    description: Prose-budget target in words (shapes wording/length only, never evidence).
+  - id: length_target_pages
+    block: deliverable
+    type: int
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: number_input
+    dna_class: presentation
+    description: Prose-budget target in pages.
+  - id: length_strictness
+    block: deliverable
+    type: str
+    code_default: weight
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: presentation
+    description: weight (aim) or hard (explicit "no more than").
+  - id: summary_first
+    block: deliverable
+    type: bool
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: toggle
+    dna_class: presentation
+    description: Lead with an executive summary.
+  - id: recommendations_last
+    block: deliverable
+    type: bool
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: toggle
+    dna_class: presentation
+    description: Place recommendations / conclusion last.
+  - id: wants_tables
+    block: deliverable
+    type: bool
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: toggle
+    dna_class: presentation
+    description: Include a comparison table.
+  - id: structure_slots
+    block: deliverable
+    type: list
+    code_default: []
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: repeater
+    dna_class: presentation
+    description: Requested sections / organization (O2 instruction slots).
+  - id: output_format
+    block: deliverable
+    type: str
+    code_default: null
+    env_var: null
+    earliest_resume_checkpoint: cp3
+    prompt_parseable: true
+    panel_widget: select
+    dna_class: presentation
+    description: markdown / html / plain.
+
+  # ── STAGES block — per-stage tuning (parallelism / rounds; never a target) ─────
+  - id: section_concurrency
+    block: stages
+    type: int
+    code_default: 6
+    env_var: PG_MAX_PARALLEL_SECTIONS
+    earliest_resume_checkpoint: cp4
+    prompt_parseable: false
+    panel_widget: number_input
+    dna_class: stage_tuning
+    description: Concurrent section-compose fan-out (provider-rate permitting).
+  - id: topic_gate_parallel
+    block: stages
+    type: int
+    code_default: 32
+    env_var: PG_SCOPE_TOPIC_PARALLEL
+    earliest_resume_checkpoint: cp2
+    prompt_parseable: false
+    panel_widget: number_input
+    dna_class: stage_tuning
+    description: Topic-gate batch parallelism.
