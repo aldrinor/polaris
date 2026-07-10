@@ -192,7 +192,11 @@ def test_targeted_retry_message_lists_required_titles_verbatim() -> None:
     for t in _REQUIRED:
         assert t in msg
     assert "CHARACTER-FOR-CHARACTER" in msg
-    assert "ev1" in msg  # allowed-id set surfaced
+    # P1-2: the allowed pool is NO LONGER enumerated — a sorted[:100] slice forbade most of a >100-row
+    # pool, contradicting the KEEP-your-assignments demand. The model is told to use only ev_ids from
+    # the evidence menu; validation enforces the pool deterministically after the answer.
+    assert "ev1" not in msg  # allowed-id set is NOT enumerated
+    assert "appear in the evidence menu" in msg
     # ordering: required titles appear after the "REQUIRES EXACTLY" demand
     demand_idx = msg.index("REQUIRES EXACTLY")
     assert all(msg.index(t) > demand_idx for t in _REQUIRED)

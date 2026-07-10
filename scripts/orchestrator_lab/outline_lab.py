@@ -45,6 +45,7 @@ if str(_REPO_ROOT) not in sys.path:
 from src.polaris_graph.generator.outline_digest import (  # noqa: E402
     PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT,
     _build_alias_map,
+    _is_chrome_interstitial,
     build_outline_digest,
     build_requirements_block,
     dedup_plan_ev_ids_by_work,
@@ -94,12 +95,20 @@ def _effective_s4_flag_slate(model: str) -> dict[str, str]:
     }
 
 
-def _row_topic_verdict(row: dict) -> str:
-    """Item 3 (THREE-VALUED): the cp4 per-candidate semantic topic verdict, read from the row's
-    topic-judge stamps. THREE values so the disclosure never overstates ignorance (395/686 rows this
-    run carry ``topic_offtopic_demoted``, 445 carry ``content_relevance_label=demoted`` — yet every
-    candidate read as ``unjudged`` before, starving the S5 router):
+_JUNK_GATE_PREDICATE_WARNED = False  # P3-3: warn ONCE per run when the junk-gate predicate collapses
 
+
+def _row_topic_verdict(row: dict) -> str:
+    """Item 3 + P2-2 (FOUR-VALUED): the cp4 per-candidate semantic topic verdict, read from the row's
+    topic-judge + content-integrity stamps. FOUR values so the disclosure never overstates ignorance
+    (395/686 rows this run carry ``topic_offtopic_demoted``, 445 carry ``content_relevance_label=
+    demoted`` — yet every candidate read as ``unjudged`` before, starving the S5 router):
+
+      "chrome_interstitial" — a §-1.3.1(a) content-integrity chrome NON-SOURCE (bot / cookie / 404 /
+                        "Just a moment..." failed fetch). Sourced from the junk-gate class-(a) stamp
+                        predicate (``is_row_content_junk``) OR the digest title-interstitial heuristic
+                        (banked rows may lack the fetch-side stamp). DISCLOSURE only — DELETION stays
+                        with the S5/junk gate; the router routes it to the gate, never to keep-all.
       "off_subject"   — an AFFIRMATIVE deletable off-topic stamp (the SAME fail-open predicate the
                         compose router + run-level junk gate consume; a positive-relevance verdict
                         vetoes it). This is the ONLY value the orphan-basket all-members rule treats
@@ -109,17 +118,34 @@ def _row_topic_verdict(row: dict) -> str:
                         the row is KEPT and routed; the S5 router now sees it is relevance-demoted.
       "unjudged"      — no stamp / any uncertainty / import-or-predicate error (FAIL-OPEN => KEEP).
 
-    Zero routing/deletion change — only the disclosure is richer (a demoted row no longer hides as
-    ``unjudged``)."""
+    Zero routing/deletion change — only the disclosure is richer (a chrome / demoted row no longer
+    hides as ``unjudged``)."""
+    global _JUNK_GATE_PREDICATE_WARNED
     r = row or {}
+    _title = str(r.get("title", "") or "")
     try:
         from src.polaris_graph.generator.junk_deletion_gate import (  # noqa: PLC0415
+            is_row_content_junk,
             is_row_deletable_offtopic,
         )
+        # P2-2: chrome non-source (class-a) checked FIRST — a failed fetch is neither on- nor off-topic.
+        if is_row_content_junk(r) or _is_chrome_interstitial(_title):
+            return "chrome_interstitial"
         if is_row_deletable_offtopic(r):
             return "off_subject"
-    except Exception:  # noqa: BLE001 — fail-open: a judge/import error never flips a row off-topic
-        pass
+    except Exception as exc:  # noqa: BLE001 — fail-open: a judge/import error never flips a row
+        # P3-3: a broken junk-gate import silently marked EVERY candidate "unjudged" with zero trace
+        # (a collapsed predicate is invisible). Keep fail-open, but DISCLOSE it ONCE per run so the
+        # collapse is loud (§-1.3 fail-loud-never-silent); still apply the title chrome heuristic.
+        if not _JUNK_GATE_PREDICATE_WARNED:
+            _JUNK_GATE_PREDICATE_WARNED = True
+            print(
+                f"[outline_lab] WARNING: junk-gate topic predicate unavailable ({str(exc)[:160]}) "
+                "— topic verdicts fail-open (title heuristic / 'unjudged') for this run.",
+                file=sys.stderr,
+            )
+        if _is_chrome_interstitial(_title):
+            return "chrome_interstitial"
     if r.get("topic_offtopic_demoted") or str(
         r.get("content_relevance_label", "") or ""
     ).strip().lower() in ("demoted", "escalated_demoted"):
@@ -184,8 +210,8 @@ def _mode_apply_dry(bank: dict) -> int:
         print("[apply-dry] bank has no `reviser_output` to replay — nothing to apply.")
         return 1
     allowed = {str(e) for p in plans for e in (p.get("ev_ids") or [])}
-    for p in plans:
-        allowed |= {str(e) for e in (p.get("ev_ids") or [])}
+    # P3-2: the per-plan for-loop that re-unioned the same ev_ids was a no-op repeat of the
+    # comprehension above — removed.
     # allow ev_ids referenced by the reviser that live in the pool but not yet on a plan. PUSH A
     # part (3): pool_ev_ids carries EVERY member incl. every same-work alias, so a planner/reviser
     # reference to a folded alias is never rejected as unknown.
@@ -386,12 +412,16 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         if _wk in _seen_work:
             _seen_work[_wk]["same_work_aliases"].append(e)
             continue
+        _tv = _row_topic_verdict(row_by_id[e])
         _entry = {
             "ev_id": e,
             "tier": str(row_by_id[e].get("tier", "") or ""),
             "title": str(row_by_id[e].get("title", "") or "")[:90],
             "disposition": "reassign_candidate",
-            "topic_verdict": _row_topic_verdict(row_by_id[e]),
+            "topic_verdict": _tv,
+            # P2-2: chrome non-source disclosure (§-1.3.1(a)) — the S5 router routes it to the junk
+            # gate (DELETE), never to a keep-all residual section. Disclosure only; None when not chrome.
+            "content_flag": ("chrome_interstitial" if _tv == "chrome_interstitial" else None),
             "same_work_aliases": [],
         }
         _seen_work[_wk] = _entry
@@ -419,7 +449,12 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
                      and all(_row_topic_verdict(row_by_id.get(m, {})) == "off_subject"
                              for m in basket_members.get(bid, [])))
                  else "unjudged"
-             )}
+             ),
+             # P2-2: the digest already computed chrome=True for an all-interstitial basket (e.g. an
+             # all-"Just a moment..." Cloudflare basket) — surface it as a distinct disclosure so the
+             # S5 router routes it to the junk gate (class-a DELETE), not KEEP+route. Disclosure only;
+             # deletion stays with the S5/junk gate (§-1.3.1(a)). None when the basket is not chrome.
+             "content_flag": ("chrome_interstitial" if menu.basket_chrome.get(bid) else None)}
             for bid in final_orphans
         ],
         "unassigned_singletons_count": len(unassigned_singletons),
@@ -476,15 +511,48 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     # honest fix — the bar is met by consolidating same-work anchors, not by hiding the metric.)
     print("\n=== (e) PER-SECTION DISTINCT-WORK FRACTION (PUSH A) ===")
     section_fracs = []
+    per_section_work: list[dict] = []  # P2-3(a): structured per-section record for cp4 digest_stats
     for p in plans:
         ev = [str(x) for x in (p.ev_ids or [])]
         works = {alias_of.get(e, e) for e in ev}
         frac = (len(works) / len(ev)) if ev else 1.0
         section_fracs.append(frac)
-        print(f"  {p.title!r}: anchors={len(ev)} distinct_works={len(works)} frac={frac:.3f}")
+        # P2-3(c): INDEPENDENT cross-check. The distinct-work frac grades itself with the SAME alias_of
+        # the item-14 anchor fold already applied to p.ev_ids (so it reads ~1.0 by construction). Basket
+        # co-membership is an INDEPENDENT signal: count anchors that share a MULTI-member basket with
+        # another anchor in the SAME section (menu.ev_id_to_basket) — corroboration via the finding-
+        # cluster path, not the same-work alias path. Disclosure only.
+        _bhits: dict[str, int] = {}
+        for e in ev:
+            _b = menu.ev_id_to_basket.get(e)
+            if _b is not None:
+                _bhits[_b] = _bhits.get(_b, 0) + 1
+        _co_basket_anchors = sum(c for c in _bhits.values() if c >= 2)
+        per_section_work.append({
+            "section": str(p.title),
+            "anchors": len(ev),
+            "distinct_works": len(works),
+            "frac": round(frac, 4),
+            "distinct_baskets": len(_bhits),
+            "co_basket_anchors": _co_basket_anchors,
+        })
+        print(f"  {p.title!r}: anchors={len(ev)} distinct_works={len(works)} frac={frac:.3f} "
+              f"co_basket_anchors={_co_basket_anchors}")
     min_frac = min(section_fracs) if section_fracs else 1.0
     frac_ok = min_frac >= 0.90
     print(f"[e] all sections distinct-work fraction >= 0.90: {frac_ok} (min={min_frac:.3f})")
+
+    # P2-3(a): persist the PUSH-A per-section fractions + same-work fold count + digest oversized flag
+    # into the cp4 digest_stats so the NAMED bar is DURABLE in the checkpoint, not print-only (a bar the
+    # checkpoint never records is a false green by omission). §-1.3: disclosure, never a drop.
+    if isinstance(stats, dict):
+        stats["per_section_distinct_work"] = per_section_work
+        stats["min_distinct_work_frac"] = round(min_frac, 4)
+        stats["distinct_work_frac_ok"] = bool(frac_ok)
+        stats["plan_work_fold_count"] = sum(
+            len(_a) for _f in plan_work_folds for _a in _f.get("folded", {}).values()
+        )
+        stats["digest_oversized"] = bool(getattr(menu, "oversized", False))
 
     # item 7: undersupplied disclosure. The honesty gate below passes on any() non-empty section, so a
     # mostly-hollow outline (3 of 4 required sections undersupplied) can read as a clean green. Surface
@@ -544,8 +612,12 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         and (order_ok in (True, None))
         and degraded_ok
         and be_gate_ok
+        # P2-3(b): the PUSH-A distinct-work fraction is a NAMED bar — a bar that never gates is a false
+        # green by construction. It now GATES acceptance (after the item-14 same-work anchor fold it is
+        # honestly met by CONSOLIDATION, not by hiding the metric).
+        and frac_ok
     )
-    print(f"\n[plan] ACCEPTANCE (a,c,d,b/e) ok={ok}  distinct_work_frac_ok={frac_ok}  "
+    print(f"\n[plan] ACCEPTANCE (a,c,d,b/e,frac) ok={ok}  distinct_work_frac_ok={frac_ok}  "
           f"in_tok={in_tok} out_tok={out_tok}")
     return 0 if ok else 1
 

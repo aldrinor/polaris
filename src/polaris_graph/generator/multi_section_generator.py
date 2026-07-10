@@ -1785,6 +1785,16 @@ def _parse_outline(
     # well-grounded facet is a valid emergent outline; below it => generic-6 fallback). Legacy
     # mode keeps the min-3 floor (byte-identical).
     _min_sections = _facet_outline_min_sections() if facet_titles else 3
+    # P2-1: when the user pinned a REQUIRED section structure, the DELIVERABLE CONTRACT — not the fixed
+    # legacy floor(3)/ceiling(6) — sets the count. Otherwise a >6-required-section contract gets
+    # truncated (silently discarding the evidence the model assigned to sections 7+, which conform then
+    # resurrects EMPTY/undersupplied) and a 2-required-section outline flags invalid and burns a retry
+    # on a valid outline. floor = min(3, N), ceiling = max(6, N). Empty required (the OFF default) keeps
+    # the exact legacy 3/6 bounds (byte-identical). Question-agnostic: reads only the COUNT of required
+    # sections, never any title text.
+    _required_count = len(required_lower)
+    if (not facet_titles) and _required_count:
+        _min_sections = min(3, _required_count)
     if len(plans) < _min_sections:
         reason_codes.append("section_count_below_min")
         ok = False
@@ -1798,11 +1808,15 @@ def _parse_outline(
         if len(plans) > _max_sections:
             plans = plans[:_max_sections]
             reason_codes.append("facet_section_count_compute_safety_truncate")
-    elif len(plans) > 6:
-        # Truncate to 6 but flag the violation.
-        plans = plans[:6]
-        reason_codes.append("section_count_above_max")
-        ok = False
+    else:
+        # P2-1: legacy ceiling = max(6, required-section count). A deliverable contract with >6 required
+        # sections is NOT truncated (that would discard the model's evidence + resurrect the tail empty
+        # at conform). Empty required => max(6, 0) == 6 (byte-identical). Truncate + flag if still over.
+        _legacy_max = max(6, _required_count)
+        if len(plans) > _legacy_max:
+            plans = plans[:_legacy_max]
+            reason_codes.append("section_count_above_max")
+            ok = False
     # M-24: Overlap across sections is ALLOWED (and encouraged — see
     # prompt). A SURPASS trial paper can legitimately cite into both
     # Efficacy and Safety sections. The OLD behavior (set ok=False on
@@ -1995,9 +2009,13 @@ def _targeted_retry_system_message(
         + "2. KEEP your evidence assignments: re-map the SAME ev_ids you already chose onto these "
         + "required titles (place each evidence facet under the required section it best fits). "
         + "Express the section's specific angle in the `focus` field, NOT in the title.\n"
-        + "3. Only use evidence IDs from this allowed set: "
-        + ", ".join(sorted(allowed_ev_ids)[:100])
-        + "\n4. Return ONLY the JSON object — no preamble, no markdown, no explanation.\n"
+        # P1-2: do NOT enumerate the allowed pool. On a >100-row pool the sorted[:100] slice told the
+        # model 85% of the real evidence was forbidden — directly contradicting rule 2's "KEEP your
+        # evidence assignments". The pool is enforced deterministically after the model answers
+        # (allowed_ev_ids validation), so the prompt list adds nothing and only misleads.
+        + "3. Use ONLY ev_ids that appear in the evidence menu above — any other id will be "
+        + "rejected (the allowed pool is enforced deterministically after you answer).\n"
+        + "4. Return ONLY the JSON object — no preamble, no markdown, no explanation.\n"
     )
 
 
@@ -3216,9 +3234,13 @@ async def _call_outline(
                     + "it (prioritize primary sources); do NOT pad a section with "
                     + "unrelated IDs. Evidence IDs MAY be shared across sections "
                     + "when the same study supports both topics.\n"
-                    + "3. Only use evidence IDs from this allowed set: "
-                    + ", ".join(sorted(allowed_ev_ids)[:100])
-                    + "\n4. Return ONLY the JSON object — no preamble, no "
+                    # P1-2: do NOT enumerate the allowed pool — the sorted[:100] slice forbade 85%
+                    # of a >100-row pool (686 rows here), contradicting the KEEP-your-assignments
+                    # demand. Validation enforces the pool deterministically after the answer, so the
+                    # list adds nothing and only misleads.
+                    + "3. Use ONLY ev_ids that appear in the evidence menu above — any other id "
+                    + "will be rejected (the allowed pool is enforced deterministically after you "
+                    + "answer).\n4. Return ONLY the JSON object — no preamble, no "
                     + "markdown, no explanation.\n"
                 )
             else:
@@ -3247,9 +3269,13 @@ async def _call_outline(
                     + "2. Assign each section the evidence that genuinely supports it (prioritize "
                     + "primary sources); do NOT pad with unrelated IDs. Evidence IDs MAY be shared "
                     + "across sections when the same source supports both topics.\n"
-                    + "3. Only use evidence IDs from this allowed set: "
-                    + ", ".join(sorted(allowed_ev_ids)[:100])
-                    + "\n4. Return ONLY the JSON object — no preamble, no "
+                    # P1-2: do NOT enumerate the allowed pool — the sorted[:100] slice forbade 85%
+                    # of a >100-row pool (686 rows here), contradicting the KEEP-your-assignments
+                    # demand. Validation enforces the pool deterministically after the answer, so the
+                    # list adds nothing and only misleads.
+                    + "3. Use ONLY ev_ids that appear in the evidence menu above — any other id "
+                    + "will be rejected (the allowed pool is enforced deterministically after you "
+                    + "answer).\n4. Return ONLY the JSON object — no preamble, no "
                     + "markdown, no explanation.\n"
                 )
             set_reasoning_call_context(

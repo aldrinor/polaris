@@ -128,6 +128,11 @@ class OutlineDigestMenu:
     # (so it is byte-identical to ``len(members)`` when ``same_work_groups`` is absent). This is the
     # honest corroboration the orphan check reads — 4 rows of 2 works corroborate a claim TWICE.
     basket_work_corroboration: dict[str, int] = field(default_factory=dict)
+    # P2-2: basket id -> True when the basket's representative row is a fetch INTERSTITIAL (§-1.3.1(a)
+    # chrome, e.g. an all-"Just a moment..." Cloudflare basket). Surfaced so a downstream disclosure
+    # (the S4 orphan-reassign audit) can flag the basket as chrome — DELETION still stays with the
+    # S5/junk gate; this is disclosure only. Empty when the digest saw no chrome baskets.
+    basket_chrome: dict[str, bool] = field(default_factory=dict)
 
     def render(self) -> str:
         """The prompt menu text — baskets first (heaviest claims), then singletons."""
@@ -165,14 +170,53 @@ def _ev_id_at(evidence: Sequence[Mapping[str, Any]], index: int) -> str:
 # same work into two. Exact known tokens only (content-integrity, not a lexical quality guess).
 _TITLE_CHROME_PREFIXES = ("[pdf]", "(pdf)", "url source:", "pdf source:")
 
+# P1-1(a): trailing SITE-CHROME separators. A web/repository page title is commonly rendered as
+# "<work title> <sep> <site or venue>" — "GPTs are GPTs: ... of LLMs | GovAI", "How Will AI Affect
+# the US Labor Market? | Goldman Sachs", "Experimental Evidence ... by Noy, Zhang :: SSRN". The tail
+# after the LAST such separator is site chrome, NOT part of the work title, so it must be peeled
+# before the work key is computed (else the same paper posted on two sites keys as two works). Only
+# the STRUCTURALLY-UNAMBIGUOUS separators are used: the pipe "|" (a CMS/template separator that
+# effectively never appears inside an academic title) and the double-colon "::" (SSRN/RePEc style).
+# The single hyphen " - " and en/em dash are DELIBERATELY EXCLUDED: they appear both as site suffixes
+# ("... - Sciences Po") AND inside real titles/subtitles, so blanket-stripping them would false-merge
+# distinct generically-titled works (the item-3b ev_044/ev_073 guard + its test). Dash-tailed
+# same-works are instead consolidated by the cp3 same_work_groups + the truncation prefix fold. This
+# is question-agnostic web-title STRUCTURE — no site allow-list, no entity list, no magic per-question.
+_TITLE_CHROME_TAIL_SEPARATORS = (" | ", " :: ")
+# a trailing site/venue chrome segment is SHORT — at most this many whitespace tokens. Generous
+# enough for real venue names ("J.P. Morgan Global Research", "YIP Institute Economic Policy") while
+# the >= _TITLE_FALLBACK_MIN_CHARS remainder floor stops a real title from being eaten.
+_TITLE_CHROME_TAIL_MAX_WORDS = 6
 
-def _strip_title_chrome(title: str) -> str:
-    """Peel leading chrome tokens (``[pdf]`` / ``(pdf)`` / ``url source:``) and trailing ellipsis
-    (``...`` / unicode ``…``) off a title so a chrome-prefixed or truncated title normalizes to the
-    SAME key as its clean form (item 3a). Loops so stacked prefixes ("[PDF] URL Source:") all peel.
-    Never drops the row — only cleans the KEY input (§-1.3: a fold keeps every row, it only reports
-    them as one work)."""
-    t = (title or "").strip()
+
+def _strip_one_trailing_chrome_segment(t: str) -> str | None:
+    """P1-1(a): peel ONE trailing site-chrome segment (" | <site>" / " :: <site>") when it is SHORT
+    (<= ``_TITLE_CHROME_TAIL_MAX_WORDS`` tokens) AND the remaining head still carries a real work
+    title (>= ``_TITLE_FALLBACK_MIN_CHARS`` alnum chars). Uses the RIGHTMOST unambiguous separator.
+    Returns the trimmed head, or ``None`` when no safe trailing-chrome segment is present (caller
+    stops). Structure-based, no site allow-list — never drops the row, only cleans the KEY input."""
+    best_cut = -1
+    best_len = 0
+    for sep in _TITLE_CHROME_TAIL_SEPARATORS:
+        idx = t.rfind(sep)
+        if idx > best_cut:
+            best_cut = idx
+            best_len = len(sep)
+    if best_cut <= 0:
+        return None
+    head = t[:best_cut].rstrip()
+    tail = t[best_cut + best_len:].strip()
+    if not tail or len(tail.split()) > _TITLE_CHROME_TAIL_MAX_WORDS:
+        return None
+    if len(re.sub(r"[^a-z0-9]", "", head.lower())) < _TITLE_FALLBACK_MIN_CHARS:
+        return None
+    return head
+
+
+def _strip_leading_and_ellipsis(t: str) -> str:
+    """Peel leading chrome prefixes (``[pdf]`` / ``(pdf)`` / ``url source:``) and a trailing ellipsis
+    (``...`` / unicode ``…``), iteratively. Split out of ``_strip_title_chrome`` so the P1-1(c)
+    inverse-fold predicate can test the trailing SITE-chrome tail BEFORE it is peeled."""
     changed = True
     while changed:
         changed = False
@@ -182,8 +226,34 @@ def _strip_title_chrome(title: str) -> str:
                 t = t[len(pref):].strip()
                 changed = True
                 break
-    while t.endswith("...") or t.endswith("…"):
-        t = (t[:-3] if t.endswith("...") else t[:-1]).rstrip()
+        if changed:
+            continue
+        if t.endswith("...") or t.endswith("…"):
+            t = (t[:-3] if t.endswith("...") else t[:-1]).rstrip()
+            changed = True
+    return t
+
+
+def _strip_title_chrome(title: str) -> str:
+    """Peel leading chrome tokens (``[pdf]`` / ``(pdf)`` / ``url source:``), trailing ellipsis
+    (``...`` / ``…``), AND trailing site-chrome tails (" | GovAI" / " :: SSRN") off a title so a
+    chrome-prefixed, truncated, or site-suffixed title normalizes to the SAME key as its clean form
+    (items 3a + P1-1(a)). Loops until stable so stacked chrome ("[PDF] Title ... | Site") all peels.
+    Never drops the row — only cleans the KEY input (§-1.3: a fold keeps every row, it only reports
+    them as one work)."""
+    t = (title or "").strip()
+    changed = True
+    while changed:
+        changed = False
+        peeled = _strip_leading_and_ellipsis(t)
+        if peeled != t:
+            t = peeled
+            changed = True
+            continue
+        tail_stripped = _strip_one_trailing_chrome_segment(t)
+        if tail_stripped is not None and tail_stripped != t:
+            t = tail_stripped
+            changed = True
     return t
 
 
@@ -206,6 +276,34 @@ def _normalized_title_key(title: str) -> str | None:
     return f"title:{norm}"
 
 
+def _title_had_chrome_tail(title: str) -> bool:
+    """P1-1(c): True when the title carries a trailing site-chrome tail (" | Site" / " :: Site") that
+    ``_strip_title_chrome`` peels. Used as the inverse-fold license — a chrome-tailed LONG key may fold
+    onto a shorter clean title it strictly startswith (the GUARDED prefix fold), never by unconditional
+    key rewriting. Tested with leading/ellipsis chrome peeled first so the tail test is clean."""
+    return _strip_one_trailing_chrome_segment(
+        _strip_leading_and_ellipsis((title or "").strip())
+    ) is not None
+
+
+def _colon_prefix_fold_key(title: str, existing_keys: set[str]) -> str | None:
+    """P1-1(b): a LEADING "<author/site> : <work title>" chrome prefix ("Daniel Rock (University of
+    Pennsylvania) : GPTs are GPTs: An Early Look...") keys to the SAME work as the clean title — but
+    ONLY as a fold-time fallback, never unconditionally (a real title may itself contain a colon). For
+    each colon in the (chrome-peeled) title, the after-colon remainder is a candidate key; return the
+    FIRST candidate that is >= the fallback floor AND already exists as ANOTHER row's base title key.
+    ``None`` when no remainder resolves to an existing work — so a genuine subtitle colon (whose
+    remainder matches nothing in the pool) NEVER folds. §-1.3: a fold keeps ALL rows, only reports
+    them as one work."""
+    t = _strip_title_chrome(title)
+    for m in re.finditer(r":", t):
+        remainder = t[m.end():].strip()
+        ckey = _normalized_title_key(remainder)
+        if ckey is not None and ckey in existing_keys:
+            return ckey
+    return None
+
+
 def _build_alias_map(
     same_work_groups: Sequence[Mapping[str, Any]] | None,
     evidence: Sequence[Mapping[str, Any]] | None = None,
@@ -219,11 +317,17 @@ def _build_alias_map(
     of group order. Returns ``{}`` when no groups are supplied AND no ``evidence`` is passed (=>
     every row is its own work => byte-identical to the pre-PUSH-A path).
 
-    Item 2 (normalized-TITLE fallback): when ``evidence`` is supplied, rows the cp3 groups did NOT
-    unify are folded by ``_normalized_title_key`` whenever >= 2 rows share ONE distinctive (>=25
-    alnum-char) title — the same underlying work the URL/DOI ``same_work_id`` missed (measured on
-    cp4: >=12 title-identical work groups the 51 URL/DOI groups left split, e.g. eloundou "GPTs are
-    GPTs" + its GovAI mirror). Deterministic (evidence order = canonical). A title group that
+    Item 2 + P1-1 (normalized-TITLE fallback): when ``evidence`` is supplied, rows the cp3 URL/DOI
+    groups did NOT unify are folded by ``_normalized_title_key`` whenever >= 2 rows share ONE
+    distinctive (>=25 alnum-char) work title across its variants — TITLE-identical, chrome-prefixed
+    ("(PDF) X"), truncated ("X ..."), SITE-tailed ("X | GovAI", "X :: SSRN" — P1-1 a/c), or
+    author-prefixed ("Author (...) : X" — P1-1 b) — the same underlying work the ``same_work_id``
+    missed (e.g. the SSRN-tailed "Experimental Evidence ... by Noy, Zhang :: SSRN" folds onto the clean
+    "Experimental Evidence ...", and "Daniel Rock (...) : GPTs are GPTs: ..." folds onto the clean
+    "GPTs are GPTs: ..."). NOTE: the eloundou "GPTs are GPTs | GovAI" mirror keys "...ofllms" after
+    P1-1(a) peels its "| GovAI" site tail, but its title TEXT differs from the "An Early Look..." paper,
+    so it folds only via cp3 URL/DOI, NOT by title (measured — not a title fold). Deterministic
+    (evidence order = canonical). A title group that
     OVERLAPS an existing cp3 group ADOPTS that group's key (so the two are UNIFIED into one work,
     not left as two); a title group the cp3 groups never touched takes the ``title:`` key itself.
     ``evidence=None`` => no title fold (byte-identical to the cp3-only map)."""
@@ -241,16 +345,21 @@ def _build_alias_map(
         for ev_id in members:
             alias_of.setdefault(ev_id, work_key)
 
-    # Item 2: normalized-TITLE fallback fold for TITLE-identical works the cp3 groups missed.
+    # Item 2 + P1-1: normalized-TITLE fallback fold for works the cp3 URL/DOI groups missed —
+    # title-identical, chrome-prefixed, truncated, SITE-tailed, or author-prefixed variants of ONE work.
     if evidence:
         title_groups: dict[str, list[str]] = {}
-        # Item 3b guard: the set of title keys that have at least one member row whose RAW title was
-        # TRUNCATED (ended with "..."/"…" BEFORE _strip_title_chrome peeled it). Only a truncated key
-        # may PREFIX-fold onto a longer full-title key — a non-truncated short title that merely happens
-        # to be a prefix of a longer distinct work (ev_044 "Artificial Intelligence and the Labor
-        # Market" vs ev_073 "...- Sciences Po") must NOT false-merge. §-1.3: a WRONG fold misstates
-        # corroboration, so the prefix fold now requires the truncation signal.
+        # Item 3b guard: title keys with at least one member row whose RAW title was TRUNCATED (ended
+        # with "..."/"…" BEFORE _strip_title_chrome peeled it). Only a truncated key may forward-prefix-
+        # fold onto a longer full-title key — a non-truncated short title that merely happens to be a
+        # prefix of a longer distinct work (ev_044 "Artificial Intelligence and the Labor Market" vs
+        # ev_073 "...- Sciences Po") must NOT false-merge. §-1.3: a WRONG fold misstates corroboration.
         truncated_keys: set[str] = set()
+        # P1-1(c) guard: title keys with at least one member whose RAW title carried a trailing SITE-
+        # chrome tail (" | Site" / " :: SSRN") that _strip_title_chrome peeled — the INVERSE-fold license.
+        chrome_tailed_keys: set[str] = set()
+        # P1-1(b): (raw_title, base_key) per row, for the leading "<Author> : <Title>" colon fold.
+        _row_title_keys: list[tuple[str, str]] = []
         for row in evidence:
             if not isinstance(row, Mapping):
                 continue
@@ -264,27 +373,12 @@ def _build_alias_map(
             title_groups.setdefault(tkey, []).append(ev_id)
             if _raw_title.endswith("...") or _raw_title.endswith("…"):
                 truncated_keys.add(tkey)
+            if _title_had_chrome_tail(_raw_title):
+                chrome_tailed_keys.add(tkey)
+            _row_title_keys.append((_raw_title, tkey))
 
-        # Item 3b (PREFIX FOLD): a TRUNCATED title keys to a PREFIX of the full title's key
-        # ("...Impact ..." truncations vs the full paper title — ev_884/ev_890 vs ev_886/ev_882).
-        # Fold each key onto the shortest STRICTLY-longer key it is a full prefix of, so the
-        # truncated rows unify with the full-title rows. Every key here is already
-        # >= _TITLE_FALLBACK_MIN_CHARS alnum chars (the floor), so an exact-prefix match on 25+
-        # identical leading chars is a strong same-work signal — Fable: keep the 25-char floor so
-        # distinct works never merge. Deterministic (length then lexicographic).
+        base_keys = set(title_groups.keys())
         fold_target: dict[str, str] = {}
-        _keys_by_len = sorted(title_groups.keys(), key=lambda k: (len(k), k))
-        for _i, _short in enumerate(_keys_by_len):
-            # Item 3b guard: only a TRUNCATED short key may fold onto a longer full-title key. A short
-            # key that is merely a prefix of a longer DISTINCT work (never truncated) stays its own
-            # work — this is the ev_044/ev_073 false-merge fix. Non-truncated identical titles still
-            # fold by EXACT key equality (same title_groups bucket, untouched by this prefix pass).
-            if _short not in truncated_keys:
-                continue
-            for _long in _keys_by_len[_i + 1:]:
-                if len(_long) > len(_short) and _long.startswith(_short):
-                    fold_target[_short] = _long
-                    break
 
         def _final_key(k: str) -> str:
             _seen: set[str] = set()
@@ -292,6 +386,54 @@ def _build_alias_map(
                 _seen.add(k)
                 k = fold_target[k]
             return k
+
+        _keys_by_len = sorted(title_groups.keys(), key=lambda k: (len(k), k))
+        # Item 3b FORWARD (PREFIX FOLD): a TRUNCATED short key keys to a PREFIX of the full title's key
+        # ("...Impact ..." truncations vs the full paper title). Fold onto the shortest STRICTLY-longer
+        # key it is a full prefix of. Every key here is already >= _TITLE_FALLBACK_MIN_CHARS alnum chars
+        # (the floor), so an exact-prefix match on 25+ identical leading chars is a strong same-work
+        # signal. Only a TRUNCATED short key may fold — a non-truncated short prefix of a longer DISTINCT
+        # work stays its own work (the ev_044/ev_073 guard). Non-truncated identical titles still fold by
+        # EXACT key equality (same title_groups bucket). Deterministic (length then lexicographic).
+        for _i, _short in enumerate(_keys_by_len):
+            if _short not in truncated_keys:
+                continue
+            for _long in _keys_by_len[_i + 1:]:
+                if len(_long) > len(_short) and _long.startswith(_short):
+                    fold_target[_short] = _long
+                    break
+
+        # P1-1(c) INVERSE (PREFIX FOLD): a TRUNCATED-or-chrome-tailed LONG key folds onto the LONGEST
+        # non-truncated SHORTER key it strictly startswith — the SSRN/author-tailed "Experimental
+        # Evidence ... by Noy Zhang" (":: SSRN" peeled) folding onto the clean "Experimental Evidence
+        # ...". Today only truncated-SHORT->LONG folded, so the chrome/author-tailed LONG copy never
+        # unified with its clean SHORT title. Same 25-char floor (every key clears it) + the item-4
+        # false-merge guard below still applies. Skip a key already forward-folded; never point a key at
+        # a target that folds back onto it (no 2-cycle — the _final_key check).
+        _fold_eligible = truncated_keys | chrome_tailed_keys
+        _short_targets = sorted(
+            (k for k in title_groups if k not in truncated_keys), key=lambda k: (-len(k), k)
+        )
+        for _long in sorted(title_groups.keys(), key=lambda k: (-len(k), k)):
+            if _long in fold_target or _long not in _fold_eligible:
+                continue
+            for _short in _short_targets:
+                if _short == _long or len(_short) >= len(_long):
+                    continue
+                if _long.startswith(_short) and _final_key(_short) != _long:
+                    fold_target[_long] = _short
+                    break
+
+        # P1-1(b) COLON PREFIX FALLBACK: a leading "<author/site> : <title>" chrome prefix keys to the
+        # SAME work as the clean title, but ONLY when the after-colon remainder resolves to an EXISTING
+        # clean-title key (never unconditional — a real title may contain a colon). Skip a key already
+        # folded above; guard against a cycle via _final_key.
+        for _raw_title, _tkey in _row_title_keys:
+            if _tkey in fold_target:
+                continue
+            _ckey = _colon_prefix_fold_key(_raw_title, base_keys)
+            if _ckey is not None and _ckey != _tkey and _final_key(_ckey) != _tkey:
+                fold_target[_tkey] = _ckey
 
         merged_groups: dict[str, list[str]] = {}
         for _k, _members in title_groups.items():
@@ -540,6 +682,7 @@ def build_outline_digest(
     ev_id_to_basket: dict[str, str] = {}
     basket_member_ev_ids: dict[str, list[str]] = {}
     basket_work_corroboration: dict[str, int] = {}
+    basket_chrome: dict[str, bool] = {}  # P2-2: bid -> representative row is a fetch interstitial
     for idx, c in enumerate(multi_sorted):
         bid = f"B{idx:02d}"
         # item 9: pair each member's ev_id with its tier and sort them TOGETHER by ev_id, so the
@@ -599,6 +742,7 @@ def build_outline_digest(
         )
         basket_member_ev_ids[bid] = member_ev_ids
         basket_work_corroboration[bid] = work_corroboration
+        basket_chrome[bid] = bool(_is_chrome_interstitial(rep_title))  # P2-2 disclosure flag
         for e in member_ev_ids:
             # keep-first on a rare cross-basket collision (deterministic ordering fixes it)
             ev_id_to_basket.setdefault(e, bid)
@@ -727,6 +871,7 @@ def build_outline_digest(
         basket_member_ev_ids=basket_member_ev_ids,
         singleton_alias_ev_ids=singleton_alias_ev_ids,
         basket_work_corroboration=basket_work_corroboration,
+        basket_chrome=basket_chrome,
     )
 
     # ── 4. 100%-of-pool honesty invariant (Design 5 §9 bar #2): every non-empty ev_id in the
