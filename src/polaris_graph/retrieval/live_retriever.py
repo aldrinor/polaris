@@ -4540,6 +4540,45 @@ def _snap_start_to_quote_word_boundary(text: str, start: int) -> int:
     return i
 
 
+# I-fetchclean-001 round-2 Fix 5 (RC4): a decimal window / head slice cuts at a raw char offset,
+# so a chunk can BEGIN with a dangling markdown-link URL tail (``…-feet/ "…")``) or END with an
+# incomplete ``[anchor](partial…`` token. These pure-string trims snap ONLY such link fragments off
+# the chunk boundary; they never eat a decimal or a real word (a fragment is bounded and URL-shaped),
+# and the trim window is capped. Gated DEFAULT-ON by ``PG_SPAN_WINDOW_LINK_SNAP``; OFF ⇒ the chunk is
+# returned byte-identical. The stored direct_quote is what strict_verify grounds against, so the trims
+# are precision-first and faithfulness-neutral (they only NARROW the quote at a chrome boundary).
+_ENV_SPAN_WINDOW_LINK_SNAP = "PG_SPAN_WINDOW_LINK_SNAP"
+_SPAN_LINK_FRAGMENT_MAX_CHARS = 300
+
+
+def _span_window_link_snap_enabled() -> bool:
+    """Fix 5 default-ON; OFF ("0") ⇒ each chunk byte-identical (no boundary trim)."""
+    return os.getenv(_ENV_SPAN_WINDOW_LINK_SNAP, "1") != "0"
+
+
+def _trim_span_link_fragments(chunk: str) -> str:
+    """Fix 5 — trim a LEADING dangling link URL tail and a TRAILING incomplete markdown-link token
+    off a windowed chunk. Pure; only ever NARROWS the chunk (never inserts, never crosses a word)."""
+    if not chunk:
+        return chunk
+    # LEADING: text up to the first ``)`` that has NO ``[`` before it and contains ``://`` or a
+    # ``#`` fragment is a dangling link tail left by a mid-link window cut → drop it (and the ``)``).
+    close = chunk.find(")")
+    if 0 <= close <= _SPAN_LINK_FRAGMENT_MAX_CHARS:
+        prefix = chunk[:close]
+        if "[" not in prefix and ("://" in prefix or "#" in prefix):
+            chunk = chunk[close + 1:].lstrip()
+    # TRAILING: a final ``[anchor](partial`` (or ``[anchor`` with no closing ``]``) with no closing
+    # ``)`` is an incomplete link token → drop from its opening ``[``.
+    opb = chunk.rfind("[")
+    if opb != -1 and len(chunk) - opb <= _SPAN_LINK_FRAGMENT_MAX_CHARS:
+        tail = chunk[opb:]
+        incomplete = ("]" not in tail) or ("](" in tail and ")" not in tail.split("](", 1)[1])
+        if incomplete:
+            chunk = chunk[:opb].rstrip()
+    return chunk
+
+
 _PDF_METADATA_PATTERNS = (
     re.compile(r"^\s*%PDF", re.MULTILINE),
     re.compile(r"endobj|xref|startxref|trailer", re.IGNORECASE),
@@ -4743,6 +4782,10 @@ def _build_provenance_quote(
     # unchanged; only the emitted head STRING is trimmed to a whole word. ``head``
     # stays a verbatim prefix of the de-hyphenated content (faithfulness-neutral).
     head = content[:_snap_end_to_word_boundary(content, head_chars)]
+    # Fix 5 (RC4): snap a dangling link URL fragment off the head boundary (default-ON).
+    _snap_links = _span_window_link_snap_enabled()
+    if _snap_links:
+        head = _trim_span_link_fragments(head)
 
     # Find all decimal positions in the full content
     positions: list[tuple[int, int]] = []
@@ -4779,6 +4822,11 @@ def _build_provenance_quote(
         s_snapped = _snap_start_to_quote_word_boundary(content, s)
         e_snapped = _snap_end_to_word_boundary(content, e)
         chunk = content[s_snapped:e_snapped]
+        # Fix 5 (RC4): trim a leading dangling link URL tail / trailing incomplete link token off
+        # the window boundary (default-ON). The decimal sits ~250 chars inside, far from either
+        # boundary, so the trim never ejects it; OFF ⇒ chunk byte-identical.
+        if _snap_links:
+            chunk = _trim_span_link_fragments(chunk)
         # Stop if we'd exceed the total cap
         if total + len(chunk) + 6 > max_total_chars:
             break
