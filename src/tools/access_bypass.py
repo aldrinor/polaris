@@ -3028,6 +3028,81 @@ def _parse_doi_page_range(doi: "Optional[str]") -> "tuple[Optional[int], Optiona
     return (start, end)
 
 
+# ---------------------------------------------------------------------------
+# I-deepfix-004 F2 (B3) — SLICE-IDENTITY VERIFICATION.
+# A DOI suffix page range (e.g. `-203-210`) encodes the article's PRINTED page
+# numbers. Using a printed page number as a PHYSICAL PDF page index on a whole-
+# ISSUE PDF slices a DIFFERENT article (printed p.203 is rarely physical page 203
+# of the issue). Before ADOPTING such a slice, confirm it IS the cited work; if
+# unverifiable, DO NOT adopt it — recover to whole-doc (kept + disclosed
+# downstream, never a wrong-content adoption, §-1.3). A `#page=N` FRAGMENT anchor
+# is a physical page reference (PDF Open Parameters) and is trusted as-is — only
+# the printed-page-suffix anchor is verified.
+# ---------------------------------------------------------------------------
+
+# The verification reads ONLY the running-header zone at the TOP of the slice. In
+# clinical context the dangerous direction is a false-CONFIRM (adopting a wrong
+# slice); a small window keeps an incidental page-number-shaped token (a sample
+# size / year / citation) deep in the slice from confirming a wrong physical page.
+# A false-reject only recovers to whole-doc (safe).
+_SLICE_IDENTITY_TOP_CHARS = 400
+# Minimum cited-title length that may serve as an identity signal (a very short
+# title fragment is not distinctive enough to confirm identity).
+_SLICE_TITLE_MIN_CHARS = 12
+
+
+def pdf_slice_identity_verify_enabled() -> bool:
+    """True iff SLICE-IDENTITY VERIFICATION (I-deepfix-004 F2/B3) is enabled.
+
+    Gated by PG_PDF_SLICE_IDENTITY_VERIFY. DEFAULT ON (unset/empty => ON). Only an
+    explicit falsey value ('0'/'false'/'no'/'off') turns it OFF, in which case a
+    printed-page slice is adopted BLINDLY exactly as before this fix (byte-identical
+    OFF). Read at call time so tests toggle without re-import."""
+    raw = os.getenv("PG_PDF_SLICE_IDENTITY_VERIFY")
+    if raw is None or not raw.strip():
+        return True
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _slice_identity_verified(
+    slice_text: "Optional[str]",
+    printed_start_page: "Optional[int]",
+    cited_title: "Optional[str]" = None,
+    top_chars: int = _SLICE_IDENTITY_TOP_CHARS,
+) -> bool:
+    """Confirm a printed-page PDF slice IS the cited work (I-deepfix-004 F2/B3).
+
+    Reads ONLY the TOP ``top_chars`` of the slice (the running-header zone) and
+    confirms identity via EITHER high-precision signal:
+      1. the cited article TITLE (when supplied) appears near the top; OR
+      2. the printed START page number appears near the top as a standalone token.
+    Returns ``False`` (UNVERIFIED) when neither confirms — the caller then does NOT
+    adopt the slice (recover -> whole-doc; never a wrong-content adoption). Pure /
+    deterministic; no network. Precision-first: a miss recovers (safe), so brittle
+    matching only ever causes a safe whole-doc fallback, never a wrong adoption.
+
+    ``cited_title`` is threaded from row / DOI / OpenAlex metadata WHEN PRESENT; the
+    live ``access_bypass`` path has no title source (that metadata lives in the
+    retrieval layer), so in production the page-number signal is the working check
+    and the title branch activates once the owning lane wires a title through."""
+    if not slice_text:
+        return False
+    head = slice_text[: max(1, top_chars)]
+    low_head = head.lower()
+    # Signal 1 — cited title near the top (only when a distinctive title is supplied).
+    if cited_title:
+        norm_title = re.sub(r"\s+", " ", cited_title.strip().lower())
+        if len(norm_title) >= _SLICE_TITLE_MIN_CHARS:
+            norm_head = re.sub(r"\s+", " ", low_head)
+            if norm_title in norm_head:
+                return True
+    # Signal 2 — printed start page number as a standalone token near the top.
+    if printed_start_page is not None and printed_start_page >= 1:
+        if re.search(rf"\b{printed_start_page}\b", head):
+            return True
+    return False
+
+
 # M-23c: Structural markers for content quality scoring.
 # Presence of academic-paper markers indicates full article body
 # (vs paywall stub or landing page).
@@ -3837,6 +3912,7 @@ class AccessBypass:
         _slice_on = pdf_cited_work_slice_enabled()
         _pdf_page_anchor: "Optional[int]" = None
         _pdf_page_end: "Optional[int]" = None
+        _pdf_anchor_is_printed_page = False
         if _slice_on and "doi.org/" in url.lower():
             _doi_target = await self._resolve_doi_pdf_target(url)
             if _doi_target and _doi_target.get("is_pdf"):
@@ -3848,6 +3924,9 @@ class AccessBypass:
                 url = _doi_target["final_url"]
                 _pdf_page_anchor = _doi_target.get("page_anchor")
                 _pdf_page_end = _doi_target.get("page_end")
+                _pdf_anchor_is_printed_page = bool(
+                    _doi_target.get("anchor_is_printed_page")
+                )
 
         # FIX-CITE-3/GAP4: Detect PDF URLs and extract text directly.
         # Academic open-access PDFs (from S2 openAccessPdf) need PDF parsing,
@@ -3871,6 +3950,7 @@ class AccessBypass:
                     page_anchor=_pdf_page_anchor,
                     page_end=_pdf_page_end,
                     out_meta=_pdf_out_meta,
+                    anchor_is_printed_page=_pdf_anchor_is_printed_page,
                 )
                 if pdf_text and len(pdf_text) > 500:
                     # ev_461: strip a leading journal-masthead block (running-head /
@@ -4679,10 +4759,12 @@ class AccessBypass:
         is_pdf = final_path.endswith(".pdf") or "application/pdf" in content_type
 
         page_anchor: "Optional[int]" = None
+        _anchor_from_fragment = False
         for _s in frag_sources:
             _n = _parse_pdf_page_fragment(_s)
             if _n is not None:
                 page_anchor = _n
+                _anchor_from_fragment = True
                 break
 
         doi = self._extract_doi(url) or self._extract_doi(final_url)
@@ -4692,11 +4774,19 @@ class AccessBypass:
             page_anchor = doi_start
         page_end = doi_end
 
+        # I-deepfix-004 F2/B3: a `#page=N` fragment is a PHYSICAL page reference
+        # (PDF Open Parameters) and its slice is trusted; a DOI-suffix start page
+        # is a PRINTED page number used as a physical index and its slice MUST be
+        # identity-verified before adoption. True ONLY when the anchor came from
+        # the printed-page suffix (no fragment supplied it).
+        anchor_is_printed_page = page_anchor is not None and not _anchor_from_fragment
+
         return {
             "final_url": final_url,
             "is_pdf": bool(is_pdf),
             "page_anchor": page_anchor,
             "page_end": page_end,
+            "anchor_is_printed_page": bool(anchor_is_printed_page),
         }
 
     async def _extract_pdf_text(
@@ -4705,6 +4795,7 @@ class AccessBypass:
         page_anchor: "Optional[int]" = None,
         page_end: "Optional[int]" = None,
         out_meta: "Optional[Dict[str, Any]]" = None,
+        anchor_is_printed_page: bool = False,
     ) -> str:
         """FIX-CITE-3/GAP4: Download and extract text from academic PDF.
 
@@ -4748,7 +4839,8 @@ class AccessBypass:
                 )
 
         return await self._extract_pdf_text_from_bytes(
-            url, pdf_bytes, page_anchor=page_anchor, page_end=page_end
+            url, pdf_bytes, page_anchor=page_anchor, page_end=page_end,
+            anchor_is_printed_page=anchor_is_printed_page,
         )
 
     async def _extract_pdf_text_from_bytes(
@@ -4757,6 +4849,7 @@ class AccessBypass:
         pdf_bytes: bytes,
         page_anchor: "Optional[int]" = None,
         page_end: "Optional[int]" = None,
+        anchor_is_printed_page: bool = False,
     ) -> str:
         """I-deepfix-001 B1 (wave-2, 2026-07-08) — extraction-time FURNITURE screen.
 
@@ -4787,7 +4880,8 @@ class AccessBypass:
             body = await self._extract_pdf_text_from_bytes_impl(url, pdf_bytes)
         else:
             body = await self._extract_pdf_text_from_bytes_impl(
-                url, pdf_bytes, page_anchor=page_anchor, page_end=page_end
+                url, pdf_bytes, page_anchor=page_anchor, page_end=page_end,
+                anchor_is_printed_page=anchor_is_printed_page,
             )
         try:
             from src.polaris_graph.retrieval import shell_detector as _sd
@@ -4907,6 +5001,8 @@ class AccessBypass:
         pdf_bytes: bytes,
         page_anchor: "Optional[int]" = None,
         page_end: "Optional[int]" = None,
+        anchor_is_printed_page: bool = False,
+        cited_title: "Optional[str]" = None,
     ) -> str:
         """Extract text from already-fetched PDF bytes (offline-testable).
 
@@ -5114,6 +5210,28 @@ class AccessBypass:
                     page_anchor, min(stop_idx, _page_count), _page_count,
                     _acc_chars, url[:60],
                 )
+                # I-deepfix-004 F2/B3: SLICE-IDENTITY VERIFICATION. A PRINTED-page
+                # anchor (DOI suffix) used as a physical index can slice a DIFFERENT
+                # article from an issue PDF. Confirm the slice IS the cited work; if
+                # unverifiable, DO NOT adopt it — recover the whole doc (kept +
+                # disclosed downstream, never a wrong-content adoption, §-1.3). A
+                # `#page=N` fragment anchor is physical and trusted (never verified).
+                if (
+                    anchor_is_printed_page
+                    and pdf_slice_identity_verify_enabled()
+                    and not _slice_identity_verified(
+                        "\n\n".join(pages_text), page_anchor, cited_title
+                    )
+                ):
+                    logger.warning(
+                        "[B3-SLICE-IDENTITY] slice_unverified=true printed_start_page=%d "
+                        "pages=%d..%d of %d url=%s — cited-work identity NOT confirmed at "
+                        "the slice top; NOT adopting the printed-page slice, recovering "
+                        "whole doc (kept+disclosed, no drop)",
+                        page_anchor, page_anchor, min(stop_idx, _page_count),
+                        _page_count, url[:60],
+                    )
+                    pages_text = [doc[_i].get_text() for _i in range(_page_count)]
             else:
                 for page in doc:
                     pages_text.append(page.get_text())
