@@ -271,7 +271,7 @@ def _reconstruct_sections(
             continue
         rendered: list[str] = []
         for r in _sentence_rows(s):
-            raw = str(r.get("sentence") or r.get("text") or "").strip()
+            raw = str(r.get("sentence") or r.get("text") or r.get("sentence_text") or "").strip()
             if not raw:
                 continue
             sent = _resolve_citations_to_numbers(raw, eid2num, valid_nums)
@@ -460,6 +460,15 @@ def render_cp6_to_report(cp6_arg: str, out_arg: str | None, run_config_arg: str 
     if checkpoint is None:
         raise FileNotFoundError(f"cp6 checkpoint {checkpoint_path} loaded as None")
     verif_details = checkpoint.get("verification_details", {}) or {}
+    # Seam bridge (integration branch): the S6 UNFREEZE runner (run_s6_verify.py) writes its
+    # per-section LABELED sentences under payload.sections (each sentence carrying sentence_text),
+    # not under the legacy verification_details.sections. Fall back to it so a cp6 from EITHER
+    # producer renders identically. No re-judging -- pure location reconciliation (LABEL+REPAIR).
+    if not verif_details.get("sections"):
+        _pl = checkpoint.get("payload") if isinstance(checkpoint.get("payload"), dict) else {}
+        _secs = _pl.get("sections") if isinstance(_pl.get("sections"), list) else checkpoint.get("sections")
+        if isinstance(_secs, list) and _secs:
+            verif_details = {**verif_details, "sections": _secs}
     question = str(checkpoint.get("question") or "").strip() or "Research report"
 
     # Optional sidecars (fail-open).
@@ -471,6 +480,10 @@ def render_cp6_to_report(cp6_arg: str, out_arg: str | None, run_config_arg: str 
             protocol = _load_json(ppath) or {}
         except Exception:  # noqa: BLE001
             protocol = {}
+    if question == "Research report":
+        _rq = str((protocol or {}).get("research_question") or "").strip()
+        if _rq:
+            question = _rq
     credibility = {}
     cpath = run_dir / "corpus_credibility_disclosure.json"
     if cpath.is_file():
