@@ -4001,6 +4001,7 @@ def _render_bibliography_lines(
     journal_preference_active: bool = False, protocol: "dict | None" = None,
     document_type_by_url: "dict | None" = None,
     weight_by_url: "dict[str, dict] | None" = None,
+    reference_style: str = "numeric",
 ) -> str:
     """#1239: render the report Bibliography. Default (require_locator=False) is byte-identical
     to the prior inline loop. When PG_BIB_REQUIRE_LOCATOR is ON, a CITED entry whose URL AND DOI
@@ -4104,10 +4105,22 @@ def _render_bibliography_lines(
             # the number and emitted a number-less "[gap]" line, ORPHANING the body [N]). We keep
             # [num] AND honestly disclose the missing locator. _bib_entry_has_locator already ruled
             # out a non-blank URL or DOI, so there is genuinely no resolvable locator to show.
-            out += (
-                f"[{b['num']}] {statement} — no resolvable URL/DOI locator "
-                f"(disclosed evidence gap, tier {tier}){_genre_tag}\n"
-            )
+            # S7 (WP-3d, Design 3 consumer 3): a non-numeric reference_style re-formats THIS entry
+            # from real metadata only, keeping the leading [N] + trailing (tier ...){genre} so the
+            # "^[N] " / "## Bibliography" downstream consumers are untouched. numeric => byte-identical.
+            if reference_style != "numeric":
+                from src.polaris_graph.generator import deliverable_render as _dref  # noqa: PLC0415
+                out += _dref.format_reference_body(
+                    num=b["num"], title=statement,
+                    locator="no resolvable URL/DOI locator (disclosed evidence gap)",
+                    tier=tier, genre_tag=_genre_tag, row=b, year=_m2_publication_year(b),
+                    style=reference_style, has_locator=False,
+                ) + "\n"
+            else:
+                out += (
+                    f"[{b['num']}] {statement} — no resolvable URL/DOI locator "
+                    f"(disclosed evidence gap, tier {tier}){_genre_tag}\n"
+                )
         else:
             # #1239 (Codex iter-1 REQUEST_CHANGES): when require_locator is ON and the URL is
             # blank but a non-blank DOI exists, render the DOI as the locator
@@ -4130,7 +4143,17 @@ def _render_bibliography_lines(
                         locator = f"https://pubmed.ncbi.nlm.nih.gov/{_pmid}/"
             # M2 (I-deepfix-001): append the additive document-type genre tag (empty unless the
             # journal-only document-type preference is active). M3a PMID fallback above + M2 tag here.
-            out += f"[{b['num']}] {statement} — {locator} (tier {tier}){_genre_tag}\n"
+            # S7 (WP-3d): a non-numeric reference_style re-formats from real metadata; numeric is
+            # byte-identical to HEAD (the module is never entered on the default path).
+            if reference_style != "numeric":
+                from src.polaris_graph.generator import deliverable_render as _dref  # noqa: PLC0415
+                out += _dref.format_reference_body(
+                    num=b["num"], title=statement, locator=locator, tier=tier,
+                    genre_tag=_genre_tag, row=b, year=_m2_publication_year(b),
+                    style=reference_style, has_locator=True,
+                ) + "\n"
+            else:
+                out += f"[{b['num']}] {statement} — {locator} (tier {tier}){_genre_tag}\n"
     # I-arch-011 PR-b (#1268): APPEND the per-claim Argus keep-all corroboration block.
     # Default-OFF keyword => this is skipped entirely => the bibliography render above is
     # byte-identical to the legacy output.
@@ -5234,6 +5257,7 @@ def assemble_report_md(
     conclusion_md: str,
     *,
     dedup_enabled: bool,
+    ordering: "dict | None" = None,
 ) -> str:
     """Assemble the final report.md (I-arch-011 PR-d #1268).
 
@@ -5249,6 +5273,13 @@ def assemble_report_md(
     followed by ``## Key Findings`` is dropped). Pure."""
     if abstract_md or conclusion_md:
         body = dedup_identical_paragraphs(body_md) if dedup_enabled else body_md
+        # S7 (WP-3d, Design 3 consumer 3): a deliverable ORDERING ask re-positions the extractive
+        # summary/conclusion wrappers. ordering=None (default) OR summary_first True => the exact
+        # title + abstract + body + conclusion order, byte-identical to HEAD. Only a summary_first=False
+        # ask moves the abstract to trail the body; the block TEXT is never edited (no claim moves).
+        if ordering:
+            from src.polaris_graph.generator import deliverable_render as _dref  # noqa: PLC0415
+            return _dref.assemble_with_ordering(title_md, abstract_md, body, conclusion_md, ordering)
         return title_md + abstract_md + body + conclusion_md
     whole = title_md + body_md
     return dedup_identical_paragraphs(whole) if dedup_enabled else whole
@@ -16237,6 +16268,27 @@ async def run_one_query(
                 tier_summary = _tier_mix_disclosure_summary(dist.tier_fractions)
             except Exception:  # noqa: BLE001 — additive coherence; never break the render
                 pass
+        # S7 (WP-3d, Design 3 consumers 3+4 + master §1.3): resolve the deliverable-aware RENDER
+        # inputs ONCE (used by the Methods disclosure below + the Bibliography render + the report
+        # assembler). Gated behind PG_DELIVERABLE_RENDER (default OFF => every value stays inert =>
+        # report.md is BYTE-IDENTICAL to HEAD). The spec + run_config flow from the pinned protocol
+        # (S0 populates protocol["deliverable_spec"] / protocol["run_config"]); absent today => inert.
+        _deliverable_render_on = _env_flag("PG_DELIVERABLE_RENDER", default=False)
+        _deliverable_spec = (protocol or {}).get("deliverable_spec") if _deliverable_render_on else None
+        _deliverable_run_config = (protocol or {}).get("run_config") if _deliverable_render_on else None
+        _reference_style = "numeric"
+        _reference_fallback = False
+        _report_ordering = None
+        if _deliverable_render_on and _deliverable_spec:
+            try:
+                from src.polaris_graph.generator import deliverable_render as _dref  # noqa: PLC0415
+                if _dref.is_spec_active(_deliverable_spec):
+                    _reference_style, _reference_fallback = _dref.resolve_reference_style(
+                        _deliverable_spec
+                    )
+                    _report_ordering = _dref.build_report_ordering(_deliverable_spec)
+            except Exception as _dref_exc:  # noqa: BLE001 — additive render leg; never abort the report
+                _log(f"[deliverable-render] spec resolve skipped (fail-open): {_dref_exc}")
         methods = (
             "\n\n## Methods\n"
             f"Pre-registered protocol.json (SHA-256 {scope.protocol_sha256[:16]}...).\n"
@@ -16263,6 +16315,20 @@ async def run_one_query(
             f"{adequacy_line}\n"
             f"{completeness_line}\n"
         )
+        # S7 (WP-3d, Design 3 consumer 4 + master §1.3): the deliverable-requirement ADHERENCE block
+        # (every parsed directive verbatim + HONORED/PARTIAL/requested) AND the RunConfig knob
+        # DISCLOSURE block (every non-default knob + value + source layer). Both fail-open and both
+        # return "" when no spec / run_config => byte-identical Methods on HEAD. Gated by the same
+        # PG_DELIVERABLE_RENDER kill-switch resolved above.
+        if _deliverable_render_on:
+            try:
+                from src.polaris_graph.generator import deliverable_render as _dref  # noqa: PLC0415
+                methods += _dref.render_deliverable_adherence_block(
+                    _deliverable_spec, reference_fallback=_reference_fallback
+                )
+                methods += _dref.render_run_config_disclosure_block(_deliverable_run_config)
+            except Exception as _dref_exc:  # noqa: BLE001 — additive disclosure; never abort the report
+                _log(f"[deliverable-render] Methods disclosure skipped (fail-open): {_dref_exc}")
         # FIX-A9 (#1100): report-visible disclosure of a SILENT quantified-analysis degradation
         # (operator no-downgrade directive) — complements the loud log at the manifest build. The
         # helper returns "" unless the capability was ENABLED but produced no verified output.
@@ -16502,6 +16568,8 @@ async def run_one_query(
                 if s11_sec8_disclosure_weight_enabled()
                 else None
             ),
+            # S7 (WP-3d): the user-requested reference style ("numeric" default => byte-identical).
+            reference_style=_reference_style,
         )
 
         # I-arch-002 (#1246) P-W2breadth: the post-bibliography breadth canary
@@ -16887,6 +16955,9 @@ async def run_one_query(
                 _assembled_body,
                 _conclusion_md,
                 dedup_enabled=_env_flag(_LIMITATIONS_DEDUP_ENV, default=True),
+                # S7 (WP-3d): a deliverable ORDERING ask re-positions the extractive summary/conclusion
+                # wrappers. None (default) => byte-identical title + abstract + body + conclusion.
+                ordering=_report_ordering,
             )
         except Exception as _assemble_exc:  # noqa: BLE001 — finish-line: a rendered report MUST ship
             _log(
