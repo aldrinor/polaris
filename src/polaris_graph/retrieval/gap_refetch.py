@@ -347,12 +347,15 @@ def _ev_index(evidence_id: Any) -> int:
 
 
 def fold_gap_delta(existing_rows: list[dict], delta_rows: list[dict]) -> FoldResult:
-    """Fold delta gap rows into the existing pool: source-URL dedup + GLOBAL ev_id renumber.
+    """Fold delta gap rows into the existing pool: exact source-URL dedup + GLOBAL ev_id renumber.
 
-    Mirrors ``run_honest_sweep_r3._run_gap_round`` exactly (canonical-URL dedup so a source the
-    novelty metric already collapsed is never double-counted; global renumber so ids never collide
-    with the existing ``{evidence_id: row}`` map and provenance stays intact). §-1.3: this ADDS
-    rows and CONSOLIDATES duplicates to one — it never deletes an existing row.
+    Follows the ``run_honest_sweep_r3._run_gap_round`` fold pattern (:14290+): global renumber so
+    ids never collide with the existing ``{evidence_id: row}`` map and provenance stays intact,
+    plus URL dedup so a source already in the pool is never double-counted. NOTE the dedup here is
+    on the EXACT stripped ``source_url`` string; the production recompose seam may additionally
+    apply the canonical-URL identity (the ``?utm_`` / query-param collapse the novelty metric uses)
+    before or after this fold. §-1.3: this ADDS rows and CONSOLIDATES duplicates to one — it never
+    deletes an existing row.
     """
     folded = [dict(r) for r in (existing_rows or [])]
     existing_urls = {
