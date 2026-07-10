@@ -668,21 +668,24 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # length cap; strict_verify re-checks every claim regardless of body length).
     "PG_LIVE_CONTENT_MAX": "300000",
     "PG_LIVE_HTTP_TIMEOUT": "30",
-    # SPEED LEVER L1 (dual-gated speed decision — both review gates APPROVE, with guards): raise the
-    # global fetch-pool worker FLOOR 24 -> 48 to cut fetch wall-clock on the ~1000-URL corpus. This is a
-    # FLOOR value (apply_full_capability_benchmark_slate: max(existing, slate)), NOT force-exact, so a
-    # higher operator/.env value is still kept and never silently lowered. The per-HOST politeness cap
-    # (PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT below) STAYS 6, so same-host crawl rate is unchanged — only
-    # cross-host fetch breadth widens. FAITHFULNESS-NEUTRAL: fetch concurrency only; strict_verify / NLI /
-    # 4-role D8 / provenance re-check every claim regardless of worker count.
-    # 429/BREADTH STEP-DOWN GUARD (correction 7 — now REAL, not a comment): the forensic monitor steps
-    # 48 -> 36 -> 24 by setting PG_LIVE_RETRIEVER_MAX_WORKERS_STEPDOWN=<n> (no code edit) if run telemetry
-    # shows a 429-rate rise or a cited-source breadth regression vs the 24-worker baseline. The
-    # apply_full_capability_benchmark_slate() step-down block honors it as min(48, override) AFTER this
-    # FLOOR (so the floor cannot raise a step-down back to 48). The per-host cap is the politeness
-    # invariant (never raise it to compensate); the worker floor here is the ceiling the monitor steps DOWN
-    # from. This "48" is the CEILING the step-down block reads via _FULL_CAPABILITY_BENCHMARK_SLATE.
-    "PG_LIVE_RETRIEVER_MAX_WORKERS": "48",
+    # I-fetch-lock (FETCH SECTION 1 LOCKED): 48 -> 14. The settled, acceptance-MET fetch concurrency.
+    # A full 921-source fetch at 14 workers achieved 846/921 = 91.9% success with ZERO crawler
+    # exceptions; the same corpus at 48 workers crashed the crawler (249 exceptions, 573 = 62% success)
+    # and blew the container cgroup pids.max (12544) via headless-browser fan-out. 14 is the locked
+    # default (band 14-16). This is a FLOOR value (apply_full_capability_benchmark_slate:
+    # max(existing, slate)), NOT force-exact, so a higher operator/.env value is still kept and never
+    # silently lowered (an operator may RAISE it). The per-HOST politeness cap
+    # (PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT below) STAYS 6, so same-host crawl rate is unchanged.
+    # FAITHFULNESS-NEUTRAL: fetch concurrency only; strict_verify / NLI / 4-role D8 / provenance
+    # re-check every claim regardless of worker count.
+    # 429/BREADTH STEP-DOWN GUARD (correction 7 — REAL, not a comment): the forensic monitor can step
+    # DOWN from this ceiling by setting PG_LIVE_RETRIEVER_MAX_WORKERS_STEPDOWN=<n> (no code edit) if run
+    # telemetry shows a 429-rate rise or a cited-source breadth regression. The
+    # apply_full_capability_benchmark_slate() step-down block honors it as min(<slate ceiling 14>,
+    # override) AFTER this FLOOR (so the floor cannot raise a step-down back up). The per-host cap is the
+    # politeness invariant (never raise it to compensate). This "14" is the CEILING the step-down block
+    # reads via _FULL_CAPABILITY_BENCHMARK_SLATE.
+    "PG_LIVE_RETRIEVER_MAX_WORKERS": "14",
     # I-beatboth-008 (#1285) commit-2 build A: per-HOST politeness concurrency for the parallel
     # fetch pool (live_retriever:4093 _env_int, CALL-time). 6 lets distinct hosts fetch wider while
     # same-host stays capped — concurrency only, faithfulness-neutral. Read at call time inside the

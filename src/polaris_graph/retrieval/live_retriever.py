@@ -118,7 +118,7 @@ DEFAULT_MAX_S2 = int(os.getenv("PG_LIVE_MAX_S2", "20"))
 # candidate list we fetch). The legacy default of 40 was the dominant breadth lever
 # on the diced-preflight drb_72 fixture (926 discovered -> 166 selected -> 149
 # fetched: a 760-candidate count-cut). Raised to a generous 200 (5x) — cost is never
-# the constraint, time is, and the fetch is BOUNDED-PARALLEL (worker ceiling 48, per-
+# the constraint, time is, and the fetch is BOUNDED-PARALLEL (worker ceiling 14, per-
 # host cap 4) so a generous cap stays wall-time sane. Still env-overridable (LAW VI):
 # a validation run that wants the FULL discovered pool fetched (dropped_pre_fetch==0)
 # sets PG_LIVE_FETCH_CAP higher (and the sweep's own PG_SWEEP_FETCH_CAP, which
@@ -147,7 +147,13 @@ DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
 # legacy default of 8; ceiling caps the pool so a huge corpus cannot spawn an
 # unbounded thread count; per-candidate divisor sets the ramp.
 _FETCH_WORKERS_FLOOR = 8
-_FETCH_WORKERS_CEILING = 48
+# I-fetch-lock (FETCH SECTION 1 LOCKED): 48 -> 14. A full 921-source fetch at 14
+# workers achieved 846/921 = 91.9% success with ZERO crawler exceptions; the same
+# corpus at 48 workers crashed the crawler (249 exceptions, 573 = 62% success) and
+# blew the container cgroup pids.max via headless-browser fan-out. 14 is the locked
+# default (band 14-16); still env-overridable via PG_LIVE_RETRIEVER_MAX_WORKERS (an
+# operator may RAISE it). Faithfulness-neutral: fetch concurrency only.
+_FETCH_WORKERS_CEILING = 14
 _FETCH_WORKERS_PER_CANDIDATE = 16
 # Mirror of parallel_fetch.DEFAULT_PER_BACKEND_LIMIT (4) used as the default
 # per-HOST concurrency cap; imported as a named constant rather than hardcoded.
@@ -6357,8 +6363,9 @@ def run_live_retrieval(
         # I-fetch-003 (#1175 / BB5-C02): scale max_workers with the candidate
         # count instead of a flat default-8. Explicit env wins; when UNSET,
         # min(_CEILING, max(_FLOOR, len(candidates) // _PER_CANDIDATE)). Named
-        # constants (LAW VI — no magic numbers). For ~740 candidates this
-        # yields ~46 workers; small corpora stay at the floor of 8.
+        # constants (LAW VI — no magic numbers). With the I-fetch-lock ceiling
+        # of 14 a large corpus lands at 14 workers (band 14-16); small corpora
+        # stay at the floor of 8.
         _explicit_workers = os.environ.get("PG_LIVE_RETRIEVER_MAX_WORKERS")
         if _explicit_workers is not None:
             try:
