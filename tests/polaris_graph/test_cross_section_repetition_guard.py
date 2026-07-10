@@ -89,19 +89,17 @@ def _count_goldman(sections: list[_FakeSection]) -> int:
     return sum(1 for s in sections if "Goldman Sachs estimates" in s.verified_text)
 
 
-def test_guard_default_off_is_no_op(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Flag unset => guard disabled => sections untouched (RED baseline: the recycled finding still
-    appears in ALL 3 sections, reproducing the defect)."""
+def test_guard_default_on_consolidates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Flag unset => guard DEFAULT-ON (2026-07-10 compose gear-loop, P0-4) => a recycled cross-section
+    finding is consolidated. (The OFF no-op path is covered by test_guard_explicit_off_token_is_no_op.)"""
     monkeypatch.delenv(_ENV_ENABLED, raising=False)
-    assert guard_enabled() is False
+    assert guard_enabled() is True
     sections = _build_sections()
-    before = [s.verified_text for s in sections]
 
     telemetry = consolidate_cross_section_repetition(sections)
 
-    assert telemetry == {}
-    assert [s.verified_text for s in sections] == before  # byte-identical
-    assert _count_goldman(sections) == 3  # defect reproduced under OFF
+    assert telemetry.get("consolidated", 0) >= 1  # recycled finding consolidated
+    assert _count_goldman(sections) < 3  # the cross-section recurrence collapsed to fewer instances
 
 
 def test_guard_explicit_off_token_is_no_op(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -183,9 +181,11 @@ def test_all_distinct_findings_untouched(monkeypatch: pytest.MonkeyPatch) -> Non
     assert [s.verified_text for s in sections] == before
 
 
-def test_same_section_repeat_left_to_fact_dedup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A finding repeated WITHIN one section (not across sections) is NOT consolidated here — that is
-    fact_dedup's job; the guard only acts on cross-section recurrence."""
+def test_same_section_repeat_consolidated_within_section(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix 3c (2026-07-10 compose gear-loop iter 2): a finding repeated VERBATIM WITHIN one section is now
+    consolidated by the guard as a render-level backstop for the emit-dedup (previously it was left to
+    fact_dedup). The FIRST instance is kept with the duplicate's citation UNIONED onto it (§-1.3 keep-all)
+    and the duplicate is removed; the OTHER section is untouched (no cross-section cluster here)."""
     monkeypatch.setenv(_ENV_ENABLED, "1")
     sections = [
         _FakeSection(
@@ -197,12 +197,18 @@ def test_same_section_repeat_left_to_fact_dedup(monkeypatch: pytest.MonkeyPatch)
             verified_text="Union membership declined among younger service-sector workers. [3]",
         ),
     ]
-    before = [s.verified_text for s in sections]
 
     telemetry = consolidate_cross_section_repetition(sections)
 
-    assert telemetry == {"clusters": 0, "consolidated": 0}
-    assert [s.verified_text for s in sections] == before
+    # No CROSS-section cluster, but ONE within-section duplicate consolidated.
+    assert telemetry["clusters"] == 0
+    assert telemetry["consolidated"] == 1
+    assert telemetry.get("within_section") == 1
+    # Exactly ONE Goldman instance remains, carrying BOTH citations (keep-all).
+    assert sections[0].verified_text.count(_GOLDMAN) == 1
+    assert "[1]" in sections[0].verified_text and "[2]" in sections[0].verified_text
+    # The other section is untouched.
+    assert sections[1].verified_text == "Union membership declined among younger service-sector workers. [3]"
 
 
 def test_dropped_and_empty_sections_skipped(monkeypatch: pytest.MonkeyPatch) -> None:

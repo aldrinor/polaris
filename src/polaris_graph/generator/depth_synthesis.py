@@ -168,6 +168,9 @@ def _deterministic_spanjoin_fallback(
         return str(
             compose_basket_multicited_sentence(
                 basket, scoped_pool, writer_fn=_null_writer, verify_fn=verify_fn,
+                # FIX-1 (depth_synthesis) is a DISCLOSED verbatim corroboration DIGEST, not body prose:
+                # opt OUT of the 2026-07-10 NO_RAW_SPAN gate so the deterministic span-join still fires.
+                no_raw_span_override=False,
             )
             or ""
         )

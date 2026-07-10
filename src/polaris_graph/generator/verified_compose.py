@@ -104,6 +104,22 @@ def _number_tokens(text: str) -> frozenset[str]:
     return frozenset(m.group(0) for m in _NUMBER_TOKEN_RE.finditer(stripped))
 
 
+# Fix 3a (2026-07-10 compose gear-loop iter 2): resolved numeric-citation marker ([1] / [1, 2]) pattern
+# for the citation-INSENSITIVE emit-dedup key (paired with _EV_TOKEN_RE which strips the pre-resolution
+# [#ev:...] tokens).
+_CITATION_NUM_MARKER_RE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
+
+
+def _dedup_norm(text: str) -> str:
+    """Fix 3a (2026-07-10): the citation-INSENSITIVE normalized-text key for emit dedup — strip both the
+    pre-resolution provenance tokens (``[#ev:...]``) AND resolved numeric citation markers (``[1]`` /
+    ``[1, 2]``), collapse whitespace, lowercase. So two units with IDENTICAL prose but DIFFERENT (rotated)
+    citations produce the SAME key and collapse to one (their citations are then UNION-consolidated onto
+    the survivor per Fix 3b — never dropped). Pure."""
+    stripped = _CITATION_NUM_MARKER_RE.sub(" ", _EV_TOKEN_RE.sub(" ", text or ""))
+    return " ".join(stripped.split()).lower()
+
+
 def _canon_number(tok: str) -> str:
     """Canonicalize a number token for the L2 distinct-fact novelty test — strip thousands-separator
     commas so ``"400,000"`` and ``"400000"`` compare equal. Any residual collision under this
@@ -414,6 +430,18 @@ def _structural_chrome_form(text: str) -> bool:
     s = (text or "").strip()
     if not s:
         return False
+    # Fix 4b/6 (2026-07-10 compose gear-loop iter 2): the shared STRUCTURAL page-furniture FORMS
+    # (acknowledgment / copyright / working-paper masthead / page-header run / numeric-table run /
+    # author-bio / standalone-initial) — single source of truth in block_page_chrome_scrub so the
+    # compose OUTPUT screen and the run audit predicate agree. Lazy import + fail-open.
+    try:
+        from src.polaris_graph.generator.block_page_chrome_scrub import (  # noqa: PLC0415
+            is_structural_page_furniture,
+        )
+        if is_structural_page_furniture(s):
+            return True
+    except Exception:  # pragma: no cover — fail-open never withholds a real finding
+        pass
     try:
         return bool(
             _CHROME_BIBTEX_RE.search(s)
@@ -1937,8 +1965,16 @@ def _unverified_synthesis_disclosure(basket: Any) -> str:
     claim text (never empty)."""
     claim = str(getattr(basket, "claim_text", "") or getattr(basket, "subject", "") or "").strip()
     claim = _EV_TOKEN_RE.sub("", claim).strip()
+    claim = " ".join(claim.split())  # Fix 5: collapse whitespace so no embedded newline splits the unit
     if not claim:
         return _no_verified_span_disclosure(basket)
+    # Fix 5 (2026-07-10 compose gear-loop iter 2): a broken mid-word fragment or a page-furniture claim
+    # wrapped in a label is STILL garbage in a final report. WITHHOLD it (fall to the honest gap
+    # disclosure) when the existing junk screen fires, and word-boundary-truncate a long claim so no
+    # mid-word "…displ" slice ever ships. Faithfulness-neutral (the SOURCE stays in the pool).
+    if _uncovered_fact_disclosure_is_junk(basket, claim):
+        return _no_verified_span_disclosure(basket)
+    claim = _truncate_subject_word_safe(claim, _UNCOVERED_SUBJECT_LIMIT)
     return f"{_UNVERIFIED_SYNTH_PREFIX} {claim}"
 
 
@@ -2220,8 +2256,34 @@ def _clauses_share_subject(a: str, b: str) -> bool:
     return len(_repair_content_words(a) & _repair_content_words(b)) >= _join_subject_min_overlap()
 
 
-def _join_verified_clauses(clauses: list, *, connective: str = "; ") -> Optional[str]:
+_JOIN_REQUIRE_SAME_CLAIM_ENV = "PG_JOIN_CLAUSE_REQUIRE_SAME_CLAIM"
+
+
+def _join_require_same_claim_enabled() -> bool:
+    """Fix 8 kill-switch (2026-07-10 compose gear-loop iter 2, default ON). When ON, two verified
+    clauses are co-located under the neutral ``"; "`` connective ONLY when they are the SAME claim
+    (``same_claim=True`` — e.g. within-basket corroboration, or a relation an engine has licensed);
+    UNRELATED clauses are emitted as SEPARATE sentences, because a neutral ``"; "`` between two
+    unrelated claims fabricates an association ("…work for government; the launch of ChatGPT…"). OFF
+    (explicit off token) => the legacy lexical subject-overlap license (``_clauses_share_subject``)
+    byte-identically. Blank/unset => ON."""
+    raw = os.getenv(_JOIN_REQUIRE_SAME_CLAIM_ENV, "").strip().lower()
+    if not raw:
+        return True
+    return raw not in ("0", "false", "off", "no")
+
+
+def _join_verified_clauses(
+    clauses: list, *, connective: str = "; ", same_claim: bool = False,
+) -> Optional[str]:
     """Co-locate N already-strict_verify-PASSED single-source clauses into ONE multi-cited sentence.
+
+    Fix 8 (2026-07-10 compose gear-loop iter 2): ``same_claim`` licenses the neutral ``"; "`` co-location.
+    When the require-same-claim gate is ON (default), continuations are joined into one sentence ONLY
+    when ``same_claim`` is True (the caller asserts every clause corroborates the SAME claim — the
+    within-basket multi-cite); otherwise each clause is emitted as its OWN sentence so a ``"; "`` splice
+    never fabricates an association between unrelated claims. When the gate is OFF the legacy lexical
+    subject-overlap license runs byte-identically.
 
     Extracted (I-beatboth-011 keystone-F1 F1-2b, #1284) from ``compose_multicited_sentence`` so BOTH
     the cross-basket producer AND the within-basket producer share ONE join contract. Each input clause
@@ -2255,9 +2317,14 @@ def _join_verified_clauses(clauses: list, *, connective: str = "; ") -> Optional
     # co-location of unrelated claims). A same-topic tension shares subject words and stays joined.
     sentence = _strip_terminal_punct(clean[0]).rstrip()
     prev_clause = clean[0]
+    require_same = _join_require_same_claim_enabled()
     for clause in clean[1:]:
         stripped = _strip_terminal_punct(clause).lstrip()
-        if _clauses_share_subject(prev_clause, clause):
+        # Fix 8: under the require-same-claim gate the ONLY license for a neutral "; " co-location is
+        # that the caller asserted these clauses are the SAME claim; otherwise emit SEPARATE sentences.
+        # OFF => the legacy lexical subject-overlap proxy.
+        licensed = same_claim if require_same else _clauses_share_subject(prev_clause, clause)
+        if licensed:
             # licensed co-location: connective + lowercased continuation stays ONE multi-cited sentence.
             sentence = sentence.rstrip() + connective + _lowercase_first_alpha(stripped)
         else:
@@ -2402,6 +2469,65 @@ def _member_writer_clause(
     return joined or None
 
 
+# ── Fix 2 (2026-07-10 compose gear-loop iter 2) — CITATION-ONLY corroboration (never raw span text) ──
+def _member_citation_token(member: Any, evidence_pool: dict) -> Optional[str]:
+    """The member's own ``[#ev:<id>:<start>-<end>]`` provenance token at its verified GLOBAL span — the
+    CITATION carrying a corroborating source WITHOUT any of its span TEXT (Fix 2 keep-all: keep the
+    citation, never dump the raw prose). Returns None when the member has no resolvable global span."""
+    eid = str(getattr(member, "evidence_id", "") or "")
+    gspan = _member_global_span(member, evidence_pool)
+    if not eid or gspan is None:
+        return None
+    return f"[#ev:{eid}:{gspan[0]}-{gspan[1]}]"
+
+
+def _attach_citation_tokens(sentence: str, tokens: list) -> str:
+    """Append corroborator ``[#ev]`` citation token(s) INSIDE the last sentence of ``sentence`` (before
+    its terminal punctuation) so they resolve to ``[N]`` markers downstream and UNION-strengthen
+    strict_verify — the entailment judge aggregates ALL cited spans, so adding a corroborating span can
+    only HELP entailment/numeric, never break it (Fix 2b). Consolidate-keep-all as CITATIONS, never span
+    text. De-dups a token already present. Pure."""
+    extra = [str(t) for t in (tokens or []) if t and str(t) not in (sentence or "")]
+    if not extra:
+        return sentence
+    s = (sentence or "").rstrip()
+    trailing = ""
+    if s[-1:] in ".!?":
+        trailing = s[-1]
+        s = s[:-1].rstrip()
+    return f"{s} {' '.join(extra)}{trailing}"
+
+
+def _uncited_corroborator_citation_tokens(basket: Any, evidence_pool: dict, body: str) -> list:
+    """Fix 2b (2026-07-10): the ``[#ev]`` CITATION tokens for every DISTINCT-ORIGIN corroborator whose
+    citation the authored ``body`` did NOT already carry — so routing a corroborated basket through
+    synth-primary keeps every corroborating source (§-1.3 consolidate-keep-all) as a CITATION attached to
+    the authored prose, NEVER as a dumped verbatim span (the parallel of ``_uncited_corroborator_clauses``
+    that returns TOKENS, not span text). Order-stable (weight desc); pure read."""
+    eid_to_origin: dict[str, str] = {}
+    for m in _basket_supports_members(basket):
+        eid = str(getattr(m, "evidence_id", "") or "")
+        if eid:
+            eid_to_origin[eid] = str(getattr(m, "origin_cluster_id", "") or eid)
+    cited_origins: set[str] = set()
+    for ev_id, _s, _e in _resolved_spans(body):
+        cited_origins.add(eid_to_origin.get(ev_id, ev_id))
+    out: list = []
+    for member in _distinct_origin_supports(basket):
+        origin = str(
+            getattr(member, "origin_cluster_id", "")
+            or getattr(member, "evidence_id", "")
+            or id(member)
+        )
+        if origin in cited_origins:
+            continue
+        tok = _member_citation_token(member, evidence_pool)
+        if tok:
+            cited_origins.add(origin)
+            out.append(tok)
+    return out
+
+
 def compose_basket_multicited_sentence(
     basket: Any,
     evidence_pool: dict,
@@ -2409,6 +2535,7 @@ def compose_basket_multicited_sentence(
     writer_fn: Callable[[Any, dict], str],
     verify_fn: Callable[..., Any],
     connective: str = "; ",
+    no_raw_span_override: Optional[bool] = None,
 ) -> Optional[str]:
     """Compose ONE multi-cited sentence from a SINGLE basket's >=2 corroborating verified members.
 
@@ -2452,7 +2579,14 @@ def compose_basket_multicited_sentence(
     if len(supports) < 2:
         return build_verified_span_draft(basket, evidence_pool)
 
+    # Fix 2c honors NO_RAW_SPAN by default (the BODY callers). A caller that DELIBERATELY wants the
+    # verbatim K-span span-join — the depth_synthesis FIX-1 cross-source revival, a disclosed
+    # corroboration DIGEST, NOT body prose — passes no_raw_span_override=False to keep its behavior.
+    no_raw_span = (
+        _no_raw_span_fallback_enabled() if no_raw_span_override is None else bool(no_raw_span_override)
+    )
     clauses: list[str] = []
+    citation_only_tokens: list = []
     for member in supports:
         sub = _single_member_basket(basket, member)
         clause: Optional[str] = None
@@ -2464,24 +2598,38 @@ def compose_basket_multicited_sentence(
         if written:
             # The guard runs ONLY on this synthesized prose: strip any unlicensed relational quantifier
             # the writer fabricated. None => the synthesis was a pure aggregate predicate with no span
-            # left; fall back to the member's verbatim span rather than drop the corroborator.
+            # left; fall back per the NO_RAW_SPAN contract below rather than drop the corroborator.
             guarded = guard_relational_quantifier(written, basket)
             if guarded and guarded.strip():
                 clause = guarded.strip()
-        if clause is None:
-            # (1b) VERBATIM K-span fallback — the source's own words, NEVER guard-touched (a quantifier
-            # the SOURCE wrote is faithful; deleting it would misquote the source). Faithful-by-construction.
+        if clause is not None:
+            clauses.append(clause)
+            continue
+        # Fix 2c (2026-07-10 compose gear-loop iter 2): a member with NO verified writer clause
+        # contributes its CITATION only (never its verbatim span TEXT) under NO_RAW_SPAN — the
+        # corroborating source is kept (§-1.3) as a citation, not a dumped quote. OFF (kill-switch) =>
+        # the legacy verbatim K-span clause byte-identically (the quantifier-guard contract untouched).
+        if no_raw_span:
+            tok = _member_citation_token(member, evidence_pool)
+            if tok:
+                citation_only_tokens.append(tok)
+        else:
             verbatim = _member_verbatim_clause(basket, member, evidence_pool)
             if verbatim and verbatim.strip():
-                clause = verbatim.strip()
-        if clause:
-            clauses.append(clause)
+                clauses.append(verbatim.strip())
 
-    joined = _join_verified_clauses(clauses, connective=connective)
+    # Fix 8: these clauses ALL corroborate this ONE basket's claim -> same_claim=True licenses the
+    # neutral "; " co-location (a within-basket corroboration is never an unrelated-claim splice).
+    joined = _join_verified_clauses(clauses, connective=connective, same_claim=True)
     if joined is not None:
-        return joined
-    # Fewer than TWO members yielded a clause — always-release the basket's single-cite K-span rather
-    # than strand the corroborated basket (never empty).
+        # Fix 2c: attach every citation-only corroborator token to the joined sentence (union-strengthens
+        # entailment/numeric; resolves to [N]) so no corroborating source is dropped.
+        return _attach_citation_tokens(joined, citation_only_tokens) if citation_only_tokens else joined
+    # Fewer than TWO writer clauses. Under NO_RAW_SPAN never dump a verbatim K-span (the quote-dump root):
+    # emit the labeled unverified-synthesis disclosure (the consolidated basket claim). OFF => legacy
+    # single-cite K-span (always-release; never strand the corroborated basket).
+    if no_raw_span:
+        return _unverified_synthesis_disclosure(basket)
     return build_verified_span_draft(basket, evidence_pool)
 
 
@@ -2563,13 +2711,22 @@ def compose_basket_multicited_synth_primary(
     # Wave-3a #1344: fire the activation marker ONLY on a non-empty authored body (Fable R5).
     _emit_synth_primary_marker(kept)
     if not body.strip():
-        # Synth-primary authored NO prose for this corroborated basket -> preserve EVERY corroborator via
-        # the UNCHANGED multi-cited co-location (all-corroborator guarantee); never collapse to one K-span.
+        # Fix 2a (2026-07-10 compose gear-loop iter 2): synth-primary authored NO prose. Under NO_RAW_SPAN
+        # never fall to the verbatim whole-span co-location (the 4x-block / chrome / quote-dump root) —
+        # emit the labeled unverified-synthesis disclosure (the consolidated basket claim, NO raw span).
+        # OFF (kill-switch) => the legacy multi-cited co-location byte-identically.
+        if _no_raw_span_fallback_enabled():
+            return _unverified_synthesis_disclosure(basket)
         return compose_basket_multicited_sentence(
             basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
         ) or ""
-    # Authored coherent prose is the primary body; append a verbatim K-span for any distinct-origin
-    # corroborator it did not already cite so NO corroborating source is dropped (§-1.3).
+    # Authored coherent prose is the primary body. Fix 2b (2026-07-10): keep every distinct-origin
+    # corroborator the authored prose did not itself cite as a CITATION token attached to the body (it
+    # resolves to [N] and union-strengthens strict_verify), NEVER a dumped verbatim span. OFF => legacy
+    # verbatim K-span clauses.
+    if _no_raw_span_fallback_enabled():
+        extra_tokens = _uncited_corroborator_citation_tokens(basket, evidence_pool, body)
+        return _attach_citation_tokens(body, extra_tokens) if extra_tokens else body
     extra = _uncited_corroborator_clauses(basket, evidence_pool, body)
     return (body + " " + " ".join(extra)) if extra else body
 
@@ -3031,6 +3188,10 @@ def _compose_section_per_basket(
     out: list[str] = []
     seen_spans: set[tuple[str, int, int]] = set()
     seen_texts: set[str] = set()
+    # Fix 3b (2026-07-10 compose gear-loop iter 2): citation-insensitive normalized-text -> index in
+    # ``out`` of the SURVIVING unit, so a later text-identical duplicate's citations are UNION-consolidated
+    # onto the survivor (§-1.3 keep-all) instead of dropped-and-lost.
+    text_to_out_idx: dict[str, int] = {}
     # I-arch-011 #1269 B11 (compose-repetition): a SECOND, stronger key — the exact resolved-span
     # FOOTPRINT (frozenset) already emitted -> the union of its kept number tokens. A later unit with
     # the IDENTICAL footprint that adds NO new number is a pure reword of an already-rendered span ->
@@ -3088,7 +3249,7 @@ def _compose_section_per_basket(
         # identity (not merely a span subset) keeps every differing claim. Apply AFTER the §3.5 marker
         # filter so a token-less marker never reaches this check.
         spans = _resolved_spans(composed)
-        norm = " ".join(composed.split())
+        norm = _dedup_norm(composed)  # Fix 3a: citation-INSENSITIVE text key
         footprint = frozenset(spans)
         # I-arch-011 #1269 B11: footprint-EQUALITY same-span collapse (the 18x-degenerate-repetition
         # defect). A unit whose EXACT footprint was already emitted AND that adds NO new number token is
@@ -3099,14 +3260,23 @@ def _compose_section_per_basket(
             if not (unit_numbers - seen_numbers_by_footprint[footprint]):
                 continue
             seen_numbers_by_footprint[footprint] = seen_numbers_by_footprint[footprint] | unit_numbers
-        # idx8 legacy key (subset-of-already-emitted + byte-identical text) — retained so a unit whose
-        # spans are a SUBSET (not equal) of an emitted sibling AND is text-identical still collapses.
-        if spans and spans <= seen_spans and norm in seen_texts:
+        # Fix 3b (2026-07-10 compose gear-loop iter 2): text-identity collapse regardless of which
+        # member's span backs it (the ``spans <= seen_spans`` gate is DROPPED). Identical post-strip prose
+        # is a duplicate; UNION the duplicate's citations onto the SURVIVING unit (§-1.3 consolidate-keep-
+        # all — never drop a corroborating source), then skip the duplicate. Citation-rotated exact
+        # duplicates (same prose, different [N]) now collapse where they leaked before.
+        if norm and norm in seen_texts:
+            surv_idx = text_to_out_idx.get(norm)
+            if surv_idx is not None:
+                dup_tokens = [f"[#ev:{_e}:{_s}-{_en}]" for (_e, _s, _en) in spans]
+                out[surv_idx] = _attach_citation_tokens(out[surv_idx], dup_tokens)
+            seen_spans |= spans
             continue
         if footprint and footprint not in seen_numbers_by_footprint:
             seen_numbers_by_footprint[footprint] = _number_tokens(composed)
         seen_spans |= spans
         seen_texts.add(norm)
+        text_to_out_idx[norm] = len(out)
         out.append(composed)
 
         # I-deepfix-001 Wave-3 PART 1 (#1344): COMPANION-FIGURE COMPOSE. DEFAULT-ON (OFF => this block is
@@ -3124,19 +3294,27 @@ def _compose_section_per_basket(
                 if not companion or not companion.strip():
                     continue
                 c_spans = _resolved_spans(companion)
-                c_norm = " ".join(companion.split())
+                c_norm = _dedup_norm(companion)  # Fix 3a: citation-INSENSITIVE key
                 c_footprint = frozenset(c_spans)
                 if c_footprint and c_footprint in seen_numbers_by_footprint:
                     c_numbers = _number_tokens(companion)
                     if not (c_numbers - seen_numbers_by_footprint[c_footprint]):
                         continue
                     seen_numbers_by_footprint[c_footprint] = seen_numbers_by_footprint[c_footprint] | c_numbers
-                if c_spans and c_spans <= seen_spans and c_norm in seen_texts:
+                # Fix 3b: text-identity collapse regardless of span backing; union citations onto survivor.
+                if c_norm and c_norm in seen_texts:
+                    _si = text_to_out_idx.get(c_norm)
+                    if _si is not None:
+                        out[_si] = _attach_citation_tokens(
+                            out[_si], [f"[#ev:{_e}:{_s}-{_en}]" for (_e, _s, _en) in c_spans]
+                        )
+                    seen_spans |= c_spans
                     continue
                 if c_footprint and c_footprint not in seen_numbers_by_footprint:
                     seen_numbers_by_footprint[c_footprint] = _number_tokens(companion)
                 seen_spans |= c_spans
                 seen_texts.add(c_norm)
+                text_to_out_idx[c_norm] = len(out)
                 out.append(companion)
 
         # I-deepfix-001 D1 (#1344): WITHIN-BASKET QUALIFIER ELABORATION. DEFAULT-OFF (OFF => this block
@@ -3154,19 +3332,27 @@ def _compose_section_per_basket(
                 if not elaboration or not elaboration.strip():
                     continue
                 q_spans = _resolved_spans(elaboration)
-                q_norm = " ".join(elaboration.split())
+                q_norm = _dedup_norm(elaboration)  # Fix 3a: citation-INSENSITIVE key
                 q_footprint = frozenset(q_spans)
                 if q_footprint and q_footprint in seen_numbers_by_footprint:
                     q_numbers = _number_tokens(elaboration)
                     if not (q_numbers - seen_numbers_by_footprint[q_footprint]):
                         continue
                     seen_numbers_by_footprint[q_footprint] = seen_numbers_by_footprint[q_footprint] | q_numbers
-                if q_spans and q_spans <= seen_spans and q_norm in seen_texts:
+                # Fix 3b: text-identity collapse regardless of span backing; union citations onto survivor.
+                if q_norm and q_norm in seen_texts:
+                    _si = text_to_out_idx.get(q_norm)
+                    if _si is not None:
+                        out[_si] = _attach_citation_tokens(
+                            out[_si], [f"[#ev:{_e}:{_s}-{_en}]" for (_e, _s, _en) in q_spans]
+                        )
+                    seen_spans |= q_spans
                     continue
                 if q_footprint and q_footprint not in seen_numbers_by_footprint:
                     seen_numbers_by_footprint[q_footprint] = _number_tokens(elaboration)
                 seen_spans |= q_spans
                 seen_texts.add(q_norm)
+                text_to_out_idx[q_norm] = len(out)
                 out.append(elaboration)
 
         # I-deepfix-001 #1344 (Item 11): L2 ADDITIVE DISTINCT-FACT surfacing. DEFAULT-OFF (OFF => this
@@ -3189,19 +3375,27 @@ def _compose_section_per_basket(
                 if not extra or not extra.strip():
                     continue
                 x_spans = _resolved_spans(extra)
-                x_norm = " ".join(extra.split())
+                x_norm = _dedup_norm(extra)  # Fix 3a: citation-INSENSITIVE key
                 x_footprint = frozenset(x_spans)
                 if x_footprint and x_footprint in seen_numbers_by_footprint:
                     x_numbers = _number_tokens(extra)
                     if not (x_numbers - seen_numbers_by_footprint[x_footprint]):
                         continue
                     seen_numbers_by_footprint[x_footprint] = seen_numbers_by_footprint[x_footprint] | x_numbers
-                if x_spans and x_spans <= seen_spans and x_norm in seen_texts:
+                # Fix 3b: text-identity collapse regardless of span backing; union citations onto survivor.
+                if x_norm and x_norm in seen_texts:
+                    _si = text_to_out_idx.get(x_norm)
+                    if _si is not None:
+                        out[_si] = _attach_citation_tokens(
+                            out[_si], [f"[#ev:{_e}:{_s}-{_en}]" for (_e, _s, _en) in x_spans]
+                        )
+                    seen_spans |= x_spans
                     continue
                 if x_footprint and x_footprint not in seen_numbers_by_footprint:
                     seen_numbers_by_footprint[x_footprint] = _number_tokens(extra)
                 seen_spans |= x_spans
                 seen_texts.add(x_norm)
+                text_to_out_idx[x_norm] = len(out)
                 out.append(extra)
 
     # I-deepfix-001 M6: ADDITIVE cross-source analytical pass. DEFAULT-OFF => byte-identical (no import,
@@ -3239,9 +3433,9 @@ def _compose_section_per_basket(
             if not unit or not unit.strip():
                 continue
             spans = _resolved_spans(unit)
-            norm = " ".join(unit.split())
+            norm = _dedup_norm(unit)  # Fix 3a: citation-INSENSITIVE key
             footprint = frozenset(spans)
-            # Same footprint-equality + subset dedup contract as the per-basket loop above (so a
+            # Same footprint-equality + text-identity dedup contract as the per-basket loop above (so a
             # true-duplicate analytical unit collapses) — but the two-span footprint guarantees a real
             # cross-source unit is never a subset of a single-source sibling.
             if footprint and footprint in seen_numbers_by_footprint:
@@ -3249,12 +3443,20 @@ def _compose_section_per_basket(
                 if not (unit_numbers - seen_numbers_by_footprint[footprint]):
                     continue
                 seen_numbers_by_footprint[footprint] = seen_numbers_by_footprint[footprint] | unit_numbers
-            if spans and spans <= seen_spans and norm in seen_texts:
+            # Fix 3b: text-identity collapse regardless of span backing; union citations onto survivor.
+            if norm and norm in seen_texts:
+                _si = text_to_out_idx.get(norm)
+                if _si is not None:
+                    out[_si] = _attach_citation_tokens(
+                        out[_si], [f"[#ev:{_e}:{_s}-{_en}]" for (_e, _s, _en) in spans]
+                    )
+                seen_spans |= spans
                 continue
             if footprint and footprint not in seen_numbers_by_footprint:
                 seen_numbers_by_footprint[footprint] = _number_tokens(unit)
             seen_spans |= spans
             seen_texts.add(norm)
+            text_to_out_idx[norm] = len(out)
             out.append(unit)
     # P0-4 SEMANTIC DEDUP AT EMIT (2026-07-10): consolidate cross-basket same-MEANING units (the rotated-
     # citation whole-block duplication) to ONE, unioning every collapsed instance's citations so NO source

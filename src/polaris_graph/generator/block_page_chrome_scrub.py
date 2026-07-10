@@ -210,12 +210,103 @@ def _is_dominant_copyright_footer(sentence: str) -> bool:
     return len(content) <= _FOOTER_RESIDUE_CONTENT_FLOOR
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Fix 4b / Fix 6 (2026-07-10 compose gear-loop iter 2) — STRUCTURAL page-furniture FORM detectors.
+#
+# The drb_72 body leaked whole structural chrome CLASSES the copyright-footer / hard-marker / shared
+# detectors above structurally cannot see: acknowledgment lines, ``© <year> by <names>`` copyright
+# lines, working-paper masthead recitals, inline page-header runs (leading page-number + section-number
+# + Title-case), flattened numeric-table runs, bare author-bio / institutional self-description
+# sentences, and standalone-initial units. Each detector keys on a GENERAL, question-agnostic
+# STRUCTURAL FORM signature a real synthesized finding never carries (never a topic keyword). This is
+# the SINGLE source of truth: ``verified_compose._structural_chrome_form`` imports it so the compose
+# OUTPUT screen and this AUDIT predicate agree. Precision-first + FAIL-OPEN.
+# ─────────────────────────────────────────────────────────────────────────────
+_STRUCT_FURNITURE_ENV = "PG_STRUCTURAL_PAGE_FURNITURE_SCREEN"
+
+# acknowledgment: "We/I thank / are grateful to / gratefully acknowledge X for research assistance /
+# funding / comments / support" — a self-inflicted furniture line, never a finding.
+_FURN_ACKNOWLEDGMENT_RE = re.compile(
+    r"\b(?:we|i)\s+(?:thank|gratefully acknowledge|are (?:grateful|indebted) to|acknowledge)\b"
+    r"[^.]{0,180}?\b(?:research assistance|excellent (?:research )?assistance|for (?:their )?"
+    r"(?:funding|support|comments?|assistance)|financial support|helpful (?:comments?|discussions?)|"
+    r"for providing)\b",
+    re.I,
+)
+# copyright line: "© 2023 by <Name>,", "(c) 2023 by <Name> and", "all rights reserved".
+_FURN_COPYRIGHT_RE = re.compile(
+    r"(?:©|\(c\))\s*\d{4}\b|\b\d{4}\s+by\s+[A-Z][A-Za-z.'’\-]+(?:,|\s+and\b)|\ball rights reserved\b",
+    re.I,
+)
+# working-paper masthead recital (beyond the source-meta screen in verified_compose).
+_FURN_WORKINGPAPER_RE = re.compile(
+    r"working papers? (?:are|is) circulated|(?:are|is) circulated for discussion|"
+    r"may not be reproduced without|distributed for (?:purposes of )?comment|"
+    r"has not (?:yet )?been (?:peer[- ]reviewed|formally reviewed)|"
+    r"should not be reported as representing the views",
+    re.I,
+)
+# inline page-header run: leading page-number + section-number + Title-case run ("10 1.2 The Economic").
+_FURN_PAGE_HEADER_RE = re.compile(r"^\s*\d{1,3}\s+\d{1,2}(?:\.\d{1,2})+\s+[A-Z][a-z]")
+# flattened numeric-table run: >=6 bare number tokens in a row (a table dump flattened into a line);
+# real prose interleaves words, so a run this long is a table, never a sentence. (>=3 rank/value pairs.)
+_FURN_NUMERIC_TABLE_RE = re.compile(r"(?:(?<![.\w])\d[\d.,%]*\s+){5,}\d[\d.,%]*")
+# author-bio / institutional self-description: "holds a PhD/Master/…", "is a <role> at/of <Inst>",
+# "conducts interdisciplinary/basic research", "provides evidence- and value-based".
+_FURN_AUTHOR_BIO_RE = re.compile(
+    r"\bhold[s]? an?\s+(?:ph\.?\s?d|doctorate|master'?s?|bachelor'?s?|m\.?sc|b\.?sc|mba)\b|"
+    r"\b(?:is|was)\s+(?:an?\s+|the\s+)?(?:tenured\s+|associate\s+|assistant\s+|full\s+|visiting\s+|"
+    r"emeritus\s+|affiliate\s+|adjunct\s+|senior\s+)?(?:professor|data scientist|researcher|"
+    r"research (?:fellow|scientist|professor|associate|director)|postdoctoral|post-?doc|lecturer|"
+    r"phd (?:student|candidate)|economist)\b\s+(?:at|of|in|,|and)\b|"
+    r"\bconducts?\s+(?:interdisciplinary|basic|applied|independent)\s+(?:and\s+\w+\s+)?research\b|"
+    r"\bprovides evidence-\s?and value-\s?based\b",
+    re.I,
+)
+# standalone-initial / bare-byline non-sentence unit: a lone "S." / "A." unit, or a short run of initials.
+_FURN_STANDALONE_INITIAL_RE = re.compile(r"^[A-Z]\.?$|^(?:[A-Z]\.\s*){1,4}$")
+
+
+def structural_page_furniture_enabled() -> bool:
+    """Kill-switch ``PG_STRUCTURAL_PAGE_FURNITURE_SCREEN`` (default ON). Only an explicit off token
+    disables; unset/blank stays ON (a blank env can never silently disable the screen)."""
+    raw = os.environ.get(_STRUCT_FURNITURE_ENV)
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in _OFF_TOKENS
+
+
+def is_structural_page_furniture(sentence: str) -> bool:
+    """True iff ``sentence`` carries one of the STRUCTURAL page-furniture FORMS the copyright-footer /
+    hard-marker / shared detectors miss (Fix 4b/6). GENERAL + question-agnostic + precision-first;
+    FAIL-OPEN on any error (never withhold a real finding on a helper fault). Default-ON kill-switch."""
+    if not structural_page_furniture_enabled():
+        return False
+    s = (sentence or "").strip()
+    if not s:
+        return False
+    try:
+        return bool(
+            _FURN_ACKNOWLEDGMENT_RE.search(s)
+            or _FURN_COPYRIGHT_RE.search(s)
+            or _FURN_WORKINGPAPER_RE.search(s)
+            or _FURN_PAGE_HEADER_RE.search(s)
+            or _FURN_NUMERIC_TABLE_RE.search(s)
+            or _FURN_AUTHOR_BIO_RE.search(s)
+            or _FURN_STANDALONE_INITIAL_RE.match(s)
+        )
+    except Exception:  # pragma: no cover — pure regexes; fail-open never withholds a real finding
+        return False
+
+
 def is_block_page_chrome_sentence(sentence: str) -> bool:
     """True iff a SINGLE sentence unit is block-page / security-check / copyright-footer chrome:
     it contains a HARD bot-challenge marker, OR it is a DOMINANT copyright footer, OR — when the
     #13 shared leg is enabled — the shared render-chrome detector flags it as glued page-furniture
     (masthead / editor-affiliation / raw markdown-link / bibliographic-recital / DOI-only / OCR
-    title fragment). High-precision: a real labor / economics / clinical finding trips none of the
+    title fragment), OR it is one of the structural page-furniture FORMS (Fix 4b/6: acknowledgment /
+    copyright / working-paper masthead / page-header run / numeric-table run / author-bio /
+    standalone-initial). High-precision: a real labor / economics / clinical finding trips none of the
     paths (precision-first per §-1.3)."""
     if not sentence or not sentence.strip():
         return False
@@ -226,6 +317,8 @@ def is_block_page_chrome_sentence(sentence: str) -> bool:
     if _is_dominant_copyright_footer(sentence):
         return True
     if shared_render_chrome_leg_enabled() and _is_shared_render_chrome(sentence):
+        return True
+    if is_structural_page_furniture(sentence):
         return True
     return False
 

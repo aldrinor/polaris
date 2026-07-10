@@ -14,8 +14,13 @@ export PG_CROSS_SECTION_REPETITION_GUARD=1
 export PG_ABSTRACTIVE_WRITER_CONCURRENCY=3
 export PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S=90
 export PG_ABSTRACTIVE_WRITER_WALL_DEADLINE_S=420
-export PG_ABSTRACTIVE_WRITER_MAX_TOKENS=6000
-export PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS=3000
+# Fix 9 (2026-07-10 compose gear-loop iter 2): §9.1.8 always-MAX. The iter-1 run truncated GLM-5.2's
+# reasoning at the 6000/3000 caps (ReasoningFirstTruncationError at ~24795 chars) -> empty group draft ->
+# deterministic whole-span fallback. Raise to the model's REAL OpenRouter cap (z-ai/glm-5.2:
+# context_length=1048576, top_provider.max_completion_tokens=131072). max_tokens is a CAP billed by
+# actual usage, so a generous cap is free insurance and can never truncate a paragraph draft.
+export PG_ABSTRACTIVE_WRITER_MAX_TOKENS=131072
+export PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS=65536
 export PG_S5_SPAN_CHAR_CAP=8000
 export PG_MAX_PARALLEL_SECTIONS=2
 CP4=$(ls -t /workspace/POLARIS/outputs/s4_*/cp4_outline_snapshot.json | head -1)

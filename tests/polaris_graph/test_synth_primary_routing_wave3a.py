@@ -165,8 +165,9 @@ def test_on_corroborated_routes_to_synth_primary(monkeypatch):
 
 
 def test_synth_primary_preserves_every_corroborator_citation(monkeypatch):
-    """The synth-primary authored body cites ONLY corroborator eva; evb (the un-cited corroborator) is
-    surfaced as its OWN verbatim K-span so NO corroborating source is dropped (§-1.3)."""
+    """Fix 2b (2026-07-10 compose gear-loop iter 2): the synth-primary authored body cites corroborator
+    eva; evb (the un-cited corroborator) is kept as a CITATION attached to the authored prose (never a
+    dumped verbatim K-span) so NO corroborating source is dropped (§-1.3 consolidate-keep-all)."""
     monkeypatch.setenv("PG_SYNTH_PRIMARY", "1")
     monkeypatch.setenv("PG_WRITER_REPAIR_MAX", "0")
     monkeypatch.setenv("PG_RENDER_CHROME_PROSE_SCREEN", "0")
@@ -179,16 +180,17 @@ def test_synth_primary_preserves_every_corroborator_citation(monkeypatch):
         verify_fn=_stub_verify,
         redraft_fn=lambda _b, _p, *, revise_reasons=None: authored,
     )
-    assert authored in out          # the synth-primary authored prose is the primary body
+    assert "Automation reshaped the labour market" in out  # the authored prose is the primary body
     assert "[#ev:eva:" in out       # corroborator eva (cited by the writer)
-    assert "[#ev:evb:" in out       # corroborator evb surfaced as its verbatim K-span (never dropped)
+    assert "[#ev:evb:" in out       # corroborator evb kept as a CITATION attached to the body (Fix 2b)
     assert _FAIL_MARKER not in out
 
 
-def test_synth_primary_falls_back_to_multicited_when_no_authored_prose(monkeypatch):
-    """When synth-primary authors NO prose (every draft sentence fails verify), the corroborated basket
-    falls back to the UNCHANGED multi-cited co-location — which itself surfaces every corroborator — never
-    a single-K-span collapse."""
+def test_synth_primary_discloses_when_no_authored_prose(monkeypatch):
+    """Fix 2a (2026-07-10 compose gear-loop iter 2): when synth-primary authors NO prose (every draft
+    sentence fails verify) under NO_RAW_SPAN, the corroborated basket emits the labeled unverified-
+    synthesis DISCLOSURE (the consolidated claim) — NEVER a verbatim whole-span quote-dump (the 4x-block
+    / chrome / quote-dump root the fix removes)."""
     monkeypatch.setenv("PG_SYNTH_PRIMARY", "1")
     monkeypatch.setenv("PG_WRITER_REPAIR_MAX", "0")
     monkeypatch.setenv("PG_RENDER_CHROME_PROSE_SCREEN", "0")
@@ -203,8 +205,9 @@ def test_synth_primary_falls_back_to_multicited_when_no_authored_prose(monkeypat
     )
     assert out.strip() != ""        # never a silent empty
     assert _FAIL_MARKER not in out  # the failed authored draft never ships
-    assert "[#ev:eva:" in out       # both corroborators still surfaced via the multi-cited fallback
-    assert "[#ev:evb:" in out
+    # A labeled disclosure line ("[")-prefixed — NEVER a verbatim member span (no raw K-span / quote-dump).
+    assert out.lstrip().startswith("[")
+    assert "[#ev:" not in out       # no raw provenance token dumped in the held-aside disclosure
 
 
 # ── (c) fire marker ─────────────────────────────────────────────────────────────────────────────────

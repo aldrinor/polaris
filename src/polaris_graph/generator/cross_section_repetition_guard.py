@@ -183,6 +183,55 @@ def _backref_sentence(title: str, citations: list[str]) -> str:
     return base
 
 
+def _consolidate_within_section_duplicates(text: str, min_words: int) -> tuple[str, int]:
+    """Fix 3c (2026-07-10 compose gear-loop iter 2): consolidate EXACT-duplicate finding sentences WITHIN
+    a SINGLE section body — keep the FIRST occurrence (union the later duplicates' citation markers onto
+    it), remove the later duplicate(s). The render-level backstop for a within-section repeated finding
+    (the emit-dedup at compose time is the primary; this catches a duplicate that survived to render).
+
+    RENDER-ONLY + faithfulness-neutral + §-1.3 consolidate-keep-all (every citation preserved). Layout-
+    preserving: a unit containing a markdown heading line is never touched; a removal is a single-
+    occurrence substring swap. Precision-first + EXACT-recycle only (same numeric-citation-stripped
+    signature) so distinct verified content is NEVER collapsed. Fail-safe: an ambiguous (count != 1)
+    match is skipped."""
+    from .verified_compose import split_into_sentences  # noqa: PLC0415
+    new_text = text
+    first_by_sig: dict[str, str] = {}
+    removed = 0
+    for sent in split_into_sentences(text):
+        if _contains_heading(sent) or not _has_numeric_citation(sent):
+            continue
+        if _content_word_count(sent) < min_words:
+            continue
+        sig = _signature(sent)
+        if sig not in first_by_sig:
+            first_by_sig[sig] = sent
+            continue
+        # An EXACT within-section duplicate of an earlier finding -> remove it; union its citation
+        # marker(s) onto the FIRST occurrence so no citation is dropped (§-1.3 keep-all).
+        if new_text.count(sent) != 1:
+            continue  # fail-safe: ambiguous, leave untouched
+        first_raw = first_by_sig[sig]
+        new_text = new_text.replace(sent, "", 1)
+        extra = [c for c in _citation_markers(sent) if c not in first_raw]
+        if extra and new_text.count(first_raw) == 1:
+            merged = first_raw.rstrip()
+            trailing = ""
+            if merged[-1:] in ".!?":
+                trailing = merged[-1]
+                merged = merged[:-1].rstrip()
+            merged_new = f"{merged} {''.join(extra)}{trailing}"
+            new_text = new_text.replace(first_raw, merged_new, 1)
+            first_by_sig[sig] = merged_new
+        removed += 1
+    if removed:
+        # Tidy the whitespace a removal leaves (double spaces / a space before punctuation). Never
+        # collapse newlines (layout-preserving).
+        new_text = re.sub(r"[ \t]{2,}", " ", new_text)
+        new_text = re.sub(r"[ \t]+([.,;:!?])", r"\1", new_text)
+    return new_text, removed
+
+
 def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str, Any]:
     """Consolidate findings that recur VERBATIM across DIFFERENT sections down to a richest instance
     plus a citation-preserving back-reference. Mutates each affected ``SectionResult.verified_text``
@@ -201,7 +250,9 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
         verbatim; every OTHER instance in a DIFFERENT section is replaced IN PLACE by a
         back-reference carrying that instance's OWN marker(s) — no citation dropped, none moved.
       * A unit that does not occur EXACTLY once in its body is left untouched (precision fail-safe).
-      * Same-section duplicates are left to ``fact_dedup`` (never consolidated here).
+      * Fix 3c (2026-07-10 compose gear-loop iter 2): EXACT-duplicate findings WITHIN a single section
+        are ALSO consolidated now (render-level backstop for the emit-dedup) — the first instance kept
+        with the duplicate's citation unioned onto it, the duplicate removed (was: left to fact_dedup).
       * A ``dropped_due_to_failure`` / ``is_gap_stub`` / empty section is EXCLUDED from the unit set,
         so it is never a cluster member, never the richest instance, and never a back-reference
         TARGET. The ``dropped_due_to_failure`` predicate is the SAME one the downstream render filter
@@ -311,12 +362,33 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
         if changed:
             sec["sr"].verified_text = text
 
+    # Fix 3c (2026-07-10 compose gear-loop iter 2): after cross-section consolidation, also collapse
+    # EXACT-duplicate findings WITHIN a single section body (a render-level backstop for the emit-dedup).
+    # RENDER-ONLY + citation-preserving; skips dropped / gap-stub / empty sections exactly like above.
+    within_section = 0
+    for sr in section_results:
+        if getattr(sr, "dropped_due_to_failure", False) or getattr(sr, "is_gap_stub", False):
+            continue
+        text = getattr(sr, "verified_text", "") or ""
+        if not text.strip():
+            continue
+        new_text, n = _consolidate_within_section_duplicates(text, min_words)
+        if n and new_text != text:
+            sr.verified_text = new_text
+            within_section += n
+    consolidated += within_section
+
     if consolidated:
         logger.info(
-            "[cross_section_repetition_guard] consolidated %d recycled finding instance(s) across "
-            "sections into %d cross-section cluster(s); every recycled citation preserved as a "
-            "back-reference (§-1.3 consolidate-keep-all; frozen faithfulness engine untouched)",
-            consolidated, clusters,
+            "[cross_section_repetition_guard] consolidated %d recycled finding instance(s) into %d "
+            "cross-section cluster(s) + %d within-section duplicate(s); every recycled citation preserved "
+            "(§-1.3 consolidate-keep-all; frozen faithfulness engine untouched)",
+            consolidated, clusters, within_section,
         )
 
-    return {"clusters": clusters, "consolidated": consolidated}
+    telemetry = {"clusters": clusters, "consolidated": consolidated}
+    if within_section:
+        # Additive telemetry key ONLY when a within-section duplicate was actually consolidated, so a run
+        # with none stays byte-identical to the legacy {clusters, consolidated} shape.
+        telemetry["within_section"] = within_section
+    return telemetry

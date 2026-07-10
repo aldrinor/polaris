@@ -414,6 +414,76 @@ def _cited_span_text_for(tokens: list, scoped_pool: dict) -> str:
     return " ".join(parts)
 
 
+# ── Fix 1 (2026-07-10 compose gear-loop iter 2) — SATISFIABLE span->sentence numeric completeness ────
+# DECIMAL-AWARE source-segment terminator: a period BETWEEN two digits is a decimal point (``1.5``),
+# NOT a sentence boundary — so a figure never straddles two segments. ``!``/``?`` and a period not
+# flanked by digits are terminators. Used ONLY to scope the completeness denominator to the source
+# SENTENCE-SEGMENT the writer sentence rests on (never a faithfulness verdict).
+_SOURCE_SEGMENT_TERMINATOR_RE = re.compile(r"(?<!\d)[.](?!\d)|[!?]")
+
+
+def _split_source_segments(text: str) -> list[str]:
+    """Split a source span into decimal-aware sentence segments (a figure like ``1.5 percent`` stays in
+    ONE segment). Pure. Scopes the numeric-completeness denominator to the segment the sentence rests
+    on — it is NOT a faithfulness gate (the NLI entailment + per-number membership legs are unchanged)."""
+    s = text or ""
+    if not s.strip():
+        return []
+    segs: list[str] = []
+    start = 0
+    for m in _SOURCE_SEGMENT_TERMINATOR_RE.finditer(s):
+        end = m.end()
+        if s[start:end].strip():
+            segs.append(s[start:end])
+        start = end
+    if start < len(s) and s[start:].strip():
+        segs.append(s[start:])
+    return segs
+
+
+def _completeness_span_numerics(result_sentence: str, scoped_pool: dict) -> set[str]:
+    """The span numerals the writer sentence is RESPONSIBLE for completing — scoped to the MINIMAL
+    source sub-span(s) the sentence actually rests on, NOT the whole cited span (Fix 1, 2026-07-10
+    compose gear-loop iter 2).
+
+    ROOT: for a chunk-sized cp3 member the cited token's span is the whole ~8000-char document; the old
+    gate demanded EVERY numeral in it appear in ONE sentence -> ``writer_numeric_dropped`` killed 100% of
+    drafts -> every basket fell to the deterministic whole-span verbatim emission (the chrome / quote-
+    dump / repetition root). FIX: anchor on NUMERIC CO-LOCATION — the sentence's OWN numerals locate the
+    source SENTENCE-SEGMENT(s) they were drawn from; completeness then requires only the OTHER numerals
+    in THOSE same segments (a dropped SIBLING figure in the same source sentence, e.g. writing the 86.6%
+    treatment arm but hiding the 47.6% comparator). This is NUMERIC-anchored, NEVER lexical — it never
+    reintroduces the removed content-word-overlap gate (the ghost). Satisfiable AND strict: a genuine
+    cherry-pick is still caught; a legitimate one-figure synthesis is not false-dropped.
+
+    Tokens are parsed from ``result_sentence`` (``res.sentence`` per Fable). A sentence carrying NO
+    numeral has nothing to complete (a faithful QUALITATIVE synthesis of a quantitative span is judged by
+    the NLI entailment leg, not this gate) -> empty set. Bounds-safe."""
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _numbers_in,
+        _strip_dose_patterns,
+        parse_provenance_tokens,
+    )
+    sent_nums = set(_numbers_in(_strip_dose_patterns(result_sentence or "")))
+    if not sent_nums:
+        return set()
+    out: set[str] = set()
+    for tok in parse_provenance_tokens(result_sentence) or []:
+        eid = str(getattr(tok, "evidence_id", "") or "")
+        row = (scoped_pool or {}).get(eid) or {}
+        haystack = str(row.get("direct_quote") or row.get("statement") or "")
+        start = int(getattr(tok, "start", -1))
+        end = int(getattr(tok, "end", -1))
+        if not (0 <= start < end <= len(haystack)):
+            continue
+        cited = haystack[start:end]
+        for seg in _split_source_segments(cited):
+            seg_nums = _substantive_span_numerics(seg)
+            if seg_nums & sent_nums:  # this source segment is one the sentence drew a numeral from
+                out |= seg_nums
+    return out
+
+
 def make_writer_verify_fn(base_verify: Callable[..., Any]) -> Callable[..., Any]:
     """The WRITER-SPECIFIC verify wrapper injected as ``_compose_one_basket``'s ``verify_fn``
     (design §3.2). Pure (verify-only; no retry, no LLM). The K-span path keeps the bare
@@ -457,8 +527,17 @@ def make_writer_verify_fn(base_verify: Callable[..., Any]) -> Callable[..., Any]
             from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
                 parse_provenance_tokens,
             )
-            cited_span_text = _cited_span_text_for(parse_provenance_tokens(sentence), scoped_pool)
-            span_numerics = _substantive_span_numerics(cited_span_text)
+            # Fix 1 (2026-07-10 compose gear-loop iter 2): parse the tokens from the verifier's RESULT
+            # sentence (res.sentence) and scope the completeness denominator to the MINIMAL source
+            # sub-span the sentence rests on via NUMERIC CO-LOCATION — never the whole cited token span
+            # (which is the entire ~8000-char chunk for a chunk-sized member, an impossible completeness
+            # bar that killed 100% of drafts). cited_span_text (for the anti-verbatim leg below) is still
+            # the full cited span; only the numeric-completeness denominator is narrowed.
+            result_sentence = str(getattr(res, "sentence", "") or "") or sentence
+            cited_span_text = _cited_span_text_for(
+                parse_provenance_tokens(result_sentence), scoped_pool
+            )
+            span_numerics = _completeness_span_numerics(result_sentence, scoped_pool)
             if span_numerics and not all(
                 _numeral_appears_verbatim(n, sentence) for n in span_numerics
             ):
@@ -549,7 +628,11 @@ def _section_outline_lead(section_context: "dict | None") -> str:
         f"You are writing the section titled \"{title}\" whose focus is \"{focus}\" for the research "
         f"question \"{question}\". Synthesize the spans into prose that FULFILLS this focus; OMIT a span "
         "irrelevant to this focus; never describe the document — state what it FOUND; skip "
-        "chrome/boilerplate/bibliographic-export text entirely."
+        "chrome/boilerplate/bibliographic-export text entirely. Fix 6 (2026-07-10): SKIP any span whose "
+        "content is authorship, author affiliation, an author bio, acknowledgments, funding, copyright, "
+        "or institutional self-description (who wrote, funded, or published the document, or what an "
+        "institute 'conducts') — that is page furniture, never a research finding; write only the "
+        "documents' substantive findings."
     )
 
 

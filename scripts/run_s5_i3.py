@@ -453,6 +453,40 @@ async def main():
     print(f"[audit] sentences={tot_sent} with_citation={tot_cite} "
           f"chrome={tot_chrome} quote_dump={tot_qd}", flush=True)
 
+    # Fix 7 (2026-07-10 compose gear-loop iter 2): wire acceptance to the §-1.1 audit READ so the gear
+    # loop can NEVER bank a span-dump / chrome-dominant body as a pass. This is a validity DISCLOSURE, not
+    # a number-target: acceptance=False when ANY section raised (already), ANY section is a gap stub, or
+    # the audited body is quote-dump- or chrome-DOMINANT (a majority of its sentences by the context-level
+    # audit predicate). Every trigger is disclosed in envelope.acceptance_reasons. Dominance fraction is
+    # env-tunable (PG_S5_ACCEPTANCE_DOMINANCE_FRACTION, default 0.5 = a majority).
+    acceptance_reasons: list = []
+    if excepted_sections:
+        acceptance_reasons.append(f"{len(excepted_sections)} section(s) raised an exception")
+    gap_stub_sections = [oi for oi, r in section_results if getattr(r, "is_gap_stub", False)]
+    if gap_stub_sections:
+        acceptance = False
+        acceptance_reasons.append(f"gap-stub section(s): {gap_stub_sections}")
+    try:
+        _dominance = float(os.environ.get("PG_S5_ACCEPTANCE_DOMINANCE_FRACTION", "0.5") or "0.5")
+    except (TypeError, ValueError):
+        _dominance = 0.5
+    if not (0.0 < _dominance <= 1.0):
+        _dominance = 0.5
+    if tot_sent > 0:
+        qd_frac = tot_qd / tot_sent
+        chrome_frac = tot_chrome / tot_sent
+        if qd_frac > _dominance:
+            acceptance = False
+            acceptance_reasons.append(
+                f"quote_dump-dominant: {tot_qd}/{tot_sent} sentences ({qd_frac:.0%} > {_dominance:.0%})"
+            )
+        if chrome_frac > _dominance:
+            acceptance = False
+            acceptance_reasons.append(
+                f"chrome-dominant: {tot_chrome}/{tot_sent} sentences ({chrome_frac:.0%} > {_dominance:.0%})"
+            )
+    print(f"[acceptance] acceptance={acceptance} reasons={acceptance_reasons}", flush=True)
+
     cp2_sha = hashlib.sha256(Path(args.cp2).read_bytes()).hexdigest()
     cp3_sha = hashlib.sha256(Path(args.cp3).read_bytes()).hexdigest()
     cp4_sha = hashlib.sha256(Path(args.cp4).read_bytes()).hexdigest()
@@ -478,7 +512,10 @@ async def main():
         "stage": "s5_generation_live_compose",
         "iter": 3,
         # P1-3 (2026-07-10): acceptance=False when any section raised and was replaced by a gap stub.
+        # Fix 7 (2026-07-10 compose gear-loop iter 2): ALSO False on a gap-stub / quote-dump-dominant /
+        # chrome-dominant audit read — reasons disclosed in acceptance_reasons.
         "acceptance": acceptance,
+        "acceptance_reasons": acceptance_reasons,
         "excepted_sections": excepted_sections,
         "question_sha": cp4.get("question_sha"),
         "flag_slate": {k: os.environ.get(k) for k in [
