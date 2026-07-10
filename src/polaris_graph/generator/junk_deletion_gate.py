@@ -11,9 +11,15 @@ hard-DELETED from the run-level grounding pool BEFORE generation:
       not a source. The content-integrity detector stamps ``row["content_integrity_junk"]``
       upstream (the re-tier seam); this gate deletes the stamped rows.
   (b) SEMANTICALLY-CONFIRMED OFF-TOPIC whole sources — a source a SEMANTIC topic judge
-      confirmed off-topic to the research question. Reuses
-      ``weighted_enrichment._is_confirmed_offtopic`` (single source of truth). Judge
-      verdict ONLY, FAIL-OPEN (any uncertainty => KEEP), never a lexical/tier/number rule.
+      confirmed off-topic to the research question. DEFAULT path (Fix 1,
+      ``is_row_deletable_offtopic``) deletes ONLY on the topic judge's affirmative
+      OFF_SUBJECT stamp: a weight/reranker ``content_relevance_label``
+      (``demoted`` / ``escalated_demoted``) can NEVER delete, and a positive relevance
+      verdict (``relevant`` / ``escalated_relevant``) vetoes deletion UNCONDITIONALLY. Judge
+      verdict ONLY, FAIL-OPEN (any uncertainty / missing verdict / error => KEEP), never a
+      lexical/tier/number rule. The legacy weight-label reuse
+      (``weighted_enrichment._is_confirmed_offtopic`` via ``is_row_confirmed_offtopic``) is
+      reachable only behind ``PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY=0`` (byte-identical OFF).
 
 STILL BINDING (§-1.3): credible ON-TOPIC sources, even low-tier / social / non-journal,
 are NEVER deleted here (they are neither content-junk nor confirmed-off-topic). An
@@ -43,7 +49,19 @@ logger = logging.getLogger("polaris_graph.junk_deletion_gate")
 
 _CHROME_FLAG = "PG_DELETE_CHROME_NONSOURCE"
 _OFFTOPIC_FLAG = "PG_DELETE_OFFTOPIC_SOURCE"
+# Fix 1 (I-deepfix-003 over-deletion): the off-topic DELETE fires ONLY on the topic judge's
+# affirmative OFF_SUBJECT stamp; a weight/reranker ``content_relevance_label`` can NEVER
+# delete. DEFAULT ON. OFF => byte-identical legacy weight-label path.
+_TOPIC_JUDGE_ONLY_FLAG = "PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY"
 _OFF_VALUES = frozenset({"0", "false", "no", "off", "disabled", ""})
+
+# An affirmative positive-relevance verdict from the content-relevance judge. A row carrying
+# one is on-topic by the judge's own word and VETOES deletion unconditionally.
+_POSITIVE_RELEVANCE_LABELS = frozenset({"relevant", "escalated_relevant"})
+# String forms that mean an affirmative OFF_SUBJECT stamp (the deletable class of the OFF
+# split). ``topic_off_subject`` is normally the bool True (Fix 3 sidecar); these tolerate a
+# string representation without ever matching OFF_ASPECT or a weight label.
+_OFF_SUBJECT_TRUE_TOKENS = frozenset({"off_subject", "offsubject", "true", "yes", "on", "1"})
 
 
 def chrome_deletion_enabled() -> bool:
@@ -56,6 +74,16 @@ def offtopic_deletion_enabled() -> bool:
     """Kill-switch for the confirmed-off-topic-source deletion. DEFAULT ON. Falsey =>
     confirmed-off-topic sources are KEPT (they fall back to the weight/ledger demote)."""
     return os.getenv(_OFFTOPIC_FLAG, "1").strip().lower() not in _OFF_VALUES
+
+
+def topic_judge_only_deletion_enabled() -> bool:
+    """Kill-switch ``PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY`` (DEFAULT ON). ON => an off-topic
+    DELETE fires ONLY on the topic judge's affirmative OFF_SUBJECT stamp
+    (``is_row_deletable_offtopic``): a weight/reranker ``content_relevance_label`` can NEVER
+    delete, and a positive relevance verdict vetoes unconditionally. OFF => byte-identical
+    legacy path (``is_row_confirmed_offtopic``, the weight-label reuse that hard-deleted 197
+    on-topic rows in the I-deepfix-003 pass)."""
+    return os.getenv(_TOPIC_JUDGE_ONLY_FLAG, "1").strip().lower() not in _OFF_VALUES
 
 
 def is_row_content_junk(row: Mapping[str, Any]) -> bool:
@@ -87,6 +115,55 @@ def is_row_confirmed_offtopic(row: Mapping[str, Any]) -> bool:
     except Exception as exc:  # noqa: BLE001 — never delete on a predicate bug
         logger.warning(
             "[junk_deletion_gate] offtopic predicate errored (%s) — row KEPT "
+            "(fail-open).", str(exc)[:160],
+        )
+        return False
+
+
+def _stamped_off_subject(row: Mapping[str, Any]) -> bool:
+    """True iff the topic judge stamped this WHOLE source OFF_SUBJECT — a clearly different
+    subject (the DELETABLE class of the OFF split, e.g. a scholar-mill / tourism / religion
+    page in an AI-labor report). The Fix-3 sidecar is the bool ``topic_off_subject=True``; a
+    string verdict ``topic_relevance_verdict == "OFF_SUBJECT"`` is tolerated as the same
+    signal. Legacy ``topic_offtopic_demoted`` alone (which conflates OFF_ASPECT 'same entity,
+    wrong aspect' with OFF_SUBJECT) does NOT count — a demote-keep aspect verdict is never a
+    delete trigger, so only the explicit subject-level stamp deletes."""
+    v = row.get("topic_off_subject")
+    if v is True:
+        return True
+    if isinstance(v, str) and v.strip().lower() in _OFF_SUBJECT_TRUE_TOKENS:
+        return True
+    verdict = str(row.get("topic_relevance_verdict", "") or "").strip().lower()
+    return verdict == "off_subject"
+
+
+def is_row_deletable_offtopic(row: Mapping[str, Any]) -> bool:
+    """DELETE predicate for the confirmed-off-topic class (topic-judge-only path, Fix 1).
+
+    Returns True (row is DELETABLE) iff the topic judge AFFIRMATIVELY stamped this WHOLE
+    source OFF_SUBJECT. Two hard guarantees keep this from over-deleting:
+
+    * A weight/reranker ``content_relevance_label`` (``demoted`` / ``escalated_demoted``) is
+      NEVER a delete trigger — those are weight-demote-to-0.25 KEEP labels (a Qwen3-Reranker
+      numeric score / a GLM 'INSUFFICIENT' entailment), NOT topic verdicts. Reusing them as a
+      DELETE trigger is exactly what hard-deleted 197 on-topic rows (St. Louis Fed, OECD, ILO,
+      McKinsey, HBS, Wikipedia, 23 T1 journal papers) in the I-deepfix-003 pass.
+    * An affirmative positive-relevance verdict (``content_relevance_label`` in
+      {relevant, escalated_relevant}) VETOES deletion UNCONDITIONALLY — even against a
+      stale/false OFF stamp. When the two judges disagree, the positive relevance wins.
+
+    FAIL-OPEN: not a Mapping / no OFF_SUBJECT stamp / missing verdict / any error => NOT
+    deletable (row KEPT). A predicate bug must NEVER delete a source."""
+    try:
+        if not isinstance(row, Mapping):
+            return False
+        label = str(row.get("content_relevance_label", "") or "").strip().lower()
+        if label in _POSITIVE_RELEVANCE_LABELS:
+            return False  # affirmative positive-relevance verdict — KEEP (unconditional veto)
+        return _stamped_off_subject(row)
+    except Exception as exc:  # noqa: BLE001 — never delete on a predicate bug
+        logger.warning(
+            "[junk_deletion_gate] deletable-offtopic predicate errored (%s) — row KEPT "
             "(fail-open).", str(exc)[:160],
         )
         return False
@@ -129,8 +206,16 @@ def partition_rows(
             reason = "content_integrity_junk:" + str(
                 row.get("content_integrity_class", "chrome") or "chrome"
             )
-        elif offtopic_on and is_row_confirmed_offtopic(row):
-            reason = "confirmed_offtopic"
+        elif offtopic_on:
+            # Fix 1: default-ON path deletes ONLY on the topic judge's OFF_SUBJECT stamp
+            # (weight labels can never delete; positive relevance vetoes). The legacy
+            # weight-label predicate stays reachable ONLY behind the OFF kill-switch so
+            # ``PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY=0`` is byte-identical to pre-Fix-1.
+            if topic_judge_only_deletion_enabled():
+                if is_row_deletable_offtopic(row):
+                    reason = "confirmed_offtopic_subject"
+            elif is_row_confirmed_offtopic(row):
+                reason = "confirmed_offtopic"
         if reason:
             copied = dict(row)
             copied["deletion_reason"] = reason

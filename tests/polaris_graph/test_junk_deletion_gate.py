@@ -59,8 +59,11 @@ def test_killswitch_off_byte_identical(monkeypatch):
 
 
 def test_offtopic_deleted_via_predicate(monkeypatch):
+    # legacy weight-label path is reachable ONLY behind the OFF kill-switch (byte-identical
+    # to pre-Fix-1); assert it still works there so the fallback is not silently broken.
     monkeypatch.setenv("PG_DELETE_CHROME_NONSOURCE", "1")
     monkeypatch.setenv("PG_DELETE_OFFTOPIC_SOURCE", "1")
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY", "0")
     monkeypatch.setattr(
         jd, "is_row_confirmed_offtopic",
         lambda row: row.get("evidence_id") == "ev_off",
@@ -88,3 +91,82 @@ def test_disclosure_records_shape():
     assert recs[0]["evidence_id"] == "e1"
     assert recs[0]["deletion_reason"] == "content_integrity_junk:bot_challenge"
     assert recs[0]["excluded_from_grounding"] is True
+
+
+# ── Fix 1: topic-judge-only off-topic DELETE predicate (default ON) ──────────────────────
+# A weight/reranker ``content_relevance_label`` can NEVER delete; a positive relevance
+# verdict vetoes unconditionally; only the topic judge's OFF_SUBJECT stamp deletes; missing
+# verdict fails open (KEEP). These are the 4 confirmed I-deepfix-003 victim shapes.
+
+def _label_demoted():
+    # topic judge said ON (no OFF stamp) but the reranker demoted the numeric score. This is
+    # the 197-row leak shape: Fed / OECD / ILO / McKinsey / Wikipedia all died on this label.
+    return {"evidence_id": "ev_demoted", "title": "OECD Employment Outlook",
+            "content_relevance_label": "demoted"}
+
+
+def _fresh_off_subject():
+    return {"evidence_id": "ev_subj", "title": "Reconceptualising tourism co-creation",
+            "topic_off_subject": True, "topic_relevance_verdict": "OFF_SUBJECT", "tier": "T6"}
+
+
+def _positive_plus_stale_off():
+    # judges disagree: content-relevance judge affirmatively said RELEVANT, a stale topic
+    # stamp says OFF. The positive verdict must win (KEEP).
+    return {"evidence_id": "ev_pos", "title": "Generative AI at Work",
+            "content_relevance_label": "relevant", "topic_off_subject": True,
+            "topic_offtopic_demoted": True}
+
+
+def test_deletable_predicate_label_demoted_not_deletable():
+    assert jd.is_row_deletable_offtopic(_label_demoted()) is False
+    assert jd.is_row_deletable_offtopic({"content_relevance_label": "escalated_demoted"}) is False
+
+
+def test_deletable_predicate_fresh_off_subject_is_deletable():
+    assert jd.is_row_deletable_offtopic(_fresh_off_subject()) is True
+    # string-form sidecar is honoured; legacy topic_offtopic_demoted alone is NOT deletable
+    assert jd.is_row_deletable_offtopic({"topic_off_subject": "off_subject"}) is True
+    assert jd.is_row_deletable_offtopic({"topic_offtopic_demoted": True}) is False
+
+
+def test_deletable_predicate_positive_verdict_vetoes():
+    assert jd.is_row_deletable_offtopic(_positive_plus_stale_off()) is False
+
+
+def test_deletable_predicate_missing_verdict_failopen():
+    assert jd.is_row_deletable_offtopic({}) is False
+    assert jd.is_row_deletable_offtopic(_clean()) is False
+    assert jd.is_row_deletable_offtopic("not-a-mapping") is False
+
+
+def test_partition_topic_judge_only_default_on(monkeypatch):
+    monkeypatch.setenv("PG_DELETE_CHROME_NONSOURCE", "1")
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_SOURCE", "1")
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY", "1")
+    rows = [_clean(), _label_demoted(), _positive_plus_stale_off(), _fresh_off_subject(), {}]
+    kept, deleted = jd.partition_rows(rows)
+    kept_ids = {r.get("evidence_id") for r in kept if isinstance(r, dict)}
+    # KEPT: clean, weight-demoted, positive+stale-off, and the bare {} (fail-open)
+    assert {"ev_ok", "ev_demoted", "ev_pos"} <= kept_ids
+    assert {} in kept
+    # DELETED: only the fresh OFF_SUBJECT source, with the subject-specific reason
+    assert len(deleted) == 1 and deleted[0]["evidence_id"] == "ev_subj"
+    assert deleted[0]["deletion_reason"] == "confirmed_offtopic_subject"
+
+
+def test_partition_off_subject_never_deletes_weight_label(monkeypatch):
+    # with default-ON topic-judge-only, a monkeypatched legacy predicate is INERT — a
+    # weight-label row is decided only by the OFF_SUBJECT stamp (absent => KEEP).
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_SOURCE", "1")
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY", "1")
+    monkeypatch.setattr(jd, "is_row_confirmed_offtopic", lambda row: True)  # would delete all
+    kept, deleted = jd.partition_rows([_label_demoted()])
+    assert len(deleted) == 0 and len(kept) == 1
+
+
+def test_off_subject_marquee_exempt_never_deleted(monkeypatch):
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_SOURCE", "1")
+    monkeypatch.setenv("PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY", "1")
+    kept, deleted = jd.partition_rows([_fresh_off_subject()], exempt_ids={"ev_subj"})
+    assert len(deleted) == 0 and kept[0]["evidence_id"] == "ev_subj"
