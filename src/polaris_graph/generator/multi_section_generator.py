@@ -7239,6 +7239,54 @@ def _section_body_is_near_duplicate(
 _EVIDENCE_BASE_MARKER_RE = re.compile(r"\[([^\[\]]+)\]")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-deepfix-006 C4 — synthesized body leads; verbatim breadth surfaces -> supporting appendix
+# ─────────────────────────────────────────────────────────────────────────────
+def _body_lead_enabled() -> bool:
+    """C4 kill-switch (``PG_SYNTH_BODY_LEAD``). Default-ON; OFF only for an explicit off-value."""
+    return (
+        os.environ.get("PG_SYNTH_BODY_LEAD", "1").strip().lower()
+        not in ("0", "false", "off", "no")
+    )
+
+
+def _reorder_synthesis_body_lead(
+    section_results: "list[SectionResult]",
+) -> "list[SectionResult]":
+    """I-deepfix-006 C4 (``PG_SYNTH_BODY_LEAD``, default ON): stable-partition the section list so the
+    synthesized ANALYTICAL sections LEAD the report body and the verbatim-span breadth surfaces —
+    ``"Evidence base"`` + ``"Low-relevance evidence (kept at weight)"`` — TRAIL as a clearly-labelled
+    supporting appendix.
+
+    §-1.3 keep-all PLACEMENT, never a drop/cap/thin: every section is still present, and within each
+    partition the original relative order is preserved (stable). Faithfulness-neutral — no section
+    content, verdict, or count is touched; only the render/assembly order changes. When there is no
+    breadth-surface section to move (or the flag is OFF), the SAME list is returned UNCHANGED
+    (byte-identical). Fail-safe: if the appendix titles cannot be resolved, the order is left untouched.
+    """
+    if not section_results or not _body_lead_enabled():
+        return section_results
+    try:
+        from .weighted_enrichment import (  # noqa: PLC0415
+            _EVIDENCE_BASE_TITLE,
+            _LOW_RELEVANCE_LEDGER_TITLE,
+        )
+    except Exception:  # noqa: BLE001 — cannot classify -> leave order untouched (never reorder blind)
+        return section_results
+    _supporting_titles = {_EVIDENCE_BASE_TITLE, _LOW_RELEVANCE_LEDGER_TITLE}
+    body = [
+        s for s in section_results
+        if (getattr(s, "title", "") or "") not in _supporting_titles
+    ]
+    supporting = [
+        s for s in section_results
+        if (getattr(s, "title", "") or "") in _supporting_titles
+    ]
+    if not supporting:
+        return section_results  # no breadth surface to move -> byte-identical
+    return body + supporting
+
+
 def _append_evidence_base_section(
     section_results: "list[SectionResult]",
     global_biblio: "list[dict[str, Any]]",
@@ -10961,6 +11009,13 @@ async def generate_multi_section_report(
                     "min_quote_chars": _e.get("min_quote_chars", 0),
                     "provenance_class": _e.get("provenance_class", ""),
                 }
+
+    # I-deepfix-006 C4 (PG_SYNTH_BODY_LEAD, default ON): synthesized analytical sections LEAD the body;
+    # the verbatim-span "Evidence base" / low-relevance ledger TRAIL as a supporting appendix (keep-all
+    # placement, never a drop). Applied LAST so ONLY the final render/assembly order changes — every
+    # upstream aggregate (slot telemetry, analyst-synthesis input, word counts) is already computed and
+    # is order-independent. OFF => byte-identical.
+    section_results = _reorder_synthesis_body_lead(section_results)
 
     return MultiSectionResult(
         sections=section_results,
