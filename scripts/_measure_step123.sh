@@ -41,15 +41,19 @@ CP2=/workspace/POLARIS/outputs/s2_hamster_i1/cp2_corpus_snapshot.json
 CP3=/workspace/POLARIS/outputs/s3_gear/cp3_basket_snapshot.json
 CP4=/workspace/POLARIS/outputs/s4_gear/cp4_outline_snapshot.json
 CAP="${CAP:-20}"
-OUT="$WT/outputs/s5_measure_bw${PG_COMPOSE_BASKET_WORKERS}_bs${PG_JUDGE_BURST_SPREAD}"
+# SECTIONS=all => FULL 346-basket corpus (omit --sections => run_s5_i3 default = every section);
+# SECTIONS=4 (default) => the mega-section subset probe. CAP=0 => no per-section primary cap.
+SECTIONS="${SECTIONS:-4}"
+if [ "$SECTIONS" = "all" ]; then SECARG=(); SECTAG=all; else SECARG=(--sections "$SECTIONS"); SECTAG="$SECTIONS"; fi
+OUT="$WT/outputs/s5_measure_bw${PG_COMPOSE_BASKET_WORKERS}_bs${PG_JUDGE_BURST_SPREAD}_sec${SECTAG}_cap${CAP}"
 mkdir -p "$OUT"
 LOG="$OUT/measure.log"
 
 export HB_MODE=offloop
-echo "=== measure launch $(date -u) commit=$(git rev-parse HEAD) BW=$PG_COMPOSE_BASKET_WORKERS BS=$PG_JUDGE_BURST_SPREAD CAP=$CAP sections=4 ===" | tee "$LOG"
+echo "=== measure launch $(date -u) commit=$(git rev-parse HEAD) BW=$PG_COMPOSE_BASKET_WORKERS BS=$PG_JUDGE_BURST_SPREAD CAP=$CAP sections=$SECTAG ===" | tee "$LOG"
 python -u scripts/_hb_probe_run.py \
   --cp2 "$CP2" --cp3 "$CP3" --cp4 "$CP4" \
-  --out "$OUT/cp5_generation_snapshot.json" --sections 4 --cap-primary "$CAP" >> "$LOG" 2>&1
+  --out "$OUT/cp5_generation_snapshot.json" "${SECARG[@]}" --cap-primary "$CAP" >> "$LOG" 2>&1
 RC=$?
 echo "=== measure rc=$RC ===" | tee -a "$LOG"
 echo "--- 429 count ---" | tee -a "$LOG"

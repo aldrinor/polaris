@@ -1815,10 +1815,23 @@ def _verify_all_sentences_synth(
     # bounded by the process-global side-judge semaphore (PG_SIDE_JUDGE_MAX_CONCURRENCY), so nesting
     # this inside the PG_COMPOSE_BASKET_WORKERS basket pool cannot exceed that global cap. Default/1/
     # malformed => byte-identical serial path.
-    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
-        _parallel_verify_workers,
-    )
-    _vw = _parallel_verify_workers()
+    # I-arch-007-tail: this synth-verify parallelism is gated by its OWN opt-in knob
+    # PG_PARALLEL_VERIFY_SYNTH (NOT the general PG_PARALLEL_VERIFY), and DEFAULTS OFF (serial =>
+    # byte-identical legacy path). Rationale: the record/replay A/B certifier cannot byte-certify this
+    # multi-basket compose path because the path is non-deterministic run-to-run EVEN fully serial
+    # (concurrent writer/section scheduling reorders a downstream accumulator; the report sha bistably
+    # flips independent of any verify-parallelism, confirmed at PYTHONHASHSEED=0 pv=1). The loop is
+    # proven order-preserving in isolation (scripts microtest, forced interleaving => serial==parallel),
+    # so it is faithfulness-neutral by construction, but it stays OPT-IN until the certifier's own
+    # non-determinism is resolved. "0"/"1"/unset => serial; N>=2 => bounded parallel with N workers.
+    _synth_override = os.getenv("PG_PARALLEL_VERIFY_SYNTH", "").strip()
+    _vw = 1
+    if _synth_override:
+        try:
+            _n = int(_synth_override)
+            _vw = _n if _n >= 2 else 1
+        except ValueError:
+            _vw = 1
     if _vw < 2 or len(_sentences) < 2:
         _results = [verify_fn(s, scoped_pool) for s in _sentences]
     else:
