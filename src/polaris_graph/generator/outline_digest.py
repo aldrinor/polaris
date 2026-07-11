@@ -128,6 +128,15 @@ class OutlineDigestMenu:
     # (so it is byte-identical to ``len(members)`` when ``same_work_groups`` is absent). This is the
     # honest corroboration the orphan check reads — 4 rows of 2 works corroborate a claim TWICE.
     basket_work_corroboration: dict[str, int] = field(default_factory=dict)
+    # Item 4 observability tripwire: how many DOI groups hit the false-merge REFUSAL branch
+    # (``_build_alias_map``: ``len(stamped) >= 2`` — TWO OR MORE distinct cp3 works share one DOI, so
+    # the fold declines to merge them and folds only the UNCLAIMED members). Empirically ZERO on the
+    # real 346-basket cp3 corpus (0 DOIs span >= 2 cp3 groups). Surfaced (never silent) so if that
+    # zero-incidence assumption ever breaks on a future corpus it is VISIBLE — a non-zero count means
+    # the digest is declining a DOI merge and a key-level union-find remap may be warranted.
+    doi_false_merge_guard_hits: int = 0
+    # Symmetric counter for the TITLE false-merge refusal branch (two cp3 works share one title).
+    title_false_merge_guard_hits: int = 0
 
     def render(self) -> str:
         """The prompt menu text — baskets first (heaviest claims), then singletons."""
@@ -229,6 +238,8 @@ def _normalized_title_key(title: str) -> str | None:
 def _build_alias_map(
     same_work_groups: Sequence[Mapping[str, Any]] | None,
     evidence: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    stats: dict[str, int] | None = None,
 ) -> dict[str, str]:
     """ev_id -> work_key from the cp3 ``same_work_groups`` payload (PUSH A) + the item-2 TITLE fold.
 
@@ -295,6 +306,11 @@ def _build_alias_map(
             # cp3 key it overlaps (or the ``doi:`` key when the cp3 groups never touched it).
             stamped = {alias_of[e] for e in members if e in alias_of}
             if len(stamped) >= 2:
+                # Observability tripwire: this REFUSAL to merge two distinct cp3 works that share one
+                # DOI is empirically zero-incidence on the real corpus. Count it so a future corpus
+                # that DOES hit it is visible (never silent — see OutlineDigestMenu.doi_false_merge...).
+                if stats is not None:
+                    stats["doi_false_merge_guard_hits"] = stats.get("doi_false_merge_guard_hits", 0) + 1
                 for ev_id in members:
                     if ev_id not in alias_of:
                         alias_of[ev_id] = dkey
@@ -370,6 +386,8 @@ def _build_alias_map(
             # drops a row; a WRONG fold would misstate corroboration, so the guard stays conservative.
             stamped = {alias_of[e] for e in members if e in alias_of}
             if len(stamped) >= 2:
+                if stats is not None:
+                    stats["title_false_merge_guard_hits"] = stats.get("title_false_merge_guard_hits", 0) + 1
                 for ev_id in members:
                     if ev_id not in alias_of:
                         alias_of[ev_id] = tkey
@@ -560,7 +578,22 @@ def build_outline_digest(
     work_aware = same_work_groups is not None
     # Item 2: feed the pool so ``_build_alias_map`` also folds TITLE-identical works the cp3 groups
     # missed — but ONLY on the work-aware path, so ``same_work_groups=None`` stays byte-identical.
-    alias_of = _build_alias_map(same_work_groups, evidence if work_aware else None)
+    _alias_stats: dict[str, int] = {}
+    alias_of = _build_alias_map(
+        same_work_groups, evidence if work_aware else None, stats=_alias_stats
+    )
+    _doi_guard_hits = _alias_stats.get("doi_false_merge_guard_hits", 0)
+    _title_guard_hits = _alias_stats.get("title_false_merge_guard_hits", 0)
+    if _doi_guard_hits or _title_guard_hits:
+        # Zero-incidence on the real 346-basket corpus; a WARNING (not silent) the moment it ever
+        # fires so the "no DOI spans >= 2 cp3 groups" assumption is auditable on a live sweep.
+        logger.warning(
+            "outline_digest: same-work false-merge REFUSAL fired (doi_guard_hits=%d "
+            "title_guard_hits=%d) — TWO OR MORE distinct cp3 works share one DOI/title, so the fold "
+            "declined to merge them (only unclaimed members folded). Expected ZERO on the real "
+            "corpus; a non-zero count means a key-level union-find remap may be warranted.",
+            _doi_guard_hits, _title_guard_hits,
+        )
 
     def _work_key(ev_id: str) -> str:
         return alias_of.get(ev_id, ev_id)
@@ -789,6 +822,8 @@ def build_outline_digest(
         basket_member_ev_ids=basket_member_ev_ids,
         singleton_alias_ev_ids=singleton_alias_ev_ids,
         basket_work_corroboration=basket_work_corroboration,
+        doi_false_merge_guard_hits=_doi_guard_hits,
+        title_false_merge_guard_hits=_title_guard_hits,
     )
 
     # ── 4. 100%-of-pool honesty invariant (Design 5 §9 bar #2): every non-empty ev_id in the

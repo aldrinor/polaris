@@ -103,6 +103,16 @@ async def _run_one(corpus_path: Path, min_baskets: int) -> dict:
     calc_claims = getattr(parse_result, "calc_claims", None) or {}
     moat_armed = bool(qmodels) and bool(calc_claims)
 
+    # Observability tripwire (per-corpus): count how many DOI/title groups hit the same-work
+    # false-merge REFUSAL branch on THIS corpus. Empirically ZERO on the real 346-basket cp3 dump
+    # (no DOI spans >= 2 cp3 groups); surfaced here so a live sweep makes any breach VISIBLE rather
+    # than silent. Computed directly off the corpus (independent of the agent's own digest build).
+    from src.polaris_graph.generator.outline_digest import _build_alias_map  # noqa: PLC0415
+    _guard_stats: dict[str, int] = {}
+    _build_alias_map(swg, evidence, stats=_guard_stats)
+    doi_guard_hits = _guard_stats.get("doi_false_merge_guard_hits", 0)
+    title_guard_hits = _guard_stats.get("title_false_merge_guard_hits", 0)
+
     basket_ok = n_baskets >= min_baskets
     return {
         "corpus": corpus_path.name,
@@ -118,6 +128,8 @@ async def _run_one(corpus_path: Path, min_baskets: int) -> dict:
         "quantified_models": len(qmodels),
         "calc_claim_sections": len(calc_claims),
         "moat_armed": moat_armed,
+        "doi_false_merge_guard_hits": doi_guard_hits,
+        "title_false_merge_guard_hits": title_guard_hits,
         "invariant_passed": passed and basket_ok,
         "verdict": verdict + ("" if basket_ok else f" | baskets {n_baskets} < min {min_baskets}"),
         "agent_model": outliner_agent_model(),
@@ -219,6 +231,13 @@ def main() -> int:
         print(f"  [{mark}] {r['corpus']}: cp4_used={r['cp4_used']} baskets={r['baskets']} "
               f"qmodels={r['quantified_models']} calc_sections={r['calc_claim_sections']} "
               f"moat_armed={r['moat_armed']}")
+        # Observability: DOI/title false-merge REFUSAL count. Expected 0 on the real corpus; a
+        # non-zero here means two multi-member cp3 works shared a DOI/title and the fold declined
+        # to merge them — the zero-incidence assumption broke and warrants a key-level remap look.
+        _dg = r.get("doi_false_merge_guard_hits", 0)
+        _tg = r.get("title_false_merge_guard_hits", 0)
+        _flag = "  <-- NON-ZERO: audit union-find assumption" if (_dg or _tg) else ""
+        print(f"         false_merge_guard_hits: doi={_dg} title={_tg}{_flag}")
         print(f"         {r['verdict']}")
     print(f"\nsummary: {out_path}")
     return 0 if n_pass == len(results) else 1

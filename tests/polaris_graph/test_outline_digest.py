@@ -346,6 +346,32 @@ def test_item5_doi_fold_distinct_dois_stay_separate() -> None:
     assert "d1" not in alias and "d2" not in alias  # no fold => empty alias map
 
 
+def test_item4_doi_two_multi_member_url_groups_shared_doi_stay_separate() -> None:
+    """item 4 (DOI false-merge REFUSAL, the ruling case): TWO distinct MULTI-member cp3 ``url:``
+    groups that happen to share ONE DOI must NOT be merged. Each stamped member keeps its own
+    ``url:`` key; only the UNCLAIMED (non-cp3) same-DOI row folds onto the ``doi:`` key. A
+    member-level override would SPLIT a cp3 group, so the refusal is the correct conservative choice
+    — and the observability tripwire records exactly ONE guard hit."""
+    ev = [
+        _drow("a1", "Alpha Work Randomized Wage Study Of Engineers One", "10.9/shared", "https://a/1"),
+        _drow("a2", "Alpha Work Mirror Copy At A Second Host Two Here", "10.9/shared", "https://a/2"),
+        _drow("b1", "Beta Work A Completely Different Paper Title Three", "10.9/shared", "https://b/1"),
+        _drow("b2", "Beta Work Mirror Copy At Another Host Four Here", "10.9/shared", "https://b/2"),
+        _drow("u1", "Unclaimed Blog Recap Sharing The Same DOI Five", "10.9/shared", "https://u/1"),
+    ]
+    swg = [
+        {"member_evidence_ids": ["a1", "a2"], "canonical_index": 0, "same_work_id": "url:groupA"},
+        {"member_evidence_ids": ["b1", "b2"], "canonical_index": 1, "same_work_id": "url:groupB"},
+    ]
+    stats: dict[str, int] = {}
+    alias = _build_alias_map(swg, ev, stats=stats)
+    assert alias["a1"] == alias["a2"] == "url:groupA"   # stamped members keep their cp3 url: key
+    assert alias["b1"] == alias["b2"] == "url:groupB"   # the OTHER cp3 group keeps its own url: key
+    assert alias["a1"] != alias["b1"]                   # the two MULTI-member cp3 works are NOT merged
+    assert alias["u1"] == "doi:10.9/shared"             # only the UNCLAIMED same-DOI row folds to doi:
+    assert stats["doi_false_merge_guard_hits"] == 1     # tripwire fired exactly once (never silent)
+
+
 def test_item5_doi_fold_end_to_end_corroboration_and_tripwire() -> None:
     """item 5 END-TO-END: build_outline_digest on the 3-row same-DOI-different-URL fixture reports
     basket_work_corroboration == 1 (one work, not three), and corroboration_profile's
