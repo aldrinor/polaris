@@ -989,6 +989,15 @@ class OutlineAgent:
             parameters={"ops": "a revision op list, e.g. {\"ops\": [...]}"},
             execute=_exec_update_outline,
         ))
+        # T1 rich toolkit (redesign PART 4): read-only/deterministic primitives + verified_compute.
+        # The driver iterates the registry unchanged; new tools honor the shared wall/deadline.
+        from src.polaris_graph.outline.outline_toolkit import (  # noqa: PLC0415
+            register_outline_toolkit,
+        )
+        register_outline_toolkit(
+            registry, self.workspace, self.agent_model,
+            deadline=self.retrieval_deadline_monotonic,
+        )
         return registry
 
     def _resolve_section_title(self, sec: str) -> Optional[str]:

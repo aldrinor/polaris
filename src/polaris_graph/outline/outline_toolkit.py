@@ -1,0 +1,433 @@
+"""T1 rich toolkit for the agentic outliner (docs/agentic_outline_redesign.md PART 4, step 1+5).
+
+``register_outline_toolkit(registry, workspace, agent_model, deadline)`` wires the read-only /
+deterministic primitives + the moat ``verified_compute`` onto the driver's existing
+``ToolRegistry``. The driver (``OutlineAgent``) does not change shape when tools are added — every
+tool speaks the standard ``execute(evidence_store, data_points, client, **kw) -> ToolResult``
+contract.
+
+Faithfulness posture of this toolkit:
+  * Every tool here is READ-ONLY over the workspace (search_corpus, get_evidence, list_baskets,
+    coverage_audit, preview_section_evidence) or DETERMINISTIC-COMPUTE (calculator,
+    verified_compute). None fetches network content — so none re-enters evidence and none can
+    widen the render surface.
+  * ``calculator`` is EXPLORATORY: a bare arithmetic result carries no evidence span, so it is
+    planner-facing only (``renderable=False``). To RENDER a derived number the agent must use
+    ``verified_compute``, which re-derives it through the verified ``[#calc:]`` lane
+    (outline/verified_compute.py). This is the same two-lane discipline as execute_python.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any, Optional
+
+from src.polaris_graph.tools.tool_registry import ToolDefinition, ToolRegistry, ToolResult
+
+_WORD_RE = re.compile(r"[A-Za-z0-9]+")
+
+# The evidence text fields, richest first (mirrors _fold_in / tradeoff_modeler ordering).
+_TEXT_FIELDS = (
+    "direct_quote", "statement", "full_text", "content", "extracted_text",
+    "fetched_body", "raw_content", "raw_text", "page_text", "source_text", "body", "text",
+)
+
+
+def _row_text(row: dict[str, Any]) -> str:
+    return max(
+        (str(row.get(k) or "") for k in _TEXT_FIELDS),
+        key=len, default="",
+    )
+
+
+def _tokens(text: str) -> list[str]:
+    return _WORD_RE.findall(text.lower())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# calculator — single deterministic arithmetic expression (EXPLORATORY lane)
+# ─────────────────────────────────────────────────────────────────────────────
+async def _tool_calculator(
+    workspace: Any, *, expression: str = "", **_ignored: Any,
+) -> ToolResult:
+    """Evaluate ONE whitelisted-AST arithmetic expression (reuses tradeoff_modeler's validator +
+    interpreter). Deterministic, no LLM, no sandbox. EXPLORATORY: the result carries no evidence
+    span, so it is planner-facing (``renderable=False``) — to RENDER a derived number use
+    verified_compute."""
+    from src.polaris_graph.synthesis.tradeoff_modeler import (  # noqa: PLC0415
+        _eval_formula, _formula_names,
+    )
+
+    expr = str(expression or "").strip()
+    if not expr:
+        return ToolResult(
+            success=False, tool_name="calculator",
+            markdown="calculator requires an `expression`.", error="missing_expression",
+        )
+    ok, reason, refs = _formula_names(expr, set())
+    if not ok:
+        return ToolResult(
+            success=False, tool_name="calculator",
+            markdown=f"calculator rejected {expr!r}: {reason}", error=f"formula_invalid:{reason}",
+        )
+    if refs:
+        return ToolResult(
+            success=False, tool_name="calculator",
+            markdown=f"calculator is constant-only; unknown names {sorted(refs)}",
+            error="unbound_names",
+        )
+    try:
+        value = _eval_formula(expr, {})
+    except (ValueError, ZeroDivisionError, OverflowError) as exc:
+        return ToolResult(
+            success=False, tool_name="calculator",
+            markdown=f"calculator failed on {expr!r}: {exc}", error=f"eval_error:{str(exc)[:80]}",
+        )
+    return ToolResult(
+        success=True, tool_name="calculator",
+        markdown=f"`{expr}` = {value} (EXPLORATORY — planner-facing; render via verified_compute)",
+        statistics={"expression": expr, "value": value},
+        insights=[f"{expr} = {value}"],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# get_evidence — full text + metadata of ONE evidence row
+# ─────────────────────────────────────────────────────────────────────────────
+async def _tool_get_evidence(
+    workspace: Any, *, ev_id: str = "", max_chars: int = 4000, **_ignored: Any,
+) -> ToolResult:
+    """Return the FULL text + key metadata of one evidence row by id (the agent normally sees
+    only the digest). Read-only, no network."""
+    eid = str(ev_id or "").strip()
+    row = workspace.ev_store.get(eid) if eid else None
+    if not isinstance(row, dict):
+        return ToolResult(
+            success=False, tool_name="get_evidence",
+            markdown=f"No evidence row {eid!r} in the pool.", error="ev_not_found",
+        )
+    text = _row_text(row)
+    try:
+        cap = int(max_chars)
+    except (TypeError, ValueError):
+        cap = 4000
+    body = text[:cap]
+    md = [
+        f"**{eid}** [CITE:{eid}]",
+        f"- title: {str(row.get('title') or row.get('source_title') or '')[:200]}",
+        f"- url: {str(row.get('source_url') or row.get('url') or '')[:200]}",
+        f"- text ({len(text)} chars{', truncated' if len(text) > cap else ''}):",
+        body,
+    ]
+    return ToolResult(
+        success=True, tool_name="get_evidence", markdown="\n".join(md),
+        source_evidence_ids=[eid],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# search_corpus — keyword search over the CURRENT ev_store (read-only, no network)
+# ─────────────────────────────────────────────────────────────────────────────
+async def _tool_search_corpus(
+    workspace: Any, *, query: str = "", top_k: int = 8, **_ignored: Any,
+) -> ToolResult:
+    """Rank rows already in the pool by query-term frequency; snippet per hit. The mandatory
+    'do we already have this?' stop BEFORE any live fetch. Read-only, no network, no LLM."""
+    q = str(query or "").strip()
+    if not q:
+        return ToolResult(
+            success=False, tool_name="search_corpus",
+            markdown="search_corpus requires a `query`.", error="missing_query",
+        )
+    try:
+        k = max(1, int(top_k))
+    except (TypeError, ValueError):
+        k = 8
+    q_tokens = set(_tokens(q))
+    if not q_tokens:
+        return ToolResult(
+            success=False, tool_name="search_corpus",
+            markdown="query had no searchable tokens.", error="empty_query_tokens",
+        )
+    scored: list[tuple[float, str, dict]] = []
+    for eid, row in workspace.ev_store.items():
+        if not isinstance(row, dict):
+            continue
+        text = f"{row.get('title') or ''} {_row_text(row)}"
+        toks = _tokens(text)
+        if not toks:
+            continue
+        counts = sum(toks.count(t) for t in q_tokens)
+        if counts <= 0:
+            continue
+        # length-normalized term frequency (cheap BM25-ish) so a long junk page can't win on raw counts
+        score = counts / (1.0 + 0.001 * len(toks))
+        scored.append((score, str(eid), row))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    hits = scored[:k]
+    if not hits:
+        return ToolResult(
+            success=True, tool_name="search_corpus",
+            markdown=f"No rows in the pool match {q!r} (searched {len(workspace.ev_store)}).",
+            statistics={"matches": 0, "searched": len(workspace.ev_store)},
+        )
+    lines = [f"**search_corpus {q!r}: {len(hits)} of {len(scored)} matches**", ""]
+    for score, eid, row in hits:
+        snippet = _snippet(_row_text(row), q_tokens)
+        lines.append(f"- {eid} (score={score:.2f}): {snippet} [CITE:{eid}]")
+    return ToolResult(
+        success=True, tool_name="search_corpus", markdown="\n".join(lines),
+        source_evidence_ids=[eid for _, eid, _ in hits],
+        statistics={"matches": len(scored), "searched": len(workspace.ev_store)},
+    )
+
+
+def _snippet(text: str, q_tokens: set[str], width: int = 160) -> str:
+    low = text.lower()
+    pos = -1
+    for t in q_tokens:
+        i = low.find(t)
+        if i >= 0 and (pos < 0 or i < pos):
+            pos = i
+    if pos < 0:
+        return text[:width].strip()
+    start = max(0, pos - width // 4)
+    return ("..." if start > 0 else "") + text[start:start + width].strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# list_baskets — one-line-per-basket index of the whole corpus shape
+# ─────────────────────────────────────────────────────────────────────────────
+async def _tool_list_baskets(
+    workspace: Any, *, max_rows: int = 200, **_ignored: Any,
+) -> ToolResult:
+    """One line per basket: id, member count, work-level corroboration, assignment status. Lets
+    the agent scan the whole corpus without N inspect_basket calls. Read-only."""
+    menu = workspace.basket_menu
+    member_map = dict(getattr(menu, "basket_member_ev_ids", {}) or {}) if menu is not None else {}
+    if not member_map:
+        return ToolResult(
+            success=True, tool_name="list_baskets",
+            markdown="No basket digest available (no multi-member clusters).",
+            statistics={"baskets": 0},
+        )
+    corr_map = dict(getattr(menu, "basket_work_corroboration", {}) or {})
+    assigned_ev = _assigned_ev_ids(workspace)
+    try:
+        cap = max(1, int(max_rows))
+    except (TypeError, ValueError):
+        cap = 200
+    lines = [f"**{len(member_map)} baskets**", ""]
+    for bid in sorted(member_map)[:cap]:
+        members = list(member_map.get(bid) or [])
+        n_assigned = sum(1 for m in members if m in assigned_ev)
+        status = "assigned" if n_assigned == len(members) and members else (
+            "unassigned" if n_assigned == 0 else f"partial({n_assigned}/{len(members)})"
+        )
+        lines.append(
+            f"- {bid}: {len(members)} member(s), corroboration={corr_map.get(bid, len(members))}, {status}"
+        )
+    return ToolResult(
+        success=True, tool_name="list_baskets", markdown="\n".join(lines),
+        statistics={"baskets": len(member_map)},
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# coverage_audit — deterministic (never-LLM) coverage accounting
+# ─────────────────────────────────────────────────────────────────────────────
+async def _tool_coverage_audit(workspace: Any, **_ignored: Any) -> ToolResult:
+    """Deterministic accounting: unassigned basket ids, per-section basket/ev counts, residual
+    fraction. The O2/O3 math on demand so the agent SEES its own coverage. Never-LLM."""
+    from src.polaris_graph.outline.outline_agent import _plan_field  # noqa: PLC0415
+
+    menu = workspace.basket_menu
+    member_map = dict(getattr(menu, "basket_member_ev_ids", {}) or {}) if menu is not None else {}
+    assigned_ev = _assigned_ev_ids(workspace)
+
+    unassigned_baskets = sorted(
+        bid for bid, members in member_map.items()
+        if not any(m in assigned_ev for m in (members or []))
+    )
+    total_ev = len(workspace.ev_store)
+    n_assigned_ev = len(assigned_ev & set(workspace.ev_store.keys()))
+    residual = 0.0 if total_ev == 0 else round(1.0 - n_assigned_ev / total_ev, 4)
+
+    per_section = []
+    for p in workspace.outline_draft:
+        title = str(_plan_field(p, "title", "") or "")
+        ev_ids = list(_plan_field(p, "ev_ids", []) or [])
+        basket_ids = list(_plan_field(p, "basket_ids", []) or [])
+        per_section.append((title, len(ev_ids), len(basket_ids)))
+
+    lines = [
+        f"**coverage_audit**: {total_ev} ev rows, {n_assigned_ev} assigned, "
+        f"residual={residual:.2%}",
+        f"- unassigned baskets ({len(unassigned_baskets)}): {unassigned_baskets[:40]}",
+        "- per section (title: ev_ids, baskets):",
+    ]
+    for title, n_ev, n_b in per_section:
+        floor_flag = " [BELOW FLOOR: 0 baskets]" if n_b == 0 else ""
+        lines.append(f"    {title!r}: {n_ev} ev, {n_b} baskets{floor_flag}")
+    return ToolResult(
+        success=True, tool_name="coverage_audit", markdown="\n".join(lines),
+        statistics={
+            "total_ev": total_ev, "assigned_ev": n_assigned_ev, "residual": residual,
+            "unassigned_baskets": len(unassigned_baskets),
+            "sections": len(per_section),
+            "sections_below_floor": sum(1 for _, _, n_b in per_section if n_b == 0),
+        },
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# preview_section_evidence — what compose will receive for ONE section
+# ─────────────────────────────────────────────────────────────────────────────
+async def _tool_preview_section_evidence(
+    workspace: Any, *, section: str = "", **_ignored: Any,
+) -> ToolResult:
+    """For one section: its assigned ev rows' titles + gists — exactly what compose receives.
+    Read-only ('walk in the reader's shoes')."""
+    from src.polaris_graph.outline.outline_agent import _plan_field  # noqa: PLC0415
+
+    sec = str(section or "").strip()
+    if not sec:
+        return ToolResult(
+            success=False, tool_name="preview_section_evidence",
+            markdown="preview_section_evidence requires a `section`.", error="missing_section",
+        )
+    sec_l = sec.lower()
+    match = None
+    for p in workspace.outline_draft:
+        title = str(_plan_field(p, "title", "") or "")
+        if title.strip().lower() == sec_l or (sec_l and sec_l in title.strip().lower()):
+            match = p
+            break
+    if match is None:
+        return ToolResult(
+            success=False, tool_name="preview_section_evidence",
+            markdown=f"No section matching {sec!r}.", error="section_not_found",
+        )
+    title = str(_plan_field(match, "title", "") or "")
+    ev_ids = list(_plan_field(match, "ev_ids", []) or [])
+    lines = [f"**Section {title!r}**: {len(ev_ids)} assigned ev row(s)", ""]
+    for eid in ev_ids[:30]:
+        row = workspace.ev_store.get(eid, {})
+        gist = (str(row.get("title") or "") or _row_text(row)[:80]).strip()
+        lines.append(f"- {eid}: {gist[:120]} [CITE:{eid}]")
+    return ToolResult(
+        success=True, tool_name="preview_section_evidence", markdown="\n".join(lines),
+        source_evidence_ids=ev_ids,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# verified_compute — THE moat tool: derive a number that renders via [#calc:]
+# ─────────────────────────────────────────────────────────────────────────────
+async def _tool_verified_compute(
+    workspace: Any, *, question: str = "", datapoints: Any = None, spec: Any = None,
+    render_field: Optional[str] = None, lead: str = "", **_ignored: Any,
+) -> ToolResult:
+    """Derive a number through the VERIFIED lane (build_quantified_spec -> execute_quantified_model)
+    and return a render-eligible sentence carrying its ``[#calc:]`` token — the ONLY compute output
+    allowed to render. Fail-closed: a bad spec yields success=False and renders nothing."""
+    from src.polaris_graph.outline.verified_compute import run_verified_compute  # noqa: PLC0415
+
+    if not isinstance(datapoints, list) or not isinstance(spec, dict):
+        return ToolResult(
+            success=False, tool_name="verified_compute",
+            markdown="verified_compute requires `datapoints` (list) and `spec` (dict).",
+            error="bad_args",
+        )
+    claim = await run_verified_compute(
+        workspace, question=str(question or workspace.research_question),
+        datapoints=datapoints, raw_spec=spec, render_field=render_field,
+    )
+    if claim is None:
+        return ToolResult(
+            success=False, tool_name="verified_compute",
+            markdown="verified_compute: spec failed to build/execute (fail-closed) — no number rendered.",
+            error="spec_rejected_or_exec_failed",
+        )
+    lead_text = str(lead or "").strip() or "The computed value is"
+    sentence = claim.render_sentence(lead_text)
+    return ToolResult(
+        success=True, tool_name="verified_compute",
+        markdown=(
+            f"VERIFIED computed value **{claim.display_value}** renders via `{claim.calc_token}`.\n\n"
+            f"Render-ready sentence: {sentence}"
+        ),
+        statistics={
+            "display_value": claim.display_value, "model_id": claim.model_id,
+            "spec_hash": claim.spec_hash, "field_id": claim.field_id,
+            "calc_token": claim.calc_token, "formula": claim.formula,
+            "render_sentence": sentence,
+        },
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# helpers + registration
+# ─────────────────────────────────────────────────────────────────────────────
+def _assigned_ev_ids(workspace: Any) -> set[str]:
+    from src.polaris_graph.outline.outline_agent import _plan_field  # noqa: PLC0415
+    return {
+        eid
+        for p in workspace.outline_draft
+        for eid in (_plan_field(p, "ev_ids", None) or [])
+    }
+
+
+def register_outline_toolkit(
+    registry: ToolRegistry,
+    workspace: Any,
+    agent_model: str,
+    deadline: Optional[float] = None,
+) -> list[str]:
+    """Wire the T1 read-only/deterministic tools + verified_compute onto ``registry``. Returns the
+    list of registered tool names. The driver iterates the registry unchanged."""
+
+    def _bind(fn):
+        async def _exec(evidence_store, data_points, client, **kw):  # noqa: ANN001
+            return await fn(workspace, **kw)
+        return _exec
+
+    specs = [
+        ("calculator", _tool_calculator,
+         "Evaluate ONE arithmetic expression (deterministic, no LLM). EXPLORATORY — render a "
+         "derived number via verified_compute, not this.",
+         {"expression": "a pure arithmetic expression, e.g. (1493602-903095)*1000"}),
+        ("get_evidence", _tool_get_evidence,
+         "Return the FULL text + metadata of one evidence row by id.",
+         {"ev_id": "the evidence id", "max_chars": "optional text cap (default 4000)"}),
+        ("search_corpus", _tool_search_corpus,
+         "Keyword search over the evidence ALREADY in the pool (no network). The 'do we already "
+         "have this?' stop before any live fetch.",
+         {"query": "keywords to search", "top_k": "max hits (default 8)"}),
+        ("list_baskets", _tool_list_baskets,
+         "One line per basket (id, members, corroboration, assignment) — scan the whole corpus "
+         "shape at once.",
+         {}),
+        ("coverage_audit", _tool_coverage_audit,
+         "Deterministic coverage accounting: unassigned baskets, per-section counts, residual "
+         "fraction, sections below floor.",
+         {}),
+        ("preview_section_evidence", _tool_preview_section_evidence,
+         "Preview one section's assigned evidence — exactly what compose will receive.",
+         {"section": "the section title"}),
+        ("verified_compute", _tool_verified_compute,
+         "Derive a number through the VERIFIED lane and render it via a [#calc:] token (the ONLY "
+         "compute output allowed to render).",
+         {"question": "what is being computed",
+          "datapoints": "list of sourced datapoints {evidence_id,label,context,value,unit}",
+          "spec": "the model spec {model_id,title,inputs,outputs}",
+          "render_field": "optional output field to render (default first)",
+          "lead": "optional lead prose for the rendered sentence"}),
+    ]
+    registered: list[str] = []
+    for name, fn, desc, params in specs:
+        registry.register(ToolDefinition(
+            name=name, description=desc, requires_data=False, requires_llm=False,
+            parameters=params, execute=_bind(fn),
+        ))
+        registered.append(name)
+    return registered
