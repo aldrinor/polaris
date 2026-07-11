@@ -106,12 +106,11 @@ def test_override_flag_off_still_withholds_but_not_protected(monkeypatch):
     assert out == [d]  # protected basket survives
 
 
-# ── N1-FIX-2 — boundary quote-hygiene V2 ─────────────────────────────────────────────────────────
-
-_V2_ENV = "PG_BOUNDARY_QUOTE_HYGIENE_V2"
-_STEP4_ENV = "PG_BOUNDARY_QUOTE_HYGIENE"
-
-_CBS_LEAK = "ws.com/team/megan-cerullo/) Updated on: August 28, 2025 [Add CBS News on Google](https://www.goog"
+# ── Fix 1 (P0-1, 2026-07-10 compose gear-loop iter 2) — boundary line renders SYNTHESIS, not a quote ──
+# The deleted N1-FIX-2 quote-hygiene V2 screens (`_quote_is_unrenderable`, PG_BOUNDARY_QUOTE_HYGIENE*)
+# were mechanical lexical screens on RAW member text. They are removed: the boundary line no longer
+# quotes raw member text AT ALL — it renders ONE LLM-synthesized qualifier sentence (passed by cluster
+# id) plus a citation label, so there is nothing raw to screen. These tests replace the V2 suite.
 
 
 def _bmember(eid, quote):
@@ -142,63 +141,29 @@ def _clean_qualifier():
     )
 
 
-def test_v2_drops_on_subject_suffix_for_single_token_subject(monkeypatch):
-    """(5) V2 ON: a headline whose subject is the single token 'however' renders the BARE
-    'Boundary conditions / counter-evidence:' label — no 'on however' suffix — and the clean quote
-    still renders."""
-    monkeypatch.setenv(_V2_ENV, "1")
-    line = bc.synthesize_boundary_line([_headline_however()], [_clean_qualifier()])
+def test_boundary_line_renders_synthesis_and_bare_label_for_garbage_subject():
+    """Fix 1 (P0-1): the boundary line renders the SYNTHESIZED sentence (passed by cluster id) with the
+    BARE 'Boundary conditions / counter-evidence:' label — no ' on however' suffix for a single-token
+    subject — and never a raw provenance token."""
+    synth = {"q": "The reduction held only in certain regions [#ev:ev_q:0-10]."}
+    line = bc.synthesize_boundary_line([_headline_however()], [_clean_qualifier()], synth)
     assert line
     assert "**Boundary conditions / counter-evidence:**" in line
     assert " on however" not in line
-    assert "only in certain regions" in line  # clean quote renders
+    assert "held only in certain regions" in line
+    assert "[#ev:" not in line
 
 
-def test_v2_off_keeps_legacy_subject_suffix(monkeypatch):
-    """V2 OFF byte-identical: the legacy ' on {subject}' suffix is present for the same inputs."""
-    monkeypatch.delenv(_V2_ENV, raising=False)
-    line = bc.synthesize_boundary_line([_headline_however()], [_clean_qualifier()])
-    assert line
-    assert " on however" in line
-
-
-def test_v2_skips_markdown_url_fragment_quote(monkeypatch):
-    """(5) V2 ON: a candidate whose member quote is a markdown-link / URL-fragment leak is skipped
-    (no other candidate => empty line)."""
-    monkeypatch.setenv(_V2_ENV, "1")
-    monkeypatch.setenv(_STEP4_ENV, "0")  # isolate: only V2 governs the hygiene skip
-    leak = _bbasket("L", "layoffs increased however only at some media companies", "media layoffs",
-                    2.0, _CBS_LEAK)
+def test_boundary_line_without_synthesis_never_quotes_raw_member():
+    """Fix 1 (P0-1): with NO synthesized sentence available, the line is empty — the raw member quote is
+    NEVER dumped (the class the deleted V2 screens were band-aiding)."""
+    leak = "ws.com/team/megan-cerullo/) Updated on: August 28, 2025 [Add CBS News on Google](https://www.goog"
+    lb = _bbasket("L", "layoffs increased however only at some media companies", "media layoffs", 2.0, leak)
     headline = _bbasket("hl", "layoffs increased across media companies", "media layoffs", 9.0,
                         "Layoffs increased across media companies.")
-    assert bc.synthesize_boundary_line([headline], [leak]) == ""
-
-
-def test_v2_off_renders_leak_quote_byte_identical(monkeypatch):
-    """V2 OFF byte-identical: with BOTH hygiene flags off, the (unscreened) leak quote renders — the
-    V2 rule is the only thing that would have skipped it."""
-    monkeypatch.delenv(_V2_ENV, raising=False)
-    monkeypatch.setenv(_STEP4_ENV, "0")
-    leak = _bbasket("L", "layoffs increased however only at some media companies", "media layoffs",
-                    2.0, _CBS_LEAK)
-    headline = _bbasket("hl", "layoffs increased across media companies", "media layoffs", 9.0,
-                        "Layoffs increased across media companies.")
-    line = bc.synthesize_boundary_line([headline], [leak])
-    assert line
-    assert _CBS_LEAK in line
-
-
-def test_v2_never_mutes_honest_low_weight_counterevidence(monkeypatch):
-    """(4) V2 ON never mutes a genuine on-topic low-weight counter-evidence basket with a clean
-    full-sentence quote."""
-    monkeypatch.setenv(_V2_ENV, "1")
-    headline = _bbasket("h2", "robots reduce employment substantially", "robots employment", 9.0,
-                        "Robots reduced employment substantially.")
-    g = _bbasket("g2", "robots reduce employment however only in some sectors", "robot subgroup", 2.0,
-                 "However, robots reduced employment only in some sectors.")
-    line = bc.synthesize_boundary_line([headline], [g])
-    assert line
-    assert "only in some sectors" in line
+    line = bc.synthesize_boundary_line([headline], [lb])
+    assert line == ""
+    assert leak not in line
 
 
 if __name__ == "__main__":  # pragma: no cover

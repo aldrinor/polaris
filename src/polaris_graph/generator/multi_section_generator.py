@@ -5576,6 +5576,28 @@ async def _run_section(
             raw, _vc_baskets, evidence_pool,
             writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
         )
+        # Fix 4 (P1-2, 2026-07-10 compose gear-loop iter 2): SECTION COHERENCE PASS. The per-basket
+        # drafts are composed independently and concatenated, so a later basket's paragraph can open with
+        # a dangling anaphor ("these estimates" / "the researchers" / "The treatment group") pointing at a
+        # PRIOR basket. Resolve those referents IN PLACE before the UNCHANGED strict_verify tail runs;
+        # every rewritten sentence is re-verified by the base bar (context NLI + forward numeric) and a
+        # failing / token-altering rewrite keeps the ORIGINAL sentence (fail-open — never loses verified
+        # content or a citation). Default-ON kill-switch (PG_SECTION_COHERENCE_PASS); OFF/fault => raw
+        # unchanged. Runs on the tokened draft so the frozen faithfulness engine is byte-untouched.
+        try:
+            from src.polaris_graph.generator.section_polish import (  # noqa: PLC0415
+                coherence_rewrite_section as _coherence_rewrite,
+            )
+            raw = await _coherence_rewrite(
+                raw, evidence_pool,
+                section_context={
+                    "title": str(getattr(section, "title", "") or ""),
+                    "focus": str(getattr(section, "focus", "") or ""),
+                    "research_question": str(research_question or ""),
+                },
+            )
+        except Exception:  # noqa: BLE001 — additive coherence polish; never break composition
+            pass
         in_tok = out_tok = 0
         section_atom_catalog = {}
         logger.info(
@@ -6040,12 +6062,41 @@ async def _run_section(
         try:
             from src.polaris_graph.generator.boundary_conditions import (  # noqa: PLC0415
                 boundary_conditions_enabled as _b2_enabled,
+                select_boundary_qualifier as _b2_select,
                 synthesize_boundary_line as _b2_line,
             )
             if _b2_enabled():
-                _b2_text = _b2_line(_vc_baskets, _vc_baskets)
-                if _b2_text:
-                    verified_text = verified_text + _b2_text
+                _b2_sel = _b2_select(_vc_baskets, _vc_baskets)
+                if _b2_sel is not None:
+                    _b2_headline, _b2_qbasket, _b2_member = _b2_sel
+                    # Fix 1 (P0-1, 2026-07-10 compose gear-loop iter 2): synthesize ONE clean sentence
+                    # for the qualifier via the same abstractive writer + base verify bar — NEVER a raw
+                    # span quote. "" (writer produced nothing / draft failed verify) => NO boundary line.
+                    from src.polaris_graph.generator.section_polish import (  # noqa: PLC0415
+                        sentence_semantically_duplicates as _b2_is_dup,
+                        synthesize_qualifier_sentence as _b2_synth,
+                    )
+                    _b2_sentence = await _b2_synth(
+                        _b2_qbasket, evidence_pool,
+                        section_context={
+                            "title": str(getattr(section, "title", "") or ""),
+                            "focus": str(getattr(section, "focus", "") or ""),
+                            "research_question": str(research_question or ""),
+                        },
+                    )
+                    # Fix 3 (P1-1): drop the boundary line when its synthesized sentence would DUPLICATE a
+                    # kept verified sentence (semantic judge, not string match). Fail-open keeps it.
+                    if _b2_sentence and not await _b2_is_dup(_b2_sentence, verified_text):
+                        _b2_cid = (
+                            _b2_qbasket.get("claim_cluster_id", "")
+                            if isinstance(_b2_qbasket, dict)
+                            else getattr(_b2_qbasket, "claim_cluster_id", "")
+                        )
+                        _b2_text = _b2_line(
+                            _vc_baskets, _vc_baskets, {str(_b2_cid or ""): _b2_sentence},
+                        )
+                        if _b2_text:
+                            verified_text = verified_text + _b2_text
         except Exception:  # noqa: BLE001 — additive disclosure; never break the section render
             pass
 

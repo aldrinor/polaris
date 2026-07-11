@@ -111,28 +111,51 @@ def _supports_members(basket: Any) -> list:
     return out
 
 
-def _member_quote(member: Any) -> str:
-    return str(
-        (member.get("direct_quote") if isinstance(member, dict)
-         else getattr(member, "direct_quote", "")) or ""
-    ).strip()
+_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+_SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
+_WWW_RE = re.compile(r"^www\.", re.IGNORECASE)
 
 
-def _member_source_label(member: Any) -> str:
-    url = str(
-        (member.get("source_url") if isinstance(member, dict)
-         else getattr(member, "source_url", "")) or ""
-    ).strip()
-    eid = str(
-        (member.get("evidence_id") if isinstance(member, dict)
-         else getattr(member, "evidence_id", "")) or ""
-    ).strip()
-    tier = str(
-        (member.get("source_tier") if isinstance(member, dict)
-         else getattr(member, "source_tier", "")) or ""
-    ).strip()
-    label = url or eid or "source"
-    return f"{label}" + (f" (tier {tier})" if tier else "")
+def _member_field(member: Any, name: str, default: str = "") -> str:
+    val = member.get(name) if isinstance(member, dict) else getattr(member, name, default)
+    return str(val or default)
+
+
+def _strip_provenance_tokens(text: str) -> str:
+    """Drop every ``[#ev:...]`` provenance token from ``text`` — the boundary line is appended AFTER the
+    section's citation resolve, so a leftover raw token would render as chrome. Pure."""
+    return " ".join(_PROVENANCE_TOKEN_RE.sub(" ", text or "").split())
+
+
+def _domain_of(url: str) -> str:
+    """The bare host of a URL (scheme + leading ``www.`` stripped), e.g. `` scholar.google.com ``. Pure;
+    returns "" for an empty / path-only string."""
+    u = (url or "").strip()
+    if not u:
+        return ""
+    u = _SCHEME_RE.sub("", u)
+    u = u.split("/", 1)[0].split("?", 1)[0]
+    u = _WWW_RE.sub("", u)
+    return u.strip()
+
+
+def _member_source_label(member: Any, weight: float = 0.0) -> str:
+    """Fix 1 (P0-1, 2026-07-10 compose gear-loop iter 2): render the STANDARD citation marker for a
+    boundary-line source — a human title or the bare source DOMAIN, plus the credibility WEIGHT — NEVER a
+    raw ``https://…`` URL with a "(tier UNKNOWN)" suffix. A real tier is shown only when it is a genuine
+    tier value (never the empty / "UNKNOWN" placeholder). Pure."""
+    title = _member_field(member, "source_title").strip() or _member_field(member, "title").strip()
+    domain = _domain_of(_member_field(member, "source_url"))
+    label = title or domain or _member_field(member, "evidence_id").strip() or "source"
+    if len(label) > 80:
+        label = label[:77].rstrip() + "…"
+    tier = _member_field(member, "source_tier").strip()
+    parts = [label]
+    if weight and weight > 0:
+        parts.append(f"weight {weight:.2f}")
+    if tier and tier.upper() not in ("", "UNKNOWN", "NONE"):
+        parts.append(f"tier {tier}")
+    return parts[0] + ((" — " + ", ".join(parts[1:])) if len(parts) > 1 else "")
 
 
 def _carries_boundary_marker(text: str) -> bool:
@@ -184,85 +207,18 @@ def find_qualifying_lower_weight_basket(
     return best
 
 
-def _boundary_quote_hygiene_enabled() -> bool:
-    """``PG_BOUNDARY_QUOTE_HYGIENE`` kill-switch (default ON, LAW VI). OFF => the boundary quote is emitted
-    unscreened (byte-identical to legacy). ON => a truncated / glued / render-chrome candidate quote is
-    SKIPPED (the section falls through to the next candidate or emits nothing) so a broken 'graduatio...'
-    fragment never renders as counter-evidence."""
-    return os.getenv("PG_BOUNDARY_QUOTE_HYGIENE", "1").strip().lower() not in ("", "0", "false", "off", "no")
-
-
-def _boundary_quote_hygiene_v2_enabled() -> bool:
-    """N1-FIX-2 (I-deepfix-001 wave-2) ``PG_BOUNDARY_QUOTE_HYGIENE_V2`` kill-switch. DEFAULT OFF —
-    only ``1/true/on/yes`` enables. ON adds two hygiene rules: (a) `_quote_is_unrenderable` also rejects
-    a markdown-link / URL-fragment quote (the cbsnews "ws.com/team/…[Add CBS News on Google](https://…"
-    leak); (b) `synthesize_boundary_line` uses the ``" on {subject}"`` suffix ONLY when the headline
-    subject carries >=2 content words (kills "on however:" / "on entry-:" / "on mid-:"). OFF =>
-    byte-identical (neither rule fires)."""
-    return os.getenv("PG_BOUNDARY_QUOTE_HYGIENE_V2", "").strip().lower() in ("1", "true", "on", "yes")
-
-
-# N1-FIX-2: a markdown link (``[text](url)``) and a bare domain-path URL fragment (the first
-# whitespace token of a leaked chrome quote, e.g. ``ws.com/team/megan-cerullo/``) — both are render
-# chrome, never legitimate counter-evidence prose. Consulted ONLY under the V2 flag.
-_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
-_URL_FRAGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*\.[A-Za-z]{2,}(?:/|$)")
-
-
-def _quote_is_unrenderable(quote: str) -> bool:
-    """I-deepfix-001 (#1369) STEP 4: True iff a boundary candidate quote is render-chrome OR a
-    truncated/glued fragment that reads as broken (the 'graduatio...' mid-word cut). Conservative — only
-    rejects clear artifacts; a complete verbatim sentence is never rejected. Over-rejection is safe (it
-    only withholds an anti-signal line, never a fact). Pure; never raises."""
-    q = (quote or "").strip()
-    if not q:
-        return True
-    # N1-FIX-2 (I-deepfix-001 wave-2): reject a markdown-link / URL-fragment quote (render chrome). Gated
-    # on the V2 flag so V2-OFF is byte-identical to the #1369 STEP-4 predicate. The cbsnews leak
-    # ("ws.com/team/megan-cerullo/) … [Add CBS News on Google](https://www.goog") ends on a non-alpha
-    # token so the mid-word check below never fired — its FIRST whitespace token is a bare domain-path.
-    if _boundary_quote_hygiene_v2_enabled():
-        if _MARKDOWN_LINK_RE.search(q):
-            return True
-        first_tok = q.split()[0] if q.split() else ""
-        if "://" in first_tok or _URL_FRAGMENT_RE.match(first_tok):
-            return True
-    # An embedded blank line signals a GLUED multi-fragment span (the 'graduatio' class).
-    if "\n\n" in q or "\n \n" in q:
-        return True
-    try:
-        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
-            is_render_chrome_or_unrenderable,
-        )
-        if is_render_chrome_or_unrenderable(q):
-            return True
-    except Exception:  # noqa: BLE001 — screen is advisory; never break the render on a probe fault
-        pass
-    # Ends MID-WORD: no sentence-terminal punctuation AND the final token is a bare lowercase word fragment
-    # (>=6 letters) — the 'graduatio' cut. Conservative: a quote ending in punctuation or a short word passes.
-    if q[-1] not in ".!?\"')]}%":
-        toks = q.split()
-        last = toks[-1] if toks else ""
-        if last.isalpha() and last.islower() and len(last) >= 6:
-            return True
-    return False
-
-
-def synthesize_boundary_line(
+def select_boundary_qualifier(
     headline_baskets: Iterable[Any],
     candidate_baskets: Iterable[Any],
-) -> str:
-    """Synthesize ONE per-section boundary-conditions / counter-evidence line, or "".
+) -> Optional[tuple]:
+    """Fix 1 (P0-1, 2026-07-10 compose gear-loop iter 2): PURE selection of the ONE boundary qualifier.
 
-    For the section's headline baskets (highest weight first), find the best qualifying lower-weight
-    basket and quote its OWN span-verified member text, attributed to its source at its weight. Fires
-    even without a refuter cluster. Returns "" when no qualifying lower-weight basket exists (caller
-    appends nothing => byte-identical). Never fabricates — the quote is an already-verified span.
-    """
-    headlines = sorted(
-        (b for b in (headline_baskets or [])),
-        key=lambda b: -_basket_weight(b),
-    )
+    For the section's headline baskets (highest weight first), return the FIRST ``(headline, qualifier,
+    member)`` whose best lower-weight qualifying basket carries a span-verified (SUPPORTS) member, or
+    None. This is the selection half of the boundary line; the CALLER then synthesizes ONE clean
+    sentence from ``qualifier`` via the abstractive writer (same base verify bar) and hands it to
+    :func:`synthesize_boundary_line`. Pure; no LLM, no I/O."""
+    headlines = sorted((b for b in (headline_baskets or [])), key=lambda b: -_basket_weight(b))
     candidates = list(candidate_baskets or [])
     for headline in headlines:
         qualifier = find_qualifying_lower_weight_basket(headline, candidates)
@@ -271,29 +227,45 @@ def synthesize_boundary_line(
         supports = _supports_members(qualifier)
         if not supports:
             continue
-        member = supports[0]
-        quote = _member_quote(member)
-        if not quote:
-            continue
-        # I-deepfix-001 (#1369) STEP 4 anti-signal: skip a truncated / glued / chrome fragment (the
-        # 'graduatio...' class) so it never renders as counter-evidence. Skipping falls through to the next
-        # candidate; if none qualify the section emits nothing (byte-identical to no-qualifier).
-        # N1-FIX-2: OR the V2 flag in so the V2 markdown/URL-fragment rules fire even if STEP-4 is off; when
-        # BOTH flags are off neither predicate is consulted => byte-identical.
-        if (_boundary_quote_hygiene_enabled() or _boundary_quote_hygiene_v2_enabled()) and _quote_is_unrenderable(quote):
-            continue
-        source = _member_source_label(member)
-        subject = str(_basket_field(headline, "subject", "") or "").strip()
-        # N1-FIX-2: the " on {subject}" suffix reads as chrome when the subject is a single garbage token
-        # ("however", "entry-", "mid-"). Under V2, require the subject to carry >=2 content words; else
-        # render the bare label. V2 OFF => legacy behaviour (any non-empty subject) => byte-identical.
-        if _boundary_quote_hygiene_v2_enabled():
-            topic = f" on {subject}" if len(_content_words(subject)) >= 2 else ""
-        else:
-            topic = f" on {subject}" if subject else ""
-        return (
-            f"\n\n**Boundary conditions / counter-evidence{topic}:** a lower-weight source qualifies "
-            f"or bounds the headline above — \"{quote}\" ({source}). This opposing/limiting evidence "
-            "is surfaced at its weight; weigh it against the headline."
-        )
-    return ""
+        return headline, qualifier, supports[0]
+    return None
+
+
+def synthesize_boundary_line(
+    headline_baskets: Iterable[Any],
+    candidate_baskets: Iterable[Any],
+    synthesized_by_cluster: Optional[dict] = None,
+) -> str:
+    """Synthesize ONE per-section boundary-conditions / counter-evidence line, or "".
+
+    Fix 1 (P0-1, 2026-07-10 compose gear-loop iter 2): STOP quoting the qualifier's RAW member text —
+    with chunk-sized members that is a webpage DUMP by construction. Instead render ONE LLM-synthesized
+    qualifier SENTENCE (produced upstream by the same abstractive writer + base verify bar: context NLI
+    entailment + forward numeric match) stating what the lower-weight source bounds/qualifies, cited to
+    the qualifier basket. ``synthesized_by_cluster`` maps the qualifier basket's ``claim_cluster_id`` ->
+    its verified synthesized sentence (may still carry an ``[#ev:...]`` token, stripped for display here).
+    When no synthesis is available for the selected qualifier — the writer produced nothing or the draft
+    FAILED verify — this returns "" (the existing no-qualifier byte-identical path). It NEVER falls back
+    to the raw quote. Returns "" when no qualifying lower-weight basket exists at all. Pure."""
+    sel = select_boundary_qualifier(headline_baskets, candidate_baskets)
+    if sel is None:
+        return ""
+    headline, qualifier, member = sel
+    cid = str(_basket_field(qualifier, "claim_cluster_id", "") or "")
+    synth = str((synthesized_by_cluster or {}).get(cid, "") or "")
+    sentence = _strip_provenance_tokens(synth)
+    if not sentence:
+        # No verified synthesis for this qualifier -> emit nothing. NEVER a raw quote.
+        return ""
+    if sentence[-1:] not in ".!?":
+        sentence += "."
+    source = _member_source_label(member, _basket_weight(qualifier))
+    subject = str(_basket_field(headline, "subject", "") or "").strip()
+    # The " on {subject}" topic suffix reads as chrome when the subject is a single garbage token; require
+    # >= 2 content words for it to render (else the bare label).
+    topic = f" on {subject}" if len(_content_words(subject)) >= 2 else ""
+    return (
+        f"\n\n**Boundary conditions / counter-evidence{topic}:** a lower-weight source qualifies "
+        f"or bounds the headline above — {sentence} ({source}) This opposing/limiting evidence "
+        "is surfaced at its weight; weigh it against the headline."
+    )

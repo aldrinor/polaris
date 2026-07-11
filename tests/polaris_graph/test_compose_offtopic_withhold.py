@@ -97,22 +97,21 @@ def test_pool_not_passed_returns_all_byte_identical(monkeypatch):
     assert out == [b1, b2, b3, b4]
 
 
-def test_boundary_line_no_longer_quotes_screened_offtopic_basket(monkeypatch):
+def test_boundary_line_no_longer_selects_screened_offtopic_basket(monkeypatch):
     """(4) B2 regression (the transcribeanywhere class): against the UNSCREENED list the off-topic
-    lower-weight b2 IS quoted (RED baseline); against the FIX-1-screened list b2 is gone, so the
-    boundary line never quotes it."""
+    lower-weight b2 IS selected as the boundary qualifier (RED baseline); against the FIX-1-screened
+    list b2 is gone, so no qualifier remains and the boundary line is empty. Fix 1 (P0-1): selection is
+    pure; the line never quotes a raw member span regardless."""
     monkeypatch.setenv(_SCREEN_ENV, "1")
-    monkeypatch.delenv("PG_BOUNDARY_QUOTE_HYGIENE_V2", raising=False)
     b1, b2, b3, b4 = _fixture_baskets()
-    b2_quote = "However, automation displaced workers only seasonally."
-    # RED baseline: unscreened, b2 qualifies and is quoted.
-    unscreened_line = bc.synthesize_boundary_line([b1], [b1, b2, b3, b4])
-    assert b2_quote in unscreened_line
-    # GREEN: the FIX-1 screen removes b2 from the compose set; the boundary line cannot quote it.
+    # RED baseline: unscreened, b2 is the selected boundary qualifier.
+    sel = bc.select_boundary_qualifier([b1], [b1, b2, b3, b4])
+    assert sel is not None and sel[1].claim_cluster_id == "b2"
+    # GREEN: the FIX-1 screen removes b2 from the compose set; no qualifier remains.
     screened = vc._section_baskets_for_compose(_section(), _cred((b1, b2, b3, b4)), evidence_pool=_pool())
     assert b2 not in screened
-    screened_line = bc.synthesize_boundary_line([b1], screened)
-    assert b2_quote not in screened_line
+    assert bc.select_boundary_qualifier([b1], screened) is None
+    assert bc.synthesize_boundary_line([b1], screened) == ""
 
 
 def test_outline_strip_removes_offtopic_ev_ids_under_new_flag(monkeypatch):

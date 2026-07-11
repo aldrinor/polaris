@@ -60,18 +60,34 @@ def _lower_weight_qualifier():
 
 
 def test_boundary_line_fires_from_lower_weight_basket_without_refuter_cluster():
-    """The headline has NO refuter_cluster_ids, yet a lower-weight qualifying basket bounds it — the
-    boundary line must fire and quote the lower-weight source's already-verified span."""
+    """Fix 1 (P0-1, 2026-07-10 compose gear-loop iter 2): the headline has NO refuter_cluster_ids, yet a
+    lower-weight qualifying basket bounds it — the boundary line must fire and render the LLM-synthesized
+    qualifier sentence (passed by cluster id) plus a citation LABEL, NEVER the raw member span."""
     headline = _headline()
     qualifier = _lower_weight_qualifier()
     assert headline.refuter_cluster_ids == ()  # fires WITHOUT a refuter cluster
-    line = bc.synthesize_boundary_line([headline, qualifier], [headline, qualifier])
+    synth = {"q": "Weight loss was limited to a high-BMI subgroup [#ev:ev_q:0-20]."}
+    line = bc.synthesize_boundary_line([headline, qualifier], [headline, qualifier], synth)
     assert line, "expected a boundary-conditions line"
     assert "Boundary conditions" in line
-    # quotes the LOWER-WEIGHT member's own verified span (faithful-by-quotation)
-    assert "only in patients with baseline BMI above 30" in line
-    # attributes the lower-weight source
+    # renders the SYNTHESIZED sentence (provenance token stripped), not the raw member span
+    assert "limited to a high-BMI subgroup" in line
+    assert "[#ev:" not in line
+    assert "significant only in patients with baseline BMI above 30" not in line
+    # attributes the lower-weight source as a standard citation label (domain + weight), never a raw URL
     assert "smalljournal.org" in line
+    assert "https://" not in line
+
+
+def test_boundary_line_without_synthesis_returns_empty():
+    """Fix 1 (P0-1): a qualifier with NO verified synthesis available emits NO line — never a raw quote.
+    Pure selection is unchanged (still finds the qualifier)."""
+    headline = _headline()
+    qualifier = _lower_weight_qualifier()
+    assert bc.synthesize_boundary_line([headline, qualifier], [headline, qualifier]) == ""
+    assert bc.synthesize_boundary_line([headline, qualifier], [headline, qualifier], {}) == ""
+    sel = bc.select_boundary_qualifier([headline, qualifier], [headline, qualifier])
+    assert sel is not None and sel[1].claim_cluster_id == "q"
 
 
 def test_no_qualifying_basket_returns_empty():
@@ -142,7 +158,10 @@ def test_refuter_cluster_also_qualifies_even_without_marker():
         weight_mass=3.0,
         supporting_members=[_Member("ev_r", "The survival benefit of drug X was not reproduced.", span_verdict="SUPPORTS")],
     )
-    line = bc.synthesize_boundary_line([headline], [headline, refuter])
+    sel = bc.select_boundary_qualifier([headline], [headline, refuter])
+    assert sel is not None and sel[1].claim_cluster_id == "r"
+    synth = {"r": "The survival benefit was not reproduced in the overall population [#ev:ev_r:0-10]."}
+    line = bc.synthesize_boundary_line([headline], [headline, refuter], synth)
     assert "not reproduced" in line
 
 
@@ -312,6 +331,22 @@ def _install_compose_stubs(monkeypatch, *, resolve_text):
 
     monkeypatch.setattr(_sentence_repair, "repair_dropped_section_sentences", _stub_repair)
 
+    # Fix 1/3/4 (2026-07-10 compose gear-loop iter 2): the boundary line now renders an LLM-SYNTHESIZED
+    # qualifier sentence (not a raw quote) and the section runs a coherence pass. Stub the section_polish
+    # LLM seams so this stays offline ($0, no network). synth returns a fixed verified sentence; the
+    # semantic-dup judge says "not a duplicate" (keep); coherence is disabled (default-ON kill-switch).
+    import src.polaris_graph.generator.section_polish as _sp  # noqa: PLC0415
+
+    async def _fake_qsynth(_basket, _pool, *, section_context=None):
+        return "Weight loss was limited to a high-BMI subgroup [#ev:ev_q:0-20]."
+
+    async def _fake_nodup(_candidate, _kept_body):
+        return False
+
+    monkeypatch.setattr(_sp, "synthesize_qualifier_sentence", _fake_qsynth)
+    monkeypatch.setattr(_sp, "sentence_semantically_duplicates", _fake_nodup)
+    monkeypatch.setenv("PG_SECTION_COHERENCE_PASS", "0")
+
 
 def _run(section, evidence_pool, analysis):
     return asyncio.run(
@@ -342,8 +377,9 @@ def test_run_section_appends_boundary_line_from_lower_weight_basket(monkeypatch)
     assert sr.is_gap_stub is False, sr.verified_text
     assert resolve_text in sr.verified_text                         # the real prose still ships
     assert "Boundary conditions" in sr.verified_text                # the B2 line was appended
-    assert "only in patients with baseline BMI above 30" in sr.verified_text  # lower-weight span quoted
-    assert "smalljournal.org" in sr.verified_text                   # attributed at its weight
+    assert "limited to a high-BMI subgroup" in sr.verified_text     # SYNTHESIZED qualifier sentence
+    assert "[#ev:" not in sr.verified_text                          # no raw provenance token leaks
+    assert "smalljournal.org" in sr.verified_text                   # attributed at its weight (label)
 
 
 def test_run_section_boundary_line_kill_switch_off_is_byte_identical(monkeypatch):

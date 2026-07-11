@@ -1984,14 +1984,17 @@ def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str,
     resolves, falls to the honest gap disclosure (also as its own ``\\n\\n`` paragraph when a body
     exists). Failed AUTHORED sentences are already discarded by the caller (never in ``body``)."""
     if _no_raw_span_fallback_enabled():
-        # Fix 4 (2026-07-10 UNFREEZE): no verbatim K-span disclosure. On exhaustion emit a
-        # LABELED unverified-synthesis line (basket claim, not a raw span) as its own
-        # paragraph; ship real authored body when one survived.
+        # Fix 2 (P0-2, 2026-07-10 compose gear-loop iter 2): a labeled unverified-synthesis line carries
+        # the basket's RAW claim_text, which IS raw chunk text — the ScienceDirect-masthead leak that
+        # passed every mechanical junk/chrome screen. So NEVER emit it. When a verified authored ``body``
+        # survived, WITHHOLD the labeled line entirely (the body already carries this unit; the source
+        # stays in the pool — faithfulness-neutral). When no body survived, emit ONLY the honest gap
+        # disclosure (never the raw claim). Do not add another lexical screen on the raw claim — that is
+        # the ghost mindset pointed at junk.
         _body = (body or "").strip()
-        labeled = _unverified_synthesis_disclosure(basket)
         if _body:
-            return f"{_body}\n\n{labeled}" if labeled.startswith(_UNVERIFIED_SYNTH_PREFIX) else _body
-        return labeled
+            return _body
+        return _no_verified_span_disclosure(basket)
     fallback = (
         build_verified_span_draft_multi(basket, evidence_pool, research_question=research_question)
         if _subtopic_decomposition_enabled()
@@ -2083,27 +2086,17 @@ def labeled_disclosure_is_nonsubstantive(line: str) -> bool:
 
 
 def _unverified_synthesis_disclosure(basket: Any) -> str:
-    """Fix 4 (2026-07-10 UNFREEZE): the LABELED unverified-synthesis line emitted when the
-    bounded abstractive re-write exhausts — the basket's own consolidated CLAIM (NOT a raw
-    source span) wrapped in an explicit unverified label. This is NOT a faithfulness claim
-    (the label discloses it); it replaces the raw span-dump the unfreeze targets. It is a pure
-    disclosure unit (``[``-prefixed) so it is held aside from strict_verify like the other
-    disclosure lines. Falls to the honest no-verified-span gap when the basket carries no
-    claim text (never empty)."""
-    raw = str(getattr(basket, "claim_text", "") or getattr(basket, "subject", "") or "").strip()
-    # Fix 4 (2026-07-10 compose gear-loop): SENTENCE-BOUNDARY-align + HTML-unescape the claim so a raw
-    # mid-word span slice ("usand workers…", "…highly e", "&gt;") is NEVER emitted as a labeled fragment.
-    # Nothing clean survives -> the plain honest gap (no span text at all).
-    claim = _sentence_shaped_claim(raw)
-    if not claim:
-        return _no_verified_span_disclosure(basket)
-    # A page-furniture / chrome claim wrapped in a label is STILL garbage in a final report -> WITHHOLD
-    # (fall to the honest gap) when the existing junk + chrome screen fires. Faithfulness-neutral (the
-    # SOURCE stays in the pool). Word-boundary-truncate so no long claim re-introduces a mid-word cut.
-    if _uncovered_fact_disclosure_is_junk(basket, claim):
-        return _no_verified_span_disclosure(basket)
-    claim = _truncate_subject_word_safe(claim, _UNCOVERED_SUBJECT_LIMIT)
-    return f"{_UNVERIFIED_SYNTH_PREFIX} {claim}"
+    """Fix 2 (P0-2, 2026-07-10 compose gear-loop iter 2): the basket's ``claim_text`` IS raw chunk text,
+    so a labeled line built from it is a raw-span dump wearing a label — the exact leak the mechanical
+    ``_uncovered_fact_disclosure_is_junk`` / render-chrome screens let through (a well-formed masthead
+    passes every lexical FORM check by construction). So this NEVER emits the raw claim any more: it
+    returns ONLY the honest no-verified-span gap disclosure. The SOURCE stays in the pool; the caller
+    that has real verified prose withholds this line entirely (see ``_synth_primary_fallback_unit`` /
+    ``_compose_one_basket_synth_primary``). If a labeled unverified claim is ever judged worth keeping it
+    must be one LLM-neutralized sentence (a writer call in disclosure mode), never the raw span — but the
+    default, faithful behaviour is the honest gap. Do NOT re-add a lexical screen on the raw claim; that
+    is the ghost mindset pointed at junk."""
+    return _no_verified_span_disclosure(basket)
 
 
 def _emit_synth_primary_marker(kept: list) -> None:
@@ -2253,11 +2246,13 @@ def _compose_one_basket(
     # ON (default), emit a LABELED unverified-synthesis line (the basket's own claim, NOT a
     # verbatim span) so the report never quote-dumps; kept verified prose is preserved.
     if _no_raw_span_fallback_enabled():
-        disclosure = _unverified_synthesis_disclosure(basket)
-        # P1-4 (2026-07-10): join the LABELED disclosure to any kept prose with a PARAGRAPH break, not a
-        # mid-line " ", so partition_composed_disclosures can hold the labeled line aside (a " "-glued
-        # line stays welded inside the body paragraph and leaks the marker into report prose).
-        return (" ".join(kept) + "\n\n" + disclosure) if kept else disclosure
+        # Fix 2 (P0-2, 2026-07-10 compose gear-loop iter 2): never emit the labeled unverified-synthesis
+        # line (it carries the basket's RAW claim_text). When verified prose survived, WITHHOLD the line
+        # entirely and ship only that prose (the source stays in the pool — faithfulness-neutral). When no
+        # prose survived, emit ONLY the honest gap disclosure (never the raw claim).
+        if kept:
+            return " ".join(kept)
+        return _no_verified_span_disclosure(basket)
     # Legacy verbatim-span fallback (kill-switch PG_COMPOSE_NO_RAW_SPAN_FALLBACK=0): the
     # basket-id-bound verbatim K-span, else honest disclosure. L2 sub-topic decomposition
     # (I-deepfix-001 #1344): one verified verbatim-span sentence per DISTINCT atomic fact.

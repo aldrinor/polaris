@@ -113,11 +113,15 @@ def _legacy_kspan_fallback(monkeypatch):
     yield
 
 
-def test_fix4_no_raw_span_fallback_emits_labeled_line(monkeypatch):
-    """Fix 4 (2026-07-10 UNFREEZE) default-ON: when the writer draft fails verification and
-    PG_COMPOSE_NO_RAW_SPAN_FALLBACK is ON (default), the exhaustion fallback is a LABELED
-    unverified-synthesis line (the basket's own claim, NOT a raw verbatim K-span span dump)."""
-    from src.polaris_graph.generator.verified_compose import _UNVERIFIED_SYNTH_PREFIX
+def test_fix2_no_raw_span_fallback_emits_honest_gap_not_raw_claim(monkeypatch):
+    """Fix 2 (P0-2, 2026-07-10 compose gear-loop iter 2): when the writer draft fails verification and NO
+    verified body survives, the exhaustion fallback is the HONEST GAP disclosure — NEVER the labeled
+    unverified-synthesis line (which carried the basket's RAW claim_text — the ScienceDirect-masthead
+    leak) and NEVER a raw span dump."""
+    from src.polaris_graph.generator.verified_compose import (
+        _UNVERIFIED_SYNTH_PREFIX,
+        _is_no_verified_span_disclosure,
+    )
     monkeypatch.delenv("PG_SYNTH_PRIMARY", raising=False)
     monkeypatch.setenv("PG_COMPOSE_NO_RAW_SPAN_FALLBACK", "1")  # overrides the autouse pin
     quote = "Robots reduced factory employment by two percentage points."
@@ -127,8 +131,9 @@ def test_fix4_no_raw_span_fallback_emits_labeled_line(monkeypatch):
     out = _compose_one_basket(
         basket, pool, writer_fn=lambda _b, _p: bad, verify_fn=_stub_verify,
     )
-    assert _UNVERIFIED_SYNTH_PREFIX in out
-    assert "Automation reshapes labor demand" in out
+    assert _is_no_verified_span_disclosure(out)          # honest gap, not a claim line
+    assert _UNVERIFIED_SYNTH_PREFIX not in out           # never the labeled raw-claim line
+    assert "Automation reshapes labor demand" not in out  # never the raw basket claim text
     # It must NOT dump the raw source span as body prose (the quote-dump the unfreeze targets).
     assert quote not in out
     assert _FAIL_MARKER not in out

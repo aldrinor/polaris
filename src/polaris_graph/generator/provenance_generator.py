@@ -637,6 +637,62 @@ _RESOLVE_MIN_PROSE_CHARS = 15
 # resolves to no real ev-id can no longer keep a sentence in the report).
 _BOGUS_EV_MARKER_RE = re.compile(r"\[ev[:_][^\]]*\]")
 
+# ── Fix 6 (P2-1/P3-1, 2026-07-10 compose gear-loop iter 2) — terminal citation-marker normalizer ────
+# The upstream consolidation renderers (verified_compose._union_ev_tokens / _attach_citation_tokens /
+# the multi-cite co-location) can glue a period-terminated marker to extra markers, so a rendered
+# sentence ships as "...came to 1.4%.[2].[3][4]" (a stray interior period between marker groups); and a
+# sentence that ended ON a citation with no terminal punctuation ships as "...attainment[8]" (the P3).
+# Both are a RENDER artifact, not a faithfulness question — the numbers/sources are correct, only the
+# punctuation+grouping is wrong. Normalize at the citation-render site (resolve_provenance_to_citations
+# _with_count, the single place a sentence gets its final [N] markers) so every sentence ends with
+# exactly ONE terminal period followed by ONE contiguous "[n][m]..." marker group. Pure + question-
+# agnostic (a punctuation-shape correction, no topic list). DEFAULT-ON kill-switch (LAW VI).
+_CITATION_NORMALIZE_ENV = "PG_CITATION_MARKER_NORMALIZE"
+_CITE_NUM_MARKER_RE = re.compile(r"\[\d+\]")
+# The TAIL citation cluster: an optional terminal punctuation, then >=1 numeric markers each optionally
+# preceded by a stray period/space (the glue artifact), then an optional trailing terminal punctuation.
+_TAIL_CITATION_CLUSTER_RE = re.compile(
+    r"(?P<pre>[.!?])?"
+    r"(?P<cluster>(?:\s*\.?\s*\[\d+\])+)"
+    r"\s*(?P<post>[.!?])?\s*$"
+)
+
+
+def _citation_marker_normalize_enabled() -> bool:
+    """``PG_CITATION_MARKER_NORMALIZE`` kill-switch (default ON, LAW VI). OFF => the render is
+    byte-identical to the pre-fix glue (``stripped + markers``)."""
+    return os.getenv(_CITATION_NORMALIZE_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _normalize_terminal_citation_markers(sentence_out: str) -> str:
+    """Fix 6: normalize a rendered sentence's TAIL so it ends with exactly ONE terminal period followed
+    by ONE contiguous citation-marker group. Collects the marker numbers in order (a stray double-cite
+    from the glue is de-duplicated; DISTINCT source numbers all stay — §-1.3 keep-all), places a single
+    terminal period BEFORE the contiguous "[n][m]..." group. A sentence with no trailing marker, or one
+    that is already well-formed, is returned unchanged. Pure; never raises."""
+    s = (sentence_out or "").rstrip()
+    if not s:
+        return sentence_out
+    m = _TAIL_CITATION_CLUSTER_RE.search(s)
+    if m is None:
+        return sentence_out
+    nums = _CITE_NUM_MARKER_RE.findall(m.group("cluster") or "")
+    if not nums:
+        return sentence_out
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for n in nums:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    body = s[: m.start()].rstrip()
+    # Prefer the prose's own terminal punctuation (pre); else a trailing one (post); else default period.
+    terminal = m.group("pre") or m.group("post") or "."
+    if body[-1:] in ".!?":
+        terminal = ""  # body already carries its terminal punctuation — never double it
+    return f"{body}{terminal}{''.join(ordered)}"
+
+
 # I-gen-005 Step 3b commit 1 (Codex APPROVE_DESIGN iter-3): atom_NNN
 # tokens emitted by V4 Pro per the Step 3a atom-citation contract
 # (additive to [ev_XXX]) must be invisible to every internal check
@@ -4960,9 +5016,15 @@ def resolve_provenance_to_citations_with_count(
         # Append citation markers (+ a render-honest "also mirrored" note when a same-origin mirror
         # was folded, so the reader sees the corroboration was a mirror, not an independent source).
         markers = "".join(f"[{n}]" for n in used_nums)
-        if _mirrors_collapsed:
-            markers += " (also mirrored)"
         sentence_out = stripped + markers
+        # Fix 6 (P2-1/P3-1, 2026-07-10 compose gear-loop iter 2): normalize the tail so the sentence
+        # ends with exactly ONE terminal period + ONE contiguous marker group ("...1.4%.[2][3][4]"),
+        # killing the ".[2].[3][4]" glue artifact and the missing-period "attainment[8]" P3. Applied
+        # BEFORE the mirror note so the "(also mirrored)" suffix is never swallowed by the tail match.
+        if _citation_marker_normalize_enabled():
+            sentence_out = _normalize_terminal_citation_markers(sentence_out)
+        if _mirrors_collapsed:
+            sentence_out += " (also mirrored)"
 
         # Gap-3: put Limitations sentences in a separate paragraph so
         # they render on their own line in the final report.
