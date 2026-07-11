@@ -78,7 +78,14 @@ def build_baskets(cp3_baskets, evidence_pool):
     return baskets
 
 
-_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+# P1 (2026-07-10 compose gear-loop iter 2): split on whitespace that follows sentence-final
+# punctuation OR a citation-closing bracket, and precedes a capital / open-quote. The prior
+# `(?<=[.!?])\s+` never split real sentences because every composed sentence ends `.[1][2] Next`
+# (period wedged BEFORE the citation, so the boundary is `].SPACE` not `.SPACE`). That collapsed
+# whole section paragraphs into ONE audit unit -> 7 units for the whole report, every unit trivially
+# overlapping a 12-gram source shingle => false `quote_dump-dominant` acceptance AND blind to the real
+# per-sentence chrome. `(` is deliberately excluded from the lookahead so `et al. (2023)` never splits.
+_SENT_SPLIT = re.compile(r"(?<=[.!?\]])\s+(?=[A-Z\"“])")
 _EV_TOKEN = re.compile(r"\[#ev:[^\]]+\]")
 _NUM_CITE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
 _CONTENT_WORD = re.compile(r"[^\W_]+", re.UNICODE)
