@@ -1803,8 +1803,46 @@ def _verify_all_sentences_synth(
     byte-identical to the legacy loop's per-sentence accept — the faithfulness gate is untouched."""
     kept: list[str] = []
     failed: list[tuple[str, list[str]]] = []
-    for sentence in split_into_sentences(draft):
-        res = verify_fn(sentence, scoped_pool)
+    _sentences = split_into_sentences(draft)
+    # I-arch-007-tail (fix#19 discipline): each ``verify_fn`` call is a BLOCKING entailment-judge
+    # network POST; run SERIALLY over a large composed draft it is the post-compose wall-time long
+    # pole (the total_deadline_exceeded tail). PG_PARALLEL_VERIFY opts this loop into a BOUNDED,
+    # ORDER-PRESERVING thread pool EXACTLY like ``provenance_generator``'s findings loop — WHICH thread
+    # runs the SAME verify_fn changes, never the verdict. Verdicts are reassembled in ORIGINAL sentence
+    # order so kept/failed are byte-identical to the serial loop; the parent contextvar context (judge
+    # telemetry / role / provider pin) is copied into each worker so no run-context side effect is lost;
+    # the parallel judge spend is reconciled into the run-budget gate. Real judge concurrency stays
+    # bounded by the process-global side-judge semaphore (PG_SIDE_JUDGE_MAX_CONCURRENCY), so nesting
+    # this inside the PG_COMPOSE_BASKET_WORKERS basket pool cannot exceed that global cap. Default/1/
+    # malformed => byte-identical serial path.
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _parallel_verify_workers,
+    )
+    _vw = _parallel_verify_workers()
+    if _vw < 2 or len(_sentences) < 2:
+        _results = [verify_fn(s, scoped_pool) for s in _sentences]
+    else:
+        import concurrent.futures as _futures  # noqa: PLC0415 (lazy: zero OFF-path cost)
+        import contextvars as _ctxvars  # noqa: PLC0415
+        from src.polaris_graph.llm import openrouter_client as _orc_cost  # noqa: PLC0415
+        # Reconcile the parallel judge spend into the parent run-budget gate: each worker mutates a
+        # COPIED _RUN_COST_CTX that is lost to the parent, but the per-session ledger cumulative is a
+        # lock-protected process-global — snapshot it before/after and re-add the delta, then re-check.
+        _run_id = _orc_cost._CURRENT_RUN_ID_CTX.get()
+        _cost_before = _orc_cost.ledger_cumulative(_run_id)
+        _parent_ctx = _ctxvars.copy_context()
+
+        def _verify_in_context(_s: str) -> Any:
+            return _parent_ctx.copy().run(verify_fn, _s, scoped_pool)
+
+        with _futures.ThreadPoolExecutor(max_workers=_vw) as _pool:
+            _results = list(_pool.map(_verify_in_context, _sentences))
+
+        _cost_delta = _orc_cost.ledger_cumulative(_run_id) - _cost_before
+        if _cost_delta > 0:
+            _orc_cost._add_run_cost(_cost_delta)
+            _orc_cost.check_run_budget(0)  # raises BudgetExceededError if the pool breached the cap
+    for sentence, res in zip(_sentences, _results):
         verified_text = str(getattr(res, "sentence", "") or "").strip() or sentence.strip()
         if bool(getattr(res, "is_verified", False)) and _tokens_within_basket_regions(verified_text, regions):
             # Same chrome-screen WITHHOLD as the legacy loop: a verified chrome sentence is skipped

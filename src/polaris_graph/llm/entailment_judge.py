@@ -1143,12 +1143,18 @@ class _EntailmentJudge:
                     # reason). A bad_verdict / parse reason is NOT poison -> no needless rebuild.
                     if _is_transport_poison(exc) or _is_transport_poison_reason(exc.reason):
                         self._client = self._build_client()
-                    elif not exc.reason.startswith("total_deadline_exceeded"):
-                        # I-arch-011 + iwire008 #1322: a blank_200 / bad_verdict / rate_limit_200 from
-                        # THIS provider — rotate to the next mirror host so the retry can get a REAL
-                        # verdict (faithfulness-neutral: same model, next healthy host; recovers a
-                        # per-host "no instances available" 429). No-op when rotation is disabled. A
-                        # total_deadline_exceeded keeps its existing same-provider tighter-retry path.
+                    else:
+                        # I-arch-011 + iwire008 #1322 + I-arch-007-tail: a blank_200 / bad_verdict /
+                        # rate_limit_200 OR a total_deadline_exceeded (trickle-HUNG host) from THIS
+                        # provider — ROTATE to the next mirror host so the retry gets a REAL verdict from
+                        # a DIFFERENT healthy glm-5.2 endpoint. total_deadline was PREVIOUSLY kept on the
+                        # SAME pinned host, so a stuck host re-hung the full PG_ENTAILMENT_TOTAL_S on every
+                        # retry — the compose wall-time long pole (repeated total_deadline_exceeded, ~1
+                        # req/2min effective). Rotating is FAITHFULNESS-NEUTRAL (same glm-5.2 model, next
+                        # healthy host, a real verdict — never a bare deadline cut that could flip
+                        # KEEP->DROP; the TimeoutError branch at :1010 already rebuilt this thread's
+                        # client). No-op in lb mode (OpenRouter already load-balances) and when rotation
+                        # is disabled -> byte-identical to the pre-fix same-host retry there.
                         _rotate_provider_on_blank(exc.reason)
                     # U16: a rate-limit fault backs off (exp+jitter, floor, cap; no Retry-After header on
                     # the reason path); every other fault keeps the byte-identical tiny fixed backoff.

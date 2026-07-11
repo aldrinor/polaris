@@ -18,7 +18,14 @@ export PG_STRICT_VERIFY_ENTAILMENT=enforce PG_WRITER_DEADLINE_TRANSPORT_AWARE=1
 export PG_CROSS_SECTION_REPETITION_GUARD=1 PG_RENDER_SEAM_SANITIZE=1
 export PG_WRITER_WALL_BASKET_SCALED=1 PG_WRITER_KSPAN_RECOVERY_PASS=1
 export PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S=300 PG_ABSTRACTIVE_WRITER_WALL_DEADLINE_S=1400
-export PG_ENTAILMENT_TOTAL_S=300 PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=1 PG_PARALLEL_VERIFY=8
+# I-arch-007-tail: FAIL-FAST the trickle-hung judge. Cut the per-call wall 300->120 so a stuck
+# glm-5.2 host frees its side-judge slot in <=120s (was 300s), and RAISE the total-deadline retry
+# budget 1->2 so total attempt budget (3x120=360s across THREE ROTATED hosts) still covers a
+# slow-but-real response. Faithfulness-safe: rotation+retry recovers a REAL verdict, never a bare
+# deadline cut that could flip KEEP->DROP.
+export PG_ENTAILMENT_TOTAL_S=120 PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=2 PG_PARALLEL_VERIFY=8
+# rotate the pinned judge host on a fault (blank/bad-verdict/total_deadline) across the mirror chain
+export PG_JUDGE_PROVIDER_ROTATE=1
 export PG_ABSTRACTIVE_WRITER_MAX_TOKENS=131072 PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS=65536
 export PG_S5_SPAN_CHAR_CAP=8000
 
