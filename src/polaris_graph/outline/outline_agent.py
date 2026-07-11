@@ -162,6 +162,13 @@ def _jaccard(a: frozenset, b: frozenset) -> float:
     return inter / union if union else 0.0
 
 
+def _normalize_section_label(section: str) -> str:
+    """Whitespace/case-insensitive key for ``OutlineWorkspace.unhomeable_sections`` — a section
+    LABEL (not a specific aspect wording) is what's proven unhomeable, so this key deliberately
+    ignores aspect text entirely (see the field's docstring)."""
+    return " ".join(str(section or "").strip().lower().split())
+
+
 def _aspect_dedup_threshold() -> float:
     try:
         return float(os.getenv(
@@ -261,6 +268,25 @@ class GapLedger:
         self._todos[key] = todo
         return todo
 
+    def add_unfillable(
+        self, section: str, aspect: str, reason: str,
+        needed_kind: str = "coverage", source: str = "checklist",
+    ) -> GapTodo:
+        """Iter-3 P0 fix (real-corpus degeneration — 'Summary Table' gap re-fired ~10x over
+        945s while every fetched row stayed orphaned in the pool): a gap whose named section
+        can NEVER be routed to retrieval — it does not match any current outline title, and
+        under a locked required-structure deliverable there is no way to add a new section for
+        it — is a STRUCTURAL limitation, not a content gap. Recording it UNFILLED immediately
+        (never PENDING) means ``next_pending()`` never selects it and the decide-loop never
+        fires ``search_more_evidence`` for it, so the loop cannot burn its turn/wall budget
+        re-fetching the same unhomeable aspect under a slightly different checklist wording
+        each round. Still disclosed (§-1.3 — no silent drop), just never retried."""
+        todo = self.add(section=section, aspect=aspect, needed_kind=needed_kind, source=source)
+        if todo.status not in ("UNFILLED", "COMPLETE"):
+            todo.status = "UNFILLED"
+            todo.disclosure = reason
+        return todo
+
     def get(self, section: str, aspect: str) -> Optional[GapTodo]:
         return self._todos.get((str(section or "").strip(), str(aspect or "").strip()))
 
@@ -338,6 +364,14 @@ class OutlineWorkspace:
     # silently add a 5th section behind the caller's back — see `_tool_update_outline` and the
     # auto-assign fallback in `OutlineAgent._execute_tool`.
     required_titles: list[str] = field(default_factory=list)
+    # Iter-3 P0 fix (real-corpus THINNED run: 8 search_more_evidence calls, 31 genuinely NEW
+    # fetched rows, ZERO landed in any required section — the whole retrieval budget was spent
+    # re-chasing the SAME unhomeable section label, e.g. "Summary Table", under 8 differently
+    # worded aspects that each failed the (section,aspect) paraphrase dedup because the ASPECT
+    # text varied enough while the SECTION stayed constant). Once a section label is proven
+    # unhomeable (checklist- or agent-initiated), it is banked here (normalized) and vetoed —
+    # cheaply, before any real fetch — for the rest of the run, regardless of aspect rewording.
+    unhomeable_sections: set = field(default_factory=set)
     _checkpoint_seq: int = 0
 
     def next_ev_offset(self) -> int:
@@ -1136,6 +1170,8 @@ class OutlineAgent:
         new_todos: list[GapTodo] = []
         n_ungrounded = 0
         ungrounded_lines: list[str] = []
+        n_unhomeable = 0
+        unhomeable_lines: list[str] = []
         for line in screened[:12]:
             if line.upper().strip() == "NONE":
                 continue
@@ -1154,6 +1190,36 @@ class OutlineAgent:
                 ungrounded_lines.append(line[:160])
                 continue
             kind = kind_raw if kind_raw in ("coverage", "density", "numeric_rows") else "coverage"
+            # Iter-3 P0 fix (real-corpus degeneration): a gap whose named section resolves to
+            # NO current outline title, under a LOCKED required-structure deliverable (no room
+            # to add a new section), can never be routed to retrieval — it is a deliverable-
+            # level/formatting request (e.g. "Summary Table"), not a content gap. Record it
+            # UNFILLED immediately (never PENDING) so the loop cannot re-fetch it every round
+            # under a slightly reworded checklist line — the iter-2 Fable audit measured this
+            # exact pattern re-firing ~10x over 945s with every fetched row orphaned. This is a
+            # STRUCTURAL check (does the section resolve?), not a keyword/domain-vocabulary
+            # guess, so it stays question-agnostic.
+            if self.workspace.required_titles and self._resolve_section_title(section) is None:
+                self.workspace.gap_ledger.add_unfillable(
+                    section=section, aspect=aspect,
+                    reason=(
+                        f"named section {section!r} does not match any of the locked required "
+                        f"section titles {self.workspace.required_titles!r} and a new section "
+                        "cannot be added under this deliverable's exact-structure contract — "
+                        "this reads as a deliverable-level/formatting request, not a retrievable "
+                        "content gap; recorded as a structural limitation, not retried"
+                    ),
+                    needed_kind=kind, source="checklist",
+                )
+                # Iter-3 P1 fix: bank the SECTION LABEL itself (not the (section,aspect) pair)
+                # as proven-unhomeable — see `OutlineWorkspace.unhomeable_sections` docstring.
+                # A real THINNED-corpus run showed the checklist re-wording the ASPECT text
+                # each round (dodging the (section,aspect) paraphrase dedup) while the SECTION
+                # label stayed constant; vetoing by section label closes that gap.
+                self.workspace.unhomeable_sections.add(_normalize_section_label(section))
+                n_unhomeable += 1
+                unhomeable_lines.append(f"{section}::{aspect}")
+                continue
             todo = self.workspace.gap_ledger.add(
                 section=section, aspect=aspect, needed_kind=kind, source="checklist",
             )
@@ -1162,6 +1228,12 @@ class OutlineAgent:
             self.workspace.disclose(
                 f"checklist[{trigger}] named {len(new_todos)} gap(s): "
                 + "; ".join(f"{t.section}::{t.aspect}" for t in new_todos[:6])
+            )
+        if n_unhomeable:
+            self.workspace.disclose(
+                f"checklist[{trigger}] recorded {n_unhomeable} unhomeable gap(s) as UNFILLED "
+                "(no matching section under the locked required-structure deliverable — "
+                "structural limitation, never retried): " + "; ".join(unhomeable_lines[:6])
             )
         if n_ungrounded:
             # §-1.1 auditability fix: the OLD disclosure was a bare count — a reader could never
@@ -1209,8 +1281,36 @@ class OutlineAgent:
 
     async def _execute(self, decision: ReactDecision) -> AnalysisStep:
         t0 = time.monotonic()
+        # Iter-3 P1 fix (real THINNED-corpus run: 8 real search_more_evidence fetches, 31
+        # genuinely new rows, ALL orphaned — the loop spent its ENTIRE retrieval budget
+        # re-chasing the SAME "Summary Table" section label under 8 differently-worded aspects,
+        # each individually terminated by the iter-3 P0 fix but never PREVENTED from being
+        # tried again). VETO before spending any real wall-clock/tokens on a fetch whose target
+        # section is already banked as structurally unhomeable this run — cheap, no network
+        # call, no LLM call.
+        veto_reason: Optional[str] = None
+        if decision.action == "search_more_evidence":
+            veto_sec = str((decision.action_input or {}).get("section", ""))
+            if (
+                _normalize_section_label(veto_sec) in self.workspace.unhomeable_sections
+                and self.workspace.required_titles
+                and self._resolve_section_title(veto_sec) is None
+            ):
+                veto_reason = (
+                    f"section {veto_sec!r} already proven unhomeable this run (no matching "
+                    f"required section title, required_titles="
+                    f"{self.workspace.required_titles!r}) — vetoed before any real fetch, "
+                    "regardless of aspect rewording"
+                )
         tool_def = self.registry.get_tool(decision.action)
-        if not tool_def or not tool_def.execute:
+        if veto_reason is not None:
+            result = ToolResult(
+                success=False, tool_name=decision.action,
+                markdown=f"search_more_evidence VETOED: {veto_reason}",
+                error="unhomeable_section_vetoed",
+            )
+            self.workspace.disclose(f"search_more_evidence VETOED: {veto_reason}")
+        elif not tool_def or not tool_def.execute:
             result = ToolResult(
                 success=False, tool_name=decision.action,
                 markdown=f"Unknown tool: {decision.action}", error="unknown_tool",
@@ -1242,7 +1342,15 @@ class OutlineAgent:
         if decision.action == "search_more_evidence":
             inp = decision.action_input or {}
             sec, asp = str(inp.get("section", "")), str(inp.get("aspect", ""))
-            if asp:
+            if asp and veto_reason is not None:
+                # Iter-3 P1 fix: a vetoed attempt must land STRAIGHT in UNFILLED, never PENDING
+                # — routing it through the generic add()+mark_in_progress()+retry-cap cycle
+                # would let it come back PENDING for up to `_gap_retries_per_aspect()` more
+                # rounds (cheap now that the real fetch is skipped, but still churns turns).
+                self.workspace.gap_ledger.add_unfillable(
+                    section=sec, aspect=asp, reason=veto_reason, source="agent",
+                )
+            elif asp:
                 existing = self.workspace.gap_ledger.get(sec, asp)
                 if existing is None:
                     existing = self.workspace.gap_ledger.add(
@@ -1265,6 +1373,7 @@ class OutlineAgent:
                     # the outline as it will actually ship, not the stale pre-fold draft.
                     new_ev_ids = list(result.source_evidence_ids or [])
                     resolved_title = self._resolve_section_title(sec)
+                    unhomeable_agent_gap = False
                     if resolved_title and new_ev_ids:
                         assign_result = await _tool_update_outline(
                             self.workspace,
@@ -1325,12 +1434,33 @@ class OutlineAgent:
                         # section behind the caller's exact-N-in-order contract (§9.1.8 /
                         # outline_revise.py `required_titles`). Disclosed, rows stay in the
                         # pool for the NEXT checklist pass to route to a REAL required title.
-                        self.workspace.disclose(
-                            f"auto-assign SKIPPED: {sec!r} does not match any current outline "
-                            f"section title, and required_titles={self.workspace.required_titles} "
-                            f"forbids adding a new one — {len(new_ev_ids)} new ev_id(s) stay in "
-                            "the pool pending an explicit update_outline call to a REQUIRED title"
+                        #
+                        # Iter-3 P0 fix: this used to fall through to the generic after-fold
+                        # recheck+retry cycle below, which re-ran the checklist (which had NO
+                        # way to see these orphaned rows as "assigned" since they were never
+                        # folded into any section) — so the SAME agent-initiated gap re-armed
+                        # itself as PENDING every round it hadn't yet hit the retry cap, and in
+                        # parallel the checklist detector kept minting FRESH differently-worded
+                        # todos for the same unhomeable target. Both paths compounded into the
+                        # measured ~10-round, ~945s degeneration on the real S2S3 corpus. This
+                        # gap is now terminated here: UNFILLED immediately, never retried, and
+                        # the after-fold recheck below is skipped (nothing changed for it to
+                        # re-judge — retrieval structurally cannot help).
+                        unhomeable_agent_gap = True
+                        reason = (
+                            f"{sec!r} does not match any current outline section title, and "
+                            f"required_titles={self.workspace.required_titles} forbids adding a "
+                            f"new one — {len(new_ev_ids)} new ev_id(s) stay in the pool; this is "
+                            "a structural limitation (deliverable-level/formatting request), not "
+                            "a retrievable content gap — recorded UNFILLED, not retried"
                         )
+                        self.workspace.disclose(f"auto-assign SKIPPED: {reason}")
+                        existing.status = "UNFILLED"
+                        existing.disclosure = reason
+                        # Iter-3 P1 fix: bank the section label (see docstring + the checklist
+                        # side of this same fix above) so a FUTURE agent-initiated attempt under
+                        # different aspect wording is vetoed BEFORE spending a real fetch.
+                        self.workspace.unhomeable_sections.add(_normalize_section_label(sec))
                     # Design control flow: "if search: fold-in + re-check aspect". A successful
                     # FETCH+ASSIGN is not the same claim as "the aspect is now covered" — re-run
                     # the checklist so a fresh judge decides whether this (section, aspect) is
@@ -1338,19 +1468,22 @@ class OutlineAgent:
                     # COMPLETE when the checklist no longer names it; otherwise treat the fetch as
                     # a partial fill and retry/exhaust normally. This avoids a "fetched something,
                     # therefore gap filled" false-complete (the ghost mindset banned by
-                    # CLAUDE.md §-1.1).
-                    still_named = await self._run_checklist(trigger="after_fold")
-                    still_deficient = any(
-                        t.key() == existing.key() for t in still_named
-                    )
-                    if still_deficient:
-                        self.workspace.gap_ledger.mark_retry_or_unfilled(
-                            existing,
-                            "search_more_evidence fetched rows but the after-fold checklist "
-                            "still names this aspect deficient",
+                    # CLAUDE.md §-1.1). SKIPPED for an unhomeable agent-initiated gap (iter-3 fix
+                    # above) — nothing was assigned, so nothing changed for the checklist to
+                    # re-judge; re-running it here is what regenerated the runaway.
+                    if not unhomeable_agent_gap:
+                        still_named = await self._run_checklist(trigger="after_fold")
+                        still_deficient = any(
+                            t.key() == existing.key() for t in still_named
                         )
-                    else:
-                        self.workspace.gap_ledger.mark_complete(existing)
+                        if still_deficient:
+                            self.workspace.gap_ledger.mark_retry_or_unfilled(
+                                existing,
+                                "search_more_evidence fetched rows but the after-fold checklist "
+                                "still names this aspect deficient",
+                            )
+                        else:
+                            self.workspace.gap_ledger.mark_complete(existing)
 
         self.workspace.checkpoint(event=f"turn_{self.workspace.turn}:{decision.action}")
         return step
