@@ -1753,6 +1753,12 @@ class FindingDedupResult:
     # the behavioral-canary signal that the qualitative-consolidation blind spot is
     # closed (the D1 diced-dice goes GREEN once one such basket has >1 distinct host).
     qualitative_basket_count: int = 0
+    # S2/S3 re-pass iter-3 (Fable Fix 1(d), THE GHOST close): number of numeric baskets
+    # UNIONED by the representative-invariant post-pass (a residual same-claim false-split
+    # the numeric split-confirm's fail-open-on-None left behind — byte-identical or
+    # bidirectionally-entailing VISIBLE representative claim sentence). 0 when the kill
+    # switch is off; >0 proves a residual same-claim double-basket was repaired.
+    rep_invariant_merge_count: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -2070,6 +2076,203 @@ def _apply_rung0_exact_collapse(
     return new_groups, len(keys) - len(new_groups)
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Representative-invariant POST-PASS — Fable Fix 1(d) (S2/S3 re-pass iter-3)
+# ─────────────────────────────────────────────────────────────────────────
+# THE GHOST (§-1.1) closes here. The numeric tuple key is RECALL only; rung-0 exact
+# collapse, the numeric split-confirm, and the bidirectional consolidation-NLI decide
+# merges. But the split-confirm (`_confirm_numeric_clusters_via_nli`) SPLITS a member
+# off its cluster on ANY non-(True,True) NLI answer — INCLUDING an infra ``None`` on the
+# GPU cross-encoder — so two byte-identical copies of ONE finding can land in TWO baskets
+# (observed drb_72: three identical Weizenbaum-PDF fetches split into 3; a governance.ai
+# chrome-body copy + the clean Eloundou abstract of the SAME 46% claim split into 2). The
+# INVARIANT: after all passes, no two surviving numeric baskets may show a byte-identical
+# (or, cross-encoder active, bidirectionally-entailing) VISIBLE representative claim
+# sentence. A byte-identical sentence IS the same claim (no judge needed). §-1.3-safe:
+# UNION only, keep-all, corroboration counted over DISTINCT works so a same-work re-merge
+# stays honest; the faithfulness engine is untouched. General / question-agnostic: the
+# signal is the normalized claim sentence + numeric value, never an entity list or corpus
+# number. ``_visible_claim_sentence`` mirrors the s3 snapshot's ``representative_statement``
+# derivation so the invariant is stated against exactly the line the report/judge SEES.
+_REP_INVARIANT_ENV = "PG_FINDING_REP_INVARIANT"
+# Nav/chrome lines that must never be picked as the visible claim sentence (login / search
+# UI / share / cookie / masthead glyphs). Question-agnostic surface chrome only.
+_VISIBLE_CHROME_RE = re.compile(
+    r"log ?in|sign ?in|subscribe|cookie|search text|search type|logical operator|"
+    r"add_circle|remove_circle|skip to|newsletter|\bmenu\b|share this|©|›|»",
+    re.IGNORECASE,
+)
+
+
+def _representative_invariant_enabled() -> bool:
+    """``PG_FINDING_REP_INVARIANT`` kill switch (LAW VI, DEFAULT-ON, Fable Fix 1(d)). OFF =>
+    byte-identical legacy (no post-pass invariant)."""
+    return os.getenv(_REP_INVARIANT_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _visible_claim_sentence(row: dict[str, Any], bucket_value: Any) -> str:
+    """The VISIBLE representative claim sentence for a row — the COMPLETE sentence a
+    reader/judge sees, mirroring the s3 snapshot's ``representative_statement`` derivation
+    (letter-spacing collapsed; split into complete sentences of >= 5 words that start on a
+    capital/digit and are not nav/chrome; PREFER the sentence carrying the cluster's numeric
+    value). Falls back to the focused ``_claim_sentence`` (context_snippet) then the body.
+    Deterministic + question-agnostic. Used by the Fix 1(d) invariant so two baskets that
+    LOOK identical to the reader are detected as the same claim even when their raw bodies
+    differ (one a chrome-wrapped copy, one a clean abstract of the SAME finding)."""
+    body = _normalize_unicode_text(_collapse_letter_spacing(_row_text(row)))
+    sentences = [
+        s.strip()
+        for s in re.split(r"(?<=[.!?])\s+", body.strip())
+        if len(s.split()) >= 5
+        and (s.strip()[:1].isupper() or s.strip()[:1].isdigit())
+        and not _VISIBLE_CHROME_RE.search(s)
+    ]
+    value_tok: Optional[str] = None
+    if bucket_value is not None:
+        try:
+            v = float(bucket_value)
+            value_tok = str(int(v)) if v == int(v) else str(v)
+        except (TypeError, ValueError):
+            value_tok = None
+    if value_tok:
+        for s in sentences:
+            if value_tok in s:
+                return s
+    if sentences:
+        return sentences[0]
+    focused = _claim_sentence(row, bucket_value)
+    return focused or body
+
+
+def _apply_representative_invariant(
+    groups: dict[tuple, list[int]],
+    rows: list[dict[str, Any]],
+    rank_fn,
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+) -> tuple[dict[tuple, list[int]], int]:
+    """Fable Fix 1(d): the POST-PASS same-claim invariant. UNION any two numeric baskets
+    whose chosen representative's VISIBLE claim sentence is byte-identical (after
+    ``_rung0_signature`` normalization) — a residual false-split the split-confirm / NLI
+    left behind — and, when the cross-encoder is active, any two SAME-VALUE baskets whose
+    representatives BIDIRECTIONALLY entail. UNION-only (keep-all, §-1.3); never drops a row,
+    never relaxes a verify gate; corroboration is recomputed over DISTINCT works downstream
+    so a same-work re-merge stays honest. Sentinel (``__unknown__`` / ``__qual__``) keys are
+    left untouched (their subjects are unresolved — pooling them here would re-introduce the
+    boilerplate false-merge the value-bucket guard removed). Fail-LOUD (logged). Merges to
+    the LOWEST-index cluster key (deterministic). Returns ``(groups, merged_count)``.
+
+    ``entail_fn`` is the deterministic test seam; production passes None => the lazy resident
+    ``entails_directional``."""
+    keys = list(groups.keys())
+    if len(keys) < 2:
+        return groups, 0
+    sig_of: dict[int, str] = {}
+    val_of: dict[int, Any] = {}
+    text_of: dict[int, str] = {}
+    for i, key in enumerate(keys):
+        is_sentinel = (
+            isinstance(key, tuple) and key and key[0] in ("__unknown__", "__qual__")
+        )
+        if is_sentinel:
+            continue
+        member_ris = sorted(set(groups[key]))
+        value = _cluster_value_bucket(key, rows, member_ris)
+        rep_ri = _choose_clean_representative(member_ris, rank_fn, rows)
+        vis = _visible_claim_sentence(rows[rep_ri], value)
+        sig = _rung0_signature(vis)
+        if sig:
+            sig_of[i] = sig
+            val_of[i] = value
+            text_of[i] = _normalize_unicode_text(_collapse_letter_spacing(vis))
+    parent = list(range(len(keys)))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: int, b: int) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra == rb:
+            return
+        lo, hi = (ra, rb) if ra < rb else (rb, ra)
+        parent[hi] = lo
+
+    # (1) byte-identical visible representative => same claim (deterministic, no judge).
+    by_sig: dict[str, list[int]] = {}
+    for i, s in sig_of.items():
+        by_sig.setdefault(s, []).append(i)
+    n_identical = 0
+    for _s, idxs in by_sig.items():
+        for other in idxs[1:]:
+            if _find(idxs[0]) != _find(other):
+                _union(idxs[0], other)
+                n_identical += 1
+
+    # (2) bidirectional-entailment leg (only when the cross-encoder is active): within a
+    #     shared numeric value bucket, union representatives that BOTH-way entail. Bounded
+    #     (per-bucket + total-pair caps) so a degraded CPU encoder can never run-pin the box.
+    n_entail = 0
+    nli_on = _consolidation_nli_enabled() or _finding_dedup_nli_enabled()
+    if nli_on and len(sig_of) >= 2:
+        if entail_fn is None:
+            from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+                entails_directional,
+            )
+            entail_fn = entails_directional
+        buckets: dict[Any, list[int]] = {}
+        for i in sig_of:
+            try:
+                vk = round(float(val_of[i]), 6)
+            except (TypeError, ValueError):
+                continue
+            buckets.setdefault(vk, []).append(i)
+        max_pairs = _finding_dedup_nli_max_pairs()
+        pairs_done = 0
+        for _vk, idxs in buckets.items():
+            if len(idxs) < 2 or len(idxs) > 32:  # a huge same-value bucket => skip (bounded)
+                continue
+            for a in range(len(idxs)):
+                if pairs_done >= max_pairs:
+                    break
+                for b in range(a + 1, len(idxs)):
+                    if pairs_done >= max_pairs:
+                        break
+                    ia, ib = idxs[a], idxs[b]
+                    if _find(ia) == _find(ib):
+                        continue
+                    ta, tb = text_of[ia], text_of[ib]
+                    fwd = entail_fn(ta, tb)
+                    rev = entail_fn(tb, ta) if fwd is True else None
+                    pairs_done += 1
+                    if fwd is True and rev is True:
+                        _union(ia, ib)
+                        n_entail += 1
+
+    merged = n_identical + n_entail
+    if merged == 0:
+        return groups, 0
+    merged_members: dict[int, list[int]] = {}
+    for i in range(len(keys)):
+        merged_members.setdefault(_find(i), []).extend(groups[keys[i]])
+    new_groups: dict[tuple, list[int]] = {}
+    for i in range(len(keys)):  # original key order => order-stable result dict
+        if _find(i) != i:
+            continue
+        new_groups[keys[i]] = sorted(set(merged_members[i]))
+    logger.info(
+        "[finding_dedup] Fix 1(d) representative-invariant post-pass: unioned %d basket(s) "
+        "(%d byte-identical visible rep, %d bidirectional-entail) — no two surviving baskets "
+        "share the same visible claim (§-1.1 THE GHOST closed; UNION-only, keep-all)",
+        merged, n_identical, n_entail,
+    )
+    return new_groups, merged
+
+
 def _numeric_nli_confirm_enabled() -> bool:
     """``PG_FINDING_NUMERIC_NLI_CONFIRM`` kill switch (LAW VI, DEFAULT-ON, Fix 1(A)). When
     ON, the numeric ``_finding_key`` tuple is treated as CANDIDATE RECALL only: two rows that
@@ -2138,6 +2341,7 @@ def _confirm_numeric_clusters_via_nli(
         rep_text = _normalize_unicode_text(
             _collapse_letter_spacing(_claim_sentence(rows[rep_ri], value))
         )
+        rep_sig = _rung0_signature(rep_text)
         confirmed = [rep_ri]
         split_members: list[int] = []
         strict = _numeric_nli_confirm_strict_enabled()
@@ -2147,6 +2351,13 @@ def _confirm_numeric_clusters_via_nli(
             m_text = _normalize_unicode_text(
                 _collapse_letter_spacing(_claim_sentence(rows[mri], value))
             )
+            # Fix 1(d) root-cause: a byte-identical claim sentence IS the same claim — never
+            # SPLIT it on an NLI None / one-way answer (the drb_72 3x-identical-PDF false split).
+            # Confirm deterministically BEFORE the judge (the rung-0 principle applied per-member);
+            # §-1.3-safe (a byte-identical sentence can only be corroboration, never a false merge).
+            if rep_sig and _rung0_signature(m_text) == rep_sig:
+                confirmed.append(mri)
+                continue
             fwd = entail_fn(rep_text, m_text)
             rev = entail_fn(m_text, rep_text) if fwd is True else None
             if fwd is True and rev is True:
@@ -3620,6 +3831,18 @@ def dedup_by_finding(
     if groups and _consolidation_nli_enabled():
         groups, nli_merge_count = _apply_consolidation_nli(groups, rows, _rank)
 
+    # 1d. REPRESENTATIVE-INVARIANT post-pass (Fable Fix 1(d) — THE GHOST close). After the
+    #     tuple-key RECALL + rung-0 + numeric split-confirm + consolidation-NLI, UNION any two
+    #     surviving numeric baskets whose VISIBLE representative claim sentence is byte-identical
+    #     (or, with the cross-encoder active, bidirectionally entails). Repairs the residual
+    #     false-splits the split-confirm's fail-open-on-None leaves behind (two byte-identical
+    #     copies of ONE finding sitting in two baskets). UNION-only / keep-all / faithfulness-
+    #     untouched; DEFAULT-ON kill switch. Runs BEFORE the per-cluster loop so corroboration +
+    #     member_hosts reflect the repaired basket.
+    rep_invariant_merged = 0
+    if groups and _representative_invariant_enabled():
+        groups, rep_invariant_merged = _apply_representative_invariant(groups, rows, _rank)
+
     # 1c. QUALITATIVE basket formation (I-deepfix-001 D1, #1344). §-1.3 CONSOLIDATE
     #     qualitative claims TOO (not numeric-only): rows with NO extracted numeric
     #     finding that assert the SAME qualitative claim form a multi-citation
@@ -3767,4 +3990,5 @@ def dedup_by_finding(
         same_work=same_work,
         nli_merge_count=nli_merge_count,
         qualitative_basket_count=len(qual_groups),
+        rep_invariant_merge_count=rep_invariant_merged,
     )
