@@ -490,6 +490,66 @@ async def main():
     min_kept_fraction = float(os.environ.get("PG_MIN_KEPT_FRACTION", "0.4"))
     sec_sema = asyncio.Semaphore(int(os.environ.get("PG_MAX_PARALLEL_SECTIONS", "2")))
 
+    # Fix 9 (2026-07-11 compose gear-loop iter 4): SECTION-LEVEL crash RESUME. The iter-3 run (PID 768574)
+    # was externally SIGKILLed at 08:19:57 ~1 min into a section finalization after 1h15m of compose; the
+    # per-section checkpoints (written at section completion below) were NEVER read back, so the whole wave
+    # was lost. This block LOADS any completed per-section checkpoint and SKIPS recomposing that section,
+    # so a relaunch resumes at the closest checkpoint (operator ground rule 2026-07-01) and the gear loop
+    # makes guaranteed forward progress across kills. Resume is GATED on the three input SHAs (cp2/cp3/cp4):
+    # if the pinned corpus/outline changed since the checkpoints were written, the stale drafts are IGNORED
+    # and every section recomposes (honors the gear rule = newest inputs win). Only a genuinely-composed
+    # section is resumed (real verified prose, not a gap stub / degraded / errored section) — a transient-
+    # failure section is retried, never banked (fail-open: any doubt => recompose).
+    resumed: dict = {}
+    if ckpt_dir:
+        import types as _types_resume
+        _in_sha = {
+            "cp2": hashlib.sha256(Path(args.cp2).read_bytes()).hexdigest(),
+            "cp3": hashlib.sha256(Path(args.cp3).read_bytes()).hexdigest(),
+            "cp4": hashlib.sha256(Path(args.cp4).read_bytes()).hexdigest(),
+        }
+        _man = ckpt_dir / "inputs_sha.json"
+        _stale = False
+        if _man.exists():
+            try:
+                _prev = json.loads(_man.read_text(encoding="utf-8"))
+            except Exception:
+                _prev = {}
+            if (_prev.get("cp2") != _in_sha["cp2"] or _prev.get("cp3") != _in_sha["cp3"]
+                    or _prev.get("cp4") != _in_sha["cp4"]):
+                _stale = True
+                print("[resume] input SHAs changed since checkpoint -> IGNORING stale section drafts, "
+                      "recomposing all sections (gear rule: newest inputs win)", flush=True)
+        _man.write_text(json.dumps(_in_sha, ensure_ascii=False, indent=2), encoding="utf-8")
+        if not _stale:
+            for _ck in sorted(ckpt_dir.glob("section_*_draft.json")):
+                try:
+                    _d = json.loads(_ck.read_text(encoding="utf-8"))
+                except Exception as _e:
+                    print(f"[resume] skip unreadable checkpoint {_ck.name}: {_e!r}", flush=True)
+                    continue
+                _idx = _d.get("section_index")
+                _vt = (_d.get("verified_text") or "").strip()
+                if (_idx is None or not _vt or _d.get("is_gap_stub")
+                        or _d.get("dropped_due_to_failure") or _d.get("error")
+                        or int(_d.get("sentences_verified") or 0) <= 0):
+                    continue
+                resumed[int(_idx)] = _types_resume.SimpleNamespace(
+                    title=str(_d.get("title") or f"Section {_idx}"),
+                    focus=str(_d.get("focus") or ""),
+                    ev_ids_assigned=list(_d.get("ev_ids_assigned") or []),
+                    verified_text=_d.get("verified_text") or "",
+                    sentences_verified=int(_d.get("sentences_verified") or 0),
+                    sentences_dropped=int(_d.get("sentences_dropped") or 0),
+                    regen_attempted=bool(_d.get("regen_attempted")),
+                    dropped_due_to_failure=bool(_d.get("dropped_due_to_failure")),
+                    is_gap_stub=bool(_d.get("is_gap_stub")),
+                    error=_d.get("error"),
+                )
+            if resumed:
+                print(f"[resume] loaded {len(resumed)} completed section(s) from checkpoints: "
+                      f"{sorted(resumed)} -- skipping recompose", flush=True)
+
     async def _compose_one(idx, section):
         async with sec_sema:
             t0 = time.time()
@@ -530,6 +590,8 @@ async def main():
             continue
         if sel and idx not in sel:
             continue
+        if idx in resumed:
+            continue
         order.append(idx)
         tasks.append(asyncio.ensure_future(_compose_one(idx, section)))
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -561,6 +623,9 @@ async def main():
             section_results.append((oi, _stub))
         else:
             section_results.append((oi, r))
+    # Fix 9 (iter 4): fold resumed-from-checkpoint sections back in (never recomposed).
+    for _ri, _rr in resumed.items():
+        section_results.append((_ri, _rr))
     section_results.sort(key=lambda t: t[0])
 
     # P2-1 CITATION SEAM (2026-07-10): tidy the ".[1].[2]" citation seams in every section body BEFORE
@@ -678,7 +743,7 @@ async def main():
     envelope = {
         "schema_version": 1,
         "stage": "s5_generation_live_compose",
-        "iter": 3,
+        "iter": 4,
         # P1-3 (2026-07-10): acceptance=False when any section raised and was replaced by a gap stub.
         # Fix 7 (2026-07-10 compose gear-loop iter 2): ALSO False on a gap-stub / quote-dump-dominant /
         # chrome-dominant audit read — reasons disclosed in acceptance_reasons.
