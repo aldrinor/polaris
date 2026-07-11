@@ -317,6 +317,36 @@ def test_item4_single_cp3_key_unifies_group() -> None:
     assert alias["e2"] == "doi:gpts"
 
 
+def test_item4b_truncation_vetted_two_titlealone_groups_fold_one_work() -> None:
+    """item 4b (CESifo WP 10601 regression): cp3 mistakenly split ONE work — 'The Short-Term Effects
+    of Generative Artificial Intelligence on Employment: Evidence from an Online Labor Market' — into
+    TWO ``titlealone:`` groups: a full-title group and a TRUNCATED ``[PDF] … on …`` group. The item-3b
+    truncation prefix fold rules them one work (truncated raw title + exact 25+ char prefix), so the
+    downstream item-4 guard must DEFER and unify — NOT count one work as two. All rows resolve to the
+    SINGLE full-title cp3 key, and the false-merge tripwire stays SILENT (this is a real same work)."""
+    full = "The Short-Term Effects of Generative Artificial Intelligence on Employment: Evidence from an Online Labor Market"
+    ev = [
+        _row("full1", full),
+        _row("full2", full),
+        _row("pdf1", "[PDF] The Short-Term Effects of Generative Artificial Intelligence on ..."),
+        _row("pdf2", "(PDF) The Short-Term Effects of Generative Artificial Intelligence on ..."),
+    ]
+    swg = [
+        {"member_evidence_ids": ["full1", "full2"], "canonical_index": 0,
+         "same_work_id": "titlealone:the short term effects ... online labor market"},
+        {"member_evidence_ids": ["pdf1", "pdf2"], "canonical_index": 2,
+         "same_work_id": "titlealone:pdf the short term effects ... on"},
+    ]
+    stats: dict[str, int] = {}
+    alias = _build_alias_map(swg, ev, stats=stats)
+    # all four rows -> ONE work (the full-title cp3 key), so work_count ranks this as a SINGLE work
+    keys = {alias["full1"], alias["full2"], alias["pdf1"], alias["pdf2"]}
+    assert len(keys) == 1, keys
+    assert alias["pdf1"] == "titlealone:the short term effects ... online labor market"
+    # truncation-vetted merge => the false-merge guard stays SILENT (this is a REAL same work)
+    assert stats.get("title_false_merge_guard_hits", 0) == 0
+
+
 def _drow(ev_id: str, title: str, doi: str, url: str, tier: str = "T1") -> dict:
     return {"evidence_id": ev_id, "title": title, "statement": f"claim {ev_id}",
             "tier": tier, "doi": doi, "source_url": url}

@@ -375,6 +375,19 @@ def _build_alias_map(
         for _k, _members in title_groups.items():
             merged_groups.setdefault(_final_key(_k), []).extend(_members)
 
+        # Item 4b (TRUNCATION-VETTED SAME-WORK EXEMPTION — the CESifo WP 10601 fold): a merged group
+        # whose final key ABSORBED a truncated prefix key was assembled by the item-3b prefix fold,
+        # which ALREADY ruled those title buckets one work (truncated raw title + exact 25+ char
+        # prefix — a strong same-work signal). When cp3 mistakenly split that one work into TWO
+        # ``titlealone:`` groups (a full-title group and a truncated ``[PDF] … on …`` group, e.g.
+        # "The Short-Term Effects of Generative Artificial Intelligence on Employment" = CESifo WP
+        # 10601), the downstream item-4 guard would see >=2 cp3 keys and REFUSE to merge — miscounting
+        # ONE work as TWO in the ``-work_count`` basket ranking. So for these prefix-folded finals we
+        # DEFER to item 3b and unify, canonicalizing onto the FULL-title bucket's cp3 key. The
+        # exact-title collision guard (no truncation, e.g. ev_044/ev_073, the item-4 test) is
+        # UNAFFECTED: those finals never absorbed a truncated prefix, so they still hit the refusal.
+        prefix_folded_finals = {_final_key(_k) for _k in fold_target}
+
         for tkey, members in merged_groups.items():
             if len(members) < 2:
                 continue  # a unique title is its own work — never fold a lone title
@@ -385,12 +398,22 @@ def _build_alias_map(
             # exactly ONE (or zero) cp3 key do we unify the whole group onto it. §-1.3: a fold never
             # drops a row; a WRONG fold would misstate corroboration, so the guard stays conservative.
             stamped = {alias_of[e] for e in members if e in alias_of}
-            if len(stamped) >= 2:
+            if len(stamped) >= 2 and tkey not in prefix_folded_finals:
                 if stats is not None:
                     stats["title_false_merge_guard_hits"] = stats.get("title_false_merge_guard_hits", 0) + 1
                 for ev_id in members:
                     if ev_id not in alias_of:
                         alias_of[ev_id] = tkey
+            elif len(stamped) >= 2:
+                # Item 4b: truncation-vetted same work — canonicalize onto the FULL-title bucket's cp3
+                # key (the members whose OWN normalized title is this final target key, i.e. the rows
+                # that were NOT truncated-prefix-folded in). Deterministic (sorted). Collapses the two
+                # cp3 titlealone groups to ONE work so the work count is correct.
+                _target_members = title_groups.get(tkey, [])
+                _target_keys = sorted({alias_of[e] for e in _target_members if e in alias_of})
+                canonical_key = _target_keys[0] if _target_keys else sorted(stamped)[0]
+                for ev_id in members:
+                    alias_of[ev_id] = canonical_key
             else:
                 canonical_key = next(iter(stamped)) if stamped else tkey
                 for ev_id in members:
