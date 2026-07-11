@@ -1,0 +1,987 @@
+#000 cc=1 mc=1 host=aeaweb.org
+   EIDS acemoglu_restrepo_automation_tasks
+   REP This paper presents a task-based framework, building on Acemoglu and Restrepo (2018a, 2018b) as well as Acemoglu and Autor (2011), Autor, Levy, and Murnane (2003), and Zeira (1998), for thinking through the implications of tech-nology for labor demand and productivity.
+#001 cc=1 mc=1 host=aeaweb.org
+   EIDS autor_why_still_jobs
+   REP A lesser-known but more recent example is the concern over “The Automation Jobless,” as they were called in the title of a TIME magazine story of February 24, 1961: The number of jobs lost to more efficient machines is only part of the prob-lem.
+#002 cc=1 mc=1 host=
+   EIDS acemoglu_restrepo_robots_jobs
+   REP One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%.
+#003 cc=1 mc=1 host=ac.uk
+   EIDS frey_osborne_computerisation
+   REP To assess this, we begin by implementing a novel methodology to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier.
+#004 cc=2 mc=2 host=governance.ai
+   EIDS eloundou_gpts_are_gpts | ev_879
+   REP When accounting for current and likely future software developments that complement LLM capabilities, this share jumps to just over 46% of jobs.
+#005 cc=1 mc=1 host=ub.edu
+   EIDS ev_1265
+   REP Distinguishing academic science writing from humans or ChatGPT with over 99% accuracy using off-the-shelf machine learning tools.
+#006 cc=1 mc=1 host=semanticscholar.org
+   EIDS ev_918
+   REP While AI systems improve with more training data, it is found that the gains from AI adoption are largest for moderately rare problems, where human agents have less baseline experience but the system still has adequate training data.
+#007 cc=1 mc=3 host=rtsa.eu
+   EIDS ev_1050 | ev_1194 | ev_014
+   REP 4Rivista Trimestrale di Scienza dell’Amministrazione – http: //www.rtsa.eu – ISSNe 1972-4942 2.2.
+#008 cc=1 mc=3 host=brookings.edu
+   EIDS ev_009 | ev_1014 | ev_1149
+   REP The launch of ChatGPT-3.5 at the end of 2022 captured the world’s attention and illustrated the uncanny ability of generative artificial intelligence (AI) to produce a range of seemingly human-generated content, including text, video, audio, images, and code.
+#009 cc=1 mc=1 host=cloudinary.com
+   EIDS ev_177
+   REP Morgan analysts cited optimism about GenAI as the driver of a $1.4 trillion increase in market capitalization across the S&amp;P 500.
+#010 cc=1 mc=1 host=santander.com
+   EIDS ev_215
+   REP ChatGPT costs $700.000 per day to operate, while GPT-3 required $3.2 million in computing resources alone to be trained.
+#011 cc=1 mc=1 host=ilo.org
+   EIDS ev_020
+   REP In low-income countries, only 0.4 per cent of total employment is potentially exposed to automation effects, whereas in high-income countries the share rises to 5.5 percent.
+#012 cc=1 mc=1 host=econstor.eu
+   EIDS ev_110
+   REP These effects represent an economically meaningful and statistically significant (at 1% level) reduction in employment on the platform.
+#013 cc=1 mc=1 host=econstor.eu
+   EIDS ev_095
+   REP 10601 2023 August 2023 The Short-Term Effects of Generative Artificial Intelligence on Employment: Evidence from an Online Labor Market Xiang Hui, Oren Reshef, Luofeng Zhou Impressum: CESifo Working Papers (electronic version) Publisher and distributor: Munich Society for the Promotion of Economic R
+#014 cc=1 mc=1 host=waw.pl
+   EIDS ev_022
+   REP In low-income countries, only 0.4 percent of total employment is potentially exposed to automation effects, compared with 5.5 percent in high-income countries.
+#015 cc=1 mc=1 host=bfna.org
+   EIDS ev_075
+   REP A recent report by the Organization for Economic Co-operation and Development (OECD) found that the occupations most at risk of being automated account for an average 27% of the workforce across OECD countries.
+#016 cc=1 mc=1 host=repec.org
+   EIDS ev_905
+   REP Raymond ## Abstract New AI tools have the potential to change the way workers perform and learn, but little is known about their impacts on the job.
+#017 cc=1 mc=1 host=shakkednoy.com
+   EIDS ev_929
+   REP In a preregistered online experiment, we assigned occupation-specific, incentivized writing tasks to 453 college-educated professionals, and randomly exposed half of them to ChatGPT.
+#018 cc=1 mc=1 host=acm.org
+   EIDS ev_954
+   REP 10, 2023); [https://papers.ssrn.com/abstract=4414065](https://papers.ssrn.com/abstract=4414065) [...] Rochester, NY (2023, March 1); [https://papers.ssrn.com/abstract=4375283](https://papers.ssrn.com/abstract=4375283) * 15.Peng, S.
+#019 cc=1 mc=2 host=weizenbaum-institut.de
+   EIDS ev_1019 | ev_1165
+   REP 18 The lesson from these prior experiences is that the parties who deploy these tools, for what purpose, and in what [...]  today even existed fifty years ago?
+#020 cc=1 mc=1 host=arxiv.org
+   EIDS ev_136
+   REP A review of theory, estimates, and evidence††thanks: The authors would like to thank Leonard Bocquet, University of Cambridge, for helpful research assistance.
+#021 cc=1 mc=1 host=ssrn.com
+   EIDS ev_932
+   REP In a preregistered online experiment, we assign occupation-specific, incentivized writing tasks to 444 college-educated professionals, and randomly expose half of them to ChatGPT.
+#022 cc=1 mc=3 host=lexisnexis.com
+   EIDS ev_097 | ev_1046 | ev_1190
+   REP Growth Comparison Reflects Enthusiasm for Generative AI TIME TO 100 MILLION USERS5 2 months 9 months 2.5 years 3.5 years 4.5 years 5 years 6.5 years 96% say technology is crucial to organizational success What’s more, 86% of professionals ‘agree’ or ‘strongly agree’ that they are willing to embrace 
+#023 cc=1 mc=1 host=sciencedirect.com
+   EIDS ev_160
+   REP Contents lists available at ScienceDirect Journal of Economic Behavior and Organization journal homepage: www.elsevier.com/locate/jebo Winners and losers of generative AI: Early Evidence of Shifts in Freelancer Demand Ole Teutloff a,b , Johanna Einsiedler a , Otto Kässi c,d, Fabian Braesemann b,d,e 
+#024 cc=1 mc=4 host=nber.org
+   EIDS ev_077 | ev_913 | ev_1116 | ev_1256
+   REP These results contrast, in spirit, with studies that find evidence of skill-biased technical change for earlier waves &gt; 5As Meijer (2018) puts it “where the Software 1.0 Engineer formally specifies their problem, carefully designs algo-rithms, composes systems out of subsystems or decomposes comp
+#025 cc=1 mc=3 host=arxiv.org|stanford.edu
+   EIDS ev_886 | ev_887 | ev_890
+   REP GPTs are GPTs: An Early Look at the Labor Market Impact Potential of Large Language Models Abstract We investigate the potential implications of large language models (LLMs), such as Generative Pre-trained Transformers (GPTs), on the U.S.
+#026 cc=1 mc=1 host=arxiv.org
+   EIDS ev_883
+   REP GPTs are GPTs: An Early Look at the Labor Market Impact Potential of Large Language Models The analysis suggests that, with access to an LLM, about 15% of all worker tasks in the US could be completed significantly faster at the same level of quality, implying that LLM-powered software will have a s
+#027 cc=1 mc=1 host=arxiv.org
+   EIDS ev_880
+   REP When incorporating software and tooling built on top of LLMs, this share increases to between 47 and 56% of all tasks.
+#028 cc=1 mc=1 host=semanticscholar.org
+   EIDS ev_928
+   REP Experimental evidence on the productivity effects of generative artificial intelligence The assistive chatbot ChatGPT raises productivity in professional writing tasks and reduces productivity inequality, which carries policy implications for efforts to reduce productivity inequality through AI.
+#029 cc=1 mc=1 host=aeaweb.org
+   EIDS ev_092
+   REP Louis Luofeng Zhou § New York University October 12, 2024 Abstract Generative artificial intelligence (AI) holds the potential to either complement workers by en-hancing their productivity or substitute them.
+#030 cc=1 mc=1 host=medium.com
+   EIDS ev_893
+   REP This explosion is being fuelled by the advent of LLM specific [IDEs](https://cobusgreyling.medium.com/an-overview-of-the-stack-ai-composer-for-gen-apps-e2ba039e606e) like [Stack](https://cobusgreyling.medium.com/an-overview-of-the-stack-ai-composer-for-gen-apps-e2ba039e606e), [Flowise](https://cobus
+#031 cc=1 mc=1 host=amegroups.org
+   EIDS ev_367
+   REP We present this article in accordance with the Narrative Review reporting checklist (available at https://jhmhp.amegroups.com/article/view/10.21037/jhmhp-24-138/rc).
+#032 cc=1 mc=2 host=bls.gov
+   EIDS ev_093 | ev_1023
+   REP Despite the absence of historical data showing employment declines for photographic process workers, EP projected that employment in the occupation would decline 23.6 percent from 2004 to 2014.
+#033 cc=1 mc=1 host=danielle.li
+   EIDS ev_915
+   REP GENERATIVE AI AT WORK ∗ ERIK BRYNJOLFSSON DANIELLE LI LINDSEY RAYMOND We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents.
+#034 cc=1 mc=1 host=arxiv.org
+   EIDS ev_906
+   REP Subjects:General Economics (econ.GN); General Finance (q-fin.GN) Cite as:[arXiv:2304.11771](https://arxiv.org/abs/2304.11771) [econ.GN] (or [arXiv:2304.11771v2](https://arxiv.org/abs/2304.11771v2) [econ.GN] for this version) [https://doi.org/10.48550/arXiv.2304.11771](https://doi.org/10.48550/arXiv.
+#035 cc=1 mc=1 host=nationalacademies.org
+   EIDS ev_118
+   REP This report, requested in Section 5105 of the 2021 National Defense Authorization Act,1 builds on a 2017 National Academies of Sciences, Engineering, and Medicine study2 that examined the impacts of information technology on the workforce.
+#036 cc=1 mc=1 host=cepr.org
+   EIDS ev_938
+   REP In a recent paper (Noy and Zhang 2023), we report the results of an online experiment we conducted that provide a first look at the potential productivity and labour market impacts of text-based generative AI systems, specifically ChatGPT 3.5.
+#037 cc=1 mc=3 host=yale.edu
+   EIDS ev_023 | ev_1102 | ev_1164
+   REP Evaluating the Impact of AI on the Labor Market: Current State of Affairs Key Takeaways - While the occupational mix is changing more quickly than it has in the past, it is not a large difference and predates the widespread introduction of AI in the workforce.
+#038 cc=1 mc=1 host=economic-research.pl
+   EIDS ev_188
+   REP Firstly, 639 scientific papers published between March 2020 to March 2023 (the end of the COVID-19 pandemic according to the WHO) from Scopus and Web of Science (WoS) databases were selected.
+#039 cc=1 mc=2 host=ioe-emp.org
+   EIDS ev_158 | ev_1104
+   REP Generative AI has the potential to contribute between $2.6 trillion and $4.4 trillion annually to the global economy, highlighting its positive economic effects (McKinsey &amp; Company, 2023).
+#040 cc=1 mc=1 host=com.au
+   EIDS ev_919
+   REP Researchers from Stanford University and the Massachusetts Institute of Technology (Erik Brynjolfsson, Danielle Li and R.
+#041 cc=1 mc=1 host=upenn.edu
+   EIDS ev_016
+   REP We estimate that AI will increase productivity and GDP by 1.5% by 2035, nearly 3% by 2055, and 3.7% by 2075.
+#042 cc=1 mc=1 host=oecd.org
+   EIDS ev_101
+   REP The vast majority of SMEs (83%) report that generative AI has had no effect on overall staff need.
+#043 cc=1 mc=2 host=gspublishing.com
+   EIDS ev_015 | ev_1031
+   REP For example, the latest iteration of OpenAI’s GPT model—GPT-4, released in March 2023, roughly one year after the GPT-3.5 model currently underlying ChatGPT finished training—scores 150 points higher on the SAT than its predecessor, is 40% more likely to produce accurate responses, and can now accep
+#044 cc=1 mc=1 host=hbs.edu
+   EIDS ev_909
+   REP Uploading these commits &gt; 4According to the Engagement platform 6Sense, GitHub had a market share of 78.81% on March 18, 2024.
+#045 cc=1 mc=3 host=ilo.org
+   EIDS ev_032 | ev_1053 | ev_1160
+   REP Despite representing an upper-bound estimate of exposure, we find that only the broad occupation of clerical work is highly exposed to the technology with 24 per cent of clerical tasks considered highly exposed and an additional 58 percent with medium-level exposure.
+#046 cc=1 mc=1 host=goldmansachs.com
+   EIDS ev_057
+   REP Innovation related to [artificial intelligence](/insights/artificial-intelligence) (AI) could displace 6-7% of the US workforce if AI is widely adopted.
+#047 cc=1 mc=1 host=ec.europa.eu
+   EIDS ev_968
+   REP In this paper we trace the evolution of AI exposure in the European labour market from 2008 to 2024 by linking 352 AI benchmarks to 14 cognitive abilities, 108 work tasks and 127 ISCO-3 occupations, weighting benchmarks by their research intensity in the AI literature and thus deriving AI exposure b
+#048 cc=1 mc=1 host=nih.gov
+   EIDS ev_414
+   REP Copywriters’ preference evaluation on online copywriting course attributes during the COVID-19 pandemic Copywriting online course has become a famous online training over the past years and the reliance on online courses increased even during the COVID-19 pandemic.
+#049 cc=1 mc=1 host=wikipedia.org
+   EIDS ev_678
+   REP Securities and Exchange Commission must conduct cost–benefit analyses before instituting regulations or deregulations.[2]: 6 CBA has two main applications:[3] - To determine if an investment (or decision) is sound, ascertaining if – and by how much – its benefits outweigh its costs.
+#050 cc=1 mc=3 host=hbs.edu
+   EIDS ev_000 | ev_1013 | ev_1150
+   REP Working Paper 25-03 9 # Displacement or Complementarity?
+#051 cc=1 mc=1 host=emmawiles.com
+   EIDS ev_141
+   REP It also saved employers time—treated employers spent 44% less time writing their job posts.
+#052 cc=1 mc=1 host=ilo.org
+   EIDS ev_187
+   REP To assess the potential impact on existing employment from generative AI, we apply the scores of occupational exposure to generative AI to labour force survey data for more than 140 countries.
+#053 cc=1 mc=1 host=continuumlabs.ai
+   EIDS ev_943
+   REP Experimental Evidence on the Productivity Effects of Generative Artificial Intelligence ### **Abstract and Introduction** * The study investigates how ChatGPT affects productivity in professional writing tasks.
+#054 cc=1 mc=1 host=brookings.edu
+   EIDS ev_1098
+   REP Correspondingly, AI-investing firms have experienced a 0.8% decrease in the share of middle managers (i.e., team leads or managers with a cluster of teams under them) and a 0.7% decrease in the share of senior management (i.e., division heads and firm-level management including the C-Suite).
+#055 cc=1 mc=3 host=stthomas.edu
+   EIDS ev_036 | ev_1036 | ev_1174
+   REP According to a recent Goldman Sachs analysis, generative AI has the potential to automate up to 300 million full-time jobs in the U.S.
+#056 cc=1 mc=1 host=squarespace.com
+   EIDS ev_1200
+   REP Future data and developments in AI technology could lead to a significant change [...] for 784 detailed occupational categories that are aggregated in Table 1.
+#057 cc=1 mc=1 host=congress.gov
+   EIDS ev_027
+   REP Updated April 1, 2025 # The Macroeconomic Effects of Artificial Intelligence While various forms of artificial intelligence (AI) technologies have existed and been used for decades, the recent popularization of AI products such as ChatGPT have spurred further research and debate about how these tech
+#058 cc=1 mc=1 host=bls.gov
+   EIDS ev_497
+   REP This assumption is part of the overall labor force and macroeconomic components of the projections model, which projects total employment growth of 3.1 percent from 2024 to 2034.
+#059 cc=1 mc=1 host=bls.gov
+   EIDS ev_1051
+   REP An official website of the United States government Crossref 0 Total employment is projected to grow 3.1 percent between 2024 and 2034, increasing from 170.0 million to 175.2 million, for a total of 5.2 million additional new jobs.
+#060 cc=1 mc=3 host=worldbank.org
+   EIDS ev_1018 | ev_1153 | ev_001
+   REP Policy Research Working Paper 11263 Labor Demand in the Age of Generative AI Early Evidence from the U.S.
+#061 cc=1 mc=1 host=andershumlum.com
+   EIDS ev_894
+   REP 1.4 Register Data We use several administrative registers at Statistics Denmark.
+#062 cc=1 mc=2 host=oecd.org
+   EIDS ev_045 | ev_1049
+   REP A core question addressed in this chapter is to what extent AI leads to wage changes (Section[4.1](https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-job-quality-and-inclusiveness_a713d0ad.html#section-d1e13390-2c68c48340)).
+#063 cc=1 mc=1 host=bls.gov
+   EIDS ev_308
+   REP Conduct research to support a legal proceeding, to formulate a defense, or to initiate legal action.
+#064 cc=1 mc=1 host=voxdev.org
+   EIDS ev_146
+   REP We estimate that a one-standard-deviation increase in AI adoption in 2019—equivalent to 0.18 percentage points, comparable to the difference between Boston, Massachusetts, and Portland, Oregon—was associated with a 0.4 percentage point decline in the share of HELC vacancies between 2019 and 2023.
+#065 cc=1 mc=1 host=oecd.org
+   EIDS ev_179
+   REP The theory of how AI will automate and complement labour, combined with measures of AI exposure, form the basis for the empirical evidence of the employment effect of AI (Section 3.1).
+#066 cc=1 mc=1 host=brookings.edu
+   EIDS ev_133
+   REP Over the past few years, generative artificial intelligence (AI) and large language models (LLMs) have become some of the most rapidly adopted technologies in history.
+#067 cc=1 mc=1 host=punku.ai
+   EIDS ev_891
+   REP The Foundational AI Exposure Study: 80% of the Workforce Will Feel LLM Impact Key Takeaways The most-cited AI labor market study reveals a counterintuitive finding: 80% of the U.S.
+#068 cc=1 mc=1 host=ilo.org
+   EIDS ev_492
+   REP Linking our [...]  | **Share in 2-digits** | **Count of 3-digits** | **Share in 3-digits** | **Count of 4-digits** | **Share in 4-digits** | **Count of 6-digits** | **Share in 6-digits** | **Count of 6-digit tasks** | **Share in 6-digit tasks** | | 1 | Managers | 4 | 10.0% | 11 | 8.7% | 30 | 7.1% | 
+#069 cc=1 mc=2 host=econstor.eu
+   EIDS ev_1025 | ev_1166
+   REP Content uploaded by Oren Reshef Author content All content in this area was uploaded by Oren Reshef on Aug 18, 2025 Content may be subject to copyright.
+#070 cc=1 mc=1 host=arxiv.org
+   EIDS ev_213
+   REP We set the threshold of the similarity score to 0.95 to match strings with very high degree of similarity.
+#071 cc=1 mc=1 host=harvard.edu
+   EIDS ev_192
+   REP It urges organizations not to replace entry-level jobs with generative AI, but to rethink these roles, re-dignify them, and understand how important they are to young professionals’ development.
+#072 cc=1 mc=1 host=oecd.org
+   EIDS ev_1057
+   REP Andrew Green OECD Employment Outlook 2023 Artificial Intelligence and the Labour Market 3.
+#073 cc=1 mc=2 host=equitablegrowth.org
+   EIDS ev_035 | ev_1157
+   REP The exposure score for computer programmers, for example, is 1.272, while the exposure score for manicurists and pedicurists is 0.034.
+#074 cc=1 mc=1 host=ijeret.org
+   EIDS ev_925
+   REP Irrespective of the digital transformation, most frontline positions are still not sufficiently served by intelligent decision-support systems which can adjust to the real time.
+#075 cc=1 mc=1 host=arxiv.org
+   EIDS ev_950
+   REP Keywords: Generative AI, Science Productivity, Science Quality, Technology Adoption JEL Codes: O33, I23, J24 1 Introduction ChatGPT was launched in late November 2022 and, by reaching over 100 million users within two months, became the first Generative AI (GenAI) tool to achieve mass adoption.
+#076 cc=1 mc=1 host=weforum.org
+   EIDS ev_018
+   REP GenAI and job augmentation 1.1 7 GenAI: Example of a more exposed and less exposed job FIGURE 0 1 Source World Economic Forum, Jobs of Tomorrow: Large Language Models and Jobs, 2023.
+#077 cc=1 mc=1 host=nih.gov
+   EIDS ev_034
+   REP Results indicate that even a moderate increase in the AI-capital-to-labour ratio could increase labour underutilisation to double its current level, decrease per capita disposable income by 26% (95% interval, 20.6–31.8%), and decrease the consumption index by 21% (95% interval, 13.6–28.3%) by mid-20
+#078 cc=1 mc=1 host=econstor.eu
+   EIDS ev_922
+   REP Productivity growth mismeasurement Years since AI adoption -1.75% 0.25% 0.00% -0.25% -0.50% -0.75% -1.00% -1.25% -1.50% 40 30 20 10 0 Figure 2 19 The Reporter | No.
+#079 cc=1 mc=1 host=iedconline.org
+   EIDS ev_006
+   REP According to the World Economic Forum, AI and automation are predicted to contribute 69 million new jobs worldwide by 2028.1 These new roles often require skills in areas such as creative thinking, data analysis, machine learning, and AI development, highlighting the importance of upskilling and res
+#080 cc=1 mc=1 host=mdpi.com
+   EIDS ev_060
+   REP No longer confined to research labs or niche applications, GenAI [[1](https://www.mdpi.com/1999-4893/18/9/554#B1-algorithms-18-00554),[2](https://www.mdpi.com/1999-4893/18/9/554#B2-algorithms-18-00554),[3](https://www.mdpi.com/1999-4893/18/9/554#B3-algorithms-18-00554),[4](https://www.mdpi.com/1999-
+#081 cc=1 mc=2 host=mit.edu
+   EIDS ev_941 | ev_931
+   REP Prior to treatment, about 70% of our participants had heard of ChatGPT and 30% had used it before.
+#082 cc=1 mc=1 host=edu.ar
+   EIDS ev_147
+   REP 343 Dicimebre, 2024 (Actualizado Enero 2026) www.cedlas.econo.unlp.edu.ar Cita sugerida: Cruces, G., V.
+#083 cc=1 mc=1 host=mit.edu
+   EIDS ev_019
+   REP A[new study](https://www.nber.org/papers/w33509) co-authored by MIT Sloan associate professor found that when AI can perform most of the tasks that make up a particular job, the share of people in that role within a company falls by about 14%.
+#084 cc=1 mc=3 host=laweconcenter.org
+   EIDS ev_1012 | ev_1151 | ev_002
+   REP By late 2024, nearly 40% of U.S.
+#085 cc=1 mc=1 host=bcg.com
+   EIDS ev_534
+   REP This makes it a natural for customer service operations; indeed, we estimate that the technology, once implemented at scale, could increase productivity by 30% to 50%—or more.
+#086 cc=1 mc=1 host=worldbank.org
+   EIDS ev_940
+   REP Faculty have mustered [...] Quality Introduction Estimation &amp; Results HC Effects Adjustment Extras References Data Effect of AI Availability on Student Grades Baseline DID PS Matching DID Dependent Variable: Grade (0-100) (1) (2) (3) (4) (5) (6) Before: 2018-2019*AI-compatible 0.682 0.375 0.362 
+#087 cc=1 mc=1 host=cepr.org
+   EIDS ev_157
+   REP The speed and scale of AI uptake can be captured by a simple fact: it took ChatGPT just 60 days to reach its 100 millionth user; in contrast, Instagram took two years to reach the same milestone.
+#088 cc=1 mc=1 host=chicagobooth.edu
+   EIDS ev_114
+   REP They note that, by comparison, TikTok took nine months to reach 100 million monthly users, and Instagram about 2.5 years.
+#089 cc=1 mc=1 host=jpmorgan.com
+   EIDS ev_042
+   REP For starters, the unemployment rate among college graduates has increased, reaching 5.8% in March — the highest in more than four years.
+#090 cc=1 mc=1 host=tandfonline.com
+   EIDS ev_454
+   REP The recent studies that tried to identify the [...]  The finding from the literature reviewed and software testing website led to identifying seven TCQ factors, documentation quality, management quality, maintainability, &gt; Barraood et al., Cogent Engineering (2022), 9: 2082121 &gt; https://doi.or
+#091 cc=1 mc=1 host=github.io
+   EIDS ev_062
+   REP Mann This version: March 18, 2026 First version: August 16, 2025 Please click here for the latest version.
+#092 cc=1 mc=1 host=substack.com
+   EIDS ev_165
+   REP They estimate unemployment will increase by half a percentage point during the AI transition period as displaced workers seek new positions and, if current AI use cases were expanded across the economy, 2.5% of [...] creates new jobs, and increases output and demand.
+#093 cc=1 mc=2 host=service.gov.uk
+   EIDS ev_085 | ev_1110
+   REP The latest ONS data for Q4 2019 show a higher UK employment rate for 16-64 year olds (76.5%) than at any point in that historical period.
+#094 cc=1 mc=1 host=epi.org
+   EIDS ev_054
+   REP It is important to get the facts and analysis right on the questions of why labor markets have not delivered enough jobs or acceptable wage growth, and what the real threats are to decent jobs in the [...] decades have seen historically slow productivity growth: Average annualized change in each com
+#095 cc=1 mc=1 host=imf.org
+   EIDS ev_148
+   REP Cazzaniga and others (2024) assume that the AI shocks would reduce the labor share by 5.5 percentage points based on the historical change observed in the United Kingdom between 1980 and 2014.
+#096 cc=1 mc=2 host=imf.org
+   EIDS ev_1078 | ev_1193
+   REP Decomposing Climate Risks in Stock Markets Yuanchen Yang, Chengyu Huang, Yuchen Zhang WP/23/141 IMF Working Papers describe research in progress by the author(s) and are published to elicit comments and to encourage debate.
+#097 cc=1 mc=1 host=oecd.org
+   EIDS ev_079
+   REP Industry, business and entrepreneurship 14.
+#098 cc=1 mc=1 host=emerald.com
+   EIDS ev_970
+   REP The study reveals that 32.8% of occupations could be fully impacted by ChatGPT, while 36.5% might experience a partial impact and 30.7% are likely to remain unaffected.
+#099 cc=1 mc=1 host=imf.org
+   EIDS ev_156
+   REP 5 There is heterogeneity behind average figures.
+#100 cc=1 mc=1 host=mdpi.com
+   EIDS ev_205
+   REP Introduction Artificial intelligence (AI) has entered a transformative phase in which models not only classify data but also generate novel content across multiple modalities.
+#101 cc=1 mc=1 host=yipinstitute.org
+   EIDS ev_105
+   REP A joint analysis by the Brookings Institution and the Stanford Digital Economy Lab finds that over 30 percent of U.S.
+#102 cc=1 mc=1 host=ilo.org
+   EIDS ev_965
+   REP Using data from skills surveys, the article demonstrates that workers in developing countries perform substantially fewer non-routine analytical tasks—the primary [...] empirical findings, and Section 4 concludes with a brief discussion.
+#103 cc=1 mc=1 host=stlouisfed.org
+   EIDS ev_1006
+   REP A third of workers who use the technology every day reported time savings of at least four hours in a work week, while only about 1 in 10 workers [...] Frequency of Generative AI Use for Work in Previous Week Bar chart with 4 data series.
+#104 cc=1 mc=1 host=pressbooks.pub
+   EIDS ev_137
+   REP One major study estimates that globally, generative AI could unlock between 2.6 and 4.4 trillion US dollars in extra productivity every year (Chui et al., 2023).
+#105 cc=1 mc=1 host=nih.gov
+   EIDS ev_975
+   REP The potential impact of AI innovations on US occupations Abstract An occupation is comprised of interconnected tasks, and it is these tasks, not occupations themselves, that are affected by Artificial Intelligence (AI).
+#106 cc=1 mc=1 host=transdisciplinaryjournal.com
+   EIDS ev_201
+   REP The primary objective was to explore how AI-driven technologies are reshaping workforce dynamics, influencing skill requirements, and creating both challenges and opportunities across industries.
+#107 cc=1 mc=1 host=repec.org
+   EIDS ev_971
+   REP Of the noncognitive abilities required for accountants and auditors, 90.6% are sensory abilities, while for mathematical technicians, only 52.6% are sensory abilities.
+#108 cc=1 mc=1 host=stjohns.edu
+   EIDS ev_108
+   REP Heard enough about artificial intelligence (AI) lately?
+#109 cc=1 mc=1 host=re.kr
+   EIDS ev_154
+   REP Through an analysis that merges expert assessments of AI capabilities with the skill profiles of occupations in Korea, it is found that, as of 2023, 38.8% of current jobs are at risk of having over 70% of their tasks automated.
+#110 cc=1 mc=1 host=cbsnews.com
+   EIDS ev_104
+   REP By [Megan Cerullo Reporter, MoneyWatch](https://www.cbsnews.com/team/megan-cerullo/) Megan Cerullo is a New York-based reporter for CBS MoneyWatch covering small business, workplace, health care, consumer spending and personal finance topics.
+#111 cc=1 mc=1 host=caixabankresearch.com
+   EIDS ev_005
+   REP In some cases, it refers to time savings, while in others it refers to increases in production within the same time interval.
+#112 cc=1 mc=1 host=goldmansachs.com
+   EIDS ev_170
+   REP In Briggs’ base case, the timeline for firms to adopt AI on a wide scale is around 10 years, and 6-7% of workers will be displaced during that transition period.
+#113 cc=1 mc=1 host=medium.com
+   EIDS ev_051
+   REP The [...] underutilization to double its current level, decrease per capita disposable income by 26%, and decrease the consumption index by 21% by mid-2050.
+#114 cc=1 mc=1 host=bls.gov
+   EIDS ev_182
+   REP Over the 2023–33 employment projections period, AI is expected to primarily affect occupations whose core tasks can be most easily replicated by Generative AI in its current form.
+#115 cc=1 mc=1 host=preprints.org
+   EIDS ev_174
+   REP Review Not peer-reviewed version # The Transformative Impact of Artificial # Intelligence on US Labor Markets: # Workforce Disruption, Skill Evolution, # and the Emergence of Prompt # Engineering Satyadhar Joshi * Posted Date: 10 October 2025 doi: 10.20944/preprints202510.0671.v1 Keywords: artificia
+#116 cc=1 mc=3 host=stlouisfed.org
+   EIDS ev_017 | ev_1042 | ev_1180
+   REP 13 [blog post](https://www.stlouisfed.org/on-the-economy/2025/nov/state-generative-ai-adoption-2025)for 2025 survey results and for revised 2024 survey results because of a change in the sequencing of survey questions._ Generative artificial intelligence (AI) has rapidly emerged as a potentially imp
+#117 cc=1 mc=1 host=worldbank.org
+   EIDS ev_039
+   REP The findings show that the number of postings for occupations with above-median artificial intelligence substitution scores fell by an average of 12 percent relative to those with below-median scores.
+#118 cc=1 mc=1 host=intereconomics.eu
+   EIDS ev_1008
+   REP Technological optimists have been predicting the artificial intelligence (AI) revolution since the beginning of the past decade.
+#119 cc=1 mc=1 host=bc.edu
+   EIDS ev_094
+   REP Furthermore, [the impact may also differ across countries](https://www.elibrary.imf.org/view/journals/001/2023/216/001.2023.issue-216-en.xml?cid=539656-com-dsp-crossref).
+#120 cc=1 mc=1 host=ilo.org
+   EIDS ev_499
+   REP Generative AI and Jobs: A Refined Global Index of Occupational Exposure, ILO Working Paper 140 (Geneva, ILO).
+#121 cc=1 mc=1 host=arxiv.org
+   EIDS ev_1000
+   REP Based on last name identification, it has been found that among publications in the top one hundred AI journals and conferences, the proportion of authors with Chinese names nearly doubled from 23.2 percent in 2006 to 42.8 percent in 2015 (Lee and Shehan 2018).
+#122 cc=1 mc=1 host=uni-muenchen.de
+   EIDS ev_203
+   REP Additionally, [26] estimates a $0.5 - 0.6\%$ boost to labor productivity at the macro level due to AI adoption.
+#123 cc=1 mc=1 host=ssrn.com
+   EIDS ev_927
+   REP The Effects of Generative AI on High-Skilled Work: Evidence from Three Field Experiments with Software Developers 38 Pages Posted: 5 Sep 2024 Last revised: 21 Aug 2025 Date Written: August 20, 2025 Abstract This study evaluates the effect of generative AI on software developer productivity via rando
+#124 cc=1 mc=1 host=nih.gov
+   EIDS ev_180
+   REP AI and the Future of Work: Assessing Occupational Social Status Perceptions Among University Students Artificial intelligence (AI) is profoundly reshaping labor market structures and occupational value evaluation systems.
+#125 cc=1 mc=1 host=newyorkfed.org
+   EIDS ev_134
+   REP However, a former Chair for Mensa International reports that ChatGPT has obtained an IQ score of 147 (99.9th percentile) on a verbal-linguistic IQ test (Thompson, 2023).
+#126 cc=1 mc=1 host=ec.europa.eu
+   EIDS ev_214
+   REP The adoption rate of 8% among EU businesses in the Eurostat 2023 survey hides substantial differences across individual MS, ranging from 1.5% in RO to 15% in DK (Figure 2.2.1 ).
+#127 cc=2 mc=2 host=ac.uk|squarespace.com
+   EIDS ev_952 | ev_949
+   REP 10 , eadn5290 (2024) 12 July 2024 ScienceADvAnceS | ReSeARcHARticle &gt; 1 of 9 COMPUTERSCIENCE # Generative AI enhances individual creativity but reduces the collective diversity of novel content Anil R.
+#128 cc=1 mc=2 host=anthropic.com
+   EIDS ev_047 | ev_1112
+   REP Eloundou et al.’s metric, β, scores tasks on a simple scale: 1 if a task can be doubled in speed by an LLM alone, 0.5 if it requires additional tools or software built on top of the LLM, and 0 otherwise.4 Why might actual usage fall short of theoretical capability?
+#129 cc=1 mc=1 host=cbo.gov
+   EIDS ev_143
+   REP Artificial intelligence (AI) refers to computer systems that can perform tasks that have traditionally required human intelligence, such as learning and performing other activities that require cognitive ability.
+#130 cc=1 mc=2 host=squarespace.com
+   EIDS ev_190 | ev_1058
+   REP Compounded, TFP and GDP levels are 1.5% higher by 2035, nearly 3% by 2055, and 3.7% by 2075, meaning that AI leads to a permanent increase in the level of economic activity.
+#131 cc=1 mc=1 host=springer.com
+   EIDS ev_689
+   REP Impact and cost–benefit analysis: a unifying approach Pasquale Lucio Scandizzo* 1 Background A social accounting matrix (SAM) is an analytical construct that brings together the material input output matrix originally conceived by Leontief, with a consistent frame- work of transactions across produc
+#132 cc=1 mc=1 host=mdpi.com
+   EIDS ev_657
+   REP A Bibliometric Mapping of Cost-Benefit Analysis—Three Decades of Studies Abstract 1.
+#133 cc=1 mc=1 host=iza.org
+   EIDS ev_217
+   REP Employees’ distrust of [...] economies are likely to experience more significant effects from AI automation than emerging markets, due to differences in labor market composition and industrial structures [[9]](izawol.514.ref9), [[10]](izawol.514.ref10).
+#134 cc=1 mc=1 host=naceweb.org
+   EIDS ev_107
+   REP Artificial intelligence (AI) is reshaping the workplace, but one of its most important implications remains unclear: What does AI mean for early-career jobs?
+#135 cc=1 mc=1 host=equitablegrowth.org
+   EIDS ev_025
+   REP During the first half of 2025, half of the country’s reported GDP growth, [1.2 percent,](https://apps.bea.gov/itable/?ReqID=70&amp;step=1&amp;_gl=1*1g8mh83*_ga*OTAwMTYxMzkxLjE3MTUyNjM3NTk.*_ga_J4698JNNFT*MTczODY4NjMyMy4xNjUuMS4xNzM4Njg2MzQ0LjM5LjAuMA..#eyJhcHBpZCI6NzAsInN0ZXBzIjpbMSwyOSwyNSwzMSwyNiw
+#136 cc=1 mc=1 host=cepr.org
+   EIDS ev_978
+   REP CEPR Press, Paris &amp; London.
+#137 cc=1 mc=1 host=cbreim.com
+   EIDS ev_957
+   REP Investing at the Intersection February 5, 2026 10 Minute Read Time Generative Artificial Intelligence (Gen AI) is the latest transformative force to redefine the landscape of U.S.
+#138 cc=1 mc=1 host=tandfonline.com
+   EIDS ev_1209
+   REP CONTACT Annemette Kjærgaard amk.msc@cbs.dk Department of Management, Society and Communication, Copen-hagen Business School, Dalgas Have 15, 2000 Frederiksberg, Denmark Supplemental data for this article can be accessed online at https://doi.org/10.1080/03075079.2023.2233007.
+#139 cc=1 mc=1 host=aeaweb.org
+   EIDS ev_063
+   REP Chen 1, Joanna Wang 2 December 2024 Abstract This paper studies the effects of Artificial Intelligence (AI) innovation on firm-level employment dynamics and corporate valuation.
+#140 cc=1 mc=1 host=abacademies.org
+   EIDS ev_033
+   REP To better understand these changes, we systematically reviewed 432 research studies published since 2018, focusing closely on the 154 most relevant works.
+#141 cc=1 mc=1 host=mdpi.com
+   EIDS ev_1249
+   REP Du Plessis 4[ ](https://orcid.org/0000-0001-5895-7102) 1 Department of Land and Spatial Sciences, Namibia University of Science and Technology, Windhoek 9000, Namibia 2 Department of Economic and Business Sciences, Walter Sisulu University, Mthatha 5100, South Africa 3 Harold Pupkewitz Graduate Scho
+#142 cc=1 mc=1 host=cornell.edu
+   EIDS ev_139
+   REP Data Privacy and Protection: For data that researchers enter into GenAI themselves, it is important that researchers follow Cornell Policy 4.21 on Research Data Retention.
+#143 cc=1 mc=1 host=aeaweb.org
+   EIDS ev_055
+   REP 1 Will Generative AI Bring Change: Technological Disruption and Redistribution in the USA?
+#144 cc=1 mc=1 host=institute.global
+   EIDS ev_074
+   REP From the dawn of the agricultural revolution to the digital age, each wave of innovation has redefined the structure, nature and dynamics of labour markets.
+#145 cc=1 mc=1 host=jff.org
+   EIDS ev_204
+   REP In 2023, we set a bold new goal: by 2033, 75 million people facing barriers to economic advancement will have quality jobs.
+#146 cc=1 mc=1 host=weforum.org
+   EIDS ev_100
+   REP Artificial Intelligence and the Future of Entry-Level Work: A Framework for Safeguarding and Reinventing Early Career Pathways INSIGHTREPORTJUNE 2 0 2 6 In collaboration with PwC Contents Cover: Accurat, Images: Pexels Disclaimer This document is published by the World Economic Forum as a contributi
+#147 cc=1 mc=1 host=imf.org
+   EIDS ev_289
+   REP Prepared by Mariarosaria Comunale and Andrea Manera Authorized for distribution by Chris Papageorgiou March 2024 IMF Working Papers describe research in progress by the author(s) and are published to elicit comments and to encourage debate.
+#148 cc=1 mc=1 host=aimultiple.com
+   EIDS ev_176
+   REP 90% of all white-collar roles I have seen can be automated today with the right agent harness.
+#149 cc=1 mc=1 host=bls.gov
+   EIDS ev_356
+   REP New computing capacities—in areas such as image recognition, robotic manipulation, text processing, natural-language processing, and pattern recognition, and, more generally, the ability to learn and improve rapidly in relatively [...] implications of computers and automation.[3](https://www.bls.gov
+#150 cc=1 mc=1 host=unric.org
+   EIDS ev_090
+   REP A joint [study](https://www.ilo.org/sites/default/files/2025-05/WP140_web.pdf) by the _International Labour Organization_ and _Poland’s National Research Institute_ found that 3.5% of men’s jobs in high-income countries, **defined by the**[World Bank’s income](https://ourworldindata.org/grapher/worl
+#151 cc=1 mc=1 host=bnpparibas.com
+   EIDS ev_1020
+   REP This economic literature review[1] is both a practical exercise (it was written using generative artificial intelligence tools) and an analytical exercise, as it provides an update on the effects of this technology based on two complementary areas: productivity and growth, as well as employment and 
+#152 cc=1 mc=1 host=nih.gov
+   EIDS ev_951
+   REP The 2024 Microsoft Work Trend Index reports that over 90% of employees in China [...] tools.
+#153 cc=1 mc=1 host=nih.gov
+   EIDS ev_102
+   REP For instance, Germany's Industry 4.0 aims to create smart manufacturing, Japan's Society 5.0 emphasises the use of AI to serve human beings and the United Kingdom's New Deal for the Artificial Intelligence Sector plans AI development from multiple perspectives to reshape the global industrial divisi
+#154 cc=1 mc=1 host=stlouisfed.org
+   EIDS ev_782
+   REP Our survey found that in August 2024, 44.6% of adults ages 18 to 64 used generative AI [...] occupation, which will be updated on a quarterly basis.
+#155 cc=1 mc=1 host=or.kr
+   EIDS ev_209
+   REP Predicted Non-manipulated Manipulated Actual non-manipulated 34 16 manipulated 32 18 Note: Accuracy = 52%, Precision = 66.7%, Recall = 51.5% ManipulatEd Reviews Detection by Human Dimension of Trustworthy AI Description Fair (Impartial) Assess whether AI systems include internal and external checks 
+#156 cc=1 mc=1 host=nih.gov
+   EIDS ev_211
+   REP The hypotheses were rigorously tested through Structural Equation Modeling (SEM) using the SmartPLS 4.
+#157 cc=1 mc=1 host=nih.gov
+   EIDS ev_119
+   REP It adapts the AI occupational impact measure developed by Felten, Raj and Seamans—an indicator measuring the degree to which occupations rely on abilities in which AI has made the most progress—and extends it to 23 OECD countries.
+#158 cc=1 mc=1 host=springer.com
+   EIDS ev_1237
+   REP Jo International Journal of Educational Technology in Higher Education (2024) 21:35 https://doi.org/10.1186/s41239-024-00471-4 *Correspondence: Hyeon Jo sineoriz@gmail.com 1Headquarters, HJ Institute of Technology and Management, Jungdong-ro 71 39, Bucheon-si, Gyeonggi-do 14721, Republic of Korea Fr
+#159 cc=1 mc=1 host=ilo.org
+   EIDS ev_220
+   REP Studies of earnings of online platform workers in the US that perform this work, regularly report median earnings of roughly $2 -$3 per hour, or well below the federal minimum wage of US $7.25 [14];[11].
+#160 cc=1 mc=2 host=bls.gov
+   EIDS ev_491 | ev_1021
+   REP For example, in the United States, productivity grew at a rate of 2.8% on an annual average basis between 1947 and 1973, but since then, it has been much slower, with the exception of the 2000 to 2007 period.
+#161 cc=1 mc=2 host=bnpparibas.com
+   EIDS ev_012 | ev_1168
+   REP In the first scenario, global TFP grows by 2.4% in ten years, leading to a 4% increase in global GDP compared with the trajectory without AI.
+#162 cc=1 mc=1 host=clevelandfed.org
+   EIDS ev_505
+   REP In contrast, affordable MSAs—the ones at the bottom tercile of the 1980 rent index distribution—faced just a 2.3 percentage point decline in the share of clerical jobs.
+#163 cc=1 mc=1 host=weforum.org
+   EIDS ev_096
+   REP Expected impact of macrotrends on business transformation Future of Jobs Report 2025 January 2025 1 1.1 Share of employers surveyed (%) 0 40 60 80 100 20 Macrotrends driving business transformation FIGURE 1 .
+#164 cc=1 mc=1 host=weforum.org
+   EIDS ev_1096
+   REP The Future of Jobs Survey asked employers how advances in nine key technologies are transforming Future of Jobs Report 2025 10 Share of employers surveyed (%) 0 40 60 80 100 20 Technology trends driving business transformation, 2025-2030 FIGUR [...] it as though they were conversing with a human, co
+#165 cc=1 mc=1 host=knightcolumbia.org
+   EIDS ev_1252
+   REP But, because most people used it infrequently, this only translated to 0.5%-3.5% of work hours (and a 0.125-0.875 percentage point increase in labor productivity).
+#166 cc=1 mc=1 host=rand.org
+   EIDS ev_1005
+   REP For example, Goldman Sachs (2023) forecasts a 7 percent increase in global gross domestic product (GDP) over a ten-year period (annual growth of 0.67 percent), and Davidson (2021) suggests even larger economic growth projections, reaching up to 30 percent annually.
+#167 cc=1 mc=1 host=nber.org
+   EIDS ev_999
+   REP If it does so perma-nently, growth proceeds as in Section 2.1.
+#168 cc=1 mc=1 host=federalreserve.gov
+   EIDS ev_944
+   REP one recent study estimated that AI could contribute between 0.3 and 0.9 of a percentage point to annual total factor produc
+#169 cc=1 mc=1 host=ilo.org
+   EIDS ev_151
+   REP Estimates of the contribution of AI-enabled innovations to global gross domestic product (GDP) range from $7 trillion over the next 10 years3 to between $2.6 trillion and $4.4 trillion annually.4 Even an intentionally conservative estimate puts it at closer to 1 per cent of projected global GDP grow
+#170 cc=1 mc=1 host=oecd.org
+   EIDS ev_1213
+   REP For example, Goldman Sachs produced research estimating that generative AI t ools ha d the potential to add 7% to GDP over the next 10 years , which equates to around USD 7 trillion, while also raising productivity growth by 1.5 percentage points.
+#171 cc=1 mc=1 host=statcan.gc.ca
+   EIDS ev_962
+   REP Results from the 2016 and 2021 censuses of population suggest that, on average, about 60% of employees in Canada could be exposed to AI-related job transformation, and about half of this group are in jobs that may be highly complementary with AI.
+#172 cc=1 mc=1 host=stanford.edu
+   EIDS ev_832
+   REP 39 Rishi Bommasani et al., On the Opportunities and Risks of Foundation Models, arXiv 109 (July 12, 2022), https://arxiv.org/abs/2108.07258 [https://perma.cc/S3GK-EZPG] (“High-stakes applications .
+#173 cc=1 mc=1 host=customerexperiencedive.com
+   EIDS ev_527
+   REP Service innovators — defined as companies whose performance on factors like service quality and agent attrition rate ranked in the top 25% — are 4.6 times more likely to report excellent customer satisfaction and 2.5 times more likely to report excellent employee satisfaction, Deloitte Digital found
+#174 cc=1 mc=1 host=aeaweb.org
+   EIDS ev_977
+   REP 1 Applications of Generative AI in Economic Research The landscape of generative artificial intelligence (AI) has evolved rapidly since the publication of the original version of this article in the Journal of Economic Literature (Korinek 2023b).
+#175 cc=1 mc=1 host=sciencedirect.com
+   EIDS ev_807
+   REP Results This section discusses the results of the analysis.
+#176 cc=1 mc=1 host=federalreserve.gov
+   EIDS ev_802
+   REP Business survey data from the Census Bureau show that about 18 percent of firms have adopted AI as of year-end 2025.
+#177 cc=1 mc=1 host=treasury.gov
+   EIDS ev_963
+   REP 8 Table 1: Descriptive Statistics of Demographic and Socioeconomic Variation in AI Exposure Percent Highly Exposed Overall 25.4 Age &lt;25 18.3 25-34 26.8 34-44 25.8 44-54 25.8 55-64 27.1 65+ 28.3 Race/Ethnicity White, Non-Hispanic 27.4 Black, Non-Hispanic 21.3 Asian, Non-Hispanic 32.3 Other, Non-Hi
+#178 cc=1 mc=1 host=nber.org
+   EIDS ev_982
+   REP However, a former Chairman for Mensa International reports that ChatGPT has a tested IQ of 147 (99.9th percentile) on a verbal-linguistic IQ test (Thompson, 2023).
+#179 cc=1 mc=1 host=nber.org
+   EIDS ev_991
+   REP For example, Acemoglu (2024) estimated that the growth eff ects of generative AI will be only 0.07% per year over the coming decade.
+#180 cc=1 mc=1 host=mdpi.com
+   EIDS ev_221
+   REP Introduction Artificial intelligence (AI) paradigms are generally classified into Symbolic AI and Connectionist/Statistical AI.
+#181 cc=1 mc=1 host=philiptrammell.com
+   EIDS ev_995
+   REP 1 1 Introduction Recent advances in [...] allow capital to become a close enough substitute for labor to drive growth on its own.
+#182 cc=1 mc=1 host=reveliolabs.com
+   EIDS ev_194
+   REP Controlling for industry and time trends, a 10 percentage point increase in AI exposure is associated with an 11% drop in demand for entry-level roles.
+#183 cc=1 mc=1 host=innopharmaeducation.com
+   EIDS ev_087
+   REP Artificial Intelligence (AI) is changing the job market, creating new types of jobs while automating routine tasks.
+#184 cc=1 mc=1 host=nber.org
+   EIDS ev_994
+   REP Vibe-coding offers a new paradigm for any research tasks that benefit from computer code.
+#185 cc=1 mc=1 host=congress.gov
+   EIDS ev_216
+   REP According to the Census Business Trends and Outlook Survey (BTOS), the number of businesses using AI rose from 3.7% in September 2023 to 5.4% in February 2024.
+#186 cc=1 mc=1 host=mdpi.com
+   EIDS ev_586
+   REP A Russian online payment company called Xsolla also removed 150 workers in August 2021 due to inefficiencies and attitude issues based on an algorithmically determined “digital footprint”.
+#187 cc=1 mc=1 host=nih.gov
+   EIDS ev_099
+   REP The implications of the [...] the questionnaire was refined and reduced to 15 items to enhance clarity, internal coherence, and alignment with the study’s objectives.
+#188 cc=1 mc=1 host=nih.gov
+   EIDS ev_600
+   REP Similarly, the average coauthorship and the collaboration index, which are 3.29 and 3.34, respectively, conform to the average in related categories such as artificial intelligence or informetrics, as reported in.
+#189 cc=1 mc=1 host=congress.gov
+   EIDS ev_1105
+   REP For one, the unemployment rate also declined considerably over this period (from 9.8% in January 2010 to 3.5% in January 2020), indicating that the labor market was become increasingly competitive.
+#190 cc=1 mc=1 host=archives.gov
+   EIDS ev_836
+   REP For example, on a popular image recognition challenge6 that has a 5 percent human error rate according to one error measure, the best AI result improved from a 26 percent error rate in 2011 to 3.5 percent in 2015.
+#191 cc=1 mc=1 host=oajaiml.com
+   EIDS ev_064
+   REP Recent bibliometric data show an annual growth rate of 23% in related research since 2022, a trend that is in sync with the rise of generative AI technologies.
+#192 cc=1 mc=1 host=weforum.org
+   EIDS ev_793
+   REP 7 Proof over Promise: Insights on Real-World AI Adoption from 2025 MINDS Organizations [...] infrastructure for over 20 financial business domains Over 400,000 users; used daily by 20,000 staff 50,000 person-years of workload handled KPMG and SAP AI copilot for acceleration of enterprise resource pl
+#193 cc=1 mc=1 host=ingentaconnect.com
+   EIDS ev_1253
+   REP AI-assisted Literature Reviews 333 # Julie A.
+#194 cc=1 mc=1 host=arxiv.org
+   EIDS ev_444
+   REP In Perforce’s [[43](https://arxiv.org/html/2504.04921v1#bib.bib43)] industry survey, 48 percent of respondents indicated they were interested in AI but have not yet started any initiatives, and only 11 percent were already implementing AI techniques in software testing.
+#195 cc=1 mc=1 host=academypublication.com
+   EIDS ev_1082
+   REP 7% 12% 18% 46% 17% 10.
+#196 cc=1 mc=1 host=rsisinternational.org
+   EIDS ev_513
+   REP A pilot study with 30 respondents was conducted to assess clarity.
+#197 cc=1 mc=1 host=bls.gov
+   EIDS ev_639
+   REP Median annual wages in 2023 were over $100,000 for 9 of these 21 occupations employing highly skilled writers and readers.
+#198 cc=1 mc=1 host=nih.gov
+   EIDS ev_590
+   REP The analysis of ranking decisions confirmed this tendency: the percentage of suitable resumes ranked in first position when participants received human recommendation (67.03%) was higher than that in the control group (64.2%), but the difference was nonsignificant according to a Chi-squared test (Ch
+#199 cc=1 mc=1 host=ilo.org
+   EIDS ev_381
+   REP Together, they make up over a quarter of the value of the S&amp;P 500 companies and are worth an estimated $7.1 trillion (‘Big Tech’ 2023).
+#200 cc=1 mc=1 host=aeaweb.org
+   EIDS ev_1002
+   REP Google DeepMind has released a signifi - cantly updated version of Gemini 1.5 Pro 002 with a 2 million token context window, making it able to process about 3000 pages of text simultaneously.
+#201 cc=1 mc=1 host=ilo.org
+   EIDS ev_501
+   REP 2016 ISBN 978-92-2-130385-5 (print) ISBN 978-92-2-130386-2 (web pdf) International Labour Office precarious employment / part-time employment / temporary employment / informal employment / labour market / working conditions / international labour standards / role of ILO 13.01.3 ILO Cataloguing in Pu
+#202 cc=1 mc=1 host=enago.com
+   EIDS ev_1222
+   REP Any use of this content for artificial intelligence (AI), machine learning (ML), or similar purposes is [...] enago.tw/ "英文編修、論文翻譯") * [](https://www.enago.com.tr/ "Ingilizce Düzenleme, Düzenleme Hizmeti") * [](https://www.enago.com.br/ "Revisão de Texto, Correção de Texto") * [](https://www.enago.c
+#203 cc=1 mc=1 host=bls.gov
+   EIDS ev_1047
+   REP Article November 2024 Total employment is projected to grow by 4.0 percent and add 6.7 million jobs from 2023 to 2033, increasing from 167.8 million to 174.6 million.
+#204 cc=1 mc=1 host=doi.org
+   EIDS ev_776
+   REP A global study](https://doi.org/jstpm/article/doi/10.1108/JSTPM-06-2025-0255/1381416/How-do-innovation-and-technological-development) ### Email Alerts [Article Activity Alert](javascript:;) [Earlycite Alert](javascript:;) [Closed Issue Alert](javascript:;) [Latest Published Articles Alert](javascrip
+#205 cc=1 mc=1 host=imf.org
+   EIDS ev_960
+   REP We compile many scenarios by [...] Hatzius et al., 2023) envision cumulative GDP gains of above 35 percent for advanced economies and 7 percent globally over a 10-year period, respectively.
+#206 cc=1 mc=1 host=kuey.net
+   EIDS ev_611
+   REP This is an open access article distributed under the Creative Commons Attribution &gt; License which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited # Educational Administration: Theory and Practice 202 3,29 (4), 3008 -3019 ISSN:21
+#207 cc=1 mc=1 host=bls.gov
+   EIDS ev_389
+   REP You could harness creativity to design a product, [...] 300 | 60 | 20,300 | | Technical writers | 49,500 | 5 | 22,600 | | Writers and authors | 129,100 | 64 | 31,800 | | Source: U.S.
+#208 cc=1 mc=1 host=joshwcomeau.com
+   EIDS ev_240
+   REP This sentiment is all over social media right now: ![Image 1: Screenshot of tweet: Anyone who only has a frontend skillset should diversify their skillset immediately because their job won’t exist soon.](https://www.joshwcomeau.com/_next/image/?url=%2Fimages%2Fthe-end-of-frontend-development%2Fno-mo
+#209 cc=1 mc=1 host=preprints.org
+   EIDS ev_058
+   REP 12 Months | 18 Months | Statistical Significance | |---|---|---|---|---|---| | Productivity Index | 100 | 115 | 128 | 142 | | | Error Rate Reduction | 0% | 18% | 32% | 45% | | | Training Completion | 0% | 65% | 82% | 88% | | | Employee Satisfaction | 3.2/5 | 3.8/5 | 4.1/5 | 4.3/5 | | | Cost Savings 
+#210 cc=1 mc=1 host=nih.gov
+   EIDS ev_1099
+   REP World Economic Forum estimates that, by 2025, 50% of all employees will need reskilling due to adopting new technology.
+#211 cc=1 mc=1 host=oecd.org
+   EIDS ev_391
+   REP Cultural and creative employment accounts for up to 1 in 20 jobs in some countries, and up to 1 in 10 in some regions and cities.
+#212 cc=1 mc=1 host=nih.gov
+   EIDS ev_724
+   REP Abstract While precarious employment is not a new concept, it has been brought to the center of scholarly and public discourse worldwide by the unprecedented COVID-19 pandemic.
+#213 cc=1 mc=1 host=openreview.net
+   EIDS ev_1070
+   REP Our evaluation focuses on two critical dimensions: (1) the quality and relevance of cited literature, and (2) the faithfulness and veracity of the statements within the generated reports.
+#214 cc=1 mc=1 host=rand.org
+   EIDS ev_784
+   REP By some estimates, more than 80 percent of AI projects fail—twice the rate of failure for information technology projects that do not involve AI.c Thus, understanding how to translate AI's enormous potential into concrete results remains an urgent challenge.
+#215 cc=1 mc=1 host=gov.uk
+   EIDS ev_758
+   REP In November [...] for Science, Innovation and Technology, 2023.
+#216 cc=1 mc=1 host=paperguide.ai
+   EIDS ev_578
+   REP Looking for research-backed answers?Try AI Search [239 Citations 2020](/papers/75513104-eebe-4c4f-b33b-c7910d2850e7/) Quant GANs: deep generation of financial time series Magnus Wiese, Robert Knobloch, Ralf Korn + 1 more Quantitative Finance Quant GANs is introduced, a data-driven model which is ins
+#217 cc=1 mc=1 host=ppc.land
+   EIDS ev_806
+   REP The 88 percent reporting regular AI use represents a significant jump from 78 percent in McKinsey's 2024 survey.
+#218 cc=1 mc=1 host=ilo.org
+   EIDS ev_399
+   REP For rights of reproduction or translation, application should be made to ILO Publications (Rights and Permissions), International Labour Office, CH-1211 Geneva 22, Switzerland.
+#219 cc=1 mc=1 host=cliffsnotes.com
+   EIDS ev_1092
+   REP Question 2 2/2 Speech output devices are what type of assistive technology for students with visual imp 8/9/2024](https://www.cliffsnotes.com/study-notes [...] Total Score:* 100 points -1.
+#220 cc=1 mc=1 host=arxiv.org
+   EIDS ev_1066
+   REP In a between-subjects experiment (n=393), we examined two types of time constraints for a critical thinking task requiring participants to make a reasoned decision for a real-world scenario based on diverse documents: (1) LLM access timing—an LLM available only at the beginning (early), throughout (
+#221 cc=1 mc=1 host=gov.uk
+   EIDS ev_744
+   REP Thanks to our reputation for pragmatic regulation, the UK is rightly seen by international partners as a leader in this global conversation.
+#222 cc=1 mc=1 host=worldbank.org
+   EIDS ev_659
+   REP Publication: Can Cost-Benefit Analysis Guide Education Policy in Developing Countries?
+#223 cc=1 mc=1 host=mdpi.com
+   EIDS ev_786
+   REP Submission received: 25 December 2022 / Revised: 16 January 2023 / Accepted: 26 January 2023 / Published: 28 January 2023 ## Abstract Digital twin (DT) has gained significant recognition among researchers due to its potential across industries.
+#224 cc=1 mc=1 host=ibm.com
+   EIDS ev_783
+   REP Experience the interactive Multimedia News Release here: [https://www.multivu.com/players/English/9240059-ibm-2023-global-ai-
+#225 cc=1 mc=1 host=fisherphillips.com
+   EIDS ev_610
+   REP A new study reveals that popular AI-based resume screening tools often favor White and male candidates, showing that resumes tied to White-associated names were preferred 85% of the time.
+#226 cc=1 mc=1 host=github.io
+   EIDS ev_467
+   REP The academic views are studied with a systematic literature review while the practitioners views are assessed with a survey, where we received responses from 115 software professionals.
+#227 cc=1 mc=1 host=nih.gov
+   EIDS ev_787
+   REP Big data analytics was the second most popular adopted technology with around 61% adoption rate, and by 2027, global digital transformation spending is forecast to reach USD 3.9 trillion.
+#228 cc=1 mc=1 host=worldbank.org
+   EIDS ev_729
+   REP Minds and Behaviors at Work: Boosting Socioemotional Skills for Latin America’s Workforce ## Publication: Minds and Behaviors at Work: Boosting Socioemotional Skills for Latin America’s Workforce [c b](http://creativecommons.org/licenses/by/3.0/igo/ "CC BY 3.0 IGO") [](mailto:?Subject=Minds%20and%20
+#229 cc=1 mc=1 host=onetonline.org
+   EIDS ev_555
+   REP Develop quantitative techniques to inform securities investing, equities investing, pricing, or valuation of financial instruments.
+#230 cc=1 mc=1 host=mdpi.com
+   EIDS ev_829
+   REP Introduction The global construction industry represents approximately 13% of worldwide gross domestic product (GDP) and demonstrates significant growth potential in terms of productivity [[1](https://www.mdpi.com/2075-5309/15/12/2132#B1-buildings-15-02132)].
+#231 cc=1 mc=1 host=mit.edu
+   EIDS ev_606
+   REP Our approach, by contrast, relied on presenting ten resumes at once to ChatGPT (specifically, version 4.0), thereby mirroring a scenario in which an employer “batch-processes” multiple applicants.
+#232 cc=1 mc=1 host=harvardlawreview.org
+   EIDS ev_742
+   REP It’s no secret that artificial intelligence (AI) has posed a challenge for lawmakers.
+#233 cc=1 mc=1 host=mdpi.com
+   EIDS ev_443
+   REP Introduction The development of computer science and software engineering and the increasing use of artificial intelligence and data mining technologies have led to the development of a wide range of applications that are critical to operations in business, healthcare, and education.
+#234 cc=1 mc=1 host=bls.gov
+   EIDS ev_636
+   REP Household Survey Data Both the unemployment rate, at 4.2 percent, and the number of unemployed people, at 7.1 million, changed little in June.
+#235 cc=1 mc=1 host=medium.com
+   EIDS ev_511
+   REP Bureau of Labor Statistics (BLS), the overall employment of information clerks is [projected](https://www.bls.gov/ooh/office-and-administrative-support/information-clerks.htm#tab-1) to decline by 1% from 2023 to 2033.
+#236 cc=1 mc=1 host=social-connection.org
+   EIDS ev_719
+   REP CLICK, DNP, ND, RN, CWP, MEDICAL DIRECTOR AND ASSOCIATE PROFESSOR, CASE WESTERN RESERVE UNIVERSITY NICOLE ELLISON, PHD, PROFESSOR OF INFORMATION, UNIVERSITY OF MICHIGAN SCHOOL OF INFORMATION SARAH WRIGHT, PHD, ASSOCIATE HEAD OF DEPARTMENT - MANAGEMENT, MARKETING, AND TOURISM, UNIVERSITY OF CANTERBUR
+#237 cc=1 mc=1 host=worldbank.org
+   EIDS ev_570
+   REP A Meta-Analysis of the Literature Margaret Miller Julia Reichelstein Christian Salas Bilal Zia The World Bank Development Research Group Finance and Private Sector Development Team &amp; Financial and Private Sector Development Financial Inclusion and Infrastructure Practice January 2014 Background 
+#238 cc=1 mc=1 host=imf.org
+   EIDS ev_564
+   REP WP/21/164 Finance, Growth, and Inequality Ross Levine IMF Working Papers describe research in progress by the author(s) and are published to elicit comments and to encourage debate.
+#239 cc=1 mc=1 host=cliffsnotes.com
+   EIDS ev_597
+   REP One study focused on the wording of job advertisements that had been placed on Monster.com in the spring of 2002.35 Most ads were found to be extremely positive in nature, but failed to provide information that would help an employer differentiate itself from other organizations.
+#240 cc=1 mc=1 host=amplifai.com
+   EIDS ev_528
+   REP While customer service leadership has shifted attention toward generative AI adoption, the most expensive problems in customer [...] Experiences | | --- | --- | | [20](https://www.qualtrics.com/articles/customer-experience/3-trillion-risk-due-bad-customer-experiences-2026/) | Poor customer experienc
+#241 cc=1 mc=1 host=nih.gov
+   EIDS ev_1169
+   REP Each focus group had 7–10 participants and included 21 men (50%) and 21 women (50%) (Table 1).
+#242 cc=1 mc=1 host=bls.gov
+   EIDS ev_461
+   REP Before sharing sensitive information, make sure you're on a federal government site.
+#243 cc=1 mc=1 host=imf.org
+   EIDS ev_1195
+   REP The number of country-month observations is 7,656.
+#244 cc=1 mc=1 host=worldbank.org
+   EIDS ev_1211
+   REP Ensuring the Adequacy of Education Finance through Domestic Resource Mobilization: The Case of Sierra Leone ## Publication: Ensuring the Adequacy of Education Finance through Domestic Resource Mobilization: The Case of Sierra Leone [c b n](https://creativecommons.org/licenses/by-nc/3.0/igo "CC BY-NC
+#245 cc=1 mc=2 host=sciencedirect.com
+   EIDS ev_1120 | ev_1266
+   REP Gaye, 26 O¨ rjan Gustafsson, 27 Niklas Harring, 28 Cheng He, 29 Sophie Hebden, 3, 30 Adrian Heilemann, 7 Marina Hirota, 31 Nandakumar Janardhanan, 32 Sirkku Juhola, 33 Tae Yong Jung, 34 Jiang Kejun, 35 S‚ iir Kilki ș,36 Nilushi Kumarasinghe, 37, 38 &gt; (Author list continued on next page) SUMMARY #
+#246 cc=1 mc=1 host=thomsonreuters.com
+   EIDS ev_799
+   REP The report, based on input from 2,275 global professionals across legal, risk, compliance, tax, accounting, audit and global trade, shows that organizations with visible AI strategies are twice as likely as those with more informal or ad hoc adoption approaches to experience revenue growth as a dire
+#247 cc=1 mc=1 host=businesswire.com
+   EIDS ev_803
+   REP Nov 12, 2025 9:06 AM Eastern Standard Time _Research Finds Security and Compliance Requirements Are Reshaping Technology Adoption, with Healthcare, Finance, and Government Organizations Facing Deployment Constraints that Technology Companies Avoid_ AUSTIN, Texas--([BUSINESS WIRE](https://www.busines
+#248 cc=1 mc=1 host=lawreviewcommons.com
+   EIDS ev_263
+   REP The _Akron Law Review_ consistently is ranked highly in the Washington and Lee Law Review Rankings, and since 2005 has been in the top 50 of general, student-edited law reviews for "Impact Factor." Since 2006, the Akron Law Review has ranked in the top 60 in the Washington and Lee "Combined Score" r
+#249 cc=1 mc=1 host=tandfonline.com
+   EIDS ev_857
+   REP 3, 505 –531 https://doi.org/10.1080/1323238X.2022.2030039 material focus on compliance and delivery of public goods.
+#250 cc=1 mc=1 host=bls.gov
+   EIDS ev_572
+   REP Management analysts held about 1.1 million jobs in 2024.
+#251 cc=1 mc=1 host=proquest.com
+   EIDS ev_591
+   REP Additional headers and sections recommended by Akpan and Notar (2012) include an objective, w ork experience, relevant experience, consulting, presentations, publications, community service, and references.
+#252 cc=1 mc=1 host=researchgate.net
+   EIDS ev_531
+   REP International Journal of Business and Quality Research https://e-journal.citakonsultindo.or.id/index.php/IJBQR E- 1 IJBQR, Volume 03 Issue 01, 2025 Copyright to the author of some rights reserved This work is licensed under aCreative Commons Attribution-ShareAlike 4.0 International License.
+#253 cc=1 mc=1 host=ahrefs.com
+   EIDS ev_433
+   REP 62.5% often, 25% sometimes, 3.6% plan to, 8.9% do not.
+#254 cc=1 mc=1 host=nature.com
+   EIDS ev_1132
+   REP 920 | Nature | Vol 630 | 27 June 2024 Article Hybrid working from home improves retention without damaging performance Nicholas Bloom1,5 ✉, Ruobing Han2,5 ✉ &amp; James Liang3,4 ✉ Working from home has become standard for employees with a university degree.
+#255 cc=1 mc=1 host=tandfonline.com
+   EIDS ev_827
+   REP Published by Informa UK Limited, trading as Taylor &amp; Francis Group.
+#256 cc=1 mc=1 host=springer.com
+   EIDS ev_446
+   REP 3.3 Observations To collect additional information for the study, such as the relative position of testers with reference to the other team members, as well as the attitude toward testers, we conducted observations in one project taking place in a [...]  6 8 min Daily stand-up 8 11 min Daily stand-u
+#257 cc=1 mc=1 host=worldbank.org
+   EIDS ev_1067
+   REP Published 2023-11-20 ISSN Date 2023-11-20 Author(s) Editor(s) Abstract Historically, education expenditure in Sierra Leone has been insufficient to provide quality education to all school-age children.
+#258 cc=1 mc=1 host=coursera.org
+   EIDS ev_440
+   REP Grand View Research projects that the global chatbot market will grow at a CAGR of 23.3 percent from 2025 to 2030, driven by the increased adoption of AI and machine learning [8].
+#259 cc=1 mc=1 host=nih.gov
+   EIDS ev_809
+   REP There are more than 160 published guidelines, reporting checklists, frameworks, and recommendations related to PFS.
+#260 cc=1 mc=1 host=nih.gov
+   EIDS ev_702
+   REP Nonprofit capacity and social performance: mapping the field and future directions Nonprofit organizations are critical actors in the Sustainable Development Goals as they provide a wide range of social services to the community and contribute to creating a sustainable future.
+#261 cc=1 mc=1 host=proquest.com
+   EIDS ev_540
+   REP The benefits resulted in a 50% reduction in customer complaints.
+#262 cc=1 mc=1 host=nih.gov
+   EIDS ev_482
+   REP Affiliations * PMID: **2892901** ## Health problems of data entry clerks and related job stressors A Billette et al.
+#263 cc=1 mc=1 host=bls.gov
+   EIDS ev_272
+   REP 25&amp;width=325&amp;inlineId=qf-wage) | $151,160 per year $72.67 per hour | | [Typical Entry-Level Education](https://www.bl
+#264 cc=1 mc=1 host=springer.com
+   EIDS ev_774
+   REP Mar 2009 [Google Scholar](https://scholar.google.com/scholar?&amp;q=Berg%20SV%20%282009%29%20Characterizing%20the%20efficiency%20and%20effectiveness%20of%20regulatory%20institutions.%20University%20of%20Florida%2C%20PURC.%20Mar%202009) * Das US, Quintyn M (2002) Crisis prevention and crisis manageme
+#265 cc=1 mc=1 host=nih.gov
+   EIDS ev_423
+   REP The Pearson Correlation results for relationships between persistency of using SEO strategy with the efficiency of online brand positioning are shown in Table 1 and Figure 2.
+#266 cc=1 mc=1 host=nals.org
+   EIDS ev_315
+   REP Many legal assistants are over 40.
+#267 cc=1 mc=1 host=toptal.com
+   EIDS ev_434
+   REP IntelligenceBank’s 2025 Content Marketing Trends Report found a [49% year-over-year increase](https://intelligencebank.com/wp-content/uploads/2025/02/IntelligenceBank_Content-Marketing-Trends-Report_2025.pdf#page=4) in marketing content production.
+#268 cc=1 mc=1 host=nih.gov
+   EIDS ev_515
+   REP Study 1 captured the moment-by-moment implicit emotional and physiological responses associated with receiving and providing good customer service.
+#269 cc=1 mc=1 host=sciencedirect.com
+   EIDS ev_448
+   REP The study has found, classified, and analyzed 86 articles, according to established guidelines for software engineering secondary studies.
+#270 cc=1 mc=1 host=zippia.com
+   EIDS ev_503
+   REP After extensive research, interviews, and analysis, Zippia's data science team found that: The projected data entry clerk job growth rate is -5% from 2018-2028.
+#271 cc=1 mc=1 host=oecd.org
+   EIDS ev_800
+   REP Main findings from the consultation process Copy link to 3.
+#272 cc=1 mc=1 host=learningpolicyinstitute.org
+   EIDS ev_872
+   REP Today, the cost of a higher education is out of reach for too many, with 45 million students owing more than[$1.6 trillion](https://www.federalreserve.gov/releases/g19/HIST/cc_hist_memo_levels.html)in student loan debt.[Two thirds of those entering the education field](/node/736)borrow in order to e
+#273 cc=1 mc=1 host=springer.com
+   EIDS ev_1217
+   REP In this study, the focus is on the actual use of textbooks by the first students to use the 2019 edition of general high school chemistry textbooks (students graduating in summer 2022 and summer 2023) and its relationship with students' interest and attitudes, and their academic achievements in chem
+#274 cc=1 mc=1 host=ahrefs.com
+   EIDS ev_407
+   REP From calculators and quizzes to interactive tools, 36.1% of businesses engaged with this content type in 2023, while 62.3% report doing so in 2024.
+#275 cc=1 mc=1 host=nih.gov
+   EIDS ev_1183
+   REP Methods In the present study, 231 university students reported their daily perceived time spent on self‐study, study strategies (planning, monitoring, concentration and procrastination) and goal achievement over a 30 days period.
+#276 cc=1 mc=1 host=dittotranscripts.com
+   EIDS ev_366
+   REP In this article, you’ll learn how: * AI transcription only reaches 61.92% accuracy, which is far too low for critical fields like medical and legal documentation.
+#277 cc=1 mc=1 host=nih.gov
+   EIDS ev_1226
+   REP Overemphasis on publications may disadvantage historically excluded groups in STEM before and during COVID-19: A North American survey-based study Publishing is a strong determinant of academic success and there is compelling evidence that identity may influence the academic writing experience and w
+#278 cc=1 mc=1 host=ebsco.com
+   EIDS ev_487
+   REP Authored By: Hughes, Kylie 1 of 3 Published In: 2024 2 of 3 - Related Topics: 3 of 3 Full
+#279 cc=1 mc=1 host=arapahoe.edu
+   EIDS ev_346
+   REP What does a medical transcriptionist do?
+#280 cc=1 mc=1 host=remotestaff.com
+   EIDS ev_489
+   REP On day one, they speak our lingo.
+#281 cc=1 mc=1 host=phoenixvirtualstaff.com
+   EIDS ev_339
+   REP According to the [31-9094.00 – Medical Transcriptionists ](http://www.onetonline.org/link/summary/31-9094.00)occupational profile, successful professionals must possess strong skills in reading comprehension, active listening, and critical thinking.
+#282 cc=1 mc=1 host=kriswrites.com
+   EIDS ev_295
+   REP They’ll give advice they’re not qualified to give—as in legal advice for contracts when they’re not a lawyer or in how to write a novel when they’ve never written anything—and then they’ll take 15% for the life of the project.
+#283 cc=1 mc=1 host=investopedia.com
+   EIDS ev_532
+   REP Investopedia / Jessica Olah ## How Customer Service Works At most companies, [customer service representatives](https://www.investopedia.com/articles/financial-advisors/110315/considering-career-client-service-associate.asp) are the only employees who have direct contact with buyers or users.
+#284 cc=1 mc=1 host=hbs.edu
+   EIDS ev_589
+   REP Twenty-five percent of black candidates received callbacks from their whitened resumes, while only 10 percent got calls when they left ethnic details intact.
+#285 cc=1 mc=1 host=quora.com
+   EIDS ev_621
+   REP 20see%20if%20someone%20has%20dating%20profiles%3F&amp;qclid=1287391995851225053%7C211106242187982%7C0 "trk.heysaver.com") - just be prepared for what you might find!
+#286 cc=1 mc=1 host=nih.gov
+   EIDS ev_842
+   REP As early as the 1950s, Truman (1951: 213) concluded that interest groups engage in ‘more or less continuing efforts to guide and control’ public attitudes.
+#287 cc=1 mc=1 host=nih.gov
+   EIDS ev_300
+   REP Meanwhile, 87.5% of paralegals who had assisted clients in detention centers and correctional facilities checked on the health condition of clients who were detained in these particular settings.
+#288 cc=1 mc=1 host=ec.europa.eu
+   EIDS ev_644
+   REP The findings indicate that both groups generally maintain a neutral stance, with neutrality appearing in 50% of their responses.
+#289 cc=1 mc=1 host=rand.org
+   EIDS ev_695
+   REP RAND Europe investigated the economic implications of later school start times in the U.S.
+#290 cc=1 mc=1 host=bls.gov
+   EIDS ev_512
+   REP The largest employers of customer service representatives were as follows: Retail trade 17% Insurance carriers and related activities 12 Business support services 8 Professional, scientific, and technical services 7 Wholesale [...] section](https://www.bls.gov/ooh/office-and-administrative-support/c
+#291 cc=1 mc=1 host=quora.com
+   EIDS ev_231
+   REP Wait a moment and try again.
+#292 cc=1 mc=1 host=uc.edu
+   EIDS ev_310
+   REP Paralegals and legal assistants support lawyers and law offices, working behind the scenes to ensure success by communicating with clients, organizing legal documents, drafting motions, conducting legal research, and much more.
+#293 cc=1 mc=1 host=wikipedia.org
+   EIDS ev_328
+   REP Authored By: Auerbach, Michael 1 of 3 Published In: 2023 2 of 3 - Related Topics: 3 of 3 Full Article Paralegal Snapshot Career Cluster(s [...] Paralegal Snapshot Career Cluster(s): Business, Management &amp; Administration, Law, Public Safety &amp; Security Interests: Law, legal system, research, p
+#294 cc=1 mc=1 host=onehour.digital
+   EIDS ev_618
+   REP In 2026, career and job-related decisions are increasingly shaped by data rather than assumptions.
+#295 cc=1 mc=1 host=qualtrics.com
+   EIDS ev_542
+   REP Never truer is the saying: &gt; A happy customer tells a friend; an unhappy customer tells the world.
+#296 cc=1 mc=1 host=michbar.org
+   EIDS ev_313
+   REP Common Sense O ver the past 40 years, paralegals/legal assistants have established a role as long-term, cost-effective, essential participants in the delivery of legal services.
+#297 cc=1 mc=1 host=jessup.edu
+   EIDS ev_247
+   REP The world of**web development**has seen tremendous growth over the past decade.
+#298 cc=1 mc=1 host=nih.gov
+   EIDS ev_1202
+   REP The study was conducted by distributing questionnaires and experimental interventions, and a total of 2860 valid questionnaires were collected.
+#299 cc=1 mc=1 host=velocitypartners.com
+   EIDS ev_418
+   REP 2016 The 15 B2B copywriters I don’t want to be 9 min read * [ ](https://x.com/intent/post?url=https://velocitypartners.com/blog/15-b2b-copywriting-rejects/) * [ ](https://www.linkedin.com/cws/share?url=https://velocitypartners.com/blog/15-b2b-copywriting-rejects/) * [ ](mailto:?subject=Article%20fro
+#300 cc=1 mc=1 host=refontelearning.com
+   EIDS ev_238
+   REP Bureau of Labor Statistics](https://www.bls.gov/ooh/computer-and-information-technology/web-developers.htm) projects **7% growth** for web developers and digital designers from 2024 to 2034, with about **14,500 openings a year** on average.
+#301 cc=1 mc=1 host=ameritas.com
+   EIDS ev_546
+   REP Delivering good customer service is no longer something a company can afford to overlook.
+#302 cc=1 mc=1 host=zippia.com
+   EIDS ev_318
+   REP After extensive research, interviews, and analysis, Zippia's data science team found that: The projected paralegal job growth rate is 14% from 2018-2028.
+#303 cc=1 mc=1 host=nih.gov
+   EIDS ev_671
+   REP The comparison is focused on two questions: (1) which criteria should be applied to decide whether or not a project should be carried out, and (2) with which procedure these criteria can be used for real projects.
+#304 cc=1 mc=1 host=format.com
+   EIDS ev_405
+   REP Putting a price on creative work has always been an act cloaked in secrecy.
+#305 cc=1 mc=1 host=coherentmarketinsights.com
+   EIDS ev_474
+   REP Software Testing and QA Services Market is estimated to be valued at **USD 50,672.4 Mn**in 2026 and is expected to reach **USD 107,248.0 Mn**in 2033, exhibiting a compound annual growth rate **(CAGR) of **11.5%****from 2026 to 2033.
+#306 cc=1 mc=1 host=learnixcenter.com
+   EIDS ev_470
+   REP Bureau of Labor Statistics, the demand for quality control and testing specialists will increase by 25% by 2032.
+#307 cc=1 mc=1 host=toptal.com
+   EIDS ev_404
+   REP STEP 3 ### Live Screening 3.6%of applications pass Toptal screeners, who are experts in their functional domain, interview each illustrator.
+#308 cc=1 mc=1 host=tandfonline.com
+   EIDS ev_556
+   REP Without leverage, this process would result in something like a 25%/75% stock/bond portfolio and, in standard capital market equilibrium, an expected return consistent with a beta of 0.25.
+#309 cc=1 mc=1 host=pennfoster.edu
+   EIDS ev_348
+   REP Oct 13, 2023 8 min read - What is a medical transcriptionist?
+#310 cc=1 mc=1 host=paralegalinst.com
+   EIDS ev_324
+   REP Here's what you need to know: **Key Job Market Facts:** * **Growth Rate**: 1-14% projected growth (varies by source, but consistently positive) * **Annual Openings**: ~37,300-38,000 positions per year * **Median Salary**: $59,200-$61,010 (2022-2024 data) * **Top Industries**: Legal services, federal
+#311 cc=1 mc=1 host=lisamaltby.com
+   EIDS ev_394
+   REP The only snag was that I now had to put a price on my own work and, short of picking a number out of a hat, I knew I had to have a method or price list that ensured I earned a sustainable living.
+#312 cc=1 mc=1 host=nih.gov
+   EIDS ev_1064
+   REP Using 1.5 million residential sales from Los Angeles County for 1994–2011, the authors test several hypotheses and we review some representative results.
+#313 cc=1 mc=1 host=contentbot.ai
+   EIDS ev_431
+   REP You will find, while browsing, that there are multiple blog posts focusing on trends in the copywriting and content marketing industry.
+#314 cc=1 mc=1 host=sciencedirect.com
+   EIDS ev_338
+   REP In the framework of the study, tagged voice recordings related to different disorders are used: it proves that the integration of ASR with CNN-LSTM increases the accuracy and productivity of medical transcriptions, reaching 99 percent accuracy.
+#315 cc=1 mc=1 host=nih.gov
+   EIDS ev_1189
+   REP Methods We recruited 53 middle school students and established a murine stress model.
+#316 cc=1 mc=1 host=co.uk
+   EIDS ev_242
+   REP Jan 7, 2020 ![Image 1: blog header image for article on What should you know as a frontend developer?](https://res.cloudinary.com/k-tech-uk/image/fetch/f_auto,q_auto/https://res.cloudinary.com/k-tech-uk/image/upload/w_1024%2Ch_560%2Cc_fill%2Cf_auto/w_800%2Ch_510%2Cc_fit%2Cco_rgb:FDFAF6%2Cg_west%2Cx_
+#317 cc=1 mc=1 host=cuny.edu
+   EIDS ev_438
+   REP 1 on the streaming service; to date the hashtag #thesummeriturnedpretty has drawn 6.8 billion views on[TikTok](https://www.tiktok.com/tag/thesummeriturnedpretty), according to Prime Video.
+#318 cc=1 mc=1 host=resumeworded.com
+   EIDS ev_594
+   REP Use your resume to highlight examples of how you've: * Mediated conflicts between employees and managers, resulting in a 90% resolution rate * Delivered training sessions on topics like diversity and inclusion, receiving an average rating of 4.5/5 from participants * Presented HR metrics and insight
+#319 cc=1 mc=1 host=purdueglobal.edu
+   EIDS ev_327
+   REP Paralegals help attorneys prepare for hearings, trials, and meetings.
+#320 cc=1 mc=4 host=everycrsreport.com
+   EIDS ev_050 | ev_1027 | ev_1170 | ev_026
+   REP Rapid advancements in the capability and availability of artificial intelligence (AI)—particularly of [g enerative artificial intelligence (GenAI),](https://www.everycrsreport.com/reports/IF13182.html)a subset of AI that can generate new content—have been accompanied by concerns that these technolog
+#321 cc=1 mc=3 host=nc.gov
+   EIDS ev_011 | ev_1016 | ev_1152
+   REP Generative AI is a subset of artificial intelligence technologies that creates new, original content based on patterns it learned from a vast amount of training data.
+#322 cc=1 mc=2 host=nih.gov
+   EIDS ev_109 | ev_1184
+   REP The impact of generative artificial intelligence on socioeconomic inequalities and policy making Abstract Generative artificial intelligence (AI) has the potential to both exacerbate and ameliorate existing socioeconomic inequalities.
+#323 cc=1 mc=3 host=ssir.org
+   EIDS ev_206 | ev_1054 | ev_1199
+   REP The negative impact on people along the “just automate” path is easy to predict from prior waves of digital technologies and robotics.
+#324 cc=1 mc=3 host=ssrn.com
+   EIDS ev_212 | ev_1176 | ev_043
+   REP The Labor Market Effects of Generative Artificial Intelligence 38 Pages Posted: 10 Apr 2025 Last revised: 25 Jan 2026 Date Written: December 18, 2024 Abstract We develop a new survey analyzing Generative AI use in the labor market to assist in measuring its economic effects.
+#325 cc=1 mc=2 host=ed.gov
+   EIDS ev_1155 | ev_208
+   REP ISBN 9780367751951 7 Akgun, S., Greenhow, C.
+#326 cc=1 mc=2 host=ilo.org
+   EIDS ev_751 | ev_759
+   REP These include the emphasis in the UN Sustainable Development Goals on promotion of the rule of law and access to justice (Indicator 16.3), and the World Bank ’s attention to governance and law as drivers of development (World Development Report 2017).
+#327 cc=1 mc=2 host=nih.gov
+   EIDS ev_1121 | ev_1267
+   REP Approaching literature review for academic purposes: The Literature Review Checklist A sophisticated literature review (LR) can result in a robust dissertation/thesis by scrutinizing the main problem examined by the academic study; anticipating research hypotheses, methods and results; and maintaini
+#328 cc=1 mc=2 host=mit.edu
+   EIDS ev_1088 | ev_1246
+   REP ABSTRACT With the advancements of artificial intelligence technology, ChatGPT, a new practice of artificial intelligence, holds immense potential across multiple fields.
