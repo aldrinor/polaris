@@ -1544,8 +1544,14 @@ class OutlineAgent:
         # string and can auto-assign a section literally titled "(unassigned)" (:1681). add_unfillable
         # lands it UNFILLED + disclosed immediately and it is never selected by next_pending().
         elif step.tool_name == "execute_python" and not result.success:
+            # section="(compute)", NOT "(unassigned)": add_unfillable delegates to add(), which
+            # paraphrase-collapses (Jaccard) against SAME-SECTION todos of ANY status. The
+            # retrievable numeric_rows tool-failure gaps above also live in "(unassigned)", so a
+            # reworded compute-failure aspect could collapse onto a genuine PENDING todo and flip it
+            # to UNFILLED — silently killing a real search. A distinct section label removes the
+            # collision surface; the todo is UNFILLED so the label is never routed anywhere.
             self.workspace.gap_ledger.add_unfillable(
-                section="(unassigned)",
+                section="(compute)",
                 aspect=(
                     f"execute_python failed ({result.error or 'unknown error'}) — the value it was "
                     f"asked to derive was NOT computed"
