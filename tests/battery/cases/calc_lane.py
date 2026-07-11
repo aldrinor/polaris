@@ -358,6 +358,78 @@ async def _case_composer_handoff() -> list[Assertion]:
     ]
 
 
+# ── H01g EMISSION CHANNEL: number reaches the composer when the WRITER omits the token ─
+async def _case_emission_channel() -> list[Assertion]:
+    """LIVE-shaped proof of the deterministic EMISSION channel. In a real corpus run the writer LLM
+    NEVER emits the ``[#calc:model:hash:field]`` token (the spec_hash is unguessable), so the moat
+    number can reach the section body ONLY if the composer appends the agent's render-ready sentence
+    DETERMINISTICALLY. Here ``_call_section`` returns token-free prose (as a real writer would); the
+    number reaches ``verified_text`` only through the ``calc_claims`` emission channel.
+
+    Three directions asserted:
+      (A) writer-omits-token + emission ON  => number RENDERS (via verified_compute + registry);
+      (D) writer-omits-token + emission OFF => number ABSENT (the pre-fix live behavior);
+      (F) FAITHFULNESS: emission ON but NO backing registry => appended sentence is DROPPED
+          (emission never widens the faithfulness surface — an unbacked token cannot render).
+    """
+    import src.polaris_graph.generator.multi_section_generator as _msg
+    from src.polaris_graph.generator.multi_section_generator import SectionPlan, _run_section
+
+    ws = _workspace()
+    claim = await _compute(
+        ws,
+        [_dp("ev_2016", "o16", "fiscal 2016", "1493602"),
+         _dp("ev_2015", "o15", "fiscal 2015", "903095")],
+        _spec("opinc_delta", "delta", "(o16 - o15) * 1000",
+              [("o16", "ev_2016", "fiscal 2016", "1493602"),
+               ("o15", "ev_2015", "fiscal 2015", "903095")]),
+    )
+    if claim is None:
+        return [Assertion("precondition_compute", False, "claim", None, severity="S0")]
+    calc_sentence = claim.render_sentence("Adobe operating income rose by")
+    calc_claims = {"Efficacy": [calc_sentence]}
+    # A token-free writer draft (a real LLM would produce this; it cannot know the exact number).
+    writer_draft = "Overall market conditions were favorable during the reporting period."
+    assert "[#calc:" not in writer_draft and _GOLD not in writer_draft
+
+    async def _stub_call_section(*_a, **_k):
+        return writer_draft, 0, 0, {}
+
+    async def _run(qm, cc):
+        section = SectionPlan(title="Efficacy", focus="Operating income trajectory",
+                              ev_ids=["ev_2016", "ev_2015"])
+        orig = _msg._call_section
+        _msg._call_section = _stub_call_section
+        try:
+            return await _run_section(
+                section, dict(_EV), model="stub-model", temperature=0.0,
+                max_tokens_per_section=512, min_kept_fraction=0.0,
+                quantified_models=qm, calc_claims=cc)
+        finally:
+            _msg._call_section = orig
+
+    r_on = await _run(ws.quantified_models, calc_claims)      # (A)
+    r_off = await _run(ws.quantified_models, None)            # (D)
+    r_unbacked = await _run(None, calc_claims)                # (F)
+    return [
+        Assertion("emission_ON_renders_number_when_writer_omits_token",
+                  r_on.sentences_verified >= 1 and _GOLD in r_on.verified_text,
+                  "verified>=1, number present via emission channel",
+                  f"verified={r_on.sentences_verified} in_body={_GOLD in r_on.verified_text}",
+                  severity="S0",
+                  detail="the LIVE gap Fable flagged: writer never emits the hash; emission closes it"),
+        Assertion("emission_OFF_number_absent_prefix_live_behavior",
+                  _GOLD not in r_off.verified_text,
+                  "number absent (pre-fix live behavior)",
+                  f"in_body={_GOLD in r_off.verified_text}", severity="S1"),
+        Assertion("emission_cannot_launder_unbacked_token",
+                  _GOLD not in r_unbacked.verified_text,
+                  "unbacked appended token DROPPED (fail-closed emission)",
+                  f"in_body={_GOLD in r_unbacked.verified_text}", severity="S0",
+                  detail="faithfulness: deterministic append never bypasses strict_verify"),
+    ]
+
+
 BATTERY_CASES = [
     BatteryCase("h01a_calc_render", "finance", "verified_compute+calc_lane", _case_calc_render),
     BatteryCase("h01b_calc_dropguard", "finance", "faithfulness_drop_guard", _case_calc_dropguard),
@@ -371,4 +443,7 @@ BATTERY_CASES = [
     BatteryCase("h01f_composer_handoff", "finance", "full_corpus_composer_handoff",
                 _case_composer_handoff,
                 note="drives _run_section (generate_multi_section_report path), not honest_pipeline"),
+    BatteryCase("h01g_emission_channel", "finance", "deterministic_calc_emission",
+                _case_emission_channel,
+                note="LIVE-shaped: writer omits the token; emission channel appends it (Fable's gap)"),
 ]

@@ -463,6 +463,17 @@ class OutlineWorkspace:
     # (compute_results above, renderable=False) NEVER enters this dict — that separation is the
     # faithfulness invariant (a derived number can never reach the [#ev]/[CITE] render path).
     quantified_models: dict = field(default_factory=dict)  # (model_id, spec_hash) -> QuantifiedResult
+    # MOAT DETERMINISTIC EMISSION (2026-07-11): the render-ready [#calc:] claim SENTENCES the agent
+    # actually derived through ``verified_compute``, so the FULL-CORPUS composer can inject them
+    # into the target section body deterministically (an LLM writer cannot be trusted to copy an
+    # unguessable spec_hash verbatim). Each record:
+    #   {"section": <target section title or "" for auto-home>, "sentence": <render_sentence>,
+    #    "calc_token": <[#calc:model:hash:field]>, "input_ev_ids": [<ev_id>, ...]}
+    # Populated by the ``verified_compute`` tool alongside the ``quantified_models`` registration.
+    # The sentence is NON-RENDERING on its own: it only survives strict_verify if that same
+    # registry verifies its token (verify_modeled_atom), so emission stays fail-closed and a
+    # derived number STILL cannot reach the [#ev:]/[CITE:] path.
+    computed_claims: list[dict] = field(default_factory=list)
     turn: int = 0
     started_monotonic: float = field(default_factory=time.monotonic)
     checkpoint_dir: Optional[str] = None
@@ -2043,4 +2054,61 @@ async def run_outline_agent_or_legacy(
     # calc lane is the ONLY route and it is fail-closed on an empty/absent registry).
     parse_result.quantified_models = dict(final_ws.quantified_models)
 
+    # MOAT DETERMINISTIC EMISSION: export the render-ready [#calc:] claim sentences keyed by their
+    # target section title, so the FULL-CORPUS composer can APPEND them into the matching section
+    # body deterministically (immediately before strict_verify), rather than trusting the LLM
+    # writer to copy an unguessable spec_hash verbatim. Records with no explicit section are
+    # auto-homed by matching their input ev_ids against the final outline's per-section ev_ids.
+    # EMPTY ({}) => the consumer threads None => byte-identical legacy (no deterministic append).
+    parse_result.calc_claims = _build_calc_claims_map(final_ws)
+
     return parse_result, retry_attempted, final_ws.total_input_tokens, final_ws.total_output_tokens
+
+
+def _build_calc_claims_map(final_ws: "OutlineWorkspace") -> dict[str, list[str]]:
+    """Group the agent's verified-compute claim sentences by their TARGET section title.
+
+    A record with an explicit ``section`` is homed there verbatim. A record with an empty
+    ``section`` is AUTO-HOMED to the final-outline section whose ``ev_ids`` overlap most with the
+    claim's ``input_ev_ids`` (the sourced datapoints) — so a number derived from a section's own
+    evidence lands in that section even when the agent did not name it. A record that homes to no
+    section (no title, no ev_id overlap) is DROPPED from the emission map (it stays available to
+    the writer prose only); it can never render a phantom section.
+    Dedup: identical (section, calc_token) records collapse so a claim is appended at most once.
+    """
+    # section title -> set of ev_ids (from the FINAL outline draft the agent produced)
+    sec_ev: list[tuple[str, set[str]]] = []
+    for p in final_ws.outline_draft:
+        title = _plan_field(p, "title", "") or ""
+        ev_ids = set(_plan_field(p, "ev_ids", []) or [])
+        if title:
+            sec_ev.append((title, ev_ids))
+    valid_titles = {t for t, _ in sec_ev}
+
+    out: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for rec in (final_ws.computed_claims or []):
+        if not isinstance(rec, dict):
+            continue
+        sentence = str(rec.get("sentence") or "").strip()
+        token = str(rec.get("calc_token") or "").strip()
+        if not sentence or not token:
+            continue
+        target = str(rec.get("section") or "").strip()
+        if target not in valid_titles:
+            # Auto-home by ev_id overlap with the sourced datapoints.
+            claim_evs = set(rec.get("input_ev_ids") or [])
+            best_title, best_overlap = "", 0
+            for title, ev_ids in sec_ev:
+                overlap = len(claim_evs & ev_ids)
+                if overlap > best_overlap:
+                    best_title, best_overlap = title, overlap
+            target = best_title if best_overlap > 0 else ""
+        if not target:
+            continue  # unhomeable — never invent a section for it
+        dedup_key = (target, token)
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        out.setdefault(target, []).append(sentence)
+    return out

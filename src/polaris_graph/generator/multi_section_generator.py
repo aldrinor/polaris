@@ -1402,6 +1402,15 @@ class OutlineParseResult:
     # ``[#calc:]`` body sentence in the FULL-CORPUS ``generate_multi_section_report`` run verifies
     # against the agent's computed models instead of being fail-closed dropped.
     quantified_models: dict = field(default_factory=dict)
+    # MOAT DETERMINISTIC EMISSION (agentic corpus path): the render-ready [#calc:] claim SENTENCES
+    # the outline agent derived through ``verified_compute``, keyed by their target section title
+    # (``{section_title: [render_sentence, ...]}``). The FULL-CORPUS composer appends each sentence
+    # into the matching section body DETERMINISTICALLY (immediately before strict_verify) so the
+    # verified computed number reaches the composer WITHOUT relying on the LLM writer to copy an
+    # unguessable spec_hash. EMPTY ({}) on every legacy/plain construction => the consumer threads
+    # None => no deterministic append (byte-identical). Fail-closed: an appended sentence renders
+    # only if ``quantified_models`` above re-verifies its token in strict_verify.
+    calc_claims: dict = field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -5709,6 +5718,44 @@ def _maybe_two_sided_debate_disclosure(
     return out
 
 
+_CALC_TOKEN_RE = re.compile(r"\[#calc:[^\]]+\]")
+
+
+def _append_calc_claims(
+    rewritten: str, section: "SectionPlan", calc_claims: "dict[str, list[str]] | None",
+) -> str:
+    """MOAT DETERMINISTIC EMISSION: append the outline agent's verified [#calc:] claim sentence(s)
+    for THIS section onto the strict_verify-bound draft.
+
+    An LLM writer cannot be trusted to copy an unguessable ``spec_hash`` verbatim, so the
+    render-ready sentence (produced by the agent's ``verified_compute`` tool and carrying its
+    ``[#calc:model:hash:field]`` token) is appended DETERMINISTICALLY here — NOT via a prompt
+    instruction. Fail-closed safety is free: the appended sentence survives the strict_verify below
+    ONLY if the threaded ``quantified_models`` registry verifies its token (verify_modeled_atom
+    re-checks the rendered digits against the registered re-execution); an unbacked/spoofed token is
+    dropped ``no_provenance_token``, and a derived number STILL cannot reach the [#ev:] path.
+    Empty/absent ``calc_claims`` (the legacy default) => byte-identical (returns ``rewritten``).
+    Idempotent: a token already present in the draft is not re-appended (so the regen pass and any
+    LLM emission of the same token never double-render)."""
+    if not calc_claims:
+        return rewritten
+    sentences = calc_claims.get(getattr(section, "title", "")) or []
+    if not sentences:
+        return rewritten
+    present_tokens = set(_CALC_TOKEN_RE.findall(rewritten or ""))
+    out = (rewritten or "").rstrip()
+    for raw_sentence in sentences:
+        sentence = str(raw_sentence or "").strip()
+        if not sentence:
+            continue
+        toks = set(_CALC_TOKEN_RE.findall(sentence))
+        if toks and toks & present_tokens:
+            continue  # already in the draft — do not duplicate the computed number
+        present_tokens |= toks
+        out = (out + " " + sentence).strip() if out else sentence
+    return out
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -5724,6 +5771,7 @@ async def _run_section(
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
     research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
     quantified_models: "dict[tuple[str, str], Any] | None" = None,  # MOAT: agentic verified-compute registry; None => byte-identical
+    calc_claims: "dict[str, list[str]] | None" = None,  # MOAT EMISSION: per-section [#calc:] sentences; None => byte-identical
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -6147,6 +6195,13 @@ async def _run_section(
             rewritten, section, credibility_analysis, evidence_pool,
         )
 
+    # MOAT DETERMINISTIC EMISSION: append the outline agent's verified [#calc:] claim sentence(s)
+    # for this section onto the strict_verify-bound draft. Deterministic (not a prompt) because an
+    # LLM writer cannot copy the unguessable spec_hash; fail-closed because the appended sentence
+    # survives strict_verify below ONLY if `quantified_models` verifies its token. calc_claims None
+    # (legacy default) => byte-identical no-op.
+    rewritten = _append_calc_claims(rewritten, section, calc_claims)
+
     # Strict verify against full evidence_pool (not subset — the model
     # might cite an ev from outside the assigned subset; still valid).
     # I-deepfix-001 W03-strict-verify-offload (#1344): OFFLOAD the inline SYNC
@@ -6298,6 +6353,10 @@ async def _run_section(
         rewritten2 = _repair_llm_draft_untokened(
             rewritten2, section, credibility_analysis, evidence_pool,
         )
+        # MOAT DETERMINISTIC EMISSION (regen pass): re-append the verified [#calc:] sentence(s) —
+        # the regen produced a FRESH LLM draft that carries no calc token, so without this the
+        # computed number would be lost on the retry. Same fail-closed guarantee as the primary.
+        rewritten2 = _append_calc_claims(rewritten2, section, calc_claims)
         # I-deepfix-001 W03-strict-verify-offload (#1344): the regeneration-pass verify,
         # offloaded for the same reason as the primary verify above.
         report2 = await asyncio.to_thread(
@@ -9610,6 +9669,12 @@ async def generate_multi_section_report(
     # UNCONDITIONALLY so the STORM / research_plan branches (which never run the agentic seam) leave
     # it None and the dispatch closures never NameError.
     _outline_quantified_models: dict | None = None
+    # MOAT DETERMINISTIC EMISSION: the per-section render-ready [#calc:] claim sentences the outline
+    # agent derived, captured from the ``run_outline_agent_or_legacy`` return in the else-branch and
+    # threaded (default None => byte-identical) into ``_run_section`` so each verified computed
+    # number is APPENDED into its section body deterministically before strict_verify. Initialized
+    # UNCONDITIONALLY here so the STORM / research_plan branches leave it None (never NameError).
+    _outline_calc_claims: dict | None = None
     _storm_scaffold_plans = _build_storm_outline_section_plans(
         storm_outline, evidence, partial_mode=partial_mode,
     )
@@ -9703,11 +9768,15 @@ async def generate_multi_section_report(
         # MOAT LIVE-SEAM: capture the agentic loop's verified-compute registry. Empty ({}) on the
         # plain/legacy pass-through (PG_OUTLINE_AGENT off) => stays None => byte-identical verify.
         _outline_quantified_models = dict(getattr(outline_parse, "quantified_models", None) or {}) or None
+        # MOAT DETERMINISTIC EMISSION: capture the per-section render-ready [#calc:] sentences too.
+        # Empty ({}) on the plain/legacy pass-through => stays None => no deterministic append.
+        _outline_calc_claims = dict(getattr(outline_parse, "calc_claims", None) or {}) or None
         if _outline_quantified_models:
             logger.info(
-                "[multi_section] MOAT seam: outline agent exported %d verified-compute model(s); "
-                "threading into section-body strict_verify (calc-lane render enabled)",
-                len(_outline_quantified_models),
+                "[multi_section] MOAT seam: outline agent exported %d verified-compute model(s) "
+                "and %d section(s) with render-ready [#calc:] sentence(s); threading into "
+                "section-body strict_verify + deterministic emission (calc-lane render enabled)",
+                len(_outline_quantified_models), len(_outline_calc_claims or {}),
             )
         # N6-FIX-B (I-deepfix-001 wave-2): strip SEMANTIC confirmed-off-topic ev_ids from the LEGACY
         # outline plans (FINDING#5's intent, previously wired only on the on-mode planner branch).
@@ -10626,6 +10695,9 @@ async def generate_multi_section_report(
                 # plain/legacy path => byte-identical). Enables the [#calc:] calc-lane render in
                 # the FULL-CORPUS agentic run's section bodies.
                 quantified_models=_outline_quantified_models,
+                # MOAT DETERMINISTIC EMISSION: the per-section render-ready [#calc:] sentences,
+                # appended into the section body before strict_verify (None => byte-identical).
+                calc_claims=_outline_calc_claims,
             )
 
     # V33 unified dispatch helper for downstream (M-44 regen) callers

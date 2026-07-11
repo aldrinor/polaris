@@ -326,11 +326,18 @@ async def _tool_preview_section_evidence(
 # ─────────────────────────────────────────────────────────────────────────────
 async def _tool_verified_compute(
     workspace: Any, *, question: str = "", datapoints: Any = None, spec: Any = None,
-    render_field: Optional[str] = None, lead: str = "", **_ignored: Any,
+    render_field: Optional[str] = None, lead: str = "", section: str = "", **_ignored: Any,
 ) -> ToolResult:
     """Derive a number through the VERIFIED lane (build_quantified_spec -> execute_quantified_model)
     and return a render-eligible sentence carrying its ``[#calc:]`` token — the ONLY compute output
-    allowed to render. Fail-closed: a bad spec yields success=False and renders nothing."""
+    allowed to render. Fail-closed: a bad spec yields success=False and renders nothing.
+
+    ``section`` names the outline section this number belongs in; the render-ready sentence is
+    recorded on the workspace so the FULL-CORPUS composer can APPEND it into that section body
+    DETERMINISTICALLY (the writer LLM cannot copy the unguessable spec_hash). If ``section`` is
+    omitted the composer auto-homes the claim by matching the sourced datapoints' ev_ids against
+    the section's ev_ids. Either way the appended sentence only survives strict_verify if the
+    computed model verifies its token — emission is fail-closed."""
     from src.polaris_graph.outline.verified_compute import run_verified_compute  # noqa: PLC0415
 
     if not isinstance(datapoints, list) or not isinstance(spec, dict):
@@ -351,6 +358,22 @@ async def _tool_verified_compute(
         )
     lead_text = str(lead or "").strip() or "The computed value is"
     sentence = claim.render_sentence(lead_text)
+    # MOAT DETERMINISTIC EMISSION: record the render-ready sentence on the workspace so the
+    # composer can inject it into the target section body verbatim (fail-closed: it renders only if
+    # strict_verify re-verifies its [#calc:] token against the registered model).
+    input_ev_ids = [
+        str(dp.get("evidence_id"))
+        for dp in datapoints
+        if isinstance(dp, dict) and dp.get("evidence_id")
+    ]
+    claims_sink = getattr(workspace, "computed_claims", None)
+    if isinstance(claims_sink, list):
+        claims_sink.append({
+            "section": str(section or "").strip(),
+            "sentence": sentence,
+            "calc_token": claim.calc_token,
+            "input_ev_ids": input_ev_ids,
+        })
     return ToolResult(
         success=True, tool_name="verified_compute",
         markdown=(
@@ -628,7 +651,10 @@ def register_outline_toolkit(
           "datapoints": "list of sourced datapoints {evidence_id,label,context,value,unit}",
           "spec": "the model spec {model_id,title,inputs,outputs}",
           "render_field": "optional output field to render (default first)",
-          "lead": "optional lead prose for the rendered sentence"}),
+          "lead": "optional lead prose for the rendered sentence",
+          "section": "outline section title this number belongs in — the composer appends the "
+                     "verified sentence into that section body deterministically (default: "
+                     "auto-home by the sourced datapoints' ev_ids)"}),
     ]
     _agent_model_tools = {"fetch_url"}
     registered: list[str] = []

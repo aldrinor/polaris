@@ -203,6 +203,67 @@ def test_verified_compute_renders_calc_token_and_registers_model():
     assert (r.statistics["model_id"], r.statistics["spec_hash"]) in ws.quantified_models
 
 
+def _adobe_dps_spec():
+    dps = [
+        {"evidence_id": "ev_000", "label": "o16", "context": "fiscal 2016", "value": "1493602", "unit": "k"},
+        {"evidence_id": "ev_001", "label": "o15", "context": "fiscal 2015", "value": "903095", "unit": "k"},
+    ]
+    spec = {"model_id": "opinc_delta", "title": "t",
+            "inputs": [
+                {"name": "o16", "datapoint_ref": {"ev_id": "ev_000", "label": "o16", "context": "fiscal 2016", "value": "1493602", "unit": "k"}},
+                {"name": "o15", "datapoint_ref": {"ev_id": "ev_001", "label": "o15", "context": "fiscal 2015", "value": "903095", "unit": "k"}}],
+            "outputs": [{"name": "delta", "formula": "(o16-o15)*1000", "unit": "USD", "display_kind": "currency"}]}
+    return dps, spec
+
+
+def test_verified_compute_records_claim_with_explicit_section():
+    """MOAT EMISSION seam-export: the tool records a render-ready sentence on the workspace keyed to
+    the explicit target section, and _build_calc_claims_map homes it there verbatim."""
+    from src.polaris_graph.outline.outline_agent import _build_calc_claims_map  # noqa: PLC0415
+    ws = _ws(outline_draft=[_Plan("Financials", ["ev_000", "ev_001"])])
+    dps, spec = _adobe_dps_spec()
+    r = _run(_tool_verified_compute(ws, question="Adobe opinc delta", datapoints=dps, spec=spec,
+                                    lead="Adobe operating income rose by", section="Financials"))
+    assert r.success
+    assert len(ws.computed_claims) == 1
+    rec = ws.computed_claims[0]
+    assert rec["section"] == "Financials"
+    assert set(rec["input_ev_ids"]) == {"ev_000", "ev_001"}
+    assert rec["calc_token"] in rec["sentence"] and "$590,507,000.00" in rec["sentence"]
+
+    mapping = _build_calc_claims_map(ws)
+    assert list(mapping.keys()) == ["Financials"]
+    assert "$590,507,000.00" in mapping["Financials"][0]
+
+
+def test_verified_compute_claim_AUTO_HOMES_by_ev_id_overlap():
+    """When no section is named, _build_calc_claims_map homes the claim to the section whose ev_ids
+    overlap the sourced datapoints — even if the agent forgot to name it."""
+    from src.polaris_graph.outline.outline_agent import _build_calc_claims_map  # noqa: PLC0415
+    ws = _ws(outline_draft=[
+        _Plan("Weather", ["ev_002"]),
+        _Plan("Financials", ["ev_000", "ev_001"]),
+    ])
+    dps, spec = _adobe_dps_spec()
+    r = _run(_tool_verified_compute(ws, question="Adobe opinc delta", datapoints=dps, spec=spec,
+                                    lead="Adobe operating income rose by"))  # no section
+    assert r.success and ws.computed_claims[0]["section"] == ""
+    mapping = _build_calc_claims_map(ws)
+    assert list(mapping.keys()) == ["Financials"]  # homed by ev_000/ev_001 overlap, not Weather
+
+
+def test_verified_compute_claim_UNHOMEABLE_is_dropped_from_map():
+    """A claim whose ev_ids match no section (and no section named) is dropped from the emission map
+    — it can never invent a phantom section."""
+    from src.polaris_graph.outline.outline_agent import _build_calc_claims_map  # noqa: PLC0415
+    ws = _ws(outline_draft=[_Plan("Weather", ["ev_002"])])
+    dps, spec = _adobe_dps_spec()
+    r = _run(_tool_verified_compute(ws, question="Adobe opinc delta", datapoints=dps, spec=spec,
+                                    lead="Adobe operating income rose by"))  # no section, no overlap
+    assert r.success
+    assert _build_calc_claims_map(ws) == {}
+
+
 def test_verified_compute_fail_closed_on_bad_spec():
     ws = _ws()
     r = _run(_tool_verified_compute(ws, question="q", datapoints=[], spec={"bad": 1}))
