@@ -2035,6 +2035,53 @@ def _no_raw_span_fallback_enabled() -> bool:
     return os.getenv(_NO_RAW_SPAN_FALLBACK_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
 
 
+# Fix 2 (P0-2, 2026-07-10 compose gear-loop) — a LABELED unverified CLAIM line carries a basket's own
+# claim/span text wrapped in a label (the uncovered-fact K-span or the unverified-synthesis line), as
+# opposed to a PURE honest gap / judge-outage disclosure that carries NO claim text. A well-formed
+# chrome/meta sentence passes every lexical FORM check by construction, so it must never stand alone as a
+# ZERO-verified section's only prose, and it must pass a structural-SEMANTIC substantive-claim screen when
+# it accompanies real verified prose.
+_LABELED_CLAIM_DISCLOSURE_PREFIXES = (
+    _UNCOVERED_FACT_DISCLOSURE_PREFIX,   # "[uncovered supporting evidence for:"
+    _UNVERIFIED_SYNTH_PREFIX,            # "[unverified synthesis — abstractive re-write exhausted]"
+)
+
+
+def is_labeled_claim_disclosure(line: str) -> bool:
+    """Fix 2(a): True iff a held-aside disclosure ``line`` is a LABELED unverified CLAIM line (uncovered
+    fact / unverified synthesis) rather than a PURE honest gap / judge-outage disclosure. Used so a
+    ZERO-verified section renders ONLY the honest gap disclosure — never a labeled claim line as its only
+    prose. PURE."""
+    s = str(line or "").lstrip()
+    return any(s.startswith(p) for p in _LABELED_CLAIM_DISCLOSURE_PREFIXES)
+
+
+def labeled_disclosure_is_nonsubstantive(line: str) -> bool:
+    """Fix 2(b): True => WITHHOLD a labeled unverified CLAIM line that accompanies verified prose because
+    its underlying claim/span text is render chrome / page furniture. A well-formed chrome sentence ('The
+    chart has 1 X axis displaying categories.') passes every lexical FORM check by construction, so the
+    decision uses the STRUCTURAL-SEMANTIC chrome judge (``_sentence_is_render_chrome`` /
+    ``_structural_chrome_form``), NOT a lexical form match. The SOURCE stays in the pool regardless, so
+    withholding the LINE is the faithfulness-preserving choice; on an EMPTY residual claim the line is
+    withheld, and on any helper fault the line is KEPT (fail-open never over-suppresses on a transient
+    error). PURE read."""
+    s = str(line or "").strip()
+    if not s:
+        return True
+    claim = s
+    for _pfx in _LABELED_CLAIM_DISCLOSURE_PREFIXES:
+        if claim.startswith(_pfx):
+            rest = claim[len(_pfx):]
+            claim = rest.split("]", 1)[-1].strip() if "]" in rest else rest.strip()
+            break
+    if not claim:
+        return True
+    try:
+        return bool(_sentence_is_render_chrome(claim))
+    except Exception:  # noqa: BLE001 — fail-open: keep the line on a helper fault
+        return False
+
+
 def _unverified_synthesis_disclosure(basket: Any) -> str:
     """Fix 4 (2026-07-10 UNFREEZE): the LABELED unverified-synthesis line emitted when the
     bounded abstractive re-write exhausts — the basket's own consolidated CLAIM (NOT a raw

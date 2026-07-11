@@ -45,6 +45,7 @@ import logging
 import math
 import os
 import re
+import time
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -446,7 +447,17 @@ _WRITER_SYSTEM = (
     "... scenario') — never restate a hedged or conditional figure as a settled fact. You do NOT "
     "use markdown, links, "
     "bullets, headings, section numbers, captions, or academic chrome like 'this study' or "
-    "'the framework'. You output exactly one sentence per span, nothing else."
+    "'the framework'. "
+    # Fix 4 (P1-2, 2026-07-10 compose gear-loop): the prompt OWNS the chrome filtering the deleted
+    # member-wholesale input screen used to do. Once dirty document text reaches the writer it must
+    # ignore page furniture and state the source's CLAIM, never describe the document. General,
+    # question-agnostic (no topic keyword). The base verifier still gates every sentence.
+    "Some of the spans contain page chrome — bibliographic exports, BibTeX or RIS entries, "
+    "copy-citation or export menus, reference lists, DOIs, bare URLs, emails, navigation menus, "
+    "table furniture, author bylines, affiliations, acknowledgments, funding or copyright notices, "
+    "or other boilerplate; IGNORE that material entirely and never rephrase it as a finding. "
+    "State what the source FOUND — its claim — never describe the document itself. "
+    "You output exactly one sentence per span, nothing else."
 )
 
 
@@ -474,7 +485,18 @@ _WRITER_SYSTEM_GROUP = (
     "GROUP of verified spans in a logical order; each sentence ends with the exact provenance "
     "token(s) of the span(s) it rests on; you may order and connect the facts with plain "
     "connectives, but never state a fact not present in a provided span, and never merge two "
-    "spans' numbers into a new aggregate."
+    "spans' numbers into a new aggregate. "
+    # Fix 4 (P1-2, 2026-07-10 compose gear-loop): the GROUP prompt owns the chrome filtering the
+    # deleted member-wholesale input screen used to do, plus multi-citation dedup and outline
+    # fulfilment. General, question-agnostic. The base verifier still gates every sentence.
+    "Some of the spans contain page chrome — bibliographic exports, BibTeX or RIS entries, "
+    "copy-citation or export menus, reference lists, DOIs, bare URLs, emails, navigation menus, "
+    "table furniture, author bylines, affiliations, acknowledgments, funding or copyright "
+    "notices, or other boilerplate; IGNORE that material entirely and never rephrase it as a "
+    "finding. State what each source FOUND — its claim — never describe the document itself. "
+    "When two or more spans carry the SAME finding, MERGE them into ONE sentence that ends with "
+    "ALL of their provenance tokens; never restate the same finding as separate sentences. Write "
+    "prose that fulfils the section's title and focus, and omit a span irrelevant to that focus."
 )
 
 
@@ -669,6 +691,61 @@ def _draft_passes_wrapper(
     return True, reasons
 
 
+def _member_surviving_units_or_drop(member: Any, evidence_pool: dict) -> Optional[Any]:
+    """Fix 1 (P0-1, 2026-07-10 compose gear-loop): per-SENTENCE-UNIT chrome screen of a SUPPORTS
+    member's ``direct_quote``, replacing the member-WHOLESALE ``_compose_junk_screen(direct_quote)``
+    input screen. That wholesale screen ran the structural chrome-FORM regexes with ``.search()`` over
+    the WHOLE multi-KB member, so a single chrome marker ANYWHERE fired the entire row — it flagged
+    870/996 (87%) of the real cp2 pool, including flagship peer-reviewed papers. The GRANULARITY was
+    the bug, not the regex patterns.
+
+    General + question-agnostic + FAIL-OPEN. Splits ``direct_quote`` into sentence units (the shared
+    ``split_into_sentences``), screens each unit with the UNCHANGED per-unit ``_compose_junk_screen``,
+    and:
+      * drops the member (returns None) ONLY when EVERY unit screens as chrome (a genuinely
+        pure-chrome row);
+      * otherwise hands the writer a COPY whose ``direct_quote`` is trimmed to the CONTIGUOUS envelope
+        from the FIRST surviving unit to the LAST (leading/trailing pure-chrome blocks removed — the
+        common masthead-top / references-bottom case). Interior chrome is left to the writer prompt
+        (Fix 4). The envelope is a real contiguous substring of the original quote, so its token stays
+        anchored; the trim is applied ONLY when it re-anchors EXACTLY INSIDE the member's original
+        global span (never a mis-anchored token). Any doubt keeps the member UNCHANGED."""
+    from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
+        _compose_junk_screen,
+        _member_global_span,
+        split_into_sentences,
+    )
+    quote = str(getattr(member, "direct_quote", "") or "")
+    if not quote.strip():
+        return member  # nothing to screen; keep — the loop + verifier still gate it
+    units = split_into_sentences(quote) or [quote]
+    surviving = [u for u in units if not _compose_junk_screen(u)]
+    if not surviving:
+        return None  # EVERY unit chrome -> a genuinely pure-chrome row -> drop the member
+    if len(surviving) == len(units):
+        return member  # nothing screened -> byte-identical member
+    # Trim to the contiguous envelope [first surviving .. last surviving] within the ORIGINAL quote.
+    first, last = surviving[0], surviving[-1]
+    i = quote.find(first)
+    j = quote.rfind(last)
+    if i < 0 or j < 0 or (j + len(last)) <= i:
+        return member  # cannot anchor the envelope -> fail-open, keep the member unchanged
+    envelope = quote[i: j + len(last)].strip()
+    if not envelope or envelope == quote.strip():
+        return member
+    orig_span = _member_global_span(member, evidence_pool)
+    if orig_span is None:
+        return member  # original not anchorable (the writer prompt skips it anyway) -> keep unchanged
+    try:
+        trimmed = dataclasses.replace(member, direct_quote=envelope, span=(0, len(envelope)))
+    except Exception:  # noqa: BLE001 — a non-dataclass member -> keep unchanged (fail-open)
+        return member
+    new_span = _member_global_span(trimmed, evidence_pool)
+    if new_span is None or not (orig_span[0] <= new_span[0] and new_span[1] <= orig_span[1]):
+        return member  # envelope re-anchor is inconsistent -> fail-open, keep the untrimmed member
+    return trimmed
+
+
 async def _pre_pass_one_basket(
     basket: Any,
     evidence_pool: dict,
@@ -695,30 +772,28 @@ async def _pre_pass_one_basket(
     byte-identical single-sentence-per-span pre-pass."""
     from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
         _basket_supports_members,
-        _compose_junk_screen,
     )
 
     members = _basket_supports_members(basket)
     if not members:
         return None
 
-    # §3.1 input-screen (#1289, advisor 2026-06-21): drop chrome members BEFORE the LLM writer call.
-    # The abstractive path emits via the precomputed dict, NOT build_verified_span_draft, so the §3.4
-    # OUTPUT junk screen never runs on it — AND a paraphrase mangles the multi-word chrome markers, so
-    # only an INPUT screen catches them. Reuse the §3.4 high-precision allowlist screen on each
-    # member's verified span text. Faithfulness-safe (§-1.3): boilerplate is not a corroborating
-    # source. A MIXED basket (chrome member + real member) keeps the real member + its citation; an
-    # ALL-chrome basket leaves zero members -> writer skipped (None) -> the loop K-span-falls-back and
-    # §3.4 screens that too, so the all-chrome basket emits nothing (it never cascades a REAL section
-    # to empty — only baskets that carry no real content drop out).
-    screened_members = [
-        m for m in members
-        if not _compose_junk_screen(str(getattr(m, "direct_quote", "") or ""))
-    ]
+    # Fix 1 (P0-1, 2026-07-10 compose gear-loop): PER-SENTENCE-UNIT chrome input screen (replaces the
+    # member-WHOLESALE _compose_junk_screen(direct_quote) that flagged 87% of the real cp2 pool because
+    # a single chrome marker ANYWHERE fired the whole multi-KB row). Each member is split into sentence
+    # units, screened per unit, and handed to the writer trimmed to its surviving-unit envelope; a
+    # member is dropped ONLY when EVERY unit screens as chrome (a genuinely pure-chrome row). Fail-open:
+    # any doubt keeps the member. Faithfulness-safe (§-1.3): boilerplate is not a corroborating source;
+    # the base verifier still gates every composed sentence.
+    screened_members = []
+    for m in members:
+        kept_member = _member_surviving_units_or_drop(m, evidence_pool)
+        if kept_member is not None:
+            screened_members.append(kept_member)
     if not screened_members:
         logger.info(
-            "[abstractive_writer] basket=%s all SUPPORTS members screened as chrome -> writer skipped "
-            "(K-span fallback)", _basket_key(basket),
+            "[abstractive_writer] basket=%s all SUPPORTS members screened as chrome (per-unit) -> "
+            "writer skipped (K-span fallback)", _basket_key(basket),
         )
         return None
     members = screened_members
@@ -958,6 +1033,9 @@ async def abstractive_pre_pass(
     except Exception:  # noqa: BLE001 — hook install is best-effort, never fatal to the pre-pass
         logger.debug("[abstractive_writer] teardown-drain hook install skipped", exc_info=True)
 
+    # Fix 7 (P2-3, 2026-07-10 compose gear-loop): measure the ACTUAL elapsed wall so the completion
+    # line logs the real pass duration, not the config wall CAP (a 1s pass previously logged "wall=510s").
+    _prepass_t0 = time.monotonic()
     done, pending = await asyncio.wait(tasks, timeout=wall_deadline_s)
     if pending:
         logger.warning(
@@ -1004,10 +1082,13 @@ async def abstractive_pre_pass(
                 len(out) - rec_before, len(recovery_baskets),
             )
 
+    # Fix 7 (P2-3, 2026-07-10 compose gear-loop): log the ACTUAL elapsed wall (measured) alongside the
+    # config CAPS, clearly labelled, so a fast pass no longer reports the 510s cap as if it were spent.
     logger.info(
-        "[abstractive_writer] pre-pass complete: %d/%d baskets drafted (model=%s, retries=%d, "
-        "wall=%.0fs, abandoned=%d)",
-        len(out), len(baskets or []), model, max_retries, wall_deadline_s, len(pending),
+        "[abstractive_writer] pre-pass complete: %d/%d baskets drafted (model=%s, elapsed=%.1fs, "
+        "retries_budget=%d, wall_cap=%.0fs, abandoned=%d)",
+        len(out), len(baskets or []), model, time.monotonic() - _prepass_t0,
+        max_retries, wall_deadline_s, len(pending),
     )
     return out
 

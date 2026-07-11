@@ -77,6 +77,11 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
     # rebound by _repair_untokened_draft nor dropped no_provenance_token by strict_verify).
     partition_composed_disclosures,
     render_degraded_disclosures,
+    # Fix 2 (P0-2, 2026-07-10 compose gear-loop): classify + screen labeled unverified CLAIM lines so a
+    # ZERO-verified section never renders one as its only prose (2a) and an accompanying labeled line
+    # passes a structural-semantic substantive-claim screen (2b).
+    is_labeled_claim_disclosure,
+    labeled_disclosure_is_nonsubstantive,
     repair_untokened_sentence,
     # I-deepfix-001 F1 (#1344): route EVERY consolidated basket to a section so no verified
     # basket is stranded with no home (~600 stranded baskets in drb_72). Default-OFF.
@@ -5434,9 +5439,15 @@ async def _run_section(
             # _compose_one_basket with failed=[] and the group writer NEVER fires on most baskets — the
             # coherent-narrative effect would not materialize on real upstream. group_mode=False (OFF) =>
             # byte-identical single-sentence-per-span pre-pass.
+            # Fix 4 (P1-2, 2026-07-10 compose gear-loop): GROUP mode is the DEFAULT on the primary writer
+            # path so sections read as ONE coherent narrative (multi-citation dedup, outline fulfilment),
+            # not one-sentence-per-span. We are already inside the `PG_ABSTRACTIVE_WRITER or
+            # _synth_primary_active` branch, so any active writer path composes in group mode; the base
+            # verifier still gates every sentence, so this adds no faithfulness risk. (Was tied to
+            # _synth_primary_active only.)
             _vc_precomputed = await abstractive_pre_pass(
                 _vc_baskets, evidence_pool, writer_verify_fn=_vc_writer_verify,
-                group_mode=_synth_primary_active,
+                group_mode=True,
                 section_context=_vc_section_context,
             )
             # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the no-token-repair
@@ -5996,9 +6007,27 @@ async def _run_section(
     # honest, specific disclosure the operator wants) while is_gap_stub STAYS True so the section is still
     # treated as non-verified prose. Empty when ARM B is OFF => byte-identical.
     if _vc_degraded_disclosures:
-        verified_text = render_degraded_disclosures(
-            "" if is_gap_stub else verified_text, _vc_degraded_disclosures,
-        )
+        if is_gap_stub:
+            # Fix 2(a) (P0-2, 2026-07-10 compose gear-loop): a section with ZERO verified sentences shows
+            # ONLY the honest gap / judge-outage disclosure — NEVER a labeled unverified CLAIM line as its
+            # only prose (a well-formed chrome/meta claim passes every lexical FORM check, so it must not
+            # stand alone as a section body). The SOURCE stays in the pool + bibliography (faithfulness-
+            # neutral). If no honest disclosure survives, the generic _GAP_STUB_SENTENCE stays.
+            _disc_to_render = [
+                d for d in _vc_degraded_disclosures if not is_labeled_claim_disclosure(d)
+            ]
+        else:
+            # Fix 2(b) (P0-2): a labeled unverified CLAIM line ACCOMPANYING verified prose must pass a
+            # STRUCTURAL-SEMANTIC substantive-claim screen (a well-formed chrome sentence passes every
+            # lexical form check by construction). Withhold the LINE while keeping the source.
+            _disc_to_render = [
+                d for d in _vc_degraded_disclosures
+                if not (is_labeled_claim_disclosure(d) and labeled_disclosure_is_nonsubstantive(d))
+            ]
+        if _disc_to_render:
+            verified_text = render_degraded_disclosures(
+                "" if is_gap_stub else verified_text, _disc_to_render,
+            )
 
     # B2 (I-deepfix-001 #1344): per-section BOUNDARY-CONDITIONS / COUNTER-EVIDENCE line. When the
     # section rendered real verified prose, synthesize ONE marker-less disclosure that quotes a

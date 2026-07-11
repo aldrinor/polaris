@@ -133,9 +133,59 @@ def _max_verbatim_run(words: list, shingles: set, n: int) -> bool:
     return False
 
 
+# Fix 6 (P2-2, 2026-07-10 compose gear-loop): strip leading REQUEST/INSTRUCTION framing so the H1 is
+# the TOPIC, not the verbatim user request ("please help me complete a research report on ..."). General
+# + question-agnostic: ONLY generic English politeness + report-request verbs are matched (never a topic
+# keyword, never tuned to any one question). Fail-open: if stripping leaves no usable topic, the original
+# head is kept.
+_REQUEST_GREETING_RE = re.compile(
+    r"^\s*(?:hi|hello|hey|dear\s+\w+|good\s+(?:morning|afternoon|evening))\b[\s,:.\-–—]*",
+    re.I,
+)
+_REPORT_REQUEST_RE = re.compile(
+    r"^\s*(?:please\s+|kindly\s+|pls\s+|could\s+you\s+|can\s+you\s+|would\s+you\s+|"
+    r"i\s+(?:would\s+like|want|need|'d\s+like)\s+(?:you\s+)?(?:to\s+)?)?"
+    r"(?:help\s+me\s+|assist\s+me\s+(?:in|with|to)\s+|for\s+me\s+)?"
+    r"(?:to\s+)?(?:please\s+)?"
+    r"(?:write|complete|compose|produce|prepare|create|generate|compile|draft|make|do|build|"
+    r"conduct|carry\s+out|perform|put\s+together|give\s+me|provide|research)\s+"
+    r"(?:me\s+)?(?:a|an|the|my|some|this)?\s*"
+    r"(?:comprehensive|detailed|deep|full|thorough|in-?depth|extensive|complete|brief|short|quick)?\s*"
+    r"(?:research\s+|deep\s+research\s+|literature\s+|systematic\s+)?"
+    r"(?:report|analysis|study|paper|review|overview|summary|survey|brief|write-?up|document|essay)\b\s*"
+    r"(?:on|about|regarding|concerning|of|for|into|covering|examining|exploring|"
+    r"that\s+(?:covers|explores|examines|discusses|analyzes|analyses)|to\s+(?:cover|explore|examine))\s+",
+    re.I,
+)
+
+
+def _strip_request_framing(text: str) -> str:
+    """Fix 6: peel a leading greeting and/or a report-request lead-in ("please help me write a research
+    report on ...") off a research question, leaving the TOPIC. Iterative (a greeting then a request),
+    only strips the request lead when a real topic tail (>= 8 chars) remains, and fail-open returns the
+    original normalized head if nothing usable survives."""
+    original = " ".join(str(text or "").split())
+    s = original
+    if not s:
+        return s
+    prev = None
+    while prev != s:
+        prev = s
+        s = _REQUEST_GREETING_RE.sub("", s, count=1).strip()
+        m = _REPORT_REQUEST_RE.match(s)
+        if m and (len(s) - m.end()) >= 8:
+            s = s[m.end():].strip()
+    if not s:
+        return original
+    if s[0].islower():
+        s = s[0].upper() + s[1:]
+    return s
+
+
 def _report_title(question: str, cp4: dict) -> str:
     """P3-1: a clean H1 — a cp4-provided report title if present, else the research question's first
-    sentence/clause word-safe truncated (never a raw mid-word 200-char slice of the whole question)."""
+    sentence/clause word-safe truncated (never a raw mid-word 200-char slice of the whole question).
+    Fix 6 (2026-07-10): request/instruction framing is stripped so the H1 is the topic, not the request."""
     pl = (cp4 or {}).get("payload", {}) or {}
     for key in ("report_title", "title"):
         t = str(pl.get(key) or (cp4 or {}).get(key) or "").strip()
@@ -144,12 +194,32 @@ def _report_title(question: str, cp4: dict) -> str:
     q = " ".join(str(question or "").split())
     if not q:
         return "Research Report"
+    q = _strip_request_framing(q)  # Fix 6: drop leading request/instruction framing
     m = re.search(r"[?.]", q)
     head = q[: m.end()] if (m and m.end() <= 220) else q
     if len(head) <= 200:
         return head
     cut = head[:200].rsplit(" ", 1)[0]
     return (cut.rstrip() + "…") if cut else head[:200]
+
+
+def _section_body_for_render(title: str, verified_text: str, generic_gap_stubs: tuple) -> str:
+    """Fix 3 + Fix 8 (2026-07-10 compose gear-loop): assemble one section's rendered body. Never emit a
+    bare heading with zero body (Fix 3) — an EMPTY body renders an honest gap disclosure NAMING the
+    section. Never repeat the identical generic production gap-stub paragraph verbatim across sections
+    (Fix 8) — a generic stub is varied with the section title so each reads distinctly. Any real verified
+    prose is returned unchanged."""
+    body = (verified_text or "").strip()
+    _t = " ".join(str(title or "").split()) or "this section"
+    if not body:
+        return (
+            f'No verified claim was composed for this section ("{_t}"); it is a curator-actionable '
+            f'gap. The retrieved sources for this section remain in the bibliography and verification '
+            f'details for per-claim disposition.'
+        )
+    if body in (generic_gap_stubs or ()):
+        return body.replace("this section", f'this section ("{_t}")', 1)
+    return body
 
 
 def _audit_section(idx, title, verified_text, shingles, ngram):
@@ -252,7 +322,7 @@ async def main():
     ap.add_argument("--only-section", type=int, default=-1)
     ap.add_argument("--sections", type=str, default="", help="comma list of section indices to compose (default all)")
     ap.add_argument("--ckpt-dir", type=str, default="", help="dir for per-section draft checkpoints (timeout-resilient)")
-    ap.add_argument("--cap-primary", type=int, default=0, help="BOUNDED read: keep only first N primary views per section (0=all). Disclosed subset, not a full acceptance run.")
+    ap.add_argument("--cap-primary", type=int, default=0, help="Fix 5 (2026-07-10): SMOKE-ONLY disclosed knob. Keep only first N primary views per section. DEFAULT 0 = ALL primary views = a full-coverage acceptance run (the gate round MUST run at 0 so coverage and defects 1/2/5 are judgeable). Any N>0 is an explicitly-disclosed bounded subset, never a full acceptance run.")
     args = ap.parse_args()
 
     # Fix 5 (2026-07-10 compose gear-loop): configure INFO logging so the writer/activation markers
@@ -295,7 +365,15 @@ async def main():
     if ckpt_dir:
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    from src.polaris_graph.generator.multi_section_generator import SectionPlan, _run_section
+    from src.polaris_graph.generator.multi_section_generator import (
+        SectionPlan,
+        _run_section,
+        # Fix 3 + Fix 8 (2026-07-10 compose gear-loop): the production gap-stub sentences, so the
+        # assembler can render an honest gap for an empty body and vary a repeated generic stub.
+        _GAP_STUB_SENTENCE,
+        _NO_EVIDENCE_GAP_STUB_SENTENCE,
+        _SECTION_FAILED_GAP_STUB_SENTENCE,
+    )
     from src.polaris_graph.synthesis.credibility_pass import CredibilityAnalysis, EvidenceCredibility
     from src.polaris_graph.synthesis.section_basket_map import (
         build_section_basket_map,
@@ -504,9 +582,15 @@ async def main():
     # ---- Assemble the whole report markdown from composed sections ----
     # P3-1 (2026-07-10): a clean H1 (cp4 report title or the question's first clause, word-safe) — not a
     # raw mid-word 200-char slice of the whole multi-paragraph question.
+    # Fix 3 + Fix 8 (2026-07-10 compose gear-loop): render an honest gap disclosure for an empty section
+    # body (never a bare heading) and vary a repeated generic gap-stub per section title.
+    _generic_gap_stubs = (
+        _GAP_STUB_SENTENCE, _NO_EVIDENCE_GAP_STUB_SENTENCE, _SECTION_FAILED_GAP_STUB_SENTENCE,
+    )
     parts = [f"# {_report_title(question, cp4)}"]
     for oi, r in section_results:
-        parts.append(f"\n## {r.title}\n\n{r.verified_text or ''}")
+        _body = _section_body_for_render(r.title, r.verified_text or "", _generic_gap_stubs)
+        parts.append(f"\n## {r.title}\n\n{_body}")
     report_md_pre = "\n".join(parts) + "\n"
 
     # ---- HOLISTIC report-level pass B: whole-report render-seam chrome/truncation scrub ----
