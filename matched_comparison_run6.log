@@ -1,0 +1,1638 @@
+[matched-comparison] run_id=SWEEP_workforce_drb_72_ai_labor_1783476454 domain='workforce' evidence_rows=654 baskets(raw)=335 required_sections=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+[matched-comparison] question (first 200 chars): 'I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The report needs to be based on academic research published before June 2023, summar'
+
+################################################################################
+[matched-comparison] SCENARIO: FULL_CORPUS (654 rows) (evidence_rows=654)
+################################################################################
+[bank] built 43 clusters from 335 baskets (dropped 1 — id not resolvable in cp2 evidence)
+[bank] built 43 clusters from 335 baskets (dropped 1 — id not resolvable in cp2 evidence)
+
+=== PLAIN RUN RESULT (elapsed 93.7s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+ok=True reason_codes=['info_overlap:9_ev_ids_shared_across_sections']
+  - 'Positive Views': 9 ev_ids
+  - 'Negative Views': 11 ev_ids
+  - 'Specific Challenges': 14 ev_ids
+  - 'Future Opportunities': 11 ev_ids
+[live_retriever] openalex_search failed for 'Generative AI labor market impact industry specific applicat' (fail-open): HTTP 429 from https://api.openalex.org/works
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 9061.25it/s]
+[FETCH]... ↓ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.81s 
+[SCRAPE].. ◆ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✗ | ⏱: 0.82s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.88s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.89s 
+[polaris graph] CRAWL4AI: Failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-: Blocked by anti-bot protection: Akamai block (Reference #)
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.12s 
+[SCRAPE].. ◆ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 0.10s 
+[COMPLETE] ● 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.24s 
+[FETCH]... ↓ 
+https://www.abacademies.org/articles/ai-and-the-...ew-job-roles-and-skill-transf
+ormation-17766.html  | ✓ | ⏱: 1.41s 
+[SCRAPE].. ◆ 
+https://www.abacademies.org/articles/ai-and-the-...ew-job-roles-and-skill-transf
+ormation-17766.html  | ✓ | ⏱: 0.23s 
+[COMPLETE] ● 
+https://www.abacademies.org/articles/ai-and-the-...ew-job-roles-and-skill-transf
+ormation-17766.html  | ✓ | ⏱: 1.73s 
+[FETCH]... ↓ 
+https://online.ysu.edu/degrees/education/msed/artificial-intelligence-jobs-growt
+h/                   | ✓ | ⏱: 2.47s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.86s 
+[SCRAPE].. ◆ 
+https://online.ysu.edu/degrees/education/msed/artificial-intelligence-jobs-growt
+h/                   | ✓ | ⏱: 0.48s 
+[COMPLETE] ● 
+https://online.ysu.edu/degrees/education/msed/artificial-intelligence-jobs-growt
+h/                   | ✓ | ⏱: 3.00s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.53s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.43s 
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 4.69s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.21s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 4.95s 
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.mckinsey.com/mgi/our-research/generative-ai-and- — cancelled
+[live_retriever] AccessBypass timed out after 90s for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=1)
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 7831.18it/s]
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'Generative AI labor market impact specific industries occupa' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.mckinsey.com/capabilities/tech-and-a...-of-generative-ai-the-next-pr
+oductivity-frontier  | ✓ | ⏱: 0.48s 
+[SCRAPE].. ◆ 
+https://www.mckinsey.com/capabilities/tech-and-a...-of-generative-ai-the-next-pr
+oductivity-frontier  | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.mckinsey.com/capabilities/tech-and-a...-of-generative-ai-the-next-pr
+oductivity-frontier  | ✗ | ⏱: 0.49s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.56s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.57s 
+[polaris graph] CRAWL4AI: Failed for https://www.mckinsey.com/capabilities/tech-and-ai/our-insigh: Blocked by anti-bot protection: Akamai block (Reference #)
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.23s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.34s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.47s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.72s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.56s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.93s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.97s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.21s 
+[FETCH]... ↓ https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 2.34s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.55s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.57s 
+[SCRAPE].. ◆ https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 0.73s 
+[COMPLETE] ● https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 3.12s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 1.26s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.49s 
+[FETCH]... ↓ 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 1.58s 
+[SCRAPE].. ◆ 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 0.24s 
+[COMPLETE] ● 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 1.83s 
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.mckinsey.com/capabilities/tech-and-ai/our-insigh — cancelled
+[ACCESS] direct fetch failed for https://www.mckinsey.com/capabilities/tech-and-ai/our-insights/the-economic-pote: 
+[live_retriever] AccessBypass timed out after 90s for https://www.mckinsey.com/capabilities/tech-and-ai/our-insights/the-economic-pote — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=2)
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI negative impacts labor market employment job d' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.39s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.40s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[FETCH]... ↓ 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 1.42s 
+[FETCH]... ↓ 
+https://bipartisanpolicy.org/issue-brief/ai-and-the-workforce-impacts-on-jobs-wo
+rkers-and-employers/ | ✓ | ⏱: 1.47s 
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.55s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.74s 
+[SCRAPE].. ◆ 
+https://bipartisanpolicy.org/issue-brief/ai-and-the-workforce-impacts-on-jobs-wo
+rkers-and-employers/ | ✓ | ⏱: 0.42s 
+[COMPLETE] ● 
+https://bipartisanpolicy.org/issue-brief/ai-and-the-workforce-impacts-on-jobs-wo
+rkers-and-employers/ | ✓ | ⏱: 1.91s 
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.65s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 2.22s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.82s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.60s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.80s 
+[FETCH]... ↓ 
+https://www.goldmansachs.com/insights/articles/how-will-ai-affect-the-global-wor
+kforce               | ✓ | ⏱: 3.62s 
+[SCRAPE].. ◆ 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 3.12s 
+[COMPLETE] ● 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 4.57s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.44s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 5.27s 
+[SCRAPE].. ◆ 
+https://www.goldmansachs.com/insights/articles/how-will-ai-affect-the-global-wor
+kforce               | ✓ | ⏱: 1.62s 
+[COMPLETE] ● 
+https://www.goldmansachs.com/insights/articles/how-will-ai-affect-the-global-wor
+kforce               | ✓ | ⏱: 5.32s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'Generative AI labor market risks limitations bias hallucinat' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=42>40), using PyMuPDF: https://datasociety.net/wp-content/uploads/2024/12
+[FETCH]... ↓ https://guides.library.stonybrook.edu/genai/ethics                 
+| ✓ | ⏱: 1.44s 
+[SCRAPE].. ◆ https://guides.library.stonybrook.edu/genai/ethics                 
+| ✓ | ⏱: 0.14s 
+[COMPLETE] ● https://guides.library.stonybrook.edu/genai/ethics                 
+| ✓ | ⏱: 1.60s 
+[FETCH]... ↓ 
+https://mitsloanedtech.mit.edu/ai/basics/addressing-ai-hallucinations-and-bias/ 
+| ✓ | ⏱: 1.60s 
+[SCRAPE].. ◆ 
+https://mitsloanedtech.mit.edu/ai/basics/addressing-ai-hallucinations-and-bias/ 
+| ✓ | ⏱: 0.13s 
+[COMPLETE] ● 
+https://mitsloanedtech.mit.edu/ai/basics/addressing-ai-hallucinations-and-bias/ 
+| ✓ | ⏱: 1.78s 
+[FETCH]... ↓ 
+https://www.fieldfisher.com/en/insights/generative-ai-bias-hallucinations-and-gd
+pr                   | ✓ | ⏱: 1.88s 
+[SCRAPE].. ◆ 
+https://www.fieldfisher.com/en/insights/generative-ai-bias-hallucinations-and-gd
+pr                   | ✓ | ⏱: 0.08s 
+[COMPLETE] ● 
+https://www.fieldfisher.com/en/insights/generative-ai-bias-hallucinations-and-gd
+pr                   | ✓ | ⏱: 2.00s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 2.33s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 2.34s 
+[polaris graph] CRAWL4AI: Insufficient content for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf (1 chars)
+[FETCH]... ↓ https://netconomy.net/blog/risks-generative-ai/                    
+| ✓ | ⏱: 2.67s 
+[SCRAPE].. ◆ https://netconomy.net/blog/risks-generative-ai/                    
+| ✓ | ⏱: 0.17s 
+[COMPLETE] ● https://netconomy.net/blog/risks-generative-ai/                    
+| ✓ | ⏱: 2.87s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 3.57s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.22s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 3.82s 
+[FETCH]... ↓ 
+https://www.ibm.com/think/insights/10-ai-dangers-and-risks-and-how-to-manage-the
+m                    | ✓ | ⏱: 4.63s 
+[SCRAPE].. ◆ 
+https://www.ibm.com/think/insights/10-ai-dangers-and-risks-and-how-to-manage-the
+m                    | ✓ | ⏱: 0.29s 
+[COMPLETE] ● 
+https://www.ibm.com/think/insights/10-ai-dangers-and-risks-and-how-to-manage-the
+m                    | ✓ | ⏱: 4.94s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'academic research generative AI negative impacts employment ' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.70s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.71s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 1.16s 
+[SCRAPE].. ◆ 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 0.10s 
+[COMPLETE] ● 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 1.29s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.29s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.50s 
+[FETCH]... ↓ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 1.55s 
+[SCRAPE].. ◆ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.08s 
+[COMPLETE] ● 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 1.65s 
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 2.04s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.16s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.22s 
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.53s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 2.59s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.61s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.79s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.93s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.18s 
+[FETCH]... ↓ https://doi.org/10.1016/j.joitmc.2025.100607                       
+| ✓ | ⏱: 1.47s 
+[SCRAPE].. ◆ https://doi.org/10.1016/j.joitmc.2025.100607                       
+| ✓ | ⏱: 0.02s 
+[COMPLETE] ● https://doi.org/10.1016/j.joitmc.2025.100607                       
+| ✓ | ⏱: 1.53s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[polaris graph] JSON repair also failed for ReactDecision: 1 validation error for ReactDecision
+action
+  Field required [type=missing, input_value={'section': 'Negative Vie...ng': 'Selected unknown'}, input_type=dict]
+    For further information visit https:/
+[polaris graph] Structured parse failed (246 chars), retrying: 1 validation error for ReactDecision
+action
+  Field required [type=missing, input_value={'section': 'Negative Vie...ng': 'Selected unknown'}, input_type=dict]
+    For further information visit https:/
+[live_retriever] openalex_search failed for 'Generative AI negative impacts on labor market employment jo' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[ERROR]... × Error updating image dimensions: Page.evaluate: Execution context 
+was destroyed, most likely because of a navigation 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.81s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.81s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (169 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 1.15s 
+[SCRAPE].. ◆ 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 0.10s 
+[COMPLETE] ● 
+https://www.sciencespo.fr/women-in-business/en/n...cle-artificial-intelligence-a
+nd-the-labor-market  | ✓ | ⏱: 1.28s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.31s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.52s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/is-generative-ai-a-job-killer-evidence-from-t
+he-freelance-market/ | ✓ | ⏱: 1.83s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/is-generative-ai-a-job-killer-evidence-from-t
+he-freelance-market/ | ✓ | ⏱: 0.21s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/is-generative-ai-a-job-killer-evidence-from-t
+he-freelance-market/ | ✓ | ⏱: 2.06s 
+[FETCH]... ↓ 
+https://www.oecd.org/en/publications/artificial-...-impact-of-ai-on-the-labour-m
+arket_69793977.html  | ✓ | ⏱: 2.66s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 3.14s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.21s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 3.36s 
+[SCRAPE].. ◆ 
+https://www.oecd.org/en/publications/artificial-...-impact-of-ai-on-the-labour-m
+arket_69793977.html  | ✓ | ⏱: 3.26s 
+[COMPLETE] ● 
+https://www.oecd.org/en/publications/artificial-...-impact-of-ai-on-the-labour-m
+arket_69793977.html  | ✓ | ⏱: 5.97s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI impact on labor market employment in specific ' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.researchgate.net/post/Navigating_the_Impact_of_AI_on_Employment     
+| ✓ | ⏱: 0.49s 
+[SCRAPE].. ◆ 
+https://www.researchgate.net/post/Navigating_the_Impact_of_AI_on_Employment     
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.researchgate.net/post/Navigating_the_Impact_of_AI_on_Employment     
+| ✗ | ⏱: 0.51s 
+[polaris graph] CRAWL4AI: Failed for https://www.researchgate.net/post/Navigating_the_Impact_of_A: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 0.72s 
+[SCRAPE].. ◆ 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 0.09s 
+[COMPLETE] ● 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 0.83s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.73s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.73s 
+[FETCH]... ↓ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.86s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[SCRAPE].. ◆ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.07s 
+[COMPLETE] ● 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.95s 
+[FETCH]... ↓ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.18s 
+[SCRAPE].. ◆ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 0.10s 
+[COMPLETE] ● 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.30s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.52s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.72s 
+[FETCH]... ↓ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 3.41s 
+[SCRAPE].. ◆ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 0.10s 
+[COMPLETE] ● https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 3.53s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI positive impacts labor market specific industr' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.43s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.43s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.61s 
+[SCRAPE].. ◆ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.06s 
+[COMPLETE] ● 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.68s 
+[FETCH]... ↓ 
+https://www.cbreim.com/insights/articles/gen-ai-impact-on-us-employment-and-offi
+ce-space             | ✓ | ⏱: 1.25s 
+[SCRAPE].. ◆ 
+https://www.cbreim.com/insights/articles/gen-ai-impact-on-us-employment-and-offi
+ce-space             | ✓ | ⏱: 0.12s 
+[COMPLETE] ● 
+https://www.cbreim.com/insights/articles/gen-ai-impact-on-us-employment-and-offi
+ce-space             | ✓ | ⏱: 1.38s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.45s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.65s 
+[FETCH]... ↓ 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 1.70s 
+[SCRAPE].. ◆ 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 0.06s 
+[COMPLETE] ● 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 1.78s 
+[FETCH]... ↓ 
+https://news.gsu.edu/2025/05/13/generative-ai-boosts-job-growth-and-productivity
+/                    | ✓ | ⏱: 1.81s 
+[SCRAPE].. ◆ 
+https://news.gsu.edu/2025/05/13/generative-ai-boosts-job-growth-and-productivity
+/                    | ✓ | ⏱: 0.34s 
+[COMPLETE] ● 
+https://news.gsu.edu/2025/05/13/generative-ai-boosts-job-growth-and-productivity
+/                    | ✓ | ⏱: 2.19s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.38s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.18s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.58s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'Generative AI impact on labor market regional differences co' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.72s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.73s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.38s 
+[FETCH]... ↓ 
+https://www.facebook.com/groups/442626183320849/posts/1697170924533029/         
+| ✓ | ⏱: 1.26s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/groups/442626183320849/posts/1697170924533029/         
+| ✓ | ⏱: 0.12s 
+[COMPLETE] ● 
+https://www.facebook.com/groups/442626183320849/posts/1697170924533029/         
+| ✓ | ⏱: 1.41s 
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.52s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.31s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.74s 
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.39s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.93s 
+[FETCH]... ↓ 
+https://www.elibrary.imf.org/view/journals/001/2024/199/article-A001-en.xml     
+| ✓ | ⏱: 3.42s 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[SCRAPE].. ◆ 
+https://www.elibrary.imf.org/view/journals/001/2024/199/article-A001-en.xml     
+| ✓ | ⏱: 7.46s 
+[COMPLETE] ● 
+https://www.elibrary.imf.org/view/journals/001/2024/199/article-A001-en.xml     
+| ✓ | ⏱: 10.91s 
+[ANTIBOT]. ℹ https://webapps.ilo.org...papers/wp096/index.html  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to 
+"https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html"
+, waiting until "domcontentloaded"
+ 
+[ERROR]... × https://webapps.ilo.org...papers/wp096/index.html  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to 
+"https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html"
+, waiting until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://webapps.ilo.org/static/english/intserv/working-paper: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 300
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI positive impacts labor market productivity enh' (fail-open): HTTP 429 from https://api.openalex.org/works
+[live_retriever] fetch_subwall_hit: fetch batch bounded to 0.75 of the remaining retrieval wall (PG_RETRIEVAL_FETCH_WALL_FRACTION) to reserve a classify/W5 slice; 8 timed out and 1 never dispatched before the fetch cutoff — DISCLOSED (flow on as fetch_failed), NOT dropped (§-1.3)
+[live_retriever] I-fetch-003 LOW fetch_success_rate 0.00 (< floor 0.50): 0 usable / 10 submitted across 10 hosts, 8 timeout — corpus may be starved; check per-host limit / max_workers / per_task_timeout.
+[content_relevance] W2 reserved slice spent or within the 30.0s reranker safety margin at entry over 10 passages — SKIP scoring, release ALL at full weight (always-release, NO drop).
+[ANTIBOT]. ℹ https://www.aeaweb.org/.../program/paper/BBsK4Zkd  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://www.aeaweb.org/conference/2025/program/paper/BBsK4Zkd", waiting until 
+"domcontentloaded"
+ 
+[ERROR]... × https://www.aeaweb.org/.../program/paper/BBsK4Zkd  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to 
+"https://www.aeaweb.org/conference/2025/program/paper/BBsK4Zkd", waiting until 
+"domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[FETCH]... ↓ 
+https://www.mckinsey.com/capabilities/tech-and-a...-of-generative-ai-the-next-pr
+oductivity-frontier  | ✓ | ⏱: 0.36s 
+[SCRAPE].. ◆ 
+https://www.mckinsey.com/capabilities/tech-and-a...-of-generative-ai-the-next-pr
+oductivity-frontier  | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.mckinsey.com/capabilities/tech-and-a...-of-generative-ai-the-next-pr
+oductivity-frontier  | ✗ | ⏱: 0.36s 
+[live_retriever] retrieval wall hit during the post-fetch classify loop at candidate 9/10 (9 already classified) — handing off the partial corpus (render-PASS, NOT corpus_truncated; PG_RETRIEVAL_WALL_SECONDS)
+[live_retriever] retrieval_wall_hit: PARTIAL retrieval — wall (2700s, PG_RETRIEVAL_WALL_SECONDS) tripped; 0 planned sub-queries unfired and 1 fetched bodies unclassified — DISCLOSED, NOT dropped; handed off 9 classified sources to render (render-PASS partial, NOT corpus_truncated)
+
+=== AGENTIC RUN RESULT (elapsed 995.8s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+turns=13 ev_before=654 ev_after=670 new_evidence=16
+  - 'Positive Views': 13 ev_ids
+  - 'Negative Views': 14 ev_ids
+  - 'Specific Challenges': 22 ev_ids
+  - 'Future Opportunities': 23 ev_ids
+disclosures:
+  - checklist[seed] named 3 gap(s): Future Opportunities::specific application cases by industry or occupation; Positive Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[seed] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Specific Challenges :: country or region of research literature :: coverage :: “Country/Region”
+  - search_more_evidence['specific application cases of Generative AI by industry or o'] query='Generative AI labor market impact industry specific applications new job roles upskilling pathways transformations academic research before June 2023' fetched 8 of 10, url-dup dropped 6, kept 2, deleted 0 (chrome=0, off-topic=0) in 137.2s
+  - update_outline: Applied 1 op(s); recompose=['Future Opportunities']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 2 new ev_id(s) to section 'Future Opportunities' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 6 gap(s): Future Opportunities::specific application cases by particular industries or occupations; Future Opportunities::specific applications in application areas or occupations; Positive Views::main impacts brought about; Negative Views::main negative impacts brought about; Specific Challenges::key risk points emphasized by researchers; Specific Challenges::key risks and limitations of applications
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: country or region of the studied application cases :: coverage :: Country/Region
+  - search_more_evidence['specific application cases of Generative AI in particular in'] query='Generative AI labor market impact specific industries occupations application cases productivity enhancement task augmentation academic research 2023' fetched 8 of 10, url-dup dropped 7, kept 1, deleted 0 (chrome=0, off-topic=0) in 170.7s
+  - update_outline: Applied 1 op(s); recompose=['Positive Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 1 new ev_id(s) to section 'Positive Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::particular industries or occupations; Negative Views::main negative impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: Country/Region :: coverage :: Country/Region
+  - search_more_evidence['main negative impacts brought about by Generative AI on empl'] query='generative AI negative impacts labor market employment job displacement wage reduction skill obsolescence cognitive task automation inequality academic research pre 2023' fetched 9 of 10, url-dup dropped 9, kept 0, deleted 0 (chrome=0, off-topic=0) in 32.5s
+  - search_more_evidence['key risks and limitations of Generative AI applications in l'] query='Generative AI labor market risks limitations bias hallucination accuracy ethics data privacy regulation research before June 2023' fetched 9 of 10, url-dup dropped 2, kept 7, deleted 0 (chrome=0, off-topic=0) in 29.6s
+  - update_outline: Applied 1 op(s); recompose=['Specific Challenges']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 7 new ev_id(s) to section 'Specific Challenges' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::particular industries or occupations; Negative Views::main negative impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: geographic regions of the studies :: coverage :: Country/Region
+  - search_more_evidence['main negative impacts brought about by Generative AI on empl'] query='academic research generative AI negative impacts employment job displacement wage reduction skill obsolescence cognitive task automation labor market inequality 2023' fetched 7 of 9, url-dup dropped 7, kept 0, deleted 0 (chrome=0, off-topic=0) in 34.0s
+  - search_more_evidence['main negative impacts brought about by Generative AI on empl'] query='Generative AI negative impacts on labor market employment job displacement wage reduction skill obsolescence automation of cognitive tasks inequality academic research before June 2023' fetched 8 of 10, url-dup dropped 7, kept 1, deleted 0 (chrome=0, off-topic=0) in 39.5s
+  - update_outline: Applied 1 op(s); recompose=['Negative Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 1 new ev_id(s) to section 'Negative Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::particular industries or occupations; Positive Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: country or region of application :: coverage :: “Country/Region”
+  - search_more_evidence['particular industries or occupations'] query='generative AI impact on labor market employment in specific industries and occupations academic research applications and risks' fetched 8 of 9, url-dup dropped 7, kept 1, deleted 0 (chrome=0, off-topic=0) in 34.3s
+  - update_outline: Applied 1 op(s); recompose=['Positive Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 1 new ev_id(s) to section 'Positive Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 2 gap(s): Positive Views::particular industries or occupations; Specific Challenges::key risk points emphasized by researchers
+  - checklist[after_fold] dropped 2 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: country/region metadata for application cases :: coverage :: “Country/Region” | Specific Challenges :: country/region metadata for key risks and limitations :: coverage :: “Country/Region”
+  - checklist[finish_attempt_turn_8] named 3 gap(s): Future Opportunities::specific application cases by particular industries or occupations; Specific Challenges::key risk points emphasized by researchers; Positive Views::main impacts brought about
+  - checklist[finish_attempt_turn_8] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: country or region of the studies :: coverage :: Country/Region
+  - finish_outline BOUNCED at turn 8: 3 new + 8 pending gap(s) remain, budget available — continuing loop
+  - search_more_evidence['particular industries or occupations - specific positive imp'] query='generative AI positive impacts labor market specific industries occupations productivity gains task augmentation workforce enhancement academic research 2023' fetched 8 of 9, url-dup dropped 7, kept 1, deleted 0 (chrome=0, off-topic=0) in 41.0s
+  - update_outline: Applied 1 op(s); recompose=['Positive Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 1 new ev_id(s) to section 'Positive Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::specific application cases by industry or occupation; Negative Views::main negative impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - search_more_evidence['country or region specific data on Generative AI labor marke'] query='Generative AI impact on labor market regional differences country-specific adoption employment effects academic research pre-2023' fetched 8 of 9, url-dup dropped 5, kept 3, deleted 0 (chrome=0, off-topic=0) in 40.4s
+  - update_outline: Applied 1 op(s); recompose=['Future Opportunities']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 3 new ev_id(s) to section 'Future Opportunities' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::specific application cases by industry or occupation; Negative Views::main negative impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: country or region of the research literature :: coverage :: Country/Region
+  - checklist[finish_attempt_turn_11] named 3 gap(s): 'Future Opportunities'::application cases by industry or occupation; 'Positive Views'::main impacts brought about; 'Specific Challenges'::key risk points emphasized by researchers
+  - checklist[finish_attempt_turn_11] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): 'Future Opportunities' :: Country/Region of application cases :: numeric_rows :: "Country/Region"
+  - finish_outline BOUNCED at turn 11: 3 new + 12 pending gap(s) remain, budget available — continuing loop
+  - checklist[finish_attempt_turn_12] named 4 gap(s): Positive Views::main impacts brought about; Positive Views::academic research published before June 2023; Specific Challenges::key risk points emphasized by researchers; Future Opportunities::specific application cases by particular industries or occupations
+  - checklist[finish_attempt_turn_12] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: Country/Region :: coverage :: Country/Region
+  - finish_outline BOUNCED at turn 12: 4 new + 13 pending gap(s) remain, budget available — continuing loop
+  - search_more_evidence['academic research published before June 2023 on Generative A'] query='generative AI positive impacts labor market productivity enhancement task augmentation academic research before June 2023' fetched 0 of 10, url-dup dropped 0, kept 0, deleted 0 (chrome=0, off-topic=0) in 3.4s
+
+=== [FULL_CORPUS (654 rows)] SECTION TABLE (raw counts are SEED-NOISE-CONTAMINATED — read genuine_new_fetched_rows) ===
+  'Positive Views': plain=9 agentic=13 raw_delta(noisy)=+4 genuine_new_fetched_rows=3
+  'Negative Views': plain=11 agentic=14 raw_delta(noisy)=+3 genuine_new_fetched_rows=1
+  'Specific Challenges': plain=14 agentic=22 raw_delta(noisy)=+8 genuine_new_fetched_rows=7
+  'Future Opportunities': plain=11 agentic=23 raw_delta(noisy)=+12 genuine_new_fetched_rows=5
+genuine_new_evidence_count=16 (search_more_evidence_calls=10)
+sections_with_genuine_gain=['Future Opportunities', 'Negative Views', 'Positive Views', 'Specific Challenges']
+no_genuine_gain_this_run=False (True means: on THIS seed, the checklist correctly found nothing missing — report honestly, do not spin the noisy count delta as evidence of agentic value)
+
+[matched-comparison] THINNED subsample: 130 of 654 rows (seed=42), 57 of 335 baskets survive intact
+
+################################################################################
+[matched-comparison] SCENARIO: THINNED_CORPUS (130 rows, seed=42) (evidence_rows=130)
+################################################################################
+[bank] built 0 clusters from 57 baskets (dropped 0 — id not resolvable in cp2 evidence)
+[bank] built 0 clusters from 57 baskets (dropped 0 — id not resolvable in cp2 evidence)
+[polaris graph] CRAWL4AI: Failed for https://www.aeaweb.org/conference/2025/program/paper/BBsK4Zk: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[polaris graph] CRAWL4AI: Failed for https://www.mckinsey.com/capabilities/tech-and-ai/our-insigh: Blocked by anti-bot protection: Akamai block (Reference #)
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.66s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.67s 
+[polaris graph] CRAWL4AI: Insufficient content for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf (1 chars)
+[FETCH]... ↓ 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 1.19s 
+[SCRAPE].. ◆ 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 0.20s 
+[COMPLETE] ● 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 1.40s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.42s 
+[FETCH]... ↓ 
+https://www.gspublishing.com/content/research/en.../03/27/d64e052b-0f6e-45d7-967
+b-d7be35fabd16.html  | ✓ | ⏱: 1.45s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.24s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.68s 
+[FETCH]... ↓ 
+https://budgetmodel.wharton.upenn.edu/p/2025-09-...-of-generative-ai-on-future-p
+roductivity-growth/  | ✓ | ⏱: 1.83s 
+[SCRAPE].. ◆ 
+https://www.gspublishing.com/content/research/en.../03/27/d64e052b-0f6e-45d7-967
+b-d7be35fabd16.html  | ✓ | ⏱: 0.59s 
+[COMPLETE] ● 
+https://www.gspublishing.com/content/research/en.../03/27/d64e052b-0f6e-45d7-967
+b-d7be35fabd16.html  | ✓ | ⏱: 2.07s 
+[SCRAPE].. ◆ 
+https://budgetmodel.wharton.upenn.edu/p/2025-09-...-of-generative-ai-on-future-p
+roductivity-growth/  | ✓ | ⏱: 0.88s 
+[COMPLETE] ● 
+https://budgetmodel.wharton.upenn.edu/p/2025-09-...-of-generative-ai-on-future-p
+roductivity-growth/  | ✓ | ⏱: 2.73s 
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.gspublishing.com/content/research/en/reports/202 — cancelled
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.mckinsey.com/capabilities/tech-and-ai/our-insigh — cancelled
+[ACCESS] direct fetch failed for https://www.mckinsey.com/capabilities/tech-and-ai/our-insights/the-economic-pote: 
+[live_retriever] AccessBypass timed out after 90s for https://www.mckinsey.com/capabilities/tech-and-ai/our-insights/the-economic-pote — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=3)
+[live_retriever] AccessBypass timed out after 90s for https://www.gspublishing.com/content/research/en/reports/2023/03/27/d64e052b-0f6 — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=4)
+
+=== PLAIN RUN RESULT (elapsed 129.0s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+ok=True reason_codes=['info_overlap:10_ev_ids_shared_across_sections']
+  - 'Positive Views': 9 ev_ids
+  - 'Negative Views': 9 ev_ids
+  - 'Specific Challenges': 12 ev_ids
+  - 'Future Opportunities': 10 ev_ids
+[live_retriever] openalex_search failed for 'generative AI impact on labor market employment specific app' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.69s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.83s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.34s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.15s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.06s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 1.03s 
+[FETCH]... ↓ https://www.congress.gov/crs-product/IF13182                       
+| ✓ | ⏱: 0.62s 
+[SCRAPE].. ◆ https://www.congress.gov/crs-product/IF13182                       
+| ✓ | ⏱: 0.02s 
+[COMPLETE] ● https://www.congress.gov/crs-product/IF13182                       
+| ✗ | ⏱: 0.64s 
+[polaris graph] CRAWL4AI: Failed for https://www.congress.gov/crs-product/IF13182: Blocked by anti-bot protection: Cloudflare JS challenge
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.42s 
+[SCRAPE].. ◆ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 0.28s 
+[COMPLETE] ● 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.72s 
+[FETCH]... ↓ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 1.82s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.33s 
+[SCRAPE].. ◆ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 0.58s 
+[COMPLETE] ● https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 2.42s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.31s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.68s 
+[FETCH]... ↓ https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 3.31s 
+[SCRAPE].. ◆ https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 0.65s 
+[COMPLETE] ● https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 4.01s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI labor market employment job displacement stati' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[FETCH]... ↓ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.98s 
+[SCRAPE].. ◆ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.06s 
+[COMPLETE] ● 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 1.06s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 1.24s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.25s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 1.25s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.48s 
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.60s 
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.28s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.89s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.22s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.18s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.41s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'Generative AI labor market impact application cases specific' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[ERROR]... × Error updating image dimensions: Page.evaluate: Execution context 
+was destroyed, most likely because of a navigation 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.80s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.81s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (169 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.00s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.62s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.64s 
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.68s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.70s 
+[ANTIBOT]. ℹ https://sjoranm.com/sjo...article/download/118/87  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://sjoranm.com/sjoranm/article/download/118/87", waiting
+until "domcontentloaded"
+ 
+[ERROR]... × https://sjoranm.com/sjo...article/download/118/87  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://sjoranm.com/sjoranm/article/download/118/87", waiting
+until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.07s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.42s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.18s 
+[polaris graph] CRAWL4AI: Failed for https://sjoranm.com/sjoranm/article/download/118/87: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.79s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 2.49s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.90s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 3.11s 
+[FETCH]... ↓ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 4.45s 
+[SCRAPE].. ◆ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 0.10s 
+[COMPLETE] ● https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 4.58s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI labor market risks limitations algorithmic bia' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=42>40), using PyMuPDF: https://datasociety.net/wp-content/uploads/2024/12
+[ANTIBOT]. ℹ https://www.hbs.edu/ris...ad.aspx?name=25-039.pdf  | Error: Proxy 
+direct failed: Page.content: Unable to retrieve content because the page is 
+navigating and changing the content. 
+[ERROR]... × https://www.hbs.edu/ris...ad.aspx?name=25-039.pdf  | Error: 
+Unexpected error in _crawl_web at line 559 in wrap_api_call 
+(../../opt/conda/lib/python3.11/site-packages/playwright/_impl/_connection.py):
+Error: Page.content: Unable to retrieve content because the page is navigating 
+and changing the content.
+
+Code context:
+ 554           parsed_st = _extract_stack_trace_information_from_stack(st, 
+is_internal, title)
+ 555           self._api_zone.set(parsed_st)
+ 556           try:
+ 557               return await cb()
+ 558           except Exception as error:
+ 559 →             raise rewrite_error(error, f"{parsed_st['apiName']}: 
+{error}") from None
+ 560           finally:
+ 561               self._api_zone.set(None)
+ 562   
+ 563       def wrap_api_call_sync(
+ 564           self, cb: Callable[[], Any], is_internal: bool = False, title: 
+str = None 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.15s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Unexpected error in _crawl_web at line 559 in wrap_api_call (../../opt/conda/lib/python3.11/site-packages/playwright/_impl/_connection.py):
+Error: Page.content: Unable to retrieve content because the 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.19s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.37s 
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=133>40), using PyMuPDF: https://www.europarl.europa.eu/RegData/etudes/STUD
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.14s 
+[FETCH]... ↓ 
+https://www.oecd.org/en/publications/oecd-employ...and-the-labour-market-introdu
+ction_ea35d1c5.html  | ✓ | ⏱: 2.25s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.22s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.36s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.38s 
+[FETCH]... ↓ https://www.epi.org/publication/ai-unbalanced-labor-markets/       
+| ✓ | ⏱: 2.73s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.71s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.11s 
+[SCRAPE].. ◆ https://www.epi.org/publication/ai-unbalanced-labor-markets/       
+| ✓ | ⏱: 2.39s 
+[COMPLETE] ● https://www.epi.org/publication/ai-unbalanced-labor-markets/       
+| ✓ | ⏱: 5.15s 
+[SCRAPE].. ◆ 
+https://www.oecd.org/en/publications/oecd-employ...and-the-labour-market-introdu
+ction_ea35d1c5.html  | ✓ | ⏱: 4.23s 
+[COMPLETE] ● 
+https://www.oecd.org/en/publications/oecd-employ...and-the-labour-market-introdu
+ction_ea35d1c5.html  | ✓ | ⏱: 6.52s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI labor market impact specific applications by i' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.76s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.75s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.76s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.95s 
+[FETCH]... ↓ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.04s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.43s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.21s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.34s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.79s 
+[FETCH]... ↓ 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 1.85s 
+[SCRAPE].. ◆ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.60s 
+[COMPLETE] ● 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 1.56s 
+[SCRAPE].. ◆ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 0.63s 
+[COMPLETE] ● 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.71s 
+[FETCH]... ↓ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 2.17s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.82s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.18s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.88s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.73s 
+[SCRAPE].. ◆ 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 1.02s 
+[COMPLETE] ● 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 2.89s 
+[SCRAPE].. ◆ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 0.97s 
+[COMPLETE] ● https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 3.17s 
+[FETCH]... ↓ https://gnpje.sgh.waw.pl/pdf-203716-129333?filename=Generatywna 
+sztuczna.pdf                         | ✓ | ⏱: 1.13s 
+[SCRAPE].. ◆ https://gnpje.sgh.waw.pl/pdf-203716-129333?filename=Generatywna 
+sztuczna.pdf                         | ✓ | ⏱: 0.13s 
+[COMPLETE] ● https://gnpje.sgh.waw.pl/pdf-203716-129333?filename=Generatywna 
+sztuczna.pdf                         | ✗ | ⏱: 1.28s 
+[polaris graph] CRAWL4AI: Failed for https://gnpje.sgh.waw.pl/pdf-203716-129333?filename=Generaty: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[polaris graph] COT-1: Content empty for generate, reasoning has 625 chars (reasoning_enabled=False, response_format=False). Returning as-is — caller handles recovery.
+[live_retriever] openalex_search failed for 'academic research on generative AI impact on labor market em' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.61s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.62s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.23s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.29s 
+[FETCH]... ↓ 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 1.43s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.61s 
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.44s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.75s 
+[FETCH]... ↓ 
+https://www.gspublishing.com/content/research/en.../03/27/d64e052b-0f6e-45d7-967
+b-d7be35fabd16.html  | ✓ | ⏱: 1.85s 
+[FETCH]... ↓ 
+https://news.gsu.edu/2025/05/13/generative-ai-boosts-job-growth-and-productivity
+/                    | ✓ | ⏱: 1.85s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.68s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.00s 
+[SCRAPE].. ◆ 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 0.81s 
+[COMPLETE] ● 
+https://www.caixabankresearch.com/en/economics-m...tivity-and-employment-face-ge
+nerative-ai-what-do  | ✓ | ⏱: 2.26s 
+[SCRAPE].. ◆ 
+https://www.gspublishing.com/content/research/en.../03/27/d64e052b-0f6e-45d7-967
+b-d7be35fabd16.html  | ✓ | ⏱: 0.72s 
+[COMPLETE] ● 
+https://www.gspublishing.com/content/research/en.../03/27/d64e052b-0f6e-45d7-967
+b-d7be35fabd16.html  | ✓ | ⏱: 2.61s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.19s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.84s 
+[SCRAPE].. ◆ 
+https://news.gsu.edu/2025/05/13/generative-ai-boosts-job-growth-and-productivity
+/                    | ✓ | ⏱: 1.81s 
+[COMPLETE] ● 
+https://news.gsu.edu/2025/05/13/generative-ai-boosts-job-growth-and-productivity
+/                    | ✓ | ⏱: 3.68s 
+[ERROR]... × Error updating image dimensions: Page.evaluate: Execution context 
+was destroyed, most likely because of a navigation 
+[FETCH]... ↓ https://doi.org/10.1109/ICISESSC68634.2026.11542795                
+| ✓ | ⏱: 0.90s 
+[SCRAPE].. ◆ https://doi.org/10.1109/ICISESSC68634.2026.11542795                
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://doi.org/10.1109/ICISESSC68634.2026.11542795                
+| ✗ | ⏱: 0.91s 
+[polaris graph] CRAWL4AI: Failed for https://doi.org/10.1109/ICISESSC68634.2026.11542795: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements, script_heavy_shell (5077 bytes, 0 chars visible)
+[ANTIBOT]. ℹ https://caer.narxoz.kz/...ticle/download/1681/678  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://caer.narxoz.kz/jour/article/download/1681/678", 
+waiting until "domcontentloaded"
+ 
+[ERROR]... × https://caer.narxoz.kz/...ticle/download/1681/678  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://caer.narxoz.kz/jour/article/download/1681/678", 
+waiting until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://caer.narxoz.kz/jour/article/download/1681/678: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.gspublishing.com/content/research/en/reports/202 — cancelled
+[live_retriever] AccessBypass timed out after 90s for https://www.gspublishing.com/content/research/en/reports/2023/03/27/d64e052b-0f6 — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=5)
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'academic literature on positive impacts of generative AI on ' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.38s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.38s 
+[FETCH]... ↓ 
+https://www.researchgate.net/publication/3843062..._Employment_Evidence_from_an_
+Online_Labor_Market  | ✓ | ⏱: 0.44s 
+[SCRAPE].. ◆ 
+https://www.researchgate.net/publication/3843062..._Employment_Evidence_from_an_
+Online_Labor_Market  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.researchgate.net/publication/3843062..._Employment_Evidence_from_an_
+Online_Labor_Market  | ✗ | ⏱: 0.45s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://www.preprints.org/frontend/manuscript/cc931c75ebaf3011c6586ac3caad5382/d
+ownload_pub          | ✓ | ⏱: 0.55s 
+[SCRAPE].. ◆ 
+https://www.preprints.org/frontend/manuscript/cc931c75ebaf3011c6586ac3caad5382/d
+ownload_pub          | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.preprints.org/frontend/manuscript/cc931c75ebaf3011c6586ac3caad5382/d
+ownload_pub          | ✗ | ⏱: 0.55s 
+[polaris graph] CRAWL4AI: Failed for https://www.researchgate.net/publication/384306232_The_Short: Blocked by anti-bot protection: Cloudflare JS challenge
+[polaris graph] CRAWL4AI: Failed for https://www.preprints.org/frontend/manuscript/cc931c75ebaf30: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+| ✓ | ⏱: 0.44s 
+[SCRAPE].. ◆ 
+https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+| ✗ | ⏱: 0.45s 
+[polaris graph] CRAWL4AI: Failed for https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstra: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://hbr.org/2026/03/research-how-ai-is-changing-the-labor-market            
+| ✓ | ⏱: 2.42s 
+[SCRAPE].. ◆ 
+https://hbr.org/2026/03/research-how-ai-is-changing-the-labor-market            
+| ✓ | ⏱: 0.07s 
+[COMPLETE] ● 
+https://hbr.org/2026/03/research-how-ai-is-changing-the-labor-market            
+| ✓ | ⏱: 2.52s 
+[FETCH]... ↓ 
+https://www.elibrary.imf.org/view/journals/006/2024/001/article-A001-en.xml     
+| ✓ | ⏱: 2.82s 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[FETCH]... ↓ 
+https://openknowledge.worldbank.org/entities/publication/b5d5c33c-9419-4dc7-93fb
+-ec9d6b997c4b        | ✓ | ⏱: 6.77s 
+[SCRAPE].. ◆ 
+https://openknowledge.worldbank.org/entities/publication/b5d5c33c-9419-4dc7-93fb
+-ec9d6b997c4b        | ✓ | ⏱: 0.10s 
+[COMPLETE] ● 
+https://openknowledge.worldbank.org/entities/publication/b5d5c33c-9419-4dc7-93fb
+-ec9d6b997c4b        | ✗ | ⏱: 6.94s 
+[polaris graph] CRAWL4AI: Failed for https://openknowledge.worldbank.org/entities/publication/b5d: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements, script_heavy_shell (30060 bytes, 0 chars visible)
+[SCRAPE].. ◆ 
+https://www.elibrary.imf.org/view/journals/006/2024/001/article-A001-en.xml     
+| ✓ | ⏱: 5.70s 
+[COMPLETE] ● 
+https://www.elibrary.imf.org/view/journals/006/2024/001/article-A001-en.xml     
+| ✓ | ⏱: 8.56s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'academic research generative AI future labor market employme' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.imf.org/en/blogs/articles/2026/01/14/new-skills-and-ai-are-reshaping
+-the-future-of-work  | ✓ | ⏱: 0.42s 
+[SCRAPE].. ◆ 
+https://www.imf.org/en/blogs/articles/2026/01/14/new-skills-and-ai-are-reshaping
+-the-future-of-work  | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.imf.org/en/blogs/articles/2026/01/14/new-skills-and-ai-are-reshaping
+-the-future-of-work  | ✗ | ⏱: 0.43s 
+[FETCH]... ↓ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.37s 
+[SCRAPE].. ◆ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✗ | ⏱: 0.37s 
+[polaris graph] CRAWL4AI: Failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-: Blocked by anti-bot protection: Akamai block (Reference #)
+[polaris graph] CRAWL4AI: Failed for https://www.imf.org/en/blogs/articles/2026/01/14/new-skills-: Blocked by anti-bot protection: Akamai block (Reference #)
+[FETCH]... ↓ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 1.01s 
+[SCRAPE].. ◆ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 0.11s 
+[COMPLETE] ● https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 1.14s 
+[FETCH]... ↓ 
+https://www.linkedin.com/posts/markesposito_what...affected-by-ai-activity-74023
+10255004598272-GJi0  | ✓ | ⏱: 1.25s 
+[SCRAPE].. ◆ 
+https://www.linkedin.com/posts/markesposito_what...affected-by-ai-activity-74023
+10255004598272-GJi0  | ✓ | ⏱: 0.62s 
+[COMPLETE] ● 
+https://www.linkedin.com/posts/markesposito_what...affected-by-ai-activity-74023
+10255004598272-GJi0  | ✓ | ⏱: 1.88s 
+[FETCH]... ↓ https://info.jff.org/ai-ready                                      
+| ✓ | ⏱: 2.35s 
+[SCRAPE].. ◆ https://info.jff.org/ai-ready                                      
+| ✓ | ⏱: 0.23s 
+[COMPLETE] ● https://info.jff.org/ai-ready                                      
+| ✓ | ⏱: 2.60s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.75s 
+[FETCH]... ↓ 
+https://www.library.hbs.edu/working-knowledge/en...r-eliminate-how-ai-will-likel
+y-change-these-jobs  | ✓ | ⏱: 0.83s 
+[FETCH]... ↓ 
+https://www.bcg.com/publications/2026/ai-will-reshape-more-jobs-than-it-replaces
+| ✓ | ⏱: 3.13s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.48s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.25s 
+[SCRAPE].. ◆ 
+https://www.library.hbs.edu/working-knowledge/en...r-eliminate-how-ai-will-likel
+y-change-these-jobs  | ✓ | ⏱: 0.49s 
+[FETCH]... ↓ https://www.nexford.edu/insights/how-will-ai-affect-jobs           
+| ✓ | ⏱: 3.41s 
+[COMPLETE] ● 
+https://www.library.hbs.edu/working-knowledge/en...r-eliminate-how-ai-will-likel
+y-change-these-jobs  | ✓ | ⏱: 1.36s 
+[SCRAPE].. ◆ https://www.nexford.edu/insights/how-will-ai-affect-jobs           
+| ✓ | ⏱: 1.66s 
+[SCRAPE].. ◆ 
+https://www.bcg.com/publications/2026/ai-will-reshape-more-jobs-than-it-replaces
+| ✓ | ⏱: 1.94s 
+[COMPLETE] ● https://www.nexford.edu/insights/how-will-ai-affect-jobs           
+| ✓ | ⏱: 5.16s 
+[COMPLETE] ● 
+https://www.bcg.com/publications/2026/ai-will-reshape-more-jobs-than-it-replaces
+| ✓ | ⏱: 5.15s 
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.mckinsey.com/mgi/our-research/generative-ai-and- — cancelled
+[live_retriever] AccessBypass timed out after 90s for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=6)
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+
+=== AGENTIC RUN RESULT (elapsed 1088.8s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+turns=24 ev_before=130 ev_after=163 new_evidence=33
+  - 'Positive Views': 30 ev_ids
+  - 'Negative Views': 19 ev_ids
+  - 'Specific Challenges': 24 ev_ids
+  - 'Future Opportunities': 26 ev_ids
+disclosures:
+  - checklist[seed] named 4 gap(s): Positive Views::application cases in particular industries or occupations; Positive Views::specific applications and impacts; Specific Challenges::key risks and limitations; Specific Challenges::key risk points emphasized by researchers
+  - checklist[seed] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: country or region of the literature :: coverage :: Country/Region
+  - search_more_evidence['application cases in particular industries or occupations wi'] query='generative AI impact on labor market employment specific applications in industries and occupations academic research before June 2023' fetched 9 of 10, url-dup dropped 3, kept 6, deleted 0 (chrome=0, off-topic=0) in 19.7s
+  - update_outline: Applied 1 op(s); recompose=['Positive Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 6 new ev_id(s) to section 'Positive Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::application cases by industry or occupation; Negative Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: geographic origin of the research literature :: coverage :: “Country/Region”
+  - search_more_evidence['main impacts brought about by generative AI on employment, i'] query='generative AI labor market employment job displacement statistics wage polarization industry negative impacts academic research 2023' fetched 9 of 10, url-dup dropped 5, kept 4, deleted 0 (chrome=0, off-topic=0) in 13.9s
+  - update_outline: Applied 1 op(s); recompose=['Negative Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 4 new ev_id(s) to section 'Negative Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 6 gap(s): Future Opportunities::application cases in particular industries or occupations; Positive Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers; Future Opportunities::Application Area/Occupation; Future Opportunities::Specific Applications and Impacts; Specific Challenges::key risks and limitations
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: Country/Region of the studies :: coverage :: “Country/Region”
+  - search_more_evidence['application cases in particular industries or occupations wi'] query='Generative AI labor market impact application cases specific industries occupations 2023 academic research' fetched 9 of 10, url-dup dropped 8, kept 1, deleted 0 (chrome=0, off-topic=0) in 15.8s
+  - update_outline: Applied 1 op(s); recompose=['Future Opportunities']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 1 new ev_id(s) to section 'Future Opportunities' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::application cases in particular industries or occupations; Positive Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - search_more_evidence['key risks and limitations of generative AI in labor market i'] query='generative AI labor market risks limitations algorithmic bias skill gaps regulatory privacy academic research pre-2023' fetched 9 of 10, url-dup dropped 4, kept 5, deleted 0 (chrome=0, off-topic=0) in 27.0s
+  - update_outline: Applied 1 op(s); recompose=['Specific Challenges']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 5 new ev_id(s) to section 'Specific Challenges' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 1 gap(s): Positive Views::application cases by industry or occupation
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: geographic context of studies :: coverage :: Country/Region
+  - search_more_evidence['specific applications and impacts of generative AI by indust'] query='generative AI labor market impact specific applications by industry occupation productivity gains job augmentation new employment opportunities academic research 2022 2023' fetched 9 of 10, url-dup dropped 8, kept 1, deleted 0 (chrome=0, off-topic=0) in 17.5s
+  - update_outline: Applied 1 op(s); recompose=['Positive Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 1 new ev_id(s) to section 'Positive Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::application cases by industry or occupation; Negative Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: geographic context of research studies :: coverage :: Country/Region
+  - search_more_evidence['main impacts brought about by generative AI on employment in'] query='academic research on generative AI impact on labor market employment productivity gains job augmentation new employment creation economic growth before June 2023' fetched 11 of 12, url-dup dropped 8, kept 3, deleted 0 (chrome=0, off-topic=0) in 121.9s
+  - update_outline: Applied 1 op(s); recompose=['Positive Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 3 new ev_id(s) to section 'Positive Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 6 gap(s): Positive Views::application cases by industry or occupation; Positive Views::research literature citations; Positive Views::application cases by industry or occupation; Positive Views::specific applications and impacts; Positive Views::specific literature sources to support points; Specific Challenges::key risks and limitations
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: country or region context :: coverage :: “Country/Region”
+  - search_more_evidence['specific literature sources and academic citations supportin'] query='academic literature on positive impacts of generative AI on future labor market and employment including authors journal titles and publication years 2022 to May 2023' fetched 8 of 10, url-dup dropped 2, kept 6, deleted 0 (chrome=0, off-topic=0) in 57.7s
+  - update_outline: Applied 1 op(s); recompose=['Positive Views']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 6 new ev_id(s) to section 'Positive Views' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Positive Views::application cases in particular industries or occupations; Negative Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: Country/Region of application cases :: coverage :: Country/Region
+  - checklist[finish_attempt_turn_10] named 3 gap(s): Positive Views::application cases in particular industries or occupations; Specific Challenges::key risk points emphasized by researchers; Specific Challenges::key risks and limitations
+  - checklist[finish_attempt_turn_10] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: country or region of the research literature :: coverage :: “Country/Region”
+  - finish_outline BOUNCED at turn 10: 3 new + 10 pending gap(s) remain, budget available — continuing loop
+  - search_more_evidence['Application Area/Occupation - specific industry or occupatio'] query='academic research generative AI future labor market employment opportunities new job categories reskilling sector specific applications' fetched 9 of 11, url-dup dropped 2, kept 7, deleted 0 (chrome=0, off-topic=0) in 122.6s
+  - update_outline: Applied 1 op(s); recompose=['Future Opportunities']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 7 new ev_id(s) to section 'Future Opportunities' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 1 gap(s): Positive Views::application cases in particular industries or occupations
+  - checklist[after_fold] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: geographic location of the studies :: coverage :: “Country/Region”
+  - checklist[finish_attempt_turn_17] named 3 gap(s): Future Opportunities::specific application cases by industry or occupation; Positive Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[finish_attempt_turn_17] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: geographic data for application cases :: coverage :: Country/Region
+  - finish_outline BOUNCED at turn 17: 3 new + 11 pending gap(s) remain, budget available — continuing loop
+  - checklist[finish_attempt_turn_18] named 1 gap(s): Future Opportunities::specific application cases by industry or occupation
+  - checklist[finish_attempt_turn_18] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: geographic distribution of application cases by country or region :: coverage :: Country/Region
+  - finish_outline BOUNCED at turn 18: 1 new + 11 pending gap(s) remain, budget available — continuing loop
+  - checklist[finish_attempt_turn_19] named 3 gap(s): Positive Views::application cases in particular industries or occupations; Negative Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[finish_attempt_turn_19] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: country/region of the study :: coverage :: “Country/Region”
+  - finish_outline BOUNCED at turn 19: 3 new + 11 pending gap(s) remain, budget available — continuing loop
+  - checklist[finish_attempt_turn_20] named 2 gap(s): Future Opportunities::specific application cases by industry or occupation; Specific Challenges::key risk points emphasized by researchers
+  - checklist[finish_attempt_turn_20] dropped 2 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Positive Views :: geographic breakdown of impacts and applications :: coverage :: Country/Region | Specific Challenges :: geographic breakdown of risks :: coverage :: Country/Region
+  - finish_outline BOUNCED at turn 20: 2 new + 11 pending gap(s) remain, budget available — continuing loop
+  - checklist[finish_attempt_turn_22] named 3 gap(s): Future Opportunities::specific application cases by industry or occupation; Positive Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[finish_attempt_turn_22] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Future Opportunities :: country or region of the study :: coverage :: “Country/Region”
+  - finish_outline BOUNCED at turn 22: 3 new + 11 pending gap(s) remain, budget available — continuing loop
+  - checklist[finish_attempt_turn_23] named 3 gap(s): Positive Views::application cases by industry or occupation; Negative Views::main impacts brought about; Specific Challenges::key risk points emphasized by researchers
+  - checklist[finish_attempt_turn_23] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Negative Views :: geographic context of the studies :: coverage :: Country/Region
+  - finish_outline BOUNCED at turn 23: 3 new + 11 pending gap(s) remain, budget available — continuing loop
+
+=== [THINNED_CORPUS (130 rows, seed=42)] SECTION TABLE (raw counts are SEED-NOISE-CONTAMINATED — read genuine_new_fetched_rows) ===
+  'Positive Views': plain=9 agentic=30 raw_delta(noisy)=+21 genuine_new_fetched_rows=16
+  'Negative Views': plain=9 agentic=19 raw_delta(noisy)=+10 genuine_new_fetched_rows=4
+  'Specific Challenges': plain=12 agentic=24 raw_delta(noisy)=+12 genuine_new_fetched_rows=5
+  'Future Opportunities': plain=10 agentic=26 raw_delta(noisy)=+16 genuine_new_fetched_rows=8
+genuine_new_evidence_count=33 (search_more_evidence_calls=8)
+sections_with_genuine_gain=['Future Opportunities', 'Negative Views', 'Positive Views', 'Specific Challenges']
+no_genuine_gain_this_run=False (True means: on THIS seed, the checklist correctly found nothing missing — report honestly, do not spin the noisy count delta as evidence of agentic value)
+
+[matched-comparison] wrote /workspace/outline_agent_wt/outputs/matched_comparison_run/matched_comparison_result.json
+
+################################################################################
+FINAL SUMMARY (both scenarios)
+################################################################################
+  full_corpus: genuine_new_evidence_count=16 sections_with_genuine_gain=['Future Opportunities', 'Negative Views', 'Positive Views', 'Specific Challenges'] no_genuine_gain_this_run=False
+  thinned_corpus: genuine_new_evidence_count=33 sections_with_genuine_gain=['Future Opportunities', 'Negative Views', 'Positive Views', 'Specific Challenges'] no_genuine_gain_this_run=False

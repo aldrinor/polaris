@@ -1,0 +1,743 @@
+
+================================================================================
+THIN RUN — seed covers only 'efficacy', question also asks 'long-term CV safety'
+================================================================================
+[live_retriever] openalex_search failed for 'tirzepatide 15mg HbA1c reduction efficacy SURPASS trial resu' (fail-open): HTTP 429 from https://api.openalex.org/works
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 8276.12it/s]
+[FETCH]... ↓ 
+https://diabetesjournals.org/care/article/48/5/7.../Early-Fasting-Serum-Glucose-
+or-Weight-Reduction  | ✓ | ⏱: 1.43s 
+[SCRAPE].. ◆ 
+https://diabetesjournals.org/care/article/48/5/7.../Early-Fasting-Serum-Glucose-
+or-Weight-Reduction  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://diabetesjournals.org/care/article/48/5/7.../Early-Fasting-Serum-Glucose-
+or-Weight-Reduction  | ✗ | ⏱: 1.45s 
+[FETCH]... ↓ 
+https://diabetes.org/newsroom/latest-data-from-S...tide-provided-blood-sugar-red
+uctions-weight-loss  | ✓ | ⏱: 1.46s 
+[FETCH]... ↓ 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true            
+| ✓ | ⏱: 0.45s 
+[SCRAPE].. ◆ 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true            
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true            
+| ✗ | ⏱: 0.46s 
+[polaris graph] CRAWL4AI: Failed for https://diabetesjournals.org/care/article/48/5/790/158020/Ea: Blocked by anti-bot protection: Cloudflare JS challenge
+[SCRAPE].. ◆ 
+https://diabetes.org/newsroom/latest-data-from-S...tide-provided-blood-sugar-red
+uctions-weight-loss  | ✓ | ⏱: 0.18s 
+[polaris graph] CRAWL4AI: Failed for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTo: Blocked by anti-bot protection: Cloudflare JS challenge
+[COMPLETE] ● 
+https://diabetes.org/newsroom/latest-data-from-S...tide-provided-blood-sugar-red
+uctions-weight-loss  | ✓ | ⏱: 1.65s 
+[FETCH]... ↓ 
+https://investor.lilly.com/news-releases/news-re...achieved-superior-a1c-and-bod
+y-weight-reductions  | ✓ | ⏱: 1.77s 
+[SCRAPE].. ◆ 
+https://investor.lilly.com/news-releases/news-re...achieved-superior-a1c-and-bod
+y-weight-reductions  | ✓ | ⏱: 0.15s 
+[COMPLETE] ● 
+https://investor.lilly.com/news-releases/news-re...achieved-superior-a1c-and-bod
+y-weight-reductions  | ✓ | ⏱: 1.94s 
+[FETCH]... ↓ 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pro
+gram-301229506.html  | ✓ | ⏱: 2.87s 
+[SCRAPE].. ◆ 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pro
+gram-301229506.html  | ✓ | ⏱: 0.28s 
+[COMPLETE] ● 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pro
+gram-301229506.html  | ✓ | ⏱: 3.17s 
+[FETCH]... ↓ https://doi.org/10.1016/j.pcd.2025.03.008                          
+| ✓ | ⏱: 7.25s 
+[SCRAPE].. ◆ https://doi.org/10.1016/j.pcd.2025.03.008                          
+| ✓ | ⏱: 2.09s 
+[COMPLETE] ● https://doi.org/10.1016/j.pcd.2025.03.008                          
+| ✓ | ⏱: 9.37s 
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 7946.62it/s]
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[bootstrap] query='tirzepatide 15mg HbA1c reduction efficacy SURPASS trial results' -> 5 evidence rows (fetched=5, failed=1)
+[live_retriever] openalex_search failed for 'tirzepatide 15mg major adverse cardiovascular events MACE SU' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✓ | ⏱: 0.46s 
+[SCRAPE].. ◆ 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✗ | ⏱: 0.47s 
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.58s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.59s 
+[polaris graph] CRAWL4AI: Failed for https://www.researchgate.net/publication/392922793_Tirzepati: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.86s 
+[SCRAPE].. ◆ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.87s 
+[polaris graph] CRAWL4AI: Insufficient content for https://trials.lilly.com/en-US/trial/362220 (54 chars)
+[FETCH]... ↓ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 1.12s 
+[FETCH]... ↓ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.27s 
+[SCRAPE].. ◆ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 0.19s 
+[COMPLETE] ● https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 1.33s 
+[FETCH]... ↓ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 1.34s 
+[SCRAPE].. ◆ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✗ | ⏱: 1.35s 
+[SCRAPE].. ◆ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.49s 
+[polaris graph] CRAWL4AI: Failed for https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://www.ecrjournal.com/video-index/easd-22-s...-ii-diabetes-patients?languag
+e_content_entity=en  | ✓ | ⏱: 0.53s 
+[SCRAPE].. ◆ 
+https://www.ecrjournal.com/video-index/easd-22-s...-ii-diabetes-patients?languag
+e_content_entity=en  | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.ecrjournal.com/video-index/easd-22-s...-ii-diabetes-patients?languag
+e_content_entity=en  | ✗ | ⏱: 0.54s 
+[polaris graph] CRAWL4AI: Failed for https://www.ecrjournal.com/video-index/easd-22-surmount-mmo-: Blocked by anti-bot protection: HTTP 403 with HTML content (386 bytes)
+[FETCH]... ↓ 
+https://www.patientcareonline.com/view/tirzepati...e-for-mace-in-lilly-s-landmar
+k-incretin-face-off  | ✓ | ⏱: 2.46s 
+[SCRAPE].. ◆ 
+https://www.patientcareonline.com/view/tirzepati...e-for-mace-in-lilly-s-landmar
+k-incretin-face-off  | ✓ | ⏱: 1.71s 
+[COMPLETE] ● 
+https://www.patientcareonline.com/view/tirzepati...e-for-mace-in-lilly-s-landmar
+k-incretin-face-off  | ✓ | ⏱: 4.21s 
+[FETCH]... ↓ https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✓ | ⏱: 0.98s 
+[SCRAPE].. ◆ https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✗ | ⏱: 0.99s 
+[polaris graph] CRAWL4AI: Failed for https://onlinelibrary.wiley.com/doi/10.1002/oby.24332: Blocked by anti-bot protection: Cloudflare JS challenge
+[live_retriever] openalex_search failed for 'tirzepatide 15mg SURMOUNT-MMO cardiovascular safety MACE out' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.50s 
+[SCRAPE].. ◆ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.01s 
+[FETCH]... ↓ https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.16549    
+| ✓ | ⏱: 0.48s 
+[COMPLETE] ● https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✗ | ⏱: 0.51s 
+[SCRAPE].. ◆ https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.16549    
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.16549    
+| ✗ | ⏱: 0.49s 
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.55s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.56s 
+[polaris graph] CRAWL4AI: Failed for https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/dom.16: Blocked by anti-bot protection: Cloudflare JS challenge
+[polaris graph] CRAWL4AI: Failed for https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✓ | ⏱: 0.59s 
+[SCRAPE].. ◆ 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✗ | ⏱: 0.60s 
+[FETCH]... ↓ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 1.02s 
+[SCRAPE].. ◆ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 1.03s 
+[polaris graph] CRAWL4AI: Failed for https://www.researchgate.net/publication/392922793_Tirzepati: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.14s 
+[polaris graph] CRAWL4AI: Insufficient content for https://trials.lilly.com/en-US/trial/362220 (54 chars)
+[SCRAPE].. ◆ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 0.13s 
+[COMPLETE] ● 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.29s 
+[FETCH]... ↓ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 1.70s 
+[FETCH]... ↓ 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 4.46s 
+[SCRAPE].. ◆ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 2.72s 
+[COMPLETE] ● https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 4.45s 
+[SCRAPE].. ◆ 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 0.21s 
+[COMPLETE] ● 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 4.72s 
+[FETCH]... ↓ 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 3.79s 
+[SCRAPE].. ◆ 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 1.46s 
+[COMPLETE] ● 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 5.27s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'tirzepatide 15mg SURMOUNT-MMO major adverse cardiovascular e' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✓ | ⏱: 0.53s 
+[FETCH]... ↓ https://jamanetwork.com/journals/jamacardiology/fullarticle/2847048
+| ✓ | ⏱: 0.54s 
+[SCRAPE].. ◆ https://jamanetwork.com/journals/jamacardiology/fullarticle/2847048
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://jamanetwork.com/journals/jamacardiology/fullarticle/2847048
+| ✗ | ⏱: 0.56s 
+[SCRAPE].. ◆ 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✓ | ⏱: 0.03s 
+[COMPLETE] ● 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✗ | ⏱: 0.57s 
+[FETCH]... ↓ https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✓ | ⏱: 0.45s 
+[SCRAPE].. ◆ https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✗ | ⏱: 0.47s 
+[polaris graph] CRAWL4AI: Failed for https://onlinelibrary.wiley.com/doi/10.1002/oby.24332: Blocked by anti-bot protection: Cloudflare JS challenge
+[polaris graph] CRAWL4AI: Failed for https://jamanetwork.com/journals/jamacardiology/fullarticle/: Blocked by anti-bot protection: Cloudflare JS challenge
+[polaris graph] CRAWL4AI: Failed for https://www.researchgate.net/publication/392922793_Tirzepati: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.91s 
+[SCRAPE].. ◆ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.92s 
+[polaris graph] CRAWL4AI: Insufficient content for https://trials.lilly.com/en-US/trial/362220 (54 chars)
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 1.07s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.22s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 1.31s 
+[FETCH]... ↓ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.44s 
+[SCRAPE].. ◆ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 0.12s 
+[COMPLETE] ● 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.58s 
+[FETCH]... ↓ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.46s 
+[SCRAPE].. ◆ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✗ | ⏱: 0.47s 
+[FETCH]... ↓ 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 1.93s 
+[polaris graph] CRAWL4AI: Failed for https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115: Blocked by anti-bot protection: Cloudflare JS challenge
+[SCRAPE].. ◆ 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 0.35s 
+[COMPLETE] ● 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 2.31s 
+[FETCH]... ↓ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 5.97s 
+[SCRAPE].. ◆ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 0.16s 
+[COMPLETE] ● https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 6.15s 
+[live_retriever] openalex_search failed for 'tirzepatide SURMOUNT-MMO cardiovascular outcome trial MACE h' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.48s 
+[SCRAPE].. ◆ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✗ | ⏱: 0.49s 
+[polaris graph] CRAWL4AI: Failed for https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✓ | ⏱: 0.50s 
+[SCRAPE].. ◆ https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✓ | ⏱: 0.02s 
+[COMPLETE] ● https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✗ | ⏱: 0.68s 
+[polaris graph] CRAWL4AI: Failed for https://onlinelibrary.wiley.com/doi/10.1002/oby.24332: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 1.03s 
+[SCRAPE].. ◆ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 1.04s 
+[FETCH]... ↓ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.08s 
+[SCRAPE].. ◆ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 0.12s 
+[COMPLETE] ● 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.23s 
+[polaris graph] CRAWL4AI: Insufficient content for https://trials.lilly.com/en-US/trial/362220 (54 chars)
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 1.26s 
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.24s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 1.52s 
+[FETCH]... ↓ 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 1.40s 
+[FETCH]... ↓ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 1.68s 
+[FETCH]... ↓ 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 1.83s 
+[SCRAPE].. ◆ 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 0.95s 
+[COMPLETE] ● 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 2.37s 
+[SCRAPE].. ◆ 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 0.96s 
+[COMPLETE] ● 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 2.81s 
+[SCRAPE].. ◆ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 4.27s 
+[COMPLETE] ● https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 5.99s 
+[live_retriever] openalex_search failed for 'tirzepatide SURMOUNT-MMO cardiovascular outcome trial MACE h' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.48s 
+[SCRAPE].. ◆ https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115       
+| ✗ | ⏱: 0.49s 
+[FETCH]... ↓ https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✓ | ⏱: 0.43s 
+[SCRAPE].. ◆ https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://onlinelibrary.wiley.com/doi/10.1002/oby.24332              
+| ✗ | ⏱: 0.45s 
+[polaris graph] CRAWL4AI: Failed for https://academic.oup.com/ehjopen/article/5/5/oeaf117/8246115: Blocked by anti-bot protection: Cloudflare JS challenge
+[polaris graph] CRAWL4AI: Failed for https://onlinelibrary.wiley.com/doi/10.1002/oby.24332: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 1.07s 
+[SCRAPE].. ◆ https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://trials.lilly.com/en-US/trial/362220                        
+| ✓ | ⏱: 1.08s 
+[FETCH]... ↓ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 1.16s 
+[polaris graph] CRAWL4AI: Insufficient content for https://trials.lilly.com/en-US/trial/362220 (54 chars)
+[SCRAPE].. ◆ https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 0.28s 
+[COMPLETE] ● https://pubmed.ncbi.nlm.nih.gov/40545827/                          
+| ✓ | ⏱: 1.46s 
+[FETCH]... ↓ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.44s 
+[SCRAPE].. ◆ 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 0.12s 
+[FETCH]... ↓ 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 1.60s 
+[COMPLETE] ● 
+https://www.docwirenews.com/post/surmount-mmo-in...patides-role-in-preventing-ca
+rdiovascular-events  | ✓ | ⏱: 1.60s 
+[FETCH]... ↓ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 1.80s 
+[FETCH]... ↓ 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 2.07s 
+[FETCH]... ↓ 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✓ | ⏱: 0.64s 
+[SCRAPE].. ◆ 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 0.97s 
+[COMPLETE] ● 
+https://www.tctmd.com/news/tirzepatide-matches-dulaglutide-large-cv-outcomes-tri
+al-surpass-cvot      | ✓ | ⏱: 2.61s 
+[SCRAPE].. ◆ 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✓ | ⏱: 0.46s 
+[COMPLETE] ● 
+https://www.researchgate.net/publication/3929227...y_rationale_and_design_of_the
+_SURMOUNT-MMO_trial  | ✗ | ⏱: 1.11s 
+[polaris graph] CRAWL4AI: Failed for https://www.researchgate.net/publication/392922793_Tirzepati: Blocked by anti-bot protection: Cloudflare JS challenge
+[SCRAPE].. ◆ 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 0.78s 
+[COMPLETE] ● 
+https://diabetesonthenet.com/diabetes-primary-care/distilled-surpass-cvot/      
+| ✓ | ⏱: 2.88s 
+[SCRAPE].. ◆ https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 4.24s 
+[COMPLETE] ● https://clinicaltrials.gov/study/NCT05556512                       
+| ✓ | ⏱: 6.07s 
+
+--- THIN RUN RESULT (elapsed 325.1s) ---
+outline_mutated=True update_outline_calls=3
+seed_ev_by_title={'Efficacy': 5, 'Dose Response': 4, 'Comparative': 3, 'Safety': 4}
+final_ev_by_title={'Efficacy': 5, 'Dose Response': 4, 'Comparative': 3, 'Safety': 17}
+turns=6 ev_before=5 ev_after=18 new_evidence=13
+gap_ledger:
+  {'section': 'Safety', 'aspect': 'major adverse cardiovascular events', 'needed_kind': 'coverage', 'status': 'UNFILLED', 'attempts': 1, 'source': 'checklist', 'disclosure': 'budget exhausted after retries'}
+  {'section': 'Safety', 'aspect': 'SURMOUNT-MMO or equivalent outcome trial data', 'needed_kind': 'coverage', 'status': 'UNFILLED', 'attempts': 1, 'source': 'checklist', 'disclosure': 'budget exhausted after retries'}
+  {'section': 'Safety', 'aspect': 'numeric MACE outcomes (hazard ratios, event rates) from outcome trials', 'needed_kind': 'numeric_rows', 'status': 'COMPLETE', 'attempts': 1, 'source': 'checklist', 'disclosure': ''}
+  {'section': 'Safety', 'aspect': 'SURMOUNT-MMO or equivalent cardiovascular outcome trial data: MACE hazard ratios, event rates, long-term CV safety results for tirzepatide', 'needed_kind': 'coverage', 'status': 'UNFILLED', 'attempts': 2, 'source': 'agent', 'disclosure': 'search_more_evidence failed: no_new_evidence_survived_screen'}
+disclosures:
+  - checklist[seed] ran: NONE (no grounded deficiencies)
+  - checklist[finish_attempt_turn_1] named 2 gap(s): Safety::major adverse cardiovascular events; Safety::SURMOUNT-MMO or equivalent outcome trial data
+  - finish_outline BOUNCED at turn 1: 2 new + 2 pending gap(s) remain, budget available — continuing loop
+  - search_more_evidence['major adverse cardiovascular events'] query='tirzepatide 15mg major adverse cardiovascular events MACE SURMOUNT-MMO outcomes' fetched 9 of 10, url-dup dropped 0, kept 9, deleted 0 (chrome=0, off-topic=0) in 12.6s
+  - update_outline: Applied 1 op(s); recompose=['Safety']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 9 new ev_id(s) to section 'Safety' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 3 gap(s): Safety::major adverse cardiovascular events; Safety::SURMOUNT-MMO or equivalent outcome trial data; Safety::numeric MACE outcomes (hazard ratios, event rates) from outcome trials
+  - search_more_evidence['SURMOUNT-MMO or equivalent outcome trial data'] query='tirzepatide 15mg SURMOUNT-MMO cardiovascular safety MACE outcome trial data' fetched 8 of 10, url-dup dropped 5, kept 3, deleted 0 (chrome=0, off-topic=0) in 20.7s
+  - update_outline: Applied 1 op(s); recompose=['Safety']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 3 new ev_id(s) to section 'Safety' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 2 gap(s): Safety::major adverse cardiovascular events; Safety::SURMOUNT-MMO or equivalent outcome trial data
+  - search_more_evidence['numeric MACE outcomes (hazard ratios, event rates) from outc'] query='tirzepatide 15mg SURMOUNT-MMO major adverse cardiovascular events hazard ratios event rates' fetched 8 of 9, url-dup dropped 7, kept 1, deleted 0 (chrome=0, off-topic=0) in 11.3s
+  - update_outline: Applied 1 op(s); recompose=['Safety']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0
+  - auto-assign: routed 1 new ev_id(s) to section 'Safety' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+  - checklist[after_fold] named 1 gap(s): Safety::major adverse cardiovascular events
+  - search_more_evidence['SURMOUNT-MMO or equivalent cardiovascular outcome trial data'] query='tirzepatide SURMOUNT-MMO cardiovascular outcome trial MACE hazard ratios event rates long-term CV safety' fetched 7 of 9, url-dup dropped 7, kept 0, deleted 0 (chrome=0, off-topic=0) in 10.7s
+  - search_more_evidence['SURMOUNT-MMO or equivalent cardiovascular outcome trial data'] query='tirzepatide SURMOUNT-MMO cardiovascular outcome trial MACE hazard ratios event rates long-term CV safety results' fetched 7 of 9, url-dup dropped 7, kept 0, deleted 0 (chrome=0, off-topic=0) in 11.2s
+final outline plans:
+  - 'Efficacy': 5 ev_ids
+  - 'Dose Response': 4 ev_ids
+  - 'Comparative': 3 ev_ids
+  - 'Safety': 17 ev_ids
+
+================================================================================
+SATURATED RUN (negative control) — VALID multi-section outline, fully-covered facets
+================================================================================
+[live_retriever] openalex_search failed for 'Eiffel Tower construction history 1887 1889 timeline Gustave' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://artsandculture.google.com/story/the-cons...he-eiffel-tower-tour-eiffel/U
+gWBgIpO0RsA8A?hl=en  | ✓ | ⏱: 1.12s 
+[FETCH]... ↓ 
+https://www.facebook.com/groups/2077090212683898/posts/2273068149752769/        
+| ✓ | ⏱: 1.27s 
+[SCRAPE].. ◆ 
+https://artsandculture.google.com/story/the-cons...he-eiffel-tower-tour-eiffel/U
+gWBgIpO0RsA8A?hl=en  | ✓ | ⏱: 0.14s 
+[COMPLETE] ● 
+https://artsandculture.google.com/story/the-cons...he-eiffel-tower-tour-eiffel/U
+gWBgIpO0RsA8A?hl=en  | ✓ | ⏱: 1.36s 
+[FETCH]... ↓ https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 1.39s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/groups/2077090212683898/posts/2273068149752769/        
+| ✓ | ⏱: 0.24s 
+[COMPLETE] ● 
+https://www.facebook.com/groups/2077090212683898/posts/2273068149752769/        
+| ✓ | ⏱: 1.60s 
+[FETCH]... ↓ https://myleszhang.org/2018/01/19/eiffel-tower/                    
+| ✓ | ⏱: 1.92s 
+[SCRAPE].. ◆ https://myleszhang.org/2018/01/19/eiffel-tower/                    
+| ✓ | ⏱: 0.10s 
+[COMPLETE] ● https://myleszhang.org/2018/01/19/eiffel-tower/                    
+| ✓ | ⏱: 2.04s 
+[FETCH]... ↓ https://www.toureiffel.paris/en/the-monument/history               
+| ✓ | ⏱: 2.06s 
+[SCRAPE].. ◆ https://www.toureiffel.paris/en/the-monument/history               
+| ✓ | ⏱: 0.34s 
+[COMPLETE] ● https://www.toureiffel.paris/en/the-monument/history               
+| ✓ | ⏱: 2.42s 
+[FETCH]... ↓ https://kr.pinterest.com/pin/216735800826810886/                   
+| ✓ | ⏱: 2.77s 
+[FETCH]... ↓ 
+https://www.pariscityvision.com/en/paris/landmarks/eiffel-tower/construction-dat
+e                    | ✓ | ⏱: 3.13s 
+[FETCH]... ↓ https://www.britannica.com/topic/Eiffel-Tower-Paris-France         
+| ✓ | ⏱: 3.18s 
+[SCRAPE].. ◆ https://kr.pinterest.com/pin/216735800826810886/                   
+| ✓ | ⏱: 0.27s 
+[COMPLETE] ● https://kr.pinterest.com/pin/216735800826810886/                   
+| ✓ | ⏱: 3.41s 
+[SCRAPE].. ◆ https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 3.92s 
+[COMPLETE] ● https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 5.37s 
+[SCRAPE].. ◆ 
+https://www.pariscityvision.com/en/paris/landmarks/eiffel-tower/construction-dat
+e                    | ✓ | ⏱: 2.32s 
+[COMPLETE] ● 
+https://www.pariscityvision.com/en/paris/landmarks/eiffel-tower/construction-dat
+e                    | ✓ | ⏱: 5.47s 
+[SCRAPE].. ◆ https://www.britannica.com/topic/Eiffel-Tower-Paris-France         
+| ✓ | ⏱: 2.54s 
+[COMPLETE] ● https://www.britannica.com/topic/Eiffel-Tower-Paris-France         
+| ✓ | ⏱: 5.79s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[bootstrap] query='Eiffel Tower construction history 1887 1889 timeline Gustave Eiffel build phases' -> 8 evidence rows (fetched=8, failed=0)
+[live_retriever] openalex_search failed for 'Eiffel Tower structural engineering design wrought iron latt' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.facebook.com/61565638667178/posts/ei...r-stands-strong-with-its-iro/
+122183288330521288/  | ✓ | ⏱: 1.14s 
+[FETCH]... ↓ 
+https://www.machupicchu.org/eiffel-tower-architecture-revolutionary-engineering-
+marvel.htm           | ✓ | ⏱: 1.16s 
+[FETCH]... ↓ https://www.instagram.com/p/DU8c2dhAbEb/?hl=en                     
+| ✓ | ⏱: 1.20s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/61565638667178/posts/ei...r-stands-strong-with-its-iro/
+122183288330521288/  | ✓ | ⏱: 0.22s 
+[COMPLETE] ● 
+https://www.facebook.com/61565638667178/posts/ei...r-stands-strong-with-its-iro/
+122183288330521288/  | ✓ | ⏱: 1.40s 
+[SCRAPE].. ◆ https://www.instagram.com/p/DU8c2dhAbEb/?hl=en                     
+| ✓ | ⏱: 0.33s 
+[COMPLETE] ● https://www.instagram.com/p/DU8c2dhAbEb/?hl=en                     
+| ✓ | ⏱: 1.57s 
+[SCRAPE].. ◆ 
+https://www.machupicchu.org/eiffel-tower-architecture-revolutionary-engineering-
+marvel.htm           | ✓ | ⏱: 0.83s 
+[COMPLETE] ● 
+https://www.machupicchu.org/eiffel-tower-architecture-revolutionary-engineering-
+marvel.htm           | ✓ | ⏱: 2.02s 
+[FETCH]... ↓ 
+https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/1.4961101/12829131/020003_1
+_online.pdf          | ✓ | ⏱: 0.49s 
+[SCRAPE].. ◆ 
+https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/1.4961101/12829131/020003_1
+_online.pdf          | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/1.4961101/12829131/020003_1
+_online.pdf          | ✗ | ⏱: 0.51s 
+[polaris graph] CRAWL4AI: Failed for https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/1.49611: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://www.youtube.com/watch?v=5VHi1BSBnKs                        
+| ✓ | ⏱: 2.68s 
+[FETCH]... ↓ 
+https://cmqconsulting.com/the-eiffel-towers-structural-engineering-in-the-19th-c
+entury/              | ✓ | ⏱: 2.74s 
+[SCRAPE].. ◆ https://www.youtube.com/watch?v=5VHi1BSBnKs                        
+| ✓ | ⏱: 0.09s 
+[COMPLETE] ● https://www.youtube.com/watch?v=5VHi1BSBnKs                        
+| ✓ | ⏱: 2.83s 
+[FETCH]... ↓ 
+https://www.facebook.com/NOVApbs/posts/the-shape...pecifically-designed-to-withs
+ta/787731496734570/  | ✓ | ⏱: 2.85s 
+[SCRAPE].. ◆ 
+https://cmqconsulting.com/the-eiffel-towers-structural-engineering-in-the-19th-c
+entury/              | ✓ | ⏱: 0.44s 
+[COMPLETE] ● 
+https://cmqconsulting.com/the-eiffel-towers-structural-engineering-in-the-19th-c
+entury/              | ✓ | ⏱: 3.20s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/NOVApbs/posts/the-shape...pecifically-designed-to-withs
+ta/787731496734570/  | ✓ | ⏱: 0.69s 
+[COMPLETE] ● 
+https://www.facebook.com/NOVApbs/posts/the-shape...pecifically-designed-to-withs
+ta/787731496734570/  | ✓ | ⏱: 3.58s 
+[ACCESS] FIX-GAP4: PDF extraction failed for https://www.ce.jhu.edu/perspectives/assignments_13/hw2%20par: Cannot connect to host www.ce.jhu.edu:443 ssl:default [Name or service not known] — falling back to HTML
+[FETCH]... ↓ https://www.ce.jhu.edu/perspectives/assignments_13/hw2 part b 
+(eiffel ss).pdf                        | ✓ | ⏱: 0.41s 
+[SCRAPE].. ◆ https://www.ce.jhu.edu/perspectives/assignments_13/hw2 part b 
+(eiffel ss).pdf                        | ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.ce.jhu.edu/perspectives/assignments_13/hw2 part b 
+(eiffel ss).pdf                        | ✗ | ⏱: 0.42s 
+[polaris graph] CRAWL4AI: Failed for https://www.ce.jhu.edu/perspectives/assignments_13/hw2%20par: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[bootstrap] query='Eiffel Tower structural engineering design wrought iron lattice wind resistance load' -> 7 evidence rows (fetched=7, failed=1)
+[live_retriever] openalex_search failed for 'Eiffel Tower French cultural identity symbol Paris landmark ' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.quora.com/What-does-the-Eiffel-Tower...uch-an-important-part-of-thei
+r-national-identity  | ✓ | ⏱: 0.54s 
+[SCRAPE].. ◆ 
+https://www.quora.com/What-does-the-Eiffel-Tower...uch-an-important-part-of-thei
+r-national-identity  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.quora.com/What-does-the-Eiffel-Tower...uch-an-important-part-of-thei
+r-national-identity  | ✗ | ⏱: 0.55s 
+[polaris graph] CRAWL4AI: Failed for https://www.quora.com/What-does-the-Eiffel-Tower-represent-f: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://www.coursehero.com/tutors-problems/Frenc...locationevent-tell-us-about-t
+he-French-identity/  | ✓ | ⏱: 0.56s 
+[SCRAPE].. ◆ 
+https://www.coursehero.com/tutors-problems/Frenc...locationevent-tell-us-about-t
+he-French-identity/  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.coursehero.com/tutors-problems/Frenc...locationevent-tell-us-about-t
+he-French-identity/  | ✗ | ⏱: 0.57s 
+[polaris graph] CRAWL4AI: Failed for https://www.coursehero.com/tutors-problems/French/50371182-w: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 1.13s 
+[FETCH]... ↓ 
+https://www.machupicchu.org/eiffel-tower-from-1889-expo-to-modern-icon.htm      
+| ✓ | ⏱: 1.01s 
+[SCRAPE].. ◆ 
+https://www.machupicchu.org/eiffel-tower-from-1889-expo-to-modern-icon.htm      
+| ✓ | ⏱: 0.63s 
+[COMPLETE] ● 
+https://www.machupicchu.org/eiffel-tower-from-1889-expo-to-modern-icon.htm      
+| ✓ | ⏱: 1.68s 
+[FETCH]... ↓ 
+https://www.facebook.com/groups/1214073328719387/posts/8995946513865324/        
+| ✓ | ⏱: 2.16s 
+[FETCH]... ↓ 
+https://www.grayline.com/magazine/eiffel-tower-the-iconic-soul-of-paris/        
+| ✓ | ⏱: 2.47s 
+[FETCH]... ↓ 
+https://www.toureiffel.paris/en/news/history-and-culture/15-essential-things-kno
+w-about-eiffel-tower | ✓ | ⏱: 2.50s 
+[FETCH]... ↓ https://www.lemon8-app.com/@objomedia/7457982556814836266?region=us
+| ✓ | ⏱: 2.62s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/groups/1214073328719387/posts/8995946513865324/        
+| ✓ | ⏱: 0.47s 
+[COMPLETE] ● 
+https://www.facebook.com/groups/1214073328719387/posts/8995946513865324/        
+| ✓ | ⏱: 2.71s 
+[SCRAPE].. ◆ https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 3.27s 
+[COMPLETE] ● https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 4.44s 
+[SCRAPE].. ◆ 
+https://www.grayline.com/magazine/eiffel-tower-the-iconic-soul-of-paris/        
+| ✓ | ⏱: 2.10s 
+[COMPLETE] ● 
+https://www.grayline.com/magazine/eiffel-tower-the-iconic-soul-of-paris/        
+| ✓ | ⏱: 4.58s 
+[SCRAPE].. ◆ https://www.lemon8-app.com/@objomedia/7457982556814836266?region=us
+| ✓ | ⏱: 2.23s 
+[COMPLETE] ● https://www.lemon8-app.com/@objomedia/7457982556814836266?region=us
+| ✓ | ⏱: 4.90s 
+[SCRAPE].. ◆ 
+https://www.toureiffel.paris/en/news/history-and-culture/15-essential-things-kno
+w-about-eiffel-tower | ✓ | ⏱: 2.50s 
+[COMPLETE] ● 
+https://www.toureiffel.paris/en/news/history-and-culture/15-essential-things-kno
+w-about-eiffel-tower | ✓ | ⏱: 5.03s 
+[bootstrap] query='Eiffel Tower French cultural identity symbol Paris landmark significance tourism' -> 7 evidence rows (fetched=7, failed=1)
+
+--- SATURATED RUN RESULT (elapsed 115.3s) ---
+turns=1 ev_before=8 ev_after=8 new_evidence=0
+gap_ledger:
+disclosures:
+  - checklist[seed] ran: NONE (no grounded deficiencies)
+  - checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)
+  - finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True
+valid_negative_control=True (full_loop_ran=True, seed_outline_invalid_early_return=False, plans_nonempty=True, section_count=4 (>=3 required), turns>=1=True, checklist_ran=True, finish_accepted=True, zero_searches=True [search_calls=0])
+
+################################################################################
+ACCEPTANCE SUMMARY
+################################################################################
+{
+  "thin": {
+    "elapsed_s": 325.1,
+    "turns": 6,
+    "ev_before": 5,
+    "ev_after": 18,
+    "new_evidence_count": 13,
+    "search_more_evidence_calls": 5,
+    "checklist_gap_events": 5,
+    "unfilled_gaps": [
+      {
+        "section": "Safety",
+        "aspect": "major adverse cardiovascular events",
+        "needed_kind": "coverage",
+        "status": "UNFILLED",
+        "attempts": 1,
+        "source": "checklist",
+        "disclosure": "budget exhausted after retries"
+      },
+      {
+        "section": "Safety",
+        "aspect": "SURMOUNT-MMO or equivalent outcome trial data",
+        "needed_kind": "coverage",
+        "status": "UNFILLED",
+        "attempts": 1,
+        "source": "checklist",
+        "disclosure": "budget exhausted after retries"
+      },
+      {
+        "section": "Safety",
+        "aspect": "SURMOUNT-MMO or equivalent cardiovascular outcome trial data: MACE hazard ratios, event rates, long-term CV safety results for tirzepatide",
+        "needed_kind": "coverage",
+        "status": "UNFILLED",
+        "attempts": 2,
+        "source": "agent",
+        "disclosure": "search_more_evidence failed: no_new_evidence_survived_screen"
+      }
+    ],
+    "outline_mutated": true,
+    "update_outline_calls": 3,
+    "final_section_ev_counts": {
+      "Efficacy": 5,
+      "Dose Response": 4,
+      "Comparative": 3,
+      "Safety": 17
+    },
+    "disclosures": [
+      "checklist[seed] ran: NONE (no grounded deficiencies)",
+      "checklist[finish_attempt_turn_1] named 2 gap(s): Safety::major adverse cardiovascular events; Safety::SURMOUNT-MMO or equivalent outcome trial data",
+      "finish_outline BOUNCED at turn 1: 2 new + 2 pending gap(s) remain, budget available \u2014 continuing loop",
+      "search_more_evidence['major adverse cardiovascular events'] query='tirzepatide 15mg major adverse cardiovascular events MACE SURMOUNT-MMO outcomes' fetched 9 of 10, url-dup dropped 0, kept 9, deleted 0 (chrome=0, off-topic=0) in 12.6s",
+      "update_outline: Applied 1 op(s); recompose=['Safety']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0",
+      "auto-assign: routed 9 new ev_id(s) to section 'Safety' (P0-2 fix \u2014 search fold-in now mutates the outline instead of orphaning rows)",
+      "checklist[after_fold] named 3 gap(s): Safety::major adverse cardiovascular events; Safety::SURMOUNT-MMO or equivalent outcome trial data; Safety::numeric MACE outcomes (hazard ratios, event rates) from outcome trials",
+      "search_more_evidence['SURMOUNT-MMO or equivalent outcome trial data'] query='tirzepatide 15mg SURMOUNT-MMO cardiovascular safety MACE outcome trial data' fetched 8 of 10, url-dup dropped 5, kept 3, deleted 0 (chrome=0, off-topic=0) in 20.7s",
+      "update_outline: Applied 1 op(s); recompose=['Safety']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0",
+      "auto-assign: routed 3 new ev_id(s) to section 'Safety' (P0-2 fix \u2014 search fold-in now mutates the outline instead of orphaning rows)",
+      "checklist[after_fold] named 2 gap(s): Safety::major adverse cardiovascular events; Safety::SURMOUNT-MMO or equivalent outcome trial data",
+      "search_more_evidence['numeric MACE outcomes (hazard ratios, event rates) from outc'] query='tirzepatide 15mg SURMOUNT-MMO major adverse cardiovascular events hazard ratios event rates' fetched 8 of 9, url-dup dropped 7, kept 1, deleted 0 (chrome=0, off-topic=0) in 11.3s",
+      "update_outline: Applied 1 op(s); recompose=['Safety']; kept=3; rejected=0; deferred=0; gap_queries routed to ledger: 0",
+      "auto-assign: routed 1 new ev_id(s) to section 'Safety' (P0-2 fix \u2014 search fold-in now mutates the outline instead of orphaning rows)",
+      "checklist[after_fold] named 1 gap(s): Safety::major adverse cardiovascular events",
+      "search_more_evidence['SURMOUNT-MMO or equivalent cardiovascular outcome trial data'] query='tirzepatide SURMOUNT-MMO cardiovascular outcome trial MACE hazard ratios event rates long-term CV safety' fetched 7 of 9, url-dup dropped 7, kept 0, deleted 0 (chrome=0, off-topic=0) in 10.7s",
+      "search_more_evidence['SURMOUNT-MMO or equivalent cardiovascular outcome trial data'] query='tirzepatide SURMOUNT-MMO cardiovascular outcome trial MACE hazard ratios event rates long-term CV safety results' fetched 7 of 9, url-dup dropped 7, kept 0, deleted 0 (chrome=0, off-topic=0) in 11.2s"
+    ]
+  },
+  "saturated": {
+    "elapsed_s": 115.3,
+    "turns": 1,
+    "ev_before": 8,
+    "ev_after": 8,
+    "new_evidence_count": 0,
+    "search_more_evidence_calls": 0,
+    "section_count": 4,
+    "full_loop_ran": true,
+    "valid_negative_control": true,
+    "seed_outline_invalid_early_return": false,
+    "seed_reason_codes": null,
+    "gap_ledger": [],
+    "disclosures": [
+      "checklist[seed] ran: NONE (no grounded deficiencies)",
+      "checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)",
+      "finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True"
+    ]
+  }
+}

@@ -101,9 +101,26 @@ PG_OUTLINER_CODE_MODEL_DEFAULT = "deepseek/deepseek-v4-pro"
 PG_OUTLINE_AGENT_MAX_TURNS_DEFAULT = 24
 PG_OUTLINE_GAP_RETRIES_PER_ASPECT_DEFAULT = 2
 PG_OUTLINE_AGENT_WALL_SECONDS_DEFAULT = 900
-PG_OUTLINE_DECIDE_MAX_TOKENS_DEFAULT = 8192
-PG_OUTLINE_CHECKLIST_MAX_TOKENS_DEFAULT = 16384
-PG_OUTLINE_QUERY_DERIVE_MAX_TOKENS_DEFAULT = 8192
+# Iter-6 P0 fix (Fable-confirmed real-corpus crash: matched_comparison_run5.log,
+# ReasoningFirstTruncationError at _run_checklist on the dense DRB-72 AI-labor corpus —
+# glm-5.2 is a reasoning-first model in _ALWAYS_REASON_MODELS; on a dense corpus its
+# unbounded-effort reasoning prelude alone ran to ~84453 chars (~21k tokens), blowing past
+# the 16384-token TOTAL budget before content was ever reached. Iter-5 re-ran the SAME
+# starved defaults and reproduced the identical crash — the fix below was never actually
+# applied to code in iters 1-5, only described. Per CLAUDE.md §9.1.8 ("reasoning effort +
+# max_tokens ALWAYS go MAX, never starve; read the API don't guess") the real OpenRouter cap
+# for z-ai/glm-5.2 is top_provider.max_completion_tokens=128000 (verified via GET
+# https://openrouter.ai/api/v1/models 2026-07-11). These three control-plane budgets are
+# raised well below that real ceiling (comfortable headroom for a large multi-page reasoning
+# prelude) and — see the call sites below — now pass an EXPLICIT ``reasoning_max_tokens``
+# (the same PG_OUTLINE_REASONING_MAX_TOKENS knob the seed ``_call_outline`` already uses,
+# default 32768) so the reasoning pool is bounded within the total instead of running
+# unbounded-effort until it eats the whole budget. Belt-and-suspenders: _run_checklist ALSO
+# now degrades fail-open (one retry at 2x budget, then "no new deficiencies" + disclosure)
+# instead of letting a control-plane truncation abort the entire outline stage.
+PG_OUTLINE_DECIDE_MAX_TOKENS_DEFAULT = 49152
+PG_OUTLINE_CHECKLIST_MAX_TOKENS_DEFAULT = 98304
+PG_OUTLINE_QUERY_DERIVE_MAX_TOKENS_DEFAULT = 40960
 
 
 def outliner_agent_model() -> str:
@@ -124,6 +141,22 @@ def _max_turns() -> int:
 
 def _wall_seconds() -> int:
     return _env_int("PG_OUTLINE_AGENT_WALL_SECONDS", PG_OUTLINE_AGENT_WALL_SECONDS_DEFAULT)
+
+
+# Iter-6 P0 fix: shared reasoning-pool knob (same env var + default the seed ``_call_outline``
+# uses in multi_section_generator.py, so ONE setting governs the whole outline stage's
+# reasoning budget — LAW VI, no duplicated config surface). Bounds the reasoning slice WITHIN
+# the total max_tokens ceiling so a reasoning-first model (glm-5.2) always reaches content.
+PG_OUTLINE_REASONING_MAX_TOKENS_DEFAULT = 32768
+# Real OpenRouter provider cap for z-ai/glm-5.2 (top_provider.max_completion_tokens), verified
+# via GET https://openrouter.ai/api/v1/models 2026-07-11 per §9.1.8 "read the API, don't
+# guess". Used only as a safety ceiling on the fail-open retry-with-bigger-budget path below —
+# never worth requesting more than the provider will honor.
+PG_GLM52_REAL_MAX_COMPLETION_TOKENS = 128000
+
+
+def _reasoning_max_tokens() -> int:
+    return _env_int("PG_OUTLINE_REASONING_MAX_TOKENS", PG_OUTLINE_REASONING_MAX_TOKENS_DEFAULT)
 
 
 def _gap_retries_per_aspect() -> int:
@@ -632,8 +665,14 @@ async def _tool_search_more_evidence(
             f"RESEARCH QUESTION:\n{workspace.research_question}\n\nSUB-TOPIC:\n{aspect_text}"
         )
         try:
+            # Iter-6 P0 fix: same reasoning-pool bound as the checklist/decide calls above —
+            # this call already fails open on ANY exception (including a truncation), but an
+            # unbounded-effort reasoning prelude on a dense corpus still needlessly degrades a
+            # one-line query derivation to the raw aspect text every time; bounding it means the
+            # derived (scope-anchored) query actually gets used instead of the coarser fallback.
             resp = await client.generate(
                 prompt=derive_prompt, max_tokens=query_derive_max_tokens, temperature=0.2,
+                reasoning_max_tokens=_reasoning_max_tokens(),
             )
             derived = (resp.content or "").strip().splitlines()[0].strip().strip('"') if (
                 resp.content or ""
@@ -1151,15 +1190,24 @@ class OutlineAgent:
         )
         client = OpenRouterClient(model=self.agent_model)
         try:
+            # Iter-6 P0 fix: (1) reasoning_max_tokens explicit so glm-5.2's unbounded-effort
+            # reasoning pool is bounded WITHIN the raised total (see PG_OUTLINE_DECIDE_MAX_TOKENS
+            # comment at top of file); (2) the inner ``timeout=120`` / outer ``wait_for(150)`` used
+            # to actively DEFEAT openrouter_client._resolve_call_timeout's generous reasoning-
+            # first-model budget (an explicit caller timeout always wins over the live generator
+            # timeout per that function's own resolution order) — pass timeout=None so a
+            # reasoning-first model gets the real ~600s generator budget, with a generous
+            # env-tunable outer wall as the true backstop instead of a starving one.
             decision = await asyncio.wait_for(
                 client.generate_structured(
                     prompt=prompt, schema=ReactDecision, system=system,
                     max_tokens=_env_int(
                         "PG_OUTLINE_DECIDE_MAX_TOKENS", PG_OUTLINE_DECIDE_MAX_TOKENS_DEFAULT,
                     ),
-                    reasoning_enabled=True, reasoning_effort="high", timeout=120,
+                    reasoning_enabled=True, reasoning_effort="high", timeout=None,
+                    reasoning_max_tokens=_reasoning_max_tokens(),
                 ),
-                timeout=150,
+                timeout=_env_int("PG_OUTLINE_DECIDE_WALL_SECONDS", 660),
             )
         finally:
             if hasattr(client, "close"):
@@ -1285,21 +1333,56 @@ class OutlineAgent:
             "this.\n\n"
             f"QUESTION:\n{self.workspace.research_question}\n\nSECTIONS:\n{section_block}"
         )
-        client = OpenRouterClient(model=self.agent_model)
-        try:
-            resp = await client.generate(
-                prompt=prompt,
-                max_tokens=_env_int(
-                    "PG_OUTLINE_CHECKLIST_MAX_TOKENS", PG_OUTLINE_CHECKLIST_MAX_TOKENS_DEFAULT,
-                ),
-                temperature=0.2,
+        checklist_max_tokens = _env_int(
+            "PG_OUTLINE_CHECKLIST_MAX_TOKENS", PG_OUTLINE_CHECKLIST_MAX_TOKENS_DEFAULT,
+        )
+        # Iter-6 P0 fix (Fable-directed, both halves REQUIRED):
+        #   (1) root cause — pass an explicit ``reasoning_max_tokens`` so glm-5.2's
+        #       unbounded-effort reasoning pool is BOUNDED within the (now much larger)
+        #       total, instead of running unbounded until it eats the whole budget and
+        #       leaves content empty (the exact ReasoningFirstTruncationError trace from
+        #       matched_comparison_run5.log — same starved defaults iters 1-5 never fixed).
+        #   (2) defense in depth — this is an INTERNAL control-plane call (a self-review, not
+        #       verified prose); a transient truncation here must never be able to abort the
+        #       whole outline stage. One retry at 2x budget (capped at the real glm-5.2
+        #       provider ceiling), then fail-OPEN to "no new deficiencies this round" with a
+        #       disclosed reason — mirrors the fail-open pattern already used by
+        #       ``_tool_search_more_evidence``'s query-derive call just below.
+        resp = None
+        last_exc: Optional[Exception] = None
+        for attempt, attempt_max_tokens in enumerate((
+            checklist_max_tokens,
+            min(checklist_max_tokens * 2, PG_GLM52_REAL_MAX_COMPLETION_TOKENS),
+        )):
+            client = OpenRouterClient(model=self.agent_model)
+            try:
+                resp = await client.generate(
+                    prompt=prompt,
+                    max_tokens=attempt_max_tokens,
+                    temperature=0.2,
+                    reasoning_max_tokens=_reasoning_max_tokens(),
+                )
+                last_exc = None
+                break
+            except Exception as exc:  # noqa: BLE001 — a checklist truncation must degrade, never crash
+                last_exc = exc
+                logger.warning(
+                    "[outline_agent] checklist call failed (trigger=%s, attempt=%d, "
+                    "max_tokens=%d): %s", trigger, attempt + 1, attempt_max_tokens, exc,
+                )
+            finally:
+                if hasattr(client, "close"):
+                    try:
+                        await client.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+        if resp is None:
+            self.workspace.disclose(
+                f"checklist (trigger={trigger}) degraded fail-open after "
+                f"{attempt + 1} attempt(s), treating as 'no new deficiencies this round': "
+                f"{last_exc}"
             )
-        finally:
-            if hasattr(client, "close"):
-                try:
-                    await client.close()
-                except Exception:  # noqa: BLE001
-                    pass
+            return []
 
         raw_lines = [
             ln.strip("- ").strip() for ln in (resp.content or "").splitlines() if ln.strip()
