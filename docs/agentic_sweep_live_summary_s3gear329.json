@@ -1,0 +1,29 @@
+{
+  "corpora": 1,
+  "passed": 1,
+  "failed": 0,
+  "moat_armed": 0,
+  "results": [
+    {
+      "corpus": "cp4_corpus_s3gear_329.json",
+      "research_question": "I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The ",
+      "baskets": 329,
+      "baskets_ok": true,
+      "min_baskets": 328,
+      "cp4_used": "agentic",
+      "degrade_reason": "",
+      "turns": 10,
+      "ev_store_size": 1009,
+      "new_evidence": 12,
+      "quantified_models": 0,
+      "calc_claim_sections": 0,
+      "moat_armed": false,
+      "doi_false_merge_guard_hits": 0,
+      "title_false_merge_guard_hits": 1,
+      "invariant_passed": true,
+      "verdict": "agentic (full path, no degrade)",
+      "agent_model": "z-ai/glm-5.2",
+      "code_model": "deepseek/deepseek-v4-pro"
+    }
+  ]
+}
