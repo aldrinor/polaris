@@ -660,6 +660,18 @@ _BOILERPLATE_METADATA_RE = re.compile(
     r"\bcite as\s*:|\barxiv:\s*\d{4}\.\d{4,5}|\bdoi:\s*10\.\d{4}|"
     r"\bpublished by\b|\binforma uk\b|\btaylor (?:&|and) francis\b|"
     r"\bauthor keywords\b|\bindexed keywords\b|\bdocument type\s*:|\bsource type\s*:|"
+    # P0-1 (S2/S3 re-pass iter-6, Fable Fix 4a) — additional CONFIDENT chrome/metadata LINE
+    # classes still surfacing as basket REPRESENTATIVES: a RIS / Scopus bibliographic export tag
+    # ('KW  - artificial intelligence', 'TY  - JOUR', 'ER  -', 'AU  - '), an SSRN cover-page
+    # stamp ('Electronic copy available at: https://ssrn.com/abstract='), a preprint
+    # not-peer-reviewed banner ('This version is not peer-reviewed'), and a US-federal-site
+    # security banner ('Before sharing sensitive information ...', 'official website of the ...').
+    # Question-agnostic + conservative (a real reported claim never leads with these tokens); this
+    # only ever BLOCKS a line from being a merge key / rep — it never drops a row.
+    r"^\s*(?:kw|ty|er|au|py|t1|t2|jo|jf|sp|ep|vl|is|sn|do|ur|n1|m3|da)\s{1,3}-\s|"
+    r"\belectronic copy available at\b|"
+    r"\bthis version is not peer[\s\-]?reviewed\b|"
+    r"\bbefore sharing sensitive information\b|\bofficial website of the\b|"
     r"\ball content following this page\b|\bpo box\b",
     re.IGNORECASE,
 )
@@ -1383,7 +1395,18 @@ def _normalize_source_url(row: dict[str, Any]) -> str:
 # never merge on a boilerplate filename. LAW VI kill switch (default ON).
 _SAMEWORK_FILENAME_ENV = "PG_SAMEWORK_FILENAME_UNION"
 _URL_BASENAME_EXT_RE = re.compile(r"\.(pdf|html?|docx?|txt|epub|xml|ps|ashx|aspx?)$", re.IGNORECASE)
-_URL_BASENAME_VERSION_TAIL_RE = re.compile(r"[._\-]v?\d+$")
+# A trailing version / duplicate suffix on a filename basename: one OR MORE numeric groups
+# (``_1``, ``_1_0``, ``-v2``, ``.3``) and/or a parenthetical copy marker (``(1)``). Fable Fix 6
+# (S2/S3 re-pass): the base regex stripped only ONE group, so ``noy_zhang_1`` folded to
+# ``noy_zhang`` while its ``noy_zhang_1_0`` mirror folded to ``noy_zhang_1`` — two copies of ONE
+# paper (economics.mit.edu Noy_Zhang_1.pdf vs Noy_Zhang_1_0.pdf, drb_72 #78) counted as two
+# works. Stripping the WHOLE repeated tail folds both to ``noy_zhang``. Bounded by the 8-char
+# discriminative floor + generic-basename reject below, so a short/meaningful trailing number is
+# never over-stripped (§-1.3-safe: a rare basename over-fold lowers the corroboration COUNT — a
+# weight — only; the CLAIM merge still needs NLI, so it can never fabricate a corroborated claim,
+# and every member URL is kept as a locator). Fable's safe default: unsure whether two mirrors
+# are one work => count ONE work, keep both citations.
+_URL_BASENAME_VERSION_TAIL_RE = re.compile(r"(?:[._\-]v?\d+)+$|\(\d+\)$")
 # Non-discriminative basenames that many distinct works share — never a same-work signal.
 _GENERIC_BASENAMES = frozenset({
     "index", "download", "downloads", "view", "viewer", "full", "fulltext", "abstract",
@@ -2553,9 +2576,19 @@ def _apply_representative_invariant(
         is_sentinel = (
             isinstance(key, tuple) and key and key[0] in ("__unknown__", "__qual__")
         )
-        if is_sentinel:
-            continue
         member_ris = sorted(set(groups[key]))
+        # Fable Fix 2(a) (S2/S3 re-pass iter-6): allow a SINGLE-member sentinel
+        # (__unknown__/__qual__) whose VISIBLE sentence is a real mergeable CLAIM into the
+        # byte-identical same-claim union — the row the blanket sentinel-skip wrongly excluded
+        # (drb_72 #4/#43 Eloundou "46% of jobs", #52/#53 Brookings "0.8% ... share of middle
+        # managers": two byte-identical singletons carrying an __unknown__ key that therefore
+        # never unioned, rep_invariant_merge_count stuck at 0). A MULTI-member sentinel POOL stays
+        # excluded (pooling an unresolved-subject pool here would re-introduce the boilerplate
+        # false-merge the value-bucket guard removed). The _sentence_mergeable(vis) guard below
+        # still blocks any boilerplate visible line, so this can only UNION two byte-identical (or
+        # same-value bidirectionally-entailing) REAL claims. §-1.3-safe (UNION-only, keep-all).
+        if is_sentinel and len(member_ris) > 1:
+            continue
         value = _cluster_value_bucket(key, rows, member_ris)
         rep_ri = _choose_clean_representative(member_ris, rank_fn, rows)
         vis = _visible_claim_sentence(rows[rep_ri], value)
@@ -2698,6 +2731,125 @@ def _text_contains_value(text: str, value: Any) -> bool:
         if abs(x - v) <= tol:
             return True
     return False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# POST-MERGE member re-verify — S2/S3 re-pass Fable Fix 1 (anti-fabrication, THE P0)
+# ─────────────────────────────────────────────────────────────────────────
+# consolidation-NLI joins cluster REPRESENTATIVES (not individual members), and a same-value
+# bucket can pool two clusters whose reps entail while their OTHER members do not — so a member
+# can enter a merged basket WITHOUT its OWN claim sentence ever being checked against the FINAL
+# basket rep. That fabricates corroboration on a numeric macro claim (drb_72 #128: springer /
+# mdpi absorbed onto a PWBM TFP/GDP 1.5%-by-2035 projection neither quote contains; #339: a
+# data-entry career-guide page onto an Eloundou-rubric claim). A fabricated corroboration count on
+# a clinical dose / contraindication / macro number is exactly the §-1.1 "lethal" failure.
+#
+# THE FIX (general, question-agnostic): after ALL merge passes, re-verify each non-rep member of
+# every surviving multi-member basket against the FINAL rep — keep only members that are
+# byte-identical OR bidirectionally entail the rep AND (numbers-strict) carry the basket's value
+# when the rep does; SPLIT the rest into their own singletons. §-1.3-safe: SPLIT-only (keep-all —
+# every split member still flows through as its own basket); it never drops a row and never
+# invents a merge. Fail-OPEN toward SPLIT (an infra ``None`` / one-way / contradiction splits — a
+# false merge is worse than a missed one, per the operator's "over-merge corrupts attribution;
+# under-merge is safe" rule). Fail-LOUD telemetry. Runs on numeric AND sentinel baskets (a false
+# merge can land in either key). Reuses the SAME byte-identical + numbers-strict + bidirectional
+# gate the pre-consolidation split-confirm uses, so it introduces no new judgment surface.
+_POST_MERGE_REVERIFY_ENV = "PG_FINDING_POST_MERGE_REVERIFY"
+
+
+def _post_merge_reverify_enabled() -> bool:
+    """``PG_FINDING_POST_MERGE_REVERIFY`` kill switch (LAW VI, DEFAULT-ON, Fable Fix 1). OFF =>
+    byte-identical legacy (no post-merge member re-verify)."""
+    return os.getenv(_POST_MERGE_REVERIFY_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _apply_post_merge_reverify(
+    groups: dict[tuple, list[int]],
+    rows: list[dict[str, Any]],
+    rank_fn,
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+    telemetry: Optional[dict[str, Any]] = None,
+) -> tuple[dict[tuple, list[int]], int]:
+    """Fable Fix 1: re-verify every non-rep member of every surviving multi-member basket against
+    the FINAL representative (see the section note). Returns ``(groups, members_split)``. SPLIT
+    members become distinct singleton keys so the downstream basket loop treats each as its own
+    corroboration=1 basket. Deterministic; ``entail_fn`` is the test seam (production => the lazy
+    resident ``entails_directional``)."""
+    if entail_fn is None:
+        from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+            entails_directional,
+        )
+        entail_fn = entails_directional
+    value_strict = _numeric_value_strict_enabled()
+    out: dict[tuple, list[int]] = {}
+    members_split = 0
+    clusters_split = 0
+    for key, member_ris in groups.items():
+        distinct = sorted(set(member_ris))
+        if len(distinct) < 2:
+            out[key] = member_ris
+            continue
+        value = _cluster_value_bucket(key, rows, distinct)
+        rep_ri = _choose_clean_representative(distinct, rank_fn, rows)
+        rep_text = _normalize_unicode_text(
+            _collapse_letter_spacing(_visible_claim_sentence(rows[rep_ri], value))
+        )
+        rep_sig = _rung0_signature(rep_text)
+        rep_mergeable = _sentence_mergeable(rep_text)
+        rep_has_value = (not value_strict) or _text_contains_value(rep_text, value)
+        confirmed = [rep_ri]
+        split_members: list[int] = []
+        for mri in distinct:
+            if mri == rep_ri:
+                continue
+            m_text = _normalize_unicode_text(
+                _collapse_letter_spacing(_visible_claim_sentence(rows[mri], value))
+            )
+            # A byte-identical VISIBLE claim sentence IS the same claim — always keep (mirrors the
+            # rep-invariant byte-identical leg; never split a genuine duplicate on an NLI None).
+            if rep_sig and _rung0_signature(m_text) == rep_sig:
+                confirmed.append(mri)
+                continue
+            # A boilerplate / heading / non-propositional rep or member cannot corroborate a CLAIM.
+            if not (rep_mergeable and _sentence_mergeable(m_text)):
+                split_members.append(mri)
+                continue
+            # Numbers-strict: the basket's value must literally appear in BOTH claim sentences.
+            if value_strict and not (rep_has_value and _text_contains_value(m_text, value)):
+                split_members.append(mri)
+                continue
+            # Bidirectional entailment of the member's OWN claim sentence vs the FINAL rep.
+            fwd = entail_fn(rep_text, m_text)
+            rev = entail_fn(m_text, rep_text) if fwd is True else None
+            if fwd is True and rev is True:
+                confirmed.append(mri)
+            else:
+                # fail-open toward SPLIT (None / one-way / contradiction — anti-fabrication).
+                split_members.append(mri)
+        out[key] = sorted(set(confirmed))
+        for mri in split_members:
+            out[tuple(key) + ("__reverify_split__", mri)] = [mri]
+        if split_members:
+            clusters_split += 1
+            members_split += len(split_members)
+    if members_split:
+        logger.info(
+            "[finding_dedup] Fable Fix 1 post-merge re-verify: SPLIT %d member(s) out of %d "
+            "basket(s) whose OWN claim sentence did not entail the final rep (anti-fabrication; "
+            "SPLIT-only, keep-all, §-1.3)",
+            members_split, clusters_split,
+        )
+    if telemetry is not None:
+        telemetry["post_merge_members_split"] = (
+            telemetry.get("post_merge_members_split", 0) + members_split
+        )
+        telemetry["post_merge_clusters_split"] = (
+            telemetry.get("post_merge_clusters_split", 0) + clusters_split
+        )
+    return out, members_split
 
 
 def _numeric_nli_confirm_enabled() -> bool:
@@ -4106,6 +4258,35 @@ def _build_qualitative_groups(
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# All-chrome basket DELETE — S2/S3 re-pass Fable Fix 4(b) (§-1.3.1(a) carve-out)
+# ─────────────────────────────────────────────────────────────────────────
+# Fable Fix 4(b): "a basket with NO claim line ANYWHERE is itself chrome — route to junk deletion
+# with disclosure." A numeric/sentinel basket in which NOT ONE member yields a real, non-boilerplate
+# CLAIM sentence (every member is a license / nav / ISSN / TOC / bibliographic / metadata line) is a
+# chrome NON-source, deletable under §-1.3.1(a). This reuses the SAME ``_row_has_mergeable_claim``
+# predicate already trusted for rep selection + merge gating — it is letter-spacing-collapse
+# protected, so a real spaced / scanned-PDF abstract ("W e i n v e s t i g a t e ...") collapses to
+# a claim and is NEVER flagged chrome (fail-open). It is NOT a garble / word-ratio knob (those were
+# proven to false-positive on real PDF prose — the iter-6 ev_901 / ev_685 / ev_1146 finding). A row
+# is deleted ONLY when EVERY basket it belongs to is all-chrome (a chrome-shaped row that also
+# corroborates a REAL claim elsewhere is KEPT). DEFAULT-OFF: a brand-new DELETE path must be vetted
+# on a validated real run before it deletes in production (matching this module's "un-vetted change
+# must never silently degrade" discipline); the disclosure telemetry lets the operator enable +
+# measure it. Every deletion is DISCLOSED (count + reason, fail-loud).
+_CHROME_BASKET_DELETE_ENV = "PG_FINDING_CHROME_BASKET_DELETE"
+
+
+def _chrome_basket_delete_enabled() -> bool:
+    """``PG_FINDING_CHROME_BASKET_DELETE`` kill switch (LAW VI, DEFAULT-OFF, Fable Fix 4(b)). ON =>
+    a numeric/sentinel basket whose members yield NO mergeable claim anywhere is deleted with
+    disclosure (§-1.3.1(a) chrome carve-out). OFF (default) => byte-identical (no chrome-basket
+    delete); genuine chrome is still removed upstream by the captcha / anti-bot shell drop."""
+    return os.getenv(_CHROME_BASKET_DELETE_ENV, "0").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
 def dedup_by_finding(
     rows: list[dict[str, Any]],
     *,
@@ -4340,6 +4521,23 @@ def dedup_by_finding(
     if groups and _representative_invariant_enabled():
         groups, rep_invariant_merged = _apply_representative_invariant(groups, rows, _rank)
 
+    # 1e. POST-MERGE member re-verify (Fable Fix 1 — anti-fabrication, THE P0). After ALL merge
+    #     passes, re-verify each non-rep member of every surviving multi-member basket against the
+    #     FINAL rep; SPLIT any member whose OWN claim sentence does not entail the rep (or lacks the
+    #     numbers-strict value). This dissolves a fabricated-corroboration false merge that a
+    #     cluster-rep-level consolidation-NLI join or a same-value bucket collision left behind
+    #     (drb_72 #128 springer/mdpi onto a PWBM macro claim; #339 a career page onto an
+    #     Eloundou-rubric claim). Gated on an NLI path being active (so a no-NLI run is
+    #     byte-identical) + its own kill switch. SPLIT-only / keep-all / §-1.3.
+    if (
+        groups
+        and _post_merge_reverify_enabled()
+        and (_consolidation_nli_enabled() or _finding_dedup_nli_enabled())
+    ):
+        groups, _post_merge_split = _apply_post_merge_reverify(
+            groups, rows, _rank, telemetry=numeric_confirm_telemetry,
+        )
+
     # 1c. QUALITATIVE basket formation (I-deepfix-001 D1, #1344). §-1.3 CONSOLIDATE
     #     qualitative claims TOO (not numeric-only): rows with NO extracted numeric
     #     finding that assert the SAME qualitative claim form a multi-citation
@@ -4438,11 +4636,36 @@ def dedup_by_finding(
     #    (PG_BASKET_CONSUME_FINDING_DEDUP) and the enrichment-side consolidator in
     #    `generator/weighted_enrichment.py` PRESENT one work as ONE source while
     #    KEEPING every member URL as a corroborating locator (§-1.3 keep-all).
+    # Fable Fix 4(b) (§-1.3.1(a) chrome carve-out, DEFAULT-OFF): a row is chrome-deletable only
+    # when EVERY basket it belongs to is all-chrome (no member yields a mergeable claim), it is
+    # never a rep of a surviving cluster, and it is finding-bearing. A chrome-shaped row that also
+    # corroborates a REAL claim elsewhere is KEPT (fail-open). Letter-spacing-collapse protected
+    # (real spaced/scanned-PDF prose collapses to a claim => never flagged).
+    chrome_drop_ris: set[int] = set()
+    if redesign_on and _chrome_basket_delete_enabled():
+        claim_basket_ris: set[int] = set()
+        chrome_basket_ris: set[int] = set()
+        for _ck, _cm in groups.items():  # numeric/sentinel baskets only (qual rows are keep-all)
+            _dm = sorted(set(_cm))
+            if any(_row_has_mergeable_claim(rows[cri]) for cri in _dm):
+                claim_basket_ris.update(_dm)
+            else:
+                chrome_basket_ris.update(_dm)
+        chrome_drop_ris = {
+            cri for cri in chrome_basket_ris
+            if cri not in claim_basket_ris
+            and cri not in rep_indices
+            and row_has_finding[cri]
+        }
+    n_chrome_basket_dropped = 0
     group_by_canonical = {g.canonical_index: g for g in same_work.groups}
     deduped_rows: list[dict[str, Any]] = []
     for ri, row in enumerate(rows):
         if ri in dropped:
             continue
+        if ri in chrome_drop_ris:
+            n_chrome_basket_dropped += 1
+            continue  # Fable Fix 4(b): all-chrome-basket member, deleted (disclosed below)
         if not redesign_on and not (ri in rep_indices or not row_has_finding[ri]):
             continue
         new_row = dict(row)  # shallow copy — never mutate the caller's row
@@ -4477,6 +4700,16 @@ def dedup_by_finding(
                 )
                 new_row["same_work_member_urls"] = list(group.member_urls)
         deduped_rows.append(new_row)
+
+    if n_chrome_basket_dropped:
+        # §-1.3.1 fail-loud disclosure: every chrome deletion is reported (count + reason).
+        logger.info(
+            "[finding_dedup] Fable Fix 4(b) all-chrome-basket DELETE: removed %d finding-bearing "
+            "row(s) that belonged ONLY to baskets with no mergeable claim anywhere (chrome "
+            "non-sources, §-1.3.1(a) carve-out; credible on-topic rows untouched — every basket "
+            "with any claim member was KEPT)",
+            n_chrome_basket_dropped,
+        )
 
     return FindingDedupResult(
         deduped_rows=deduped_rows,
