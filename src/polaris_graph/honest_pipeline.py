@@ -181,6 +181,7 @@ def run_honest_pipeline(
     draft_text: str,
     approval_note: str = "",
     auto_approve_if_within_bounds: bool = True,
+    quantified_models: dict[tuple[str, str], Any] | None = None,
 ) -> PipelineResult:
     """Run the honest-rebuild pipeline end-to-end in offline mode.
 
@@ -332,8 +333,15 @@ def run_honest_pipeline(
     )
 
     # ── Phase 4: strict verification of draft + resolution ─────────────
+    # MOAT SEAM (2026-07-11): thread the agentic outliner's verified quantified-model
+    # registry so a computed number rendered as a ``[#calc:model:hash:field]`` token is
+    # force-routed to ``verify_modeled_atom`` (the Regime-C calc router) instead of being
+    # dropped ``no_provenance_token``. Default None => byte-identical legacy behaviour
+    # (the router is skipped, exactly as before). A derived number can NEVER launder through
+    # the ``[#ev:]`` span path (``number_not_in_any_cited_span`` still fires), so this only
+    # OPENS the verified compute lane in production — it never widens the render surface.
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
-    strict = strict_verify(draft_text, evidence_pool)
+    strict = strict_verify(draft_text, evidence_pool, quantified_models=quantified_models)
     rendered_text, biblio = resolve_provenance_to_citations(
         strict.kept_sentences, evidence_pool,
     )

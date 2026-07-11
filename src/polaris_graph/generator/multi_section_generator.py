@@ -7896,6 +7896,7 @@ def _append_evidence_base_section(
     *,
     section_title: str = "",
     section_focus: str = "",
+    quantified_models: "dict[tuple[str, str], Any] | None" = None,
 ) -> bool:
     """I-deepfix-001 WS-3 (#1344) — append the numbered "Evidence base" breadth surface.
 
@@ -7952,7 +7953,11 @@ def _append_evidence_base_section(
         return False
 
     rewritten, _converted, _unverified = _rewrite_draft_with_spans(draft, evidence_pool)
-    report = strict_verify(rewritten, evidence_pool)
+    # MOAT SEAM (2026-07-11): pass the verified quantified-model registry so a computed
+    # ``[#calc:]`` number surfaced in the evidence-base breadth block routes to the Regime-C
+    # calc verifier instead of dropping ``no_provenance_token``. Default None => byte-identical
+    # legacy path. Faithfulness-neutral: the ``[#ev:]`` span gate is untouched.
+    report = strict_verify(rewritten, evidence_pool, quantified_models=quantified_models)
     kept_verified = [v for v in (report.kept_sentences or []) if getattr(v, "is_verified", False)]
     if not kept_verified:
         return False  # nothing survived the frozen gate -> NO section (no unverified breadth ships)
