@@ -11,6 +11,7 @@ from src.polaris_graph.outline.outline_agent import OutlineAgent, OutlineWorkspa
 from src.polaris_graph.outline.outline_toolkit import (
     _tool_calculator,
     _tool_coverage_audit,
+    _tool_find_contradictions,
     _tool_get_evidence,
     _tool_list_baskets,
     _tool_preview_section_evidence,
@@ -212,6 +213,60 @@ def test_verified_compute_rejects_bad_arg_types():
     assert not r.success and r.error == "bad_args"
 
 
+# --------------------------------------------------------------------------- find_contradictions
+
+
+def _contradiction_ws(ev):
+    return OutlineWorkspace(research_question="q", ev_store=dict(ev))
+
+
+def test_find_contradictions_direction_conflict_surfaced_both_cited():
+    ev = {
+        "ev_a": {"evidence_id": "ev_a",
+                 "direct_quote": "Drug X reduced mortality by 20% versus placebo (p<0.01)."},
+        "ev_b": {"evidence_id": "ev_b",
+                 "direct_quote": "Drug X increased mortality by 15% versus placebo (p=0.03)."},
+    }
+    r = _run(_tool_find_contradictions(_contradiction_ws(ev), ev_ids=["ev_a", "ev_b"]))
+    assert r.success and r.statistics["conflicts"] == 1
+    assert r.statistics["pairs"][0]["type"] == "direction_conflict"
+    assert set(r.source_evidence_ids) == {"ev_a", "ev_b"}
+
+
+def test_find_contradictions_magnitude_outlier_flagged_not_deleted():
+    ev = {
+        "ev_1": {"evidence_id": "ev_1", "direct_quote": "The incidence rate was 12.4 per 100,000."},
+        "ev_2": {"evidence_id": "ev_2", "direct_quote": "The incidence rate was 12.1 per 100,000."},
+        "ev_bad": {"evidence_id": "ev_bad",
+                   "direct_quote": "The incidence rate was 12400 per 100,000."},
+    }
+    ws = _contradiction_ws(ev)
+    r = _run(_tool_find_contradictions(ws, ev_ids=["ev_1", "ev_2", "ev_bad"]))
+    assert r.success and r.statistics["conflicts"] >= 1
+    assert any(p["type"] == "magnitude_outlier" for p in r.statistics["pairs"])
+    # weight, don't filter (§-1.3): the outlier row is NEVER deleted from the pool.
+    assert "ev_bad" in ws.ev_store
+
+
+def test_find_contradictions_agreement_yields_zero_conflicts():
+    ev = {
+        "ev_1": {"evidence_id": "ev_1", "direct_quote": "The rate was 12.4 per 100,000."},
+        "ev_2": {"evidence_id": "ev_2", "direct_quote": "The rate was 12.1 per 100,000."},
+    }
+    r = _run(_tool_find_contradictions(_contradiction_ws(ev), ev_ids=["ev_1", "ev_2"]))
+    assert r.success and r.statistics["conflicts"] == 0
+
+
+def test_find_contradictions_ignores_years_as_magnitudes():
+    # bare 4-digit years must not be treated as magnitudes (would false-flag an outlier).
+    ev = {
+        "ev_1": {"evidence_id": "ev_1", "direct_quote": "In 2019 the value was 5.0 units."},
+        "ev_2": {"evidence_id": "ev_2", "direct_quote": "In 2000 the value was 5.2 units."},
+    }
+    r = _run(_tool_find_contradictions(_contradiction_ws(ev), ev_ids=["ev_1", "ev_2"]))
+    assert r.success and r.statistics["conflicts"] == 0
+
+
 # --------------------------------------------------------------------------- registration wiring
 
 
@@ -219,7 +274,8 @@ def test_register_outline_toolkit_wires_all_tools_on_a_registry():
     reg = ToolRegistry()
     names = register_outline_toolkit(reg, _ws(), "stub/agent")
     for n in ("calculator", "get_evidence", "search_corpus", "list_baskets",
-              "coverage_audit", "preview_section_evidence", "verified_compute"):
+              "coverage_audit", "preview_section_evidence", "verified_compute",
+              "find_contradictions"):
         assert n in names and reg.get_tool(n) is not None
 
 

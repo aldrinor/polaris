@@ -366,6 +366,119 @@ async def _tool_verified_compute(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# find_contradictions — surface conflict (direction / magnitude outlier), never average
+# ─────────────────────────────────────────────────────────────────────────────
+_NUM_RE = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
+
+
+def _headline_numbers(text: str) -> list[float]:
+    """All parseable magnitudes in a row's text (commas stripped), skipping bare 4-digit years."""
+    vals: list[float] = []
+    for m in _NUM_RE.findall(text or ""):
+        raw = m.replace(",", "")
+        try:
+            v = float(raw)
+        except ValueError:
+            continue
+        # skip a bare calendar year (1900-2099) so a date is not mistaken for a magnitude
+        if raw.isdigit() and 1900 <= v <= 2099 and "." not in raw:
+            continue
+        vals.append(v)
+    return vals
+
+
+async def _tool_find_contradictions(
+    workspace: Any, *, ev_ids: Any = None, outlier_ratio: float = 100.0, **_ignored: Any,
+) -> ToolResult:
+    """Surface CONFLICT among a set of evidence rows on the same aspect — deterministic, spend-free.
+
+    Two conflict modes (design Category D #26): (1) DIRECTION conflict — one row asserts an explicit
+    increase and another an explicit decrease on the endpoint; (2) MAGNITUDE outlier — one row's
+    headline value is >= ``outlier_ratio`` x another's (the 1000x-off poison outlier, H22). Conflicts
+    are surfaced as named material with BOTH ev_ids; nothing is averaged and nothing is deleted
+    (§-1.3 weight, don't filter). Read-only: never mutates ``ev_store``.
+
+    NOTE: this is the deterministic core. Pairwise NLI-entailment via the mirror model is an
+    OPTIONAL fail-open enrichment (not run here to stay spend-free); it can only ADD advisory
+    conflicts, never suppress a deterministic one.
+    """
+    from src.polaris_graph.retrieval.contradiction_detector import _extract_direction  # noqa: PLC0415
+
+    ids = [str(e) for e in (ev_ids or list(workspace.ev_store.keys()))]
+    rows = [(e, workspace.ev_store.get(e)) for e in ids]
+    rows = [(e, r) for e, r in rows if isinstance(r, dict)]
+    try:
+        ratio = float(outlier_ratio)
+    except (TypeError, ValueError):
+        ratio = 100.0
+
+    raw_feats = []
+    for e, r in rows:
+        text = _row_text(r)
+        raw_feats.append((e, _extract_direction(text), _headline_numbers(text)))
+
+    # Strip magnitudes that appear IDENTICALLY in every row (a shared denominator/unit such as the
+    # "per 100,000" in a rate, or a common cohort size) — they are not distinguishing values and
+    # would false-flag a magnitude outlier (rate vs its own denominator). Deterministic, order-free.
+    shared: set[float] | None = None
+    for _e, _d, nums in raw_feats:
+        s = set(nums)
+        shared = s if shared is None else (shared & s)
+    shared = shared or set()
+    feats = [
+        (e, d, [n for n in nums if n not in shared] or list(nums))
+        for e, d, nums in raw_feats
+    ]
+
+    pairs: list[dict[str, Any]] = []
+    involved: set[str] = set()
+    for i in range(len(feats)):
+        for j in range(i + 1, len(feats)):
+            ei, di, ni = feats[i]
+            ej, dj, nj = feats[j]
+            if di and dj and di != dj:
+                pairs.append({"a": ei, "b": ej, "type": "direction_conflict",
+                              "direction": f"{ei}:{di} vs {ej}:{dj}"})
+                involved.update((ei, ej))
+                continue
+            if ni and nj:
+                hi, lo = max(ni), min(nj)
+                hi2, lo2 = max(nj), min(ni)
+                best = max(
+                    (hi / lo if lo else float("inf")),
+                    (hi2 / lo2 if lo2 else float("inf")),
+                )
+                if best >= ratio:
+                    pairs.append({"a": ei, "b": ej, "type": "magnitude_outlier",
+                                  "ratio": round(best, 2)})
+                    involved.update((ei, ej))
+
+    if not pairs:
+        return ToolResult(
+            success=True, tool_name="find_contradictions",
+            markdown=f"No direction/magnitude conflict among {len(rows)} row(s) "
+                     "(agreement or unresolved — never silently averaged).",
+            statistics={"conflicts": 0, "rows": len(rows), "pairs": []},
+        )
+    lines = [f"**find_contradictions: {len(pairs)} conflict pair(s)** across {len(rows)} rows", ""]
+    for p in pairs:
+        if p["type"] == "direction_conflict":
+            lines.append(f"- DIRECTION CONFLICT {p['a']} <-> {p['b']}: {p['direction']} "
+                         f"[CITE:{p['a']}] [CITE:{p['b']}]")
+        else:
+            lines.append(f"- MAGNITUDE OUTLIER {p['a']} <-> {p['b']}: {p['ratio']}x apart "
+                         f"[CITE:{p['a']}] [CITE:{p['b']}]")
+    lines.append("")
+    lines.append("These are CONFLICTING-evidence material (surface both sides; never average, "
+                 "never delete — §-1.3 weight, don't filter).")
+    return ToolResult(
+        success=True, tool_name="find_contradictions", markdown="\n".join(lines),
+        source_evidence_ids=sorted(involved),
+        statistics={"conflicts": len(pairs), "rows": len(rows), "pairs": pairs},
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # helpers + registration
 # ─────────────────────────────────────────────────────────────────────────────
 def _assigned_ev_ids(workspace: Any) -> set[str]:
@@ -414,6 +527,11 @@ def register_outline_toolkit(
         ("preview_section_evidence", _tool_preview_section_evidence,
          "Preview one section's assigned evidence — exactly what compose will receive.",
          {"section": "the section title"}),
+        ("find_contradictions", _tool_find_contradictions,
+         "Surface CONFLICT among evidence rows (opposite direction, or a magnitude outlier) — both "
+         "sides cited, never averaged, never deleted. Deterministic, no network, no LLM.",
+         {"ev_ids": "list of evidence ids to compare (default: all in the pool)",
+          "outlier_ratio": "magnitude-outlier threshold (default 100)"}),
         ("verified_compute", _tool_verified_compute,
          "Derive a number through the VERIFIED lane and render it via a [#calc:] token (the ONLY "
          "compute output allowed to render).",
