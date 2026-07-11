@@ -1,0 +1,28 @@
+{
+  "thin": {
+    "elapsed_s": 200.0,
+    "turns": 2,
+    "ev_before": 5,
+    "ev_after": 13,
+    "new_evidence_count": 8,
+    "search_more_evidence_calls": 1,
+    "checklist_gap_events": 3,
+    "unfilled_gaps": [],
+    "outline_mutated": true,
+    "update_outline_calls": 1,
+    "final_section_ev_counts": {
+      "Efficacy": 4,
+      "Comparative": 3,
+      "Safety": 8
+    },
+    "disclosures": [
+      "checklist[seed] named 1 gap(s): Safety::long-term cardiovascular safety",
+      "search_more_evidence['long-term cardiovascular safety'] query='tirzepatide 15mg long-term cardiovascular safety major adverse cardiovascular events SURMOUNT-MMO' fetched 8 of 10, url-dup dropped 0, kept 8, deleted 0 (chrome=0, off-topic=0) in 19.8s",
+      "update_outline: Applied 1 op(s); recompose=['Safety']; kept=2; rejected=0; deferred=0; gap_queries routed to ledger: 0",
+      "auto-assign: no existing section matched 'Safety' \u2014 ADDED new section 'Safety' with 8 new ev_id(s) (iter-2 fix \u2014 a named gap with no home no longer orphans rows)",
+      "checklist[after_fold] ran: NONE (no grounded deficiencies)",
+      "checklist[finish_attempt_turn_2] ran: NONE (no grounded deficiencies)",
+      "finish_outline ACCEPTED at turn 2: pending=0, budget_remains=True"
+    ]
+  }
+}

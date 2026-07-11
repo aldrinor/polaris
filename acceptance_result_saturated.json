@@ -1,0 +1,21 @@
+{
+  "saturated": {
+    "elapsed_s": 92.4,
+    "turns": 1,
+    "ev_before": 8,
+    "ev_after": 8,
+    "new_evidence_count": 0,
+    "search_more_evidence_calls": 0,
+    "section_count": 3,
+    "full_loop_ran": true,
+    "valid_negative_control": true,
+    "seed_outline_invalid_early_return": false,
+    "seed_reason_codes": null,
+    "gap_ledger": [],
+    "disclosures": [
+      "checklist[seed] ran: NONE (no grounded deficiencies)",
+      "checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)",
+      "finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True"
+    ]
+  }
+}

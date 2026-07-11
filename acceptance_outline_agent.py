@@ -137,32 +137,50 @@ async def run_thin() -> dict:
 
 async def run_saturated() -> dict:
     print("\n" + "=" * 80)
-    print("SATURATED RUN (negative control) — narrow single-fact question, wide seed pool")
+    print("SATURATED RUN (negative control) — VALID multi-section outline, fully-covered facets")
     print("=" * 80)
-    # Deliberately narrow to ONE verifiable fact (completion year) with a WIDE multi-angle seed
-    # (the fact itself, construction history, engineering details) so a genuine checklist has
-    # little real room to invent a plausible sub-topic gap — unlike the first attempt's implicit
-    # "capital + population" 2-part question, which correctly triggered real historical/subgroup
-    # gaps (that was a harness design flaw, not an outline_agent bug).
-    seed_rows_a = _bootstrap_seed(
-        "Eiffel Tower completion year 1889 construction history", max_serper=6,
+    # Iter-2 fix (Fable verdict: the prior single-fact question was TOO narrow — the seed outline
+    # came back below the 3-section floor, `run_outline_agent_or_legacy` early-returned BEFORE the
+    # agent loop was ever constructed, and the checklist's anti-invention behavior was never
+    # exercised at all. That "pass" was vacuous.). This question is deliberately THREE explicit,
+    # separately-named facets — construction history, structural engineering design, and cultural
+    # significance — so the seed outline is a genuine >=3-section plan and the agent loop actually
+    # runs. Each facet gets its OWN thorough bootstrap query so the seed pool is rich enough that a
+    # correctly-grounded checklist (the P0-1 verbatim-quote gate, outline_agent.py `_run_checklist`)
+    # has nothing real left to flag — this exercises the SAME anti-invention gate the thin run
+    # exercises the opposite side of, on a genuinely-built loop, not a skipped one.
+    seed_rows_history = _bootstrap_seed(
+        "Eiffel Tower construction history 1887 1889 timeline Gustave Eiffel build phases",
+        max_serper=8,
     )
-    seed_rows_b = _bootstrap_seed(
-        "Eiffel Tower built engineer Gustave Eiffel opening date facts", max_serper=6,
+    seed_rows_engineering = _bootstrap_seed(
+        "Eiffel Tower structural engineering design wrought iron lattice wind resistance load",
+        max_serper=8,
+    )
+    seed_rows_culture = _bootstrap_seed(
+        "Eiffel Tower French cultural identity symbol Paris landmark significance tourism",
+        max_serper=8,
     )
     seen_urls: set[str] = set()
     seed_rows: list[dict] = []
-    for r in seed_rows_a + seed_rows_b:
+    for r in seed_rows_history + seed_rows_engineering + seed_rows_culture:
         u = str(r.get("source_url") or r.get("url") or "")
         if u and u in seen_urls:
             continue
         if u:
             seen_urls.add(u)
         seed_rows.append(r)
-    if len(seed_rows) < 3:
-        raise RuntimeError(f"bootstrap seed too thin for saturated control ({len(seed_rows)} rows)")
+    if len(seed_rows) < 9:
+        raise RuntimeError(
+            f"bootstrap seed too thin for a genuine 3-facet saturated control "
+            f"({len(seed_rows)} rows across 3 facets) — live retrieval may be degraded; "
+            "not faking a pass"
+        )
 
-    question = "In what year was the Eiffel Tower completed?"
+    question = (
+        "Describe the construction history of the Eiffel Tower, its structural engineering "
+        "design, and its role in French cultural identity."
+    )
     evidence = list(seed_rows)
     ev_before = {r.get("evidence_id") for r in evidence if isinstance(r, dict)}
     t0 = time.monotonic()
@@ -185,37 +203,40 @@ async def run_saturated() -> dict:
     search_calls = sum(
         1 for d in stats.get("disclosures", []) if d.startswith("search_more_evidence[")
     )
+    # "checklist[seed]" now covers BOTH the "named N gap(s)" and the "ran: NONE" disclosure
+    # forms (outline_agent.py iter-2 telemetry fix) — either one proves the checklist LLM call
+    # actually happened, distinct from the loop never reaching it.
     checklist_ran = any(d.startswith("checklist[seed]") for d in stats.get("disclosures", []))
     finish_accepted = any(
         d.startswith("finish_outline ACCEPTED") for d in stats.get("disclosures", [])
     )
     plans_nonempty = len(parse_result.plans) > 0
     zero_searches = search_calls == 0
-    # Iter-2: found via a real live run (not anticipated) — `_call_outline`'s OWN pre-existing
-    # section-count-floor validation is a SECOND, upstream way this question can legitimately
-    # stay at zero retrieval: for a genuinely single-fact question, the outline LLM sometimes
-    # returns 0-2 sections (below the floor), `_call_outline` marks it invalid even after its own
-    # retry, `run_outline_agent_or_legacy`'s fail-open early-return fires (`not parse_result.plans`
-    # -> return before the agent loop is ever constructed), and `digest_stats["outline_agent"]` is
-    # never populated (`stats == {}`). That is EVEN STRONGER evidence of "no runaway retrieval"
-    # than a full loop that finishes with zero searches — the loop never got a chance to run at
-    # all. The ORIGINAL definition below (checklist_ran + finish_accepted) assumed the agent loop
-    # always starts, so it mis-scored this legitimate path as invalid. Read what actually
-    # happened, don't just check a boolean (§-1.1): a stats=={} outcome with search_calls==0 is
-    # disclosed as its OWN distinct pass path, never conflated with the full-loop pass path.
+    section_count = len(parse_result.plans)
+    # Iter-2 fix: a `stats=={}` (seed-outline-invalid) early-return is NO LONGER accepted as a
+    # pass path for THIS test. Fable's iter-2 verdict was explicit: that outcome is a degenerate
+    # "the loop was never built" result, not evidence the checklist declines to invent gaps on a
+    # VALID outline. This harness now REQUIRES the full agent loop to have actually run — a
+    # 3-facet seed engineered to produce >=3 real sections (see bootstrap above) — and only then
+    # checks that the checklist, when genuinely invoked against fully-covered facets, still
+    # returns nothing to search for. If the seed STILL comes back invalid despite the 3-facet
+    # design, that is reported honestly as a harness/seed problem (`seed_outline_invalid_early_
+    # return=True`) and `valid_negative_control=False` — it is NOT silently treated as a pass.
     seed_outline_invalid_early_return = not stats  # stats=={} iff the early-return branch fired
-    valid_negative_control = zero_searches and (
-        seed_outline_invalid_early_return
-        or (plans_nonempty and stats.get("turns", 0) >= 1 and checklist_ran and finish_accepted)
+    full_loop_ran = (
+        plans_nonempty and section_count >= 3 and stats.get("turns", 0) >= 1
+        and checklist_ran and finish_accepted
     )
+    valid_negative_control = zero_searches and full_loop_ran
     print(f"valid_negative_control={valid_negative_control} "
-          f"(seed_outline_invalid_early_return={seed_outline_invalid_early_return}, "
-          f"plans_nonempty={plans_nonempty}, turns>=1={stats.get('turns', 0) >= 1}, "
+          f"(full_loop_ran={full_loop_ran}, seed_outline_invalid_early_return="
+          f"{seed_outline_invalid_early_return}, plans_nonempty={plans_nonempty}, "
+          f"section_count={section_count} (>=3 required), turns>=1={stats.get('turns', 0) >= 1}, "
           f"checklist_ran={checklist_ran}, finish_accepted={finish_accepted}, "
           f"zero_searches={zero_searches} [search_calls={search_calls}])")
     if seed_outline_invalid_early_return:
-        print(f"  (seed outline reason_codes={getattr(parse_result, 'reason_codes', None)}, "
-              f"ok={getattr(parse_result, 'ok', None)})")
+        print(f"  DEGENERATE (not a pass): seed outline reason_codes="
+              f"{getattr(parse_result, 'reason_codes', None)}, ok={getattr(parse_result, 'ok', None)}")
 
     return {
         "elapsed_s": round(elapsed, 1),
@@ -224,12 +245,15 @@ async def run_saturated() -> dict:
         "ev_after": stats.get("ev_store_size"),
         "new_evidence_count": stats.get("new_evidence_count"),
         "search_more_evidence_calls": search_calls,
+        "section_count": section_count,
+        "full_loop_ran": full_loop_ran,
         "valid_negative_control": valid_negative_control,
         "seed_outline_invalid_early_return": seed_outline_invalid_early_return,
         "seed_reason_codes": (
             list(getattr(parse_result, "reason_codes", []) or [])
             if seed_outline_invalid_early_return else None
         ),
+        "gap_ledger": stats.get("gap_ledger"),
         "disclosures": stats.get("disclosures"),
     }
 

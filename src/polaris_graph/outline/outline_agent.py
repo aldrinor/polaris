@@ -331,6 +331,13 @@ class OutlineWorkspace:
     checkpoint_dir: Optional[str] = None
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    # Iter-2 fix: the deliverable's REQUIRED section titles (empty => no structure lock, the
+    # common case for the free-form acceptance/real-corpus runs). When non-empty, the outline's
+    # section STRUCTURE is governed by the caller (S4 ORCH-2 PUSH 1 / `_call_outline`'s own
+    # `required_sections` conform already enforced this at SEED time) and this module must never
+    # silently add a 5th section behind the caller's back — see `_tool_update_outline` and the
+    # auto-assign fallback in `OutlineAgent._execute_tool`.
+    required_titles: list[str] = field(default_factory=list)
     _checkpoint_seq: int = 0
 
     def next_ev_offset(self) -> int:
@@ -794,7 +801,15 @@ async def _tool_update_outline(
             error="no_ops_applied",
         )
 
-    apply_result = apply_revision_ops(workspace.outline_draft, parse_result)
+    # Iter-2 fix: thread the deliverable's required-structure lock (if any) into apply — mirrors
+    # `scripts/orchestrator_lab/outline_lab.py`'s `_required` threading. Without this, a
+    # required_sections-governed outline (e.g. the DRB-72 4-section canonical structure) could
+    # silently grow a 5th section via an agent-issued `add` op, breaking the caller's exact-N-in-
+    # order structural contract that `_call_outline` already conformed the seed to.
+    apply_result = apply_revision_ops(
+        workspace.outline_draft, parse_result,
+        required_titles=(workspace.required_titles or None),
+    )
     # Iter-2 fix (found via offline smoke test): ``apply_revision_ops`` ALWAYS returns
     # ``list[dict]`` (``outline_revise`` is dict-native; it is not currently wired into
     # production composition at all — grep confirms its only callers before this module were
@@ -1150,6 +1165,14 @@ class OutlineAgent:
                 f"checklist[{trigger}] dropped {n_ungrounded} ungrounded line(s) "
                 "(no verbatim question quote — anti-invention gate, P0-1 fix)"
             )
+        if not new_todos and not n_ungrounded:
+            # Iter-2 telemetry fix: previously a genuine "the checklist ran and found NOTHING"
+            # outcome (the correct behavior on a saturated/fully-covered outline) left ZERO trace
+            # in `disclosures` — indistinguishable from the checklist never having been invoked at
+            # all. That ambiguity made the W1 saturated acceptance test unable to tell "loop
+            # legitimately declined to search" apart from "loop never got far enough to check".
+            # Always disclose the checklist having run, even on a clean NONE verdict.
+            self.workspace.disclose(f"checklist[{trigger}] ran: NONE (no grounded deficiencies)")
         return new_todos
 
     # -- detector 2: tool-failure deterministic ----------------------------
@@ -1253,11 +1276,52 @@ class OutlineAgent:
                                 f"auto-assign FAILED for section {resolved_title!r}: "
                                 f"{assign_result.markdown}"
                             )
+                    elif new_ev_ids and not self.workspace.required_titles:
+                        # Iter-2 fix: found via a real live thin-run (nondeterministic re-run) —
+                        # when the checklist names a gap section that does NOT exist in the
+                        # current outline (e.g. the seed never created a dedicated "Cardiovascular
+                        # Safety" section for a question that asks about it), the OLD behavior
+                        # here was a permanent SKIP: the new rows sat orphaned in the pool, the
+                        # SAME gap re-fired every round under a slightly different name
+                        # ("Missing Section" / "Cardiovascular Safety" / "[No matching section]"
+                        # / "Outline"), and the loop burned its entire turn budget re-searching
+                        # the exact same aspect without ever converging. This ONLY applies when
+                        # there is no deliverable required-structure lock (see the required_titles
+                        # branch below, which correctly still SKIPs to protect an exact-N-in-order
+                        # contract) — free-form outlines are allowed to grow a genuinely new
+                        # section for a genuinely new gap, via the SAME validated `add` op
+                        # `update_outline` already supports (never a free rewrite).
+                        new_title = sec.strip() or "Additional Coverage"
+                        add_result = await _tool_update_outline(
+                            self.workspace,
+                            ops={"ops": [{
+                                "op": "add", "title": new_title,
+                                "focus": asp or new_title, "ev_ids": new_ev_ids,
+                            }]},
+                        )
+                        if add_result.success:
+                            self.workspace.disclose(
+                                f"auto-assign: no existing section matched {sec!r} — ADDED new "
+                                f"section {new_title!r} with {len(new_ev_ids)} new ev_id(s) "
+                                "(iter-2 fix — a named gap with no home no longer orphans rows)"
+                            )
+                        else:
+                            self.workspace.disclose(
+                                f"auto-assign SKIPPED: {sec!r} does not match any current "
+                                f"outline section title, and adding a new section "
+                                f"{new_title!r} failed ({add_result.markdown}) — "
+                                f"{len(new_ev_ids)} new ev_id(s) stay in the pool"
+                            )
                     elif new_ev_ids:
+                        # A deliverable required-structure lock IS active — never grow a 5th
+                        # section behind the caller's exact-N-in-order contract (§9.1.8 /
+                        # outline_revise.py `required_titles`). Disclosed, rows stay in the
+                        # pool for the NEXT checklist pass to route to a REAL required title.
                         self.workspace.disclose(
                             f"auto-assign SKIPPED: {sec!r} does not match any current outline "
-                            f"section title — {len(new_ev_ids)} new ev_id(s) stay in the pool "
-                            "pending an explicit update_outline call"
+                            f"section title, and required_titles={self.workspace.required_titles} "
+                            f"forbids adding a new one — {len(new_ev_ids)} new ev_id(s) stay in "
+                            "the pool pending an explicit update_outline call to a REQUIRED title"
                         )
                     # Design control flow: "if search: fold-in + re-check aspect". A successful
                     # FETCH+ASSIGN is not the same claim as "the aspect is now covered" — re-run
@@ -1416,6 +1480,20 @@ async def run_outline_agent_or_legacy(
     ev_ids_before = set(ev_store.keys())
     ev_store_size_before = len(ev_ids_before)
 
+    # Iter-2 fix: thread the deliverable's required-structure lock (if any) through to the
+    # workspace so `_tool_update_outline` (via `apply_revision_ops(required_titles=...)`) and the
+    # auto-assign fallback both respect it — an exact-N-in-order required structure must never
+    # silently grow a 5th section behind the caller's back. Mirrors `_call_outline`'s own
+    # `_spec_read(deliverable_spec, "required_sections", [])` read (dict OR object shape).
+    _required_titles = [
+        str(t).strip()
+        for t in (
+            deliverable_spec.get("required_sections", [])
+            if isinstance(deliverable_spec, dict)
+            else getattr(deliverable_spec, "required_sections", [])
+        ) or []
+        if str(t).strip()
+    ]
     workspace = OutlineWorkspace(
         research_question=research_question,
         ev_store=ev_store,
@@ -1424,6 +1502,7 @@ async def run_outline_agent_or_legacy(
         checkpoint_dir=checkpoint_dir,
         total_input_tokens=in_tok,
         total_output_tokens=out_tok,
+        required_titles=_required_titles,
     )
     agent = OutlineAgent(workspace, domain=domain or None)
     final_ws = await agent.run()
