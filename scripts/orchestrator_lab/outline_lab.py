@@ -295,8 +295,16 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
 
     # PUSH A: feed the same_work_groups INTO the live outline call so the PLANNER reads work-level
     # corroboration + folded singletons (the model's actual input, not just the cross-read rebuild).
+    # W0 un-starve (docs/fsr_build_plan.md "AGENTIC OUTLINER LOOP" section): the LIVE outline
+    # call was hardcoded to max_tokens=2500 (the \_call_outline floor bumps it to 16384, but that
+    # is still ~8x under the model's real completion budget). PG_OUTLINE_MAX_TOKENS (default
+    # 131072) + PG_OUTLINE_REASONING_MAX_TOKENS (default 32768, set in multi_section_generator.py)
+    # give the planner real room; unset env keeps this byte-identical to the old 16384 floor path
+    # ONLY if PG_OUTLINE_MAX_TOKENS is explicitly lowered — the new default is intentionally raised
+    # per §9.1.8 (reasoning + generation tokens ALWAYS MAX, never starve).
+    _outline_lab_max_tokens = int(os.getenv("PG_OUTLINE_MAX_TOKENS", "131072"))
     parse_result, retry_attempted, in_tok, out_tok = asyncio.run(_call_outline(
-        question, evidence, model, 0.2, 2500,
+        question, evidence, model, 0.2, _outline_lab_max_tokens,
         domain=domain, finding_clusters=clusters,
         deliverable_spec=deliverable, scope_spec=scope,
         same_work_groups=same_work_groups,

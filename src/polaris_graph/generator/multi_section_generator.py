@@ -3118,8 +3118,12 @@ async def _call_outline(
     _outline_content_max_tokens = max(
         max_tokens, int(os.getenv("PG_OUTLINE_MIN_MAX_TOKENS", "16384"))
     )
+    # W0 un-starve (docs/fsr_build_plan.md "AGENTIC OUTLINER LOOP" section, §9.1.8): raise
+    # the reasoning-pool default from 6144 -> 32768 so a reasoning-first model (GLM-5.x) has real
+    # room to think before the closing JSON, on TOP of the raised content ceiling above. Unset env
+    # keeps behavior at the new default (previously 6144); explicit env override still honored.
     _outline_reasoning_max_tokens = int(
-        os.getenv("PG_OUTLINE_REASONING_MAX_TOKENS", "6144")
+        os.getenv("PG_OUTLINE_REASONING_MAX_TOKENS", "32768")
     )
     try:
         # I-gen-004 (#496): tag the outline call for the reasoning-trace sink.
@@ -9647,8 +9651,17 @@ async def generate_multi_section_report(
             )
             plans = _kept_plans
     else:
+        # I-outline-agent W1 (docs/fsr_build_plan.md "AGENTIC OUTLINER LOOP" section): the seam.
+        # PG_OUTLINE_AGENT=0/unset (default) => run_outline_agent_or_legacy is a pure pass-through
+        # to _call_outline with IDENTICAL args -> byte-identical legacy behavior. PG_OUTLINE_AGENT=1
+        # => seeds via the SAME _call_outline call, then runs the OutlineAgent decide/execute loop
+        # (search_more_evidence / inspect_basket / update_outline) before returning the (possibly
+        # gap-filled) plans in the SAME (OutlineParseResult, retry_attempted, in_tok, out_tok) shape.
+        from src.polaris_graph.outline.outline_agent import (  # noqa: PLC0415
+            run_outline_agent_or_legacy,
+        )
         outline_parse, retry_attempted, outline_in_tok, outline_out_tok = \
-            await _call_outline(
+            await run_outline_agent_or_legacy(
                 research_question, evidence, gen_model,
                 outline_temperature, outline_max_tokens,
                 domain=domain,
