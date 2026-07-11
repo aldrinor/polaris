@@ -165,7 +165,7 @@ def _make_fake_client(captured: list[str]):
         def __init__(self, model=None):
             pass
 
-        async def generate(self, prompt, system, max_tokens, temperature):
+        async def generate(self, prompt, system, max_tokens, temperature, reasoning_max_tokens=None):
             captured.append(system)
             # first call -> invalid (forces the retry path); second -> a valid generic outline.
             return _FakeResp('{"sections": []}' if len(captured) == 1 else _VALID_GENERIC)
@@ -211,6 +211,10 @@ def test_clinical_retry_prompt_is_unchanged(monkeypatch):
         domain="clinical",
     ))
     assert len(captured) == 2
-    # clinical retry is byte-identical: it still carries the clinical hard requirements.
-    assert "Mechanism must be ADDITIVE" in captured[1]
+    # clinical retry still carries the clinical hard requirements. Inherited commit 2b42bc5
+    # reworded the mechanism rule "Mechanism must be ADDITIVE" -> "Mechanism is ADDITIVE:
+    # include it when mechanism evidence is present, never displacing an evidence-supported
+    # Regulatory/Safety/Efficacy/Comparative/Dose Response section" (multi_section_generator.py
+    # :3233). Semantics preserved (mechanism stays ADDITIVE, never displacing); pin the live text.
+    assert "Mechanism is ADDITIVE" in captured[1]
     assert "Efficacy" in captured[1]

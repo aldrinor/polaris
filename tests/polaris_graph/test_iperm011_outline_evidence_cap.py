@@ -70,7 +70,7 @@ class _CapturingClient:
     def __init__(self, *args, **kwargs) -> None:
         pass
 
-    async def generate(self, *, prompt, system, max_tokens, temperature):  # noqa: D401
+    async def generate(self, *, prompt, system, max_tokens, temperature, reasoning_max_tokens=None):  # noqa: D401
         type(self).captured_prompts.append(prompt)
         # Return a valid 5-section outline JSON so no retry fires (keeps the
         # captured-prompt list to exactly one entry on the happy path).
@@ -103,7 +103,13 @@ def _patch_client(monkeypatch):
     # the LEGACY row-cap behavior, so it opts into it via the escape hatch PG_GEN_ROW_CAPS=1
     # (which the cert preflight FAILS on for a paid run, but is the byte-identical legacy
     # regression path). The new default-budget behavior is covered by the LANE-SECTION test.
+    # P0-A20 (I-arch-007): PG_SWEEP_CREDIBILITY_REDESIGN now DEFAULTS ON, and the redesign
+    # master flag forces the char-budget path REGARDLESS of PG_GEN_ROW_CAPS
+    # (_section_budgets_enabled() short-circuits True when _credibility_redesign_enabled()).
+    # To reach the legacy 150/40 ROW-cap path this file guards, the master flag must ALSO be
+    # off — otherwise every row is serialized (no cap) and the count-string assertions fail.
     monkeypatch.setenv("PG_GEN_ROW_CAPS", "1")
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
     yield
 
 
@@ -253,7 +259,7 @@ async def test_allowed_ev_ids_still_full_pool(monkeypatch):
     tail_id = "ev_543"
 
     class _TailPickClient(_CapturingClient):
-        async def generate(self, *, prompt, system, max_tokens, temperature):
+        async def generate(self, *, prompt, system, max_tokens, temperature, reasoning_max_tokens=None):
             type(self).captured_prompts.append(prompt)
             outline = {
                 "sections": [
