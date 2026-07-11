@@ -10,6 +10,7 @@ import asyncio
 from src.polaris_graph.outline.outline_agent import OutlineAgent, OutlineWorkspace
 from src.polaris_graph.outline.outline_toolkit import (
     _tool_calculator,
+    _tool_corroboration_profile,
     _tool_coverage_audit,
     _tool_fetch_url,
     _tool_find_contradictions,
@@ -370,6 +371,94 @@ def test_find_contradictions_ignores_years_as_magnitudes():
     assert r.success and r.statistics["conflicts"] == 0
 
 
+# --------------------------------------------------------------------------- corroboration_profile
+
+
+def _corr_ws(ev, member_map, corr=None):
+    ws = OutlineWorkspace(research_question="q", ev_store=ev)
+    ws.basket_menu = _Menu(member_map, corr=corr)
+    return ws
+
+
+def test_corroboration_profile_flags_single_work_masquerade():
+    # THE redesign.md:217 failure: 3 rows that are the SAME work (shared DOI) look like x3
+    # corroboration but are one work cited three times. The tool MUST flag it, not count 3 sources.
+    ev = {
+        "ev_0": {"evidence_id": "ev_0", "title": "Study X", "tier": "T1",
+                 "doi": "10.1/x", "source_url": "https://a.org/x"},
+        "ev_1": {"evidence_id": "ev_1", "title": "Study X mirror", "tier": "T2",
+                 "doi": "10.1/x", "source_url": "https://b.org/mirror"},
+        "ev_2": {"evidence_id": "ev_2", "title": "Study X press", "tier": "T3",
+                 "doi": "10.1/x", "source_url": "https://c.org/press"},
+    }
+    ws = _corr_ws(ev, {"b1": ["ev_0", "ev_1", "ev_2"]})
+    r = _run(_tool_corroboration_profile(ws, basket_id="b1"))
+    assert r.success
+    prof = r.statistics["profiles"][0]
+    # distinct WORKS is 1 (not the 3 member rows) — the honest corroboration count.
+    assert prof["members"] == 3 and prof["distinct_works"] == 1
+    assert prof["single_work_masquerade"] is True
+    assert "MASQUERADE" in r.markdown
+    assert prof["derivative_groups"]  # the 3 rows listed as copies of one work
+
+
+def test_corroboration_profile_recognizes_genuine_multiwork():
+    # two genuinely distinct works (different urls, no shared identity) => NOT a masquerade.
+    ev = {
+        "ev_0": {"evidence_id": "ev_0", "title": "A study of labor markets and wages",
+                 "tier": "T1", "source_url": "https://y.org/paper"},
+        "ev_1": {"evidence_id": "ev_1", "title": "A different study of capital allocation",
+                 "tier": "T1", "source_url": "https://z.org/paper"},
+    }
+    ws = _corr_ws(ev, {"b2": ["ev_0", "ev_1"]})
+    r = _run(_tool_corroboration_profile(ws, basket_id="b2"))
+    prof = r.statistics["profiles"][0]
+    assert prof["distinct_works"] == 2 and prof["single_work_masquerade"] is False
+    assert prof["independent_hosts"] == 2
+
+
+def test_corroboration_profile_disagreement_tripwire():
+    # the cp3 digest (url-first keying) overcounts same-DOI-different-URL copies as 3 works;
+    # the row-level recompute (DOI-collapsing) says 1. The tool surfaces the disagreement.
+    ev = {
+        "ev_0": {"evidence_id": "ev_0", "title": "S", "doi": "10.9/z", "source_url": "https://a/1"},
+        "ev_1": {"evidence_id": "ev_1", "title": "S", "doi": "10.9/z", "source_url": "https://b/2"},
+        "ev_2": {"evidence_id": "ev_2", "title": "S", "doi": "10.9/z", "source_url": "https://c/3"},
+    }
+    ws = _corr_ws(ev, {"b1": ["ev_0", "ev_1", "ev_2"]}, corr={"b1": 3})
+    r = _run(_tool_corroboration_profile(ws, basket_id="b1"))
+    prof = r.statistics["profiles"][0]
+    assert prof["digest_work_corroboration"] == 3
+    assert prof["distinct_works"] == 1 and prof["digest_disagreement"] is True
+    assert "silent overcount" in r.markdown
+
+
+def test_corroboration_profile_scan_all_ranks_masquerades_first():
+    ev = {
+        "ev_0": {"evidence_id": "ev_0", "title": "X", "doi": "10.1/x", "source_url": "https://a/x"},
+        "ev_1": {"evidence_id": "ev_1", "title": "X", "doi": "10.1/x", "source_url": "https://b/x"},
+        "ev_2": {"evidence_id": "ev_2", "title": "Distinct paper on economics of scale",
+                 "source_url": "https://y/p"},
+        "ev_3": {"evidence_id": "ev_3", "title": "Another distinct paper on trade policy",
+                 "source_url": "https://z/p"},
+    }
+    ws = _corr_ws(ev, {"b1": ["ev_0", "ev_1"], "b2": ["ev_2", "ev_3"]})
+    r = _run(_tool_corroboration_profile(ws))  # scan-all
+    assert r.success and r.statistics["masquerades"] == 1
+    assert r.markdown.index("MASQUERADE") < r.markdown.index("All baskets")
+
+
+def test_corroboration_profile_basket_not_found():
+    ws = _corr_ws({}, {"b1": ["ev_0"]})
+    r = _run(_tool_corroboration_profile(ws, basket_id="nope"))
+    assert not r.success and r.error == "basket_not_found"
+
+
+def test_corroboration_profile_no_menu():
+    r = _run(_tool_corroboration_profile(_ws()))
+    assert r.success and r.statistics["baskets"] == 0
+
+
 # --------------------------------------------------------------------------- registration wiring
 
 
@@ -378,7 +467,7 @@ def test_register_outline_toolkit_wires_all_tools_on_a_registry():
     names = register_outline_toolkit(reg, _ws(), "stub/agent")
     for n in ("calculator", "get_evidence", "search_corpus", "list_baskets",
               "coverage_audit", "preview_section_evidence", "verified_compute",
-              "find_contradictions", "fetch_url"):
+              "find_contradictions", "fetch_url", "corroboration_profile"):
         assert n in names and reg.get_tool(n) is not None
 
 

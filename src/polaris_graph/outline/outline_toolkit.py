@@ -580,6 +580,196 @@ async def _tool_find_contradictions(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# corroboration_profile — "is this claim REALLY multi-source?" (distinct WORKS, not rows)
+# ─────────────────────────────────────────────────────────────────────────────
+def _identity_tokens(row: dict[str, Any]) -> set[str]:
+    """The STRONG shared-identity tokens of a row: normalized DOI, normalized source-url, and
+    normalized title. Two rows sharing ANY token are the same underlying work.
+
+    This is intentionally STRICTER (merges MORE) than the cp3 digest's url-FIRST ``_same_work_key``:
+    that key folds on url first, so same-DOI-different-URL copies (a paper mirrored at two hosts)
+    read as two works. For a 'is this claim REALLY multi-source?' check we must NOT over-claim
+    corroboration, so we collapse on DOI too (a DOI is the canonical work identity). A row with no
+    usable token is its own singleton work."""
+    from src.polaris_graph.generator.outline_digest import _normalized_title_key  # noqa: PLC0415
+    from src.polaris_graph.synthesis.finding_dedup import (  # noqa: PLC0415
+        _normalize_doi, _normalize_source_url,
+    )
+    toks: set[str] = set()
+    try:
+        doi = _normalize_doi(row.get("doi"))
+        if doi:
+            toks.add("doi:" + doi)
+        url = _normalize_source_url(dict(row))
+        if url:
+            toks.add("url:" + url)
+        tkey = _normalized_title_key(str(row.get("title") or ""))
+        if tkey:
+            toks.add(tkey)
+    except Exception:  # noqa: BLE001 — a malformed row must not crash the profile; treat as own work
+        return set()
+    return toks
+
+
+def _group_distinct_works(members: list[str], tokens_of: dict[str, set[str]]) -> dict[str, list[str]]:
+    """Union-find over members: two members merge iff they share a strong-identity token
+    (``_identity_tokens``). Merges are transitive (A~B via DOI, B~C via url => one work). Members
+    with no token stay singletons. Returns {representative_ev_id: [member ev_ids]} — the distinct
+    works, keyed deterministically by the lexicographically-smallest member id in each component."""
+    parent: dict[str, str] = {m: m for m in members}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    token_owner: dict[str, str] = {}
+    for m in members:
+        for tok in tokens_of.get(m, ()):  # empty set => stays a singleton
+            if tok in token_owner:
+                union(token_owner[tok], m)
+            else:
+                token_owner[tok] = m
+    works: dict[str, list[str]] = {}
+    for m in members:
+        works.setdefault(find(m), []).append(m)
+    return works
+
+
+def _profile_one_basket(workspace: Any, bid: str, members: list[str]) -> dict[str, Any]:
+    """Compute the distinct-WORK corroboration profile of one basket from its member rows.
+
+    distinct_works = number of connected components under strong-identity union (the HONEST
+    corroboration count — 4 rows of one paper = 1 work, not 4 sources). ``masquerade`` fires when a
+    basket has >= 2 member rows but they collapse to ONE distinct work: what LOOKS like multi-source
+    corroboration is a single work cited N times (redesign.md:217 — this silently counted as
+    multi-work is a FAIL, so we surface the collapse loudly)."""
+    from collections import Counter  # noqa: PLC0415
+    from src.polaris_graph.synthesis.finding_dedup import _host_of, _normalize_source_url  # noqa: PLC0415
+
+    tokens_of: dict[str, set[str]] = {}
+    tier_counter: Counter[str] = Counter()
+    hosts: set[str] = set()
+    for m in members:
+        row = workspace.ev_store.get(m) or {}
+        row = row if isinstance(row, dict) else {}
+        tokens_of[m] = _identity_tokens(row)
+        tier_counter[str(row.get("tier") or row.get("source_tier") or "?").strip() or "?"] += 1
+        host = _host_of(_normalize_source_url(dict(row)))
+        if host:
+            hosts.add(host)
+    works = _group_distinct_works(members, tokens_of)
+    distinct_works = len(works)
+    # derivative groups = one underlying work represented by >= 2 member rows (copies/chunks)
+    derivative = {wk: ms for wk, ms in works.items() if len(ms) >= 2}
+    masquerade = len(members) >= 2 and distinct_works == 1
+    return {
+        "basket_id": bid,
+        "members": len(members),
+        "distinct_works": distinct_works,
+        "independent_hosts": len(hosts),
+        "tier_spread": dict(tier_counter),
+        "derivative_groups": {wk: ms for wk, ms in derivative.items()},
+        "single_work_masquerade": masquerade,
+    }
+
+
+async def _tool_corroboration_profile(
+    workspace: Any, *, basket_id: str = "", **_ignored: Any,
+) -> ToolResult:
+    """Per-basket corroboration at WORK level — the 'is this claim really multi-source?' tool.
+
+    Surfaces DISTINCT-WORK counts (never member/row counts): 4 rows of one paper corroborate a claim
+    ONCE, not four times. For each basket it reports {member rows, distinct works, independent hosts,
+    tier spread, derivative-copy groups} and FLAGS the single-work masquerade (>= 2 rows collapsing to
+    ONE work) — the redesign.md:217 failure where single-work corroboration is silently counted as
+    multi-work. When the cp3 digest's own ``basket_work_corroboration`` DISAGREES with the row-level
+    recompute, both are shown (a silent-overcount tripwire). Read-only, deterministic, no LLM."""
+    menu = workspace.basket_menu
+    member_map = dict(getattr(menu, "basket_member_ev_ids", {}) or {}) if menu is not None else {}
+    if not member_map:
+        return ToolResult(
+            success=True, tool_name="corroboration_profile",
+            markdown="No basket digest available (no multi-member clusters to profile).",
+            statistics={"baskets": 0, "profiles": []},
+        )
+    digest_corr = dict(getattr(menu, "basket_work_corroboration", {}) or {})
+    bid = str(basket_id or "").strip()
+
+    if bid:
+        members = list(member_map.get(bid) or [])
+        if not members:
+            return ToolResult(
+                success=False, tool_name="corroboration_profile",
+                markdown=f"Basket {bid!r} not found in the digest.", error="basket_not_found",
+            )
+        prof = _profile_one_basket(workspace, bid, members)
+        digest_wc = digest_corr.get(bid)
+        prof["digest_work_corroboration"] = digest_wc
+        prof["digest_disagreement"] = (
+            digest_wc is not None and int(digest_wc) != prof["distinct_works"]
+        )
+        lines = [_render_profile_line(prof), ""]
+        if prof["single_work_masquerade"]:
+            lines.append(
+                "⚠ SINGLE-WORK MASQUERADE: this basket's rows collapse to ONE distinct work — it is "
+                "NOT multi-source corroboration. Do NOT present it as independently corroborated."
+            )
+        for wk, ms in prof["derivative_groups"].items():
+            lines.append(f"  derivative copies of one work ({len(ms)} rows): {ms}")
+        if prof["digest_disagreement"]:
+            lines.append(
+                f"  NOTE: cp3 digest reports {digest_wc} works but the member rows recompute to "
+                f"{prof['distinct_works']} — investigate the silent overcount."
+            )
+        return ToolResult(
+            success=True, tool_name="corroboration_profile", markdown="\n".join(lines),
+            source_evidence_ids=members,
+            statistics={"baskets": 1, "profiles": [prof]},
+        )
+
+    # whole-corpus scan: profile every basket, surface masquerades first
+    profiles = [
+        _profile_one_basket(workspace, b, list(member_map.get(b) or []))
+        for b in sorted(member_map)
+    ]
+    masquerades = [p for p in profiles if p["single_work_masquerade"]]
+    lines = [
+        f"**corroboration_profile: {len(profiles)} baskets, "
+        f"{len(masquerades)} single-work masquerade(s)**", "",
+    ]
+    if masquerades:
+        lines.append("SINGLE-WORK MASQUERADES (rows > 1 but only 1 distinct work — NOT multi-source):")
+        for p in masquerades:
+            lines.append(f"- {_render_profile_line(p)}")
+        lines.append("")
+    lines.append("All baskets:")
+    for p in profiles:
+        lines.append(f"- {_render_profile_line(p)}")
+    return ToolResult(
+        success=True, tool_name="corroboration_profile", markdown="\n".join(lines),
+        statistics={
+            "baskets": len(profiles), "masquerades": len(masquerades), "profiles": profiles,
+        },
+    )
+
+
+def _render_profile_line(p: dict[str, Any]) -> str:
+    flag = " [SINGLE-WORK MASQUERADE]" if p["single_work_masquerade"] else ""
+    tiers = ",".join(f"{k}:{v}" for k, v in sorted(p["tier_spread"].items()))
+    return (
+        f"{p['basket_id']}: {p['members']} rows -> {p['distinct_works']} distinct work(s), "
+        f"{p['independent_hosts']} host(s), tiers[{tiers}]{flag}"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # helpers + registration
 # ─────────────────────────────────────────────────────────────────────────────
 def _assigned_ev_ids(workspace: Any) -> set[str]:
@@ -644,6 +834,11 @@ def register_outline_toolkit(
          "sides cited, never averaged, never deleted. Deterministic, no network, no LLM.",
          {"ev_ids": "list of evidence ids to compare (default: all in the pool)",
           "outlier_ratio": "magnitude-outlier threshold (default 100)"}),
+        ("corroboration_profile", _tool_corroboration_profile,
+         "Per-basket corroboration at WORK level: distinct works (not row count), independent hosts, "
+         "tier spread, and a SINGLE-WORK MASQUERADE flag when N rows collapse to one work. The 'is "
+         "this claim really multi-source?' tool. Deterministic, no network, no LLM.",
+         {"basket_id": "basket to profile in detail (default: scan all baskets, masquerades first)"}),
         ("verified_compute", _tool_verified_compute,
          "Derive a number through the VERIFIED lane and render it via a [#calc:] token (the ONLY "
          "compute output allowed to render).",
