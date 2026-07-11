@@ -13,7 +13,9 @@ Mode is chosen by env HB_MODE:
 Does NOT edit any production file.
 """
 import asyncio
+import hashlib
 import os
+import pickle
 import sys
 import threading
 import time
@@ -80,7 +82,145 @@ async def _driver(main_coro_fn):
         hb.cancel()
 
 
+# ─────────────────────────── record / replay A/B shim ───────────────────────────
+# Certifies kept/dropped verdict-set IDENTITY between a SERIAL control and the CONCURRENT
+# treatment at ZERO LLM cost. One RECORD pass captures every NLI-judge (verdict,reason) and
+# every writer draft keyed by a CONTENT hash; two REPLAY passes (control=serial, treatment=
+# PG_MAX_PARALLEL_SECTIONS=2, real threads) return those SAME answers deterministically.
+#
+# The judge is a PURE function of (sentence, span) and the writer of (members, revise_reasons,
+# group_mode, section_context) — so a content-keyed lookup returning the FIRST recorded value is
+# reorder-invariant and thread-safe (no per-call position counter that could race). Consequently
+# ANY difference between the serial and concurrent kept/dropped set is a GENUINE shared-state race
+# in the compose/verify path the off-loop fix newly runs on worker threads — exactly the one risk
+# structural transparency does not cover. Env: HB_REPLAY_MODE=record|replay, HB_REPLAY_FILE=<pkl>,
+# HB_INLINE_TO_THREAD=1 (serial control), PG_MAX_PARALLEL_SECTIONS.
+
+
+def _writer_key(members, kw) -> str:
+    parts = []
+    for m in (members or []):
+        parts.append(f"{getattr(m, 'evidence_id', '')}\x1f{getattr(m, 'direct_quote', '')}")
+    rr = kw.get("revise_reasons") or []
+    sc = kw.get("section_context") or {}
+    payload = (
+        "\x01".join(parts)
+        + "\x02" + "\x01".join(str(x) for x in rr)
+        + "\x02" + str(kw.get("group_mode"))
+        + "\x02" + str(sorted((str(k), str(v)) for k, v in sc.items()))
+    )
+    return hashlib.sha256(payload.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def _judge_key(sentence, span) -> str:
+    return hashlib.sha256(
+        (str(sentence) + "\x00" + str(span)).encode("utf-8", "surrogatepass")
+    ).hexdigest()
+
+
+_RR_LOCK = threading.Lock()
+_RR_STATS = {"judge_calls": 0, "judge_miss": 0, "judge_divergent_keys": 0,
+             "writer_calls": 0, "writer_miss": 0}
+
+
+def _install_record_replay():
+    """Patch the two LLM boundaries (_EntailmentJudge.judge, abstractive_writer._call_writer)
+    for record or replay. Returns nothing; state persisted via atexit on record."""
+    mode = os.environ["HB_REPLAY_MODE"]
+    store_path = os.environ["HB_REPLAY_FILE"]
+    from src.polaris_graph.llm import entailment_judge as ej
+    from src.polaris_graph.generator import abstractive_writer as aw
+
+    if mode == "record":
+        judge_store: dict = {}
+        writer_store: dict = {}
+        orig_judge = ej._EntailmentJudge.judge
+        orig_writer = aw._call_writer
+
+        def _rec_judge(self, sentence, span):
+            r = orig_judge(self, sentence, span)
+            k = _judge_key(sentence, span)
+            with _RR_LOCK:
+                seq = judge_store.setdefault(k, [])
+                if seq and seq[0] != tuple(r):
+                    _RR_STATS["judge_divergent_keys"] += 1
+                seq.append(tuple(r))
+            return r
+
+        async def _rec_writer(members, evidence_pool, **kw):
+            d = await orig_writer(members, evidence_pool, **kw)
+            k = _writer_key(members, kw)
+            with _RR_LOCK:
+                writer_store.setdefault(k, []).append(d)
+            return d
+
+        ej._EntailmentJudge.judge = _rec_judge
+        aw._call_writer = _rec_writer
+
+        import atexit
+
+        def _dump():
+            with open(store_path, "wb") as f:
+                pickle.dump({"judge": judge_store, "writer": writer_store}, f)
+            print(f"[RR record] dumped judge_keys={len(judge_store)} "
+                  f"writer_keys={len(writer_store)} divergent_judge_keys="
+                  f"{_RR_STATS['judge_divergent_keys']} -> {store_path}", flush=True)
+
+        atexit.register(_dump)
+        print(f"[RR record] installed (real LLM) -> {store_path}", flush=True)
+    else:  # replay — return the FIRST recorded value per content key (deterministic, race-free)
+        with open(store_path, "rb") as f:
+            data = pickle.load(f)
+        judge_store = data["judge"]
+        writer_store = data["writer"]
+
+        def _rep_judge(self, sentence, span):
+            k = _judge_key(sentence, span)
+            with _RR_LOCK:
+                _RR_STATS["judge_calls"] += 1
+                seq = judge_store.get(k)
+                if not seq:
+                    _RR_STATS["judge_miss"] += 1
+            # deterministic fallback on an unseen content (should be 0 if replay==record inputs)
+            return tuple(seq[0]) if seq else ("NEUTRAL", "replay_miss")
+
+        async def _rep_writer(members, evidence_pool, **kw):
+            k = _writer_key(members, kw)
+            with _RR_LOCK:
+                _RR_STATS["writer_calls"] += 1
+                seq = writer_store.get(k)
+                if not seq:
+                    _RR_STATS["writer_miss"] += 1
+            return seq[0] if seq else ""
+
+        ej._EntailmentJudge.judge = _rep_judge
+        aw._call_writer = _rep_writer
+        print(f"[RR replay] installed (ZERO LLM) judge_keys={len(judge_store)} "
+              f"writer_keys={len(writer_store)} from {store_path}", flush=True)
+
+
+def _replay_main():
+    """Record or replay run_s5_i3.main() with the LLM boundaries shimmed. In replay+control mode
+    (HB_INLINE_TO_THREAD=1) asyncio.to_thread runs inline so compose is SERIAL on the loop."""
+    import scripts.run_s5_i3 as runmod
+
+    _install_record_replay()
+
+    if os.environ.get("HB_INLINE_TO_THREAD", "0") == "1":
+        async def _inline_to_thread(fn, *a, **k):
+            return fn(*a, **k)
+        asyncio.to_thread = _inline_to_thread
+        print("[RR] asyncio.to_thread INLINED (serial control arm)", flush=True)
+
+    t0 = time.monotonic()
+    asyncio.run(runmod.main())
+    print(f"[RR] run complete wall={time.monotonic()-t0:.1f}s stats={_RR_STATS}", flush=True)
+
+
 def main():
+    if os.environ.get("HB_REPLAY_MODE"):
+        _replay_main()
+        return
     mode = os.environ.get("HB_MODE", "offloop")
 
     # import AFTER env is set by the launcher wrapper

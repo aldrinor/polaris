@@ -276,3 +276,6 @@ outputs/codex_findings/round_*/last_message.txt
 # Legal/business NDA drafts — local only, never push (company + director details)
 nda/
 .codex/I-arch-004/deadrun_artifacts/
+.replay_ab.log
+.replay_ab/
+.probe_out_*.json
