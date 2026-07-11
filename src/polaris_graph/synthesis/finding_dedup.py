@@ -165,6 +165,25 @@ def _is_garbage_subject(folded: str) -> bool:
     return False
 
 
+def _subject_is_title_like(subject: str) -> bool:
+    """True iff the RAW (pre-fold) subject is a TITLE or a full clause, not a subject noun
+    phrase (S2/S3 re-pass Fix 12/3, Fable). The extractor sometimes names a paper's TITLE as
+    the subject ('The Projected Impact of Generative AI on Future Productivity'), which folds
+    to one run-together token and then falsely keys distinct works into one basket. A genuine
+    subject is a short noun phrase (1-5 words); >= 6 words OR very long is a title/clause —
+    collapse it to the UNKNOWN sentinel (safe singleton). General, question-agnostic."""
+    s = (subject or "").strip()
+    if not s:
+        return False
+    words = s.split()
+    if len(words) >= 6 or len(s) >= 64:
+        return True
+    # A lone run-together token >= 30 chars is a URL/filename SLUG or a space-stripped title
+    # ('projectedimpactofgenerativeaionfutureproductivity'), never a real subject noun phrase
+    # (a genuine single-word subject like 'telecommunications' is < 30 chars).
+    return len(words) <= 1 and len(s) >= 30
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Unicode / LaTeX text normalization — S2/S3 re-pass P1-4
 # ─────────────────────────────────────────────────────────────────────────
@@ -197,6 +216,99 @@ def _normalize_unicode_text(text: Any) -> str:
     s = _LATEX_MATH_WRAP_RE.sub("", s)
     s = _LATEX_CMD_RE.sub(" ", s)
     return s
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Letter-spaced / extraction-degraded text — S2/S3 re-pass Fix 7 (Fable)
+# ─────────────────────────────────────────────────────────────────────────
+# A PDF/HTML extraction sometimes emits a run of single characters separated by spaces
+# ("W e i n v e s t i g a t e t h e p o t e n t i a l") or per-glyph cloudinary/font
+# artifacts. An NLI cross-encoder cannot read letter-spaced text, so such a row spuriously
+# entailed unrelated claims into a false basket AND surfaced as an unreadable representative
+# (the Eloundou huggingface abstract). GENERAL detector (no entity/corpus tuning): a body
+# whose tokens are dominated by isolated single characters is extraction-degraded.
+# ``_collapse_letter_spacing`` heals a short degraded run back to readable words when the
+# spacing is regular; ``_is_extraction_degraded`` marks a row so it never seeds/joins a
+# cluster and is never elected representative.
+_SINGLE_CHAR_RUN_RE = re.compile(r"(?:\b[A-Za-z]\s+){4,}\b[A-Za-z]\b")
+
+
+def _collapse_letter_spacing(text: Any) -> str:
+    """Join runs of >=5 space-separated single letters back into a word ('W e i n v e s t'
+    -> 'Weinvest'). Only collapses the isolated-letter runs; normal words are untouched.
+    Pure/fail-open. Used to give the NLI/keying signal a readable form when possible."""
+    s = str(text or "")
+    if not _SINGLE_CHAR_RUN_RE.search(s):
+        return s
+    def _join(m: "re.Match[str]") -> str:
+        return re.sub(r"\s+", "", m.group(0))
+    return _SINGLE_CHAR_RUN_RE.sub(_join, s)
+
+
+def _is_extraction_degraded(text: Any) -> bool:
+    """True when ``text`` is dominated by isolated single-character tokens (letter-spaced
+    extraction garbage) — the row carries no readable claim for NLI/keying/representative.
+    General + question-agnostic: measured as the share of length-1 alpha tokens among the
+    first ~120 tokens; a genuine sentence has almost none. Fail-open (short/empty => False)."""
+    s = str(text or "")
+    if len(s) < 20:
+        return False
+    toks = s.split()[:120]
+    if len(toks) < 8:
+        return False
+    single = sum(1 for t in toks if len(t) == 1 and t.isalpha())
+    # >=45% single-letter tokens is unambiguous letter-spacing (a normal sentence is <5%).
+    return single >= max(6, int(0.45 * len(toks)))
+
+
+def _clean_rep_enabled() -> bool:
+    """``PG_FINDING_CLEAN_REP`` kill switch (LAW VI, DEFAULT-ON, Fix 4b/7). When ON, a
+    basket's representative is never a chrome/nav/captcha/letter-spaced line if any clean
+    content member exists. OFF => the legacy highest-rank pick (byte-identical)."""
+    return os.getenv("PG_FINDING_CLEAN_REP", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _rep_is_unclean(row: dict[str, Any]) -> bool:
+    """True when ``row`` is unfit to REPRESENT a basket: a captcha/anti-bot stub, a
+    furniture/nav-dominant chrome body, or letter-spaced extraction garbage. Used ONLY to
+    demote a representative when a clean sibling exists — the row itself is still KEPT
+    (§-1.3 keep-all). Names resolve at call time (helpers are defined later in the module)."""
+    body = _row_text(row)
+    if _is_extraction_degraded(body):
+        return True
+    try:
+        if _is_captcha_stub(row):
+            return True
+    except Exception:  # noqa: BLE001 — a predicate defect must never crash a paid run
+        pass
+    try:
+        from src.polaris_graph.generator.chrome_furniture_screen import (  # noqa: PLC0415
+            is_furniture_dominant,
+        )
+        if is_furniture_dominant(body):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if _body_is_chrome_dominant(body):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _choose_clean_representative(member_ris: list[int], rank_fn, rows: list[dict[str, Any]]) -> int:
+    """The highest-ranked member that is NOT chrome/degraded; if every member is unclean,
+    the highest-ranked overall (best available). Deterministic (ties broken by rank_fn)."""
+    ranked = sorted(set(member_ris), key=rank_fn, reverse=True)
+    if not _clean_rep_enabled():
+        return ranked[0]
+    for ri in ranked:
+        if not _rep_is_unclean(rows[ri]):
+            return ri
+    return ranked[0]
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -235,6 +347,55 @@ _URL_OR_DOCID_RE = re.compile(
     re.IGNORECASE,
 )
 _YEAR_TOKEN_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+# S2/S3 re-pass Fix 6 (Fable) — extend the general non-measurement recall. A numeral with
+# NO measurement unit AND a locator/date/id context is not a reported statistic. All patterns
+# are question-agnostic; fail-open (a measurement unit anywhere on the line always wins first).
+# An explicit calendar date (month name or D/M/Y, ISO, or 'Published on ...').
+_CALENDAR_DATE_RE = re.compile(
+    r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|"
+    r"\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b|"
+    r"\bpublished on\b|\bupdated\b|\blast modified\b|\baccessed on\b",
+    re.IGNORECASE,
+)
+# A structural locator: 'Section 4', 'Chapter 3', 'Figure 2', 'Table 5', 'Appendix B', 'Part II',
+# a leading list ordinal ('3. Main findings'), footnote/endnote markers.
+_SECTION_ORDINAL_RE = re.compile(
+    r"\b(?:section|chapter|figure|fig\.?|table|tbl\.?|appendix|annex|part|box|panel|"
+    r"exhibit|note|footnote|endnote|step|phase|volume|vol\.?|issue|no\.?)\s+\d",
+    re.IGNORECASE,
+)
+_LEADING_ORDINAL_RE = re.compile(r"^\s*\d{1,3}[.)]\s+\S")
+# ISSN / ISBN / working-paper / report / catalog identifiers, and DOI-suffix citation anchors.
+_IDENTIFIER_CONTEXT_RE = re.compile(
+    r"\bissn\b|\bisbn\b|\bwp/?\s*\d|\bworking paper\b|\bpolicy research working paper\b|"
+    r"\bdiscussion paper\b|\breport (?:no\.?|number)\b|\bnber\b|\bdp\s*\d{3,}\b|"
+    r"\bw\d{4,}\b|\bizawol\b|\b10\.\d{4,}\b|\bcatalog(?:ue)?\b|\bsku\b",
+    re.IGNORECASE,
+)
+# A US ZIP / postal code in an address-ish context (5 digits, optional +4).
+_ZIP_RE = re.compile(r"\b\d{5}(?:-\d{4})?\b")
+_ADDRESS_CONTEXT_RE = re.compile(
+    r"\b(?:st|street|ave|avenue|blvd|road|rd|suite|ste|floor|fl|drive|dr|"
+    r"cambridge|ma|zip|postal)\b",
+    re.IGNORECASE,
+)
+
+
+def _claim_value_is_bare_year(claim: Any, line: str) -> bool:
+    """True when the claim's VALUE is a 4-digit calendar year (1900-2099) with no
+    measurement unit — a publication/release/'by 20xx' date, not a statistic. General."""
+    try:
+        v = float(getattr(claim, "value", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return False
+    if v != int(v):
+        return False
+    iv = int(v)
+    if not (1900 <= iv <= 2099):
+        return False
+    # The value must actually surface as a year token on the line (avoids demoting a real
+    # count that happens to equal ~2000 when no such token is present).
+    return bool(_YEAR_TOKEN_RE.search(line))
 
 
 def _measurement_gate_enabled() -> bool:
@@ -270,6 +431,25 @@ def _is_nonmeasurement_numeral(claim: Any, line_text: str) -> bool:
     # A bibliographic year (citation context + a 19xx/20xx token, no measurement marker) is a
     # date, not a statistic.
     if _CITATION_CONTEXT_RE.search(line) and _YEAR_TOKEN_RE.search(line):
+        return True
+    # Fix 6 (Fable) — extended general non-measurement recall (all fail-open; a unit anywhere
+    # on the line already returned False above).
+    # (a) An explicit calendar date, OR the claim's own VALUE being a bare 4-digit year
+    #     (release/publication/"by 20xx" — the software-release-year & 'Published on' cases).
+    if _CALENDAR_DATE_RE.search(line):
+        return True
+    if _claim_value_is_bare_year(claim, line):
+        return True
+    # (b) A structural locator numeral: 'Section 4' / 'Chapter 3' / 'Figure 2' / 'Table 5' /
+    #     a leading list ordinal ('3. Main findings') — a document-structure pointer, not a stat.
+    if _SECTION_ORDINAL_RE.search(line) or _LEADING_ORDINAL_RE.search(line):
+        return True
+    # (c) An ISSN/ISBN/working-paper/report/DOI-suffix identifier context (WP/21/164, DP17923,
+    #     w30957, izawol.514, ISSN fragments) — a catalog id, not a measurement.
+    if _IDENTIFIER_CONTEXT_RE.search(line):
+        return True
+    # (d) A US ZIP / postal code sitting in an address-ish context.
+    if _ZIP_RE.search(line) and _ADDRESS_CONTEXT_RE.search(line):
         return True
     return False
 
@@ -391,16 +571,44 @@ def _derivative_press_enabled() -> bool:
     )
 
 
+# S2/S3 re-pass Fix 8 (Fable): a derivative-press / event / explainer page that merely
+# REPORTS a primary paper must actually FIRE the corroboration-OF-reporting label even when the
+# row carries NO explicit source_type stamp (most fetched rows don't). General, conservative
+# HOST/PATH signals: a news subdomain, a known blogging/explainer platform, or an
+# event/announcement/press-release path. Fail-open (no signal => counted as independent).
+_DERIVATIVE_HOST_RE = re.compile(
+    r"(?:^|\.)news\.|(?:^|\.)blog\.|\bmedium\.com\b|\bsubstack\.com\b|"
+    r"\bpunku\.[a-z]|\bprnewswire\.|\bbusinesswire\.|\bglobenewswire\.",
+    re.IGNORECASE,
+)
+_DERIVATIVE_PATH_RE = re.compile(
+    # NB: NO bare '/media/' — institutional CDNs (imf.org/-/media/files/publications/wp/...)
+    # serve PRIMARY papers under /media/, so it is not a derivative-press signal.
+    r"/news/|/blog/|/press-?releases?/|/newsroom/|/announcements?/|/events?/|"
+    r"/stories/|/explainers?/|/press/(?!kit)",
+    re.IGNORECASE,
+)
+
+
 def _is_derivative_press(row: dict[str, Any]) -> bool:
-    """True iff the row carries an EXPLICIT news / press / blog / magazine source-type or
-    tier stamp — derivative reporting of a primary work (Fix 6). Conservative: a row with
-    no such stamp is NOT flagged (fail-open, counted as independent). Pure/deterministic."""
+    """True iff the row is derivative reporting of a primary work (Fix 6/8). Two general
+    signals, either sufficient: (1) an EXPLICIT news/press/blog/magazine source-type stamp;
+    (2) a news/blog/explainer HOST or an event/announcement/press-release PATH in the URL.
+    Conservative + fail-open: no signal => NOT flagged (counted as independent).
+    Pure/deterministic, question-agnostic."""
     for key in (
         "source_type", "content_type", "doc_type", "material_type",
         "source_category", "tier_label", "publication_type",
     ):
         v = str(row.get(key) or "").strip().lower()
         if v and any(t in v for t in _PRESS_TYPE_TOKENS):
+            return True
+    url = _row_any_url(row)
+    if url:
+        host = _host_of(url)
+        if host and _DERIVATIVE_HOST_RE.search(host):
+            return True
+        if _DERIVATIVE_PATH_RE.search(url):
             return True
     return False
 
@@ -1049,6 +1257,17 @@ def _is_captcha_stub(row: dict[str, Any]) -> bool:
     return False
 
 
+def _row_any_url(row: dict[str, Any]) -> str:
+    """The row's URL from any of the common URL fields (S2/S3 re-pass Fix 10). ``source_url``
+    is primary; a row whose ``source_url`` is blank may still carry ``url`` / ``link`` /
+    ``canonical_url`` / ``source`` — using them backfills an otherwise-empty member host."""
+    for k in ("source_url", "url", "link", "canonical_url", "source", "page_url"):
+        v = row.get(k)
+        if v and str(v).strip():
+            return str(v).strip()
+    return ""
+
+
 def _host_of(url: str) -> str:
     """Bare hostname for independent-host counting: urlparse → lowercase →
     strip leading ``www.``. Empty string on an unparseable/missing URL.
@@ -1096,6 +1315,12 @@ def _finding_key(
     """
     subject = getattr(claim, "subject", "") or ""
     if not clinical and _nonclinical_fold_enabled():
+        # Fix 12/3 (Fable): a TITLE-like / full-clause subject (>=6 words) is not a subject —
+        # the extractor named the paper title as the subject, which would falsely key distinct
+        # works into one basket (the 'projected impact of generative AI...' title-fold merge).
+        # Collapse to the UNKNOWN sentinel (safe singleton) BEFORE folding.
+        if _key_hygiene_enabled() and _subject_is_title_like(subject):
+            subject = ""
         # Fold ONLY the non-clinical subject to a surface-invariant signature.
         # An empty fold (pure-punctuation subject) becomes the UNKNOWN sentinel.
         folded = _fold_nonclinical_subject(subject)
@@ -1217,6 +1442,50 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
         else:
             dropped_captcha_gap.add(ri)
 
+    # Fix 2(b) (Fable): a byte-identical NORMALIZED URL must ALWAYS fold to ONE work, even when
+    # the per-row keys differ (one chunk keyed on a discriminative title -> ``titlealone:``,
+    # another fell through to the ``url:`` leg). Union the work keys that share an identical
+    # normalized member URL so refetches of ONE document never count as multiple works (the
+    # residual shared-single-URL c>1 baskets). Only folds the corroboration COUNT (a weight);
+    # the CLAIM merge still requires NLI. Two different works never share an identical URL.
+    if _samework_url_leg_enabled() and len(work_members) > 1:
+        url_to_keys: dict[str, set[str]] = {}
+        for wkey, wris in work_members.items():
+            for ri in wris:
+                nu = _normalize_source_url(rows[ri])
+                if nu:
+                    url_to_keys.setdefault(nu, set()).add(wkey)
+        key_parent: dict[str, str] = {}
+
+        def _kf(k: str) -> str:
+            key_parent.setdefault(k, k)
+            root = k
+            while key_parent[root] != root:
+                root = key_parent[root]
+            while key_parent[k] != root:
+                key_parent[k], k = root, key_parent[k]
+            return root
+
+        def _id_bearing(k: str) -> int:
+            return 0 if k.startswith(("url:", "doi:", "id:", "arxiv:")) else 1
+
+        def _ku(a: str, b: str) -> None:
+            ra, rb = _kf(a), _kf(b)
+            if ra == rb:
+                return
+            lo, hi = sorted((ra, rb), key=lambda k: (_id_bearing(k), k))
+            key_parent[hi] = lo  # attach the weaker/later key under the id-bearing/earlier root
+
+        for _nu, ks in url_to_keys.items():
+            ks_list = sorted(ks)
+            for k in ks_list[1:]:
+                _ku(ks_list[0], k)
+        if any(_kf(k) != k for k in list(work_members.keys())):
+            merged: dict[str, list[int]] = {}
+            for wkey, wris in work_members.items():
+                merged.setdefault(_kf(wkey), []).extend(wris)
+            work_members = {k: sorted(set(v)) for k, v in merged.items()}
+
     dropped_prefix: set[int] = set()
     groups: list[SameWorkGroup] = []
     work_id_by_index: dict[int, str] = {}
@@ -1247,19 +1516,27 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
             dropped_prefix -= {survivors[0]}
 
         canonical = max(survivors, key=lambda ri: _row_rank_key(rows[ri], ri))
-        # Only emit a real same-work id for genuine same-work keys (a URL / DOI /
-        # title group). The per-row "__singleton__" keys carry no cross-row meaning,
-        # so they get no same_work annotation (a row with no URL/DOI/title is its own
-        # work and must not look "consolidated"). STEP 4 (#1374): a ``url:`` key IS a
-        # genuine same-work group (chunks of one fetched document) — it MUST populate
-        # ``work_id_by_index`` / ``canonical_index_by_index`` so the origin-host fold
-        # and the render annotations treat the shared-URL chunks as ONE source.
-        is_real_work = (
-            key.startswith("url:")
-            or key.startswith("doi:")
-            or key.startswith("id:")       # Fix 4: cross-mirror arXiv/NBER/SSRN/DOI id
-            or key.startswith("title:")
-        )
+        # Only emit a real same-work id for genuine same-work keys. The per-row
+        # "__singleton__" keys carry no cross-row meaning, so they get no same_work
+        # annotation (a row with no URL/DOI/title is its own work and must not look
+        # "consolidated"). STEP 4 (#1374): a ``url:`` key IS a genuine same-work group
+        # (chunks of one fetched document) — it MUST populate ``work_id_by_index`` /
+        # ``canonical_index_by_index`` so the origin-host fold and the render
+        # annotations treat the shared-URL chunks as ONE source.
+        #
+        # S2/S3 re-pass Fix 2(a) (Fable): the leg-type-dependent allowlist above
+        # EXCLUDED ``titlealone:`` and body-``arxiv:`` groups, while the Fix-4 leg
+        # priority routes identical-URL refetches INTO a ``titlealone:`` group when the
+        # chunks carry a discriminative title. Those groups then never populated
+        # ``work_id_by_index``, so ``_work_of`` returned a per-row singleton and the
+        # distinct-works corroboration counted N refetches of ONE work as N independent
+        # sources (the 29 shared-single-URL c>1 baskets). GENERAL FIX: EVERY formed group
+        # is a real work regardless of which leg keyed it — only the per-row
+        # ``__singleton__`` (no shared key at all) is not. This only folds the
+        # CORROBORATION COUNT (a Signal-D weight); the CLAIM merge still requires
+        # NLI same-meaning, so a rare title-alone over-fold can never fabricate a
+        # corroborated claim (§-1.3 keep-all: every member URL is still kept).
+        is_real_work = not key.startswith("__singleton__:")
         member_evidence_ids = [
             str(rows[ri].get("evidence_id", ri)) for ri in survivors
         ]
@@ -1387,16 +1664,49 @@ def _cluster_text(
     return _claim_sentence(rows[rep_ri], bucket_value)
 
 
+def _unknown_nli_pool_enabled() -> bool:
+    """``PG_UNKNOWN_NLI_POOL`` kill switch (LAW VI). DEFAULT-OFF (Fix 1(B)): an
+    ``__unknown__``-subject cluster is NEVER pooled into the consolidation-NLI value
+    bucket (it gets its own unique bucket, so it is never NLI-merged with another
+    unknown-subject cluster — the World-Bank/OECD boilerplate false-merge fix). Set to
+    ``1`` to restore the legacy pooled behavior (unknown clusters recover a value and
+    merge on generic entailment)."""
+    return os.getenv("PG_UNKNOWN_NLI_POOL", "0").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
 def _cluster_value_bucket(key: tuple, rows: list[dict[str, Any]], member_ris: list[int]) -> Any:
     """The numeric VALUE a literal cluster asserts — used to BUCKET clusters before NLI so
     only same-VALUE clusters are pairwise-compared. Two sources can corroborate the SAME
     claim only if they carry the SAME number, so bucketing by value is both a scale fix
     (O(n^2) -> O(sum bucket^2)) and a precision guard (never NLI-compare 30% vs 12%).
 
-    Known-subject keys carry the value at index 2. The ``__unknown__`` sentinel key does
-    not, so the value is recovered from the representative row's extracted claim; a cluster
-    with no recoverable numeric value buckets under ``None`` (its own no-merge bucket)."""
-    if isinstance(key, tuple) and key and key[0] != "__unknown__" and len(key) >= 3:
+    Known-subject keys carry the value at index 2.
+
+    S2/S3 re-pass Fix 1(B) (Fable — "delete __unknown__ as a merge decider"): an
+    ``__unknown__`` cluster is a per-row sentinel whose SUBJECT the extractor could not
+    resolve. Pooling such clusters by a recovered numeric value let the bidirectional
+    cross-encoder merge two DIFFERENT-institution boilerplate/section-header rows on
+    generic policy language (the World-Bank + OECD false merge). An unresolved-subject
+    row must NOT participate in the value-bucket NLI pool — it gets its OWN unique bucket
+    (its sentinel key) so it is never pairwise-compared here. It can still consolidate
+    through the strict qualitative claim-sentence + polarity path if it genuinely
+    paraphrases another claim. FAIL-OPEN = do-not-merge on an unknown subject. Gated so
+    the legacy pooled behavior is one env flag away.
+    """
+    if isinstance(key, tuple) and key and key[0] == "__unknown__":
+        if _unknown_nli_pool_enabled():
+            # Legacy: recover a value so unknown clusters CAN pool (the pre-Fix-1B path).
+            for ri in member_ris:
+                claims = extract_numeric_claims([rows[ri]])
+                if claims:
+                    return round(float(getattr(claims[0], "value", 0.0) or 0.0), 6)
+            return None
+        # Fix 1(B) default: a UNIQUE per-cluster bucket (the sentinel key itself) so this
+        # unknown-subject cluster shares a bucket with no other and is never NLI-merged.
+        return ("__unk__",) + tuple(str(x) for x in key)
+    if isinstance(key, tuple) and key and len(key) >= 3:
         return round(float(key[2]), 6)
     for ri in member_ris:
         claims = extract_numeric_claims([rows[ri]])
@@ -1492,6 +1802,91 @@ def _apply_consolidation_nli(
         new_groups[keys[i]] = sorted(set(merged_members[root]))
     absorbed = len(keys) - len(new_groups)  # clusters absorbed = before - after
     return new_groups, absorbed
+
+
+def _numeric_nli_confirm_enabled() -> bool:
+    """``PG_FINDING_NUMERIC_NLI_CONFIRM`` kill switch (LAW VI, DEFAULT-ON, Fix 1(A)). When
+    ON, the numeric ``_finding_key`` tuple is treated as CANDIDATE RECALL only: two rows that
+    collide on the same (folded-subject, predicate, value, unit) tuple must ALSO bidirectionally
+    entail on their claim sentence to STAY in one basket. An unconfirmed member splits to its
+    own singleton (corroboration 1) — the §-1.1 defense against a folded-subject / locator-value
+    tuple collision merging two DIFFERENT claims (mdpi+santander, imf+oecd). OFF => the tuple
+    key alone decides (byte-identical legacy)."""
+    return os.getenv("PG_FINDING_NUMERIC_NLI_CONFIRM", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _confirm_numeric_clusters_via_nli(
+    groups: dict[tuple, list[int]],
+    rows: list[dict[str, Any]],
+    rank_fn,
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+) -> dict[tuple, list[int]]:
+    """Fix 1(A) (Fable): NLI is the merge DECIDER, the numeric tuple key only RECALL. For each
+    multi-member NUMERIC cluster (a real subject/predicate/value/unit key — NOT an ``__unknown__``
+    or ``__qual__`` sentinel), keep only members whose focused CLAIM SENTENCE bidirectionally
+    entails the representative's claim sentence; an unconfirmed member (one-way / contradiction /
+    infra ``None``) SPLITS into its own singleton so it can no longer inflate corroboration on a
+    key collision. Letter-spacing is collapsed BEFORE NLI (Fix 7) so a degraded body is not
+    silently un-readable. Runs BEFORE ``_apply_consolidation_nli`` so a split member that
+    genuinely paraphrases ANOTHER cluster can still re-merge there through the SAME strict gate.
+
+    §-1.3-safe: SPLIT-only; never drops a row (every member still flows through ``deduped_rows``)
+    and never invents a merge. Deterministic (rep = highest-ranked member; each member judged
+    against it). Same-value corroboration the cross-encoder confirms is preserved (P=1.0 in the
+    bake-off); only the false key-collision baskets dissolve. ``entail_fn`` is the deterministic
+    test seam; production passes None => the lazy resident ``entails_directional``."""
+    if entail_fn is None:
+        from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+            entails_directional,
+        )
+        entail_fn = entails_directional
+
+    out: dict[tuple, list[int]] = {}
+    for key, member_ris in groups.items():
+        distinct = sorted(set(member_ris))
+        is_sentinel = (
+            isinstance(key, tuple) and key and key[0] in ("__unknown__", "__qual__")
+        )
+        if len(distinct) < 2 or is_sentinel:
+            out[key] = member_ris
+            continue
+        value = _cluster_value_bucket(key, rows, distinct)
+        rep_ri = max(distinct, key=rank_fn)
+        rep_text = _normalize_unicode_text(
+            _collapse_letter_spacing(_claim_sentence(rows[rep_ri], value))
+        )
+        confirmed = [rep_ri]
+        split_members: list[int] = []
+        for mri in distinct:
+            if mri == rep_ri:
+                continue
+            m_text = _normalize_unicode_text(
+                _collapse_letter_spacing(_claim_sentence(rows[mri], value))
+            )
+            fwd = entail_fn(rep_text, m_text)
+            # SPLIT only on a CONFIDENT non-entailment (a real verdict that the two claims
+            # differ). The tuple key (exact subject/predicate/value/unit) is a STRONG same-claim
+            # prior, so an infra ``None`` (model outage) KEEPS the member rather than destroying
+            # genuine corroboration on a hiccup — unlike the greedy-Jaccard qual path, whose
+            # only prior is lexical overlap and so splits on None. §-1.1 false corroboration is
+            # still blocked: a folded-subject/locator collision gives a confident False here.
+            if fwd is False:
+                split_members.append(mri)
+                continue
+            rev = entail_fn(m_text, rep_text) if fwd is True else None
+            if rev is False:
+                split_members.append(mri)
+            else:
+                confirmed.append(mri)  # True/True or any infra None => keep the tuple prior
+        out[key] = sorted(set(confirmed))
+        for mri in split_members:
+            # A distinct, numeric-shaped singleton key: preserves key[2]=value so the
+            # downstream value-bucket + basket loop treat it correctly, uniquified by row idx.
+            out[tuple(key) + ("__split__", mri)] = [mri]
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -2569,6 +2964,12 @@ def _build_qualitative_groups(
         # CLUSTERING (still KEPT, keep-all). is_furniture_dominant missed these markdown-nav bodies.
         if _qual_chrome_guard_enabled() and _body_is_chrome_dominant(body):
             continue
+        # Fix 7 (Fable): letter-spaced extraction garbage ("W e i n v e s t i g a t e ...") is
+        # unreadable to the NLI cross-encoder — it spuriously entailed unrelated claims into a
+        # false qualitative basket (the Eloundou huggingface abstract + OUP article merge).
+        # Exclude the degraded row from CLUSTERING (still KEPT as its own keep-all row).
+        if _is_extraction_degraded(body):
+            continue
         shingles = _prose_shingles(body)
         if shingles is _PROSE_NO_MATCH or not shingles:
             continue  # too short to cluster (false-positive guard) — safe singleton
@@ -2798,7 +3199,13 @@ def dedup_by_finding(
     # the count. A row with no same-work group keeps its own host.
     def _origin_host_of(ri: int) -> str:
         canon = same_work.canonical_index_by_index.get(ri, ri)
-        return _host_of(str(rows[canon].get("source_url", "")))
+        # Fix 10 (Fable): backfill from any URL field so a row with a blank ``source_url``
+        # but a populated ``url``/``link``/... still contributes its host (no empty
+        # member_hosts). Fall back to the row's OWN url if the canonical has none.
+        host = _host_of(_row_any_url(rows[canon]))
+        if not host and canon != ri:
+            host = _host_of(_row_any_url(rows[ri]))
+        return host
 
     # Fix 5/6: the WORK a row belongs to (its same-work id, else a per-row singleton work).
     # Corroboration is counted over DISTINCT works, excluding derivative press (fail-open).
@@ -2878,6 +3285,19 @@ def dedup_by_finding(
     #     is 0 by design under keep-all, so it cannot be the canary). Runs BEFORE the
     #     per-cluster representative/corroboration loop so corroboration_count and
     #     member_hosts reflect the MERGED basket.
+    # 1a-pre. NUMERIC tuple-cluster NLI split-confirmation (Fix 1(A), Fable). The tuple key is
+    #     RECALL ONLY: a multi-member numeric cluster is split so each member must bidirectionally
+    #     entail the rep's claim sentence to stay merged (a folded-subject/locator-value collision
+    #     no longer fabricates corroboration). Runs BEFORE consolidation-NLI so split members can
+    #     re-merge to their TRUE claim-mates there. Gated on a NLI path being active so a no-NLI
+    #     run is byte-identical.
+    if (
+        groups
+        and _numeric_nli_confirm_enabled()
+        and (_consolidation_nli_enabled() or _finding_dedup_nli_enabled())
+    ):
+        groups = _confirm_numeric_clusters_via_nli(groups, rows, _rank)
+
     nli_merge_count = 0
     if groups and _consolidation_nli_enabled():
         groups, nli_merge_count = _apply_consolidation_nli(groups, rows, _rank)
@@ -2918,7 +3338,9 @@ def dedup_by_finding(
     rep_meta: dict[int, dict[str, Any]] = {}
     for key, member_ris in list(groups.items()) + list(qual_groups.items()):
         distinct_ris = sorted(set(member_ris))
-        rep_ri = max(distinct_ris, key=_rank)
+        # Fix 4b/7 (Fable): never elect a chrome/nav/captcha/letter-spaced line as the
+        # representative when a clean content member exists (the row is still kept).
+        rep_ri = _choose_clean_representative(distinct_ris, _rank, rows)
         # Same-work fold: count each member by its WORK's canonical host, so N
         # URLs of one paper across N domains contribute ONE independent origin —
         # the #7 CORE de-padding. `member_hosts` + `corroboration` are derived

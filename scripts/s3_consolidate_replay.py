@@ -78,28 +78,50 @@ def main() -> int:
         return (str(rows[i].get('tier', '') or 'UNKNOWN')) if 0 <= i < len(rows) else 'UNKNOWN'
 
     def _stmt(i):
-        # Fix 7: representative_statement must be a CLAIM, not the page title. Prefer the
-        # numeric claim sentence (the actual finding), else the first substantive body
-        # sentence, else the statement, and fall back to the title ONLY when no claim text
-        # exists. General/question-agnostic.
+        # Fix 7/9 (Fable): the representative_statement must be a READABLE, COMPLETE claim
+        # sentence — not the page title, not a mid-word value-window ('us change the task...'),
+        # not letter-spaced extraction garbage. General/question-agnostic: collapse letter
+        # spacing, split into complete sentences (>=5 words), and prefer the COMPLETE sentence
+        # carrying the numeric finding; fall back to the first complete sentence, then the
+        # snippet, then the title.
+        import re as _re
+        from src.polaris_graph.synthesis.finding_dedup import _collapse_letter_spacing
         if not (0 <= i < len(rows)):
             return ''
         row = rows[i]
+        body = _collapse_letter_spacing(_row_field(row, 'direct_quote', 'statement'))
+        # Fix 4b/9: skip a nav/chrome/menu sentence when a clean content sentence exists, so the
+        # representative_statement never reads as boilerplate (login / search-UI / share / cookie).
+        _chrome = _re.compile(
+            r'log ?in|sign ?in|subscribe|cookie|search text|search type|logical operator|'
+            r'add_circle|remove_circle|skip to|newsletter|\bmenu\b|share this|©|›|»',
+            _re.IGNORECASE)
+        sentences = [
+            s.strip() for s in _re.split(r'(?<=[.!?])\s+', body.strip())
+            if len(s.split()) >= 5 and (s.strip()[:1].isupper() or s.strip()[:1].isdigit())
+            and not _chrome.search(s)
+        ]
+        value_tok = None
         try:
             from src.polaris_graph.retrieval.contradiction_detector import extract_numeric_claims
             claims = extract_numeric_claims([row])
             if claims:
-                snip = (getattr(claims[0], 'context_snippet', '') or '').strip()
-                if snip:
-                    return snip[:300]
+                v = float(getattr(claims[0], 'value', 0.0) or 0.0)
+                value_tok = (str(int(v)) if v == int(v) else str(v))
+                snip = _collapse_letter_spacing((getattr(claims[0], 'context_snippet', '') or '').strip())
         except Exception:
-            pass
-        body = _row_field(row, 'direct_quote', 'statement')
+            claims = []
+            snip = ''
+        # Fix 9: a COMPLETE sentence containing the finding value is the best representative.
+        if value_tok:
+            for s in sentences:
+                if value_tok in s:
+                    return s[:300]
+        if sentences:
+            return sentences[0][:300]
+        if claims and snip:
+            return snip[:300]
         if body.strip():
-            import re as _re
-            for s in _re.split(r'(?<=[.!?])\s+', body.strip()):
-                if len(s.split()) >= 5:
-                    return s.strip()[:300]
             return body.strip()[:300]
         return _row_field(row, 'title', 'statement')
 
@@ -170,6 +192,38 @@ def main() -> int:
                              if i in sw.dropped_captcha_recovered else 'coverage_gap'),
             })
 
+    # Fix 11 (Fable): ONE merged, machine-readable deletion disclosure that composition can cite
+    # in Methods (§-1.3.1 fail-loud). It unifies the S2 whole-source / line drops (from the
+    # sibling s2/summary.json produced by the line screen) with the S3 same-work chrome deletions
+    # above — instead of the two living in separate artifacts (s2/disclosure.txt vs this snapshot).
+    unified_deletion_disclosure = {
+        's3_chrome_deletions': {
+            'count': len(chrome_deletion_disclosure),
+            'by_reason': {'chrome_non_source': len(chrome_deletion_disclosure)},
+            'recovered': consolidation_summary['same_work_dropped_captcha_recovered'],
+            'coverage_gap': consolidation_summary['same_work_dropped_captcha_gap'],
+            'rows': chrome_deletion_disclosure,
+        },
+        's2_line_screen': {},
+    }
+    try:
+        s2_summary_path = cp2_path.parent / 'summary.json'
+        if s2_summary_path.exists():
+            s2s = json.load(s2_summary_path.open(encoding='utf-8'))
+            unified_deletion_disclosure['s2_line_screen'] = {
+                'totals': s2s.get('totals', {}),
+                'by_class': {
+                    'cond_a_lines_dropped_quoted': len(s2s.get('cond_a_lines_dropped_quoted', []) or []),
+                    'cond_b_no_credible_whole_drop': len(s2s.get('cond_b_no_credible_whole_drop', []) or []),
+                    'cond_c_mixed_partial_keep': len(s2s.get('cond_c_mixed_partial_keep', []) or []),
+                    'cond_d_scope': len(s2s.get('cond_d_scope', []) or []),
+                    'cond_e_fail_open': len(s2s.get('cond_e_fail_open', []) or []),
+                },
+                'source': 's2/summary.json',
+            }
+    except Exception as _exc:  # fail-loud but never crash the harness
+        unified_deletion_disclosure['s2_line_screen'] = {'error': str(_exc)}
+
     upstream_sha = hashlib.sha256(cp2_path.read_bytes()).hexdigest()
     envelope = {
         'schema_version': data.get('schema_version', 1),
@@ -190,6 +244,7 @@ def main() -> int:
             'contradiction_edges': [],
             'same_work_groups': sw_groups_payload,
             'chrome_deletion_disclosure': chrome_deletion_disclosure,
+            'deletion_disclosure': unified_deletion_disclosure,  # Fix 11: merged S2+S3
         },
     }
     out_dir = Path(args.out)
