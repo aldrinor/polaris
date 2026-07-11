@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv)",
+      "Read(//workspace/**)",
+      "Read(//workspace/POLARIS/**)"
+    ]
+  }
+}

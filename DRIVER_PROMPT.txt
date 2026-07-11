@@ -16,3 +16,5 @@ COORDINATION (avoid clobber): the laptop session may still be finishing an agent
 LOOP per wheel: run on the box (foreground, HARD timeout, NEVER nohup+tail -f) -> fresh Fable judge reads the REAL output line-by-line -> SIGN_OFF (0 P0/P1) or a comprehensive front-loaded fix list -> hands apply -> re-run. Never force-approve. Keep GPU/RAM sane: one heavy run at a time per subsystem, kill leaked contexts.
 
 Work CONTINUOUSLY. When a wheel signs off, chain the next / re-run downstream. Do NOT stop until 15:00 UTC or all wheels beat both competitors. Every ~15 min append a one-line status to OVERNIGHT_PROGRESS.md and git commit.
+
+CRITICAL FINDING (from your earlier run, in OVERNIGHT_PROGRESS.md): local GLM-5.2 serving is INFEASIBLE here (~355GB needed vs 80GB VRAM / 114GB disk). For compose parallel-depth do NOT try to serve GLM-5.2 locally. Instead maximize OpenRouter throughput (raise PG_ABSTRACTIVE_WRITER_CONCURRENCY + section parallelism, tune 429 backoff) and/or serve only a SMALL local NLI verifier. Goal unchanged: render all 346 baskets fast. You already made polaris-owned worktrees and logged blockers — RESUME from OVERNIGHT_PROGRESS.md, do not redo setup.

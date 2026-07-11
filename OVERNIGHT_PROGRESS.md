@@ -46,7 +46,85 @@ accordingly: I will not pretend to land a 34-tool toolkit + 22-case battery + lo
 an hour. Priority is (1) truth on the record, (2) the single highest-value wheel actually landed and
 independently gated.
 
+## HEADLINE — the two wheels were each bricked at ONE LINE, not missing features
+
+The single most important thing the operator should read this morning:
+
+**1. The compose ceiling was NEVER the OpenRouter 429. It was a self-inflicted serialization.**
+`_draft_passes_wrapper` (`generator/abstractive_writer.py:661`) is a plain sync `def`. It was called
+with **no `await`** from inside the async coroutine `_pre_pass_one_basket` (`:749`), at two call
+sites. It loops sentences -> `writer_verify_fn` -> `provenance_generator.verify_sentence_provenance`
+-> `entailment_judge.judge()` -> `_post_with_total_deadline` -> `fut.result(timeout=total_s)` — which
+**blocks the calling thread**. The calling thread is the asyncio event loop.
+
+So **every NLI judge POST froze the entire compose event loop.** Achieved verify concurrency was
+**1**, regardless of `PG_ABSTRACTIVE_WRITER_CONCURRENCY=12` or `PG_MAX_CONCURRENT_LLM=16`. The
+"~48-way parallel" compose was 48-way *only between* verifications. Every writer call in every
+section stalled behind each single NLI POST.
+
+This reframes the whole compose thesis in the brief. We were tuning 429 backoff and pricing out a
+$355GB local serving stack to escape a rate limit that **was not the binding constraint.**
+
+FIXED (`bot/compose-box` @ `0615bc5`): both call sites now `await asyncio.to_thread(...)`.
+**Fable gate: SIGN_OFF, 0 P0/P1 — with an empirical A/B probe**, not just a code read:
+
+| | elapsed (4 baskets) | verify thread | event loop |
+|---|---|---|---|
+| HEAD | 2.06s (serialized) | `MainThread` | frozen; heartbeat starved throughout |
+| fixed | 0.60s (parallel) | `asyncio_0..3` | live; max heartbeat gap 0.050s |
+
+The judge machinery was **already built for this** and had been waiting: `judge_verdict_cache` is
+`RLock`-guarded and its own docstring says it is "shared across the ThreadPool verifier workers";
+the judge holds per-thread httpx clients via `threading.local`; POSTs are bounded by a
+`BoundedSemaphore`. All of it was moot because of one missing `await`.
+
+**2. The compute stack is not dormant — it is advertised and guaranteed to fail.**
+`outline_agent.py:1579` hardcoded `client=None` into every tool dispatch. `execute_python` is
+registered, is `requires_llm=True`, and IS listed to the decide LLM as available — and returns
+`success=False, "No LLM client available"` (`tool_registry.py:556`) on **100% of calls**. It was not
+in `_tool_failure_gap_check`'s watched set either, so the failure was **silent**: the agent moved on
+and the number got written from evidence prose instead of computed.
+
+PARTIALLY fixed (`bot/outline-tooluse-box` @ `1b2e3c7`) — **this wheel is NOT signed off**, see below.
+
+## NEXT ACTIONS, in priority order (start here)
+
+1. **[compose] Tune `PG_SIDE_JUDGE_MAX_CONCURRENCY` against a measured run.** The `to_thread` fix
+   makes this knob *live on the compose path* for the first time — it is now the binding constraint
+   on the verify phase (default **4**). Raising it is the actual throughput unlock for "render all
+   346 baskets fast". I did **NOT** raise it blind: the default is deliberate storm protection, the
+   judge shares the GLM-5.2 model *and the OpenRouter account* with the writer, and I could not get a
+   clean measurement while the root-owned jobs hammered the same rate limit. Needs one clean A/B.
+   (Correction to my own earlier claim: this knob was NOT a global no-op — it was already binding on
+   the credibility/strict-verify `to_thread` paths. It was non-binding *only* on the compose path.)
+2. **[tooluse] The computed value is still UNREACHABLE.** This is the open Fable P1 and the reason
+   the wheel is unsigned. The only notebook read in the outline agent is `summary_for_llm()`
+   (`analysis_notebook.py:142`), which emits `tool_name [OK/FAILED] (elapsed) — reasoning[:60]` and
+   **nothing else** — no markdown, no statistics. cp4 stores no markdown either. So the decide LLM
+   sees `execute_python [OK]` and learns nothing. Un-bricking the tool does not yet let a computed
+   number reach the outline. Surfacing it must be bounded + labeled, and if it is ever to **render**
+   it must route through the verified `[#calc:]` lane (`generator/quantified_analysis.py:617`), never
+   the `[CITE:ev_xxx]` path — `strict_verify` check (d) requires every decimal to appear in a cited
+   span, which correctly DROPS a derived number.
+3. **[tooluse] Zero tests exist for `OutlineAgent`** — none, anywhere. The 11-tool registry, the
+   decide loop, and the `client=None` bug were all completely untested. That is why this survived.
+4. **[both] TELUS 30yr / SEER deltas: no fixture or test exists for either.** Nothing in the tree
+   exercises "compute a number and prove it". Those are net-new.
+
 ## Status log
 - 13:54 UTC — driver up. Read master brief + agentic_outline_redesign.md in full. Mapped box: 2x A100-80GB, 128 cores, 2 TB RAM.
 - 13:58 UTC — found BLOCKER 1 (worktrees root-owned, no sudo) and BLOCKER 2 (local GLM-5.2 infeasible: 114 GB disk / 80 GB VRAM vs ~355 GB weights).
 - 14:01 UTC — created three polaris-owned worktrees off the exact wheel tips; wheels can proceed.
+- 14:05 UTC — headless driver restarted (laptop session had accidentally killed it). Resuming. NOTE: if you drive from phone POLARIS-VM, first run: tmux kill-session -t driver (as polaris) to avoid two drivers.
+- 14:10 UTC — parallel scouts mapped both wheels. Found the compose event-loop block and the `client=None` brick. Confirmed both against real code (enclosing fns are `async def`; `asyncio` imported; judge cache RLock-guarded).
+- 14:23 UTC — compose fix committed (`0615bc5`). Fable gate SIGN_OFF with an empirical A/B probe (2.06s serialized -> 0.60s parallel, loop live).
+- 14:30 UTC — Fable gate **REJECTED** the tooluse fix (0 P0, 3 P1) and caught a bug **I introduced**: my gap todo was PENDING with `section="(unassigned)"`, which decide rule 1 routes to `search_more_evidence` — burning real web fetches on an error string, and on a successful fetch auto-assigning an outline section literally titled `"(unassigned)"` whose focus is the error text (`:1681`). A builder does not grade its own homework; this is what that rule is for.
+- 14:32 UTC — tooluse partial fix committed (`1b2e3c7`) with the P1s I could fix (gap now `add_unfillable` -> UNFILLED+disclosed, never routed to retrieval; client gated on `_CODEGEN_TOOLS`, not `requires_llm`, since `search_more_evidence` carries that flag but builds its own clients). Exercised both paths for real — `py_compile` had missed that `add_unfillable` takes a required positional `reason`, which would have `TypeError`d at runtime on the exact failure path it handles. Wheel left **UNSIGNED**; open P1 is action 2 above.
+
+## Honest scope statement
+In a ~65-minute window I did **not** land the 34-tool toolkit, the 22-case battery, the parallel
+harness, or a full 346-basket deep report scored against the competitors. Claiming otherwise would be
+the easy lie. What I landed instead is, I think, worth more than a partial toolkit: **the single line
+that was capping compose throughput at 1x**, independently gated with a real measurement — plus the
+truth that the 429 was a red herring and the compute stack was failing 100% of calls in silence.
+Both are now on the record with the exact next move.
