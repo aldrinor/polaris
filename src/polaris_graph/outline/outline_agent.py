@@ -444,6 +444,11 @@ class OutlineWorkspace:
     basket_menu: Any = None                            # outline_digest menu (or None)
     budgets: dict[str, Any] = field(default_factory=dict)
     disclosures: list[str] = field(default_factory=list)
+    # W4: successful execute_python payloads, so a computed value is no longer discarded at
+    # every exit. EXPLORATORY / NOT RENDERABLE — every row carries renderable=False +
+    # bar_reason (see _compute_result_check). Telemetry + planner provenance only; this is
+    # NOT a render path and never reaches a writer prompt.
+    compute_results: list[dict] = field(default_factory=list)
     turn: int = 0
     started_monotonic: float = field(default_factory=time.monotonic)
     checkpoint_dir: Optional[str] = None
@@ -1159,8 +1164,15 @@ class OutlineAgent:
 
         available = self.registry.available_tools(True) + [_FINISH_ACTION]
         tool_descriptions = self.registry.get_tool_descriptions(True)
+        # W4 (2026-07-11): include_results=True. Without it this summary printed ONLY
+        # "{n}. {tool} [{status}] ({elapsed}s) — {reasoning[:60]}", so a SUCCESSFUL
+        # execute_python's computed value (present in .statistics/.insights/.markdown)
+        # never reached the planner — while success also meant no gap was recorded, so
+        # nothing was disclosed either. Undisclosed AND unreachable. The digest is
+        # planner-facing only; it is NOT a render path (see the docstring).
         notebook_summary = (
-            self.workspace.notebook.summary_for_llm() if self.workspace.notebook else ""
+            self.workspace.notebook.summary_for_llm(include_results=True)
+            if self.workspace.notebook else ""
         )
         outline_summary = "\n".join(
             f"  - {_plan_field(p, 'title', '')!r}: {len(_plan_field(p, 'ev_ids', []) or [])} "
@@ -1560,6 +1572,61 @@ class OutlineAgent:
                 needed_kind="computed_value", source="tool_failure",
             )
 
+    def _compute_result_check(self, step: AnalysisStep) -> None:
+        """W4 (2026-07-11): a SUCCESSFUL compute must be DISCLOSED and CARRIED, never silently
+        dropped — and must NOT thereby become a render path.
+
+        Before W4 a successful ``execute_python`` was the worst of both worlds: success meant
+        ``_tool_failure_gap_check`` recorded NO gap (so nothing was disclosed), while the value it
+        computed was discarded at every exit (``summary_for_llm`` stripped it; the cp4 checkpoint
+        keeps only tool_name/reasoning/success; the entry-point return carried no notebook payload).
+        An UNDISCLOSED UNREACHABLE RESULT — the tool burned a turn + an OpenRouterClient + a sandbox
+        exec for zero observable effect, i.e. it was strictly net-NEGATIVE.
+
+        What this does: records the computed statistics on the workspace (so they survive the exit,
+        see :2049 ``notebook_compute``) and DISCLOSES them as EXPLORATORY.
+
+        What this deliberately does NOT do (binding invariant, docs/agentic_outline_redesign.md):
+        it does not stamp these numbers ``[#calc:]`` and does not hand them to the renderer.
+        Exploratory ``execute_python`` output is BARRED from rendering. The verified lane
+        (``tradeoff_modeler.ModelSpec`` -> ``quantified_analysis.execute_quantified_model``) accepts
+        only ``SourcedInput``s carrying an evidence span (``ev_id`` + ``raw_literal`` +
+        ``literal_start``/``literal_end``) and RE-DERIVES the number by re-executing a validated
+        formula, pinning ``display_value``; ``verify_modeled_atom`` then re-checks the rendered digits
+        against that re-execution. A bare ``{"npv": 1234567.89}`` returned by an LLM-written script
+        has no evidence span and no re-derivable formula, so wrapping it in a ModelSpec would FORGE
+        provenance through the only hard gate. The number therefore stays planner-facing until the
+        verified lane derives it independently; the disclosure below is what keeps that honest
+        instead of silent.
+        """
+        result = step.result
+        if step.tool_name not in _CODEGEN_TOOLS or not result.success:
+            return
+        stats = result.statistics if isinstance(result.statistics, dict) else {}
+        if not stats:
+            return
+
+        self.workspace.compute_results.append({
+            "turn": step.step_number,
+            "tool_name": step.tool_name,
+            "reasoning": step.reasoning,
+            "statistics": dict(stats),
+            "insights": list(result.insights or []),
+            "source_evidence_ids": list(result.source_evidence_ids or []),
+            "renderable": False,
+            "bar_reason": (
+                "exploratory execute_python output — BARRED from rendering; a computed number may "
+                "render only via the verified [#calc:] / ModelSpec lane, which re-derives it from "
+                "sourced evidence spans"
+            ),
+        })
+        pairs = ", ".join(f"{k}={v}" for k, v in stats.items())
+        self.workspace.disclose(
+            f"execute_python (turn {step.step_number}) computed {len(stats)} value(s) [{pairs}] — "
+            "EXPLORATORY ONLY: visible to the planner, BARRED from the report. Rendering a computed "
+            "number requires the verified [#calc:] lane to re-derive it from sourced evidence spans."
+        )
+
     # -- execute ------------------------------------------------------------
 
     async def _execute(self, decision: ReactDecision) -> AnalysisStep:
@@ -1639,6 +1706,7 @@ class OutlineAgent:
         )
         self.workspace.notebook.add_step(step)
         self._tool_failure_gap_check(step)
+        self._compute_result_check(step)
 
         # Agent-initiated gap (detector 3): the decide step named a NEW section/aspect for
         # search_more_evidence that was not already a ledger entry -> record it.
@@ -2032,6 +2100,12 @@ async def run_outline_agent_or_legacy(
         "gap_ledger": final_ws.gap_ledger.as_list(),
         "unfilled_gaps": [dataclasses.asdict(t) for t in final_ws.gap_ledger.unfilled],
         "disclosures": list(final_ws.disclosures),
+        # W4: the computed values a successful execute_python produced. Before this the
+        # entry-point return carried NO notebook payload at all, so the value died here.
+        # EXPLORATORY: every row is renderable=False; the report may render a computed
+        # number ONLY through the verified [#calc:] lane. Manifest/telemetry only — grep
+        # confirms digest_stats never reaches a writer prompt.
+        "notebook_compute": list(final_ws.compute_results),
         "seed_ev_by_title": seed_ev_by_title,
         "final_ev_by_title": {
             _plan_field(p, "title", ""): list(_plan_field(p, "ev_ids", []) or [])

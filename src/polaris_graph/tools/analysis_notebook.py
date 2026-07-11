@@ -6,6 +6,7 @@ IDs produced the result. build_synthesis_context() outputs markdown with
 """
 
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -14,6 +15,90 @@ from src.polaris_graph.contracts_v3 import AnalysisEntry
 from src.polaris_graph.tools.tool_registry import ToolResult
 
 logger = logging.getLogger("polaris_graph")
+
+# LAW VI: every knob env-tunable. Per-step character budget for the result digest that
+# ``summary_for_llm(include_results=True)`` hands the planner. 0 disables the digest.
+PG_NOTEBOOK_SUMMARY_RESULT_CHARS_DEFAULT = 600
+
+
+def _summary_result_chars() -> int:
+    raw = os.getenv(
+        "PG_NOTEBOOK_SUMMARY_RESULT_CHARS",
+        str(PG_NOTEBOOK_SUMMARY_RESULT_CHARS_DEFAULT),
+    )
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        logger.warning(
+            "[analysis_notebook] PG_NOTEBOOK_SUMMARY_RESULT_CHARS=%r is not an int; "
+            "using default %d",
+            raw, PG_NOTEBOOK_SUMMARY_RESULT_CHARS_DEFAULT,
+        )
+        return PG_NOTEBOOK_SUMMARY_RESULT_CHARS_DEFAULT
+
+
+def _scalar(value) -> str:
+    """Render a statistic VERBATIM — never reformat a number.
+
+    ``str(1234567.89)`` -> ``'1234567.89'``. (``f'{v:g}'`` would emit ``1.23457e+06``
+    and silently mangle the very value the planner needs; strict numeric verification
+    downstream compares digits.)
+    """
+    return str(value)
+
+
+def _result_digest_lines(result: ToolResult, budget: int) -> list[str]:
+    """Planner-facing digest of ONE successful step's payload, capped at ``budget`` chars.
+
+    Priority order = information density: statistics (the numbers) -> insights -> markdown
+    fills the remainder. Nothing is dropped by KIND (weight-and-consolidate, not filter);
+    when the budget runs out the omission is DISCLOSED inline ("+N more") rather than
+    silently swallowed, because a silently-dropped computed number is exactly the failure
+    this digest exists to end.
+    """
+    out: list[str] = []
+    spent = 0
+
+    def _emit(line: str) -> bool:
+        """Emit if it fits. Returns False once the budget is exhausted."""
+        nonlocal spent
+        if spent + len(line) > budget:
+            return False
+        out.append(line)
+        spent += len(line)
+        return True
+
+    stats = result.statistics if isinstance(result.statistics, dict) else {}
+    if stats:
+        pairs = [f"{k}={_scalar(v)}" for k, v in stats.items()]
+        shown: list[str] = []
+        for i, pair in enumerate(pairs):
+            candidate = ", ".join([*shown, pair])
+            if len(f"stats: {candidate}") > budget and shown:
+                out.append(
+                    f"stats: {', '.join(shown)} (+{len(pairs) - i} more omitted for length)"
+                )
+                spent += budget  # budget is spent; markdown/insights yield to the numbers
+                break
+            shown.append(pair)
+        else:
+            if shown:
+                _emit(f"stats: {', '.join(shown)}")
+
+    for insight in (result.insights or []):
+        if not _emit(f"insight: {insight}"):
+            break
+
+    md = (result.markdown or "").strip()
+    if md:
+        remaining = budget - spent
+        if remaining > 0:
+            flat = " ".join(md.split())
+            if len(flat) > remaining:
+                flat = flat[:remaining] + "…"
+            out.append(f"result: {flat}")
+
+    return out
 
 
 @dataclass
@@ -139,8 +224,32 @@ class AnalysisNotebook:
 
         return "\n".join(sections)
 
-    def summary_for_llm(self) -> str:
-        """Compact summary for the ReAct planner's next decision."""
+    def summary_for_llm(self, include_results: bool = False) -> str:
+        """Compact summary for the ReAct planner's next decision.
+
+        W4 (2026-07-11): ``include_results`` is OPT-IN and defaults to False, so the
+        long-standing consumer (``react_agent.py``:7875) keeps its byte-identical string.
+        With ``include_results=True`` (the OutlineAgent decide prompt,
+        ``outline_agent.py``:1163) each SUCCESSFUL step also emits a RESULT DIGEST.
+
+        Why: before this, ``summary_for_llm()`` was the ONLY notebook accessor fed to the
+        outline decide LLM, and it printed only ``{n}. {tool} [{status}] ({elapsed}s) —
+        {reasoning[:60]}``. A successful ``execute_python`` therefore recorded no gap (so
+        nothing was disclosed) while its computed value — present in ``.statistics``,
+        ``.insights`` AND ``.markdown`` — was unreachable by the planner: an UNDISCLOSED
+        UNREACHABLE RESULT, and a tool that was strictly net-negative (it burned a turn and
+        an OpenRouterClient for zero observable effect).
+
+        WEIGHT-AND-CONSOLIDATE, never filter (docs/agentic_outline_redesign.md): nothing is
+        dropped by kind. Statistics come first (they are the numbers), then insights, then
+        markdown fills whatever character budget is left. The per-step budget is env-tunable
+        (LAW VI) via ``PG_NOTEBOOK_SUMMARY_RESULT_CHARS`` (default 600); set it to 0 to
+        suppress the digest entirely.
+
+        This digest is PLANNER-FACING ONLY. It does not create a render path: exploratory
+        ``execute_python`` output remains BARRED from the report, which renders computed
+        numbers only through the verified ``[#calc:]`` / ``ModelSpec`` lane.
+        """
         lines = [
             f"Query: {self._query}",
             f"Evidence pool: {len(self._evidence_ids)} pieces",
@@ -151,12 +260,18 @@ class AnalysisNotebook:
             "Steps so far:",
         ]
 
+        budget = _summary_result_chars() if include_results else 0
+
         for step in self._steps:
             status = "OK" if step.result.success else "FAILED"
             lines.append(
                 f"  {step.step_number}. {step.tool_name} [{status}] "
                 f"({step.elapsed_seconds:.1f}s) — {step.reasoning[:60]}"
             )
+            if budget > 0 and step.result.success:
+                lines.extend(
+                    f"     {ln}" for ln in _result_digest_lines(step.result, budget)
+                )
 
         return "\n".join(lines)
 
