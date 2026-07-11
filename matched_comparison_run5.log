@@ -1,0 +1,307 @@
+[matched-comparison] run_id=SWEEP_workforce_drb_72_ai_labor_1783476454 domain='workforce' evidence_rows=654 baskets(raw)=335 required_sections=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+[matched-comparison] question (first 200 chars): 'I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The report needs to be based on academic research published before June 2023, summar'
+
+################################################################################
+[matched-comparison] SCENARIO: FULL_CORPUS (654 rows) (evidence_rows=654)
+################################################################################
+[bank] built 43 clusters from 335 baskets (dropped 1 — id not resolvable in cp2 evidence)
+[bank] built 43 clusters from 335 baskets (dropped 1 — id not resolvable in cp2 evidence)
+
+=== PLAIN RUN RESULT (elapsed 107.7s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+ok=True reason_codes=['info_overlap:13_ev_ids_shared_across_sections']
+  - 'Positive Views': 13 ev_ids
+  - 'Negative Views': 16 ev_ids
+  - 'Specific Challenges': 14 ev_ids
+  - 'Future Opportunities': 20 ev_ids
+[live_retriever] openalex_search failed for 'Generative AI impact labor market application cases by indus' (fail-open): HTTP 429 from https://api.openalex.org/works
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 8476.67it/s]
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.36s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.37s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.68s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.19s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.89s 
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 2.02s 
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 2.12s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.40s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 2.43s 
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.54s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 2.68s 
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.22s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.44s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.70s 
+[FETCH]... ↓ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 4.55s 
+[SCRAPE].. ◆ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 0.13s 
+[COMPLETE] ● https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 4.70s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 7.12s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 7.31s 
+[ACCESS] Jina Reader exception for https://budgetlab.yale.edu/research/evaluating-impact-ai-lab:  — backing off 2.4s (attempt 1/4)
+[ACCESS] backend jina_reader exceeded 60s wall-clock for https://budgetlab.yale.edu/research/evaluating-impact-ai-lab — cancelled
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 8059.82it/s]
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'academic research published before June 2023 on specific app' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.38s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.39s 
+[FETCH]... ↓ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.48s 
+[SCRAPE].. ◆ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✗ | ⏱: 0.48s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[polaris graph] CRAWL4AI: Failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-: Blocked by anti-bot protection: Akamai block (Reference #)
+[FETCH]... ↓ 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 0.82s 
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.81s 
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=42>40), using PyMuPDF: https://datasociety.net/wp-content/uploads/2024/12
+[SCRAPE].. ◆ 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 0.38s 
+[COMPLETE] ● 
+https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work    
+| ✓ | ⏱: 1.22s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.29s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.72s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.56s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.48s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.80s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.34s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.53s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.89s 
+[FETCH]... ↓ https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 2.47s 
+[SCRAPE].. ◆ https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 0.06s 
+[COMPLETE] ● https://www.youtube.com/watch?v=2ttF5A_j9hM                        
+| ✓ | ⏱: 2.57s 
+[FETCH]... ↓ https://doi.org/10.1163/_afco_asc_2754                             
+| ✓ | ⏱: 0.46s 
+[SCRAPE].. ◆ https://doi.org/10.1163/_afco_asc_2754                             
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● https://doi.org/10.1163/_afco_asc_2754                             
+| ✗ | ⏱: 0.47s 
+[polaris graph] CRAWL4AI: Failed for https://doi.org/10.1163/_afco_asc_2754: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://www.nber.org/system/files/working_papers/w31161/w31161.pdf 
+| ✓ | ⏱: 2.77s 
+[SCRAPE].. ◆ https://www.nber.org/system/files/working_papers/w31161/w31161.pdf 
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.nber.org/system/files/working_papers/w31161/w31161.pdf 
+| ✗ | ⏱: 2.77s 
+[polaris graph] CRAWL4AI: Failed for https://www.nber.org/system/files/working_papers/w31161/w311: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[ACCESS] Jina Reader exception for https://doi.org/10.1163/_afco_asc_2754:  — backing off 2.7s (attempt 1/4)
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.mckinsey.com/mgi/our-research/generative-ai-and- — cancelled
+[ACCESS] direct fetch failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i: 
+[live_retriever] AccessBypass timed out after 90s for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=1)
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'academic research generative AI key risks and limitations in' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=42>40), using PyMuPDF: https://datasociety.net/wp-content/uploads/2024/12
+[FETCH]... ↓ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.35s 
+[SCRAPE].. ◆ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✗ | ⏱: 0.35s 
+[polaris graph] CRAWL4AI: Failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-: Blocked by anti-bot protection: Akamai block (Reference #)
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.74s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.33s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.09s 
+[FETCH]... ↓ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 1.52s 
+[FETCH]... ↓ 
+https://www.linkedin.com/posts/ray-smith-61a6262...ai-is-wrecking-activity-73660
+74237607940096-_93P  | ✓ | ⏱: 1.55s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.56s 
+[FETCH]... ↓ 
+https://www.facebook.com/News13/posts/a-new-stud...growing-risk-from-ai-disrupti
+n/1250351397301591/  | ✓ | ⏱: 1.66s 
+[SCRAPE].. ◆ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.13s 
+[COMPLETE] ● 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 1.66s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/News13/posts/a-new-stud...growing-risk-from-ai-disrupti
+n/1250351397301591/  | ✓ | ⏱: 0.30s 
+[COMPLETE] ● 
+https://www.facebook.com/News13/posts/a-new-stud...growing-risk-from-ai-disrupti
+n/1250351397301591/  | ✓ | ⏱: 2.00s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.07s 
+[SCRAPE].. ◆ 
+https://www.linkedin.com/posts/ray-smith-61a6262...ai-is-wrecking-activity-73660
+74237607940096-_93P  | ✓ | ⏱: 0.84s 
+[COMPLETE] ● 
+https://www.linkedin.com/posts/ray-smith-61a6262...ai-is-wrecking-activity-73660
+74237607940096-_93P  | ✓ | ⏱: 2.41s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.96s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.57s 
+[FETCH]... ↓ 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✓ | ⏱: 0.87s 
+[SCRAPE].. ◆ 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✓ | ⏱: 0.02s 
+[COMPLETE] ● 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✗ | ⏱: 0.89s 
+[polaris graph] CRAWL4AI: Failed for https://www.emerald.com/insight/content/doi/10.1108/USS-11-2: Blocked by anti-bot protection: Cloudflare JS challenge
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.94s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.03s 
+[FETCH]... ↓ 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✓ | ⏱: 0.43s 
+[SCRAPE].. ◆ 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✗ | ⏱: 0.44s 
+[polaris graph] CRAWL4AI: Failed for https://www.emerald.com/insight/content/doi/10.1108/USS-11-2: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✓ | ⏱: 0.42s 
+[SCRAPE].. ◆ 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.emerald.com/insight/content/doi/10.1...ic-analysis-of-the-associated
+-benefits-and-risks  | ✗ | ⏱: 0.43s 
+[polaris graph] CRAWL4AI: Failed for https://www.emerald.com/insight/content/doi/10.1108/USS-11-2: Blocked by anti-bot protection: Cloudflare JS challenge
+[ACCESS] Jina Reader exception for https://www.emerald.com/insight/content/doi/10.1108/USS-11-2:  — backing off 2.4s (attempt 1/4)
+[ACCESS] Archive.org failed for https://www.emerald.com/insight/content/doi/10.1108/USS-11-2024-0069/full/pdf?ti: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.mckinsey.com/mgi/our-research/generative-ai-and- — cancelled
+[live_retriever] AccessBypass timed out after 90s for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=2)
+[live_retriever] fetch_subwall_hit: fetch batch bounded to 0.75 of the remaining retrieval wall (PG_RETRIEVAL_FETCH_WALL_FRACTION) to reserve a classify/W5 slice; 1 timed out and 0 never dispatched before the fetch cutoff — DISCLOSED (flow on as fetch_failed), NOT dropped (§-1.3)
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[ACCESS] Archive.org failed for https://www.emerald.com/insight/content/doi/10.1108/USS-11-2024-0069/full/pdf?ti: 'utf-8' codec can't decode byte 0xe2 in position 10: invalid continuation byte
+[ACCESS] ALL access methods exhausted for https://www.emerald.com/insight/content/doi/10.1108/USS-11-2024-0069/full/pdf?ti
+[polaris graph] COT-1: Content empty for generate, reasoning has 84453 chars (reasoning_enabled=False, response_format=False). Returning as-is — caller handles recovery.
+Traceback (most recent call last):
+  File "/workspace/outline_agent_wt/matched_comparison_run.py", line 313, in <module>
+    asyncio.run(main())
+  File "/opt/conda/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/workspace/outline_agent_wt/matched_comparison_run.py", line 265, in main
+    full_result = await run_scenario(
+                  ^^^^^^^^^^^^^^^^^^^
+  File "/workspace/outline_agent_wt/matched_comparison_run.py", line 185, in run_scenario
+    agentic_result = await run_agentic(
+                     ^^^^^^^^^^^^^^^^^^
+  File "/workspace/outline_agent_wt/matched_comparison_run.py", line 120, in run_agentic
+    parse_result, retry_attempted, in_tok, out_tok = await oa.run_outline_agent_or_legacy(
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/outline_agent_wt/src/polaris_graph/outline/outline_agent.py", line 1838, in run_outline_agent_or_legacy
+    final_ws = await agent.run()
+               ^^^^^^^^^^^^^^^^^
+  File "/workspace/outline_agent_wt/src/polaris_graph/outline/outline_agent.py", line 1713, in run
+    await self._execute(decision)
+  File "/workspace/outline_agent_wt/src/polaris_graph/outline/outline_agent.py", line 1664, in _execute
+    still_named = await self._run_checklist(trigger="after_fold")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/outline_agent_wt/src/polaris_graph/outline/outline_agent.py", line 1290, in _run_checklist
+    resp = await client.generate(
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/outline_agent_wt/src/polaris_graph/llm/openrouter_client.py", line 3233, in generate
+    return await self._generate_impl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/outline_agent_wt/src/polaris_graph/llm/openrouter_client.py", line 3395, in _generate_impl
+    self._refuse_if_truncated_reasoning_promotion(
+  File "/workspace/outline_agent_wt/src/polaris_graph/llm/openrouter_client.py", line 3203, in _refuse_if_truncated_reasoning_promotion
+    raise ReasoningFirstTruncationError(
+src.polaris_graph.llm.openrouter_client.ReasoningFirstTruncationError: I-bug-089/FX-01: reasoning-first model z-ai/glm-5.2 truncated at promotion leg='always_reason_promotion'. candidate 84453 chars; finish_reason='length' (finish_length=True, heuristic_fallback=False). Promoting truncated reasoning-derived text as content would ship the model's scratchpad/partial answer as verified prose — increase max_tokens budget. SF-15 fail-loud.
