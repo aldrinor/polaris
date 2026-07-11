@@ -78,6 +78,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 # ---------------------------------------------------------------------------
 # Seat + knobs (LAW VI — zero hard-coding; every knob is env-tunable)
 # ---------------------------------------------------------------------------
@@ -178,22 +185,57 @@ def _aspect_dedup_threshold() -> float:
         return _ASPECT_DEDUP_JACCARD_THRESHOLD_DEFAULT
 
 
+# iter-4 P0-1 fix knobs (real-corpus proof the checklist only ever proposed a phantom
+# "Summary Table" section under the locked 4-section DRB-72 deliverable, then correctly
+# vetoed it, leaving zero genuine within-section gaps found): two mechanical (never-LLM)
+# thresholds that let a checklist/agent-proposed section label that does not resolve to a
+# current outline title EXACTLY still be recognized/routed instead of silently vetoed.
+_SECTION_TITLE_FUZZY_JACCARD_DEFAULT = 0.5
+_SECTION_REMAP_JACCARD_DEFAULT = 0.06
+
+
+def _section_title_fuzzy_threshold() -> float:
+    """Threshold for recognizing a proposed section label as the SAME section under a
+    different/short wording (e.g. 'Summary Table' vs 'Summary Table: Application Cases,
+    Impacts, and Risks by Industry/Occupation') — high bar, this is identity recognition."""
+    return _env_float(
+        "PG_OUTLINE_SECTION_TITLE_FUZZY_JACCARD", _SECTION_TITLE_FUZZY_JACCARD_DEFAULT,
+    )
+
+
+def _section_remap_jaccard_threshold() -> float:
+    """Threshold for remapping a facet to the EXISTING section whose own topic (title+focus)
+    it most overlaps, when no section in the outline is even fuzzily the SAME section — low
+    bar by design: under a locked required-structure deliverable, a genuine content facet
+    must live in SOME existing section, never invent a new one, and 'weight don't filter'
+    (§-1.3) means routing beats discarding whenever there is ANY real signal."""
+    return _env_float("PG_OUTLINE_SECTION_REMAP_JACCARD", _SECTION_REMAP_JACCARD_DEFAULT)
+
+
 # iter-2 P0-1 fix: the checklist's anti-invention grounding gate. A candidate deficiency line
 # must carry a verbatim quote from the research question; these two helpers are the mechanical
 # (never-LLM) check that the quote is real, not a paraphrase or a hallucinated snippet.
 _MIN_GROUNDING_QUOTE_WORDS = 2
 
 
+_QUOTE_WRAP_CHARS = "\"'‘’“”‹›«»`"
+
+
 def _normalize_for_quote_check(text: str) -> str:
     import re as _re
-    return _re.sub(r"\s+", " ", str(text or "").strip().lower())
+    stripped = str(text or "").strip().strip(_QUOTE_WRAP_CHARS).strip()
+    return _re.sub(r"\s+", " ", stripped.lower())
 
 
 def _quote_is_grounded(quote: str, question_norm: str) -> bool:
-    """True iff ``quote`` (whitespace/case-normalized) is a literal substring of the
-    (already-normalized) research question AND carries at least
-    ``_MIN_GROUNDING_QUOTE_WORDS`` words (a bare one-word quote like the subject's name is not
-    a specific-enough justification for a claimed missing FACET)."""
+    """True iff ``quote`` (whitespace/case-normalized, and with any wrapping quote-mark
+    PUNCTUATION the model added around its own answer stripped — iter-4 robustness fix: a
+    model reply like the literal three characters ``"foo bar"`` around an otherwise-correct
+    verbatim excerpt must not be mechanically rejected just because those wrapping marks are
+    not themselves part of the source text) is a literal substring of the (already-normalized)
+    research question AND carries at least ``_MIN_GROUNDING_QUOTE_WORDS`` words (a bare
+    one-word quote like the subject's name is not a specific-enough justification for a
+    claimed missing FACET)."""
     q = _normalize_for_quote_check(quote)
     if not q or len(q.split()) < _MIN_GROUNDING_QUOTE_WORDS:
         return False
@@ -986,7 +1028,13 @@ class OutlineAgent:
         """Iter-2 P0-2 helper: resolve a (possibly slightly-off) section name from a tool call
         to the EXACT current outline plan title, so the auto-assign reassign-op always targets a
         real, existing section (never guesses a new one into being). Exact match first, then
-        case-insensitive/whitespace-insensitive. Returns ``None`` (no guess) on no match."""
+        case-insensitive/whitespace-insensitive, then (iter-4 P0-1 fix — a real corpus run
+        showed the checklist copy a SHORTENED version of a long real title, e.g. 'Summary
+        Table' for the actual title 'Summary Table: Application Cases, Impacts, and Risks by
+        Industry/Occupation', and the strict-exact match orphaned the fetched rows) a
+        normalized substring-containment or high token-Jaccard match — still IDENTITY
+        recognition of an existing section, never an invented one. Returns ``None`` (no guess)
+        on no match."""
         sec_norm = str(sec or "").strip()
         if not sec_norm:
             return None
@@ -998,6 +1046,54 @@ class OutlineAgent:
         for title in titles:
             if title.strip().lower() == sec_lower:
                 return title
+        sec_canon = _canon_tokens(sec_norm)
+        if not sec_canon:
+            return None
+        threshold = _section_title_fuzzy_threshold()
+        best_title: Optional[str] = None
+        best_score = 0.0
+        for title in titles:
+            title_lower = title.strip().lower()
+            if title_lower and sec_lower and (sec_lower in title_lower or title_lower in sec_lower):
+                return title
+            score = _jaccard(sec_canon, _canon_tokens(title))
+            if score > best_score:
+                best_title, best_score = title, score
+        if best_title is not None and best_score >= threshold:
+            return best_title
+        return None
+
+    def _best_remap_title(self, aspect: str) -> Optional[str]:
+        """Iter-4 P0-1 fix: when a proposed section label matches NO current outline title —
+        not even fuzzily via ``_resolve_section_title`` — do not treat the underlying facet as
+        automatically unhomeable. On the real DRB-72 AI-labor corpus the checklist's ONLY
+        candidate gap was a phantom 'Summary Table' section describing facets (specific
+        industries/occupations, impacts, risks) that are each genuinely topical to one of the
+        FOUR LOCKED sections the deliverable actually has — vetoing the whole line as a
+        'deliverable-level formatting request' discarded real, retrievable content gaps
+        instead of routing them. Mechanical (never-LLM) token-overlap: score the aspect text
+        against each existing section's OWN topic (title + focus, since focus was itself
+        derived from the research question by the seed outline call, so this stays
+        question-agnostic — no hardcoded domain vocabulary). This is a ROUTING decision, not a
+        quality verdict about the corpus (§-1.3.1 — 'weight/route, don't drop'). Returns
+        ``None`` (caller falls back to UNFILLED, honestly disclosed) if nothing clears the
+        (deliberately low) floor."""
+        aspect_canon = _canon_tokens(aspect)
+        if not aspect_canon:
+            return None
+        threshold = _section_remap_jaccard_threshold()
+        best_title: Optional[str] = None
+        best_score = 0.0
+        for p in self.workspace.outline_draft:
+            title = str(_plan_field(p, "title", "") or "").strip()
+            if not title:
+                continue
+            focus = str(_plan_field(p, "focus", "") or "")
+            score = _jaccard(aspect_canon, _canon_tokens(f"{title} {focus}"))
+            if score > best_score:
+                best_title, best_score = title, score
+        if best_title is not None and best_score >= threshold:
+            return best_title
         return None
 
     # -- decide -----------------------------------------------------------
@@ -1101,7 +1197,20 @@ class OutlineAgent:
         prose (claim must trace to cited text), applied here to the GAP-DETECTION step itself so
         the loop cannot manufacture retrieval work the question never asked for. Question-
         agnostic: no domain/topic vocabulary is hardcoded, only the require-a-literal-quote
-        discipline."""
+        discipline.
+
+        Iter-4 P0-1 fix (Fable-confirmed real-corpus finding: on the locked 4-section DRB-72
+        AI-labor deliverable this checklist proposed EXACTLY ONE recurring candidate — a
+        phantom 'Summary Table' section that can never be homed under an exact-N-in-order
+        contract — and NOTHING ELSE, on both the full and a deliberately-thinned corpus. The
+        model was reading the question's cross-cutting-table sentence as its OWN section
+        instead of decomposing it into per-section facets. The prompt now (a) closes the
+        <section title> field to an EXACT copy of a listed current-outline title and explicitly
+        instructs decomposition of any table/summary/cross-cutting request into per-section
+        facets, with a worked example, and (b) as a mechanical backstop independent of prompt
+        compliance, ``_best_remap_title`` routes any section label that still doesn't resolve
+        to the existing section whose own topic (title+focus) the facet text overlaps most,
+        before ever falling back to an unhomeable veto."""
         if not self.workspace.outline_draft:
             return []
         from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
@@ -1114,32 +1223,62 @@ class OutlineAgent:
             f"{len(_plan_field(p, 'ev_ids', []) or [])} sources)"
             for p in self.workspace.outline_draft
         )
+        title_list = ", ".join(
+            repr(str(_plan_field(p, "title", "") or "")) for p in self.workspace.outline_draft
+        )
         prompt = (
             "Self-review this outline against the research question. For EACH section, check: "
             "(a) exhaustive coverage — any aspect of that section's focus the assigned sources "
             "cannot answer?, (b) information density — any aspect backed by only 1-2 sources?, "
             "(c) compute need — does the section's focus imply a numeric comparison that has no "
             "supporting data?\n\n"
+            "SECTION FIELD RULE (read carefully): the <section title> field of every line you "
+            f"write MUST be an EXACT character-for-character copy of one of these existing "
+            f"outline titles: {title_list}. Never write a section title that is not in that "
+            "list — do not invent a new section, and do not name a separate deliverable-level "
+            "artifact (a standalone summary table, an appendix, a references list, a "
+            "conclusion) as if it were its own section. If the QUESTION asks for something "
+            "that would naturally live in such a cross-cutting artifact (e.g. 'create a "
+            "summary table covering application cases, impacts, and risks'), DECOMPOSE it: "
+            "write one deficiency line PER underlying facet and assign each line to whichever "
+            "EXISTING section above is topically closest to that facet (a facet about risks or "
+            "limitations goes under whichever section already discusses risks/challenges; a "
+            "facet about applications, industries, or opportunities goes under whichever "
+            "section already discusses applications/opportunities; a facet about outcomes or "
+            "effects goes under whichever section already discusses impacts/findings). Every "
+            "existing section is a valid home for SOME facet — a table/summary request is "
+            "never, by itself, a reason to list zero deficiencies.\n\n"
             "STRICT GROUNDING RULE (read carefully — this is a precision gate, not a recall "
             "gate): only flag a deficiency for an aspect that is EXPLICITLY named or directly "
             "implied by the wording of the QUESTION below. Do NOT invent generic sub-topics, "
             "background, history, mechanisms, or comparisons just because they would be "
             "'interesting to know' about the subject — if the question does not ask for it, it "
             "is not a deficiency. When you list a deficiency you MUST include a QUOTE: a short "
-            "verbatim excerpt copied EXACTLY (same words, same characters) from the QUESTION "
-            "text that names the specific missing facet. A quote that is just the subject's "
-            "name (e.g. only the topic noun) does NOT count — it must name the FACET (e.g. "
-            "'long-term cardiovascular safety', 'compared with other agents', "
-            "'in specific populations'). If you cannot produce such a quote, do not list the "
-            "line.\n\n"
+            "verbatim excerpt copied EXACTLY (same words, same characters, no added quotation "
+            "marks of your own around it) from the QUESTION text that names the specific "
+            "missing facet. A quote that is just the subject's name (e.g. only the topic noun) "
+            "does NOT count — it must name the FACET (e.g. 'long-term cardiovascular safety', "
+            "'compared with other agents', 'in specific populations', 'particular industries "
+            "or occupations', 'key risk points'). If you cannot produce such a quote, do not "
+            "list the line.\n\n"
             "If the question is a single, narrow, already-answered factual question, or every "
             "section is fully adequate, reply exactly NONE and list nothing else.\n\n"
             "Format each deficiency as ONE line, four fields separated by ' :: ':\n"
-            "<section title> :: <specific missing aspect> :: <coverage|density|numeric_rows> :: "
-            "<verbatim quote from QUESTION>\n\n"
+            "<section title, copied EXACTLY from the list above> :: <specific missing aspect> "
+            ":: <coverage|density|numeric_rows> :: <verbatim quote from QUESTION>\n\n"
             "Example (question asks two things, sources only cover one) — CORRECT:\n"
             "Safety :: long-term cardiovascular safety :: coverage :: long-term cardiovascular "
             "safety\n"
+            "Example (question asks for a cross-cutting summary table of application cases and "
+            "risks across industries; outline has sections 'Opportunities' and 'Challenges') — "
+            "CORRECT (decomposed into 2 lines, each under an EXISTING section):\n"
+            "Opportunities :: specific application cases by industry or occupation :: coverage "
+            ":: particular industries or occupations\n"
+            "Challenges :: key risk points emphasized by researchers :: coverage :: key risk "
+            "points emphasized by researchers\n"
+            "WRONG for the same question: 'Summary Table :: application cases, impacts, and "
+            "risks by industry :: coverage :: summary table' — this invents a section that "
+            "isn't in the list above instead of decomposing into the existing sections.\n"
             "Example (single-fact question, already answered) — CORRECT reply: NONE\n"
             "Example of what NOT to do: inventing 'engineering mechanisms' or 'other tall "
             "structures' for a question that only asks a completion year — WRONG, do not do "
@@ -1172,6 +1311,8 @@ class OutlineAgent:
         ungrounded_lines: list[str] = []
         n_unhomeable = 0
         unhomeable_lines: list[str] = []
+        n_remapped = 0
+        remapped_lines: list[str] = []
         for line in screened[:12]:
             if line.upper().strip() == "NONE":
                 continue
@@ -1193,33 +1334,46 @@ class OutlineAgent:
             # Iter-3 P0 fix (real-corpus degeneration): a gap whose named section resolves to
             # NO current outline title, under a LOCKED required-structure deliverable (no room
             # to add a new section), can never be routed to retrieval — it is a deliverable-
-            # level/formatting request (e.g. "Summary Table"), not a content gap. Record it
-            # UNFILLED immediately (never PENDING) so the loop cannot re-fetch it every round
-            # under a slightly reworded checklist line — the iter-2 Fable audit measured this
-            # exact pattern re-firing ~10x over 945s with every fetched row orphaned. This is a
+            # level/formatting request (e.g. "Summary Table"), not a content gap. This is a
             # STRUCTURAL check (does the section resolve?), not a keyword/domain-vocabulary
             # guess, so it stays question-agnostic.
+            #
+            # Iter-4 P0-1 fix: before recording it UNFILLED, try `_best_remap_title` — a
+            # mechanical (never-LLM) backstop that routes the facet to whichever EXISTING
+            # section its own vocabulary overlaps most, independent of whether the prompt-level
+            # decomposition instruction above was actually followed. This is what turns a
+            # phantom-section "Summary Table" line into a genuine, retrievable content gap
+            # against a real locked section instead of a permanent veto.
             if self.workspace.required_titles and self._resolve_section_title(section) is None:
-                self.workspace.gap_ledger.add_unfillable(
-                    section=section, aspect=aspect,
-                    reason=(
-                        f"named section {section!r} does not match any of the locked required "
-                        f"section titles {self.workspace.required_titles!r} and a new section "
-                        "cannot be added under this deliverable's exact-structure contract — "
-                        "this reads as a deliverable-level/formatting request, not a retrievable "
-                        "content gap; recorded as a structural limitation, not retried"
-                    ),
-                    needed_kind=kind, source="checklist",
-                )
-                # Iter-3 P1 fix: bank the SECTION LABEL itself (not the (section,aspect) pair)
-                # as proven-unhomeable — see `OutlineWorkspace.unhomeable_sections` docstring.
-                # A real THINNED-corpus run showed the checklist re-wording the ASPECT text
-                # each round (dodging the (section,aspect) paraphrase dedup) while the SECTION
-                # label stayed constant; vetoing by section label closes that gap.
-                self.workspace.unhomeable_sections.add(_normalize_section_label(section))
-                n_unhomeable += 1
-                unhomeable_lines.append(f"{section}::{aspect}")
-                continue
+                remap_title = self._best_remap_title(aspect)
+                if remap_title is not None:
+                    n_remapped += 1
+                    remapped_lines.append(f"{section!r}->{remap_title!r}::{aspect[:60]}")
+                    section = remap_title
+                else:
+                    self.workspace.gap_ledger.add_unfillable(
+                        section=section, aspect=aspect,
+                        reason=(
+                            f"named section {section!r} does not match any of the locked "
+                            f"required section titles {self.workspace.required_titles!r}, a new "
+                            "section cannot be added under this deliverable's exact-structure "
+                            "contract, and no existing section's own topic overlaps this facet's "
+                            "vocabulary enough to remap it — this reads as a deliverable-level/"
+                            "formatting request, not a retrievable content gap; recorded as a "
+                            "structural limitation, not retried"
+                        ),
+                        needed_kind=kind, source="checklist",
+                    )
+                    # Iter-3 P1 fix: bank the SECTION LABEL itself (not the (section,aspect)
+                    # pair) as proven-unhomeable — see `OutlineWorkspace.unhomeable_sections`
+                    # docstring. A real THINNED-corpus run showed the checklist re-wording the
+                    # ASPECT text each round (dodging the (section,aspect) paraphrase dedup)
+                    # while the SECTION label stayed constant; vetoing by section label closes
+                    # that gap.
+                    self.workspace.unhomeable_sections.add(_normalize_section_label(section))
+                    n_unhomeable += 1
+                    unhomeable_lines.append(f"{section}::{aspect}")
+                    continue
             todo = self.workspace.gap_ledger.add(
                 section=section, aspect=aspect, needed_kind=kind, source="checklist",
             )
@@ -1228,6 +1382,13 @@ class OutlineAgent:
             self.workspace.disclose(
                 f"checklist[{trigger}] named {len(new_todos)} gap(s): "
                 + "; ".join(f"{t.section}::{t.aspect}" for t in new_todos[:6])
+            )
+        if n_remapped:
+            self.workspace.disclose(
+                f"checklist[{trigger}] remapped {n_remapped} facet(s) from a section label "
+                "that did not match any locked required title onto the existing section its "
+                "vocabulary overlaps most (iter-4 P0-1 fix — routes content instead of vetoing "
+                "a format-only request): " + "; ".join(remapped_lines[:6])
             )
         if n_unhomeable:
             self.workspace.disclose(
@@ -1245,7 +1406,7 @@ class OutlineAgent:
                 "(no verbatim question quote — anti-invention gate, P0-1 fix): "
                 + " | ".join(ungrounded_lines[:6])
             )
-        if not new_todos and not n_ungrounded:
+        if not new_todos and not n_ungrounded and not n_unhomeable:
             # Iter-2 telemetry fix: previously a genuine "the checklist ran and found NOTHING"
             # outcome (the correct behavior on a saturated/fully-covered outline) left ZERO trace
             # in `disclosures` — indistinguishable from the checklist never having been invoked at
@@ -1432,35 +1593,63 @@ class OutlineAgent:
                     elif new_ev_ids:
                         # A deliverable required-structure lock IS active — never grow a 5th
                         # section behind the caller's exact-N-in-order contract (§9.1.8 /
-                        # outline_revise.py `required_titles`). Disclosed, rows stay in the
-                        # pool for the NEXT checklist pass to route to a REAL required title.
+                        # outline_revise.py `required_titles`).
                         #
-                        # Iter-3 P0 fix: this used to fall through to the generic after-fold
-                        # recheck+retry cycle below, which re-ran the checklist (which had NO
-                        # way to see these orphaned rows as "assigned" since they were never
-                        # folded into any section) — so the SAME agent-initiated gap re-armed
-                        # itself as PENDING every round it hadn't yet hit the retry cap, and in
-                        # parallel the checklist detector kept minting FRESH differently-worded
-                        # todos for the same unhomeable target. Both paths compounded into the
-                        # measured ~10-round, ~945s degeneration on the real S2S3 corpus. This
-                        # gap is now terminated here: UNFILLED immediately, never retried, and
-                        # the after-fold recheck below is skipped (nothing changed for it to
-                        # re-judge — retrieval structurally cannot help).
-                        unhomeable_agent_gap = True
-                        reason = (
-                            f"{sec!r} does not match any current outline section title, and "
-                            f"required_titles={self.workspace.required_titles} forbids adding a "
-                            f"new one — {len(new_ev_ids)} new ev_id(s) stay in the pool; this is "
-                            "a structural limitation (deliverable-level/formatting request), not "
-                            "a retrievable content gap — recorded UNFILLED, not retried"
-                        )
-                        self.workspace.disclose(f"auto-assign SKIPPED: {reason}")
-                        existing.status = "UNFILLED"
-                        existing.disclosure = reason
-                        # Iter-3 P1 fix: bank the section label (see docstring + the checklist
-                        # side of this same fix above) so a FUTURE agent-initiated attempt under
-                        # different aspect wording is vetoed BEFORE spending a real fetch.
-                        self.workspace.unhomeable_sections.add(_normalize_section_label(sec))
+                        # Iter-4 P0-1 fix: before giving up, try the SAME mechanical remap
+                        # backstop the checklist detector uses — route the fetched rows to the
+                        # existing section whose own topic (title+focus) the aspect text
+                        # overlaps most. This is what lets an agent-initiated gap (not just a
+                        # checklist-named one) still land in a real section instead of
+                        # orphaning a genuinely fetched, on-topic row.
+                        remap_title = self._best_remap_title(asp)
+                        if remap_title is not None:
+                            assign_result = await _tool_update_outline(
+                                self.workspace,
+                                ops={"ops": [{
+                                    "op": "reassign", "title": remap_title,
+                                    "add_ev_ids": new_ev_ids,
+                                }]},
+                            )
+                            if assign_result.success:
+                                resolved_title = remap_title
+                                self.workspace.disclose(
+                                    f"auto-assign: {sec!r} did not match any locked required "
+                                    f"section title, but its vocabulary overlaps existing "
+                                    f"section {remap_title!r} the most — remapped and routed "
+                                    f"{len(new_ev_ids)} new ev_id(s) there (iter-4 P0-1 fix)"
+                                )
+                            else:
+                                remap_title = None  # fall through to the unhomeable path below
+                        if remap_title is None:
+                            # Iter-3 P0 fix: this used to fall through to the generic after-fold
+                            # recheck+retry cycle below, which re-ran the checklist (which had NO
+                            # way to see these orphaned rows as "assigned" since they were never
+                            # folded into any section) — so the SAME agent-initiated gap re-armed
+                            # itself as PENDING every round it hadn't yet hit the retry cap, and in
+                            # parallel the checklist detector kept minting FRESH differently-worded
+                            # todos for the same unhomeable target. Both paths compounded into the
+                            # measured ~10-round, ~945s degeneration on the real S2S3 corpus. This
+                            # gap is now terminated here: UNFILLED immediately, never retried, and
+                            # the after-fold recheck below is skipped (nothing changed for it to
+                            # re-judge — retrieval structurally cannot help).
+                            unhomeable_agent_gap = True
+                            reason = (
+                                f"{sec!r} does not match any current outline section title, "
+                                f"required_titles={self.workspace.required_titles} forbids "
+                                "adding a new one, and no existing section's own topic overlaps "
+                                f"this facet's vocabulary enough to remap it — {len(new_ev_ids)} "
+                                "new ev_id(s) stay in the pool; this is a structural limitation "
+                                "(deliverable-level/formatting request), not a retrievable "
+                                "content gap — recorded UNFILLED, not retried"
+                            )
+                            self.workspace.disclose(f"auto-assign SKIPPED: {reason}")
+                            existing.status = "UNFILLED"
+                            existing.disclosure = reason
+                            # Iter-3 P1 fix: bank the section label (see docstring + the
+                            # checklist side of this same fix above) so a FUTURE agent-initiated
+                            # attempt under different aspect wording is vetoed BEFORE spending a
+                            # real fetch.
+                            self.workspace.unhomeable_sections.add(_normalize_section_label(sec))
                     # Design control flow: "if search: fold-in + re-check aspect". A successful
                     # FETCH+ASSIGN is not the same claim as "the aspect is now covered" — re-run
                     # the checklist so a fresh judge decides whether this (section, aspect) is
