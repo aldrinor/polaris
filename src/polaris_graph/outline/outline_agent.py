@@ -52,6 +52,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from src.polaris_graph.outline._fold_in import (
+    _offset_renumber,
+    _stamp_and_delete,
+    fold_in_fetched_rows,
+)
 from src.polaris_graph.tools.analysis_notebook import AnalysisNotebook, AnalysisStep
 from src.polaris_graph.tools.react_agent import ReactDecision
 from src.polaris_graph.tools.tool_registry import (
@@ -626,34 +631,6 @@ def _sync_llm_bridge(model: str, max_tokens: int) -> Callable[[str], str]:
     return _llm
 
 
-def _offset_renumber(
-    new_rows: list[dict[str, Any]], offset: int, existing_ids: set[str],
-) -> list[dict[str, Any]]:
-    """THE sharp seam (design §): renumber ``new_rows`` to ``ev_{offset+i}`` and HARD
-    fail-loud assert the new id set never intersects ``existing_ids``. A collision here is a
-    programming bug in the offset computation, not a data condition — it must never be
-    swallowed (LAW II: fail loudly, never silently degrade)."""
-    renumbered: list[dict[str, Any]] = []
-    new_ids: set[str] = set()
-    for i, row in enumerate(new_rows):
-        new_id = f"ev_{offset + i:03d}"
-        if new_id in existing_ids or new_id in new_ids:
-            raise AssertionError(
-                f"outline_agent id-collision seam FAILED: {new_id!r} already present "
-                f"(existing_ids has it: {new_id in existing_ids}; batch dup: {new_id in new_ids}). "
-                "This must never happen — the offset computation has a bug."
-            )
-        new_ids.add(new_id)
-        copied = dict(row)
-        copied["evidence_id"] = new_id
-        renumbered.append(copied)
-    assert new_ids.isdisjoint(existing_ids), (
-        "outline_agent id-collision seam FAILED post-hoc: new ids intersect existing ids "
-        f"({sorted(new_ids & existing_ids)})"
-    )
-    return renumbered
-
-
 async def _tool_search_more_evidence(
     workspace: OutlineWorkspace,
     agent_model: str,
@@ -761,32 +738,19 @@ async def _tool_search_more_evidence(
     fetched_rows = list(getattr(merged, "evidence_rows", None) or [])
     n_fetched_of = f"{len(fetched_rows)} of {getattr(merged, 'candidates_total', len(fetched_rows))}"
 
-    existing_urls = workspace.existing_urls()
-    deduped_rows = [
-        r for r in fetched_rows
-        if str(r.get("source_url") or r.get("url") or "").strip() not in existing_urls
-        or not str(r.get("source_url") or r.get("url") or "").strip()
-    ]
-    n_url_dup = len(fetched_rows) - len(deduped_rows)
-
-    offset = workspace.next_ev_offset()
-    existing_ids = set(workspace.ev_store.keys())
-    renumbered = _offset_renumber(deduped_rows, offset, existing_ids)
-
-    # S2 stamp pass: chrome delete (content-integrity) + topic-judge fail-open off-topic delete.
-    kept_rows, deleted_chrome, deleted_offtopic = await _stamp_and_delete(
-        renumbered, workspace.research_question, agent_model,
+    # THE shared fold-in seam (outline/_fold_in.py): url-dedup -> offset-renumber (hard
+    # id-collision assert) -> S2 stamp/delete -> insert. fetch_url re-enters through the same unit.
+    fold = await fold_in_fetched_rows(
+        workspace, fetched_rows,
+        research_question=workspace.research_question, agent_model=agent_model,
     )
-
-    for row in kept_rows:
-        workspace.ev_store[row["evidence_id"]] = row
-
-    n_kept = len(kept_rows)
-    n_deleted = len(deleted_chrome) + len(deleted_offtopic)
+    kept_rows = fold.kept_rows
+    n_kept = fold.n_kept
+    n_deleted = fold.n_deleted
     disclosure = (
         f"search_more_evidence[{aspect_text[:60]!r}] query={query!r} fetched {n_fetched_of}, "
-        f"url-dup dropped {n_url_dup}, kept {n_kept}, deleted {n_deleted} "
-        f"(chrome={len(deleted_chrome)}, off-topic={len(deleted_offtopic)}) in {elapsed:.1f}s"
+        f"url-dup dropped {fold.n_url_dup}, kept {n_kept}, deleted {n_deleted} "
+        f"(chrome={len(fold.deleted_chrome)}, off-topic={len(fold.deleted_offtopic)}) in {elapsed:.1f}s"
     )
     workspace.disclose(disclosure)
 
@@ -806,73 +770,6 @@ async def _tool_search_more_evidence(
         source_evidence_ids=[r["evidence_id"] for r in kept_rows],
         error=("" if n_kept > 0 else "no_new_evidence_survived_screen"),
     )
-
-
-async def _stamp_and_delete(
-    rows: list[dict[str, Any]], research_question: str, agent_model: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """S2 stamp pass: content-integrity chrome detection (pure, no LLM) THEN semantic
-    topic-judge off-topic screen (LLM, fail-open). Returns (kept, deleted_chrome,
-    deleted_offtopic). §-1.3.1: only genuine junk/off-topic is deleted here — the rest of
-    the WEIGHT-AND-CONSOLIDATE DNA (tier/credibility weighting) is untouched downstream."""
-    if not rows:
-        return [], [], []
-
-    from src.tools.access_bypass import detect_content_integrity_junk  # noqa: PLC0415
-
-    survivors: list[dict[str, Any]] = []
-    deleted_chrome: list[dict[str, Any]] = []
-    for row in rows:
-        body = max(
-            (
-                str(row.get(k) or "") for k in (
-                    "fetched_body", "full_text", "content", "extracted_text",
-                    "raw_content", "raw_text", "page_text", "direct_quote",
-                    "statement", "source_text", "body", "text",
-                )
-            ),
-            key=len, default="",
-        )
-        url = str(row.get("source_url") or row.get("url") or "")
-        title = str(row.get("title") or row.get("source_title") or "")
-        try:
-            is_junk, cls = detect_content_integrity_junk(body, url, title)
-        except Exception as exc:  # noqa: BLE001 — fail-open, never delete on a predicate bug
-            logger.warning("[outline_agent] content-integrity check errored (fail-open): %s", exc)
-            is_junk, cls = False, ""
-        if is_junk:
-            copied = dict(row)
-            copied["deletion_reason"] = f"content_integrity_junk:{cls}"
-            deleted_chrome.append(copied)
-        else:
-            survivors.append(row)
-
-    if not survivors:
-        return [], deleted_chrome, []
-
-    try:
-        from src.polaris_graph.retrieval.topic_relevance_gate import (  # noqa: PLC0415
-            classify_topic_relevance, topic_gate_enabled,
-        )
-        if not topic_gate_enabled():
-            return survivors, deleted_chrome, []
-        llm_callable = _sync_llm_bridge(
-            agent_model, _env_int("PG_SCOPE_TOPIC_MAX_TOKENS", 1200),
-        )
-        topic_result = await asyncio.to_thread(
-            classify_topic_relevance, survivors, research_question, llm_callable,
-        )
-        kept = list(getattr(topic_result, "kept_rows", None) or survivors)
-        dropped = list(getattr(topic_result, "dropped_rows", None) or [])
-        deleted_offtopic = []
-        for row in dropped:
-            copied = dict(row)
-            copied["deletion_reason"] = "confirmed_offtopic_subject"
-            deleted_offtopic.append(copied)
-        return kept, deleted_chrome, deleted_offtopic
-    except Exception as exc:  # noqa: BLE001 — topic judge is fail-open by design
-        logger.warning("[outline_agent] topic judge skipped (fail-open): %s", exc)
-        return survivors, deleted_chrome, []
 
 
 # ---------------------------------------------------------------------------
