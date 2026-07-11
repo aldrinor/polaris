@@ -160,3 +160,5 @@ gate earned its keep: Fable **rejected my first tooluse attempt and caught a bug
 `"(unassigned)"`). A builder does not grade its own homework — that rule paid for itself tonight.
 
 The tooluse wheel is **UNSIGNED** and I have left it that way on purpose. Next move is action 2.
+
+- 2026-07-11 15:37 UTC (undefined-wheel builder, PARTIAL): hamster_wheel.js now fail-fasts on missing/invalid args (validateWheelArgs + worktree existsSync guard) returning one FATAL line + {signed_off:false} BEFORE any agent spawns; added BLOCKED guard line to Test+Build prompts. deck.sh: 429 grep now matches real signatures (`429 Too Many|HTTP.*429|rate.?limit`, excludes */.codex/*), and CONTENTION/VRAM use pgrep -f + per-index nvidia-smi instead of hardcoded PIDs/`sed -n 2p`. deck.sh exercised live (no false 429; probe429 flags exactly 1; CONTENTION 966951 + VRAM GPU1=31735MiB by pattern). hamster_wheel.js validated via Python-proxy of the exact predicate (no JS runtime on box). SKIPPED: step 2 (relaunch — driver/ops action, not mine) and step 6 (sudo kill 8846 — uid polaris has no sudo).
