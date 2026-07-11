@@ -1393,6 +1393,15 @@ class OutlineParseResult:
     # cp4 ``revision_audit`` surfaces this so every re-map is DISCLOSED (§-1.3), never silent. Empty
     # on the exact-match / OFF (no required_sections) path, so those constructions are byte-identical.
     title_conformed: list = field(default_factory=list)
+    # MOAT LIVE-SEAM (agentic corpus path): the outline agent's run-scoped verified-compute
+    # registry, keyed by (model_id, spec_hash) exactly as ``strict_verify(quantified_models=...)``
+    # / ``verify_sentence_provenance(quantified_models=...)`` consume it. Populated ONLY by
+    # ``run_outline_agent_or_legacy`` when the agentic loop registered computed models via
+    # ``verified_compute``; EMPTY ({}) on every legacy/plain construction, and the consumer treats
+    # an empty registry as None => byte-identical no-threading. This is the channel by which a
+    # ``[#calc:]`` body sentence in the FULL-CORPUS ``generate_multi_section_report`` run verifies
+    # against the agent's computed models instead of being fail-closed dropped.
+    quantified_models: dict = field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -5714,6 +5723,7 @@ async def _run_section(
     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
     research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
+    quantified_models: "dict[tuple[str, str], Any] | None" = None,  # MOAT: agentic verified-compute registry; None => byte-identical
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -6147,7 +6157,13 @@ async def _run_section(
     # py-spy 'ssl.recv on MainThread, 0 CPU' freeze that hung Q72/Q76/Q90). Mirrors the
     # credibility-pass to_thread fix already in this file (:7210). SAME verdicts, SAME
     # engine, faithfulness BYTE-IDENTICAL — only the thread changes.
-    report = await asyncio.to_thread(strict_verify, rewritten, evidence_pool)
+    # MOAT LIVE-SEAM: thread the agentic verified-compute registry so a [#calc:] body sentence
+    # force-routes to the Regime-C calc verifier (renders the computed number) instead of dropping
+    # no_provenance_token. Default None => byte-identical; a derived number STILL cannot reach the
+    # [#ev:] path (verify_sentence_provenance drops a MIXED [#calc:]+[#ev:] sentence fail-closed).
+    report = await asyncio.to_thread(
+        strict_verify, rewritten, evidence_pool, quantified_models=quantified_models
+    )
 
     # I-bug-108: verifier-driven sentence repair loop. Per Codex
     # strategic-review iter 1 path B (recommended after PR #350 D).
@@ -6284,7 +6300,9 @@ async def _run_section(
         )
         # I-deepfix-001 W03-strict-verify-offload (#1344): the regeneration-pass verify,
         # offloaded for the same reason as the primary verify above.
-        report2 = await asyncio.to_thread(strict_verify, rewritten2, evidence_pool)
+        report2 = await asyncio.to_thread(
+            strict_verify, rewritten2, evidence_pool, quantified_models=quantified_models
+        )
         # M-41c pass-2: compare POST-FILTER kept counts, not
         # pre-filter strict_verify totals. This prevents a retry with
         # many under-framed trial-name claims from winning over a
@@ -9585,6 +9603,13 @@ async def generate_multi_section_report(
     # raises NameError. The v30_contract_plans layering below is UNCHANGED (contract +
     # enrichment ON TOP). outline_ok=True + non-empty plans means the
     # `research_plan is None` deterministic-fallback guard below does NOT clobber it.
+    # MOAT LIVE-SEAM: the outline agent's run-scoped verified-compute registry, captured from the
+    # ``run_outline_agent_or_legacy`` return in the else-branch below and threaded (default None =>
+    # byte-identical) into every section-body strict_verify so a ``[#calc:]`` body sentence in the
+    # FULL-CORPUS agentic run verifies against the agent's computed models. Initialized here
+    # UNCONDITIONALLY so the STORM / research_plan branches (which never run the agentic seam) leave
+    # it None and the dispatch closures never NameError.
+    _outline_quantified_models: dict | None = None
     _storm_scaffold_plans = _build_storm_outline_section_plans(
         storm_outline, evidence, partial_mode=partial_mode,
     )
@@ -9675,6 +9700,15 @@ async def generate_multi_section_report(
                 scope_spec=scope_spec,
             )
         plans = outline_parse.plans
+        # MOAT LIVE-SEAM: capture the agentic loop's verified-compute registry. Empty ({}) on the
+        # plain/legacy pass-through (PG_OUTLINE_AGENT off) => stays None => byte-identical verify.
+        _outline_quantified_models = dict(getattr(outline_parse, "quantified_models", None) or {}) or None
+        if _outline_quantified_models:
+            logger.info(
+                "[multi_section] MOAT seam: outline agent exported %d verified-compute model(s); "
+                "threading into section-body strict_verify (calc-lane render enabled)",
+                len(_outline_quantified_models),
+            )
         # N6-FIX-B (I-deepfix-001 wave-2): strip SEMANTIC confirmed-off-topic ev_ids from the LEGACY
         # outline plans (FINDING#5's intent, previously wired only on the on-mode planner branch).
         # Under its OWN default-OFF PG_LEGACY_OUTLINE_OFFTOPIC_STRIP kill-switch; OFF => byte-identical.
@@ -10588,6 +10622,10 @@ async def generate_multi_section_report(
                 # I-arch-004 F21 (#1255): thread the real research_question
                 # (framing-only) into legacy section prompts + distill MAP/REDUCE.
                 research_question=research_question,
+                # MOAT LIVE-SEAM: the agentic outline's verified-compute registry (None on the
+                # plain/legacy path => byte-identical). Enables the [#calc:] calc-lane render in
+                # the FULL-CORPUS agentic run's section bodies.
+                quantified_models=_outline_quantified_models,
             )
 
     # V33 unified dispatch helper for downstream (M-44 regen) callers

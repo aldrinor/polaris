@@ -2036,4 +2036,11 @@ async def run_outline_agent_or_legacy(
         if eid and eid not in ev_ids_before:
             evidence.append(row)
 
+    # MOAT LIVE-SEAM: export the run-scoped verified-compute registry so the FULL-CORPUS
+    # ``generate_multi_section_report`` composer can gate a ``[#calc:]`` body sentence against the
+    # models the agentic loop actually computed. EMPTY ({}) => the consumer threads None =>
+    # byte-identical legacy verify (derived numbers still cannot reach the [#ev:] render path; the
+    # calc lane is the ONLY route and it is fail-closed on an empty/absent registry).
+    parse_result.quantified_models = dict(final_ws.quantified_models)
+
     return parse_result, retry_attempted, final_ws.total_input_tokens, final_ws.total_output_tokens

@@ -298,6 +298,66 @@ async def _case_production_handoff() -> list[Assertion]:
     ]
 
 
+# ── H01f COMPOSER HANDOFF: the calc number ships through the FULL-CORPUS composer ─
+async def _case_composer_handoff() -> list[Assertion]:
+    """Drive the outline-emitted [#calc:] sentence + the quantified_models registry through the
+    REAL full-corpus composer ``_run_section`` (the path ``generate_multi_section_report`` uses in
+    the cp4_used=agentic 346-basket run — NOT run_honest_pipeline). Proves the moat number renders
+    in the SECTION BODY on the pipeline that actually composes section bodies in the corpus run.
+
+    Guard: WITHOUT the registry (legacy prod default) => the calc sentence is DROPPED (section
+    renders its gap stub, number absent); WITH the registry => kept and present in verified_text.
+    Only ``_call_section`` (the LLM writer) is stubbed to emit the composed draft — the rewrite
+    tail, strict_verify, and citation resolution are all REAL.
+    """
+    import src.polaris_graph.generator.multi_section_generator as _msg
+    from src.polaris_graph.generator.multi_section_generator import SectionPlan, _run_section
+
+    ws = _workspace()
+    claim = await _compute(
+        ws,
+        [_dp("ev_2016", "o16", "fiscal 2016", "1493602"),
+         _dp("ev_2015", "o15", "fiscal 2015", "903095")],
+        _spec("opinc_delta", "delta", "(o16 - o15) * 1000",
+              [("o16", "ev_2016", "fiscal 2016", "1493602"),
+               ("o15", "ev_2015", "fiscal 2015", "903095")]),
+    )
+    if claim is None:
+        return [Assertion("precondition_compute", False, "claim", None, severity="S0")]
+    sentence = claim.render_sentence("Adobe operating income rose by")
+
+    async def _stub_call_section(*_a, **_k):
+        return sentence, 0, 0, {}
+
+    async def _run(qm):
+        section = SectionPlan(title="Efficacy", focus="Operating income trajectory",
+                              ev_ids=["ev_2016", "ev_2015"])
+        orig = _msg._call_section
+        _msg._call_section = _stub_call_section
+        try:
+            return await _run_section(
+                section, dict(_EV), model="stub-model", temperature=0.0,
+                max_tokens_per_section=512, min_kept_fraction=0.0, quantified_models=qm)
+        finally:
+            _msg._call_section = orig
+
+    r_no = await _run(None)
+    r_yes = await _run(ws.quantified_models)
+    return [
+        Assertion("legacy_no_registry_drops_calc_body_sentence",
+                  r_no.sentences_verified == 0 and _GOLD not in r_no.verified_text,
+                  "verified=0, number absent from body",
+                  f"verified={r_no.sentences_verified} in_body={_GOLD in r_no.verified_text}",
+                  severity="S1",
+                  detail="proves the composer seam is load-bearing (without it the moat is dropped)"),
+        Assertion("with_registry_calc_number_renders_in_section_body",
+                  r_yes.sentences_verified >= 1 and _GOLD in r_yes.verified_text,
+                  "verified>=1, number present in section verified_text",
+                  f"verified={r_yes.sentences_verified} in_body={_GOLD in r_yes.verified_text}",
+                  severity="S0"),
+    ]
+
+
 BATTERY_CASES = [
     BatteryCase("h01a_calc_render", "finance", "verified_compute+calc_lane", _case_calc_render),
     BatteryCase("h01b_calc_dropguard", "finance", "faithfulness_drop_guard", _case_calc_dropguard),
@@ -308,4 +368,7 @@ BATTERY_CASES = [
                 note="probes whether the deferred mirror-model check is needed (it is not)"),
     BatteryCase("h01e_production_handoff", "finance", "downstream_strict_verify_handoff",
                 _case_production_handoff),
+    BatteryCase("h01f_composer_handoff", "finance", "full_corpus_composer_handoff",
+                _case_composer_handoff,
+                note="drives _run_section (generate_multi_section_report path), not honest_pipeline"),
 ]
