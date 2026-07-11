@@ -995,6 +995,14 @@ async def abstractive_pre_pass(
             # mutate the shared dict as a SIDE EFFECT so an abandoned (never-awaited) task's
             # already-completed siblings are still captured — out is the source of truth, not gather().
             out[key] = draft
+            # Fix 8 (P2, 2026-07-11 compose gear-loop iter-3): per-basket draft-acceptance INFO
+            # line so mid-run forensic monitoring can tell a still-pending/in-flight basket from a
+            # dead one. The section-level synth_primary marker only fires at section FINALIZATION,
+            # which left the mid-run tail blind. General + question-agnostic (a running drafted
+            # counter, no topic/entity content).
+            logger.info(
+                "[abstractive_writer] draft kept basket=%s (drafted %d)", key, len(out),
+            )
 
     def _abandon_pending(pending_tasks: "set[asyncio.Task]") -> None:
         # ABANDON the stuck baskets — do NOT await (awaiting a task wedged in httpx teardown, or one
