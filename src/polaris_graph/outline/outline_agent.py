@@ -147,6 +147,11 @@ def outliner_code_model() -> str:
     return os.getenv("PG_OUTLINER_CODE_MODEL", PG_OUTLINER_CODE_MODEL_DEFAULT)
 
 
+# Tools whose executor actually CONSUMES the ``client`` kwarg (LLM codegen). Not the same set as
+# ``requires_llm=True``: search_more_evidence carries that flag but builds its own clients.
+_CODEGEN_TOOLS = frozenset({"execute_python"})
+
+
 def _max_turns() -> int:
     return _env_int("PG_OUTLINE_AGENT_MAX_TURNS", PG_OUTLINE_AGENT_MAX_TURNS_DEFAULT)
 
@@ -1532,6 +1537,22 @@ class OutlineAgent:
                     aspect=f"{step.tool_name} returned no usable rows — need more numeric data",
                     needed_kind="numeric_rows", source="tool_failure",
                 )
+        # W3 (2026-07-11): a FAILED compute was previously invisible here — the agent moved on with
+        # no record that the number it wanted was never derived. Record it UNFILLABLE, not PENDING:
+        # a compute failure is NOT retrievable, and a PENDING "(unassigned)" todo is routed to
+        # search_more_evidence (decide rule 1, :1182) — which burns real web fetches on an error
+        # string and can auto-assign a section literally titled "(unassigned)" (:1681). add_unfillable
+        # lands it UNFILLED + disclosed immediately and it is never selected by next_pending().
+        elif step.tool_name == "execute_python" and not result.success:
+            self.workspace.gap_ledger.add_unfillable(
+                section="(unassigned)",
+                aspect=(
+                    f"execute_python failed ({result.error or 'unknown error'}) — the value it was "
+                    f"asked to derive was NOT computed"
+                ),
+                reason="compute failure is not retrievable — no web fetch can fill it",
+                needed_kind="computed_value", source="tool_failure",
+            )
 
     # -- execute ------------------------------------------------------------
 
@@ -1572,11 +1593,25 @@ class OutlineAgent:
                 markdown=f"Unknown tool: {decision.action}", error="unknown_tool",
             )
         else:
+            # W3 (2026-07-11): the dispatch used to hardcode ``client=None``, so execute_python
+            # failed 100% of the time with "No LLM client available" (tool_registry.py:556) — while
+            # still being advertised as available in the decide prompt. It now gets a real client on
+            # the CODE model, per-call, closed on every exit path (mirrors _decide, :1203).
+            # Gated on the tool that actually CONSUMES the client, not on requires_llm:
+            # search_more_evidence is also requires_llm=True but ignores the kwarg and builds its own
+            # clients internally (:1036), so gating on the flag would construct+close a wasted
+            # OpenRouterClient on every search turn.
+            code_client = None
             try:
+                if decision.action in _CODEGEN_TOOLS:
+                    from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+                        OpenRouterClient,
+                    )
+                    code_client = OpenRouterClient(model=outliner_code_model())
                 result = await tool_def.execute(
                     evidence_store=self.workspace.ev_store,
                     data_points=self.workspace.notebook.data_points,
-                    client=None,
+                    client=code_client,
                     **(decision.action_input or {}),
                 )
             except Exception as exc:  # noqa: BLE001 — a single tool must never crash the loop
@@ -1585,6 +1620,12 @@ class OutlineAgent:
                     success=False, tool_name=decision.action,
                     markdown=f"Tool raised: {exc}", error=str(exc)[:500],
                 )
+            finally:
+                if code_client is not None and hasattr(code_client, "close"):
+                    try:
+                        await code_client.close()
+                    except Exception:  # noqa: BLE001
+                        pass
         step = AnalysisStep(
             step_number=self.workspace.turn, reasoning=decision.reasoning,
             tool_name=decision.action, result=result,
