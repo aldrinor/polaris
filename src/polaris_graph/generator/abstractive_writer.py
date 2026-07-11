@@ -827,7 +827,12 @@ async def _pre_pass_one_basket(
                 )
                 break
             last_draft = draft
-            passed, reasons = _draft_passes_wrapper(draft, basket, evidence_pool, writer_verify_fn)
+            # BLOCKING: writer_verify_fn -> entailment_judge -> fut.result() waits on the calling
+            # thread. Called inline it stalls the whole event loop, serializing every section's
+            # writer calls behind one NLI POST. Must stay off-loop.
+            passed, reasons = await asyncio.to_thread(
+                _draft_passes_wrapper, draft, basket, evidence_pool, writer_verify_fn,
+            )
             if passed:
                 return draft
             revise_reasons = reasons or None
@@ -903,7 +908,10 @@ async def _pre_pass_one_basket(
             )
             break
         last_draft = draft
-        passed, reasons = _draft_passes_wrapper(draft, basket, evidence_pool, writer_verify_fn)
+        # BLOCKING (see the non-transport-aware branch): keep off the event loop.
+        passed, reasons = await asyncio.to_thread(
+            _draft_passes_wrapper, draft, basket, evidence_pool, writer_verify_fn,
+        )
         if passed:
             return draft
         revise_reasons = reasons or None
