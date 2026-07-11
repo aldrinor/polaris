@@ -278,6 +278,18 @@ def main(argv: list[str] | None = None) -> int:
         "n_dropped_lines": len(dropped_line_records),
         "scope_armed": scope.armed,
         "scope_active": scope.is_active(),
+        # §-1.3.1 fail-loud DISCLOSURE (S2/S3 re-pass iter-6): count of rows the meaning-level
+        # topic judge CONFIDENTLY stamped OFF_SUBJECT that nonetheless SURVIVED into cp2. These
+        # are the disclosed FAIL-OPEN residual: the OFF_TOPIC whole-drop is a TWO-KEY concurrence
+        # (topic-judge OFF_SUBJECT stamp + line-screen 100%-off_topic) precisely so a single-pass
+        # judge FALSE-POSITIVE on a credible ON-TOPIC source is NEVER deleted (a drb_72 example is
+        # the Roosevelt-Institute "Good Life Agenda", which explicitly discusses AI's labor impact
+        # yet was stamped OFF_SUBJECT; the two-key gate correctly KEEPS it). Surfacing the count
+        # makes the residual AUDITABLE instead of silent; these rows stay DEMOTED (weight, not
+        # filter) and flow to composition where the faithfulness engine is the only hard gate.
+        "n_offsubject_stamped_kept": sum(
+            1 for r in kept_rows if r.get("topic_off_subject") is True
+        ),
     }
     (out_dir / "cp2_corpus_snapshot.json").write_text(
         json.dumps(cp2, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
@@ -382,6 +394,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n[s2] DONE. sources_in={len(rows)} sources_kept={len(kept_rows)} "
           f"whole_dropped={len(whole_drop_records)} dropped_lines={len(dropped_line_records)} "
           f"(off={by_reason['off_topic']} oos={by_reason['out_of_scope']} junk={by_reason['junk']})")
+    print(f"[s2] offsubject_stamped_kept="
+          f"{sum(1 for r in kept_rows if r.get('topic_off_subject') is True)} "
+          f"(topic-judge OFF_SUBJECT but KEPT — disclosed fail-open residual; two-key gate "
+          f"protects credible on-topic from a single-pass judge false-positive, §-1.3.1)")
     print(f"[s2] wrote: {out_dir/'cp2_corpus_snapshot.json'}")
     print(f"[s2] wrote: {out_dir/'disclosure.txt'}")
     print(f"[s2] wrote: {out_dir/'summary.json'}")
