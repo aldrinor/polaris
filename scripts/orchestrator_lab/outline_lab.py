@@ -89,6 +89,12 @@ def _effective_s4_flag_slate(model: str) -> dict[str, str]:
             "PG_OUTLINE_DIGEST_MAX_CHARS", str(PG_OUTLINE_DIGEST_MAX_CHARS_DEFAULT)),
         "PG_OUTLINE_MIN_MAX_TOKENS": os.getenv("PG_OUTLINE_MIN_MAX_TOKENS", "16384"),
         "PG_OUTLINE_REASONING_MAX_TOKENS": os.getenv("PG_OUTLINE_REASONING_MAX_TOKENS", "6144"),
+        # O4 (un-starve): the spine outline call's content ceiling (was hardcoded 2500). A CAP not a
+        # target — recorded so the checkpoint proves the spine call was NOT starved this run.
+        "PG_OUTLINE_MAX_TOKENS": os.getenv("PG_OUTLINE_MAX_TOKENS", "32768"),
+        # O1/O2/O3/O6: two-level sub-theme full-partition arm-state. ON by default (a winner built but
+        # left default-OFF is the still-broken loop root); recorded so the checkpoint proves it fired.
+        "PG_OUTLINE_SUBTHEME_PARTITION": os.getenv("PG_OUTLINE_SUBTHEME_PARTITION", "1"),
         "PG_OUTLINE_REVISE_ROUNDS": os.getenv(
             "PG_OUTLINE_REVISE_ROUNDS", str(PG_OUTLINE_REVISE_ROUNDS_DEFAULT)),
         "PG_OUTLINE_REVISE_MAX_RECOMPOSE": os.getenv(
@@ -335,8 +341,15 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
 
     # PUSH A: feed the same_work_groups INTO the live outline call so the PLANNER reads work-level
     # corroboration + folded singletons (the model's actual input, not just the cross-read rebuild).
+    # O4 (un-starve, build plan OUTLINE wheel): the outline call's max_tokens was hardcoded 2500 — a
+    # starved budget the reasoning prelude alone consumed, forcing the (PG_OUTLINE_MIN_MAX_TOKENS-
+    # floored) content to truncate on a large pool. Read PG_OUTLINE_MAX_TOKENS (default 32768) so the
+    # spine call has real headroom; max_tokens is a CAP not a target (billed by actual usage) — a
+    # generous cap is free insurance (§9.1.8). The downstream floor (PG_OUTLINE_MIN_MAX_TOKENS) still
+    # applies inside _call_outline, so this only ever RAISES the ceiling, never lowers it.
+    _outline_max_tokens = int(os.getenv("PG_OUTLINE_MAX_TOKENS", "32768"))
     parse_result, retry_attempted, in_tok, out_tok = asyncio.run(_call_outline(
-        question, evidence, model, 0.2, 2500,
+        question, evidence, model, 0.2, _outline_max_tokens,
         domain=domain, finding_clusters=clusters,
         deliverable_spec=deliverable, scope_spec=scope,
         same_work_groups=same_work_groups,
@@ -705,6 +718,81 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         stats["undersupplied_count"] = undersupplied_count
         stats["undersupplied_sections"] = list(undersupplied_sections)
 
+    # ── O1/O2/O3/O6 TWO-LEVEL SUB-THEME FULL-PARTITION (build plan OUTLINE wheel) ─────────────────
+    # The section SPINE above (required titles pinned in order, or facet-emergent) is UNTOUCHED. This
+    # layer groups EVERY digest line-id (Bxx corroboration baskets + ev_xxx singletons) into a NAMED
+    # sub-theme under exactly ONE section, so composed paragraphs land in a real two-level topic tree
+    # (FS-Researcher index.md analog) instead of the flat keep-all residual dump cp4 shipped before.
+    # DNA: this is CONSOLIDATE grouping — ZERO drops, ZERO caps; the sub-theme COUNT per section
+    # EMERGES from the evidence. The faithfulness engine is UNTOUCHED (a sub-theme is a compose
+    # container, never a verdict; every sentence still re-passes strict_verify downstream). O4's
+    # un-starved PG_OUTLINE_MAX_TOKENS lets the partition JSON hold EVERY line-id (the 2500 starve
+    # could not). Never a faithfulness gate: a model/transport failure degrades to the deterministic
+    # Cross-Cutting backstop with a LOUD disclosure (residual_fraction rises), never a fake success.
+    partition = None
+    _part_on = os.getenv("PG_OUTLINE_SUBTHEME_PARTITION", "1").strip().lower() in (
+        "1", "true", "yes", "on")
+    if _part_on:
+        from src.polaris_graph.generator.outline_partition import (  # noqa: E402, PLC0415
+            partition_outline_subthemes,
+        )
+        _sections_spine = [{"title": str(p.title), "focus": str(p.focus)} for p in plans]
+        partition = asyncio.run(partition_outline_subthemes(
+            sections=_sections_spine, menu=menu, model=model, question=question,
+        ))
+        subtheme_stats = {
+            "partition_enabled": True,
+            "naming_ok": partition.naming_ok,
+            "route_call_count": partition.route_call_count,
+            "domain_line_ids": len(partition.domain_ids),
+            "assigned_line_ids": partition.assigned_count,
+            "assigned_by_live_rounds": len(partition.assigned_by_model_ids),
+            "residual_line_ids": len(partition.residual_ids),
+            "residual_fraction": partition.residual_fraction,
+            "subthemes_per_section": {
+                t: len(v) for t, v in partition.section_subthemes.items()
+            },
+            "gap_round_fired": partition.gap_round_fired,
+            "self_review_fired": partition.self_review_fired,
+            "self_review_merges": partition.self_review_merges,
+            "self_review_gaps": partition.self_review_gaps,
+            "duplicate_id_count": partition.duplicate_id_count,
+            "unknown_id_count": partition.unknown_id_count,
+            "content_max_tokens": partition.content_max_tokens,
+            "partition_in_tokens": partition.total_in_tokens,
+            "partition_out_tokens": partition.total_out_tokens,
+        }
+        if isinstance(stats, dict):
+            stats["subtheme_partition"] = subtheme_stats
+        # O5 signal (map-honors-outline): the COMPOSE-stage section_basket_map (a different wheel/
+        # worktree) reads this grounded line-id -> {section, subtheme} map as its strongest homing
+        # signal, instead of a title-overlap guess. DISCLOSURE + DATA only (no verdict key).
+        revision_audit["subtheme_partition"] = {
+            "outline_assignment": partition.assignment,
+            "residual_line_ids": list(partition.residual_ids),
+            "residual_fraction": partition.residual_fraction,
+            "self_review_gaps": partition.self_review_gaps,
+        }
+        print("\n=== (O1/O2/O3/O6) TWO-LEVEL SUB-THEME FULL-PARTITION ===")
+        print(f"[part] domain_line_ids={len(partition.domain_ids)} "
+              f"assigned={partition.assigned_count} "
+              f"live_assigned={len(partition.assigned_by_model_ids)} "
+              f"residual={len(partition.residual_ids)} "
+              f"residual_fraction={partition.residual_fraction}")
+        for _t in [str(p.title) for p in plans]:
+            _sts = partition.section_subthemes.get(_t, [])
+            print(f"  {_t!r}: {len(_sts)} sub-themes -> "
+                  + "; ".join(f"{s['name']}({len(s['basket_ids'])})" for s in _sts))
+        print(f"[part] naming_ok={partition.naming_ok} route_calls={partition.route_call_count} "
+              f"gap_round_fired={partition.gap_round_fired} "
+              f"self_review_fired={partition.self_review_fired} "
+              f"merges={len(partition.self_review_merges)} gaps={partition.self_review_gaps} "
+              f"dup_ids={partition.duplicate_id_count} unknown_ids={partition.unknown_id_count} "
+              f"content_max_tokens={partition.content_max_tokens} "
+              f"part_in_tok={partition.total_in_tokens} part_out_tok={partition.total_out_tokens}")
+    else:
+        print("\n[part] PG_OUTLINE_SUBTHEME_PARTITION=0 — two-level partition skipped (flat plans).")
+
     # (d) cp4 write + load (verdict-leak guarded on BOTH)
     # item 6: record the FULL effective S4 knob set + a sha256 of it as run_config_sha (until
     # RunConfig WP-0b lands) so the checkpoint can PROVE what produced it — the prior hardcoded
@@ -715,13 +803,20 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     ).hexdigest()
     print(f"\n[d] effective S4 flag_slate={json.dumps(flag_slate, sort_keys=True)} "
           f"run_config_sha={run_config_sha[:12]}")
+    # O1 two-level schema: attach each section's ordered sub-theme list to its plan dict. The compose
+    # stage reads final_plans[*].subthemes (name/focus/basket_ids/ev_ids) to render an H3 per sub-theme
+    # and compose per basket. Empty [] when the partition is OFF (byte-identical flat cp4).
+    final_plans_data = [_plan_to_dict(p) for p in plans]
+    if partition is not None:
+        for _fp in final_plans_data:
+            _fp["subthemes"] = partition.section_subthemes.get(str(_fp.get("title", "")), [])
     payload = build_cp4_payload(
         question_sha=hashlib.sha256(question.encode("utf-8")).hexdigest(),
         upstream=[{"stage": "basket", "sha": str(bank.get("cp3_sha", ""))}],
         run_config_sha=run_config_sha,
         flag_slate=flag_slate,
         adjustments_applied=[],
-        final_plans=[_plan_to_dict(p) for p in plans],
+        final_plans=final_plans_data,
         revision_audit=revision_audit,
         digest_stats=stats,
     )
@@ -758,9 +853,15 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         # fraction is disclosed as an informative metric (pre_fold_min_distinct_work_frac), never a bar.
         and post_fold_invariant_ok
     )
+    _part_summary = (
+        f"subthemes_total={sum(len(v) for v in partition.section_subthemes.values())} "
+        f"assigned={partition.assigned_count}/{len(partition.domain_ids)} "
+        f"residual_fraction={partition.residual_fraction}"
+        if partition is not None else "partition=OFF"
+    )
     print(f"\n[plan] ACCEPTANCE (a,c,d,b/e,post-fold-invariant) ok={ok}  "
           f"pre_fold_min_frac={pre_fold_min_frac:.3f} post_fold_invariant_ok={post_fold_invariant_ok}  "
-          f"in_tok={in_tok} out_tok={out_tok}")
+          f"in_tok={in_tok} out_tok={out_tok}  [{_part_summary}]")
     return 0 if ok else 1
 
 
