@@ -9469,6 +9469,12 @@ async def generate_multi_section_report(
     # None/[] => the legacy title menu (byte-identical). Threaded by run_one_query ONLY when
     # PG_OUTLINE_BASKET_DIGEST is on; _call_outline reads the flag itself and fails open.
     finding_clusters: Any = None,
+    # STEP 15 (item-4b live): the cp3 same-work groups threaded into the agentic-outliner seam so
+    # build_outline_digest's _build_alias_map can fold true same-work title groups (e.g. CESifo WP
+    # 10601 split across two titlealone groups) into one basket for work-count ranking. None (the
+    # default) => byte-identical to HEAD (the internal run_outline_agent_or_legacy call passed
+    # same_work_groups=None before). Mirrors the finding_clusters threading exactly.
+    same_work_groups: Any = None,
     # S4 ORCH-2 (Design 5) PUSH 1(a): the user's deliverable/scope structural asks. Both None (the
     # default) => every outline prompt string byte-identical to HEAD. Threaded straight into
     # _call_outline (mirrors the finding_clusters threading exactly); _call_outline renders the
@@ -9763,6 +9769,7 @@ async def generate_multi_section_report(
                 finding_clusters=finding_clusters,
                 deliverable_spec=deliverable_spec,
                 scope_spec=scope_spec,
+                same_work_groups=same_work_groups,
             )
         plans = outline_parse.plans
         # MOAT LIVE-SEAM: capture the agentic loop's verified-compute registry. Empty ({}) on the
