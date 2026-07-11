@@ -293,6 +293,21 @@ def _ontopic_anchors_enabled() -> bool:
     )
 
 
+def _authoritative_reference_ontopic_enabled() -> bool:
+    """``PG_TOPIC_AUTHORITATIVE_REFERENCE_ONTOPIC`` kill switch (LAW VI, DEFAULT ON — S2/S3
+    re-pass Fable Fix 4). ON => the judge prompt states that an AUTHORITATIVE statistical /
+    government / regulatory / registry REFERENCE page about an entity within the question's
+    derived scope is ON-topic (a plain data table is still the evidence the question needs, so
+    it must not be marked OFF for being a table rather than an argued narrative). This is a
+    scope-aware, question-agnostic clarification derived from the RESEARCH QUESTION at run time
+    (no hardcoded entity/occupation list); it can only make the judge KEEP more (reduces the
+    over-deletion of e.g. official occupational-outlook / wage pages), never delete more. OFF =>
+    byte-identical legacy prompt (the clarification line is not emitted)."""
+    return os.environ.get(
+        "PG_TOPIC_AUTHORITATIVE_REFERENCE_ONTOPIC", "1"
+    ).strip().lower() not in ("0", "false", "no", "off", "")
+
+
 def _category_signature(row: dict[str, Any]) -> str:
     """A category signature = registrable host + URL path with DIGIT-BEARING segments templated
     to ``#`` (P0-1b). This groups a NUMERIC-TEMPLATE page family (BLS OES ``/oes/current/
@@ -477,6 +492,20 @@ def _build_batch_prompt(
         "aspect. An exposure / projection / potential-impact / early-evidence study of the "
         "question's aspect is ON (it bears on that aspect), not OFF.",
         "",
+        *(
+            [
+                "AUTHORITATIVE REFERENCE PAGES ARE ON-TOPIC: an official statistical, "
+                "government, regulatory, or registry reference page (for example a national "
+                "labor-statistics / occupational-outlook / wage page, a standards body, or an "
+                "official product/entity registry) ABOUT an entity, occupation, product, or "
+                "population that falls WITHIN the question's subject scope is ON — it is exactly "
+                "the authoritative evidence the question needs, even when the page itself is a "
+                "plain data table or reference entry rather than an argued narrative. Judge the "
+                "ENTITY + ASPECT, never the page's prose style or format.",
+                "",
+            ]
+            if _authoritative_reference_ontopic_enabled() else []
+        ),
         "FAIL-OPEN: if you genuinely cannot tell whether the source addresses the "
         "question's specific aspect, mark it ON. When in doubt, answer ON.",
         "",

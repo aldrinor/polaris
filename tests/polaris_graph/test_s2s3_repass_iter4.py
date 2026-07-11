@@ -63,15 +63,30 @@ def test_row_any_url_backfill():
     assert fd._row_any_url({}) == ""
 
 
-def test_unknown_bucket_unique():
-    # two distinct __unknown__ clusters must NOT share a value bucket (never NLI-merged)
+def test_unknown_bucket_pools_for_nli():
+    # S2/S3 re-pass Fable Fix 1(b) REVERSES the iter4 isolate-unknowns policy: POOLING IS NOT
+    # MERGING. Two valueless __unknown__ clusters now SHARE the qualitative NLI pool bucket so the
+    # bidirectional cross-encoder GETS to compare them; the MERGE is still decided by entailment
+    # downstream (an infra None / no-edge => no merge, fail-open). The default flag is ON.
+    assert fd._unknown_nli_pool_enabled() is True
     k1 = ("__unknown__", "ev_1", 0)
     k2 = ("__unknown__", "ev_2", 0)
-    b1 = fd._cluster_value_bucket(k1, [], [])
+    b1 = fd._cluster_value_bucket(k1, [], [])  # no recoverable value -> shared qualitative pool
     b2 = fd._cluster_value_bucket(k2, [], [])
-    assert b1 != b2, (b1, b2)
+    assert b1 == b2 == ("__unk_qual__",), (b1, b2)
+    # a value-bearing unknown pools by its RECOVERED numeric value (same-value unknowns compare).
+    row = {"evidence_id": "ev_v", "direct_quote": "The rate rose 15% year over year."}
+    bv = fd._cluster_value_bucket(("__unknown__", "ev_v", 0), [row], [0])
+    assert bv == 15.0, bv
     # a real numeric key still buckets by value
     assert fd._cluster_value_bucket(("subj","pred",15.0,"%","","",""), [], []) == 15.0
+    # with the legacy isolate flag, two unknowns get UNIQUE buckets (byte-identical old behaviour)
+    import os as _os
+    _os.environ["PG_UNKNOWN_NLI_POOL"] = "0"
+    try:
+        assert fd._cluster_value_bucket(k1, [], []) != fd._cluster_value_bucket(k2, [], [])
+    finally:
+        _os.environ.pop("PG_UNKNOWN_NLI_POOL", None)
 
 
 def test_is_real_work_titlealone(tmp=None):

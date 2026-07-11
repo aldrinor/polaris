@@ -299,15 +299,56 @@ def _rep_is_unclean(row: dict[str, Any]) -> bool:
     return False
 
 
+_MIDSENTENCE_TRUNCATION_RE = re.compile(r"\[\s*\.\.\.\s*\]|\[\s*…\s*\]|\.\.\.\s*$|…\s*$")
+_SENTENCE_TERMINAL_RE = re.compile(r"[.!?][\"')\]]?\s*$")
+
+
+def _claim_bearing_rep_enabled() -> bool:
+    """``PG_FINDING_CLAIMBEARING_REP`` kill switch (LAW VI, DEFAULT-ON, Fable Fix 2(S3)+8). ON =>
+    the representative is preferentially a CLAIM-BEARING, COMPLETE sentence (no mid-sentence
+    ``[...]`` truncation). OFF => byte-identical legacy (clean-rep only)."""
+    return os.getenv("PG_FINDING_CLAIMBEARING_REP", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _is_claim_bearing_complete(row: dict[str, Any]) -> bool:
+    """True iff the row's body reads as a CLAIM-BEARING, COMPLETE sentence (Fable Fix 2(S3)/8):
+    enough content words, no mid-sentence ``[...]`` / trailing-ellipsis truncation, and it ends on
+    terminal punctuation (or is a long enough clause). Deterministic + question-agnostic; used
+    ONLY to PREFER a better representative among members (never to drop a row). FAIL-OPEN: a body
+    we cannot read confidently returns True so a real claim is never demoted as representative."""
+    text = _normalize_unicode_text(_row_text(row)).strip()
+    if not text:
+        return False
+    if _MIDSENTENCE_TRUNCATION_RE.search(text):
+        return False
+    words = [w for w in re.split(r"\s+", text) if any(c.isalnum() for c in w)]
+    if len(words) < 5:
+        return False
+    # A complete statement ends on terminal punctuation; a very long clause without it is still
+    # accepted (fail-open — many extracted spans drop the final period).
+    return bool(_SENTENCE_TERMINAL_RE.search(text)) or len(words) >= 8
+
+
 def _choose_clean_representative(member_ris: list[int], rank_fn, rows: list[dict[str, Any]]) -> int:
     """The highest-ranked member that is NOT chrome/degraded; if every member is unclean,
-    the highest-ranked overall (best available). Deterministic (ties broken by rank_fn)."""
+    the highest-ranked overall (best available). Deterministic (ties broken by rank_fn).
+
+    Fable Fix 2(S3)+8: among the clean members, PREFER one that is a claim-bearing complete
+    sentence (no mid-sentence ``[...]`` truncation), so the surfaced representative statement
+    reads as a real claim rather than a boilerplate / truncated fragment. Falls back to the
+    highest-ranked clean member, then the best available overall — never drops a member."""
     ranked = sorted(set(member_ris), key=rank_fn, reverse=True)
     if not _clean_rep_enabled():
         return ranked[0]
-    for ri in ranked:
-        if not _rep_is_unclean(rows[ri]):
-            return ri
+    clean = [ri for ri in ranked if not _rep_is_unclean(rows[ri])]
+    if clean and _claim_bearing_rep_enabled():
+        for ri in clean:
+            if _is_claim_bearing_complete(rows[ri]):
+                return ri
+    if clean:
+        return clean[0]
     return ranked[0]
 
 
@@ -1101,6 +1142,23 @@ _ARXIV_BARE_ID_RE = re.compile(
     r"(?:/(?:abs|pdf|html|format|papers?)/|arxiv[:/])(\d{4}\.\d{4,5})(?:v\d+)?(?=[/.?#]|$)",
     re.IGNORECASE,
 )
+# S2/S3 re-pass Fable Fix 3: the RePEc handle (a GLOBALLY UNIQUE economics-work id). IDEAS
+# (ideas.repec.org) and EconPapers (econpapers.repec.org) — plus a bare ``RePEc:arch:series:id``
+# handle carried in citation text — are DIFFERENT LOCATOR pages of the SAME work; without this
+# leg each mirror kept a distinct ``url:`` key and inflated the distinct-works corroboration
+# count (a §-1.3 fake-corroboration). The path form ``/<type>/<archive>/<series>/<id>`` (type =
+# p paper / a article / b chapter / h /...): archive:series:id is the handle identity shared by
+# every mirror, so we drop the host + type letter and key on it. Question-agnostic; never merges
+# two different handles (id is included). An arXiv paper mirrored on repec is caught by the arXiv
+# leg ABOVE (runs first), so it still cross-mirrors with arxiv.org.
+_REPEC_URL_HANDLE_RE = re.compile(
+    r"(?:ideas|econpapers)\.repec\.org/[a-z]/([a-z0-9]+)/([a-z0-9]+)/([a-z0-9][a-z0-9._-]*?)"
+    r"(?:\.html?)?(?=[?#]|$)",
+    re.IGNORECASE,
+)
+_REPEC_BARE_HANDLE_RE = re.compile(
+    r"\brepec:([a-z0-9]+):([a-z0-9]+):([a-z0-9][a-z0-9._-]*)", re.IGNORECASE
+)
 
 
 def _samework_crossmirror_enabled() -> bool:
@@ -1129,6 +1187,15 @@ def _url_work_identifier(row: dict[str, Any]) -> str:
     m = _ARXIV_BARE_ID_RE.search(raw)
     if m:
         return "arxiv:" + m.group(1).lower()
+    # Fable Fix 3: a RePEc handle (IDEAS / EconPapers URL, or a bare RePEc: handle) — the same
+    # economics work at two repec mirrors shares archive:series:id, so they merge instead of each
+    # minting a distinct url: key (fake corroboration). arXiv-on-repec is already caught above.
+    m = _REPEC_URL_HANDLE_RE.search(raw)
+    if m:
+        return "repec:" + ":".join(g.lower() for g in m.groups())
+    m = _REPEC_BARE_HANDLE_RE.search(raw)
+    if m:
+        return "repec:" + ":".join(g.lower() for g in m.groups())
     m = _NBER_ID_RE.search(raw)
     if m:
         return "nber:w" + m.group(1)
@@ -1665,13 +1732,26 @@ def _cluster_text(
 
 
 def _unknown_nli_pool_enabled() -> bool:
-    """``PG_UNKNOWN_NLI_POOL`` kill switch (LAW VI). DEFAULT-OFF (Fix 1(B)): an
-    ``__unknown__``-subject cluster is NEVER pooled into the consolidation-NLI value
-    bucket (it gets its own unique bucket, so it is never NLI-merged with another
-    unknown-subject cluster — the World-Bank/OECD boilerplate false-merge fix). Set to
-    ``1`` to restore the legacy pooled behavior (unknown clusters recover a value and
-    merge on generic entailment)."""
-    return os.getenv("PG_UNKNOWN_NLI_POOL", "0").strip().lower() not in (
+    """``PG_UNKNOWN_NLI_POOL`` kill switch (LAW VI). DEFAULT-ON (S2/S3 re-pass Fable Fix 1(b)
+    — REPLACE the prior isolate-unknowns policy).
+
+    POOLING IS NOT MERGING. An ``__unknown__``-subject cluster is a per-row sentinel whose
+    subject the extractor could not resolve — but that is NOT a reason to withhold it from the
+    JUDGE. The prior default (OFF) gave every unknown its own unique bucket so it was never even
+    NLI-COMPARED, which conflated "never mechanically merge unknowns" with "never even ASK the
+    judge" and structurally UNDER-merged (byte-identical / same-claim unknown findings stayed as
+    N separate singletons — the drb_72 under-merge). The correct policy: POOL unknowns into the
+    consolidation-NLI value bucket (by numeric value when one exists, else the shared qualitative
+    pool) so the bidirectional cross-encoder GETS to compare them, but MERGE still requires a
+    confident bidirectional entailment (``_apply_consolidation_nli`` / ``group_clusters``). An
+    infra ``None`` / no-edge => NO merge (fail-open, the unknown stays a singleton). Boilerplate
+    can no longer false-merge here because the CLAIM-BEARING line gate (Fix 2) stops a
+    non-claim-bearing line from ever becoming a finding in the first place — NLI cannot fix
+    boilerplate (boilerplate entails boilerplate), so the fix is upstream, not isolation here.
+
+    Set ``PG_UNKNOWN_NLI_POOL=0`` to restore the byte-identical isolate-unknowns behaviour (each
+    unknown cluster gets its own unique bucket and is never NLI-compared)."""
+    return os.getenv("PG_UNKNOWN_NLI_POOL", "1").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 
@@ -1697,14 +1777,19 @@ def _cluster_value_bucket(key: tuple, rows: list[dict[str, Any]], member_ris: li
     """
     if isinstance(key, tuple) and key and key[0] == "__unknown__":
         if _unknown_nli_pool_enabled():
-            # Legacy: recover a value so unknown clusters CAN pool (the pre-Fix-1B path).
+            # S2/S3 re-pass Fable Fix 1(b): POOL (not merge). Recover a numeric value so this
+            # unknown cluster shares a value bucket with same-value clusters and the judge gets
+            # to compare them; when there is NO recoverable value it joins the SHARED qualitative
+            # NLI pool (so valueless unknowns are still ASKED, not isolated). The merge itself is
+            # still decided by bidirectional entailment downstream — pooling only earns the
+            # comparison, never the merge (infra-None / no-edge => stays a singleton, fail-open).
             for ri in member_ris:
                 claims = extract_numeric_claims([rows[ri]])
                 if claims:
                     return round(float(getattr(claims[0], "value", 0.0) or 0.0), 6)
-            return None
-        # Fix 1(B) default: a UNIQUE per-cluster bucket (the sentinel key itself) so this
-        # unknown-subject cluster shares a bucket with no other and is never NLI-merged.
+            return ("__unk_qual__",)  # the shared qualitative NLI pool (valueless unknowns)
+        # PG_UNKNOWN_NLI_POOL=0: a UNIQUE per-cluster bucket (the sentinel key itself) so this
+        # unknown-subject cluster shares a bucket with no other and is never NLI-compared.
         return ("__unk__",) + tuple(str(x) for x in key)
     if isinstance(key, tuple) and key and len(key) >= 3:
         return round(float(key[2]), 6)
@@ -1802,6 +1887,105 @@ def _apply_consolidation_nli(
         new_groups[keys[i]] = sorted(set(merged_members[root]))
     absorbed = len(keys) - len(new_groups)  # clusters absorbed = before - after
     return new_groups, absorbed
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Rung-0 EXACT-duplicate collapse — S2/S3 re-pass Fable Fix 1(a)
+# ─────────────────────────────────────────────────────────────────────────
+_RUNG0_EXACT_ENV = "PG_FINDING_RUNG0_EXACT"
+# Citation / provenance tokens and bracketed refs are folded out BEFORE comparison so two
+# copies of ONE claim sentence that differ only in their attached ``[#ev:...]`` token compare
+# equal (a byte-identical claim, regardless of which evidence row carries it).
+_RUNG0_CITE_TOKEN_RE = re.compile(r"\[#[^\]]*\]|\[\d+\]|\(\s*\d{4}\s*\)")
+_RUNG0_WS_RE = re.compile(r"\s+")
+
+
+def _rung0_exact_collapse_enabled() -> bool:
+    """``PG_FINDING_RUNG0_EXACT`` kill switch (LAW VI, DEFAULT-ON, Fable Fix 1(a)). ON => a
+    rung-0 pass collapses clusters whose representative claim sentence is byte-identical after
+    unicode + whitespace + citation-token normalization into ONE cluster, with NO judge (a
+    byte-identical sentence IS the same claim). OFF => byte-identical legacy (no rung-0)."""
+    return os.getenv(_RUNG0_EXACT_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _rung0_signature(text: str) -> str:
+    """The rung-0 exact-duplicate signature of a claim sentence: unicode-normalized (via
+    ``_normalize_unicode_text``), letter-spacing collapsed, citation / bracketed-ref tokens
+    folded out, whitespace collapsed, casefolded. Empty when the text has no alphanumeric
+    content (an empty signature NEVER groups — chrome / punctuation-only lines stay singletons).
+    Pure/deterministic + question-agnostic (no entity list, no corpus-tuned threshold)."""
+    base = _normalize_unicode_text(_collapse_letter_spacing(text or ""))
+    base = _RUNG0_CITE_TOKEN_RE.sub(" ", base)
+    base = _RUNG0_WS_RE.sub(" ", base).strip().casefold()
+    if not any(ch.isalnum() for ch in base):
+        return ""
+    return base
+
+
+def _apply_rung0_exact_collapse(
+    groups: dict[tuple, list[int]],
+    rows: list[dict[str, Any]],
+    rank_fn,
+) -> tuple[dict[tuple, list[int]], int]:
+    """Fable Fix 1(a): collapse clusters whose representative claim sentence is byte-identical
+    (after ``_rung0_signature`` normalization) into ONE cluster, BEFORE any NLI judge is asked.
+
+    A byte-identical claim sentence is the same claim — no cross-encoder needed. This closes the
+    structural UNDER-merge where two same-text findings sat in per-row ``__unknown__`` sentinels
+    (or two distinct tuple keys) and, with the judge withheld, never consolidated. Runs on ALL
+    cluster kinds (numeric + unknown) uniformly. §-1.3-safe: it only ever UNIONS clusters (member
+    lists grow, keep-all preserved); it never drops a row, never relaxes a verify gate. Merges to
+    the LOWEST-index cluster key (deterministic, order-independent). Returns
+    ``(merged_groups, collapsed_count)`` where ``collapsed_count`` = clusters absorbed."""
+    keys = list(groups.keys())
+    if len(keys) < 2:
+        return groups, 0
+    # Representative rung-0 signature per cluster (the cluster's best-ranked member's claim text).
+    sig_of: dict[int, str] = {}
+    for i, key in enumerate(keys):
+        member_ris = groups[key]
+        bucket_value = _cluster_value_bucket(key, rows, member_ris)
+        rep_text = _cluster_text(rows, member_ris, rank_fn, bucket_value)
+        sig_of[i] = _rung0_signature(rep_text)
+    # Group cluster indices by identical non-empty signature; union each such group.
+    by_sig: dict[str, list[int]] = {}
+    for i in range(len(keys)):
+        s = sig_of[i]
+        if s:
+            by_sig.setdefault(s, []).append(i)
+    parent = list(range(len(keys)))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: int, b: int) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra == rb:
+            return
+        lo, hi = (ra, rb) if ra < rb else (rb, ra)
+        parent[hi] = lo
+
+    for _sig, idxs in by_sig.items():
+        if len(idxs) < 2:
+            continue
+        anchor = idxs[0]
+        for other in idxs[1:]:
+            _union(anchor, other)
+
+    merged_members: dict[int, list[int]] = {}
+    for i in range(len(keys)):
+        merged_members.setdefault(_find(i), []).extend(groups[keys[i]])
+    new_groups: dict[tuple, list[int]] = {}
+    for i in range(len(keys)):  # original key order => order-stable result dict
+        if _find(i) != i:
+            continue
+        new_groups[keys[i]] = sorted(set(merged_members[i]))
+    return new_groups, len(keys) - len(new_groups)
 
 
 def _numeric_nli_confirm_enabled() -> bool:
@@ -3291,6 +3475,16 @@ def dedup_by_finding(
     #     no longer fabricates corroboration). Runs BEFORE consolidation-NLI so split members can
     #     re-merge to their TRUE claim-mates there. Gated on a NLI path being active so a no-NLI
     #     run is byte-identical.
+    # 1a-rung0. EXACT-duplicate collapse (Fable Fix 1(a)). BEFORE any judge, union clusters whose
+    #     representative claim sentence is byte-identical after unicode/whitespace/citation-token
+    #     normalization (a byte-identical sentence IS the same claim — no cross-encoder needed).
+    #     This closes the structural under-merge where same-text findings sat as isolated per-row
+    #     ``__unknown__`` sentinels with the judge withheld and never consolidated. Always-on
+    #     (independent of the NLI flags); §-1.3-safe (UNION only, keep-all, no gate relaxed).
+    rung0_collapsed = 0
+    if groups and _rung0_exact_collapse_enabled():
+        groups, rung0_collapsed = _apply_rung0_exact_collapse(groups, rows, _rank)
+
     if (
         groups
         and _numeric_nli_confirm_enabled()

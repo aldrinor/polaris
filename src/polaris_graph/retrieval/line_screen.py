@@ -78,7 +78,19 @@ KEEP = "KEEP"
 OFF_TOPIC = "OFF_TOPIC"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
 JUNK = "JUNK"
+# S2/S3 re-pass Fable Fix 2: NON_CLAIM — a SEMANTIC "this line asserts nothing about the world"
+# verdict for boilerplate that is REAL prose (so it is not JUNK chrome) yet claim-empty: TOC /
+# page-number runs, acknowledgments, dedications, license / copyright lines, share / alert /
+# footer text, citation-metadata blocks, figure-axis / legend dumps, journal mastheads, ad copy.
+# It is a SPAN drop (drop the line, KEEP the source, §-1.3.1), decided by the semantic line judge,
+# NEVER a keyword blocklist. Kept OUT of ``_DROP_REASONS`` so the whole-drop dominant-reason /
+# two-key concurrence stays conservative (a 100%-NON_CLAIM source fails OPEN to keep-all unless a
+# chrome/shell key concurs) — the boilerplate root fix is stopping the LINE from becoming a
+# finding, not deleting the source.
+NON_CLAIM = "NON_CLAIM"
 _DROP_REASONS = (OFF_TOPIC, OUT_OF_SCOPE, JUNK)
+# All recognised line-drop verdicts (span drops), including the claim-bearing gate.
+_LINE_DROP_REASONS = (OFF_TOPIC, OUT_OF_SCOPE, JUNK, NON_CLAIM)
 
 # Provenance LABELS that are NOT a natural-language sub-query — mirrors Design 1 §3 D2's
 # ``_usable_subquery_anchor`` reject list (topic_relevance_gate D2). A label must degrade to
@@ -96,6 +108,16 @@ def line_screen_enabled() -> bool:
     """Kill-switch ``PG_LINE_SCREEN``. DEFAULT OFF ⇒ byte-identical (no line touched).
     Read at call time so tests / the harness toggle without re-import."""
     return os.environ.get(_ENV_ENABLED, "0").strip().lower() not in _OFF_VALUES
+
+
+def claim_bearing_gate_enabled() -> bool:
+    """Kill-switch ``PG_LINE_SCREEN_CLAIM_GATE`` for the NON_CLAIM (claim-bearing) verdict
+    (DEFAULT ON — S2/S3 re-pass Fable Fix 2). ON => the line judge is OFFERED a NON_CLAIM
+    verdict for real-prose-but-claim-empty boilerplate (TOC / acknowledgments / dedications /
+    license-copyright / share-footer / citation-metadata / figure-legend / masthead / ad copy),
+    which SPAN-drops the line (keep the source, §-1.3.1). OFF => byte-identical legacy (the
+    verdict is neither offered in the prompt nor recognised by the parser)."""
+    return os.environ.get("PG_LINE_SCREEN_CLAIM_GATE", "1").strip().lower() not in _OFF_VALUES
 
 
 def scope_leg_enabled() -> bool:
@@ -555,7 +577,13 @@ def build_line_prompt(
     (dates are exactly what an explicit date window judges)."""
     has_sub = _usable_subquery_anchor(subquery)
     has_scope = bool(scope_block.strip())
-    verdict_menu = "KEEP | OFF_TOPIC | " + ("OUT_OF_SCOPE | " if has_scope else "") + "JUNK"
+    has_claim_gate = claim_bearing_gate_enabled()
+    verdict_menu = (
+        "KEEP | OFF_TOPIC | "
+        + ("OUT_OF_SCOPE | " if has_scope else "")
+        + "JUNK"
+        + (" | NON_CLAIM" if has_claim_gate else "")
+    )
     lines: list[str] = [
         "You are a strict LINE-LEVEL relevance screener for a research report. You read the "
         "raw fetched body of ONE source, LINE BY LINE, and decide for EACH numbered line "
@@ -598,6 +626,19 @@ def build_line_prompt(
         "share-buttons / breadcrumb / copyright chrome — website furniture, not article prose. "
         "(Examples of chrome vocabulary: 'we use cookies', 'accept all cookies', 'download "
         "citation', 'subscribe', 'watch later', '404 not found', 'skip to main content'.)",
+    ]
+    if has_claim_gate:
+        lines.append(
+            "- NON_CLAIM: real prose from the document that nevertheless ASSERTS NOTHING about "
+            "the world — it makes no factual claim, reports no finding, states no result. Judge "
+            "by MEANING, not keywords. This covers a table-of-contents / page-number run, an "
+            "acknowledgments or dedication line, a license / copyright / rights statement, a "
+            "share / alert / 'cite this' / footer line, a bare citation-metadata / reference-list "
+            "block, a figure-axis / legend / caption label dump, a journal masthead / editorial "
+            "board line, or advertising copy. If the line makes ANY assertion that bears on the "
+            "research question, it is NOT NON_CLAIM — KEEP it. When unsure, KEEP."
+        )
+    lines += [
         "",
         "TOPICALITY IS DATE-BLIND for OFF_TOPIC: never mark a line OFF_TOPIC because of a date. "
         "A date only matters for OUT_OF_SCOPE, and only when the USER SCOPE names a date window.",
@@ -630,6 +671,7 @@ def parse_line_verdicts(
         return None
     verdicts: dict[int, str] = {}
     wanted = set(expected_indices)
+    claim_offered = claim_bearing_gate_enabled()  # Fable Fix 2: recognise NON_CLAIM only when armed
     for line in raw.splitlines():
         stripped = line.strip()
         if not stripped or ":" not in stripped:
@@ -650,6 +692,10 @@ def parse_line_verdicts(
             verdicts[idx] = OFF_TOPIC
         elif norm.startswith("junk") or norm.startswith("chrome"):
             verdicts[idx] = JUNK
+        elif claim_offered and (norm.startswith("non_claim") or norm.startswith("nonclaim")):
+            # Fable Fix 2: claim-empty boilerplate — a SPAN drop (keep the source). Only
+            # recognised when the gate is armed (else it stays unset → fail-open keep-all).
+            verdicts[idx] = NON_CLAIM
         elif norm.startswith("drop"):
             verdicts[idx] = OFF_TOPIC  # bare drop w/o reason → conservative OFF_TOPIC
         # else: unrecognised → leave unset → count mismatch → fail-open.
