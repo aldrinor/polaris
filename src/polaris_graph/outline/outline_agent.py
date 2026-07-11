@@ -787,6 +787,40 @@ async def _tool_search_more_evidence(
 # inspect_basket
 # ---------------------------------------------------------------------------
 
+def _tool_list_tools(
+    registry: "ToolRegistry", *, name: str = "", category: str = "", **_ignored: Any,
+) -> ToolResult:
+    """Meta-tool: return the FULL spec (description + params) of ONE tool by ``name``, or a one-line
+    listing of every tool in ``category``. The on-demand discovery path for the decide menu's
+    collapsed non-core index (redesign 'Scaling the decide step past 20 tools'). No LLM, no network."""
+    nm = str(name or "").strip()
+    cat = str(category or "").strip().lower()
+    if nm:
+        tool = registry.get_tool(nm)
+        if tool is None:
+            return ToolResult(
+                success=False, tool_name="list_tools",
+                markdown=f"No tool named {nm!r}.", error="tool_not_found",
+            )
+        md = "\n".join(registry._describe_full(tool, True))  # noqa: SLF001 — same package intent
+        return ToolResult(success=True, tool_name="list_tools", markdown=md)
+    matches = [
+        t for t in (registry.get_tool(n) for n in registry.available_tools(True))
+        if t is not None and (not cat or cat in [str(x).lower() for x in (t.tags or [])])
+    ]
+    if not matches:
+        return ToolResult(
+            success=False, tool_name="list_tools",
+            markdown=f"No tools in category {cat!r}." if cat else "No tools registered.",
+            error="no_tools_in_category",
+        )
+    lines = [f"**{len(matches)} tool(s)"
+             f"{f' in [{cat}]' if cat else ''}:**"]
+    for t in sorted(matches, key=lambda x: x.name):
+        lines.append(f"- {t.name}: {t.description.split('. ')[0][:100]}")
+    return ToolResult(success=True, tool_name="list_tools", markdown="\n".join(lines))
+
+
 async def _tool_inspect_basket(
     workspace: OutlineWorkspace, *, basket_id: str = "", **_ignored: Any,
 ) -> ToolResult:
@@ -974,7 +1008,7 @@ class OutlineAgent:
             description="Inspect a cp3 basket's members, corroboration, and assignment status.",
             requires_data=False, requires_llm=False,
             parameters={"basket_id": "the basket id to inspect"},
-            execute=_exec_inspect_basket,
+            execute=_exec_inspect_basket, tags=["retrieval"], core=True,
         ))
         registry.register(ToolDefinition(
             name="search_more_evidence",
@@ -988,7 +1022,7 @@ class OutlineAgent:
                 "section": "the section title this gap belongs to",
                 "aspect": "the specific missing aspect / sub-topic to search for",
             },
-            execute=_exec_search_more_evidence,
+            execute=_exec_search_more_evidence, tags=["retrieval"], core=True,
         ))
         registry.register(ToolDefinition(
             name="update_outline",
@@ -998,7 +1032,26 @@ class OutlineAgent:
             ),
             requires_data=False, requires_llm=False,
             parameters={"ops": "a revision op list, e.g. {\"ops\": [...]}"},
-            execute=_exec_update_outline,
+            execute=_exec_update_outline, tags=["outline_ops"], core=True,
+        ))
+
+        # list_tools meta-tool (redesign 'Scaling the decide step past 20 tools'): the discovery
+        # path for non-core tools once the decide menu collapses them into the categorized index.
+        # Mirrors how Claude Code defers tools behind ToolSearch — full description + params on demand.
+        async def _exec_list_tools(evidence_store, data_points, client, **kw):  # noqa: ANN001
+            return _tool_list_tools(registry, **kw)
+
+        registry.register(ToolDefinition(
+            name="list_tools",
+            description=(
+                "Look up the FULL description + parameters of a tool by name, or list every tool in "
+                "a category (retrieval, compute, cross_source, outline_ops). The discovery path for "
+                "non-core tools shown only as one-liners in the decide menu."
+            ),
+            requires_data=False, requires_llm=False,
+            parameters={"name": "a tool name for its full spec",
+                        "category": "a category to list all its tools"},
+            execute=_exec_list_tools, tags=["meta"], core=True,
         ))
         # T1 rich toolkit (redesign PART 4): read-only/deterministic primitives + verified_compute.
         # The driver iterates the registry unchanged; new tools honor the shared wall/deadline.
@@ -1089,7 +1142,16 @@ class OutlineAgent:
         from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
 
         available = self.registry.available_tools(True) + [_FINISH_ACTION]
-        tool_descriptions = self.registry.get_tool_descriptions(True)
+        # Redesign "Scaling the decide step past 20 tools": CORE-in-full + a categorized one-line
+        # INDEX of the rest once the registry grows past the (env-tunable, LAW VI) threshold. At/below
+        # it the menu is byte-identical to the full listing (today's ~14-tool registry prints in full).
+        # Default 60: per the redesign the full listing "holds to ~60 tools (~2k tokens, trivial at
+        # glm-5.2's 1M ctx)", so today's ~22-tool registry still prints IN FULL (byte-identical live
+        # behavior). The CORE+index collapse arms automatically once the MCP layer grows the registry
+        # past 60 — no code change, just the env seat.
+        tool_descriptions = self.registry.get_decide_menu(
+            True, core_threshold=_env_int("PG_OUTLINE_DECIDE_CORE_THRESHOLD", 60),
+        )
         # W4 (2026-07-11): include_results=True. Without it this summary printed ONLY
         # "{n}. {tool} [{status}] ({elapsed}s) — {reasoning[:60]}", so a SUCCESSFUL
         # execute_python's computed value (present in .statistics/.insights/.markdown)

@@ -48,6 +48,12 @@ class ToolDefinition:
     requires_llm: bool
     parameters: dict = field(default_factory=dict)
     execute: Optional[Callable] = None
+    # Decide-prompt scaling (redesign "Scaling the decide step past 20 tools"): ``core`` tools are
+    # ALWAYS listed in full; non-core tools collapse to a one-line-per-tool category INDEX once the
+    # registry grows past ``core_threshold``. ``tags`` groups the index by category. Defaults keep
+    # every existing call site byte-identical (no core marking, no tags => the pre-scaling menu).
+    tags: list = field(default_factory=list)
+    core: bool = False
 
 
 class ToolRegistry:
@@ -69,18 +75,50 @@ class ToolRegistry:
             if not tool.requires_data or has_data
         ]
 
+    def _describe_full(self, tool: "ToolDefinition", has_data: bool) -> list[str]:
+        available = not tool.requires_data or has_data
+        status = "" if available else " [UNAVAILABLE: needs numeric data first]"
+        lines = [f"- {tool.name}: {tool.description}{status}"]
+        if tool.parameters:
+            for param, desc in tool.parameters.items():
+                lines.append(f"    {param}: {desc}")
+        return lines
+
     def get_tool_descriptions(self, has_data: bool) -> str:
-        """Format tool descriptions for LLM prompt."""
-        lines = []
+        """Format tool descriptions for LLM prompt (full listing — every tool + its params)."""
+        lines: list[str] = []
+        for name in sorted(self._tools.keys()):
+            lines.extend(self._describe_full(self._tools[name], has_data))
+        return "\n".join(lines)
+
+    def get_decide_menu(self, has_data: bool, core_threshold: int = 20) -> str:
+        """The scaled decide-prompt menu (redesign 'Scaling the decide step past 20 tools').
+
+        At or below ``core_threshold`` tools this is BYTE-IDENTICAL to ``get_tool_descriptions``
+        (today's ~13-tool registry prints in full, unchanged). Past the threshold it prints the
+        CORE tools in full + a one-line-per-tool INDEX of the rest grouped by ``tags`` category, so
+        the prompt stays compact as the toolkit grows to dozens/hundreds. Call ``list_tools`` to pull
+        a non-core tool's full description + params on demand. Never elides a CORE tool; never hides
+        a tool entirely (every non-core tool still appears in the index)."""
+        if len(self._tools) <= core_threshold:
+            return self.get_tool_descriptions(has_data)
+        core_lines: list[str] = []
+        index: dict[str, list[str]] = {}
         for name in sorted(self._tools.keys()):
             tool = self._tools[name]
-            available = not tool.requires_data or has_data
-            status = "" if available else " [UNAVAILABLE: needs numeric data first]"
-            lines.append(f"- {name}: {tool.description}{status}")
-            if tool.parameters:
-                for param, desc in tool.parameters.items():
-                    lines.append(f"    {param}: {desc}")
-        return "\n".join(lines)
+            if tool.core:
+                core_lines.extend(self._describe_full(tool, has_data))
+                continue
+            cat = (tool.tags[0] if tool.tags else "other")
+            avail = "" if (not tool.requires_data or has_data) else " [needs numeric data]"
+            gist = tool.description.split(". ")[0].split(" — ")[0][:90]
+            index.setdefault(str(cat), []).append(f"    - {name}: {gist}{avail}")
+        out = ["CORE tools (use directly):", *core_lines,
+               "", "MORE tools (call `list_tools` with a name/category for full params):"]
+        for cat in sorted(index):
+            out.append(f"  [{cat}]")
+            out.extend(sorted(index[cat]))
+        return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------

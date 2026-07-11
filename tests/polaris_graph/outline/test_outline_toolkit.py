@@ -476,3 +476,49 @@ def test_toolkit_is_registered_on_the_real_agent():
     agent = OutlineAgent(workspace=ws, agent_model="stub/agent", max_turns=1, wall_seconds=5)
     for n in ("calculator", "verified_compute", "coverage_audit"):
         assert agent.registry.get_tool(n) is not None
+
+
+# --------------------------------------------------------------------------- decide-menu scaling
+
+
+def test_decide_menu_byte_identical_below_threshold():
+    # At/below the threshold the scaled menu is BYTE-IDENTICAL to the full listing (no live change).
+    reg = ToolRegistry()
+    register_outline_toolkit(reg, _ws(), "stub/agent")
+    assert reg.get_decide_menu(True, core_threshold=100) == reg.get_tool_descriptions(True)
+
+
+def test_decide_menu_collapses_noncore_past_threshold():
+    from src.polaris_graph.outline.outline_agent import OutlineAgent, OutlineWorkspace
+    ws = OutlineWorkspace(research_question="q", ev_store={})
+    agent = OutlineAgent(workspace=ws, agent_model="stub/agent", max_turns=1, wall_seconds=5)
+    menu = agent.registry.get_decide_menu(True, core_threshold=5)
+    assert "CORE tools (use directly):" in menu and "call `list_tools`" in menu
+    # a CORE tool prints in full (with its params); a non-core tool is a one-liner in the index.
+    assert "    query: keywords to search" in menu           # search_corpus is CORE -> full params
+    assert "[cross_source]" in menu and "corroboration_profile" in menu
+    # non-core tools do NOT print their params in the collapsed menu
+    assert "basket to profile in detail" not in menu
+
+
+def test_list_tools_returns_full_spec_by_name():
+    from src.polaris_graph.outline.outline_agent import (
+        OutlineAgent, OutlineWorkspace, _tool_list_tools,
+    )
+    ws = OutlineWorkspace(research_question="q", ev_store={})
+    agent = OutlineAgent(workspace=ws, agent_model="stub/agent", max_turns=1, wall_seconds=5)
+    r = _tool_list_tools(agent.registry, name="corroboration_profile")
+    assert r.success and "basket to profile in detail" in r.markdown
+    miss = _tool_list_tools(agent.registry, name="nope")
+    assert not miss.success and miss.error == "tool_not_found"
+
+
+def test_list_tools_lists_a_category():
+    from src.polaris_graph.outline.outline_agent import (
+        OutlineAgent, OutlineWorkspace, _tool_list_tools,
+    )
+    ws = OutlineWorkspace(research_question="q", ev_store={})
+    agent = OutlineAgent(workspace=ws, agent_model="stub/agent", max_turns=1, wall_seconds=5)
+    r = _tool_list_tools(agent.registry, category="cross_source")
+    assert r.success
+    assert "corroboration_profile" in r.markdown and "find_contradictions" in r.markdown

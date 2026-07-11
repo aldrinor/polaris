@@ -852,12 +852,27 @@ def register_outline_toolkit(
                      "auto-home by the sourced datapoints' ev_ids)"}),
     ]
     _agent_model_tools = {"fetch_url"}
+    # Decide-prompt scaling metadata (redesign "Scaling the decide step past 20 tools"): the CORE set
+    # is always listed in full; the rest collapse into the categorized index past the threshold.
+    _meta = {
+        "fetch_url": (True, "retrieval"),
+        "search_corpus": (True, "retrieval"),
+        "get_evidence": (True, "retrieval"),
+        "list_baskets": (False, "retrieval"),
+        "calculator": (True, "compute"),
+        "verified_compute": (True, "compute"),
+        "coverage_audit": (True, "outline_ops"),
+        "preview_section_evidence": (False, "outline_ops"),
+        "find_contradictions": (False, "cross_source"),
+        "corroboration_profile": (False, "cross_source"),
+    }
     registered: list[str] = []
     for name, fn, desc, params in specs:
         binder = _bind_am if name in _agent_model_tools else _bind
+        core, category = _meta.get(name, (False, "other"))
         registry.register(ToolDefinition(
             name=name, description=desc, requires_data=False, requires_llm=False,
-            parameters=params, execute=binder(fn),
+            parameters=params, execute=binder(fn), tags=[category], core=core,
         ))
         registered.append(name)
     return registered
