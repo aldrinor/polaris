@@ -26,6 +26,7 @@ FAITHFULNESS (by construction, the crown-jewel rules are untouched):
 """
 from __future__ import annotations
 
+import html
 import logging
 import os
 import re
@@ -1309,11 +1310,76 @@ def build_verified_span_draft_multi(basket: Any, evidence_pool: dict, research_q
     return None
 
 
+# ── Fix 4 (2026-07-10 compose gear-loop): SENTENCE-BOUNDARY hygiene for disclosure claim text ─────────
+# The upstream basket ``representative_statement`` / ``claim_text`` is frequently a RAW span slice cut at
+# a fixed char offset, so it can start mid-word ("usand workers…", "oyment rate…") and/or end mid-word
+# ("…highly e"). Emitting it verbatim in a labeled disclosure ships a truncated fragment into the final
+# report. ``_sentence_shaped_claim`` returns a clean SENTENCE-SHAPED rendering (or "" when nothing clean
+# survives): HTML-entity-unescape, [#ev]-strip, whitespace-collapse, then keep the maximal LEADING run of
+# COMPLETE sentences whose FIRST kept sentence starts at a clean boundary (uppercase letter or digit). A
+# leading mid-word / mid-sentence fragment is dropped; a trailing sentence with NO terminal punctuation
+# (an incomplete tail) is dropped. Decimal-aware so "0.42%." / "5.8%" never split. PURE + question-
+# agnostic (a structural form test, no topic list). Fail-safe: on any error return "" — never a fragment.
+_DISCLOSURE_SENT_TERMINATOR_RE = re.compile(r"(?<!\d)[.](?!\d)|[!?]")
+
+
+def _sentence_shaped_claim(text: Any) -> str:
+    """Clean sentence-shaped rendering of a basket claim/subject, or "" when nothing clean survives.
+    See the block comment above. PURE; fail-safe (never raises, never emits a mid-word fragment)."""
+    try:
+        s = _EV_TOKEN_RE.sub(" ", str(text or ""))
+        s = html.unescape(s)
+        s = " ".join(s.split())
+        if not s:
+            return ""
+        # decimal-aware split into COMPLETE sentences (each ends in . ! ?); a trailing fragment with no
+        # terminal punctuation is dropped (never a mid-word end).
+        sentences: list[str] = []
+        start = 0
+        for m in _DISCLOSURE_SENT_TERMINATOR_RE.finditer(s):
+            end = m.end()
+            seg = s[start:end].strip()
+            if seg:
+                sentences.append(seg)
+            start = end
+        # keep the maximal leading run once a clean-START sentence is found (drop a leading mid-word
+        # fragment; every sentence after a real boundary is kept).
+        out: list[str] = []
+        started = False
+        for seg in sentences:
+            first = next((c for c in seg if c.isalnum()), "")
+            if not started:
+                if first.isupper() or first.isdigit():
+                    started = True
+                    out.append(seg)
+                # else: a lowercase / mid-word leading fragment — skip until a clean sentence start
+            else:
+                out.append(seg)
+        return " ".join(out).strip()
+    except Exception:  # noqa: BLE001 — never emit a fragment on a helper error
+        return ""
+
+
+def _disclosure_dedup_signature(text: str) -> str:
+    """Normalized same-meaning signature for a held-aside disclosure line (Fix 4, 2026-07-10): the text
+    lowercased + whitespace-collapsed after stripping [#ev] provenance tokens and resolved [N] citation
+    markers, so two lines that state the SAME thing collapse regardless of which markers they carry.
+    Empty => no signature (a contentless line is never deduped). PURE."""
+    s = _EV_TOKEN_RE.sub(" ", str(text or ""))
+    s = _NUM_CITE_MARKER_RE.sub(" ", s)
+    return " ".join(s.split()).lower()
+
+
 def _insufficient_evidence_disclosure(basket: Any) -> str:
     """Honest NEVER-empty fallback when a basket has prose-fail AND no verified span: disclose the
-    gap, never fabricate filler (§-1.3). Names the claim subject so the disclosure is specific."""
-    subject = str(getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "this claim").strip()
-    return f"[insufficient verified evidence to compose a sentence for: {subject[:160]}]"
+    gap, never fabricate filler (§-1.3). Names the claim subject ONLY when it renders as a clean
+    sentence-shaped fragment; a raw mid-word span slice (the upstream ``representative_statement``
+    truncation class) is dropped so the honest gap never embeds a truncated fragment (Fix 4, 2026-07-10)."""
+    raw = str(getattr(basket, "subject", "") or getattr(basket, "claim_text", "") or "").strip()
+    subject = _sentence_shaped_claim(raw)
+    if not subject:
+        return "[insufficient verified evidence to compose a sentence for this claim.]"
+    return f"[insufficient verified evidence to compose a sentence for: {_truncate_subject_word_safe(subject, 160)}]"
 
 
 def _deterministic_only_member_count(basket: Any) -> int:
@@ -1556,6 +1622,20 @@ def render_degraded_disclosures(body: str, disclosures: list) -> str:
     # human prose (never delete). Byte-identical when PG_UNCOVERED_DISCLOSURE_REFORMAT=0 or the block is
     # a degraded-verify disclosure (only the uncovered-fact prefix matches).
     kept_disclosures = [_reformat_uncovered_disclosure(d) for d in kept_disclosures]
+    # Fix 4 (2026-07-10 compose gear-loop): DEDUP same-meaning disclosure lines WITHIN this section
+    # (keep the FIRST; consolidation semantics — a repeated restatement collapses to one honest line).
+    # Signature ignores [#ev]/[N] markers so a rotated-citation restatement collapses too. Order-stable;
+    # distinct disclosures (different subjects) are untouched.
+    _deduped: list[str] = []
+    _seen_sigs: set = set()
+    for _d in kept_disclosures:
+        _sig = _disclosure_dedup_signature(_d)
+        if _sig and _sig in _seen_sigs:
+            continue
+        if _sig:
+            _seen_sigs.add(_sig)
+        _deduped.append(_d)
+    kept_disclosures = _deduped
     parts: list[str] = []
     body_str = str(body or "").rstrip()
     if body_str:
@@ -1963,15 +2043,16 @@ def _unverified_synthesis_disclosure(basket: Any) -> str:
     disclosure unit (``[``-prefixed) so it is held aside from strict_verify like the other
     disclosure lines. Falls to the honest no-verified-span gap when the basket carries no
     claim text (never empty)."""
-    claim = str(getattr(basket, "claim_text", "") or getattr(basket, "subject", "") or "").strip()
-    claim = _EV_TOKEN_RE.sub("", claim).strip()
-    claim = " ".join(claim.split())  # Fix 5: collapse whitespace so no embedded newline splits the unit
+    raw = str(getattr(basket, "claim_text", "") or getattr(basket, "subject", "") or "").strip()
+    # Fix 4 (2026-07-10 compose gear-loop): SENTENCE-BOUNDARY-align + HTML-unescape the claim so a raw
+    # mid-word span slice ("usand workers…", "…highly e", "&gt;") is NEVER emitted as a labeled fragment.
+    # Nothing clean survives -> the plain honest gap (no span text at all).
+    claim = _sentence_shaped_claim(raw)
     if not claim:
         return _no_verified_span_disclosure(basket)
-    # Fix 5 (2026-07-10 compose gear-loop iter 2): a broken mid-word fragment or a page-furniture claim
-    # wrapped in a label is STILL garbage in a final report. WITHHOLD it (fall to the honest gap
-    # disclosure) when the existing junk screen fires, and word-boundary-truncate a long claim so no
-    # mid-word "…displ" slice ever ships. Faithfulness-neutral (the SOURCE stays in the pool).
+    # A page-furniture / chrome claim wrapped in a label is STILL garbage in a final report -> WITHHOLD
+    # (fall to the honest gap) when the existing junk + chrome screen fires. Faithfulness-neutral (the
+    # SOURCE stays in the pool). Word-boundary-truncate so no long claim re-introduces a mid-word cut.
     if _uncovered_fact_disclosure_is_junk(basket, claim):
         return _no_verified_span_disclosure(basket)
     claim = _truncate_subject_word_safe(claim, _UNCOVERED_SUBJECT_LIMIT)

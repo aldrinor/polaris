@@ -13,24 +13,24 @@ ARCHITECTURE (design §3, ABSTRACTIVE_WRITER_DESIGN.md):
     An async PRE-PASS (:func:`abstractive_pre_pass`) precomputes one verified draft per basket up
     front (LLM + bounded retry, bounded-parallel); the sync ``writer_fn``
     (:func:`make_abstractive_writer_fn`) is a pure dict lookup keyed by the basket's canonical id.
-  * The writer-specific verify wrapper (:func:`make_writer_verify_fn`) is STRICTER than the K-span
-    path — the four P1 closures, all in the wrapper / pre-pass, ENGINE UNTOUCHED:
-      - P1-1: a TRANSPORT entailment ``judge_error`` is a WRITER FAILURE (the wrapper forces
-        ``is_verified=False`` -> retry -> K-span). An advisory judge-error never ships as a
-        paraphrase, only ever as the grounded-by-construction K-span.
-      - P1-2: the wrapper verifies with ``allow_local_window_fallback=False`` (the K-span path keeps
-        the ``True`` default via the unwrapped ``verify_fn``); a NEUTRAL/CONTRADICTED bound span
-        cannot pass on a same-row local window.
-      - P1-3: a numeric COMPLETENESS guard (span->sentence) — every substantive span numeric must
-        appear verbatim in the rewrite, else ``is_verified=False`` -> retry -> K-span. The
-        guard reuses the ENGINE'S OWN substantive-numeral definition (``_decimals_in`` /
-        ``_numbers_in`` / ``_INTEGER_PERCENT_RE`` / ``_strip_dose_patterns``), so "substantive"
-        means the same thing in both directions; it lives HERE, never in ``verify_sentence_provenance``.
-      - P1-4: the async/sync adapter above.
+  * The writer-specific verify wrapper (:func:`make_writer_verify_fn`) is verified by the SAME BASE
+    bar as the K-span path (2026-07-10 compose gear-loop, operator override). The wrapper adds ONE
+    writer-specific leg on top of ``base_verify``, ENGINE UNTOUCHED:
+      - ANTI-VERBATIM: a writer sentence that pasted a long contiguous run of its cited span verbatim
+        is a quote-dump (not synthesis), so it is FAILED -> retry -> K-span. This leg rejects COPYING,
+        never paraphrase — a quality gate that FORCES synthesis, not a faithfulness ghost.
+      - async/sync adapter (the pre-pass + sync ``writer_fn`` dict lookup above).
+    The three previously-stricter legs are DELETED and NOT re-introduced: the P1-3 span->sentence
+    numeric-COMPLETENESS "ghost" (the base verifier already enforces the whole numeric bar in the
+    FORWARD direction — every number the SENTENCE states must match its span); the P1-1 judge_error
+    fail-closed (the base verifier advisory-KEEPS a transport judge_error and sets the durable
+    ``judge_error`` marker — verifier LABELS, never holds); and the P1-2
+    ``allow_local_window_fallback=False`` override (the writer path keeps the base default like the
+    K-span path).
   * Fail-closed activation (design §3.6 / §5.5): the writer REFUSES to activate (raises, fail-LOUD,
     LAW II) unless ``PG_STRICT_VERIFY_ENTAILMENT`` resolves to ``enforce`` — the writer's only
-    semantic guarantee for a paraphrase IS the entailment leg. The env guard is the ACTIVATION
-    precondition; the per-call ``judge_error`` demotion (P1-1) is the call-time enforcement.
+    semantic guarantee for a paraphrase IS the entailment leg (now the base verifier's, not a wrapper
+    demotion).
 
 FAITHFULNESS: ``verify_sentence_provenance`` / NLI / 4-role D8 / provenance / ``build_verified_span_draft``
 / ``_compose_one_basket`` / ``_compose_section_per_basket`` / the region gate are UNTOUCHED. Every
@@ -167,7 +167,11 @@ def _kspan_recovery_pass_enabled() -> bool:
 
 
 def _deadline_transport_aware_enabled() -> bool:
-    return _flag_enabled(_ENV_DEADLINE_TRANSPORT_AWARE)
+    # Fix 3 (2026-07-10 compose gear-loop): DEFAULT-ON. A transient transport disconnect must never
+    # permanently kill a whole basket wave with an instant K-span; the transport-aware branch grants a
+    # bounded FRESH reconnect window instead (a general resilience correction, not a question-tuned knob).
+    # Kill-switch stays: an explicit 0/false/off/no disables it; an unset OR empty env is ON.
+    return os.getenv(_ENV_DEADLINE_TRANSPORT_AWARE, "1").strip().lower() not in ("0", "false", "off", "no")
 
 
 def _makespan_wall_seconds(
@@ -306,44 +310,6 @@ def _basket_key(basket: Any) -> str:
     return str(getattr(basket, "claim_cluster_id", "") or "")
 
 
-# ── P1-3 numeric COMPLETENESS guard helpers (reuse the ENGINE'S substantive-numeral definition) ──
-def _substantive_span_numerics(span_text: str) -> set[str]:
-    """The set of SUBSTANTIVE numerals in a span, using the ENGINE'S OWN definition so "substantive"
-    means the same thing in both directions (design §3.2c): every decimal (``_decimals_in`` over
-    dose-stripped text) PLUS every percent-expressed integer (``_INTEGER_PERCENT_RE``). Structural /
-    study-marker integers (``STEP 1``, ``week 68``, ``104 weeks``, ``phase 3``) are NOT substantive
-    — the engine's sentence->span numeric check exempts them via ``_DECIMAL_NUMBER_RE``, so the
-    reverse span->sentence guard must exempt them too (else it would demand study markers the engine
-    itself ignores and force a universal K-span no-op)."""
-    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
-        _INTEGER_PERCENT_RE,
-        _decimals_in,
-        _numbers_in,
-        _strip_dose_patterns,
-    )
-    stripped = _strip_dose_patterns(span_text or "")
-    decimals = _decimals_in(stripped)
-    # Percent-expressed integers (e.g. "50%", "19 percent") ARE claimed values; capture them but
-    # exclude any that are already decimals.
-    pct_ints = {m.group(1) for m in _INTEGER_PERCENT_RE.finditer(stripped)} - decimals
-    # Restrict pct_ints to genuine integers present as standalone numbers in the span (mirrors the
-    # engine's claimed_pct_ints handling, which subtracts decimals and checks integer membership).
-    span_numbers = _numbers_in(stripped)
-    pct_ints = {n for n in pct_ints if n in span_numbers}
-    return decimals | pct_ints
-
-
-def _numeral_appears_verbatim(numeral: str, sentence: str) -> bool:
-    """True iff ``numeral`` appears verbatim among the sentence's numbers (after the same
-    dose-strip + unicode-minus normalization the engine applies), so e.g. "13.0" vs "13" is not a
-    false match. Reuses ``_numbers_in`` so extraction matches the engine exactly."""
-    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
-        _numbers_in,
-        _strip_dose_patterns,
-    )
-    return numeral in _numbers_in(_strip_dose_patterns(sentence or ""))
-
-
 def _verbatim_copy_max_run() -> int:
     """``PG_WRITER_VERBATIM_COPY_MAX_CONTENT_WORDS`` (default 8, clamp >= 2). The contiguous-content-word
     run length at/above which a writer sentence is judged a verbatim COPY of its cited span. A value < 2
@@ -414,153 +380,53 @@ def _cited_span_text_for(tokens: list, scoped_pool: dict) -> str:
     return " ".join(parts)
 
 
-# ── Fix 1 (2026-07-10 compose gear-loop iter 2) — SATISFIABLE span->sentence numeric completeness ────
-# DECIMAL-AWARE source-segment terminator: a period BETWEEN two digits is a decimal point (``1.5``),
-# NOT a sentence boundary — so a figure never straddles two segments. ``!``/``?`` and a period not
-# flanked by digits are terminators. Used ONLY to scope the completeness denominator to the source
-# SENTENCE-SEGMENT the writer sentence rests on (never a faithfulness verdict).
-_SOURCE_SEGMENT_TERMINATOR_RE = re.compile(r"(?<!\d)[.](?!\d)|[!?]")
-
-
-def _split_source_segments(text: str) -> list[str]:
-    """Split a source span into decimal-aware sentence segments (a figure like ``1.5 percent`` stays in
-    ONE segment). Pure. Scopes the numeric-completeness denominator to the segment the sentence rests
-    on — it is NOT a faithfulness gate (the NLI entailment + per-number membership legs are unchanged)."""
-    s = text or ""
-    if not s.strip():
-        return []
-    segs: list[str] = []
-    start = 0
-    for m in _SOURCE_SEGMENT_TERMINATOR_RE.finditer(s):
-        end = m.end()
-        if s[start:end].strip():
-            segs.append(s[start:end])
-        start = end
-    if start < len(s) and s[start:].strip():
-        segs.append(s[start:])
-    return segs
-
-
-def _completeness_span_numerics(result_sentence: str, scoped_pool: dict) -> set[str]:
-    """The span numerals the writer sentence is RESPONSIBLE for completing — scoped to the MINIMAL
-    source sub-span(s) the sentence actually rests on, NOT the whole cited span (Fix 1, 2026-07-10
-    compose gear-loop iter 2).
-
-    ROOT: for a chunk-sized cp3 member the cited token's span is the whole ~8000-char document; the old
-    gate demanded EVERY numeral in it appear in ONE sentence -> ``writer_numeric_dropped`` killed 100% of
-    drafts -> every basket fell to the deterministic whole-span verbatim emission (the chrome / quote-
-    dump / repetition root). FIX: anchor on NUMERIC CO-LOCATION — the sentence's OWN numerals locate the
-    source SENTENCE-SEGMENT(s) they were drawn from; completeness then requires only the OTHER numerals
-    in THOSE same segments (a dropped SIBLING figure in the same source sentence, e.g. writing the 86.6%
-    treatment arm but hiding the 47.6% comparator). This is NUMERIC-anchored, NEVER lexical — it never
-    reintroduces the removed content-word-overlap gate (the ghost). Satisfiable AND strict: a genuine
-    cherry-pick is still caught; a legitimate one-figure synthesis is not false-dropped.
-
-    Tokens are parsed from ``result_sentence`` (``res.sentence`` per Fable). A sentence carrying NO
-    numeral has nothing to complete (a faithful QUALITATIVE synthesis of a quantitative span is judged by
-    the NLI entailment leg, not this gate) -> empty set. Bounds-safe."""
-    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
-        _numbers_in,
-        _strip_dose_patterns,
-        parse_provenance_tokens,
-    )
-    sent_nums = set(_numbers_in(_strip_dose_patterns(result_sentence or "")))
-    if not sent_nums:
-        return set()
-    out: set[str] = set()
-    for tok in parse_provenance_tokens(result_sentence) or []:
-        eid = str(getattr(tok, "evidence_id", "") or "")
-        row = (scoped_pool or {}).get(eid) or {}
-        haystack = str(row.get("direct_quote") or row.get("statement") or "")
-        start = int(getattr(tok, "start", -1))
-        end = int(getattr(tok, "end", -1))
-        if not (0 <= start < end <= len(haystack)):
-            continue
-        cited = haystack[start:end]
-        for seg in _split_source_segments(cited):
-            seg_nums = _substantive_span_numerics(seg)
-            if seg_nums & sent_nums:  # this source segment is one the sentence drew a numeral from
-                out |= seg_nums
-    return out
-
-
 def make_writer_verify_fn(base_verify: Callable[..., Any]) -> Callable[..., Any]:
     """The WRITER-SPECIFIC verify wrapper injected as ``_compose_one_basket``'s ``verify_fn``
-    (design §3.2). Pure (verify-only; no retry, no LLM). The K-span path keeps the bare
-    ``base_verify`` (default ``allow_local_window_fallback=True``); ONLY the writer path wraps it.
-    ``_compose_one_basket``'s signature + body are byte-identical — it just receives a different
-    ``verify_fn``. The wrapper is STRICTER than the K-span path:
+    (design section 3.2). Pure (verify-only; no retry, no LLM).
 
-      P1-2: verifies with ``allow_local_window_fallback=False`` (no same-row local-window rescue).
-      P1-1: a TRANSPORT entailment ``judge_error`` (the durable ``SentenceVerification.judge_error``
-            field) is forced to ``is_verified=False`` (``writer_judge_error_fail_closed``).
-      P1-3: a DROPPED substantive span numeric (span->sentence completeness) forces
-            ``is_verified=False`` (``writer_numeric_dropped``).
+    Collapsed to the BASE bar (2026-07-10 compose gear-loop, operator override "verified by the SAME
+    base bar as the K-span path, NOT the stricter writer wrapper"): the writer path is verified by the
+    SAME ``base_verify`` as the K-span path, with the base defaults (numeric forward-direction + context-
+    level NLI entailment; ``allow_local_window_fallback`` default True). The ONLY writer-specific ADDITION
+    is the ANTI-VERBATIM quote-dump leg: a writer sentence that pasted a long contiguous run of its cited
+    span verbatim is a quote-dump (not synthesis), so it is FAILED to force the existing repair loop to
+    re-draft it. That leg rejects COPYING, never paraphrase -- a quality gate that FORCES synthesis, not
+    a faithfulness ghost.
+
+    The three previously-stricter legs are DELETED and NOT re-introduced:
+      * the P1-3 span->sentence numeric-COMPLETENESS "ghost" (the base verifier already enforces the whole
+        numeric bar in the FORWARD direction: every number the SENTENCE states must match its span);
+      * the P1-1 judge_error fail-closed (the base verifier advisory-KEEPS a transport judge_error and sets
+        the durable ``judge_error`` marker -- verifier LABELS, never holds; locked memory 2026-06-14);
+      * the P1-2 ``allow_local_window_fallback=False`` override (the writer path keeps the base default,
+        exactly like the K-span path).
     """
 
     def _wrapped(sentence: str, scoped_pool: dict, *args: Any, **kwargs: Any) -> Any:
-        # P1-2: pin the local-window loophole shut for the writer path. (The K-span path keeps the
-        # bare base_verify default True via the unwrapped verify_fn — the shared default is untouched.)
-        kwargs.setdefault("allow_local_window_fallback", False)
+        # Base bar, base defaults (no allow_local_window_fallback override -> default True, same as the
+        # K-span path; the base verifier's advisory judge_error keep + durable marker are untouched).
         res = base_verify(sentence, scoped_pool, *args, **kwargs)
 
-        # P1-1: a TRANSPORT entailment judge_error is a WRITER FAILURE. The shared verifier (with
-        # PG_ENTAILMENT_JUDGE_ERROR_ADVISORY=1, the I-arch-010 default) advisory-KEEPS such a result
-        # as is_verified=True and sets the durable judge_error=True marker. That advisory keep is
-        # CORRECT for the deterministic K-span (a verbatim substring is grounded by construction) but
-        # WRONG for an abstractive paraphrase, whose ONLY semantic guarantee is the entailment leg.
-        # Read the BOOL FIELD (the canonical marker), not the soft_warnings string.
-        if getattr(res, "judge_error", False) and bool(getattr(res, "is_verified", False)):
-            res = dataclasses.replace(
-                res,
-                is_verified=False,
-                failure_reasons=[*list(getattr(res, "failure_reasons", []) or []),
-                                 "writer_judge_error_fail_closed"],
-            )
-
-        # P1-3: span->sentence numeric COMPLETENESS (the reverse direction the engine does NOT check).
-        # Only meaningful when the sentence is otherwise verified (a sentence already failing for
-        # another reason needs no completeness escalation). The cited span text is resolved from the
-        # parsed tokens of the INPUT sentence against the scoped pool (the exact cited sub-spans), so
-        # the denominator is the writer's own cited spans — never the whole row.
+        # ANTI-VERBATIM (quote-dump) leg: only when the sentence is otherwise verified (a sentence already
+        # failing needs no escalation). cited_span_text is the combined cited sub-spans of the verifier's
+        # RESULT sentence (res.sentence) against the scoped pool -- the exact cited sub-spans, never the
+        # whole row. A long IDENTICAL contiguous content-word run only survives a copy-paste, so a genuine
+        # rephrase is not flagged; the reason string is fed back to the writer through the repair loop.
         if bool(getattr(res, "is_verified", False)):
             from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
                 parse_provenance_tokens,
             )
-            # Fix 1 (2026-07-10 compose gear-loop iter 2): parse the tokens from the verifier's RESULT
-            # sentence (res.sentence) and scope the completeness denominator to the MINIMAL source
-            # sub-span the sentence rests on via NUMERIC CO-LOCATION — never the whole cited token span
-            # (which is the entire ~8000-char chunk for a chunk-sized member, an impossible completeness
-            # bar that killed 100% of drafts). cited_span_text (for the anti-verbatim leg below) is still
-            # the full cited span; only the numeric-completeness denominator is narrowed.
             result_sentence = str(getattr(res, "sentence", "") or "") or sentence
             cited_span_text = _cited_span_text_for(
                 parse_provenance_tokens(result_sentence), scoped_pool
             )
-            span_numerics = _completeness_span_numerics(result_sentence, scoped_pool)
-            if span_numerics and not all(
-                _numeral_appears_verbatim(n, sentence) for n in span_numerics
-            ):
+            if _sentence_is_verbatim_copy(sentence, cited_span_text):
                 res = dataclasses.replace(
                     res,
                     is_verified=False,
                     failure_reasons=[*list(getattr(res, "failure_reasons", []) or []),
-                                     "writer_numeric_dropped"],
+                                     "verbatim_copy — rewrite in your own words"],
                 )
-        # P0-1(d) ANTI-VERBATIM (2026-07-10): a writer sentence that pasted a long verbatim run of its
-        # cited span is a quote-dump, not synthesis — FAIL it (only when still verified; a sentence
-        # already failing needs no escalation) so the existing repair loop re-drafts it. The reason
-        # string is fed back to the writer verbatim. Only the WRITER path is wrapped, so a deliberate
-        # verbatim K-span (bare verify_fn, never this wrapper) is untouched.
-        if bool(getattr(res, "is_verified", False)) and _sentence_is_verbatim_copy(
-            sentence, cited_span_text
-        ):
-            res = dataclasses.replace(
-                res,
-                is_verified=False,
-                failure_reasons=[*list(getattr(res, "failure_reasons", []) or []),
-                                 "verbatim_copy — rewrite in your own words"],
-            )
         return res
 
     return _wrapped

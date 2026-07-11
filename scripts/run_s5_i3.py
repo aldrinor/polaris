@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -197,6 +198,44 @@ def _audit_section(idx, title, verified_text, shingles, ngram):
     }
 
 
+# Fix 5 (2026-07-10 compose gear-loop): a run-level marker tally. The compose modules emit their
+# activation / writer-yield / judge markers at INFO; this handler counts them across the whole run and
+# the counts are written into the cp5 payload (writer_forensics) so the NEXT read can verify activation
+# BEHAVIOURALLY (was invisible: the driver never configured logging, so only WARNING+ reached the log).
+class _MarkerTally(logging.Handler):
+    _PATTERNS = {
+        "synth_primary_fired": "[activation] synth_primary",
+        "outline_echo_fired": "[activation] outline_echo",
+        "uncovered_fact_withheld": "[activation] uncovered_fact_subject_gate",
+        "prepass_complete": "pre-pass complete",
+        "kspan_recovery_pass": "K-span recovery pass",
+        "kspan_fallback": "-> K-span",
+        "transport_reconnect": "fresh reconnect window",
+        "transport_disconnect": "transport-disconnect",
+        "judge_error": "judge error",
+        "judge_empty_content": "empty or non-str judge content",
+        "judge_total_deadline": "total_deadline_exceeded",
+        "judge_retryable_fault": "judge retryable fault",
+        "basket_all_chrome_skipped": "all SUPPORTS members screened as chrome",
+    }
+
+    def __init__(self):
+        super().__init__(level=logging.INFO)
+        self.counts = {k: 0 for k in self._PATTERNS}
+        self.prepass_lines = []
+
+    def emit(self, record):
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return
+        for key, needle in self._PATTERNS.items():
+            if needle in msg:
+                self.counts[key] += 1
+        if "pre-pass complete" in msg:
+            self.prepass_lines.append(msg[:300])
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cp2", required=True)
@@ -208,6 +247,40 @@ async def main():
     ap.add_argument("--ckpt-dir", type=str, default="", help="dir for per-section draft checkpoints (timeout-resilient)")
     ap.add_argument("--cap-primary", type=int, default=0, help="BOUNDED read: keep only first N primary views per section (0=all). Disclosed subset, not a full acceptance run.")
     args = ap.parse_args()
+
+    # Fix 5 (2026-07-10 compose gear-loop): configure INFO logging so the writer/activation markers
+    # ([activation] synth_primary, [abstractive_writer] pre-pass complete, K-span fallbacks, judge
+    # errors) reach the tee'd compose.log — the driver previously never called basicConfig, so only
+    # WARNING+ was visible and the writer-yield collapse was undiagnosable. Also install the marker tally
+    # so the counts land in the cp5 payload.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.getLogger().setLevel(logging.INFO)
+    marker_tally = _MarkerTally()
+    logging.getLogger().addHandler(marker_tally)
+
+    # Fix 3 (2026-07-10 compose gear-loop): writer THROUGHPUT/RESILIENCE flags ON by default for this
+    # driver so a transient transport disconnect never permanently kills a basket wave (the prior run
+    # lost 3/5 sections' whole writer wave in 0-2s). setdefault => an explicit launcher/env value still
+    # wins. General resilience knobs, not question-tuned; recorded in flag_slate for disclosure.
+    for _k, _v in (
+        ("PG_WRITER_DEADLINE_TRANSPORT_AWARE", "1"),
+        ("PG_WRITER_WALL_BASKET_SCALED", "1"),
+        ("PG_WRITER_KSPAN_RECOVERY_PASS", "1"),
+    ):
+        os.environ.setdefault(_k, _v)
+
+    # Fix 6 (2026-07-10 compose gear-loop): entailment-judge RELIABILITY for compose runs. The prior run
+    # showed "empty or non-str judge content" (a z-ai empty-200 blank window, NOT starvation — the judge
+    # default max_tokens is already the provider chain MIN 131072 and effort "high", both the model max)
+    # and "total_deadline_exceeded_150s". Route around blank-200 windows (PG_JUDGE_PROVIDER_ROTATE) and
+    # grant a bounded larger total wall. Do NOT override PG_ENTAILMENT_MAX_TOKENS / _REASONING_EFFORT
+    # (override clamps down / xhigh starves GLM per the mirror bake-off). setdefault => launcher/env wins.
+    for _k, _v in (
+        ("PG_JUDGE_PROVIDER_ROTATE", "1"),
+        ("PG_ENTAILMENT_TOTAL_S", "300"),
+    ):
+        os.environ.setdefault(_k, _v)
+
     sel = set()
     if args.sections.strip():
         sel = {int(x) for x in args.sections.split(",") if x.strip() != ""}
@@ -437,6 +510,10 @@ async def main():
         print(f"[holistic] sanitize_rendered_report EXCEPTION {e!r}", flush=True)
     print(f"[holistic] sanitize_rendered_report units_removed={units_removed} "
           f"pre_chars={len(report_md_pre)} post_chars={len(report_md_post)}", flush=True)
+    # Fix 7 (2026-07-10 compose gear-loop): apply the citation-seam tidy to the FINAL rendered report
+    # text itself (not only the pre-holistic section bodies) so a ".[1].[2]" seam that survives / is
+    # reintroduced by the holistic render pass is collapsed in the shipped assembled_report_md.
+    report_md_post = _fix_citation_seams(report_md_post)
 
     # ---- Line-by-line audit (§-1.1) on the POST-holistic sections ----
     # P1-5 (2026-07-10): build the source n-gram shingle index once so the quote-dump predicate can
@@ -525,6 +602,10 @@ async def main():
             "PG_CROSS_SECTION_REPETITION_GUARD", "PG_RENDER_SEAM_SANITIZE",
             "PG_GENERATOR_MODEL", "PG_ENTAILMENT_MODEL", "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY",
             "PG_SECTION_MAX_TOKENS",
+            # Fix 3 + Fix 6 (2026-07-10 compose gear-loop): writer transport-resilience + judge-reliability
+            # flags now disclosed in the slate (were invisible, so the wave collapse was undiagnosable).
+            "PG_WRITER_DEADLINE_TRANSPORT_AWARE", "PG_WRITER_WALL_BASKET_SCALED",
+            "PG_WRITER_KSPAN_RECOVERY_PASS", "PG_JUDGE_PROVIDER_ROTATE", "PG_ENTAILMENT_TOTAL_S",
         ]},
         "upstream": [
             {"stage": "corpus", "checkpoint": args.cp2, "sha": cp2_sha},
@@ -562,6 +643,14 @@ async def main():
             "chrome_sentences": tot_chrome,
             "quote_dump_sentences": tot_qd,
             "per_section": audits,
+        },
+        # Fix 5 (2026-07-10 compose gear-loop): run-level writer/activation/judge marker tally scraped
+        # from the INFO log. Lets the next read VERIFY activation behaviourally (synth_primary_fired > 0)
+        # and DISCLOSES judge transport faults at the run level (Fix 2b: the durable judge_error signal
+        # is surfaced here for disclosure, never silently dropped) plus writer-yield (pre-pass drafted).
+        "writer_forensics": {
+            "marker_counts": marker_tally.counts,
+            "prepass_lines": marker_tally.prepass_lines,
         },
         "payload": {
             "section_drafts": section_drafts,
