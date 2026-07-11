@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "stage": "s5_generation_live_compose",
+  "iter": 4,
+  "acceptance": true,
+  "acceptance_reasons": [],
+  "excepted_sections": [],
+  "question_sha": "146597e3a837074d92cfbc7fdb0fba5e9a54456bf66cc69fc5134972504dca94",
+  "flag_slate": {
+    "PG_SECTION_BASKET_MAP": "1",
+    "PG_SECTION_BASKET_MAP_REFINE_NLI": null,
+    "PG_SECTION_BASKET_ROLE_POLICY": null,
+    "PG_COMPOSE_NO_RAW_SPAN_FALLBACK": "1",
+    "PG_SYNTH_PRIMARY": "1",
+    "PG_ABSTRACTIVE_WRITER": "1",
+    "PG_VERIFIED_COMPOSE": "1",
+    "PG_VERIFIED_COMPOSE_MULTICITED": "1",
+    "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
+    "PG_CROSS_SECTION_REPETITION_GUARD": "1",
+    "PG_RENDER_SEAM_SANITIZE": "1",
+    "PG_GENERATOR_MODEL": "z-ai/glm-5.2",
+    "PG_ENTAILMENT_MODEL": "z-ai/glm-5.2",
+    "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY": "1",
+    "PG_SECTION_MAX_TOKENS": "8000",
+    "PG_WRITER_DEADLINE_TRANSPORT_AWARE": "1",
+    "PG_WRITER_WALL_BASKET_SCALED": "1",
+    "PG_WRITER_KSPAN_RECOVERY_PASS": "1",
+    "PG_JUDGE_PROVIDER_ROTATE": "1",
+    "PG_ENTAILMENT_TOTAL_S": "90"
+  },
+  "upstream": [
+    {
+      "stage": "corpus",
+      "checkpoint": "/workspace/POLARIS/outputs/s2_hamster_i1/cp2_corpus_snapshot.json",
+      "sha": "c2aae4b741076deef0fc91d00efc41b4e4d7c2aef4fcf4b382d9bec3e88fcfe7"
+    },
+    {
+      "stage": "basket",
+      "checkpoint": "/workspace/POLARIS/outputs/s3_gear/cp3_basket_snapshot.json",
+      "sha": "94684212397010533c45ae66d4b7eacbf5178405c0943c9b12d0c36bc2df409b"
+    },
+    {
+      "stage": "outline",
+      "checkpoint": "/workspace/POLARIS/outputs/s4_gear/cp4_outline_snapshot.json",
+      "sha": "59dd87603c2ed59b9ec075734d8ca96b398199e896cfe3ac89dc2743100ebdcd"
+    }
+  ],
+  "faithfulness_invariant": "REAL live compose. Abstractive LLM writer drafts synthesis prose per PRIMARY basket; every composed sentence re-passes the UNCHANGED strict_verify (numeric + context-level NLI entailment). The lexical content-word-overlap gate + verbatim raw-span fallback (the ghost) are DELETED at 0966373 and NOT reintroduced. Map is pure placement; nothing dropped (stranded_count==0). No stored verdict; resume re-runs every gate.",
+  "map_stats": {
+    "baskets": 328,
+    "sections": 5,
+    "stranded_count": 0,
+    "residual_section_index": 4,
+    "nocid_synthetic_count": 0,
+    "primary_homes": 328,
+    "per_section_views": {
+      "0": 16,
+      "1": 12,
+      "4": 274,
+      "2": 14,
+      "3": 16
+    },
+    "primary_per_section": {
+      "0": 8,
+      "1": 8,
+      "4": 8,
+      "2": 8,
+      "3": 8
+    }
+  },
+  "holistic_review": {
+    "cross_section_repetition_guard": {
+      "clusters": 0,
+      "consolidated": 0
+    },
+    "render_seam_sanitize_units_removed": 0,
+    "report_pre_chars": 2989,
+    "report_post_chars": 2989,
+    "fired": true
+  },
+  "audit": {
+    "total_sentences": 10,
+    "sentences_with_citation": 10,
+    "citation_survival_pct": 100.0,
+    "chrome_sentences": 0,
+    "quote_dump_sentences": 0,
+    "per_section": [
+      {
+        "section_index": 0,
+        "title": "Positive Views on Generative AI's Impact on Employment",
+        "sentences": 6,
+        "with_citation": 6,
+        "chrome_sentences": 0,
+        "quote_dump_sentences": 0,
+        "flagged": []
+      },
+      {
+        "section_index": 1,
+        "title": "Negative Views on Generative AI's Impact on Employment",
+        "sentences": 4,
+        "with_citation": 4,
+        "chrome_sentences": 0,
+        "quote_dump_sentences": 0,
+        "flagged": []
+      }
+    ]
+  },
+  "writer_forensics": {
+    "marker_counts": {
+      "synth_primary_fired": 8,
+      "outline_echo_fired": 2,
+      "uncovered_fact_withheld": 0,
+      "prepass_complete": 2,
+      "kspan_recovery_pass": 0,
+      "kspan_fallback": 0,
+      "transport_reconnect": 0,
+      "transport_disconnect": 0,
+      "judge_error": 1,
+      "judge_empty_content": 0,
+      "judge_total_deadline": 0,
+      "judge_retryable_fault": 0,
+      "basket_all_chrome_skipped": 0
+    },
+    "prepass_lines": [
+      "[abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=96.9s, retries_budget=1, wall_cap=520s, abandoned=0)",
+      "[abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=39.3s, retries_budget=1, wall_cap=520s, abandoned=0)"
+    ]
+  },
+  "payload": {
+    "section_drafts": [
+      {
+        "section_index": 0,
+        "title": "Positive Views on Generative AI's Impact on Employment",
+        "focus": "Productivity enhancement, labor augmentation, complementarity effects, and new task creation driven by generative AI, drawing on seminal automation-and-reinstatement theory and early experimental productivity evidence.",
+        "ev_ids_assigned": [
+          "acemoglu_restrepo_automation_tasks",
+          "autor_why_still_jobs",
+          "ev_975",
+          "ev_019",
+          "ev_931",
+          "ev_941",
+          "ev_929",
+          "ev_883",
+          "ev_884",
+          "ev_879",
+          "ev_880",
+          "ev_077",
+          "ev_000",
+          "ev_017",
+          "ev_499",
+          "ev_938",
+          "ev_919",
+          "ev_205"
+        ],
+        "verified_text": "A task-based framework for analyzing how technology affects labor demand posits that production requires a range of tasks allocated to either capital or labor, and that new technologies not only raise the productivity of both factors at their existing tasks but also shift which tasks each factor performs, a shift termed the task content of production.[1] Empirical evidence supports this dynamic: roughly half of employment growth between 1980 and 2015 occurred in occupations whose job titles or task contents changed, indicating substantial new-task creation alongside ongoing automation.[1] Among U.S. workers, 9% reported using generative AI every workday and 14% used it on at least one but not every workday in the previous week.[2][3][4] Analysis of AI adoption across firms suggests that firms adopting AI do not necessarily need to shed workers but can grow, produce more, and use workers more efficiently than non-adopting firms.[5] With agent and tenure fixed effects added, AI deployment increased resolutions per hour by 0.30 chats, or 13.8%.[6][7][8][9] Chat resolution rates showed a small 1.3 percentage point increase, significant at the 10% level, against a high baseline resolution rate of 82%, while customer satisfaction measured by net promoter scores showed no economically significant change, with a coefficient of -0.13 percentage points and a mean of 79.6%.[6][7][8][9]",
+        "sentences_verified": 6,
+        "sentences_dropped": 2,
+        "regen_attempted": false,
+        "dropped_due_to_failure": false,
+        "is_gap_stub": false,
+        "error": ""
+      },
+      {
+        "section_index": 1,
+        "title": "Negative Views on Generative AI's Impact on Employment",
+        "focus": "Job displacement risks, occupational exposure to automation, labor market polarization, wage inequality, and evidence of short-term displacement effects from generative AI adoption.",
+        "ev_ids_assigned": [
+          "frey_osborne_computerisation",
+          "acemoglu_restrepo_robots_jobs",
+          "ev_043",
+          "ev_133",
+          "ev_144",
+          "ev_958",
+          "ev_160",
+          "ev_967",
+          "ev_968",
+          "ev_001",
+          "ev_020",
+          "ev_057",
+          "ev_170",
+          "ev_009",
+          "ev_1112"
+        ],
+        "verified_text": "Researchers developed a displacement-risk metric termed \"observed exposure\" that merges theoretical large language model capabilities with actual usage patterns, assigning greater weight to automated applications than to augmentative ones, and report that occupations showing greater observed exposure face weaker projected employment growth from the Bureau of Labor Statistics through 2034, with each 10 percentage point rise in coverage corresponding to a 0.6 percentage point decline in the BLS growth forecast.[1][2] Although the researchers behind the observed-exposure metric detect no systematic rise in unemployment among highly exposed workers since late 2022, they report suggestive evidence that recruitment of younger workers has decelerated in exposed occupations.[1][2] Baseline difference-in-differences estimates indicate that occupations with above-median AI-substitution vulnerability suffered a statistically significant drop in labor demand after ChatGPT became available, with the most restrictive specification producing a coefficient of -0.122*** on the interaction of high-substitution occupations and the post-ChatGPT period.[3][4][5] The displacement effect intensifies over time, with coefficients of -0.064* during the first year after ChatGPT's launch, -0.135** in the second year, and -0.182*** in the third year.[3][4][5]",
+        "sentences_verified": 4,
+        "sentences_dropped": 2,
+        "regen_attempted": false,
+        "dropped_due_to_failure": false,
+        "is_gap_stub": false,
+        "error": ""
+      }
+    ],
+    "assembled_report_md": "# I am researching the impact of Generative AI on the future labor market, please help me complete a research report.\n\n## Positive Views on Generative AI's Impact on Employment\n\nA task-based framework for analyzing how technology affects labor demand posits that production requires a range of tasks allocated to either capital or labor, and that new technologies not only raise the productivity of both factors at their existing tasks but also shift which tasks each factor performs, a shift termed the task content of production.[1] Empirical evidence supports this dynamic: roughly half of employment growth between 1980 and 2015 occurred in occupations whose job titles or task contents changed, indicating substantial new-task creation alongside ongoing automation.[1] Among U.S. workers, 9% reported using generative AI every workday and 14% used it on at least one but not every workday in the previous week.[2][3][4] Analysis of AI adoption across firms suggests that firms adopting AI do not necessarily need to shed workers but can grow, produce more, and use workers more efficiently than non-adopting firms.[5] With agent and tenure fixed effects added, AI deployment increased resolutions per hour by 0.30 chats, or 13.8%.[6][7][8][9] Chat resolution rates showed a small 1.3 percentage point increase, significant at the 10% level, against a high baseline resolution rate of 82%, while customer satisfaction measured by net promoter scores showed no economically significant change, with a coefficient of -0.13 percentage points and a mean of 79.6%.[6][7][8][9]\n\n## Negative Views on Generative AI's Impact on Employment\n\nResearchers developed a displacement-risk metric termed \"observed exposure\" that merges theoretical large language model capabilities with actual usage patterns, assigning greater weight to automated applications than to augmentative ones, and report that occupations showing greater observed exposure face weaker projected employment growth from the Bureau of Labor Statistics through 2034, with each 10 percentage point rise in coverage corresponding to a 0.6 percentage point decline in the BLS growth forecast.[1][2] Although the researchers behind the observed-exposure metric detect no systematic rise in unemployment among highly exposed workers since late 2022, they report suggestive evidence that recruitment of younger workers has decelerated in exposed occupations.[1][2] Baseline difference-in-differences estimates indicate that occupations with above-median AI-substitution vulnerability suffered a statistically significant drop in labor demand after ChatGPT became available, with the most restrictive specification producing a coefficient of -0.122*** on the interaction of high-substitution occupations and the post-ChatGPT period.[3][4][5] The displacement effect intensifies over time, with coefficients of -0.064* during the first year after ChatGPT's launch, -0.135** in the second year, and -0.182*** in the third year.[3][4][5]\n"
+  }
+}
