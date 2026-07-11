@@ -216,7 +216,6 @@ async def run_scenario(
         }
 
     result = {
-        "run_id": cp2.get("run_id"),
         "question_prefix": question[:300],
         "domain": domain,
         "required_sections": REQUIRED_SECTIONS,

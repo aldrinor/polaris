@@ -1135,6 +1135,7 @@ class OutlineAgent:
         question_norm = _normalize_for_quote_check(self.workspace.research_question)
         new_todos: list[GapTodo] = []
         n_ungrounded = 0
+        ungrounded_lines: list[str] = []
         for line in screened[:12]:
             if line.upper().strip() == "NONE":
                 continue
@@ -1145,10 +1146,12 @@ class OutlineAgent:
                 # the precision gate the P0-1 fix requires, the mirror image of the
                 # fail-open junk-deletion carve-out which governs a different job).
                 n_ungrounded += 1
+                ungrounded_lines.append(line[:160])
                 continue
             section, aspect, kind_raw, quote = parts[0], parts[1], parts[2], parts[3]
             if not _quote_is_grounded(quote, question_norm):
                 n_ungrounded += 1
+                ungrounded_lines.append(line[:160])
                 continue
             kind = kind_raw if kind_raw in ("coverage", "density", "numeric_rows") else "coverage"
             todo = self.workspace.gap_ledger.add(
@@ -1161,9 +1164,14 @@ class OutlineAgent:
                 + "; ".join(f"{t.section}::{t.aspect}" for t in new_todos[:6])
             )
         if n_ungrounded:
+            # §-1.1 auditability fix: the OLD disclosure was a bare count — a reader could never
+            # verify whether the anti-invention gate correctly rejected an invented sub-topic or
+            # wrongly swallowed a REAL gap that just phrased its quote loosely. Surface the actual
+            # dropped line text (truncated) so a line-by-line read can judge each one.
             self.workspace.disclose(
                 f"checklist[{trigger}] dropped {n_ungrounded} ungrounded line(s) "
-                "(no verbatim question quote — anti-invention gate, P0-1 fix)"
+                "(no verbatim question quote — anti-invention gate, P0-1 fix): "
+                + " | ".join(ungrounded_lines[:6])
             )
         if not new_todos and not n_ungrounded:
             # Iter-2 telemetry fix: previously a genuine "the checklist ran and found NOTHING"
