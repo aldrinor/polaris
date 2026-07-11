@@ -1,0 +1,102 @@
+[polaris graph] JSON repair also failed for ReactDecision: 1 validation error for ReactDecision
+action
+  Field required [type=missing, input_value={'sql': "SELECT ev_id, ti...ng': 'Selected unknown'}, input_type=dict]
+    For further information visit https:/
+[polaris graph] Structured parse failed (355 chars), retrying: 1 validation error for ReactDecision
+action
+  Field required [type=missing, input_value={'sql': "SELECT ev_id, ti...ng': 'Selected unknown'}, input_type=dict]
+    For further information visit https:/
+[outline_agent] decide failed at turn 9: 1 validation error for ReactDecision
+  Invalid JSON: expected `:` at line 1 column 549 [type=json_invalid, input_value='{"reasoning":"The outlin...hed before June 2023"}}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.11/v/json_invalid
+[matched-comparison] run_id=SWEEP_workforce_drb_72_ai_labor_1783476454 domain='workforce' evidence_rows=654 baskets(raw)=343 required_sections=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+[matched-comparison] question (first 200 chars): 'I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The report needs to be based on academic research published before June 2023, summar'
+
+################################################################################
+[matched-comparison] SCENARIO: FULL_CORPUS (654 rows) (evidence_rows=654)
+################################################################################
+[bank] built 45 clusters from 343 baskets (dropped 1 — id not resolvable in cp2 evidence)
+[bank] built 45 clusters from 343 baskets (dropped 1 — id not resolvable in cp2 evidence)
+
+=== PLAIN RUN RESULT (elapsed 96.0s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+ok=True reason_codes=['info_overlap:26_ev_ids_shared_across_sections']
+  - 'Positive Views': 21 ev_ids
+  - 'Negative Views': 20 ev_ids
+  - 'Specific Challenges': 27 ev_ids
+  - 'Future Opportunities': 21 ev_ids
+
+=== AGENTIC RUN RESULT (elapsed 189.6s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+turns=9 ev_before=654 ev_after=654 new_evidence=0
+  - 'Positive Views': 18 ev_ids
+  - 'Negative Views': 19 ev_ids
+  - 'Specific Challenges': 19 ev_ids
+  - 'Future Opportunities': 19 ev_ids
+disclosures:
+  - checklist[seed] recorded 1 unhomeable gap(s) as UNFILLED (no matching section under the locked required-structure deliverable — structural limitation, never retried): Summary Table::Missing section for the summary table detailing application cases, impacts, and risks
+  - checklist[seed] ran: NONE (no grounded deficiencies)
+  - search_more_evidence VETOED: section 'Summary Table' already proven unhomeable this run (no matching required section title, required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']) — vetoed before any real fetch, regardless of aspect rewording
+  - search_more_evidence VETOED: section 'Summary Table' already proven unhomeable this run (no matching required section title, required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']) — vetoed before any real fetch, regardless of aspect rewording
+  - search_more_evidence VETOED: section 'Summary Table' already proven unhomeable this run (no matching required section title, required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']) — vetoed before any real fetch, regardless of aspect rewording
+  - update_outline: Applied 0 op(s); recompose=[]; kept=4; rejected=0; deferred=1; gap_queries routed to ledger: 0
+  - search_more_evidence VETOED: section 'Summary Table' already proven unhomeable this run (no matching required section title, required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']) — vetoed before any real fetch, regardless of aspect rewording
+  - update_outline: Applied 0 op(s); recompose=[]; kept=4; rejected=0; deferred=1; gap_queries routed to ledger: 0
+  - search_more_evidence VETOED: section 'Summary Table' already proven unhomeable this run (no matching required section title, required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']) — vetoed before any real fetch, regardless of aspect rewording
+  - decide failed at turn 9: 1 validation error for ReactDecision
+  Invalid JSON: expected `:` at line 1 column 549 [type=json_invalid, input_value='{"reasoning":"The outlin...hed before June 2023"}}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.11/v/json_invalid; stopping loop
+
+=== [FULL_CORPUS (654 rows)] SECTION TABLE (raw counts are SEED-NOISE-CONTAMINATED — read genuine_new_fetched_rows) ===
+  'Positive Views': plain=21 agentic=18 raw_delta(noisy)=-3 genuine_new_fetched_rows=0
+  'Negative Views': plain=20 agentic=19 raw_delta(noisy)=-1 genuine_new_fetched_rows=0
+  'Specific Challenges': plain=27 agentic=19 raw_delta(noisy)=-8 genuine_new_fetched_rows=0
+  'Future Opportunities': plain=21 agentic=19 raw_delta(noisy)=-2 genuine_new_fetched_rows=0
+genuine_new_evidence_count=0 (search_more_evidence_calls=0)
+sections_with_genuine_gain=[]
+no_genuine_gain_this_run=True (True means: on THIS seed, the checklist correctly found nothing missing — report honestly, do not spin the noisy count delta as evidence of agentic value)
+
+[matched-comparison] THINNED subsample: 130 of 654 rows (seed=42), 62 of 343 baskets survive intact
+
+################################################################################
+[matched-comparison] SCENARIO: THINNED_CORPUS (130 rows, seed=42) (evidence_rows=130)
+################################################################################
+[bank] built 0 clusters from 62 baskets (dropped 0 — id not resolvable in cp2 evidence)
+[bank] built 0 clusters from 62 baskets (dropped 0 — id not resolvable in cp2 evidence)
+
+=== PLAIN RUN RESULT (elapsed 133.1s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+ok=True reason_codes=['info_overlap:15_ev_ids_shared_across_sections']
+  - 'Positive Views': 11 ev_ids
+  - 'Negative Views': 12 ev_ids
+  - 'Specific Challenges': 15 ev_ids
+  - 'Future Opportunities': 13 ev_ids
+
+=== AGENTIC RUN RESULT (elapsed 283.1s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+turns=1 ev_before=130 ev_after=130 new_evidence=0
+  - 'Positive Views': 28 ev_ids
+  - 'Negative Views': 27 ev_ids
+  - 'Specific Challenges': 20 ev_ids
+  - 'Future Opportunities': 25 ev_ids
+disclosures:
+  - checklist[seed] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Summary Table :: Specific application cases, country/region, and key risks :: coverage :: "please create a summary table based on the information you have gathe
+  - checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)
+  - finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True
+
+=== [THINNED_CORPUS (130 rows, seed=42)] SECTION TABLE (raw counts are SEED-NOISE-CONTAMINATED — read genuine_new_fetched_rows) ===
+  'Positive Views': plain=11 agentic=28 raw_delta(noisy)=+17 genuine_new_fetched_rows=0
+  'Negative Views': plain=12 agentic=27 raw_delta(noisy)=+15 genuine_new_fetched_rows=0
+  'Specific Challenges': plain=15 agentic=20 raw_delta(noisy)=+5 genuine_new_fetched_rows=0
+  'Future Opportunities': plain=13 agentic=25 raw_delta(noisy)=+12 genuine_new_fetched_rows=0
+genuine_new_evidence_count=0 (search_more_evidence_calls=0)
+sections_with_genuine_gain=[]
+no_genuine_gain_this_run=True (True means: on THIS seed, the checklist correctly found nothing missing — report honestly, do not spin the noisy count delta as evidence of agentic value)
+
+[matched-comparison] wrote /workspace/outline_agent_wt/outputs/matched_comparison_run/matched_comparison_result.json
+
+################################################################################
+FINAL SUMMARY (both scenarios)
+################################################################################
+  full_corpus: genuine_new_evidence_count=0 sections_with_genuine_gain=[] no_genuine_gain_this_run=True
+  thinned_corpus: genuine_new_evidence_count=0 sections_with_genuine_gain=[] no_genuine_gain_this_run=True

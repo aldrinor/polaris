@@ -1,0 +1,236 @@
+
+================================================================================
+SATURATED RUN (negative control) — VALID multi-section outline, fully-covered facets
+================================================================================
+[live_retriever] openalex_search failed for 'Eiffel Tower construction history 1887 1889 timeline Gustave' (fail-open): HTTP 429 from https://api.openalex.org/works
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 9344.26it/s]
+[FETCH]... ↓ https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 1.10s 
+[FETCH]... ↓ 
+https://www.hagley.org/librarynews/start-something-big-constructing-eiffel-tower
+| ✓ | ⏱: 1.17s 
+[FETCH]... ↓ https://www.history.com/articles/eiffel-tower                      
+| ✓ | ⏱: 1.29s 
+[FETCH]... ↓ https://kr.pinterest.com/pin/216735800826810886/                   
+| ✓ | ⏱: 1.22s 
+[FETCH]... ↓ https://www.toureiffel.paris/en/the-monument/history               
+| ✓ | ⏱: 1.48s 
+[SCRAPE].. ◆ https://kr.pinterest.com/pin/216735800826810886/                   
+| ✓ | ⏱: 0.22s 
+[COMPLETE] ● https://kr.pinterest.com/pin/216735800826810886/                   
+| ✓ | ⏱: 1.50s 
+[FETCH]... ↓ 
+https://www.facebook.com/goodlifefrance/posts/on...he-eiffel-tower-was-completed
+-/1257783746531410/  | ✓ | ⏱: 1.67s 
+[SCRAPE].. ◆ https://www.history.com/articles/eiffel-tower                      
+| ✓ | ⏱: 0.50s 
+[COMPLETE] ● https://www.history.com/articles/eiffel-tower                      
+| ✓ | ⏱: 1.82s 
+[FETCH]... ↓ 
+https://www.pariscityvision.com/en/paris/landmarks/eiffel-tower/construction-dat
+e                    | ✓ | ⏱: 1.95s 
+[SCRAPE].. ◆ https://www.toureiffel.paris/en/the-monument/history               
+| ✓ | ⏱: 0.56s 
+[COMPLETE] ● https://www.toureiffel.paris/en/the-monument/history               
+| ✓ | ⏱: 2.07s 
+[SCRAPE].. ◆ 
+https://www.hagley.org/librarynews/start-something-big-constructing-eiffel-tower
+| ✓ | ⏱: 1.27s 
+[COMPLETE] ● 
+https://www.hagley.org/librarynews/start-something-big-constructing-eiffel-tower
+| ✓ | ⏱: 2.46s 
+[FETCH]... ↓ https://www.youtube.com/watch?v=pLtAwl7WSLM                        
+| ✓ | ⏱: 2.78s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/goodlifefrance/posts/on...he-eiffel-tower-was-completed
+-/1257783746531410/  | ✓ | ⏱: 1.66s 
+[COMPLETE] ● 
+https://www.facebook.com/goodlifefrance/posts/on...he-eiffel-tower-was-completed
+-/1257783746531410/  | ✓ | ⏱: 3.37s 
+[SCRAPE].. ◆ 
+https://www.pariscityvision.com/en/paris/landmarks/eiffel-tower/construction-dat
+e                    | ✓ | ⏱: 1.50s 
+[COMPLETE] ● 
+https://www.pariscityvision.com/en/paris/landmarks/eiffel-tower/construction-dat
+e                    | ✓ | ⏱: 3.48s 
+[SCRAPE].. ◆ https://www.youtube.com/watch?v=pLtAwl7WSLM                        
+| ✓ | ⏱: 0.81s 
+[COMPLETE] ● https://www.youtube.com/watch?v=pLtAwl7WSLM                        
+| ✓ | ⏱: 3.64s 
+[SCRAPE].. ◆ https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 5.53s 
+[COMPLETE] ● https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 6.67s 
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 12431.37it/s]
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[bootstrap] query='Eiffel Tower construction history 1887 1889 timeline Gustave Eiffel build phases' -> 8 evidence rows (fetched=8, failed=0)
+[live_retriever] openalex_search failed for 'Eiffel Tower structural engineering design wrought iron latt' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://www.ce.jhu.edu/perspectives/assignments_13/hw2 part b 
+(eiffel ss).pdf                        | ✓ | ⏱: 0.35s 
+[SCRAPE].. ◆ https://www.ce.jhu.edu/perspectives/assignments_13/hw2 part b 
+(eiffel ss).pdf                        | ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.ce.jhu.edu/perspectives/assignments_13/hw2 part b 
+(eiffel ss).pdf                        | ✗ | ⏱: 0.36s 
+[polaris graph] CRAWL4AI: Failed for https://www.ce.jhu.edu/perspectives/assignments_13/hw2%20par: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://www.machupicchu.org/eiffel-tower-architecture-revolutionary-engineering-
+marvel.htm           | ✓ | ⏱: 1.05s 
+[FETCH]... ↓ https://www.instagram.com/p/C7q4BrbPr86/                           
+| ✓ | ⏱: 1.28s 
+[SCRAPE].. ◆ 
+https://www.machupicchu.org/eiffel-tower-architecture-revolutionary-engineering-
+marvel.htm           | ✓ | ⏱: 0.45s 
+[COMPLETE] ● 
+https://www.machupicchu.org/eiffel-tower-architecture-revolutionary-engineering-
+marvel.htm           | ✓ | ⏱: 1.54s 
+[FETCH]... ↓ https://repository.lboro.ac.uk/ndownloader/files/25471472/1        
+| ✓ | ⏱: 1.56s 
+[SCRAPE].. ◆ https://repository.lboro.ac.uk/ndownloader/files/25471472/1        
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://repository.lboro.ac.uk/ndownloader/files/25471472/1        
+| ✓ | ⏱: 1.57s 
+[SCRAPE].. ◆ https://www.instagram.com/p/C7q4BrbPr86/                           
+| ✓ | ⏱: 0.37s 
+[COMPLETE] ● https://www.instagram.com/p/C7q4BrbPr86/                           
+| ✓ | ⏱: 1.70s 
+[FETCH]... ↓ 
+https://www.facebook.com/NOVApbs/posts/the-shape...pecifically-designed-to-withs
+ta/787731496734570/  | ✓ | ⏱: 2.06s 
+[polaris graph] CRAWL4AI: Insufficient content for https://repository.lboro.ac.uk/ndownloader/files/25471472/1 (1 chars)
+[SCRAPE].. ◆ 
+https://www.facebook.com/NOVApbs/posts/the-shape...pecifically-designed-to-withs
+ta/787731496734570/  | ✓ | ⏱: 0.51s 
+[COMPLETE] ● 
+https://www.facebook.com/NOVApbs/posts/the-shape...pecifically-designed-to-withs
+ta/787731496734570/  | ✓ | ⏱: 2.60s 
+[FETCH]... ↓ 
+https://cmqconsulting.com/the-eiffel-towers-structural-engineering-in-the-19th-c
+entury/              | ✓ | ⏱: 2.68s 
+[FETCH]... ↓ https://www.youtube.com/watch?v=5VHi1BSBnKs                        
+| ✓ | ⏱: 3.00s 
+[SCRAPE].. ◆ 
+https://cmqconsulting.com/the-eiffel-towers-structural-engineering-in-the-19th-c
+entury/              | ✓ | ⏱: 0.58s 
+[COMPLETE] ● 
+https://cmqconsulting.com/the-eiffel-towers-structural-engineering-in-the-19th-c
+entury/              | ✓ | ⏱: 3.28s 
+[SCRAPE].. ◆ https://www.youtube.com/watch?v=5VHi1BSBnKs                        
+| ✓ | ⏱: 1.12s 
+[COMPLETE] ● https://www.youtube.com/watch?v=5VHi1BSBnKs                        
+| ✓ | ⏱: 4.18s 
+[FETCH]... ↓ 
+https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/1.4961101/12829131/020003_1
+_online.pdf          | ✓ | ⏱: 0.49s 
+[SCRAPE].. ◆ 
+https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/1.4961101/12829131/020003_1
+_online.pdf          | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/1.4961101/12829131/020003_1
+_online.pdf          | ✗ | ⏱: 0.49s 
+[polaris graph] CRAWL4AI: Failed for https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/1.49611: Blocked by anti-bot protection: Cloudflare JS challenge
+[ACCESS] ALL access methods exhausted for https://www.ce.jhu.edu/perspectives/assignments_13/hw2%20part%20b%20(eiffel%20ss
+[ACCESS] ALL access methods exhausted for https://repository.lboro.ac.uk/ndownloader/files/25471472/1
+[bootstrap] query='Eiffel Tower structural engineering design wrought iron lattice wind resistance load' -> 5 evidence rows (fetched=5, failed=3)
+[live_retriever] openalex_search failed for 'Eiffel Tower French cultural identity symbol Paris landmark ' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.quora.com/What-does-the-Eiffel-Tower...uch-an-important-part-of-thei
+r-national-identity  | ✓ | ⏱: 0.48s 
+[SCRAPE].. ◆ 
+https://www.quora.com/What-does-the-Eiffel-Tower...uch-an-important-part-of-thei
+r-national-identity  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.quora.com/What-does-the-Eiffel-Tower...uch-an-important-part-of-thei
+r-national-identity  | ✗ | ⏱: 0.49s 
+[FETCH]... ↓ 
+https://www.quora.com/What-is-the-Eiffel-Tower-and-what-does-it-represent-for-Fr
+ance                 | ✓ | ⏱: 0.48s 
+[SCRAPE].. ◆ 
+https://www.quora.com/What-is-the-Eiffel-Tower-and-what-does-it-represent-for-Fr
+ance                 | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.quora.com/What-is-the-Eiffel-Tower-and-what-does-it-represent-for-Fr
+ance                 | ✗ | ⏱: 0.49s 
+[polaris graph] CRAWL4AI: Failed for https://www.quora.com/What-does-the-Eiffel-Tower-represent-f: Blocked by anti-bot protection: Cloudflare JS challenge
+[polaris graph] CRAWL4AI: Failed for https://www.quora.com/What-is-the-Eiffel-Tower-and-what-does: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 0.91s 
+[FETCH]... ↓ 
+https://www.grayline.com/magazine/eiffel-tower-the-iconic-soul-of-paris/        
+| ✓ | ⏱: 1.14s 
+[FETCH]... ↓ 
+https://www.facebook.com/groups/448483692003673/posts/2838135449705140/         
+| ✓ | ⏱: 1.18s 
+[FETCH]... ↓ 
+https://www.facebook.com/groups/parisfrancetravel/posts/3502001050128250/       
+| ✓ | ⏱: 1.25s 
+[SCRAPE].. ◆ 
+https://www.grayline.com/magazine/eiffel-tower-the-iconic-soul-of-paris/        
+| ✓ | ⏱: 0.24s 
+[COMPLETE] ● 
+https://www.grayline.com/magazine/eiffel-tower-the-iconic-soul-of-paris/        
+| ✓ | ⏱: 1.40s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/groups/448483692003673/posts/2838135449705140/         
+| ✓ | ⏱: 0.32s 
+[COMPLETE] ● 
+https://www.facebook.com/groups/448483692003673/posts/2838135449705140/         
+| ✓ | ⏱: 1.54s 
+[SCRAPE].. ◆ 
+https://www.facebook.com/groups/parisfrancetravel/posts/3502001050128250/       
+| ✓ | ⏱: 0.35s 
+[COMPLETE] ● 
+https://www.facebook.com/groups/parisfrancetravel/posts/3502001050128250/       
+| ✓ | ⏱: 1.69s 
+[FETCH]... ↓ https://www.toureiffel.paris/en/the-monument                       
+| ✓ | ⏱: 1.80s 
+[FETCH]... ↓ https://www.lemon8-app.com/@objomedia/7457982556814836266?region=us
+| ✓ | ⏱: 1.96s 
+[SCRAPE].. ◆ https://www.toureiffel.paris/en/the-monument                       
+| ✓ | ⏱: 0.36s 
+[COMPLETE] ● https://www.toureiffel.paris/en/the-monument                       
+| ✓ | ⏱: 2.18s 
+[SCRAPE].. ◆ https://www.lemon8-app.com/@objomedia/7457982556814836266?region=us
+| ✓ | ⏱: 0.32s 
+[COMPLETE] ● https://www.lemon8-app.com/@objomedia/7457982556814836266?region=us
+| ✓ | ⏱: 2.33s 
+[SCRAPE].. ◆ https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 4.00s 
+[COMPLETE] ● https://en.wikipedia.org/wiki/Eiffel_Tower                         
+| ✓ | ⏱: 4.96s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[bootstrap] query='Eiffel Tower French cultural identity symbol Paris landmark significance tourism' -> 7 evidence rows (fetched=7, failed=1)
+
+--- SATURATED RUN RESULT (elapsed 92.4s) ---
+turns=1 ev_before=8 ev_after=8 new_evidence=0
+gap_ledger:
+disclosures:
+  - checklist[seed] ran: NONE (no grounded deficiencies)
+  - checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)
+  - finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True
+valid_negative_control=True (full_loop_ran=True, seed_outline_invalid_early_return=False, plans_nonempty=True, section_count=3 (>=3 required), turns>=1=True, checklist_ran=True, finish_accepted=True, zero_searches=True [search_calls=0])
+
+################################################################################
+ACCEPTANCE SUMMARY
+################################################################################
+{
+  "saturated": {
+    "elapsed_s": 92.4,
+    "turns": 1,
+    "ev_before": 8,
+    "ev_after": 8,
+    "new_evidence_count": 0,
+    "search_more_evidence_calls": 0,
+    "section_count": 3,
+    "full_loop_ran": true,
+    "valid_negative_control": true,
+    "seed_outline_invalid_early_return": false,
+    "seed_reason_codes": null,
+    "gap_ledger": [],
+    "disclosures": [
+      "checklist[seed] ran: NONE (no grounded deficiencies)",
+      "checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)",
+      "finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True"
+    ]
+  }
+}

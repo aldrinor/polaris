@@ -1,0 +1,37 @@
+[bank] built 45 clusters from 350 baskets (dropped 1 — id not resolvable in cp2 evidence)
+[matched-comparison] run_id=SWEEP_workforce_drb_72_ai_labor_1783476454 domain='workforce' evidence_rows=654 baskets=45 required_sections=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+[matched-comparison] question (first 200 chars): 'I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The report needs to be based on academic research published before June 2023, summar'
+[bank] built 45 clusters from 350 baskets (dropped 1 — id not resolvable in cp2 evidence)
+[bank] built 45 clusters from 350 baskets (dropped 1 — id not resolvable in cp2 evidence)
+
+=== PLAIN RUN RESULT (elapsed 110.4s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+ok=True reason_codes=['info_overlap:7_ev_ids_shared_across_sections']
+  - 'Positive Views': 6 ev_ids
+  - 'Negative Views': 11 ev_ids
+  - 'Specific Challenges': 11 ev_ids
+  - 'Future Opportunities': 11 ev_ids
+cp4 outline checkpoint write FAILED (best-effort, run continues without a cp4 snapshot at /workspace/outline_agent_wt/outputs/matched_comparison_run): [Errno 2] No such file or directory: '/workspace/outline_agent_wt/outputs/matched_comparison_run/cp4_outline_snapshot.json.tmp'
+cp4 outline checkpoint write FAILED (best-effort, run continues without a cp4 snapshot at /workspace/outline_agent_wt/outputs/matched_comparison_run): [Errno 2] No such file or directory: '/workspace/outline_agent_wt/outputs/matched_comparison_run/cp4_outline_snapshot.json.tmp'
+
+=== AGENTIC RUN RESULT (elapsed 205.9s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+turns=1 ev_before=654 ev_after=654 new_evidence=0
+  - 'Positive Views': 12 ev_ids
+  - 'Negative Views': 15 ev_ids
+  - 'Specific Challenges': 20 ev_ids
+  - 'Future Opportunities': 21 ev_ids
+disclosures:
+  - checklist[seed] dropped 3 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix)
+  - checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)
+  - finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True
+
+[matched-comparison] wrote /workspace/outline_agent_wt/outputs/matched_comparison_run/matched_comparison_result.json
+
+=== DELTA (agentic - plain), by required section ===
+  'Positive Views': plain=6 agentic=12 delta=+6
+  'Negative Views': plain=11 agentic=15 delta=+4
+  'Specific Challenges': plain=11 agentic=20 delta=+9
+  'Future Opportunities': plain=11 agentic=21 delta=+10
+sections_with_genuine_gain=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+single_section_pad_only=False

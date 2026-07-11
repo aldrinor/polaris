@@ -1,0 +1,973 @@
+[live_retriever] openalex_search failed for 'generative AI specific application cases in industries and o' (fail-open): HTTP 429 from https://api.openalex.org/works
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[matched-comparison] run_id=SWEEP_workforce_drb_72_ai_labor_1783476454 domain='workforce' evidence_rows=654 baskets(raw)=343 required_sections=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+[matched-comparison] question (first 200 chars): 'I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The report needs to be based on academic research published before June 2023, summar'
+
+################################################################################
+[matched-comparison] SCENARIO: FULL_CORPUS (654 rows) (evidence_rows=654)
+################################################################################
+[bank] built 45 clusters from 343 baskets (dropped 1 — id not resolvable in cp2 evidence)
+[bank] built 45 clusters from 343 baskets (dropped 1 — id not resolvable in cp2 evidence)
+
+=== PLAIN RUN RESULT (elapsed 148.2s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+ok=True reason_codes=['info_overlap:18_ev_ids_shared_across_sections']
+  - 'Positive Views': 20 ev_ids
+  - 'Negative Views': 19 ev_ids
+  - 'Specific Challenges': 28 ev_ids
+  - 'Future Opportunities': 26 ev_ids
+
+=== AGENTIC RUN RESULT (elapsed 149.4s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+turns=1 ev_before=654 ev_after=654 new_evidence=0
+  - 'Positive Views': 15 ev_ids
+  - 'Negative Views': 15 ev_ids
+  - 'Specific Challenges': 17 ev_ids
+  - 'Future Opportunities': 16 ev_ids
+disclosures:
+  - checklist[seed] dropped 1 ungrounded line(s) (no verbatim question quote — anti-invention gate, P0-1 fix): Summary Table :: missing summary table detailing application cases, impacts, and risks with specific columns :: coverage :: "At the end of the report, please cr
+  - checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)
+  - finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True
+
+=== [FULL_CORPUS (654 rows)] SECTION TABLE (raw counts are SEED-NOISE-CONTAMINATED — read genuine_new_fetched_rows) ===
+  'Positive Views': plain=20 agentic=15 raw_delta(noisy)=-5 genuine_new_fetched_rows=0
+  'Negative Views': plain=19 agentic=15 raw_delta(noisy)=-4 genuine_new_fetched_rows=0
+  'Specific Challenges': plain=28 agentic=17 raw_delta(noisy)=-11 genuine_new_fetched_rows=0
+  'Future Opportunities': plain=26 agentic=16 raw_delta(noisy)=-10 genuine_new_fetched_rows=0
+genuine_new_evidence_count=0 (search_more_evidence_calls=0)
+sections_with_genuine_gain=[]
+no_genuine_gain_this_run=True (True means: on THIS seed, the checklist correctly found nothing missing — report honestly, do not spin the noisy count delta as evidence of agentic value)
+
+[matched-comparison] THINNED subsample: 130 of 654 rows (seed=42), 62 of 343 baskets survive intact
+
+################################################################################
+[matched-comparison] SCENARIO: THINNED_CORPUS (130 rows, seed=42) (evidence_rows=130)
+################################################################################
+[bank] built 0 clusters from 62 baskets (dropped 0 — id not resolvable in cp2 evidence)
+[bank] built 0 clusters from 62 baskets (dropped 0 — id not resolvable in cp2 evidence)
+
+=== PLAIN RUN RESULT (elapsed 118.2s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+ok=True reason_codes=['info_overlap:20_ev_ids_shared_across_sections']
+  - 'Positive Views': 15 ev_ids
+  - 'Negative Views': 19 ev_ids
+  - 'Specific Challenges': 16 ev_ids
+  - 'Future Opportunities': 22 ev_ids
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 8119.94it/s]
+[FETCH]... ↓ 
+https://digitaleconomy.stanford.edu/app/uploads/2025/11/CanariesintheCoalMine_No
+v25.pdf              | ✓ | ⏱: 0.42s 
+[SCRAPE].. ◆ 
+https://digitaleconomy.stanford.edu/app/uploads/2025/11/CanariesintheCoalMine_No
+v25.pdf              | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://digitaleconomy.stanford.edu/app/uploads/2025/11/CanariesintheCoalMine_No
+v25.pdf              | ✗ | ⏱: 0.43s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.43s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.44s 
+[FETCH]... ↓ 
+https://www.researchgate.net/post/Navigating_the_Impact_of_AI_on_Employment     
+| ✓ | ⏱: 0.49s 
+[SCRAPE].. ◆ 
+https://www.researchgate.net/post/Navigating_the_Impact_of_AI_on_Employment     
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://www.researchgate.net/post/Navigating_the_Impact_of_AI_on_Employment     
+| ✗ | ⏱: 0.50s 
+[polaris graph] CRAWL4AI: Failed for https://digitaleconomy.stanford.edu/app/uploads/2025/11/Cana: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[polaris graph] CRAWL4AI: Failed for https://www.researchgate.net/post/Navigating_the_Impact_of_A: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.61s 
+[FETCH]... ↓ 
+https://www.culawreview.org/journal/ai-in-the-wo...dangers-of-generative-ai-in-e
+mployment-decisions  | ✓ | ⏱: 1.86s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.34s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.97s 
+[SCRAPE].. ◆ 
+https://www.culawreview.org/journal/ai-in-the-wo...dangers-of-generative-ai-in-e
+mployment-decisions  | ✓ | ⏱: 0.16s 
+[COMPLETE] ● 
+https://www.culawreview.org/journal/ai-in-the-wo...dangers-of-generative-ai-in-e
+mployment-decisions  | ✓ | ⏱: 2.06s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.48s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.36s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.87s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 6.73s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.15s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 6.92s 
+[ANTIBOT]. ℹ https://webapps.ilo.org...papers/wp140/index.html  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to 
+"https://webapps.ilo.org/static/english/intserv/working-papers/wp140/index.html"
+, waiting until "domcontentloaded"
+ 
+[ERROR]... × https://webapps.ilo.org...papers/wp140/index.html  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to 
+"https://webapps.ilo.org/static/english/intserv/working-papers/wp140/index.html"
+, waiting until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://webapps.ilo.org/static/english/intserv/working-paper: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 300
+[ACCESS] Zyte failed for https://www.researchgate.net/post/Navigating_the_Impact_of_AI_on_Employment: 
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 8156.95it/s]
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI applications in specific industries and occupa' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.77s 
+[SCRAPE].. ◆ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✗ | ⏱: 0.78s 
+[polaris graph] CRAWL4AI: Failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-: Blocked by anti-bot protection: Akamai block (Reference #)
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.21s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.15s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.40s 
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.49s 
+[FETCH]... ↓ https://www.cbo.gov/publication/61147                              
+| ✓ | ⏱: 1.59s 
+[SCRAPE].. ◆ https://www.cbo.gov/publication/61147                              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.cbo.gov/publication/61147                              
+| ✗ | ⏱: 1.60s 
+[polaris graph] CRAWL4AI: Failed for https://www.cbo.gov/publication/61147: Blocked by anti-bot protection: DataDome captcha
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.30s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.81s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.02s 
+[FETCH]... ↓ 
+https://www.oecd.org/en/publications/oecd-employ...and-the-labour-market-introdu
+ction_ea35d1c5.html  | ✓ | ⏱: 2.21s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 0.41s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.46s 
+[FETCH]... ↓ 
+https://www.elibrary.imf.org/view/journals/006/2024/001/article-A001-en.xml     
+| ✓ | ⏱: 3.15s 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[TABLE_EXTRACT] ℹ Error extracting table data: invalid literal for int() with 
+base 10: '' 
+[SCRAPE].. ◆ 
+https://www.oecd.org/en/publications/oecd-employ...and-the-labour-market-introdu
+ction_ea35d1c5.html  | ✓ | ⏱: 2.82s 
+[COMPLETE] ● 
+https://www.oecd.org/en/publications/oecd-employ...and-the-labour-market-introdu
+ction_ea35d1c5.html  | ✓ | ⏱: 5.06s 
+[SCRAPE].. ◆ 
+https://www.elibrary.imf.org/view/journals/006/2024/001/article-A001-en.xml     
+| ✓ | ⏱: 7.06s 
+[COMPLETE] ● 
+https://www.elibrary.imf.org/view/journals/006/2024/001/article-A001-en.xml     
+| ✓ | ⏱: 10.24s 
+[ANTIBOT]. ℹ https://webapps.ilo.org...papers/wp096/index.html  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to 
+"https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html"
+, waiting until "domcontentloaded"
+ 
+[ERROR]... × https://webapps.ilo.org...papers/wp096/index.html  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to 
+"https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html"
+, waiting until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://webapps.ilo.org/static/english/intserv/working-paper: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Timeout 300
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.mckinsey.com/mgi/our-research/generative-ai-and- — cancelled
+[ACCESS] direct fetch failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i: 
+[live_retriever] AccessBypass timed out after 90s for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=1)
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI labor market impact specific industry applicat' (fail-open): HTTP 429 from https://api.openalex.org/works
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=42>40), using PyMuPDF: https://datasociety.net/wp-content/uploads/2024/12
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.38s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.39s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (pages=49>40), using PyMuPDF: https://documents1.worldbank.org/curated/en/099827
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.20s 
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.35s 
+[FETCH]... ↓ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.42s 
+[SCRAPE].. ◆ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 0.55s 
+[COMPLETE] ● 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.99s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.16s 
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.02s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 2.25s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.19s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 2.59s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 1.13s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.37s 
+[ANTIBOT]. ℹ https://sjoranm.com/sjo...article/download/118/87  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://sjoranm.com/sjoranm/article/download/118/87", waiting
+until "domcontentloaded"
+ 
+[ERROR]... × https://sjoranm.com/sjo...article/download/118/87  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://sjoranm.com/sjoranm/article/download/118/87", waiting
+until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://sjoranm.com/sjoranm/article/download/118/87: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 4.13s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.15s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 4.32s 
+[ANTIBOT]. ℹ https://inatgi.in/index...rticle/download/469/406  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://inatgi.in/index.php/jtis/article/download/469/406", 
+waiting until "domcontentloaded"
+ 
+[ERROR]... × https://inatgi.in/index...rticle/download/469/406  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://inatgi.in/index.php/jtis/article/download/469/406", 
+waiting until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://inatgi.in/index.php/jtis/article/download/469/406: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[ACCESS] direct fetch failed for https://inatgi.in/index.php/jtis/article/download/469/406: 'utf-8' codec can't decode byte 0x9c in position 147: invalid start byte
+[live_retriever] AccessBypass timed out after 90s for https://inatgi.in/index.php/jtis/article/download/469/406 — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=2)
+[ANTIBOT]. ℹ https://inatgi.in/index...rticle/download/469/406  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://inatgi.in/index.php/jtis/article/download/469/406", 
+waiting until "domcontentloaded"
+ 
+[ERROR]... × https://inatgi.in/index...rticle/download/469/406  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://inatgi.in/index.php/jtis/article/download/469/406", 
+waiting until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://inatgi.in/index.php/jtis/article/download/469/406: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[ACCESS] direct fetch failed for https://inatgi.in/index.php/jtis/article/download/469/406: 'utf-8' codec can't decode byte 0x9c in position 147: invalid start byte
+[live_retriever] fetch_subwall_hit: fetch batch bounded to 0.75 of the remaining retrieval wall (PG_RETRIEVAL_FETCH_WALL_FRACTION) to reserve a classify/W5 slice; 1 timed out and 0 never dispatched before the fetch cutoff — DISCLOSED (flow on as fetch_failed), NOT dropped (§-1.3)
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'generative AI labor market impact industry case studies heal' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.39s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.40s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.78s 
+[SCRAPE].. ◆ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.06s 
+[COMPLETE] ● 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.85s 
+[FETCH]... ↓ https://www.preprints.org/manuscript/202510.0671                   
+| ✓ | ⏱: 1.52s 
+[ANTIBOT]. ℹ https://sjoranm.com/sjo...article/download/118/87  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://sjoranm.com/sjoranm/article/download/118/87", waiting
+until "domcontentloaded"
+ 
+[ERROR]... × https://sjoranm.com/sjo...article/download/118/87  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://sjoranm.com/sjoranm/article/download/118/87", waiting
+until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://sjoranm.com/sjoranm/article/download/118/87: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.05s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.73s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.92s 
+[FETCH]... ↓ 
+https://www.goldmansachs.com/insights/articles/how-will-ai-affect-the-global-wor
+kforce               | ✓ | ⏱: 3.69s 
+[SCRAPE].. ◆ https://www.preprints.org/manuscript/202510.0671                   
+| ✓ | ⏱: 3.47s 
+[COMPLETE] ● https://www.preprints.org/manuscript/202510.0671                   
+| ✓ | ⏱: 5.04s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 3.27s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 5.36s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.76s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 5.54s 
+[SCRAPE].. ◆ 
+https://www.goldmansachs.com/insights/articles/how-will-ai-affect-the-global-wor
+kforce               | ✓ | ⏱: 2.05s 
+[COMPLETE] ● 
+https://www.goldmansachs.com/insights/articles/how-will-ai-affect-the-global-wor
+kforce               | ✓ | ⏱: 5.82s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.31s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 6.27s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[ACCESS] Zyte browserHtml returned status 520 for https://inatgi.in/index.php/jtis/article/download/469/406
+[ACCESS] ALL access methods exhausted for https://inatgi.in/index.php/jtis/article/download/469/406
+[ANTIBOT]. ℹ https://inatgi.in/index...rticle/download/469/406  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://inatgi.in/index.php/jtis/article/download/469/406", 
+waiting until "domcontentloaded"
+ 
+[ERROR]... × https://inatgi.in/index...rticle/download/469/406  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://inatgi.in/index.php/jtis/article/download/469/406", 
+waiting until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[polaris graph] CRAWL4AI: Failed for https://inatgi.in/index.php/jtis/article/download/469/406: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[ACCESS] direct fetch failed for https://inatgi.in/index.php/jtis/article/download/469/406: 'utf-8' codec can't decode byte 0x9c in position 147: invalid start byte
+[live_retriever] openalex_search failed for 'generative AI employment impact industry case studies health' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 1.01s 
+[SCRAPE].. ◆ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.08s 
+[COMPLETE] ● 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 1.11s 
+[FETCH]... ↓ 
+https://www.bls.gov/opub/ted/2025/ai-impacts-in-bls-employment-projections.htm  
+| ✓ | ⏱: 1.22s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/ted/2025/ai-impacts-in-bls-employment-projections.htm  
+| ✓ | ⏱: 0.18s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/ted/2025/ai-impacts-in-bls-employment-projections.htm  
+| ✓ | ⏱: 1.42s 
+[FETCH]... ↓ 
+https://www.frierlevitt.com/articles/ai-driven-layoffs-healthcare-legal-risks/  
+| ✓ | ⏱: 0.97s 
+[SCRAPE].. ◆ 
+https://www.frierlevitt.com/articles/ai-driven-layoffs-healthcare-legal-risks/  
+| ✓ | ⏱: 0.11s 
+[COMPLETE] ● 
+https://www.frierlevitt.com/articles/ai-driven-layoffs-healthcare-legal-risks/  
+| ✓ | ⏱: 1.11s 
+[FETCH]... ↓ https://www.mdpi.com/2673-7426/5/3/37                              
+| ✓ | ⏱: 1.96s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.46s 
+[FETCH]... ↓ 
+https://www.oecd.org/en/publications/oecd-employ...signs-of-slowing-labour-deman
+d-yet_5aebe670.html  | ✓ | ⏱: 2.92s 
+[SCRAPE].. ◆ https://www.mdpi.com/2673-7426/5/3/37                              
+| ✓ | ⏱: 1.33s 
+[COMPLETE] ● https://www.mdpi.com/2673-7426/5/3/37                              
+| ✓ | ⏱: 3.32s 
+[FETCH]... ↓ https://www.johnsnowlabs.com/generative-ai-healthcare/             
+| ✓ | ⏱: 3.71s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 1.45s 
+[FETCH]... ↓ 
+https://www.infotech.com/research/ss/generative-ai-use-case-library-for-the-heal
+thcare-industry      | ✓ | ⏱: 3.97s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.95s 
+[SCRAPE].. ◆ 
+https://www.infotech.com/research/ss/generative-ai-use-case-library-for-the-heal
+thcare-industry      | ✓ | ⏱: 0.41s 
+[COMPLETE] ● 
+https://www.infotech.com/research/ss/generative-ai-use-case-library-for-the-heal
+thcare-industry      | ✓ | ⏱: 4.45s 
+[SCRAPE].. ◆ https://www.johnsnowlabs.com/generative-ai-healthcare/             
+| ✓ | ⏱: 0.96s 
+[COMPLETE] ● https://www.johnsnowlabs.com/generative-ai-healthcare/             
+| ✓ | ⏱: 4.71s 
+[SCRAPE].. ◆ 
+https://www.oecd.org/en/publications/oecd-employ...signs-of-slowing-labour-deman
+d-yet_5aebe670.html  | ✓ | ⏱: 5.08s 
+[COMPLETE] ● 
+https://www.oecd.org/en/publications/oecd-employ...signs-of-slowing-labour-deman
+d-yet_5aebe670.html  | ✓ | ⏱: 8.08s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[ACCESS] Zyte failed for https://inatgi.in/index.php/jtis/article/download/469/406: 
+[ACCESS] ALL access methods exhausted for https://inatgi.in/index.php/jtis/article/download/469/406
+[live_retriever] openalex_search failed for 'Generative AI labor market impact industry case studies heal' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.10s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.16s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.31s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.53s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.65s 
+[FETCH]... ↓ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 1.71s 
+[FETCH]... ↓ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 1.72s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 1.73s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.02s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 1.75s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.75s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.93s 
+[SCRAPE].. ◆ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.34s 
+[COMPLETE] ● 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 2.07s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.10s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.95s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.31s 
+[SCRAPE].. ◆ https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 0.93s 
+[COMPLETE] ● https://www.anthropic.com/research/labor-market-impacts            
+| ✓ | ⏱: 2.67s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 1.58s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.70s 
+[FETCH]... ↓ 
+https://online.ysu.edu/degrees/education/msed/artificial-intelligence-jobs-growt
+h/                   | ✓ | ⏱: 3.99s 
+[ANTIBOT]. ℹ https://sjoranm.com/sjo...article/download/118/87  | Error: Proxy 
+direct failed: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://sjoranm.com/sjoranm/article/download/118/87", waiting
+until "domcontentloaded"
+ 
+[ERROR]... × https://sjoranm.com/sjo...article/download/118/87  | Error: 
+Unexpected error in _crawl_web at line 778 in _crawl_web 
+(../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py
+):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is starting
+Call log:
+  - navigating to "https://sjoranm.com/sjoranm/article/download/118/87", waiting
+until "domcontentloaded"
+
+
+Code context:
+ 773                                   tag="GOTO",
+ 774                                   params={"url": url},
+ 775                               )
+ 776                               response = None
+ 777                           else:
+ 778 →                             raise RuntimeError(f"Failed on navigating 
+ACS-GOTO:\n{str(e)}")
+ 779   
+ 780                       # 
+──────────────────────────────────────────────────────────────
+ 781                       # Walk the redirect chain.  Playwright returns only 
+the last
+ 782                       # hop, so we trace the `request.redirected_from` 
+links until the
+ 783                       # first response that differs from the final one and 
+surface its 
+[SCRAPE].. ◆ 
+https://online.ysu.edu/degrees/education/msed/artificial-intelligence-jobs-growt
+h/                   | ✓ | ⏱: 0.50s 
+[COMPLETE] ● 
+https://online.ysu.edu/degrees/education/msed/artificial-intelligence-jobs-growt
+h/                   | ✓ | ⏱: 4.54s 
+[polaris graph] CRAWL4AI: Failed for https://sjoranm.com/sjoranm/article/download/118/87: Unexpected error in _crawl_web at line 778 in _crawl_web (../../opt/conda/lib/python3.11/site-packages/crawl4ai/async_crawler_strategy.py):
+Error: Failed on navigating ACS-GOTO:
+Page.goto: Download is
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'academic research generative AI labor market impact industry' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.55s 
+[SCRAPE].. ◆ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.07s 
+[COMPLETE] ● 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.63s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.69s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.70s 
+[FETCH]... ↓ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.79s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 0.63s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employ
+ment-projections.htm | ✓ | ⏱: 1.44s 
+[FETCH]... ↓ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 1.47s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.97s 
+[FETCH]... ↓ https://www.preprints.org/manuscript/202510.0671                   
+| ✓ | ⏱: 1.99s 
+[SCRAPE].. ◆ 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 0.58s 
+[COMPLETE] ● 
+https://laweconcenter.org/resources/ai-productiv...abor-markets-a-review-of-the-
+empirical-evidence/  | ✓ | ⏱: 2.08s 
+[FETCH]... ↓ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 2.01s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.44s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.45s 
+[SCRAPE].. ◆ 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 1.09s 
+[COMPLETE] ● 
+https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-fut
+ure-of-work/         | ✓ | ⏱: 3.13s 
+[FETCH]... ↓ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.53s 
+[SCRAPE].. ◆ 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 0.17s 
+[COMPLETE] ● 
+https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/      
+| ✓ | ⏱: 1.71s 
+[SCRAPE].. ◆ https://www.preprints.org/manuscript/202510.0671                   
+| ✓ | ⏱: 4.59s 
+[COMPLETE] ● https://www.preprints.org/manuscript/202510.0671                   
+| ✓ | ⏱: 6.63s 
+[FETCH]... ↓ https://doi.org/10.1016/j.joitmc.2025.100607                       
+| ✓ | ⏱: 1.78s 
+[SCRAPE].. ◆ https://doi.org/10.1016/j.joitmc.2025.100607                       
+| ✓ | ⏱: 0.02s 
+[COMPLETE] ● https://doi.org/10.1016/j.joitmc.2025.100607                       
+| ✓ | ⏱: 1.84s 
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[live_retriever] openalex_search failed for 'Generative AI impact on future labor market employment acade' (fail-open): HTTP 429 from https://api.openalex.org/works
+[FETCH]... ↓ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.36s 
+[SCRAPE].. ◆ 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i
+n-america            | ✗ | ⏱: 0.37s 
+[polaris graph] CRAWL4AI: Failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-: Blocked by anti-bot protection: Akamai block (Reference #)
+[FETCH]... ↓ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.59s 
+[FETCH]... ↓ 
+https://www.preprints.org/frontend/manuscript/cc931c75ebaf3011c6586ac3caad5382/d
+ownload_pub          | ✓ | ⏱: 0.61s 
+[SCRAPE].. ◆ 
+https://www.preprints.org/frontend/manuscript/cc931c75ebaf3011c6586ac3caad5382/d
+ownload_pub          | ✓ | ⏱: 0.00s 
+[COMPLETE] ● 
+https://www.preprints.org/frontend/manuscript/cc931c75ebaf3011c6586ac3caad5382/d
+ownload_pub          | ✗ | ⏱: 0.62s 
+[SCRAPE].. ◆ 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.09s 
+[COMPLETE] ● 
+https://www.aei.org/technology-and-innovation/th...veals-about-ais-real-impact-o
+n-jobs-and-society/  | ✓ | ⏱: 0.70s 
+[FETCH]... ↓ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.73s 
+[SCRAPE].. ◆ https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✓ | ⏱: 0.00s 
+[COMPLETE] ● https://www.hbs.edu/ris/download.aspx?name=25-039.pdf              
+| ✗ | ⏱: 0.74s 
+[polaris graph] CRAWL4AI: Failed for https://www.preprints.org/frontend/manuscript/cc931c75ebaf30: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[FETCH]... ↓ 
+https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+| ✓ | ⏱: 0.48s 
+[SCRAPE].. ◆ 
+https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+| ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+| ✗ | ⏱: 0.49s 
+[polaris graph] CRAWL4AI: Failed for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (174 bytes, 0 chars visible)
+[polaris graph] CRAWL4AI: Failed for https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstra: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.91s 
+[SCRAPE].. ◆ 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 0.07s 
+[COMPLETE] ● 
+https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impact
+s-us-labor-market    | ✓ | ⏱: 1.01s 
+[FETCH]... ↓ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 1.88s 
+[FETCH]... ↓ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 1.96s 
+[SCRAPE].. ◆ 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 0.26s 
+[COMPLETE] ● 
+https://equitablegrowth.org/research-paper/navig...acts-of-ai-on-work-workers-an
+d-the-labor-market/  | ✓ | ⏱: 2.15s 
+[SCRAPE].. ◆ 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 0.31s 
+[COMPLETE] ● 
+https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st
+ate-affairs          | ✓ | ⏱: 2.31s 
+[FETCH]... ↓ 
+https://www.bls.gov/opub/ted/2025/ai-impacts-in-bls-employment-projections.htm  
+| ✓ | ⏱: 0.82s 
+[SCRAPE].. ◆ 
+https://www.bls.gov/opub/ted/2025/ai-impacts-in-bls-employment-projections.htm  
+| ✓ | ⏱: 0.30s 
+[COMPLETE] ● 
+https://www.bls.gov/opub/ted/2025/ai-impacts-in-bls-employment-projections.htm  
+| ✓ | ⏱: 1.14s 
+[ACCESS] backend trafilatura exceeded 60s wall-clock for https://www.mckinsey.com/mgi/our-research/generative-ai-and- — cancelled
+[live_retriever] fetch_subwall_hit: fetch batch bounded to 0.75 of the remaining retrieval wall (PG_RETRIEVAL_FETCH_WALL_FRACTION) to reserve a classify/W5 slice; 1 timed out and 0 never dispatched before the fetch cutoff — DISCLOSED (flow on as fetch_failed), NOT dropped (§-1.3)
+[content_relevance] W2 reserved slice spent or within the 30.0s reranker safety margin at entry over 11 passages — SKIP scoring, release ALL at full weight (always-release, NO drop).
+[ACCESS] direct fetch failed for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i: 
+[live_retriever] AccessBypass timed out after 90s for https://www.mckinsey.com/mgi/our-research/generative-ai-and-the-future-of-work-i — falling back to naive httpx (thread abandoned as daemon; leaked_bypass_workers=3)
+
+=== AGENTIC RUN RESULT (elapsed 1020.3s) ===
+titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities']
+turns=19 ev_before=130 ev_after=161 new_evidence=31
+  - 'Positive Views': 19 ev_ids
+  - 'Negative Views': 24 ev_ids
+  - 'Specific Challenges': 26 ev_ids
+  - 'Future Opportunities': 26 ev_ids
+disclosures:
+  - checklist[seed] recorded 1 unhomeable gap(s) as UNFILLED (no matching section under the locked required-structure deliverable — structural limitation, never retried): Summary Table::specific application cases, main impacts, key risk points
+  - checklist[seed] ran: NONE (no grounded deficiencies)
+  - search_more_evidence['specific application cases of Generative AI in particular in'] query='generative AI specific application cases in industries and occupations impact on employment risks and limitations academic research before June 2023' fetched 9 of 10, url-dup dropped 2, kept 7, deleted 0 (chrome=0, off-topic=0) in 105.5s
+  - auto-assign SKIPPED: 'Summary Table' does not match any current outline section title, and required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities'] forbids adding a new one — 7 new ev_id(s) stay in the pool; this is a structural limitation (deliverable-level/formatting request), not a retrievable content gap — recorded UNFILLED, not retried
+  - search_more_evidence['specific application cases of Generative AI in particular in'] query='generative AI applications in specific industries and occupations employment impacts risks limitations academic research 2022 2023 country region' fetched 6 of 9, url-dup dropped 3, kept 3, deleted 0 (chrome=0, off-topic=0) in 125.3s
+  - auto-assign SKIPPED: 'Summary Table' does not match any current outline section title, and required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities'] forbids adding a new one — 3 new ev_id(s) stay in the pool; this is a structural limitation (deliverable-level/formatting request), not a retrievable content gap — recorded UNFILLED, not retried
+  - search_more_evidence['concrete generative AI application cases in specific industr'] query='generative AI labor market impact specific industry applications healthcare software education employment risks academic study 2023' fetched 10 of 12, url-dup dropped 5, kept 5, deleted 0 (chrome=0, off-topic=0) in 172.1s
+  - auto-assign SKIPPED: 'Summary Table' does not match any current outline section title, and required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities'] forbids adding a new one — 5 new ev_id(s) stay in the pool; this is a structural limitation (deliverable-level/formatting request), not a retrievable content gap — recorded UNFILLED, not retried
+  - search_more_evidence['specific industry and occupation case studies of generative '] query='generative AI labor market impact industry case studies healthcare finance education software development manufacturing legal customer service risks academic research 2023' fetched 9 of 10, url-dup dropped 6, kept 3, deleted 0 (chrome=0, off-topic=0) in 53.2s
+  - auto-assign SKIPPED: 'Summary Table' does not match any current outline section title, and required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities'] forbids adding a new one — 3 new ev_id(s) stay in the pool; this is a structural limitation (deliverable-level/formatting request), not a retrievable content gap — recorded UNFILLED, not retried
+  - search_more_evidence['Specific industry case studies of generative AI applications'] query='generative AI employment impact industry case studies healthcare diagnostics software coding legal document analysis customer service risks academic research 2023' fetched 9 of 10, url-dup dropped 2, kept 7, deleted 0 (chrome=0, off-topic=0) in 55.9s
+  - auto-assign SKIPPED: 'Summary Table' does not match any current outline section title, and required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities'] forbids adding a new one — 7 new ev_id(s) stay in the pool; this is a structural limitation (deliverable-level/formatting request), not a retrievable content gap — recorded UNFILLED, not retried
+  - search_more_evidence['concrete industry case studies of generative AI labor market'] query='Generative AI labor market impact industry case studies healthcare finance education creative software legal customer service employment effects risks academic research before June 2023' fetched 10 of 11, url-dup dropped 8, kept 2, deleted 0 (chrome=0, off-topic=0) in 21.1s
+  - auto-assign SKIPPED: 'Summary Table' does not match any current outline section title, and required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities'] forbids adding a new one — 2 new ev_id(s) stay in the pool; this is a structural limitation (deliverable-level/formatting request), not a retrievable content gap — recorded UNFILLED, not retried
+  - search_more_evidence['specific industry case studies of generative AI applications'] query='academic research generative AI labor market impact industry case studies healthcare diagnostics software development creative content financial services legal document review education tutoring employment risks before June 2023' fetched 9 of 10, url-dup dropped 9, kept 0, deleted 0 (chrome=0, off-topic=0) in 29.0s
+  - search_more_evidence['generative AI industry-specific case studies healthcare fina'] query='Generative AI impact on future labor market employment academic research industry case studies healthcare finance education software development creative industries manufacturing country region data 2022 2023' fetched 9 of 11, url-dup dropped 5, kept 4, deleted 0 (chrome=0, off-topic=0) in 69.5s
+  - auto-assign SKIPPED: 'Summary Table' does not match any current outline section title, and required_titles=['Positive Views', 'Negative Views', 'Specific Challenges', 'Future Opportunities'] forbids adding a new one — 4 new ev_id(s) stay in the pool; this is a structural limitation (deliverable-level/formatting request), not a retrievable content gap — recorded UNFILLED, not retried
+
+=== [THINNED_CORPUS (130 rows, seed=42)] SECTION TABLE (raw counts are SEED-NOISE-CONTAMINATED — read genuine_new_fetched_rows) ===
+  'Positive Views': plain=15 agentic=19 raw_delta(noisy)=+4 genuine_new_fetched_rows=0
+  'Negative Views': plain=19 agentic=24 raw_delta(noisy)=+5 genuine_new_fetched_rows=0
+  'Specific Challenges': plain=16 agentic=26 raw_delta(noisy)=+10 genuine_new_fetched_rows=0
+  'Future Opportunities': plain=22 agentic=26 raw_delta(noisy)=+4 genuine_new_fetched_rows=0
+genuine_new_evidence_count=31 (search_more_evidence_calls=8)
+sections_with_genuine_gain=[]
+no_genuine_gain_this_run=False (True means: on THIS seed, the checklist correctly found nothing missing — report honestly, do not spin the noisy count delta as evidence of agentic value)
+
+[matched-comparison] wrote /workspace/outline_agent_wt/outputs/matched_comparison_run/matched_comparison_result.json
+
+################################################################################
+FINAL SUMMARY (both scenarios)
+################################################################################
+  full_corpus: genuine_new_evidence_count=0 sections_with_genuine_gain=[] no_genuine_gain_this_run=True
+  thinned_corpus: genuine_new_evidence_count=31 sections_with_genuine_gain=[] no_genuine_gain_this_run=False

@@ -1,0 +1,104 @@
+[live_retriever] openalex_search failed for 'tirzepatide 15mg HbA1c reduction efficacy SURPASS trial resu' (fail-open): HTTP 429 from https://api.openalex.org/works
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+================================================================================
+THIN RUN — seed covers only 'efficacy', question also asks 'long-term CV safety'
+================================================================================
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 8150.43it/s]
+[FETCH]... ↓ 
+https://diabetesjournals.org/care/article/48/5/7.../Early-Fasting-Serum-Glucose-
+or-Weight-Reduction  | ✓ | ⏱: 0.48s 
+[SCRAPE].. ◆ 
+https://diabetesjournals.org/care/article/48/5/7.../Early-Fasting-Serum-Glucose-
+or-Weight-Reduction  | ✓ | ⏱: 0.01s 
+[COMPLETE] ● 
+https://diabetesjournals.org/care/article/48/5/7.../Early-Fasting-Serum-Glucose-
+or-Weight-Reduction  | ✗ | ⏱: 0.49s 
+[polaris graph] CRAWL4AI: Failed for https://diabetesjournals.org/care/article/48/5/790/158020/Ea: Blocked by anti-bot protection: Cloudflare JS challenge
+[FETCH]... ↓ 
+https://diabetes.org/newsroom/latest-data-from-S...tide-provided-blood-sugar-red
+uctions-weight-loss  | ✓ | ⏱: 1.38s 
+[FETCH]... ↓ 
+https://investor.lilly.com/news-releases/news-re...achieved-superior-a1c-and-bod
+y-weight-reductions  | ✓ | ⏱: 1.39s 
+[SCRAPE].. ◆ 
+https://investor.lilly.com/news-releases/news-re...achieved-superior-a1c-and-bod
+y-weight-reductions  | ✓ | ⏱: 0.20s 
+[COMPLETE] ● 
+https://investor.lilly.com/news-releases/news-re...achieved-superior-a1c-and-bod
+y-weight-reductions  | ✓ | ⏱: 1.62s 
+[SCRAPE].. ◆ 
+https://diabetes.org/newsroom/latest-data-from-S...tide-provided-blood-sugar-red
+uctions-weight-loss  | ✓ | ⏱: 0.40s 
+[COMPLETE] ● 
+https://diabetes.org/newsroom/latest-data-from-S...tide-provided-blood-sugar-red
+uctions-weight-loss  | ✓ | ⏱: 1.80s 
+[FETCH]... ↓ 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pro
+gram-301229506.html  | ✓ | ⏱: 2.65s 
+[FETCH]... ↓ 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true            
+| ✓ | ⏱: 0.42s 
+[SCRAPE].. ◆ 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true            
+| ✓ | ⏱: 0.03s 
+[COMPLETE] ● 
+https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTools=true            
+| ✗ | ⏱: 0.46s 
+[polaris graph] CRAWL4AI: Failed for https://www.nejm.org/doi/pdf/10.1056/NEJMoa2206038?articleTo: Blocked by anti-bot protection: Cloudflare JS challenge
+[SCRAPE].. ◆ 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pro
+gram-301229506.html  | ✓ | ⏱: 0.30s 
+[COMPLETE] ● 
+https://www.prnewswire.com/news-releases/tirzepa...rials-from-lillys-surpass-pro
+gram-301229506.html  | ✓ | ⏱: 2.96s 
+[FETCH]... ↓ https://doi.org/10.1016/j.pcd.2025.03.008                          
+| ✓ | ⏱: 5.37s 
+[SCRAPE].. ◆ https://doi.org/10.1016/j.pcd.2025.03.008                          
+| ✓ | ⏱: 2.09s 
+[COMPLETE] ● https://doi.org/10.1016/j.pcd.2025.03.008                          
+| ✓ | ⏱: 7.50s 
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 7837.03it/s]
+[polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+[bootstrap] query='tirzepatide 15mg HbA1c reduction efficacy SURPASS trial results' -> 5 evidence rows (fetched=5, failed=1)
+
+--- THIN RUN RESULT (elapsed 119.1s) ---
+outline_mutated=False update_outline_calls=0
+seed_ev_by_title={'Efficacy': 5, 'Safety': 3}
+final_ev_by_title={'Efficacy': 5, 'Safety': 3}
+turns=1 ev_before=5 ev_after=5 new_evidence=0
+gap_ledger:
+disclosures:
+  - checklist[seed] ran: NONE (no grounded deficiencies)
+  - checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)
+  - finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True
+final outline plans:
+  - 'Efficacy': 5 ev_ids
+  - 'Safety': 3 ev_ids
+
+################################################################################
+ACCEPTANCE SUMMARY
+################################################################################
+{
+  "thin": {
+    "elapsed_s": 119.1,
+    "turns": 1,
+    "ev_before": 5,
+    "ev_after": 5,
+    "new_evidence_count": 0,
+    "search_more_evidence_calls": 0,
+    "checklist_gap_events": 2,
+    "unfilled_gaps": [],
+    "outline_mutated": false,
+    "update_outline_calls": 0,
+    "final_section_ev_counts": {
+      "Efficacy": 5,
+      "Safety": 3
+    },
+    "disclosures": [
+      "checklist[seed] ran: NONE (no grounded deficiencies)",
+      "checklist[finish_attempt_turn_1] ran: NONE (no grounded deficiencies)",
+      "finish_outline ACCEPTED at turn 1: pending=0, budget_remains=True"
+    ]
+  }
+}
