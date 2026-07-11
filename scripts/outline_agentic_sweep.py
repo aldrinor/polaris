@@ -68,12 +68,15 @@ def _classify(cp4_used: str, degrade_reason: str) -> tuple[bool, str]:
 
 
 def _count_baskets(finding_clusters) -> int:
-    n = 0
-    for c in finding_clusters or []:
-        members = (c.get("member_indices") if isinstance(c, dict) else getattr(c, "member_indices", None)) or []
-        if len(members) >= 2:
-            n += 1
-    return n
+    """TOTAL baskets in the corpus = every cp3 claim-group cluster (singletons INCLUDED).
+
+    The cp3 snapshot's canonical "N-basket corpus" size counts ALL claim groups, not only the
+    multi-member ones — the s3gear full corpus is 329 baskets (38 multi-member + 291 singletons).
+    Counting only ``member_indices>=2`` clusters undercounts to 38 and made ``--min-baskets 346``
+    (a size no persisted corpus has) unsatisfiable; the mission's full-corpus assertion is
+    ``--min-baskets 328`` against this total. Duck-typed over dict or object clusters.
+    """
+    return len(finding_clusters or [])
 
 
 async def _run_one(corpus_path: Path, min_baskets: int) -> dict:
@@ -85,7 +88,13 @@ async def _run_one(corpus_path: Path, min_baskets: int) -> dict:
     corpus = json.loads(corpus_path.read_text())
     rq = corpus["research_question"]
     evidence = corpus["evidence"]
-    clusters = corpus.get("finding_clusters") or []
+    raw_clusters = corpus.get("finding_clusters") or []
+    # A corpus loaded from JSON carries clusters as dicts, but ``build_outline_digest`` duck-types
+    # over ``FindingCluster`` via ATTRIBUTE access (getattr(c, "member_indices"), etc.). Passing bare
+    # dicts would silently yield zero baskets (getattr -> default), a capability downgrade. Wrap each
+    # dict as a SimpleNamespace so member_indices/representative_index resolve as attributes.
+    from types import SimpleNamespace  # noqa: PLC0415
+    clusters = [SimpleNamespace(**c) if isinstance(c, dict) else c for c in raw_clusters]
     swg = corpus.get("same_work_groups")
     domain = corpus.get("domain", "")
     n_baskets = _count_baskets(clusters)
@@ -137,9 +146,50 @@ async def _run_one(corpus_path: Path, min_baskets: int) -> dict:
     }
 
 
-def _dry_run_selfcheck() -> int:
+def preflight_corpus(corpus_path: Path, min_baskets: int) -> tuple[bool, str]:
+    """OFFLINE (no LLM) loadability check for one persisted corpus.
+
+    Exercises the exact offline-checkable portion of ``_run_one``: parse JSON, wrap clusters as the
+    attribute-accessed objects ``build_outline_digest`` expects, count TOTAL baskets, and assert
+    every ``member_indices``/``representative_index`` resolves into the attached evidence pool. This
+    is what proves the corpus is key-drop-ready before credentials land. Returns (ok, message).
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+    try:
+        corpus = json.loads(corpus_path.read_text())
+    except Exception as exc:  # noqa: BLE001
+        return False, f"unreadable JSON: {exc}"
+    for key in ("research_question", "evidence", "finding_clusters"):
+        if key not in corpus:
+            return False, f"missing required key {key!r}"
+    evidence = corpus["evidence"]
+    n_ev = len(evidence)
+    raw_clusters = corpus.get("finding_clusters") or []
+    clusters = [SimpleNamespace(**c) if isinstance(c, dict) else c for c in raw_clusters]
+    n_baskets = _count_baskets(clusters)
+    # every index a downstream consumer will dereference must be in-range
+    bad = 0
+    for c in clusters:
+        idxs = list(getattr(c, "member_indices", []) or [])
+        rep = getattr(c, "representative_index", None)
+        if rep is not None:
+            idxs.append(rep)
+        for i in idxs:
+            if not isinstance(i, int) or i < 0 or i >= n_ev:
+                bad += 1
+    if bad:
+        return False, f"{bad} member/representative indices out of range for a {n_ev}-row pool"
+    if n_baskets < min_baskets:
+        return False, f"baskets {n_baskets} < min {min_baskets}"
+    return True, (f"loadable: {n_baskets} baskets (>= {min_baskets}), {n_ev}-row pool, all indices "
+                  "resolve")
+
+
+def _dry_run_selfcheck(corpus_paths: list[Path] | None = None, min_baskets: int = 1) -> int:
     """Exercise the invariant machinery OFFLINE (no LLM, no keys) so we know the assertions are
-    sound before credentials land. Four cases cover the whole decision surface."""
+    sound before credentials land. Four cases cover the whole decision surface. When ``corpus_paths``
+    are given, ALSO preflight each corpus for loadability (parse, cluster-wrap, basket count, index
+    resolution) so the mission's key-drop-ready proof runs offline against the real corpus."""
     cases = [
         ("agentic", "", True, "clean agentic path passes"),
         ("agentic-degraded-seed",
@@ -159,13 +209,24 @@ def _dry_run_selfcheck() -> int:
             ok = False
         print(f"  [{mark}] cp4_used={cp4!r:26} expect_pass={expect_pass!s:5} -> {passed!s:5} | {label}")
         print(f"        verdict: {verdict}")
-    # basket counter check
+    # basket counter check — TOTAL baskets = every cluster (singletons included)
     fake_clusters = [{"member_indices": [1, 2]}, {"member_indices": [3]}, {"member_indices": [4, 5, 6]}]
     nb = _count_baskets(fake_clusters)
-    mark = "OK " if nb == 2 else "BAD"
-    if nb != 2:
+    mark = "OK " if nb == 3 else "BAD"
+    if nb != 3:
         ok = False
-    print(f"  [{mark}] _count_baskets -> {nb} (expected 2: only >=2-member clusters are baskets)")
+    print(f"  [{mark}] _count_baskets -> {nb} (expected 3: TOTAL clusters, singletons included)")
+
+    for cp in corpus_paths or []:
+        if not cp.exists():
+            print(f"  [BAD] corpus preflight: {cp} does not exist")
+            ok = False
+            continue
+        cok, msg = preflight_corpus(cp, min_baskets)
+        print(f"  [{'OK ' if cok else 'BAD'}] corpus preflight {cp.name}: {msg}")
+        if not cok:
+            ok = False
+
     print("\nDRY-RUN", "PASSED — assertion machinery sound." if ok else "FAILED.")
     return 0 if ok else 1
 
@@ -175,14 +236,20 @@ def main() -> int:
     ap.add_argument("--corpus", type=str, help="a single corpus JSON")
     ap.add_argument("--corpus-dir", type=str, help="a dir of corpus JSONs (one run each)")
     ap.add_argument("--min-baskets", type=int, default=1,
-                    help="assert each corpus has >= this many baskets (default 1; mission corpus 346)")
+                    help="assert each corpus has >= this many TOTAL baskets (default 1; the s3gear "
+                         "full corpus is 329 baskets — assert it with --min-baskets 328)")
     ap.add_argument("--out", type=str, default="outputs/agentic_sweep/summary.json")
     ap.add_argument("--dry-run", action="store_true",
                     help="offline self-check of the assertion machinery (no LLM, no keys)")
     args = ap.parse_args()
 
     if args.dry_run:
-        return _dry_run_selfcheck()
+        _dry_paths: list[Path] = []
+        if args.corpus:
+            _dry_paths.append(Path(args.corpus))
+        if args.corpus_dir:
+            _dry_paths.extend(sorted(Path(args.corpus_dir).glob("*.json")))
+        return _dry_run_selfcheck(_dry_paths, args.min_baskets)
 
     # ── LAW VI: pin the seat + model lock for the sweep (env override still wins if pre-set) ──
     os.environ.setdefault("PG_OUTLINE_AGENT", "1")
@@ -209,7 +276,8 @@ def main() -> int:
     corpora = [p for p in corpora if p.exists()]
     if not corpora:
         print("BLOCKED: no corpus given/found. Pass --corpus <file> or --corpus-dir <dir>.")
-        print("  The mission corpus is the 346-basket cp3 dump; use --min-baskets 346 to assert it.")
+        print("  Build the full corpus first: python scripts/cp3_to_cp4_corpus.py")
+        print("  then: --corpus data/cp4_corpus_s3gear_329.json --min-baskets 328 (329-basket corpus).")
         return 2
 
     results = [asyncio.run(_run_one(p, args.min_baskets)) for p in corpora]
