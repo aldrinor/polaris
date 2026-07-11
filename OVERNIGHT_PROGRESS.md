@@ -106,10 +106,17 @@ PARTIALLY fixed (`bot/outline-tooluse-box` @ `1b2e3c7`) — **this wheel is NOT 
    it must route through the verified `[#calc:]` lane (`generator/quantified_analysis.py:617`), never
    the `[CITE:ev_xxx]` path — `strict_verify` check (d) requires every decimal to appear in a cited
    span, which correctly DROPS a derived number.
-3. **[tooluse] Zero tests exist for `OutlineAgent`** — none, anywhere. The 11-tool registry, the
-   decide loop, and the `client=None` bug were all completely untested. That is why this survived.
+3. ~~**[tooluse] Zero tests exist for `OutlineAgent`**~~ — **DONE** (`efe5af3`).
+   `tests/polaris_graph/outline/test_outline_agent_w3.py`, **7/7 green in 1.7s**, offline, no API
+   key, against a **real** `OutlineAgent` + the real dispatch path. First test this class has ever
+   had. Extend this file rather than starting a new one.
 4. **[both] TELUS 30yr / SEER deltas: no fixture or test exists for either.** Nothing in the tree
-   exercises "compute a number and prove it". Those are net-new.
+   exercises "compute a number and prove it". Those are net-new. Note they are blocked on action 2:
+   until the computed value is reachable, there is nothing to prove.
+5. **[compose] The 346-basket deep report vs `/workspace/POLARIS/competitors` on RACE was NOT run.**
+   Not attempted — a full render did not fit the window, and any timing I took would have been
+   distorted by the root-owned jobs anyway (see BLOCKER 3). This is the actual mission deliverable
+   and it is still open; it should be the first thing launched once action 1 sets the judge cap.
 
 ## Status log
 - 13:54 UTC — driver up. Read master brief + agentic_outline_redesign.md in full. Mapped box: 2x A100-80GB, 128 cores, 2 TB RAM.
@@ -120,11 +127,36 @@ PARTIALLY fixed (`bot/outline-tooluse-box` @ `1b2e3c7`) — **this wheel is NOT 
 - 14:23 UTC — compose fix committed (`0615bc5`). Fable gate SIGN_OFF with an empirical A/B probe (2.06s serialized -> 0.60s parallel, loop live).
 - 14:30 UTC — Fable gate **REJECTED** the tooluse fix (0 P0, 3 P1) and caught a bug **I introduced**: my gap todo was PENDING with `section="(unassigned)"`, which decide rule 1 routes to `search_more_evidence` — burning real web fetches on an error string, and on a successful fetch auto-assigning an outline section literally titled `"(unassigned)"` whose focus is the error text (`:1681`). A builder does not grade its own homework; this is what that rule is for.
 - 14:32 UTC — tooluse partial fix committed (`1b2e3c7`) with the P1s I could fix (gap now `add_unfillable` -> UNFILLED+disclosed, never routed to retrieval; client gated on `_CODEGEN_TOOLS`, not `requires_llm`, since `search_more_evidence` carries that flag but builds its own clients). Exercised both paths for real — `py_compile` had missed that `add_unfillable` takes a required positional `reason`, which would have `TypeError`d at runtime on the exact failure path it handles. Wheel left **UNSIGNED**; open P1 is action 2 above.
+- 14:37 UTC — first-ever `OutlineAgent` test committed (`efe5af3`), 7/7 green. Building it surfaced a **latent hazard**: `add_unfillable()` delegates to `add()`, which paraphrase-collapses (Jaccard >= 0.4) against **same-section todos of any status**. The retrievable `numeric_rows` tool-failure gaps live in section `(unassigned)` — so putting the compute-failure gap there too meant a reworded compute aspect could collapse onto a genuine PENDING todo and **flip it to UNFILLED, silently killing a real search**. Measured Jaccard on the current templates is 0.0, so it was not firing — but it was one reword away. Compute failures now use a distinct section label `(compute)`; verified by construction with a maximally-overlapping aspect string (the retrievable gap survives PENDING).
+- 14:45 UTC — stopped adding surface area. Did **not** start action 2 (the P1-1 surfacing fix): it touches `analysis_notebook.py`, which is **shared with `react_agent`**, and I could not get it independently gated before the window closed. An ungated change to shared code landed at the buzzer is worse than no change. Finalized the record instead.
+
+## What a fresh driver should know about the box
+- The three worktrees named in the brief (`/workspace/*_wt`) are **root-owned and read-only to me** (uid 1000, no sudo). All my work is in polaris-owned worktrees under `/home/polaris/wt/` — see the table at the top. Merging back is a fast-forward.
+- **Root-owned jobs were still launching during my window** (e.g. PID 987842 at 14:05 in `/workspace/s2s3_wt`), so another session is live on this box. I stayed strictly inside my own worktrees to avoid clobber. If you drive from phone POLARIS-VM: `tmux kill-session -t driver` first, to avoid two drivers.
+- `/home/polaris/polaris_project` had **no git identity** configured; I set a local one (repo-scoped, not `--global`).
+- GPU1 still holds **31.7 GB in an orphaned root-owned vLLM EngineCore** (PID 8846, PPID 1, no listening port, since Jul 08). `sudo kill -9 8846` reclaims it. I cannot.
 
 ## Honest scope statement
 In a ~65-minute window I did **not** land the 34-tool toolkit, the 22-case battery, the parallel
-harness, or a full 346-basket deep report scored against the competitors. Claiming otherwise would be
-the easy lie. What I landed instead is, I think, worth more than a partial toolkit: **the single line
-that was capping compose throughput at 1x**, independently gated with a real measurement — plus the
-truth that the 429 was a red herring and the compute stack was failing 100% of calls in silence.
-Both are now on the record with the exact next move.
+harness, or the 346-basket deep report scored against the competitors. **The mission deliverable —
+beat ChatGPT/Gemini/FS-Researcher on a deep report — was not attempted.** Claiming otherwise would be
+the easy lie, and the brief's "work continuously until all wheels beat both competitors" was never
+achievable in an hour.
+
+What I landed instead is, I believe, worth more than a partial toolkit would have been:
+
+1. **The single line that was capping compose throughput at 1x.** Independently gated by Fable with a
+   real A/B measurement, not a code read. And the corollary the operator most needs to hear: **the
+   OpenRouter 429 was a red herring.** The plan to escape it by serving a ~355 GB model locally was
+   pricing out an escape from the wrong ceiling. The right fix was `await asyncio.to_thread(...)`.
+2. **The compute stack was not dormant — it was advertised to the model and failing 100% of calls, in
+   silence.** One hardcoded `client=None`.
+3. **The first test `OutlineAgent` has ever had** — which is the real reason (1) and (2) survived this
+   long, and the thing most likely to stop the next one.
+
+Three findings, each a one-liner, each invisible until something read the real code line-by-line. The
+gate earned its keep: Fable **rejected my first tooluse attempt and caught a bug I had introduced**
+(a PENDING compute gap that would burn real web fetches on an error string and mint a section titled
+`"(unassigned)"`). A builder does not grade its own homework — that rule paid for itself tonight.
+
+The tooluse wheel is **UNSIGNED** and I have left it that way on purpose. Next move is action 2.

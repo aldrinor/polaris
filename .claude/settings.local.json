@@ -3,7 +3,13 @@
     "allow": [
       "Bash(nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv)",
       "Read(//workspace/**)",
-      "Read(//workspace/POLARIS/**)"
+      "Read(//workspace/POLARIS/**)",
+      "Bash(chmod +x /home/polaris/polaris_project/monitor_driver.sh)",
+      "Bash(/home/polaris/polaris_project/monitor_driver.sh)",
+      "Bash(git -C /home/polaris/wt/tooluse status --porcelain=v1 -uall)",
+      "Bash(git -C /home/polaris/wt/tooluse log -3 '--pretty=%h %ad %s' --date=format:%H:%M:%S)",
+      "Read(//home/polaris/wt/tooluse/tests/polaris_graph/outline/**)",
+      "Bash(git -C /home/polaris/wt/tooluse ls-files --error-unmatch tests/polaris_graph/outline/test_outline_agent_w3.py)"
     ]
   }
 }
