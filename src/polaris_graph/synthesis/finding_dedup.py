@@ -754,6 +754,32 @@ def _row_has_mergeable_claim(row: dict[str, Any]) -> bool:
     return _sentence_mergeable(_visible_claim_sentence(row, None))
 
 
+def _noclaim_basket_pool_enabled() -> bool:
+    """``PG_FINDING_NOCLAIM_BASKET_POOL`` kill switch (LAW VI, DEFAULT-ON, S2/S3 re-pass iter-7
+    P0-1(b), Fable). ON => a row whose ONLY reader-visible content is CONFIDENTLY publisher /
+    cataloguing / license / correspondence / reference boilerplate (``_row_is_pure_boilerplate``)
+    never FOUNDS a numeric claim basket — it is routed to a DISCLOSED no-claim pool (the row is
+    still KEPT in ``deduped_rows`` as a keep-all singleton; only the fake numeric-basket founding is
+    suppressed). §-1.3.1(a) chrome/boilerplate carve-out applied at basket FORMATION. FAIL-OPEN: a
+    row with ANY real claim sentence never enters the pool. OFF => byte-identical (no pool)."""
+    return os.getenv("PG_FINDING_NOCLAIM_BASKET_POOL", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _row_is_pure_boilerplate(row: dict[str, Any]) -> bool:
+    """True iff the row's reader-visible sentence is CONFIDENTLY publisher / cataloguing / license /
+    rights / correspondence / reference-list boilerplate AND the row yields NO mergeable claim
+    (P0-1(b)). This is the basket-founding gate: such a row (a journal masthead, an ISSN/ISBN
+    cataloguing line, a rights/copyright block, a correspondence-address block, a bare reference
+    list) must never mint a claim basket. CONSERVATIVE + FAIL-OPEN: requires BOTH the confident
+    boilerplate pattern (``_is_boilerplate_or_metadata_line`` — targeted, never a real claim) AND
+    the absence of a mergeable claim, so a genuine (even short) claim sentence is never pooled.
+    Question-agnostic + deterministic."""
+    vis = _visible_claim_sentence(row, None)
+    return _is_boilerplate_or_metadata_line(vis) and not _sentence_mergeable(vis)
+
+
 def _is_author_list_line(text: str) -> bool:
     """True iff the WHOLE line is a byline / author list (no claim). Used ONLY for representative
     CHOICE (fix 6) so a basket never SHOWS an author-list as its statement when a claim-bearing
@@ -831,7 +857,10 @@ def _strip_filename_artifacts(title: Any) -> str:
 def _title_alone_key(row: dict[str, Any]) -> str:
     """A same-work key on a LONG, discriminative folded title ALONE (P1-5). Returns '' when the
     folded (filename-stripped) title is too short/too-few-tokens to be discriminative — such a
-    row stays a singleton (never merged on a weak title). General."""
+    row stays a singleton (never merged on a weak title). General. Host-AGNOSTIC by design so
+    ``_same_work_key`` stays byte-identical to ``weighted_enrichment._work_identity`` (render
+    parity); the P1-2 cross-host false-merge is caught by the content verdict on the title-UNION
+    pass, NOT by changing this key."""
     folded = _fold_title(_strip_filename_artifacts(_row_title(row)))
     if not folded:
         return ""
@@ -840,6 +869,68 @@ def _title_alone_key(row: dict[str, Any]) -> str:
     if len(folded.split()) < _TITLE_ALONE_MIN_TOKENS:
         return ""
     return "titlealone:" + folded
+
+
+def _samework_content_confirm_enabled() -> bool:
+    """``PG_SAMEWORK_CONTENT_CONFIRM`` kill switch (LAW VI, DEFAULT-ON, S2/S3 re-pass iter-7 P1-2,
+    Fable). ON => a CROSS-KEY title-union candidate whose two work-groups' representative claim
+    sentences CONFIDENTLY do NOT entail is BLOCKED (a forum thread / aggregator that merely SHARES a
+    paper's title is not the same work — the drb_72 wikipedia+ebsco / forum+NBER / forbes+ahrefs
+    citation mis-attribution). Parity-safe: the same-work KEY is NOT changed (``_same_work_key`` /
+    ``weighted_enrichment._work_identity`` render parity intact); only the finding-dedup title-UNION
+    pass consults the content verdict. FAIL-SAFE for P0-4a: an UNKNOWN verdict (NLI unavailable /
+    flag off / empty rep) leaves the legacy union UNCHANGED, so a genuine cross-mirror still folds
+    and no offline/NLI-down run regresses. OFF => byte-identical legacy union."""
+    return os.getenv("PG_SAMEWORK_CONTENT_CONFIRM", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _group_rep_claim_text(member_ris: list[int], rows: list[dict[str, Any]]) -> str:
+    """The representative CLAIM SENTENCE of a work-group for the P1-2 content-consistency check —
+    the reader-visible claim sentence of the group's longest-body member (deterministic). Feeding the
+    focused claim sentence (not the whole body) keeps the entailment from weakly firing on shared
+    boilerplate."""
+    if not member_ris:
+        return ""
+    best_ri = max(member_ris, key=lambda ri: len(_row_text(rows[ri])))
+    return _visible_claim_sentence(rows[best_ri], None)
+
+
+def _group_content_verdict(
+    ris_a: list[int],
+    ris_b: list[int],
+    rows: list[dict[str, Any]],
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+) -> Optional[bool]:
+    """P1-2 (Fable): the cross-host same-work content verdict — TRUE (a rep of group A and a rep of
+    group B BIDIRECTIONALLY entail — same work), FALSE (a CONFIDENT non-entailment in >= 1 direction
+    — a title-only collision, NOT the same work), or None (UNKNOWN — flag off / empty rep / NLI
+    unavailable / infra fault). The caller BLOCKS a union only on an explicit FALSE and leaves the
+    legacy union UNCHANGED on None (so a genuine cross-mirror still folds and no NLI-down run
+    regresses P0-4a). ``entail_fn`` is the deterministic test seam (production None ⇒ the lazy
+    resident ``entails_directional`` — the SAME cross-encoder the consolidation leg already loads)."""
+    if not _samework_content_confirm_enabled():
+        return None
+    a = _group_rep_claim_text(ris_a, rows)
+    b = _group_rep_claim_text(ris_b, rows)
+    if not a.strip() or not b.strip():
+        return None
+    try:
+        if entail_fn is None:
+            from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+                entails_directional as entail_fn,
+            )
+        ab = entail_fn(a, b)
+        ba = entail_fn(b, a)
+    except Exception:  # noqa: BLE001 — any infra fault ⇒ UNKNOWN (leave legacy union unchanged)
+        return None
+    if ab is None or ba is None:
+        return None  # UNKNOWN direction ⇒ do not block (P0-4a preserved)
+    if ab is True and ba is True:
+        return True
+    return False  # a confident non-entailment in >= 1 direction ⇒ block the union
 
 
 def _body_work_identifier(row: dict[str, Any]) -> str:
@@ -1957,8 +2048,21 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
             if len(ks) < 2:
                 continue  # a title carried by only ONE work-group unions nothing
             ks_list = sorted(ks)
+            base = ks_list[0]
             for k in ks_list[1:]:
-                _tu(ks_list[0], k)
+                if _tf(base) == _tf(k):
+                    continue  # already unioned via an earlier signature
+                # P1-2 (iter-7, Fable): two DIFFERENT-key work-groups sharing ONE title are a
+                # cross-mirror candidate (id:arxiv + titlealone of 'GPTs are GPTs', legit P0-4a) OR a
+                # title-only COLLISION (a forum thread / aggregator that merely reused the paper's
+                # title — the drb_72 forum+NBER / wikipedia+ebsco / forbes+ahrefs mis-attribution).
+                # Block the union ONLY on a CONFIDENT non-entailment of the two groups' reps; an
+                # UNKNOWN verdict (NLI unavailable / flag off) leaves the legacy union UNCHANGED so a
+                # genuine cross-mirror still folds and no NLI-down run regresses P0-4a. Parity-safe
+                # (the same-work KEY is untouched).
+                if _group_content_verdict(work_members[base], work_members[k], rows) is False:
+                    continue
+                _tu(base, k)
         if any(_tf(k) != k for k in list(work_members.keys())):
             merged_t: dict[str, list[int]] = {}
             for wkey, wris in work_members.items():
@@ -2141,6 +2245,12 @@ class FindingDedupResult:
     # count clusters that lost a member, members kept, members split, and members split
     # specifically by the numbers-strict value gate (rep/member claim sentence lacked the value).
     numeric_confirm_telemetry: dict[str, int] = field(default_factory=dict)
+    # S2/S3 re-pass iter-7 P0-1(b) (Fable): rows routed to the no-claim pool at basket FORMATION —
+    # confident publisher/cataloguing/license/correspondence/reference boilerplate that would
+    # otherwise have MINTED a fake numeric basket. The rows are KEPT (keep-all singletons); only the
+    # fake-basket founding is suppressed. 0 when the kill switch is off; >0 is the §-1.3.1(a)
+    # fail-loud disclosure that N boilerplate-only rows were kept out of the claim baskets.
+    no_claim_basket_pooled_count: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -2270,6 +2380,59 @@ def _cluster_value_bucket(key: tuple, rows: list[dict[str, Any]], member_ris: li
     return None
 
 
+def _consolidation_soft_prior_enabled() -> bool:
+    """``PG_CONSOLIDATION_SOFT_PRIOR`` kill switch (LAW VI, DEFAULT-ON, S2/S3 re-pass iter-7 P1-1,
+    Fable). ON => the value bucket is a SOFT prior: two numeric clusters are NLI candidates when
+    their FULL numeric value SETS INTERSECT (a multi-number claim whose extractors picked DIFFERENT
+    anchors — the drb_72 #041/#130 1.5%/3%/3.7% PWBM pair, #039/#104/#169 $2.6-4.4T McKinsey — still
+    co-buckets), not only when a SINGLE anchor value is EQUAL. The bidirectional cross-encoder stays
+    the SOLE merge decider (fail-open: no edge => stays split), and the post-merge re-verify SPLITS
+    any member that does not entail the final rep, so a spurious shared value can never fabricate a
+    merge. OFF => byte-identical single-value bucketing."""
+    return os.getenv("PG_CONSOLIDATION_SOFT_PRIOR", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+_SOFT_PRIOR_NUMBER_RE = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers_in_claim_text(text: str) -> set[float]:
+    """Every numeric token in ``text`` (the CLAIM SENTENCE) as a rounded float — the "numeric set
+    of the text" (P1-1 soft prior). Year-like bare integers (1900-2100) are EXCLUDED: they are
+    almost never the claim value and would over-connect the candidate buckets. Commas are folded so
+    '2,600' == 2600. Deterministic + question-agnostic."""
+    out: set[float] = set()
+    for tok in _SOFT_PRIOR_NUMBER_RE.findall(text or ""):
+        try:
+            v = float(tok.replace(",", ""))
+        except ValueError:
+            continue
+        if v == int(v) and 1900 <= v <= 2100:
+            continue  # year-like bare integer — common noise, rarely the claim value
+        out.add(round(v, 6))
+    return out
+
+
+def _cluster_value_set(key: tuple, rows: list[dict[str, Any]], member_ris: list[int]) -> frozenset:
+    """The FULL SET of numbers a literal cluster's TEXT asserts (P1-1 soft prior): the known-subject
+    key value (index 2) PLUS every numeric token in each member's reader-visible CLAIM SENTENCE. Two
+    clusters whose value SETS intersect share >= 1 number, so they are same-claim CANDIDATES even
+    when the numeric extractor picked DIFFERENT anchors for each (the drb_72 #041/#130 case: both
+    texts carry 1.5%/3%/3.7% but one cluster keyed on 1.5, the other on 3.7). Reading the numbers
+    from the TEXT (not the single extracted anchor) is what bridges them. Rounded to 6 dp to match
+    the bucket key. Deterministic; the NLI judge still decides every merge (this only NOMINATES)."""
+    vals: set = set()
+    if isinstance(key, tuple) and key and len(key) >= 3:
+        try:
+            vals.add(round(float(key[2]), 6))
+        except (TypeError, ValueError):
+            pass
+    for ri in member_ris:
+        vals |= _numbers_in_claim_text(_visible_claim_sentence(rows[ri], None))
+    return frozenset(vals)
+
+
 def _apply_consolidation_nli(
     groups: dict[tuple, list[int]],
     rows: list[dict[str, Any]],
@@ -2313,24 +2476,35 @@ def _apply_consolidation_nli(
     if len(keys) < 2:
         return groups, 0
 
-    # Bucket every cluster index by the numeric value it asserts. Only buckets with >=2
-    # clusters carry NLI-merge candidates; the rest pass through unchanged.
-    bucket_of: dict[int, Any] = {
-        i: _cluster_value_bucket(keys[i], rows, groups[keys[i]]) for i in range(len(keys))
-    }
-    by_value: dict[Any, list[int]] = {}
+    # Bucket every cluster index by the numeric value it asserts (its canonical bucket key). A
+    # None => no recoverable value => its own singleton, never merged. A non-mergeable VISIBLE rep
+    # (a heading / license / nav / metadata line) is EXCLUDED so it never anchors an NLI merge.
+    prior_on = _consolidation_soft_prior_enabled()
+    bucket_key_of: dict[int, Any] = {}
+    value_set_of: dict[int, frozenset] = {}
+    eligible: list[int] = []
     for i in range(len(keys)):
-        v = bucket_of[i]
-        if v is None:
+        member_ris = sorted(set(groups[keys[i]]))
+        bk = _cluster_value_bucket(keys[i], rows, member_ris)
+        bucket_key_of[i] = bk
+        if bk is None:
             continue  # no recoverable value => its own singleton, never merged
         # P0-1(c): screen the cluster's VISIBLE representative claim sentence — a non-mergeable
         # heading / license / nav / metadata line must never anchor a byte-identical NLI merge
         # (the basket-224 heading pool). Non-mergeable rep => leave the cluster a singleton.
-        member_ris = sorted(set(groups[keys[i]]))
         rep_ri = _choose_clean_representative(member_ris, rank_fn, rows)
-        if not _sentence_mergeable(_visible_claim_sentence(rows[rep_ri], v)):
+        if not _sentence_mergeable(_visible_claim_sentence(rows[rep_ri], bk)):
             continue
-        by_value.setdefault(v, []).append(i)
+        # P1-1 soft prior: compute a numeric value SET only for clusters whose bucket key is a real
+        # FLOAT (a resolved-subject or pool-enabled recovered numeric value). A sentinel tuple key
+        # (``("__unk_qual__",)`` / ``("__unk__",...)``) gets NO value set, so isolated unknowns stay
+        # isolated and the pool-enabled qualitative unknowns still union only via their SHARED
+        # sentinel bucket below — the boilerplate false-merge guard is preserved.
+        value_set_of[i] = (
+            _cluster_value_set(keys[i], rows, member_ris)
+            if (prior_on and isinstance(bk, float)) else frozenset()
+        )
+        eligible.append(i)
 
     # Union-find over ALL cluster indices; only within-bucket NLI edges union.
     parent = list(range(len(keys)))
@@ -2348,10 +2522,53 @@ def _apply_consolidation_nli(
         lo, hi = (ra, rb) if ra < rb else (rb, ra)
         parent[hi] = lo  # attach to lower => deterministic
 
-    for value, cluster_idxs in sorted(by_value.items(), key=lambda kv: str(kv[0])):
+    # CANDIDATE union-find over the ELIGIBLE clusters (the NLI candidate components). Two legs:
+    #   (1) LEGACY: clusters sharing the SAME canonical bucket key (same single value OR the shared
+    #       ``("__unk_qual__",)`` qualitative pool) — byte-identical to the old by-value bucketing.
+    #   (2) SOFT PRIOR (P1-1): clusters whose FULL numeric value SETS INTERSECT — the multi-anchor
+    #       bridge (#041/#130) the single-value bucket missed. NLI still decides each pair.
+    cand_parent: dict[int, int] = {i: i for i in eligible}
+
+    def _cfind(x: int) -> int:
+        while cand_parent[x] != x:
+            cand_parent[x] = cand_parent[cand_parent[x]]
+            x = cand_parent[x]
+        return x
+
+    def _cunion(a: int, b: int) -> None:
+        ra, rb = _cfind(a), _cfind(b)
+        if ra == rb:
+            return
+        lo, hi = (ra, rb) if ra < rb else (rb, ra)
+        cand_parent[hi] = lo
+
+    by_bucket: dict[Any, list[int]] = {}
+    for i in eligible:
+        by_bucket.setdefault(bucket_key_of[i], []).append(i)
+    for _bk, idxs in by_bucket.items():
+        for j in idxs[1:]:
+            _cunion(idxs[0], j)
+    if prior_on:
+        value_to_clusters: dict[Any, list[int]] = {}
+        for i in eligible:
+            for v in value_set_of[i]:
+                value_to_clusters.setdefault(v, []).append(i)
+        for _v, idxs in value_to_clusters.items():
+            for j in idxs[1:]:
+                _cunion(idxs[0], j)
+
+    components: dict[int, list[int]] = {}
+    for i in eligible:
+        components.setdefault(_cfind(i), []).append(i)
+
+    for _root, cluster_idxs in sorted(components.items()):
+        cluster_idxs = sorted(cluster_idxs)
         if len(cluster_idxs) < 2:
             continue
-        texts = [_cluster_text(rows, groups[keys[i]], rank_fn, value) for i in cluster_idxs]
+        texts = [
+            _cluster_text(rows, groups[keys[i]], rank_fn, bucket_key_of[i])
+            for i in cluster_idxs
+        ]
         root_by_pos = group_clusters(texts)  # bounded-parallel NLI + union-find post-step
         for pos, eli in enumerate(cluster_idxs):
             _union(eli, cluster_idxs[root_by_pos[pos]])
@@ -4416,6 +4633,10 @@ def dedup_by_finding(
                 work_has_claimbearing[_wid] = True
     groups: dict[tuple, list[int]] = {}
     row_has_finding: list[bool] = [False] * len(rows)
+    # P0-1(b) (iter-7, Fable): rows whose ONLY visible content is confident boilerplate — routed
+    # away from basket FOUNDING to a disclosed no-claim pool (kept as keep-all singletons).
+    noclaim_pool_on = _noclaim_basket_pool_enabled()
+    no_claim_pool: set[int] = set()
     for ri, row in enumerate(rows):
         if ri in dropped:
             # CAPTCHA stub / strict-prefix truncated dup — no real claim; never
@@ -4434,6 +4655,17 @@ def dedup_by_finding(
                 and same_work.canonical_index_by_index.get(ri) != ri
             ):
                 continue
+        # P0-1(b) (iter-7, Fable): a row whose ONLY reader-visible sentence is CONFIDENT publisher /
+        # cataloguing / license / correspondence / reference boilerplate (a journal masthead, an
+        # ISSN/ISBN line, a rights block, a correspondence-address block — drb_72 #007/#201/#218)
+        # never FOUNDS a claim basket. It is routed to the DISCLOSED no-claim pool: it mints NO
+        # numeric finding (row_has_finding stays False so it is KEPT as a keep-all singleton, never
+        # a fake numeric corroborator). §-1.3.1(a) chrome/boilerplate carve-out at basket FORMATION;
+        # FAIL-OPEN (any real claim sentence ⇒ never pooled); DISCLOSED (count in step-4 log +
+        # result). Kill switch OFF ⇒ byte-identical.
+        if noclaim_pool_on and _row_is_pure_boilerplate(row):
+            no_claim_pool.add(ri)
+            continue
         claims = (
             extract_numeric_claims([row], domain=domain)
             if domain is not None else extract_numeric_claims([row])
@@ -4554,8 +4786,13 @@ def dedup_by_finding(
     #     any numeric finding and leaves `distinct_finding_count` (numeric) unchanged.
     qual_groups: dict[tuple, list[int]] = {}
     if redesign_on and _qualitative_enabled():
+        # P0-1(b): the no-claim pool (confident boilerplate) is excluded from qualitative basket
+        # founding too — a masthead/ISSN/rights row must not found a qualitative basket either
+        # (the qual mergeable-screen already excludes it, but pass it explicitly for clarity +
+        # to keep the disclosure honest). The rows are still KEPT as keep-all singletons.
         qual_groups = _build_qualitative_groups(
-            rows, row_has_finding, dropped, threshold=_qual_jaccard_threshold(),
+            rows, row_has_finding, dropped | no_claim_pool,
+            threshold=_qual_jaccard_threshold(),
         )
         if qual_groups:
             logger.info(
@@ -4711,6 +4948,16 @@ def dedup_by_finding(
             n_chrome_basket_dropped,
         )
 
+    if no_claim_pool:
+        # P0-1(b) §-1.3.1(a) fail-loud disclosure: boilerplate-only rows kept OUT of basket founding.
+        logger.info(
+            "[finding_dedup] P0-1(b) no-claim basket pool: %d boilerplate-only row(s) "
+            "(publisher/cataloguing/license/correspondence/reference) were routed away from "
+            "founding a claim basket and KEPT as keep-all singletons (never a fake numeric "
+            "corroborator; credible on-topic claim rows untouched, fail-open)",
+            len(no_claim_pool),
+        )
+
     return FindingDedupResult(
         deduped_rows=deduped_rows,
         clusters=clusters,
@@ -4722,4 +4969,5 @@ def dedup_by_finding(
         qualitative_basket_count=len(qual_groups),
         rep_invariant_merge_count=rep_invariant_merged,
         numeric_confirm_telemetry=dict(numeric_confirm_telemetry),
+        no_claim_basket_pooled_count=len(no_claim_pool),
     )

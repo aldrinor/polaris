@@ -220,12 +220,19 @@ def _row_stamped_off_subject(row: dict[str, Any]) -> bool:
 
 def _body_is_shell(body: str) -> bool:
     """True iff the WHOLE body is a fetch-shell / bot-wall (reuses ``shell_detector``). A
-    secondary JUNK whole-drop concurrence key. Fail-open False."""
+    secondary JUNK whole-drop concurrence key. Fail-open False.
+
+    P0-1(c) (iter-7, Fable): ALSO true for a single-sentence error / challenge interstitial
+    (``_body_is_single_sentence_error`` — the ev_291 'Wait a moment and try again.' whole error
+    page that fell between ``shell_detector``'s length-gated markers and the nav/catalog density
+    test). FAIL-OPEN: any real propositional prose ⇒ never fires."""
     try:
         from src.polaris_graph.retrieval.shell_detector import is_cited_span_shell  # noqa: PLC0415
-        return bool(is_cited_span_shell(body))
+        if bool(is_cited_span_shell(body)):
+            return True
     except Exception:  # noqa: BLE001
-        return False
+        pass
+    return _body_is_single_sentence_error(body)
 
 
 # ── P1-5 (S2/S3 re-pass iter-5, Fable): general nav / homepage / catalog chrome detector ──
@@ -304,6 +311,65 @@ def _row_is_nav_homepage_catalog(row: dict[str, Any]) -> bool:
             navish += 1
     # Dominated by nav/link/catalog fragments AND (guaranteed above) NO propositional prose.
     return (navish / float(len(lines))) >= 0.75
+
+
+# ── P0-1(c) (S2/S3 re-pass iter-7, Fable): single-sentence ERROR / CHALLENGE page ──
+# The short-body shell gates in ``shell_detector`` catch a page whose whole body is a challenge /
+# error / cookie stub, but a WHOLE-page error interstitial that reduces to ONE short sentence (the
+# quora 'Wait a moment and try again.' error page — ev_291 — a whole error page that survived) fell
+# BETWEEN the detectors: it has too few lines for the nav/catalog density test (< 6) and the line
+# judge alone kept it. Per §-1.3.1(a) a bot/error interstitial is a FAILED FETCH, not a source — it
+# MAY be whole-dropped: DETERMINISTIC + FAIL-OPEN (any real propositional prose ⇒ never fires) +
+# DISCLOSED. GENERAL / question-agnostic (generic HTTP / bot-wall / retry intents that never occur
+# as a research CLAIM — NEVER a host or entity blocklist). LAW VI kill switch (default ON).
+_ENV_ERROR_PAGE = "PG_LINE_SCREEN_ERROR_PAGE"
+# Generic error / bot-wall / retry INTENTS. Multi-word so an incidental mention inside real prose
+# is unlikely; still guarded by the propositional-prose FAIL-OPEN below (any real sentence ⇒ keep).
+_ERROR_PAGE_INTENTS: tuple[str, ...] = (
+    "wait a moment and try again",
+    "something went wrong",
+    "please try again",
+    "temporary error",
+    "verify you are human",
+    "are not a robot",
+    "checking your browser",
+    "enable javascript",
+    "access to this page has been denied",
+    "access denied",
+    "page isn't working",
+    "this site can't be reached",
+    "404 not found",
+    "403 forbidden",
+    "just a moment",
+)
+
+
+def error_page_enabled() -> bool:
+    """``PG_LINE_SCREEN_ERROR_PAGE`` kill switch (LAW VI, DEFAULT-ON, iter-7 P0-1(c))."""
+    return os.environ.get(_ENV_ERROR_PAGE, "1").strip().lower() not in _OFF_VALUES
+
+
+def _body_is_single_sentence_error(body: str) -> bool:
+    """True iff ``body`` is a whole-page ERROR / CHALLENGE interstitial that reduces to a short
+    error sentence with NO real propositional prose (P0-1(c)). FAIL-OPEN: any propositional prose
+    sentence ⇒ False (a real article whose fetch merely echoed an error banner is kept). General."""
+    text = (body or "").strip()
+    if not text:
+        return False
+    # FAIL-OPEN: a body with any real (>= 8 content-word) sentence is a source, not an error page.
+    if _has_propositional_prose(text):
+        return False
+    low = text.lower()
+    return any(intent in low for intent in _ERROR_PAGE_INTENTS)
+
+
+def _row_is_error_page(row: dict[str, Any]) -> bool:
+    """P0-1(c): True iff the row's widest body is a single-sentence error / bot-wall interstitial
+    (a failed fetch, §-1.3.1(a)). Kill-switched (default ON); FAIL-OPEN via
+    ``_body_is_single_sentence_error``; question-agnostic (structure + generic error intent)."""
+    if not error_page_enabled():
+        return False
+    return _body_is_single_sentence_error(_widest_body(row))
 
 
 def _line_is_deterministic_junk(line: str) -> bool:
@@ -701,20 +767,30 @@ def build_line_prompt(
         )
     lines += [
         "- JUNK: navigation / cookie-consent / subscribe / login / related-articles / "
-        "share-buttons / breadcrumb / copyright chrome — website furniture, not article prose. "
-        "(Examples of chrome vocabulary: 'we use cookies', 'accept all cookies', 'download "
-        "citation', 'subscribe', 'watch later', '404 not found', 'skip to main content'.)",
+        "share-buttons / breadcrumb / copyright chrome — website furniture, not article prose; "
+        "AND bot-check / captcha / error / retry interstitial copy (a failed fetch that returned "
+        "the site shell, not the document). (Examples of chrome vocabulary: 'we use cookies', "
+        "'accept all cookies', 'download citation', 'subscribe', 'watch later', '404 not found', "
+        "'skip to main content', 'wait a moment and try again', 'something went wrong', 'verify "
+        "you are human', 'access denied'.)",
     ]
     if has_claim_gate:
         lines.append(
             "- NON_CLAIM: real prose from the document that nevertheless ASSERTS NOTHING about "
             "the world — it makes no factual claim, reports no finding, states no result. Judge "
             "by MEANING, not keywords. This covers a table-of-contents / page-number run, an "
-            "acknowledgments or dedication line, a license / copyright / rights statement, a "
-            "share / alert / 'cite this' / footer line, a bare citation-metadata / reference-list "
-            "block, a figure-axis / legend / caption label dump, a journal masthead / editorial "
-            "board line, or advertising copy. If the line makes ANY assertion that bears on the "
-            "research question, it is NOT NON_CLAIM — KEEP it. When unsure, KEEP."
+            "acknowledgments or dedication line, a license / copyright / rights / open-access "
+            "statement, a share / alert / 'cite this' / footer / breadcrumb / navigation line, a "
+            "bare citation-metadata / reference-list / 'how to cite' block, a figure-axis / legend "
+            "/ caption label dump, a journal masthead / editorial-board line, PUBLISHER or "
+            "CATALOGUING boilerplate (an ISSN / ISSNe / ISBN / DOI-registration line, a 'Published "
+            "by ...' or press-imprint line such as 'CEPR Press' or 'Informa UK', a library "
+            "cataloguing-in-publication record), a CORRESPONDENCE / affiliation-address / "
+            "email-alerts / contact-details block, a bare AUTHOR / credential / editorial-board "
+            "NAME LIST, or a stray NUMBER or PERCENTAGE SALAD with no sentence around it (a loose "
+            "run of table cells such as '7% 12% 18% 46% 17%'), or advertising copy. If the line "
+            "makes ANY assertion that bears on the research question — INCLUDING a real reported "
+            "statistic stated in a sentence — it is NOT NON_CLAIM — KEEP it. When unsure, KEEP."
         )
     lines += [
         "",
@@ -823,6 +899,85 @@ class SourceScreenResult:
         }
 
 
+# ── P0-2(a) (S2/S3 re-pass iter-7, Fable): whole-source OFF-TOPIC tie-break re-judge ──
+# The V5 two-key whole-drop guard restores ALL lines on a disagreement (100%-off-topic per line
+# but the whole-source topic gate never stamped ``topic_off_subject``), which ERASED even the
+# sanctioned line-level off-topic drops (drb_72 summary cond_e n_disagreement_restored=260 —
+# climate / murine / TikTok whole sources kept). The whole-source topic gate biases toward the
+# non-deletable OFF_ASPECT, so ``topic_off_subject`` was rarely stamped. Instead of erasing the
+# line verdicts, escalate to ONE tie-break whole-source re-judge with the FULL research question:
+# only a tie-break KEEP restores the lines; a confident OFF_TOPIC is the SECOND concurring key
+# (§-1.3.1 two-key, FAIL-OPEN — any doubt / parse fault / LLM error ⇒ KEEP). GENERAL /
+# question-agnostic. LAW VI kill switch (default ON).
+_ENV_TIEBREAK = "PG_LINE_SCREEN_TIEBREAK"
+_TIEBREAK_SOURCE_MAX_CHARS = 6000  # bound the source text fed to the tie-break judge
+
+
+def offtopic_tiebreak_enabled() -> bool:
+    """``PG_LINE_SCREEN_TIEBREAK`` kill switch (LAW VI, DEFAULT-ON, iter-7 P0-2(a))."""
+    return os.environ.get(_ENV_TIEBREAK, "1").strip().lower() not in _OFF_VALUES
+
+
+def build_offtopic_tiebreak_prompt(main_question: str, source_text: str) -> str:
+    """Build the whole-source OFF-TOPIC tie-break prompt. The FULL research question is passed
+    UNTRUNCATED (only the source body is length-bounded) so the judge sees every deliverable the
+    question requires (P0-2(b): occupation case-study rows stay ON-topic). Verdict-only contract."""
+    src = (source_text or "").strip()
+    if len(src) > _TIEBREAK_SOURCE_MAX_CHARS:
+        src = src[:_TIEBREAK_SOURCE_MAX_CHARS] + " …[truncated]"
+    return "\n".join([
+        "You are the TIE-BREAK topic judge. A line-by-line screener flagged EVERY line of ONE "
+        "fetched source as OFF-TOPIC for the research question, but the whole-source topic gate "
+        "did not confirm it. You decide the tie-break at the level of the WHOLE source.",
+        "",
+        "MAIN RESEARCH QUESTION (read ALL of it — every entity, aspect, and any case-study / "
+        "occupation / sub-topic it names is ON-topic):",
+        main_question.strip(),
+        "",
+        "FETCHED SOURCE (verbatim, may be truncated):",
+        src,
+        "",
+        "Decide by MEANING, whole-source:",
+        "- OFF_TOPIC: the source is about a CLEARLY DIFFERENT subject / entity / field than the "
+        "research question and could not support any answer to it.",
+        "- KEEP: the source plausibly bears on the research question in ANY way, OR you are unsure.",
+        "",
+        "FAIL-OPEN: when in ANY doubt, answer KEEP. Answer OFF_TOPIC only when you are confident the "
+        "whole source is a different subject.",
+        "",
+        "OUTPUT CONTRACT (strict — nothing else): output ONLY one line, exactly `VERDICT: OFF_TOPIC` "
+        "or `VERDICT: KEEP`.",
+    ])
+
+
+def _whole_source_offtopic_tiebreak(
+    main_question: str, source_text: str, llm_callable: Callable[[str], str],
+) -> bool | None:
+    """Run the whole-source OFF-TOPIC tie-break. Returns True (confident whole-source OFF_TOPIC —
+    the concurring second key), False (KEEP), or None (UNKNOWN — parse fault / LLM error ⇒ the
+    caller FAILS-OPEN and keeps). FAIL-OPEN: only an explicit `OFF_TOPIC` verdict returns True."""
+    if not offtopic_tiebreak_enabled():
+        return None
+    if not (main_question or "").strip() or not (source_text or "").strip():
+        return None
+    prompt = build_offtopic_tiebreak_prompt(main_question, source_text)
+    try:
+        raw = llm_callable(prompt)
+    except Exception as exc:  # noqa: BLE001 — FAIL-OPEN: any LLM error ⇒ UNKNOWN (keep)
+        _LOGGER.warning("[line_screen] off-topic tie-break LLM error — fail-open keep: %s",
+                        str(exc)[:160])
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    for line in raw.splitlines():
+        norm = line.strip().lower().replace("-", "_").replace(" ", "")
+        if "off_topic" in norm or "offtopic" in norm:
+            return True
+        if "keep" in norm:
+            return False
+    return None  # unparseable ⇒ fail-open keep
+
+
 def screen_source(
     row: dict[str, Any],
     main_question: str,
@@ -865,6 +1020,22 @@ def screen_source(
         result.kept_lines = []
         result.n_kept = 0
         result.notes.append("whole-drop nav/homepage/catalog chrome (no propositional prose)")
+        return result
+
+    # P0-1(c) (S2/S3 re-pass iter-7, Fable): a whole-page ERROR / CHALLENGE interstitial that
+    # reduces to one short error sentence (ev_291 'Wait a moment and try again.') is a FAILED FETCH,
+    # not a source (§-1.3.1(a)) — DETERMINISTIC, FAIL-OPEN (real propositional prose ⇒ never fires),
+    # DISCLOSED. Fires BEFORE the line judge (no LLM spend on an error shell). Marquee protected.
+    if not is_marquee and _row_is_error_page(row):
+        result.whole_dropped = True
+        result.whole_drop_reason = "error_page:chrome_non_source"
+        result.dropped = [
+            {"line_idx": i, "reason": JUNK.lower(), "quote": t}
+            for i, t in enumerate(units)
+        ]
+        result.kept_lines = []
+        result.n_kept = 0
+        result.notes.append("whole-drop single-sentence error/challenge page (no propositional prose)")
         return result
 
     # V3 — deterministic source-level explicit-scope violation → whole out_of_scope drop
@@ -950,6 +1121,22 @@ def screen_source(
         if dominant == OFF_TOPIC:
             concurs = _row_stamped_off_subject(row)
             key = "topic_off_subject"
+            # P0-2(a) (iter-7, Fable): the whole-source topic gate biases to the non-deletable
+            # OFF_ASPECT, so ``topic_off_subject`` is rarely stamped and the fail-open restore below
+            # ERASED the sanctioned line-level off-topic drops (n_disagreement_restored=260). When
+            # 100% of lines read OFF_TOPIC but no stamp concurred, escalate to ONE tie-break
+            # whole-source re-judge with the FULL question rather than blindly restoring. Only a
+            # confident tie-break OFF_TOPIC becomes the concurring second key (§-1.3.1 two-key);
+            # a KEEP / UNKNOWN (parse fault / LLM error) FAILS-OPEN and restores all lines.
+            if not concurs and not is_marquee:
+                _tb = _whole_source_offtopic_tiebreak(main_question, body, llm_callable)
+                if _tb is True:
+                    concurs = True
+                    key = "topic_off_subject:tiebreak_rejudge"
+                    result.notes.append(
+                        "off-topic tie-break re-judge CONFIRMED whole-source OFF_TOPIC "
+                        "(full-question second key)"
+                    )
         elif dominant == JUNK:
             concurs = _row_is_chrome_nonsource(row) or _body_is_shell(body)
             key = "content_integrity_junk/shell"
