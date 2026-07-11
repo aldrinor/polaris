@@ -2,7 +2,7 @@
  "schema_version": 1,
  "stage": "s3_consolidate",
  "run_id": "SWEEP_workforce_drb_72_ai_labor_1783476454",
- "created_utc": "2026-07-11T01:49:56Z",
+ "created_utc": "2026-07-11T07:05:08Z",
  "question": "I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The report needs to be based on academic research published before June 2023, summarizing the existing literature's positive views, negative views, specific challenges, and future opportunities regarding Generative AI's impact on employment. Please note that your report should have a clear structure, discussing the above four aspects (positive, negative, challenges, opportunities) as separate sections, and providing specific literature sources to support each point or assertion. At the end of the report, please create a summary table based on the information you have gathered, detailing specific application cases of Generative AI in particular industries or occupations, the main impacts brought about, and key risk points emphasized by researchers, as mentioned in different studies. The table column headers should be “Research Literature”, “Country/Region”, “Application Area/Occupation”, “Specific Applications and Impacts”, and “Key Risks and Limitations”.\n\n**important**The following is a rule of highest priority that you must not violate. Please put this rule in your task plan and keep it in your memory: **During the research process, you are not allowed to view the following article and urls: {'title': 'Impacts of generative artificial intelligence on the future of labor market: A systematic review', 'authors': ['Nader Salari', 'Mahan Beiromvand', 'Amin Hosseinian-Far', 'Javad Habibi', 'Fateme Babajani', 'Masoud Mohammadi'], 'urls': ['https://www.sciencedirect.com/science/article/pii/S2451958825000673', 'https://doaj.org/article/2e2e2ccc110d4455b3269bfdb682b170', 'https://researchprofiles.herts.ac.uk/en/publications/impacts-of-generative-artificial-intelligence-on-the-future-of-la', 'https://www.scilit.com/publications/148571f40af332e6252df0f55e684a57', 'https://uhra.herts.ac.uk/id/eprint/25592/']}. Even if you accidentally read it, please ignore the content of the article and do not quote it.**",
  "question_sha": "146597e3a837074d92cfbc7fdb0fba5e9a54456bf66cc69fc5134972504dca94",
  "domain": "workforce",
@@ -19,12 +19,17 @@
   "PG_CORROBORATION_DISTINCT_WORKS": "1",
   "PG_CORROBORATION_DERIVATIVE_PRESS": "1",
   "PG_CONSOLIDATION_NLI_QUALITATIVE": "1",
-  "PG_CONSOLIDATION_NLI_SUBBUCKET": "1"
+  "PG_CONSOLIDATION_NLI_SUBBUCKET": "1",
+  "PG_CONSOLIDATION_NLI_EMBED_BLOCK": "1",
+  "PG_FINDING_NUMERIC_NLI_CONFIRM": "1",
+  "PG_FINDING_NUMERIC_NLI_CONFIRM_STRICT": "1",
+  "PG_SAMEWORK_TITLE_UNION": "1",
+  "PG_FINDING_NONCLAIM_BASKET_FOLD": "1"
  },
  "faithfulness_invariant": "DATA ONLY; no verdict stored; a resume re-runs every gate.",
  "upstream": {
   "name": "cp2_corpus_snapshot.json",
-  "sha256": "f0c221f75f963efe01a169222e9c4d9cf1c93b1a9d9b35efbb9c1edc88da3f9f"
+  "sha256": "5adbfa29cad076ab96cf10fe386a6d2a6e136e90a915ebde4b5692d27f10ee0e"
  },
  "adjustments_applied": [],
  "payload": {
@@ -192,33 +197,6 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "promote",
-     "efficiency",
-     99.0,
-     "percent",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_1265"
-    ],
-    "member_hosts": [
-     "ub.edu"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://revistes.ub.edu/index.php/der/article/view/46530"
-    ],
-    "representative_evidence_id": "ev_1265",
-    "representative_statement": "Distinguishing academic science writing from humans or ChatGPT with over 99% accuracy using off-the-shelf machine learning tools."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
      "estimate",
      "probability",
      2.2,
@@ -312,42 +290,13 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "technological",
-     "change",
-     2.0,
+     "chatgpt",
+     "cost",
+     700.0,
      "",
      "",
      "treatment",
      ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_060"
-    ],
-    "member_hosts": [
-     "mdpi.com"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://www.mdpi.com/1999-4893/18/9/554"
-    ],
-    "representative_evidence_id": "ev_060",
-    "representative_statement": "No longer confined to research labs or niche applications, GenAI [[1](https://www.mdpi.com/1999-4893/18/9/554#B1-algorithms-18-00554),[2](https://www.mdpi.com/1999-4893/18/9/554#B2-algorithms-18-00554),[3](https://www.mdpi.com/1999-4893/18/9/554#B3-algorithms-18-00554),[4](https://www.mdpi.com/1999-"
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "technological",
-     "change",
-     2.0,
-     "",
-     "",
-     "treatment",
-     "",
-     "__split__",
-     22
     ],
     "member_count": 1,
     "member_evidence_ids": [
@@ -363,7 +312,7 @@
      "https://www.santander.com/content/dam/santander-com/es/contenido-paginas/landing-pages/santander-x-xperts/do-santander-x-xperts-Transformative%20potential%20of%20generative%20AI.pdf"
     ],
     "representative_evidence_id": "ev_215",
-    "representative_statement": "JUNE 2023 Transformative potential of generative AI: innovation, impact, and implications for the future workforce Authors Esteban Moro is data scientist at the MIT Connection Science at IDSS and a tenured associate professor at Universidad Carlos III."
+    "representative_statement": "ChatGPT costs $700.000 per day to operate, while GPT-3 required $3.2 million in computing resources alone to be trained."
    },
    {
     "corroboration_count": 1,
@@ -421,7 +370,7 @@
      "https://www.ifo.de/DocDL/cesifo1_wp10601.pdf"
     ],
     "representative_evidence_id": "ev_110",
-    "representative_statement": "10601 Provided in Cooperation with: Ifo Institute – Leibniz Institute for Economic Research at the University of Munich Suggested Citation: Hui, Xiang; Reshef, Oren; Zhou, Luofeng (2023) : The Short-Term Effects of Generative Artificial Intelligence on Employment: Evidence from an Online Labor Marke"
+    "representative_statement": "These effects represent an economically meaningful and statistically significant (at 1% level) reduction in employment on the platform."
    },
    {
     "corroboration_count": 2,
@@ -570,9 +519,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "research",
-     "index",
-     17.0,
+     "sharing",
+     "share",
+     3.0,
      "",
      "",
      "treatment",
@@ -580,52 +529,104 @@
     ],
     "member_count": 1,
     "member_evidence_ids": [
-     "ev_878"
+     "ev_954"
     ],
     "member_hosts": [
-     "worldbank.org"
+     "acm.org"
     ],
     "member_tiers_weight": [
-     "T5"
+     "T1"
     ],
     "member_urls": [
-     "https://openai.com/index/gpts-are-gpts/"
+     "https://cacm.acm.org/opinion/generative-ai-requires-broad-labor-policy-considerations/"
     ],
-    "representative_evidence_id": "ev_878",
-    "representative_statement": "Using a new rubric, we assess occupations based on their correspondence with GPT capabilities, incorporating both human expertise and classifications from GPT‑4."
+    "representative_evidence_id": "ev_954",
+    "representative_statement": "10, 2023); [https://papers.ssrn.com/abstract=4414065](https://papers.ssrn.com/abstract=4414065) [...]\nRochester, NY (2023, March 1); [https://papers.ssrn.com/abstract=4375283](https://papers.ssrn.com/abstract=4375283) * 15.Peng, S."
    },
    {
     "corroboration_count": 1,
     "finding_key": [
-     "significant",
-     "change",
-     5.0,
+     "what",
+     "percentage",
+     18.0,
      "",
      "",
      "treatment",
      ""
     ],
-    "member_count": 3,
+    "member_count": 1,
     "member_evidence_ids": [
-     "ev_007",
-     "ev_1019",
+     "ev_007"
+    ],
+    "member_hosts": [
+     "weizenbaum-institut.de"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://www.weizenbaum-institut.de/media/Publikationen/Weizenbaum_Discussion_Paper/Weizenbaum_Discussion_Paper_38.pdf"
+    ],
+    "representative_evidence_id": "ev_007",
+    "representative_statement": "18 The lesson from these prior experiences is that the parties who deploy these tools, for what purpose, and in what [...]\n today even existed fifty years ago?"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "what",
+     "percentage",
+     18.0,
+     "",
+     "",
+     "treatment",
+     "",
+     "__split__",
+     40
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_1019"
+    ],
+    "member_hosts": [
+     "weizenbaum-institut.de"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://www.weizenbaum-institut.de/media/Publikationen/Weizenbaum_Discussion_Paper/Weizenbaum_Discussion_Paper_38.pdf"
+    ],
+    "representative_evidence_id": "ev_1019",
+    "representative_statement": "18 The lesson from these prior experiences is that the parties who deploy these tools, for what purpose, and in what [...]\n today even existed fifty years ago?"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "what",
+     "percentage",
+     18.0,
+     "",
+     "",
+     "treatment",
+     "",
+     "__split__",
+     41
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
      "ev_1165"
     ],
     "member_hosts": [
      "weizenbaum-institut.de"
     ],
     "member_tiers_weight": [
-     "T4",
-     "T4",
      "UNKNOWN"
     ],
     "member_urls": [
-     "https://www.weizenbaum-institut.de/media/Publikationen/Weizenbaum_Discussion_Paper/Weizenbaum_Discussion_Paper_38.pdf",
-     "https://www.weizenbaum-institut.de/media/Publikationen/Weizenbaum_Discussion_Paper/Weizenbaum_Discussion_Paper_38.pdf",
      "https://www.weizenbaum-institut.de/media/Publikationen/Weizenbaum_Discussion_Paper/Weizenbaum_Discussion_Paper_38.pdf"
     ],
-    "representative_evidence_id": "ev_007",
-    "representative_statement": "2 The existing digital infrastructure has [...]\n, Understanding Work in the Online Platform Economy: The Narrow, the Broad, and the Systemic Perspectives, Berkeley Round Table on the International Economy (2022, July 15), avail­ able at SSRN: https://ssrn.com/abstract=4164068 or http://dx.doi.org/10"
+    "representative_evidence_id": "ev_1165",
+    "representative_statement": "18 The lesson from these prior experiences is that the parties who deploy these tools, for what purpose, and in what [...]\n today even existed fifty years ago?"
    },
    {
     "corroboration_count": 1,
@@ -653,6 +654,65 @@
     ],
     "representative_evidence_id": "ev_136",
     "representative_statement": "A review of theory, estimates, and evidence††thanks: The authors would like to thank Leonard Bocquet, University of Cambridge, for helpful research assistance."
+   },
+   {
+    "corroboration_count": 2,
+    "finding_key": [
+     "mid",
+     "level",
+     444.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 2,
+    "member_evidence_ids": [
+     "ev_941",
+     "ev_931"
+    ],
+    "member_hosts": [
+     "mit.edu"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN",
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://economics.mit.edu/sites/default/files/inline-files/Noy_Zhang_1_0.pdf",
+     "https://economics.mit.edu/sites/default/files/inline-files/Noy_Zhang_1.pdf"
+    ],
+    "representative_evidence_id": "ev_941",
+    "representative_statement": "Prior to treatment, about 70% of our participants had heard of ChatGPT and 30% had used it before."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "mid",
+     "level",
+     444.0,
+     "",
+     "",
+     "treatment",
+     "",
+     "__split__",
+     44
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_932"
+    ],
+    "member_hosts": [
+     "ssrn.com"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4375283"
+    ],
+    "representative_evidence_id": "ev_932",
+    "representative_statement": "In a preregistered online experiment, we assign occupation-specific, incentivized writing tasks to 444 college-educated professionals, and randomly expose half of them to ChatGPT."
    },
    {
     "corroboration_count": 1,
@@ -748,7 +808,7 @@
      "https://www.nber.org/system/files/working_papers/w31161/w31161.pdf"
     ],
     "representative_evidence_id": "ev_077",
-    "representative_statement": "Raymond Working Paper 31161 http://www.nber.org/papers/w31161 NATIONAL BUREAU OF ECONOMIC RESEARCH 1050 Massachusetts Avenue Cambridge, MA 02138 April 2023 , revised November 2023 We are grateful to Daron Acemoglu, David Autor, Amittai Axelrod, Eleanor Dillon, Zayd Enam, Luis Garicano, Alex Frankel,"
+    "representative_statement": "These results contrast, in spirit, with studies that find evidence of skill-biased technical change for earlier waves &gt; 5As Meijer (2018) puts it “where the Software 1.0 Engineer formally specifies their problem, carefully designs algo-rithms, composes systems out of subsystems or decomposes comp"
    },
    {
     "corroboration_count": 1,
@@ -778,7 +838,7 @@
     "representative_statement": "GPTs are GPTs: An Early Look at the Labor Market Impact Potential of Large Language Models Abstract We investigate the potential implications of large language models (LLMs), such as Generative Pre-trained Transformers (GPTs), on the U.S."
    },
    {
-    "corroboration_count": 2,
+    "corroboration_count": 1,
     "finding_key": [
      "productivity",
      "growth",
@@ -790,29 +850,25 @@
      "__split__",
      59
     ],
-    "member_count": 4,
+    "member_count": 3,
     "member_evidence_ids": [
      "ev_886",
      "ev_883",
-     "ev_887",
-     "ev_884"
+     "ev_887"
     ],
     "member_hosts": [
      "arxiv.org",
-     "semanticscholar.org",
      "stanford.edu"
     ],
     "member_tiers_weight": [
      "UNKNOWN",
      "T7",
-     "UNKNOWN",
-     "T4"
+     "UNKNOWN"
     ],
     "member_urls": [
      "https://ideas.repec.org/p/arx/papers/2303.10130.html",
      "https://www.semanticscholar.org/paper/GPTs-are-GPTs%3A-An-Early-Look-at-the-Labor-Market-of-Eloundou-Manning/5501d00310b06e00351295529498cc684187148d",
-     "https://fintech.stanford.edu/events/abfr-webinar/daniel-rock-university-pennsylvania-gpts-are-gpts-early-look-labor-market",
-     "https://arxiv.org/abs/2303.10130"
+     "https://fintech.stanford.edu/events/abfr-webinar/daniel-rock-university-pennsylvania-gpts-are-gpts-early-look-labor-market"
     ],
     "representative_evidence_id": "ev_887",
     "representative_statement": "Our analysis suggests that, with access to an LLM, about 15% of all worker tasks in the US could be completed significantly faster at the same level of quality."
@@ -833,7 +889,7 @@
      "ev_880"
     ],
     "member_hosts": [
-     "worldbank.org"
+     "arxiv.org"
     ],
     "member_tiers_weight": [
      "UNKNOWN"
@@ -843,62 +899,6 @@
     ],
     "representative_evidence_id": "ev_880",
     "representative_statement": "When incorporating software and tooling built on top of LLMs, this share increases to between 47 and 56% of all tasks."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "reveals",
-     "increase",
-     26.08,
-     "percent",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_928"
-    ],
-    "member_hosts": [
-     "semanticscholar.org"
-    ],
-    "member_tiers_weight": [
-     "T7"
-    ],
-    "member_urls": [
-     "https://www.semanticscholar.org/paper/Experimental-evidence-on-the-productivity-effects-Noy-Zhang/8d020275181c69e5e768c6ffc40e09710a6f54f1"
-    ],
-    "representative_evidence_id": "ev_928",
-    "representative_statement": "Experimental evidence on the productivity effects of generative artificial intelligence\n@article{Noy2023ExperimentalEO, title={Experimental evidence on the productivity effects of generative artificial intelligence}, author={Shakked Noy and Whitney Zhang}, journal={Science}, year={2023}, volume={381"
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "reveals",
-     "increase",
-     26.08,
-     "percent",
-     "",
-     "treatment",
-     "",
-     "__split__",
-     229
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_927"
-    ],
-    "member_hosts": [
-     "ssrn.com"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://papers.ssrn.com/sol3/Delivery.cfm/4945566.pdf?abstractid=4945566&mirid=1&type=2"
-    ],
-    "representative_evidence_id": "ev_927",
-    "representative_statement": "The Effects of Generative AI on High-Skilled Work: Evidence from Three Field Experiments with Software Developers 38 Pages Posted: 5 Sep 2024 Last revised: 21 Aug 2025 Date Written: August 20, 2025 Abstract This study evaluates the effect of generative AI on software developer productivity via rando"
    },
    {
     "corroboration_count": 1,
@@ -930,65 +930,6 @@
     ],
     "representative_evidence_id": "ev_367",
     "representative_statement": "We present this article in accordance with the Narrative Review reporting checklist (available at https://jhmhp.amegroups.com/article/view/10.21037/jhmhp-24-138/rc)."
-   },
-   {
-    "corroboration_count": 2,
-    "finding_key": [
-     "mid",
-     "level",
-     444.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 2,
-    "member_evidence_ids": [
-     "ev_941",
-     "ev_931"
-    ],
-    "member_hosts": [
-     "mit.edu"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN",
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://economics.mit.edu/sites/default/files/inline-files/Noy_Zhang_1_0.pdf",
-     "https://economics.mit.edu/sites/default/files/inline-files/Noy_Zhang_1.pdf"
-    ],
-    "representative_evidence_id": "ev_941",
-    "representative_statement": "Prior to treatment, about 70% of our participants had heard of ChatGPT and 30% had used it before."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "mid",
-     "level",
-     444.0,
-     "",
-     "",
-     "treatment",
-     "",
-     "__split__",
-     68
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_945"
-    ],
-    "member_hosts": [
-     "shakkednoy.com"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://www.econbiz.de/Record/experimental-evidence-on-the-productivity-effects-of-generative-artificial-intelligence-noy-shakked/10014255427"
-    ],
-    "representative_evidence_id": "ev_945",
-    "representative_statement": "In a preregistered online experiment, we assign occupation-specific, incentivized writing tasks to 444 college-educated professionals, and randomly expose half of them to ChatGPT."
    },
    {
     "corroboration_count": 1,
@@ -1023,10 +964,10 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "training",
-     "cost",
-     5.0,
-     "million",
+     "teams",
+     "share",
+     81.0,
+     "",
      "",
      "treatment",
      ""
@@ -1045,34 +986,7 @@
      "https://danielle.li/assets/docs/GenerativeAIatWork.pdf"
     ],
     "representative_evidence_id": "ev_915",
-    "representative_statement": "GENERATIVE AI AT WORK ∗ ERIK BRYNJOLFSSON DANIELLE LI LINDSEY RAYMOND We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "organisational",
-     "change",
-     11.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_168"
-    ],
-    "member_hosts": [
-     "innovativehumancapital.com"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://www.innovativehumancapital.com/article/the-generative-ai-transformation-evidence-based-insights-on-labor-market-disruption-and-organizatio"
-    ],
-    "representative_evidence_id": "ev_168",
-    "representative_statement": "Recent empirical evidence reveals a more nuanced reality than simple replacement narratives suggest."
+    "representative_statement": "For each agent, we observe their assigned man- Downloaded from https://academic.oup.com/qje [...]\n903 TABLE I SUMMARY ST A TISTICS FOR THE SAMPLE OF CUSTOMER-SERVICE AGENTS Variable All Never treated Treated, pre Treated, post Chats 3,006,395 944,848 881,101 1,180,446 Agents 5,172 3,517 1,340 1,636 "
    },
    {
     "corroboration_count": 1,
@@ -1218,33 +1132,6 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "use",
-     "efficiency",
-     2.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_933"
-    ],
-    "member_hosts": [
-     "shakkednoy.com"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://scale.stanford.edu/ai/repository/experimental-evidence-productivity-effects-generative-artificial-intelligence"
-    ],
-    "representative_evidence_id": "ev_933",
-    "representative_statement": "Workers exposed to ChatGPT during the experiment were 2 times as likely to report using it in their real job 2 weeks after the experiment and 1.6 times as likely 2 months after the experiment."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
      "see",
      "growth",
      4.4,
@@ -1253,20 +1140,17 @@
      "treatment",
      ""
     ],
-    "member_count": 2,
+    "member_count": 1,
     "member_evidence_ids": [
-     "ev_158",
-     "ev_1104"
+     "ev_158"
     ],
     "member_hosts": [
      "ioe-emp.org"
     ],
     "member_tiers_weight": [
-     "UNKNOWN",
-     "T4"
+     "UNKNOWN"
     ],
     "member_urls": [
-     "https://www.ioe-emp.org/index.php?eID=dumpFile&t=f&f=160463&token=8a7078c15874881a559cd18ae85a0b9283afd5db",
      "https://www.ioe-emp.org/index.php?eID=dumpFile&t=f&f=160463&token=8a7078c15874881a559cd18ae85a0b9283afd5db"
     ],
     "representative_evidence_id": "ev_158",
@@ -1386,33 +1270,6 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "economic",
-     "growth",
-     8.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_967"
-    ],
-    "member_hosts": [
-     "econbiz.de"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://www.econbiz.de/Record/the-occupational-impact-of-artificial-intelligence-labor-skills-and-polarization-felten-edward/10012849602"
-    ],
-    "representative_evidence_id": "ev_967",
-    "representative_statement": "These findings suggest that access to complementary skills and technologies may play an important role in determining the impact of AI, and that AI has the potential to exacerbate labor market polarization | Year of publication: | 2020 | | --- | | Authors: | [Felten, Edward W.](https://www.econbiz.d"
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
      "might",
      "change",
      18.0,
@@ -1444,66 +1301,26 @@
      "ev_032",
      0
     ],
-    "member_count": 1,
+    "member_count": 3,
     "member_evidence_ids": [
-     "ev_032"
-    ],
-    "member_hosts": [
-     "ilo.org"
-    ],
-    "member_tiers_weight": [
-     "T3"
-    ],
-    "member_urls": [
-     "https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html"
-    ],
-    "representative_evidence_id": "ev_032",
-    "representative_statement": "Despite representing an upper-bound estimate of exposure, we find that only the broad occupation of clerical work is highly exposed to the technology with 24 per cent of clerical tasks considered highly exposed and an additional 58 percent with medium-level exposure."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "__unknown__",
+     "ev_032",
      "ev_1053",
-     0
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_1053"
-    ],
-    "member_hosts": [
-     "ilo.org"
-    ],
-    "member_tiers_weight": [
-     "T3"
-    ],
-    "member_urls": [
-     "https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html"
-    ],
-    "representative_evidence_id": "ev_1053",
-    "representative_statement": "Despite representing an upper-bound estimate of exposure, we find that only the broad occupation of clerical work is highly exposed to the technology with 24 per cent of clerical tasks considered highly exposed and an additional 58 percent with medium-level exposure."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "__unknown__",
-     "ev_1160",
-     0
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
      "ev_1160"
     ],
     "member_hosts": [
      "ilo.org"
     ],
     "member_tiers_weight": [
+     "T3",
+     "T3",
      "T3"
     ],
     "member_urls": [
+     "https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html",
+     "https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html",
      "https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html"
     ],
-    "representative_evidence_id": "ev_1160",
+    "representative_evidence_id": "ev_032",
     "representative_statement": "Despite representing an upper-bound estimate of exposure, we find that only the broad occupation of clerical work is highly exposed to the technology with 24 per cent of clerical tasks considered highly exposed and an additional 58 percent with medium-level exposure."
    },
    {
@@ -1586,6 +1403,33 @@
     ],
     "representative_evidence_id": "ev_414",
     "representative_statement": "Copywriters’ preference evaluation on online copywriting course attributes during the COVID-19 pandemic Copywriting online course has become a famous online training over the past years and the reliance on online courses increased even during the COVID-19 pandemic."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "conduct",
+     "cost",
+     6.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_678"
+    ],
+    "member_hosts": [
+     "wikipedia.org"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://en.wikipedia.org/wiki/Cost%E2%80%93benefit_analysis"
+    ],
+    "representative_evidence_id": "ev_678",
+    "representative_statement": "Securities and Exchange Commission must conduct cost–benefit analyses before instituting regulations or deregulations.[2]: 6 CBA has two main applications:[3] - To determine if an investment (or decision) is sound, ascertaining if – and by how much – its benefits outweigh its costs."
    },
    {
     "corroboration_count": 1,
@@ -1712,23 +1556,20 @@
      "treatment",
      ""
     ],
-    "member_count": 2,
+    "member_count": 1,
     "member_evidence_ids": [
-     "ev_145",
      "ev_1098"
     ],
     "member_hosts": [
      "brookings.edu"
     ],
     "member_tiers_weight": [
-     "T4",
      "T4"
     ],
     "member_urls": [
-     "https://www.brookings.edu/articles/the-effects-of-ai-on-firms-and-workers/",
      "https://www.brookings.edu/articles/the-effects-of-ai-on-firms-and-workers/"
     ],
-    "representative_evidence_id": "ev_145",
+    "representative_evidence_id": "ev_1098",
     "representative_statement": "Correspondingly, AI-investing firms have experienced a 0.8% decrease in the share of middle managers (i.e., team leads or managers with a cluster of teams under them) and a 0.7% decrease in the share of senior management (i.e., division heads and firm-level management including the C-Suite)."
    },
    {
@@ -1802,7 +1643,7 @@
      "treatment",
      "",
      "__split__",
-     330
+     327
     ],
     "member_count": 1,
     "member_evidence_ids": [
@@ -1943,6 +1784,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "percentile",
+     "percent",
+     1.4,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_308"
+    ],
+    "member_hosts": [
+     "bls.gov"
+    ],
+    "member_tiers_weight": [
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.bls.gov/oes/2023/may/oes232011.htm"
+    ],
+    "representative_evidence_id": "ev_308",
+    "representative_statement": "Conduct research to support a legal proceeding, to formulate a defense, or to initiate legal action."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "economic",
      "growth",
      0.18,
@@ -1972,30 +1840,27 @@
     "finding_key": [
      "economic",
      "growth",
-     3.0,
+     3.1,
      "",
      "",
      "treatment",
      ""
     ],
-    "member_count": 2,
+    "member_count": 1,
     "member_evidence_ids": [
-     "ev_179",
-     "ev_1057"
+     "ev_179"
     ],
     "member_hosts": [
      "oecd.org"
     ],
     "member_tiers_weight": [
-     "T3",
      "T3"
     ],
     "member_urls": [
-     "https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-jobs-no-signs-of-slowing-labour-demand-yet_5aebe670.html",
      "https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-jobs-no-signs-of-slowing-labour-demand-yet_5aebe670.html"
     ],
     "representative_evidence_id": "ev_179",
-    "representative_statement": "Andrew Green OECD Employment Outlook 2023\nArtificial Intelligence and the Labour Market\n3."
+    "representative_statement": "The theory of how AI will automate and complement labour, combined with measures of AI exposure, form the basis for the empirical evidence of the employment effect of AI (Section 3.1)."
    },
    {
     "corroboration_count": 1,
@@ -2076,7 +1941,7 @@
      "https://webapps.ilo.org/static/english/intserv/working-papers/wp140/index.html"
     ],
     "representative_evidence_id": "ev_492",
-    "representative_statement": "Linking our [...]\n | **Share in 2-digits** | **Count of 3-digits** | **Share in 3-digits** | **Count of 4-digits** | **Share in 4-digits** | **Count of 6-digits** | **Share in 6-digits** | **Count of 6-digit tasks** | **Share in 6-digit tasks** | | 1 | Managers | 4 | 10.0% | 11 | 8.7% | 30 | 7.1% | "
+    "representative_statement": "Generative AI and Jobs A Refined Global Index of Occupational Exposure [](https://webapps.ilo.org/static/english/intserv/working-papers/wp140/index.html) ## Abstract This study updates the ILO’s 2023 Global Index of Occupational Exposure to Generative AI (GenAI), incorporating recent advances in the"
    },
    {
     "corroboration_count": 1,
@@ -2127,6 +1992,62 @@
     ],
     "representative_evidence_id": "ev_192",
     "representative_statement": "It urges organizations not to replace entry-level jobs with generative AI, but to rethink these roles, re-dignify them, and understand how important they are to young professionals’ development."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "economic",
+     "growth",
+     3.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_1057"
+    ],
+    "member_hosts": [
+     "oecd.org"
+    ],
+    "member_tiers_weight": [
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-jobs-no-signs-of-slowing-labour-demand-yet_5aebe670.html"
+    ],
+    "representative_evidence_id": "ev_1057",
+    "representative_statement": "Andrew Green OECD Employment Outlook 2023 Artificial Intelligence and the Labour Market 3."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "economic",
+     "growth",
+     3.0,
+     "",
+     "",
+     "treatment",
+     "",
+     "__split__",
+     287
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_220"
+    ],
+    "member_hosts": [
+     "ilo.org"
+    ],
+    "member_tiers_weight": [
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.ilo.org/sites/default/files/2024-08/Mind%20the%20AI%20Divide_v12%20%281%29.pdf"
+    ],
+    "representative_evidence_id": "ev_220",
+    "representative_statement": "PDF ISBN: 9789211066524 Mind the AI Divide: Shaping a Global Perspective on the Future of Work | 3 Foreword The uneven adoption of Artificial Intelligence (AI) is a critical issue that goes beyond economic growth."
    },
    {
     "corroboration_count": 1,
@@ -2298,8 +2219,8 @@
     "finding_key": [
      "productivity",
      "efficiency",
-     2028.1,
-     "",
+     13.0,
+     "trillion",
      "",
      "treatment",
      ""
@@ -2318,7 +2239,34 @@
      "https://www.iedconline.org/clientuploads/EDRP%20Logos/AI_Impact_on_Labor_Markets.pdf"
     ],
     "representative_evidence_id": "ev_006",
-    "representative_statement": "According to the World Economic Forum, AI and automation are predicted to contribute 69 million new jobs worldwide by 2028.1 These new roles often require skills in areas such as creative thinking, data analysis, machine learning, and AI development, highlighting the importance of upskilling and res"
+    "representative_statement": "McKinsey estimated that AI could contribute up to $13 trillion to the global economy by 2030.4 This economic boost is expected to come from a combination of labor substitution, enhanced innovation in products and services, and the creation of new demand for AI-related jobs.5\n# Advanced Decision-Maki"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "technological",
+     "change",
+     2.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_060"
+    ],
+    "member_hosts": [
+     "mdpi.com"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://www.mdpi.com/1999-4893/18/9/554"
+    ],
+    "representative_evidence_id": "ev_060",
+    "representative_statement": "No longer confined to research labs or niche applications, GenAI [[1](https://www.mdpi.com/1999-4893/18/9/554#B1-algorithms-18-00554),[2](https://www.mdpi.com/1999-4893/18/9/554#B2-algorithms-18-00554),[3](https://www.mdpi.com/1999-4893/18/9/554#B3-algorithms-18-00554),[4](https://www.mdpi.com/1999-"
    },
    {
     "corroboration_count": 1,
@@ -2459,7 +2407,7 @@
      "https://thedocs.worldbank.org/en/doc/b7ef34ba76abc3c8765d7da5c97e9a96-0070062026/original/Hausman-4.pdf"
     ],
     "representative_evidence_id": "ev_940",
-    "representative_statement": "Introduction Estimation &amp; Results HC Effects Adjustment [...]\nQuality Introduction Estimation &amp; Results HC Effects Adjustment Extras References Data Effect of AI Availability on Student Grades Baseline DID PS Matching DID Dependent Variable: Grade (0-100) (1) (2) (3) (4) (5) (6) Before: 2018"
+    "representative_statement": "Faculty have mustered [...]\nQuality Introduction Estimation &amp; Results HC Effects Adjustment Extras References Data Effect of AI Availability on Student Grades Baseline DID PS Matching DID Dependent Variable: Grade (0-100) (1) (2) (3) (4) (5) (6) Before: 2018-2019*AI-compatible 0.682 0.375 0.362 "
    },
    {
     "corroboration_count": 1,
@@ -2626,10 +2574,10 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "industrial",
+     "employment",
      "rate",
-     42.0,
-     "",
+     76.5,
+     "percent",
      "",
      "treatment",
      ""
@@ -2651,15 +2599,15 @@
      "https://assets.publishing.service.gov.uk/media/615d9a1ad3bf7f55fa92694a/impact-of-ai-on-jobs.pdf"
     ],
     "representative_evidence_id": "ev_085",
-    "representative_statement": "The Potential Impact of Artificial Intelligence on UK Employment and the Demand for Skills A report by PwC for the Department for Business, Energy and Industrial Strategy BEIS Research Report Number: 2021/042 Final report August 2021 Acknowledgements This report has been prepared by PwC for the Depa"
+    "representative_statement": "The latest ONS data for Q4 2019 show a higher UK employment rate for 16-64 year olds (76.5%) than at any point in that historical period."
    },
    {
     "corroboration_count": 1,
     "finding_key": [
-     "productivity",
+     "wage",
      "growth",
-     4.11,
-     "",
+     1.0,
+     "percent",
      "",
      "treatment",
      ""
@@ -2678,15 +2626,15 @@
      "https://www.epi.org/publication/ai-unbalanced-labor-markets/"
     ],
     "representative_evidence_id": "ev_054",
-    "representative_statement": "It is important to get the facts and analysis right on the questions of why labor markets have not delivered enough jobs or acceptable wage growth, and what the real threats are to decent jobs in the [...]\n productivity growth and lower unemployment do not trade off against each other: Peak-to-peak "
+    "representative_statement": "Take the example of a 1% increase in productivity in a specific economic sector like manufacturing."
    },
    {
     "corroboration_count": 1,
     "finding_key": [
      "against",
      "risk",
-     53.0,
-     "",
+     5.5,
+     "percentage_points",
      "",
      "treatment",
      ""
@@ -2705,7 +2653,7 @@
      "https://www.elibrary.imf.org/view/journals/006/2024/002/article-A001-en.xml"
     ],
     "representative_evidence_id": "ev_148",
-    "representative_statement": "Policy tools modeled include unemployment insurance and active labor [...]\n Tax Records.” American Economic Journal: Economic Policy 6 (2): 19–53."
+    "representative_statement": "Cazzaniga and others (2024) assume that the AI shocks would reduce the labor share by 5.5 percentage points based on the historical change observed in the United Kingdom between 1980 and 2014."
    },
    {
     "corroboration_count": 1,
@@ -2748,7 +2696,7 @@
      "treatment",
      "",
      "__split__",
-     191
+     193
     ],
     "member_count": 1,
     "member_evidence_ids": [
@@ -2796,9 +2744,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "preparedness",
-     "index",
-     20.0,
+     "economies",
+     "share",
+     5.0,
      "",
      "",
      "treatment",
@@ -2818,7 +2766,7 @@
      "https://www.imf.org/-/media/files/publications/sdn/2024/english/sdnea2024001.pdf"
     ],
     "representative_evidence_id": "ev_156",
-    "representative_statement": "2024 JAN Gen-AI: Artificial Intelligence and the Future of Work Prepared by Mauro Cazzaniga, Florence Jaumotte, Longji Li, Giovanni Melina, Augustus J."
+    "representative_statement": "5 There is heterogeneity behind average figures."
    },
    {
     "corroboration_count": 1,
@@ -2949,7 +2897,7 @@
      "https://uen.pressbooks.pub/range27i1/chapter/c-kim/"
     ],
     "representative_evidence_id": "ev_137",
-    "representative_statement": "College of Humanities Chaean Kim Faculty Mentor: Allison Segal (Writing and Rhetoric, University of Utah) Our lives are easier because ChatGPT has delivered a much greater acceleration of professional workflows and the value they have created than most observers imagined possible."
+    "representative_statement": "One major study estimates that globally, generative AI could unlock between 2.6 and 4.4 trillion US dollars in extra productivity every year (Chui et al., 2023)."
    },
    {
     "corroboration_count": 1,
@@ -3021,7 +2969,7 @@
      "ev_971"
     ],
     "member_hosts": [
-     "bu.edu"
+     "repec.org"
     ],
     "member_tiers_weight": [
      "UNKNOWN"
@@ -3112,33 +3060,6 @@
     ],
     "representative_evidence_id": "ev_104",
     "representative_statement": "By [Megan Cerullo Reporter, MoneyWatch](https://www.cbsnews.com/team/megan-cerullo/) Megan Cerullo is a New York-based reporter for CBS MoneyWatch covering small business, workplace, health care, consumer spending and personal finance topics."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "social",
-     "change",
-     11.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_716"
-    ],
-    "member_hosts": [
-     "springer.com"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://link.springer.com/rwe/10.1007/978-3-030-48277-0_123-1"
-    ],
-    "representative_evidence_id": "ev_716",
-    "representative_statement": "Accessed 11 October.\")) makes clear that the role of the profession is to promote social change through focusing practice on human well-being, human rights, and social justice, factors all closely aligned to inclusion in the social fabric within which people live."
    },
    {
     "corroboration_count": 1,
@@ -3251,9 +3172,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "productivity",
-     "growth",
-     52.0,
+     "education",
+     "level",
+     2.0,
      "",
      "",
      "treatment",
@@ -3273,7 +3194,7 @@
      "https://www.preprints.org/frontend/manuscript/cc931c75ebaf3011c6586ac3caad5382/download_pub"
     ],
     "representative_evidence_id": "ev_174",
-    "representative_statement": "4 of 52 Phase 1: Foundation 2024–2025 Phase 2: Integration 2026–2027 Phase 3: Transformation 2028–2030 &gt; Y1 Y3 Y5 Assessment &amp; Learning Optimization &amp; [...]\n Collaboration Innovation Ecosystem &gt; 2024 2025 2026 2027 2028 2029 2030 Figure 2."
+    "representative_statement": "Review Not peer-reviewed version # The Transformative Impact of Artificial # Intelligence on US Labor Markets: # Workforce Disruption, Skill Evolution, # and the Emergence of Prompt # Engineering Satyadhar Joshi * Posted Date: 10 October 2025 doi: 10.20944/preprints202510.0671.v1 Keywords: artificia"
    },
    {
     "corroboration_count": 1,
@@ -3334,6 +3255,33 @@
     ],
     "representative_evidence_id": "ev_039",
     "representative_statement": "The findings show that the number of postings for occupations with above-median artificial intelligence substitution scores fell by an average of 12 percent relative to those with below-median scores."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "productivity",
+     "growth",
+     3.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_1008"
+    ],
+    "member_hosts": [
+     "intereconomics.eu"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://www.intereconomics.eu/contents/year/2024/number/1/article/the-impact-of-artificial-intelligence-on-productivity-and-employment-how-can-we-assess-it-and-what-can-we-observe.html"
+    ],
+    "representative_evidence_id": "ev_1008",
+    "representative_statement": "Technological optimists have been predicting the artificial intelligence (AI) revolution since the beginning of the past decade."
    },
    {
     "corroboration_count": 1,
@@ -3442,6 +3390,33 @@
     ],
     "representative_evidence_id": "ev_203",
     "representative_statement": "Additionally, [26] estimates a $0.5 - 0.6\\%$ boost to labor productivity at the macro level due to AI adoption."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "reveals",
+     "increase",
+     26.08,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_927"
+    ],
+    "member_hosts": [
+     "ssrn.com"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://papers.ssrn.com/sol3/Delivery.cfm/4945566.pdf?abstractid=4945566&mirid=1&type=2"
+    ],
+    "representative_evidence_id": "ev_927",
+    "representative_statement": "The Effects of Generative AI on High-Skilled Work: Evidence from Three Field Experiments with Software Developers 38 Pages Posted: 5 Sep 2024 Last revised: 21 Aug 2025 Date Written: August 20, 2025 Abstract This study evaluates the effect of generative AI on software developer productivity via rando"
    },
    {
     "corroboration_count": 1,
@@ -3613,6 +3588,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "economy",
+     "change",
+     16.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_143"
+    ],
+    "member_hosts": [
+     "cbo.gov"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://www.cbo.gov/publication/61147"
+    ],
+    "representative_evidence_id": "ev_143",
+    "representative_statement": "Artificial intelligence (AI) refers to computer systems that can perform tasks that have traditionally required human intelligence, such as learning and performing other activities that require cognitive ability."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "publications",
      "percentage",
      4.0,
@@ -3638,49 +3640,37 @@
     "representative_statement": "A Systematic Review of AI’s Impact on Employment and Skill Demand - Shi Zhenglong, - Noorasiah Sulaiman - Chen Peiwen - 484-507 - May 16, 2025 - Education A Systematic Review of AI’s Impact on Employment and Skill Demand Shi Zhenglong, Noorasiah Sulaiman, Chen Peiwen Faculty of Economics and Managem"
    },
    {
-    "corroboration_count": 1,
+    "corroboration_count": 3,
     "finding_key": [
      "__unknown__",
      "ev_190",
      0
     ],
-    "member_count": 1,
+    "member_count": 4,
     "member_evidence_ids": [
-     "ev_190"
+     "ev_190",
+     "ev_1058",
+     "ev_689",
+     "ev_657"
     ],
     "member_hosts": [
+     "mdpi.com",
+     "springer.com",
      "squarespace.com"
     ],
     "member_tiers_weight": [
-     "UNKNOWN"
+     "UNKNOWN",
+     "T6",
+     "T1",
+     "T4"
     ],
     "member_urls": [
-     "https://static1.squarespace.com/static/55693d60e4b06d83cf793431/t/68c1acf499fd45634213ece0/1757523188316/The+Projected+Impact+of+Generative+AI+on+Future+Productivity+Growth.pdf"
+     "https://static1.squarespace.com/static/55693d60e4b06d83cf793431/t/68c1acf499fd45634213ece0/1757523188316/The+Projected+Impact+of+Generative+AI+on+Future+Productivity+Growth.pdf",
+     "https://static1.squarespace.com/static/55693d60e4b06d83cf793431/t/68c1acf499fd45634213ece0/1757523188316/The+Projected+Impact+of+Generative+AI+on+Future+Productivity+Growth.pdf",
+     "https://link.springer.com/article/10.1186/s40008-021-00240-w",
+     "https://www.mdpi.com/2227-7099/9/3/110"
     ],
     "representative_evidence_id": "ev_190",
-    "representative_statement": "Compounded, TFP and GDP levels are 1.5% higher by 2035, nearly 3% by 2055, and 3.7% by 2075, meaning that AI leads to a permanent increase in the level of economic activity."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "__unknown__",
-     "ev_1058",
-     0
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_1058"
-    ],
-    "member_hosts": [
-     "squarespace.com"
-    ],
-    "member_tiers_weight": [
-     "T6"
-    ],
-    "member_urls": [
-     "https://static1.squarespace.com/static/55693d60e4b06d83cf793431/t/68c1acf499fd45634213ece0/1757523188316/The+Projected+Impact+of+Generative+AI+on+Future+Productivity+Growth.pdf"
-    ],
-    "representative_evidence_id": "ev_1058",
     "representative_statement": "Compounded, TFP and GDP levels are 1.5% higher by 2035, nearly 3% by 2055, and 3.7% by 2075, meaning that AI leads to a permanent increase in the level of economic activity."
    },
    {
@@ -3785,7 +3775,7 @@
      "https://cepr.org/publications/dp17923"
     ],
     "representative_evidence_id": "ev_978",
-    "representative_statement": "20Intelligence%20(LLM) \"Share via LinkedIn\") * [Bluesky](https://bsky.app/intent/compose?text=DP17923%20Language%20Models%20and%20Cognitive%20Automation%20for%20Economic%20Research%20https%3A%2F%2Fcepr.org%2Fpublications%2Fdp17923 \"Share via Bluesky\") £0.00 ###### Citation Korinek, A (2023), ‘DP1792"
+    "representative_statement": "CEPR Press, Paris &amp; London."
    },
    {
     "corroboration_count": 1,
@@ -3840,6 +3830,33 @@
     ],
     "representative_evidence_id": "ev_471",
     "representative_statement": "Test system modifications to prepare for implementation."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "cance",
+     "percent",
+     10.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_1209"
+    ],
+    "member_hosts": [
+     "tandfonline.com"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://www.tandfonline.com/doi/full/10.1080/03075079.2023.2233007"
+    ],
+    "representative_evidence_id": "ev_1209",
+    "representative_statement": "CONTACT Annemette Kjærgaard amk.msc@cbs.dk Department of Management, Society and Communication, Copen-hagen Business School, Dalgas Have 15, 2000 Frederiksberg, Denmark Supplemental data for this article can be accessed online at https://doi.org/10.1080/03075079.2023.2233007."
    },
    {
     "corroboration_count": 1,
@@ -3925,6 +3942,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "dioxide",
+     "emissions",
+     4.21,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_139"
+    ],
+    "member_hosts": [
+     "cornell.edu"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://research-and-innovation.cornell.edu/generative-ai-in-academic-research/"
+    ],
+    "representative_evidence_id": "ev_139",
+    "representative_statement": "Data Privacy and Protection: For data that researchers enter into GenAI themselves, it is important that researchers follow Cornell Policy 4.21 on Research Data Retention."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "bring",
      "change",
      1.0,
@@ -4006,10 +4050,10 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "sector",
+     "entry",
      "level",
-     80.3,
-     "percent",
+     2.0,
+     "",
      "",
      "treatment",
      ""
@@ -4028,7 +4072,7 @@
      "https://reports.weforum.org/docs/WEF_Artificial_Intelligence_and_the_Future_of_Entry_Level_Work_2026.pdf"
     ],
     "representative_evidence_id": "ev_100",
-    "representative_statement": "0% 20% 40% 60% 80% 100% Sub-Saharan Africa Middle East and Northern Africa Southern Asia South-eastern Asia Central Asia Latin America and the Caribbean Oceania Europe Northern America Eastern Asia 33.3% 42.4% 24.3% 23.4% 46.4% 30.2% 22.4% 40.9% 36.7% 16.3% 41.5% 42.2% 16.3% 35.0% 48.7% 11.0% 27.0% "
+    "representative_statement": "Artificial Intelligence and the Future of Entry-Level Work: A Framework for Safeguarding and Reinventing Early Career Pathways INSIGHTREPORTJUNE 2 0 2 6 In collaboration with PwC Contents Cover: Accurat, Images: Pexels Disclaimer This document is published by the World Economic Forum as a contributi"
    },
    {
     "corroboration_count": 1,
@@ -4200,9 +4244,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "upgrading",
-     "index",
-     1.0,
+     "oneunit",
+     "increase",
+     4.0,
      "",
      "",
      "treatment",
@@ -4222,7 +4266,7 @@
      "https://pmc.ncbi.nlm.nih.gov/articles/PMC10907740/"
     ],
     "representative_evidence_id": "ev_102",
-    "representative_statement": "Based on Chinese provincial panel data from 2010 to 2019, fixed, mediating and threshold effects models and a spatial heterogeneity model were used to empirically test the impact of AI on the employment structure from the perspective of industrial structure optimisation and its mechanisms of action."
+    "representative_statement": "For instance, Germany's Industry 4.0 aims to create smart manufacturing, Japan's Society 5.0 emphasises the use of AI to serve human beings and the United Kingdom's New Deal for the Artificial Intelligence Sector plans AI development from multiple perspectives to reshape the global industrial divisi"
    },
    {
     "corroboration_count": 1,
@@ -4254,6 +4298,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "note",
+     "accuracy",
+     18.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_209"
+    ],
+    "member_hosts": [
+     "or.kr"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "http://www.apjis.or.kr/pdf/04_957-976[1].pdf"
+    ],
+    "representative_evidence_id": "ev_209",
+    "representative_statement": "Predicted Non-manipulated Manipulated Actual non-manipulated 34 16 manipulated 32 18 Note: Accuracy = 52%, Precision = 66.7%, Recall = 51.5% ManipulatEd Reviews Detection by Human Dimension of Trustworthy AI Description Fair (Impartial) Assess whether AI systems include internal and external checks "
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "significantly",
      "increase",
      4.0,
@@ -4277,33 +4348,6 @@
     ],
     "representative_evidence_id": "ev_211",
     "representative_statement": "The hypotheses were rigorously tested through Structural Equation Modeling (SEM) using the SmartPLS 4."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "evolution",
-     "change",
-     7.7,
-     "billion",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_1114"
-    ],
-    "member_hosts": [
-     "sagepub.com"
-    ],
-    "member_tiers_weight": [
-     "T1"
-    ],
-    "member_urls": [
-     "https://journals.sagepub.com/doi/10.1177/18479790221112548"
-    ],
-    "representative_evidence_id": "ev_1114",
-    "representative_statement": "Still, they are also large in number, making up nearly one-third of the 7.7 billion global population, many of them residing in emerging countries.[3](https://journals.sagepub.com/doi/10.1177/18479790221112548#bibr3-18479790221112548) Organizations would need to adapt to the large wave of new employ"
    },
    {
     "corroboration_count": 1,
@@ -4335,9 +4379,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "jobs",
-     "risk",
-     3.0,
+     "frequency",
+     "percentage",
+     123.0,
      "",
      "",
      "treatment",
@@ -4345,19 +4389,19 @@
     ],
     "member_count": 1,
     "member_evidence_ids": [
-     "ev_220"
+     "ev_1237"
     ],
     "member_hosts": [
-     "ilo.org"
+     "springer.com"
     ],
     "member_tiers_weight": [
-     "T3"
+     "T4"
     ],
     "member_urls": [
-     "https://www.ilo.org/sites/default/files/2024-08/Mind%20the%20AI%20Divide_v12%20%281%29.pdf"
+     "https://link.springer.com/article/10.1186/s41239-024-00471-4"
     ],
-    "representative_evidence_id": "ev_220",
-    "representative_statement": "Studies of earnings of online platform workers in the US that perform this work, regularly report median earnings of roughly $2 -$3 per hour, or well below the federal minimum wage of US $7.25 [14];[11]."
+    "representative_evidence_id": "ev_1237",
+    "representative_statement": "Jo International Journal of Educational Technology in Higher Education (2024) 21:35 https://doi.org/10.1186/s41239-024-00471-4 *Correspondence: Hyeon Jo sineoriz@gmail.com 1Headquarters, HJ Institute of Technology and Management, Jungdong-ro 71 39, Bucheon-si, Gyeonggi-do 14721, Republic of Korea Fr"
    },
    {
     "corroboration_count": 1,
@@ -4457,48 +4501,24 @@
      "treatment",
      ""
     ],
-    "member_count": 1,
+    "member_count": 2,
     "member_evidence_ids": [
-     "ev_096"
-    ],
-    "member_hosts": [
-     "weforum.org"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://reports.weforum.org/docs/WEF_Future_of_Jobs_Report_2025.pdf"
-    ],
-    "representative_evidence_id": "ev_096",
-    "representative_statement": "Future of Jobs Report 2023 11 While currently seen as less transformative than GenAI, robots and autonomous systems have seen steady growth of around 5-7% annually since 2020.13 In 2023, global average robot density reached 162 units per 10,000 employees, double the number measured seven years ago.1"
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "slower",
-     "growth",
-     1.6,
-     "million",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
+     "ev_096",
      "ev_1096"
     ],
     "member_hosts": [
      "weforum.org"
     ],
     "member_tiers_weight": [
+     "UNKNOWN",
      "T6"
     ],
     "member_urls": [
+     "https://reports.weforum.org/docs/WEF_Future_of_Jobs_Report_2025.pdf",
      "https://reports.weforum.org/docs/WEF_Future_of_Jobs_Report_2025.pdf"
     ],
-    "representative_evidence_id": "ev_1096",
-    "representative_statement": "While the global economic outlook appears to be stabilizing, it does so amid weaker global growth projections of 3.2% for 2025.1 Global inflation appears to have eased and is now projected to reach 3.5% by the end of 2025 – below the average global rate of the first two decades of the 21st century."
+    "representative_evidence_id": "ev_096",
+    "representative_statement": "Future of Jobs Report 2023 11 While currently seen as less transformative than GenAI, robots and autonomous systems have seen steady growth of around 5-7% annually since 2020.13 In 2023, global average robot density reached 162 units per 10,000 employees, double the number measured seven years ago.1"
    },
    {
     "corroboration_count": 1,
@@ -4557,9 +4577,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "economic",
+     "share",
      "growth",
-     31815.0,
+     2.1,
      "",
      "",
      "treatment",
@@ -4579,7 +4599,7 @@
      "https://www.nber.org/system/files/working_papers/w31815/revisions/w31815.rev2.pdf"
     ],
     "representative_evidence_id": "ev_999",
-    "representative_statement": "NBER WORKING PAPER SERIES ECONOMIC GROWTH UNDER TRANSFORMATIVE AI Philip Trammell Anton Korinek Working Paper 31815 http://www.nber.org/papers/w31815 NATIONAL BUREAU OF ECONOMIC RESEARCH 1050 Massachusetts Avenue Cambridge, MA 02138 October 2023, Revised September 2025 We thank Tim Blomfield, Nichol"
+    "representative_statement": "If it does so perma-nently, growth proceeds as in Section 2.1."
    },
    {
     "corroboration_count": 1,
@@ -4606,7 +4626,7 @@
      "https://www.federalreserve.gov/newsevents/speech/barr20260217a.htm"
     ],
     "representative_evidence_id": "ev_944",
-    "representative_statement": "See Martin Neil Baily, David M."
+    "representative_statement": "one recent study estimated that AI could contribute between 0.3 and 0.9 of a percentage point to annual total factor produc"
    },
    {
     "corroboration_count": 1,
@@ -4638,10 +4658,10 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "different",
-     "level",
-     14.0,
-     "",
+     "productivity",
+     "growth",
+     1.5,
+     "percentage_points",
      "",
      "treatment",
      ""
@@ -4660,7 +4680,7 @@
      "https://one.oecd.org/document/DAF/COMP(2024)2/en/pdf"
     ],
     "representative_evidence_id": "ev_1213",
-    "representative_statement": "English 6 May 2024 DIRECTORATE FOR FINANCIAL AND ENTERPRISE AFFAIRS COMPETITION COMMITTEE ## Artificial intelligence, data and competition - Background Note by the Secretariat 12 -14 June 2024 This document was prepared by the OECD Secretariat to serve as background material for the 143rd meeting of"
+    "representative_statement": "For example, Goldman Sachs produced research estimating that generative AI t ools ha d the potential to add 7% to GDP over the next 10 years , which equates to around USD 7 trillion, while also raising productivity growth by 1.5 percentage points."
    },
    {
     "corroboration_count": 1,
@@ -4714,7 +4734,7 @@
      "https://dho.stanford.edu/wp-content/uploads/AI_Regulation.pdf"
     ],
     "representative_evidence_id": "ev_832",
-    "representative_statement": "1473 * Guha (lead author) is a J.D."
+    "representative_statement": "Esvelt, Can Large Language Models Democratize Access to Dual-Use Biotechnology?, arXiv 1 (June 6, 2023), https://arxiv.org/abs/2306.03809 [https://perma.cc/FTU5-JD3Q] (“[T]he ‘Safeguarding the Future’ course at MIT tasked non-scientist students with investigating whether LLM chatbots could be prompt"
    },
    {
     "corroboration_count": 1,
@@ -4769,33 +4789,6 @@
     ],
     "representative_evidence_id": "ev_977",
     "representative_statement": "1 Applications of Generative AI in Economic Research The landscape of generative artificial intelligence (AI) has evolved rapidly since the publication of the original version of this article in the Journal of Economic Literature (Korinek 2023b)."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "current",
-     "level",
-     1.1,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_807"
-    ],
-    "member_hosts": [
-     "sciencedirect.com"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://www.sciencedirect.com/science/article/pii/S0740624X22001101"
-    ],
-    "representative_evidence_id": "ev_807",
-    "representative_statement": "AI adoption and diffusion in public administration: a systematic literature review and future research agenda Article Published Version Creative Commons: Attribution 4.0 (CC-BY) open acess Madan, R."
    },
    {
     "corroboration_count": 1,
@@ -4908,33 +4901,6 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "rapid",
-     "growth",
-     1132.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_764"
-    ],
-    "member_hosts": [
-     "nature.com"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://www.nature.com/articles/s41599-024-03560-x"
-    ],
-    "representative_evidence_id": "ev_764",
-    "representative_statement": "Springer, Dordrecht, pp 1125–1132 Abulibdeh A, Zaidan E, Abulibdeh R (2024) Navigating the confluence of artificial intelligence and education for sustainable development in the era of industry 4.0: Challenges, opportunities, and ethical dimensions."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
      "improve",
      "accuracy",
      3.1,
@@ -5012,33 +4978,6 @@
     ],
     "representative_evidence_id": "ev_194",
     "representative_statement": "Controlling for industry and time trends, a 10 percentage point increase in AI exposure is associated with an 11% drop in demand for entry-level roles."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "productivity",
-     "growth",
-     5.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_892"
-    ],
-    "member_hosts": [
-     "worldbank.org"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://www.newyorkfed.org/medialibrary/media/research/conference/2024/AMEC%20US%20Productivity/Sessiontrue2_Rock_ai_and_productivity_nyfed"
-    ],
-    "representative_evidence_id": "ev_892",
-    "representative_statement": "NONCONFIDENTIAL // EXTERNAL # AMEC Symposium – U.S."
    },
    {
     "corroboration_count": 1,
@@ -5151,9 +5090,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "high",
+     "analyze",
      "level",
-     15.0,
+     1.0,
      "",
      "",
      "treatment",
@@ -5173,7 +5112,7 @@
      "https://pmc.ncbi.nlm.nih.gov/articles/PMC12307348/"
     ],
     "representative_evidence_id": "ev_099",
-    "representative_statement": "The implications of the [...]\nthe questionnaire was refined and reduced to 15 items to enhance clarity, internal coherence, and alignment with the study’s objectives."
+    "representative_statement": "A survey was conducted with a sample of 148 undergraduate and graduate graduates."
    },
    {
     "corroboration_count": 1,
@@ -5205,10 +5144,10 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "unemployment",
-     "rate",
-     9.8,
-     "percent",
+     "last",
+     "growth",
+     10.0,
+     "",
      "",
      "treatment",
      ""
@@ -5227,7 +5166,7 @@
      "https://www.congress.gov/crs-product/R47059"
     ],
     "representative_evidence_id": "ev_1105",
-    "representative_statement": "For one, the unemployment rate also declined considerably over this period (from 9.8% in January 2010 to 3.5% in January 2020), indicating that the labor market was become increasingly competitive."
+    "representative_statement": "Automation and artificial intelligence technologies continue to advance, and will likely allow for replacement of many more human tasks and will likely be employed in a wider [...]"
    },
    {
     "corroboration_count": 1,
@@ -5254,7 +5193,34 @@
      "https://obamawhitehouse.archives.gov/sites/default/files/whitehouse_files/microsites/ostp/NSTC/preparing_for_the_future_of_ai.pdf"
     ],
     "representative_evidence_id": "ev_836",
-    "representative_statement": "October 2016 PREPARING FOR THE FUTURE OF ARTIFICIAL INTELLIGENCE National Science and Technology Council PREPARING FOR THE FUTURE OF ARTIFICIAL INTELLIGENCE Executive Office of the President National Science and Technology Council Committee on Technology About the National Science and Technology Cou"
+    "representative_statement": "This work is available for worldwide use and reuse and under the Creative Commons CC0 1.0 Universal license."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "gender",
+     "level",
+     12.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_588"
+    ],
+    "member_hosts": [
+     "emerald.com"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://www.emerald.com/pr/article/53/5/1331/1232199/What-is-in-your-resume-The-effects-of-multiple"
+    ],
+    "representative_evidence_id": "ev_588",
+    "representative_statement": "Finally, this job is not locally associated with any specific foreign group, as with other jobs, such as cleaning or retail, which are more represented, respectively, among immigrants from Portuguese- [...]\ncondition | N | Age | Gender | Education | Prior residence abroad | Family living abroad | Re"
    },
    {
     "corroboration_count": 1,
@@ -5335,34 +5301,7 @@
      "https://www.ingentaconnect.com/contentone/aupha/jhae/2025/00000041/00000002/art00011?crawler=true&mimetype=application/pdf"
     ],
     "representative_evidence_id": "ev_1253",
-    "representative_statement": "AI-assisted Literature Reviews 333 # Julie A."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "weaknesses",
-     "level",
-     4.4,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_1068"
-    ],
-    "member_hosts": [
-     "mdpi.com"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://www.mdpi.com/2071-1050/15/16/12451"
-    ],
-    "representative_evidence_id": "ev_1068",
-    "representative_statement": "In this section, we present a brief background of ChatGPT to provide a more complete picture for the discussion."
+    "representative_statement": "A PubMed search identified 540 potential publications for inclusion in a scoping review."
    },
    {
     "corroboration_count": 1,
@@ -5470,7 +5409,7 @@
      "https://www.bls.gov/opub/ted/2025/for-read-across-america-day-occupations-for-those-with-writing-and-reading-skills.htm"
     ],
     "representative_evidence_id": "ev_639",
-    "representative_statement": "Occupations with high scores for writing and reading skills, projected percentage change in employment, 2023–2033 Bar chart with 21 bars."
+    "representative_statement": "Median annual wages in 2023 were over $100,000 for 9 of these 21 occupations employing highly skilled writers and readers."
    },
    {
     "corroboration_count": 1,
@@ -5502,9 +5441,13 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "__unknown__",
-     "ev_381",
-     0
+     "countries",
+     "percentage",
+     3.1,
+     "",
+     "",
+     "treatment",
+     ""
     ],
     "member_count": 1,
     "member_evidence_ids": [
@@ -5520,7 +5463,7 @@
      "https://webapps.ilo.org/static/english/intserv/working-papers/wp123/index.html"
     ],
     "representative_evidence_id": "ev_381",
-    "representative_statement": "Together, they make up over a quarter of the value of the S&amp;P 500 companies and are worth an estimated $7.1 trillion (‘Big Tech’ 2023)."
+    "representative_statement": "The sector accounted for 0.9 per cent of employment in low-income countries, 1.1 per cent in middle-income countries and 3.1 per cent in high-income countries."
    },
    {
     "corroboration_count": 1,
@@ -5552,6 +5495,60 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "witnessed",
+     "growth",
+     6.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_501"
+    ],
+    "member_hosts": [
+     "ilo.org"
+    ],
+    "member_tiers_weight": [
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.ilo.org/sites/default/files/wcmsp5/groups/public/@dgreports/@dcomm/@publ/documents/publication/wcms_534326.pdf"
+    ],
+    "representative_evidence_id": "ev_501",
+    "representative_statement": "2016 ISBN 978-92-2-130385-5 (print) ISBN 978-92-2-130386-2 (web pdf) International Labour Office precarious employment / part-time employment / temporary employment / informal employment / labour market / working conditions / international labour standards / role of ILO 13.01.3 ILO Cataloguing in Pu"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "prediction",
+     "accuracy",
+     3.69,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_997"
+    ],
+    "member_hosts": [
+     "wi2025.de"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://www.wi2025.de/ai-summaries/"
+    ],
+    "representative_evidence_id": "ev_997",
+    "representative_statement": "Open | Nguyen, Khanh Le; Hristova, Diana | | Algorithmic Management: An MCDA-Based Comparison of Key Approaches Algorithmic Management, Multi-Criteria Decision [...]"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "learn",
      "share",
      190.0,
@@ -5579,6 +5576,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "chart",
+     "percent",
+     2.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_1047"
+    ],
+    "member_hosts": [
+     "bls.gov"
+    ],
+    "member_tiers_weight": [
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.bls.gov/opub/mlr/2024/article/industry-and-occupational-employment-projections-overview-and-highlights-2023-33.htm"
+    ],
+    "representative_evidence_id": "ev_1047",
+    "representative_statement": "Percent change in wage and salary employment, by NAICS sector, projected 2023–33 Bar chart with 21 bars."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "javascript",
      "share",
      11.0,
@@ -5602,33 +5626,6 @@
     ],
     "representative_evidence_id": "ev_776",
     "representative_statement": "A global study](https://doi.org/jstpm/article/doi/10.1108/JSTPM-06-2025-0255/1381416/How-do-innovation-and-technological-development) ### Email Alerts [Article Activity Alert](javascript:;) [Earlycite Alert](javascript:;) [Closed Issue Alert](javascript:;) [Latest Published Articles Alert](javascrip"
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "mage",
-     "percent",
-     34.0,
-     "percent",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_524"
-    ],
-    "member_hosts": [
-     "tandfonline.com"
-    ],
-    "member_tiers_weight": [
-     "T1"
-    ],
-    "member_urls": [
-     "https://www.tandfonline.com/doi/full/10.1080/09593969.2022.2042715"
-    ],
-    "representative_evidence_id": "ev_524",
-    "representative_statement": "The participants ( n = 110; Mage = 23.05, 34 percent were males) were recruited from bachelor and master courses in business administration in two Northern European countries."
    },
    {
     "corroboration_count": 1,
@@ -5710,6 +5707,33 @@
     ],
     "representative_evidence_id": "ev_611",
     "representative_statement": "This is an open access article distributed under the Creative Commons Attribution &gt; License which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited # Educational Administration: Theory and Practice 202 3,29 (4), 3008 -3019 ISSN:21"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "publishers",
+     "percent",
+     10.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_389"
+    ],
+    "member_hosts": [
+     "bls.gov"
+    ],
+    "member_tiers_weight": [
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.bls.gov/careeroutlook/2015/article/creative-careers.htm"
+    ],
+    "representative_evidence_id": "ev_389",
+    "representative_statement": "You could harness creativity to design a product, [...]\n300 | 60 | 20,300 | | Technical writers | 49,500 | 5 | 22,600 | | Writers and authors | 129,100 | 64 | 31,800 | | Source: U.S."
    },
    {
     "corroboration_count": 1,
@@ -5849,56 +5873,32 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "productivity",
-     "growth",
-     17.0,
+     "security",
+     "risk",
+     1.0,
      "",
      "",
      "treatment",
      ""
     ],
-    "member_count": 1,
+    "member_count": 2,
     "member_evidence_ids": [
-     "ev_840"
+     "ev_1088",
+     "ev_1246"
     ],
     "member_hosts": [
-     "wipo.int"
+     "mit.edu"
     ],
     "member_tiers_weight": [
+     "T4",
      "UNKNOWN"
     ],
     "member_urls": [
-     "https://www.wipo.int/edocs/pubdocs/en/wipo-pub-2002-en-incentives-in-technology-transfer.pdf"
+     "https://direct.mit.edu/dint/article/6/1/201/118839/The-Limitations-and-Ethical-Considerations-of",
+     "https://direct.mit.edu/dint/article/6/1/201/118839/The-Limitations-and-Ethical-Considerations-of"
     ],
-    "representative_evidence_id": "ev_840",
-    "representative_statement": "2002EN 3 Table of Contents Foreword 5 Endorsements 6 Acknowledgments 8 About the reviewers 9 Acronyms 11 Terminology 12 Introduction 15 1 Context 17 The rationale for incentives [...]\ndynamic."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "gdp",
-     "growth",
-     58.0,
-     "percent",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_980"
-    ],
-    "member_hosts": [
-     "repec.org"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://www.edwardconard.com/macro-roundup/akorinek-reports-on-how-large-language-models-llms-such-as-chatgpt-could-increase-productivity-in-economics-research-by-focusing-human-effort-on-posing-questions-and-providing-feedback-and-editing/"
-    ],
-    "representative_evidence_id": "ev_980",
-    "representative_statement": "Capital spending by the five largest U.S."
+    "representative_evidence_id": "ev_1088",
+    "representative_statement": "To figure out the implementation of ChatGPT, conducted a detailed review of GPT series models including GPT-1 [1], GPT-2 [2], GPT-3 [3], InstructGPT [4], GPT3.5, and ChatGPT①."
    },
    {
     "corroboration_count": 1,
@@ -5926,6 +5926,33 @@
     ],
     "representative_evidence_id": "ev_724",
     "representative_statement": "Abstract While precarious employment is not a new concept, it has been brought to the center of scholarly and public discourse worldwide by the unprecedented COVID-19 pandemic."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "justice",
+     "risk",
+     47.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_1241"
+    ],
+    "member_hosts": [
+     "mdpi.com"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://www.mdpi.com/2413-4155/6/1/3"
+    ],
+    "representative_evidence_id": "ev_1241",
+    "representative_statement": "Introduction The growing use of AI systems has intensified discussions around fairness and bias in artificial intelligence as potential biases and discrimination become more apparent."
    },
    {
     "corroboration_count": 1,
@@ -5984,6 +6011,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "group",
+     "increase",
+     20.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_707"
+    ],
+    "member_hosts": [
+     "wallacefoundation.org"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://wallacefoundation.org/sites/default/files/2023-09/Putting-Collective-Impact-Into-Context.pdf"
+    ],
+    "representative_evidence_id": "ev_707",
+    "representative_statement": "A Review of the Literature on Local Cross-Sector Collaboration to Improve Education # PUTTING COLLECTIVE A Working Paper Prepared with Support from The Wallace Foundation Je ff rey R."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "new",
      "risk",
      2.0,
@@ -6007,6 +6061,33 @@
     ],
     "representative_evidence_id": "ev_758",
     "representative_statement": "In November [...]\nfor Science, Innovation and Technology, 2023."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "edrs",
+     "price",
+     1.75,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_830"
+    ],
+    "member_hosts": [
+     "ed.gov"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://files.eric.ed.gov/fulltext/ED022905.pdf"
+    ],
+    "representative_evidence_id": "ev_830",
+    "representative_statement": "20402 (GPO Y3.T22-2122/App/V, $1.75) EDRS Price MF-S1.00 HC Not Avaable from EDRS."
    },
    {
     "corroboration_count": 1,
@@ -6065,6 +6146,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "figure",
+     "percentage",
+     2.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_399"
+    ],
+    "member_hosts": [
+     "ilo.org"
+    ],
+    "member_tiers_weight": [
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.ilo.org/wcmsp5/groups/public/---ed_dialogue/---sector/documents/publication/wcms_249913.pdf"
+    ],
+    "representative_evidence_id": "ev_399",
+    "representative_statement": "For rights of reproduction or translation, application should be made to ILO Publications (Rights and Permissions), International Labour Office, CH-1211 Geneva 22, Switzerland."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "studynotes",
      "score",
      100.0,
@@ -6088,6 +6196,33 @@
     ],
     "representative_evidence_id": "ev_1092",
     "representative_statement": "Question 2 2/2 Speech output devices are what type of assistive technology for students with visual imp 8/9/2024](https://www.cliffsnotes.com/study-notes [...]\nTotal Score:* 100 points -1."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "study",
+     "percent",
+     62.1,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_1084"
+    ],
+    "member_hosts": [
+     "ijcsrr.org"
+    ],
+    "member_tiers_weight": [
+     "T7"
+    ],
+    "member_urls": [
+     "https://ijcsrr.org/wp-content/uploads/2023/05/02-02-2023.pdf"
+    ],
+    "representative_evidence_id": "ev_1084",
+    "representative_statement": "Kargbo (2010) discovered in his study that 62.1 percent of undergraduate students were not confident in properly citing sources and that even those who considered themselves confident often commit inconsistent referencing."
    },
    {
     "corroboration_count": 1,
@@ -6141,34 +6276,7 @@
      "https://www.gov.uk/government/publications/ai-regulation-a-pro-innovation-approach/white-paper"
     ],
     "representative_evidence_id": "ev_744",
-    "representative_statement": "A pro-innovation approach to AI regulation Updated 3 August 2023 Presented to Parliament by the Secretary of State for Science, Innovation and Technology by Command of His Majesty on 29 March 2023."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "industry",
-     "level",
-     4.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_796"
-    ],
-    "member_hosts": [
-     "preprints.org"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://www.preprints.org/manuscript/202512.2063"
-    ],
-    "representative_evidence_id": "ev_796",
-    "representative_statement": "In manufacturing, artificial intelligence supports Industry 4.0 initiatives by improving productivity, flexibility, and quality, thereby strengthening both cost and responsiveness advantages (Frank et al., 2019; Emon &amp; Chowdhury, 2025)."
+    "representative_statement": "How could government support effective AI-related risk management?"
    },
    {
     "corroboration_count": 1,
@@ -6227,33 +6335,6 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "impact",
-     "cost",
-     1.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_689"
-    ],
-    "member_hosts": [
-     "springer.com"
-    ],
-    "member_tiers_weight": [
-     "T1"
-    ],
-    "member_urls": [
-     "https://link.springer.com/article/10.1186/s40008-021-00240-w"
-    ],
-    "representative_evidence_id": "ev_689",
-    "representative_statement": "Impact and cost–benefit analysis: a unifying approach Pasquale Lucio Scandizzo* 1 Background A social accounting matrix (SAM) is an analytical construct that brings together the material input output matrix originally conceived by Leontief, with a consistent frame- work of transactions across produc"
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
      "suggests",
      "growth",
      40.0,
@@ -6304,60 +6385,6 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "establishment",
-     "level",
-     7.5,
-     "percentage_points",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_580"
-    ],
-    "member_hosts": [
-     "nber.org"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://www.nber.org/"
-    ],
-    "representative_evidence_id": "ev_580",
-    "representative_statement": "The central question for economists is whether giving workers formal representation in firm governance meaningfully affects wages,… #### From the NBER Bulletin on Entrepreneurship [ ](https://www.nber.org/be/20261/mixed-immigrant-native-founding-teams-excel) #### [Mixed Immigrant-Native Founding Tea"
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "checking",
-     "level",
-     1.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_467"
-    ],
-    "member_hosts": [
-     "github.io"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://mmantyla.github.io/ast_2012_bare_conf.pdf"
-    ],
-    "representative_evidence_id": "ev_467",
-    "representative_statement": "The academic views are studied with a systematic literature review while the practitioners views are assessed with a survey, where we received responses from 115 software professionals."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
      "adoption",
      "rate",
      61.0,
@@ -6383,27 +6410,58 @@
     "representative_statement": "Big data analytics was the second most popular adopted technology with around 61% adoption rate, and by 2027, global digital transformation spending is forecast to reach USD 3.9 trillion."
    },
    {
-    "corroboration_count": 1,
+    "corroboration_count": 2,
     "finding_key": [
      "__unknown__",
      "ev_729",
      0
     ],
-    "member_count": 1,
+    "member_count": 2,
     "member_evidence_ids": [
-     "ev_729"
+     "ev_729",
+     "ev_800"
     ],
     "member_hosts": [
+     "oecd.org",
      "worldbank.org"
+    ],
+    "member_tiers_weight": [
+     "T3",
+     "T3"
+    ],
+    "member_urls": [
+     "https://openknowledge.worldbank.org/entities/publication/5e568109-5860-5b5a-bca9-85ba969935a6",
+     "https://www.oecd.org/en/publications/sme-technology-adoption-in-the-united-kingdom_5f25ce2a-en/full-report/main-findings-from-the-consultation-process_5320b0bc.html"
+    ],
+    "representative_evidence_id": "ev_800",
+    "representative_statement": "Main findings from the consultation process Copy link to 3."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "analyze",
+     "risk",
+     95.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_555"
+    ],
+    "member_hosts": [
+     "onetonline.org"
     ],
     "member_tiers_weight": [
      "T3"
     ],
     "member_urls": [
-     "https://openknowledge.worldbank.org/entities/publication/5e568109-5860-5b5a-bca9-85ba969935a6"
+     "https://www.onetonline.org/link/summary/13-2099.01"
     ],
-    "representative_evidence_id": "ev_729",
-    "representative_statement": "Minds and Behaviors at Work: Boosting Socioemotional Skills for Latin America’s Workforce ## Publication: Minds and Behaviors at Work: Boosting Socioemotional Skills for Latin America’s Workforce [c b](http://creativecommons.org/licenses/by/3.0/igo/ \"CC BY 3.0 IGO\") [](mailto:?Subject=Minds%20and%20"
+    "representative_evidence_id": "ev_555",
+    "representative_statement": "Develop quantitative techniques to inform securities investing, equities investing, pricing, or valuation of financial instruments."
    },
    {
     "corroboration_count": 1,
@@ -6516,6 +6574,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "unemployment",
+     "rate",
+     4.2,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_636"
+    ],
+    "member_hosts": [
+     "bls.gov"
+    ],
+    "member_tiers_weight": [
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.bls.gov/news.release/empsit.nr0.htm"
+    ],
+    "representative_evidence_id": "ev_636",
+    "representative_statement": "Household Survey Data Both the unemployment rate, at 4.2 percent, and the number of unemployed people, at 7.1 million, changed little in June."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "high",
      "accuracy",
      1.0,
@@ -6539,6 +6624,33 @@
     ],
     "representative_evidence_id": "ev_511",
     "representative_statement": "Bureau of Labor Statistics (BLS), the overall employment of information clerks is [projected](https://www.bls.gov/ooh/office-and-administrative-support/information-clerks.htm#tab-1) to decline by 1% from 2023 to 2033."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "across",
+     "level",
+     12.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_719"
+    ],
+    "member_hosts": [
+     "social-connection.org"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://www.social-connection.org/wp-content/uploads/2023/02/The-SOCIAL-Framework-Work-Employment-Labor-Winter-2023.pdf"
+    ],
+    "representative_evidence_id": "ev_719",
+    "representative_statement": "CLICK, DNP, ND, RN, CWP, MEDICAL DIRECTOR AND ASSOCIATE PROFESSOR, CASE WESTERN RESERVE UNIVERSITY NICOLE ELLISON, PHD, PROFESSOR OF INFORMATION, UNIVERSITY OF MICHIGAN SCHOOL OF INFORMATION SARAH WRIGHT, PHD, ASSOCIATE HEAD OF DEPARTMENT - MANAGEMENT, MARKETING, AND TOURISM, UNIVERSITY OF CANTERBUR"
    },
    {
     "corroboration_count": 1,
@@ -6705,6 +6817,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "wage",
+     "rate",
+     7.25,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_714"
+    ],
+    "member_hosts": [
+     "rsfjournal.org"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://www.rsfjournal.org/content/8/5/1"
+    ],
+    "representative_evidence_id": "ev_714",
+    "representative_statement": "Although the federal minimum wage rate has held at $7.25 per hour since 2009, a number of states and localities have enacted higher rates."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "entry",
      "level",
      63.2,
@@ -6727,7 +6866,7 @@
      "https://www.bls.gov/ooh/computer-and-information-technology/software-developers.htm"
     ],
     "representative_evidence_id": "ev_461",
-    "representative_statement": "Software Developers, Quality Assurance Analysts, and Testers | | --- | | [2024 Median Pay](https://www.bls.gov/ooh/computer-and-information-technology/software-developers.htm#TB_inline?height=325&amp;width=325&amp;inlineId=qf-wage) | $131,450 per year $63.20 per hour | | [Typical Entry-Level Educati"
+    "representative_statement": "Before sharing sensitive information, make sure you're on a federal government site."
    },
    {
     "corroboration_count": 1,
@@ -6866,33 +7005,6 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "mapping",
-     "cost",
-     1.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_657"
-    ],
-    "member_hosts": [
-     "mdpi.com"
-    ],
-    "member_tiers_weight": [
-     "T4"
-    ],
-    "member_urls": [
-     "https://www.mdpi.com/2227-7099/9/3/110"
-    ],
-    "representative_evidence_id": "ev_657",
-    "representative_statement": "A Bibliometric Mapping of Cost-Benefit Analysis—Three Decades of Studies Abstract 1."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
      "amp",
      "index",
      6.0,
@@ -6947,6 +7059,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "changes",
+     "change",
+     505.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_857"
+    ],
+    "member_hosts": [
+     "tandfonline.com"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://www.tandfonline.com/doi/full/10.1080/1323238X.2022.2030039"
+    ],
+    "representative_evidence_id": "ev_857",
+    "representative_statement": "3, 505 –531 https://doi.org/10.1080/1323238X.2022.2030039 material focus on compliance and delivery of public goods."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "entry",
      "level",
      48.65,
@@ -6996,7 +7135,7 @@
      "https://search.proquest.com/openview/fe5b0a1454752feec00edb4f3f416d07/1?pq-origsite=gscholar&cbl=18750&diss=y"
     ],
     "representative_evidence_id": "ev_591",
-    "representative_statement": "MAJOR 2021 All Rights Reserved ii DEDICATION While I could easily include my beautiful wife and children in acknowledgements for their willingness and support to let me pursue a PhD from a traditional, research -intense program on a part -tim e basis while already juggling a full -time career in SVS"
+    "representative_statement": "Additional headers and sections recommended by Akpan and Notar (2012) include an objective, w ork experience, relevant experience, consulting, presentations, publications, community service, and references."
    },
    {
     "corroboration_count": 1,
@@ -7028,6 +7167,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "what",
+     "percentage",
+     3.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_433"
+    ],
+    "member_hosts": [
+     "ahrefs.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://ahrefs.com/blog/content-marketing-statistics/"
+    ],
+    "representative_evidence_id": "ev_433",
+    "representative_statement": "62.5% often, 25% sometimes, 3.6% plan to, 8.9% do not."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "onethird",
      "reduction",
      1612.0,
@@ -7055,6 +7221,60 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "enhance",
+     "efficiency",
+     3.3,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_827"
+    ],
+    "member_hosts": [
+     "tandfonline.com"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://www.tandfonline.com/doi/full/10.1080/17434440.2022.2075729"
+    ],
+    "representative_evidence_id": "ev_827",
+    "representative_statement": "Published by Informa UK Limited, trading as Taylor &amp; Francis Group."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "exist",
+     "share",
+     3.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_699"
+    ],
+    "member_hosts": [
+     "asee.org"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://peer.asee.org/21000.pdf"
+    ],
+    "representative_evidence_id": "ev_699",
+    "representative_statement": "AC 2012-4233: ATTRIBUTES OF A GLOBAL ENGINEER: FIELD-INFORMED PERSPECTIVES, RECOMMENDATIONS, AND IMPLICATIONS Dr."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "high",
      "level",
      17.0,
@@ -7077,7 +7297,7 @@
      "https://link.springer.com/article/10.1007/s11219-021-09561-2"
     ],
     "representative_evidence_id": "ev_446",
-    "representative_statement": "3.3 Observations To collect additional information for the study, such as the relative position of testers with reference to the other team members, as well as the attitude toward testers, we conducted observations in one project taking place in a [...]\nSoftware tester 4 years Face-to-face 51 min 4 "
+    "representative_statement": "The ability to see the high-level aspects of the project objectives, cus- tomer requirements, quality [...]\ntrait was summed up by Informant 17: “Some companies say that the developers can do the job."
    },
    {
     "corroboration_count": 1,
@@ -7109,10 +7329,10 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "beginner",
-     "level",
-     5.0,
-     "",
+     "driven",
+     "increase",
+     23.3,
+     "percent",
      "",
      "treatment",
      ""
@@ -7131,7 +7351,34 @@
      "https://www.coursera.org/articles/marketing-trends"
     ],
     "representative_evidence_id": "ev_440",
-    "representative_statement": "In this article, we’ll discuss 2025's top marketing trends, which span social media marketing, digital marketing, brand marketing, and more."
+    "representative_statement": "Grand View Research projects that the global chatbot market will grow at a CAGR of 23.3 percent from 2025 to 2030, driven by the increased adoption of AI and machine learning [8]."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "population",
+     "growth",
+     0.2,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_725"
+    ],
+    "member_hosts": [
+     "gexinonline.com"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://gexinonline.com/archive/journal-of-social-work-and-welfare-policy/JSWWP-102"
+    ],
+    "representative_evidence_id": "ev_725",
+    "representative_statement": "The population growth in the Southeast region is 0.2% and in the Northeast region it is 3.4%, much lower than the 15.9% average growth of the State of Texas."
    },
    {
     "corroboration_count": 1,
@@ -7159,33 +7406,6 @@
     ],
     "representative_evidence_id": "ev_809",
     "representative_statement": "There are more than 160 published guidelines, reporting checklists, frameworks, and recommendations related to PFS."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "mission",
-     "increase",
-     2.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_743"
-    ],
-    "member_hosts": [
-     "stanford.edu"
-    ],
-    "member_tiers_weight": [
-     "UNKNOWN"
-    ],
-    "member_urls": [
-     "https://siepr.stanford.edu/publications/policy-brief/following-rules-connecting-academic-research-policy"
-    ],
-    "representative_evidence_id": "ev_743",
-    "representative_statement": "For example, the Secure Act 2.0 of 2022 explicitly authorizes the Secretary of Treasury to “prescribe such regulations as may be necessary to clarify” how to treat an employer that fails to meet multiple employer 403(b) plan requirements."
    },
    {
     "corroboration_count": 1,
@@ -7321,6 +7541,33 @@
     ],
     "representative_evidence_id": "ev_272",
     "representative_statement": "25&amp;width=325&amp;inlineId=qf-wage) | $151,160 per year $72.67 per hour | | [Typical Entry-Level Education](https://www.bl"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "characterizing",
+     "efficiency",
+     202009.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_774"
+    ],
+    "member_hosts": [
+     "springer.com"
+    ],
+    "member_tiers_weight": [
+     "T1"
+    ],
+    "member_urls": [
+     "https://link.springer.com/rwe/10.1007/978-3-030-66252-3_1783"
+    ],
+    "representative_evidence_id": "ev_774",
+    "representative_statement": "Mar 2009 [Google Scholar](https://scholar.google.com/scholar?&amp;q=Berg%20SV%20%282009%29%20Characterizing%20the%20efficiency%20and%20effectiveness%20of%20regulatory%20institutions.%20University%20of%20Florida%2C%20PURC.%20Mar%202009) * Das US, Quintyn M (2002) Crisis prevention and crisis manageme"
    },
    {
     "corroboration_count": 1,
@@ -7509,34 +7756,7 @@
      "https://www.zippia.com/data-entry-clerk-jobs/trends/"
     ],
     "representative_evidence_id": "ev_503",
-    "representative_statement": "After extensive research, interviews, and analysis, Zippia's data science team found that:\nThe projected data entry clerk job growth rate is -5% from 2018-2028."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
-     "particularly",
-     "cost",
-     3.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_800"
-    ],
-    "member_hosts": [
-     "oecd.org"
-    ],
-    "member_tiers_weight": [
-     "T3"
-    ],
-    "member_urls": [
-     "https://www.oecd.org/en/publications/sme-technology-adoption-in-the-united-kingdom_5f25ce2a-en/full-report/main-findings-from-the-consultation-process_5320b0bc.html"
-    ],
-    "representative_evidence_id": "ev_800",
-    "representative_statement": "Main findings from the consultation process Copy link to 3."
+    "representative_statement": "The projected data entry clerk job growth rate is -5% from 2018-2028."
    },
    {
     "corroboration_count": 1,
@@ -7595,10 +7815,10 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "business",
+     "indicating",
      "growth",
-     83.2,
-     "percent",
+     299.64,
+     "billion",
      "",
      "treatment",
      ""
@@ -7617,7 +7837,7 @@
      "https://www.forbes.com/advisor/business/software/content-marketing-statistics/"
     ],
     "representative_evidence_id": "ev_407",
-    "representative_statement": "A smaller yet noteworthy group anticipates increased demands on content creators’ workloads."
+    "representative_statement": "Looking ahead, expectations are set high for the U.S."
    },
    {
     "corroboration_count": 1,
@@ -7757,6 +7977,29 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "__unknown__",
+     "ev_489",
+     0
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_489"
+    ],
+    "member_hosts": [
+     "remotestaff.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.remotestaff.com/blog/6-qualities-to-look-for-in-a-data-entry-clerk/"
+    ],
+    "representative_evidence_id": "ev_489",
+    "representative_statement": "On day one, they speak our lingo."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "makes",
      "accuracy",
      1.0,
@@ -7780,6 +8023,33 @@
     ],
     "representative_evidence_id": "ev_339",
     "representative_statement": "According to the [31-9094.00 – Medical Transcriptionists ](http://www.onetonline.org/link/summary/31-9094.00)occupational profile, successful professionals must possess strong skills in reading comprehension, active listening, and critical thinking."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "agents",
+     "cost",
+     15.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_295"
+    ],
+    "member_hosts": [
+     "kriswrites.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://kriswrites.com/2016/08/24/business-musings-how-to-hire-a-lawyer-contractsdealbreakers/"
+    ],
+    "representative_evidence_id": "ev_295",
+    "representative_statement": "They’ll give advice they’re not qualified to give—as in legal advice for contracts when they’re not a lawyer or in how to write a novel when they’ve never written anything—and then they’ll take 15% for the life of the project."
    },
    {
     "corroboration_count": 1,
@@ -7865,9 +8135,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "particular",
-     "increase",
-     9.0,
+     "cultural",
+     "change",
+     2.0,
      "",
      "",
      "treatment",
@@ -7875,19 +8145,19 @@
     ],
     "member_count": 1,
     "member_evidence_ids": [
-     "ev_621"
+     "ev_330"
     ],
     "member_hosts": [
-     "quora.com"
+     "blackstone.edu"
     ],
     "member_tiers_weight": [
      "T6"
     ],
     "member_urls": [
-     "https://www.quora.com/Job-Search-Do-HRs-actually-read-all-the-resumes-that-they-get-for-a-particular-position"
+     "https://blackstone.edu/increasing-demand-for-paralegal-services/"
     ],
-    "representative_evidence_id": "ev_621",
-    "representative_statement": "All related (60) Sort Recommended [ ](https://www.quora.com/profile/Josh-Beam-1) [Josh Beam](https://www.quora.com/profile/Josh-Beam-1) Software engineer in Silicon Valley · Author has 791 answers and 11.7M answer views ·[11y](https://www.quora.com/Job-Search-Do-HRs-actually-read-all-the-resumes-tha"
+    "representative_evidence_id": "ev_330",
+    "representative_statement": "In mid-year 2021 massive cultural change and technological revolution surrounds us in the midst of pandemic challenges."
    },
    {
     "corroboration_count": 1,
@@ -7915,6 +8185,33 @@
     ],
     "representative_evidence_id": "ev_842",
     "representative_statement": "As early as the 1950s, Truman (1951: 213) concluded that interest groups engage in ‘more or less continuing efforts to guide and control’ public attitudes."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "passage",
+     "rate",
+     48.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_317"
+    ],
+    "member_hosts": [
+     "cloudfront.net"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://d11o58it1bhut6.cloudfront.net/production/1842/originals/pdf4article240-75a19955.pdf"
+    ],
+    "representative_evidence_id": "ev_317",
+    "representative_statement": "Th e exam h as experien ced an overall passage rate of 48 per-cen t."
    },
    {
     "corroboration_count": 1,
@@ -8000,10 +8297,10 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "decline",
-     "percent",
-     5.0,
-     "percent",
+     "entry",
+     "level",
+     20.59,
+     "",
      "",
      "treatment",
      ""
@@ -8022,14 +8319,14 @@
      "https://www.bls.gov/ooh/office-and-administrative-support/customer-service-representatives.htm"
     ],
     "representative_evidence_id": "ev_512",
-    "representative_statement": "Despite [...]\noffice-and-administrative-support/customer-service-representatives.htm#TB_inline?height=325&amp;width=325&amp;inlineId=about-working-environment) Many customer service representatives work in call centers."
+    "representative_statement": "The largest employers of customer service representatives were as follows: Retail trade 17% Insurance carriers and related activities 12 Business support services 8 Professional, scientific, and technical services 7 Wholesale [...]\nsection](https://www.bls.gov/ooh/office-and-administrative-support/c"
    },
    {
     "corroboration_count": 1,
     "finding_key": [
-     "entry",
+     "location",
      "level",
-     99.0,
+     59200.0,
      "",
      "",
      "treatment",
@@ -8037,19 +8334,19 @@
     ],
     "member_count": 1,
     "member_evidence_ids": [
-     "ev_231"
+     "ev_310"
     ],
     "member_hosts": [
-     "quora.com"
+     "uc.edu"
     ],
     "member_tiers_weight": [
-     "T7"
+     "T6"
     ],
     "member_urls": [
-     "https://www.quora.com/Is-40-too-old-to-learn-front-end-web-development-and-have-a-viable-career-for-at-least-20-years"
+     "https://www.online.uc.edu/blog/paralegal-job-outlook-2025-guide-trends-predictions-and-more.html"
     ],
-    "representative_evidence_id": "ev_231",
-    "representative_statement": "Upvote · 99 11 9 2 [ ](https://www.quora.com/profile/Vedat-S%C3%B6zen-2) [Vedat Sözen](https://www.quora.com/profile/Vedat-S%C3%B6zen-2) Front End Developer · Author has 88 answers and 133.8K answer views ·[3y](https://www.quora.com/Is-40-too-old-to-learn-front-end-web-development-and-have-a-viable-"
+    "representative_evidence_id": "ev_310",
+    "representative_statement": "Paralegals and legal assistants support lawyers and law offices, working behind the scenes to ensure success by communicating with clients, organizing legal documents, drafting motions, conducting legal research, and much more."
    },
    {
     "corroboration_count": 1,
@@ -8108,9 +8405,9 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "study",
-     "return",
-     2.0,
+     "longterm",
+     "cost",
+     40.0,
      "",
      "",
      "treatment",
@@ -8118,19 +8415,73 @@
     ],
     "member_count": 1,
     "member_evidence_ids": [
-     "ev_665"
+     "ev_313"
     ],
     "member_hosts": [
-     "doi.org"
+     "michbar.org"
     ],
     "member_tiers_weight": [
-     "T4"
+     "T6"
     ],
     "member_urls": [
-     "https://doi.org/10.24052/ijbed/v07n01/art-02"
+     "https://www.michbar.org/file/barjournal/article/documents/pdf4article1180.pdf"
     ],
-    "representative_evidence_id": "ev_665",
-    "representative_statement": "However, no relationship was found between the Managerial Ownership and the Public Ownership on level of Earning Management._ Editorial Process ## Article History Published**02 Apr 2019** ### How to Cite Moslemany, R."
+    "representative_evidence_id": "ev_313",
+    "representative_statement": "Common Sense O ver the past 40 years, paralegals/legal assistants have established a role as long-term, cost-effective, essential participants in the delivery of legal services."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "controlling",
+     "risk",
+     71346864.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_577"
+    ],
+    "member_hosts": [
+     "cqa.org"
+    ],
+    "member_tiers_weight": [
+     "UNKNOWN"
+    ],
+    "member_urls": [
+     "https://cqa.org/reading-list/"
+    ],
+    "representative_evidence_id": "ev_577",
+    "representative_statement": "Kahn [Equity Management: Quantitative Analysis for Stock Selection](http://www.amazon.com/Equity-Management-Quantitative-Analysis-Selection/dp/0071346864) Bruce I."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "job",
+     "growth",
+     16.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_247"
+    ],
+    "member_hosts": [
+     "jessup.edu"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://jessup.edu/blog/engineering-technology/are-web-developers-in-demand/"
+    ],
+    "representative_evidence_id": "ev_247",
+    "representative_statement": "The world of**web development**has seen tremendous growth over the past decade."
    },
    {
     "corroboration_count": 1,
@@ -8158,6 +8509,60 @@
     ],
     "representative_evidence_id": "ev_1202",
     "representative_statement": "The study was conducted by distributing questionnaires and experimental interventions, and a total of 2860 valid questionnaires were collected."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "largest",
+     "share",
+     41.5,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_359"
+    ],
+    "member_hosts": [
+     "research.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://research.com/careers/how-to-become-a-medical-transcriptionist"
+    ],
+    "representative_evidence_id": "ev_359",
+    "representative_statement": "In 2022, general medical and surgical hospitals, and specialty hospitals employed the largest share of medical transcriptionists at 41.5%."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "cws",
+     "share",
+     9.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_418"
+    ],
+    "member_hosts": [
+     "velocitypartners.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://velocitypartners.com/blog/15-b2b-copywriting-rejects/"
+    ],
+    "representative_evidence_id": "ev_418",
+    "representative_statement": "2016 The 15 B2B copywriters I don’t want to be 9 min read * [ ](https://x.com/intent/post?url=https://velocitypartners.com/blog/15-b2b-copywriting-rejects/) * [ ](https://www.linkedin.com/cws/share?url=https://velocitypartners.com/blog/15-b2b-copywriting-rejects/) * [ ](mailto:?subject=Article%20fro"
    },
    {
     "corroboration_count": 1,
@@ -8270,6 +8675,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "setting",
+     "price",
+     14.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_405"
+    ],
+    "member_hosts": [
+     "format.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.format.com/magazine/resources/illustration/who-pays-illustration-jobs"
+    ],
+    "representative_evidence_id": "ev_405",
+    "representative_statement": "Putting a price on creative work has always been an act cloaked in secrecy."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "improves",
      "accuracy",
      62.0,
@@ -8351,6 +8783,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "top3",
+     "percent",
+     3.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_404"
+    ],
+    "member_hosts": [
+     "toptal.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.toptal.com/designers/illustration"
+    ],
+    "representative_evidence_id": "ev_404",
+    "representative_statement": "STEP 3 ### Live Screening 3.6%of applications pass Toptal screeners, who are experts in their functional domain, interview each illustrator."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "job",
      "growth",
      4.0,
@@ -8378,6 +8837,114 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "expected",
+     "return",
+     0.25,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_556"
+    ],
+    "member_hosts": [
+     "tandfonline.com"
+    ],
+    "member_tiers_weight": [
+     "T4"
+    ],
+    "member_urls": [
+     "https://www.tandfonline.com/doi/full/10.1080/0015198X.2020.1766287"
+    ],
+    "representative_evidence_id": "ev_556",
+    "representative_statement": "Without leverage, this process would result in something like a 25%/75% stock/bond portfolio and, in standard capital market equilibrium, an expected return consistent with a beta of 0.25."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "standards",
+     "accuracy",
+     8.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_348"
+    ],
+    "member_hosts": [
+     "pennfoster.edu"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.pennfoster.edu/blog/guide-to-becoming-a-medical-transcriptionist"
+    ],
+    "representative_evidence_id": "ev_348",
+    "representative_statement": "Oct 13, 2023 8 min read - What is a medical transcriptionist?"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "projected",
+     "growth",
+     -14.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_324"
+    ],
+    "member_hosts": [
+     "paralegalinst.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.paralegalinst.com/paralegal-job-prospects"
+    ],
+    "representative_evidence_id": "ev_324",
+    "representative_statement": "Here's what you need to know: **Key Job Market Facts:** * **Growth Rate**: 1-14% projected growth (varies by source, but consistently positive) * **Annual Openings**: ~37,300-38,000 positions per year * **Median Salary**: $59,200-$61,010 (2022-2024 data) * **Top Industries**: Legal services, federal"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "way",
+     "price",
+     4.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_394"
+    ],
+    "member_hosts": [
+     "lisamaltby.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.lisamaltby.com/blog/illustration-pricing-survey-2019?srsltid=AfmBOopZpqvoYUbYmJ9mssgDaSEH0BjcnVIghTBV-LRa2guOKZJRL70Z"
+    ],
+    "representative_evidence_id": "ev_394",
+    "representative_statement": "The only snag was that I now had to put a price on my own work and, short of picking a number out of a hat, I knew I had to have a method or price list that ensured I earned a sustainable living."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "market",
      "efficiency",
      1.5,
@@ -8401,6 +8968,33 @@
     ],
     "representative_evidence_id": "ev_1064",
     "representative_statement": "Using 1.5 million residential sales from Los Angeles County for 1994–2011, the authors test several hypotheses and we review some representative results."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "annual",
+     "growth",
+     26.0,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_431"
+    ],
+    "member_hosts": [
+     "contentbot.ai"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.contentbot.ai/blog/news/keep-trendy-10-top-copywriting-and-content-marketing-trends-in-2021/"
+    ],
+    "representative_evidence_id": "ev_431",
+    "representative_statement": "You will find, while browsing, that there are multiple blog posts focusing on trends in the copywriting and content marketing industry."
    },
    {
     "corroboration_count": 1,
@@ -8486,33 +9080,6 @@
    {
     "corroboration_count": 1,
     "finding_key": [
-     "article",
-     "share",
-     6.0,
-     "",
-     "",
-     "treatment",
-     ""
-    ],
-    "member_count": 1,
-    "member_evidence_ids": [
-     "ev_227"
-    ],
-    "member_hosts": [
-     "medium.com"
-    ],
-    "member_tiers_weight": [
-     "T6"
-    ],
-    "member_urls": [
-     "https://medium.com/codex/how-have-i-been-a-front-end-developer-in-6-months-9d0f10759a59"
-    ],
-    "representative_evidence_id": "ev_227",
-    "representative_statement": "In this article, I will share my journey of becoming a front-end developer with no formal degrees, in just 6 months."
-   },
-   {
-    "corroboration_count": 1,
-    "finding_key": [
      "resolution",
      "rate",
      90.0,
@@ -8540,6 +9107,33 @@
    {
     "corroboration_count": 1,
     "finding_key": [
+     "drives",
+     "efficiency",
+     37300.0,
+     "job",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_327"
+    ],
+    "member_hosts": [
+     "purdueglobal.edu"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.purdueglobal.edu/blog/legal-studies/what-does-paralegal-do/"
+    ],
+    "representative_evidence_id": "ev_327",
+    "representative_statement": "Paralegals help attorneys prepare for hearings, trials, and meetings."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
      "potential",
      "growth",
      100.0,
@@ -8563,6 +9157,116 @@
     ],
     "representative_evidence_id": "ev_506",
     "representative_statement": "Data entry clerks are the backbone of many organisations' information systems, playing an essential role in maintaining accurate databases and records."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "occupations",
+     "growth",
+     1.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_314"
+    ],
+    "member_hosts": [
+     "utsa.edu"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.utsa.edu/pace/news/is-it-worth-it-to-become-a-paralegal-in-2024.html"
+    ],
+    "representative_evidence_id": "ev_314",
+    "representative_statement": "The field of paralegal studies has evolved into a dynamic and essential component of the legal industry."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "business",
+     "growth",
+     40000.0,
+     "",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_522"
+    ],
+    "member_hosts": [
+     "revechat.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.revechat.com/blog/books-on-customer-service/"
+    ],
+    "representative_evidence_id": "ev_522",
+    "representative_statement": "One can achieve outstanding [customer service](https://www.revechat.com/blog/customer-service/) most swiftly by drawing insights from those who have already achieved it."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "wpm",
+     "accuracy",
+     99.8,
+     "percent",
+     "",
+     "treatment",
+     ""
+    ],
+    "member_count": 1,
+    "member_evidence_ids": [
+     "ev_488"
+    ],
+    "member_hosts": [
+     "tealhq.com"
+    ],
+    "member_tiers_weight": [
+     "T6"
+    ],
+    "member_urls": [
+     "https://www.tealhq.com/career-paths/data-entry-clerk"
+    ],
+    "representative_evidence_id": "ev_488",
+    "representative_statement": "Consider examples like “Data Entry Specialist | 85+ WPM | 99.8% Accuracy Rate” or “Experienced Data Management Professional | CRM Systems Expert | Healthcare Data Specialist.” Including your typing speed, accuracy rate, and any specialized software knowledge helps quantify your capabilities for pote"
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "__qual__",
+     "ev_1048",
+     "10 1047 1287 18441 1977 1989 2023 2024 35 6 7039 85210379086 ai amp article artificial"
+    ],
+    "member_count": 3,
+    "member_evidence_ids": [
+     "ev_1048",
+     "ev_1192",
+     "ev_210"
+    ],
+    "member_hosts": [
+     "wustl.edu"
+    ],
+    "member_tiers_weight": [
+     "T4",
+     "UNKNOWN",
+     "T4"
+    ],
+    "member_urls": [
+     "https://profiles.wustl.edu/en/publications/the-short-term-effects-of-generative-artificial-intelligence-on-e/",
+     "https://profiles.wustl.edu/en/publications/the-short-term-effects-of-generative-artificial-intelligence-on-e/",
+     "https://profiles.wustl.edu/en/publications/the-short-term-effects-of-generative-artificial-intelligence-on-e/"
+    ],
+    "representative_evidence_id": "ev_1048",
+    "representative_statement": "KW - artificial intelligence KW - generative AI KW - large language model KW - online labor markets UR - https://www.scopus.com/pages/publications/85210379086 U2 - 10.1287/orsc.2023.18441 DO - 10.1287/orsc.2023.18441 M3 - Article AN - SCOPUS:85210379086 SN - 1047-7039 VL - 35 SP - 1977 EP - 1989 JO "
    },
    {
     "corroboration_count": 1,
@@ -8629,28 +9333,28 @@
     "corroboration_count": 2,
     "finding_key": [
      "__qual__",
-     "ev_954",
-     "06590 1 10 1002 13 15 16 2021 2023 2302 3286 4369818 4375283 4414065 4573321 8"
+     "ev_878",
+     "10 10130 17 19 2 2023 2303 4 50 80 about abs abstract affected all api"
     ],
     "member_count": 2,
     "member_evidence_ids": [
-     "ev_954",
-     "ev_169"
+     "ev_878",
+     "ev_150"
     ],
     "member_hosts": [
-     "acm.org",
-     "mckinsey.com"
+     "arxiv.org",
+     "oecd.org"
     ],
     "member_tiers_weight": [
-     "T1",
-     "T5"
+     "T5",
+     "T3"
     ],
     "member_urls": [
-     "https://cacm.acm.org/opinion/generative-ai-requires-broad-labor-policy-considerations/",
-     "https://www.mckinsey.com/~/media/mckinsey/mckinsey%20global%20institute/our%20research/generative%20ai%20and%20the%20future%20of%20work%20in%20america/generative-ai-and-the-future-of-work-in-america-vf1.pdf"
+     "https://openai.com/index/gpts-are-gpts/",
+     "https://www.oecd.org/content/dam/oecd/en/publications/reports/2024/04/the-impact-of-artificial-intelligence-on-productivity-distribution-and-growth_d54e2842/8d900037-en.pdf"
     ],
-    "representative_evidence_id": "ev_954",
-    "representative_statement": "10, 2023); [https://papers.ssrn.com/abstract=4414065](https://papers.ssrn.com/abstract=4414065) [...]\nRochester, NY (2023, March 1); [https://papers.ssrn.com/abstract=4375283](https://papers.ssrn.com/abstract=4375283) * 15.Peng, S."
+    "representative_evidence_id": "ev_150",
+    "representative_statement": "AI systems in a production function view: requirements (inputs) and capabilities (outputs) Given the focus of this paper on economic and, in particular, on productivity implications, AI systems are considered as a type of production technology [...]\nfeatures and implications of AI systems, the termi"
    },
    {
     "corroboration_count": 1,
@@ -8741,7 +9445,7 @@
     "finding_key": [
      "__qual__",
      "ev_212",
-     "1 2022 2024 2025 3 30 38 adoption advanced ai also among analyzing artificial assist automation"
+     "1 2022 2024 2025 3 30 38 adoption advanced ai also among analyzing assist chatgpt commonly"
     ],
     "member_count": 3,
     "member_evidence_ids": [
@@ -8762,8 +9466,34 @@
      "https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1",
      "https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1"
     ],
-    "representative_evidence_id": "ev_1176",
-    "representative_statement": "The Labor Market Effects of Generative Artificial Intelligence 38 Pages Posted: 10 Apr 2025 Last revised: 25 Jan 2026 Date Written: December 18, 2024 Abstract We develop a new survey analyzing Generative AI use in the labor market to assist in measuring its economic effects."
+    "representative_evidence_id": "ev_212",
+    "representative_statement": "We develop a new survey analyzing Generative AI use in the labor market to assist in measuring its economic effects."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "__qual__",
+     "ev_1155",
+     "10 12 2022 3390 45 8 able adoption ai amp bo challenges complexity computer construction decision"
+    ],
+    "member_count": 2,
+    "member_evidence_ids": [
+     "ev_1155",
+     "ev_208"
+    ],
+    "member_hosts": [
+     "ed.gov"
+    ],
+    "member_tiers_weight": [
+     "T3",
+     "T3"
+    ],
+    "member_urls": [
+     "https://www.ed.gov/sites/ed/files/documents/ai-report/ai-report.pdf",
+     "https://www.ed.gov/sites/ed/files/documents/ai-report/ai-report.pdf"
+    ],
+    "representative_evidence_id": "ev_1155",
+    "representative_statement": "Regona, Massimo &amp; Yigitcanlar, Tan &amp; Xia, Bo &amp; Li, R.Y.M."
    },
    {
     "corroboration_count": 1,
@@ -8822,6 +9552,32 @@
     "corroboration_count": 1,
     "finding_key": [
      "__qual__",
+     "ev_751",
+     "1 103 104 120 121 1211 13 133829 133830 135 136 148 16 18 2 20"
+    ],
+    "member_count": 2,
+    "member_evidence_ids": [
+     "ev_751",
+     "ev_759"
+    ],
+    "member_hosts": [
+     "ilo.org"
+    ],
+    "member_tiers_weight": [
+     "T3",
+     "T3"
+    ],
+    "member_urls": [
+     "https://researchrepository.ilo.org/esploro/fulltext/book/Literature-review-on-the-governance-of/995219265802676?repId=12100706150002676&mId=13100811290002676&institution=41ILO_INST",
+     "https://www.ilo.org/media/404761/download"
+    ],
+    "representative_evidence_id": "ev_751",
+    "representative_statement": "These include the emphasis in the UN Sustainable Development Goals on promotion of the rule of law and access to justice (Indicator 16.3), and the World Bank ’s attention to governance and law as drivers of development (World Development Report 2017)."
+   },
+   {
+    "corroboration_count": 1,
+    "finding_key": [
+     "__qual__",
      "ev_1121",
      "abilities academic achievements aiming allows also analyzing anticipating approaching assess audience available block can chapter checklist"
     ],
@@ -8873,18 +9629,18 @@
    }
   ],
   "consolidation_summary": {
-   "basket_total": 323,
-   "basket_multi_member": 42,
-   "basket_multi_corroboration": 8,
-   "raw_row_count": 652,
-   "distinct_finding_count": 312,
-   "collapsed_row_count": 3,
-   "nli_merge_count": 5,
-   "qualitative_basket_count": 11,
-   "same_work_groups": 565,
-   "same_work_multi_member": 51,
+   "basket_total": 350,
+   "basket_multi_member": 46,
+   "basket_multi_corroboration": 9,
+   "raw_row_count": 728,
+   "distinct_finding_count": 336,
+   "collapsed_row_count": 5,
+   "nli_merge_count": 7,
+   "qualitative_basket_count": 14,
+   "same_work_groups": 636,
+   "same_work_multi_member": 50,
    "same_work_dropped_captcha": 2,
-   "same_work_dropped_prefix": 1,
+   "same_work_dropped_prefix": 3,
    "same_work_dropped_captcha_recovered": 0,
    "same_work_dropped_captcha_gap": 2
   },
@@ -8892,7 +9648,7 @@
   "same_work_groups": [
    {
     "same_work_id": "titlealone:the short term effects of generative artificial intelligence on employment evidence from an online labor market",
-    "canonical_index": 8,
+    "canonical_index": 6,
     "member_evidence_ids": [
      "ev_1048",
      "ev_1192",
@@ -8994,19 +9750,29 @@
     ]
    },
    {
-    "same_work_id": "titlealone:gpts are gpts an early look at the labor market impact potential of large language models",
-    "canonical_index": 128,
+    "same_work_id": "id:arxiv:2303.10130",
+    "canonical_index": 77,
     "member_evidence_ids": [
      "ev_878",
+     "ev_886",
+     "ev_883",
      "ev_880",
+     "ev_890",
+     "ev_884",
+     "ev_901",
      "ev_882",
      "ev_892"
     ],
     "member_urls": [
      "https://ai.wharton.upenn.edu/updates/gpts-are-gpts-an-early-look-at-the-labor-market-impact-potential-of-large-language-models/",
+     "https://ar5iv.labs.arxiv.org/html/2303.10130",
+     "https://arxiv.org/abs/2303.10130",
+     "https://huggingface.co/papers/2303.10130",
+     "https://ideas.repec.org/p/arx/papers/2303.10130.html",
      "https://openai.com/index/gpts-are-gpts/",
      "https://thedocs.worldbank.org/en/doc/d09a6806e7d7efb816af153002261f1e-0070012021/related/Sam-Manning-GPTs-20min.pdf",
-     "https://www.newyorkfed.org/medialibrary/media/research/conference/2024/AMEC%20US%20Productivity/Sessiontrue2_Rock_ai_and_productivity_nyfed"
+     "https://www.newyorkfed.org/medialibrary/media/research/conference/2024/AMEC%20US%20Productivity/Sessiontrue2_Rock_ai_and_productivity_nyfed",
+     "https://www.semanticscholar.org/paper/GPTs-are-GPTs%3A-An-Early-Look-at-the-Labor-Market-of-Eloundou-Manning/5501d00310b06e00351295529498cc684187148d"
     ]
    },
    {
@@ -9023,7 +9789,7 @@
    },
    {
     "same_work_id": "titlealone:pdf how generative ai is shaping the future of work lexisnexis",
-    "canonical_index": 49,
+    "canonical_index": 51,
     "member_evidence_ids": [
      "ev_097",
      "ev_1046",
@@ -9048,24 +9814,8 @@
     ]
    },
    {
-    "same_work_id": "id:arxiv:2303.10130",
-    "canonical_index": 77,
-    "member_evidence_ids": [
-     "ev_886",
-     "ev_890",
-     "ev_884",
-     "ev_901"
-    ],
-    "member_urls": [
-     "https://ar5iv.labs.arxiv.org/html/2303.10130",
-     "https://arxiv.org/abs/2303.10130",
-     "https://huggingface.co/papers/2303.10130",
-     "https://ideas.repec.org/p/arx/papers/2303.10130.html"
-    ]
-   },
-   {
     "same_work_id": "titlealone:incorporating ai impacts in bls employment projections occupational case studies monthly labor review u s bureau of labor statistics",
-    "canonical_index": 138,
+    "canonical_index": 140,
     "member_evidence_ids": [
      "ev_093",
      "ev_1023"
@@ -9084,17 +9834,6 @@
     ],
     "member_urls": [
      "https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-state-affairs"
-    ]
-   },
-   {
-    "same_work_id": "titlealone:20240624 en final the impact of ai on work and employment",
-    "canonical_index": 79,
-    "member_evidence_ids": [
-     "ev_158",
-     "ev_1104"
-    ],
-    "member_urls": [
-     "https://www.ioe-emp.org/index.php?eID=dumpFile&t=f&f=160463&token=8a7078c15874881a559cd18ae85a0b9283afd5db"
     ]
    },
    {
@@ -9132,20 +9871,22 @@
     ]
    },
    {
-    "same_work_id": "titlealone:occupational industry and geographic exposure to artificial intelligence a novel dataset and its potential uses",
-    "canonical_index": 249,
+    "same_work_id": "id:repec:bla:stratm:v42y2021i12p2195-2217",
+    "canonical_index": 248,
     "member_evidence_ids": [
      "ev_958",
+     "ev_971",
      "ev_961"
     ],
     "member_urls": [
      "https://collaborate.princeton.edu/en/publications/occupational-industry-and-geographic-exposure-to-artificial-intel/",
-     "https://ideas.repec.org/a/bla/stratm/v42y2021i12p2195-2217.html"
+     "https://ideas.repec.org/a/bla/stratm/v42y2021i12p2195-2217.html",
+     "https://sites.bu.edu/tpri/2021/06/02/occupational-industry-and-geographic-exposure-to-artificial-intelligence-a-novel-dataset-and-its-potential-uses/"
     ]
    },
    {
     "same_work_id": "titlealone:25 039 05fbec84 1f23 459b 8410 e3cd7ab6c88a",
-    "canonical_index": 105,
+    "canonical_index": 106,
     "member_evidence_ids": [
      "ev_000",
      "ev_1013",
@@ -9157,7 +9898,7 @@
    },
    {
     "same_work_id": "titlealone:research how gen ai is already impacting the labor market",
-    "canonical_index": 107,
+    "canonical_index": 108,
     "member_evidence_ids": [
      "ev_056",
      "ev_1052",
@@ -9169,7 +9910,7 @@
    },
    {
     "same_work_id": "titlealone:ai s impact on jobs and work is a choice between two futures",
-    "canonical_index": 115,
+    "canonical_index": 116,
     "member_evidence_ids": [
      "ev_206",
      "ev_1054",
@@ -9180,19 +9921,8 @@
     ]
    },
    {
-    "same_work_id": "titlealone:the effects of ai on firms and workers brookings institution",
-    "canonical_index": 120,
-    "member_evidence_ids": [
-     "ev_145",
-     "ev_1098"
-    ],
-    "member_urls": [
-     "https://www.brookings.edu/articles/the-effects-of-ai-on-firms-and-workers/"
-    ]
-   },
-   {
     "same_work_id": "titlealone:tommie experts generative ai s real world impact on job markets",
-    "canonical_index": 125,
+    "canonical_index": 126,
     "member_evidence_ids": [
      "ev_036",
      "ev_1036",
@@ -9216,7 +9946,7 @@
    },
    {
     "same_work_id": "titlealone:industry and occupational employment projections overview and",
-    "canonical_index": 131,
+    "canonical_index": 132,
     "member_evidence_ids": [
      "ev_497",
      "ev_1051"
@@ -9227,7 +9957,7 @@
    },
    {
     "same_work_id": "title:labor demand in the age of generative ai|y:2023|h:documents1.worldbank.org",
-    "canonical_index": 133,
+    "canonical_index": 134,
     "member_evidence_ids": [
      "ev_1018",
      "ev_1153",
@@ -9239,7 +9969,7 @@
    },
    {
     "same_work_id": "titlealone:artificial intelligence job quality and inclusiveness oecd employment outlook",
-    "canonical_index": 136,
+    "canonical_index": 137,
     "member_evidence_ids": [
      "ev_045",
      "ev_1049"
@@ -9250,7 +9980,7 @@
    },
    {
     "same_work_id": "titlealone:artificial intelligence and jobs no signs of slowing labour demand",
-    "canonical_index": 154,
+    "canonical_index": 156,
     "member_evidence_ids": [
      "ev_179",
      "ev_1057"
@@ -9261,7 +9991,7 @@
    },
    {
     "same_work_id": "titlealone:navigating the research on the impacts of ai on work workers and the labor market",
-    "canonical_index": 155,
+    "canonical_index": 157,
     "member_evidence_ids": [
      "ev_035",
      "ev_1157"
@@ -9272,7 +10002,7 @@
    },
    {
     "same_work_id": "titlealone:ai productivity and labor markets a review of the empirical evidence international center for law economics",
-    "canonical_index": 167,
+    "canonical_index": 169,
     "member_evidence_ids": [
      "ev_1012",
      "ev_1151",
@@ -9298,7 +10028,7 @@
    },
    {
     "same_work_id": "titlealone:pdf the potential impact of artificial intelligence on uk employment and",
-    "canonical_index": 185,
+    "canonical_index": 187,
     "member_evidence_ids": [
      "ev_085",
      "ev_1110"
@@ -9342,7 +10072,7 @@
     ]
    },
    {
-    "same_work_id": "titlealone:language models and cognitive automation for economic research",
+    "same_work_id": "id:repec:nbr:nberwo:30957",
     "canonical_index": 273,
     "member_evidence_ids": [
      "ev_992",
@@ -9359,7 +10089,7 @@
    },
    {
     "same_work_id": "titlealone:artificial intelligence and the future of teaching and",
-    "canonical_index": 266,
+    "canonical_index": 259,
     "member_evidence_ids": [
      "ev_1155",
      "ev_208"
@@ -9381,7 +10111,7 @@
    },
    {
     "same_work_id": "titlealone:productivity growth and employment in the ai era a literature review",
-    "canonical_index": 291,
+    "canonical_index": 290,
     "member_evidence_ids": [
      "ev_1020",
      "ev_012",
@@ -9393,7 +10123,7 @@
    },
    {
     "same_work_id": "titlealone:generative ai and academic integrity in higher education a systematic review and research agenda",
-    "canonical_index": 285,
+    "canonical_index": 284,
     "member_evidence_ids": [
      "ev_1141",
      "ev_1224"
@@ -9404,7 +10134,7 @@
    },
    {
     "same_work_id": "titlealone:assessing the impact of new technologies on the labor market",
-    "canonical_index": 289,
+    "canonical_index": 288,
     "member_evidence_ids": [
      "ev_491",
      "ev_1021"
@@ -9415,7 +10145,7 @@
    },
    {
     "same_work_id": "titlealone:pdf future of jobs report 2025 world economic forum publications",
-    "canonical_index": 294,
+    "canonical_index": 292,
     "member_evidence_ids": [
      "ev_096",
      "ev_1096"
@@ -9425,8 +10155,32 @@
     ]
    },
    {
+    "same_work_id": "title:pdf cost benefit analysis and the environment oecd|y:2006|h:oecd.org",
+    "canonical_index": 330,
+    "member_evidence_ids": [
+     "ev_691",
+     "ev_685"
+    ],
+    "member_urls": [
+     "https://www.oecd.org/content/dam/oecd/en/publications/reports/2006/01/cost-benefit-analysis-and-the-environment_g1gh604e/9789264010055-en.pdf",
+     "https://www.oecd.org/content/dam/oecd/en/publications/reports/2018/06/cost-benefit-analysis-and-the-environment_g1g8b70e/9789264085169-en.pdf"
+    ]
+   },
+   {
+    "same_work_id": "titlealone:pdf literature review on the governance of work",
+    "canonical_index": 359,
+    "member_evidence_ids": [
+     "ev_751",
+     "ev_759"
+    ],
+    "member_urls": [
+     "https://researchrepository.ilo.org/esploro/fulltext/book/Literature-review-on-the-governance-of/995219265802676?repId=12100706150002676&mId=13100811290002676&institution=41ILO_INST",
+     "https://www.ilo.org/media/404761/download"
+    ]
+   },
+   {
     "same_work_id": "titlealone:approaching literature review for academic purposes pmc nih",
-    "canonical_index": 368,
+    "canonical_index": 372,
     "member_evidence_ids": [
      "ev_1121",
      "ev_1267"
@@ -9437,7 +10191,7 @@
    },
    {
     "same_work_id": "url:https://openknowledge.worldbank.org/bitstreams/2106db86-a217-4f8f-81f2-7397feb83c1f/download",
-    "canonical_index": 380,
+    "canonical_index": 385,
     "member_evidence_ids": [
      "ev_1069",
      "ev_1191"
@@ -9448,7 +10202,7 @@
    },
    {
     "same_work_id": "titlealone:the limitations and ethical considerations of chatgpt",
-    "canonical_index": 395,
+    "canonical_index": 398,
     "member_evidence_ids": [
      "ev_1088",
      "ev_1246"
@@ -9459,7 +10213,7 @@
    },
    {
     "same_work_id": "titlealone:a pro innovation approach to ai regulation",
-    "canonical_index": 425,
+    "canonical_index": 433,
     "member_evidence_ids": [
      "ev_758",
      "ev_744"
@@ -9471,7 +10225,7 @@
    },
    {
     "same_work_id": "url:https://openknowledge.worldbank.org/entities/publication/1bb30cd3-c1ea-4d3b-b633-c0254f9ba1cd",
-    "canonical_index": 512,
+    "canonical_index": 531,
     "member_evidence_ids": [
      "ev_1211",
      "ev_1067"
@@ -9482,7 +10236,7 @@
    },
    {
     "same_work_id": "titlealone:ten new insights in climate science 2024 sciencedirect com",
-    "canonical_index": 477,
+    "canonical_index": 487,
     "member_evidence_ids": [
      "ev_1120",
      "ev_1266"
@@ -9493,7 +10247,7 @@
    },
    {
     "same_work_id": "titlealone:pdf decomposing climate risks in stock markets wp 23 141 june",
-    "canonical_index": 488,
+    "canonical_index": 499,
     "member_evidence_ids": [
      "ev_1078",
      "ev_1193"
@@ -9547,11 +10301,11 @@
    "s2_line_screen": {
     "totals": {
      "n_sources_in": 999,
-     "n_sources_kept": 652,
+     "n_sources_kept": 728,
      "n_lines_total": 6623,
-     "n_lines_kept": 4374,
-     "n_dropped_lines": 2249,
-     "n_whole_dropped": 347,
+     "n_lines_kept": 4237,
+     "n_dropped_lines": 2386,
+     "n_whole_dropped": 271,
      "n_screened_llm": 999,
      "n_replayed": 0
     },
