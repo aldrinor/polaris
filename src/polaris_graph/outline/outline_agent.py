@@ -449,6 +449,15 @@ class OutlineWorkspace:
     # bar_reason (see _compute_result_check). Telemetry + planner provenance only; this is
     # NOT a render path and never reaches a writer prompt.
     compute_results: list[dict] = field(default_factory=list)
+    # W3-render (2026-07-11): run-scoped registry of VERIFIED quantified models, keyed by
+    # (model_id, spec_hash) exactly as ``strict_verify(quantified_models=...)`` expects. This is
+    # the ONLY compute-render surface: a number lands here solely by re-derivation through the
+    # fail-closed ModelSpec lane (verified_compute.run_verified_compute -> build_quantified_spec ->
+    # execute_quantified_model), and renders solely via its ``[#calc:model:hash:field]`` token,
+    # which strict_verify force-routes to ``verify_modeled_atom``. Exploratory execute_python output
+    # (compute_results above, renderable=False) NEVER enters this dict — that separation is the
+    # faithfulness invariant (a derived number can never reach the [#ev]/[CITE] render path).
+    quantified_models: dict = field(default_factory=dict)  # (model_id, spec_hash) -> QuantifiedResult
     turn: int = 0
     started_monotonic: float = field(default_factory=time.monotonic)
     checkpoint_dir: Optional[str] = None
