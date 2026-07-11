@@ -331,6 +331,23 @@ def _is_claim_bearing_complete(row: dict[str, Any]) -> bool:
     return bool(_SENTENCE_TERMINAL_RE.search(text)) or len(words) >= 8
 
 
+def _nonclaim_basket_fold_enabled() -> bool:
+    """``PG_FINDING_NONCLAIM_BASKET_FOLD`` kill switch (LAW VI, DEFAULT-ON, S2/S3 re-pass iter-2
+    P0-4(b)). ON => the NON_CLAIM claim-bearing gate is extended from representative CHOICE to
+    basket FORMATION: a row whose body is CONFIDENTLY non-claim-bearing (``_is_claim_bearing_
+    complete`` returns False — a methods/header/citation-listing fragment: mid-sentence ``[...]``
+    truncation, too few content words, no terminal) does NOT mint its OWN numeric finding basket
+    when its SAME-WORK group already has a claim-bearing member. The fragment FOLDS INTO its
+    work (still KEPT + same-work-annotated in ``deduped_rows``) instead of standing as a distinct
+    claim / fake corroborator. §-1.1 FAIL-OPEN: the gate returns True on any doubt, so only a
+    CONFIDENT fragment WITH a real claim-bearing sibling is folded — a genuine claim is never
+    suppressed, and a work with NO claim-bearing member keeps every row as-is. OFF =>
+    byte-identical (every row mints as before)."""
+    return os.getenv("PG_FINDING_NONCLAIM_BASKET_FOLD", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
 def _choose_clean_representative(member_ris: list[int], rank_fn, rows: list[dict[str, Any]]) -> int:
     """The highest-ranked member that is NOT chrome/degraded; if every member is unclean,
     the highest-ranked overall (best available). Deterministic (ties broken by rank_fn).
@@ -526,6 +543,22 @@ def _samework_title_alone_enabled() -> bool:
 def _samework_body_id_enabled() -> bool:
     """``PG_SAMEWORK_BODY_ID`` kill switch (LAW VI). DEFAULT-ON."""
     return os.getenv(_SAMEWORK_BODY_ID_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _samework_title_union_enabled() -> bool:
+    """``PG_SAMEWORK_TITLE_UNION`` kill switch (LAW VI, DEFAULT-ON, S2/S3 re-pass iter-2 P0-4(a)).
+    ON => AFTER work-groups are keyed, a SECOND union pass merges any two work-groups that share
+    an identical DISCRIMINATIVE normalized title (the ``_title_alone_key`` signature — long-title
+    + token floored). This is the cross-mirror bridge the per-row key CANNOT make: an arXiv copy
+    keys ``id:arxiv:...`` while its governance.ai / PDF mirror (no arXiv id in the URL) falls to
+    ``titlealone:...`` — DIFFERENT keys for the SAME work (EL25 vs EL56 'GPTs are GPTs'). A
+    title-normalized match on a different host IS the same work. §-1.3-safe: it only folds the
+    CORROBORATION COUNT (a weight) — the CLAIM merge still requires NLI same-meaning, so a rare
+    title-alone over-fold can never fabricate a corroborated claim; every member URL is kept.
+    OFF => byte-identical (no title union)."""
+    return os.getenv("PG_SAMEWORK_TITLE_UNION", "1").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 
@@ -1553,6 +1586,55 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
                 merged.setdefault(_kf(wkey), []).extend(wris)
             work_members = {k: sorted(set(v)) for k, v in merged.items()}
 
+    # S2/S3 re-pass iter-2 P0-4(a): CROSS-MIRROR TITLE UNION. Merge any two work-groups that share
+    # an identical DISCRIMINATIVE normalized title (``_title_alone_key`` — long-title + token
+    # floored). This is the bridge the per-row key cannot make on its own: an arXiv copy keys
+    # ``id:arxiv:...`` while its governance.ai / PDF mirror (no arXiv id in the URL) falls to
+    # ``titlealone:...`` — DIFFERENT keys for the SAME work (EL25 'GPTs are GPTs' arXiv vs EL56 its
+    # PDF mirror). A title-normalized match on a different host IS the same work. Mirrors the URL
+    # union above; §-1.3-safe (folds only the corroboration COUNT — the CLAIM merge still needs
+    # NLI, so a rare title over-fold can never fabricate a corroborated claim; every URL kept).
+    if _samework_title_union_enabled() and len(work_members) > 1:
+        title_to_keys: dict[str, set[str]] = {}
+        for wkey, wris in work_members.items():
+            for ri in wris:
+                ta = _title_alone_key(rows[ri])  # 'titlealone:<folded>' or '' (floor-guarded)
+                if ta:
+                    title_to_keys.setdefault(ta, set()).add(wkey)
+        title_parent: dict[str, str] = {}
+
+        def _tf(k: str) -> str:
+            title_parent.setdefault(k, k)
+            root = k
+            while title_parent[root] != root:
+                root = title_parent[root]
+            while title_parent[k] != root:
+                title_parent[k], k = root, title_parent[k]
+            return root
+
+        def _t_id_bearing(k: str) -> int:
+            # Prefer an id-bearing / url key as the surviving root over a bare titlealone key.
+            return 0 if k.startswith(("doi:", "id:", "arxiv:", "url:")) else 1
+
+        def _tu(a: str, b: str) -> None:
+            ra, rb = _tf(a), _tf(b)
+            if ra == rb:
+                return
+            lo, hi = sorted((ra, rb), key=lambda k: (_t_id_bearing(k), k))
+            title_parent[hi] = lo  # attach the weaker/later key under the id-bearing/earlier root
+
+        for _ta, ks in title_to_keys.items():
+            if len(ks) < 2:
+                continue  # a title carried by only ONE work-group unions nothing
+            ks_list = sorted(ks)
+            for k in ks_list[1:]:
+                _tu(ks_list[0], k)
+        if any(_tf(k) != k for k in list(work_members.keys())):
+            merged_t: dict[str, list[int]] = {}
+            for wkey, wris in work_members.items():
+                merged_t.setdefault(_tf(wkey), []).extend(wris)
+            work_members = {k: sorted(set(v)) for k, v in merged_t.items()}
+
     dropped_prefix: set[int] = set()
     groups: list[SameWorkGroup] = []
     work_id_by_index: dict[int, str] = {}
@@ -2001,6 +2083,20 @@ def _numeric_nli_confirm_enabled() -> bool:
     )
 
 
+def _numeric_nli_confirm_strict_enabled() -> bool:
+    """``PG_FINDING_NUMERIC_NLI_CONFIRM_STRICT`` kill switch (LAW VI, DEFAULT-ON, S2/S3 re-pass
+    iter-2 P0-3(b)). The fail-open DIRECTION for the numeric split-confirm: a member stays in a
+    merged basket ONLY when the NLI POSITIVELY confirms same-claim in BOTH directions. Anything
+    the judge does NOT positively confirm — a confident non-entailment, a one-way relation, OR an
+    infra ``None`` (empty text / model unavailable / degrade) — SPLITS to its own singleton. A
+    false-merge is worse than a missed-merge (basket 0 corr=15 / basket 24 corr=27 were
+    unconfirmed merges that shipped — that path must be impossible). OFF => the legacy direction
+    (infra ``None`` KEEPS the numeric-tuple prior; split only on a CONFIDENT non-entailment)."""
+    return os.getenv("PG_FINDING_NUMERIC_NLI_CONFIRM_STRICT", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
 def _confirm_numeric_clusters_via_nli(
     groups: dict[tuple, list[int]],
     rows: list[dict[str, Any]],
@@ -2044,6 +2140,7 @@ def _confirm_numeric_clusters_via_nli(
         )
         confirmed = [rep_ri]
         split_members: list[int] = []
+        strict = _numeric_nli_confirm_strict_enabled()
         for mri in distinct:
             if mri == rep_ri:
                 continue
@@ -2051,20 +2148,22 @@ def _confirm_numeric_clusters_via_nli(
                 _collapse_letter_spacing(_claim_sentence(rows[mri], value))
             )
             fwd = entail_fn(rep_text, m_text)
-            # SPLIT only on a CONFIDENT non-entailment (a real verdict that the two claims
-            # differ). The tuple key (exact subject/predicate/value/unit) is a STRONG same-claim
-            # prior, so an infra ``None`` (model outage) KEEPS the member rather than destroying
-            # genuine corroboration on a hiccup — unlike the greedy-Jaccard qual path, whose
-            # only prior is lexical overlap and so splits on None. §-1.1 false corroboration is
-            # still blocked: a folded-subject/locator collision gives a confident False here.
-            if fwd is False:
-                split_members.append(mri)
-                continue
             rev = entail_fn(m_text, rep_text) if fwd is True else None
-            if rev is False:
+            if fwd is True and rev is True:
+                confirmed.append(mri)  # POSITIVELY confirmed both directions => stays merged
+            elif strict:
+                # P0-3(b) SPLIT-not-merge: anything NOT positively confirmed — a confident
+                # non-entailment, a one-way relation, OR an infra ``None`` (empty text / model
+                # unavailable / degrade) — splits to its own singleton. A false-merge is worse
+                # than a missed-merge; an unconfirmed numeric merge must be impossible.
                 split_members.append(mri)
             else:
-                confirmed.append(mri)  # True/True or any infra None => keep the tuple prior
+                # Legacy direction: the tuple key is a STRONG same-claim prior, so split only on
+                # a CONFIDENT non-entailment; an infra ``None`` KEEPS the member (byte-identical).
+                if fwd is False or rev is False:
+                    split_members.append(mri)
+                else:
+                    confirmed.append(mri)
         out[key] = sorted(set(confirmed))
         for mri in split_members:
             # A distinct, numeric-shaped singleton key: preserves key[2]=value so the
@@ -3417,6 +3516,18 @@ def dedup_by_finding(
     # verbatim strict subject key (byte-identical); a NON-clinical row folds its
     # subject to a surface-invariant signature so paraphrases consolidate.
     from src.polaris_graph.domain.domain_signal import is_clinical_domain
+    # P0-4(b): which same-work groups already carry a CLAIM-BEARING member. A confidently
+    # non-claim-bearing fragment is folded (mints no competing basket) ONLY when its work has a
+    # real claim-bearing member to represent the work's claim. Computed once, deterministic.
+    nonclaim_fold = _nonclaim_basket_fold_enabled()
+    work_has_claimbearing: dict[str, bool] = {}
+    if nonclaim_fold:
+        for _ri, _row in enumerate(rows):
+            if _ri in dropped:
+                continue
+            _wid = same_work.work_id_by_index.get(_ri)
+            if _wid and not work_has_claimbearing.get(_wid) and _is_claim_bearing_complete(_row):
+                work_has_claimbearing[_wid] = True
     groups: dict[tuple, list[int]] = {}
     row_has_finding: list[bool] = [False] * len(rows)
     for ri, row in enumerate(rows):
@@ -3424,6 +3535,19 @@ def dedup_by_finding(
             # CAPTCHA stub / strict-prefix truncated dup — no real claim; never
             # clustered, never emitted (see step 0 + step 3).
             continue
+        # P0-4(b): CONFIDENTLY non-claim-bearing fragment (methods/header/citation-listing) whose
+        # SAME-WORK group already has a claim-bearing member folds into the work — it mints NO
+        # numeric finding basket (row still KEPT + annotated to its work in step 3). Never the
+        # canonical member (the work's chosen representative always mints). §-1.1 fail-open: the
+        # gate returns True on doubt, so a real claim is never suppressed.
+        if nonclaim_fold and not _is_claim_bearing_complete(row):
+            _wid = same_work.work_id_by_index.get(ri)
+            if (
+                _wid
+                and work_has_claimbearing.get(_wid)
+                and same_work.canonical_index_by_index.get(ri) != ri
+            ):
+                continue
         claims = (
             extract_numeric_claims([row], domain=domain)
             if domain is not None else extract_numeric_claims([row])

@@ -32,9 +32,16 @@ _SLATE = {
     'PG_CORROBORATION_DISTINCT_WORKS': '1',  # Fix 5: corroboration = distinct works
     'PG_CORROBORATION_DERIVATIVE_PRESS': '1',  # Fix 6: derivative-press excluded from count
     'PG_CONSOLIDATION_NLI_QUALITATIVE': '1',  # Fix 3(a): NLI merges qualitative baskets too
-    'PG_CONSOLIDATION_NLI_SUBBUCKET': '1',    # Fix 3: pre-bucket over-cap buckets so large
-                                              # same-value clusters still NLI-merge (the two
-                                              # 44k/51k-pair buckets were skipped otherwise)
+    'PG_CONSOLIDATION_NLI_SUBBUCKET': '1',    # iter-2 P0-3a: lexical FALLBACK if the embedder
+                                              # is unavailable (embed-block is now the primary
+                                              # over-cap path); still never SKIPs-all
+    # ── S2/S3 re-pass iter-2 (Fable full-list) ──
+    'PG_CONSOLIDATION_NLI_EMBED_BLOCK': '1',  # P0-3a: SEMANTIC embedding blocking for over-cap
+                                              # buckets (top-k neighbors, not degenerate lexical)
+    'PG_FINDING_NUMERIC_NLI_CONFIRM': '1',    # P0-3b: numeric tuple key is RECALL only; NLI decides
+    'PG_FINDING_NUMERIC_NLI_CONFIRM_STRICT': '1',  # P0-3b: fail-open = SPLIT (unconfirmed => singleton)
+    'PG_SAMEWORK_TITLE_UNION': '1',           # P0-4a: cross-mirror same-work title union (EL25/EL56)
+    'PG_FINDING_NONCLAIM_BASKET_FOLD': '1',   # P0-4b: non-claim fragments fold into their work
 }
 
 

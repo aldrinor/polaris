@@ -368,12 +368,104 @@ def _derive_ontopic_anchors(
     return [p for p, c in counter.most_common() if c >= min_occurrences][:cap]
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# P0-2 (S2/S3 re-pass iter-2) — QUESTION-DELIVERABLE ANCHORS (default ON)
+# ─────────────────────────────────────────────────────────────────────────
+# ROOT CAUSE (Fable, forensic on the fresh 04:15 disclosure): the topic judge
+# whole-dropped credible ON-topic OCCUPATION sources (BLS occupational-outlook /
+# wage pages for Lawyers, Financial Analysts, paralegals, data-entry, medical-
+# transcription, ...) as OFF_SUBJECT. The drb_72 question REQUIRES an occupation
+# case-study table (a mandated "Application Area/Occupation" column), so an
+# authoritative page ABOUT a required occupation is exactly the evidence the
+# deliverable needs — even when the page never names the core technology. The
+# category-consistency guard could not save them: the judge stamped the WHOLE
+# occupation category OFF, so no same-category sibling was KEPT for the guard to
+# key on. The corpus-recurrent ``_derive_ontopic_anchors`` leg (default OFF) also
+# cannot help — the anchors come from the CORPUS, and the corpus's occupation
+# pages were the ones being dropped.
+#
+# THE FIX (general, question-agnostic): derive the DELIVERABLE AXES the QUESTION
+# TEXT itself demands — its required table columns, quoted headers, enumerated
+# occupations/industries, and the axis nouns (occupations / industries / sectors
+# / professions / application areas / case studies) it asks the report to break
+# findings down by — and inject them into the judge prompt as explicit ON-TOPIC
+# scope: a source whose SUBJECT is one of the question-required occupations /
+# industries / application areas is ON even if it does not mention the core
+# technology. The anchors come from the QUESTION, never from the corpus or a
+# hardcoded entity/occupation list, so it generalizes to ANY research question
+# (a question that asks for no occupation/industry breakdown yields no axis
+# anchors => the injection is inert => byte-identical). Fail-open preserved.
+def _question_deliverable_anchors_enabled() -> bool:
+    """``PG_TOPIC_QUESTION_DELIVERABLE_ANCHORS`` kill switch (LAW VI, DEFAULT ON, P0-2). ON =>
+    the judge prompt is told that a source whose subject is one of the question-required
+    deliverable axes (occupations / industries / application areas the QUESTION demands a
+    breakdown by) is ON-topic even without the core technology. It can only make the judge
+    KEEP more (never delete more); §-1.3.1 credible-on-topic-never-deleted. OFF => byte-identical
+    legacy prompt (no deliverable-axis block)."""
+    return os.environ.get(
+        "PG_TOPIC_QUESTION_DELIVERABLE_ANCHORS", "1"
+    ).strip().lower() not in ("0", "false", "no", "off", "")
+
+
+# A quoted phrase in the question is almost always a REQUIRED entity / table-column header
+# (ASCII, curly, or single quotes). Bounded 2..60 chars so a long quoted sentence is skipped.
+_DELIVERABLE_QUOTED_RE = re.compile(
+    "[“”\"]([^“”\"]{2,60})[“”\"]"
+    "|[‘’']([^‘’']{2,60})[‘’']"
+)
+# An enumeration the question spells out ("such as X, Y and Z", "including A/B").
+_DELIVERABLE_ENUM_RE = re.compile(
+    r"(?:such as|including|like|e\.g\.,?|for example|namely|specifically)\s+([^.;:\n]{3,180})",
+    re.IGNORECASE,
+)
+# The deliverable-axis nouns a question demands a breakdown BY. Presence of one of these means
+# the report must cover per-occupation / per-industry / per-application cases, so an
+# authoritative page ABOUT such an entity is on-topic even without the core technology.
+_DELIVERABLE_AXIS_NOUN_RE = re.compile(
+    r"\b(occupations?|industr(?:y|ies)|sectors?|professions?|job roles?|"
+    r"application areas?|use cases?|case stud(?:y|ies)|disciplines?|specialt(?:y|ies))\b",
+    re.IGNORECASE,
+)
+
+
+def _derive_question_deliverable_anchors(
+    research_question: str, *, cap: int = 24,
+) -> list[str]:
+    """The DELIVERABLE AXES the QUESTION TEXT itself demands (P0-2): quoted table-column
+    headers / required entities, spelled-out enumerations, and the axis nouns the report
+    must break findings down by. General + question-agnostic — every anchor is lifted from
+    the QUESTION, nothing is hardcoded or corpus-derived. Empty when the question asks for
+    no such breakdown (the injection is then inert => byte-identical legacy)."""
+    q = " ".join(str(research_question or "").split())
+    if not q:
+        return []
+    anchors: list[str] = []
+    seen: set[str] = set()
+
+    def _add(phrase: str) -> None:
+        p = " ".join(str(phrase or "").split()).strip(" .,;:—–-/|\"'")
+        key = p.casefold()
+        if p and 2 <= len(p) <= 60 and any(ch.isalnum() for ch in p) and key not in seen:
+            seen.add(key)
+            anchors.append(p)
+
+    for m in _DELIVERABLE_QUOTED_RE.finditer(q):
+        _add(m.group(1) or m.group(2) or "")
+    for m in _DELIVERABLE_ENUM_RE.finditer(q):
+        for part in re.split(r",|;|/|\band\b|\bor\b", m.group(1)):
+            _add(part)
+    for m in _DELIVERABLE_AXIS_NOUN_RE.finditer(q):
+        _add(m.group(1))
+    return anchors[:cap]
+
+
 def _build_batch_prompt(
     research_question: str,
     batch: list[tuple[int, str, str]],
     *,
     subject_aspect_split: bool = False,
     ontopic_anchors: list[str] | None = None,
+    deliverable_anchors: list[str] | None = None,
 ) -> str:
     """Build a single ON/OFF-topic classification prompt for a batch of
     sources. ``batch`` is a list of (local_index, title, snippet). The LLM is
@@ -505,6 +597,28 @@ def _build_batch_prompt(
                 "",
             ]
             if _authoritative_reference_ontopic_enabled() else []
+        ),
+        # P0-2 (S2/S3 re-pass iter-2): QUESTION-DELIVERABLE AXES. When the RESEARCH QUESTION
+        # itself demands a breakdown by occupation / industry / application area (its required
+        # table columns / enumerated axes), a source whose SUBJECT is one of those required
+        # axes is ON — it supplies a required case/column of the deliverable — even if it never
+        # names the core technology. Anchors are lifted from the QUESTION (never the corpus),
+        # so this is inert for a question that asks for no such breakdown.
+        *(
+            [
+                "QUESTION-REQUIRED DELIVERABLE AXES: the report this question asks for must "
+                "break its findings down by these axes / columns that the RESEARCH QUESTION "
+                "ITSELF names: " + "; ".join(deliverable_anchors) + ". A source whose SUBJECT "
+                "is one of the question-required occupations, industries, sectors, professions, "
+                "or application areas is ON-topic even if it does NOT mention the core "
+                "technology / subject of the question — it supplies a required case or column "
+                "of the deliverable (for example, an official occupational-outlook, wage, or "
+                "industry-statistics page for an occupation or industry the report must cover "
+                "is ON). Judge the ENTITY against BOTH the core question AND these required "
+                "deliverable axes; when a source clearly fills a required axis, prefer ON.",
+                "",
+            ]
+            if deliverable_anchors else []
         ),
         "FAIL-OPEN: if you genuinely cannot tell whether the source addresses the "
         "question's specific aspect, mark it ON. When in doubt, answer ON.",
@@ -741,6 +855,20 @@ def classify_topic_relevance(
     ontopic_anchors = (
         _derive_ontopic_anchors(judged_meta) if _ontopic_anchors_enabled() else []
     )
+    # P0-2 (default ON): question-DELIVERABLE axes derived once from the QUESTION TEXT (the
+    # occupations / industries / application areas / required table columns the report must
+    # cover). Injected as explicit ON-TOPIC scope so a credible page ABOUT a required
+    # occupation/industry is not whole-dropped as OFF_SUBJECT (§-1.3.1 credible-on-topic-never-
+    # deleted). General/question-agnostic — empty for a question that demands no such breakdown.
+    deliverable_anchors = (
+        _derive_question_deliverable_anchors(research_question)
+        if _question_deliverable_anchors_enabled() else []
+    )
+    if deliverable_anchors:
+        _LOGGER.info(
+            "[scope] topic_gate P0-2 question-deliverable anchors (%d) injected as ON-TOPIC "
+            "scope: %s", len(deliverable_anchors), "; ".join(deliverable_anchors[:12]),
+        )
 
     for start in range(0, len(judged_rows), size):
         end = min(start + size, len(judged_rows))
@@ -754,6 +882,7 @@ def classify_topic_relevance(
         prompt = _build_batch_prompt(
             research_question, batch, subject_aspect_split=split,
             ontopic_anchors=ontopic_anchors,
+            deliverable_anchors=deliverable_anchors,
         )
         try:
             raw = llm_callable(prompt)

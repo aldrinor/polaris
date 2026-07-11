@@ -96,6 +96,19 @@ ENV_SUBBUCKET = "PG_CONSOLIDATION_NLI_SUBBUCKET"
 # Content-word Jaccard threshold for routing a text into an existing sub-bucket (the
 # similarity key that keeps near-duplicates together). LAW VI env-tunable.
 ENV_SUBBUCKET_JACCARD = "PG_CONSOLIDATION_NLI_SUBBUCKET_JACCARD"
+# S2/S3 re-pass iter-2 P0-3(a): SEMANTIC EMBEDDING BLOCKING — the RIGHT over-cap candidate
+# generator. Instead of lexical-Jaccard sub-bucketing (which degenerated to ~292 sub-buckets
+# of size <=3 => only 8 of 44551 pairs ever scored, so near-paraphrases with different surface
+# words never reached the judge and false-merges shipped), embed every candidate text with a
+# local bi-encoder and take each text's top-k ANN neighbors as the candidate pairs. The pair
+# count is then LINEAR in the number of texts (~n*k/2), so the cap stops binding AND
+# same-meaning-different-words pairs actually reach the cross-encoder. Over-cap NEVER means
+# SKIP-all. DEFAULT-ON; a load/predict failure FAILS-OPEN to the lexical sub-bucket path (which
+# itself never skips-all) so a missing embedder can never resurrect the skip. Env-tunable (LAW VI).
+ENV_EMBED_BLOCK = "PG_CONSOLIDATION_NLI_EMBED_BLOCK"
+ENV_EMBED_MODEL = "PG_CONSOLIDATION_NLI_EMBED_MODEL"
+ENV_EMBED_TOPK = "PG_CONSOLIDATION_NLI_EMBED_TOPK"
+ENV_EMBED_DEVICE = "PG_CONSOLIDATION_NLI_EMBED_DEVICE"
 
 _DEFAULT_MODEL = "cross-encoder/nli-deberta-v3-base"
 _DEFAULT_WORKERS = "8"
@@ -113,6 +126,11 @@ _DEFAULT_MAX_PAIRS = "60000"
 _DEFAULT_WALL_SECONDS = "180"   # I-deepfix-001 C2: per-call score_pairs total wall (s)
 _DEFAULT_PREDICT_CHUNK = "256"  # I-deepfix-001 #1344: max index-pairs per `.predict` forward
 _DEFAULT_SUBBUCKET_JACCARD = "0.30"  # I-deepfix-001 W04-prebucket (#1369): routing threshold
+# S2/S3 re-pass iter-2 P0-3(a): the local bi-encoder for semantic blocking + its top-k. The
+# pipeline's standard bi-encoder (retrieval/pooled_embedder) is all-MiniLM-L6-v2; env-overridable
+# to any cached local encoder. k~20 neighbors per text keeps candidate pairs linear in n.
+_DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+_DEFAULT_EMBED_TOPK = "20"
 _CPU_DEVICE = "cpu"         # the OOM-degrade target
 
 # nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
@@ -346,6 +364,165 @@ def _pre_bucket_indices(texts: list[str], max_pairs: int) -> list[list[int]]:
             buckets.append([i])
             representatives.append(sig)
     return buckets
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Semantic EMBEDDING BLOCKING — S2/S3 re-pass iter-2 P0-3(a)
+# ─────────────────────────────────────────────────────────────────────────
+def _embed_block_enabled() -> bool:
+    """``PG_CONSOLIDATION_NLI_EMBED_BLOCK`` gate (LAW VI, DEFAULT-ON). ON => an over-cap bucket's
+    candidate pairs come from top-k semantic neighbors (a local bi-encoder), NOT lexical
+    sub-bucketing. A load/predict failure fails-open to the lexical sub-bucket path, so a missing
+    embedder can never re-open the over-cap SKIP-all. OFF => the lexical sub-bucket / skip path
+    runs exactly as before (byte-identical)."""
+    return os.getenv(ENV_EMBED_BLOCK, "1").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _embed_topk() -> int:
+    """``PG_CONSOLIDATION_NLI_EMBED_TOPK`` (default 20): neighbors per text in the ANN block.
+    Keeps the candidate-pair count ~linear (n*k/2)."""
+    return _read_int(ENV_EMBED_TOPK, _DEFAULT_EMBED_TOPK, lo=1, hi=200)
+
+
+def _embed_device() -> Optional[str]:
+    """The bi-encoder device: ``PG_CONSOLIDATION_NLI_EMBED_DEVICE`` first, else the cross-encoder's
+    ``PG_CONSOLIDATION_NLI_DEVICE`` (so one env can pin both), else None (library auto-placement)."""
+    raw = os.environ.get(ENV_EMBED_DEVICE, "").strip()
+    return raw or _device()
+
+
+_EMBED_LOCK = threading.Lock()
+_EMBED_MODEL_OBJ: Any = None
+_EMBED_MODEL_DEVICE: Optional[str] = None
+
+
+def _load_embedder(device: Optional[str] = None) -> Any:
+    """Lazily load the sentence bi-encoder ONCE per process (double-checked lock). CUDA OOM on the
+    GPU load DEGRADES to CPU (blocking never dies on a crammed card). A non-OOM error is re-raised
+    to the caller, which fails-open to the lexical path. Kept separate from the cross-encoder
+    ``_MODEL`` so the two never contend on one lock."""
+    global _EMBED_MODEL_OBJ, _EMBED_MODEL_DEVICE
+    if _EMBED_MODEL_OBJ is not None:
+        return _EMBED_MODEL_OBJ
+    with _EMBED_LOCK:
+        if _EMBED_MODEL_OBJ is not None:
+            return _EMBED_MODEL_OBJ
+        from sentence_transformers import SentenceTransformer  # noqa: PLC0415 — lazy by design
+
+        model_id = os.environ.get(ENV_EMBED_MODEL, "").strip() or _DEFAULT_EMBED_MODEL
+        want_device = _embed_device() if device is None else device
+        logger.info(
+            "[consolidation_nli] loading embedding blocker %s (device=%s)",
+            model_id, want_device or "auto",
+        )
+        try:
+            _EMBED_MODEL_OBJ = (
+                SentenceTransformer(model_id) if want_device is None
+                else SentenceTransformer(model_id, device=want_device)
+            )
+            _EMBED_MODEL_DEVICE = want_device
+        except Exception as exc:  # noqa: BLE001 — only a CUDA OOM degrades; else re-raise
+            if not _is_cuda_oom(exc) or want_device == _CPU_DEVICE:
+                raise
+            logger.warning(
+                "[consolidation_nli] CUDA OOM loading the embedding blocker on device=%s; "
+                "DEGRADING to CPU: %s", want_device, exc,
+            )
+            _EMBED_MODEL_OBJ = SentenceTransformer(model_id, device=_CPU_DEVICE)
+            _EMBED_MODEL_DEVICE = _CPU_DEVICE
+        return _EMBED_MODEL_OBJ
+
+
+def _embedding_blocked_pairs(
+    texts: list[str],
+    max_pairs: int,
+    *,
+    topk: Optional[int] = None,
+    embed_fn: Optional[Callable[[list[str]], Any]] = None,
+) -> Optional[list[tuple[int, int]]]:
+    """SEMANTIC candidate pairs for an over-cap bucket (P0-3(a)): each text's top-k nearest
+    neighbors by cosine similarity, unioned into ``(i, j)`` (i<j) pairs.
+
+    Returns the sorted, de-duplicated pair list (possibly empty — a bucket with no near
+    neighbors legitimately has no candidate merges), OR ``None`` on ANY embedder failure so the
+    caller can fall back to the lexical sub-bucket path (over-cap NEVER means SKIP-all). Pair
+    count is ~linear (n*k/2) so the O(n^2) cap the caller enforces stops binding while
+    same-meaning-different-words pairs still reach the cross-encoder. ``embed_fn`` is the
+    deterministic test seam (a stub embedder needs no model download); production passes None =>
+    the lazy local bi-encoder. §-1.3: this only NOMINATES candidates — the bidirectional
+    cross-encoder is still the sole MERGE decider, so a spurious neighbor can never fabricate a
+    merge (it must also bidirectionally entail)."""
+    n = len(texts)
+    if n < 2:
+        return []
+    k = _embed_topk() if topk is None else topk
+    try:
+        import numpy as np  # noqa: PLC0415 — lazy (only the over-cap path needs it)
+
+        if embed_fn is None:
+            model = _load_embedder()
+            def _encode(batch: list[str]) -> Any:
+                try:
+                    return model.encode(
+                        batch, batch_size=256, convert_to_numpy=True,
+                        normalize_embeddings=True, show_progress_bar=False,
+                    )
+                except Exception as exc:  # noqa: BLE001 — a CUDA OOM re-scores on CPU once
+                    if not _is_cuda_oom(exc):
+                        raise
+                    logger.warning(
+                        "[consolidation_nli] embed CUDA OOM; re-encoding on CPU: %s", exc,
+                    )
+                    cpu = _load_embedder(_CPU_DEVICE)
+                    return cpu.encode(
+                        batch, batch_size=128, convert_to_numpy=True,
+                        normalize_embeddings=True, show_progress_bar=False,
+                    )
+            embed_fn = _encode
+        embs = np.asarray(embed_fn(list(texts)), dtype=np.float32)
+        if embs.ndim != 2 or embs.shape[0] != n:
+            logger.warning(
+                "[consolidation_nli] embedding blocker returned shape %s for %d texts — "
+                "falling back to lexical sub-bucketing.", getattr(embs, "shape", None), n,
+            )
+            return None
+        # Re-normalize defensively so cosine == dot even if the encoder skipped normalization.
+        norms = np.linalg.norm(embs, axis=1, keepdims=True)
+        norms[norms < 1e-8] = 1.0
+        embs = embs / norms
+        k_eff = min(k, n - 1)
+        pair_set: set[tuple[int, int]] = set()
+        pair_sim: dict[tuple[int, int], float] = {}
+        block = 512  # bound peak memory of the similarity slab regardless of n
+        for start in range(0, n, block):
+            end = min(start + block, n)
+            sims = embs[start:end] @ embs.T  # (rows, n) cosine similarities
+            # top-(k_eff+1) per row (the +1 absorbs the self match, dropped below).
+            kk = min(k_eff + 1, n)
+            idx = np.argpartition(-sims, kth=kk - 1, axis=1)[:, :kk]
+            for r in range(end - start):
+                i = start + r
+                for j in idx[r].tolist():
+                    if j == i:
+                        continue
+                    a, b = (i, j) if i < j else (j, i)
+                    s = float(sims[r, j])
+                    prev = pair_sim.get((a, b))
+                    if prev is None or s > prev:
+                        pair_sim[(a, b)] = s
+                    pair_set.add((a, b))
+        pairs = sorted(pair_set)
+        if len(pairs) > max_pairs:
+            # Keep the highest-similarity candidates so the bound holds without a blanket skip.
+            pairs = sorted(pairs, key=lambda p: pair_sim.get(p, 0.0), reverse=True)[:max_pairs]
+            pairs.sort()
+        return pairs
+    except Exception as exc:  # noqa: BLE001 — ANY failure => fall back to lexical (never skip-all)
+        logger.warning(
+            "[consolidation_nli] embedding blocking unavailable (%s); falling back to lexical "
+            "sub-bucketing (over-cap still never SKIPs-all).", exc,
+        )
+        return None
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -600,7 +777,27 @@ def score_pairs(
     total_pairs = n * (n - 1) // 2
     pairs: list[tuple[int, int]]
     if total_pairs > max_pairs:
-        if _subbucket_enabled():
+        # S2/S3 re-pass iter-2 P0-3(a): SEMANTIC EMBEDDING BLOCKING is the FIRST over-cap
+        # strategy — top-k bi-encoder neighbors become the candidate pairs, so the pair count
+        # is ~linear (n*k/2), the cap stops binding, and same-meaning-different-words pairs
+        # reach the cross-encoder (the lexical sub-bucket degenerated to ~size-3 buckets =>
+        # 8 of 44551 pairs scored => false-merges). A None => embedder unavailable => fall
+        # through to the lexical sub-bucket path below (over-cap STILL never SKIPs-all).
+        _emb_pairs = (
+            _embedding_blocked_pairs(texts, max_pairs) if _embed_block_enabled() else None
+        )
+        if _emb_pairs is not None:
+            pairs = _emb_pairs
+            logger.warning(
+                "[consolidation_nli] P0-3a EMBED-BLOCK: %d candidate pairs exceeds %s=%d — "
+                "SEMANTIC-BLOCKING %d texts to %d top-k-neighbor pairs (NLI decides each; "
+                "cross-neighbor near-dups stay UNMERGED = KEEP; over-cap never SKIPs-all, "
+                "§-1.3).",
+                total_pairs, ENV_MAX_PAIRS, max_pairs, n, len(pairs),
+            )
+            if not pairs:
+                return []
+        elif _subbucket_enabled():
             # I-deepfix-001 W04-prebucket (#1369): the RIGHT over-cap behavior — SUB-DIVIDE
             # the bucket into lexical-overlap sub-buckets whose per-sub-bucket pair count
             # stays <= the cap, then score ONLY the within-sub-bucket pairs through the
