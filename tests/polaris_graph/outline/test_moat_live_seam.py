@@ -274,3 +274,29 @@ def test_FULL_CHAIN_tool_to_map_to_composer_renders_number():
         "the seam-produced emission map must render the number in the composer section body; "
         f"verified_text={result.verified_text!r}"
     )
+
+
+def test_calc_claims_duplicate_section_title_uniqueness_guard():
+    """Duplicate-section-title uniqueness guard in ``_build_calc_claims_map``: two draft plans carry
+    the SAME title with SPLIT ev_ids. A claim whose evidence is spread across BOTH halves must home
+    to that title — not to a competing section that overlaps more of EITHER half alone. The union
+    fold makes the shared title win on its full evidence set (deterministic first-max)."""
+    from types import SimpleNamespace
+    from src.polaris_graph.outline.outline_agent import _build_calc_claims_map
+
+    ws = SimpleNamespace(
+        outline_draft=[
+            {"title": "Efficacy", "ev_ids": ["ev_a"]},   # duplicate title, first half of its evidence
+            {"title": "Efficacy", "ev_ids": ["ev_b"]},   # duplicate title, second half
+            {"title": "Costs", "ev_ids": ["ev_a", "ev_b", "ev_c"]},  # competitor that overlaps each half
+        ],
+        computed_claims=[
+            {"sentence": "The lift was 12%.", "calc_token": "#calc:tok1",
+             "section": "", "input_ev_ids": ["ev_a", "ev_b"]},
+        ],
+    )
+    out = _build_calc_claims_map(ws)
+    # Split across two "Efficacy" plans, the OLD list keying under-counted each half (overlap 1)
+    # and mis-homed to "Costs" (overlap 2). The union guard homes to "Efficacy" on its full set.
+    assert out.get("Efficacy") == ["The lift was 12%."]
+    assert "Costs" not in out

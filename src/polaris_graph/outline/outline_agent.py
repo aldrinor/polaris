@@ -2138,14 +2138,21 @@ def _build_calc_claims_map(final_ws: "OutlineWorkspace") -> dict[str, list[str]]
     the writer prose only); it can never render a phantom section.
     Dedup: identical (section, calc_token) records collapse so a claim is appended at most once.
     """
-    # section title -> set of ev_ids (from the FINAL outline draft the agent produced)
-    sec_ev: list[tuple[str, set[str]]] = []
+    # section title -> UNION of ev_ids (from the FINAL outline draft the agent produced).
+    # Duplicate-section-title uniqueness guard: two draft plans may carry the SAME title. A plain
+    # list of (title, ev_ids) pairs would then split that title's ev_ids across two entries, so an
+    # auto-home overlap would be measured against only ONE half (under-counting, possible mis-home)
+    # and the emission key would be ambiguous. Fold duplicate titles into ONE entry with the UNION
+    # of their ev_ids (dict preserves first-seen order => deterministic) so each distinct title
+    # homes exactly once against its full evidence set.
+    sec_ev_map: dict[str, set[str]] = {}
     for p in final_ws.outline_draft:
         title = _plan_field(p, "title", "") or ""
-        ev_ids = set(_plan_field(p, "ev_ids", []) or [])
-        if title:
-            sec_ev.append((title, ev_ids))
-    valid_titles = {t for t, _ in sec_ev}
+        if not title:
+            continue
+        sec_ev_map.setdefault(title, set()).update(_plan_field(p, "ev_ids", []) or [])
+    sec_ev: list[tuple[str, set[str]]] = list(sec_ev_map.items())
+    valid_titles = set(sec_ev_map)
 
     out: dict[str, list[str]] = {}
     seen: set[tuple[str, str]] = set()

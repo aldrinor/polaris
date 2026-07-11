@@ -317,6 +317,61 @@ def test_item4_single_cp3_key_unifies_group() -> None:
     assert alias["e2"] == "doi:gpts"
 
 
+def _drow(ev_id: str, title: str, doi: str, url: str, tier: str = "T1") -> dict:
+    return {"evidence_id": ev_id, "title": title, "statement": f"claim {ev_id}",
+            "tier": tier, "doi": doi, "source_url": url}
+
+
+def test_item5_doi_fold_same_doi_different_url_unify_one_work() -> None:
+    """item 5 (DOI fold): three rows sharing ONE ``10.`` DOI at THREE distinct URLs with THREE
+    distinct titles fold to a single ``doi:`` work — the same-DOI-different-URL split the cp3 URL
+    keying missed."""
+    ev = [
+        _drow("d1", "Wages and AI A Randomized Study of Software Engineers", "10.5/paper", "https://arxiv.org/abs/1"),
+        _drow("d2", "Press Release on the Software Engineer Wage Experiment", "10.5/paper", "https://newswire.example/2"),
+        _drow("d3", "Blog Recap of the Engineer Wage Experiment Findings", "10.5/paper", "https://blog.example/3"),
+    ]
+    alias = _build_alias_map([], ev)  # work-aware, cp3 empty => DOI fold only
+    assert alias["d1"] == alias["d2"] == alias["d3"] == "doi:10.5/paper"
+
+
+def test_item5_doi_fold_distinct_dois_stay_separate() -> None:
+    """item 5 guard: rows with DISTINCT DOIs are NOT folded (byte-identical to no-fold: each row is
+    its own work)."""
+    ev = [
+        _drow("d1", "A Study Alpha With A Long Enough Distinctive Title", "10.5/alpha", "https://a/1"),
+        _drow("d2", "A Study Beta With A Long Enough Distinctive Title", "10.5/beta", "https://b/2"),
+    ]
+    alias = _build_alias_map([], ev)
+    assert "d1" not in alias and "d2" not in alias  # no fold => empty alias map
+
+
+def test_item5_doi_fold_end_to_end_corroboration_and_tripwire() -> None:
+    """item 5 END-TO-END: build_outline_digest on the 3-row same-DOI-different-URL fixture reports
+    basket_work_corroboration == 1 (one work, not three), and corroboration_profile's
+    digest_disagreement tripwire then reads False (the digest no longer overcounts)."""
+    import asyncio  # noqa: PLC0415
+    from src.polaris_graph.outline.outline_agent import OutlineWorkspace  # noqa: PLC0415
+    from src.polaris_graph.outline.outline_toolkit import _tool_corroboration_profile  # noqa: PLC0415
+
+    ev = [
+        _drow("d1", "Wages and AI A Randomized Study of Software Engineers", "10.5/paper", "https://arxiv.org/abs/1"),
+        _drow("d2", "Press Release on the Software Engineer Wage Experiment", "10.5/paper", "https://newswire.example/2"),
+        _drow("d3", "Blog Recap of the Engineer Wage Experiment Findings", "10.5/paper", "https://blog.example/3"),
+    ]
+    menu = build_outline_digest(ev, [_cl(0, [0, 1, 2], 3)], sanitizer=_IDENTITY, same_work_groups=[])
+    # the digest now consolidates the same-DOI copies to ONE distinct work
+    assert menu.basket_work_corroboration["B00"] == 1
+
+    ws = OutlineWorkspace(research_question="q", ev_store={r["evidence_id"]: r for r in ev})
+    ws.basket_menu = menu
+    r = asyncio.run(_tool_corroboration_profile(ws, basket_id="B00"))
+    prof = r.statistics["profiles"][0]
+    assert prof["digest_work_corroboration"] == 1
+    assert prof["distinct_works"] == 1
+    assert prof["digest_disagreement"] is False  # digest agrees with the row-level recompute
+
+
 def test_item5_baskets_sort_by_work_not_rows() -> None:
     """item 5: a 4-row/1-work basket sinks BELOW a 2-row/2-work basket (distinct works lead)."""
     ev = [

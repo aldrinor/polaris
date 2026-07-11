@@ -187,6 +187,26 @@ def _strip_title_chrome(title: str) -> str:
     return t
 
 
+# Item 5 (same-work DOI fold): a byte-for-byte mirror of ``finding_dedup._normalize_doi`` /
+# ``weighted_enrichment._normalize_doi``. This module deliberately never imports finding_dedup
+# (LAW V one-responsibility, zero generator-package deps), so the shared DOI contract is copied
+# here verbatim. Keep in lockstep with finding_dedup:_DOI_PREFIX_RE / _normalize_doi.
+_DOI_PREFIX_RE = re.compile(r"^(?:doi:|https?://(?:dx\.)?doi\.org/)", re.IGNORECASE)
+
+
+def _normalize_doi(doi: Any) -> str:
+    """Canonical DOI for same-work grouping (SHARED contract with finding_dedup._normalize_doi).
+
+    Lowercase → strip a leading ``doi:`` / ``https://doi.org/`` / ``http://dx.doi.org/`` prefix →
+    trim → ``rstrip("/")``. A usable DOI starts with the ``10.`` registrant prefix; anything else
+    is noise. Returns ``""`` for a missing / blank / non-``10.`` DOI (it never groups two works)."""
+    text = str(doi or "").strip().lower()
+    if not text:
+        return ""
+    text = _DOI_PREFIX_RE.sub("", text).strip().rstrip("/")
+    return text if text.startswith("10.") else ""
+
+
 def _normalized_title_key(title: str) -> str | None:
     """Item 2 (same-work TITLE fallback): a work_key derived from a source TITLE, for folding
     TITLE-IDENTICAL works the cp3 URL/DOI ``same_work_groups`` missed (the same paper posted at two
@@ -226,7 +246,12 @@ def _build_alias_map(
     GPTs" + its GovAI mirror). Deterministic (evidence order = canonical). A title group that
     OVERLAPS an existing cp3 group ADOPTS that group's key (so the two are UNIFIED into one work,
     not left as two); a title group the cp3 groups never touched takes the ``title:`` key itself.
-    ``evidence=None`` => no title fold (byte-identical to the cp3-only map)."""
+    ``evidence=None`` => no title fold (byte-identical to the cp3-only map).
+
+    Item 5 (normalized-DOI fold, runs BEFORE the title fold): rows sharing ONE usable ``10.`` DOI
+    are folded into one work even when their URLs differ (the same-DOI-different-URL copies the cp3
+    URL ``same_work_id`` left split). Same overlap/adopt + false-merge-guard rules as item 2, keyed
+    on ``_normalize_doi``. Byte-identical when no >= 2 rows share a DOI."""
     alias_of: dict[str, str] = {}
     for group in (same_work_groups or []):
         if not isinstance(group, Mapping):
@@ -240,6 +265,43 @@ def _build_alias_map(
             continue
         for ev_id in members:
             alias_of.setdefault(ev_id, work_key)
+
+    # Item 5: normalized-DOI fold for same-DOI-different-URL copies the cp3 URL groups left split.
+    # Rows sharing ONE usable ``10.`` DOI are the SAME underlying work even when their source URLs
+    # differ, so ``outline_digest.py:533`` (baskets sorted by -work_count) no longer ranks a
+    # pseudo-corroborated same-DOI basket above a genuine multi-work basket. Mirrors the item-2
+    # title fold: a DOI group that OVERLAPS a cp3 group ADOPTS that group's key (UNIFIED into one
+    # work); an unclaimed DOI group takes the ``doi:`` key itself. Runs BEFORE the title fold so a
+    # DOI-unified key is the one a later title fold adopts. ``evidence=None`` => no DOI fold
+    # (byte-identical to the cp3-only map); byte-identical too when no >=2 rows share a DOI.
+    if evidence:
+        doi_groups: dict[str, list[str]] = {}
+        for row in evidence:
+            if not isinstance(row, Mapping):
+                continue
+            ev_id = str(row.get("evidence_id", "") or "")
+            if not ev_id:
+                continue
+            dkey = _normalize_doi(row.get("doi"))
+            if not dkey:
+                continue
+            doi_groups.setdefault(f"doi:{dkey}", []).append(ev_id)
+        for dkey, members in doi_groups.items():
+            if len(members) < 2:
+                continue  # a lone DOI is its own work — never fold a singleton
+            # Item 4 false-merge guard (mirror): if TWO OR MORE distinct cp3 works carry this DOI (a
+            # metadata error), do NOT merge them — fold only the UNCLAIMED members onto the DOI key,
+            # leaving each stamped member on its own cp3 key. Otherwise unify the group onto the one
+            # cp3 key it overlaps (or the ``doi:`` key when the cp3 groups never touched it).
+            stamped = {alias_of[e] for e in members if e in alias_of}
+            if len(stamped) >= 2:
+                for ev_id in members:
+                    if ev_id not in alias_of:
+                        alias_of[ev_id] = dkey
+            else:
+                canonical_key = next(iter(stamped)) if stamped else dkey
+                for ev_id in members:
+                    alias_of[ev_id] = canonical_key
 
     # Item 2: normalized-TITLE fallback fold for TITLE-identical works the cp3 groups missed.
     if evidence:
