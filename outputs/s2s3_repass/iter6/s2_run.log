@@ -1,0 +1,1012 @@
+[s2] snapshot=/workspace/POLARIS/outputs/paid_drb72_deep/workforce/drb_72_ai_labor/corpus_snapshot.json
+[s2] sources=999 parallel=32 scope_armed=False scope_active=False stub=False resume=False
+[s2] question: I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The report needs to be b
+[s2] topic-judge: off_subject_stamped=265 gate_dropped_offtopic=0 gate_demoted=415 gate_exempt=0
+[s2] ev_1027                            lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | The Impact of Generative AI on Labor Markets: Frameworks
+[s2] ev_075                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Generative AI and the Future of Work | Politics & Society
+[s2] ev_011                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Insights on Generative AI and the Future of Work | NC Commerce
+[s2] eloundou_gpts_are_gpts             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | GPTs are GPTs: Labor market impact potential of LLMs
+[s2] ev_026                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | The Impact of Generative AI on Labor Markets: Frameworks
+[s2] ev_1016                            lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Insights on Generative AI and the Future of Work | NC Commerce
+[s2] ev_020                             lines=  10 kept=   7 off=  0 oos=  0 junk=  0 screened | [PDF] A global analysis of potential effects on job quantity and quali
+[s2] ev_215                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 screened | [PDF] Transformative potential of generative AI:
+[s2] ev_1044                            lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Generative AI and the labor market: A case for techno-optimism
+[s2] ev_1152                            lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Insights on Generative AI and the Future of Work | NC Commerce
+[s2] ev_1149                            lines=  10 kept=  10 off=  0 oos=  0 junk=  0 screened | Generative AI, the American worker, and the future of work | Brookings
+[s2] ev_050                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | The Impact of Generative AI on Labor Markets: Frameworks
+[s2] acemoglu_restrepo_robots_jobs      lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Robots and Jobs: Evidence from US Labor Markets
+[s2] ev_1170                            lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | The Impact of Generative AI on Labor Markets: Frameworks
+[s2] ev_878                             lines=   2 kept=   1 off=  0 oos=  0 junk=  1 screened | GPTs are GPTs: An early look at the labor market impact potential of l
+[s2] ev_1014                            lines=  10 kept=  10 off=  0 oos=  0 junk=  0 screened | Generative AI, the American worker, and the future of work | Brookings
+[s2] ev_009                             lines=  10 kept=  10 off=  0 oos=  0 junk=  0 screened | Generative AI, the American worker, and the future of work | Brookings
+[s2] ev_1186                            lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Generative AI and the labor market: A case for techno-optimism
+[s2] ev_905                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | Generative AI at Work - IDEAS/RePEc
+[s2] ev_1192                            lines=   6 kept=   1 off=  0 oos=  0 junk=  0 screened | The Short-Term Effects of Generative Artificial Intelligence on Employ
+[s2] ev_954                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Generative AI Requires Broad Labor Policy Considerations
+[s2] ev_210                             lines=   6 kept=   1 off=  0 oos=  0 junk=  2 screened | The Short-Term Effects of Generative Artificial Intelligence on Employ
+[s2] ev_014                             lines=  19 kept=  19 off=  0 oos=  0 junk=  0 screened | RTSA_4_2025_Carbonara.pdf
+[s2] ev_932                             lines=   7 kept=   2 off=  0 oos=  0 junk=  1 screened | Experimental Evidence on the Productivity Effects of Generative Artifi
+[s2] ev_1048                            lines=   6 kept=   1 off=  0 oos=  0 junk=  2 screened | The Short-Term Effects of Generative Artificial Intelligence on Employ
+[s2] ev_198                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Expert Comment: How is generative AI transforming the labour market?
+[s2] ev_125                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The Evidence So Far: What Research Reveals About AI’s Real Impact on J
+[s2] frey_osborne_computerisation       lines=  18 kept=   1 off=  0 oos=  0 junk= 11 screened | The future of employment: How susceptible are jobs to computerisation?
+[s2] ev_929                             lines=  13 kept=  11 off=  0 oos=  0 junk=  0 screened | Experimental Evidence on the Productivity Effects of Generative Artifi
+[s2] ev_902                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Generative AI at Work | Stanford Institute for Economic Policy ...
+[s2] ev_069                             lines=  14 kept=  14 off=  0 oos=  0 junk=  0 screened | The Impact of Generative AI on Labor Market Matching
+[s2] ev_030                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Generative AI and the labor market: A case for techno-optimism
+[s2] ev_177                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 screened | [PDF] GENERATIVE ARTIFICIAL INTELLIGENCE AND THE WORKFORCE
+[s2] ev_037                             lines=   8 kept=   1 off=  0 oos=  0 junk=  0 screened | AI and the Workforce: Impacts on Jobs, Workers, and Employers
+[s2] ev_110                             lines=  16 kept=  13 off=  0 oos=  0 junk=  0 screened | [PDF] The Short-Term Effects of Generative Artificial Intelligence on 
+[s2] ev_918                             lines=  16 kept=   6 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI at Work
+[s2] ev_1194                            lines=  19 kept=  19 off=  0 oos=  0 junk=  0 screened | RTSA_4_2025_Carbonara.pdf
+[s2] ev_136                             lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | AI and jobs. A review of theory, estimates, and evidence - arXiv
+[s2] ev_886                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | GPTs are GPTs: An Early Look at the Labor Market Impact Potential of L
+[s2] ev_072                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] autor_why_still_jobs               lines=  25 kept=  12 off=  0 oos=  0 junk=  0 screened | Why Are There Still So Many Jobs? The History and Future of Workplace 
+[s2] ev_1050                            lines=  19 kept=  19 off=  0 oos=  0 junk=  0 screened | RTSA_4_2025_Carbonara.pdf
+[s2] ev_887                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Daniel Rock (University of Pennsylvania) : GPTs are GPTs: An Early Loo
+[s2] ev_896                             lines=   5 kept=   3 off=  2 oos=  0 junk=  0 screened | The Impact of General-Purpose Language Models on Jobs - OA.mg
+[s2] ev_1265                            lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Systematic review of trends in the application of artificial intellige
+[s2] ev_1190                            lines=   6 kept=   6 off=  0 oos=  0 junk=  0 screened | [PDF] How Generative AI is Shaping the Future of Work - LexisNexis
+[s2] ev_880                             lines=   2 kept=   1 off=  0 oos=  0 junk=  1 screened | GPTs are GPTs: An Early Look at the Labor Market Impact Potential of L
+[s2] ev_945                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | Experimental Evidence on the Productivity Effects of Generative Artifi
+[s2] ev_117                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | Artificial intelligence and the future of work: Human-AI symbiosis in 
+[s2] ev_097                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 screened | [PDF] How Generative AI is Shaping the Future of Work - LexisNexis
+[s2] ev_955                             lines=   8 kept=   2 off=  0 oos=  0 junk=  0 screened | Occupational Heterogeneity in Exposure to Generative AI by Edward W. F
+[s2] ev_1116                            lines=  15 kept=  14 off=  0 oos=  0 junk=  0 screened | [PDF] NBER WORKING PAPER SERIES GENERATIVE AI AT WORK Erik ...
+[s2] ev_1019                            lines=  12 kept=  10 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI and the Future of Work - Weizenbaum Institut
+[s2] ev_893                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | OpenAI Researched The Labor Market Impact Of GPT4
+[s2] ev_024                             lines=   5 kept=   1 off=  0 oos=  0 junk=  0 screened | Enhancing Work Productivity through Generative Artificial ...
+[s2] acemoglu_restrepo_automation_tasks lines=  36 kept=  27 off=  0 oos=  0 junk=  0 screened | Automation and New Tasks: How Technology Displaces and Reinstates Labo
+[s2] ev_913                             lines=  15 kept=  14 off=  0 oos=  0 junk=  0 screened | w31161.rev1.pdf
+[s2] ev_883                             lines=  13 kept=   2 off=  0 oos=  0 junk= 10 screened | GPTs are GPTs: An Early Look at the Labor Market Impact Potential ...
+[s2] ev_938                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | The productivity effects of generative artificial intelligence
+[s2] ev_095                             lines=  16 kept=  14 off=  0 oos=  0 junk=  0 screened | The Short-Term Effects of Generative Artificial Intelligence ...
+[s2] ev_023                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | Evaluating the Impact of AI on the Labor Market: Current State ...
+[s2] ev_207                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The impact of Artificial Intelligence on the labour market | OECD
+[s2] ev_967                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | The Occupational Impact of Artificial Intelligence : Labor, Skills, an
+[s2] ev_906                             lines=   4 kept=   2 off=  0 oos=  0 junk=  2 screened | [2304.11771] Generative AI at Work - arXiv
+[s2] ev_919                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | First study of whether generative AI makes human workers more efficien
+[s2] ev_118                             lines=  11 kept=   6 off=  0 oos=  0 junk=  0 screened | Read &quot;Artificial Intelligence and the Future of Work&quot; at NAP
+[s2] ev_933                             lines=   3 kept=   2 off=  0 oos=  0 junk=  1 screened | Experimental evidence on the productivity effects of generative artifi
+[s2] ev_007                             lines=  12 kept=  10 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI and the Future of Work - Weizenbaum Institut
+[s2] ev_907                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | Generative AI at Work
+[s2] ev_1256                            lines=  15 kept=  14 off=  0 oos=  0 junk=  0 screened | [PDF] NBER WORKING PAPER SERIES GENERATIVE AI AT WORK Erik ...
+[s2] ev_168                             lines=   4 kept=   1 off=  0 oos=  0 junk=  0 screened | The Generative AI Transformation: Evidence-Based Insights on Labor Mar
+[s2] ev_015                             lines=   7 kept=   6 off=  0 oos=  0 junk=  1 screened | The Potentially Large Effects of Artificial Intelligence on Economic G
+[s2] ev_1102                            lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | Evaluating the Impact of AI on the Labor Market - The Budget Lab
+[s2] ev_984                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1184                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The impact of generative artificial intelligence on socioeconomic ...
+[s2] ev_915                             lines=   9 kept=   8 off=  0 oos=  0 junk=  0 screened | [PDF] GENERATIVE AI AT WORK˚ - Danielle Li
+[s2] ev_065                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_093                             lines=  16 kept=  16 off=  0 oos=  0 junk=  0 screened | Incorporating AI impacts in BLS employment projections: occupational c
+[s2] ev_077                             lines=  15 kept=  14 off=  0 oos=  0 junk=  0 screened | [PDF] NBER WORKING PAPER SERIES GENERATIVE AI AT WORK Erik ...
+[s2] ev_160                             lines=  14 kept=  14 off=  0 oos=  0 junk=  0 screened | Winners and losers of generative AI: Early Evidence of Shifts in ...
+[s2] ev_884                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | GPTs are GPTs: An Early Look at the Labor Market Impact ...
+[s2] ev_1251                            lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1046                            lines=   6 kept=   6 off=  0 oos=  0 junk=  0 screened | [PDF] How Generative AI is Shaping the Future of Work - LexisNexis
+[s2] ev_928                             lines=  12 kept=  10 off=  0 oos=  0 junk=  0 screened | [PDF] Experimental evidence on the productivity effects of ...
+[s2] ev_109                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The impact of generative artificial intelligence on socioeconomic ...
+[s2] ev_101                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | How is generative AI impacting SMEs’ skill and labour needs?: Generati
+[s2] ev_1165                            lines=  12 kept=  10 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI and the Future of Work - Weizenbaum Institut
+[s2] ev_158                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 screened | 20240624_EN_FINAL_The_impact_of_AI_on_Work_and_Employment.pdf
+[s2] ev_1164                            lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | Evaluating the Impact of AI on the Labor Market - The Budget Lab
+[polaris graph] COT-1: Content empty for generate, reasoning has 44 chars (reasoning_enabled=False, response_format=False). Returning as-is — caller handles recovery.
+[s2] ev_073                             lines=   5 kept=   2 off=  0 oos=  0 junk=  2 screened | Artificial Intelligence and the Labor Market - Sciences Po
+[s2] ev_057                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | How Will AI Affect the Global Workforce? - Goldman Sachs
+[s2] ev_968                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Revisiting the occupational impact of AI in the generative AI era
+[s2] ev_188                             lines=   3 kept=   1 off=  0 oos=  0 junk=  0 screened | The impact of artificial intelligence (AI) on employees' skills ...
+[s2] ev_903                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_130                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1196                            lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Research: How Gen AI Is Already Impacting the Labor Market
+[s2] ev_890                             lines=  16 kept=  13 off=  0 oos=  0 junk=  0 screened | GPTs are GPTs: An Early Look at the Labor Market Impact Potential ...
+[s2] ev_022                             lines=  33 kept=  19 off=  0 oos=  0 junk=  2 screened | Special Issue
+[s2] ev_144                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | The impact of artificial intelligence (AI) on employees’ skills and we
+[s2] ev_056                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Research: How Gen AI Is Already Impacting the Labor Market
+[s2] ev_092                             lines=  17 kept=  15 off=  0 oos=  0 junk=  0 screened | The Short-Term Effects of Generative Artificial Intelligence on Employ
+[s2] ev_901                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Paper page - GPTs are GPTs: An Early Look at the Labor Market Impact P
+[s2] ev_032                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 screened | Generative AI and Jobs: A Global Analysis of Potential Effects on Job 
+[s2] ev_885                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1245                            lines=  15 kept=   0 off= 15 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The decline in reading for pleasure over 20 years of the American Time
+[s2] ev_206                             lines=   3 kept=   1 off=  0 oos=  0 junk=  1 screened | AI's Impact on Jobs and Work Is a Choice Between Two Futures
+[s2] ev_173                             lines=   6 kept=   2 off=  0 oos=  0 junk=  0 screened | The Short-Term Effects of Generative Artificial Intelligence on Employ
+[s2] ev_879                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | GPTs are GPTs: Labor market impact potential of LLMs | GovAI
+[s2] ev_1199                            lines=   3 kept=   1 off=  0 oos=  0 junk=  1 screened | AI's Impact on Jobs and Work Is a Choice Between Two Futures
+[s2] ev_086                             lines=   2 kept=   1 off=  1 oos=  0 junk=  0 screened | Yes, AI is affecting employment. Here's the data. - ADP Research
+[s2] ev_1054                            lines=   3 kept=   1 off=  0 oos=  0 junk=  1 screened | AI's Impact on Jobs and Work Is a Choice Between Two Futures
+[s2] ev_678                             lines=  11 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Cost–benefit analysis - Wikipedia
+[s2] ev_1104                            lines=  12 kept=   8 off=  0 oos=  0 junk=  0 screened | 20240624_EN_FINAL_The_impact_of_AI_on_Work_and_Employment.pdf
+[s2] ev_414                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Copywriters' preference evaluation on online ... - PMC
+[s2] ev_934                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Access denied
+[s2] ev_909                             lines=  19 kept=  15 off=  0 oos=  0 junk=  0 screened | 25-021_491efe26-e444-4e02-b58e-f27300cde12f.pdf
+[s2] ev_895                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_914                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Generative AI at Work - Íñigo Medina
+[s2] ev_1053                            lines=   9 kept=   9 off=  0 oos=  0 junk=  0 screened | Generative AI and Jobs: A Global Analysis of Potential Effects on Job 
+[s2] ev_187                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | What is the possible effect of generative AI on employment?
+[s2] ev_084                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1052                            lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Research: How Gen AI Is Already Impacting the Labor Market
+[s2] ev_943                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Experimental Evidence on the Productivity Effects of Generative Artifi
+[s2] ev_1101                            lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | [PDF] Evidence from OECD case studies of AI implementation (EN)
+[s2] ev_003                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_956                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_041                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Shaping the Future of Work: Generative AI, Inequality, and Opportunity
+[s2] ev_016                             lines=  13 kept=  11 off=  0 oos=  0 junk=  0 screened | The Projected Impact of Generative AI on Future Productivity Growth
+[s2] ev_1174                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Tommie Experts: Generative AI’s Real-World Impact on Job Markets
+[s2] ev_171                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Analysis of the Impact of Generative Artificial Intelligence on High-Q
+[s2] ev_1013                            lines=  13 kept=  13 off=  0 oos=  0 junk=  0 screened | 25-039_05fbec84-1f23-459b-8410-e3cd7ab6c88a.pdf
+[s2] ev_036                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Tommie Experts: Generative AI’s Real-World Impact on Job Markets
+[s2] ev_1160                            lines=   9 kept=   9 off=  0 oos=  0 junk=  0 screened | Generative AI and Jobs: A Global Analysis of Potential Effects on Job 
+[s2] ev_1036                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Tommie Experts: Generative AI’s Real-World Impact on Job Markets
+[s2] ev_856                             lines=  10 kept=   0 off= 10 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 7 Addressing Equity Issues in Policymaking - IMF e-Library
+[s2] ev_141                             lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI and Labor Market Matching Efficiency - Emma Wiles
+[s2] ev_146                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | How will AI impact jobs in emerging and developing economies?
+[s2] ev_000                             lines=  13 kept=  13 off=  0 oos=  0 junk=  0 screened | 25-039_05fbec84-1f23-459b-8410-e3cd7ab6c88a.pdf
+[s2] ev_958                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Occupational, industry, and geographic exposure to artificial intellig
+[s2] ev_1098                            lines=  10 kept=   7 off=  0 oos=  0 junk=  1 screened | The effects of AI on firms and workers - Brookings Institution
+[s2] ev_1150                            lines=  13 kept=  13 off=  0 oos=  0 junk=  0 screened | 25-039_05fbec84-1f23-459b-8410-e3cd7ab6c88a.pdf
+[s2] ev_199                             lines=   4 kept=   1 off=  0 oos=  0 junk=  0 screened | Exploring business students' perceptions of artificial intelligence's 
+[s2] ev_1023                            lines=  20 kept=  17 off=  0 oos=  0 junk=  0 screened | Incorporating AI impacts in BLS employment projections: occupational c
+[s2] ev_128                             lines=   5 kept=   3 off=  0 oos=  0 junk=  0 screened | Research on AI and the labor market is still in the first inning - The
+[s2] ev_049                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_191                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | The impact of artificial intelligence on workforce skills needs in bus
+[s2] ev_004                             lines=   6 kept=   3 off=  0 oos=  0 junk=  0 screened | The effects of generative AI on productivity, innovation and ...
+[s2] ev_1049                            lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | Artificial intelligence, job quality and inclusiveness: OECD Employmen
+[s2] ev_939                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Experimental evidence on the productivity effects of generative artifi
+[s2] ev_925                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | Generative Artificial Intelligence to Support Frontline Employees
+[s2] ev_1153                            lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | [PDF] Labor Demand in the Age of Generative AI - Documents & Reports
+[s2] ev_308                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Paralegals and Legal Assistants - Bureau of Labor Statistics
+[s2] ev_192                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | The Perils of Using AI to Replace Entry-Level Jobs
+[s2] ev_035                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 screened | Navigating the research on the impacts of AI on work, workers, and the
+[s2] ev_166                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_081                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_937                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Experimental evidence on the productivity effects of generative artifi
+[s2] ev_882                             lines=  25 kept=  12 off=  0 oos=  0 junk=  4 screened | GPTs are GPTs: An Early Look at the Labor Market Impact Potential of L
+[s2] ev_475                             lines=  11 kept=   2 off=  0 oos=  0 junk=  0 screened | Software testing - Wikipedia
+[s2] ev_1166                            lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | (PDF) The Short-Term Effects of Generative Artificial Intelligence on 
+[s2] ev_045                             lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | Artificial intelligence, job quality and inclusiveness: OECD Employmen
+[s2] ev_1057                            lines=  20 kept=  20 off=  0 oos=  0 junk=  0 screened | Artificial intelligence and jobs: No signs of slowing labour demand ..
+[s2] ev_179                             lines=  54 kept=  48 off=  0 oos=  0 junk=  6 screened | Artificial intelligence and jobs: No signs of slowing labour demand ..
+[s2] ev_894                             lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | chatbots_july25.pdf
+[s2] ev_1051                            lines=  10 kept=  10 off=  0 oos=  0 junk=  0 screened | Industry and occupational employment projections overview and ...
+[s2] ev_1157                            lines=   8 kept=   8 off=  0 oos=  0 junk=  0 screened | Navigating the research on the impacts of AI on work, workers, and the
+[s2] ev_922                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] The economics of generative AI - EconStor
+[s2] ev_497                             lines=  10 kept=   5 off=  3 oos=  0 junk=  0 screened | Industry and occupational employment projections overview and ...
+[s2] ev_213                             lines=  59 kept=  21 off=  0 oos=  0 junk= 25 screened | GENERATIVE AI IMPACT ON LABOR MARKET: ANALYZING CHATGPT'S DEMAND IN JO
+[s2] ev_133                             lines=   9 kept=   8 off=  0 oos=  0 junk=  0 screened | Is generative AI a job killer? Evidence from the freelance market
+[s2] ev_1031                            lines=   7 kept=   6 off=  0 oos=  0 junk=  1 screened | The Potentially Large Effects of Artificial Intelligence on Economic G
+[s2] ev_031                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Introduction to Generative AI: Its Impact on Jobs, Education, Work and
+[s2] ev_034                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 screened | Generative AI may create a socioeconomic tipping point through ...
+[s2] ev_303                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Paralegals Race to Stay Relevant as AI Threatens Their Future
+[s2] ev_534                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | How Generative AI Is Already Transforming Customer ...
+[s2] ev_1201                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Introduction to Generative AI: Its Impact on Jobs, Education, Work and
+[s2] ev_222                             lines=  10 kept=  10 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Impacts of generative artificial intelligence on the future of labor m
+[s2] ev_1060                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Introduction to Generative AI: Its Impact on Jobs, Education, Work and
+[s2] ev_042                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | AI’s Impact on Job Growth | J.P. Morgan Global Research
+[s2] ev_157                             lines=   4 kept=   3 off=  0 oos=  0 junk=  0 screened | The impact of artificial intelligence on growth and employment | CEPR
+[s2] ev_145                             lines=  10 kept=   7 off=  0 oos=  0 junk=  1 screened | The effects of AI on firms and workers - Brookings Institution
+[s2] ev_006                             lines=  24 kept=  11 off=  0 oos=  0 junk=  2 screened | Artificial Intelligence: The Ambiguous Labor Market Impact of Automati
+[s2] ev_1018                            lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | [PDF] Labor Demand in the Age of Generative AI - Documents & Reports
+[s2] ev_019                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | Toward understanding the impact of artificial intelligence on labor
+[s2] ev_079                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Artificial intelligence and the labour market: Introduction: OECD Empl
+[s2] ev_018                             lines=  13 kept=  13 off=  0 oos=  0 junk=  0 screened | Leveraging Generative AI for Job Augmentation and ...
+[s2] ev_060                             lines=  14 kept=  14 off=  0 oos=  0 junk=  0 screened | Future Skills in the GenAI Era: A Labor Market Classification System U
+[s2] ev_172                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_931                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 screened | Noy_Zhang_1.pdf
+[s2] ev_147                             lines=  10 kept=  10 off=  0 oos=  0 junk=  0 screened | [PDF] Generative Artificial Intelligence and Its Implications for Labo
+[s2] ev_1012                            lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | AI, Productivity, and Labor Markets: A Review of the Empirical Evidenc
+[s2] ev_200                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Rethinking AI’s impact on the future of work
+[s2] ev_941                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 screened | Noy_Zhang_1_0.pdf
+[s2] ev_972                             lines=  16 kept=  15 off=  0 oos=  0 junk=  0 screened | [PDF] GOV.UK Impact of AI on UK jobs and training
+[s2] ev_1077                            lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_500                             lines=  21 kept=  21 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 15 Part-Time Jobs for Retirees (No Degree Required!)
+[s2] ev_085                             lines=   5 kept=   3 off=  0 oos=  0 junk=  0 screened | [PDF] The Potential Impact of Artificial Intelligence on UK Employment
+[s2] ev_989                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Anton Korinek
+[s2] ev_940                             lines=   7 kept=   6 off=  0 oos=  0 junk=  0 screened | Generative AI's Impact on Student Achievement and ...
+[s2] ev_970                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | a labor market view on the occupational impact of artificial intellige
+[s2] ev_948                             lines=   3 kept=   2 off=  0 oos=  0 junk=  0 screened | Does generative AI narrow education-based productivity gaps? Evidence 
+[s2] ev_1200                            lines=  99 kept=  71 off=  0 oos=  0 junk= 13 screened | [PDF] The Projected Impact of Generative AI on Future Productivity Gro
+[s2] ev_148                             lines=  82 kept=   7 off=  0 oos=  0 junk= 44 screened | Broadening the Gains from Generative AI in: Staff Discussion Notes ...
+[s2] ev_175                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_492                             lines=  12 kept=  11 off=  0 oos=  0 junk=  0 screened | A Refined Global Index of Occupational Exposure
+[s2] ev_137                             lines=   5 kept=   2 off=  0 oos=  0 junk=  0 screened | Generative AI: Assessing the Influence of ChatGPT on Society – RANGE: 
+[s2] ev_891                             lines=   5 kept=   3 off=  0 oos=  0 junk=  2 screened | The Foundational AI Exposure Study | PUNKU.AI
+[s2] ev_108                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | How AI Is Changing the Job Market for Today’s College Students
+[s2] ev_165                             lines=  10 kept=  10 off=  0 oos=  0 junk=  0 screened | Recent Research on AI Effects on Employment and Work
+[s2] ev_156                             lines=   5 kept=   4 off=  0 oos=  0 junk=  1 screened | [PDF] Gen-AI: Artificial Intelligence and the Future of Work - IMF
+[s2] ev_1110                            lines=   5 kept=   3 off=  0 oos=  0 junk=  0 screened | [PDF] The Potential Impact of Artificial Intelligence on UK Employment
+[s2] ev_1025                            lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | (PDF) The Short-Term Effects of Generative Artificial Intelligence on 
+[s2] ev_154                             lines=   4 kept=   1 off=  0 oos=  0 junk=  3 screened | The Impact of Artificial Intelligence on the Labor Market and Policy I
+[s2] ev_971                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | Occupational, Industry, and Geographic Exposure to Artificial Intellig
+[s2] ev_062                             lines=  15 kept=  14 off=  0 oos=  0 junk=  0 screened | Job Transformation, Specialization, and the Labor Market ...
+[s2] ev_114                             lines=  23 kept=  23 off=  0 oos=  0 junk=  0 screened | A.I. Is Going to Disrupt the Labor Market. It Doesn’t Have to Destroy 
+[s2] ev_1006                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Generative AI, Productivity and the Future of Work
+[s2] ev_1032                            lines=   3 kept=   1 off=  1 oos=  0 junk=  0 screened | [PDF] Artificial Intelligence in Science | OECD
+[s2] ev_1151                            lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | AI, Productivity, and Labor Markets: A Review of the Empirical Evidenc
+[s2] ev_975                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | The potential impact of AI innovations on US occupations - PMC - NIH
+[s2] ev_170                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | How Will AI Affect the US Labor Market? | Goldman Sachs
+[s2] ev_005                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Productivity and employment in the face of generative AI: what do we k
+[s2] ev_936                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_287                             lines=   7 kept=   0 off=  7 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Producer prices in the legal services industry after the Great Recessi
+[s2] ev_054                             lines=  11 kept=   5 off=  6 oos=  0 junk=  0 screened | Unbalanced labor market power is what makes technology ...
+[s2] ev_587                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_881                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | GPTs are GPTs: Labor market impact potential of LLMs - PubMed
+[s2] ev_001                             lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | Labor Demand in the Age of Generative AI
+[s2] ev_974                             lines=  14 kept=   0 off=  0 oos=  0 junk= 14 WHOLE-DROP:junk:concur:content_integrity_junk/shell | [PDF] The economic potential of generative AI - McKinsey
+[s2] ev_454                             lines=  16 kept=  12 off=  0 oos=  0 junk=  1 screened | An initial investigation of the effect of quality factors on Agile tes
+[s2] ev_105                             lines=   5 kept=   2 off=  0 oos=  0 junk=  0 screened | AI's Impact on the Gen-Z Labor Market | YIP Institute Economic Policy
+[s2] ev_039                             lines=   5 kept=   2 off=  2 oos=  0 junk=  0 screened | Publication: Labor Demand in the Age of Generative AI
+[s2] ev_965                             lines=  17 kept=  17 off=  0 oos=  0 junk=  0 screened | Disruption without Dividend? - How the Digital Divide and Task Differe
+[s2] ev_212                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | The Labor Market Effects of Generative Artificial Intelligence by Jona
+[s2] ev_048                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 screened | AI and Labor Markets: What We Know and Don't Know
+[s2] ev_1106                            lines=  19 kept=  17 off=  0 oos=  0 junk=  0 screened | AI in the Workplace: A Systematic Review of Skill Transformation in th
+[s2] ev_094                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | This Time is Different? Higher Education and AI’s Impact on the Labor 
+[s2] ev_716                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Social Inclusion and the Role of Social Workers
+[s2] ev_924                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | AI-Powered Productivity Boom: The Impact of Generative AI
+[s2] ev_104                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | New study sheds light on what kinds of workers are losing jobs to AI
+[s2] ev_051                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Generative AI Part II: Socioeconomic tipping point, job displacement o
+[s2] ev_082                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Generative AI and the Future of Work | Deloitte US
+[s2] ev_202                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | AI and the Future of Workforce Training | Center for Security and Emer
+[s2] ev_002                             lines=  18 kept=  17 off=  1 oos=  0 junk=  0 screened | AI, Productivity, and Labor Markets: A Review of the Empirical Evidenc
+[s2] ev_182                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | AI impacts in BLS employment projections : The Economics Daily : U.S. 
+[s2] ev_203                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 screened | Introduction to Generative AI: Its Impact on Jobs, Education, Work and
+[s2] ev_1008                            lines=   4 kept=   3 off=  0 oos=  0 junk=  1 screened | The Impact of Artificial Intelligence on Productivity and Employment –
+[s2] ev_017                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | The Impact of Generative AI on Work Productivity | St. Louis Fed
+[s2] ev_950                             lines=  12 kept=   9 off=  0 oos=  0 junk=  0 screened | Can GenAI Improve Academic Performance? Evidence from ... - arXiv
+[s2] ev_120                             lines=  10 kept=   5 off=  0 oos=  0 junk=  1 screened | The AI-Ready Workforce - Jobs for the Future (JFF)
+[s2] ev_952                             lines=  13 kept=  11 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI enhances individual creativity but reduces the ...
+[s2] ev_190                             lines=  11 kept=  11 off=  0 oos=  0 junk=  0 screened | [PDF] The Projected Impact of Generative AI on Future Productivity Gro
+[s2] ev_992                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Language Models and Cognitive Automation for Economic Research
+[s2] ev_044                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Artificial Intelligence and the Labor Market
+[s2] ev_047                             lines=   8 kept=   5 off=  0 oos=  0 junk=  0 screened | Labor market impacts of AI: A new measure and early evidence
+[s2] ev_961                             lines=   4 kept=   1 off=  0 oos=  0 junk=  1 screened | Occupational, industry, and geographic exposure to artificial intellig
+[s2] ev_1058                            lines=  11 kept=  11 off=  0 oos=  0 junk=  0 screened | [PDF] The Projected Impact of Generative AI on Future Productivity Gro
+[s2] ev_1161                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Opinion Paper: “So what if ChatGPT wrote it?” Multidisciplinary ...
+[s2] ev_988                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Exploring the impact of language models on cognitive automation ...
+[s2] ev_174                             lines=  17 kept=  13 off=  0 oos=  0 junk=  0 screened | download_pub
+[s2] ev_568                             lines=  10 kept=   0 off= 10 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] News versus Sentiment: Predicting Stock Returns from News Storie
+[s2] ev_107                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | The Impact of AI on the Early-career Labor Market - NACE
+[s2] ev_927                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | [PDF] The Effects of Generative AI on High-Skilled Work
+[s2] ev_1180                            lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | The Impact of Generative AI on Work Productivity | St. Louis Fed
+[s2] ev_217                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Artificial intelligence and labor market outcomes - IZA World of Labor
+[s2] ev_1000                            lines=  10 kept=   4 off=  6 oos=  0 junk=  0 screened | [PDF] The Social Impact of Generative LLM-Based AI - arXiv
+[s2] ev_078                             lines=   2 kept=   0 off=  0 oos=  0 junk=  2 WHOLE-DROP:junk:concur:content_integrity_junk/shell | The Future of Work in the Era of AI
+[s2] ev_604                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1042                            lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | The Impact of Generative AI on Work Productivity | St. Louis Fed
+[s2] ev_683                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_947                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Generative AI and Firm Productivity: Field Experiments in Online Retai
+[s2] ev_704                             lines=   7 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Strengths-Based Approaches in Social Work and Social Care: Reviewing t
+[s2] ev_529                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1176                            lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | [PDF] The Labor Market Effects of Generative Artificial Intelligence
+[s2] ev_957                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | Gen AI’s Impact on U.S. Employment and Office Space
+[s2] ev_189                             lines=   4 kept=   1 off=  0 oos=  0 junk=  0 screened | A Systematic Review of AI's Impact on Employment and Skill Demand
+[s2] ev_978                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | DP17923 Language Models and Cognitive Automation for Economic Research
+[s2] ev_134                             lines=  17 kept=  17 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI for Economic Research: Use Cases and Implications 
+[s2] ev_553                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_214                             lines=  13 kept=  10 off=  0 oos=  0 junk=  2 screened | Artificial Intelligence: Economic Impact, Opportunities, Challenges, I
+[s2] ev_681                             lines=   7 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Benefit–Cost Analysis (Chapter 3) - Theory and Practice in Policy Anal
+[s2] ev_205                             lines=  18 kept=  11 off=  7 oos=  0 junk=  0 screened | Generative AI as a General-Purpose Technology: Foundations, Applicatio
+[s2] ev_1091                            lines=  10 kept=   8 off=  0 oos=  0 junk=  2 screened | [PDF] Guide to Best Practices in Ocean Alkalinity Enhancement Research
+[s2] ev_180                             lines=  11 kept=  11 off=  0 oos=  0 junk=  0 screened | AI and the Future of Work: Assessing Occupational Social Status ...
+[s2] ev_143                             lines=  22 kept=   3 off=  2 oos=  0 junk=  0 screened | Artificial Intelligence and Its Potential Effects on the ...
+[s2] ev_067                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | [PDF] How Retrainable are AI-Exposed Workers? - NBER
+[s2] ev_499                             lines=  15 kept=   9 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI and Jobs - International Labour Organization
+[s2] ev_1112                            lines=   8 kept=   5 off=  0 oos=  0 junk=  0 screened | Labor market impacts of AI: A new measure and early evidence
+[s2] ev_778                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_139                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Generative AI in Academic Research: Perspectives and ...
+[s2] ev_1155                            lines=   4 kept=   1 off=  2 oos=  0 junk=  0 screened | Artificial Intelligence and the Future of Teaching and ...
+[s2] ev_033                             lines=  18 kept=   1 off=  0 oos=  0 junk=  1 screened | AI and the Future of Work: Navigating Job Displacement, New Job Roles,
+[s2] ev_218                             lines=  25 kept=   0 off=  0 oos=  0 junk= 25 WHOLE-DROP:nav_homepage_catalog:chrome_non_source | Firm and labour market effects of AI in developing countries
+[s2] ev_204                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | A Future That Works: JFF’s Policy Priorities for an AI-Ready Workforce
+[s2] ev_055                             lines=   5 kept=   3 off=  0 oos=  0 junk=  0 screened | [PDF] 1 Will Generative AI Bring Change: Technological Disruption and 
+[s2] ev_208                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Artificial Intelligence and the Future of Teaching and Learning 
+[s2] ev_074                             lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | The Impact of AI on the Labour Market - Tony Blair Institute
+[s2] ev_976                             lines=   7 kept=   1 off=  0 oos=  0 junk=  0 screened | Language Models and Cognitive Automation for Economic Research
+[s2] ev_100                             lines=   5 kept=   4 off=  0 oos=  0 junk=  0 screened | [PDF] Artificial Intelligence and the Future of Entry-Level Work
+[s2] ev_1249                            lines=  16 kept=  16 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Science of Literature Reviews: Searching, Identifying, Selecting, 
+[s2] ev_025                             lines=   9 kept=   8 off=  0 oos=  0 junk=  1 screened | What impact is artificial intelligence having on the U.S. labor market
+[s2] ev_063                             lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | Microsoft Word - Displacement_Augmentation_Effects_of_AI_Innovation_Ch
+[s2] ev_306                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_043                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | The Labor Market Effects of Generative Artificial Intelligence
+[s2] ev_1260                            lines=  12 kept=   0 off=  8 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Academic Writing Challenges and Supports: Perspectives of Internationa
+[s2] ev_717                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_201                             lines=  20 kept=  20 off=  0 oos=  0 junk=  0 screened | INTERNATIONAL JOURNAL OF
+[s2] ev_1001                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | AI,%20Human%20Cognition%20and%20Knowledge%20Collapse%2002-20-26.pdf
+[s2] ev_471                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 15-1253 Software Quality Assurance Analysts and Testers
+[s2] ev_949                             lines=  14 kept=  11 off=  0 oos=  0 junk=  0 screened | Generative AI enhances individual creativity but reduces the collectiv
+[s2] ev_602                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1231                            lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_494                             lines=  12 kept=   0 off=  9 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 92B09_241_engl.pdf
+[s2] ev_794                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_090                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | Artificial intelligence and the future of work: Disruptions and opport
+[s2] ev_1119                            lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_518                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | AI increased customer service agent productivity by 14%, study finds
+[s2] ev_1187                            lines=  13 kept=  13 off=  0 oos=  0 junk=  0 screened | [PDF] The Economic Impacts and the Regulation of AI
+[s2] ev_1020                            lines=   7 kept=   7 off=  0 oos=  0 junk=  0 screened | Productivity, growth and employment in the AI era: a literature review
+[s2] ev_849                             lines=   8 kept=   0 off=  8 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Public education funding in the U.S. needs an overhaul
+[s2] ev_859                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_256                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_220                             lines=   5 kept=   3 off=  0 oos=  0 junk=  0 screened | [PDF] Mind the AI Divide - the United Nations
+[s2] ev_1168                            lines=   7 kept=   7 off=  0 oos=  0 junk=  0 screened | Productivity, growth and employment in the AI era: a literature review
+[s2] ev_1114                            lines=   7 kept=   0 off=  7 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Generation Z job seekers’ expectations and their job pursuit intention
+[s2] ev_123                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | [PDF] AI's Impact on Graduate Jobs: A 2025 Data Analysis - IntuitionLa
+[s2] ev_209                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 screened | [PDF] The Impact of ChatGPT in Society, Business, and Academia - apjis
+[s2] ev_176                             lines=  14 kept=  11 off=  0 oos=  0 junk=  1 screened | Top 20+ Predictions from Experts on AI Job Loss - AIMultiple
+[s2] ev_756                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_505                             lines=   9 kept=   3 off=  0 oos=  0 junk=  3 screened | Technology Adoption and the Changing Role and Background of Clerical W
+[s2] ev_1252                            lines=  12 kept=   3 off=  0 oos=  0 junk=  1 screened | AI as Normal Technology - | Knight First Amendment Institute
+[s2] ev_012                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 screened | Productivity, growth and employment in the AI era: a literature review
+[s2] ev_944                             lines=   4 kept=   1 off=  1 oos=  0 junk=  0 screened | Speech by Governor Barr on artificial intelligence and the labor marke
+[s2] ev_126                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Labor Market Impact of Generative AI: A Survey Analysis ...
+[s2] ev_1224                            lines=  17 kept=  17 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Generative AI and Academic Integrity in Higher Education: A Systematic
+[s2] ev_046                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Artificial Intelligence and the Future of Work: Evidence and ...
+[s2] ev_951                             lines=  11 kept=  11 off=  0 oos=  0 junk=  0 screened | The influence of generative artificial intelligence usage on ... - PMC
+[s2] ev_614                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1209                            lines=  10 kept=  10 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Does gradeless learning affect students’ academic performance? A study
+[s2] ev_1212                            lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_999                             lines=  20 kept=  19 off=  0 oos=  0 junk=  0 screened | w31815.rev2.pdf
+[s2] ev_527                             lines=   2 kept=   1 off=  0 oos=  0 junk=  1 screened | Call center agents feel overwhelmed, but research shows tech can offer
+[s2] ev_211                             lines=   5 kept=   3 off=  0 oos=  0 junk=  0 screened | Effects of ChatGPT's AI capabilities and human-like traits on ... - PM
+[s2] ev_119                             lines=  77 kept=  19 off=  0 oos=  0 junk= 37 screened | Artificial Intelligence and Employment: New Cross-Country Evidence - P
+[s2] ev_1107                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Skills and the Future of Work - International Labour Organizatio
+[s2] ev_356                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 screened | Growth trends for selected occupations considered at risk from automat
+[s2] ev_798                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_458                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_523                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1061                            lines=  13 kept=  12 off=  0 oos=  0 junk=  0 screened | [PDF] The Economic Impacts and the Regulation of AI
+[s2] ev_1141                            lines=  17 kept=  17 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Generative AI and Academic Integrity in Higher Education: A Systematic
+[s2] ev_810                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_151                             lines=  12 kept=  11 off=  0 oos=  0 junk=  0 screened | [PDF] Artificial Intelligence and Employment Futures for the Arab Regi
+[s2] ev_342                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_430                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1237                            lines=   4 kept=   1 off=  3 oos=  0 junk=  0 screened | From concerns to benefits: a comprehensive study of ChatGPT ...
+[s2] ev_289                             lines=  13 kept=  13 off=  0 oos=  0 junk=  0 screened | [PDF] The Economic Impacts and the Regulation of AI
+[s2] ev_150                             lines=   6 kept=   4 off=  0 oos=  0 junk=  0 screened | [PDF] The impact of Artificial Intelligence on productivity, distribut
+[s2] ev_782                             lines=   7 kept=   6 off=  0 oos=  0 junk=  1 screened | The State of Generative AI Adoption in 2025 | St. Louis Fed
+[s2] ev_169                             lines=  15 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Generative AI and the future of work in America
+[s2] ev_1096                            lines=  15 kept=   6 off=  7 oos=  0 junk=  0 screened | [PDF] Future of Jobs Report 2025 - World Economic Forum publications
+[s2] ev_539                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_194                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Is AI responsible for the rise in entry-level unemployment? | Revelio 
+[s2] ev_996                             lines=   7 kept=   1 off=  0 oos=  0 junk=  6 screened | Large Language Models learn to collaborate and reason | Brookings
+[s2] ev_832                             lines=  10 kept=  10 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] AI Regulation Has Its Own Alignment Problem - Daniel E. Ho
+[s2] ev_677                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | White Paper: Retrospective Benefit-Cost Analysis | Data-Smart City Sol
+[s2] ev_468                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_792                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_969                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_419                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_1250                            lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 5. The Literature Review - Organizing Your Social Sciences ...
+[s2] ev_985                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Language Models and Cognitive Automation for Economic Research
+[s2] ev_1125                            lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 5. The Literature Review - Organizing Your Social Sciences ...
+[s2] ev_991                             lines=  16 kept=   1 off=  7 oos=  0 junk=  0 screened | NBER v1 Copy of Economic Policy Draft R2.docx - Google Docs
+[s2] ev_447                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Just a moment...
+[s2] ev_892                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | GPTs are GPTs: An Early Look at the Labor Market Impact Potential of L
+[s2] ev_691                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Cost-Benefit Analysis and the Environment | OECD
+[s2] ev_839                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Feasibility Study of Methods and Data to Understand the Impact o
+[s2] ev_962                             lines=  15 kept=  15 off=  0 oos=  0 junk=  0 screened | Experimental Estimates of Potential Artificial Intelligence ...
+[s2] ev_195                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | AI poses greater threat to entry-level jobs, new study finds - The Hil
+[s2] ev_102                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 screened | How artificial intelligence affects the labour force employment ... - 
+[s2] ev_710                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_995                             lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | Economic Growth under Transformative AI
+[s2] ev_027                             lines=  22 kept=  22 off=  0 oos=  0 junk=  0 screened | [PDF] The Macroeconomic Effects of Artificial Intelligence - Congress.
+[s2] ev_087                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The Impact of AI on Job Roles, Workforce, and Employment: What You Nee
+[s2] ev_802                             lines=  12 kept=   8 off=  0 oos=  0 junk=  0 screened | The Fed - Monitoring AI Adoption in the US Economy
+[s2] ev_421                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_645                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_900                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_963                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 screened | [PDF] Occupational Exposure to Artificial Intelligence by Geography an
+[s2] ev_982                             lines=  20 kept=  20 off=  0 oos=  0 junk=  0 screened | [PDF] Anton Korinek Working Paper 30957 - NBER
+[s2] ev_096                             lines=  15 kept=   3 off= 10 oos=  0 junk=  0 screened | [PDF] Future of Jobs Report 2025 - World Economic Forum publications
+[s2] ev_1131                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Error - Cookies Turned Off
+[s2] ev_987                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Anton Korinek | Interview | Richmond Fed
+[s2] ev_1021                            lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | Assessing the Impact of New Technologies on the Labor Market
+[s2] ev_804                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | AI Adoption Jumps to 84% Among Researchers as Expectations Undergo Sig
+[s2] ev_766                             lines=  12 kept=   0 off= 12 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Value of Systems Thinking for and in Regulatory Governance: An Evi
+[s2] ev_1203                            lines=   2 kept=   0 off=  0 oos=  0 junk=  2 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Bridging theoretical gaps to improve students' academic ...
+[s2] ev_981                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Large Language Models and Cognitive Automation
+[s2] ev_216                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 screened | URL Source: https://www.congress.gov/crs_external_products/IF/HTML/IF1
+[s2] ev_990                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The economics of transformative AI
+[s2] ev_764                             lines=   8 kept=   1 off=  0 oos=  0 junk=  0 screened | AI Governance in a Complex and Rapidly Changing Regulatory ...
+[s2] ev_1206                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Open Knowledge Repository
+[s2] ev_998                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Anton Korinek - NBER
+[s2] ev_059                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | [PDF] Generative AI: Mitigating Workforce and Economic Disruptions Whi
+[s2] ev_491                             lines=  18 kept=  15 off=  3 oos=  0 junk=  0 screened | Assessing the Impact of New Technologies on the Labor Market
+[s2] ev_836                             lines=   5 kept=   4 off=  0 oos=  0 junk=  0 screened | [PDF] Preparing for the Future of Artificial Intelligence
+[s2] ev_1113                            lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Just a moment...
+[s2] ev_685                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Cost‐Benefit Analysis and the Environment | OECD
+[s2] ev_221                             lines=  20 kept=  20 off=  0 oos=  0 junk=  0 screened | The Impact of Artificial Intelligence on Modern Society - MDPI
+[s2] ev_1213                            lines=  15 kept=   2 off=  6 oos=  0 junk=  0 screened | [PDF] Artificial intelligence, data and competition - Background Note 
+[s2] ev_668                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Publication in Review
+[s2] ev_1033                            lines=   2 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Impact of digital transformation on public governance
+[s2] ev_593                             lines=  10 kept=   9 off=  0 oos=  0 junk=  0 screened | Fairness, AI & recruitment - ScienceDirect.com
+[s2] ev_1247                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The effects of over-reliance on AI dialogue systems on students ...
+[s2] ev_513                             lines=   8 kept=   7 off=  0 oos=  0 junk=  0 screened | The Impact of Chatbots on Customer Service Jobs: A Study on the Replac
+[s2] ev_1082                            lines=  12 kept=  12 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Journal of Language Teaching and Research Contents
+[s2] ev_977                             lines=  19 kept=  19 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] LLMs Level Up—Better, Faster, Cheaper
+[s2] ev_1105                            lines=  15 kept=  15 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Skills Gaps: A Review of Underlying Concepts and Evidence
+[s2] ev_738                             lines=  39 kept=  39 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The growth of policies, rules, and regulations: A review of the litera
+[s2] ev_1262                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Gaps in the Literature | UNE Library Services
+[s2] ev_1253                            lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | AI-assisted Literature Reviews in Graduate Student Research: How Good 
+[s2] ev_586                             lines=  12 kept=  11 off=  0 oos=  0 junk=  0 screened | The Impact of Artificial Intelligence Replacing Humans in Making Human
+[s2] ev_1121                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Approaching literature review for academic purposes - PMC - NIH
+[s2] ev_381                             lines=  18 kept=  13 off=  0 oos=  0 junk=  0 screened | The Role of Digital Platforms in Shaping the Conditions of Creative Wo
+[s2] ev_1177                            lines=   7 kept=   7 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | cee48ca4-8b40-4da8-bbff-19200d77384c_14205_-_eric_jensen_v2_(1).pdf
+[s2] ev_501                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] NON-STANDARD EMPLOYMENT AROUND THE WORLD
+[s2] ev_1222                            lines=  10 kept=  10 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 3 Quick Tips on How Researchers Can Handle Lack of Literature in Origi
+[s2] ev_590                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 screened | Should I Trust the Artificial Intelligence to Recruit ... - PMC - NIH
+[s2] ev_748                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Regulation & Governance, John Wiley & Sons
+[s2] ev_099                             lines=  10 kept=   7 off=  0 oos=  0 junk=  0 screened | Artificial intelligence skills and their impact on the employability o
+[s2] ev_835                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | [PDF] Regulation Tomorrow: What Happens When Technology Is Faster ...
+[s2] ev_1267                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Approaching literature review for academic purposes - PMC - NIH
+[s2] ev_444                             lines=  11 kept=   2 off=  0 oos=  0 junk=  0 screened | Expectations vs Reality - A Secondary Study on AI Adoption in Software
+[s2] ev_994                             lines=  16 kept=  16 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] NBER WORKING PAPER SERIES AI AGENTS FOR ECONOMIC ...
+[s2] ev_793                             lines=  14 kept=  12 off=  0 oos=  0 junk=  0 screened | Insights on Real-World AI Adoption from 2025 MINDS ...
+[s2] ev_1065                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Global Economic Prospects -- June 2025 - The World Bank
+[s2] ev_616                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | How Hiring Managers are Grappling with AI Job Applications | CO
+[s2] ev_600                             lines=  12 kept=   4 off=  0 oos=  0 junk=  0 screened | A Bibliometric Perspective on AI Research for Job-Résumé Matching
+[s2] ev_1069                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Open Knowledge Repository
+[s2] ev_776                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Adopting open innovation for SMEs and industrial revolution 4.0
+[s2] ev_389                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Careers for creative people - Bureau of Labor Statistics
+[s2] ev_588                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | What is in your résumé? The effects of multiple social categories in .
+[s2] ev_1191                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Open Knowledge Repository
+[s2] ev_1242                            lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Global Consumer Insights Pulse Survey June 2023 - PwC
+[s2] ev_1068                            lines=  21 kept=   1 off= 19 oos=  0 junk=  1 screened | New Era of Artificial Intelligence in Education: Towards a Sustainable
+[s2] ev_639                             lines=   4 kept=   3 off=  0 oos=  0 junk=  1 screened | U.S. Bureau of Labor Statistics
+[s2] ev_759                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Literature Review on the Governance of Work
+[s2] ev_240                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The End of Front-End Development • Josh W. Comeau
+[s2] ev_1270                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Artificial intelligence for literature reviews: opportunities and ...
+[s2] ev_807                             lines=  17 kept=  10 off=  2 oos=  0 junk=  0 screened | Review AI adoption and diffusion in public administration
+[s2] ev_368                             lines=   7 kept=   3 off=  0 oos=  0 junk=  0 screened | AI Scribes in Health Care: Balancing Transformative Potential With Res
+[s2] ev_1145                            lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Copyright and Artificial Intelligence, Part 2 Copyrightability R
+[s2] ev_335                             lines=   3 kept=   1 off=  0 oos=  0 junk=  0 screened | Would Technology Obliterate Medical Transcription? | Proceedings of th
+[s2] ev_164                             lines=   5 kept=   2 off=  0 oos=  0 junk=  0 screened | AI Job Displacement Analysis (2025-2030) by Josephine Nartey :: SSRN
+[s2] ev_724                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Precarious Employment and Well-Being: Insights from the COVID-19 ...
+[s2] ev_688                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Let's confirm you are human
+[s2] ev_777                             lines=  11 kept=  10 off=  0 oos=  0 junk=  0 screened | Technology readiness and the organizational journey ...
+[s2] ev_064                             lines=  12 kept=  11 off=  0 oos=  0 junk=  0 screened | Reskilling and Upskilling in the AI Era
+[s2] ev_524                             lines=  13 kept=   1 off= 10 oos=  0 junk=  2 screened | The hard-working virtual agent in the service encounter boosts custome
+[s2] ev_703                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | \UQTUbc_V\_SQ\_bWQ^YjQdY_^cQWbUUTd_`QbdYSY`QdUY^S\eT
+[s2] ev_840                             lines=   4 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Incentives in Technology Transfer – A guide to encourage ... - W
+[s2] ev_1261                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Challenges of the Literature Review Process and the Promise of Art
+[s2] ev_997                             lines=   5 kept=   0 off=  4 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | AI-Summaries - 20. Internationale Tagung Wirtschaftsinformatik
+[s2] ev_788                             lines=   5 kept=   3 off=  0 oos=  0 junk=  0 screened | Interventions to promote technology adoption in firms - PMC
+[s2] ev_1070                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Verifying your browser | OpenReview
+[s2] ev_1003                            lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Alison Gopnik AI Papers
+[s2] ev_395                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 09602%281979-118-5%29537-556.pdf
+[s2] ev_960                             lines=  16 kept=  12 off=  0 oos=  0 junk=  1 screened | [PDF] Artificial Intelligence and Productivity in Europe, WP/25/67, Ap
+[polaris graph] COT-1: Content empty for generate, reasoning has 14456 chars (reasoning_enabled=False, response_format=False). Returning as-is — caller handles recovery.
+[line_screen] source=ev_1005 chunk LLM error — fail-open keep 54 lines: I-bug-089/FX-01: reasoning-first model z-ai/glm-5.2 truncated at promotion leg='always_reason_promotion'. candidate 13428 chars; finish_reason='length' (finish_
+[s2] ev_1005                            lines=  70 kept=  54 off=  0 oos=  0 junk= 16 screened | Managing AI's Economic Future: Strategic Automation Policy in an Era o
+[s2] ev_1263                            lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | From Blank Page to Literature Review: How AI Can Support Early ...
+[s2] ev_812                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | assessing the feasibility of market design blueprints | Socio ...
+[s2] ev_722                             lines=   2 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] The Future of Work - OBSSR
+[s2] ev_728                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | WDR2013_bp_Relationship_Between_Jobs_and_Social_Cohesion.pdf
+[s2] ev_058                             lines=   6 kept=   4 off=  0 oos=  0 junk=  0 screened | The Transformative Impact of Artificial Intelligence on US ...
+[s2] ev_417                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Literature Review of Copywriting (docx) - CliffsNotes
+[s2] ev_613                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] the effects of employee recruitment and selection process on ...
+[s2] ev_767                             lines=  31 kept=  21 off=  0 oos=  0 junk=  0 screened | Governance of artificial intelligence | Policy and Society | Oxford Ac
+[s2] ev_219                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Recommendation of the Council on Artificial - OECD Legal Instruments
+[s2] ev_825                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | How Is Technology Changing the World, and How Should the World Change 
+[s2] ev_162                             lines=  13 kept=  13 off=  0 oos=  0 junk=  0 screened | AI's Impact on Diversity and Job Displacement in the ICT ...
+[s2] ev_611                             lines=  20 kept=  20 off=  0 oos=  0 junk=  0 screened | Educational Administration: Theory and Practice
+[s2] ev_575                             lines=   3 kept=   0 off=  2 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Journal of Financial and Quantitative Analysis: Volume 58 - Issue 6 | 
+[s2] ev_1047                            lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Industry and occupational employment projections overview and highligh
+[s2] ev_397                             lines=   3 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Creativity as a Catalyst for Economic Development and Social Cha
+[s2] ev_1094                            lines=  17 kept=   0 off= 12 oos=  0 junk=  2 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Systematic Reviews in the Social Sciences
+[s2] ev_707                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Putting Collective Impact Into Context: A Review of the Literature on 
+[s2] ev_751                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Literature Review on the Governance of Work
+[s2] ev_578                             lines=   2 kept=   1 off=  1 oos=  0 junk=  0 screened | Top Research Papers on Quantitative Finance - Paperguide
+[s2] ev_980                             lines=   7 kept=   1 off=  6 oos=  0 junk=  0 screened | Language Models and Cognitive Automation for Economic Research
+[s2] ev_1246                            lines=  18 kept=   2 off= 15 oos=  0 junk=  0 screened | The Limitations and Ethical Considerations of ChatGPT
+[s2] ev_1099                            lines=  16 kept=  16 off=  0 oos=  0 junk=  0 screened | Reskilling and Upskilling the Future-ready Workforce for Industry 4.0 
+[s2] ev_1259                            lines=   4 kept=   0 off=  0 oos=  0 junk=  4 WHOLE-DROP:nav_homepage_catalog:chrome_non_source | Inadequate literature review makes an author’s research redundant: A c
+[s2] ev_780                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Agentic AI in Industry: Adoption Level and Deployment Barriers
+[s2] ev_1269                            lines=  17 kept=  17 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Artificial intelligence for literature reviews: opportunities and chal
+[s2] ev_1241                            lines=  18 kept=   1 off= 12 oos=  0 junk=  0 screened | Fairness and Bias in Artificial Intelligence: A Brief Survey of Source
+[s2] ev_441                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | American Marketing Association | AMA
+[s2] ev_750                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | EU Artificial Intelligence Act | Up-to-date developments and analyses 
+[s2] ev_521                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | A Customer Service Model For Higher Education
+[s2] ev_1095                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Accepted papers - Transactions on Machine Learning Research
+[s2] ev_806                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Most companies still pilot AI programs despite widespread adoption
+[s2] ev_1092                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | SPED 5305 Q2 (docx) - CliffsNotes
+[s2] ev_775                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 screened | Adoption of Industry 4.0 technologies by organizations - PMC
+[s2] ev_607                             lines=   2 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Research Reveals Candidates' Frustrations with Hiring ...
+[s2] ev_784                             lines=   4 kept=   3 off=  0 oos=  0 junk=  0 screened | The Root Causes of Failure for Artificial Intelligence Projects and Ho
+[s2] ev_549                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Context, not predictions: a field study of financial analysts
+[s2] ev_979                             lines=  13 kept=  13 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Homepage of Anton Korinek - Research
+[s2] ev_1139                            lines=  16 kept=   0 off= 16 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 002_Mitchel_Rich+final.pdf
+[s2] ev_637                             lines=   2 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Technical Writing Spaces: Readings on Writing, Volume 6 - WAC
+[s2] ev_830                             lines=   4 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | reports on feasibility studies of the application of aerospace ...
+[s2] ev_567                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Just a moment...
+[s2] ev_369                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Future of Medical Transcription
+[s2] ev_1084                            lines=  11 kept=   0 off= 11 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Ethical Research Practices in Educational Institutions
+[s2] ev_533                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The Impact of Chatbots on Customer Service Jobs: A Study on the Replac
+[s2] ev_610                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | New Study Shows AI Resume Screeners Prefer White Male Candidates: Your
+[s2] ev_1085                            lines=   1 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Social Research Methods: Qualitative and Quantitative ...
+[s2] ev_391                             lines=  16 kept=  16 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Cultural and creative jobs and skills: who, what, where, and ... - OEC
+[s2] ev_741                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Policy capacities and effective policy design: a review - PMC
+[s2] ev_1238                            lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Impact of Digital Platforms on News and Journalistic ...
+[s2] ev_765                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Regulatory Policy in Perspective | OECD
+[s2] ev_1159                            lines=  16 kept=   0 off= 15 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 002_Mitchel_Rich+final.pdf
+[s2] ev_689                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Impact and cost–benefit analysis: a unifying approach
+[s2] ev_787                             lines=  13 kept=  13 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Antecedents of data analytics adoption: A systematic literature ...
+[s2] ev_853                             lines=   7 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Social Equity in Public Administration: Past, Present, and the Future
+[s2] ev_367                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Integrating artificial intelligence in clinical practice, hospital ...
+[s2] ev_729                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Open Knowledge Repository
+[s2] ev_661                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Essays on the political economy of European integration
+[s2] ev_659                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Publication: Can Cost-Benefit Analysis Guide Education Policy in ...
+[s2] ev_1066                            lines=  17 kept=  17 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Investigating the Effects of LLM Use on Critical Thinking ...
+[s2] ev_580                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | NBER: National Bureau of Economic Research
+[s2] ev_783                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Data Suggests Growth in Enterprise Adoption of AI is Due to Widespread
+[s2] ev_467                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 screened | Benefits and Limitations of Automated Software Testing
+[s2] ev_744                             lines=  19 kept=  19 off=  0 oos=  0 junk=  0 screened | A pro-innovation approach to AI regulation
+[s2] ev_1144                            lines=   5 kept=   0 off=  4 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Time for Class 2023 - Tyton Partners
+[s2] ev_427                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | B2B Content and Marketing Trends: Insights for 2026
+[s2] ev_785                             lines=  19 kept=   0 off= 19 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Taxonomy, Benefits, Challenges and Critical Factors
+[s2] ev_383                             lines=   7 kept=   0 off=  5 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] The status and working conditions of artists and cultural and cr
+[s2] ev_865                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Fair Society Healthy Lives (The Marmot Review) - Institute of Health E
+[s2] ev_276                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Home : Occupational Outlook Handbook - Bureau of Labor Statistics
+[s2] ev_420                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | 6 Reasons You Shouldn’t Rely on AI For Your Business Copy
+[s2] ev_609                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Why You Should Be Using AI Resume Screening In Your Recruitment Proces
+[s2] ev_876                             lines=  12 kept=   1 off= 11 oos=  0 junk=  0 screened | The Good Life Agenda - The Roosevelt Institute
+[s2] ev_508                             lines=  17 kept=  17 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Announcements | U.S. Department of Labor
+[s2] ev_758                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 screened | A pro-innovation approach to AI regulation
+[s2] ev_740                             lines=   8 kept=   1 off=  0 oos=  0 junk=  1 screened | Regulation in Public Policy | Springer Nature Link
+[s2] ev_786                             lines=  20 kept=  20 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Barriers to the Adoption of Digital Twin in the Construction Industry:
+[s2] ev_651                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Day in the life of a technical writer - tod hilton
+[s2] ev_606                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 screened | First Come, First Hired? ChatGPT’s Bias for The First Resume It Sees a
+[s2] ev_399                             lines=  13 kept=   0 off=  7 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Working Paper No.301 Employment relationships in arts and cultur
+[s2] ev_742                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Co-Governance and the Future of AI Regulation
+[s2] ev_763                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Improving the Quality of Government - OECD Legal Instruments
+[s2] ev_564                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Finance, Growth, and Inequality, WP/21/164, June 2021
+[s2] ev_1088                            lines=  18 kept=   3 off= 15 oos=  0 junk=  0 screened | The Limitations and Ethical Considerations of ChatGPT
+[s2] ev_1255                            lines=  11 kept=   0 off= 11 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] IPCC_AR6_SYR_SPM.pdf
+[s2] ev_1248                            lines=  15 kept=  15 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | College Student's Academic Help-Seeking Behavior - PMC - NIH
+[s2] ev_771                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Responsive Regulation in Practice: A Review of the International ...
+[s2] ev_1035                            lines=  19 kept=   0 off= 19 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] An Annotated Bibliography of Privacy-Violating Attacks and Relat
+[s2] ev_597                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Recruiting and Attracting Talent (pdf) - CliffsNotes
+[s2] ev_566                             lines=   6 kept=   0 off=  6 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Academic and Think Tank Assessment of the IEO and Its Evaluation
+[s2] ev_511                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Automation Leads Data Entry Jobs to Decline, but Here’s What to Look f
+[s2] ev_298                             lines=  10 kept=   6 off=  0 oos=  0 junk=  0 screened | [PDF] The Indispensability of Human Paralegals in the Era of Advancing
+[s2] ev_757                             lines=  16 kept=  16 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Regulatory policy 2.0 (EN) - OECD
+[s2] ev_1076                            lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Cash transfers: what does the evidence say? - The World Bank
+[s2] ev_636                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Employment Situation Summary - 2026 M06 Results
+[s2] ev_436                             lines=   1 kept=   0 off=  0 oos=  0 junk=  1 WHOLE-DROP:junk:concur:content_integrity_junk/shell | [PDF] The Significant Role of SEO in Effective Web Marketing
+[s2] ev_642                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | A Curated List of Our Postings on Technical Topics – Your One-Stop Sho
+[s2] ev_555                             lines=  13 kept=  13 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 13-2099.01 - Financial Quantitative Analysts
+[s2] ev_726                             lines=   5 kept=   0 off=  4 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Measuring social impact: a new era for the social economy?
+[s2] ev_846                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Social Equity: Its Legacy, Its Promise
+[s2] ev_634                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Writers and Authors : Occupational Outlook Handbook
+[s2] ev_1126                            lines=  11 kept=   0 off= 11 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] IPCC_AR6_SYR_SPM.pdf
+[s2] ev_1140                            lines=   9 kept=   0 off=  7 oos=  0 junk=  2 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Basel Committee on Banking Supervision Working Paper 45
+[s2] ev_1169                            lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Enhancing research and scholarly experiences based on students ...
+[s2] ev_608                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | AI is devaluing resumes, masking identity of top talent, research find
+[s2] ev_560                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Financial Stability Reports:What Are They Good For?
+[s2] ev_843                             lines=   8 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Introduction
+[s2] ev_294                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] ARTICLES - Loyola University New Orleans College of Law
+[s2] ev_727                             lines=   8 kept=   0 off=  7 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | FINDINGS FROM THREE YEARS OF SURVEYS OF NEW ...
+[s2] ev_993                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | AI Agents for Economic Research - by Anton Korinek
+[s2] ev_1211                            lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Open Knowledge Repository
+[s2] ev_797                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Industry 4.0 Adoption in Supply Chain Operations: A Systematic Literat
+[s2] ev_1266                            lines=  20 kept=  20 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Ten new insights in climate science 2024 - ScienceDirect.com
+[s2] ev_443                             lines=  17 kept=  17 off=  0 oos=  0 junk=  0 screened | A Survey on Factors Preventing the Adoption of Automated Software Test
+[s2] ev_803                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | New Study Reveals Tech Industry Leads AI Adoption in Support Operation
+[s2] ev_528                             lines=  17 kept=  17 off=  0 oos=  0 junk=  0 screened | 135+ Customer Service Statistics You Need to Know in 2026
+[s2] ev_721                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Social Impact: What It Means and Why It Matters Today
+[s2] ev_569                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | What Shapes Analysts' Long-term Forecasts? - Knowledge at Wharton
+[s2] ev_754                             lines=   5 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The politics of regulation
+[s2] ev_479                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Data Entry, Then and Now – Effective Database Management
+[s2] ev_1185                            lines=  20 kept=   0 off= 19 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Bridging the research-practice gap in education - OECD
+[s2] ev_799                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The AI Adoption Reality Check: Firms with AI Strategies are Twice as L
+[s2] ev_860                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Principles of Corporate Governance - OECD Legal Instruments
+[s2] ev_714                             lines=   8 kept=   2 off=  4 oos=  0 junk=  0 screened | Changing Work, Changing Families, and Public Policies ...
+[s2] ev_795                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Adoption of Industry 4.0 Evidence in an Emerging Economy
+[s2] ev_796                             lines=  15 kept=   2 off= 11 oos=  0 junk=  0 screened | Adopting Artificial Intelligence for Competitive Advantage: Insights f
+[s2] ev_1002                            lines= 125 kept= 120 off=  5 oos=  0 junk=  0 screened | LLMs Learn to Collaborate and Reason: December 2024 Update to “Generat
+[s2] ev_570                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Can you help someone become financially capable?
+[s2] ev_254                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The Future of Frontend Development in 2025: My Honest Thoughts
+[s2] ev_819                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Key factors influencing educational technology adoption in higher ...
+[s2] ev_1173                            lines=   8 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] The Impact of School Infrastructure on Learning
+[s2] ev_461                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Software Developers, Quality Assurance Analysts, and Testers
+[s2] ev_719                             lines=  18 kept=  18 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] The SOCIAL Framework: Work, Employment, & Labor Winter 2023
+[s2] ev_627                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The First Wave (1953–1961) of the Professionalization ...
+[s2] ev_1062                            lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Just a moment...
+[s2] ev_340                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Hilarious Medical Transcription Snafus: My Faves and Yours - The Hospi
+[s2] ev_831                             lines=   5 kept=   0 off=  4 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] The Impact and Effectiveness of Innovation Policy: Evidence from
+[s2] ev_1195                            lines=  11 kept=  11 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Unpleasant Surprises? Elections and Tax News Shocks
+[s2] ev_731                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Trio of Books Makes Argument for the Power of Working Together f
+[s2] ev_387                             lines=  15 kept=   0 off= 11 oos=  0 junk=  2 WHOLE-DROP:off_topic:concur:topic_off_subject | Thematic discussion paper.pdf
+[s2] ev_747                             lines=   3 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Regulation in the context of new approaches to policy and governance, 
+[s2] ev_224                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Web Developers and Digital Designers
+[s2] ev_829                             lines=  17 kept=  17 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Feasibility of Using New Technologies and Artificial Intelligence in P
+[s2] ev_365                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] on the Medical Transcription Profession
+[s2] ev_263                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Law Reviews | Law Review Commons
+[s2] ev_595                             lines=   3 kept=   1 off=  0 oos=  0 junk=  0 screened | Effective Human Resources Recruiting and Hiring Practices for Improvin
+[s2] ev_1264                            lines=   2 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Limitations of the Study - How to Write & Examples - Wordvice
+[s2] ev_821                             lines=  12 kept=   0 off=  8 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] ASSESSMENT OF HIGHER EDUCATION LEARNING OUTCOMES
+[s2] ev_1043                            lines=   8 kept=   0 off=  5 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Impact Evaluation in Practice - World Bank Document
+[s2] ev_358                             lines=   3 kept=   0 off=  2 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Positive preliminary assessment of the ninth payment request of Portug
+[s2] ev_1073                            lines=   3 kept=   0 off=  2 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Positive preliminary assessment of the ninth payment request of Portug
+[s2] ev_1037                            lines=   2 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Stiglitz-Sen-Fitoussi-Commission-report.pdf
+[s2] ev_857                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The impact of public interest litigation: the case of socio-economic r
+[s2] ev_711                             lines=   2 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Impact of Community Service Learning on the Social Skills of Stu
+[s2] ev_393                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Graphic Designers : Occupational Outlook Handbook
+[s2] ev_336                             lines=   3 kept=   1 off=  0 oos=  0 junk=  2 screened | Understanding the work of medical transcriptionists in the production 
+[s2] ev_1221                            lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | How much of modern academia is waste? - Noahpinion
+[s2] ev_833                             lines=   8 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] The Impact of School Infrastructure on Learning
+[s2] ev_1132                            lines=   8 kept=   8 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Hybrid working from home improves retention without ...
+[s2] ev_816                             lines=   6 kept=   0 off=  5 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Feasibility Study for a United Nations Technology Bank for the ...
+[s2] ev_862                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] An updated OECD framework on drivers of trust in public institut
+[s2] ev_283                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] CONTRACT MANAGEMENT - The World Bank
+[s2] ev_708                             lines=   8 kept=   0 off=  4 oos=  0 junk=  3 WHOLE-DROP:off_topic:concur:topic_off_subject | Collective Impact - Stanford Social Innovation Review
+[s2] ev_1120                            lines=  20 kept=  20 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Ten new insights in climate science 2024 - ScienceDirect.com
+[s2] ev_275                             lines=  20 kept=  20 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Senior Attorney Ethics Opinions | The State Bar of California
+[s2] ev_739                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Regulatory Policy and Governance
+[s2] ev_561                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Important Research Papers for Quants - OpenQuant
+[s2] ev_866                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Debate over the Change in Media Ownership and the Public's ...
+[s2] ev_687                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] How Can Social Cost-Benefit Analysis Better Measure the Impact o
+[s2] ev_388                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | Quitting Freelance Illustration** - Kangaroo Hole: Deb JJ Lee
+[s2] ev_531                             lines=  18 kept=  18 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Effectiveness of Good Customer Service Satisfaction in the 21st ...
+[s2] ev_571                             lines=   7 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | research - David Blanchett
+[s2] ev_343                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Medical Transcriptionists : Occupational Outlook Handbook
+[s2] ev_1268                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Why AI-Generated Literature Reviews Are Getting Rejected in 2026
+[s2] ev_647                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Software technical writing is a dying career (but here’s what writers 
+[s2] ev_375                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Artistic Ideals and Commercial Practices: The Problem of Status for Am
+[s2] ev_290                             lines=   4 kept=   0 off=  0 oos=  0 junk=  4 WHOLE-DROP:nav_homepage_catalog:chrome_non_source | ABA Formal Ethics Opinions Archive by Issue Dates
+[s2] ev_760                             lines=   1 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Regulation and Governance
+[s2] ev_1193                            lines=  14 kept=  14 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Decomposing Climate Risks in Stock Markets, WP/23/141, June 2023
+[s2] ev_827                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Recommendations for the design and implementation of an Early Feasibil
+[s2] ev_715                             lines=   3 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Social Workplace: Social Capital, Human Dignity, and Work in ...
+[s2] ev_643                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Why Technical Writing Skills Are Important for Information Technology 
+[s2] ev_520                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | AI delivers the best customer support when it’s enhancing humans, stud
+[s2] ev_278                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] CURRICULUM VITAE Bernard H. GOUSSE 5, rue Chériez Port-au ...
+[s2] ev_1026                            lines=   9 kept=   0 off=  7 oos=  0 junk=  2 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Unfair trading practices in the food supply chain - JRC Publicat
+[s2] ev_572                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Management Analysts : Occupational Outlook Handbook
+[s2] ev_332                             lines=   3 kept=   1 off=  0 oos=  0 junk=  1 screened | Paralegal - Wikipedia
+[s2] ev_260                             lines=  16 kept=   2 off= 13 oos=  0 junk=  1 screened | Front-End Web Developer, Certificate, Full-time (6535CERT)
+[s2] ev_282                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The National Law Review: Legal News & Business Law News
+[s2] ev_428                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 107 SEO Statistics for 2026 - Ahrefs
+[s2] ev_699                             lines=  14 kept=  14 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Attributes of a Global Engineer: Field-informed Perspectives, Recommen
+[s2] ev_622                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Technical Writers : Occupational Outlook Handbook
+[s2] ev_679                             lines=  14 kept=   0 off= 12 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | A Review and Analysis of Economic Models of Prevention Benefits
+[s2] ev_562                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Market Research Analysts : Occupational Outlook Handbook
+[s2] ev_1078                            lines=  14 kept=  14 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Decomposing Climate Risks in Stock Markets, WP/23/141, June 2023
+[s2] ev_325                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Positions and Issues - Paralegals as Profit Centers
+[s2] ev_1067                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Publication: Ensuring the Adequacy of Education Finance through ...
+[s2] ev_392                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Power of Artists’ Books: Catalysts for Creative Thinking Across th
+[s2] ev_684                             lines=   3 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Effectiveness of a Costs and Benefits Analysis in Making Federal G
+[s2] ev_312                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Higher income and job demand signals growth for paralegals
+[s2] ev_1111                            lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The False Dichotomy between Academic Learning & Occupational ...
+[s2] ev_809                             lines=  11 kept=  11 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Expert Perspectives on Pilot and Feasibility Studies: A Delphi ...
+[s2] ev_1041                            lines=   4 kept=   0 off=  2 oos=  0 junk=  2 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Strategic Dialogue on the Future of EU Agriculture
+[s2] ev_875                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Many Roads to Justice: The Law Related Work of Ford Foundation Grantee
+[s2] ev_773                             lines=   2 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | From Theory to Action: Bridging Governance Gaps in Public Policy ...
+[s2] ev_743                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Following the rules: Connecting academic research to policy
+[s2] ev_455                             lines=   1 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Software Testing and Quality Assurance
+[s2] ev_650                             lines=   4 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Chapter 6: From Passive to Active Learning: The Transformative ...
+[s2] ev_873                             lines=   3 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | POS 4463 Interest Groups: Journal Articles - Guides @ UF
+[s2] ev_664                             lines=   2 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Policies to enhance economic feasibility of a sustainable energy trans
+[s2] ev_657                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | A Bibliometric Mapping of Cost-Benefit Analysis—Three ...
+[s2] ev_725                             lines=  10 kept=  10 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | nursing journals mental health, mental health nursing journals, mental
+[s2] ev_286                             lines=   1 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Understanding and Negotiating Book Publication Contracts (Author
+[s2] ev_1225                            lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Understanding the Different Types of Research Gaps
+[s2] ev_672                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Putting a&nbsp;Price on Human Life: The Costs and Benefits of Cost-Ben
+[s2] ev_449                             lines=   1 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Software Testing and Quality Assurance : Theory and Practice
+[s2] ev_631                             lines=   2 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Whatever Happened to Technical Writing? - CDN
+[s2] ev_591                             lines=  11 kept=  10 off=  0 oos=  0 junk=  0 screened | Exploring the Cognitive "Black Box" of Resume Screeners - ProQuest
+[s2] ev_824                             lines=  18 kept=   0 off= 15 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Outcomes-Based Financing in the New Financing for Development ..
+[s2] ev_669                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Report of an Expert Panel to Review the Socio-Economic Models and Rela
+[s2] ev_713                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Pursuit of Quality for Social Work Practice: Three Generations ...
+[s2] ev_385                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Craft and Fine Artists : Occupational Outlook Handbook
+[s2] ev_1208                            lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Date of discussion by the Clinical Trials Coordination and Advis
+[s2] ev_817                             lines=   4 kept=   0 off=  2 oos=  0 junk=  2 WHOLE-DROP:off_topic:concur:topic_off_subject | Study on the feasibility and added value of sponsorship ...
+[s2] ev_858                             lines=  18 kept=   0 off= 17 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | 9781464809507_Ch06.pdf
+[s2] ev_349                             lines=  15 kept=   0 off= 12 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] SCHEER Opinion on EMF - Public Health
+[s2] ev_433                             lines=  14 kept=  14 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 105 Hand-Picked Content Marketing Statistics for 2026 Planning
+[s2] ev_702                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Nonprofit capacity and social performance: mapping the field ... - PMC
+[s2] ev_293                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Contract Review Lawyers - Commercial Attorneys On-Demand | Axiom Law
+[s2] ev_850                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Keeping promises while keeping score: Gauging the impacts of policy pr
+[s2] ev_285                             lines=   4 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] THE ICSID CONVENTION: A COMMENTARY, SECOND EDITION
+[s2] ev_525                             lines=   3 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Customer-Service-SAMPLE.pdf
+[s2] ev_466                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Emerging Trends in QA Automation: AI-Driven Test Strategies
+[s2] ev_258                             lines=   1 kept=   0 off=  0 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Front End Web Developer, Growth Lab - Growth Lab
+[s2] ev_1205                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Exploring the effects of artificial intelligence on student and ... - 
+[s2] ev_1108                            lines=   9 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Exploring the Relevance and Rigour of Case Study Research in Business:
+[s2] ev_548                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Financial Analysts : Occupational Outlook Handbook
+[s2] ev_583                             lines=  18 kept=   0 off= 18 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Cost-Benefit Analysis of Financial Regulation: Case Studies and ...
+[s2] ev_1167                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Undergraduate students' involvement in research: Values, benefits ...
+[s2] ev_772                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Government.se: Startpage
+[s2] ev_653                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | What It's Like to Teach Writing When Everyone's a Writer - Literary Hu
+[s2] ev_1134                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | ICMJE | Recommendations | Defining the Role of Authors and Contributor
+[s2] ev_1240                            lines=   6 kept=   0 off=  5 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | EU-China relations: De-risking or de-coupling - the future of ...
+[s2] ev_698                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Out-of-School Time and African American Students: Linking Concept to P
+[s2] ev_820                             lines=   2 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | A Brief Study on Technical Feasibility Study
+[s2] ev_502                             lines=   4 kept=   1 off=  0 oos=  0 junk=  0 screened | Data entry clerk - Wikipedia
+[s2] ev_656                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | COST-benefit analysis: What we are learning about what we were missing
+[s2] ev_296                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Paralegals and Legal Assistants : Occupational Outlook Handbook
+[s2] ev_864                             lines=   4 kept=   0 off=  3 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Economic Issues No. 16 -- Should Equity Be a Goal of Economic Policy?
+[s2] ev_701                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Attributes of a Global Engineer Project: Updates, Inputs, Faculty 
+[s2] ev_473                             lines=   2 kept=   1 off=  0 oos=  0 junk=  0 screened | [PDF] Automated Software Testing and Quality Control: A Literature Rev
+[s2] ev_774                             lines=   5 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Governance and Regulations | Springer Nature Link
+[s2] ev_401                             lines=   2 kept=   1 off=  1 oos=  0 junk=  0 screened | Creating a Life in Art - by Design - Streamline Publishing
+[s2] ev_434                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | 11 Best Freelance Content Writers for Hire in June 2026 | Toptal®
+[s2] ev_1175                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Undergraduate Research: Importance, Benefits, and Challenges
+[s2] ev_574                             lines=  16 kept=   0 off= 16 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Effects of Information Overload on Financial Markets - Federal R
+[s2] ev_1156                            lines=   3 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] 20-1199 Students for Fair Admissions, Inc. v. President and Fell
+[s2] ev_292                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Quinn Emanuel States the Obvious: Document Review Is Practice of ...
+[s2] ev_692                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Cost-Benefit Analysis in Federal Agency Rulemaking | Congress.gov
+[s2] ev_261                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Federal Court Says Document Review By Contract Attorney Is Exempt Work
+[s2] ev_1233                            lines=   2 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Health advisory on social media use in adolescence
+[s2] ev_599                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | How to Evaluate Resumes and CVs - Human Resources
+[s2] ev_423                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Search engine optimisation (SEO) strategy as determinants to ... - PMC
+[s2] ev_663                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | When Should Governments Subsidize Health? The Case of Mass Deworming
+[s2] ev_272                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Lawyers : Occupational Outlook Handbook - Bureau of Labor Statistics
+[s2] ev_274                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] THE TAKING OF PROPERTY BY THE STATE RECENT ...
+[s2] ev_1093                            lines=   6 kept=   0 off=  5 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Wrongful Convictions: The Literature, the Issues, and the Unhear
+[s2] ev_515                             lines=  15 kept=  15 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Providing Excellent Customer Service Is Therapeutic - PMC
+[s2] ev_446                             lines=  18 kept=  18 off=  0 oos=  0 junk=  0 screened | Exploring human factors of the agile software tester - Springer Nature
+[s2] ev_315                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Why Legal Assistants Are Beneficial To Attorneys
+[s2] ev_768                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 2024 Regulatory Year in Review
+[s2] ev_848                             lines=   5 kept=   0 off=  5 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | FAIR2 Data Chats: Advancing Public-Interest Data Science Through Parti
+[s2] ev_1223                            lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | LibGuides: Undergraduate Research: Studies on the Impact of Undergradu
+[s2] ev_540                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Sister Ellen Rice
+[s2] ev_351                             lines=   3 kept=   1 off=  0 oos=  0 junk=  0 screened | Medical transcription
+[s2] ev_1071                            lines=   7 kept=   0 off=  5 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] OPINION on salicylic acid (CAS No. 69-72-7, EC No. 200-712-3)
+[s2] ev_1143                            lines=  11 kept=   0 off= 11 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The science of why friendships keep us healthy
+[s2] ev_649                             lines=   3 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Great Liberations: Writing Beyond the Academy - Public Books
+[s2] ev_630                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | How To Become a Technical Writer, for Academics – Technology, Networks
+[s2] ev_440                             lines=  11 kept=  11 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 9 Top Marketing Trends of 2026 | Coursera
+[s2] ev_736                             lines=   2 kept=   1 off=  0 oos=  0 junk=  1 screened | New Report Shows Nonprofits Are Being Squeezed by Growing Community Ne
+[s2] ev_244                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | How to increase chances to be hired as a junior frontend developer
+[s2] ev_448                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Just a moment...
+[s2] ev_354                             lines=   8 kept=   0 off=  7 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Scientific Committee on Consumer Safety SCCS - Public Health
+[s2] ev_482                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Health problems of data entry clerks and related job stressors - PubMe
+[s2] ev_697                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Impact of Social Workers Across Sectors: From Schools to Hospitals
+[s2] ev_581                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Our most important quant papers | meta.page.title.appendix
+[s2] ev_559                             lines=   4 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Quantitative analysis (finance) - Wikipedia
+[s2] ev_800                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | SME Technology Adoption in the United Kingdom | OECD
+[s2] ev_400                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Freelance Graphic Designer and Illustrator: the Power to Create
+[s2] ev_872                             lines=   4 kept=   3 off=  0 oos=  0 junk=  0 screened | The Federal Role in Advancing Education Equity and Excellence
+[s2] ev_344                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | What Is a Medical Transcriptionist?
+[s2] ev_1243                            lines=   2 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | What the New York Times Missed: 71 More of the Best Books of the 21st 
+[s2] ev_291                             lines=   3 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] THE DUTY TO READ THE UNREADABLE
+[s2] ev_554                             lines=  17 kept=   0 off= 17 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Quantitative Analysis and the Informativeness of Social Media ...
+[s2] ev_495                             lines=   2 kept=   1 off=  0 oos=  0 junk=  1 screened | The Correlation between Job Success in Data Entry and Formal Education
+[s2] ev_565                             lines=  14 kept=   0 off=  9 oos=  0 junk=  5 WHOLE-DROP:off_topic:concur:topic_off_subject | Do quants read academic papers? - Quora
+[s2] ev_321                             lines=   9 kept=   0 off=  9 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | In Re Opinion No. 24 :: 1992 :: Supreme Court of New ...
+[s2] ev_573                             lines=   3 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Trends in Quantitative Finance
+[s2] ev_1226                            lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Overemphasis on publications may disadvantage historically ... - PMC
+[s2] ev_1220                            lines=   4 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Garbage Majority: Why Most Academic Papers Are Useless—and Why Thi
+[s2] ev_366                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 screened | Is Medical Transcription a Dying Field? - Ditto
+[s2] ev_712                             lines=   3 kept=   0 off=  2 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Scaling Social Impact: Marketing to Grow Nonprofit Solutions
+[s2] ev_686                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Quantifying Benefits For Cost-Benefit Analysis - IDEAS/RePEc
+[s2] ev_407                             lines=   6 kept=   1 off=  3 oos=  0 junk=  2 screened | Top Content Marketing Statistics – Forbes Advisor
+[s2] ev_489                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 6 Qualities to Look For in a Data Entry Clerk - Remote Staff
+[s2] ev_487                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Data Entry Keyer | Social Sciences and Humanities
+[s2] ev_255                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Ask HN: As a junior front end developer what should I focus on?
+[s2] ev_503                             lines=  28 kept=  12 off=  0 oos=  0 junk= 16 screened | Get the job you really want
+[s2] ev_762                             lines=   4 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Government Regulation: The Good, The Bad, & The Ugly - Regulatory Tran
+[s2] ev_295                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Business Musings: How To Hire A Lawyer (Contracts/Dealbreakers)
+[s2] ev_1218                            lines=   3 kept=   0 off=  2 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | New Research Challenges Narrative of Educational Decline, Reveals Deca
+[s2] ev_674                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Some Costs & Benefits of Cost-Benefit Analysis
+[s2] ev_264                             lines=  13 kept=  13 off=  0 oos=  0 junk=  0 screened | 2024 Formal Ethics Opinion 1 | North Carolina State Bar
+[s2] ev_612                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Streamlining Recruitment: How AI is Revolutionizing Resume Screening
+[s2] ev_304                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Butler Snow | Paralegals – A Lawyer’s Best Friend
+[s2] ev_339                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 screened | 7 Best Medical Transcriptionist Job Tips
+[s2] ev_355                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Pros and Cons of Medical Transcription: Is It Worth It?
+[s2] ev_452                             lines=   6 kept=   1 off=  0 oos=  0 junk=  0 screened | Software Testing Evolution: Comparative Insights into Traditional ...
+[s2] ev_541                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Way I See It: Customer service? Not really | Hoadley
+[s2] ev_696                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Guidelines for Preparing Economic Analyses - Third Edition
+[s2] ev_346                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Medical Transcription Industry Facts
+[s2] ev_826                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | What Causes Technology Commercialization to Succeed or Fail ...
+[s2] ev_1090                            lines=  12 kept=   0 off=  9 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 2026 CONNECTICUT PRACTICE BOOK (Revision of 1998) © Copyrighted by the
+[s2] ev_1207                            lines=  12 kept=   0 off= 12 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Impact of Undergraduate Students' Library Use on Their ...
+[s2] ev_877                             lines=   7 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | An American Democracy Built for the People: Why Democracy Matters and 
+[s2] ev_1181                            lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Is it still worth writing a research paper in 2024? - PMC - NIH
+[s2] ev_842                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | How interest groups influence public opinion - PMC - NIH
+[s2] ev_735                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Centering Community Concerns and Recommendations amid Rapid Policy Cha
+[s2] ev_589                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Minorities Who 'Whiten' Job Resumes Get More Interviews
+[s2] ev_1089                            lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | A systematic review of academic literature for blockchain application 
+[s2] ev_648                             lines=   6 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] READ@HOME - The World Bank
+[s2] ev_403                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | 10 Freelance and Book Illustrators to Watch in 2025
+[s2] ev_720                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | PERSPECTIVES ON SOCIAL WORK
+[s2] ev_652                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Best Technical Writing Books (my top picks in 2026)
+[s2] ev_644                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Comparative analysis of public and expert perceptions of electrified .
+[s2] ev_695                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Later school start times in the U.S. An economic analysis - RAND
+[s2] ev_1204                            lines=   8 kept=   8 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Factors Contributing to School Effectiveness: A Systematic ...
+[s2] ev_552                             lines=  16 kept=   0 off= 16 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Soft Information in the Financial Press and Analysts’ Recommendation R
+[s2] ev_620                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Recruitment Process in 7 Steps (Plus Tips and FAQ) | Indeed.com
+[s2] ev_273                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | CONTRACT REVIEW: COGNITIVE BIAS, MORAL HAZARD ...
+[s2] ev_1179                            lines=  10 kept=  10 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Benefits of Multi-Year Research Experiences: Differences in ...
+[s2] ev_360                             lines=   7 kept=   0 off=  5 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Opinion on triclosan - European Commission
+[s2] ev_361                             lines=   5 kept=   1 off=  2 oos=  0 junk=  0 screened | How Should We Think About Ambient Listening and Transcription Technolo
+[s2] ev_828                             lines=  16 kept=  16 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Technical feasibility analysis and introduction strategy of ...
+[s2] ev_1183                            lines=   6 kept=   6 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Study longer or study effectively? Better study strategies can ... - P
+[s2] ev_732                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Sources of Social Capital in Community Engagement Efforts
+[s2] ev_345                             lines=   7 kept=   0 off=  3 oos=  0 junk=  2 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] OPINION on Homosalate - Public Health
+[s2] ev_1127                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Four-day school week: Research shows the impact of a condensed schedul
+[s2] ev_676                             lines=  10 kept=  10 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Benefit–Cost Analysis of Undergraduate Education Programs: An Example 
+[s2] ev_371                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Advice for a New Illustrator by Shaun Tan
+[s2] ev_300                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Expanding the role of paralegals: supporting realization of the right 
+[s2] ev_563                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Profiting from Analyst Recommendations: Levels versus Changes
+[s2] ev_532                             lines=   7 kept=   3 off=  0 oos=  0 junk=  4 screened | What Is Customer Service, and What Makes It Excellent?
+[s2] ev_271                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Should I get an attorney for a publishing contract?
+[s2] ev_326                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Legal assistant vs. paralegal: the key differences
+[s2] ev_317                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | pdf4article240-75a19955.pdf
+[s2] ev_330                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Paralegal Services - 2 New Pushes for Newly Increased Demand
+[s2] ev_398                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The World of Commercial Artists or Illustrators – Maa Illustrations
+[s2] ev_844                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | In Search of the Public Interest
+[s2] ev_1217                            lines=  37 kept=  37 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | A study on textbook use and its effects on students' academic ...
+[s2] ev_543                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 8 Reasons Why Customer Service Is Important and a Priority - Indeed
+[s2] ev_654                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Writing a Programming Book in 2021 (part II) - jmtirado.net
+[s2] ev_362                             lines=   9 kept=   0 off=  5 oos=  0 junk=  2 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] the sccs notes of guidance for the testing of cosmetic ingredien
+[s2] ev_694                             lines=   3 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Cost-Benefit Analysis and the Problem of Long-term Harms from Environm
+[s2] ev_313                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Common Sense of Paralegal Utilization
+[s2] ev_632                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 14 Books on Technical Writing Technical Writers Should Read
+[s2] ev_280                             lines=  10 kept=   0 off=  9 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] ICSID CASE NO. ARB/07/23 [CL-0276]
+[s2] ev_512                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Customer Service Representatives
+[s2] ev_660                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | A critical review of cost-benefit analysis for business software ...
+[s2] ev_625                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Ask HN: Any great books about technical writing?
+[s2] ev_665                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Ownership structure and Earnings Management: evidence from Egypt
+[s2] ev_615                             lines=   7 kept=   0 off=  6 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Resume and Cover Letter Guide | Senate Employment Office
+[s2] ev_576                             lines=  29 kept=   0 off= 29 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | UNCERTAINTY AND INVESTMENT: AN EMPIRICAL INVESTIGATION USING DATA ON A
+[s2] ev_516                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Good Customer Service is Worth Much More Than You Think
+[s2] ev_231                             lines=   8 kept=   0 off=  0 oos=  0 junk=  8 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Is 40 too old to learn front end web development and have a viable car
+[s2] ev_1202                            lines=   8 kept=   8 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | A study of the effects of four reading styles on college students ...
+[s2] ev_640                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 6 Reasons You Should Become a Technical Writer
+[s2] ev_1146                            lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Guideline on good pharmacovigilance practices (GVP) - Module VI – Coll
+[s2] ev_247                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Are Web Developers in Demand in 2024? The Continual Explosion of Web D
+[s2] ev_253                             lines=   2 kept=   0 off=  1 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Junior Front End Developer jobs in Remote - Indeed
+[s2] ev_542                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 6 Great Customer Service Examples - Qualtrics
+[s2] ev_834                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | III. The next-generation monetary and financial system
+[s2] ev_235                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 10 Things I’ve Learned as a Junior Frontend Developer
+[s2] ev_577                             lines=   3 kept=   0 off=  2 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Reading List – CQA - Chicago Quantitative Alliance
+[s2] ev_451                             lines=   5 kept=   0 off=  5 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] A Research Study on importance of Testing and Quality Assurance 
+[s2] ev_442                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | How to write a white paper that won’t send your readers to sleep
+[s2] ev_328                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Paralegal | Social Sciences and Humanities | Research Starters
+[s2] ev_250                             lines=   4 kept=   1 off=  1 oos=  0 junk=  2 screened | Is my Jr. Frontend Developer portfolio good enough for a job? - Career
+[s2] ev_507                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Career Spotlight: Data Entry Associate - Excelsior University
+[s2] ev_310                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Paralegal Job Outlook: 2025 Guide - Trends, Predictions, and More
+[s2] ev_633                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Why Technical Writing Is Critical to the Success of An Organisation - 
+[s2] ev_270                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Readable contracts (Part 1)
+[s2] ev_347                             lines=  10 kept=   0 off=  9 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | sccs_o_243.pdf
+[s2] ev_618                             lines=   9 kept=   8 off=  0 oos=  0 junk=  0 screened | Recruiter Screening Behavior Statistics for 2026: Resume Review, ATS U
+[s2] ev_871                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Taking a stand against book bans
+[s2] ev_690                             lines=  15 kept=   0 off= 15 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Chapter 6 - Guidelines for Preparing Economic Analyses - Third Edition
+[s2] ev_418                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | B2B copywriting: 15 kinds of writers we reject - Velocity Partners
+[s2] ev_596                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Best Practices for Using Resumes in the Recruiting Process
+[s2] ev_671                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The origin of cost–benefit analysis: a comparative view of France ...
+[s2] ev_635                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | What Does a Technical Writer Do? (Plus How To Become One)
+[s2] ev_874                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Interest Groups as Political Participation - OERTX
+[s2] ev_734                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | 15 Eye-Opening Corporate Social Responsibility Statistics
+[s2] ev_855                             lines=  19 kept=   0 off=  4 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Confidentiality, public interest, and the human right to science: when
+[s2] ev_538                             lines=  17 kept=   0 off= 13 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | [PDF] Take Five for Customer Service - PaLRaP.org
+[s2] ev_675                             lines=   3 kept=   0 off=  3 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Frequently Asked Questions: Cost-Benefit Analysis - Good Jobs First
+[s2] ev_248                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Web developers are software engineers, too - Human Who Codes
+[s2] ev_424                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Marketing 101: Copywriting vs. Copy Editing vs. Content Writing
+[s2] ev_411                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Copywriting 101: How to Earn Money By Writing for Businesses
+[s2] ev_861                             lines=   2 kept=   0 off=  2 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | On Title VI, Discrimination, and Academic Freedom
+[s2] ev_709                             lines=   5 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Harnessing the Power of Community Engagement for Population Health
+[s2] ev_359                             lines=   6 kept=   6 off=  0 oos=  0 junk=  0 screened | July 2026 How to Become a Medical Transcriptionist - Research.com
+[s2] ev_305                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Beyond Brockovich: A Day in the Life of a Paralegal
+[s2] ev_1072                            lines=  44 kept=   0 off= 30 oos=  0 junk=  6 WHOLE-DROP:off_topic:concur:topic_off_subject | Understanding the Effects of Constraint and Predictability in ERP | Ne
+[s2] ev_319                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Legal Assistant vs. Paralegal: What's the Difference?
+[s2] ev_472                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Quality Assurance Through Automated Testing Frameworks in ...
+[s2] ev_509                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The 13 Best Types of Data Entry Clerk in 2026 - ZipRecruiter
+[s2] ev_459                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | NAVIGATING CONTEMPORARY CHALLENGES OF SOFTWARE QUALITY ASSURANCE IN SO
+[s2] ev_1079                            lines=   9 kept=   0 off=  9 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Early Detection of Temporal Constraint Violations - DROPS
+[s2] ev_546                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The Business Benefits of Good Customer Service - Ameritas
+[s2] ev_320                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Career Considerations: Paralegal
+[s2] ev_405                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Illustration Jobs: Who Pays Illustrators (And How Much) - Format
+[s2] ev_484                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | DATA ENTRY CLERK, Omni Interactions, Denver, CO
+[s2] ev_238                             lines=  12 kept=   2 off= 10 oos=  0 junk=  0 screened | How to Become a Frontend Developer in 2026: The Full Learning Path
+[s2] ev_823                             lines=  14 kept=   0 off= 12 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | MDIC-EFS-Blueprint-for-EFS-Success-2016.pdf
+[s2] ev_462                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Disrupting the Status Quo: Six Predictions for DevOps and QA in ...
+[s2] ev_465                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | QA is Dead, Long Live QA
+[s2] ev_847                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Freedom to Read Statement
+[s2] ev_1234                            lines=  11 kept=   0 off= 11 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | School attendance problems and absenteeism as early warning ...
+[s2] ev_470                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Is QA still in demand?
+[s2] ev_1083                            lines=   8 kept=   0 off=  7 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Literature Review: Neurotechnology
+[s2] ev_341                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Medical Transcription: What It Is & Why It’s Important
+[s2] ev_621                             lines=  13 kept=   6 off=  0 oos=  0 junk=  7 screened | Job Search: Do HRs actually read all the resumes that they get for a p
+[s2] ev_723                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Six Ways in Which Social Workers Have Changed Our World
+[s2] ev_265                             lines=   5 kept=   0 off=  5 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Even lawyers do not like legalese
+[s2] ev_390                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Top Illustrators to Follow in 2026 - Jukebox Print
+[s2] ev_646                             lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | September 2024: Theodor Seuss Geisel and Children's Literature
+[s2] ev_1135                            lines=   5 kept=   0 off=  4 oos=  0 junk=  1 WHOLE-DROP:off_topic:concur:topic_off_subject | Key Facts about the Uninsured Population
+[s2] ev_415                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | What’s the Difference Between Content Writing and Copywriting in Digit
+[s2] ev_404                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 11 Best Illustrators for Hire in July 2026 | Toptal®
+[s2] ev_252                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Junior Frontend Developer: Where to start your career? - No Fluff Jobs
+[s2] ev_406                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Book Illustration | Everything You Need to Know in 2026 | Reedsy
+[s2] ev_329                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | NALA – The leading paralegal association
+[s2] ev_333                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Paralegal Writing: Importance of Legal Writing | B&SC
+[s2] ev_348                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Guide to Becoming a Medical Transcriptionist: Salary, ...
+[s2] ev_814                             lines=   5 kept=   0 off=  5 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Core Guide: Pilot and Feasibility Studies
+[s2] ev_749                             lines=  17 kept=   0 off= 17 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Evidence-based approaches in digital policy, regulation ...
+[s2] ev_770                             lines=   8 kept=   0 off=  8 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Public administration, governance, and policy integration
+[s2] ev_394                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Illustration Pricing Survey 2019 — Lisa Maltby Illustration
+[s2] ev_718                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Global Impacts of Social Work
+[s2] ev_1258                            lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Normalization of Book Banning - PEN America
+[s2] ev_745                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Tracking regulatory changes in the second Trump ...
+[s2] ev_324                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Is the Paralegal Field Booming? Your Job Outlook Guide
+[s2] ev_1064                            lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Information Frictions in Real Estate Markets - PMC - NIH
+[s2] ev_311                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Recommended Reads for Paralegals - Proof Serve
+[s2] ev_1124                            lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Normalization of Book Banning - PEN America
+[s2] ev_1189                            lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | New perspectives on stress and negative emotions: Positive effects ...
+[s2] ev_431                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Keep Trendy: 10 Top Copywriting and Content Marketing Trends in 2021
+[s2] ev_1028                            lines=   4 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Paradox of Time: How Constraints and Abundance Shape Decision ...
+[s2] ev_476                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Why Is a Quality Assurance Tester Needed on a Software Development Tea
+[s2] ev_338                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Just a moment...
+[s2] ev_851                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | The Normalization of Book Banning
+[s2] ev_246                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | My advice to a new Junior Frontend Developer
+[s2] ev_259                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Staying Relevant as a Frontend Engineer | by Davi Albuquerque Vieira
+[s2] ev_318                             lines=  33 kept=  33 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Get the job you really want
+[s2] ev_316                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The Changing Role of Paralegals: What Legal Staff Should Expect in 202
+[s2] ev_463                             lines=   8 kept=   8 off=  0 oos=  0 junk=  0 screened | Enabling Software Engineers to Reflect on QA Practices
+[s2] ev_526                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 8 Customer Service Skills And How To Improve Them For Growth | Pollack
+[s2] ev_1080                            lines=   5 kept=   0 off=  4 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | A Systematic Literature Review of Pedestrian Safety in Urban Transport
+[s2] ev_556                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The <i>Financial Analysts Journal</i> and Investment Management
+[s2] ev_230                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The ultimate guide for junior frontend developers - DEV Community
+[s2] ev_670                             lines=   8 kept=   0 off=  8 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Public sector financial reforms: which convergence between European me
+[s2] ev_236                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Owning the Role of the Front-End Developer
+[s2] ev_474                             lines=   8 kept=   4 off=  3 oos=  0 junk=  1 screened | Software Testing and QA Services Market Forecast, 2026-2033
+[s2] ev_481                             lines=   6 kept=   0 off=  0 oos=  0 junk=  6 WHOLE-DROP:junk:concur:content_integrity_junk/shell | Is data entry clerk considered of having information management experi
+[s2] ev_242                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | What should you know as a frontend developer? - Rob Kendal
+[s2] ev_450                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Twelve Interesting Articles About Modern Software Testing
+[s2] ev_352                             lines=   8 kept=   0 off=  8 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | EudraLex - Volume 10 - Clinical trials guidelines - Public Health
+[s2] ev_594                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [Resume Worded | Proven Resume Examples](https://resumeworded.com)
+[s2] ev_281                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Why you should always have an attorney review a contract
+[s2] ev_478                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Data Entry Jobs: A Complete Guide
+[s2] ev_638                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 10 Reasons Every Fiction Writer Should Learn Technical Writing
+[s2] ev_438                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | ELISABETH KOYFMAN – All About Publishing
+[s2] ev_363                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Medical Transcriptionist Job Description [Updated for 2026] - Indeed
+[s2] ev_299                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Diving into the differences between paralegals and legal assistants
+[s2] ev_269                             lines=  17 kept=  17 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Publishing Contract Review: What Is Publishing Contract Review's Role 
+[s2] ev_350                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | How medical transcription improves healthcare providers efficiency
+[s2] ev_227                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | How have I been a front-end developer in 6 months? - Medium
+[s2] ev_357                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Transcribe Anywhere Blog — Tips, Success Stories & Training
+[s2] ev_302                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Is a Legal Assistant the Same as a Paralegal?
+[s2] ev_493                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The 5 Essential Qualities of an Exceptional Data Entry Clerk
+[s2] ev_504                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | What Does a Data Entry Clerk Do? Essential Duties, Skills, and Career 
+[s2] ev_279                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Attorney Contract Review: What You Need to Know
+[s2] ev_327                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | What Does a Paralegal Do? - Purdue Global
+[s2] ev_496                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | What Are The Required Data Entry Clerk Skills?
+[s2] ev_837                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Importance of Technical Feasibility for Product Managers
+[s2] ev_266                             lines=  12 kept=  12 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | How do I review a contract like a professional lawyer?
+[s2] ev_412                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Joanna Wiebe: Writing Non-Sucky Copy for Websites, Emails and Newslett
+[s2] ev_314                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Is It Worth It To Become a Paralegal in 2024? - UTSA
+[s2] ev_485                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | What is a Data Entry Clerk?
+[s2] ev_490                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 screened | Data Entry Clerk - Salary, How to Become, Job Description & Best Schoo
+[s2] ev_432                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | SEO copywriting in 2025: 5 pillars for ranking and relevance
+[s2] ev_257                             lines=   4 kept=   4 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Visual Side of Web Development: Why Front-End Devs Need to Think L
+[s2] ev_353                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | The Importance Of Medical Transcription In Healthcare
+[s2] ev_322                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | How does legal research contribute to the work of a paralegal? | NCC
+[s2] ev_464                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Top QA and Software Testing Trends Shaping the Future of Quality ...
+[s2] ev_682                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Cost-Benefit Analysis Explained: Usage, Advantages, and Drawbacks
+[s2] ev_439                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Content Writing and Copywriting: Key Differences + How They Work Toget
+[s2] ev_364                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Understanding the Responsibilities of Medical Transcriptionists in ...
+[s2] ev_869                             lines=   2 kept=   2 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Studying harms of interventions with an equity lens in randomized ...
+[s2] ev_818                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Project Feasibility Study: Assessment, Analysis, and Report Types
+[s2] ev_522                             lines=  11 kept=  11 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The 10 Best Books on Customer Service
+[s2] ev_477                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Why QA Testing is Crucial for Software Development: Benefits
+[s2] ev_267                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Expert Contract Review by Contract Lawyers | Global Legal
+[s2] ev_737                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | The Social Worker Role and Impact on the Community
+[s2] ev_378                             lines=   4 kept=   2 off=  0 oos=  0 junk=  0 screened | Freelancing for beginners | Writers &amp; Artists
+[s2] ev_544                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | 5 Types of High-Performing Customer Support Agents
+[s2] ev_506                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Data Entry Clerk: Job Duties, | Select Recruitment Specialists Ltd
+[s2] ev_551                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Quantitative Analysis in Finance: Techniques, Applications, and Benefi
+[s2] ev_841                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | Unleashing potential: Making smart decisions through a technology feas
+[s2] ev_457                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | QA in Software Testing & How Automation Can Help
+[s2] ev_288                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Why Contract Review by a Lawyer Can Save Your Business Money
+[s2] ev_488                             lines=   3 kept=   3 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | What is a Data Entry Clerk? - Career Insights
+[s2] ev_297                             lines=   7 kept=   7 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Information for Lawyers: How Paralegals Can Improve Your Practice
+[s2] ev_822                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | What is a Technical Feasibility Study?
+[s2] ev_284                             lines=   5 kept=   5 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | [PDF] Litigation 101: Ethics Related to the Use of Contract Attorneys
+[s2] ev_486                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Skills required for Data Entry Clerk and how to assess them
+[s2] ev_309                             lines=   1 kept=   1 off=  0 oos=  0 junk=  0 screened | Paralegal vs Legal Assistant: Understanding the Differences
+[s2] ev_382                             lines=   9 kept=   9 off=  0 oos=  0 junk=  0 DISAGREE-KEEP | Freelance Illustrators - KnowledgeWorks Global Ltd
+[s2] ev_852                             lines=   1 kept=   0 off=  1 oos=  0 junk=  0 WHOLE-DROP:off_topic:concur:topic_off_subject | How Interest Groups Influence Public Policy - UMSV Online
+
+[s2] DONE. sources_in=999 sources_kept=722 whole_dropped=277 dropped_lines=2357 (off=1168 oos=0 junk=455)
+[s2] offsubject_stamped_kept=51 (topic-judge OFF_SUBJECT but KEPT — disclosed fail-open residual; two-key gate protects credible on-topic from a single-pass judge false-positive, §-1.3.1)
+[s2] wrote: outputs/s2s3_repass/iter6/s2/cp2_corpus_snapshot.json
+[s2] wrote: outputs/s2s3_repass/iter6/s2/disclosure.txt
+[s2] wrote: outputs/s2s3_repass/iter6/s2/summary.json
