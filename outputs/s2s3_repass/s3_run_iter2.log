@@ -1,0 +1,7 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/202 [00:00<?, ?it/s]Loading weights: 100%|██████████| 202/202 [00:00<00:00, 8330.38it/s]
+[consolidation_nli] W04: scoring wall (180.0s) elapsed with 26/88 chunks scored — returning the partial edge set (UNDER-merges only; no basket dropped, §-1.3). Raise PG_CONSOLIDATION_NLI_WALL_SECONDS to score more pairs.
+[consolidation_nli] W04: scoring wall (180.0s) elapsed with 33/100 chunks scored — returning the partial edge set (UNDER-merges only; no basket dropped, §-1.3). Raise PG_CONSOLIDATION_NLI_WALL_SECONDS to score more pairs.
+wrote outputs/s2s3_repass/s3/cp3_basket_snapshot.json baskets 323
+consolidation_summary {"basket_total": 323, "basket_multi_member": 42, "basket_multi_corroboration": 8, "raw_row_count": 652, "distinct_finding_count": 312, "collapsed_row_count": 3, "nli_merge_count": 5, "qualitative_basket_count": 11, "same_work_groups": 565, "same_work_multi_member": 51, "same_work_dropped_captcha": 2, "same_work_dropped_prefix": 1, "same_work_dropped_captcha_recovered": 0, "same_work_dropped_captcha_gap": 2}
+upstream_sha f0c221f75f963efe
