@@ -36,6 +36,15 @@ export PG_MAX_CONCURRENT_LLM=16
 export PG_ABSTRACTIVE_WRITER_CALL_DEADLINE_S=300
 export PG_ABSTRACTIVE_WRITER_WALL_DEADLINE_S=1400
 export PG_ENTAILMENT_TOTAL_S=300
+# iter-5 (Fable P0): the NLI verify pre-pass speedup (0615bc5) is capped at 4 by the process-global
+# side-judge semaphore (judge_concurrency.py DEFAULT_MAX_CONCURRENCY=4, tuned for a credibility-burst
+# 429 storm, not compose). 0 429s at 128-way proves rate limit is not the ceiling; raise the cap so
+# verify threads don't queue behind 4 slots. Transport-only, faithfulness-NEUTRAL.
+export PG_SIDE_JUDGE_MAX_CONCURRENCY=16
+# iter-5 (Fable P1): a hung judge POST holds a semaphore slot for the full PG_ENTAILMENT_TOTAL_S. The
+# code comment (entailment_judge.py:196) prescribes the run slate set this to 1 (=> up to 2 attempts on
+# a hang vs the default 2 => 3x total_s of dead slot-hold). Faithfulness-NEUTRAL (same fail-closed sentinel).
+export PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=1
 # -- §9.1.8 always-MAX token slate (z-ai/glm-5.2 real caps) --
 export PG_ABSTRACTIVE_WRITER_MAX_TOKENS=131072
 export PG_ABSTRACTIVE_WRITER_REASONING_MAX_TOKENS=65536

@@ -352,11 +352,31 @@ async def main():
     # and "total_deadline_exceeded_150s". Route around blank-200 windows (PG_JUDGE_PROVIDER_ROTATE) and
     # grant a bounded larger total wall. Do NOT override PG_ENTAILMENT_MAX_TOKENS / _REASONING_EFFORT
     # (override clamps down / xhigh starves GLM per the mirror bake-off). setdefault => launcher/env wins.
+    # Fable P0/P1 (2026-07-10 compose gear-loop): (P0) the NLI verify pre-pass (0615bc5) is gated by the
+    # process-global side-judge semaphore, default 4 (judge_concurrency.DEFAULT_MAX_CONCURRENCY) — tuned
+    # for a credibility-burst 429 storm, NOT compose (0 429s at 128-way). Raise the in-flight cap to 16 so
+    # verify threads don't queue behind 4 slots. (P1) PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES=1 is what the
+    # code comment (entailment_judge.py:196) prescribes for the run slate — caps a total_deadline hang at
+    # 2 attempts (2x total_s) instead of the default 2 (=3x total_s of dead slot-hold). Both transport-only
+    # and faithfulness-NEUTRAL (same fail-closed sentinel). setdefault => launcher/env wins.
     for _k, _v in (
         ("PG_JUDGE_PROVIDER_ROTATE", "1"),
         ("PG_ENTAILMENT_TOTAL_S", "300"),
+        ("PG_SIDE_JUDGE_MAX_CONCURRENCY", "16"),
+        ("PG_ENTAILMENT_TOTAL_DEADLINE_RETRIES", "1"),
     ):
         os.environ.setdefault(_k, _v)
+
+    # P0 (2026-07-11 compose gear-loop iter 5): strict_verify's per-sentence entailment loop ran SERIAL
+    # in production because _parallel_verify_workers() returns 1 when PG_PARALLEL_VERIFY is unset
+    # (provenance_generator.py:3390 read, serial gate at :3665), and NO compose launcher set the knob —
+    # so the bounded, cost-reconciled, contextvars-copied ThreadPoolExecutor path (:3676-3723, already
+    # gated at 16 by scripts/iarch011_parallel_verify_gate.py) was DEAD in production while strict_verify
+    # runs twice per section. Turn the parallel judge path ON with a bounded 8 workers. This is
+    # faithfulness-NEUTRAL: the parallel path reassembles verdicts in ORIGINAL order, so kept/dropped is
+    # byte-identical to the serial loop; only concurrency of in-flight judge calls changes. setdefault =>
+    # an explicit launcher/env value still wins.
+    os.environ.setdefault("PG_PARALLEL_VERIFY", "8")
 
     sel = set()
     if args.sections.strip():

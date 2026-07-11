@@ -24,6 +24,7 @@ All three are DEFAULT-ON kill-switches (LAW VI). The faithfulness engine (verify
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -279,8 +280,13 @@ async def coherence_rewrite_section(
             out.append(orig)
             continue
         # BASE-BAR RE-VERIFY: context NLI entailment + forward numeric match. Fail => keep original.
+        # P0 OFF-LOOP (2026-07-11 compose gear-loop): verify_sentence_provenance is a SYNC blocking NLI
+        # judge (httpx) call; looping it inline on the event loop here FROZE sibling sections (measured
+        # 10s heartbeat gap, the residual after the compose/strict_verify/sentence_repair/repair_untokened
+        # offloads). Offload to a worker thread. Faithfulness BYTE-IDENTICAL — same verifier, same verdict,
+        # only the thread changes.
         try:
-            res = verify_sentence_provenance(new, evidence_pool)
+            res = await asyncio.to_thread(verify_sentence_provenance, new, evidence_pool)
         except Exception:  # noqa: BLE001 — verifier fault on this sentence => keep original
             out.append(orig)
             continue
