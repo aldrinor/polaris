@@ -175,6 +175,12 @@ def main() -> int:
         'collapsed_row_count': res.collapsed_row_count,
         'nli_merge_count': res.nli_merge_count,
         'qualitative_basket_count': res.qualitative_basket_count,
+        # S2/S3 re-pass iter-4 disclosure (Fable Fix 1(d), §-1.3.1 fail-loud): number of
+        # numeric baskets UNIONED by the representative-invariant post-pass (residual same-claim
+        # false-splits the numeric split-confirm's fail-open-on-None left behind). >0 proves the
+        # THE-GHOST repair fired; 0 = clean/off. Never a DROP — UNION-only, corroboration over
+        # DISTINCT works.
+        'rep_invariant_merge_count': getattr(res, 'rep_invariant_merge_count', 0),
         'same_work_groups': sw_total,
         'same_work_multi_member': sw_multi,
         'same_work_dropped_captcha': len(sw.dropped_captcha_indices) if sw else 0,
