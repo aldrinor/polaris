@@ -54,7 +54,27 @@ _DEFAULT_TOPIC_BATCH = 25
 
 # Cap on the title+snippet length fed per source so a batch prompt stays
 # bounded even with long live-retriever statements.
-_MAX_SNIPPET_CHARS = 320
+# P1-4 (S2/S3 re-pass iter-5, Fable): the 320-char default fed the judge only the FIRST 320
+# chars of a source — which for a fetched page is often leading nav / masthead / title chrome, NOT
+# the topical content, so a context-obvious off-topic source (education-finance, climate-finance,
+# social-work, lit-review-how-to, CBA-methodology, governance-of-law) read as ambiguous and the
+# fail-open kept it. Raise the default to 1200 chars so the judge SEES the substantive body, and
+# make it LAW VI env-tunable. Still bounded (batch prompt stays reasonable at batch 25). FAIL-OPEN
+# is unchanged: more context only sharpens a CONFIDENT off-topic verdict; any doubt still keeps.
+_MAX_SNIPPET_CHARS_DEFAULT = 1200
+
+
+def _max_snippet_chars() -> int:
+    """``PG_SCOPE_TOPIC_SNIPPET_CHARS`` (LAW VI, default 1200). A malformed / non-positive value
+    falls back to the default (fail-safe: never a zero-length snippet)."""
+    raw = os.environ.get("PG_SCOPE_TOPIC_SNIPPET_CHARS", "").strip()
+    if not raw:
+        return _MAX_SNIPPET_CHARS_DEFAULT
+    try:
+        value = int(raw)
+    except ValueError:
+        return _MAX_SNIPPET_CHARS_DEFAULT
+    return value if value > 0 else _MAX_SNIPPET_CHARS_DEFAULT
 
 
 def topic_gate_enabled() -> bool:
@@ -234,7 +254,7 @@ def _row_snippet_text(row: dict[str, Any]) -> str:
     for key in ("snippet", "direct_quote", "summary"):
         v = row.get(key)
         if isinstance(v, str) and v.strip():
-            return v.strip()[:_MAX_SNIPPET_CHARS]
+            return v.strip()[:_max_snippet_chars()]
     return ""
 
 

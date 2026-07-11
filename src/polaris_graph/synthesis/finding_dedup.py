@@ -150,13 +150,97 @@ def _key_hygiene_enabled() -> bool:
     )
 
 
+# P0-1(a) (S2/S3 re-pass iter-5, Fable — "the consolidation ghost is wounded, not dead"): a
+# STOPWORD / FUNCTION-WORD / generic-discourse subject is NOT a real research subject and must
+# never be a same-claim MERGE key. The numeric extractor sometimes names the token nearest a
+# number as the "subject" — a pronoun ('their'), a conjunction ('because'), a light/reporting
+# verb ('reveals','shows'), an auxiliary, or a bare generic discourse noun/adjective
+# ('significant','point','level','mid','capabilities'). Two DIFFERENT works that merely share
+# such a garbage subject + a colliding value (the drb_72 basket-27 'reveals/increase/26.08'
+# semanticscholar+ssrn merge, basket-109 'because/change/13' 3x, basket-28 'their/level/4.0'
+# medium blog) then key into ONE false corroboration basket. The GENERAL rule (question-agnostic,
+# NO entity/corpus list): a subject whose tokens are ALL closed-class function words OR bare
+# generic-discourse tokens carries no content NOUN — collapse it to the UNKNOWN sentinel (a safe
+# per-row singleton; the row is KEPT and can still consolidate via the strict NLI claim-sentence
+# path, which decides same-claim on MEANING, not a token collision). §-1.3-safe: NEVER a DROP,
+# only a merge-key demotion; the CLINICAL strict-verbatim key never routes through the fold.
+_NONCONTENT_SUBJECT_TOKENS = frozenset({
+    # pronouns / pro-forms
+    "i", "we", "you", "he", "she", "it", "they", "them", "us", "me", "him", "her",
+    "this", "that", "these", "those", "their", "theirs", "its", "our", "ours", "your",
+    "yours", "his", "hers", "my", "mine", "who", "whom", "whose", "which", "what",
+    "one", "ones", "itself", "themselves", "someone", "anyone", "everyone", "something",
+    "anything", "everything", "such", "same", "own", "other", "another",
+    # determiners / quantifiers
+    "a", "an", "the", "some", "any", "each", "every", "all", "both", "few", "fewer",
+    "many", "most", "several", "no", "none", "either", "neither", "enough", "much",
+    "more", "less",
+    # conjunctions / discourse connectives
+    "and", "or", "but", "nor", "so", "yet", "thus", "hence", "therefore", "however",
+    "moreover", "furthermore", "also", "then", "because", "although", "though", "while",
+    "whereas", "thereby", "thereof", "herein", "hereby", "whereby", "meanwhile",
+    "nonetheless", "nevertheless", "accordingly", "consequently", "additionally",
+    "similarly", "likewise", "instead", "rather", "indeed", "overall", "furthermore",
+    # prepositions / particles
+    "of", "in", "on", "at", "by", "to", "for", "with", "from", "as", "into", "onto",
+    "upon", "about", "over", "under", "between", "among", "per", "via", "within",
+    "without", "through", "during", "before", "after", "above", "below", "across",
+    "toward", "towards", "against", "along", "around", "behind", "beyond", "despite",
+    # auxiliaries / light + reporting verbs (Fable named 'reveals')
+    "is", "are", "was", "were", "be", "been", "being", "has", "have", "had", "do",
+    "does", "did", "will", "would", "can", "could", "may", "might", "must", "shall",
+    "should", "reveal", "reveals", "revealed", "show", "shows", "showed",
+    "showing", "find", "finds", "found", "suggest", "suggests", "suggested",
+    "indicate", "indicates", "indicated", "note", "notes", "noted", "state", "states",
+    "stated", "report", "reports", "reported", "mean", "means", "seem", "seems",
+    "appear", "appears", "remain", "remains", "become", "becomes", "include",
+    "includes", "provide", "provides", "present", "presents", "demonstrate",
+    "demonstrates", "estimate", "estimates", "estimated", "using", "used",
+    # generic discourse nouns / hedge adjectives (Fable named significant/point/level/mid/
+    # capabilities) — never a specific research subject on their own
+    "significant", "significance", "significantly", "point", "points", "level",
+    "levels", "mid", "case", "cases", "way", "ways", "thing", "things", "part",
+    "parts", "aspect", "aspects", "factor", "factors", "issue", "issues", "area",
+    "areas", "term", "terms", "example", "examples", "capability", "capabilities",
+    "kind", "kinds", "type", "types", "sort", "sorts", "range", "ranges", "side",
+    "sides", "context", "regard", "respect", "manner", "extent", "degree", "amount",
+    "number", "total", "figure", "figures", "item", "items", "value", "values",
+    "result", "results", "finding", "findings", "section", "chapter", "table",
+    # hedge / degree adverbs — never a research subject on their own
+    "particularly", "especially", "notably", "specifically", "generally", "typically",
+    "largely", "primarily", "mainly", "approximately", "roughly", "nearly", "relatively",
+    "substantially", "considerably", "increasingly", "respectively", "namely",
+})
+_SUBJECT_TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _subject_is_noncontent(subject: str) -> bool:
+    """P0-1(a) (Fable): True iff the RAW subject carries NO content noun — every whitespace/
+    punctuation token folds to a closed-class function word OR a bare generic-discourse token
+    in ``_NONCONTENT_SUBJECT_TOKENS``. Such a subject ('their', 'because', 'reveals',
+    'significant point') is extractor noise, never a real research subject, so it must never be
+    a same-claim MERGE key. Question-agnostic + deterministic; empty/whitespace => False (the
+    existing UNKNOWN handling already covers an empty subject). A single content token anywhere
+    (e.g. 'unemployment' in 'unemployment rate') keeps the subject."""
+    s = (subject or "").strip().lower()
+    if not s:
+        return False
+    toks = [t for t in _SUBJECT_TOKEN_SPLIT_RE.split(s) if t]
+    if not toks:
+        return False
+    return all(t in _NONCONTENT_SUBJECT_TOKENS for t in toks)
+
+
 def _is_garbage_subject(folded: str) -> bool:
     """True iff the folded non-clinical subject is a garbage token (PDF-stream artifact,
-    bare file/working-paper code, lone TLD/scheme token, or a long digit run) that must
-    never be a same-claim merge key. Pure/deterministic."""
+    bare file/working-paper code, lone TLD/scheme token, long digit run, OR — P0-1(a),
+    Fable iter-5 — a bare closed-class function word / generic-discourse token that carries
+    no content noun) that must never be a same-claim merge key. Pure/deterministic."""
     if not folded:
         return False
     if folded in _GARBAGE_SUBJECT_TOKENS:
+        return True
+    if folded in _NONCONTENT_SUBJECT_TOKENS:  # P0-1(a): single-token stopword/generic subject
         return True
     if _GARBAGE_CODE_RE.match(folded):
         return True
@@ -301,6 +385,20 @@ def _rep_is_unclean(row: dict[str, Any]) -> bool:
 
 _MIDSENTENCE_TRUNCATION_RE = re.compile(r"\[\s*\.\.\.\s*\]|\[\s*…\s*\]|\.\.\.\s*$|…\s*$")
 _SENTENCE_TERMINAL_RE = re.compile(r"[.!?][\"')\]]?\s*$")
+# P0-1(c) (iter-5, Fable): page-navigation / share / reader-shell chrome fragments that a
+# fetch glued onto a heading ('... Main findings from the consultation process Copy link to 3',
+# 'Press enter or click to view image', '4 min read', 'Read More', 'View details', 'Skip to
+# content'). Folded OUT of the claim-bearing test so such chrome cannot pad a bare HEADING up to
+# a "claim-bearing" word count and let two DIFFERENT works byte-identical-merge on the heading
+# (drb_72 basket-224 worldbank+oecd 'Main findings from the consultation process'). Question-
+# agnostic surface chrome only; these tokens never occur inside a genuine research claim.
+_NAV_CHROME_RE = re.compile(
+    r"copy link(?: to)?|press enter or click|click to view|\bmin read\b|read more|"
+    r"view details|skip to (?:content|main)|share this|add to (?:cart|library)|"
+    r"cookie(?:s)? (?:policy|settings)?|sign ?in|log ?in|subscribe|newsletter|"
+    r"add_circle|remove_circle|main navigation|table of contents",
+    re.IGNORECASE,
+)
 
 
 def _claim_bearing_rep_enabled() -> bool:
@@ -361,15 +459,17 @@ def _choose_clean_representative(member_ris: list[int], rank_fn, rows: list[dict
         return ranked[0]
     clean = [ri for ri in ranked if not _rep_is_unclean(rows[ri])]
     if clean and _claim_bearing_rep_enabled():
-        # Fix 6 (iter-4, Fable): FIRST prefer a claim-bearing member that is NOT a license / ISSN /
-        # keyword / JEL / acknowledgment / contact / how-to-cite boilerplate line NOR a bare author
-        # list — so a basket never SURFACES metadata as its representative statement while a real
-        # claim member exists. Fail-open: falls back to any claim-bearing, then any clean member.
+        # Fix 6 (iter-4/iter-5, Fable): FIRST prefer a member whose reader-VISIBLE sentence is a
+        # real MERGEABLE claim (claim-bearing AND not a license / ISSN / keyword / JEL / BibTeX /
+        # Scopus-dump / 'Published by' / arXiv-cite-as / acknowledgment / contact boilerplate) and
+        # is NOT a bare author list — so a basket never SURFACES metadata as its representative
+        # statement (drb_72 #027 '@article{Noy2023...}' bibtex rep) while a real claim member
+        # exists. P1-6 reuses ``_row_has_mergeable_claim`` (the unified ``_sentence_mergeable``
+        # screen) on rep candidates. Fail-open: falls back to any claim-bearing, then any clean.
         for ri in clean:
             body = _row_text(rows[ri])
             if (
-                _is_claim_bearing_complete(rows[ri])
-                and not _is_boilerplate_or_metadata_line(body)
+                _row_has_mergeable_claim(rows[ri])
                 and not _is_author_list_line(body)
             ):
                 return ri
@@ -549,7 +649,18 @@ _BOILERPLATE_METADATA_RE = re.compile(
     r"\bcorresponding author\b|\be[\s\-]?mail\s*:|\backnowledge?ments?\b|"
     r"\bconflicts? of interest\b|\bcite this (?:article|paper|work)\b|\bhow to cite\b|"
     r"\bterms (?:of use|and conditions)\b|\bprivacy policy\b|\bdownloaded from\b|"
-    r"\bsupplementary (?:material|information)\b",
+    r"\bsupplementary (?:material|information)\b|"
+    # P1-6 (iter-5, Fable) — additional non-claim REPRESENTATIVE metadata that shipped as a
+    # basket's "statement": a BibTeX record (@article{...}/@inproceedings{...}), an arXiv
+    # 'Cite as' / bare arXiv id, a 'Published by <publisher>' imprint line, and a Scopus
+    # author-/indexed-keywords / document-type / source-type catalog dump. Question-agnostic +
+    # conservative (a real reported claim never contains these tokens).
+    r"@(?:article|inproceedings|book|incollection|techreport|misc|phdthesis|mastersthesis|"
+    r"conference|unpublished)\s*\{|"
+    r"\bcite as\s*:|\barxiv:\s*\d{4}\.\d{4,5}|\bdoi:\s*10\.\d{4}|"
+    r"\bpublished by\b|\binforma uk\b|\btaylor (?:&|and) francis\b|"
+    r"\bauthor keywords\b|\bindexed keywords\b|\bdocument type\s*:|\bsource type\s*:|"
+    r"\ball content following this page\b|\bpo box\b",
     re.IGNORECASE,
 )
 # A whole line that is a byline (author list): >=2 'Surname, F.' / 'F. Surname' name tokens joined
@@ -589,6 +700,10 @@ def _is_claim_bearing_sentence(text: str) -> bool:
     # citation does not defeat the terminal-punctuation test nor pad the content-word count (the
     # rung-0 'AI will displace 300 million jobs. [#ev:e1:0-30]' case).
     s = _RUNG0_CITE_TOKEN_RE.sub(" ", s)
+    # P0-1(c) (iter-5): fold out page-nav / share / reader-shell chrome so a bare HEADING with
+    # glued nav ('Main findings from the consultation process Copy link to 3') cannot be padded
+    # up to a "claim-bearing" word count and false-merge two different works on the heading.
+    s = _NAV_CHROME_RE.sub(" ", s)
     s = re.sub(r"\s+", " ", s).strip()
     if not s:
         return False
@@ -605,6 +720,26 @@ def _sentence_mergeable(text: str) -> bool:
     semantic claim confirm. §-1.3-safe: this only ever BLOCKS a merge (keeps baskets SPLIT); it
     never drops a row and never relaxes faithfulness. General/question-agnostic."""
     return _is_claim_bearing_sentence(text) and not _is_boilerplate_or_metadata_line(text)
+
+
+def _qual_mergeable_screen_enabled() -> bool:
+    """``PG_FINDING_QUAL_MERGEABLE_SCREEN`` kill switch (LAW VI, DEFAULT-ON, iter-5 P0-1(c)/P1-5,
+    Fable). ON => a qualitative-candidate row whose body has NO mergeable CLAIM sentence (a bare
+    heading / nav-link dump / catalog / license / bibliography with no propositional prose — the
+    drb_72 basket-321 wustl profile-nav dump) is EXCLUDED from qualitative CLUSTERING (still KEPT
+    as its own keep-all singleton row). OFF => byte-identical (no screen)."""
+    return os.getenv("PG_FINDING_QUAL_MERGEABLE_SCREEN", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _row_has_mergeable_claim(row: dict[str, Any]) -> bool:
+    """True iff the row's body yields a real, non-boilerplate CLAIM sentence (P0-1(c)/P1-5/P1-6):
+    its reader-visible sentence is claim-bearing AND not license/heading/nav/metadata. A row with
+    NO mergeable claim (a nav/link-list / catalog / bibliography / license-only body) can never
+    anchor a same-claim merge and must never seed/join a corroboration basket. FAIL-OPEN on doubt
+    via the claim-bearing predicate's own fail-open. Question-agnostic + deterministic."""
+    return _sentence_mergeable(_visible_claim_sentence(row, None))
 
 
 def _is_author_list_line(text: str) -> bool:
@@ -1235,6 +1370,62 @@ def _normalize_source_url(row: dict[str, Any]) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Cross-host FILENAME same-work identity — S2/S3 re-pass iter-5 P1-2 (Fable)
+# ─────────────────────────────────────────────────────────────────────────
+# The corpus rows rarely carry a DOI/authors (only a handful) but the SAME working paper is
+# frequently rehosted at multiple institutional mirrors under an IDENTICAL, DISTINCTIVE FILENAME
+# (drb_72: 'cesifo1_wp10601.pdf' at econstor.eu AND ifo.de — one CESifo WP10601 counted as 2-3
+# works). A discriminative URL basename shared across DIFFERENT hosts IS the same document. This
+# is a WORK-IDENTITY union (folds the corroboration COUNT only — a Signal-D weight; the CLAIM
+# merge still needs NLI, so a rare basename collision can never fabricate a corroborated claim,
+# and every member URL is kept as a locator, §-1.3 keep-all). Generic / non-discriminative
+# basenames (index / download / a bare number / a short slug) are REJECTED so two different works
+# never merge on a boilerplate filename. LAW VI kill switch (default ON).
+_SAMEWORK_FILENAME_ENV = "PG_SAMEWORK_FILENAME_UNION"
+_URL_BASENAME_EXT_RE = re.compile(r"\.(pdf|html?|docx?|txt|epub|xml|ps|ashx|aspx?)$", re.IGNORECASE)
+_URL_BASENAME_VERSION_TAIL_RE = re.compile(r"[._\-]v?\d+$")
+# Non-discriminative basenames that many distinct works share — never a same-work signal.
+_GENERIC_BASENAMES = frozenset({
+    "index", "download", "downloads", "view", "viewer", "full", "fulltext", "abstract",
+    "default", "home", "paper", "papers", "article", "articles", "document", "pdf",
+    "file", "files", "content", "main", "show", "print", "read", "get", "doc", "docs",
+    "en", "html", "entry", "publication", "publications", "report", "reports", "summary",
+})
+
+
+def _samework_filename_union_enabled() -> bool:
+    """``PG_SAMEWORK_FILENAME_UNION`` kill switch (LAW VI, DEFAULT-ON, iter-5 P1-2)."""
+    return os.getenv(_SAMEWORK_FILENAME_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _url_basename_key(row: dict[str, Any]) -> str:
+    """A cross-host same-work key on a DISCRIMINATIVE URL basename (last path segment), or ``""``
+    when the basename is generic / too short / a bare number to be a reliable identifier. Strips a
+    trailing file extension + version tail; lowercased. 'cesifo1_wp10601.pdf' -> 'file:cesifo1_wp10601';
+    'index.html' / 'download' / '61147' -> '' (never merges two works). Pure/question-agnostic."""
+    raw = str(row.get("source_url", "") or row.get("url", "") or "").strip()
+    if not raw:
+        return ""
+    path = (urlparse(raw).path or "").rstrip("/")
+    if not path or "/" not in path:
+        base = path.lstrip("/")
+    else:
+        base = path.rsplit("/", 1)[-1]
+    base = _URL_BASENAME_EXT_RE.sub("", base).strip().lower()
+    base = _URL_BASENAME_VERSION_TAIL_RE.sub("", base)
+    base = base.strip("._-")
+    if not base or base in _GENERIC_BASENAMES:
+        return ""
+    # Discriminative: at least 8 chars AND not a bare number (a numeric-only id like a CBO
+    # publication number '61147' is host-specific — different works reuse short numeric slugs).
+    if len(base) < 8 or base.isdigit():
+        return ""
+    return "file:" + base
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Cross-mirror same-work identity — S2/S3 re-pass Fix 4
 # ─────────────────────────────────────────────────────────────────────────
 # §-1.3 CONSOLIDATE-don't-DROP + "over-merge corrupts attribution; under-merge is safe":
@@ -1531,6 +1722,12 @@ def _finding_key(
         # Collapse to the UNKNOWN sentinel (safe singleton) BEFORE folding.
         if _key_hygiene_enabled() and _subject_is_title_like(subject):
             subject = ""
+        # P0-1(a) (Fable iter-5): a stopword / function-word / generic-discourse subject
+        # ('their', 'because', 'reveals', 'significant point') carries no content noun — it is
+        # extractor noise, never a real merge subject. Collapse to the UNKNOWN sentinel BEFORE
+        # folding (safe singleton; the row still consolidates via the strict NLI claim path).
+        if _key_hygiene_enabled() and _subject_is_noncontent(subject):
+            subject = ""
         # Fold ONLY the non-clinical subject to a surface-invariant signature.
         # An empty fold (pure-punctuation subject) becomes the UNKNOWN sentinel.
         folded = _fold_nonclinical_subject(subject)
@@ -1745,6 +1942,53 @@ def consolidate_same_work(rows: list[dict[str, Any]]) -> SameWorkResult:
                 merged_t.setdefault(_tf(wkey), []).extend(wris)
             work_members = {k: sorted(set(v)) for k, v in merged_t.items()}
 
+    # P1-2 (S2/S3 re-pass iter-5, Fable): CROSS-HOST FILENAME UNION. Merge any two work-groups
+    # that share an identical DISCRIMINATIVE URL basename (``_url_basename_key`` — 'cesifo1_wp10601.pdf'
+    # at econstor.eu AND ifo.de is ONE CESifo working paper; three fetches of one ssir.org article
+    # slug are ONE work). The corpus rarely carries a DOI/authors, so a distinctive filename is the
+    # strongest available cross-mirror signal. Mirrors the URL/title unions above; §-1.3-safe (folds
+    # only the corroboration COUNT — the CLAIM merge still needs NLI, so a rare basename collision
+    # can never fabricate a corroborated claim; every member URL is kept). Kill switch => byte-identical.
+    if _samework_filename_union_enabled() and len(work_members) > 1:
+        base_to_keys: dict[str, set[str]] = {}
+        for wkey, wris in work_members.items():
+            for ri in wris:
+                bk = _url_basename_key(rows[ri])
+                if bk:
+                    base_to_keys.setdefault(bk, set()).add(wkey)
+        base_parent: dict[str, str] = {}
+
+        def _bf(k: str) -> str:
+            base_parent.setdefault(k, k)
+            root = k
+            while base_parent[root] != root:
+                root = base_parent[root]
+            while base_parent[k] != root:
+                base_parent[k], k = root, base_parent[k]
+            return root
+
+        def _b_id_bearing(k: str) -> int:
+            return 0 if k.startswith(("doi:", "id:", "arxiv:", "url:")) else 1
+
+        def _bu(a: str, b: str) -> None:
+            ra, rb = _bf(a), _bf(b)
+            if ra == rb:
+                return
+            lo, hi = sorted((ra, rb), key=lambda k: (_b_id_bearing(k), k))
+            base_parent[hi] = lo
+
+        for _bk, ks in base_to_keys.items():
+            if len(ks) < 2:
+                continue  # a basename carried by only ONE work-group unions nothing
+            ks_list = sorted(ks)
+            for k in ks_list[1:]:
+                _bu(ks_list[0], k)
+        if any(_bf(k) != k for k in list(work_members.keys())):
+            merged_b: dict[str, list[int]] = {}
+            for wkey, wris in work_members.items():
+                merged_b.setdefault(_bf(wkey), []).extend(wris)
+            work_members = {k: sorted(set(v)) for k, v in merged_b.items()}
+
     dropped_prefix: set[int] = set()
     groups: list[SameWorkGroup] = []
     work_id_by_index: dict[int, str] = {}
@@ -1869,6 +2113,11 @@ class FindingDedupResult:
     # bidirectionally-entailing VISIBLE representative claim sentence). 0 when the kill
     # switch is off; >0 proves a residual same-claim double-basket was repaired.
     rep_invariant_merge_count: int = 0
+    # S2/S3 re-pass iter-5 P0-1(b) (Fable): per-cluster confirm/split telemetry from the numeric
+    # split-confirm pass, surfaced to consolidation_summary (§-1.3.1 fail-loud). `numeric_*` keys
+    # count clusters that lost a member, members kept, members split, and members split
+    # specifically by the numbers-strict value gate (rep/member claim sentence lacked the value).
+    numeric_confirm_telemetry: dict[str, int] = field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -2027,7 +2276,14 @@ def _apply_consolidation_nli(
     The merged member-index lists are sorted, so the downstream loop is unchanged.
 
     Any failure (e.g. the cross-encoder cannot load) RAISES — a flag-ON winner that
-    silently no-ops would defeat the §-1.4 canary (no silent fallback, LAW II)."""
+    silently no-ops would defeat the §-1.4 canary (no silent fallback, LAW II).
+
+    P0-1(c) (iter-5, Fable): a cluster whose VISIBLE representative sentence is NOT a real
+    CLAIM (a byte-identical heading / license / nav / metadata line — the drb_72 basket-224
+    ``__unknown__`` worldbank+oecd 'Main findings from the consultation process' pool merge) is
+    EXCLUDED from the value buckets, so the byte-identical-entails-byte-identical shortcut can
+    never fire on non-mergeable text on THIS path. §-1.3-safe: it only ever keeps a cluster
+    SPLIT (never drops a row, never relaxes a gate)."""
     from src.polaris_graph.synthesis.consolidation_nli import group_clusters  # noqa: PLC0415
 
     keys = list(groups.keys())
@@ -2044,6 +2300,13 @@ def _apply_consolidation_nli(
         v = bucket_of[i]
         if v is None:
             continue  # no recoverable value => its own singleton, never merged
+        # P0-1(c): screen the cluster's VISIBLE representative claim sentence — a non-mergeable
+        # heading / license / nav / metadata line must never anchor a byte-identical NLI merge
+        # (the basket-224 heading pool). Non-mergeable rep => leave the cluster a singleton.
+        member_ris = sorted(set(groups[keys[i]]))
+        rep_ri = _choose_clean_representative(member_ris, rank_fn, rows)
+        if not _sentence_mergeable(_visible_claim_sentence(rows[rep_ri], v)):
+            continue
         by_value.setdefault(v, []).append(i)
 
     # Union-find over ALL cluster indices; only within-bucket NLI edges union.
@@ -2392,6 +2655,51 @@ def _apply_representative_invariant(
     return new_groups, merged
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# NUMBERS-STRICT value presence — S2/S3 re-pass iter-5 P0-1(b) (Fable)
+# ─────────────────────────────────────────────────────────────────────────
+# A numeric basket asserts a specific NUMBER. Two members may stay merged ONLY when that number
+# literally appears in BOTH members' claim sentences (numbers-strict — the operator's locked
+# "numbers strict" faithfulness rule). If ``_claim_sentence`` fell back to a boilerplate /
+# Narrative-Review-checklist rep that does NOT contain the cluster's value (the drb_72 basket-27
+# 'their/level/4.0' merge where the rep sentence never contained '4'), the pair CANNOT corroborate
+# that number — SPLIT. Tolerant of surface formatting (5.5 == '5.5%' == '5.5 per cent'; 1000 ==
+# '1,000') by parsing every numeric token to a float and comparing values, so a true corroborator
+# formatted differently is never falsely split. Fail-OPEN when there is no comparable bucket value
+# (returns True — the gate simply does not apply and NLI decides).
+_NUM_TOKEN_RE = re.compile(
+    r"[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?|[-+]?\d+(?:\.\d+)?|[-+]?\.\d+"
+)
+
+
+def _text_numeric_values(text: str) -> list[float]:
+    """Every numeric literal in ``text`` parsed to a float (thousands-commas stripped). Pure."""
+    out: list[float] = []
+    for m in _NUM_TOKEN_RE.finditer(_normalize_unicode_text(text or "")):
+        tok = m.group(0).replace(",", "")
+        try:
+            out.append(float(tok))
+        except ValueError:
+            continue
+    return out
+
+
+def _text_contains_value(text: str, value: Any) -> bool:
+    """True iff ``text`` contains a numeric literal equal (to float precision) to ``value``.
+    Fail-OPEN: a non-numeric / None ``value`` returns True (the numbers-strict gate does not
+    apply). Tolerant of formatting variants (percent / per-cent / thousands-commas) because it
+    compares parsed VALUES, not surface strings. General/question-agnostic."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return True
+    tol = max(1e-9, abs(v) * 1e-6)
+    for x in _text_numeric_values(text):
+        if abs(x - v) <= tol:
+            return True
+    return False
+
+
 def _numeric_nli_confirm_enabled() -> bool:
     """``PG_FINDING_NUMERIC_NLI_CONFIRM`` kill switch (LAW VI, DEFAULT-ON, Fix 1(A)). When
     ON, the numeric ``_finding_key`` tuple is treated as CANDIDATE RECALL only: two rows that
@@ -2419,12 +2727,24 @@ def _numeric_nli_confirm_strict_enabled() -> bool:
     )
 
 
+def _numeric_value_strict_enabled() -> bool:
+    """``PG_FINDING_NUMERIC_VALUE_STRICT`` kill switch (LAW VI, DEFAULT-ON, iter-5 P0-1(b), Fable).
+    ON => two numeric-cluster members may stay merged ONLY when the cluster's numeric VALUE
+    literally appears in BOTH claim sentences (numbers-strict). A rep/member whose claim sentence
+    (e.g. a Narrative-Review-checklist boilerplate fallback) does NOT carry the value CANNOT
+    corroborate that number => SPLIT. OFF => the pre-P0-1(b) behavior (no value-presence gate)."""
+    return os.getenv("PG_FINDING_NUMERIC_VALUE_STRICT", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
 def _confirm_numeric_clusters_via_nli(
     groups: dict[tuple, list[int]],
     rows: list[dict[str, Any]],
     rank_fn,
     *,
     entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+    telemetry: Optional[dict[str, Any]] = None,
 ) -> dict[tuple, list[int]]:
     """Fix 1(A) (Fable): NLI is the merge DECIDER, the numeric tuple key only RECALL. For each
     multi-member NUMERIC cluster (a real subject/predicate/value/unit key — NOT an ``__unknown__``
@@ -2446,6 +2766,11 @@ def _confirm_numeric_clusters_via_nli(
         )
         entail_fn = entails_directional
 
+    value_strict = _numeric_value_strict_enabled()
+    tel_clusters_split = 0   # clusters that lost >=1 member
+    tel_members_confirmed = 0
+    tel_members_split = 0
+    tel_members_split_value = 0  # split specifically by the numbers-strict value gate
     out: dict[tuple, list[int]] = {}
     for key, member_ris in groups.items():
         distinct = sorted(set(member_ris))
@@ -2465,6 +2790,9 @@ def _confirm_numeric_clusters_via_nli(
         split_members: list[int] = []
         strict = _numeric_nli_confirm_strict_enabled()
         rep_mergeable = _sentence_mergeable(rep_text)
+        # P0-1(b) numbers-strict: whether the REP claim sentence even carries the cluster's value.
+        # When it does NOT (a boilerplate fallback rep), NO member can corroborate that number.
+        rep_has_value = (not value_strict) or _text_contains_value(rep_text, value)
         for mri in distinct:
             if mri == rep_ri:
                 continue
@@ -2479,6 +2807,16 @@ def _confirm_numeric_clusters_via_nli(
             # shared heading) stop byte-identical-merging two DIFFERENT works. Question-agnostic.
             if not (rep_mergeable and _sentence_mergeable(m_text)):
                 split_members.append(mri)
+                continue
+            # P0-1(b) numbers-strict (iter-5, Fable): the cluster's numeric VALUE must literally
+            # appear in BOTH claim sentences before the pair may stay merged. A boilerplate /
+            # Narrative-Review-checklist rep (or member) that does NOT carry the value cannot
+            # corroborate that number (the drb_72 basket-27 'their/level/4.0' merge whose rep
+            # never contained '4'): SPLIT. Tolerant of formatting (5.5 == '5.5%'); fail-open when
+            # the bucket value is non-numeric. §-1.3-safe (SPLIT-only, keep-all).
+            if value_strict and not (rep_has_value and _text_contains_value(m_text, value)):
+                split_members.append(mri)
+                tel_members_split_value += 1
                 continue
             # Fix 1(d) root-cause: a byte-identical CLAIM sentence IS the same claim — never
             # SPLIT it on an NLI None / one-way answer (the drb_72 3x-identical-PDF false split).
@@ -2510,6 +2848,20 @@ def _confirm_numeric_clusters_via_nli(
             # A distinct, numeric-shaped singleton key: preserves key[2]=value so the
             # downstream value-bucket + basket loop treat it correctly, uniquified by row idx.
             out[tuple(key) + ("__split__", mri)] = [mri]
+        # P0-1(b) telemetry: per-cluster confirm/split counts surfaced to consolidation_summary.
+        tel_members_confirmed += len(set(confirmed)) - 1  # members kept besides the rep
+        tel_members_split += len(split_members)
+        if split_members:
+            tel_clusters_split += 1
+    if telemetry is not None:
+        telemetry["clusters_split"] = telemetry.get("clusters_split", 0) + tel_clusters_split
+        telemetry["members_confirmed"] = (
+            telemetry.get("members_confirmed", 0) + tel_members_confirmed
+        )
+        telemetry["members_split"] = telemetry.get("members_split", 0) + tel_members_split
+        telemetry["members_split_numbers_strict"] = (
+            telemetry.get("members_split_numbers_strict", 0) + tel_members_split_value
+        )
     return out
 
 
@@ -3599,6 +3951,13 @@ def _build_qualitative_groups(
         # Exclude the degraded row from CLUSTERING (still KEPT as its own keep-all row).
         if _is_extraction_degraded(body):
             continue
+        # P0-1(c)/P1-5 (iter-5, Fable): a row with NO mergeable CLAIM sentence (a nav-link dump /
+        # catalog / bibliography / license-only body — basket-321 wustl profile-nav) can never
+        # anchor a same-claim merge; exclude it from CLUSTERING (still KEPT as its own keep-all
+        # singleton row). This is the qualitative sibling of the numeric `_sentence_mergeable`
+        # screen, so a non-claim heading/nav can't byte-identical-cluster on ANY path.
+        if _qual_mergeable_screen_enabled() and not _row_has_mergeable_claim(rows[ri]):
+            continue
         shingles = _prose_shingles(body)
         if shingles is _PROSE_NO_MATCH or not shingles:
             continue  # too short to cluster (false-positive guard) — safe singleton
@@ -3955,12 +4314,15 @@ def dedup_by_finding(
     if groups and _rung0_exact_collapse_enabled():
         groups, rung0_collapsed = _apply_rung0_exact_collapse(groups, rows, _rank)
 
+    numeric_confirm_telemetry: dict[str, int] = {}
     if (
         groups
         and _numeric_nli_confirm_enabled()
         and (_consolidation_nli_enabled() or _finding_dedup_nli_enabled())
     ):
-        groups = _confirm_numeric_clusters_via_nli(groups, rows, _rank)
+        groups = _confirm_numeric_clusters_via_nli(
+            groups, rows, _rank, telemetry=numeric_confirm_telemetry,
+        )
 
     nli_merge_count = 0
     if groups and _consolidation_nli_enabled():
@@ -4126,4 +4488,5 @@ def dedup_by_finding(
         nli_merge_count=nli_merge_count,
         qualitative_basket_count=len(qual_groups),
         rep_invariant_merge_count=rep_invariant_merged,
+        numeric_confirm_telemetry=dict(numeric_confirm_telemetry),
     )

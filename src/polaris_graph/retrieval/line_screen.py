@@ -228,6 +228,84 @@ def _body_is_shell(body: str) -> bool:
         return False
 
 
+# ── P1-5 (S2/S3 re-pass iter-5, Fable): general nav / homepage / catalog chrome detector ──
+# A whole page whose "content" is dominated by LINK LISTS, MENUS, RANKINGS, or CATALOG-snapshot
+# fields, with NO propositional prose, is a chrome NON-SOURCE (a failed fetch that returned the
+# site shell, not the document) — drb_72: an nber.org homepage, a CliffsNotes study-guide index,
+# a lawreviewcommons rankings table, a paperguide catalog record. Per §-1.3.1(a) such a chrome
+# non-source MAY be whole-dropped: DETERMINISTIC judge, FAIL-OPEN (any real prose ⇒ KEEP), and
+# DISCLOSED (row + reason in the whole-drop disclosure). GENERAL/question-agnostic — structural
+# density, never a host/entity blocklist. A credible ON-TOPIC source with real prose is never
+# touched (principle 1 holds). LAW VI kill switch (default ON).
+_ENV_NAV_HOMEPAGE = "PG_LINE_SCREEN_NAV_HOMEPAGE"
+_MD_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+_BARE_URL_RE = re.compile(r"https?://\S+")
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+# Catalog / ranking / listing field labels that dominate a catalog-snapshot or rankings page.
+_CATALOG_FIELD_RE = re.compile(
+    r"\bcited by\b|\bcitations?\b|\bdownloads?\b|\bviews?\b|\bh-index\b|\brank(?:ing|ed|s)?\b|"
+    r"\bsort by\b|\bfilter by\b|\bresults?\b\s*\d|\bshowing\b\s*\d|\bpage\s*\d+\s*of\s*\d+|"
+    r"\bpublications?\b|\bread more\b|\bview (?:details|profile|all)\b|\badd to\b|"
+    r"\bsubmitted\b|\baccepted\b|\bissue\b\s*\d|\bvolume\b\s*\d|\bwppp\b",
+    re.IGNORECASE,
+)
+
+
+def nav_homepage_enabled() -> bool:
+    """``PG_LINE_SCREEN_NAV_HOMEPAGE`` kill switch (LAW VI, DEFAULT-ON, iter-5 P1-5)."""
+    return os.environ.get(_ENV_NAV_HOMEPAGE, "1").strip().lower() not in _OFF_VALUES
+
+
+def _has_propositional_prose(body: str) -> bool:
+    """FAIL-OPEN prose guard: True iff the body contains at least ONE propositional sentence — a
+    complete sentence of >= 8 content words ending in terminal punctuation. A homepage / nav /
+    rankings / catalog snapshot has NONE; a real article has many. Any doubt (short/odd body)
+    resolves toward True (keep). Deterministic + question-agnostic."""
+    text = (body or "").strip()
+    if not text:
+        return True  # nothing to judge ⇒ fail-open keep
+    for s in _SENTENCE_SPLIT_RE.split(text):
+        s = s.strip()
+        if not s.endswith((".", "!", "?")):
+            continue
+        words = _WORD_TOKEN_RE.findall(s)
+        if len(words) >= 8:
+            return True
+    return False
+
+
+def _row_is_nav_homepage_catalog(row: dict[str, Any]) -> bool:
+    """P1-5 (Fable): True iff the row's WIDEST body is a nav / homepage / rankings / catalog
+    chrome page dominated by link lists / short menu fragments / catalog fields with NO
+    propositional prose. FAIL-OPEN: any real propositional sentence ⇒ False (keep). Conservative
+    density thresholds so a credible on-topic source is never mistaken for chrome. Question-
+    agnostic (structure, not a blocklist)."""
+    if not nav_homepage_enabled():
+        return False
+    body = _widest_body(row)
+    if len(body) < 200:
+        return False  # too little to confidently call chrome (fail-open keep)
+    # FAIL-OPEN: real prose present ⇒ this is a source, not chrome.
+    if _has_propositional_prose(body):
+        return False
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    if len(lines) < 6:
+        return False  # too few lines to judge density (fail-open keep)
+    navish = 0
+    for ln in lines:
+        words = _WORD_TOKEN_RE.findall(ln)
+        if (
+            _MD_LINK_RE.search(ln)
+            or _BARE_URL_RE.search(ln)
+            or _NAV_SEP_RE.search(ln)
+            or _CATALOG_FIELD_RE.search(ln)
+            or len(words) <= 4  # a bare menu / label fragment
+        ):
+            navish += 1
+    # Dominated by nav/link/catalog fragments AND (guaranteed above) NO propositional prose.
+    return (navish / float(len(lines))) >= 0.75
+
+
 def _line_is_deterministic_junk(line: str) -> bool:
     """DETERMINISTIC junk pre-pass (V2): True iff a ``shell_detector.SHELL_COOCCURRENCE``
     chrome class (cookie / citation-UI / social) appears ENTIRELY WITHIN this one line. At
@@ -771,6 +849,23 @@ def screen_source(
         return result
 
     is_marquee = _row_is_marquee(row)
+
+    # P1-5 (S2/S3 re-pass iter-5, Fable): a nav / homepage / rankings / catalog chrome page
+    # (link-list / menu / catalog-field dominated, NO propositional prose) is a chrome NON-SOURCE
+    # per §-1.3.1(a) — DETERMINISTIC judge, FAIL-OPEN (real prose ⇒ never fires), DISCLOSED. A
+    # marquee source is NEVER whole-dropped (protected). Fires BEFORE the line judge (no LLM spend
+    # on a shell page). A credible on-topic source with real prose is untouched (principle 1).
+    if not is_marquee and _row_is_nav_homepage_catalog(row):
+        result.whole_dropped = True
+        result.whole_drop_reason = "nav_homepage_catalog:chrome_non_source"
+        result.dropped = [
+            {"line_idx": i, "reason": JUNK.lower(), "quote": t}
+            for i, t in enumerate(units)
+        ]
+        result.kept_lines = []
+        result.n_kept = 0
+        result.notes.append("whole-drop nav/homepage/catalog chrome (no propositional prose)")
+        return result
 
     # V3 — deterministic source-level explicit-scope violation → whole out_of_scope drop
     # (two-key: line screen + deterministic metadata key), unless marquee.

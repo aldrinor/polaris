@@ -149,12 +149,28 @@ def main() -> int:
             return body.strip()[:300]
         return _row_field(row, 'title', 'statement')
 
+    def _claim_group_id(cluster):
+        # P3-10 (S2/S3 re-pass iter-5, Fable): a SEMANTIC group id derived from the basket's
+        # reader-visible representative claim sentence — NOT the numeric-tuple recall key. The
+        # tuple ('their', 'level', 4.0, ...) is RECALL-ONLY (candidate clustering); presenting it
+        # as the claim let forensics read a garbage token as the claim key. The semantic id is a
+        # short stable hash of the normalized representative statement, so two baskets show the
+        # same id iff they assert the same visible claim. General/question-agnostic.
+        stmt = _stmt(cluster.representative_index) or ''
+        norm = ' '.join(stmt.lower().split())
+        return 'cg_' + hashlib.sha256(norm.encode('utf-8')).hexdigest()[:12]
+
     baskets = []
     for c in res.clusters:
         mi = list(c.member_indices)
         baskets.append({
             'corroboration_count': c.corroboration_count,
+            # P3-10: the semantic claim-group id is the primary claim identity; the numeric tuple
+            # below is retained for debugging but LABELED recall-only so it is never read as the
+            # claim.
+            'claim_group_id': _claim_group_id(c),
             'finding_key': list(c.finding_key),
+            'finding_key_role': 'recall_only_not_the_claim',
             'member_count': len(mi),
             'member_evidence_ids': [_eid(i) for i in mi],
             'member_hosts': list(c.member_hosts),
@@ -198,6 +214,12 @@ def main() -> int:
         # THE-GHOST repair fired; 0 = clean/off. Never a DROP — UNION-only, corroboration over
         # DISTINCT works.
         'rep_invariant_merge_count': getattr(res, 'rep_invariant_merge_count', 0),
+        # S2/S3 re-pass iter-5 P0-1(b) (Fable): per-cluster confirm/split telemetry from the
+        # numeric split-confirm pass — how many clusters lost a member, members kept vs split,
+        # and members split specifically by the numbers-strict value gate (rep/member claim
+        # sentence lacked the cluster's value). >0 members_split_numbers_strict proves the
+        # basket-27 'their/level/4.0'-class false merges dissolved (§-1.3.1 fail-loud).
+        'numeric_confirm_telemetry': dict(getattr(res, 'numeric_confirm_telemetry', {}) or {}),
         # S2/S3 re-pass iter-4 fix 9 (Fable / P0-2(d) §-1.3.1 fail-loud): the consolidation-NLI
         # scoring telemetry from the LAST score_pairs call (the semantic merge judge). Discloses
         # scored_pairs / total_pairs so a STARVED / BLIND judge is visible in every run;
@@ -246,14 +268,43 @@ def main() -> int:
         s2_summary_path = cp2_path.parent / 'summary.json'
         if s2_summary_path.exists():
             s2s = json.load(s2_summary_path.open(encoding='utf-8'))
+            # P3-9 (S2/S3 re-pass iter-5, Fable): the prior by_class did ``len(dict)`` on each
+            # cond_* BLOCK (a dict), so it counted the number of DICT KEYS (~19 total), not the
+            # actual drop counts — which never reconciled with totals.n_whole_dropped=271. LABEL
+            # what each number actually counts and read the REAL numeric fields. LINE drops and
+            # WHOLE-SOURCE drops are DISJOINT categories (a line removed from a KEPT source vs a
+            # WHOLE source removed) — they are reported separately and NEVER summed. §-1.3.1
+            # fail-loud: the reconciliation block asserts the whole-source count matches totals.
+            _tot = s2s.get('totals', {}) or {}
+            _ca = s2s.get('cond_a_lines_dropped_quoted', {}) or {}
+            _cb = s2s.get('cond_b_no_credible_whole_drop', {}) or {}
+            _cd = s2s.get('cond_d_scope', {}) or {}
+            _cc = s2s.get('cond_c_mixed_partial_keep', {}) or {}
+            _line_drops = int(_ca.get('n_dropped_lines', _tot.get('n_dropped_lines', 0)) or 0)
+            _whole_drops = int(_cb.get('n_whole_dropped', _tot.get('n_whole_dropped', 0)) or 0)
             unified_deletion_disclosure['s2_line_screen'] = {
-                'totals': s2s.get('totals', {}),
+                'totals': _tot,
                 'by_class': {
-                    'cond_a_lines_dropped_quoted': len(s2s.get('cond_a_lines_dropped_quoted', []) or []),
-                    'cond_b_no_credible_whole_drop': len(s2s.get('cond_b_no_credible_whole_drop', []) or []),
-                    'cond_c_mixed_partial_keep': len(s2s.get('cond_c_mixed_partial_keep', []) or []),
-                    'cond_d_scope': len(s2s.get('cond_d_scope', []) or []),
-                    'cond_e_fail_open': len(s2s.get('cond_e_fail_open', []) or []),
+                    # LINE-level drops (a line removed from a source that is otherwise KEPT).
+                    'line_drops_total': _line_drops,
+                    'line_drops_by_reason': _ca.get('by_reason', {}),
+                    # WHOLE-SOURCE drops (an entire source removed — chrome / out-of-scope).
+                    'whole_source_drops_total': _whole_drops,
+                    'whole_source_scope_drops': int(_cd.get('n_source_scope_whole_drops', 0) or 0),
+                    'mixed_partial_keep_sources': int(_cc.get('n_partial_sources', 0) or 0),
+                    'counts_note': ('line_drops_total and whole_source_drops_total are DISJOINT '
+                                    'categories (a LINE removed from a kept source vs a WHOLE '
+                                    'source removed); they are reported separately, never summed.'),
+                },
+                # §-1.3.1 fail-loud reconciliation: whole_source_drops_total MUST equal
+                # totals.n_whole_dropped; a mismatch is a disclosure bug, surfaced not hidden.
+                'reconciliation': {
+                    'totals_n_whole_dropped': int(_tot.get('n_whole_dropped', 0) or 0),
+                    'whole_source_drops_reconciles': (
+                        _whole_drops == int(_tot.get('n_whole_dropped', 0) or 0)),
+                    'totals_n_dropped_lines': int(_tot.get('n_dropped_lines', 0) or 0),
+                    'line_drops_reconciles': (
+                        _line_drops == int(_tot.get('n_dropped_lines', 0) or 0)),
                 },
                 'source': 's2/summary.json',
             }
