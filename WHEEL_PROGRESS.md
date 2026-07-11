@@ -1,5 +1,30 @@
 # Compose-fix wheel progress
 
+- 2026-07-11 (Opus, round 3): STEP 1 SHARD landed + STEP 2/3 caps proven live + achieved compose
+  concurrency MEASURED at 16 on the mega-section.
+  (STEP 1, commit fb12406) INTRA-SECTION BASKET map-then-reduce (PG_COMPOSE_BASKET_WORKERS) — the
+  authoritative _compose_section_per_basket was a SERIAL for-loop over the residual mega-section's 274
+  baskets (94% of all compose work, section 4). Split into a bounded order-preserving ThreadPoolExecutor
+  MAP (pure per-basket compose+verify+redraft+additive passes) then a STRICTLY-SERIAL REDUCE (order-
+  dependent §3.5 marker filter + footprint/text dedup + citation UNION-consolidation). DEFAULT
+  workers=1 => legacy serial loop byte-identical. FAITHFULNESS-IDENTICAL certified two ways at ZERO/low
+  cost: _basket_workers_reduce_cert.py (workers=1 vs 8 reduce IDENTICAL, MAP genuinely concurrent 5.3x
+  under 0.02s-sleep interleaving; exercises text-collapse+citation-union, same-footprint new-number
+  survival, §3.5 marker skip, aux-of-marker skip) AND record/replay A/B (_replay_ab_baskets.sh) sections
+  0,1 verdict-set IDENTICAL, section shas match, assembled_report_md byte-identical (dbe1f44f).
+  (STEP 2/3) caps proven READ live: resolve_max_concurrency()==16, _max_concurrent_llm()==48, writer
+  concurrency==24, burst_spread_mode()=='lb', _compose_basket_workers()==16.
+  (MEASUREMENT) Real LLM run on a cheap 20-basket subset of the SAME mega-section (--sections 4
+  --cap-primary 20, section 4 views are all role=primary so cap truncates the long pole itself). Probe
+  extended with a basket-level concurrency counter (_hb_probe_run.py _wrap_basket). RESULT: intra-section
+  basket concurrency ramped 2->3->...->15->16 and SATURATED at 16 (5 peak hits, 15 distinct worker tids);
+  LLM semaphore (re)initialized max=48 at runtime (STEP-2 knob live); 0 HTTP 429s (322/322 HTTP 200) at
+  16-way basket + 48 LLM-sem + lb load-balance; only ONE event-loop freeze (5.9s) and it was during the
+  writer pre-pass (t=498970), 418s BEFORE phase-2 entry (t=499388) — the phase-2 compose path logged NO
+  freeze. NEW long pole surfaced: the downstream per-section strict_verify tail stalls on repeated 300s
+  entailment-judge total_deadline_exceeded (near-idle 1 req/2min), NOT the compose path — this, not
+  compose concurrency, now dominates full-corpus wall.
+
 - 2026-07-11 (Opus): Proved + landed the compose OFF-LOOP fix on the AUTHORITATIVE path. A/B via a
   real 2-section heartbeat probe (scripts/_hb_probe_run.py, cap-primary 2): CONTROL (to_thread inlined
   = pre-fix) => phase2_max_concurrent=1, max event-loop gap=301.47s (froze minutes), sections serial,

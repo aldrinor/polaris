@@ -33,6 +33,36 @@ _hb_max_gap = 0.0
 _hb_last = None
 _hb_samples = 0
 
+# --- basket-level (intra-section) concurrency probe: measures the STEP-1 map-then-reduce achieved
+# concurrency (how many baskets compose SIMULTANEOUSLY), the metric the section-level phase2 counter
+# above cannot see. Each concurrent basket carries its own writer_fn + verify_fn network call in flight,
+# so max concurrent baskets is the real provider-facing "compose concurrency" the mission targets. ---
+_basket_lock = threading.Lock()
+_basket_active = 0
+_basket_max = 0
+_basket_calls = 0
+_basket_threads = set()
+
+
+def _wrap_basket(orig):
+    def _wrapped(*a, **k):
+        global _basket_active, _basket_max, _basket_calls
+        with _basket_lock:
+            _basket_active += 1
+            _basket_calls += 1
+            _basket_max = max(_basket_max, _basket_active)
+            cur = _basket_active
+            _basket_threads.add(threading.get_ident())
+        if cur > 1:
+            print(f"[BASKET CONC] concurrent={cur} tid={threading.get_ident()} "
+                  f"t={time.monotonic():.2f}", flush=True)
+        try:
+            return orig(*a, **k)
+        finally:
+            with _basket_lock:
+                _basket_active -= 1
+    return _wrapped
+
 
 def _wrap_compose(orig):
     def _wrapped(*a, **k):
@@ -231,6 +261,14 @@ def main():
     orig = msg._compose_section_per_basket
     msg._compose_section_per_basket = _wrap_compose(orig)
 
+    # basket-level (intra-section) concurrency: wrap the three per-basket producers the STEP-1 MAP calls
+    # so we measure how many baskets compose SIMULTANEOUSLY (the achieved compose concurrency the mission
+    # targets). Patch the SOURCE module (verified_compose) so the map's calls pick up the wrap.
+    from src.polaris_graph.generator import verified_compose as _vc
+    _vc._compose_one_basket = _wrap_basket(_vc._compose_one_basket)
+    _vc.compose_basket_multicited_sentence = _wrap_basket(_vc.compose_basket_multicited_sentence)
+    _vc.compose_basket_multicited_synth_primary = _wrap_basket(_vc.compose_basket_multicited_synth_primary)
+
     # stage timers: log wall-time of on-loop candidate hot spots so any residual
     # freeze can be localized against the [HB FREEZE] timestamps.
     def _time_stage(name, fn, is_async):
@@ -285,6 +323,9 @@ def main():
     print(f"phase2_calls            = {_phase2_calls}", flush=True)
     print(f"phase2_max_concurrent   = {_phase2_max}", flush=True)
     print(f"phase2_worker_threads   = {len(_phase2_threads)} (main={_main_thread_ident})", flush=True)
+    print(f"basket_calls            = {_basket_calls}", flush=True)
+    print(f"basket_max_concurrent   = {_basket_max}", flush=True)
+    print(f"basket_worker_threads   = {len(_basket_threads)}", flush=True)
     print(f"hb_max_loop_gap_s       = {_hb_max_gap:.2f}", flush=True)
     print(f"hb_samples              = {_hb_samples}", flush=True)
     print("==============================================", flush=True)
