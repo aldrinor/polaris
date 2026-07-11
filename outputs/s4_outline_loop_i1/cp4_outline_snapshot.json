@@ -14,90 +14,90 @@
   "payload": {
     "digest_stats": {
       "basket_digest_enabled": true,
-      "digest_baskets": 48,
+      "digest_baskets": 52,
       "digest_degraded": false,
       "digest_oversized": false,
-      "digest_singletons": 280,
-      "digest_total_chars": 38154,
+      "digest_singletons": 275,
+      "digest_total_chars": 38014,
       "outline_raw_head": "",
       "outline_retry_raw_head": "",
       "per_section_distinct_work": [
         {
-          "anchors": 19,
+          "anchors": 16,
           "chrome_anchors": 0,
-          "co_basket_anchors": 2,
-          "demoted_anchors": 3,
-          "distinct_baskets": 7,
-          "distinct_works": 19,
+          "co_basket_anchors": 4,
+          "demoted_anchors": 2,
+          "distinct_baskets": 4,
+          "distinct_works": 16,
           "frac": 1.0,
-          "pre_fold_frac": 0.6129,
+          "pre_fold_frac": 0.64,
           "section": "Positive Views on Generative AI's Impact on Employment",
-          "shared_anchor_count": 0
+          "shared_anchor_count": 3
         },
         {
-          "anchors": 21,
+          "anchors": 17,
           "chrome_anchors": 0,
           "co_basket_anchors": 0,
-          "demoted_anchors": 13,
-          "distinct_baskets": 4,
-          "distinct_works": 21,
+          "demoted_anchors": 9,
+          "distinct_baskets": 3,
+          "distinct_works": 17,
           "frac": 1.0,
-          "pre_fold_frac": 0.7778,
+          "pre_fold_frac": 0.7727,
           "section": "Negative Views on Generative AI's Impact on Employment",
           "shared_anchor_count": 0
         },
         {
-          "anchors": 42,
+          "anchors": 23,
           "chrome_anchors": 0,
-          "co_basket_anchors": 7,
-          "demoted_anchors": 36,
-          "distinct_baskets": 4,
-          "distinct_works": 42,
+          "co_basket_anchors": 0,
+          "demoted_anchors": 18,
+          "distinct_baskets": 0,
+          "distinct_works": 23,
           "frac": 1.0,
-          "pre_fold_frac": 0.8571,
+          "pre_fold_frac": 0.9583,
           "section": "Specific Challenges of Generative AI in the Labor Market",
           "shared_anchor_count": 0
         },
         {
-          "anchors": 34,
+          "anchors": 17,
           "chrome_anchors": 0,
-          "co_basket_anchors": 4,
-          "demoted_anchors": 19,
+          "co_basket_anchors": 0,
+          "demoted_anchors": 7,
           "distinct_baskets": 4,
-          "distinct_works": 34,
+          "distinct_works": 17,
           "frac": 1.0,
-          "pre_fold_frac": 0.8293,
+          "pre_fold_frac": 0.7083,
           "section": "Future Opportunities from Generative AI for Employment",
-          "shared_anchor_count": 0
+          "shared_anchor_count": 3
         }
       ],
-      "plan_work_fold_count": 32,
+      "plan_work_fold_count": 22,
       "post_fold_distinct_work_invariant_ok": true,
       "post_fold_min_distinct_work_frac": 1.0,
-      "pre_fold_min_distinct_work_frac": 0.6129,
+      "pre_fold_min_distinct_work_frac": 0.64,
       "pre_fold_per_section_distinct_work": [
         {
-          "anchors": 31,
-          "distinct_works": 19,
-          "frac": 0.6129,
+          "anchors": 25,
+          "distinct_works": 16,
+          "frac": 0.64,
           "section": "Positive Views on Generative AI's Impact on Employment"
         },
         {
-          "anchors": 27,
-          "distinct_works": 21,
-          "frac": 0.7778,
+          "anchors": 22,
+          "distinct_works": 17,
+          "frac": 0.7727,
           "section": "Negative Views on Generative AI's Impact on Employment"
         },
         {
-          "anchors": 49,
-          "distinct_works": 42,
-          "frac": 0.8571,
+          "anchors": 24,
+          "distinct_works": 23,
+          "frac": 0.9583,
           "section": "Specific Challenges of Generative AI in the Labor Market"
         },
         {
-          "anchors": 41,
-          "distinct_works": 34,
-          "frac": 0.8293,
+          "anchors": 24,
+          "distinct_works": 17,
+          "frac": 0.7083,
           "section": "Future Opportunities from Generative AI for Employment"
         }
       ],
@@ -112,175 +112,123 @@
       {
         "archetype": "",
         "basket_ids": [
+          "B01",
           "B03",
-          "B18",
-          "B19",
-          "B20",
-          "B37",
-          "B39",
-          "B46"
+          "B17",
+          "B50"
         ],
         "ev_ids": [
-          "eloundou_gpts_are_gpts",
-          "ev_024",
           "ev_929",
-          "ev_938",
           "ev_919",
+          "ev_906",
+          "ev_077",
+          "autor_why_still_jobs",
+          "acemoglu_restrepo_automation_tasks",
+          "eloundou_gpts_are_gpts",
+          "ev_884",
+          "ev_887",
+          "ev_878",
           "ev_931",
           "ev_941",
-          "ev_077",
-          "ev_884",
-          "ev_000",
-          "ev_499",
-          "ev_156",
-          "ev_148",
-          "ev_020",
-          "ev_1025",
-          "ev_1048",
-          "ev_005",
-          "ev_1006",
-          "ev_927"
+          "ev_524",
+          "ev_141",
+          "ev_145",
+          "ev_950"
         ],
-        "focus": "Synthesizes literature arguing that generative AI augments worker productivity, creates complementarity effects, and raises overall labor output, drawing on primary experimental studies and foundational task-based models.",
+        "focus": "Synthesizes academic evidence on productivity gains, task augmentation, complementarity between AI and human workers, and new task creation that can benefit employment outcomes.",
         "title": "Positive Views on Generative AI's Impact on Employment",
         "undersupplied": false
       },
       {
         "archetype": "",
         "basket_ids": [
-          "B27",
-          "B32",
-          "B34",
-          "B40"
+          "B18",
+          "B24",
+          "B29"
         ],
         "ev_ids": [
           "frey_osborne_computerisation",
           "acemoglu_restrepo_robots_jobs",
-          "ev_019",
-          "ev_975",
-          "ev_032",
           "ev_133",
           "ev_160",
-          "ev_043",
-          "ev_034",
-          "ev_965",
-          "ev_057",
+          "ev_019",
+          "ev_032",
+          "ev_499",
           "ev_192",
+          "ev_000",
+          "ev_043",
+          "ev_104",
           "ev_194",
-          "ev_195",
-          "ev_099",
-          "ev_107",
-          "ev_108",
-          "ev_164",
-          "ev_051",
-          "ev_015",
-          "ev_109"
+          "ev_057",
+          "ev_170",
+          "ev_033",
+          "ev_102",
+          "ev_119"
         ],
-        "focus": "Reviews scholarship documenting job displacement risks, automation exposure of specific occupations, labor share declines, and widening inequality attributable to generative AI, anchored on seminal primary studies.",
+        "focus": "Reviews literature on job displacement risks, occupational susceptibility to automation, labor demand reduction, wage polarization, and unequal distribution of displacement effects across worker groups.",
         "title": "Negative Views on Generative AI's Impact on Employment",
         "undersupplied": false
       },
       {
         "archetype": "",
-        "basket_ids": [
-          "B01",
-          "B36",
-          "B44",
-          "B45"
-        ],
+        "basket_ids": [],
         "ev_ids": [
-          "ev_1106",
-          "ev_465",
-          "ev_606",
-          "ev_775",
-          "ev_795",
-          "ev_893",
-          "ev_906",
-          "ev_079",
-          "ev_045",
+          "ev_965",
+          "ev_148",
+          "ev_156",
           "ev_586",
-          "ev_220",
-          "ev_968",
-          "ev_492",
-          "ev_963",
-          "ev_067",
-          "ev_101",
-          "ev_972",
-          "ev_1105",
-          "ev_593",
           "ev_610",
-          "ev_591",
-          "ev_572",
-          "ev_562",
-          "ev_548",
-          "ev_634",
-          "ev_622",
-          "ev_272",
-          "ev_296",
-          "ev_393",
-          "ev_385",
-          "ev_343",
-          "ev_224",
-          "ev_471",
-          "ev_497",
-          "ev_491",
-          "ev_093",
-          "ev_182",
-          "ev_187",
+          "ev_606",
+          "ev_054",
+          "ev_034",
+          "ev_188",
+          "ev_085",
+          "ev_970",
+          "ev_971",
+          "ev_963",
+          "ev_099",
+          "ev_1105",
+          "ev_094",
+          "ev_107",
+          "ev_100",
           "ev_214",
-          "ev_1213",
-          "ev_758",
-          "ev_832"
+          "ev_588",
+          "ev_591",
+          "ev_590",
+          "ev_162"
         ],
-        "focus": "Examines challenges including skill gaps and reskilling difficulty, algorithmic bias in hiring, uneven geographic and demographic exposure, regulatory uncertainty, and the digital divide that complicate GenAI's labor market integration.",
+        "focus": "Examines concrete challenges including skills gaps, algorithmic bias in hiring, digital divides, unequal access across regions and demographics, regulatory uncertainty, and the difficulty of managing workforce transitions.",
         "title": "Specific Challenges of Generative AI in the Labor Market",
         "undersupplied": false
       },
       {
         "archetype": "",
         "basket_ids": [
-          "B05",
-          "B08",
-          "B11",
-          "B29"
+          "B19",
+          "B20",
+          "B21",
+          "B41"
         ],
         "ev_ids": [
-          "acemoglu_restrepo_automation_tasks",
           "autor_why_still_jobs",
-          "ev_1057",
-          "ev_739",
+          "acemoglu_restrepo_automation_tasks",
           "ev_205",
-          "ev_136",
-          "ev_064",
-          "ev_1099",
-          "ev_1008",
-          "ev_1054",
-          "ev_1058",
-          "ev_027",
-          "ev_776",
-          "ev_524",
-          "ev_788",
           "ev_217",
-          "ev_171",
-          "ev_146",
-          "ev_151",
-          "ev_094",
-          "ev_062",
-          "ev_100",
-          "ev_033",
-          "ev_059",
-          "ev_097",
-          "ev_114",
-          "ev_128",
-          "ev_058",
-          "ev_1098",
-          "ev_157",
-          "ev_048",
-          "ev_006",
+          "ev_064",
+          "ev_1006",
+          "ev_145",
+          "ev_204",
           "ev_042",
-          "ev_165"
+          "ev_011",
+          "ev_009",
+          "ev_007",
+          "ev_059",
+          "ev_109",
+          "ev_1099",
+          "ev_220",
+          "ev_151"
         ],
-        "focus": "Explores forward-looking literature on new task creation, productivity-driven job growth, upskilling pathways, and the potential for GenAI to generate novel occupations and economic opportunities through 2030.",
+        "focus": "Explores prospective opportunities including new job creation, reskilling and upskilling pathways, policy frameworks for inclusive AI adoption, and the potential for GenAI as a general-purpose technology to reshape labor markets positively through 2030.",
         "title": "Future Opportunities from Generative AI for Employment",
         "undersupplied": false
       }
@@ -291,15 +239,17 @@
         "B00",
         "B02",
         "B04",
+        "B05",
         "B06",
         "B07",
+        "B08",
         "B09",
         "B10",
+        "B11",
         "B12",
         "B13",
         "B14",
-        "B15",
-        "B16"
+        "B15"
       ],
       "orphan_reassign_candidates": [
         {
@@ -307,66 +257,15 @@
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
-            "ev_1091",
-            "ev_1191",
-            "ev_1262",
-            "ev_218",
-            "ev_304",
-            "ev_344",
-            "ev_507",
-            "ev_703",
-            "ev_750",
-            "ev_772",
-            "ev_812",
-            "ev_855",
-            "ev_865",
-            "ev_902",
-            "ev_934",
-            "ev_937",
-            "ev_985",
-            "ev_992"
+            "ev_1058",
+            "ev_190",
+            "ev_657",
+            "ev_689"
           ],
           "topic_verdict": "unjudged"
         },
         {
           "basket_id": "B02",
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "members": [
-            "ev_056",
-            "ev_1032",
-            "ev_1052",
-            "ev_1196",
-            "ev_202",
-            "ev_650",
-            "ev_989"
-          ],
-          "topic_verdict": "unjudged"
-        },
-        {
-          "basket_id": "B04",
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "members": [
-            "ev_219",
-            "ev_763",
-            "ev_860"
-          ],
-          "topic_verdict": "unjudged"
-        },
-        {
-          "basket_id": "B06",
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "members": [
-            "ev_001",
-            "ev_1018",
-            "ev_1153"
-          ],
-          "topic_verdict": "unjudged"
-        },
-        {
-          "basket_id": "B07",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -377,7 +276,40 @@
           "topic_verdict": "unjudged"
         },
         {
-          "basket_id": "B09",
+          "basket_id": "B04",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_023",
+            "ev_1102",
+            "ev_1164"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B05",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_001",
+            "ev_1018",
+            "ev_1153"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B06",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_079",
+            "ev_1078",
+            "ev_1193"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B07",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -387,17 +319,37 @@
           "topic_verdict": "unjudged"
         },
         {
-          "basket_id": "B10",
+          "basket_id": "B08",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
-            "ev_1131",
-            "ev_738"
+            "ev_1082",
+            "ev_488"
           ],
           "topic_verdict": "unjudged"
         },
         {
-          "basket_id": "B12",
+          "basket_id": "B09",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_027",
+            "ev_1200"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B10",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_150",
+            "ev_720"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
+          "basket_id": "B11",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -407,7 +359,7 @@
           "topic_verdict": "unjudged"
         },
         {
-          "basket_id": "B13",
+          "basket_id": "B12",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -417,12 +369,22 @@
           "topic_verdict": "unjudged"
         },
         {
+          "basket_id": "B13",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_729",
+            "ev_800"
+          ],
+          "topic_verdict": "unjudged"
+        },
+        {
           "basket_id": "B14",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
-            "ev_1069",
-            "ev_500"
+            "ev_812",
+            "ev_901"
           ],
           "topic_verdict": "unjudged"
         },
@@ -431,18 +393,8 @@
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
-            "ev_677",
-            "ev_804"
-          ],
-          "topic_verdict": "unjudged"
-        },
-        {
-          "basket_id": "B16",
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "members": [
-            "ev_978",
-            "ev_979"
+            "ev_927",
+            "ev_928"
           ],
           "topic_verdict": "unjudged"
         }
@@ -450,24 +402,19 @@
       "plan_work_folds": [
         {
           "folded": {
-            "ev_000": [
-              "ev_1013",
-              "ev_1150"
+            "eloundou_gpts_are_gpts": [
+              "ev_879"
             ],
             "ev_077": [
               "ev_1116",
-              "ev_1256",
               "ev_913"
             ],
-            "ev_1025": [
-              "ev_1166"
-            ],
-            "ev_1048": [
-              "ev_210"
+            "ev_878": [
+              "ev_880",
+              "ev_892"
             ],
             "ev_884": [
               "ev_886",
-              "ev_887",
               "ev_890"
             ],
             "ev_929": [
@@ -479,63 +426,44 @@
         },
         {
           "folded": {
-            "ev_015": [
-              "ev_1031"
+            "ev_000": [
+              "ev_1013",
+              "ev_1150"
             ],
             "ev_032": [
-              "ev_1053",
-              "ev_1160"
+              "ev_020"
             ],
             "ev_043": [
               "ev_1176",
               "ev_212"
-            ],
-            "ev_109": [
-              "ev_1184"
             ]
           },
           "section": "Negative Views on Generative AI's Impact on Employment"
         },
         {
           "folded": {
-            "ev_045": [
-              "ev_1049"
-            ],
-            "ev_093": [
-              "ev_1023"
-            ],
-            "ev_182": [
-              "ev_639",
-              "ev_1047"
-            ],
-            "ev_491": [
-              "ev_1021"
-            ],
-            "ev_497": [
-              "ev_1051"
-            ],
-            "ev_758": [
-              "ev_744"
+            "ev_085": [
+              "ev_1110"
             ]
           },
           "section": "Specific Challenges of Generative AI in the Labor Market"
         },
         {
           "folded": {
-            "ev_097": [
-              "ev_1046",
-              "ev_1190"
+            "ev_007": [
+              "ev_1019",
+              "ev_1165"
             ],
-            "ev_1054": [
-              "ev_1199",
-              "ev_206"
+            "ev_009": [
+              "ev_1014",
+              "ev_1149"
             ],
-            "ev_1057": [
-              "ev_179"
+            "ev_011": [
+              "ev_1016",
+              "ev_1152"
             ],
-            "ev_1058": [
-              "ev_190",
-              "ev_1200"
+            "ev_109": [
+              "ev_1184"
             ]
           },
           "section": "Future Opportunities from Generative AI for Employment"
@@ -552,21 +480,76 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_940",
+          "ev_id": "ev_101",
           "same_work_aliases": [],
           "tier": "T3",
-          "title": "Generative AI's Impact on Student Achievement and ...",
+          "title": "How is generative AI impacting SMEs\u2019 skill and labour needs?: Generative AI and the SME Wo",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_968",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Revisiting the occupational impact of AI in the generative AI era",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_187",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "What is the possible effect of generative AI on employment?",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_492",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "A Refined Global Index of Occupational Exposure",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_454",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "An initial investigation of the effect of quality factors on Agile test case quality throu",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1032",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Artificial Intelligence in Science | OECD",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_975",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "The potential impact of AI innovations on US occupations - PMC - NIH",
           "topic_verdict": "unjudged"
         },
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_085",
+          "ev_id": "ev_182",
           "same_work_aliases": [
-            "ev_1110"
+            "ev_639",
+            "ev_1047"
           ],
           "tier": "T3",
-          "title": "[PDF] The Potential Impact of Artificial Intelligence on UK Employment and ...",
+          "title": "AI impacts in BLS employment projections : The Economics Daily : U.S. Bureau of Labor Stat",
           "topic_verdict": "demoted_weight"
         },
         {
@@ -581,11 +564,20 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_1061",
+          "ev_id": "ev_494",
           "same_work_aliases": [],
           "tier": "T3",
-          "title": "[PDF] The Economic Impacts and the Regulation of AI",
-          "topic_verdict": "unjudged"
+          "title": "92B09_241_engl.pdf",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_471",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "15-1253 Software Quality Assurance Analysts and Testers",
+          "topic_verdict": "demoted_weight"
         },
         {
           "content_flag": null,
@@ -599,28 +591,10 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_102",
-          "same_work_aliases": [],
-          "tier": "T1",
-          "title": "How artificial intelligence affects the labour force employment ... - PMC",
-          "topic_verdict": "demoted_weight"
-        },
-        {
-          "content_flag": null,
-          "disposition": "reassign_candidate",
           "ev_id": "ev_782",
           "same_work_aliases": [],
           "tier": "T3",
           "title": "The State of Generative AI Adoption in 2025 | St. Louis Fed",
-          "topic_verdict": "demoted_weight"
-        },
-        {
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "ev_id": "ev_119",
-          "same_work_aliases": [],
-          "tier": "T1",
-          "title": "Artificial Intelligence and Employment: New Cross-Country Evidence - PMC",
           "topic_verdict": "demoted_weight"
         },
         {
@@ -644,29 +618,20 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_962",
+          "ev_id": "ev_1213",
           "same_work_aliases": [],
           "tier": "T3",
-          "title": "Experimental Estimates of Potential Artificial Intelligence ...",
+          "title": "[PDF] Artificial intelligence, data and competition - Background Note - OECD",
           "topic_verdict": "unjudged"
         },
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_150",
+          "ev_id": "ev_962",
           "same_work_aliases": [],
           "tier": "T3",
-          "title": "[PDF] The impact of Artificial Intelligence on productivity, distribution and ...",
-          "topic_verdict": "demoted_weight"
-        },
-        {
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "ev_id": "ev_1107",
-          "same_work_aliases": [],
-          "tier": "T3",
-          "title": "[PDF] Skills and the Future of Work - International Labour Organization",
-          "topic_verdict": "demoted_weight"
+          "title": "Experimental Estimates of Potential Artificial Intelligence ...",
+          "topic_verdict": "unjudged"
         },
         {
           "content_flag": null,
@@ -689,19 +654,19 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_1177",
+          "ev_id": "ev_381",
           "same_work_aliases": [],
           "tier": "T3",
-          "title": "cee48ca4-8b40-4da8-bbff-19200d77384c_14205_-_eric_jensen_v2_(1).pdf",
+          "title": "The Role of Digital Platforms in Shaping the Conditions of Creative Work",
           "topic_verdict": "demoted_weight"
         },
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_1065",
+          "ev_id": "ev_776",
           "same_work_aliases": [],
-          "tier": "T3",
-          "title": "[PDF] Global Economic Prospects -- June 2025 - The World Bank",
+          "tier": "T1",
+          "title": "Adopting open innovation for SMEs and industrial revolution 4.0",
           "topic_verdict": "demoted_weight"
         },
         {
@@ -716,10 +681,10 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_767",
+          "ev_id": "ev_788",
           "same_work_aliases": [],
           "tier": "T1",
-          "title": "Governance of artificial intelligence | Policy and Society | Oxford Academic",
+          "title": "Interventions to promote technology adoption in firms - PMC",
           "topic_verdict": "demoted_weight"
         },
         {
@@ -734,10 +699,21 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_729",
+          "ev_id": "ev_758",
+          "same_work_aliases": [
+            "ev_744"
+          ],
+          "tier": "T3",
+          "title": "A pro-innovation approach to AI regulation",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_659",
           "same_work_aliases": [],
           "tier": "T3",
-          "title": "Open Knowledge Repository",
+          "title": "Publication: Can Cost-Benefit Analysis Guide Education Policy in ...",
           "topic_verdict": "demoted_weight"
         },
         {
@@ -752,10 +728,64 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_1076",
+          "ev_id": "ev_570",
           "same_work_aliases": [],
           "tier": "T3",
-          "title": "[PDF] Cash transfers: what does the evidence say? - The World Bank",
+          "title": "[PDF] Can you help someone become financially capable?",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_564",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Finance, Growth, and Inequality, WP/21/164, June 2021",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_461",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Software Developers, Quality Assurance Analysts, and Testers",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1195",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "[PDF] Unpleasant Surprises? Elections and Tax News Shocks",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1211",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Open Knowledge Repository",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_572",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Management Analysts : Occupational Outlook Handbook",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1132",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Hybrid working from home improves retention without ...",
           "topic_verdict": "demoted_weight"
         },
         {
@@ -770,6 +800,24 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
+          "ev_id": "ev_1067",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Publication: Ensuring the Adequacy of Education Finance through ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_702",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Nonprofit capacity and social performance: mapping the field ... - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
           "ev_id": "ev_774",
           "same_work_aliases": [],
           "tier": "T1",
@@ -779,17 +827,44 @@
         {
           "content_flag": null,
           "disposition": "reassign_candidate",
-          "ev_id": "ev_264",
+          "ev_id": "ev_1183",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Study longer or study effectively? Better study strategies can ... - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1226",
+          "same_work_aliases": [],
+          "tier": "T1",
+          "title": "Overemphasis on publications may disadvantage historically ... - PMC",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_644",
           "same_work_aliases": [],
           "tier": "T3",
-          "title": "2024 Formal Ethics Opinion 1 | North Carolina State Bar",
+          "title": "Comparative analysis of public and expert perceptions of electrified ...",
+          "topic_verdict": "demoted_weight"
+        },
+        {
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "ev_id": "ev_1146",
+          "same_work_aliases": [],
+          "tier": "T3",
+          "title": "Guideline on good pharmacovigilance practices (GVP) - Module VI \u2013 Collection, management a",
           "topic_verdict": "demoted_weight"
         }
       ],
-      "unassigned_single_work_basket_count": 17,
+      "unassigned_single_work_basket_count": 27,
       "unassigned_single_work_baskets": [
         {
-          "basket_id": "B17",
+          "basket_id": "B16",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -802,43 +877,7 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B21",
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "members": [
-            "ev_007",
-            "ev_1019",
-            "ev_1165"
-          ],
-          "topic_verdict": "unjudged",
-          "work_corroboration": 1
-        },
-        {
           "basket_id": "B22",
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "members": [
-            "ev_009",
-            "ev_1014",
-            "ev_1149"
-          ],
-          "topic_verdict": "unjudged",
-          "work_corroboration": 1
-        },
-        {
-          "basket_id": "B23",
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "members": [
-            "ev_011",
-            "ev_1016",
-            "ev_1152"
-          ],
-          "topic_verdict": "unjudged",
-          "work_corroboration": 1
-        },
-        {
-          "basket_id": "B24",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -850,19 +889,7 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B25",
-          "content_flag": null,
-          "disposition": "reassign_candidate",
-          "members": [
-            "ev_023",
-            "ev_1102",
-            "ev_1164"
-          ],
-          "topic_verdict": "unjudged",
-          "work_corroboration": 1
-        },
-        {
-          "basket_id": "B26",
+          "basket_id": "B23",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -874,7 +901,7 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B28",
+          "basket_id": "B25",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -886,7 +913,19 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B30",
+          "basket_id": "B26",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_097",
+            "ev_1046",
+            "ev_1190"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B27",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -898,7 +937,7 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B31",
+          "basket_id": "B28",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -910,7 +949,19 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B33",
+          "basket_id": "B30",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1054",
+            "ev_1199",
+            "ev_206"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B31",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -921,7 +972,18 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B35",
+          "basket_id": "B32",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_015",
+            "ev_1031"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B33",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -932,18 +994,106 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B38",
+          "basket_id": "B34",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
-            "ev_1044",
-            "ev_1186"
+            "ev_045",
+            "ev_1049"
           ],
           "topic_verdict": "unjudged",
           "work_corroboration": 1
         },
         {
-          "basket_id": "B41",
+          "basket_id": "B35",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_047",
+            "ev_1112"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B36",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_096",
+            "ev_1096"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B37",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_093",
+            "ev_1023"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B38",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1025",
+            "ev_1166"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B39",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1048",
+            "ev_1192"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B40",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1061",
+            "ev_1187"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B42",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1120",
+            "ev_1266"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B43",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1121",
+            "ev_1267"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B44",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -954,7 +1104,7 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B42",
+          "basket_id": "B45",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -965,7 +1115,7 @@
           "work_corroboration": 1
         },
         {
-          "basket_id": "B43",
+          "basket_id": "B46",
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
@@ -980,6 +1130,39 @@
           "content_flag": null,
           "disposition": "reassign_candidate",
           "members": [
+            "ev_1057",
+            "ev_179"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B48",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1021",
+            "ev_491"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B49",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
+            "ev_1051",
+            "ev_497"
+          ],
+          "topic_verdict": "unjudged",
+          "work_corroboration": 1
+        },
+        {
+          "basket_id": "B51",
+          "content_flag": null,
+          "disposition": "reassign_candidate",
+          "members": [
             "ev_949",
             "ev_952"
           ],
@@ -987,7 +1170,7 @@
           "work_corroboration": 1
         }
       ],
-      "unassigned_singletons_count": 193
+      "unassigned_singletons_count": 219
     }
   },
   "question_sha": "146597e3a837074d92cfbc7fdb0fba5e9a54456bf66cc69fc5134972504dca94",
@@ -996,7 +1179,7 @@
   "stage": "outline",
   "upstream": [
     {
-      "sha": "05aa3383fd7072bc4a515fa51d1ceb24c95ab9ca1e89a99f70d8305f61e30be1",
+      "sha": "ecad51f5740ca0a16d60475f9f939b32f85a3c35c8e512499f39a0056569271b",
       "stage": "basket"
     }
   ]
