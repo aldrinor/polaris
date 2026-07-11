@@ -5170,7 +5170,10 @@ _NBER_ID_RE = re.compile(
     r"nber\.org/(?:system/files/working_papers/|papers/)?w(\d{3,6})", re.IGNORECASE
 )
 _SSRN_ID_RE = re.compile(
-    r"(?:ssrn\.com/abstract=|ssrn_id=|abstract_id=)(\d{4,9})", re.IGNORECASE
+    # S2/S3 re-pass iter-4 Fix 3 (Fable): match BOTH SSRN abstract-id URL forms — papers.cfm?
+    # abstract_id= (underscore) AND Delivery.cfm?abstractid= (no underscore) are ONE work; keep
+    # byte-for-byte parity with finding_dedup._SSRN_ID_RE so both consolidators agree.
+    r"(?:ssrn\.com/abstract=|ssrn_id=|abstract_?id=)(\d{4,9})", re.IGNORECASE
 )
 _DOI_IN_URL_RE = re.compile(r"(10\.\d{4,9}/[^\s?#&]+)")
 # S2/S3 re-pass iter 2: a bare arXiv id embedded in a NON-arxiv.org MIRROR path. repec

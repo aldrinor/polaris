@@ -53,6 +53,23 @@ def _row_field(row, *names):
     return ''
 
 
+def _nli_score_stats():
+    """S2/S3 re-pass iter-4 fix 9 (Fable / P0-2(d)): the consolidation-NLI scoring telemetry from
+    the LAST score_pairs call plus a derived scored fraction and a BLIND flag (total>0, scored==0
+    => the semantic judge saw nothing — a loud run-validity failure). Never raises."""
+    try:
+        from src.polaris_graph.synthesis.consolidation_nli import get_last_score_stats
+        st = dict(get_last_score_stats())
+    except Exception as exc:  # noqa: BLE001 — telemetry disclosure must never crash the replay
+        return {'available': False, 'error': str(exc)}
+    total = int(st.get('total_pairs', 0) or 0)
+    scored = int(st.get('scored_pairs', 0) or 0)
+    st['available'] = True
+    st['scored_fraction'] = round(scored / total, 4) if total > 0 else None
+    st['judge_blind'] = bool(total > 0 and scored == 0)
+    return st
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--cp2', required=True)
@@ -181,6 +198,12 @@ def main() -> int:
         # THE-GHOST repair fired; 0 = clean/off. Never a DROP — UNION-only, corroboration over
         # DISTINCT works.
         'rep_invariant_merge_count': getattr(res, 'rep_invariant_merge_count', 0),
+        # S2/S3 re-pass iter-4 fix 9 (Fable / P0-2(d) §-1.3.1 fail-loud): the consolidation-NLI
+        # scoring telemetry from the LAST score_pairs call (the semantic merge judge). Discloses
+        # scored_pairs / total_pairs so a STARVED / BLIND judge is visible in every run;
+        # scored_pairs == 0 while total_pairs > 0 is a loud run-validity failure (the judge saw
+        # nothing). Also surfaces whether the wall truncated or an OOM forced a batch-halve/degrade.
+        'nli_score_stats': _nli_score_stats(),
         'same_work_groups': sw_total,
         'same_work_multi_member': sw_multi,
         'same_work_dropped_captcha': len(sw.dropped_captcha_indices) if sw else 0,

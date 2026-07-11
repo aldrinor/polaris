@@ -361,6 +361,18 @@ def _choose_clean_representative(member_ris: list[int], rank_fn, rows: list[dict
         return ranked[0]
     clean = [ri for ri in ranked if not _rep_is_unclean(rows[ri])]
     if clean and _claim_bearing_rep_enabled():
+        # Fix 6 (iter-4, Fable): FIRST prefer a claim-bearing member that is NOT a license / ISSN /
+        # keyword / JEL / acknowledgment / contact / how-to-cite boilerplate line NOR a bare author
+        # list — so a basket never SURFACES metadata as its representative statement while a real
+        # claim member exists. Fail-open: falls back to any claim-bearing, then any clean member.
+        for ri in clean:
+            body = _row_text(rows[ri])
+            if (
+                _is_claim_bearing_complete(rows[ri])
+                and not _is_boilerplate_or_metadata_line(body)
+                and not _is_author_list_line(body)
+            ):
+                return ri
         for ri in clean:
             if _is_claim_bearing_complete(rows[ri]):
                 return ri
@@ -510,6 +522,99 @@ def _is_nonmeasurement_numeral(claim: Any, line_text: str) -> bool:
     if _ZIP_RE.search(line) and _ADDRESS_CONTEXT_RE.search(line):
         return True
     return False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# P0-1 (S2/S3 re-pass iter-4, Fable) — boilerplate/heading MERGE guard (THE GHOST)
+# ─────────────────────────────────────────────────────────────────────────
+# The numeric-tuple / byte-identical key only PROPOSES a candidate merge; a pair may MERGE only
+# when its anchor is a real CLAIM sentence (then a semantic same-claim confirm follows). A
+# byte-identical HEADING / license / ISSN / keyword / submission-date / acknowledgment / contact /
+# author-list line is NOT a claim — two DIFFERENT works that happen to share such a line (B025 'AME
+# reporting checklist' boilerplate, B226 a section heading, B124 a generic CBA-methodology stub)
+# must NEVER byte-identical-merge into one corroboration basket. The guard is question-agnostic
+# (no entity list, no corpus number): it fires only on a CONFIDENT metadata/boilerplate pattern OR
+# a non-propositional (too-short / truncated) line. Genuine byte-identical CLAIM merges (Weizenbaum
+# 3x identical PDF, Eloundou 46%) are UNAFFECTED — a real claim sentence is neither boilerplate nor
+# a bare heading, so it stays mergeable. §-1.3-safe: the guard only ever BLOCKS a merge (baskets
+# stay SPLIT); it never drops a row and never relaxes faithfulness.
+_BOILERPLATE_METADATA_RE = re.compile(
+    r"\ball rights reserved\b|\bcreative commons\b|\bcc[\s\-]?by(?:[\s\-]?[a-z]{2})*\b|"
+    r"\blicensed under\b|"
+    r"\bthis (?:article|work|paper|content|document) is (?:distributed|licensed|published|"
+    r"made available|an open[\s\-]access)\b|"
+    r"\bopen[\s\-]access article\b|©|\(c\)\s*(?:19|20)\d{2}|\bcopyright\b|"
+    r"\bissn\b|\bisbn\b|\bkeywords?\s*:|\bjel(?:\s+classification|\s+codes?|\s*:)\b|"
+    r"\breceived\b[^.]{0,60}\baccepted\b|\bsubmitted\b[^.]{0,60}\brevised\b|"
+    r"\bcorresponding author\b|\be[\s\-]?mail\s*:|\backnowledge?ments?\b|"
+    r"\bconflicts? of interest\b|\bcite this (?:article|paper|work)\b|\bhow to cite\b|"
+    r"\bterms (?:of use|and conditions)\b|\bprivacy policy\b|\bdownloaded from\b|"
+    r"\bsupplementary (?:material|information)\b",
+    re.IGNORECASE,
+)
+# A whole line that is a byline (author list): >=2 'Surname, F.' / 'F. Surname' name tokens joined
+# by comma/semicolon/&/'and', nothing else. Used ONLY for representative CHOICE (fix 6) — never in
+# the merge gate — so a rare false positive can only demote a rep, never force-split a claim.
+_AUTHOR_LIST_LINE_RE = re.compile(
+    r"^\s*(?:(?:[A-Z][A-Za-z''\-]+,?\s+(?:[A-Z]\.[\s\-]*){1,3})|"
+    r"(?:(?:[A-Z]\.[\s\-]*){1,3}[A-Z][A-Za-z''\-]+))"
+    r"(?:\s*(?:,|;|&|\band\b)\s*(?:(?:[A-Z][A-Za-z''\-]+,?\s+(?:[A-Z]\.[\s\-]*){1,3})|"
+    r"(?:(?:[A-Z]\.[\s\-]*){1,3}[A-Z][A-Za-z''\-]+)))+\s*[.,;]?\s*$",
+)
+
+
+def _is_boilerplate_or_metadata_line(text: str) -> bool:
+    """True iff ``text`` is CONFIDENTLY a license / copyright / ISSN-ISBN / keyword / JEL /
+    submission-date / acknowledgment / contact / how-to-cite / open-access boilerplate line —
+    metadata, not a reported claim. Question-agnostic + conservative (a real claim never matches
+    these targeted patterns). Fail toward False (not boilerplate) on doubt so a genuine claim is
+    never force-split by the merge gate that consumes this."""
+    s = _normalize_unicode_text(text or "").strip()
+    if not s:
+        return False
+    return bool(_BOILERPLATE_METADATA_RE.search(s))
+
+
+def _is_claim_bearing_sentence(text: str) -> bool:
+    """True iff ``text`` reads as a real, complete PROPOSITION (a claim), not a bare heading /
+    label / fragment. Text-level sibling of ``_is_claim_bearing_complete`` (which reads a ROW):
+    >= 5 content words, no mid-sentence ``[...]`` / trailing-ellipsis truncation, and either
+    terminal punctuation or a long enough clause. Question-agnostic + deterministic."""
+    s = _normalize_unicode_text(text or "").strip()
+    if not s:
+        return False
+    if _MIDSENTENCE_TRUNCATION_RE.search(s):
+        return False
+    # Fold out provenance / bracketed-citation tokens ([#ev:...], [12], (2024)) so a TRAILING
+    # citation does not defeat the terminal-punctuation test nor pad the content-word count (the
+    # rung-0 'AI will displace 300 million jobs. [#ev:e1:0-30]' case).
+    s = _RUNG0_CITE_TOKEN_RE.sub(" ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return False
+    words = [w for w in re.split(r"\s+", s) if any(c.isalnum() for c in w)]
+    if len(words) < 5:
+        return False
+    return bool(_SENTENCE_TERMINAL_RE.search(s)) or len(words) >= 8
+
+
+def _sentence_mergeable(text: str) -> bool:
+    """P0-1 (Fable): a claim sentence may anchor a byte-identical / NLI same-claim MERGE only when
+    it is a real CLAIM (claim-bearing) AND NOT boilerplate/metadata. A heading / license / byline
+    can be byte-identical across two DIFFERENT works, so it must never be a merge key without a
+    semantic claim confirm. §-1.3-safe: this only ever BLOCKS a merge (keeps baskets SPLIT); it
+    never drops a row and never relaxes faithfulness. General/question-agnostic."""
+    return _is_claim_bearing_sentence(text) and not _is_boilerplate_or_metadata_line(text)
+
+
+def _is_author_list_line(text: str) -> bool:
+    """True iff the WHOLE line is a byline / author list (no claim). Used ONLY for representative
+    CHOICE (fix 6) so a basket never SHOWS an author-list as its statement when a claim-bearing
+    member exists. Never used to drop or split — fail-open."""
+    s = _normalize_unicode_text(text or "").strip()
+    if not s or len(s.split()) < 3:
+        return False
+    return bool(_AUTHOR_LIST_LINE_RE.match(s))
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1158,8 +1263,13 @@ _ARXIV_ID_RE = re.compile(
 _NBER_ID_RE = re.compile(
     r"nber\.org/(?:system/files/working_papers/|papers/)?w(\d{3,6})", re.IGNORECASE
 )
+# S2/S3 re-pass iter-4 Fix 3 (Fable): match BOTH SSRN abstract-id URL forms — the
+# ``papers.cfm?abstract_id=`` (underscore) and the ``Delivery.cfm?abstractid=`` (no underscore)
+# download form are the SAME work; the optional ``_`` in ``abstract_?id`` folds both, so two
+# mirror locators of one SSRN paper share one work id instead of each minting a distinct ``url:``
+# key (a §-1.3 fake corroboration). Question-agnostic; the numeric id keeps two works apart.
 _SSRN_ID_RE = re.compile(
-    r"(?:ssrn\.com/abstract=|ssrn_id=|abstract_id=)(\d{4,9})", re.IGNORECASE
+    r"(?:ssrn\.com/abstract=|ssrn_id=|abstract_?id=)(\d{4,9})", re.IGNORECASE
 )
 _DOI_IN_URL_RE = re.compile(r"(10\.\d{4,9}/[^\s?#&]+)")
 # S2/S3 re-pass iter 2: a bare arXiv id embedded in a NON-arxiv.org MIRROR path. repec
@@ -2036,7 +2146,11 @@ def _apply_rung0_exact_collapse(
         member_ris = groups[key]
         bucket_value = _cluster_value_bucket(key, rows, member_ris)
         rep_text = _cluster_text(rows, member_ris, rank_fn, bucket_value)
-        sig_of[i] = _rung0_signature(rep_text)
+        # P0-1 (iter-4, Fable): a byte-identical HEADING / license / metadata line is NOT a claim —
+        # it must never be a merge key without a semantic confirm. Only a real, non-boilerplate
+        # claim sentence earns a grouping signature; a non-mergeable rep yields "" (stays a
+        # singleton). Genuine byte-identical CLAIM merges (Weizenbaum, Eloundou 46%) still union.
+        sig_of[i] = _rung0_signature(rep_text) if _sentence_mergeable(rep_text) else ""
     # Group cluster indices by identical non-empty signature; union each such group.
     by_sig: dict[str, list[int]] = {}
     for i in range(len(keys)):
@@ -2182,6 +2296,11 @@ def _apply_representative_invariant(
         value = _cluster_value_bucket(key, rows, member_ris)
         rep_ri = _choose_clean_representative(member_ris, rank_fn, rows)
         vis = _visible_claim_sentence(rows[rep_ri], value)
+        # P0-1 (iter-4, Fable): only a real, non-boilerplate CLAIM sentence may anchor the
+        # post-pass same-claim union. A byte-identical heading / license / metadata visible line is
+        # NOT a claim and must never merge two DIFFERENT works — leave it out (stays SPLIT, keep-all).
+        if not _sentence_mergeable(vis):
+            continue
         sig = _rung0_signature(vis)
         if sig:
             sig_of[i] = sig
@@ -2345,16 +2464,27 @@ def _confirm_numeric_clusters_via_nli(
         confirmed = [rep_ri]
         split_members: list[int] = []
         strict = _numeric_nli_confirm_strict_enabled()
+        rep_mergeable = _sentence_mergeable(rep_text)
         for mri in distinct:
             if mri == rep_ri:
                 continue
             m_text = _normalize_unicode_text(
                 _collapse_letter_spacing(_claim_sentence(rows[mri], value))
             )
-            # Fix 1(d) root-cause: a byte-identical claim sentence IS the same claim — never
+            # P0-1 (iter-4, Fable): a boilerplate / heading / non-propositional anchor is NOT a
+            # claim — it may never be a merge key without a real semantic confirm. If EITHER the
+            # rep OR the member sentence is non-mergeable (heading / license / metadata / too-short),
+            # the pair cannot corroborate a CLAIM: SPLIT (keep-all — the member still flows through
+            # as its own singleton basket). This is how B025 (AME-checklist boilerplate) and B226 (a
+            # shared heading) stop byte-identical-merging two DIFFERENT works. Question-agnostic.
+            if not (rep_mergeable and _sentence_mergeable(m_text)):
+                split_members.append(mri)
+                continue
+            # Fix 1(d) root-cause: a byte-identical CLAIM sentence IS the same claim — never
             # SPLIT it on an NLI None / one-way answer (the drb_72 3x-identical-PDF false split).
             # Confirm deterministically BEFORE the judge (the rung-0 principle applied per-member);
-            # §-1.3-safe (a byte-identical sentence can only be corroboration, never a false merge).
+            # §-1.3-safe (a byte-identical CLAIM sentence can only be corroboration, never a false
+            # merge — boilerplate/heading was already split out above).
             if rep_sig and _rung0_signature(m_text) == rep_sig:
                 confirmed.append(mri)
                 continue
@@ -2461,7 +2591,12 @@ _FINDING_DEDUP_NLI_WORKERS_DEFAULT = "8"
 _FINDING_DEDUP_NLI_MAX_PAIRS_ENV = "PG_FINDING_DEDUP_NLI_MAX_PAIRS"
 _FINDING_DEDUP_NLI_MAX_PAIRS_DEFAULT = "20000"
 _FINDING_DEDUP_NLI_WALL_SECONDS_ENV = "PG_FINDING_DEDUP_NLI_WALL_SECONDS"
-_FINDING_DEDUP_NLI_WALL_SECONDS_DEFAULT = "180"
+# P0-2 (S2/S3 re-pass iter-4, Fable / §9.1.8 never-starve): raised 180 -> 900. With the OOM
+# handler now HALVING the batch and STAYING on the A100 GPU (consolidation_nli, no whole-run CPU
+# degrade), the pair budget scores fast; a generous wall is free insurance (billed by actual
+# usage) that lets the full pair set complete on a large drb_72-scale corpus instead of the judge
+# going BLIND (0/130 scored in 180s was the CPU-degrade symptom this closes). A CAP, not a target.
+_FINDING_DEDUP_NLI_WALL_SECONDS_DEFAULT = "900"
 
 # ─────────────────────────────────────────────────────────────────────────
 # 3a — WIDENED qualitative CANDIDATE NOMINATION (F3, I-deepfix-001 #1369)

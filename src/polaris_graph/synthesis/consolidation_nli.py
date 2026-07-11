@@ -123,7 +123,12 @@ _DEFAULT_MAX_PAIRS = "60000"
 # corroboration weight (a §-1.3 loss of keep-all corroborators from the basket). A more
 # generous default lets a large section's paraphrase clusters fully union before the wall.
 # Still a WEIGHT, not a faithfulness gate; still fully env-overridable (LAW VI); <=0 disables.
-_DEFAULT_WALL_SECONDS = "180"   # I-deepfix-001 C2: per-call score_pairs total wall (s)
+# P0-2 (S2/S3 re-pass iter-4, Fable / §9.1.8 never-starve): raised 180 -> 900. The 0/130 and
+# 0/149 chunks-scored-in-180s BLIND judge was the whole-run CPU-degrade symptom. Now that a
+# predict-time OOM HALVES the batch and STAYS on the A100 GPU (below), the pair budget scores
+# fast; a generous wall is free insurance (billed by actual usage) so the full pair set completes
+# on a large drb_72-scale corpus instead of truncating mid-scoring. A CAP, not a target; <=0 off.
+_DEFAULT_WALL_SECONDS = "900"   # per-call score_pairs total wall (s); iter-4 raised from 180
 _DEFAULT_PREDICT_CHUNK = "256"  # I-deepfix-001 #1344: max index-pairs per `.predict` forward
 _DEFAULT_SUBBUCKET_JACCARD = "0.30"  # I-deepfix-001 W04-prebucket (#1369): routing threshold
 # S2/S3 re-pass iter-2 P0-3(a): the local bi-encoder for semantic blocking + its top-k. The
@@ -132,6 +137,56 @@ _DEFAULT_SUBBUCKET_JACCARD = "0.30"  # I-deepfix-001 W04-prebucket (#1369): rout
 _DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 _DEFAULT_EMBED_TOPK = "20"
 _CPU_DEVICE = "cpu"         # the OOM-degrade target
+# P0-2(a) (S2/S3 re-pass iter-4, Fable): the batch-size FLOOR below which a predict-time CUDA OOM
+# can no longer be relieved by halving — only then does the run degrade to CPU. 2 = one pair's two
+# directions; the halver splits down to this before conceding the GPU.
+_OOM_MIN_BATCH = 2
+
+# P0-2(d) (S2/S3 re-pass iter-4, Fable) — last-run scoring telemetry so a BLIND / STARVED judge is
+# VISIBLE in the consolidation_summary (fix 9). `score_pairs` records how many candidate pairs it
+# actually scored vs the total upper-triangle count, whether the wall truncated the loop, and
+# whether an OOM forced batch-halving / a CPU degrade. A downstream summary treats
+# ``total_pairs > 0 and scored_pairs == 0`` as a LOUD run-validity failure (the judge saw nothing).
+_SCORE_STATS_LOCK = threading.Lock()
+_LAST_SCORE_STATS: dict[str, Any] = {
+    "n_texts": 0,
+    "total_pairs": 0,
+    "candidate_pairs": 0,
+    "scored_pairs": 0,
+    "edges": 0,
+    "truncated": False,
+    "degraded": False,
+    "over_cap_skipped": False,
+}
+
+
+def get_last_score_stats() -> dict[str, Any]:
+    """Return a COPY of the last :func:`score_pairs` telemetry (P0-2(d) / fix 9). Keys: n_texts,
+    total_pairs, candidate_pairs, scored_pairs, edges, truncated, degraded, over_cap_skipped. A
+    consumer flags ``total_pairs > 0 and scored_pairs == 0`` as a blind/starved judge (loud
+    failure) and can disclose the scored/total fraction. Thread-safe."""
+    with _SCORE_STATS_LOCK:
+        return dict(_LAST_SCORE_STATS)
+
+
+def _record_score_stats(**kv: Any) -> None:
+    """Overwrite the last-run scoring telemetry (P0-2(d)). Thread-safe; called once per
+    ``score_pairs`` invocation right before it returns."""
+    with _SCORE_STATS_LOCK:
+        _LAST_SCORE_STATS.update(kv)
+
+
+def _empty_cuda_cache() -> None:
+    """Best-effort release of the CUDA allocator cache between OOM-halving retries so a fragmented
+    card frees the block a smaller batch needs (P0-2(a)). Never raises (no torch / no CUDA =>
+    no-op)."""
+    try:
+        import torch  # noqa: PLC0415
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001 — telemetry/cleanup must never crash a paid run
+        pass
 
 # nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
 # test): index 0 = contradiction, 1 = entailment, 2 = neutral. These are the
@@ -511,11 +566,15 @@ def _embedding_blocked_pairs(
                     if prev is None or s > prev:
                         pair_sim[(a, b)] = s
                     pair_set.add((a, b))
-        pairs = sorted(pair_set)
+        # P0-2(c) (S2/S3 re-pass iter-4, Fable): return candidate pairs ordered by DESCENDING
+        # blocking similarity (ties broken by (i,j) for full determinism) so that, under a scoring
+        # WALL, the highest-value (most likely same-claim) pairs are scored FIRST. The caller
+        # re-sorts the resulting EDGES for output determinism, so a non-truncated run is unchanged;
+        # a truncated run now keeps the BEST pairs instead of a low-index-biased slice.
+        pairs = sorted(pair_set, key=lambda p: (-pair_sim.get(p, 0.0), p))
         if len(pairs) > max_pairs:
-            # Keep the highest-similarity candidates so the bound holds without a blanket skip.
-            pairs = sorted(pairs, key=lambda p: pair_sim.get(p, 0.0), reverse=True)[:max_pairs]
-            pairs.sort()
+            # The cap keeps the highest-similarity candidates (already at the front after the sort).
+            pairs = pairs[:max_pairs]
         return pairs
     except Exception as exc:  # noqa: BLE001 — ANY failure => fall back to lexical (never skip-all)
         logger.warning(
@@ -769,6 +828,10 @@ def score_pairs(
 
     n = len(texts)
     if n < 2:
+        _record_score_stats(
+            n_texts=n, total_pairs=0, candidate_pairs=0, scored_pairs=0, edges=0,
+            truncated=False, degraded=False, over_cap_skipped=False,
+        )
         return []
 
     # Total upper-triangle pair count, computed WITHOUT materializing the O(n^2) list —
@@ -796,6 +859,10 @@ def score_pairs(
                 total_pairs, ENV_MAX_PAIRS, max_pairs, n, len(pairs),
             )
             if not pairs:
+                _record_score_stats(
+                    n_texts=n, total_pairs=total_pairs, candidate_pairs=0, scored_pairs=0,
+                    edges=0, truncated=False, degraded=False, over_cap_skipped=False,
+                )
                 return []
         elif _subbucket_enabled():
             # I-deepfix-001 W04-prebucket (#1369): the RIGHT over-cap behavior — SUB-DIVIDE
@@ -825,6 +892,10 @@ def score_pairs(
                 len(pairs),
             )
             if not pairs:
+                _record_score_stats(
+                    n_texts=n, total_pairs=total_pairs, candidate_pairs=0, scored_pairs=0,
+                    edges=0, truncated=False, degraded=False, over_cap_skipped=False,
+                )
                 return []
         else:
             # I-deepfix-001 W04-consolidation-nli-wall (#1344): an over-MAX_PAIRS scale guard
@@ -841,6 +912,10 @@ def score_pairs(
                 "consolidation for this bucket (literal clusters pass through UNMERGED; no "
                 "basket dropped). Raise %s or set %s=1 to pre-bucket and merge them.",
                 total_pairs, ENV_MAX_PAIRS, max_pairs, ENV_MAX_PAIRS, ENV_SUBBUCKET,
+            )
+            _record_score_stats(
+                n_texts=n, total_pairs=total_pairs, candidate_pairs=0, scored_pairs=0,
+                edges=0, truncated=False, degraded=False, over_cap_skipped=True,
             )
             return []
     else:
@@ -873,24 +948,50 @@ def score_pairs(
         chunk_size = min(chunk_size, _pchunk)
     chunks = [pairs[k:k + chunk_size] for k in range(0, len(pairs), chunk_size)]
 
-    def _predict_with_oom_degrade(batch: list[tuple[str, str]]) -> Any:
-        """Run the active predict; on a CUDA OOM, DEGRADE to CPU (production) or retry
-        the injected stub, then re-run ONCE. A non-OOM error fails loud (§-1.4)."""
+    def _gpu_predict_halving(batch: list[tuple[str, str]]) -> Any:
+        """P0-2(a) (S2/S3 re-pass iter-4, Fable): run the active GPU predict; on a CUDA OOM, empty
+        the allocator cache, HALVE the batch, and retry each half on the GPU (recursive) down to
+        ``_OOM_MIN_BATCH``. This STAYS on the A100 instead of degrading the WHOLE run to CPU (the
+        0/130-scored blind-judge symptom). Returns a LIST of per-row logit vectors in the SAME
+        order as ``batch`` (concatenation preserves the caller's ``2*idx`` indexing). Re-raises the
+        CUDA OOM only when a FLOOR-sized batch still OOMs, so the caller can fall back to CPU."""
         try:
-            return _predict_holder[0](batch)
-        except Exception as exc:  # noqa: BLE001 — classify: only a CUDA OOM degrades
+            return list(_predict_holder[0](batch))
+        except Exception as exc:  # noqa: BLE001 — classify: only a CUDA OOM triggers halving
             if not _is_cuda_oom(exc):
                 raise
-            if _injected_predict:
+            _empty_cuda_cache()
+            if len(batch) <= _OOM_MIN_BATCH:
+                raise  # cannot split further — let the caller degrade to CPU
+            _degraded.set()
+            mid = len(batch) // 2
+            return _gpu_predict_halving(batch[:mid]) + _gpu_predict_halving(batch[mid:])
+
+    def _predict_with_oom_degrade(batch: list[tuple[str, str]]) -> Any:
+        """Run the active predict; on a CUDA OOM, FIRST relieve it by HALVING the batch and STAYING
+        on the GPU (P0-2(a)); only if a floor-sized batch STILL OOMs does the PRODUCTION path
+        degrade to CPU (swapping CPU predict in for every later chunk). An injected test stub keeps
+        its retry-once seam. A non-OOM error fails loud (§-1.4)."""
+        if _injected_predict:
+            try:
+                return _predict_holder[0](batch)
+            except Exception as exc:  # noqa: BLE001 — classify: only a CUDA OOM degrades
+                if not _is_cuda_oom(exc):
+                    raise
                 # Test/degrade seam: retry the same injected predict once.
                 _degraded.set()
                 return _predict_holder[0](batch)
-            # Production: rebuild the cross-encoder on CPU and swap it in for this and
-            # every later chunk, then re-score this batch.
+        try:
+            return _gpu_predict_halving(batch)
+        except Exception as exc:  # noqa: BLE001 — a floor-sized batch still OOM'd => CPU degrade
+            if not _is_cuda_oom(exc):
+                raise
+            # Production last resort: rebuild the cross-encoder on CPU, swap it in for this and
+            # every later chunk, and re-score this batch (no basket lost — a WEIGHT, not a gate).
             cpu_model = _reload_model_on_cpu()
             _predict_holder[0] = cpu_model.predict
             _degraded.set()
-            return _predict_holder[0](batch)
+            return list(_predict_holder[0](batch))
 
     def _score_chunk(chunk: list[tuple[int, int]]) -> list[tuple[int, int]]:
         # Build BOTH directions for every pair in one batch: [A->B, B->A, ...].
@@ -923,12 +1024,14 @@ def score_pairs(
 
     all_edges: list[tuple[int, int]] = []
     _truncated = False
+    _scored_pairs = 0  # P0-2(d): candidate pairs actually scored (before any wall truncation)
     if workers <= 1 or len(chunks) <= 1:
         for chunk in chunks:
             if _deadline_passed():
                 _truncated = True
                 break
             all_edges.extend(_score_chunk(chunk))
+            _scored_pairs += len(chunk)
     else:
         # I-deepfix-001 W04 (#1344): manage the pool MANUALLY (NOT `with`) so the
         # non-blocking shutdown cannot be defeated by `with`'s __exit__ shutdown(wait=True),
@@ -936,7 +1039,8 @@ def score_pairs(
         # cosmetic (the function would not RETURN until the slow chunks drained).
         pool = ThreadPoolExecutor(max_workers=workers)
         try:
-            futures = [pool.submit(_score_chunk, chunk) for chunk in chunks]
+            # P0-2(d): map each future to its chunk pair-count so scored_pairs is exact.
+            futures = {pool.submit(_score_chunk, chunk): len(chunk) for chunk in chunks}
             pending = set(futures)
             while pending:
                 _remaining = None if _deadline is None else max(0.0, _deadline - time.monotonic())
@@ -953,6 +1057,7 @@ def score_pairs(
                     break
                 for fut in done:
                     all_edges.extend(fut.result())
+                    _scored_pairs += futures[fut]
             if _truncated:
                 # Collect any futures that DID finish before the wall (do not block on the
                 # rest — they keep running to completion in their threads but we stop waiting,
@@ -961,6 +1066,7 @@ def score_pairs(
                     if fut.done():
                         try:
                             all_edges.extend(fut.result())
+                            _scored_pairs += futures[fut]
                         except Exception:  # noqa: BLE001 — a late failure must not abort the run
                             pass
         finally:
@@ -978,6 +1084,19 @@ def score_pairs(
     # concurrency-invariant (the union is order-stable anyway because it attaches to the
     # lowest root, but sorting makes the contract explicit and the output reproducible).
     all_edges.sort()
+    # P0-2(d) (fix 9): record the scoring telemetry so a BLIND / STARVED judge is visible in the
+    # consolidation_summary. ``scored_pairs == 0`` while ``total_pairs > 0`` is a loud run-validity
+    # failure downstream (the judge saw nothing); a truncated/degraded run is disclosed too.
+    _record_score_stats(
+        n_texts=n,
+        total_pairs=total_pairs,
+        candidate_pairs=len(pairs),
+        scored_pairs=_scored_pairs,
+        edges=len(all_edges),
+        truncated=_truncated,
+        degraded=_degraded.is_set(),
+        over_cap_skipped=False,
+    )
     return all_edges
 
 
