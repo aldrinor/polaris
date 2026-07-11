@@ -118,9 +118,21 @@ PG_OUTLINE_AGENT_WALL_SECONDS_DEFAULT = 900
 # unbounded-effort until it eats the whole budget. Belt-and-suspenders: _run_checklist ALSO
 # now degrades fail-open (one retry at 2x budget, then "no new deficiencies" + disclosure)
 # instead of letting a control-plane truncation abort the entire outline stage.
-PG_OUTLINE_DECIDE_MAX_TOKENS_DEFAULT = 49152
-PG_OUTLINE_CHECKLIST_MAX_TOKENS_DEFAULT = 98304
-PG_OUTLINE_QUERY_DERIVE_MAX_TOKENS_DEFAULT = 40960
+# Un-starved to the CONFIRMED real OpenRouter provider cap for z-ai/glm-5.2
+# (top_provider.max_completion_tokens=131072, GET /api/v1/models 2026-07-11 per
+# CLAUDE.md §9.1.8 "read the API, don't guess" — NOT a moderate raise). Reasoning
+# is bounded separately via PG_OUTLINE_REASONING_MAX_TOKENS (32768) so the reasoning
+# prelude cannot eat the whole budget before content — leaving ~98k tokens of content
+# headroom, comfortably above the ~21k-token prelude that caused the real-corpus crash.
+PG_OUTLINE_DECIDE_MAX_TOKENS_DEFAULT = 131072
+PG_OUTLINE_CHECKLIST_MAX_TOKENS_DEFAULT = 131072
+PG_OUTLINE_QUERY_DERIVE_MAX_TOKENS_DEFAULT = 131072
+# W2 P0 fix: outer belt-and-suspenders wall on the whole ``agent.run()`` call (grace
+# added on top of the loop's own internal wall-clock check, covering a single LLM call
+# that hangs past its own inner timeout). Never the primary bound — ``_wall_seconds()``
+# is — this only guarantees the outer ``run_outline_agent_or_legacy`` caller is never
+# wedged indefinitely.
+PG_OUTLINE_AGENT_RUN_TIMEOUT_GRACE_SECONDS_DEFAULT = 180
 
 
 def outliner_agent_model() -> str:
@@ -152,7 +164,7 @@ PG_OUTLINE_REASONING_MAX_TOKENS_DEFAULT = 32768
 # via GET https://openrouter.ai/api/v1/models 2026-07-11 per §9.1.8 "read the API, don't
 # guess". Used only as a safety ceiling on the fail-open retry-with-bigger-budget path below —
 # never worth requesting more than the provider will honor.
-PG_GLM52_REAL_MAX_COMPLETION_TOKENS = 128000
+PG_GLM52_REAL_MAX_COMPLETION_TOKENS = 131072  # confirmed via GET /api/v1/models 2026-07-11
 
 
 def _reasoning_max_tokens() -> int:
@@ -1918,11 +1930,53 @@ async def run_outline_agent_or_legacy(
         required_titles=_required_titles,
     )
     agent = OutlineAgent(workspace, domain=domain or None)
-    final_ws = await agent.run()
+    # W2 P0 fix (Fable-authoritative, 2026-07-11): this call used to be BARE. On the dense
+    # full-corpus real run a single glm-5.2 ``ReasoningFirstTruncationError`` (reasoning
+    # prelude alone exceeding the completion budget) — or ANY other exception, or the loop
+    # simply running past its own wall-clock without ``_decide``/``_run_checklist`` ever
+    # returning control — propagated straight out of ``agent.run()``, out of THIS function,
+    # and aborted the entire outline stage; the caller (``multi_section_generator``) then fell
+    # back to the PLAIN non-agentic outliner. That is a silent capability downgrade the operator
+    # never asked for (LAW II). The fix DEGRADES TO SEED instead: ``workspace`` is the exact
+    # same object ``agent`` was constructed with, and every mutation the loop makes (fold-ins,
+    # revisions, ledger updates) is applied to it IN PLACE and checkpointed after every turn —
+    # so on any failure ``workspace`` already holds the SEED outline merged with whatever
+    # agentic turns completed before the failure, never a blank/plain fallback. The outer
+    # ``asyncio.wait_for`` is belt-and-suspenders on top of the loop's own internal
+    # turns/wall-clock check (a single hung LLM call inside one turn must not be able to wedge
+    # the whole stage past the caller's own upstream timeout).
+    degraded_to_seed = False
+    degrade_reason = ""
+    try:
+        final_ws = await asyncio.wait_for(
+            agent.run(),
+            timeout=agent.wall_seconds + _env_int(
+                "PG_OUTLINE_AGENT_RUN_TIMEOUT_GRACE_SECONDS",
+                PG_OUTLINE_AGENT_RUN_TIMEOUT_GRACE_SECONDS_DEFAULT,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — degrade to SEED, never abort the outline stage
+        degraded_to_seed = True
+        degrade_reason = f"{type(exc).__name__}: {exc}"
+        workspace.disclose(
+            f"agentic outline loop ABORTED after {workspace.turn} completed turn(s) "
+            f"({degrade_reason}) — DEGRADING TO SEED outline merged with whatever agentic "
+            "turns completed before the failure (never falls back to plain non-agentic "
+            "outline)"
+        )
+        workspace.checkpoint(event="agent_run_aborted_degrade_to_seed")
+        logger.warning(
+            "[outline_agent] agent.run() aborted, degrading to seed+partial-turns state: %s",
+            degrade_reason,
+        )
+        final_ws = workspace
 
     parse_result.plans = list(final_ws.outline_draft)  # type: ignore[assignment]
     parse_result.digest_stats = dict(parse_result.digest_stats or {})
     parse_result.digest_stats["outline_agent"] = {
+        "cp4_used": "agentic-degraded-seed" if degraded_to_seed else "agentic",
+        "degraded_to_seed": degraded_to_seed,
+        "degrade_reason": degrade_reason,
         "turns": final_ws.turn,
         "elapsed_seconds": round(final_ws.elapsed_seconds(), 1),
         "ev_store_size": len(final_ws.ev_store),
