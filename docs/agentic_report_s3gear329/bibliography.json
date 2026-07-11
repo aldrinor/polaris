@@ -1,0 +1,155 @@
+[
+  {
+    "doi": "",
+    "evidence_id": "ev_939",
+    "num": 1,
+    "pmid": "",
+    "statement": "Experimental evidence on the productivity effects of generative ...",
+    "tier": "T1",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/37440646/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_019",
+    "num": 2,
+    "pmid": "",
+    "statement": "How artificial intelligence impacts the US labor market",
+    "tier": "T1",
+    "url": "https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impacts-us-labor-market"
+  },
+  {
+    "doi": "10.1257/jep.33.2.3",
+    "evidence_id": "acemoglu_restrepo_automation_tasks",
+    "num": 3,
+    "pmid": "",
+    "statement": "Automation and New Tasks: How Technology Displaces and Reinstates Labor",
+    "tier": "T1",
+    "url": "https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.33.2.3"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_951",
+    "num": 4,
+    "pmid": "",
+    "statement": "The influence of generative artificial intelligence usage on ... - PMC",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12826493/"
+  },
+  {
+    "doi": "10.1086/705716",
+    "evidence_id": "acemoglu_restrepo_robots_jobs",
+    "num": 5,
+    "pmid": "",
+    "statement": "Robots and Jobs: Evidence from US Labor Markets",
+    "tier": "T1",
+    "url": ""
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_045",
+    "num": 6,
+    "pmid": "",
+    "statement": "Artificial intelligence, job quality and inclusiveness - OECD",
+    "tier": "T3",
+    "url": "https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-job-quality-and-inclusiveness_a713d0ad.html"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1282",
+    "num": 7,
+    "pmid": "",
+    "statement": "[PDF] Canaries in the Coal Mine? Six Facts about the Recent Employment ...",
+    "tier": "UNKNOWN",
+    "url": "https://digitaleconomy.stanford.edu/app/uploads/2025/11/CanariesintheCoalMine_Nov25.pdf"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1275",
+    "num": 8,
+    "pmid": "",
+    "statement": "Artificial Intelligence in the Modern Workplace: Ethics, Entry-Level ...",
+    "tier": "UNKNOWN",
+    "url": "https://ijecs.in/index.php/ijecs/article/view/5455"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1273",
+    "num": 9,
+    "pmid": "",
+    "statement": "AI and the Future of Work: Assessing the Human Rights Implications ...",
+    "tier": "UNKNOWN",
+    "url": "https://articleoneadvisors.com/ai-and-the-future-of-work-assessing-the-human-rights-implications-of-job-displacement/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_492",
+    "num": 10,
+    "pmid": "",
+    "statement": "A Refined Global Index of Occupational Exposure",
+    "tier": "T3",
+    "url": "https://webapps.ilo.org/static/english/intserv/working-papers/wp140/index.html"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_101",
+    "num": 11,
+    "pmid": "",
+    "statement": "How is generative AI impacting SMEs' skill and labour needs? - OECD",
+    "tier": "T3",
+    "url": "https://www.oecd.org/en/publications/generative-ai-and-the-sme-workforce_2d08b99d-en/full-report/component-5.html"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_109",
+    "num": 12,
+    "pmid": "",
+    "statement": "The impact of generative artificial intelligence on socioeconomic ...",
+    "tier": "T4",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11165650/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_033",
+    "num": 13,
+    "pmid": "",
+    "statement": "AI and the Future of Work: Navigating Job Displacement, New Job ...",
+    "tier": "T4",
+    "url": "https://www.abacademies.org/articles/ai-and-the-future-of-work-navigating-job-displacement-new-job-roles-and-skill-transformation-17766.html"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_156",
+    "num": 14,
+    "pmid": "",
+    "statement": "[PDF] Gen-AI: Artificial Intelligence and the Future of Work - IMF",
+    "tier": "T3",
+    "url": "https://www.imf.org/-/media/files/publications/sdn/2024/english/sdnea2024001.pdf"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_148",
+    "num": 15,
+    "pmid": "",
+    "statement": "Broadening the Gains from Generative AI in: Staff Discussion Notes ...",
+    "tier": "T3",
+    "url": "https://www.elibrary.imf.org/view/journals/006/2024/002/article-A001-en.xml"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_200",
+    "num": 16,
+    "pmid": "",
+    "statement": "Rethinking AI's impact on the future of work",
+    "tier": "T3",
+    "url": "https://www.ilo.org/resource/article/rethinking-ai%E2%80%99s-impact-future-work"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_016",
+    "num": 17,
+    "pmid": "",
+    "statement": "The Projected Impact of Generative AI on Future ...",
+    "tier": "T4",
+    "url": "https://budgetmodel.wharton.upenn.edu/p/2025-09-08-the-projected-impact-of-generative-ai-on-future-productivity-growth/"
+  }
+]

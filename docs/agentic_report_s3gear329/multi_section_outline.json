@@ -1,0 +1,76 @@
+[
+  {
+    "ev_ids": [
+      "acemoglu_restrepo_automation_tasks",
+      "autor_why_still_jobs",
+      "ev_019",
+      "ev_024",
+      "ev_032",
+      "ev_1018",
+      "ev_1272",
+      "ev_1276",
+      "ev_1277",
+      "ev_1278",
+      "ev_881",
+      "ev_939",
+      "ev_951"
+    ],
+    "focus": "Evidence of generative AI's positive impacts on labor markets, including productivity enhancements, job augmentation, and creation of new tasks.",
+    "title": "Efficacy"
+  },
+  {
+    "ev_ids": [
+      "acemoglu_restrepo_robots_jobs",
+      "ev_001",
+      "ev_020",
+      "ev_043",
+      "ev_045",
+      "ev_102",
+      "ev_119",
+      "ev_1273",
+      "ev_1274",
+      "ev_1275",
+      "ev_1279",
+      "ev_1280",
+      "ev_1281",
+      "ev_1282",
+      "ev_954",
+      "ev_965",
+      "ev_975",
+      "frey_osborne_computerisation"
+    ],
+    "focus": "Documented risks and negative consequences of generative AI adoption, such as job displacement, wage polarization, and exacerbation of inequalities.",
+    "title": "Safety"
+  },
+  {
+    "ev_ids": [
+      "ev_033",
+      "ev_060",
+      "ev_101",
+      "ev_109",
+      "ev_1101",
+      "ev_1106",
+      "ev_1271",
+      "ev_492",
+      "ev_881",
+      "ev_955",
+      "ev_968"
+    ],
+    "focus": "Heterogeneous challenges of generative AI across occupations, sectors, and demographic groups, highlighting differential exposure, skill gaps, and adoption barriers.",
+    "title": "Comparative"
+  },
+  {
+    "ev_ids": [
+      "ev_1006",
+      "ev_016",
+      "ev_148",
+      "ev_200",
+      "ev_156",
+      "ev_004",
+      "ev_1107",
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "focus": "Future opportunities arising from generative AI, including productivity growth, emergence of new job categories, and policy pathways to shape beneficial labor market transitions.",
+    "title": "Long-term Outcomes"
+  }
+]
