@@ -18,8 +18,9 @@ Faithfulness posture of this toolkit:
 """
 from __future__ import annotations
 
+import asyncio
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from src.polaris_graph.tools.tool_registry import ToolDefinition, ToolRegistry, ToolResult
 
@@ -366,6 +367,83 @@ async def _tool_verified_compute(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# fetch_url — targeted re-fetch of ONE named URL, folded in through the SHARED seam
+# ─────────────────────────────────────────────────────────────────────────────
+async def _default_fetch_row(url: str, max_chars: int) -> Optional[dict[str, Any]]:
+    """Production single-URL fetch: the AccessBypass cascade (Crawl4AI/Jina/Firecrawl + fallbacks)
+    via live_retriever._fetch_content, shaped into ONE cp-format evidence row. Network path —
+    exercised only in live runs; unit tests inject a fake fetcher instead."""
+    from src.polaris_graph.retrieval.live_retriever import _fetch_content  # noqa: PLC0415
+
+    content, ok, title, _body_type, _jsonld = await asyncio.to_thread(
+        _fetch_content, url, max_chars,
+    )
+    if not ok or not str(content or "").strip():
+        return None
+    return {
+        "source_url": url, "url": url, "title": title or url,
+        "fetched_body": content, "full_text": content,
+    }
+
+
+async def _tool_fetch_url(
+    workspace: Any, agent_model: str, *, url: str = "", max_chars: int = 20000,
+    fetch_fn: Optional[Callable[[str, int], "Any"]] = None, **_ignored: Any,
+) -> ToolResult:
+    """Targeted re-fetch of ONE named URL (the agent saw a citation/link inside evidence and wants
+    the primary). The fetched page re-enters evidence through the SAME shared fold-in seam as
+    search_more_evidence (``fold_in_fetched_rows``: url-dedup -> offset-renumber with hard
+    id-collision assert -> S2 stamp/delete -> insert), so a second content path can NEVER diverge
+    from the id guard or the junk/off-topic screen. No number and no citation is invented here.
+
+    ``fetch_fn(url, max_chars) -> row|None`` is injectable so the fold-in re-entry is unit-testable
+    without network; it defaults to the production AccessBypass cascade."""
+    from src.polaris_graph.outline._fold_in import fold_in_fetched_rows  # noqa: PLC0415
+
+    u = str(url or "").strip()
+    if not u:
+        return ToolResult(success=False, tool_name="fetch_url",
+                          markdown="fetch_url requires a `url`.", error="missing_url")
+    try:
+        cap = max(1000, int(max_chars))
+    except (TypeError, ValueError):
+        cap = 20000
+    if u in workspace.existing_urls():
+        return ToolResult(
+            success=False, tool_name="fetch_url",
+            markdown=f"URL already in the pool (no re-fetch): {u}", error="url_already_present")
+
+    fetcher = fetch_fn or _default_fetch_row
+    try:
+        maybe = fetcher(u, cap)
+        row = await maybe if asyncio.iscoroutine(maybe) else maybe
+    except Exception as exc:  # noqa: BLE001 — a single fetch must not crash the loop
+        return ToolResult(success=False, tool_name="fetch_url",
+                          markdown=f"fetch_url failed for {u}: {exc}", error=str(exc)[:300])
+    if not isinstance(row, dict):
+        return ToolResult(success=False, tool_name="fetch_url",
+                          markdown=f"fetch_url got no usable content from {u}.", error="empty_fetch")
+
+    fold = await fold_in_fetched_rows(
+        workspace, [row], research_question=workspace.research_question, agent_model=agent_model,
+    )
+    disclosure = (
+        f"fetch_url[{u}] kept {fold.n_kept}, url-dup {fold.n_url_dup}, deleted {fold.n_deleted} "
+        f"(chrome={len(fold.deleted_chrome)}, off-topic={len(fold.deleted_offtopic)})"
+    )
+    workspace.disclose(disclosure)
+    kept_ids = [r.get("evidence_id") for r in fold.kept_rows]
+    md = [f"**{disclosure}**"]
+    for eid in kept_ids:
+        md.append(f"- {eid}: {u} [CITE:{eid}]")
+    return ToolResult(
+        success=fold.n_kept > 0, tool_name="fetch_url", markdown="\n".join(md),
+        source_evidence_ids=[e for e in kept_ids if e],
+        statistics={"kept": fold.n_kept, "url_dup": fold.n_url_dup, "deleted": fold.n_deleted},
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # find_contradictions — surface conflict (direction / magnitude outlier), never average
 # ─────────────────────────────────────────────────────────────────────────────
 _NUM_RE = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
@@ -504,7 +582,18 @@ def register_outline_toolkit(
             return await fn(workspace, **kw)
         return _exec
 
+    def _bind_am(fn):
+        # fetch_url needs agent_model (for the fold-in topic judge); capture it in the closure so
+        # the driver's uniform execute(...) contract is unchanged.
+        async def _exec(evidence_store, data_points, client, **kw):  # noqa: ANN001
+            return await fn(workspace, agent_model, **kw)
+        return _exec
+
     specs = [
+        ("fetch_url", _tool_fetch_url,
+         "Targeted re-fetch of ONE named URL — turns 'source B cites source A' into actually "
+         "reading A. Re-enters evidence through the SAME fold-in seam as search_more_evidence.",
+         {"url": "the URL to fetch", "max_chars": "optional body cap (default 20000)"}),
         ("calculator", _tool_calculator,
          "Evaluate ONE arithmetic expression (deterministic, no LLM). EXPLORATORY — render a "
          "derived number via verified_compute, not this.",
@@ -541,11 +630,13 @@ def register_outline_toolkit(
           "render_field": "optional output field to render (default first)",
           "lead": "optional lead prose for the rendered sentence"}),
     ]
+    _agent_model_tools = {"fetch_url"}
     registered: list[str] = []
     for name, fn, desc, params in specs:
+        binder = _bind_am if name in _agent_model_tools else _bind
         registry.register(ToolDefinition(
             name=name, description=desc, requires_data=False, requires_llm=False,
-            parameters=params, execute=_bind(fn),
+            parameters=params, execute=binder(fn),
         ))
         registered.append(name)
     return registered

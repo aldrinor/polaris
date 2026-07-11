@@ -11,6 +11,7 @@ from src.polaris_graph.outline.outline_agent import OutlineAgent, OutlineWorkspa
 from src.polaris_graph.outline.outline_toolkit import (
     _tool_calculator,
     _tool_coverage_audit,
+    _tool_fetch_url,
     _tool_find_contradictions,
     _tool_get_evidence,
     _tool_list_baskets,
@@ -213,6 +214,47 @@ def test_verified_compute_rejects_bad_arg_types():
     assert not r.success and r.error == "bad_args"
 
 
+# --------------------------------------------------------------------------- fetch_url
+
+
+def test_fetch_url_folds_new_page_in_through_the_shared_seam():
+    ws = _ws()  # ev_000..ev_002 already present
+    before = set(ws.ev_store.keys())
+
+    async def _fake_fetch(url, max_chars):
+        return {"source_url": url, "url": url, "title": "Adobe primary 10-K",
+                "fetched_body": "Adobe reported operating income of 1,493,602 for fiscal 2016. "
+                                "This is the primary SEC filing with full detail.",
+                "full_text": "primary source body"}
+
+    r = _run(_tool_fetch_url(ws, "stub/agent", url="http://sec/adobe-primary",
+                             fetch_fn=_fake_fetch))
+    assert r.success and r.statistics["kept"] == 1
+    new_ids = set(ws.ev_store.keys()) - before
+    assert len(new_ids) == 1
+    # the folded row re-entered under a fresh non-colliding ev id and carries the fetched url.
+    nid = next(iter(new_ids))
+    assert ws.ev_store[nid].get("source_url") == "http://sec/adobe-primary"
+
+
+def test_fetch_url_dedupes_a_url_already_in_the_pool():
+    ws = _ws()  # ev_000 has source_url http://sec/adobe2016
+    r = _run(_tool_fetch_url(ws, "stub/agent", url="http://sec/adobe2016",
+                             fetch_fn=lambda u, m: {"source_url": u, "fetched_body": "x"}))
+    assert not r.success and r.error == "url_already_present"
+
+
+def test_fetch_url_requires_a_url():
+    r = _run(_tool_fetch_url(_ws(), "stub/agent", url=""))
+    assert not r.success and r.error == "missing_url"
+
+
+def test_fetch_url_empty_fetch_returns_cleanly():
+    r = _run(_tool_fetch_url(_ws(), "stub/agent", url="http://nope",
+                             fetch_fn=lambda u, m: None))
+    assert not r.success and r.error == "empty_fetch"
+
+
 # --------------------------------------------------------------------------- find_contradictions
 
 
@@ -275,7 +317,7 @@ def test_register_outline_toolkit_wires_all_tools_on_a_registry():
     names = register_outline_toolkit(reg, _ws(), "stub/agent")
     for n in ("calculator", "get_evidence", "search_corpus", "list_baskets",
               "coverage_audit", "preview_section_evidence", "verified_compute",
-              "find_contradictions"):
+              "find_contradictions", "fetch_url"):
         assert n in names and reg.get_tool(n) is not None
 
 
