@@ -419,3 +419,44 @@ reliably earn a dedicated section regardless of the seed draw.
   => The recipe knobs are query-agnostic BY CONSTRUCTION (floor=corpus seed count; route_all/payload/
      topn are corpus-agnostic env flags), but a MEASURED 2nd-task lift is not producible this round
      without transferring/building a deep 2nd-task corpus.
+
+## 2026-07-12 — ROUND 4: corpus-derived THEME-COVERAGE floor LANDED (the proven faithful lever)
+Fable ruling (this round): commit/revert the stray instrumentation diff, then land the GENERAL
+theme-coverage floor. DONE:
+(a) FENCE: committed the default-OFF PG_DUMP_ROUTED_OUTLINE instrumentation (f003fef) — worktree
+    now genuinely clean (the prior "clean" claim was wrong; a 30-line diff was uncommitted).
+(b) LANDED PG_OUTLINE_THEME_FLOOR (default-OFF) at the outline seed seam (outline_agent.py). It
+    clusters the ev_store rows QUERY-AGNOSTICALLY (title + statement + URL-stripped direct_quote;
+    NEVER the research question / task wording) via a DETERMINISTIC pipeline (TF-IDF + KMeans
+    random_state=0, n_init=10 — same corpus => same clusters, so it REDUCES the very outline
+    non-determinism it guards). Any cluster >= PG_OUTLINE_THEME_FLOOR_MIN_FRAC (default 5%,
+    >=~50/997 rows) that is NOT already owned by a seed section earns ONE dedicated SectionPlan
+    carrying the cluster's REAL ev_ids; capped MAX_NEW=3; added sections raise the existing
+    PG_OUTLINE_SECTION_FLOOR count so the loop cannot merge the recovered themes away. Two guards
+    keep junk out: a corpus-DF salience gate (top-60 vocab) + a web/PDF/UI boilerplate stoplist
+    reject Cloudflare bot-pages / PDF-stream / paralegal-niche clusters. Coverage detection uses
+    section-CENTROID term overlap (not raw ev_id share, which is ~0 because sections hold 20-40 rows
+    vs clusters' 100-260).
+    FAITHFULNESS-NEUTRAL: pure structural placement, only real corpus ev_ids, zero authored text;
+    strict_verify / NLI / [#calc] / fold-in all untouched. Commits 644e447 (impl) + 72c20eb
+    (coverage fix). +5 unit tests; theme-floor suite 10/10 green.
+(d) GENERALITY EXERCISED (no task-72 hardcoding): (i) grep of the whole theme-floor code block =>
+    ZERO domain/task strings (only comments asserting query-agnosticism). (ii) On a SYNTHETIC
+    marine-biology corpus it derives Acidification / Restoration themes and correctly marks the
+    seed-covered Bleaching clusters as covered — proves themes come purely from corpus text.
+    (iii) VALIDATED on 3 REAL prior task-72 outlines: step3 (RICH, HAS a Policy section) => adds
+    NOTHING (no-op, variance-safe); best_combo (8 secs, NO Policy) + repro2 (9 secs, NO Policy) =>
+    each recovers exactly the missing Policy(100-row) theme. So the floor no-ops on rich seeds and
+    lifts thin seeds toward the rich structure — precisely the documented +0.003-0.006 Overall lever.
+(e) MISSION-BAR HONESTY (re-affirmed, formalized): the literal >=0.4447 is a JUDGE-VARIANCE HIGH.
+    step3's OWN report re-scores mean 0.4272 / MAX 0.4322 across 4 gpt-5.5 draws — it never itself
+    reproduces 0.4447 (+0.0125 above its own max). The honest reproducible ceiling for step3 is
+    ~0.427; the final report states THAT, not 0.4447.
+DEEP 2ND-TASK GENERALITY GATE — still externally blocked for a MEASURED lift: no deep (>=~200-row)
+2nd-task corpus exists in-worktree; run_live_honest_cycle.py is clinical-hardcoded (semaglutide,
+fetch_cap=24, approval-gated) and yields ~20 sources — too thin to be comparable. Mechanism
+generality is PROVEN by construction + the synthetic/real-outline exercises above; a MEASURED 2nd-task
+RACE lift needs a multi-hour deep-retrieval build not producible this round.
+VALIDATION RENDERS (task 72, theme-floor ON): r4_themefloor_1 + _2 launched with the winning recipe
+(PG_ROUTE_ALL_BASKETS=0 + PG_EV_BUDGET_TRACKS_PAYLOAD=1 + PG_WRITER_TOPN_EV_PER_SECTION=24 + floor +
+theme-floor). [RACE scores appended when renders reach terminal state.]
