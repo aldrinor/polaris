@@ -1,0 +1,18 @@
+07:45:33 polaris_graph.live_retriever WARNING [live_retriever] retrieval_wall_hit: PARTIAL retrieval — wall (2700s, PG_RETRIEVAL_WALL_SECONDS) tripped; 1 planned sub-queries unfired and 0 fetched bodies unclassified — DISCLOSED, NOT dropped; handed off 0 classified sources to render (render-PASS partial, NOT corpus_truncated)
+07:52:54 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=27
+07:53:04 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=48
+07:54:57 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=25
+07:56:05 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=43
+07:56:21 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=50
+07:56:31 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=25
+07:58:35 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=34
+07:59:29 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=51
+08:08:06 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=43
+08:11:24 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=43
+08:13:16 compose INFO [gen] elapsed=2858.0s  outline=8 sections  kept=8  words=2046  verified=61  dropped=65  in_tok=2114585 out_tok=71752
+08:13:16 compose INFO [agentic] cp4_used=agentic degraded_to_seed=False turns=12 degrade_reason='' -> AGENTIC
+08:13:16 compose INFO [faithfulness] leaked_[CITE:ev]=0  bib_markers_in_prose=44  bib_entries=52  unresolved_markers=[] -> PASS
+  "elapsed_seconds": 2858.0,
+07:25:38 compose INFO [gen] agent_model=z-ai/glm-5.2 code_model=deepseek/deepseek-v4-pro generator=z-ai/glm-5.2
+08:13:16 compose INFO [gen] elapsed=2858.0s  outline=8 sections  kept=8  words=2046  verified=61  dropped=65  in_tok=2114585 out_tok=71752
+  "elapsed_seconds": 2858.0,

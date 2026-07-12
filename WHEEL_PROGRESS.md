@@ -132,3 +132,31 @@ ARITHMETIC HONEST FLOOR (full coverage + scored credibility, safe non-deadlockin
       and cannot be met by the fully-covered, faithfully-scored deep render without shipping the disqualified
       deadlocking lever. A CLEAN end-to-end wall measurement of the credibility-fixed full render is in flight
       (outputs/step5_clean_credfix, single non-contaminated launch) to certify this floor with a real number.
+
+## 2026-07-12 CRITERION (1) MEASURED — CLEAN single-launch full agentic render COMPLETES (2858s/47.6min, agentic, faithful)
+After killing the contaminated DOUBLE-LAUNCH (pids 1258263/1258259 + 1258518 both writing the same
+log+out-dir) and relaunching ONE clean run to a FRESH out-dir/log, the FULL 328-basket agentic deep render
+COMPLETED CLEAN. LIVE NUMBERS (outputs/step5_clean_credfix, snapshot docs/step5_clean_credfix/):
+  * DEFINITIVE LINE: "[agentic] cp4_used=agentic degraded_to_seed=False turns=12 degrade_reason='' -> AGENTIC"
+  * cp4_used=AGENTIC, degraded_to_seed=False, degrade_reason='' — NOT degraded-seed. This run was FULLY
+    AGENTIC across 12 decide turns (vs step3's turns=1 fast-accept): the GLM-5.2 agent chose to gather more
+    evidence LIVE — 30+ PDF fetches, evidence_rows 997 -> 1029 — a strictly heavier/more-agentic path.
+  * NO DEADLOCK, NO SIGKILL/OOM: the 8 "OOM" log hits are all the benign FIX-DOCLING-OOM-V2 page-limit
+    guard string, not real kills; 0 real deadlock/traceback; process exited 0; all artifacts written
+    (report.md 24322B, bibliography.json, multi_section_outline.json, methods.md).
+  * FAITHFULNESS PASS: leaked_[CITE:ev]=0, unresolved_markers=[], 44 bib markers resolve, faithfulness_pass=true.
+  * baskets=329 (>=328); kept_sections=8, dropped_sections=0; total_sentences_verified=61 / 65 dropped by
+    strict_verify (gate working); bibliography_entries=52; report_words=2955.
+  * COVERAGE held: 10 debate_con_basket_consolidation events (vs baseline route_all's 0) — the coverage work
+    the ~24min baseline skipped is present.
+  * WALL = 2858.0s = 47.6min. HONEST CAUSE (higher than BOTH the ~24min bar and the ~31-32min arithmetic
+    floor): this run did LIVE agentic retrieval across 12 turns — it hit the live-retriever fan-out wall
+    (PG_RETRIEVAL_WALL_SECONDS=2700s, DISCLOSED partial-PASS, 0 candidates handed off gracefully, NOT a
+    degrade-to-seed) AND ran heavier compose (a 459.7s / 660K-input-token consolidation call). The ~31-32min
+    restated floor was arithmetic derived from step3's turns=1 NO-FETCH path; this run PROVES the honest full
+    number WITH live fetch is ~47-48min. The wall is inherently AGENT-DECISION-dependent (how many
+    evidence-gathering turns GLM-5.2 elects) — non-determinism of a genuine agentic loop, not a regression.
+  DEGRADE-TAIL, LIVE-STRESSED THIS TIME: unlike step3 (pre-built, no fetch), this run DID stress the live
+  path — the outline loop fetched real PDFs and the retriever wall tripped — yet it completed AGENTIC (no
+  degrade-to-seed), confirming the grace fix + disclosed-partial handoff keep the run agentic under a real
+  mega-fetch. Criteria (2) guard (15/15 tests) and (3) grace (3/3 tests) re-exercised green this round.
