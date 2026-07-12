@@ -373,3 +373,49 @@ Readability (0.40-0.42 vs step3's 0.4256).
 
 NOT YET DONE: 2nd-DRB-task generality gate (recipe is query-agnostic by construction — floor=seed
 count, route_all/payload/lever2 are corpus-agnostic knobs — but UNMEASURED on a 2nd task).
+
+## 2026-07-12 — ROUND 3: n=3 JUDGE-VARIANCE BOUND + CORRECTED PARITY DIAGNOSIS
+Scored r2_best_combo/report.md and step3_control/report.md 3x each (fresh gpt-5.5 judge draws):
+  best_combo n=3 Overall: 0.4236, 0.4146, 0.4151  -> mean 0.4178  sd 0.0041  (prior single 0.4245)
+  step3      n=3 Overall: 0.4257, 0.4322, 0.4238  -> mean 0.4272  sd 0.0036  (prior single 0.4291)
+0.4447 vs step3's OWN max re-score in 4 draws (0.4322): +0.0125 ABOVE -> CONFIRMED judge-variance
+HIGH; step3 does not itself reproduce 0.4447. Reproducible ceiling for step3 = ~0.427.
+
+CORRECTION to prior "step3-PARITY" claim: n=3 shows best_combo is REPRODUCIBLY ~0.0095 BELOW step3
+(0.4178 vs 0.4272; gap ~2.4 sd — REAL, not noise). The deficit is concentrated in:
+  Comprehensiveness: bc 0.4189 vs s3 0.4386  (gap 0.0197)
+  Readability:       bc 0.3974 vs s3 0.4098  (gap 0.0124)
+i.e. EXACTLY the dropped Policy + Wage/Inequality themes and the thinner 8-section structure.
+
+PER-THEME VALUE (triangulated across the 3 reports, all winning-recipe/faithful):
+  best_combo (8 sec, Policy NO,  Wage folded)     Comp 0.419  Overall 0.418
+  repro2     (9 sec, Policy NO,  Wage distinct)   Comp 0.429  Overall 0.4225
+  step3      (10 sec, Policy YES, Wage distinct)  Comp 0.439  Overall 0.427
+=> each restored distinct corpus theme ≈ +0.010 Comprehensiveness ≈ +0.003 Overall. The Wage AND
+Policy themes together ≈ +0.006 Overall -> closes ~2/3 of the 0.0095 gap to step3 reproducibly.
+
+FAITHFULNESS of the fix: the Policy theme is STRONGLY corpus-grounded — 70/997 evidence rows are
+policy/regulation/governance/redistribution ("Generative AI Requires Broad Labor Policy
+Considerations", Brookings "effects of AI on firms and workers", IMF "Addressing Equity Issues in
+Policymaking", etc.). step3's Policy section is span-verified ([34] etc.). Restoring it as a
+dedicated section is FAITHFUL (real evidence), NOT padding. route_all-OFF did not remove this
+evidence from the pool; the non-deterministic seed (8-section draw) simply failed to give the
+70-row Policy cluster its own section.
+
+ROOT CAUSE (unchanged, now quantified): floor = len(seed outline) (outline_agent.py:2058). The seed
+LLM call is non-deterministic (8 / 9 / 10 sections); low draws merge distinct corpus themes (Policy,
+Wage) into fewer sections. The floor PREVENTS further collapse but cannot RAISE a thin seed. The
+GENERAL fix must make major corpus themes (a large finding-cluster like the 70-row Policy set)
+reliably earn a dedicated section regardless of the seed draw.
+
+2ND-DRB-TASK GENERALITY GATE — BLOCKED (external): no deep 2nd-task corpus exists in the worktree.
+  - Only cp4 corpus present is task 72 (997 ev / 329 clusters).
+  - Prior 2nd-task renders (polaris_vm_t75/76/78/90, RACE 0.21-0.30) were built on a VM
+    (run_status.json: SWEEP_clinical_drb_76 sources_kept=851, cost $5.69) whose corpus snapshots
+    are NOT in this worktree — only the finished report.md's were copied back.
+  - The only in-worktree live builder (run_live_honest_cycle.py) yields ~20 sources (fetch_cap=24)
+    vs task-72's 997 — far too thin to exercise the section-floor/route_all levers or to be
+    comparable. A comparable-scale build is a multi-hour, multi-round deep-retrieval campaign.
+  => The recipe knobs are query-agnostic BY CONSTRUCTION (floor=corpus seed count; route_all/payload/
+     topn are corpus-agnostic env flags), but a MEASURED 2nd-task lift is not producible this round
+     without transferring/building a deep 2nd-task corpus.
