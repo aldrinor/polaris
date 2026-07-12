@@ -1,0 +1,1067 @@
+TOTAL_BASKETS 247
+==========================================================================================
+B000 corrob=1 members=4 cg=cg_6f3298c2fd6a
+REP: These results contrast, in spirit, with studies that find evidence of skill-biased technical change for earlier waves &gt; 5As Meijer (2018) puts it “where the Software 1.0 Engineer formally specifies their problem, carefully designs algo-rithms, composes systems out of subsystems or decomposes comp
+   URL: https://www.nber.org/system/files/working_papers/w31161/w31161.pdf
+   URL: https://www.nber.org/system/files/working_papers/w31161/revisions/w31161.rev1.pdf
+   URL: https://www.nber.org/system/files/working_papers/w31161/w31161.pdf
+   URL: https://www.nber.org/system/files/working_papers/w31161/w31161.pdf
+==========================================================================================
+B001 corrob=1 members=4 cg=cg_c20384bcd8e7
+REP: Rapid advancements in the capability and availability of artificial intelligence (AI)—particularly of [g enerative artificial intelligence (GenAI),](https://www.everycrsreport.com/reports/IF13182.html)a subset of AI that can generate new content—have been accompanied by concerns that these technolog
+   URL: https://www.congress.gov/crs-product/IF13182
+   URL: https://www.congress.gov/crs-product/IF13182
+   URL: https://www.congress.gov/crs-product/IF13182
+   URL: https://www.everycrsreport.com/reports/IF13182.html
+==========================================================================================
+B002 corrob=1 members=3 cg=cg_c0d488e5f8bb
+REP: 4Rivista Trimestrale di Scienza dell’Amministrazione – http: //www.rtsa.eu – ISSNe 1972-4942 2.2.
+   URL: https://rtsa.eu/RTSA_4_2025_Carbonara.pdf
+   URL: https://rtsa.eu/RTSA_4_2025_Carbonara.pdf
+   URL: https://rtsa.eu/RTSA_4_2025_Carbonara.pdf
+==========================================================================================
+B003 corrob=1 members=3 cg=cg_898701e6934d
+REP: The launch of ChatGPT-3.5 at the end of 2022 captured the world’s attention and illustrated the uncanny ability of generative artificial intelligence (AI) to produce a range of seemingly human-generated content, including text, video, audio, images, and code.
+   URL: https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-future-of-work/
+   URL: https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-future-of-work/
+   URL: https://www.brookings.edu/articles/generative-ai-the-american-worker-and-the-future-of-work/
+==========================================================================================
+B004 corrob=1 members=3 cg=cg_005379862d40
+REP: 18 The lesson from these prior experiences is that the parties who deploy these tools, for what purpose, and in what [...]
+ today even existed fifty years ago?
+   URL: https://www.weizenbaum-institut.de/media/Publikationen/Weizenbaum_Discussion_Paper/Weizenbaum_Discussion_Paper_38.pdf
+   URL: https://www.weizenbaum-institut.de/media/Publikationen/Weizenbaum_Discussion_Paper/Weizenbaum_Discussion_Paper_38.pdf
+   URL: https://www.weizenbaum-institut.de/media/Publikationen/Weizenbaum_Discussion_Paper/Weizenbaum_Discussion_Paper_38.pdf
+==========================================================================================
+B005 corrob=1 members=3 cg=cg_15d955f08648
+REP: Our analysis suggests that, with access to an LLM, about 15% of all worker tasks in the US could be completed significantly faster at the same level of quality.
+   URL: https://ideas.repec.org/p/arx/papers/2303.10130.html
+   URL: https://fintech.stanford.edu/events/abfr-webinar/daniel-rock-university-pennsylvania-gpts-are-gpts-early-look-labor-market
+   URL: https://ar5iv.labs.arxiv.org/html/2303.10130
+==========================================================================================
+B006 corrob=1 members=3 cg=cg_76275cea8dcc
+REP: Evaluating the Impact of AI on the Labor Market: Current State of Affairs Key Takeaways - While the occupational mix is changing more quickly than it has in the past, it is not a large difference and predates the widespread introduction of AI in the workforce.
+   URL: https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-state-affairs
+   URL: https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-state-affairs
+   URL: https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-state-affairs
+==========================================================================================
+B007 corrob=1 members=3 cg=cg_21f040301bba
+REP: Despite representing an upper-bound estimate of exposure, we find that only the broad occupation of clerical work is highly exposed to the technology with 24 per cent of clerical tasks considered highly exposed and an additional 58 percent with medium-level exposure.
+   URL: https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html
+   URL: https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html
+   URL: https://webapps.ilo.org/static/english/intserv/working-papers/wp096/index.html
+==========================================================================================
+B008 corrob=1 members=3 cg=cg_05e7afe4bd92
+REP: Working Paper 25-03 9 # Displacement or Complementarity?
+   URL: https://www.hbs.edu/ris/download.aspx?name=25-039.pdf
+   URL: https://www.hbs.edu/ris/download.aspx?name=25-039.pdf
+   URL: https://www.hbs.edu/ris/download.aspx?name=25-039.pdf
+==========================================================================================
+B009 corrob=1 members=3 cg=cg_2caee8bb435d
+REP: According to a recent Goldman Sachs analysis, generative AI has the potential to automate up to 300 million full-time jobs in the U.S.
+   URL: https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/
+   URL: https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/
+   URL: https://news.stthomas.edu/generative-ais-real-world-impact-on-job-markets/
+==========================================================================================
+B010 corrob=1 members=3 cg=cg_47e5e0acd465
+REP: Policy Research Working Paper 11263 Labor Demand in the Age of Generative AI Early Evidence from the U.S.
+   URL: https://documents1.worldbank.org/curated/en/099827011182513988/pdf/IDU-1300d27a-b3d3-43d9-8a52-047f784776c0.pdf
+   URL: https://documents1.worldbank.org/curated/en/099827011182513988/pdf/IDU-1300d27a-b3d3-43d9-8a52-047f784776c0.pdf
+   URL: https://documents1.worldbank.org/curated/en/099827011182513988/pdf/IDU-1300d27a-b3d3-43d9-8a52-047f784776c0.pdf
+==========================================================================================
+B011 corrob=1 members=3 cg=cg_de54ead7808a
+REP: By late 2024, nearly 40% of U.S.
+   URL: https://laweconcenter.org/resources/ai-productivity-and-labor-markets-a-review-of-the-empirical-evidence/
+   URL: https://laweconcenter.org/resources/ai-productivity-and-labor-markets-a-review-of-the-empirical-evidence/
+   URL: https://laweconcenter.org/resources/ai-productivity-and-labor-markets-a-review-of-the-empirical-evidence/
+==========================================================================================
+B012 corrob=1 members=3 cg=cg_f99361779674
+REP: 13 [blog post](https://www.stlouisfed.org/on-the-economy/2025/nov/state-generative-ai-adoption-2025)for 2025 survey results and for revised 2024 survey results because of a change in the sequencing of survey questions._ Generative artificial intelligence (AI) has rapidly emerged as a potentially imp
+   URL: https://www.stlouisfed.org/on-the-economy/2025/feb/impact-generative-ai-work-productivity
+   URL: https://www.stlouisfed.org/on-the-economy/2025/feb/impact-generative-ai-work-productivity
+   URL: https://www.stlouisfed.org/on-the-economy/2025/feb/impact-generative-ai-work-productivity
+==========================================================================================
+B013 corrob=1 members=3 cg=cg_e5376fd28195
+REP: Generative AI is a subset of artificial intelligence technologies that creates new, original content based on patterns it learned from a vast amount of training data.
+   URL: https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work
+   URL: https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work
+   URL: https://www.commerce.nc.gov/news/the-lead-feed/generative-ai-and-future-work
+==========================================================================================
+B014 corrob=1 members=3 cg=cg_868052035fe8
+REP: The negative impact on people along the “just automate” path is easy to predict from prior waves of digital technologies and robotics.
+   URL: https://ssir.org/articles/entry/ai-impact-on-jobs-and-work
+   URL: https://ssir.org/articles/entry/ai-impact-on-jobs-and-work
+   URL: https://ssir.org/articles/entry/ai-impact-on-jobs-and-work
+==========================================================================================
+B015 corrob=1 members=3 cg=cg_d1b39ae61ce7
+REP: The Labor Market Effects of Generative Artificial Intelligence 38 Pages Posted: 10 Apr 2025 Last revised: 25 Jan 2026 Date Written: December 18, 2024 Abstract We develop a new survey analyzing Generative AI use in the labor market to assist in measuring its economic effects.
+   URL: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5136877
+   URL: https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+   URL: https://papers.ssrn.com/sol3/Delivery.cfm/5136877.pdf?abstractid=5136877&mirid=1
+==========================================================================================
+B016 corrob=2 members=2 cg=cg_f3643e186044
+REP: When accounting for current and likely future software developments that complement LLM capabilities, this share jumps to just over 46% of jobs.
+   URL: 
+   URL: https://www.governance.ai/research-paper/gpts-are-gpts-labor-market-impact-potential-of-llms
+==========================================================================================
+B017 corrob=2 members=2 cg=cg_c6c123126b14
+REP: 10 , eadn5290 (2024) 12 July 2024 ScienceADvAnceS | ReSeARcHARticle &gt; 1 of 9 COMPUTERSCIENCE # Generative AI enhances individual creativity but reduces the collective diversity of novel content Anil R.
+   URL: https://discovery.ucl.ac.uk/10195027/1/Generative%20AI%20enhances%20individual%20creativity%20but%20reduces%20the%20collective%20diversity%20of%20novel%20content.pdf
+   URL: https://oliver-hauser.squarespace.com/s/Doshi-Hauser-2024-SM.pdf
+==========================================================================================
+B018 corrob=1 members=2 cg=cg_0a7a7a952b8e
+REP: Growth Comparison Reflects Enthusiasm for Generative AI TIME TO 100 MILLION USERS5 2 months 9 months 2.5 years 3.5 years 4.5 years 5 years 6.5 years 96% say technology is crucial to organizational success What’s more, 86% of professionals ‘agree’ or ‘strongly agree’ that they are willing to embrace 
+   URL: https://www.lexisnexis.com/community/cfs-file/__key/telligent-evolution-components-attachments/01-154-00-00-00-09-85-56/US_2D00_LN2024FutureofWorkReport.pdf
+   URL: https://www.lexisnexis.com/community/cfs-file/__key/telligent-evolution-components-attachments/01-154-00-00-00-09-85-56/US_2D00_LN2024FutureofWorkReport.pdf
+==========================================================================================
+B019 corrob=1 members=2 cg=cg_29efa0902fad
+REP: Generative AI has the potential to contribute between $2.6 trillion and $4.4 trillion annually to the global economy, highlighting its positive economic effects (McKinsey &amp; Company, 2023).
+   URL: https://www.ioe-emp.org/index.php?eID=dumpFile&t=f&f=160463&token=8a7078c15874881a559cd18ae85a0b9283afd5db
+   URL: https://www.ioe-emp.org/index.php?eID=dumpFile&t=f&f=160463&token=8a7078c15874881a559cd18ae85a0b9283afd5db
+==========================================================================================
+B020 corrob=1 members=2 cg=cg_f640847278b4
+REP: For example, the latest iteration of OpenAI’s GPT model—GPT-4, released in March 2023, roughly one year after the GPT-3.5 model currently underlying ChatGPT finished training—scores 150 points higher on the SAT than its predecessor, is 40% more likely to produce accurate responses, and can now accep
+   URL: https://www.gspublishing.com/content/research/en/reports/2023/03/27/d64e052b-0f6e-45d7-967b-d7be35fabd16.html
+   URL: https://www.gspublishing.com/content/research/en/reports/2023/03/27/d64e052b-0f6e-45d7-967b-d7be35fabd16.html
+==========================================================================================
+B021 corrob=1 members=2 cg=cg_23a918448d12
+REP: A core question addressed in this chapter is to what extent AI leads to wage changes (Section[4.1](https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-job-quality-and-inclusiveness_a713d0ad.html#section-d1e13390-2c68c48340)).
+   URL: https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-job-quality-and-inclusiveness_a713d0ad.html
+   URL: https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-job-quality-and-inclusiveness_a713d0ad.html
+==========================================================================================
+B022 corrob=1 members=2 cg=cg_91725b153c66
+REP: The exposure score for computer programmers, for example, is 1.272, while the exposure score for manicurists and pedicurists is 0.034.
+   URL: https://equitablegrowth.org/research-paper/navigating-the-research-on-the-impacts-of-ai-on-work-workers-and-the-labor-market/
+   URL: https://equitablegrowth.org/research-paper/navigating-the-research-on-the-impacts-of-ai-on-work-workers-and-the-labor-market/
+==========================================================================================
+B023 corrob=1 members=2 cg=cg_2c97f5a33688
+REP: Prior to treatment, about 70% of our participants had heard of ChatGPT and 30% had used it before.
+   URL: https://economics.mit.edu/sites/default/files/inline-files/Noy_Zhang_1_0.pdf
+   URL: https://economics.mit.edu/sites/default/files/inline-files/Noy_Zhang_1.pdf
+==========================================================================================
+B024 corrob=1 members=2 cg=cg_404581a111f1
+REP: The latest ONS data for Q4 2019 show a higher UK employment rate for 16-64 year olds (76.5%) than at any point in that historical period.
+   URL: https://assets.publishing.service.gov.uk/media/615d9a1ad3bf7f55fa92694a/impact-of-ai-on-jobs.pdf
+   URL: https://assets.publishing.service.gov.uk/media/615d9a1ad3bf7f55fa92694a/impact-of-ai-on-jobs.pdf
+==========================================================================================
+B025 corrob=1 members=2 cg=cg_6eb745458352
+REP: In the first scenario, global TFP grows by 2.4% in ten years, leading to a 4% increase in global GDP compared with the trajectory without AI.
+   URL: https://economic-research.bnpparibas.com/html/en-US/Productivity-growth-employment-AI-literature-review-9/9/2025,51822
+   URL: https://economic-research.bnpparibas.com/html/en-US/Productivity-growth-employment-AI-literature-review-9/9/2025,51822
+==========================================================================================
+B026 corrob=1 members=2 cg=cg_80a2d47c2e9d
+REP: Expected impact of macrotrends on business transformation Future of Jobs Report 2025 January 2025 1 1.1 Share of employers surveyed (%) 0 40 60 80 100 20 Macrotrends driving business transformation FIGURE 1 .
+   URL: https://reports.weforum.org/docs/WEF_Future_of_Jobs_Report_2025.pdf
+   URL: https://reports.weforum.org/docs/WEF_Future_of_Jobs_Report_2025.pdf
+==========================================================================================
+B027 corrob=1 members=2 cg=cg_ddecd0dd4a2a
+REP: The impact of generative artificial intelligence on socioeconomic inequalities and policy making Abstract Generative artificial intelligence (AI) has the potential to both exacerbate and ameliorate existing socioeconomic inequalities.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11165650/
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11165650/
+==========================================================================================
+B028 corrob=1 members=2 cg=cg_be1d232d0487
+REP: ISBN 9780367751951 7 Akgun, S., Greenhow, C.
+   URL: https://www.ed.gov/sites/ed/files/documents/ai-report/ai-report.pdf
+   URL: https://www.ed.gov/sites/ed/files/documents/ai-report/ai-report.pdf
+==========================================================================================
+B029 corrob=1 members=2 cg=cg_627d9ad11d7e
+REP: ABSTRACT With the advancements of artificial intelligence technology, ChatGPT, a new practice of artificial intelligence, holds immense potential across multiple fields.
+   URL: https://direct.mit.edu/dint/article/6/1/201/118839/The-Limitations-and-Ethical-Considerations-of
+   URL: https://direct.mit.edu/dint/article/6/1/201/118839/The-Limitations-and-Ethical-Considerations-of
+==========================================================================================
+B030 corrob=1 members=1 cg=cg_cc1aec874a6e
+REP: This paper presents a task-based framework, building on Acemoglu and Restrepo (2018a, 2018b) as well as Acemoglu and Autor (2011), Autor, Levy, and Murnane (2003), and Zeira (1998), for thinking through the implications of tech-nology for labor demand and productivity.
+   URL: https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.33.2.3
+==========================================================================================
+B031 corrob=1 members=1 cg=cg_aeb294119eb9
+REP: A lesser-known but more recent example is the concern over “The Automation Jobless,” as they were called in the title of a TIME magazine story of February 24, 1961: The number of jobs lost to more efficient machines is only part of the prob-lem.
+   URL: https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.29.3.3
+==========================================================================================
+B032 corrob=1 members=1 cg=cg_f9ba076d425b
+REP: One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%.
+   URL: 
+==========================================================================================
+B033 corrob=1 members=1 cg=cg_cd031e88460a
+REP: To assess this, we begin by implementing a novel methodology to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier.
+   URL: https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491
+==========================================================================================
+B034 corrob=1 members=1 cg=cg_18aa52b4334f
+REP: GENERATIVEARTIFICIALINTELLIGENCEANDTHEWORKFORCE Executive Summary Background Impact on Jobs Macroeconomic Impacts Distributional Consequences Impact by Occupation Consequences for Industries, Organizations and Regions Implications for CHROs and Other Business Leaders Methodology 3 7 8 10 12 14 16 21
+   URL: https://shrm-res.cloudinary.com/image/upload/v1706729099/AI/CPR-230956_Research_Gen-AI-Workplace_FINAL_1.pdf
+==========================================================================================
+B035 corrob=1 members=1 cg=cg_89ed36785435
+REP: Google DeepMind has released a signifi -
+cantly updated version of Gemini 1.5 Pro 002 with a 2 million token context window, making
+it able to process about 3000 pages of text simultaneously.
+   URL: https://www.aeaweb.org/content/file?id=21904
+==========================================================================================
+B036 corrob=1 members=1 cg=cg_dde1d67a4096
+REP: ChatGPT costs $700.000 per day to operate, while GPT-3 required $3.2 million in computing resources alone to be trained.
+   URL: https://www.santander.com/content/dam/santander-com/es/contenido-paginas/landing-pages/santander-x-xperts/do-santander-x-xperts-Transformative%20potential%20of%20generative%20AI.pdf
+==========================================================================================
+B037 corrob=1 members=1 cg=cg_56575339893e
+REP: Results indicate that even a moderate increase in the AI-capital-to-labour ratio could increase labour underutilisation to double its current level, decrease per capita disposable income by 26% (95% interval, 20.6–31.8%), and decrease the consumption index by 21% (95% interval, 13.6–28.3%) by mid-20
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12274502/
+==========================================================================================
+B038 corrob=1 members=1 cg=cg_0f6eec61b96c
+REP: 5 There is heterogeneity behind average figures.
+   URL: https://www.imf.org/-/media/files/publications/sdn/2024/english/sdnea2024001.pdf
+==========================================================================================
+B039 corrob=1 members=1 cg=cg_003d669d6b0a
+REP: 1 Will Generative AI Bring Change: Technological Disruption and Redistribution in the USA?
+   URL: https://www.aeaweb.org/conference/2025/program/paper/S25ktKkD
+==========================================================================================
+B040 corrob=1 members=1 cg=cg_e8f8846934bd
+REP: Nov 12, 2025 9:06 AM Eastern Standard Time _Research Finds Security and Compliance Requirements Are Reshaping Technology Adoption, with Healthcare, Finance, and Government Organizations Facing Deployment Constraints that Technology Companies Avoid_ AUSTIN, Texas--([BUSINESS WIRE](https://www.busines
+   URL: https://www.businesswire.com/news/home/20251112702468/en/New-Study-Reveals-Tech-Industry-Leads-AI-Adoption-in-Support-Operations-at-92-Regulated-Industries-Only-at-58-Due-to-Compliance-Constraints
+==========================================================================================
+B041 corrob=1 members=1 cg=cg_6fa04879fbad
+REP: In mid-year 2021 massive cultural change and technological revolution surrounds us in the midst of pandemic challenges.
+   URL: https://blackstone.edu/increasing-demand-for-paralegal-services/
+==========================================================================================
+B042 corrob=1 members=1 cg=cg_9c3152d48d9f
+REP: In low-income countries, only 0.4 per cent of total employment is potentially exposed to automation effects, whereas in high-income countries the share rises to 5.5 percent.
+   URL: https://www.ilo.org/sites/default/files/wcmsp5/groups/public/@dgreports/@inst/documents/publication/wcms_890761.pdf
+==========================================================================================
+B043 corrob=1 members=1 cg=cg_a72ffa4e5477
+REP: These effects represent an economically meaningful and statistically significant (at 1% level) reduction in employment on the platform.
+   URL: https://www.econstor.eu/bitstream/10419/279352/1/cesifo1_wp10601.pdf
+==========================================================================================
+B044 corrob=1 members=1 cg=cg_ec89fd1f8e25
+REP: 10601 2023 August 2023 The Short-Term Effects of Generative Artificial Intelligence on Employment: Evidence from an Online Labor Market Xiang Hui, Oren Reshef, Luofeng Zhou Impressum: CESifo Working Papers (electronic version) Publisher and distributor: Munich Society for the Promotion of Economic R
+   URL: https://www.ifo.de/DocDL/cesifo1_wp10601.pdf
+==========================================================================================
+B045 corrob=1 members=1 cg=cg_f9b08c8028ad
+REP: In low-income countries, only 0.4 percent of total employment is potentially exposed to automation effects, compared with 5.5 percent in high-income countries.
+   URL: https://gnpje.sgh.waw.pl/pdf-203716-129333?filename=Generatywna%20sztuczna.pdf
+==========================================================================================
+B046 corrob=1 members=1 cg=cg_5a0d0969b79a
+REP: A recent report by the Organization for Economic Co-operation and Development (OECD) found that the occupations most at risk of being automated account for an average 27% of the workforce across OECD countries.
+   URL: https://www.bfna.org/politics-society/generative-ai-and-the-future-of-work-6rjqtmlkhx/
+==========================================================================================
+B047 corrob=1 members=1 cg=cg_b1e7cd6eb0c7
+REP: Raymond ## Abstract New AI tools have the potential to change the way workers perform and learn, but little is known about their impacts on the job.
+   URL: https://ideas.repec.org/p/nbr/nberwo/31161.html
+==========================================================================================
+B048 corrob=1 members=1 cg=cg_eee3b5ad2341
+REP: 10, 2023); [https://papers.ssrn.com/abstract=4414065](https://papers.ssrn.com/abstract=4414065) [...]
+Rochester, NY (2023, March 1); [https://papers.ssrn.com/abstract=4375283](https://papers.ssrn.com/abstract=4375283) * 15.Peng, S.
+   URL: https://cacm.acm.org/opinion/generative-ai-requires-broad-labor-policy-considerations/
+==========================================================================================
+B049 corrob=1 members=1 cg=cg_156158dad7c6
+REP: Over the 2023–33 employment projections period, AI is expected to primarily affect occupations whose core tasks can be most easily replicated by Generative AI in its current form.
+   URL: https://www.bls.gov/opub/ted/2025/ai-impacts-in-bls-employment-projections.htm
+==========================================================================================
+B050 corrob=1 members=1 cg=cg_8cb52576d7a4
+REP: Using a new rubric, we assess occupations based on their correspondence with GPT capabilities, incorporating both human expertise and classifications from GPT‑4.
+   URL: https://openai.com/index/gpts-are-gpts/
+==========================================================================================
+B051 corrob=1 members=1 cg=cg_702fcd7db421
+REP: A review of theory, estimates, and evidence††thanks: The authors would like to thank Leonard Bocquet, University of Cambridge, for helpful research assistance.
+   URL: https://arxiv.org/html/2509.15265v1
+==========================================================================================
+B052 corrob=1 members=1 cg=cg_8a6836c1372e
+REP: In a preregistered online experiment, we assign occupation-specific, incentivized writing tasks to 444 college-educated professionals, and randomly expose half of them to ChatGPT.
+   URL: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4375283
+==========================================================================================
+B053 corrob=1 members=1 cg=cg_f83cde4cb5d7
+REP: Contents lists available at ScienceDirect Journal of Economic Behavior and Organization journal homepage: www.elsevier.com/locate/jebo Winners and losers of generative AI: Early Evidence of Shifts in Freelancer Demand Ole Teutloff a,b , Johanna Einsiedler a , Otto Kässi c,d, Fabian Braesemann b,d,e 
+   URL: https://www.sciencedirect.com/science/article/pii/S0167268124004591
+==========================================================================================
+B054 corrob=1 members=1 cg=cg_25966c8dbd13
+REP: The analysis suggests that, with access to an LLM, about 15% of all worker tasks in the US could be completed significantly faster at the same level of quality, implying that LLM-powered software will have a substantial effect on scaling the economic impacts of the underlying models.
+   URL: https://www.semanticscholar.org/paper/GPTs-are-GPTs%3A-An-Early-Look-at-the-Labor-Market-of-Eloundou-Manning/5501d00310b06e00351295529498cc684187148d
+==========================================================================================
+B055 corrob=1 members=1 cg=cg_cede6122d1ae
+REP: When incorporating software and tooling built on top of LLMs, this share increases to between 47 and 56% of all tasks.
+   URL: https://ai.wharton.upenn.edu/updates/gpts-are-gpts-an-early-look-at-the-labor-market-impact-potential-of-large-language-models/
+==========================================================================================
+B056 corrob=1 members=1 cg=cg_4f90752f9313
+REP: The assistive chatbot ChatGPT raises productivity in professional writing tasks and reduces productivity inequality, which carries policy implications for efforts to reduce productivity inequality through AI.
+   URL: https://www.semanticscholar.org/paper/Experimental-evidence-on-the-productivity-effects-Noy-Zhang/8d020275181c69e5e768c6ffc40e09710a6f54f1
+==========================================================================================
+B057 corrob=1 members=1 cg=cg_085eb3260ecd
+REP: Louis Luofeng Zhou § New York University October 12, 2024 Abstract Generative artificial intelligence (AI) holds the potential to either complement workers by en-hancing their productivity or substitute them.
+   URL: https://www.aeaweb.org/conference/2025/program/paper/T485kaTk
+==========================================================================================
+B058 corrob=1 members=1 cg=cg_3c9dcbc5d0ed
+REP: This explosion is being fuelled by the advent of LLM specific [IDEs](https://cobusgreyling.medium.com/an-overview-of-the-stack-ai-composer-for-gen-apps-e2ba039e606e) like [Stack](https://cobusgreyling.medium.com/an-overview-of-the-stack-ai-composer-for-gen-apps-e2ba039e606e), [Flowise](https://cobus
+   URL: https://cobusgreyling.medium.com/openai-researched-the-labor-market-impact-of-gpt4-462cab83f69a
+==========================================================================================
+B059 corrob=1 members=1 cg=cg_47cb4ece54e4
+REP: Given these considerations, BLS projects employment of software developers to increase 17.9 percent between 2023 and 2033, much faster than the average for all occupations (4.0 percent).
+   URL: https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employment-projections.htm
+==========================================================================================
+B060 corrob=1 members=1 cg=cg_71251f1272af
+REP: GENERATIVE AI AT WORK ∗ ERIK BRYNJOLFSSON DANIELLE LI LINDSEY RAYMOND We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents.
+   URL: https://danielle.li/assets/docs/GenerativeAIatWork.pdf
+==========================================================================================
+B061 corrob=1 members=1 cg=cg_c769337e73b8
+REP: Subjects:General Economics (econ.GN); General Finance (q-fin.GN) Cite as:[arXiv:2304.11771](https://arxiv.org/abs/2304.11771) [econ.GN] (or [arXiv:2304.11771v2](https://arxiv.org/abs/2304.11771v2) [econ.GN] for this version) [https://doi.org/10.48550/arXiv.2304.11771](https://doi.org/10.48550/arXiv.
+   URL: https://arxiv.org/abs/2304.11771
+==========================================================================================
+B062 corrob=1 members=1 cg=cg_4e39f7a7ed90
+REP: This report, requested in Section 5105 of the 2021 National Defense Authorization Act,1 builds on a 2017 National Academies of Sciences, Engineering, and Medicine study2 that examined the impacts of information technology on the workforce.
+   URL: https://www.nationalacademies.org/read/27644/chapter/2
+==========================================================================================
+B063 corrob=1 members=1 cg=cg_4bc3df833ae4
+REP: In a recent paper (Noy and Zhang 2023), we report the results of an online experiment we conducted that provide a first look at the potential productivity and labour market impacts of text-based generative AI systems, specifically ChatGPT 3.5.
+   URL: https://cepr.org/voxeu/columns/productivity-effects-generative-artificial-intelligence
+==========================================================================================
+B064 corrob=1 members=1 cg=cg_133dfa5d5ce4
+REP: Firstly, 639 scientific papers published between March 2020 to March 2023 (the end of the COVID-19 pandemic according to the WHO) from Scopus and Web of Science (WoS) databases were selected.
+   URL: https://journals.economic-research.pl/oc/article/view/2603
+==========================================================================================
+B065 corrob=1 members=1 cg=cg_b2ac949c7b1b
+REP: Researchers from Stanford University and the Massachusetts Institute of Technology (Erik Brynjolfsson, Danielle Li and R.
+   URL: https://www.gtlaw.com.au/insights/first-study-of-whether-generative-ai-makes-human-workers-more-efficient
+==========================================================================================
+B066 corrob=1 members=1 cg=cg_89e5563c168a
+REP: We estimate that AI will increase productivity and GDP by 1.5% by 2035, nearly 3% by 2055, and 3.7% by 2075.
+   URL: https://budgetmodel.wharton.upenn.edu/p/2025-09-08-the-projected-impact-of-generative-ai-on-future-productivity-growth/
+==========================================================================================
+B067 corrob=1 members=1 cg=cg_31d7f1c08526
+REP: The vast majority of SMEs (83%) report that generative AI has had no effect on overall staff need.
+   URL: https://www.oecd.org/en/publications/generative-ai-and-the-sme-workforce_2d08b99d-en/full-report/component-5.html
+==========================================================================================
+B068 corrob=1 members=1 cg=cg_0903d7f522d9
+REP: Uploading these commits &gt; 4According to the Engagement platform 6Sense, GitHub had a market share of 78.81% on March 18, 2024.
+   URL: https://www.hbs.edu/ris/download.aspx?name=25-021.pdf
+==========================================================================================
+B069 corrob=1 members=1 cg=cg_2e53589d0594
+REP: Innovation related to [artificial intelligence](/insights/artificial-intelligence) (AI) could displace 6-7% of the US workforce if AI is widely adopted.
+   URL: https://www.goldmansachs.com/insights/articles/how-will-ai-affect-the-global-workforce
+==========================================================================================
+B070 corrob=1 members=1 cg=cg_7059b8f260a0
+REP: In this paper we trace the evolution of AI exposure in the European labour market from 2008 to 2024 by linking 352 AI benchmarks to 14 cognitive abilities, 108 work tasks and 127 ISCO-3 occupations, weighting benchmarks by their research intensity in the AI literature and thus deriving AI exposure b
+   URL: https://publications.jrc.ec.europa.eu/repository/handle/JRC145832
+==========================================================================================
+B071 corrob=1 members=1 cg=cg_a960f3d481e4
+REP: Securities and Exchange Commission must conduct cost–benefit analyses before instituting regulations or deregulations.[2]: 6 CBA has two main applications:[3] - To determine if an investment (or decision) is sound, ascertaining if – and by how much – its benefits outweigh its costs.
+   URL: https://en.wikipedia.org/wiki/Cost%E2%80%93benefit_analysis
+==========================================================================================
+B072 corrob=1 members=1 cg=cg_723817c64451
+REP: It also saved employers time—treated employers spent 44% less time writing their job posts.
+   URL: http://www.emmawiles.com/storage/jobot.pdf
+==========================================================================================
+B073 corrob=1 members=1 cg=cg_ecf13fa07a50
+REP: To assess the potential impact on existing employment from generative AI, we apply the scores of occupational exposure to generative AI to labour force survey data for more than 140 countries.
+   URL: https://www.ilo.org/resource/other/what-possible-effect-generative-ai-employment
+==========================================================================================
+B074 corrob=1 members=1 cg=cg_de5259d4415d
+REP: Experimental Evidence on the Productivity Effects of Generative Artificial Intelligence ### **Abstract and Introduction** * The study investigates how ChatGPT affects productivity in professional writing tasks.
+   URL: https://training.continuumlabs.ai/continuum-applications/discussion-and-use-cases/experimental-evidence-on-the-productivity-effects-of-generative-artificial-intelligence
+==========================================================================================
+B075 corrob=1 members=1 cg=cg_d9bc236802cc
+REP: Future data and developments in AI technology could lead to a significant change [...]
+for 784 detailed occupational categories that are aggregated in Table 1.
+   URL: https://static1.squarespace.com/static/55693d60e4b06d83cf793431/t/68c1acf499fd45634213ece0/1757523188316/The+Projected+Impact+of+Generative+AI+on+Future+Productivity+Growth.pdf
+==========================================================================================
+B076 corrob=1 members=1 cg=cg_3f3837f1e97a
+REP: Updated April 1, 2025 # The Macroeconomic Effects of Artificial Intelligence While various forms of artificial intelligence (AI) technologies have existed and been used for decades, the recent popularization of AI products such as ChatGPT have spurred further research and debate about how these tech
+   URL: https://www.congress.gov/crs_external_products/IF/PDF/IF12762/IF12762.3.pdf
+==========================================================================================
+B077 corrob=1 members=1 cg=cg_f0cc387b5678
+REP: 1.4 Register Data We use several administrative registers at Statistics Denmark.
+   URL: https://www.andershumlum.com/s/chatbots_july25.pdf
+==========================================================================================
+B078 corrob=1 members=1 cg=cg_29316266a949
+REP: Despite the absence of historical data showing employment declines for photographic process workers, EP projected that employment in the occupation would decline 23.6 percent from 2004 to 2014.
+   URL: https://www.bls.gov/opub/mlr/2025/article/incorporating-ai-impacts-in-bls-employment-projections.htm
+==========================================================================================
+B079 corrob=1 members=1 cg=cg_1730fb856763
+REP: We estimate that a one-standard-deviation increase in AI adoption in 2019—equivalent to 0.18 percentage points, comparable to the difference between Boston, Massachusetts, and Portland, Oregon—was associated with a 0.4 percentage point decline in the share of HELC vacancies between 2019 and 2023.
+   URL: https://voxdev.org/topic/labour-markets/how-will-ai-impact-jobs-emerging-and-developing-economies
+==========================================================================================
+B080 corrob=1 members=1 cg=cg_55cd61576f1f
+REP: The theory of how AI will automate and complement labour, combined with measures of AI exposure, form the basis for the empirical evidence of the employment effect of AI (Section 3.1).
+   URL: https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-jobs-no-signs-of-slowing-labour-demand-yet_5aebe670.html
+==========================================================================================
+B081 corrob=1 members=1 cg=cg_2fb57dd813ed
+REP: Over the past few years, generative artificial intelligence (AI) and large language models (LLMs) have become some of the most rapidly adopted technologies in history.
+   URL: https://www.brookings.edu/articles/is-generative-ai-a-job-killer-evidence-from-the-freelance-market/
+==========================================================================================
+B082 corrob=1 members=1 cg=cg_01ac22f6728b
+REP: The Foundational AI Exposure Study: 80% of the Workforce Will Feel LLM Impact Key Takeaways The most-cited AI labor market study reveals a counterintuitive finding: 80% of the U.S.
+   URL: https://www.punku.ai/blog/gpts-are-gpts-an-early-look-at-the-labor-market-impact-potential-of
+==========================================================================================
+B083 corrob=1 members=1 cg=cg_9846db7b3036
+REP: Linking our [...]
+ | **Share in 2-digits** | **Count of 3-digits** | **Share in 3-digits** | **Count of 4-digits** | **Share in 4-digits** | **Count of 6-digits** | **Share in 6-digits** | **Count of 6-digit tasks** | **Share in 6-digit tasks** | | 1 | Managers | 4 | 10.0% | 11 | 8.7% | 30 | 7.1% | 
+   URL: https://webapps.ilo.org/static/english/intserv/working-papers/wp140/index.html
+==========================================================================================
+B084 corrob=1 members=1 cg=cg_9dc7efa40354
+REP: We set the threshold of the similarity score to 0.95 to match strings with very high degree of similarity.
+   URL: https://arxiv.org/pdf/2412.07042
+==========================================================================================
+B085 corrob=1 members=1 cg=cg_42a599b54637
+REP: AI and the Future of Work: Assessing Occupational Social Status Perceptions Among University Students Artificial intelligence (AI) is profoundly reshaping labor market structures and occupational value evaluation systems.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC13024095/
+==========================================================================================
+B086 corrob=1 members=1 cg=cg_517b48fba666
+REP: It urges organizations not to replace entry-level jobs with generative AI, but to rethink these roles, re-dignify them, and understand how important they are to young professionals’ development.
+   URL: https://hbsp.harvard.edu/inspiring-minds/ai-impact-entry-level-jobs
+==========================================================================================
+B087 corrob=1 members=1 cg=cg_da0ce819e46e
+REP: 39 Rishi Bommasani et al., On the Opportunities and Risks of Foundation Models, arXiv 109 (July 12, 2022), https://arxiv.org/abs/2108.07258 [https://perma.cc/S3GK-EZPG] (“High-stakes applications .
+   URL: https://dho.stanford.edu/wp-content/uploads/AI_Regulation.pdf
+==========================================================================================
+B088 corrob=1 members=1 cg=cg_b2308578bf24
+REP: 7 Proof over Promise: Insights on Real-World AI Adoption from 2025 MINDS Organizations [...]
+infrastructure for over 20 financial business domains Over 400,000 users; used daily by 20,000 staff 50,000 person-years of workload handled KPMG and SAP AI copilot for acceleration of enterprise resource pl
+   URL: https://reports.weforum.org/docs/WEF_Proof_over_Promise_Insights_on_Real_World_AI_Adoption_from_2025_MINDS_Organizations_2026.pdf
+==========================================================================================
+B089 corrob=1 members=1 cg=cg_357ec95a881e
+REP: Andrew Green OECD Employment Outlook 2023 Artificial Intelligence and the Labour Market 3.
+   URL: https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-jobs-no-signs-of-slowing-labour-demand-yet_5aebe670.html
+==========================================================================================
+B090 corrob=1 members=1 cg=cg_376544645c62
+REP: PDF ISBN: 9789211066524 Mind the AI Divide: Shaping a Global Perspective on the Future of Work | 3 Foreword The uneven adoption of Artificial Intelligence (AI) is a critical issue that goes beyond economic growth.
+   URL: https://www.ilo.org/sites/default/files/2024-08/Mind%20the%20AI%20Divide_v12%20%281%29.pdf
+==========================================================================================
+B091 corrob=1 members=1 cg=cg_3044ddee0615
+REP: Irrespective of the digital transformation, most frontline positions are still not sufficiently served by intelligent decision-support systems which can adjust to the real time.
+   URL: https://ijeret.org/index.php/ijeret/article/view/405
+==========================================================================================
+B092 corrob=1 members=1 cg=cg_a31b16a74f53
+REP: Keywords: Generative AI, Science Productivity, Science Quality, Technology Adoption JEL Codes: O33, I23, J24 1 Introduction ChatGPT was launched in late November 2022 and, by reaching over 100 million users within two months, became the first Generative AI (GenAI) tool to achieve mass adoption.
+   URL: https://arxiv.org/html/2510.02408v1
+==========================================================================================
+B093 corrob=1 members=1 cg=cg_9ff4854a2dd7
+REP: GenAI and job augmentation 1.1 7 GenAI: Example of a more exposed and less exposed job FIGURE 0 1 Source World Economic Forum, Jobs of Tomorrow: Large Language Models and Jobs, 2023.
+   URL: https://reports.weforum.org/docs/WEF_Leveraging_Generative_AI_for_Job_Augmentation_and_Workforce_Productivity_2024.pdf
+==========================================================================================
+B094 corrob=1 members=1 cg=cg_3e90212912e2
+REP: Productivity growth mismeasurement Years since AI adoption -1.75% 0.25% 0.00% -0.25% -0.50% -0.75% -1.00% -1.25% -1.50% 40 30 20 10 0 Figure 2 19 The Reporter | No.
+   URL: https://www.econstor.eu/bitstream/10419/320537/1/2024number1-16-19.pdf
+==========================================================================================
+B095 corrob=1 members=1 cg=cg_0153ee092424
+REP: McKinsey estimated that AI could contribute up to $13 trillion to the global economy by 2030.4 This economic boost is expected to come from a combination of labor substitution, enhanced innovation in products and services, and the creation of new demand for AI-related jobs.5
+# Advanced Decision-Maki
+   URL: https://www.iedconline.org/clientuploads/EDRP%20Logos/AI_Impact_on_Labor_Markets.pdf
+==========================================================================================
+B096 corrob=1 members=1 cg=cg_3a3077a37d8a
+REP: No longer confined to research labs or niche applications, GenAI [[1](https://www.mdpi.com/1999-4893/18/9/554#B1-algorithms-18-00554),[2](https://www.mdpi.com/1999-4893/18/9/554#B2-algorithms-18-00554),[3](https://www.mdpi.com/1999-4893/18/9/554#B3-algorithms-18-00554),[4](https://www.mdpi.com/1999-
+   URL: https://www.mdpi.com/1999-4893/18/9/554
+==========================================================================================
+B097 corrob=1 members=1 cg=cg_1d02ac149086
+REP: 343 Dicimebre, 2024 (Actualizado Enero 2026) www.cedlas.econo.unlp.edu.ar Cita sugerida: Cruces, G., V.
+   URL: https://www.cedlas.econo.unlp.edu.ar/wp/wp-content/uploads/doc_cedlas343.pdf
+==========================================================================================
+B098 corrob=1 members=1 cg=cg_612f3c9c315a
+REP: A[new study](https://www.nber.org/papers/w33509) co-authored by MIT Sloan associate professor found that when AI can perform most of the tasks that make up a particular job, the share of people in that role within a company falls by about 14%.
+   URL: https://mitsloan.mit.edu/ideas-made-to-matter/how-artificial-intelligence-impacts-us-labor-market
+==========================================================================================
+B099 corrob=1 members=1 cg=cg_ed53bc3875e9
+REP: This makes it a natural for customer service operations; indeed, we estimate that the technology, once implemented at scale, could increase productivity by 30% to 50%—or more.
+   URL: https://www.bcg.com/publications/2023/how-generative-ai-transforms-customer-service
+==========================================================================================
+B100 corrob=1 members=1 cg=cg_97cdc4a3a036
+REP: Faculty have mustered [...]
+Quality Introduction Estimation &amp; Results HC Effects Adjustment Extras References Data Effect of AI Availability on Student Grades Baseline DID PS Matching DID Dependent Variable: Grade (0-100) (1) (2) (3) (4) (5) (6) Before: 2018-2019*AI-compatible 0.682 0.375 0.362 
+   URL: https://thedocs.worldbank.org/en/doc/b7ef34ba76abc3c8765d7da5c97e9a96-0070062026/original/Hausman-4.pdf
+==========================================================================================
+B101 corrob=1 members=1 cg=cg_47eee1f97a22
+REP: The speed and scale of AI uptake can be captured by a simple fact: it took ChatGPT just 60 days to reach its 100 millionth user; in contrast, Instagram took two years to reach the same milestone.
+   URL: https://cepr.org/voxeu/columns/impact-artificial-intelligence-growth-and-employment
+==========================================================================================
+B102 corrob=1 members=1 cg=cg_8b4b44660a36
+REP: They note that, by comparison, TikTok took nine months to reach 100 million monthly users, and Instagram about 2.5 years.
+   URL: https://www.chicagobooth.edu/review/ai-is-going-disrupt-labor-market-it-doesnt-have-destroy-it
+==========================================================================================
+B103 corrob=1 members=1 cg=cg_c63766bd30a9
+REP: For starters, the unemployment rate among college graduates has increased, reaching 5.8% in March — the highest in more than four years.
+   URL: https://www.jpmorgan.com/insights/global-research/artificial-intelligence/ai-impact-job-growth
+==========================================================================================
+B104 corrob=1 members=1 cg=cg_95176922db2d
+REP: Mann This version: March 18, 2026 First version: August 16, 2025 Please click here for the latest version.
+   URL: https://lukasbfreund.github.io/files/FM_AI.pdf
+==========================================================================================
+B105 corrob=1 members=1 cg=cg_a4014ed22f50
+REP: They estimate unemployment will increase by half a percentage point during the AI transition period as displaced workers seek new positions and, if current AI use cases were expanded across the economy, 2.5% of [...]
+creates new jobs, and increases output and demand.
+   URL: https://gerarddevalence.substack.com/p/recent-research-on-ai-effects-on
+==========================================================================================
+B106 corrob=1 members=1 cg=cg_c2e5b0171b00
+REP: It is important to get the facts and analysis right on the questions of why labor markets have not delivered enough jobs or acceptable wage growth, and what the real threats are to decent jobs in the [...]
+decades have seen historically slow productivity growth: Average annualized change in each com
+   URL: https://www.epi.org/publication/ai-unbalanced-labor-markets/
+==========================================================================================
+B107 corrob=1 members=1 cg=cg_91bec877f8ea
+REP: Cazzaniga and others (2024) assume that the AI shocks would reduce the labor share by 5.5 percentage points based on the historical change observed in the United Kingdom between 1980 and 2014.
+   URL: https://www.elibrary.imf.org/view/journals/006/2024/002/article-A001-en.xml
+==========================================================================================
+B108 corrob=1 members=1 cg=cg_ff7571046113
+REP: Industry, business and entrepreneurship 14.
+   URL: https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-and-the-labour-market-introduction_ea35d1c5.html
+==========================================================================================
+B109 corrob=1 members=1 cg=cg_2f39594e651d
+REP: The study reveals that 32.8% of occupations could be fully impacted by ChatGPT, while 36.5% might experience a partial impact and 30.7% are likely to remain unaffected.
+   URL: https://www.emerald.com/jebde/article/3/2/100/1233608/Economics-of-ChatGPT-a-labor-market-view-on-the
+==========================================================================================
+B110 corrob=1 members=1 cg=cg_e5fc9c638a9d
+REP: Introduction Artificial intelligence (AI) has entered a transformative phase in which models not only classify data but also generate novel content across multiple modalities.
+   URL: https://www.mdpi.com/2504-2289/10/3/69
+==========================================================================================
+B111 corrob=1 members=1 cg=cg_d79f66eef076
+REP: A joint analysis by the Brookings Institution and the Stanford Digital Economy Lab finds that over 30 percent of U.S.
+   URL: https://yipinstitute.org/policy/ais-impact-on-the-gen-z-labor-market
+==========================================================================================
+B112 corrob=1 members=1 cg=cg_ec5dc75347bb
+REP: Using data from skills surveys, the article demonstrates that workers in developing countries perform substantially fewer non-routine analytical tasks—the primary [...]
+empirical findings, and Section 4 concludes with a brief discussion.
+   URL: https://webapps.ilo.org/static/english/intserv/working-papers/wp166/index.html
+==========================================================================================
+B113 corrob=1 members=1 cg=cg_f34a93f5fb45
+REP: A third of workers who use the technology every day reported time savings of at least four hours in a work week, while only about 1 in 10 workers [...]
+Frequency of Generative AI Use for Work in Previous Week Bar chart with 4 data series.
+   URL: https://www.stlouisfed.org/open-vault/2025/oct/generative-ai-productivity-future-work
+==========================================================================================
+B114 corrob=1 members=1 cg=cg_5f191a914031
+REP: One major study estimates that globally, generative AI could unlock between 2.6 and 4.4 trillion US dollars in extra productivity every year (Chui et al., 2023).
+   URL: https://uen.pressbooks.pub/range27i1/chapter/c-kim/
+==========================================================================================
+B115 corrob=1 members=1 cg=cg_3b81507d892f
+REP: The potential impact of AI innovations on US occupations Abstract An occupation is comprised of interconnected tasks, and it is these tasks, not occupations themselves, that are affected by Artificial Intelligence (AI).
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11421150/
+==========================================================================================
+B116 corrob=1 members=1 cg=cg_dbbb18a567aa
+REP: The primary objective was to explore how AI-driven technologies are reshaping workforce dynamics, influencing skill requirements, and creating both challenges and opportunities across industries.
+   URL: https://www.transdisciplinaryjournal.com/uploads/archives/20251025125142_MFD-2025-1-060.1.pdf
+==========================================================================================
+B117 corrob=1 members=1 cg=cg_f1354a03f679
+REP: Of the noncognitive abilities required for accountants and auditors, 90.6% are sensory abilities, while for mathematical technicians, only 52.6% are sensory abilities.
+   URL: https://sites.bu.edu/tpri/2021/06/02/occupational-industry-and-geographic-exposure-to-artificial-intelligence-a-novel-dataset-and-its-potential-uses/
+==========================================================================================
+B118 corrob=1 members=1 cg=cg_fcc494b7a0af
+REP: Heard enough about artificial intelligence (AI) lately?
+   URL: https://www.stjohns.edu/news-media/johnnies-blog/ai-impact-students-entering-job-market
+==========================================================================================
+B119 corrob=1 members=1 cg=cg_e1f5b29ae622
+REP: Through an analysis that merges expert assessments of AI capabilities with the skill profiles of occupations in Korea, it is found that, as of 2023, 38.8% of current jobs are at risk of having over 70% of their tasks automated.
+   URL: https://www.kdi.re.kr/eng/research/reportView?pub_no=18370
+==========================================================================================
+B120 corrob=1 members=1 cg=cg_33753148cc58
+REP: By [Megan Cerullo Reporter, MoneyWatch](https://www.cbsnews.com/team/megan-cerullo/) Megan Cerullo is a New York-based reporter for CBS MoneyWatch covering small business, workplace, health care, consumer spending and personal finance topics.
+   URL: https://www.cbsnews.com/news/ai-artificial-intelligence-jobs-workers/
+==========================================================================================
+B121 corrob=1 members=1 cg=cg_c14bcdc37fc7
+REP: In some cases, it refers to time savings, while in others it refers to increases in production within the same time interval.
+   URL: https://www.caixabankresearch.com/en/economics-markets/labour-market-demographics/productivity-and-employment-face-generative-ai-what-do
+==========================================================================================
+B122 corrob=1 members=1 cg=cg_95319aaf50d7
+REP: In Briggs’ base case, the timeline for firms to adopt AI on a wide scale is around 10 years, and 6-7% of workers will be displaced during that transition period.
+   URL: https://www.goldmansachs.com/insights/articles/how-will-ai-affect-the-us-labor-market
+==========================================================================================
+B123 corrob=1 members=1 cg=cg_a9184c0ebe7b
+REP: The [...]
+underutilization to double its current level, decrease per capita disposable income by 26%, and decrease the consumption index by 21% by mid-2050.
+   URL: https://medium.com/@actuarial-statistical/generative-ai-part-ii-socioeconomic-tipping-point-job-displacement-or-creation-wages-and-wage-43149e88bed6
+==========================================================================================
+B124 corrob=1 members=1 cg=cg_77c041a17446
+REP: The findings show that the number of postings for occupations with above-median artificial intelligence substitution scores fell by an average of 12 percent relative to those with below-median scores.
+   URL: https://openknowledge.worldbank.org/entities/publication/b5d5c33c-9419-4dc7-93fb-ec9d6b997c4b
+==========================================================================================
+B125 corrob=1 members=1 cg=cg_39fb8dc3418e
+REP: Furthermore, [the impact may also differ across countries](https://www.elibrary.imf.org/view/journals/001/2023/216/001.2023.issue-216-en.xml?cid=539656-com-dsp-crossref).
+   URL: https://ihe.bc.edu/pub/qbzppcu8
+==========================================================================================
+B126 corrob=1 members=1 cg=cg_15a7fb00b66d
+REP: Generative AI and Jobs: A Refined Global Index of Occupational Exposure, ILO Working Paper 140 (Geneva, ILO).
+   URL: https://www.ilo.org/sites/default/files/2025-05/WP140_web.pdf
+==========================================================================================
+B127 corrob=1 members=1 cg=cg_430230d6b8d6
+REP: Based on last name identification, it has been found that among publications in the top one hundred AI journals and conferences, the proportion of authors with Chinese names nearly doubled from 23.2 percent in 2006 to 42.8 percent in 2015 (Lee and Shehan 2018).
+   URL: https://arxiv.org/pdf/2410.21281?
+==========================================================================================
+B128 corrob=1 members=1 cg=cg_f8d86b0ac98b
+REP: Additionally, [26] estimates a $0.5 - 0.6\%$ boost to labor productivity at the macro level due to AI adoption.
+   URL: https://mpra.ub.uni-muenchen.de/125220/1/MPRA_paper_124258.pdf
+==========================================================================================
+B129 corrob=1 members=1 cg=cg_78cc4e17abb7
+REP: The Effects of Generative AI on High-Skilled Work: Evidence from Three Field Experiments with Software Developers 38 Pages Posted: 5 Sep 2024 Last revised: 21 Aug 2025 Date Written: August 20, 2025 Abstract This study evaluates the effect of generative AI on software developer productivity via rando
+   URL: https://papers.ssrn.com/sol3/Delivery.cfm/4945566.pdf?abstractid=4945566&mirid=1&type=2
+==========================================================================================
+B130 corrob=1 members=1 cg=cg_059ebfab9516
+REP: However, a former Chair for Mensa International reports that ChatGPT has obtained an IQ score of 147 (99.9th percentile) on a verbal-linguistic IQ test (Thompson, 2023).
+   URL: https://www.newyorkfed.org/medialibrary/media/research/conference/2023/FinTech/400pm_Korinek_Paper_LLMs_final.pdf
+==========================================================================================
+B131 corrob=1 members=1 cg=cg_d1189075f5fb
+REP: The adoption rate of 8% among EU businesses in the Eurostat 2023 survey hides substantial differences across individual MS, ranging from 1.5% in RO to 15% in DK (Figure 2.2.1 ).
+   URL: https://economy-finance.ec.europa.eu/document/download/10867a27-f49f-4aa9-89bb-feb752513f78_en?filename=dp210_en_artificial%20intelligence_0.pdf
+==========================================================================================
+B132 corrob=1 members=1 cg=cg_afe3dadca130
+REP: Eloundou et al.’s metric, β, scores tasks on a simple scale: 1 if a task can be doubled in speed by an LLM alone, 0.5 if it requires additional tools or software built on top of the LLM, and 0 otherwise.4 Why might actual usage fall short of theoretical capability?
+   URL: https://www.anthropic.com/research/labor-market-impacts
+==========================================================================================
+B133 corrob=1 members=1 cg=cg_1cb986254b9f
+REP: Chen 1, Joanna Wang 2 December 2024 Abstract This paper studies the effects of Artificial Intelligence (AI) innovation on firm-level employment dynamics and corporate valuation.
+   URL: https://www.aeaweb.org/conference/2025/program/paper/BBsK4Zkd
+==========================================================================================
+B134 corrob=1 members=1 cg=cg_4e0b019a3afb
+REP: Compounded, TFP and GDP levels are 1.5% higher by 2035, nearly 3% by 2055, and 3.7% by 2075, meaning that AI leads to a permanent increase in the level of economic activity.
+   URL: https://static1.squarespace.com/static/55693d60e4b06d83cf793431/t/68c1acf499fd45634213ece0/1757523188316/The+Projected+Impact+of+Generative+AI+on+Future+Productivity+Growth.pdf
+==========================================================================================
+B135 corrob=1 members=1 cg=cg_4e0b019a3afb
+REP: Compounded, TFP and GDP levels are 1.5% higher by 2035, nearly 3% by 2055, and 3.7% by 2075, meaning that AI leads to a permanent increase in the level of economic activity.
+   URL: https://static1.squarespace.com/static/55693d60e4b06d83cf793431/t/68c1acf499fd45634213ece0/1757523188316/The+Projected+Impact+of+Generative+AI+on+Future+Productivity+Growth.pdf
+==========================================================================================
+B136 corrob=1 members=1 cg=cg_3661c47ff73b
+REP: A new study reveals that popular AI-based resume screening tools often favor White and male candidates, showing that resumes tied to White-associated names were preferred 85% of the time.
+   URL: https://www.fisherphillips.com/en/insights/insights/ai-resume-screeners
+==========================================================================================
+B137 corrob=1 members=1 cg=cg_4f0b556f582a
+REP: Employees’ distrust of [...]
+economies are likely to experience more significant effects from AI automation than emerging markets, due to differences in labor market composition and industrial structures [[9]](izawol.514.ref9), [[10]](izawol.514.ref10).
+   URL: https://wol.iza.org/articles/artificial-intelligence-and-labor-market-outcomes/long
+==========================================================================================
+B138 corrob=1 members=1 cg=cg_8db4426e40b5
+REP: Artificial intelligence (AI) is reshaping the workplace, but one of its most important implications remains unclear: What does AI mean for early-career jobs?
+   URL: https://www.naceweb.org/job-market/trends-and-predictions/the-impact-of-ai-on-the-early-career-labor-market
+==========================================================================================
+B139 corrob=1 members=1 cg=cg_46f6e185944e
+REP: During the first half of 2025, half of the country’s reported GDP growth, [1.2 percent,](https://apps.bea.gov/itable/?ReqID=70&amp;step=1&amp;_gl=1*1g8mh83*_ga*OTAwMTYxMzkxLjE3MTUyNjM3NTk.*_ga_J4698JNNFT*MTczODY4NjMyMy4xNjUuMS4xNzM4Njg2MzQ0LjM5LjAuMA..#eyJhcHBpZCI6NzAsInN0ZXBzIjpbMSwyOSwyNSwzMSwyNiw
+   URL: https://equitablegrowth.org/what-impact-is-artificial-intelligence-having-on-the-u-s-labor-market-and-the-nations-economy/
+==========================================================================================
+B140 corrob=1 members=1 cg=cg_07302ffd9387
+REP: CEPR Press, Paris &amp; London.
+   URL: https://cepr.org/publications/dp17923
+==========================================================================================
+B141 corrob=1 members=1 cg=cg_4b09a5e7d6f0
+REP: Investing at the Intersection February 5, 2026 10 Minute Read Time Generative Artificial Intelligence (Gen AI) is the latest transformative force to redefine the landscape of U.S.
+   URL: https://www.cbreim.com/insights/articles/gen-ai-impact-on-us-employment-and-office-space
+==========================================================================================
+B142 corrob=1 members=1 cg=cg_32e933fb8382
+REP: To better understand these changes, we systematically reviewed 432 research studies published since 2018, focusing closely on the 154 most relevant works.
+   URL: https://www.abacademies.org/articles/ai-and-the-future-of-work-navigating-job-displacement-new-job-roles-and-skill-transformation-17766.html
+==========================================================================================
+B143 corrob=1 members=1 cg=cg_6d4738acc7c5
+REP: From the dawn of the agricultural revolution to the digital age, each wave of innovation has redefined the structure, nature and dynamics of labour markets.
+   URL: https://institute.global/insights/economic-prosperity/the-impact-of-ai-on-the-labour-market
+==========================================================================================
+B144 corrob=1 members=1 cg=cg_ddfc9da1cb2a
+REP: In 2023, we set a bold new goal: by 2033, 75 million people facing barriers to economic advancement will have quality jobs.
+   URL: https://www.jff.org/blog/a-future-that-works-jffs-policy-priorities-for-an-ai-ready-workforce/
+==========================================================================================
+B145 corrob=1 members=1 cg=cg_4d895deb96a4
+REP: Prepared by Mariarosaria Comunale and Andrea Manera Authorized for distribution by Chris Papageorgiou March 2024 IMF Working Papers describe research in progress by the author(s) and are published to elicit comments and to encourage debate.
+   URL: https://www.imf.org/-/media/files/publications/wp/2024/english/wpiea2024065-print-pdf.pdf
+==========================================================================================
+B146 corrob=1 members=1 cg=cg_c39f1b9a252b
+REP: 90% of all white-collar roles I have seen can be automated today with the right agent harness.
+   URL: https://aimultiple.com/ai-job-loss
+==========================================================================================
+B147 corrob=1 members=1 cg=cg_4e9122cbd995
+REP: New computing capacities—in areas such as image recognition, robotic manipulation, text processing, natural-language processing, and pattern recognition, and, more generally, the ability to learn and improve rapidly in relatively [...]
+implications of computers and automation.[3](https://www.bls.gov
+   URL: https://www.bls.gov/opub/mlr/2022/article/growth-trends-for-selected-occupations-considered-at-risk-from-automation.htm
+==========================================================================================
+B148 corrob=1 members=1 cg=cg_b9d275197377
+REP: A joint [study](https://www.ilo.org/sites/default/files/2025-05/WP140_web.pdf) by the _International Labour Organization_ and _Poland’s National Research Institute_ found that 3.5% of men’s jobs in high-income countries, **defined by the**[World Bank’s income](https://ourworldindata.org/grapher/worl
+   URL: https://unric.org/en/ai-and-the-future-of-work-disruptions-and-opportunitie/
+==========================================================================================
+B149 corrob=1 members=1 cg=cg_46c3c6062de1
+REP: This economic literature review[1] is both a practical exercise (it was written using generative artificial intelligence tools) and an analytical exercise, as it provides an update on the effects of this technology based on two complementary areas: productivity and growth, as well as employment and 
+   URL: https://economic-research.bnpparibas.com/html/en-US/Productivity-growth-employment-AI-literature-review-9/9/2025,51822
+==========================================================================================
+B150 corrob=1 members=1 cg=cg_2741a5f09387
+REP: The 2024 Microsoft Work Trend Index reports that over 90% of employees in China [...]
+tools.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12826493/
+==========================================================================================
+B151 corrob=1 members=1 cg=cg_ef9b35d599f4
+REP: Based on Chinese provincial panel data from 2010 to 2019, fixed, mediating and threshold effects models and a spatial heterogeneity model were used to empirically test the impact of AI on the employment structure from the perspective of industrial structure optimisation and its mechanisms of action.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC10907740/
+==========================================================================================
+B152 corrob=1 members=1 cg=cg_500d0b1d2ed9
+REP: Our survey found that in August 2024, 44.6% of adults ages 18 to 64 used generative AI [...]
+occupation, which will be updated on a quarterly basis.
+   URL: https://www.stlouisfed.org/on-the-economy/2025/nov/state-generative-ai-adoption-2025
+==========================================================================================
+B153 corrob=1 members=1 cg=cg_7c107ad6ac6c
+REP: The results, as shown in , indicate an accuracy of 52%, demonstrating that the two sources were nearly indistinguishable.
+   URL: http://www.apjis.or.kr/pdf/04_957-976[1].pdf
+==========================================================================================
+B154 corrob=1 members=1 cg=cg_b56535176806
+REP: The hypotheses were rigorously tested through Structural Equation Modeling (SEM) using the SmartPLS 4.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC10987623/
+==========================================================================================
+B155 corrob=1 members=1 cg=cg_f3ab05c2dde3
+REP: It adapts the AI occupational impact measure developed by Felten, Raj and Seamans—an indicator measuring the degree to which occupations rely on abilities in which AI has made the most progress—and extends it to 23 OECD countries.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9127971/
+==========================================================================================
+B156 corrob=1 members=1 cg=cg_f3fc3e614e19
+REP: In contrast, affordable MSAs—the ones at the bottom tercile of the 1980 rent index distribution—faced just a 2.3 percentage point decline in the share of clerical jobs.
+   URL: https://www.clevelandfed.org/publications/economic-commentary/2025/ec-202502-technology-adoption-and-changing-role-and-background-clerical-workers
+==========================================================================================
+B157 corrob=1 members=1 cg=cg_90b4cec17485
+REP: But, because most people used it infrequently, this only translated to 0.5%-3.5% of work hours (and a 0.125-0.875 percentage point increase in labor productivity).
+   URL: https://knightcolumbia.org/content/ai-as-normal-technology
+==========================================================================================
+B158 corrob=1 members=1 cg=cg_c2b89c4d101a
+REP: TOBIAS SYTSMA # Managing AI's Economic Future Strategic Automation Policy in an Era of Global Competition
+Research Report For more information on this publication, visit www.rand.org/t/RRA3764-1 .
+   URL: https://www.rand.org/content/dam/rand/pubs/research_reports/RRA3700/RRA3764-1/RAND_RRA3764-1.pdf
+==========================================================================================
+B159 corrob=1 members=1 cg=cg_b0a7764c04cd
+REP: If it does so perma-nently, growth proceeds as in Section 2.1.
+   URL: https://www.nber.org/system/files/working_papers/w31815/revisions/w31815.rev2.pdf
+==========================================================================================
+B160 corrob=1 members=1 cg=cg_1d2a00cbf091
+REP: one recent study estimated that AI could contribute between 0.3 and 0.9 of a percentage point to annual total factor produc
+   URL: https://www.federalreserve.gov/newsevents/speech/barr20260217a.htm
+==========================================================================================
+B161 corrob=1 members=1 cg=cg_e0bff767a18e
+REP: Estimates of the contribution of AI-enabled innovations to global gross domestic product (GDP) range from $7 trillion over the next 10 years3 to between $2.6 trillion and $4.4 trillion annually.4 Even an intentionally conservative estimate puts it at closer to 1 per cent of projected global GDP grow
+   URL: https://www.ilo.org/sites/default/files/2026-05/2500858E_AI-and-Employment-Futures-for-the-Arab-Region-E-final.pdf
+==========================================================================================
+B162 corrob=1 members=1 cg=cg_023a34ae4507
+REP: For example, Goldman Sachs produced research estimating that generative AI t ools ha d the potential to add 7% to GDP over the next 10 years , which equates to around USD 7 trillion, while also raising productivity growth by 1.5 percentage points.
+   URL: https://one.oecd.org/document/DAF/COMP(2024)2/en/pdf
+==========================================================================================
+B163 corrob=1 members=1 cg=cg_bfc58bc7e94f
+REP: Service innovators — defined as companies whose performance on factors like service quality and agent attrition rate ranked in the top 25% — are 4.6 times more likely to report excellent customer satisfaction and 2.5 times more likely to report excellent employee satisfaction, Deloitte Digital found
+   URL: https://www.customerexperiencedive.com/news/call-center-agent-generative-ai-customer-satisfaction/715555/
+==========================================================================================
+B164 corrob=1 members=1 cg=cg_bbe4bc4700f2
+REP: G27, BISA, Henley Business School, University of Reading, Whiteknights Road, Reading RG6 6UD, United Kingdom.
+   URL: https://www.sciencedirect.com/science/article/pii/S0740624X22001101
+==========================================================================================
+B165 corrob=1 members=1 cg=cg_758c27d9fe8f
+REP: Business survey data from the Census Bureau show that about 18 percent of firms have adopted AI as of year-end 2025.
+   URL: https://www.federalreserve.gov/econres/notes/feds-notes/monitoring-ai-adoption-in-the-u-s-economy-20260403.html
+==========================================================================================
+B166 corrob=1 members=1 cg=cg_6e608cd8ac67
+REP: 8 Table 1: Descriptive Statistics of Demographic and Socioeconomic Variation in AI Exposure Percent Highly Exposed Overall 25.4 Age &lt;25 18.3 25-34 26.8 34-44 25.8 44-54 25.8 55-64 27.1 65+ 28.3 Race/Ethnicity White, Non-Hispanic 27.4 Black, Non-Hispanic 21.3 Asian, Non-Hispanic 32.3 Other, Non-Hi
+   URL: https://home.treasury.gov/system/files/136/AI-Combined-PDF.pdf
+==========================================================================================
+B167 corrob=1 members=1 cg=cg_c8e90e31001c
+REP: However, a former Chairman for Mensa International reports that ChatGPT has a tested IQ of 147 (99.9th percentile) on a verbal-linguistic IQ test (Thompson, 2023).
+   URL: https://www.nber.org/system/files/working_papers/w30957/w30957.pdf
+==========================================================================================
+B168 corrob=1 members=1 cg=cg_caa897b4b707
+REP: For example, Acemoglu (2024) estimated that the growth eff ects of generative AI will be only 0.07% per year over the coming decade.
+   URL: https://www.nber.org/system/files/working_papers/w33139/w33139.pdf
+==========================================================================================
+B169 corrob=1 members=1 cg=cg_3c86b73e8f98
+REP: Introduction Artificial intelligence (AI) paradigms are generally classified into Symbolic AI and Connectionist/Statistical AI.
+   URL: https://www.mdpi.com/2673-2688/6/8/190
+==========================================================================================
+B170 corrob=1 members=1 cg=cg_451b779bf463
+REP: 1 1 Introduction Recent advances in [...]
+allow capital to become a close enough substitute for labor to drive growth on its own.
+   URL: https://philiptrammell.com/static/egtai_new.pdf
+==========================================================================================
+B171 corrob=1 members=1 cg=cg_2a850859dded
+REP: Controlling for industry and time trends, a 10 percentage point increase in AI exposure is associated with an 11% drop in demand for entry-level roles.
+   URL: https://www.reveliolabs.com/news/macro/is-ai-responsible-for-the-rise-in-entry-level-unemployment/
+==========================================================================================
+B172 corrob=1 members=1 cg=cg_402181176899
+REP: Artificial Intelligence (AI) is changing the job market, creating new types of jobs while automating routine tasks.
+   URL: https://www.innopharmaeducation.com/blog/the-impact-of-ai-on-job-roles-workforce-and-employment-what-you-need-to-know
+==========================================================================================
+B173 corrob=1 members=1 cg=cg_aa8f920c8aec
+REP: Yet at the time of writing, the GPQA benchmark has almost become saturated (i.e., fully solved, accounting for estimates that about 10% of the questions contain errors): OpenAI’s GPT-5 and xAI’s Grok 4 lead with scores of 89.4% and 88.9% respectively; Google DeepMind’s Gemini 2.5 Pro and Anthropic’s
+   URL: https://www.nber.org/system/files/working_papers/w34202/w34202.pdf
+==========================================================================================
+B174 corrob=1 members=1 cg=cg_3eb0b7da3fbf
+REP: According to the Census Business Trends and Outlook Survey (BTOS), the number of businesses using AI rose from 3.7% in September 2023 to 5.4% in February 2024.
+   URL: https://www.congress.gov/crs_external_products/IF/HTML/IF12762.html
+==========================================================================================
+B175 corrob=1 members=1 cg=cg_8f1360e56c02
+REP: A Russian online payment company called Xsolla also removed 150 workers in August 2021 due to inefficiencies and attitude issues based on an algorithmically determined “digital footprint”.
+   URL: https://www.mdpi.com/2071-1050/16/9/3840
+==========================================================================================
+B176 corrob=1 members=1 cg=cg_bfe4d582dd64
+REP: The implications of the [...]
+the questionnaire was refined and reduced to 15 items to enhance clarity, internal coherence, and alignment with the study’s objectives.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12307348/
+==========================================================================================
+B177 corrob=1 members=1 cg=cg_26b276d9df25
+REP: Similarly, the average coauthorship and the collaboration index, which are 3.29 and 3.34, respectively, conform to the average in related categories such as artificial intelligence or informetrics, as reported in.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9550515/
+==========================================================================================
+B178 corrob=1 members=1 cg=cg_0ad7576387dd
+REP: For one, the unemployment rate also declined considerably over this period (from 9.8% in January 2010 to 3.5% in January 2020), indicating that the labor market was become increasingly competitive.
+   URL: https://www.congress.gov/crs-product/R47059
+==========================================================================================
+B179 corrob=1 members=1 cg=cg_bbdf96d5dc36
+REP: This work is available for worldwide use and reuse and under the Creative Commons CC0 1.0 Universal license.
+   URL: https://obamawhitehouse.archives.gov/sites/default/files/whitehouse_files/microsites/ostp/NSTC/preparing_for_the_future_of_ai.pdf
+==========================================================================================
+B180 corrob=1 members=1 cg=cg_1ebf328b5cc7
+REP: AI-assisted Literature Reviews 333 # Julie A.
+   URL: https://www.ingentaconnect.com/contentone/aupha/jhae/2025/00000041/00000002/art00011?crawler=true&mimetype=application/pdf
+==========================================================================================
+B181 corrob=1 members=1 cg=cg_22f855323ba7
+REP: In Perforce’s [[43](https://arxiv.org/html/2504.04921v1#bib.bib43)] industry survey, 48 percent of respondents indicated they were interested in AI but have not yet started any initiatives, and only 11 percent were already implementing AI techniques in software testing.
+   URL: https://arxiv.org/html/2504.04921v1
+==========================================================================================
+B182 corrob=1 members=1 cg=cg_f4b4e668ca41
+REP: A pilot study with 30 respondents was conducted to assess clarity.
+   URL: https://rsisinternational.org/journals/ijriss/articles/the-impact-of-chatbots-on-customer-service-jobs-a-study-on-the-replacement-of-human-customer-support-agents/
+==========================================================================================
+B183 corrob=1 members=1 cg=cg_1756ddca9832
+REP: The analysis of ranking decisions confirmed this tendency: the percentage of suitable resumes ranked in first position when participants received human recommendation (67.03%) was higher than that in the control group (64.2%), but the difference was nonsignificant according to a Chi-squared test (Ch
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9298741/
+==========================================================================================
+B184 corrob=1 members=1 cg=cg_7018048288b0
+REP: Together, they make up over a quarter of the value of the S&amp;P 500 companies and are worth an estimated $7.1 trillion (‘Big Tech’ 2023).
+   URL: https://webapps.ilo.org/static/english/intserv/working-papers/wp123/index.html
+==========================================================================================
+B185 corrob=1 members=1 cg=cg_026e84fee5ef
+REP: Any use of this content for artificial intelligence (AI), machine learning (ML), or similar purposes is [...]
+enago.tw/ "英文編修、論文翻譯") * [](https://www.enago.com.tr/ "Ingilizce Düzenleme, Düzenleme Hizmeti") * [](https://www.enago.com.br/ "Revisão de Texto, Correção de Texto") * [](https://www.enago.c
+   URL: https://www.enago.com/academy/3-quick-tips-lack-of-literature/
+==========================================================================================
+B186 corrob=1 members=1 cg=cg_646578d00f7a
+REP: Fifteen fastest growing industries, percent change, projected 2023‒33 Bar chart with 15 bars.
+   URL: https://www.bls.gov/opub/mlr/2024/article/industry-and-occupational-employment-projections-overview-and-highlights-2023-33.htm
+==========================================================================================
+B187 corrob=1 members=1 cg=cg_6c8b900d9f71
+REP: A global study](https://doi.org/jstpm/article/doi/10.1108/JSTPM-06-2025-0255/1381416/How-do-innovation-and-technological-development) ### Email Alerts [Article Activity Alert](javascript:;) [Earlycite Alert](javascript:;) [Closed Issue Alert](javascript:;) [Latest Published Articles Alert](javascrip
+   URL: https://doi.org/10.1108/jstpm-03-2020-0061
+==========================================================================================
+B188 corrob=1 members=1 cg=cg_9c5f69a65401
+REP: The participants ( n = 110; Mage = 23.05, 34 percent were males) were recruited from bachelor and master courses in business administration in two Northern European countries.
+   URL: https://www.tandfonline.com/doi/full/10.1080/09593969.2022.2042715
+==========================================================================================
+B189 corrob=1 members=1 cg=cg_469429af4f60
+REP: We compile many scenarios by [...]
+Hatzius et al., 2023) envision cumulative GDP gains of above 35 percent for advanced economies and 7 percent globally over a 10-year period, respectively.
+   URL: https://www.imf.org/-/media/files/publications/wp/2025/english/wpiea2025067-print-pdf.pdf
+==========================================================================================
+B190 corrob=1 members=1 cg=cg_f355e15da9dc
+REP: I AI’s Impact on Diversity and Job Displacement in the ICT Industry: A Correlational Study Dissertation Manuscript Submitted to N ation al University School of Business in Partial Fulfillment of the Requirements for the Degree of DOCTOR OF PHILOSOPHY by MARLON NECKEITO BROWN San Diego , California M
+   URL: https://search.proquest.com/openview/11d2da614c9617decf019fb589ba186a/1?pq-origsite=gscholar&cbl=18750&diss=y
+==========================================================================================
+B191 corrob=1 members=1 cg=cg_7d47c013d6c4
+REP: This sentiment is all over social media right now: ![Image 1: Screenshot of tweet: Anyone who only has a frontend skillset should diversify their skillset immediately because their job won’t exist soon.](https://www.joshwcomeau.com/_next/image/?url=%2Fimages%2Fthe-end-of-frontend-development%2Fno-mo
+   URL: https://www.joshwcomeau.com/blog/the-end-of-frontend-development/
+==========================================================================================
+B192 corrob=1 members=1 cg=cg_5e3f9510b5e9
+REP: Quantitative Risk Assessment | Risk Factor | Probability | Impact Score | Risk Exposure | Mitigation Cost | Net Risk | |---|---|---|---|---|---| | Skill Obsolescence | 0.75 | 8.2 | 6.15 | 2.3 | 3.85 | | Implementation Failure | 0.45 | 7.8 | 3.51 | 4.1 | -0.59 | | Regulatory Changes | 0.60 | 6.5 | 3.
+   URL: https://www.preprints.org/manuscript/202510.0671
+==========================================================================================
+B193 corrob=1 members=1 cg=cg_69cf07f23029
+REP: World Economic Forum estimates that, by 2025, 50% of all employees will need reskilling due to adopting new technology.
+   URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9278314/
+==========================================================================================
+B194 corrob=1 members=1 cg=cg_1581ae470ef1
+REP: Capital spending by the five largest U.S.
+   URL: https://www.edwardconard.com/macro-roundup/akorinek-reports-on-how-large-language-models-llms-such-as-chatgpt-could-increase-productivity-in-economics-research-by-focusing-human-effort-on-posing-questions-and-providing-feedback-and-editing/
+==========================================================================================
+B195 corrob=1 members=1 cg=cg_6cdfb5abea9d
+REP: By some estimates, more than 80 percent of AI projects fail—twice the rate of failure for information technology projects that do not involve AI.c Thus, understanding how to translate AI's enormous potential into concrete results remains an urgent challenge.
+   URL: https://www.rand.org/pubs/research_reports/RRA2680-1.html
+==========================================================================================
+B196 corrob=1 members=1 cg=cg_eb579ab01ba7
+REP: In November [...]
+for Science, Innovation and Technology, 2023.
+   URL: https://assets.publishing.service.gov.uk/media/65c1e399c43191000d1a45f4/a-pro-innovation-approach-to-ai-regulation-amended-governement-response-web-ready.pdf
+==========================================================================================
+B197 corrob=1 members=1 cg=cg_39697ebaa751
+REP: Looking for research-backed answers?Try AI Search [239 Citations 2020](/papers/75513104-eebe-4c4f-b33b-c7910d2850e7/) Quant GANs: deep generation of financial time series Magnus Wiese, Robert Knobloch, Ralf Korn + 1 more Quantitative Finance Quant GANs is introduced, a data-driven model which is ins
+   URL: https://paperguide.ai/papers/top/research-papers-quantitative-finance/
+==========================================================================================
+B198 corrob=1 members=1 cg=cg_4cd82cad9692
+REP: The 88 percent reporting regular AI use represents a significant jump from 78 percent in McKinsey's 2024 survey.
+   URL: https://ppc.land/most-companies-still-pilot-ai-programs-despite-widespread-adoption/
+==========================================================================================
+B199 corrob=1 members=1 cg=cg_86765428e5ab
+REP: Question 2 2/2 Speech output devices are what type of assistive technology for students with visual imp 8/9/2024](https://www.cliffsnotes.com/study-notes [...]
+Total Score:* 100 points -1.
+   URL: https://www.cliffsnotes.com/study-notes/21456085
+==========================================================================================
+B200 corrob=1 members=1 cg=cg_9754324ebcf7
+REP: In a between-subjects experiment (n=393), we examined two types of time constraints for a critical thinking task requiring participants to make a reasoned decision for a real-world scenario based on diverse documents: (1) LLM access timing—an LLM available only at the beginning (early), throughout (
+   URL: https://arxiv.org/html/2603.08849v1
+==========================================================================================
+B201 corrob=1 members=1 cg=cg_a309648b4b89
+REP: But we are not starting from zero.
+   URL: https://www.gov.uk/government/publications/ai-regulation-a-pro-innovation-approach/white-paper
+==========================================================================================
+B202 corrob=1 members=1 cg=cg_00da20a6100a
+REP: Experience the interactive Multimedia News Release here: [https://www.multivu.com/players/English/9240059-ibm-2023-global-ai-
+   URL: https://newsroom.ibm.com/2024-01-10-Data-Suggests-Growth-in-Enterprise-Adoption-of-AI-is-Due-to-Widespread-Deployment-by-Early-Adopters
+==========================================================================================
+B203 corrob=1 members=1 cg=cg_51d2e6f394cc
+REP: The academic views are studied with a systematic literature review while the practitioners views are assessed with a survey, where we received responses from 115 software professionals.
+   URL: https://mmantyla.github.io/ast_2012_bare_conf.pdf
+==========================================================================================
+B204 corrob=1 members=1 cg=cg_f46028cce6cd
+REP: Introduction The global construction industry represents approximately 13% of worldwide gross domestic product (GDP) and demonstrates significant growth potential in terms of productivity [[1](https://www.mdpi.com/2075-5309/15/12/2132#B1-buildings-15-02132)].
+   URL: https://www.mdpi.com/2075-5309/15/12/2132
+==========================================================================================
+B205 corrob=1 members=1 cg=cg_bac61769cb28
+REP: Our approach, by contrast, relied on presenting ten resumes at once to ChatGPT (specifically, version 4.0), thereby mirroring a scenario in which an employer “batch-processes” multiple applicants.
+   URL: https://law.mit.edu/pub/firstcomefirsthired
+==========================================================================================
+B206 corrob=1 members=1 cg=cg_a00608db1664
+REP: It’s no secret that artificial intelligence (AI) has posed a challenge for lawmakers.
+   URL: https://harvardlawreview.org/print/vol-138/co-governance-and-the-future-of-ai-regulation/
+==========================================================================================
+B207 corrob=1 members=1 cg=cg_6bc7df81d195
+REP: Introduction The development of computer science and software engineering and the increasing use of artificial intelligence and data mining technologies have led to the development of a wide range of applications that are critical to operations in business, healthcare, and education.
+   URL: https://www.mdpi.com/2674-113X/3/1/1
+==========================================================================================
+B208 corrob=1 members=1 cg=cg_591496990cf2
+REP: Bureau of Labor Statistics (BLS), the overall employment of information clerks is [projected](https://www.bls.gov/ooh/office-and-administrative-support/information-clerks.htm#tab-1) to decline by 1% from 2023 to 2033.
+   URL: https://medium.com/@greg_94005/automation-leads-data-entry-jobs-to-decline-but-heres-what-to-look-for-in-2025-ccb41b42084d
+==========================================================================================
+B209 corrob=1 members=1 cg=cg_5b7060e938c7
+REP: One study focused on the wording of job advertisements that had been placed on Monster.com in the spring of 2002.35 Most ads were found to be extremely positive in nature, but failed to provide information that would help an employer differentiate itself from other organizations.
+   URL: https://www.cliffsnotes.com/study-notes/15986040
+==========================================================================================
+B210 corrob=1 members=1 cg=cg_5e30a65cbdbc
+REP: While customer service leadership has shifted attention toward generative AI adoption, the most expensive problems in customer [...]
+Experiences | | --- | --- | | [20](https://www.qualtrics.com/articles/customer-experience/3-trillion-risk-due-bad-customer-experiences-2026/) | Poor customer experienc
+   URL: https://www.amplifai.com/blog/customer-service-statistics
+==========================================================================================
+B211 corrob=1 members=1 cg=cg_e63cf372f45d
+REP: Although the federal minimum wage rate has held at $7.25 per hour since 2009, a number of states and localities have enacted higher rates.
+   URL: https://www.rsfjournal.org/content/8/5/1
+==========================================================================================
+B212 corrob=1 members=1 cg=cg_b68cdeffa85c
+REP: Software Developers, Quality Assurance Analysts, and Testers | | --- | | [2024 Median Pay](https://www.bls.gov/ooh/computer-and-information-technology/software-developers.htm#TB_inline?height=325&amp;width=325&amp;inlineId=qf-wage) | $131,450 per year $63.20 per hour | | [Typical Entry-Level Educati
+   URL: https://www.bls.gov/ooh/computer-and-information-technology/software-developers.htm
+==========================================================================================
+B213 corrob=1 members=1 cg=cg_df750bf387d6
+REP: The report, based on input from 2,275 global professionals across legal, risk, compliance, tax, accounting, audit and global trade, shows that organizations with visible AI strategies are twice as likely as those with more informal or ad hoc adoption approaches to experience revenue growth as a dire
+   URL: https://www.thomsonreuters.com/en/press-releases/2025/june/the-ai-adoption-reality-check-firms-with-ai-strategies-are-twice-as-likely-to-see-ai-driven-revenue-growth-those-without-risk-falling-behind
+==========================================================================================
+B214 corrob=1 members=1 cg=cg_3e50c6d08e85
+REP: The _Akron Law Review_ consistently is ranked highly in the Washington and Lee Law Review Rankings, and since 2005 has been in the top 50 of general, student-edited law reviews for "Impact Factor." Since 2006, the Akron Law Review has ranked in the top 60 in the Washington and Lee "Combined Score" r
+   URL: https://lawreviewcommons.com/peer_review_list.html
+==========================================================================================
+B215 corrob=1 members=1 cg=cg_e8cd03ec2b99
+REP: Management analysts held about 1.1 million jobs in 2024.
+   URL: https://www.bls.gov/ooh/business-and-financial/management-analysts.htm
+==========================================================================================
+B216 corrob=1 members=1 cg=cg_909e464fdf26
+REP: 62.5% often, 25% sometimes, 3.6% plan to, 8.9% do not.
+   URL: https://ahrefs.com/blog/content-marketing-statistics/
+==========================================================================================
+B217 corrob=1 members=1 cg=cg_6e3d5875d6aa
+REP: 3.3 Observations To collect additional information for the study, such as the relative position of testers with reference to the other team members, as well as the attitude toward testers, we conducted observations in one project taking place in a [...]
+ 6 8 min Daily stand-up 8 11 min Daily stand-u
+   URL: https://link.springer.com/article/10.1007/s11219-021-09561-2
+==========================================================================================
+B218 corrob=1 members=1 cg=cg_64c36b839409
+REP: Grand View Research projects that the global chatbot market will grow at a CAGR of 23.3 percent from 2025 to 2030, driven by the increased adoption of AI and machine learning [8].
+   URL: https://www.coursera.org/articles/marketing-trends
+==========================================================================================
+B219 corrob=1 members=1 cg=cg_78a5447f6da8
+REP: The population growth in the Southeast region is 0.2% and in the Northeast region it is 3.4%, much lower than the 15.9% average growth of the State of Texas.
+   URL: https://gexinonline.com/archive/journal-of-social-work-and-welfare-policy/JSWWP-102
+==========================================================================================
+B220 corrob=1 members=1 cg=cg_d17b90c1985f
+REP: Affiliations * PMID: **2892901** ## Health problems of data entry clerks and related job stressors A Billette et al.
+   URL: https://pubmed.ncbi.nlm.nih.gov/2892901/
+==========================================================================================
+B221 corrob=1 members=1 cg=cg_7901ce9c861e
+REP: 25&amp;width=325&amp;inlineId=qf-wage) | $151,160 per year $72.67 per hour | | [Typical Entry-Level Education](https://www.bl
+   URL: https://www.bls.gov/ooh/legal/lawyers.htm
+==========================================================================================
+B222 corrob=1 members=1 cg=cg_cabc19363cfb
+REP: IntelligenceBank’s 2025 Content Marketing Trends Report found a [49% year-over-year increase](https://intelligencebank.com/wp-content/uploads/2025/02/IntelligenceBank_Content-Marketing-Trends-Report_2025.pdf#page=4) in marketing content production.
+   URL: https://www.toptal.com/marketing/content-writers
+==========================================================================================
+B223 corrob=1 members=1 cg=cg_49740cd90545
+REP: The projected data entry clerk job growth rate is -5% from 2018-2028.
+   URL: https://www.zippia.com/data-entry-clerk-jobs/trends/
+==========================================================================================
+B224 corrob=1 members=1 cg=cg_997a849310eb
+REP: A single news article is associated with a 1.66% increase in monthly revision activity, representing a 44% increase relative to the unconditional average revision frequency of 3.76%.
+   URL: https://www.stern.nyu.edu/sites/default/files/assets/documents/Mark%20Bradshaw.pdf
+==========================================================================================
+B225 corrob=1 members=1 cg=cg_31c12642501c
+REP: Bureau of Labor Statistics, [over 750,000 professionals](https://www.bls.gov/ooh/community-and-social-service/social-workers.htm#tab-1) practice social work in the United States.
+   URL: https://onlinesocialwork.vcu.edu/blog/the-impact-of-social-workers-across-sectors/
+==========================================================================================
+B226 corrob=1 members=1 cg=cg_0c8527a10197
+REP: Today, the cost of a higher education is out of reach for too many, with 45 million students owing more than[$1.6 trillion](https://www.federalreserve.gov/releases/g19/HIST/cc_hist_memo_levels.html)in student loan debt.[Two thirds of those entering the education field](/node/736)borrow in order to e
+   URL: https://learningpolicyinstitute.org/product/advancing-education-2020-brief
+==========================================================================================
+B227 corrob=1 members=1 cg=cg_eebfd8e2ad3d
+REP: In this study, the focus is on the actual use of textbooks by the first students to use the 2019 edition of general high school chemistry textbooks (students graduating in summer 2022 and summer 2023) and its relationship with students' interest and attitudes, and their academic achievements in chem
+   URL: https://link.springer.com/article/10.1186/s43031-023-00094-1
+==========================================================================================
+B228 corrob=1 members=1 cg=cg_09b52da0af35
+REP: A smaller yet noteworthy group anticipates increased demands on content creators’ workloads.
+   URL: https://www.forbes.com/advisor/business/software/content-marketing-statistics/
+==========================================================================================
+B229 corrob=1 members=1 cg=cg_73eea413182c
+REP: In this article, you’ll learn how: * AI transcription only reaches 61.92% accuracy, which is far too low for critical fields like medical and legal documentation.
+   URL: https://www.dittotranscripts.com/blog/is-medical-transcription-a-dying-field/
+==========================================================================================
+B230 corrob=1 members=1 cg=cg_6e5ebeaab0db
+REP: Authored By: Hughes, Kylie 1 of 3 Published In: 2024 2 of 3 - Related Topics: 3 of 3 Full
+   URL: https://www.ebsco.com/research-starters/social-sciences-and-humanities/data-entry-keyer
+==========================================================================================
+B231 corrob=1 members=1 cg=cg_71f73af56a1b
+REP: According to the [31-9094.00 – Medical Transcriptionists ](http://www.onetonline.org/link/summary/31-9094.00)occupational profile, successful professionals must possess strong skills in reading comprehension, active listening, and critical thinking.
+   URL: https://www.phoenixvirtualstaff.com/blog/7-best-medical-transcriptionist-job-tips/
+==========================================================================================
+B232 corrob=1 members=1 cg=cg_476939604856
+REP: Investopedia / Jessica Olah ## How Customer Service Works At most companies, [customer service representatives](https://www.investopedia.com/articles/financial-advisors/110315/considering-career-client-service-associate.asp) are the only employees who have direct contact with buyers or users.
+   URL: https://www.investopedia.com/terms/c/customer-service.asp
+==========================================================================================
+B233 corrob=1 members=1 cg=cg_df8fb982d52b
+REP: The largest employers of customer service representatives were as follows: Retail trade 17% Insurance carriers and related activities 12 Business support services 8 Professional, scientific, and technical services 7 Wholesale [...]
+section](https://www.bls.gov/ooh/office-and-administrative-support/c
+   URL: https://www.bls.gov/ooh/office-and-administrative-support/customer-service-representatives.htm
+==========================================================================================
+B234 corrob=1 members=1 cg=cg_ed9b8df352a6
+REP: Authored By: Auerbach, Michael 1 of 3 Published In: 2023 2 of 3 - Related Topics: 3 of 3 Full Article Paralegal Snapshot Career Cluster(s [...]
+Paralegal Snapshot Career Cluster(s): Business, Management &amp; Administration, Law, Public Safety &amp; Security Interests: Law, legal system, research, p
+   URL: https://www.ebsco.com/research-starters/social-sciences-and-humanities/paralegal
+==========================================================================================
+B235 corrob=1 members=1 cg=cg_41e203ab34e6
+REP: In 2026, career and job-related decisions are increasingly shaped by data rather than assumptions.
+   URL: https://onehour.digital/blog/recruiter-screening-behavior-statistics
+==========================================================================================
+B236 corrob=1 members=1 cg=cg_9eadd45bb403
+REP: Kahn [Equity Management: Quantitative Analysis for Stock Selection](http://www.amazon.com/Equity-Management-Quantitative-Analysis-Selection/dp/0071346864) Bruce I.
+   URL: https://cqa.org/reading-list/
+==========================================================================================
+B237 corrob=1 members=1 cg=cg_ec48f8471419
+REP: In 2022, general medical and surgical hospitals, and specialty hospitals employed the largest share of medical transcriptionists at 41.5%.
+   URL: https://research.com/careers/how-to-become-a-medical-transcriptionist
+==========================================================================================
+B238 corrob=1 members=1 cg=cg_a3ad6582fd65
+REP: Bureau of Labor Statistics](https://www.bls.gov/ooh/computer-and-information-technology/web-developers.htm) projects **7% growth** for web developers and digital designers from 2024 to 2034, with about **14,500 openings a year** on average.
+   URL: https://www.refontelearning.com/blog/how-to-become-a-frontend-developer-in-2026
+==========================================================================================
+B239 corrob=1 members=1 cg=cg_8270a86c5c49
+REP: After extensive research, interviews, and analysis, Zippia's data science team found that:
+The projected paralegal job growth rate is 14% from 2018-2028.
+   URL: https://www.zippia.com/paralegal-jobs/trends/
+==========================================================================================
+B240 corrob=1 members=1 cg=cg_aa6e2707b93a
+REP: The update marks a significant step in leveraging AI to streamline quality assurance for enterprise applications In terms of testing method, the manual segment is projected to hold the **62.5%** share of the market in 2026, due to its precision in uncovering complex user interface issues, usability 
+   URL: https://www.coherentmarketinsights.com/industry-reports/software-testing-and-qa-services-market
+==========================================================================================
+B241 corrob=1 members=1 cg=cg_1053f06343dd
+REP: Bureau of Labor Statistics, the demand for quality control and testing specialists will increase by 25% by 2032.
+   URL: https://learnixcenter.com/is-qa-still-in-demand/
+==========================================================================================
+B242 corrob=1 members=1 cg=cg_4f23ce0d091a
+REP: STEP 3 ### Live Screening 3.6%of applications pass Toptal screeners, who are experts in their functional domain, interview each illustrator.
+   URL: https://www.toptal.com/designers/illustration
+==========================================================================================
+B243 corrob=1 members=1 cg=cg_c3b6ee2a3004
+REP: In the framework of the study, tagged voice recordings related to different disorders are used: it proves that the integration of ASR with CNN-LSTM increases the accuracy and productivity of medical transcriptions, reaching 99 percent accuracy.
+   URL: https://www.sciencedirect.com/science/article/pii/S1110016825003576
+==========================================================================================
+B244 corrob=1 members=1 cg=cg_c5fdf149e7bc
+REP: Attorney Free Consultation New York City 28 Yrs Experience Licensed in NY New York Law School I am a commercial contracts attorney with twenty years of experience.
+   URL: https://www.contractscounsel.com/b/publishing-contract-review
+==========================================================================================
+B245 corrob=1 members=1 cg=cg_8f9feb5fae27
+REP: Use your resume to highlight examples of how you've: * Mediated conflicts between employees and managers, resulting in a 90% resolution rate * Delivered training sessions on topics like diversity and inclusion, receiving an average rating of 4.5/5 from participants * Presented HR metrics and insight
+   URL: https://resumeworded.com/human-resources-generalist-resume-example
+==========================================================================================
+B246 corrob=1 members=1 cg=cg_b8e98aa50c65
+REP: Paralegals help attorneys prepare for hearings, trials, and meetings.
+   URL: https://www.purdueglobal.edu/blog/legal-studies/what-does-paralegal-do/
