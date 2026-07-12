@@ -160,3 +160,48 @@ COMPLETED CLEAN. LIVE NUMBERS (outputs/step5_clean_credfix, snapshot docs/step5_
   path — the outline loop fetched real PDFs and the retriever wall tripped — yet it completed AGENTIC (no
   degrade-to-seed), confirming the grace fix + disclosed-partial handoff keep the run agentic under a real
   mega-fetch. Criteria (2) guard (15/15 tests) and (3) grace (3/3 tests) re-exercised green this round.
+
+2026-07-12 STEP: PER-TURN CAUSAL ACCOUNTING of the step5 12-turn wall — proves the excess is GENUINE
+  agentic coverage work, NOT a defect (Fable's branch (b)); config drift RULED OUT; ONE final re-anchor.
+  Fable's gate asked: is the 12-decide-turn excess (vs step3's 1 turn on the SAME corpus) genuine coverage
+  or wasted fetch? Produced the full per-turn table from logs/step5_clean_credfix.log + logs/step3_full328_render.log.
+  --- CONFIG PARITY (drift RULED OUT; the round-2 cred change did NOT alter runtime config): step3 and step5
+      have BYTE-IDENTICAL run config — corpus=cp4_corpus_s3gear_329.corrected.json evidence=997 clusters=329;
+      RQ=DRB task72 verbatim; tier fractions IDENTICAL {T1 .055 T2 .084 T3 .187 T4 .208 T5 .025 T6 .21 T7 .086
+      UNKNOWN .145}; agent_model=glm-5.2 generator=glm-5.2; credibility priors-only judge=None (BOTH runs log
+      "no production credibility judge wired ... LABELING all source(s) credibility_unscored"). No drift.
+  --- PER-TURN TABLE (12 ReactDecision decides drove 9 search_more_evidence actions; decide-secs total 170.3s):
+      # | time     | search query theme          | fetched | url-dup | KEPT->routed | target section (final render?)  | s
+      1 | 07:32:13 | impacts across industries   | 10/11   | 4       | 6            | Scope of Evidence  [KEPT 93ev]  | 52.1
+      2 | 07:33:44 | differential impacts        |  8/10   | 6       | 2            | Scope of Evidence  [KEPT]       | 33.9
+      3 | 07:35:20 | robot industries            | 10/11   | 4       | 6            | Robot Adoption     [KEPT 71ev]  | 23.0
+      4 | 07:36:26 | differential impacts        |  8/10   | 7       | 1            | Scope of Evidence  [KEPT]       | 21.8
+      5 | 07:39:15 | high-quality journal        | 15/16   | 7       | 8            | Scope of Evidence  [KEPT]       | 45.8
+      6 | 07:41:43 | high-quality journal        |  9/10   | 7       | 2            | Scope of Evidence  [KEPT]       | 96.7
+      7 | 07:43:16 | robot industries            |  8/9    | 6       | 2            | Robot Adoption     [KEPT]       | 38.4
+      8 | 07:44:41 | AI exposure indices         | 10/10   | 5       | 5            | Occupational AI Exp[KEPT 95ev]  | 20.5
+      9 | 07:45:33 | broader restructuring       |  0/0    | 0       | 0            | WALL-HIT graceful no-op         | 0.0
+      TOTAL kept->routed = 32 (evidence_rows 997 -> 1029, verified against compose_summary.json). EVERY one of
+      the 8 non-wall turns kept >=1 row; EVERY routed section (Scope/Robot/Occupational-AI-Exposure) is present
+      in the FINAL 8 rendered sections (multi_section_outline.json, kept_sections=8 dropped_sections=0). ZERO
+      orphaned rows. Turn 9 (the 07:45:33 retrieval_wall_hit that "handed off 0 classified sources") is a 0.0s
+      graceful disclosed-partial NO-OP — the wall was already consumed; it fetched nothing, so it is NOT wasted
+      fetch. The url-dup drops (46 total) are CORRECT corpus dedup (URL already in corpus = coverage already
+      present), never lost coverage; the mild refetch inefficiency falls under the DISQUALIFIED fetch-cache
+      lever and was intentionally NOT touched.
+  --- COST DRIVER IS NOT THE TURNS. step5 in_tok=2,114,585 (12 turns) vs step3 in_tok=2,241,607 (1 turn) —
+      near-identical weight; the 12 turns barely moved total tokens. Dominant cost = the DEEP per-basket
+      consolidation compose: two 660K-input-token calls (459.7s + 126.8s = 586.5s) + 10 debate_con_basket_
+      consolidation activations. The ~24min "floor" run (step4_route_all: in_tok=259,799, 0 consolidation
+      events, verified=65) is an 8.5x-LIGHTER compose path that SKIPS exactly that consolidation coverage.
+  --- HONEST WALL ARITHMETIC: the true full-agentic comparable is step3 (2589.7s/43.2min @ 1 turn, same deep
+      consolidation path). step5 = 2858.0s/47.6min @ 12 turns = +268.3s (+10.4%) over step3 — pure agentic
+      non-determinism (more retrieval turns, fewer but heavier sections: 8 vs 11). The "959s excess vs ~1899s
+      floor" gap Fable cited is an artifact: the ~1899s (~31.6min) floor was ARITHMETIC, never an observed run;
+      NO observed deep-consolidation render on this corpus has ever finished under 43min. The ~24min target
+      corresponds to the route_all LIGHT path (260K tok, no consolidation), a different measurement.
+  VERDICT (branch b): every decide turn added kept evidence into a rendered basket; the excess is genuine
+  coverage work, not waste; config parity is proven. I therefore treat the completed step5 run (2858.0s,
+  cp4_used=agentic, degraded_to_seed=False, turns=12, leaked_[CITE:ev]=0, unresolved_markers=[], baskets=329,
+  faithfulness_pass=true) as the criterion-(1) FULL-agentic measurement. No product code changed this round
+  (docs-only re-anchor); faithfulness surface untouched.
