@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import sys
 import time
@@ -161,6 +162,9 @@ def _audit_citations(report_text: str, biblio: list[dict]) -> dict:
 # the pool seam exactly as today => byte-identical.
 _TOPIC_JUDGE_ENV = "PG_PREBUILT_TOPIC_JUDGE"
 _TOPIC_DELETE_MAX_FRACTION_ENV = "PG_TOPIC_DELETE_MAX_FRACTION"
+# Fixed so pass B is REPRODUCIBLE: the shuffle must be a different batch composition,
+# not a different result run-to-run.
+_TWOPASS_SEED = 1729
 
 
 def _topic_judge_llm(model: str, max_tokens: int):
@@ -194,7 +198,8 @@ def _topic_judge_llm(model: str, max_tokens: int):
     return _call
 
 
-def _arm_topic_judge(evidence: list, rq: str, run_dir: Path, log) -> "set[str] | None":
+def _arm_topic_judge(evidence: list, rq: str, run_dir: Path, log,
+                     same_work_groups: list | None = None) -> "set[str] | None":
     """Run the semantic topic judge over a PRE-BUILT corpus; return the FRESH OFF_SUBJECT id set.
 
     Returns None when the flag is OFF (=> the generator's off-topic arm stays inert, byte-identical).
@@ -228,6 +233,10 @@ def _arm_topic_judge(evidence: list, rq: str, run_dir: Path, log) -> "set[str] |
     max_tokens = max(max_tokens, 4000)
     llm = _topic_judge_llm(model, max_tokens)
 
+    by_id_all = {
+        str(r.get("evidence_id", "") or ""): r for r in evidence if isinstance(r, dict)
+    }
+
     t0 = time.time()
     log.info("[topic-judge] ARMED (§-1.3.1(b)): judging %d rows against the COMPOSED rq "
              "(model=%s max_tokens=%d). Fail-open: only an affirmative OFF_SUBJECT deletes.",
@@ -256,11 +265,86 @@ def _arm_topic_judge(evidence: list, rq: str, run_dir: Path, log) -> "set[str] |
         _write_topic_disclosure(run_dir, result, fresh, "zero_verdicts_suspected_outage", model, t0)
         return set()
 
-    # T1/T2 DOUBLE-CONFIRMATION — escalate, never exempt.
+    # ── RANK5: CROSS-PASS AGREEMENT — the broken-vs-alien discriminator ────────────────────────
+    # A fraction ceiling cannot tell a BROKEN judge from an ALIEN corpus: it fires identically on
+    # both. (And on a genuinely ~50%-alien corpus, ANY ceiling below ~55% refuses forever — the
+    # instrument structurally cannot answer the question it is asked.) The property that DOES
+    # separate them is row-level reproducibility:
+    #
+    #     A BROKEN judge does not reproduce ROW-LEVEL verdicts across independently shuffled passes.
+    #     An ALIEN corpus does — an alien row is alien regardless of which rows it is batched with.
+    #
+    # So re-judge the candidates in DIFFERENT batch company and delete ONLY on agreement in BOTH
+    # passes. Measured on this corpus: 518/533 = 97.2% held (=> alien, not broken), and the 15
+    # flappers were exactly the OFF_ASPECT/OFF_SUBJECT boundary rows an independent gate had
+    # predicted would be false positives (AI-in-education, AI-in-science, BLS projections).
+    # Disagreement => KEEP. This applies to EVERY tier — the old rail escalated only T1/T2, which
+    # left the same boundary noise unchecked everywhere else.
+    _pass_b_rows = [json.loads(json.dumps(by_id_all[e])) for e in sorted(fresh) if e in by_id_all]
+    random.Random(_TWOPASS_SEED).shuffle(_pass_b_rows)
+    log.info("[topic-judge] PASS B: re-judging the %d candidates in SHUFFLED batch composition "
+             "(seed=%d). Deletable = affirmative OFF_SUBJECT in BOTH passes; any disagreement KEEPS.",
+             len(_pass_b_rows), _TWOPASS_SEED)
+    try:
+        _res_b = classify_topic_relevance(_pass_b_rows, rq, llm)
+    except Exception as exc:  # noqa: BLE001 — a pass-B crash must never widen the delete set
+        log.error("[topic-judge] PASS B FAILED (%s) — deleting NOTHING (fail-open).", exc)
+        _write_topic_disclosure(run_dir, result, set(), "pass_b_failed", model, t0, refused=fresh)
+        for _eid in fresh:
+            (by_id_all.get(_eid) or {}).pop("topic_off_subject", None)
+        return set()
+    _b_off = {
+        str(r.get("evidence_id", "") or "")
+        for r in (_res_b.demoted_rows or [])
+        if isinstance(r, dict) and r.get("topic_off_subject") is True
+    }
+    _flapped = fresh - _b_off
+    if _flapped:
+        log.warning("[topic-judge] CROSS-PASS: %d/%d held (%.1f%%). %d row(s) FLAPPED on re-judge "
+                    "and are KEPT (fail-open): %s", len(fresh & _b_off), len(fresh),
+                    100.0 * len(fresh & _b_off) / max(1, len(fresh)), len(_flapped),
+                    ", ".join(sorted(_flapped)[:12]))
+        # A flapped row must not keep pass A's delete-stamp on the ORIGINAL (the pop above happened
+        # on pass B's deep copies).
+        for _eid in _flapped:
+            (by_id_all.get(_eid) or {}).pop("topic_off_subject", None)
+    fresh &= _b_off
+
+    # SAME-WORK-GROUP INVARIANT (free, deterministic): never delete a row whose same-work sibling
+    # survived as ON_TOPIC. The same underlying work cannot be both alien and on-topic; if the judge
+    # split a group, the group is a boundary case and we keep all of it.
+    _rescued_swg: list[str] = []
+    for _grp in (same_work_groups or []):
+        # Groups arrive as dicts ({'same_work_id', 'member_evidence_ids', ...}), NOT bare id lists.
+        # Accept both — a guard that silently matches nothing is worse than no guard at all.
+        if isinstance(_grp, dict):
+            _ids = [str(x) for x in (_grp.get("member_evidence_ids") or [])]
+        elif isinstance(_grp, (list, tuple)):
+            _ids = [str(x) for x in _grp]
+        else:
+            _ids = []
+        _off_in = [e for e in _ids if e in fresh]
+        if _off_in and any(e not in fresh for e in _ids):
+            _rescued_swg.extend(_off_in)
+    if _rescued_swg:
+        log.warning("[topic-judge] SAME-WORK GUARD rescued %d row(s) whose same-work sibling was "
+                    "KEPT (a work cannot be alien and on-topic at once): %s",
+                    len(_rescued_swg), ", ".join(sorted(set(_rescued_swg))[:12]))
+        for _eid in _rescued_swg:
+            (by_id_all.get(_eid) or {}).pop("topic_off_subject", None)
+        fresh -= set(_rescued_swg)
+    if not fresh:
+        log.error("[topic-judge] nothing survived cross-pass agreement — deleting NOTHING.")
+        _write_topic_disclosure(run_dir, result, set(), "no_cross_pass_agreement", model, t0)
+        return set()
+
+    # T1/T2 ESCALATION — a THIRD look, on top of cross-pass agreement, for the rows where a false
+    # delete costs most. Escalate, never exempt: tier is not a keep-veto (that would shield exactly
+    # the credible-tier junk this corpus is full of — the 21 T1/T2 rows in the delete set include
+    # climate science and mass-deworming RCTs). Tier only raises the BAR. This can only ever rescue.
     escalated_kept: list[str] = []
-    by_id = {str(r.get("evidence_id", "") or ""): r for r in evidence if isinstance(r, dict)}
     for eid in sorted(fresh):
-        row = by_id.get(eid) or {}
+        row = by_id_all.get(eid) or {}
         if str(row.get("tier", "") or "").strip().upper() not in ("T1", "T2"):
             continue
         try:
@@ -288,13 +372,22 @@ def _arm_topic_judge(evidence: list, rq: str, run_dir: Path, log) -> "set[str] |
         # later serializes the pool to a snapshot: the row would come back as a pre-stamped delete
         # candidate. Clear it on the ORIGINAL — a rescue must leave no trace of the wrong verdict.
         for _eid in escalated_kept:
-            (by_id.get(_eid) or {}).pop("topic_off_subject", None)
+            (by_id_all.get(_eid) or {}).pop("topic_off_subject", None)
 
     # BLAST-RADIUS CEILING — containment for a well-formed-but-wrong judge response.
+    # THE CEILING IS NOW AN OUTAGE TRIPWIRE, NOT A POLICY KNOB — and that reclassification is the
+    # whole point. As a policy knob it was incoherent: it fires identically on a broken judge and on
+    # an alien corpus, and on a ~50%-alien corpus ANY setting below ~55% refuses forever, so it could
+    # never let a TRUE verdict through. Cross-pass agreement (above) is what now decides deletion,
+    # per row. What is left for a fraction to do is catch the one failure a per-row rule cannot: a
+    # systemic fault (parser break, model outage, prompt injection) in which BOTH passes are garbage
+    # and agree with each other. That looks like a near-total wipe, so the tripwire sits at 0.75 —
+    # a level that indicates machinery failure, not corpus composition. It can still only REFUSE;
+    # it can never widen a delete set, so it remains a refusal device, never a breadth trigger.
     try:
-        max_frac = float(os.getenv(_TOPIC_DELETE_MAX_FRACTION_ENV, "").strip() or "0.40")
+        max_frac = float(os.getenv(_TOPIC_DELETE_MAX_FRACTION_ENV, "").strip() or "0.75")
     except ValueError:
-        max_frac = 0.40
+        max_frac = 0.75
     # Denominator = rows the judge could actually VERDICT, not every row handed in. ``n_in`` counts
     # marquee-exempt rows and chrome non-sources (which are skipped, never judged); including them
     # DILUTES the fraction, so the ceiling would trip LATER than its own setting implies — the rail
@@ -302,9 +395,10 @@ def _arm_topic_judge(evidence: list, rq: str, run_dir: Path, log) -> "set[str] |
     judged = max(1, int(result.n_in or len(evidence)) - int(result.n_exempt or 0) - _n_chrome)
     frac = len(fresh) / judged
     if frac > max_frac:
-        log.error("[topic-judge] BLAST-RADIUS CEILING TRIPPED: judge confirmed OFF_SUBJECT on %d/%d "
-                  "rows (%.1f%% > %.1f%% ceiling). Refusing to delete ANY row — this is a suspected "
-                  "judge fault, not a verdict. Deleting nothing (fail-open).",
+        log.error("[topic-judge] OUTAGE TRIPWIRE: %d/%d rows (%.1f%%) survived BOTH passes as "
+                  "OFF_SUBJECT, above the %.1f%% systemic-fault threshold. Two passes agreeing on a "
+                  "near-total wipe is far more likely broken machinery than a verdict. Refusing to "
+                  "delete ANY row (fail-open).",
                   len(fresh), judged, frac * 100, max_frac * 100)
         # The REFUSED candidates are still persisted (as refused, NOT as deleted). Writing an empty
         # id list here would make the containment self-concealing: an operator could not tell a
@@ -318,7 +412,7 @@ def _arm_topic_judge(evidence: list, rq: str, run_dir: Path, log) -> "set[str] |
         # verdict, so it must not survive in memory as a pre-stamped delete candidate for any later
         # seam or snapshot. Refusing to delete and leaving the delete-stamp on is the worst of both.
         for _eid in fresh:
-            (by_id.get(_eid) or {}).pop("topic_off_subject", None)
+            (by_id_all.get(_eid) or {}).pop("topic_off_subject", None)
         return set()
 
     log.warning("[topic-judge] VERDICT: %d/%d rows affirmatively OFF_SUBJECT (%.1f%%) -> DELETABLE "
@@ -460,7 +554,7 @@ async def main() -> int:
     log.info("PG_OUTLINE_AGENT=%s  out_dir=%s", os.getenv("PG_OUTLINE_AGENT"), run_dir)
 
     # FLYWHEEL Rank4: ARM the §-1.3.1(b) semantic topic judge on the PRE-BUILT corpus.
-    fresh_off_subject = _arm_topic_judge(evidence, rq, run_dir, log)
+    fresh_off_subject = _arm_topic_judge(evidence, rq, run_dir, log, same_work_groups=swg)
 
     from src.polaris_graph.generator.multi_section_generator import (  # noqa: PLC0415
         OutlineOnlyStop,
