@@ -897,107 +897,6 @@ Order the sections so the report reads as a coherent scholarly review with these
 The four ROLES (open / thematic bodies / synthesis+contradictions / conclusions+gaps) are REQUIRED; the thematic-body titles are free to emerge from the evidence. Each section — including the four structural ones — still needs at least 2 genuinely supporting evidence IDs; assign the relevant rows, never fabricate a section the evidence cannot ground."""
 
 
-# INSIGHT-DEPTH LEVER (mission STEP 3): the cross-study SYNTHESIS section is the report's
-# highest-leverage INSIGHT surface (RACE Insight weight 0.32, our lowest dimension). Two
-# GENERAL, topic-agnostic, faithfulness-neutral moves make it read ACROSS the evidence and
-# quantify agreement/disagreement instead of restating body claims:
-#   (a) ENRICH it with the sibling body sections' evidence rows so it actually HAS the
-#       comparable [ev]-backed figures to contrast (a synthesis section starved of the
-#       primary quantitative rows can only quote review-of-reviews sources); and
-#   (b) INJECT a directive that instructs it to compare figures reported on the SAME dimension
-#       by DIFFERENT sources — state the range, name convergence vs conflict — citing every
-#       compared [ev_XXX] in the same sentence.
-# Both are DEFAULT-OFF (flag below) and detect the role STRUCTURALLY (topic-agnostic role words
-# the skeleton itself defines), never by a benchmark title. Faithfulness is untouched: every
-# emitted sentence still passes the UNCHANGED strict_verify span-grounding gate, and the writer
-# may only cite a number that appears verbatim in an evidence direct_quote — no derived/inferred
-# figure can render. OFF => byte-identical.
-_SYNTH_QUANT_ENV = "PG_SYNTHESIS_QUANT_DIRECTIVE"
-
-
-def _synthesis_quant_directive_enabled() -> bool:
-    """DEFAULT-OFF (read at call time). ON enables the cross-study synthesis evidence
-    enrichment + quantification directive. Faithfulness-neutral (strict_verify untouched)."""
-    return os.getenv(_SYNTH_QUANT_ENV, "0").strip().lower() not in (
-        "0", "", "false", "no", "off",
-    )
-
-
-# Structural role-signal vocabulary. A cross-study synthesis section carries a SYNTHESIS word
-# AND a cross-study / contradiction / convergence signal. These are STRUCTURAL, domain-independent
-# words (they name the section's ROLE, not any topic); no benchmark title is hardcoded.
-_SYNTH_ROLE_SIGNAL: tuple[str, ...] = (
-    "cross-study", "cross study", "across studies", "across the studies",
-    "contradict", "convergen", "divergen", "agree", "disagree",
-    "consisten", "reconcil",
-)
-
-
-def _is_cross_study_synthesis_section(title: str) -> bool:
-    """Topic-agnostic detector for the cross-study SYNTHESIS role the general research-report
-    skeleton defines. True iff the title carries a 'synthes*' word AND a cross-study /
-    contradiction / convergence signal (e.g. 'Cross-Study Synthesis and Contradictions').
-    Hardcodes NO topic and NO benchmark title — purely structural role words."""
-    t = (title or "").strip().lower()
-    if not t or "synthes" not in t:
-        return False
-    return any(s in t for s in _SYNTH_ROLE_SIGNAL)
-
-
-# A digit is the structural signal that an evidence row carries a QUANTITATIVE finding that can be
-# compared across sources. Topic-agnostic (any %, count, ratio, year, effect size). Used to focus
-# the synthesis-section enrichment onto comparable rows rather than dumping every sibling row.
-_NUMERIC_TOKEN_RE = re.compile(r"\d")
-
-
-def _row_carries_number(row: dict[str, Any]) -> bool:
-    """True iff the evidence row's statement or direct_quote contains a digit (a comparable
-    quantitative finding). Structural, domain-independent — no topic vocabulary."""
-    if not isinstance(row, dict):
-        return False
-    stmt = str(row.get("statement") or "")
-    quote = str(row.get("direct_quote") or "")
-    return bool(_NUMERIC_TOKEN_RE.search(stmt) or _NUMERIC_TOKEN_RE.search(quote))
-
-
-def _synthesis_enrich_cap() -> int:
-    """Compute-safety ceiling on how many sibling-body rows are added to the synthesis section
-    (read at call time). Bounds the prompt so the synthesis section stays focused on comparable
-    findings; the per-section char budget + strict_verify still apply downstream. Not a target."""
-    try:
-        v = int(os.getenv("PG_SYNTHESIS_ENRICH_CAP", "48"))
-    except (TypeError, ValueError):
-        v = 48
-    return v if v > 0 else 48
-
-
-# The synthesis quantification directive appended to the section SYSTEM prompt when the section
-# is the cross-study synthesis role AND the flag is ON. It reframes the section's job from
-# "restate body findings" to "quantify agreement/disagreement across [ev]-backed figures". The
-# HARD FAITHFULNESS RULE is a RESTATEMENT of the existing strict_verify contract (no relaxation):
-# a number must appear in the cited evidence's direct_quote or it cannot be written.
-_SYNTHESIS_QUANT_BLOCK = (
-    "\n\nCROSS-STUDY SYNTHESIS ROLE (this section only) — QUANTIFY AGREEMENT AND DISAGREEMENT:\n"
-    "Your job in THIS section is NOT to restate findings already reported in the earlier body "
-    "sections. It is to read ACROSS the studies and quantify how their numbers agree and disagree. "
-    "Concretely:\n"
-    "- Find figures that DIFFERENT sources report on the SAME dimension (e.g. an effect size, a "
-    "prevalence or adoption percentage, a cost, a measured gain) and "
-    "state the RANGE across those sources, citing the [ev_XXX] marker of EVERY source you compare in "
-    "the SAME sentence — e.g. \"independent estimates of the same measured quantity range from "
-    "A% [ev_A] to B% [ev_B] to C% [ev_C]\".\n"
-    "- Say EXPLICITLY whether the independent estimates CONVERGE (cluster on a similar value) or "
-    "CONFLICT (diverge), and for a conflict name which source is higher, which is lower, and the "
-    "approximate gap between them.\n"
-    "- Prefer a sentence that compares two or more sources over a sentence that reports a single "
-    "number; a single-source number belongs in a body section, not here.\n"
-    "HARD FAITHFULNESS RULE (unchanged — this only restates the existing gate): every number you "
-    "write must appear verbatim in the direct_quote of the [ev_XXX] you attach to it. NEVER compute, "
-    "average, subtract, or infer a new figure to make a comparison — if the comparison would require "
-    "a number that is not present verbatim in an evidence block, omit that comparison."
-)
-
-
 def _facet_outline_max_sections() -> int:
     """Compute-safety ceiling for the facet outline (read at call time). Not a target."""
     try:
@@ -4278,19 +4177,6 @@ async def _call_section(
                 len(patterns), section.title,
             )
             system += synthesis_block
-
-    # INSIGHT DEPTH (mission STEP 3): cross-study SYNTHESIS quantification directive. Structural
-    # role detection + default-OFF flag => byte-identical unless the report has a synthesis role
-    # AND PG_SYNTHESIS_QUANT_DIRECTIVE is on. Faithfulness-neutral: strict_verify still gates every
-    # emitted sentence; the directive only reframes the section's JOB (compare [ev]-backed figures
-    # across sources) and restates the no-derived-number rule — it relaxes nothing.
-    if _synthesis_quant_directive_enabled() and _is_cross_study_synthesis_section(section.title):
-        system += _SYNTHESIS_QUANT_BLOCK
-        logger.info(
-            "[multi_section] INSIGHT: cross-study synthesis quantification directive "
-            "injected into section %r (%d evidence rows to read across; strict_verify unchanged)",
-            section.title, len(evidence_subset),
-        )
 
     # I-gen-005 (#904): re-add the HARD OUTPUT CONTRACT for reasoning-first
     # models, this time PAIRED with the other levers the original cb7feaa3
@@ -10784,55 +10670,6 @@ async def generate_multi_section_report(
     # access to extracted slot payloads. Pre-V33 ordering ran
     # everything concurrently; post-V33, contract runs first,
     # then legacy runs with the synthesis block.
-    # INSIGHT DEPTH (mission STEP 3): enrich the cross-study SYNTHESIS section with the verified
-    # evidence rows the sibling body sections drew from, so it has comparable [ev]-backed numbers to
-    # read ACROSS (quantify agreement/disagreement) rather than being starved down to review-of-
-    # reviews quotes. Structural role detection + default-OFF flag => byte-identical when no synthesis
-    # role exists or the flag is off. Faithfulness-neutral: the added rows route through the UNCHANGED
-    # per-section char budget + strict_verify span-grounding; nothing is relaxed and no figure is
-    # fabricated (the writer may only cite a number present verbatim in an evidence direct_quote).
-    # Original ev_ids are preserved FIRST (order-stable); only NEW pool-resident ids are appended.
-    if _synthesis_quant_directive_enabled():
-        _synth_idxs = [
-            _i for _i, _p in enumerate(plans)
-            if _is_cross_study_synthesis_section(getattr(_p, "title", ""))
-        ]
-        _enrich_cap = _synthesis_enrich_cap()
-        for _si in _synth_idxs:
-            _synth_plan = plans[_si]
-            _existing = list(getattr(_synth_plan, "ev_ids", []) or [])
-            _seen = set(_existing)
-            _added: list[str] = []
-            # Prefer sibling-body rows carrying a QUANTITATIVE finding (a digit) — those are the
-            # rows a synthesis section can actually compare across sources. Order-stable: siblings
-            # are visited in plan order (bodies first). Capped for prompt focus + compute safety.
-            for _j, _p in enumerate(plans):
-                if len(_added) >= _enrich_cap:
-                    break
-                if _j == _si:
-                    continue
-                for _eid in (getattr(_p, "ev_ids", []) or []):
-                    if len(_added) >= _enrich_cap:
-                        break
-                    if _eid in _seen or _eid not in evidence_pool:
-                        continue
-                    if not _row_carries_number(evidence_pool.get(_eid) or {}):
-                        continue
-                    _seen.add(_eid)
-                    _added.append(_eid)
-            if _added:
-                try:
-                    _synth_plan.ev_ids = _existing + _added
-                    logger.info(
-                        "[multi_section] INSIGHT: cross-study synthesis evidence enrichment — "
-                        "section %r %d -> %d rows (added %d sibling-body rows for cross-study "
-                        "comparison; per-section budget + strict_verify unchanged)",
-                        _synth_plan.title, len(_existing), len(_synth_plan.ev_ids), len(_added),
-                    )
-                except (AttributeError, TypeError):
-                    # A non-mutable / non-SectionPlan role node: skip (byte-identical for it).
-                    pass
-
     contract_plans = [p for p in plans if is_contract_section(p)]
     legacy_plans = [p for p in plans if not is_contract_section(p)]
 
