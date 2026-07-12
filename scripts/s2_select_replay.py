@@ -242,6 +242,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # Build cp2: kept rows (whole-drops removed) with kept-lines-only bodies + sidecar.
     result_by_id = {r.evidence_id: r for r in corpus.results}
+    # S2 SELECT+WEIGH metadata enrichment (native, at-the-source): the line-screen stamp site
+    # (apply_result_to_row) enriches every SCREENED kept row; here we enrich the un-screened
+    # pass-through rows (res is None) too, so the whole cp2 pool carries correct doi/journal/tier.
+    from src.polaris_graph.retrieval.source_metadata import enrich_row_metadata  # noqa: PLC0415
+    meta_stats = {"doi_filled": 0, "journal_filled": 0, "tier_reclassed": 0, "tier_to": {}}
     kept_rows: list[dict] = []
     dropped_line_records: list[dict] = []
     whole_drop_records: list[dict] = []
@@ -249,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         eid = str(row.get("evidence_id", ""))
         res = result_by_id.get(eid)
         if res is None:
-            kept_rows.append(row)
+            kept_rows.append(enrich_row_metadata(dict(row), meta_stats))
             continue
         title = str(row.get("title") or row.get("statement") or "")
         url = str(row.get("source_url") or row.get("url") or "")
@@ -267,10 +272,31 @@ def main(argv: list[str] | None = None) -> int:
             continue  # excluded from the grounding pool (disclosed)
         kept_rows.append(ls.apply_result_to_row(row, res))
 
+    # ── S2 metadata-enrichment lock-bar (measured over the FINAL kept pool) ──
+    def _has(r, k):
+        return bool(str(r.get(k, "") or "").strip())
+    import collections as _collections  # noqa: PLC0415
+    n_doi = sum(1 for r in kept_rows if _has(r, "doi"))
+    n_journal = sum(1 for r in kept_rows if _has(r, "journal"))
+    tier_dist = _collections.Counter(str(r.get("tier") or "UNKNOWN") for r in kept_rows)
+    n_unknown = tier_dist.get("UNKNOWN", 0)
+    metadata_summary = {
+        "n_rows": len(kept_rows),
+        "doi_populated": n_doi,
+        "journal_populated": n_journal,
+        "tier_unknown": n_unknown,
+        "tier_dist": dict(sorted(tier_dist.items())),
+        "enrich_stats": meta_stats,
+    }
+    print(f"[s2] METADATA: rows={len(kept_rows)} doi_populated={n_doi} "
+          f"journal_populated={n_journal} tier_UNKNOWN={n_unknown} "
+          f"tier_dist={dict(sorted(tier_dist.items()))}")
+
     # ── cp2_corpus_snapshot.json ──
     cp2 = dict(data)
     cp2["evidence_for_gen"] = kept_rows
     cp2["stage"] = "s2_line_screened"
+    cp2["metadata_enrichment_summary"] = metadata_summary
     cp2["line_screen_summary"] = {
         "n_sources_in": len(rows),
         "n_sources_kept": len(kept_rows),

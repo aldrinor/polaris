@@ -74,10 +74,21 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--cp2', required=True)
     ap.add_argument('--out', required=True)
+    ap.add_argument('--no-nli', action='store_true',
+                    help='disable the semantic-NLI merge legs (deterministic, seconds, no OOM). '
+                         'The same-work DUPLICATE merge is deterministic (_same_work_key on '
+                         'doi/url/title) and is UNAFFECTED — only cross-work semantic claim '
+                         'merging is skipped. Use for a fast metadata/dedup measurement on CPU.')
     args = ap.parse_args()
 
     for k, v in _SLATE.items():
         os.environ[k] = v
+    if args.no_nli:
+        for k in ('PG_CONSOLIDATION_NLI', 'PG_FINDING_DEDUP_NLI',
+                  'PG_CONSOLIDATION_NLI_QUALITATIVE', 'PG_CONSOLIDATION_NLI_EMBED_BLOCK',
+                  'PG_CONSOLIDATION_NLI_SUBBUCKET', 'PG_FINDING_NUMERIC_NLI_CONFIRM',
+                  'PG_FINDING_NUMERIC_NLI_CONFIRM_STRICT'):
+            os.environ[k] = '0'
 
     from src.polaris_graph.authority.data_loader import load_authority_data
     from src.polaris_graph.synthesis.finding_dedup import dedup_by_finding
@@ -100,6 +111,12 @@ def main() -> int:
 
     def _tier(i):
         return (str(rows[i].get('tier', '') or 'UNKNOWN')) if 0 <= i < len(rows) else 'UNKNOWN'
+
+    def _doi(i):
+        return (str(rows[i].get('doi', '') or '')) if 0 <= i < len(rows) else ''
+
+    def _journal(i):
+        return (str(rows[i].get('journal', '') or '')) if 0 <= i < len(rows) else ''
 
     def _stmt(i):
         # Fix 7/9 (Fable): the representative_statement must be a READABLE, COMPLETE claim
@@ -176,6 +193,10 @@ def main() -> int:
             'member_hosts': list(c.member_hosts),
             'member_tiers_weight': [_tier(i) for i in mi],
             'member_urls': [_url(i) for i in mi],
+            # S2 SELECT+WEIGH metadata now flows through to the basket so the corrected corpus is
+            # measurable at the basket level (parallel to member_urls / member_tiers_weight).
+            'member_dois': [_doi(i) for i in mi],
+            'member_journals': [_journal(i) for i in mi],
             'representative_evidence_id': _eid(c.representative_index),
             'representative_statement': _stmt(c.representative_index),
         })
@@ -198,6 +219,36 @@ def main() -> int:
 
     multi_member = sum(1 for b in baskets if b['member_count'] > 1)
     multi_corrob = sum(1 for b in baskets if b['corroboration_count'] > 1)
+
+    # S2/S3 SELECT+WEIGH corpus-metadata lock-bar: measured over the FULL cp2 evidence pool the
+    # consolidation consumed (the same basis as the proven repair floor). DOI/journal populated,
+    # tier=UNKNOWN cut, and the same-work merge that folds the DOI/url/title duplicates as
+    # corroboration (§-1.3 MERGE, never delete). Carried into cp3 so the corrected corpus is
+    # self-describing and auditable without re-deriving from cp2.
+    import collections as _collections  # noqa: PLC0415
+    def _pop(field):
+        return sum(1 for r in rows if str(r.get(field, '') or '').strip())
+    _tier_dist = _collections.Counter(str(r.get('tier') or 'UNKNOWN') for r in rows)
+    _dupkey = _collections.Counter()
+    for r in rows:
+        k = (str(r.get('doi', '')).strip() or str(r.get('source_url') or r.get('url') or '')
+             or str(r.get('title', ''))).lower()
+        _dupkey[k] += 1
+    _dupes = sum(c - 1 for c in _dupkey.values() if c > 1)
+    _sw_merged = 0
+    if sw is not None:
+        _sw_merged = sum(max(0, len(g.member_indices) - 1) for g in sw.groups)
+    corpus_metadata_summary = {
+        'basis_note': 'measured over the full cp2 evidence pool S3 consumed (repair-floor basis)',
+        'n_rows': len(rows),
+        'doi_populated': _pop('doi'),
+        'journal_populated': _pop('journal'),
+        'tier_unknown': _tier_dist.get('UNKNOWN', 0),
+        'tier_dist': dict(sorted(_tier_dist.items())),
+        'duplicate_rows_detected': _dupes,
+        'same_work_members_merged': _sw_merged,
+        'same_work_multi_member_groups': sw_multi,
+    }
 
     consolidation_summary = {
         'basket_total': len(baskets),
@@ -328,6 +379,7 @@ def main() -> int:
         'payload': {
             'baskets': baskets,
             'consolidation_summary': consolidation_summary,
+            'corpus_metadata_summary': corpus_metadata_summary,
             'contradiction_edges': [],
             'same_work_groups': sw_groups_payload,
             'chrome_deletion_disclosure': chrome_deletion_disclosure,
@@ -339,6 +391,7 @@ def main() -> int:
     out_path = out_dir / 'cp3_basket_snapshot.json'
     out_path.write_text(json.dumps(envelope, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
     print('wrote', out_path, 'baskets', len(baskets))
+    print('corpus_metadata_summary', json.dumps(corpus_metadata_summary))
     print('consolidation_summary', json.dumps(consolidation_summary))
     print('upstream_sha', upstream_sha[:16])
     return 0
