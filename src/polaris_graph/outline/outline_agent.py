@@ -2086,14 +2086,29 @@ def _derive_theme_coverage_sections(
     k = int(min(max(len(seed_plans) * 2, 12), 24, max(2, n // 10)))
     labels = KMeans(n_clusters=k, random_state=0, n_init=10).fit_predict(Xd)
 
-    # seed section footprint: ev_id -> owning section indices, plus each section's title/focus text.
+    # seed section footprint: ev_id -> owning section, each section's title/focus text, AND — the
+    # robust coverage signal — each section's OWN centroid top-terms (derived from its assigned
+    # evidence the SAME way the cluster terms are). Comparing cluster-terms to section-terms answers
+    # "is there already a section ABOUT this theme?" independent of the ev_id-count mismatch (seed
+    # sections hold ~20-40 rows, clusters 100-260, so a cluster-normalized ev_id overlap is always
+    # tiny and cannot be the primary coverage test).
+    _row_of = {e: i for i, e in enumerate(ev_ids)}
     seed_ev_sets: list[set[str]] = []
     seed_txt: list[str] = []
+    seed_term_sets: list[set[str]] = []
     for p in seed_plans:
-        seed_ev_sets.append({str(e) for e in (getattr(p, "ev_ids", None) or [])})
+        s_ev = {str(e) for e in (getattr(p, "ev_ids", None) or [])}
+        seed_ev_sets.append(s_ev)
         seed_txt.append(
             (str(getattr(p, "title", "")) + " " + str(getattr(p, "focus", ""))).lower()
         )
+        s_rows = [_row_of[e] for e in s_ev if e in _row_of]
+        if s_rows:
+            s_cent = Xd[s_rows].mean(axis=0)
+            seed_term_sets.append({str(terms[i]) for i in _np.argsort(s_cent)[::-1][:10]
+                                   if s_cent[i] > 0})
+        else:
+            seed_term_sets.append(set())
     seed_titles_lower = {str(getattr(p, "title", "")).strip().lower() for p in seed_plans}
 
     from src.polaris_graph.generator.multi_section_generator import SectionPlan  # noqa: PLC0415
@@ -2119,27 +2134,37 @@ def _derive_theme_coverage_sections(
         centroid = Xd[idx].mean(axis=0)
         top_term_i = list(_np.argsort(centroid)[::-1][:8])
         top_terms = [str(terms[i]) for i in top_term_i if centroid[i] > 0][:6]
-        # coverage: is this cluster OWNED by some existing seed section?
+        # coverage: is this cluster OWNED by some existing seed section? Use TWO ev_id normalizations
+        # (max of cluster-share and section-share): a section OWNS the theme if it holds most of the
+        # cluster OR is itself mostly about the cluster.
         member_set = set(member_ids)
         best_share = 0.0
         for s_ev in seed_ev_sets:
-            if not member_set:
-                break
-            share = len(member_set & s_ev) / float(size)
+            if not member_set or not s_ev:
+                continue
+            inter = len(member_set & s_ev)
+            if not inter:
+                continue
+            share = max(inter / float(size), inter / float(len(s_ev)))
             if share > best_share:
                 best_share = share
         # salience gate: a genuine corpus theme is anchored in the corpus's own top-DF vocabulary.
         # A cluster whose top terms are NONE of the salient vocab is a scraping/boilerplate artifact
         # (bot-page, PDF stream, nav chrome) — never promote it to a section.
         salient = sum(1 for t in top_terms[:5] if t in _salient_vocab)
-        # title/focus lexical overlap: >=2 of the cluster's top-4 terms already named by a section.
+        # PRIMARY coverage signal: does a seed section's OWN centroid vocabulary already name this
+        # theme? >=2 shared terms between the cluster's top-5 and some section's top-10 terms.
+        cl_top5 = {t for t in top_terms[:5]}
+        term_named = any(len(cl_top5 & sset) >= 2 for sset in seed_term_sets if sset)
+        # secondary: title/focus lexical overlap (>=2 of cluster top-4 terms in a section heading).
         top4 = {t.lower() for t in top_terms[:4]}
         lexically_named = any(
             sum(1 for t in top4 if t and t in stxt) >= 2 for stxt in seed_txt
         )
-        covered = (best_share >= cover_thresh) or lexically_named
+        covered = (best_share >= cover_thresh) or term_named or lexically_named
         rec = {
             "size": size, "top_terms": top_terms, "salient": salient,
+            "term_named": term_named,
             "best_section_share": round(best_share, 3),
             "lexically_named": lexically_named, "covered": covered,
         }
