@@ -10618,6 +10618,36 @@ async def generate_multi_section_report(
             singleton_candidates=(_singleton_candidates or None),
         )
 
+    # OUTLINE GATE (default-OFF, byte-identical when unset): dump the ROUTED outline with each
+    # section's assigned evidence RESOLVED to {tier,title,url,quote} BEFORE the expensive per-section
+    # compose, so a caller can READ + quality-assess the outline (rich vs thin/poor) and abort early.
+    # Pure instrumentation — no behavior change to compose. PG_DUMP_ROUTED_OUTLINE=<path>.
+    _gate_dump = os.getenv("PG_DUMP_ROUTED_OUTLINE", "").strip()
+    if _gate_dump:
+        try:
+            _pool = evidence_pool or {}
+            _gout = []
+            for _p in plans:
+                _evs = []
+                for _e in (getattr(_p, "ev_ids", None) or []):
+                    _r = _pool.get(str(_e)) or {}
+                    _evs.append({
+                        "ev_id": str(_e),
+                        "tier": str(_r.get("tier", "") or ""),
+                        "title": str(_r.get("title", "") or "")[:180],
+                        "url": str(_r.get("source_url") or _r.get("url") or "")[:180],
+                        "quote": str(_r.get("direct_quote") or _r.get("statement") or "")[:400],
+                    })
+                _gout.append({"title": getattr(_p, "title", ""),
+                              "focus": getattr(_p, "focus", ""),
+                              "n_ev": len(_evs), "evidence": _evs})
+            with open(_gate_dump, "w", encoding="utf-8") as _fh:
+                _fh.write(json.dumps(_gout, indent=2) + "\n")
+            logger.info("[outline-gate] routed outline dumped: %d sections, %d ev_ids total -> %s",
+                        len(_gout), sum(s["n_ev"] for s in _gout), _gate_dump)
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("[outline-gate] dump failed: %s", _e)
+
     # Stage 2: per-section generation (bounded parallelism)
     # fix#19 (#1262), SPEED / faithfulness-NEUTRAL: the 4-7 sections are ALREADY
     # generated concurrently (the _gather_sections_isolated asyncio.gather below) but
