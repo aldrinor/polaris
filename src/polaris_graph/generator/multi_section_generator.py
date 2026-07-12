@@ -3900,6 +3900,75 @@ def _anti_restatement_enabled() -> bool:
     )
 
 
+_SENTENCE_TARGET_ENV = "PG_SECTION_SENTENCE_TARGET"
+_DISTINCT_SOURCES_ENV = "PG_SECTION_DISTINCT_SOURCES"
+# Rule-#8 / rule-#9 anchors, present in BOTH non-concise templates (clinical :3564-3565 and
+# field-agnostic :3713-3714). Editing only one of the two would be a silent 50% no-op, so the
+# transform is applied at the single selector seam and every REQUIRED anchor must fire exactly once.
+_RULE8_ANCHOR = r"Target 10-18 sentences"
+_RULE9_ANCHOR = r"at least 5 DISTINCT sources"
+
+
+def _apply_depth_targets(template: str) -> str:
+    """Rank7: make the section writer's LENGTH and CITATION-DIVERSITY targets configurable.
+
+    There is no word governor on this code path — ``PG_TARGET_TOTAL_WORDS`` and friends are consumed
+    only by ``agents/synthesizer.py`` / ``synthesis/section_writer.py``, which this module does not
+    import. Report length is emergent: n_sections x rule-#8's sentence target x ~30 words/sentence.
+    Rule #8's "10-18" was written as a FLOOR-raiser against the model's natural 6-8, but it functions
+    as the binding CEILING: evidence-rich sections already render 16-18 sentences, i.e. the top of the
+    band. This makes that band the single tunable it always was.
+
+    Rule #9 moves WITH rule #8 on purpose. The B11 same-span dedup pass
+    (``verified_compose.dedup_same_span_sentences``, default ON) keeps only one sentence per distinct
+    ``(ev_id, start, end)`` footprint, so extra sentences that re-word an ALREADY-CITED span are
+    deleted. Raising the sentence target without raising the distinct-source floor would invite the
+    model to pad from the same spans and B11 would silently eat the gain — the exact no-op shape that
+    killed Rank6. The lever is "cite more DISTINCT sources", not "write more sentences".
+
+    Unset => the ORIGINAL template object is returned unchanged (same identity), so the locked
+    benchmark is byte-identical. Set => FAILS LOUD if an anchor drifted, so a future template edit
+    cannot silently turn this into a no-op."""
+    target = os.getenv(_SENTENCE_TARGET_ENV, "").strip()
+    sources = os.getenv(_DISTINCT_SOURCES_ENV, "").strip()
+    if not target and not sources:
+        return template
+
+    out = template
+    if target:
+        out, n = re.subn(_RULE8_ANCHOR, f"Target {target} sentences", out)
+        if n != 1:
+            raise RuntimeError(
+                f"{_SENTENCE_TARGET_ENV} set but the rule-#8 anchor {_RULE8_ANCHOR!r} fired {n} "
+                "times (expected exactly 1). The section template changed; update _apply_depth_targets."
+            )
+    if sources:
+        out, n = re.subn(_RULE9_ANCHOR, f"at least {sources} DISTINCT sources", out)
+        if n != 1:
+            raise RuntimeError(
+                f"{_DISTINCT_SOURCES_ENV} set but the rule-#9 anchor {_RULE9_ANCHOR!r} fired {n} "
+                "times (expected exactly 1). The section template changed; update _apply_depth_targets."
+            )
+    if target:
+        # The clinical template's Mechanism rule BACK-REFERENCES rule #8's band ("For other sections,
+        # rule #8 target of 10-18 sentences applies as usual."). Leaving it would hand the model a
+        # self-contradicting prompt — 28-36 in rule #8, 10-18 in the back-ref — and blunt the lever.
+        # Optional (0 occurrences in the field-agnostic template), so 0 or 1 are both legal; >1 is not.
+        out, n = re.subn(
+            r"rule #8 target of 10-18 sentences", f"rule #8 target of {target} sentences", out
+        )
+        if n > 1:
+            raise RuntimeError(
+                f"rule-#8 back-reference fired {n} times (expected 0 or 1); template drifted."
+            )
+        if "10-18" in out:
+            raise RuntimeError(
+                f"{_SENTENCE_TARGET_ENV} set but '10-18' still survives in the template after "
+                "rewriting — an unhandled length anchor would contradict the new target."
+            )
+    return out
+
+
 def _select_section_system_prompt(
     use_field_agnostic: bool, anti_verbosity: bool = False
 ) -> str:
@@ -3915,12 +3984,20 @@ def _select_section_system_prompt(
     same object identity as before this change, so the locked benchmark is
     byte-identical until the flag is set."""
     if anti_verbosity:
+        # The CONCISE variants exist to STRIP rule #8's length target; a depth target asks to raise
+        # it. Honouring both is incoherent, and silently letting one win is how a lever becomes a
+        # no-op. Refuse the combination outright.
+        if os.getenv(_SENTENCE_TARGET_ENV, "").strip():
+            raise RuntimeError(
+                f"PG_ANTI_VERBOSITY and {_SENTENCE_TARGET_ENV} are mutually exclusive: the concise "
+                "template removes rule #8's sentence target, which the depth target raises."
+            )
         if use_field_agnostic:
             return SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC_CONCISE
         return SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE
     if use_field_agnostic:
-        return SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC
-    return SECTION_SYSTEM_PROMPT_TEMPLATE
+        return _apply_depth_targets(SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC)
+    return _apply_depth_targets(SECTION_SYSTEM_PROMPT_TEMPLATE)
 
 
 async def _call_section(
