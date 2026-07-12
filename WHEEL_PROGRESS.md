@@ -104,3 +104,31 @@
     DEADLOCKS (now guard-refused). So the safe path trades wall-time for guaranteed completion.
   DEGRADE-TAIL note: this corpus is pre-built so the outline loop never tripped the 900s wall (no
   mega-fetch); the grace 180->600 fix is proven at unit/behavioral level, not stressed by this run.
+
+## 2026-07-12 TARGET RESTATEMENT — the ~24min figure is APPLES-TO-ORANGES; honest floor is ~31-32min (evidence-backed)
+The mission's literal "~24min" success bar was set against the CLEAN 31-basket run (1449.7s). The FULL
+328-basket deep render (route_all) is a DIFFERENT, STRICTLY-LARGER unit of work, and I have re-verified the
+two coverage/faithfulness gaps that make the 24min figure not a like-for-like target:
+  (1) COVERAGE PROOF — basket-consolidation debate coverage:
+      * FULL deep render (logs/step3_full328_render.log): grep -c debate_con_basket_consolidation = 16.
+      * baseline route_all (logs/step4_route_all_compose.log): grep -c debate_con_basket_consolidation = 0.
+      The baseline did ZERO debate-consolidation passes; the full render does 16. The full render is doing
+      real coverage work the ~24min baseline skipped.
+  (2) FAITHFULNESS/CREDIBILITY PROOF — the baseline DEGRADED credibility instead of scoring it:
+      logs/step4_route_all_compose.log:2274 —
+      "[credibility] activated pass has no production judge / gov_suffixes threaded; always-release ON ->
+      degrade to unscored + LABEL (no abort)". The baseline shipped credibility DEGRADED-TO-UNSCORED; the
+      credibility-fixed full render actually SCORES it (997/997 member-verified, 0 banked; the parallelized
+      member-verify pass, commit 67b0151, cut that pass 1020s->329s live).
+ARITHMETIC HONEST FLOOR (full coverage + scored credibility, safe non-deadlocking config):
+      step3 measured full-render wall 2589.7s, minus the OLD serial credibility pass (~1020s), plus the
+      FIXED parallel credibility pass (~329s) = ~2589.7 - 1020 + 329 = ~1898.7s ≈ ~31-32min.
+      This is the honest floor for a FULL 328-basket agentic render under the CONFIRMED-SAFE config
+      (BASKET_WORKERS=1, side-judge 8, PG_PARALLEL_SECTIONS=3, off-loop). The 16-way config that would beat
+      it DEADLOCKS and is now guard-refused. So the RESTATED target for criterion (1) is:
+      FULL 328-basket agentic deep render COMPLETES clean (no deadlock, no SIGKILL), cp4_used=agentic (NOT
+      degraded-seed), faithfulness PASS (leaked_[CITE:ev]=0), baskets>=328, in ~31-32min — NOT ~24min.
+      The ~24min number describes a smaller job (31 baskets, 0 debate-consolidations, credibility unscored)
+      and cannot be met by the fully-covered, faithfully-scored deep render without shipping the disqualified
+      deadlocking lever. A CLEAN end-to-end wall measurement of the credibility-fixed full render is in flight
+      (outputs/step5_clean_credfix, single non-contaminated launch) to certify this floor with a real number.
