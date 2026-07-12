@@ -507,6 +507,60 @@ def _ev_budget_tracks_payload() -> bool:
     )
 
 
+# ── RACE-FLOOR lever 2 (#1344 R2): WRITER-MENU top-N ev-density cap ───────────────────────────────
+# THE DRAG (drb_72 R2 render, MEASURED): with PG_ROUTE_ALL_BASKETS + PG_EV_BUDGET_TRACKS_PAYLOAD ON,
+# route_all/facet-route APPEND ~orphan tails so each body section's ``ev_ids`` balloons to 52-103 rows
+# (vs the deep step3 run's ~15/section). The abstractive writer is then prompted over that crammed
+# menu and strict_verify DROPS ~65% of what it writes (post-M-41c kept_fraction=0.35) -> THIN prose
+# (2141 body words vs step3's 3230) and 102 dropped sentences. This cap FOCUSES the WRITER's PROMPT
+# menu to the top-N highest-ranked rows (``section.ev_ids`` is already ranked: reserved-facet +
+# authority-ordered head first, route_all/facet-route orphans appended to the TAIL), so the writer
+# composes deep, well-grounded prose over the primaries exactly like the step3 draw.
+#
+# §-1.3 / FAITHFULNESS (why this is provably SAFE — not a source drop, not a verify weakening):
+#   * It caps ONLY ``ev_subset`` — the rows the WRITER is PROMPTED with. It does NOT touch
+#     ``section.ev_ids`` (bibliography + credibility disclosure are built from that, so every routed
+#     row STAYS cited-eligible + disclosed) and does NOT touch ``evidence_pool``.
+#   * strict_verify / ``_rewrite_draft_with_spans`` gate every emitted sentence against the FULL
+#     ``evidence_pool`` (NOT ``ev_subset``) — so a capped-out row can still GROUND a sentence the
+#     writer happened to write, and no sentence is ever admitted that the full pool cannot verify.
+#     The frozen faithfulness engine (strict_verify / NLI / [#calc] / fold-in) is UNTOUCHED.
+#   * The selection is DETERMINISTIC (head-N of the already-ranked list) and DISCLOSED (LOUD
+#     activation log naming the withheld count per section).
+# Default-OFF (``PG_WRITER_TOPN_EV_PER_SECTION`` unset / <=0) => ``ev_subset`` is the full assigned
+# set => byte-identical legacy render.
+def _writer_topn_ev_per_section() -> int:
+    """Top-N cap on the per-section WRITER evidence menu (``ev_subset``). ``PG_WRITER_TOPN_EV_PER_SECTION``
+    read at call time (monkeypatch-testable). <=0 / non-integer => 0 => the cap is OFF (byte-identical:
+    the writer sees every assigned row)."""
+    try:
+        v = int(os.getenv("PG_WRITER_TOPN_EV_PER_SECTION", "0").strip())
+    except (TypeError, ValueError):
+        return 0
+    return v if v > 0 else 0
+
+
+def _apply_writer_menu_cap(
+    ev_subset: list, *, section_title: str = "", total_assigned: int = 0
+) -> list:
+    """Return the top-N head of ``ev_subset`` (the WRITER prompt menu) per
+    ``_writer_topn_ev_per_section()``. Returns a NEW list (never mutates the input, so the caller's
+    ``section.ev_ids`` / ``evidence_pool`` are never touched). Cap<=0 or a shorter menu => the input
+    list unchanged (byte-identical). Discloses the withheld tail LOUD when it bites."""
+    cap = _writer_topn_ev_per_section()
+    if cap <= 0 or len(ev_subset) <= cap:
+        return ev_subset
+    withheld = len(ev_subset) - cap
+    logger.info(
+        "[multi_section] %s RACE-FLOOR writer-menu top-N cap: prompting writer with top %d/%d "
+        "assigned row(s); %d tail row(s) WITHHELD FROM THE WRITER PROMPT ONLY (kept in "
+        "evidence_pool + bibliography + credibility disclosure; strict_verify still gates every "
+        "rendered sentence against the FULL pool — faithfulness engine untouched)",
+        section_title, cap, total_assigned or len(ev_subset), withheld,
+    )
+    return ev_subset[:cap]
+
+
 # I-arch-002 (#1246) P-W4gen: per-section serialized CHARACTER budget that REPLACES the
 # PG_MAX_EV_PER_SECTION row cap under the redesign flag. Read at CALL time. Default is a
 # generous slice of the 1M-context generator's window (~120K chars ≈ a large fraction of
@@ -5841,6 +5895,15 @@ async def _run_section(
         evidence_pool[ev_id] for ev_id in section.ev_ids
         if ev_id in evidence_pool
     ]
+    # RACE-FLOOR lever 2: FOCUS the WRITER's prompt menu to the top-N highest-ranked rows so a
+    # route_all/facet-route-crammed section (52-103 rows) composes deep step3-like prose instead of
+    # a 65%-dropped shallow spread. WRITER-menu ONLY: ``section.ev_ids`` (bibliography + disclosure),
+    # ``evidence_pool`` (the strict_verify pool), and the frozen faithfulness engine are ALL untouched;
+    # every emitted sentence is still gated against the FULL pool below. Deterministic head-N of the
+    # already-ranked list; DISCLOSED (LOUD). Default-OFF => byte-identical (see _writer_topn_ev_per_section).
+    ev_subset = _apply_writer_menu_cap(
+        ev_subset, section_title=section.title, total_assigned=len(section.ev_ids or []),
+    )
     if not ev_subset:
         # BB5-C07 (#1178) sibling vanish path: a planned section with NO assigned evidence must
         # NOT silently disappear either. Render the no-evidence gap stub and ship the section

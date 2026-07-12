@@ -242,3 +242,37 @@ defers theme-collapsing merges, preserves both themes, allows split/add/reassign
 live _tool_update_outline workspace seam. Existing 17 test_outline_revise tests still PASS.
 NO expensive render yet (per ROUND-1 scope). Awaiting Fable gate on: render Part A alone first, or
 also dial back the compose-stage cramming/residual (lever 2) before the ROUND-2 render.
+
+## 2026-07-12 — ROUND 2: Part A floor MEASURED + lever 2 (writer-menu top-N cap) landed
+RENDER r2_partA_floor (Part A floor default-ON, no lever-2, DRB task 72, same 329-basket corpus):
+- cp4_used=AGENTIC, faithfulness_pass=TRUE, leaked_cite_ev_tokens=0.
+- STRUCTURE RESTORED: outline finished turn 1 with SEED=9 sections; floor armed (seed=9) — the
+  rich structure step5 collapsed is back, INCLUDING "Wage Inequality and Skill-Biased Change"
+  (the 470w theme step5 dropped). 9 substantive sections + a near-empty residual.
+- RACE Overall = **0.3959** (Comp 0.4108 / Insight 0.3809 / Instr 0.4047 / Read 0.3845).
+  => Part A lifted the FLOOR +0.044 over step5's 0.3518, but did NOT reach step3's 0.4447.
+- WHY the residual gap is COMPOSE-STAGE cramming (lever 2), MEASURED:
+  * post-loop outline carries 1007 ev_ids (step5=1033, step3=132) — sections 52-103 ev_ids each
+    + a 481-ev_id "Additional Corroborated Findings" residual.
+  * residual renders NEARLY EMPTY (29w, 0 cites) — its 481 rows are strict_verify-dropped; the
+    residual prose is NOT the drag.
+  * REAL drags: (1) THIN body (2141 words vs step3 3230; sections 109-332w) because the abstractive
+    writer is prompted over 52-103 crammed rows and strict_verify drops ~65% (log: post-M-41c
+    kept_fraction=0.35 < 0.40 retry) -> 102 dropped sentences (step3=64), 77 verified (step3=91);
+    (2) bib bloated to 64 (39 cited) from route_all/facet-route listing.
+  * Sections render via the ABSTRACTIVE writer + strict_verify (verified-compose PRIMARY / FIX-K
+    markers = 0), so the lever is the WRITER's ev menu, not the basket K-span.
+
+LEVER 2 LANDED (gated OFF): PG_WRITER_TOPN_EV_PER_SECTION (default 0 = byte-identical). When N>0,
+_apply_writer_menu_cap FOCUSES the per-section WRITER prompt menu (ev_subset) to the top-N head of
+the already-ranked section.ev_ids (route_all/facet orphans are appended to the TAIL, so head-N keeps
+the primaries). FAITHFULNESS-SAFE by construction (verified in-code): the cap touches ONLY ev_subset
+(the writer prompt); section.ev_ids (bibliography + credibility disclosure) and evidence_pool are
+UNTOUCHED, and _rewrite_draft_with_spans + strict_verify gate every emitted sentence against the FULL
+evidence_pool (NOT ev_subset) at line ~6245 — so no source is dropped from the pool/bib/disclosure and
+no verify gate is weakened. Deterministic head-N + LOUD disclosure. Seam: multi_section_generator
+_call_section ev_subset build (~L5894).
+EXERCISED: 8 new faithfulness-contract tests (test_writer_menu_cap_lever2.py) PASS — OFF=same-object
+byte-identical, bad/neg env disables, head-N deterministic, NEVER mutates input (pool/bib keep every
+withheld row), short menu untouched. 31 existing multi_section+outline_revise tests still PASS (45 total).
+NEXT: render with PG_WRITER_TOPN_EV_PER_SECTION=24 to test the depth hypothesis; target >=0.4447.
