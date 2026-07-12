@@ -57,3 +57,35 @@
   multi_section_generator.py so 328 baskets render 16-way (~10-16x faster, 0 coverage loss).
   compose_fix proven: concurrency 1->16, 0 429s, faithfulness verdict-set byte-identical (commit 7d23a11).
 - ORDER: finish the current 328-basket QUALITY run first (does deep coverage raise RACE?), THEN apply speed.
+
+## SCALE-DEADLOCK on full 328-basket 16-way run (operator-caught)
+- The full route_all 16-way compose DEADLOCKED: 19/20 threads in futex_wait, 0 progress 8.8min, killed.
+- The small verdict-identity A/B PASSED but did NOT exercise the full-scale semaphore(48)+basket-workers+
+  off-loop interaction -> deadlock only at 328-basket scale.
+- FIX OPTIONS (do the safe one): (a) fall back to OFF-LOOP-ONLY (no basket-worker parallelism) — this
+  was the verdict-safe subset; (b) lower PG_COMPOSE_BASKET_WORKERS + PG_MAX_CONCURRENT_LLM and add a
+  timeout/deadlock-watchdog; (c) root-cause the lock (likely a shared semaphore acquired across the
+  off-loop thread boundary). NEVER ship a compose that can deadlock. Re-run must complete + stay
+  verdict-identical AND not hang.
+
+## 2026-07-12 SHIP SAFE COMPOSE + KILL DEGRADE TAIL (P0+P1; commits 5168fe8, f484b57)
+- STEP 0: reviewed 2 uncommitted files — WHEEL_PROGRESS deadlock note (kept), scripts/_run_16way_s3gear329.sh
+  (kept, re-headed as the guard-REFUSED A/B certification harness for the deadlock config).
+- STEP 1 (P0 — safe config + startup guard): NEW src/polaris_graph/generator/compose_config_guard.py:
+  assert_safe_compose_config() REFUSES PG_COMPOSE_BASKET_WORKERS>1 OR PG_SIDE_JUDGE_MAX_CONCURRENCY>=48
+  unless PG_COMPOSE_DEADLOCK_CONFIG_AB_CERTIFIED=1 attests a full-328 verdict-identity A/B passed (raises
+  UnsafeComposeConfigError). Wired at the TOP of generate_multi_section_report (fires before any work —
+  PROVEN at the real entry point: deadlock env -> refused). Did NOT add a timeout to entailment acquire
+  (would fail-closed -> drop sentences -> faithfulness breach). Did NOT ship the judge-cap clamp. Pinned
+  the CONFIRMED-SAFE config in the launch driver (workers=1, side-judge=8, PG_PARALLEL_SECTIONS=3, off-loop
+  already shipped). Surfaced outline_agent_stats (cp4_used) on MultiSectionResult + compose_summary.json so
+  the FULL render PROVES cp4_used=agentic. 15/15 guard regression tests (tests/test_compose_config_guard.py).
+- STEP 2 (P1 — kill the degrade tail): outline_agent.py grace default 180 -> 600s
+  (PG_OUTLINE_AGENT_RUN_TIMEOUT_GRACE_SECONDS). The internal loop stops STARTING turns at wall(900s) but a
+  turn already in-flight runs to completion; a legit ~466s mega-fetch pushed the final turn past wall+180
+  -> outer asyncio.wait_for CANCELLED it -> degrade-to-seed. Grace 600 lets the final turn COMPLETE
+  (quality-preserving, NO fetch-cap, NO turn cut, zero coverage loss); loop then returns normally as
+  agentic. Still a finite ~25min ceiling catching a TRUE hang. Behavioral proof: run overshooting wall by
+  300s/466s degrades under 180, completes agentic under 600.
+- STEP 3 (prove it): FULL 328-basket deep render launched on data/cp4_corpus_s3gear_329.corrected.json
+  (997 evidence, 329 clusters, safe config) — MEASUREMENT PENDING (see round output).
