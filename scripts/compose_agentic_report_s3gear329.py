@@ -151,6 +151,24 @@ async def main() -> int:
     os.environ.setdefault("PG_COMPOSE_BASKET_WORKERS", "1")
     os.environ.setdefault("PG_SIDE_JUDGE_MAX_CONCURRENCY", "8")
     os.environ.setdefault("PG_PARALLEL_SECTIONS", "3")
+    # P1-SPEED (2026-07-12) — collapse the ISOLATED pre-compose credibility member-verify pass.
+    # ROOT-CAUSE of the 43min (2589.7s) >> 24min (1449.7s) gap, MEASURED from the phase timeline in
+    # logs/step3_full328_render.log: threading the PSL gov_suffixes (below) to lift route_all basket
+    # utilization ALSO activates the ADVISORY credibility corroboration pass. On this 997-member corpus
+    # that pass ran SERIALLY (PG_CREDIBILITY_PASS_MAX_INFLIGHT default=1) and BANKED at its
+    # wall*0.85 soft deadline = 1020s, verifying only 207/997 members — a full +1020s phase the 1449.7s
+    # baseline NEVER ran (it did not thread gov_suffixes -> credibility degraded-to-unscored, skipped).
+    # This pass runs ENTIRELY BEFORE compose (an ISOLATED flat phase — NO PG_PARALLEL_SECTIONS x
+    # PG_COMPOSE_BASKET_WORKERS x inner-TPE nesting), so bounding its OWN loop concurrency is NOT the
+    # multiplicative compose oversubscription the deadlock guard protects against. Parallelize the
+    # member-verify loop and raise the side-judge cap FOR THIS PHASE ONLY (the designed I-deepfix-001
+    # box2 lever; credibility_pass_concurrency RESTORES the compose-time cap of 8 before compose starts).
+    # Faithfulness-neutral & UNDERCOUNT-only: the pass is ADVISORY (strict_verify / 4-role D8 /
+    # span-grounding are untouched); verifying MORE members in LESS time yields STRICTLY MORE
+    # corroboration than the 207-serial run and far more than the baseline's zero. All env-overridable.
+    os.environ.setdefault("PG_CREDIBILITY_PASS_MAX_INFLIGHT", "16")
+    os.environ.setdefault("PG_CREDIBILITY_PASS_SIDE_JUDGE_CONCURRENCY", "16")
+    os.environ.setdefault("PG_CREDIBILITY_PASS_WALL_S", "600")
     # STEP 2: topic-driven, synthesis-enabling structure. Facet outline (thematic sections emerge
     # from the evidence) + the general research-report skeleton (intro / thematic bodies /
     # cross-study synthesis+contradictions / conclusions+gaps). GENERAL structural flags — they
