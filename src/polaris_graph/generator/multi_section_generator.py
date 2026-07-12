@@ -861,6 +861,42 @@ def _facet_outline_active_for_domain(domain: str | None) -> bool:
     return str(domain or "").strip().lower() not in ("", "clinical")
 
 
+# GENERAL RESEARCH-REPORT SKELETON (mission STEP 2 — synthesis-enabling, topic-DRIVEN structure).
+# The bare facet outline emits a flat BAG of thematic sections with no intro, no cross-study
+# synthesis, and no conclusion/gaps — the exact SHALLOW-STRUCTURE defect that costs INSIGHT and
+# COMPREHENSIVENESS on RACE. This flag wraps the emergent thematic facets in the standard
+# research-report skeleton (intro/overview -> thematic bodies -> cross-study synthesis &
+# contradictions -> conclusions & research gaps). It is a GENERAL structural improvement that
+# applies to ANY non-clinical topic (AI/labor, finance, ecology, ...); it hardcodes NO topic,
+# NO benchmark prompt, and NO thematic title (those still EMERGE from the evidence facets). The
+# four structural ROLES are the only fixed part — a standard scholarly report skeleton. Read at
+# CALL time (env/monkeypatch-testable). DEFAULT-OFF => the bare facet prompt (byte-identical).
+_FACET_SKELETON_ENV = "PG_FACET_OUTLINE_SKELETON"
+
+
+def _facet_skeleton_enabled() -> bool:
+    """DEFAULT-OFF flag (read at call time). ON wraps the facet outline in the general
+    research-report skeleton (intro / thematic bodies / synthesis+contradictions / conclusion+gaps).
+    Only takes effect where facet mode is already active (non-clinical); clinical stays untouched."""
+    return os.getenv(_FACET_SKELETON_ENV, "0").strip().lower() not in (
+        "0", "", "false", "no", "off",
+    )
+
+
+# The skeleton addendum appended to OUTLINE_SYSTEM_PROMPT_FACET when _facet_skeleton_enabled().
+# Structure-ONLY: it constrains the ORDER and the presence of four structural roles; the thematic
+# body TITLES and COUNT still emerge from the evidence. Topic-agnostic by construction.
+_FACET_SKELETON_ADDENDUM = """
+
+GENERAL RESEARCH-REPORT SKELETON (structure the plan as a COMPLETE report, not a flat bag of topics):
+Order the sections so the report reads as a coherent scholarly review with these FOUR structural roles present in EVERY report, regardless of topic:
+  1. OPEN with exactly ONE framing/overview section that orients the reader to the question, the scope, and the body of evidence (a good title names the subject, e.g. "Introduction and Scope of the Evidence" or "Overview of <subject>"). Assign it broad, high-level or foundational evidence.
+  2. THEN the THEMATIC BODY sections — one per distinct facet the evidence genuinely supports (as instructed above). These titles EMERGE from the evidence; there is no fixed menu and no fixed count.
+  3. Include exactly ONE cross-cutting SYNTHESIS section that reads ACROSS the thematic bodies and surfaces where studies AGREE, where they CONTRADICT each other, and how strong/consistent the overall evidence is (e.g. "Cross-Study Synthesis and Contradictions"). Assign it the evidence whose findings converge or conflict.
+  4. CLOSE with exactly ONE section covering CONCLUSIONS and open RESEARCH GAPS (e.g. "Conclusions and Research Gaps"): what the evidence collectively supports, and what remains unresolved or under-studied.
+The four ROLES (open / thematic bodies / synthesis+contradictions / conclusions+gaps) are REQUIRED; the thematic-body titles are free to emerge from the evidence. Each section — including the four structural ones — still needs at least 2 genuinely supporting evidence IDs; assign the relevant rows, never fabricate a section the evidence cannot ground."""
+
+
 def _facet_outline_max_sections() -> int:
     """Compute-safety ceiling for the facet outline (read at call time). Not a target."""
     try:
@@ -1580,6 +1616,11 @@ def _select_outline_system_prompt(domain: str | None) -> str:
     generic outline prompt (I-ready-009 #1081). O1 (#1344): when the facet-outline flag is ON for a
     non-clinical domain, use the facet-driven prompt so section titles/count emerge from the evidence."""
     if _facet_outline_active_for_domain(domain):
+        # STEP 2: when the skeleton flag is on, wrap the emergent facets in the general
+        # research-report skeleton (intro / thematic bodies / synthesis+contradictions /
+        # conclusion+gaps). Structure-only; thematic titles still emerge from the evidence.
+        if _facet_skeleton_enabled():
+            return OUTLINE_SYSTEM_PROMPT_FACET + _FACET_SKELETON_ADDENDUM
         return OUTLINE_SYSTEM_PROMPT_FACET
     return (
         OUTLINE_SYSTEM_PROMPT

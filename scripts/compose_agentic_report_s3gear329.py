@@ -37,39 +37,34 @@ sys.path.insert(0, str(ROOT))
 
 DRB_QUERY = ROOT / "third_party" / "deep_research_bench" / "data" / "prompt_data" / "query.jsonl"
 
-# STEP 16 (Fable (b)): de-confound the RACE baseline.
-#  - The report is scored against DRB task 72 (broader "AI restructuring / 4IR literature review"),
-#    so it must be COMPOSED to answer task 72's verbatim prompt, not the corpus's narrower GenAI
-#    sub-prompt (which is not even a DRB task). We load the prompt verbatim from query.jsonl.
-#  - The judged text must NOT leak the raw RQ / harness "you are not allowed to view..." block, and
-#    section headings must be human/prompt-derived, not clinical archetypes (Efficacy/Safety/...).
-#    The agentic outliner (a medical-DR lineage) names sections with trial archetypes; each section's
-#    `focus` is the real content, so we relabel the ARCHETYPE titles to reader-facing, focus-faithful
-#    headings at assembly time. This is presentation of the deliverable, not content faking — the
-#    faithfulness tripwire still runs on the assembled judged text.
-_ARCHETYPE_HEADINGS = {
-    "efficacy": "Productivity Gains, Task Augmentation, and New-Task Creation",
-    "safety": "Job Displacement, Wage Polarization, and Rising Inequality",
-    "comparative": "Heterogeneous Exposure Across Occupations, Sectors, and Demographics",
-    "long-term outcomes": "Long-Term Opportunities: Reskilling, Occupational Mobility, and New Roles",
-    "mechanism": "Mechanisms of Labor-Market Restructuring",
-    "population subgroups": "Distributional and Demographic Effects",
-    "comparative analysis": "Heterogeneous Exposure Across Occupations, Sectors, and Demographics",
-    "long-term": "Long-Term Labor-Market Dynamics",
-}
-
-# A clean, human, prompt-derived report title (task 72 asks for a literature review on the
-# restructuring impact of AI on the labor market as a driver of the Fourth Industrial Revolution).
-_DEFAULT_TITLE = ("The Restructuring Impact of Artificial Intelligence on the Labor Market: "
-                  "A Literature Review")
+# STEP 2 (wheel: topic-driven structure) — the section headings are now produced TOPIC-DRIVEN by
+# the generator itself (facet outline + general research-report skeleton: PG_FACET_OUTLINE=1 +
+# PG_FACET_OUTLINE_SKELETON=1). The prior STEP-16 approach hardcoded a clinical-archetype ->
+# AI/labor relabel MAP here — an overfit band-aid tuned to one benchmark task. That map is GONE:
+# the outliner emits real topical titles (Introduction / thematic bodies / Cross-Study Synthesis /
+# Conclusions and Research Gaps) for ANY domain, so assembly renders the section titles verbatim.
 
 
-def _humanize_heading(title: str) -> str:
-    """Map a clinical-archetype section title to a reader-facing, prompt-aligned heading.
+def _derive_title(rq: str) -> str:
+    """Derive a neutral report title from the research question — GENERAL, not tuned to any task.
 
-    Non-archetype titles (already human) pass through unchanged. Presentation only — the section's
-    verified BODY text is untouched, and the faithfulness tripwire re-audits the assembled report."""
-    return _ARCHETYPE_HEADINGS.get((title or "").strip().lower(), title)
+    Takes the first sentence/clause of the RQ, strips a leading imperative ("Please write a ...",
+    "Research ...", "I am researching ..."), and Title-cases nothing (keeps the RQ's own wording).
+    Falls back to a generic label. No topic is hardcoded."""
+    import re as _re
+    s = (rq or "").strip().replace("\n", " ")
+    s = _re.sub(r"\s+", " ", s)
+    # First sentence only.
+    s = _re.split(r"(?<=[.?!])\s", s, maxsplit=1)[0]
+    # Strip common leading imperatives so the title reads as a subject, not a command.
+    s = _re.sub(r"^(please\s+)?(help me\s+)?(write|prepare|produce|conduct|research(ing)?|"
+                r"provide|create|complete|collect( and)?( organi[sz]e)?|i am researching|"
+                r"i would like|i need)\b[:,]?\s*", "", s, flags=_re.IGNORECASE)
+    s = s.strip().rstrip(".").strip()
+    if not s:
+        return "Research Report"
+    # Capitalize the first letter only (preserve proper-noun casing in the rest).
+    return s[0].upper() + s[1:]
 
 
 def _load_drb_prompt(task_id: str) -> str:
@@ -135,8 +130,9 @@ async def main() -> int:
                     help="override the corpus RQ with this DRB task's verbatim prompt so the "
                          "composed report answers the SAME task it is scored against; empty string "
                          "keeps the corpus RQ")
-    ap.add_argument("--title", default=_DEFAULT_TITLE,
-                    help="clean human report title used in the judged report.md")
+    ap.add_argument("--title", default=None,
+                    help="report title for the judged report.md; default DERIVES it from the RQ "
+                         "(general — no title is hardcoded to any task)")
     args = ap.parse_args()
 
     if not os.getenv("OPENROUTER_API_KEY"):
@@ -145,6 +141,12 @@ async def main() -> int:
         return 2
     # The mission model-lock: agentic outliner ON.
     os.environ.setdefault("PG_OUTLINE_AGENT", "1")
+    # STEP 2: topic-driven, synthesis-enabling structure. Facet outline (thematic sections emerge
+    # from the evidence) + the general research-report skeleton (intro / thematic bodies /
+    # cross-study synthesis+contradictions / conclusions+gaps). GENERAL structural flags — they
+    # hardcode no topic and are overridable from the environment.
+    os.environ.setdefault("PG_FACET_OUTLINE", "1")
+    os.environ.setdefault("PG_FACET_OUTLINE_SKELETON", "1")
 
     corpus_path = Path(args.corpus)
     corpus = json.loads(corpus_path.read_text())
@@ -196,6 +198,7 @@ async def main() -> int:
         min_kept_fraction=0.4,
         max_parallel_sections=args.max_parallel,
         tier_fractions=dist,
+        domain=domain,
     )
     dt = time.time() - t0
     kept = [s for s in multi.sections if not s.dropped_due_to_failure]
@@ -219,24 +222,26 @@ async def main() -> int:
         encoding="utf-8")
 
     # Assemble the JUDGED report body from VERIFIED text only.
-    #  - Human, prompt-derived section headings (archetype titles relabeled via _humanize_heading).
-    #  - A short structural framing intro (NO factual claims / no numbers — pure presentation) so the
-    #    literature-review instruction is visibly satisfied. The tripwire re-audits the whole text.
+    #  - Section headings are the generator's OWN topic-driven titles (facet outline + skeleton):
+    #    an Introduction, thematic bodies, a Cross-Study Synthesis & Contradictions section, and a
+    #    Conclusions & Research Gaps section — no clinical archetypes, no relabel map.
+    #  - A single GENERAL, topic-neutral framing sentence under the title (NO factual claims / no
+    #    numbers — pure presentation). The report's substantive framing lives in the generated
+    #    Introduction section; this line only states the organizing method. The tripwire re-audits.
+    title = args.title or _derive_title(rq)
     intro = (
-        "This review synthesizes the empirical literature on how artificial intelligence, as a "
-        "central driver of the Fourth Industrial Revolution, is restructuring labor markets across "
-        "industries. It is organized around four themes drawn from the source studies: productivity "
-        "gains and task augmentation; job displacement, wage polarization, and inequality; the "
-        "heterogeneous exposure of occupations, sectors, and demographic groups; and the longer-run "
-        "opportunities for reskilling, occupational mobility, and new roles. Every quantitative claim "
-        "below is span-grounded to a cited source; claims that could not be verified against the "
-        "underlying evidence were removed rather than paraphrased."
+        "This report synthesizes the retrieved research evidence on the question above. It is "
+        "organized as a coherent review: an introduction that frames the scope, thematic sections "
+        "that group the evidence by sub-topic, a cross-study synthesis that surfaces where the "
+        "findings agree and conflict, and a closing discussion of conclusions and open research "
+        "gaps. Every quantitative claim is span-grounded to a cited source; claims that could not "
+        "be verified against the underlying evidence were removed rather than paraphrased."
     )
     bodies: list[str] = []
     for sr in multi.sections:
         if sr.dropped_due_to_failure or not sr.verified_text:
             continue
-        bodies.append(f"## {_humanize_heading(sr.title)}\n\n{sr.verified_text}")
+        bodies.append(f"## {sr.title}\n\n{sr.verified_text}")
     sections_concat = "\n\n".join(bodies)
     if getattr(multi, "limitations_text", ""):
         sections_concat += f"\n\n## Limitations\n\n{multi.limitations_text}"
@@ -247,7 +252,7 @@ async def main() -> int:
         biblio_section += (f"[{b.get('num')}] {str(b.get('statement',''))[:200]} — "
                            f"{b.get('url','')} (tier {b.get('tier','')})\n")
 
-    final_report = (f"# {args.title}\n\n{intro}\n\n{sections_concat}{biblio_section}")
+    final_report = (f"# {title}\n\n{intro}\n\n{sections_concat}{biblio_section}")
     (run_dir / "report.md").write_text(final_report, encoding="utf-8")
 
     # Pipeline telemetry / Methods is a SIDECAR artifact (provenance for us), NOT part of the judged
@@ -283,8 +288,8 @@ async def main() -> int:
         "judged_drb_task": args.rq_drb_task or None,
         "composed_to_rq": rq[:160],
         "corpus_rq": corpus_rq[:160],
-        "report_title": args.title,
-        "section_headings": [_humanize_heading(s.title) for s in multi.sections
+        "report_title": title,
+        "section_headings": [s.title for s in multi.sections
                              if not s.dropped_due_to_failure and s.verified_text],
         "evidence_rows": len(evidence),
         "baskets": len(clusters),
