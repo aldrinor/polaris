@@ -46,6 +46,23 @@ _VERIFIED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE"
 # ``compose_multicited_sentence`` for the per-clause (NOT whole-sentence) verify invariant.
 _MULTICITED_COMPOSE_ENV = "PG_VERIFIED_COMPOSE_MULTICITED"
 
+# 2026-07-12 (compose_fix->outline_agent SPEED MERGE, port of compose_fix fb12406) — INTRA-SECTION
+# BASKET CONCURRENCY. The authoritative per-section producer ``_compose_section_per_basket`` is a
+# SERIAL for-loop over baskets; each basket's expensive work (writer_fn lookup + verify_fn NLI-judge
+# network call + optional redraft) blocks the single worker thread the section runs on, so cross-basket
+# concurrency is 1 (the route_all 328-basket long pole). When this knob is >1 the EXPENSIVE, PURE
+# per-basket compose (compose+verify+redraft, plus the companion/qualifier/distinct additive passes)
+# runs in a bounded ORDER-PRESERVING ThreadPoolExecutor (the MAP), while the ORDER-SENSITIVE
+# dedup/survivor selection (seen_spans / seen_texts / seen_numbers_by_footprint) stays STRICTLY SERIAL
+# in original basket order (the REDUCE) — because survivor selection is order-dependent and
+# parallelizing it would change the kept/dropped verdict set. DEFAULT 1 => the legacy serial loop runs
+# UNCHANGED (byte-identical); a value >1 opts into the map-then-reduce path. Faithfulness engine
+# untouched: the map only moves WHICH thread runs the SAME writer_fn/verify_fn; no gate is added,
+# relaxed, or reordered. NOTE (port reconciliation): this worktree's REDUCE mirrors THIS file's exact
+# subset+text dedup contract (no citation-union / text_to_out_idx path — that lived in compose_fix's
+# newer serial loop), so the parallel path is verdict-identical to THIS worktree's serial loop.
+_COMPOSE_BASKET_WORKERS_ENV = "PG_COMPOSE_BASKET_WORKERS"
+
 # I-deepfix-001 M6 — verified CROSS-SOURCE analytical synthesis. Default-OFF (LAW VI): when unset/off the
 # section producer is byte-identical (no import, no call); ON, an ADDITIVE pass appends analytical
 # sentences (two verified atoms joined by an engine-LICENSED connective) on top of the keep-all
@@ -209,6 +226,20 @@ def _multicited_compose_enabled() -> bool:
     ``compose_multicited_sentence``. Independent of ``PG_VERIFIED_COMPOSE`` so the multi-cited path
     is a SEPARATE, explicitly-opted increment (no implicit activation)."""
     return os.getenv(_MULTICITED_COMPOSE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _compose_basket_workers() -> int:
+    """PG_COMPOSE_BASKET_WORKERS gate (port of compose_fix fb12406). DEFAULT 1 => the legacy SERIAL
+    per-basket loop runs unchanged (byte-identical). A value >1 caps the ThreadPoolExecutor that runs
+    the expensive PURE per-basket compose (the MAP) while the order-sensitive dedup REDUCE stays serial.
+    Parse failures / values <1 coerce to 1 (fail-safe to the serial path — a bad env var can never
+    disable dedup or drop a basket)."""
+    raw = os.getenv(_COMPOSE_BASKET_WORKERS_ENV, "1").strip()
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return n if n > 1 else 1
 
 
 def _cross_source_synthesis_enabled() -> bool:
@@ -2810,7 +2841,129 @@ def _compose_section_per_basket(
     # subset key Codex #1289 rejected, and it is faithfulness-neutral (same span, already verified).
     seen_numbers_by_footprint: dict[frozenset, frozenset[str]] = {}
     _multicited_on = _multicited_compose_enabled()
+
+    # ── 2026-07-12 INTRA-SECTION BASKET CONCURRENCY (map-then-reduce; flag PG_COMPOSE_BASKET_WORKERS) ──
+    # Port of compose_fix fb12406, RECONCILED to THIS worktree's exact dedup contract. The MAP
+    # (``_map_one_basket``) is PURE per basket — it reads NO seen_* survivor state — so it is safe to run
+    # on a bounded ThreadPoolExecutor. The REDUCE (``_reduce_candidates``) applies the exact SAME §3.5
+    # marker filter + footprint-number + subset/text dedup as the serial loop below, IN ORDER, mutating
+    # the shared out/seen_* state. DEFAULT (workers<=1) => the parallel branch is skipped and the
+    # ORIGINAL serial loop runs UNCHANGED (byte-identical). See ``_compose_basket_workers``.
+    _basket_workers = _compose_basket_workers()
+    _parallel_baskets = _basket_workers > 1 and bool(section_baskets)
+
+    def _map_one_basket(basket) -> list[tuple[str, str]]:
+        """MAP (pure, per-basket): produce this basket's ordered candidate units — the main composed
+        unit first, then the additive companion/qualifier/distinct units. Returns a list of (kind, unit)
+        with kind in {"main", "aux"}. Reads NO seen_* state => concurrency-safe; the order-sensitive
+        dedup that further gates these units lives entirely in ``_reduce_candidates``. Mirrors the serial
+        loop body 1:1 MINUS the dedup mutations."""
+        cand: list[tuple[str, str]] = []
+        if _multicited_on and len(_distinct_origin_supports(basket)) >= 2:
+            if redraft_fn is not None and _synth_primary_enabled():
+                composed = compose_basket_multicited_synth_primary(
+                    basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+                    redraft_fn=redraft_fn,
+                ) or ""
+            else:
+                composed = compose_basket_multicited_sentence(
+                    basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+                ) or ""
+        else:
+            composed = _compose_one_basket(
+                basket, evidence_pool, writer_fn=writer_fn, verify_fn=verify_fn,
+                redraft_fn=redraft_fn,
+                research_question=research_question,
+            )
+        cand.append(("main", composed))
+        # The additive passes take `composed` and are pure w.r.t. seen_* state. In the serial loop they
+        # run ONLY after `composed` survives the §3.5 marker filter (a marker `continue`s before them).
+        # Mirror that gate here (pure, no seen_* read); the further order-dependent dedup that gates them
+        # stays in the reduce. A basket whose main is later deduped away has its aux discarded by the
+        # reduce (the `continue`/`return` semantics), so computing them here is at worst speculative —
+        # never verdict-changing.
+        if composed.strip() and not composed.strip().startswith("[insufficient verified evidence"):
+            if _companion_figure_compose_enabled():
+                for companion in compose_companion_figure_units(
+                    basket, evidence_pool, composed, verify_fn=verify_fn,
+                ):
+                    cand.append(("aux", companion))
+            if _qualifier_elaboration_enabled():
+                for elaboration in compose_qualifier_elaboration_units(
+                    basket, evidence_pool, composed, verify_fn=verify_fn,
+                ):
+                    cand.append(("aux", elaboration))
+            if _subtopic_additive_facts_enabled():
+                for extra in compose_distinct_fact_units(
+                    basket, evidence_pool, composed, verify_fn=verify_fn,
+                ):
+                    cand.append(("aux", extra))
+        return cand
+
+    def _reduce_candidates(candidates: list[tuple[str, str]]) -> None:
+        """REDUCE (serial, order-dependent): apply THIS worktree's §3.5 marker filter + footprint-number
+        + subset/text dedup to this basket's candidates IN ORDER, mutating the shared out/seen_* survivor
+        state. ``candidates[0]`` is the ("main", composed) unit; if it is a marker or a duplicate the
+        WHOLE basket is skipped (mirrors the serial loop's `continue`), so its aux units never reach
+        ``out`` — byte-identical to the serial interleaving. Uses ``seen_spans.update`` (in-place, no
+        rebind) so no ``nonlocal`` is needed. This is the EXACT dedup of the serial loop below (subset+
+        text collapse; NO citation-union — that path does not exist in this worktree)."""
+        if not candidates:
+            return
+        _, composed = candidates[0]
+        # §3.5: suppress the internal insufficient-evidence marker before it can leak into report.md.
+        if not composed.strip() or composed.strip().startswith("[insufficient verified evidence"):
+            return
+        spans = _resolved_spans(composed)
+        norm = " ".join(composed.split())
+        footprint = frozenset(spans)
+        if footprint and footprint in seen_numbers_by_footprint:
+            unit_numbers = _number_tokens(composed)
+            if not (unit_numbers - seen_numbers_by_footprint[footprint]):
+                return
+            seen_numbers_by_footprint[footprint] = seen_numbers_by_footprint[footprint] | unit_numbers
+        if spans and spans <= seen_spans and norm in seen_texts:
+            return
+        if footprint and footprint not in seen_numbers_by_footprint:
+            seen_numbers_by_footprint[footprint] = _number_tokens(composed)
+        seen_spans.update(spans)
+        seen_texts.add(norm)
+        out.append(composed)
+        # The aux units (companion, then qualifier, then distinct — same order the serial loop emits)
+        # share ONE identical dedup contract; running them through a single loop here is identical to the
+        # three serial blocks. Each is only reached because the main unit above was appended.
+        for _kind, unit in candidates[1:]:
+            if not unit or not unit.strip():
+                continue
+            c_spans = _resolved_spans(unit)
+            c_norm = " ".join(unit.split())
+            c_footprint = frozenset(c_spans)
+            if c_footprint and c_footprint in seen_numbers_by_footprint:
+                c_numbers = _number_tokens(unit)
+                if not (c_numbers - seen_numbers_by_footprint[c_footprint]):
+                    continue
+                seen_numbers_by_footprint[c_footprint] = seen_numbers_by_footprint[c_footprint] | c_numbers
+            if c_spans and c_spans <= seen_spans and c_norm in seen_texts:
+                continue
+            if c_footprint and c_footprint not in seen_numbers_by_footprint:
+                seen_numbers_by_footprint[c_footprint] = _number_tokens(unit)
+            seen_spans.update(c_spans)
+            seen_texts.add(c_norm)
+            out.append(unit)
+
+    if _parallel_baskets:
+        # MAP concurrently (order-preserving), then REDUCE strictly in original basket order. Bounded at
+        # _basket_workers threads; each thread blocks on its own verify_fn NLI-judge network call, so the
+        # cross-basket in-flight concurrency the serial one-thread loop could never reach is realized here.
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+        with ThreadPoolExecutor(max_workers=_basket_workers) as _ex:
+            _mapped = list(_ex.map(_map_one_basket, section_baskets))
+        for _cand in _mapped:
+            _reduce_candidates(_cand)
+
     for basket in (section_baskets or []):
+        if _parallel_baskets:
+            break  # the baskets were already composed via the map-then-reduce path above
         # keystone-F1: surface a >=2-corroborator basket as ONE multi-cited sentence (flag-gated,
         # default-OFF). A single-source basket falls through to the UNCHANGED single-basket producer
         # (the multi-cited producer itself returns the same K-span draft for <2 SUPPORTS, but routing

@@ -37,6 +37,7 @@ Key design points:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -516,7 +517,13 @@ async def repair_dropped_section_sentences(
 
         # Re-run the FULL verification chain (mechanical checks +
         # entailment if env-enabled). Codex iter-1 P0: yes.
-        re_verify = verify_sentence_provenance(
+        # P0 OFF-LOOP (2026-07-12 SPEED MERGE, port of 1f9da4c): verify_sentence_provenance is a SYNC
+        # blocking NLI-judge (httpx) call. Running it inline on the event loop inside this async repair
+        # loop FROZE the loop (the residual on-loop hot spot once _compose_section_per_basket was
+        # offloaded). Offload to a worker thread so sibling sections keep progressing. Faithfulness
+        # BYTE-IDENTICAL — same function, same verdicts, only the thread changes.
+        re_verify = await asyncio.to_thread(
+            verify_sentence_provenance,
             repaired_text, evidence_pool,
         )
         if re_verify.is_verified:

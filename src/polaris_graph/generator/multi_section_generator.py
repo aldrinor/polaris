@@ -6069,7 +6069,15 @@ async def _run_section(
             _vc_redraft_fn = (
                 _make_group_redraft_fn(evidence_pool) if _synth_primary_active else None
             )
-            _vc_composed = _compose_section_per_basket(
+            # P0 OFF-LOOP (2026-07-12 compose_fix->outline_agent SPEED MERGE, port of 1f9da4c): the
+            # AUTHORITATIVE per-basket compose+verify+redraft tail (_compose_section_per_basket, plain
+            # sync def) is the section-wall-clock hot loop. Running it directly on the event loop froze
+            # all sibling sections + writer HTTP callbacks + every judge 429 backoff (they land on THIS
+            # loop). Offload to a worker thread via asyncio.to_thread so PG_MAX_PARALLEL_SECTIONS +
+            # PG_COMPOSE_BASKET_WORKERS concurrency is real. verify_fn semantics UNCHANGED (faithfulness
+            # gate untouched); the map's inner ThreadPoolExecutor is correct off the main loop.
+            _vc_composed = await asyncio.to_thread(
+                _compose_section_per_basket,
                 _vc_baskets, evidence_pool,
                 writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
                 # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list off the
@@ -6115,7 +6123,12 @@ async def _run_section(
             else:
                 _vc_writer_fn = lambda _b, _p: _vc_short_writer(_b, evidence_pool, research_question=research_question)  # noqa: E731
             _vc_verify_fn = _vc_verify
-            _vc_composed = _compose_section_per_basket(
+            # P0 OFF-LOOP (2026-07-12 SPEED MERGE, port of 1f9da4c): same remedy as the abstractive
+            # branch above — the sync _compose_section_per_basket hot loop runs in a worker thread, never
+            # on the event loop, so sibling sections / writer callbacks / judge 429 backoffs are not
+            # frozen. verify_fn semantics UNCHANGED.
+            _vc_composed = await asyncio.to_thread(
+                _compose_section_per_basket,
                 _vc_baskets, evidence_pool,
                 writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
                 # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list) so the
@@ -6176,7 +6189,13 @@ async def _run_section(
         # supporting basket's OWN verified clause, using the SAME production writer/verify fns that
         # composed this section. Default-ON (PG_NO_TOKEN_SENTENCE_REPAIR); byte-identical when OFF or
         # when nothing is repaired. Faithfulness-neutral — the frozen engine is untouched.
-        raw = _repair_untokened_draft(
+        # P0 OFF-LOOP (2026-07-12 SPEED MERGE, port of 1f9da4c): _repair_untokened_draft loops the
+        # draft's sentences calling the SYNC verify_fn (NLI judge httpx) per untokened sentence — inline
+        # on the event loop it was the residual freeze after the compose offload. Offload to a worker
+        # thread; the writer_fn/verify_fn are the SAME sync fns already executed inside the off-loop
+        # _compose_section_per_basket, so this is thread-safe and faithfulness BYTE-IDENTICAL.
+        raw = await asyncio.to_thread(
+            _repair_untokened_draft,
             raw, _vc_baskets, evidence_pool,
             writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
         )
