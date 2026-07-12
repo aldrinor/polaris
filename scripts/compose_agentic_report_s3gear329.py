@@ -151,6 +151,16 @@ async def main() -> int:
     # across the [ev]-backed body figures (enrich its evidence + directive). GENERAL structural
     # lever — role detected structurally, no topic/title hardcoded; strict_verify unchanged.
     os.environ.setdefault("PG_SYNTHESIS_QUANT_DIRECTIVE", "1")
+    # STEP 4 (UTILIZATION — the basket under-utilization ghost): the live LLM outline lists only a
+    # handful of ev_ids per section, so ~90% of the consolidated baskets reach NO section and never
+    # compose a cited claim (measured 31/329 rendered; scripts/measure_utilization_route_all.py). Route
+    # every ORPHAN basket to its best-matching thematic section by claim-vs-title content overlap (else a
+    # single keep-all residual section). GENERAL, faithfulness-neutral: pure CONSOLIDATE placement —
+    # drops no source, caps nothing; every routed basket's rendered sentence re-passes the UNCHANGED
+    # strict_verify per clause. Deterministic A/B proved 31->328 baskets rendered. Also drop the
+    # PG_MAX_EV_PER_SECTION row-cap ceiling so a facet keeps its full matched payload.
+    os.environ.setdefault("PG_ROUTE_ALL_BASKETS", "1")
+    os.environ.setdefault("PG_EV_BUDGET_TRACKS_PAYLOAD", "1")
 
     corpus_path = Path(args.corpus)
     corpus = json.loads(corpus_path.read_text())
@@ -190,6 +200,23 @@ async def main() -> int:
     log.info("[gen] agent_model=%s code_model=%s generator=%s",
              outliner_agent_model(), outliner_code_model(), PG_GENERATOR_MODEL)
 
+    # STEP 4 (UTILIZATION): thread the PSL government-suffix list so the credibility pass RUNS
+    # priors-only (judge=None under always-release => ZERO LLM scoring calls) and BUILDS the per-claim
+    # baskets. Without gov_suffixes the pre-run guard DEGRADES to credibility_analysis=None (the
+    # 794->9 collapse), which strands EVERY basket and makes PG_ROUTE_ALL_BASKETS inert — the report
+    # then renders only the LLM-writer's directly-cited sources. Faithfulness-neutral: priors weights
+    # are deterministic authority weights; strict_verify / 4-role D8 / span-grounding stay the ONLY
+    # binding gates. Fail-open: an empty/unavailable suffix list leaves the legacy None path.
+    _gov_suffixes = None
+    try:
+        from src.polaris_graph.authority.data_loader import load_authority_data  # noqa: PLC0415
+        _gov_suffixes = tuple(load_authority_data().get("psl_gov_suffixes") or ()) or None
+        log.info("[credibility] threaded psl_gov_suffixes=%d (priors-only basket build enabled)",
+                 len(_gov_suffixes or ()))
+    except Exception as _e:  # noqa: BLE001
+        log.warning("[credibility] could not load psl_gov_suffixes (%s); credibility pass will "
+                    "degrade to None and PG_ROUTE_ALL_BASKETS will be inert", _e)
+
     t0 = time.time()
     multi = await generate_multi_section_report(
         research_question=rq,
@@ -203,6 +230,7 @@ async def main() -> int:
         max_parallel_sections=args.max_parallel,
         tier_fractions=dist,
         domain=domain,
+        credibility_pass_gov_suffixes=_gov_suffixes,
     )
     dt = time.time() - t0
     kept = [s for s in multi.sections if not s.dropped_due_to_failure]
