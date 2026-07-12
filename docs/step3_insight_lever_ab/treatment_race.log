@@ -1,0 +1,32 @@
+[race] target=polaris_step3_treatment.jsonl  article_chars=24734  prompt_task=72 lang=en
+[race] running: /opt/conda/bin/python -u deepresearch_bench_race.py polaris_step3_treatment --raw_data_dir data/test_data/raw_data --cleaned_data_dir data/test_data/cleaned_data --query_file data/prompt_data/query_task72.jsonl --output_dir results/race/polaris_step3_treatment --max_workers 4 --only_en --force
+INFO:__main__:Starting English data processing...
+INFO:__main__:Checking if polaris_step3_treatment articles need cleaning...
+Cleaning polaris_step3_treatment articles:   0%|          | 0/1 [00:00<?, ?it/s]Cleaning polaris_step3_treatment articles: 100%|██████████| 1/1 [01:05<00:00, 65.47s/it]Cleaning polaris_step3_treatment articles: 100%|██████████| 1/1 [01:05<00:00, 65.47s/it]
+INFO:__main__:Loading en data from data/prompt_data/query_task72.jsonl...
+INFO:__main__:Processing 1 en tasks...
+Scoring en polaris_step3_treatment:   0%|          | 0/1 [00:00<?, ?it/s]Scoring en polaris_step3_treatment: 100%|██████████| 1/1 [01:05<00:00, 65.40s/it]Scoring en polaris_step3_treatment: 100%|██████████| 1/1 [01:05<00:00, 65.40s/it]
+INFO:__main__:en evaluation complete. Successfully scored 1 out of 1 tasks.
+INFO:__main__:Saving 1 results to results/race/polaris_step3_treatment/raw_results.jsonl...
+INFO:__main__:Results saved successfully.
+INFO:__main__:
+=== Evaluation Results Summary ===
+INFO:__main__:Comprehensiveness:      0.4247
+INFO:__main__:Insight:                0.3890
+INFO:__main__:Instruction Following:  0.4176
+INFO:__main__:Readability:            0.4104
+INFO:__main__:Overall Score:          0.4094
+INFO:__main__:================================
+INFO:__main__:--- Run Summary ---
+INFO:__main__:Target model: polaris_step3_treatment
+INFO:__main__:Total tasks processed: 1
+INFO:__main__:Results file: results/race/polaris_step3_treatment/raw_results.jsonl
+INFO:__main__:-------------------
+
+===== RACE RESULT =====
+Comprehensiveness: 0.4247
+Insight: 0.3890
+Instruction Following: 0.4176
+Readability: 0.4104
+Overall Score: 0.4094
+
