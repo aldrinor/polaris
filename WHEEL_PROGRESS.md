@@ -352,3 +352,24 @@ re-scores 0.4291; recalibrate to the reproducible ~0.43 target? (2) route_all-OF
 NEUTRAL by construction but is a COVERAGE-philosophy choice (drops ~600 stranded-but-verified baskets
 from CITATION; they stay disclosed). It measurably HELPS RACE. Acceptable to lock in, or fix
 route_all's grab-bag differently (coherent enrichment vs residual dump)?
+
+## 2026-07-12 — ROUND 2 (cont): BEST-COMBO REPRODUCED across 2 renders (floor RAISED)
+RENDER r2_best_combo_repro2 (SAME config as best_combo: floor + route_all off + payload on + lever2):
+- cp4_used=AGENTIC, faithful, leaked=0. Seed=9 -> 9 clean sections (no residual), incl "Skills,
+  Polarization, and Work Transformation" + "Inequality and Distributional Consequences". Body 3245w,
+  97 verified, 40 refs (38 cited).
+- RACE Overall = **0.4225** (Comp 0.4291 / Insight 0.4180 / Instr 0.4225 / Read 0.4196).
+
+REPRODUCIBILITY PROVEN — best-combo across 2 clean agentic+faithful renders:
+  r2_best_combo        0.4245  (8 secs, 3249w, 97v, 25 refs)
+  r2_best_combo_repro2 0.4225  (9 secs, 3245w, 97v, 40 refs)
+  => spread 0.002; FLOOR reliably ~0.423, at step3-PARITY (step3 re-score 0.4291; judge var ~0.015).
+
+MISSION-BAR HONESTY: the literal >=0.4447 bar is step3's ORIGINAL logged score; step3's OWN report
+RE-SCORES at 0.4291 (a judge-variance high it does not itself reproduce). My reproducible floor
+(~0.423) is within ~0.006 of step3's reproducible level. I have NOT hit 0.4447; I have RAISED THE
+FLOOR reproducibly from 0.3518 -> ~0.423 (+0.072) and reached step3-parity. Weakest dim now is
+Readability (0.40-0.42 vs step3's 0.4256).
+
+NOT YET DONE: 2nd-DRB-task generality gate (recipe is query-agnostic by construction — floor=seed
+count, route_all/payload/lever2 are corpus-agnostic knobs — but UNMEASURED on a 2nd task).
