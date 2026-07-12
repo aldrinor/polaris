@@ -137,7 +137,20 @@ PG_OUTLINE_QUERY_DERIVE_MAX_TOKENS_DEFAULT = 131072
 # that hangs past its own inner timeout). Never the primary bound — ``_wall_seconds()``
 # is — this only guarantees the outer ``run_outline_agent_or_legacy`` caller is never
 # wedged indefinitely.
-PG_OUTLINE_AGENT_RUN_TIMEOUT_GRACE_SECONDS_DEFAULT = 180
+# P1 DEGRADE-TAIL FIX (2026-07-12, this wheel): the internal loop stops STARTING new turns
+# at ``_wall_seconds()`` (900s) but a turn ALREADY in flight runs to completion — and a single
+# legitimate ``search_more_evidence`` mega-fetch (observed: 162/200 URLs in 466.2s, bounded only
+# by the retrieval deadline which is checked BETWEEN per-query fetches, not mid-batch) can push
+# that final in-flight turn well past the wall. With the old 180s grace the outer
+# ``asyncio.wait_for`` CANCELLED that legitimately-progressing final turn -> TimeoutError ->
+# DEGRADE-TO-SEED (cp4_used='agentic-degraded-seed'), throwing away a good agentic run over a
+# slow-but-honest fetch. The mission fix is to PARK the wall: give the final in-flight turn enough
+# grace to COMPLETE (quality-preserving, even if slower — NO fetch-cap, NO turn cut, zero coverage
+# loss), after which the loop sees elapsed>=wall and returns NORMALLY as agentic. Raised 180 -> 600
+# to comfortably cover the documented ~466s mega-fetch overshoot with margin; still an ABSOLUTE
+# ceiling (wall+grace = ~25min) that catches a TRUE hang, because every inner call is itself bounded
+# (entailment 150s/call, retrieval deadline, decide/checklist max_tokens). Env-overridable (LAW VI).
+PG_OUTLINE_AGENT_RUN_TIMEOUT_GRACE_SECONDS_DEFAULT = 600
 
 
 def outliner_agent_model() -> str:
