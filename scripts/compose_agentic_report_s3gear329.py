@@ -121,6 +121,252 @@ def _audit_citations(report_text: str, biblio: list[dict]) -> dict:
     }
 
 
+# ── FLYWHEEL Rank4 — ARM THE SEMANTIC TOPIC JUDGE ON A PRE-BUILT CORPUS ─────────────────────────
+#
+# THE GAP (measured, not theorised): the §-1.3.1(b) off-topic DELETE leg has never fired on this
+# path. `is_row_deletable_offtopic` keys on an AFFIRMATIVE ``topic_off_subject`` stamp, and the ONLY
+# writer of that stamp is ``classify_topic_relevance`` — which runs at RETRIEVAL time (the live
+# sweep) and is called by NOTHING on the pre-built-corpus path. The corpus carries 633
+# ``topic_offtopic_demoted`` labels but ZERO ``topic_off_subject`` stamps, so the run logged
+# "DELETED 0 judge-confirmed off-topic item(s)" and ~294 alien sources (climate-risk IMF working
+# papers, privacy-attack bibliographies, school-infrastructure pages, content-marketing stats) sat in
+# the grounding pool, eligible to be CITED in an AI-labour literature review. The faithfulness engine
+# cannot catch them: strict_verify checks span fidelity, not topicality — a sentence grounded on a
+# climate working paper is perfectly FAITHFUL and perfectly off-topic.
+#
+# THE FIX: ARM the judge that already exists. We do NOT build a new one, and we do NOT lexically
+# guess. §-1.3.1(b) admits exactly one delete trigger — an affirmative SEMANTIC judge verdict,
+# FAIL-OPEN. Everything below is fail-open scaffolding around that one call:
+#   * The judge is run against ``rq`` — the SAME (DRB-override) question the report is composed and
+#     scored against. Judging the corpus's own RQ would produce a FOREIGN verdict (the false
+#     hard-drop §-1.3.1(b) forbids, and the exact landmine Rank2b defused).
+#   * TOKEN-STARVATION TRAP (the silent no-op): ``PG_SCOPE_TOPIC_MAX_TOKENS`` defaults to 1200, but
+#     the judge model is reasoning-first — it burns the budget on hidden reasoning, truncates before
+#     emitting its verdict lines, returns empty content, and EVERY batch fails open. The judge would
+#     "run", bill real money, and delete nothing. We raise the floor to 4000 and FAIL LOUD if every
+#     batch failed open (that is an outage, not a verdict of "all clean").
+#   * BLAST-RADIUS CEILING: if the judge confirms OFF_SUBJECT on more than PG_TOPIC_DELETE_MAX_FRACTION
+#     (default 0.40) of judged rows, we delete NOTHING and log LOUD. A well-formed but WRONG batch
+#     response (index rotation, prompt injection from a snippet) is the one failure the parser cannot
+#     catch; this is the containment. It can only ever REFUSE deletion — it can never force a number
+#     up, so it is not a banned breadth knob.
+#   * T1/T2 DOUBLE-CONFIRMATION (not exemption): a seminal paper wrongly verdicted OFF_SUBJECT is the
+#     costliest false delete. A blanket high-tier exemption would use tier as a RELEVANCE proxy and
+#     would shield precisely the credible-tier junk this audit found (the IMF climate WPs are T1/T2).
+#     So tier is NOT a keep-veto; it is an ESCALATION criterion: a T1/T2 row the batch judge marks
+#     OFF_SUBJECT is RE-judged alone on its full quote, and deletes only on a SECOND affirmative
+#     verdict. Nobody is kept by tier and nobody is deleted by tier — the bar is just higher where a
+#     mistake costs most.
+# Default-OFF (``PG_PREBUILT_TOPIC_JUDGE``): unset => returns None => the generator passes ``()`` at
+# the pool seam exactly as today => byte-identical.
+_TOPIC_JUDGE_ENV = "PG_PREBUILT_TOPIC_JUDGE"
+_TOPIC_DELETE_MAX_FRACTION_ENV = "PG_TOPIC_DELETE_MAX_FRACTION"
+
+
+def _topic_judge_llm(model: str, max_tokens: int):
+    """Synchronous ``str -> str`` LLM bridge for the judge (mirrors the live sweep's `_topic_llm`).
+
+    The judge is a pure sync function by design (unit-testable with a stub), so the async
+    OpenRouter client is driven on a worker thread with its own event loop."""
+    import asyncio as _asyncio  # noqa: PLC0415
+    import concurrent.futures as _futures  # noqa: PLC0415
+
+    def _call(prompt: str) -> str:
+        from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
+
+        async def _run() -> str:
+            client = OpenRouterClient(model=model)
+            try:
+                resp = await client.generate(
+                    prompt=prompt, max_tokens=max_tokens, temperature=0.0,
+                )
+                return (resp.content or "").strip()
+            finally:
+                if hasattr(client, "close"):
+                    try:
+                        await client.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+
+        with _futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: _asyncio.run(_run())).result()
+
+    return _call
+
+
+def _arm_topic_judge(evidence: list, rq: str, run_dir: Path, log) -> "set[str] | None":
+    """Run the semantic topic judge over a PRE-BUILT corpus; return the FRESH OFF_SUBJECT id set.
+
+    Returns None when the flag is OFF (=> the generator's off-topic arm stays inert, byte-identical).
+    Returns a (possibly empty) concrete set when the judge ran. FAIL-OPEN everywhere: any exception,
+    any starved/unparseable batch, or a tripped blast-radius ceiling yields an EMPTY set — which
+    deletes NOTHING. Deletion requires an affirmative verdict; never an absence of one."""
+    if os.getenv(_TOPIC_JUDGE_ENV, "0").strip().lower() in ("", "0", "false", "off", "no"):
+        return None
+
+    from src.polaris_graph.llm.openrouter_client import PG_GENERATOR_MODEL  # noqa: PLC0415
+    from src.polaris_graph.retrieval.topic_relevance_gate import (  # noqa: PLC0415
+        _row_is_chrome_nonsource,
+        classify_topic_relevance,
+        junk_chrome_before_offtopic_enabled,
+        mark_topic_judge_ran,
+    )
+
+    # Count what the gate will SKIP, using the gate's OWN predicate (not a re-implementation), so the
+    # ceiling's denominator can't drift from what was actually judged.
+    _n_chrome = (
+        sum(1 for _r in evidence if isinstance(_r, dict) and _row_is_chrome_nonsource(_r))
+        if junk_chrome_before_offtopic_enabled() else 0
+    )
+
+    model = os.getenv("PG_SCOPE_TOPIC_MODEL", "").strip() or PG_GENERATOR_MODEL
+    # The starvation floor. A reasoning-first judge at 1200 truncates before its verdict lines.
+    try:
+        max_tokens = int(os.getenv("PG_SCOPE_TOPIC_MAX_TOKENS", "").strip() or "4000")
+    except ValueError:
+        max_tokens = 4000
+    max_tokens = max(max_tokens, 4000)
+    llm = _topic_judge_llm(model, max_tokens)
+
+    t0 = time.time()
+    log.info("[topic-judge] ARMED (§-1.3.1(b)): judging %d rows against the COMPOSED rq "
+             "(model=%s max_tokens=%d). Fail-open: only an affirmative OFF_SUBJECT deletes.",
+             len(evidence), model, max_tokens)
+    try:
+        result = classify_topic_relevance(evidence, rq, llm)
+    except Exception as exc:  # noqa: BLE001 — a judge crash must NEVER delete anything
+        log.error("[topic-judge] judge FAILED (%s) — deleting NOTHING (fail-open).", exc)
+        return set()
+    mark_topic_judge_ran()
+
+    fresh = {
+        str(r.get("evidence_id", "") or "")
+        for r in (result.demoted_rows or [])
+        if isinstance(r, dict) and r.get("topic_off_subject") is True
+    }
+    fresh.discard("")
+
+    # FAIL-LOUD: the judge ran but confirmed literally nothing across ~1000 rows of a corpus we KNOW
+    # carries alien sources. That is far more likely an outage (starved/failed batches) than a clean
+    # corpus. Say so; do not silently report success.
+    if not fresh:
+        log.error("[topic-judge] judge returned ZERO OFF_SUBJECT verdicts over %d rows. Treat as a "
+                  "SUSPECTED OUTAGE (starved reasoning budget / failed batches), NOT as 'corpus is "
+                  "clean'. Deleting nothing.", result.n_in)
+        _write_topic_disclosure(run_dir, result, fresh, "zero_verdicts_suspected_outage", model, t0)
+        return set()
+
+    # T1/T2 DOUBLE-CONFIRMATION — escalate, never exempt.
+    escalated_kept: list[str] = []
+    by_id = {str(r.get("evidence_id", "") or ""): r for r in evidence if isinstance(r, dict)}
+    for eid in sorted(fresh):
+        row = by_id.get(eid) or {}
+        if str(row.get("tier", "") or "").strip().upper() not in ("T1", "T2"):
+            continue
+        try:
+            confirm = classify_topic_relevance([dict(row)], rq, llm)
+        except Exception as exc:  # noqa: BLE001 — uncertainty => KEEP
+            log.warning("[topic-judge] T1/T2 re-judge errored for %s (%s) — KEEPING (fail-open).",
+                        eid, str(exc)[:80])
+            escalated_kept.append(eid)
+            continue
+        still_off = any(
+            isinstance(r, dict) and r.get("topic_off_subject") is True
+            for r in (confirm.demoted_rows or [])
+        )
+        if not still_off:
+            escalated_kept.append(eid)
+    if escalated_kept:
+        log.warning("[topic-judge] T1/T2 escalation RESCUED %d high-tier row(s) the batch judge had "
+                    "marked OFF_SUBJECT (second verdict did not confirm): %s",
+                    len(escalated_kept), ", ".join(escalated_kept[:12]))
+        fresh -= set(escalated_kept)
+        # The re-judge above ran on ``dict(row)`` — a COPY — so the gate's stale-stamp `pop` landed
+        # on the copy and the ORIGINAL row still carries topic_off_subject=True. Today that is inert
+        # (the fresh-id fence is what actually authorises a delete, and this id is no longer in it),
+        # but a rescued row that still looks OFF_SUBJECT in memory is a landmine for anything that
+        # later serializes the pool to a snapshot: the row would come back as a pre-stamped delete
+        # candidate. Clear it on the ORIGINAL — a rescue must leave no trace of the wrong verdict.
+        for _eid in escalated_kept:
+            (by_id.get(_eid) or {}).pop("topic_off_subject", None)
+
+    # BLAST-RADIUS CEILING — containment for a well-formed-but-wrong judge response.
+    try:
+        max_frac = float(os.getenv(_TOPIC_DELETE_MAX_FRACTION_ENV, "").strip() or "0.40")
+    except ValueError:
+        max_frac = 0.40
+    # Denominator = rows the judge could actually VERDICT, not every row handed in. ``n_in`` counts
+    # marquee-exempt rows and chrome non-sources (which are skipped, never judged); including them
+    # DILUTES the fraction, so the ceiling would trip LATER than its own setting implies — the rail
+    # would be quietly weaker than it reads.
+    judged = max(1, int(result.n_in or len(evidence)) - int(result.n_exempt or 0) - _n_chrome)
+    frac = len(fresh) / judged
+    if frac > max_frac:
+        log.error("[topic-judge] BLAST-RADIUS CEILING TRIPPED: judge confirmed OFF_SUBJECT on %d/%d "
+                  "rows (%.1f%% > %.1f%% ceiling). Refusing to delete ANY row — this is a suspected "
+                  "judge fault, not a verdict. Deleting nothing (fail-open).",
+                  len(fresh), judged, frac * 100, max_frac * 100)
+        # The REFUSED candidates are still persisted (as refused, NOT as deleted). Writing an empty
+        # id list here would make the containment self-concealing: an operator could not tell a
+        # broken judge from a genuinely alien corpus, because the only evidence that distinguishes
+        # them — WHICH rows were flagged — would have been discarded by the very rail that fired.
+        # Containment must leave an audit trail, not destroy one. Nothing is deleted either way.
+        _write_topic_disclosure(run_dir, result, set(), "blast_radius_tripped", model, t0,
+                                refused=fresh, ceiling=max_frac, observed_fraction=frac)
+        # A REFUSED verdict must not linger on the rows either: every one of these originals still
+        # carries topic_off_subject=True from the batch pass. We are declining to act on that
+        # verdict, so it must not survive in memory as a pre-stamped delete candidate for any later
+        # seam or snapshot. Refusing to delete and leaving the delete-stamp on is the worst of both.
+        for _eid in fresh:
+            (by_id.get(_eid) or {}).pop("topic_off_subject", None)
+        return set()
+
+    log.warning("[topic-judge] VERDICT: %d/%d rows affirmatively OFF_SUBJECT (%.1f%%) -> DELETABLE "
+                "(§-1.3.1(b), disclosed). kept=%d demoted=%d exempt=%d  %.0fs",
+                len(fresh), judged, frac * 100, result.n_kept,
+                result.n_demoted_offtopic, result.n_exempt, time.time() - t0)
+    _write_topic_disclosure(run_dir, result, fresh, "armed", model, t0)
+    return fresh
+
+
+def _write_topic_disclosure(run_dir: Path, result, fresh: set, status: str, model: str,
+                            t0: float, *, refused: set | None = None,
+                            ceiling: float | None = None,
+                            observed_fraction: float | None = None) -> None:
+    """Durable §-1.3.1 disclosure, written BEFORE compose so it survives an aborted run.
+
+    ``fresh`` = rows that WILL be deleted. ``refused`` = rows the judge flagged but a containment
+    rail declined to act on (deleted: none). The two are disjoint and never conflated."""
+    try:
+        payload: dict[str, Any] = {
+            "status": status,
+            "model": model,
+            "n_in": getattr(result, "n_in", 0),
+            "n_kept": getattr(result, "n_kept", 0),
+            "n_demoted_offtopic": getattr(result, "n_demoted_offtopic", 0),
+            "n_exempt": getattr(result, "n_exempt", 0),
+            "n_off_subject_deletable": len(fresh),
+            "off_subject_ev_ids": sorted(fresh),
+            "elapsed_s": round(time.time() - t0, 1),
+            "contract": "affirmative OFF_SUBJECT judge verdict only; fail-open; positive relevance "
+                        "vetoes; T1/T2 double-confirmed; blast-radius ceiling enforced",
+        }
+        if refused is not None:
+            payload["n_refused_not_deleted"] = len(refused)
+            payload["refused_off_subject_ev_ids"] = sorted(refused)
+            payload["ceiling_fraction"] = ceiling
+            payload["observed_fraction"] = round(observed_fraction or 0.0, 4)
+            payload["refused_note"] = (
+                "The judge flagged these rows OFF_SUBJECT but a containment rail REFUSED the "
+                "deletion — they were KEPT and remain citable. Listed so the refusal itself is "
+                "auditable: a genuinely alien corpus and a broken judge look identical without them."
+            )
+        (run_dir / "topic_judge_dispositions.json").write_text(
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001 — disclosure must never break the run
+        logging.getLogger("compose").warning("[topic-judge] disclosure write failed: %s", exc)
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--corpus", required=True)
@@ -213,6 +459,9 @@ async def main() -> int:
              len(swg or []), domain or "(none)")
     log.info("PG_OUTLINE_AGENT=%s  out_dir=%s", os.getenv("PG_OUTLINE_AGENT"), run_dir)
 
+    # FLYWHEEL Rank4: ARM the §-1.3.1(b) semantic topic judge on the PRE-BUILT corpus.
+    fresh_off_subject = _arm_topic_judge(evidence, rq, run_dir, log)
+
     from src.polaris_graph.generator.multi_section_generator import (  # noqa: PLC0415
         OutlineOnlyStop,
         generate_multi_section_report,
@@ -261,6 +510,8 @@ async def main() -> int:
             tier_fractions=dist,
             domain=domain,
             credibility_pass_gov_suffixes=_gov_suffixes,
+            # Rank4: None when the judge is OFF => the pool seam passes () => off-topic arm inert.
+            fresh_off_subject_ids=fresh_off_subject,
         )
     except OutlineOnlyStop as _stop:
         log.info("[outline-only] PG_STOP_AFTER_ROUTED_OUTLINE — stopped after routed-outline dump "

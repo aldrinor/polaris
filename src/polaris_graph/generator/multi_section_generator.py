@@ -9625,6 +9625,14 @@ async def generate_multi_section_report(
     # requirements block, lets required titles govern validation, and conforms the plan set.
     deliverable_spec: Any = None,
     scope_spec: Any = None,
+    # FLYWHEEL Rank4 (§-1.3.1(b)): the evidence_ids a SEMANTIC topic judge affirmatively verdicted
+    # OFF_SUBJECT **on THIS run, against THIS research_question**. This is the fresh-verdict fence the
+    # pool seam's off-topic arm requires: None (the default) => the seam passes ``()`` exactly as it
+    # does today => the off-topic arm stays inert by construction and ONLY the chrome arm can delete
+    # => byte-identical. A caller may arm the arm ONLY by judging the corpus against the SAME question
+    # the report is composed for (a verdict from another question is a foreign verdict — the false
+    # hard-drop §-1.3.1(b) forbids). NEVER populate this from tier, lexeme, or a breadth number.
+    fresh_off_subject_ids: set[str] | None = None,
     model: Optional[str] = None,
     outline_temperature: float = 0.2,
     section_temperature: float = 0.3,
@@ -10090,9 +10098,25 @@ async def generate_multi_section_report(
     # seam has no fresh verdict in scope, so its off-topic arm stays inert by construction and
     # ONLY the chrome arm can delete here. (Operators who want stamp-deletion can still set
     # PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY=0 — an explicit choice, not a silent default.)
+    #
+    # FLYWHEEL Rank4: ``fresh_off_subject_ids`` is now THREADED (it was hardcoded ``()``). The fence
+    # above is UNCHANGED in spirit: None (no judge ran) still collapses to the empty concrete set, so
+    # the off-topic arm stays inert and only chrome can delete. It arms ONLY when a caller supplies a
+    # FRESH judge verdict set produced against THIS run's research_question. Empty set (judge ran and
+    # confirmed nothing) is also inert — deleting requires an affirmative OFF_SUBJECT id, never an
+    # absence of evidence.
+    _fresh_off_subject: set[str] = {
+        str(_e) for _e in (fresh_off_subject_ids or ()) if str(_e or "")
+    }
+    # The router leg (below) historically called the predicate with fresh_off_subject_ids=None
+    # (freshness UN-enforced). Keep that EXACT behaviour when no judge ran (byte-identical), and
+    # enforce the same fence as the pool seam only once a caller actually arms one.
+    _router_off_subject_fence: set[str] | None = (
+        _fresh_off_subject if fresh_off_subject_ids is not None else None
+    )
     _pool_rows_pre_junk = list(evidence_pool.values())
     _kept_rows, _junk_rows = junk_deletion_gate.partition_rows(
-        _pool_rows_pre_junk, fresh_off_subject_ids=(),
+        _pool_rows_pre_junk, fresh_off_subject_ids=_fresh_off_subject,
     )
     junk_disclosed: list[dict[str, Any]] = list(_junk_rows)
     if _junk_rows:
@@ -10667,7 +10691,13 @@ async def generate_multi_section_report(
                     continue
                 # (a) fail-open confirmed-off-topic set (affirmative OFF_SUBJECT only; positive
                 #     relevance vetoes; any uncertainty/error => row NOT added => KEEP).
-                if is_row_deletable_offtopic(_row):
+                # FLYWHEEL Rank4: pass the SAME fresh-verdict fence the pool seam uses. This leg used
+                # to call the predicate with NO fence, so a STALE ``topic_off_subject`` stamp carried
+                # in on a reloaded corpus_snapshot could delete a basket here even though the pool
+                # seam above (fenced) had correctly KEPT that very row — the two seams disagreed. With
+                # a fresh set threaded, both seams enforce the same §-1.3.1(b) fresh-verdict-only rule.
+                # UNARMED (caller passed None) => pass None => legacy behaviour, byte-identical.
+                if is_row_deletable_offtopic(_row, fresh_off_subject_ids=_router_off_subject_fence):
                     _off_topic_ev_ids.add(_eid)
                     continue
                 # (b) unassigned high-tier singleton candidate (not reachable by any section yet).
