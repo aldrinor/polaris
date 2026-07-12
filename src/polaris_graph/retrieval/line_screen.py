@@ -1383,4 +1383,16 @@ def apply_result_to_row(row: dict[str, Any], result: SourceScreenResult) -> dict
         if isinstance(row.get("direct_quote"), str) and row.get("direct_quote"):
             new_row["direct_quote"] = kept
     new_row["line_screen"] = result.sidecar()
+    # S2 SELECT+WEIGH metadata enrichment: populate doi/journal/tier from signals already present
+    # in the row (DOI regex over the quote+url, journal name / domain->venue map, domain->tier).
+    # Deterministic, conservative, non-destructive (§-1.3): only fills EMPTY metadata and UPGRADES
+    # tier from ''/'UNKNOWN' on a CLEAR signal; never downgrades, never deletes. This is what lets
+    # the downstream same-work merge key on a real DOI instead of leaving good sources blank/UNKNOWN.
+    try:
+        from src.polaris_graph.retrieval.source_metadata import (  # noqa: PLC0415
+            enrich_row_metadata,
+        )
+        enrich_row_metadata(new_row)
+    except Exception:  # noqa: BLE001 — enrichment must never block the screen (fail-open)
+        pass
     return new_row
