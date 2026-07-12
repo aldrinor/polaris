@@ -87,5 +87,20 @@
   (quality-preserving, NO fetch-cap, NO turn cut, zero coverage loss); loop then returns normally as
   agentic. Still a finite ~25min ceiling catching a TRUE hang. Behavioral proof: run overshooting wall by
   300s/466s degrades under 180, completes agentic under 600.
-- STEP 3 (prove it): FULL 328-basket deep render launched on data/cp4_corpus_s3gear_329.corrected.json
-  (997 evidence, 329 clusters, safe config) — MEASUREMENT PENDING (see round output).
+- STEP 3 (PROVEN — real run): FULL 328-basket deep render on data/cp4_corpus_s3gear_329.corrected.json
+  (997 evidence, 329 clusters) with the confirmed-safe config COMPLETED CLEAN. LIVE NUMBERS
+  (outputs/step3_full328_render, snapshot docs/step3_full328_render/compose_summary.json):
+  * NO DEADLOCK, NO SIGKILL/OOM (0 killed/oom/deadlock/traceback in log; process exited 0; main thread
+    stayed in ep_poll with network bytes flowing throughout — the idle-pool futex_wait threads were NOT
+    the wedge). Guard let the safe config run untouched.
+  * cp4_used=AGENTIC (degraded_to_seed=False, turns=1, degrade_reason='') — NOT degraded-seed. The
+    outline loop finished fast (finish_outline ACCEPTED at turn 1, pending=0) on the pre-built corpus.
+  * FAITHFULNESS PASS: leaked_[CITE:ev]=0, unresolved_markers=[], 54 bib markers all resolve.
+  * baskets=329 (>=328), 11 sections kept / 0 dropped, 2394 verified words (80 sentences verified /
+    112 dropped by strict_verify = corpus-density span limit, gate working), 60 bibliography entries.
+  * WALL = 2589.7s = 43.2min — ABOVE the ~24min clean-run figure. HONEST CAUSE: the deep render routes
+    ALL 328 baskets (route_all) and composes them SERIALLY under the safe config (BASKET_WORKERS=1),
+    inherently more compose work than the 31-basket clean run. The 16-way config that would cut this
+    DEADLOCKS (now guard-refused). So the safe path trades wall-time for guaranteed completion.
+  DEGRADE-TAIL note: this corpus is pre-built so the outline loop never tripped the 900s wall (no
+  mega-fetch); the grace 180->600 fix is proven at unit/behavioral level, not stressed by this run.
