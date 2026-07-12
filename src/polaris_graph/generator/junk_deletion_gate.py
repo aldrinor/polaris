@@ -120,10 +120,13 @@ def is_row_content_junk(row: Mapping[str, Any]) -> bool:
     the grounding pool. Falling back to the detector makes the gate independent of WHO
     assembled the corpus.
 
-    Reuses ``topic_relevance_gate._row_is_chrome_nonsource`` — the same stamp-then-detect
-    predicate the topic gate's own chrome screen applies — so the two screens can never
-    disagree about what "chrome" means (the module's single-source-of-truth posture, as with
-    ``is_row_confirmed_offtopic`` / ``weighted_enrichment._is_confirmed_offtopic``).
+    Shares the BODY-FIELD ordering with ``topic_relevance_gate`` (``_CHROME_BODY_FIELDS``) and the
+    same leaf detector, so both chrome screens judge the SAME body. It deliberately does NOT call
+    ``_row_is_chrome_nonsource`` itself: that helper returns a bare bool, and this gate must see
+    the detector's CLASS to apply the ``empty`` fence below. The two screens can therefore differ
+    in exactly one direction — an unstamped, text-less row is chrome to the topic gate (which only
+    SKIPS it) and NOT chrome here (where the verdict DELETES). That asymmetry is deliberate and is
+    the fail-open direction: the screen with the destructive verdict is the stricter one.
 
     The unstamped fallback deletes ONLY on an AFFIRMATIVE chrome signature (a block page /
     bot challenge / cookie wall / 404 / login wall / non-article stub). It deliberately does

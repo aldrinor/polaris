@@ -292,3 +292,32 @@ def test_unstamped_real_source_never_deleted():
     kept, deleted = jd.partition_rows([real])
     assert deleted == []
     assert kept == [real]
+
+
+def test_empty_fresh_set_keeps_stale_off_subject_row():
+    """The generator seam passes ``fresh_off_subject_ids=()`` — an EMPTY CONCRETE SET, not None.
+
+    partition_rows carries an off-topic arm (default-ON) whose stale-stamp fence only engages
+    when the caller passes a concrete set; ``None`` leaves freshness UN-enforced. A
+    ``topic_off_subject`` stamp is judged against the question it was MADE for, so reusing a
+    pre-built corpus_snapshot under a DIFFERENT question would hard-delete credible, on-topic
+    sources on a foreign verdict — the false hard-drop §-1.3.1(b)'s FAIL-OPEN clause forbids.
+    With an empty fresh set the off-topic arm is inert and ONLY the chrome arm can delete.
+    """
+    stale = {
+        "evidence_id": "ev_stale", "tier": "T2",
+        "title": "Minimum wage effects on employment",
+        "direct_quote": "We find minimal disemployment effects across 138 changes.",
+        "topic_off_subject": True,
+        "source_url": "https://doi.org/10.1234/x",
+    }
+    kept, deleted = jd.partition_rows([stale], fresh_off_subject_ids=())
+    assert deleted == [], "a stale off-subject stamp must never hard-delete at this seam"
+    assert kept == [stale]
+
+    # ...while a genuine chrome row at the same seam is still deleted.
+    kept2, deleted2 = jd.partition_rows(
+        [stale, _unstamped_rg_card()], fresh_off_subject_ids=(),
+    )
+    assert [r["evidence_id"] for r in deleted2] == ["ev_072"]
+    assert [r["evidence_id"] for r in kept2] == ["ev_stale"]

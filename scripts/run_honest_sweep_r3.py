@@ -18052,6 +18052,10 @@ async def run_one_query(
                 _merged_retraction_disclosed.append(_gr)
                 _seen_retraction_ev.add(_gr.get("evidence_id"))
         manifest["retraction_disclosed"] = _merged_retraction_disclosed
+        # §-1.3.1: chrome non-sources DELETED from the grounding pool (failed fetches, not
+        # sources). Same disclosure contract as retraction_disclosed — the carve-out requires the
+        # deleted-row count + reason to reach the manifest/Methods, never a log line alone.
+        manifest["junk_disclosed"] = getattr(multi, "junk_disclosed", []) or []
         manifest["body_syndication"] = getattr(multi, "body_syndication_telemetry", {})
 
         # GH I-deepfix-003 (#1374) Fix 5: the JUNK-DELETION disclosure (deleted_chrome_nonsources

@@ -338,6 +338,28 @@ async def main() -> int:
         f"Evaluator/mirror: {PG_EVALUATOR_MODEL}.\n"
         f"Tier distribution: {tier_summary}.\n"
     )
+    # §-1.3.1: "Every deletion is DISCLOSED (deleted-row count + reason in Methods — fail loud,
+    # never silent)." The chrome gate DELETES failed fetches (bot/captcha cards) from the
+    # grounding pool, so the count + per-source reason MUST surface here, not just in a log line.
+    _junk_disclosed = getattr(multi, "junk_disclosed", None) or []
+    if _junk_disclosed:
+        _by_reason: dict[str, int] = {}
+        for _d in _junk_disclosed:
+            _r = str(_d.get("deletion_reason") or _d.get("signal") or "unknown")
+            _by_reason[_r] = _by_reason.get(_r, 0) + 1
+        methods += (
+            f"\n## Deleted sources (§-1.3.1 junk carve-out): {len(_junk_disclosed)}\n\n"
+            "Chrome non-sources (bot/captcha/cookie/404/login pages) are FAILED FETCHES, not\n"
+            "sources — they carry no claim, so they are deleted from the grounding pool rather\n"
+            "than weighted. Credible on-topic sources are NEVER deleted, only weighted.\n\n"
+            + "".join(f"- {_r}: {_n}\n" for _r, _n in sorted(_by_reason.items()))
+            + "\nDeleted rows:\n"
+            + "".join(
+                f"- {_d.get('evidence_id')} [{_d.get('tier', '?')}] "
+                f"{str(_d.get('title', ''))[:60]} — {_d.get('url', '')}\n"
+                for _d in _junk_disclosed
+            )
+        )
     (run_dir / "methods.md").write_text(methods, encoding="utf-8")
     (run_dir / "bibliography.json").write_text(
         json.dumps(biblio, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -377,6 +399,8 @@ async def main() -> int:
         "total_words": getattr(multi, "total_words", None),
         "total_sentences_verified": getattr(multi, "total_sentences_verified", None),
         "total_sentences_dropped": getattr(multi, "total_sentences_dropped", None),
+        # §-1.3.1 disclosure: chrome non-sources deleted from the grounding pool (never silent).
+        "junk_deleted_rows": len(getattr(multi, "junk_disclosed", None) or []),
         "bibliography_entries": len(biblio),
         "report_chars": len(final_report),
         "report_words": len(final_report.split()),

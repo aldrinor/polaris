@@ -10080,14 +10080,30 @@ async def generate_multi_section_report(
     # rows (fail-open — no judge stamp => no off-topic deletion). It is NOT a tier/quality/
     # relevance filter: a credible ON-TOPIC source, however low-tier, is never touched. Every
     # deleted row is DISCLOSED + LOUD-logged, never silently dropped.
+    # ``fresh_off_subject_ids=()`` — an EMPTY CONCRETE SET, deliberately not None. partition_rows
+    # also carries an OFF-TOPIC arm (default-ON), and its stale-stamp fence only engages when the
+    # caller passes a concrete set: None leaves freshness UN-enforced, so any lingering
+    # ``topic_off_subject`` stamp would hard-delete. That stamp is judged against the question the
+    # stamp was MADE for — reuse a pre-built corpus_snapshot under a DIFFERENT question (exactly
+    # the path this gate was wired for) and a credible, on-topic source is deleted on a verdict
+    # from another question. §-1.3.1(b) is FAIL-OPEN and admits only a FRESH judge verdict; this
+    # seam has no fresh verdict in scope, so its off-topic arm stays inert by construction and
+    # ONLY the chrome arm can delete here. (Operators who want stamp-deletion can still set
+    # PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY=0 — an explicit choice, not a silent default.)
     _pool_rows_pre_junk = list(evidence_pool.values())
-    _kept_rows, _junk_rows = junk_deletion_gate.partition_rows(_pool_rows_pre_junk)
+    _kept_rows, _junk_rows = junk_deletion_gate.partition_rows(
+        _pool_rows_pre_junk, fresh_off_subject_ids=(),
+    )
     junk_disclosed: list[dict[str, Any]] = list(_junk_rows)
     if _junk_rows:
+        # Rebuild by IDENTITY of the kept rows so the pool's original keys survive verbatim
+        # (partition_rows returns the SAME row objects in ``kept``; only deleted rows are copied).
+        # Re-keying off ``str(row["evidence_id"])`` would coerce any non-string key and silently
+        # drop a kept row whose evidence_id is falsy — the retraction gate's partition_pool
+        # preserves keys exactly, and this seam must not be sloppier than the one above it.
+        _kept_obj_ids = {id(r) for r in _kept_rows}
         evidence_pool = {
-            str(r.get("evidence_id", "")): r
-            for r in _kept_rows
-            if str(r.get("evidence_id", ""))
+            k: v for k, v in evidence_pool.items() if id(v) in _kept_obj_ids
         }
         logger.warning(
             "[multi_section] JUNK-GATE (§-1.3.1a): deleted %d chrome non-source(s) / "
