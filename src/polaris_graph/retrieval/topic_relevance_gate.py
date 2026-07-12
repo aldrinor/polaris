@@ -328,6 +328,22 @@ def _authoritative_reference_ontopic_enabled() -> bool:
     ).strip().lower() not in ("0", "false", "no", "off", "")
 
 
+def _passing_mention_strict_enabled() -> bool:
+    """``PG_TOPIC_JUDGE_PASSING_MENTION`` kill switch (LAW VI, DEFAULT ON — S2/S3 re-pass iter-8
+    Fable Fix 3). ON => the split (three-verdict) judge prompt adds a 'passing mention is not
+    on-topic' clause: a source whose OWN subject is a CLEARLY DIFFERENT topic (a study in an
+    unrelated field, a general reference / dictionary entry, a study-skills / how-to / reading-list
+    / literature-review-tips page, a résumé example, an advertising / directory listing, a
+    bibliometric survey of a different field) is OFF_SUBJECT even when it name-drops the question's
+    keywords once. Question-agnostic (judged against the FULL research question, no hardcoded
+    entity/occupation list); it TIGHTENS the OFF_SUBJECT verdict for clearly-different-subject
+    sources while leaving the occupation-page / authoritative-reference KEEP behavior untouched.
+    OFF => byte-identical legacy prompt (the clause is not emitted)."""
+    return os.environ.get(
+        "PG_TOPIC_JUDGE_PASSING_MENTION", "1"
+    ).strip().lower() not in ("0", "false", "no", "off", "")
+
+
 def _category_signature(row: dict[str, Any]) -> str:
     """A category signature = registrable host + URL path with DIGIT-BEARING segments templated
     to ``#`` (P0-1b). This groups a NUMERIC-TEMPLATE page family (BLS OES ``/oes/current/
@@ -639,6 +655,33 @@ def _build_batch_prompt(
                 "",
             ]
             if deliverable_anchors else []
+        ),
+        # S2/S3 re-pass iter-8 (Fable Fix 3): PASSING MENTION IS NOT ON-TOPIC. ~14 zero-doubt
+        # off-subject sources (a chemistry-education study, a student-loan brief, a law-review
+        # rankings list, a quant reading list, a general-encyclopedia cost-benefit entry, a
+        # literature-review-tips page, a résumé example, an ad/directory page, a bibliometric
+        # survey of a different field) survived because they name-drop the question's keywords. The
+        # clause below is question-agnostic (judged against the FULL research question) and leaves
+        # the occupation-page / authoritative-reference KEEP behavior above untouched.
+        *(
+            [
+                "PASSING MENTION IS NOT ON-TOPIC: judge the source against the FULL "
+                "RESEARCH QUESTION, including any occupation / industry / population "
+                "case-study scope it names. A source whose OWN subject is a CLEARLY "
+                "DIFFERENT topic — a study in an unrelated field, a general "
+                "encyclopedia / dictionary / reference entry about a different concept, "
+                "a study-skills / how-to / tutorial / reading-list / bibliography / "
+                "literature-review-tips page, a résumé or CV example, an advertising / "
+                "marketing / product-directory / attorney-ad listing, or a bibliometric "
+                "/ scientometric survey of a DIFFERENT field — is OFF_SUBJECT even if it "
+                "mentions the question's keywords once in passing. Being ON requires the "
+                "source's OWN subject and aspect to BE what the question asks about, not "
+                "merely to name-drop it. This does NOT override the deliverable-axis / "
+                "authoritative-reference rules above: a source whose subject IS a "
+                "question-required occupation, industry, or official statistic stays ON.",
+                "",
+            ]
+            if (_passing_mention_strict_enabled() and subject_aspect_split) else []
         ),
         "FAIL-OPEN: if you genuinely cannot tell whether the source addresses the "
         "question's specific aspect, mark it ON. When in doubt, answer ON.",

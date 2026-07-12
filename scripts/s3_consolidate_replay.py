@@ -42,6 +42,10 @@ _SLATE = {
     'PG_FINDING_NUMERIC_NLI_CONFIRM_STRICT': '1',  # P0-3b: fail-open = SPLIT (unconfirmed => singleton)
     'PG_SAMEWORK_TITLE_UNION': '1',           # P0-4a: cross-mirror same-work title union (EL25/EL56)
     'PG_FINDING_NONCLAIM_BASKET_FOLD': '1',   # P0-4b: non-claim fragments fold into their work
+    # ── S2/S3 re-pass iter-8 (Fable full-list) ──
+    'PG_CONSOLIDATION_NLI_SEMANTIC_RECALL': '1',  # Fix 1: semantic top-k recall -> bidirectional judge
+    'PG_FINDING_REVERIFY_SAMEWORK_KEEP': '1',     # Fix 2(c): same-work non-confirm stays in basket
+    'PG_SAMEWORK_SUPPLEMENT_FOLD': '1',           # Fix 8: SM/appendix folds into the parent work
 }
 
 
@@ -96,7 +100,15 @@ def main() -> int:
         return str(rows[i].get('evidence_id', '')) if 0 <= i < len(rows) else ''
 
     def _url(i):
-        return _row_field(rows[i], 'source_url', 'url') if 0 <= i < len(rows) else ''
+        # Fable Fix 5 (provenance): resolve the member URL from the corpus record by ANY of the
+        # common URL fields (a row whose source_url/url is blank may still carry link / canonical /
+        # source / page_url) so a basket never emits an empty provenance slot for an otherwise
+        # citable source. Returns '' only when the record truly carries no URL anywhere.
+        if not (0 <= i < len(rows)):
+            return ''
+        return _row_field(
+            rows[i], 'source_url', 'url', 'link', 'canonical_url', 'source', 'page_url'
+        )
 
     def _tier(i):
         return (str(rows[i].get('tier', '') or 'UNKNOWN')) if 0 <= i < len(rows) else 'UNKNOWN'
@@ -109,7 +121,9 @@ def main() -> int:
         # carrying the numeric finding; fall back to the first complete sentence, then the
         # snippet, then the title.
         import re as _re
-        from src.polaris_graph.synthesis.finding_dedup import _collapse_letter_spacing
+        from src.polaris_graph.synthesis.finding_dedup import (
+            _collapse_letter_spacing, _is_boilerplate_or_metadata_line,
+        )
         if not (0 <= i < len(rows)):
             return ''
         row = rows[i]
@@ -120,11 +134,18 @@ def main() -> int:
             r'log ?in|sign ?in|subscribe|cookie|search text|search type|logical operator|'
             r'add_circle|remove_circle|skip to|newsletter|\bmenu\b|share this|©|›|»',
             _re.IGNORECASE)
-        sentences = [
+        _all = [
             s.strip() for s in _re.split(r'(?<=[.!?])\s+', body.strip())
             if len(s.split()) >= 5 and (s.strip()[:1].isupper() or s.strip()[:1].isdigit())
             and not _chrome.search(s)
         ]
+        # iter-8 Fable Fix 4: also skip a masthead / license / byline / cover-page metadata
+        # sentence ('Authored By: ...', 'CEPR Press, Paris & London.', 'Prepared by ... Authorized
+        # for distribution', a 'This version:' header, an ISBN reference line) when a real
+        # claim-bearing sentence exists, so a basket never SURFACES metadata as its statement.
+        # Prefer the non-boilerplate sentences; fall back to the full list only if none remain.
+        _clean = [s for s in _all if not _is_boilerplate_or_metadata_line(s)]
+        sentences = _clean if _clean else _all
         value_tok = None
         try:
             from src.polaris_graph.retrieval.contradiction_detector import extract_numeric_claims
@@ -161,24 +182,72 @@ def main() -> int:
         return 'cg_' + hashlib.sha256(norm.encode('utf-8')).hexdigest()[:12]
 
     baskets = []
+    # Fable Fix 5 (provenance): a member with NO resolvable URL is uncitable; it is DROPPED (with a
+    # disclosure row) so a basket never emits an empty provenance slot, and a basket left with NO
+    # citable member is dropped entirely (disclosed). §-1.3.1 fail-loud: every drop is recorded.
+    provenance_gap_disclosure = []
     for c in res.clusters:
         mi = list(c.member_indices)
+        citable = [i for i in mi if str(_url(i)).strip()]
+        dropped = [i for i in mi if not str(_url(i)).strip()]
+        for i in dropped:
+            provenance_gap_disclosure.append({
+                'evidence_id': _eid(i),
+                'representative_evidence_id': _eid(c.representative_index),
+                'reason': 'no_resolvable_url_uncitable_member',
+            })
+        if not citable:
+            # Whole basket uncitable — drop it, disclose (a claim no reader can locate).
+            provenance_gap_disclosure.append({
+                'evidence_id': _eid(c.representative_index),
+                'representative_evidence_id': _eid(c.representative_index),
+                'reason': 'basket_dropped_no_citable_member',
+            })
+            continue
+        # Under-count corroboration to the citable members (safe direction — never inflate).
+        corr = min(int(c.corroboration_count), len(citable)) if dropped else int(c.corroboration_count)
         baskets.append({
-            'corroboration_count': c.corroboration_count,
+            'corroboration_count': corr,
             # P3-10: the semantic claim-group id is the primary claim identity; the numeric tuple
             # below is retained for debugging but LABELED recall-only so it is never read as the
             # claim.
             'claim_group_id': _claim_group_id(c),
             'finding_key': list(c.finding_key),
             'finding_key_role': 'recall_only_not_the_claim',
-            'member_count': len(mi),
-            'member_evidence_ids': [_eid(i) for i in mi],
+            'member_count': len(citable),
+            'member_evidence_ids': [_eid(i) for i in citable],
             'member_hosts': list(c.member_hosts),
-            'member_tiers_weight': [_tier(i) for i in mi],
-            'member_urls': [_url(i) for i in mi],
+            'member_tiers_weight': [_tier(i) for i in citable],
+            'member_urls': [_url(i) for i in citable],
             'representative_evidence_id': _eid(c.representative_index),
             'representative_statement': _stmt(c.representative_index),
         })
+
+    # Fable Fix 2(a): assert NO duplicate claim_group_id before the snapshot is written (fail-loud).
+    # A duplicate cg means two surviving baskets assert the SAME visible claim — a residual same-
+    # claim false-split the consolidation passes should have merged. The collision is DISCLOSED (not
+    # hidden) and each colliding basket after the first is given a disambiguated cg so the snapshot
+    # stays unique; the disclosure count surfaces the anomaly for the forensic read (§-1.3.1).
+    duplicate_claim_group_ids = []
+    _seen_cg: dict = {}
+    for b in baskets:
+        cg = b['claim_group_id']
+        if cg in _seen_cg:
+            _seen_cg[cg] += 1
+            disambiguated = cg + '_dup' + str(_seen_cg[cg])
+            duplicate_claim_group_ids.append({
+                'claim_group_id': cg,
+                'representative_evidence_id': b['representative_evidence_id'],
+                'representative_statement': b['representative_statement'][:200],
+                'disambiguated_to': disambiguated,
+            })
+            b['claim_group_id'] = disambiguated
+            b['claim_group_id_collision'] = cg
+        else:
+            _seen_cg[cg] = 0
+    if duplicate_claim_group_ids:
+        print('WARN Fix2a duplicate_claim_group_ids=%d (disambiguated + disclosed)'
+              % len(duplicate_claim_group_ids), file=sys.stderr)
 
     sw = res.same_work
     sw_groups_payload = []
@@ -233,6 +302,9 @@ def main() -> int:
         # Fix 1(e): recover-before-delete disclosure counts (§-1.3.1 fail-loud).
         'same_work_dropped_captcha_recovered': len(sw.dropped_captcha_recovered) if sw else 0,
         'same_work_dropped_captcha_gap': len(sw.dropped_captcha_gap) if sw else 0,
+        # iter-8 Fable Fix 5 (provenance) + Fix 2(a) (duplicate-cg assert) — §-1.3.1 fail-loud.
+        'provenance_gap_dropped': len(provenance_gap_disclosure),
+        'duplicate_claim_group_ids': len(duplicate_claim_group_ids),
     }
 
     # Fix 1(e): DISCLOSE every chrome deletion (row count + reason) — §-1.3.1(a) fail-loud,
@@ -332,6 +404,9 @@ def main() -> int:
             'same_work_groups': sw_groups_payload,
             'chrome_deletion_disclosure': chrome_deletion_disclosure,
             'deletion_disclosure': unified_deletion_disclosure,  # Fix 11: merged S2+S3
+            # iter-8 Fable Fix 5 / Fix 2(a) — §-1.3.1 fail-loud disclosure rows.
+            'provenance_gap_disclosure': provenance_gap_disclosure,
+            'duplicate_claim_group_id_disclosure': duplicate_claim_group_ids,
         },
     }
     out_dir = Path(args.out)

@@ -672,7 +672,23 @@ _BOILERPLATE_METADATA_RE = re.compile(
     r"\belectronic copy available at\b|"
     r"\bthis version is not peer[\s\-]?reviewed\b|"
     r"\bbefore sharing sensitive information\b|\bofficial website of the\b|"
-    r"\ball content following this page\b|\bpo box\b",
+    r"\ball content following this page\b|\bpo box\b|"
+    # S2/S3 re-pass iter-8 (Fable Fix 4) — additional CONFIDENT masthead / reference-list /
+    # license / byline / cover-page metadata LINE classes still surfacing as basket
+    # REPRESENTATIVES (drb_72: a Henley street address; 'CEPR Press, Paris & London.'; a
+    # CC0 license line; a CESifo/rtsa 'Impressum' masthead; an IMF 'Prepared by ... Authorized
+    # for distribution' cover; a 'Mann This version: ...' preprint header; EBSCO 'Authored By:
+    # X 1 of 3'). All GENERAL, question-agnostic CLASS patterns (no entity/host hardcoding) and
+    # conservative — a real reported research CLAIM never contains these tokens; this only ever
+    # BLOCKS a line from being a merge key / representative, never drops a row.
+    r"\bcc0\b|\bpublic domain dedication\b|\bimpressum\b|"
+    r"\bauthori[sz]ed for distribution\b|\bprepared by the staff of\b|"
+    r"\bauthored by\s*:|\bthis version\s*:|"
+    # A publisher IMPRINT + place line ('… Press, Paris & London.', '… Publishing, Geneva.').
+    r"\b(?:press|publishing)\s*[,·]\s*[A-Z][A-Za-z.\-]+(?:\s*(?:&|and|,)\s*[A-Z][A-Za-z.\-]+)*\s*\.?\s*$|"
+    # A street address (house-number + street-type) — a correspondence / masthead line.
+    r"\b\d{1,5}\s+(?:[A-Z][A-Za-z.\-]+\s+){1,4}(?:street|st\.?|road|rd\.?|avenue|ave\.?|lane|"
+    r"ln\.?|way|drive|dr\.?|boulevard|blvd\.?|square|sq\.?|court|ct\.?)\b",
     re.IGNORECASE,
 )
 # A whole line that is a byline (author list): >=2 'Surname, F.' / 'F. Surname' name tokens joined
@@ -809,6 +825,14 @@ _TITLE_ALONE_MIN_TOKENS = 6    # word-token floor (discriminative)
 _FILENAME_EXT_RE = re.compile(r"\.(pdf|html?|docx?|txt|epub|xml|ps)$", re.IGNORECASE)
 _FILENAME_VERSION_TAIL_RE = re.compile(r"[_\-\s]+\d+([_\-\.]\d+)*$")
 _BODY_ARXIV_ID_RE = re.compile(r"arxiv[:\s]*?(\d{4}\.\d{4,5})", re.IGNORECASE)
+# S2/S3 re-pass iter-8 (Fable Fix 6): a STRONG self-identifying working-paper number carried in a
+# body HEADER when the URL leg had none (a metadata-less mirror — e.g. a semanticscholar / OA
+# aggregator record of an NBER paper). Bounded to the header so a body that merely CITES another
+# NBER paper in its references never mis-merges; requires the explicit 'NBER Working Paper' phrase
+# so a bare 'w30957' token is never picked up. Question-agnostic; the numeric id keeps two works apart.
+_BODY_NBER_ID_RE = re.compile(
+    r"nber\s+working\s+paper\s+(?:series\s+)?(?:no\.?\s*)?w?(\d{3,6})", re.IGNORECASE
+)
 
 
 def _samework_title_alone_enabled() -> bool:
@@ -945,6 +969,11 @@ def _body_work_identifier(row: dict[str, Any]) -> str:
         m = _BODY_ARXIV_ID_RE.search(head)
         if m:
             return "arxiv:" + m.group(1).lower()
+        # Fable Fix 6: an explicit 'NBER Working Paper <n>' self-id in the header (a metadata-less
+        # NBER mirror — semanticscholar / OA aggregator record). Bounded to the header phrase.
+        m = _BODY_NBER_ID_RE.search(head)
+        if m:
+            return "nber:w" + m.group(1)
     return ""
 
 
@@ -1002,7 +1031,12 @@ _DERIVATIVE_PATH_RE = re.compile(
     # NB: NO bare '/media/' — institutional CDNs (imf.org/-/media/files/publications/wp/...)
     # serve PRIMARY papers under /media/, so it is not a derivative-press signal.
     r"/news/|/blog/|/press-?releases?/|/newsroom/|/announcements?/|/events?/|"
-    r"/stories/|/explainers?/|/press/(?!kit)",
+    r"/stories/|/explainers?/|/press/(?!kit)|"
+    # S2/S3 re-pass iter-8 (Fable Fix 7): law-firm / consulting / vendor 'insights' marketing
+    # sections that REPORT a primary paper's finding (drb_72 gtlaw -> Brynjolfsson, continuumlabs
+    # -> Eloundou). §-1.3-safe: derivative is KEEP-ALL + weight-lowered + excluded from the
+    # DISTINCT-WORKS count only — under-counting corroboration is the safe direction, never a drop.
+    r"/insights?/|/perspectives?/|/thought-leadership/|/our-thinking/|/thinking/|/viewpoints?/",
     re.IGNORECASE,
 )
 
@@ -1498,18 +1532,46 @@ _URL_BASENAME_EXT_RE = re.compile(r"\.(pdf|html?|docx?|txt|epub|xml|ps|ashx|aspx
 # and every member URL is kept as a locator). Fable's safe default: unsure whether two mirrors
 # are one work => count ONE work, keep both citations.
 _URL_BASENAME_VERSION_TAIL_RE = re.compile(r"(?:[._\-]v?\d+)+$|\(\d+\)$")
+# S2/S3 re-pass iter-8 (Fable Fix 8): a SUPPLEMENTARY-MATERIAL / appendix / online-annex file is
+# NOT a second work — it is part of its parent paper (drb_72 Doshi-Hauser 'SM.pdf' counted as a
+# 2nd work, corrob=2). Stripping a trailing supplement/appendix marker from the basename folds
+# 'doshi_hauser_sm' -> 'doshi_hauser' so it keys to the same work as 'doshi_hauser.pdf'. General,
+# question-agnostic; §-1.3-safe (folds only the corroboration COUNT — the CLAIM merge still needs
+# NLI, and every member URL is kept as a locator). Bounded to a trailing token so a paper whose
+# real title merely contains one of these words is never mis-folded.
+_URL_BASENAME_SUPPLEMENT_TAIL_RE = re.compile(
+    r"(?:[._\-\s]|^)(?:sm|si|supp?(?:l|lement(?:s|ary)?)?|"
+    r"supplementary[._\-]?(?:material|materials|information|appendix|data|file|table|figure)|"
+    r"online[._\-]?(?:appendix|annex|supplement)|appendix|appendices|annex|addendum|"
+    r"web[._\-]?appendix)$",
+    re.IGNORECASE,
+)
 # Non-discriminative basenames that many distinct works share — never a same-work signal.
 _GENERIC_BASENAMES = frozenset({
     "index", "download", "downloads", "view", "viewer", "full", "fulltext", "abstract",
     "default", "home", "paper", "papers", "article", "articles", "document", "pdf",
     "file", "files", "content", "main", "show", "print", "read", "get", "doc", "docs",
     "en", "html", "entry", "publication", "publications", "report", "reports", "summary",
+    # Fable Fix 8: a bare supplement/appendix basename is not a discriminative work id — two
+    # different papers each have an 'appendix.pdf'. Reject so it never merges two distinct works.
+    "appendix", "appendices", "supplement", "supplementary", "addendum", "annexes",
 })
 
 
 def _samework_filename_union_enabled() -> bool:
     """``PG_SAMEWORK_FILENAME_UNION`` kill switch (LAW VI, DEFAULT-ON, iter-5 P1-2)."""
     return os.getenv(_SAMEWORK_FILENAME_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _samework_supplement_fold_enabled() -> bool:
+    """``PG_SAMEWORK_SUPPLEMENT_FOLD`` kill switch (LAW VI, DEFAULT-ON, iter-8 Fable Fix 8). ON =>
+    a supplementary-material / appendix file basename folds into its parent work (a trailing
+    ``_sm`` / ``_supplement`` / ``_appendix`` marker is stripped before the basename key), so a
+    paper's SM.pdf does not count as a second work. OFF => byte-identical (SM stays a distinct
+    work)."""
+    return os.getenv("PG_SAMEWORK_SUPPLEMENT_FOLD", "1").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 
@@ -1529,6 +1591,13 @@ def _url_basename_key(row: dict[str, Any]) -> str:
         base = path.rsplit("/", 1)[-1]
     base = _URL_BASENAME_EXT_RE.sub("", base).strip().lower()
     base = _URL_BASENAME_VERSION_TAIL_RE.sub("", base)
+    # Fable Fix 8: fold a supplementary-material / appendix file into its parent work by stripping
+    # a trailing supplement marker, but ONLY when a non-trivial parent basename remains (so a bare
+    # 'appendix' / 'sm' file — no parent stem — is left untouched and stays generic below).
+    if _samework_supplement_fold_enabled():
+        _stripped = _URL_BASENAME_SUPPLEMENT_TAIL_RE.sub("", base).strip("._-")
+        if len(_stripped) >= 8:
+            base = _stripped
     base = base.strip("._-")
     if not base or base in _GENERIC_BASENAMES:
         return ""
@@ -2906,6 +2975,200 @@ def _apply_representative_invariant(
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# SEMANTIC RECALL consolidation leg — S2/S3 re-pass iter-8 Fable Fix 1 (THE P0)
+# ─────────────────────────────────────────────────────────────────────────
+# THE NOMINATION GHOST (§-1.1, negative direction): the consolidation-NLI candidate legs
+# (``_apply_consolidation_nli`` by-value bucket + soft-prior value-set + the qualitative lexical
+# near-verbatim pass) all NOMINATE candidate pairs from a MECHANICAL key — a shared numeric value,
+# an intersecting value set, or a shingle-Jaccard near-match. So two baskets that assert the SAME
+# claim in DIFFERENT WORDS with DIFFERENT (or absent) numeric tuples NEVER met the bidirectional
+# judge (drb_72: an ILO exposure basket vs its paraphrase; a Mensa-IQ numeric basket vs its
+# ``__unknown__`` evidence-id-fallback twin; a PWBM web-page basket vs its PDF twin; an Eloundou
+# 15% basket vs a differently-worded copy). Only 153/247 basket texts were ever scored.
+#
+# THE FIX (general, question-agnostic): a SEMANTIC recall leg. Embed EVERY basket's reader-visible
+# representative claim sentence with the same local bi-encoder ``consolidation_nli`` already uses
+# for over-cap blocking, nominate each rep's top-k nearest neighbors ACROSS ALL baskets, and put
+# every nominated pair to the SAME strict bidirectional entailment judge. The judge (not the
+# embedding) is the SOLE merge decider — a spurious neighbor that does not bidirectionally entail
+# never merges (fail-open unchanged). A conservative numbers-strict guard skips any pair whose two
+# reps BOTH carry numbers but share NONE (a different-number claim never merges). §-1.3-safe:
+# UNION-only / keep-all; corroboration is recomputed over DISTINCT works downstream so a same-work
+# re-merge stays honest; the faithfulness engine is untouched. Runs AFTER the mechanical legs
+# (extra recall on top, never replacing them) and BEFORE the post-merge re-verify (which then
+# re-checks every member of any newly-unioned basket, so an over-merge self-heals). No entity list,
+# no corpus-tuned number — k + threshold + max-pairs are LAW VI env knobs.
+_SEMANTIC_RECALL_ENV = "PG_CONSOLIDATION_NLI_SEMANTIC_RECALL"
+_SEMANTIC_RECALL_TOPK_ENV = "PG_CONSOLIDATION_NLI_SEMANTIC_RECALL_TOPK"
+_SEMANTIC_RECALL_TOPK_DEFAULT = "12"
+_SEMANTIC_RECALL_MAX_PAIRS_ENV = "PG_CONSOLIDATION_NLI_SEMANTIC_RECALL_MAX_PAIRS"
+_SEMANTIC_RECALL_MAX_PAIRS_DEFAULT = "40000"
+
+
+def _semantic_recall_enabled() -> bool:
+    """``PG_CONSOLIDATION_NLI_SEMANTIC_RECALL`` kill switch (LAW VI, DEFAULT-ON, iter-8 Fable Fix
+    1). ON (and an NLI path active) => a semantic top-k neighbor recall pass nominates cross-bucket
+    candidate pairs to the strict bidirectional judge. OFF => byte-identical (only the mechanical
+    key / value / lexical legs nominate)."""
+    return os.getenv(_SEMANTIC_RECALL_ENV, "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _semantic_recall_topk() -> int:
+    return _read_env_int(_SEMANTIC_RECALL_TOPK_ENV, _SEMANTIC_RECALL_TOPK_DEFAULT, lo=1, hi=100)
+
+
+def _semantic_recall_max_pairs() -> int:
+    return _read_env_int(
+        _SEMANTIC_RECALL_MAX_PAIRS_ENV, _SEMANTIC_RECALL_MAX_PAIRS_DEFAULT, lo=1, hi=10_000_000
+    )
+
+
+def _read_env_int(env: str, default: str, *, lo: int, hi: int) -> int:
+    """Bounded env int read (LAW VI). Malformed => default (logged, never raised)."""
+    raw = os.environ.get(env, "").strip() or default
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        logger.warning("[finding_dedup] %s=%r not an int; using %s", env, raw, default)
+        return int(default)
+    return max(lo, min(hi, value))
+
+
+def _apply_semantic_recall_consolidation(
+    groups: dict[tuple, list[int]],
+    rows: list[dict[str, Any]],
+    rank_fn,
+    *,
+    entail_fn: Optional[Callable[[str, str], Optional[bool]]] = None,
+    embed_pairs_fn: Optional[Callable[..., Any]] = None,
+    telemetry: Optional[dict[str, Any]] = None,
+) -> tuple[dict[tuple, list[int]], int]:
+    """Fable Fix 1: SEMANTIC recall leg. Embed every basket's visible representative claim sentence,
+    nominate each rep's top-k nearest neighbors across ALL baskets, and UNION any nominated pair
+    whose reps BIDIRECTIONALLY entail (numbers-strict compatible). Returns ``(groups, merged)`` where
+    ``merged`` = clusters absorbed. UNION-only / keep-all / §-1.3-safe. ``entail_fn`` and
+    ``embed_pairs_fn`` are the deterministic test seams; production passes None => the lazy resident
+    cross-encoder + bi-encoder."""
+    keys = list(groups.keys())
+    if len(keys) < 3:
+        return groups, 0
+    # Build the visible-claim rep text (mergeable-screened) + numeric value set for every basket.
+    pos_to_key_idx: list[int] = []
+    texts: list[str] = []
+    numvals: list[frozenset] = []
+    for i, key in enumerate(keys):
+        member_ris = sorted(set(groups[key]))
+        value = _cluster_value_bucket(key, rows, member_ris)
+        rep_ri = _choose_clean_representative(member_ris, rank_fn, rows)
+        vis = _normalize_unicode_text(
+            _collapse_letter_spacing(_visible_claim_sentence(rows[rep_ri], value))
+        )
+        # A non-mergeable rep (heading / license / metadata) can never anchor a same-claim merge.
+        if not _sentence_mergeable(vis):
+            continue
+        pos_to_key_idx.append(i)
+        texts.append(vis)
+        numvals.append(frozenset(round(v, 6) for v in _text_numeric_values(vis)))
+    if len(texts) < 3:
+        return groups, 0
+
+    if embed_pairs_fn is None:
+        try:
+            from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+                _embedding_blocked_pairs as embed_pairs_fn,
+            )
+        except Exception as exc:  # noqa: BLE001 — embedder import fault => recall inert (KEEP)
+            logger.warning(
+                "[finding_dedup] Fix 1 semantic recall: embedder unavailable (%s); leg inert "
+                "(no basket merged, no basket dropped — §-1.3).", exc,
+            )
+            return groups, 0
+    try:
+        pairs = embed_pairs_fn(texts, _semantic_recall_max_pairs(), topk=_semantic_recall_topk())
+    except Exception as exc:  # noqa: BLE001 — any embedder failure => recall inert (KEEP)
+        logger.warning(
+            "[finding_dedup] Fix 1 semantic recall: embedding blocking failed (%s); leg inert.",
+            exc,
+        )
+        return groups, 0
+    if not pairs:  # None (embedder failure) or [] (no near neighbors) => nothing to merge
+        return groups, 0
+
+    if entail_fn is None:
+        from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
+            entails_directional,
+        )
+        entail_fn = entails_directional
+
+    parent = list(range(len(keys)))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: int, b: int) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra == rb:
+            return
+        lo, hi = (ra, rb) if ra < rb else (rb, ra)
+        parent[hi] = lo  # attach to lower => deterministic
+
+    n_merged = 0
+    n_scored = 0
+    n_skipped_numeric = 0
+    for pair in pairs:
+        a, b = pair[0], pair[1]
+        ka, kb = pos_to_key_idx[a], pos_to_key_idx[b]
+        if _find(ka) == _find(kb):
+            continue
+        # Numbers-strict nomination guard: two reps that BOTH assert numbers but share NONE are a
+        # different-number claim — never nominate (the operator's locked numbers-strict rule; the
+        # safe direction). A rep with no number is judged by NLI alone (qualitative same-claim).
+        if numvals[a] and numvals[b] and not (numvals[a] & numvals[b]):
+            n_skipped_numeric += 1
+            continue
+        ta, tb = texts[a], texts[b]
+        fwd = entail_fn(ta, tb)
+        rev = entail_fn(tb, ta) if fwd is True else None
+        n_scored += 1
+        if fwd is True and rev is True:
+            _union(ka, kb)
+            n_merged += 1
+
+    if telemetry is not None:
+        telemetry["semantic_recall_scored"] = telemetry.get("semantic_recall_scored", 0) + n_scored
+        telemetry["semantic_recall_merged"] = telemetry.get("semantic_recall_merged", 0) + n_merged
+        telemetry["semantic_recall_candidates"] = (
+            telemetry.get("semantic_recall_candidates", 0) + len(pairs)
+        )
+        telemetry["semantic_recall_texts"] = len(texts)
+        telemetry["semantic_recall_skipped_numeric"] = (
+            telemetry.get("semantic_recall_skipped_numeric", 0) + n_skipped_numeric
+        )
+    if n_merged == 0:
+        return groups, 0
+    merged_members: dict[int, list[int]] = {}
+    for i in range(len(keys)):
+        merged_members.setdefault(_find(i), []).extend(groups[keys[i]])
+    new_groups: dict[tuple, list[int]] = {}
+    for i in range(len(keys)):  # original key order => order-stable result dict
+        if _find(i) != i:
+            continue
+        new_groups[keys[i]] = sorted(set(merged_members[i]))
+    logger.info(
+        "[finding_dedup] Fix 1 semantic recall: %d basket(s) unioned from %d judge-scored top-k "
+        "neighbor pairs (%d nominated, %d numeric-incompatible skipped) over %d rep texts "
+        "(UNION-only, keep-all, judge-decided, §-1.3)",
+        n_merged, n_scored, len(pairs), n_skipped_numeric, len(texts),
+    )
+    return new_groups, n_merged
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # NUMBERS-STRICT value presence — S2/S3 re-pass iter-5 P0-1(b) (Fable)
 # ─────────────────────────────────────────────────────────────────────────
 # A numeric basket asserts a specific NUMBER. Two members may stay merged ONLY when that number
@@ -2982,6 +3245,71 @@ def _post_merge_reverify_enabled() -> bool:
     )
 
 
+def _same_work_reverify_keep_enabled() -> bool:
+    """``PG_FINDING_REVERIFY_SAMEWORK_KEEP`` kill switch (LAW VI, DEFAULT-ON, iter-8 Fable Fix
+    2(c)). ON => a non-rep member that FAILS the re-verify but is the SAME WORK as the rep (same
+    evidence_id or same ``_same_work_key``) is KEPT inside the basket at corroboration-neutral
+    status instead of being split into a phantom sibling basket — a paper cannot corroborate
+    itself, and distinct-works dedup already prevents it from inflating the count (drb_72 idx30/31
+    Eloundou 15%, idx125/126 ev_190). Only a CROSS-WORK non-confirm splits out. OFF => every
+    non-confirm splits (the pre-Fix-2(c) behavior)."""
+    return os.getenv("PG_FINDING_REVERIFY_SAMEWORK_KEEP", "1").strip().lower() not in (
+        "", "0", "false", "off", "no",
+    )
+
+
+def _member_same_work_as_rep(row_m: dict[str, Any], row_rep: dict[str, Any]) -> bool:
+    """True iff ``row_m`` is the SAME WORK as ``row_rep`` — either literally the same evidence row
+    (identical non-empty ``evidence_id``) or the same non-empty ``_same_work_key`` (same paper at
+    a mirror URL / a second chunk of one document). Used ONLY by Fix 2(c) to decide whether a
+    non-confirming re-verify member is a phantom sibling (cross-work => split) or a same-paper
+    chunk (same-work => keep in basket, corroboration-neutral). General/question-agnostic."""
+    ea = str(row_m.get("evidence_id", "") or "").strip()
+    eb = str(row_rep.get("evidence_id", "") or "").strip()
+    if ea and ea == eb:
+        return True
+    ka = _same_work_key(row_m)
+    kb = _same_work_key(row_rep)
+    return bool(ka and kb and ka == kb)
+
+
+def _emit_reverify_split_members(
+    out: dict[tuple, list[int]],
+    key: tuple,
+    split_members: list[int],
+    rows: list[dict[str, Any]],
+) -> int:
+    """Fable Fix 2(b): emit the CROSS-WORK split-out members, COLLAPSING those that assert a
+    byte-identical VISIBLE claim into ONE basket. Two distinct works asserting the identical claim
+    are ONE corroboration basket (corroboration = distinct works), never two ``corroboration=1``
+    siblings that then hash to a DUPLICATE claim_group_id (the drb_72 idx125/126 pair). Members are
+    grouped by their rung-0 signature; an empty-signature (chrome / non-propositional) split-out
+    stays its own key. Returns the number of emitted keys. §-1.3-safe (keep-all: every member is
+    still emitted as a basket member)."""
+    if not split_members:
+        return 0
+    by_sig: dict[str, list[int]] = {}
+    singletons: list[int] = []
+    for mri in sorted(set(split_members)):
+        vis = _normalize_unicode_text(
+            _collapse_letter_spacing(_visible_claim_sentence(rows[mri], None))
+        )
+        sig = _rung0_signature(vis) if _sentence_mergeable(vis) else ""
+        if sig:
+            by_sig.setdefault(sig, []).append(mri)
+        else:
+            singletons.append(mri)
+    n_keys = 0
+    for _sig, mris in by_sig.items():
+        mris = sorted(set(mris))
+        out[tuple(key) + ("__reverify_split__", mris[0])] = mris
+        n_keys += 1
+    for mri in singletons:
+        out[tuple(key) + ("__reverify_split__", mri)] = [mri]
+        n_keys += 1
+    return n_keys
+
+
 def _apply_post_merge_reverify(
     groups: dict[tuple, list[int]],
     rows: list[dict[str, Any]],
@@ -3017,8 +3345,11 @@ def _apply_post_merge_reverify(
         rep_sig = _rung0_signature(rep_text)
         rep_mergeable = _sentence_mergeable(rep_text)
         rep_has_value = (not value_strict) or _text_contains_value(rep_text, value)
+        rep_row = rows[rep_ri]
+        samework_keep = _same_work_reverify_keep_enabled()
         confirmed = [rep_ri]
         split_members: list[int] = []
+        kept_same_work = 0
         for mri in distinct:
             if mri == rep_ri:
                 continue
@@ -3030,28 +3361,39 @@ def _apply_post_merge_reverify(
             if rep_sig and _rung0_signature(m_text) == rep_sig:
                 confirmed.append(mri)
                 continue
-            # A boilerplate / heading / non-propositional rep or member cannot corroborate a CLAIM.
-            if not (rep_mergeable and _sentence_mergeable(m_text)):
-                split_members.append(mri)
-                continue
-            # Numbers-strict: the basket's value must literally appear in BOTH claim sentences.
-            if value_strict and not (rep_has_value and _text_contains_value(m_text, value)):
-                split_members.append(mri)
-                continue
-            # Bidirectional entailment of the member's OWN claim sentence vs the FINAL rep.
-            fwd = entail_fn(rep_text, m_text)
-            rev = entail_fn(m_text, rep_text) if fwd is True else None
-            if fwd is True and rev is True:
+            # Decide whether this member CONFIRMS the final rep (mergeable + numbers-strict +
+            # bidirectional entailment). Anything not positively confirmed is a NON-CONFIRM.
+            member_confirmed = False
+            if rep_mergeable and _sentence_mergeable(m_text):
+                if (not value_strict) or (rep_has_value and _text_contains_value(m_text, value)):
+                    fwd = entail_fn(rep_text, m_text)
+                    rev = entail_fn(m_text, rep_text) if fwd is True else None
+                    member_confirmed = (fwd is True and rev is True)
+            if member_confirmed:
                 confirmed.append(mri)
-            else:
-                # fail-open toward SPLIT (None / one-way / contradiction — anti-fabrication).
-                split_members.append(mri)
+                continue
+            # Fable Fix 2(c): a NON-CONFIRMING member that is the SAME WORK as the rep (same paper:
+            # identical evidence_id or same-work key) is NOT split into a phantom sibling basket — a
+            # paper cannot corroborate itself, and distinct-works dedup already prevents it from
+            # inflating the corroboration count. Keep it INSIDE the basket (corroboration-neutral).
+            # Only a CROSS-WORK non-confirm splits out (anti-fabrication holds for cross-work).
+            if samework_keep and _member_same_work_as_rep(rows[mri], rep_row):
+                confirmed.append(mri)
+                kept_same_work += 1
+                continue
+            # Cross-work non-confirm: fail-open toward SPLIT (None / one-way / contradiction /
+            # numbers-mismatch / non-mergeable — anti-fabrication).
+            split_members.append(mri)
         out[key] = sorted(set(confirmed))
-        for mri in split_members:
-            out[tuple(key) + ("__reverify_split__", mri)] = [mri]
+        # Fable Fix 2(b): collapse byte-identical cross-work split-outs into ONE basket.
+        _emit_reverify_split_members(out, key, split_members, rows)
         if split_members:
             clusters_split += 1
             members_split += len(split_members)
+        if telemetry is not None and kept_same_work:
+            telemetry["post_merge_sameowork_kept"] = (
+                telemetry.get("post_merge_sameowork_kept", 0) + kept_same_work
+            )
     if members_split:
         logger.info(
             "[finding_dedup] Fable Fix 1 post-merge re-verify: SPLIT %d member(s) out of %d "
@@ -4752,6 +5094,26 @@ def dedup_by_finding(
     rep_invariant_merged = 0
     if groups and _representative_invariant_enabled():
         groups, rep_invariant_merged = _apply_representative_invariant(groups, rows, _rank)
+
+    # 1d-2. SEMANTIC RECALL consolidation (iter-8 Fable Fix 1 — the nomination ghost). The
+    #     mechanical legs above (value bucket / soft-prior value-set / lexical near-verbatim)
+    #     only ever NOMINATE candidate pairs from a shared value / shingle match, so two baskets
+    #     asserting the SAME claim in DIFFERENT WORDS (or with different / absent numeric tuples)
+    #     never met the bidirectional judge. This pass embeds every basket's visible rep sentence,
+    #     nominates each rep's top-k semantic neighbors ACROSS ALL baskets, and UNIONS a pair ONLY
+    #     when the SAME strict bidirectional cross-encoder confirms both directions (numbers-strict
+    #     compatible). The judge is the sole decider (fail-open unchanged); UNION-only / keep-all.
+    #     Runs BEFORE the post-merge re-verify so an over-merge self-heals (its members are then
+    #     re-checked against the final rep). Gated on an NLI path being active + its own kill switch.
+    if (
+        groups
+        and _semantic_recall_enabled()
+        and (_consolidation_nli_enabled() or _finding_dedup_nli_enabled())
+    ):
+        groups, _semantic_recall_merged = _apply_semantic_recall_consolidation(
+            groups, rows, _rank, telemetry=numeric_confirm_telemetry,
+        )
+        nli_merge_count += _semantic_recall_merged
 
     # 1e. POST-MERGE member re-verify (Fable Fix 1 — anti-fabrication, THE P0). After ALL merge
     #     passes, re-verify each non-rep member of every surviving multi-member basket against the
