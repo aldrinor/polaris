@@ -147,6 +147,10 @@ async def main() -> int:
     # hardcode no topic and are overridable from the environment.
     os.environ.setdefault("PG_FACET_OUTLINE", "1")
     os.environ.setdefault("PG_FACET_OUTLINE_SKELETON", "1")
+    # STEP 3 (INSIGHT depth): make the cross-study synthesis section quantify agreement/disagreement
+    # across the [ev]-backed body figures (enrich its evidence + directive). GENERAL structural
+    # lever — role detected structurally, no topic/title hardcoded; strict_verify unchanged.
+    os.environ.setdefault("PG_SYNTHESIS_QUANT_DIRECTIVE", "1")
 
     corpus_path = Path(args.corpus)
     corpus = json.loads(corpus_path.read_text())
