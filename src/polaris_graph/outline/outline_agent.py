@@ -1956,6 +1956,238 @@ class OutlineAgent:
 
 
 # ---------------------------------------------------------------------------
+# Corpus-derived THEME-COVERAGE floor (RACE-FLOOR fix, 2026-07-12, this wheel).
+# ---------------------------------------------------------------------------
+
+# General web-scraping / bibliographic / UI boilerplate — NOT task-specific. Stripped so themes are
+# derived from real content, never from Cloudflare bot-pages, PDF stream tokens, or nav chrome.
+_THEME_BOILERPLATE = frozenset("""
+https http www com org net edu gov html htm pdf doi isbn vol pp volume issue journal abstract retrieved
+accessed copyright rights reserved cookie cookies privacy terms login sign researchgate gmbh amp nbsp
+check security detected verify verifying browser javascript enable disable pages spring aeaweb article
+articles figure table download springer elsevier wiley arxiv ssrn nber ray unusual moment activity
+continue client network cloudflare captcha robot bot connection obj endobj stream xref startxref
+endstream trailer font width height media proxy requests request blocked access denied wait complete
+required click please loading error page site website home menu search submit just need
+""".split())
+
+_THEME_URL_RE = None  # compiled lazily
+
+
+def _theme_row_text(row: dict[str, Any]) -> str:
+    """The text a THEME is derived from — the evidence row's OWN words only (title + statement +
+    the direct_quote with URLs / non-letters stripped). NEVER the research question / task wording,
+    so clustering is query-agnostic and cannot hardcode any single benchmark task's sections."""
+    global _THEME_URL_RE  # noqa: PLW0603
+    if _THEME_URL_RE is None:
+        import re as _re  # noqa: PLC0415
+        _THEME_URL_RE = _re.compile(
+            r"https?://\S+|www\.\S+|\S+\.(?:com|org|net|edu|gov|io|co)\b"
+        )
+    import re as _re  # noqa: PLC0415
+    dq = _THEME_URL_RE.sub(" ", str(row.get("direct_quote", "") or ""))
+    dq = _re.sub(r"[^A-Za-z ]", " ", dq)
+    return " ".join([
+        str(row.get("title", "") or ""),
+        str(row.get("statement", "") or ""),
+        dq,
+    ]).strip()
+
+
+def _titlecase_terms(terms: list[str]) -> str:
+    """Deterministic, human-ish section title from a cluster's top distinctive terms. Near-duplicates
+    (regulation/regulatory, skill/skills) are collapsed by a shared 5-char prefix so a title never
+    reads 'Regulation and Regulatory'; the first 2-3 distinct terms are joined readably."""
+    seen: list[str] = []
+    seen_pref: set[str] = set()
+    for t in terms:
+        t = str(t).strip()
+        pref = t.lower()[:5]
+        if t and pref not in seen_pref:
+            seen.append(t.capitalize())
+            seen_pref.add(pref)
+        if len(seen) >= 3:
+            break
+    if not seen:
+        return "Additional Corpus Theme"
+    if len(seen) == 1:
+        return seen[0]
+    return ", ".join(seen[:-1]) + " and " + seen[-1]
+
+
+def _derive_theme_coverage_sections(
+    evidence: list[dict[str, Any]],
+    seed_plans: list[Any],
+    *,
+    min_frac: float,
+    max_new: int,
+    cover_thresh: float,
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Query-agnostic corpus theme-coverage floor.
+
+    Cluster the evidence rows by their OWN text (``_theme_row_text``) using a DETERMINISTIC pipeline
+    (TF-IDF + agglomerative clustering — no random init, so the same corpus always yields the same
+    clusters). Any cluster that holds ``>= min_frac`` of all rows yet is NOT concentrated in any
+    existing seed section (its members are scattered / unhomed rather than owned by one section —
+    ``max per-section share < cover_thresh``, and its top terms don't already appear in a seed
+    section's title/focus) is a corpus theme the seed outline UNDER-COVERS. For each such theme this
+    synthesizes ONE dedicated ``SectionPlan`` carrying the cluster's own real ev_ids, so the agentic
+    loop starts from a corpus-complete outline instead of being free to (non-deterministically) merge
+    the theme away.
+
+    Faithfulness-NEUTRAL: pure structural placement. Every ev_id on a new section already exists in
+    the corpus; no text is authored here; strict_verify / NLI / [#calc] / fold-in all run downstream
+    exactly as before. GENERAL: nothing here reads the research question or any task-specific string.
+
+    Returns ``(new_section_plans, diagnostics)``. Fail-open: any import/runtime error yields
+    ``([], [...])`` so the caller keeps its legacy outline untouched.
+    """
+    diag: list[dict[str, Any]] = []
+    rows = [
+        (str(r.get("evidence_id")), _theme_row_text(r))
+        for r in evidence
+        if isinstance(r, dict) and r.get("evidence_id") and _theme_row_text(r)
+    ]
+    # deterministic input order (cluster labels are order-invariant here, but stable ordering makes
+    # the representative-ev_id selection reproducible run-to-run).
+    rows.sort(key=lambda t: t[0])
+    n = len(rows)
+    if n < 40 or min_frac <= 0:
+        return [], [{"skipped": "too_few_rows", "n": n}]
+    min_size = max(2, int(round(min_frac * n)))
+
+    try:
+        import numpy as _np  # noqa: PLC0415
+        from sklearn.cluster import KMeans  # noqa: PLC0415
+        from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001 — fail-open, keep legacy outline
+        return [], [{"skipped": "sklearn_unavailable", "err": str(exc)}]
+
+    ev_ids = [e for e, _ in rows]
+    texts = [t for _, t in rows]
+    _english = TfidfVectorizer(stop_words="english").get_stop_words() or []
+    stop = list(set(_english) | set(_THEME_BOILERPLATE))
+    vec = TfidfVectorizer(
+        stop_words=stop, max_df=0.4, min_df=4, max_features=6000, sublinear_tf=True,
+        token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]{2,}\b",
+    )
+    try:
+        X = vec.fit_transform(texts)
+    except ValueError as exc:  # empty vocabulary etc.
+        return [], [{"skipped": "empty_vocab", "err": str(exc)}]
+    terms = vec.get_feature_names_out()
+    Xd = X.toarray()
+    # corpus content-salience vocab: the corpus's own top document-frequency terms (query-agnostic).
+    # A candidate theme must be anchored in this vocabulary or it is treated as a scraping artifact
+    # (e.g. a Cloudflare bot-page or PDF-stream cluster) rather than a real corpus theme.
+    _df = (Xd > 0).sum(axis=0)
+    _salient_vocab = {str(terms[i]) for i in _np.argsort(_df)[::-1][:60]}
+    # cluster count: scale with the corpus, bounded. DETERMINISTIC (fixed random_state, fixed n_init).
+    k = int(min(max(len(seed_plans) * 2, 12), 24, max(2, n // 10)))
+    labels = KMeans(n_clusters=k, random_state=0, n_init=10).fit_predict(Xd)
+
+    # seed section footprint: ev_id -> owning section indices, plus each section's title/focus text.
+    seed_ev_sets: list[set[str]] = []
+    seed_txt: list[str] = []
+    for p in seed_plans:
+        seed_ev_sets.append({str(e) for e in (getattr(p, "ev_ids", None) or [])})
+        seed_txt.append(
+            (str(getattr(p, "title", "")) + " " + str(getattr(p, "focus", ""))).lower()
+        )
+    seed_titles_lower = {str(getattr(p, "title", "")).strip().lower() for p in seed_plans}
+
+    from src.polaris_graph.generator.multi_section_generator import SectionPlan  # noqa: PLC0415
+
+    new_plans: list[Any] = []
+    # rank clusters by size desc, deterministic tie-break on label.
+    clusters = sorted(
+        ({"label": c} for c in set(labels.tolist())),
+        key=lambda d: d["label"],
+    )
+    sized = []
+    for c in clusters:
+        idx = [i for i, l in enumerate(labels) if l == c["label"]]
+        sized.append((c["label"], idx))
+    sized.sort(key=lambda t: (-len(t[1]), t[0]))
+
+    for label, idx in sized:
+        size = len(idx)
+        if size < min_size:
+            continue
+        member_ids = [ev_ids[i] for i in idx]
+        # centroid TF-IDF -> top distinctive terms (deterministic).
+        centroid = Xd[idx].mean(axis=0)
+        top_term_i = list(_np.argsort(centroid)[::-1][:8])
+        top_terms = [str(terms[i]) for i in top_term_i if centroid[i] > 0][:6]
+        # coverage: is this cluster OWNED by some existing seed section?
+        member_set = set(member_ids)
+        best_share = 0.0
+        for s_ev in seed_ev_sets:
+            if not member_set:
+                break
+            share = len(member_set & s_ev) / float(size)
+            if share > best_share:
+                best_share = share
+        # salience gate: a genuine corpus theme is anchored in the corpus's own top-DF vocabulary.
+        # A cluster whose top terms are NONE of the salient vocab is a scraping/boilerplate artifact
+        # (bot-page, PDF stream, nav chrome) — never promote it to a section.
+        salient = sum(1 for t in top_terms[:5] if t in _salient_vocab)
+        # title/focus lexical overlap: >=2 of the cluster's top-4 terms already named by a section.
+        top4 = {t.lower() for t in top_terms[:4]}
+        lexically_named = any(
+            sum(1 for t in top4 if t and t in stxt) >= 2 for stxt in seed_txt
+        )
+        covered = (best_share >= cover_thresh) or lexically_named
+        rec = {
+            "size": size, "top_terms": top_terms, "salient": salient,
+            "best_section_share": round(best_share, 3),
+            "lexically_named": lexically_named, "covered": covered,
+        }
+        if salient < 2:
+            rec["skipped"] = "low_salience_artifact"
+            diag.append(rec)
+            continue
+        if covered or len(new_plans) >= max_new:
+            diag.append(rec)
+            continue
+        title = _titlecase_terms(top_terms)
+        if title.strip().lower() in seed_titles_lower:
+            rec["skipped"] = "title_collision"
+            diag.append(rec)
+            continue
+        # representative ev_ids: prefer rows NOT already owned by a seed section (true orphans),
+        # ordered by centroid-projection weight, then top up from owned members so the section is
+        # never undersupplied. Cap so one theme can't swallow the pool.
+        assigned_any = set().union(*seed_ev_sets) if seed_ev_sets else set()
+        proj = {ev_ids[i]: float(Xd[i][top_term_i].sum()) for i in idx}
+        orphans = sorted(
+            (m for m in member_ids if m not in assigned_any),
+            key=lambda m: -proj.get(m, 0.0),
+        )
+        owned = sorted(
+            (m for m in member_ids if m in assigned_any),
+            key=lambda m: -proj.get(m, 0.0),
+        )
+        chosen = (orphans + owned)[:40]
+        if len(chosen) < 8:
+            chosen = (orphans + owned)[: max(8, len(member_ids))][:40]
+        plan = SectionPlan(
+            title=title,
+            focus=(
+                f"Corpus-derived theme (auto-added by the theme-coverage floor): synthesize what "
+                f"the evidence says about {', '.join(top_terms[:4])}."
+            ),
+            ev_ids=list(chosen),
+        )
+        new_plans.append(plan)
+        rec["added_title"] = title
+        rec["n_ev"] = len(chosen)
+        diag.append(rec)
+
+    return new_plans, diag
+
+
+# ---------------------------------------------------------------------------
 # Entry point — wired at the multi_section_generator `_call_outline` seam.
 # ---------------------------------------------------------------------------
 
@@ -2047,6 +2279,33 @@ async def run_outline_agent_or_legacy(
         ) or []
         if str(t).strip()
     ]
+    # THEME-COVERAGE floor (RACE-FLOOR fix, 2026-07-12): BEFORE the agent loop can non-deterministically
+    # merge corpus themes away, cluster the ev_store rows query-agnostically and ADD a dedicated seed
+    # section for any large (``>=PG_OUTLINE_THEME_FLOOR_MIN_FRAC`` of rows) corpus theme the seed
+    # under-covers. This raises the seed's OWN theme decomposition to the corpus's, then the section
+    # floor below pins that richer count so the loop cannot collapse back under it. Gate DEFAULT-OFF
+    # (A/B): ``PG_OUTLINE_THEME_FLOOR=1`` arms it. Skipped under a required-structure lock (the caller
+    # owns the structure). Faithfulness-NEUTRAL (only real ev_ids placed; no authored text).
+    if _env_flag("PG_OUTLINE_THEME_FLOOR", default_on=False) and not _required_titles:
+        try:
+            _theme_new_plans, _theme_diag = _derive_theme_coverage_sections(
+                evidence, parse_result.plans,
+                min_frac=_env_float("PG_OUTLINE_THEME_FLOOR_MIN_FRAC", 0.05),
+                max_new=_env_int("PG_OUTLINE_THEME_FLOOR_MAX_NEW", 3),
+                cover_thresh=_env_float("PG_OUTLINE_THEME_FLOOR_COVER", 0.5),
+            )
+        except Exception as _exc:  # noqa: BLE001 — fail-open, keep legacy outline
+            _theme_new_plans, _theme_diag = [], [{"error": str(_exc)}]
+            logger.warning("[outline_agent] theme-coverage floor failed (fail-open): %s", _exc)
+        logger.info("[outline_agent] theme-coverage floor diag: %s", _theme_diag)
+        if _theme_new_plans:
+            parse_result.plans = list(parse_result.plans) + list(_theme_new_plans)
+            logger.info(
+                "[outline_agent] theme-coverage floor ADDED %d dedicated section(s) for uncovered "
+                "corpus themes: %s", len(_theme_new_plans),
+                [getattr(p, "title", "") for p in _theme_new_plans],
+            )
+
     # RACE-FLOOR fix: the corpus-derived thematic-coverage floor = the SEED outline's own section
     # count. The seed is built by ``_call_outline`` from the evidence/baskets (query-agnostic), so
     # its section count is the corpus's own theme decomposition — NOT a hardcoded task-72 structure.

@@ -123,3 +123,104 @@ def test_workspace_seam_threads_floor():
     assert len(ws.outline_draft) == 9
     tset = {p.title for p in ws.outline_draft}
     assert "Wage Inequality and Polarization" in tset and "Policy Implications" in tset
+
+
+# ---------------------------------------------------------------------------
+# Corpus-derived THEME-COVERAGE clustering (adds a dedicated section for a large
+# corpus theme the seed under-covers). Query-agnostic + DETERMINISTIC.
+# ---------------------------------------------------------------------------
+import random as _random
+
+from src.polaris_graph.outline.outline_agent import (
+    _derive_theme_coverage_sections,
+    _titlecase_terms,
+)
+
+
+class _P:
+    def __init__(self, title, focus, ev_ids):
+        self.title = title
+        self.focus = focus
+        self.ev_ids = list(ev_ids)
+
+
+def _synth_corpus(themes, per=30, seed=1):
+    rng = _random.Random(seed)
+    ev = []
+    i = 0
+    for name, base in themes.items():
+        words = base.split()
+        for _ in range(per):
+            rng.shuffle(words)
+            ev.append({
+                "evidence_id": f"ev_{i}", "title": f"{name} study {i}",
+                "statement": base, "direct_quote": " ".join(words[:14]),
+            })
+            i += 1
+    return ev
+
+
+_MARINE = {
+    "bleaching": "Coral bleaching driven by ocean warming and thermal stress causes zooxanthellae "
+                 "expulsion and widespread reef mortality across tropical waters",
+    "acidification": "Ocean acidification lowers seawater pH reducing calcium carbonate saturation "
+                     "and impairing coral skeleton calcification and shell formation",
+    "restoration": "Reef restoration through coral gardening larval seeding and transplantation of "
+                   "nursery grown fragments rebuilds degraded reef habitat and biodiversity",
+}
+
+
+def test_theme_floor_adds_uncovered_theme_and_is_query_agnostic():
+    # Different DOMAIN than task-72: proves the clustering derives themes from corpus text only,
+    # never from any hardcoded labor/AI wording.
+    ev = _synth_corpus(_MARINE)
+    seed = [_P("Coral Bleaching and Thermal Stress", "bleaching", [f"ev_{j}" for j in range(30)])]
+    new, diag = _derive_theme_coverage_sections(
+        ev, seed, min_frac=0.05, max_new=3, cover_thresh=0.5,
+    )
+    titles = " ".join(p.title.lower() for p in new)
+    # the seed-covered bleaching theme must NOT be re-added; the two uncovered themes must surface.
+    assert "acidification" in titles
+    assert "restoration" in titles
+    assert "bleaching" not in titles
+    # every added section carries only REAL corpus ev_ids (faithfulness: no invented evidence).
+    all_ids = {r["evidence_id"] for r in ev}
+    for p in new:
+        assert p.ev_ids and all(e in all_ids for e in p.ev_ids)
+
+
+def test_theme_floor_is_deterministic():
+    ev = _synth_corpus(_MARINE)
+    seed = [_P("Coral Bleaching and Thermal Stress", "bleaching", [f"ev_{j}" for j in range(30)])]
+    a, _ = _derive_theme_coverage_sections(ev, seed, min_frac=0.05, max_new=3, cover_thresh=0.5)
+    b, _ = _derive_theme_coverage_sections(ev, seed, min_frac=0.05, max_new=3, cover_thresh=0.5)
+    assert [p.title for p in a] == [p.title for p in b]
+    assert [p.ev_ids for p in a] == [p.ev_ids for p in b]
+
+
+def test_theme_floor_rejects_scraping_boilerplate_cluster():
+    # A big cluster of Cloudflare/PDF boilerplate rows must NOT become a section (low salience).
+    boiler = ("Just a moment please enable javascript and cookies to continue Ray ID unusual "
+              "activity from your network cloudflare checking your browser")
+    themes = {"realtheme": "renewable solar photovoltaic energy generation capacity grid storage "
+                           "battery deployment cost decline efficiency"}
+    ev = _synth_corpus(themes, per=60)
+    # inject 60 pure-boilerplate rows
+    for j in range(60):
+        ev.append({"evidence_id": f"junk_{j}", "title": "Attention Required", "statement": "",
+                   "direct_quote": boiler})
+    seed = [_P("Unrelated Seed", "unrelated", [])]
+    new, diag = _derive_theme_coverage_sections(ev, seed, min_frac=0.05, max_new=3, cover_thresh=0.5)
+    joined = " ".join(p.title.lower() for p in new)
+    assert "cloudflare" not in joined and "moment" not in joined and "javascript" not in joined
+    # a low-salience artifact cluster should be recorded as skipped somewhere in diag
+    assert any(d.get("skipped") == "low_salience_artifact" for d in diag) or all(
+        "cloudflare" not in " ".join(d.get("top_terms", [])) for d in diag if not d.get("skipped")
+    )
+
+
+def test_titlecase_dedupes_near_duplicate_prefixes():
+    assert _titlecase_terms(["public", "regulation", "regulatory", "governance"]) == (
+        "Public, Regulation and Governance"
+    )
+    assert _titlecase_terms(["skill"]) == "Skill"
