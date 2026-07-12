@@ -103,6 +103,16 @@ from src.polaris_graph.generator.cross_section_repetition_guard import (
 logger = logging.getLogger("polaris_graph.multi_section")
 
 
+class OutlineOnlyStop(Exception):
+    """Cheap outline-only gate (flywheel): raised right after the routed-outline dump so a run can exit
+    BEFORE the expensive per-section compose when PG_STOP_AFTER_ROUTED_OUTLINE is set. Carries the routed
+    section plans for inspection. Default-OFF => never raised (byte-identical to prior behavior)."""
+
+    def __init__(self, plans):
+        super().__init__("outline-only stop after routed-outline dump")
+        self.plans = plans
+
+
 # I-arch-005 B2/B3 (#1257): run-scoped tail-drop telemetry sink for the per-section
 # character-budget trim. A ContextVar (NOT a module-global list) so concurrent runs do not
 # cross-contaminate and so it auto-resets per run. ``generate_multi_section_report`` binds a
@@ -10647,6 +10657,13 @@ async def generate_multi_section_report(
                         len(_gout), sum(s["n_ev"] for s in _gout), _gate_dump)
         except Exception as _e:  # noqa: BLE001
             logger.warning("[outline-gate] dump failed: %s", _e)
+
+    # CHEAP OUTLINE-ONLY GATE (default-OFF): stop BEFORE the ~45min per-section compose so the flywheel
+    # reads + quality-assesses the routed outline fast, then decides whether to spend the compose.
+    if os.getenv("PG_STOP_AFTER_ROUTED_OUTLINE", "").strip().lower() in ("1", "true", "yes", "on"):
+        logger.info("[outline-gate] PG_STOP_AFTER_ROUTED_OUTLINE=1 — outline-only mode: exiting before "
+                    "per-section compose (%d sections routed)", len(plans))
+        raise OutlineOnlyStop(plans)
 
     # Stage 2: per-section generation (bounded parallelism)
     # fix#19 (#1262), SPEED / faithfulness-NEUTRAL: the 4-7 sections are ALREADY

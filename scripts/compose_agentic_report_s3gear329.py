@@ -214,6 +214,7 @@ async def main() -> int:
     log.info("PG_OUTLINE_AGENT=%s  out_dir=%s", os.getenv("PG_OUTLINE_AGENT"), run_dir)
 
     from src.polaris_graph.generator.multi_section_generator import (  # noqa: PLC0415
+        OutlineOnlyStop,
         generate_multi_section_report,
     )
     from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
@@ -246,20 +247,26 @@ async def main() -> int:
                     "degrade to None and PG_ROUTE_ALL_BASKETS will be inert", _e)
 
     t0 = time.time()
-    multi = await generate_multi_section_report(
-        research_question=rq,
-        evidence=evidence,
-        finding_clusters=clusters,
-        same_work_groups=swg,
-        section_temperature=0.3,
-        outline_max_tokens=2500,
-        section_max_tokens=2400,
-        min_kept_fraction=0.4,
-        max_parallel_sections=args.max_parallel,
-        tier_fractions=dist,
-        domain=domain,
-        credibility_pass_gov_suffixes=_gov_suffixes,
-    )
+    try:
+        multi = await generate_multi_section_report(
+            research_question=rq,
+            evidence=evidence,
+            finding_clusters=clusters,
+            same_work_groups=swg,
+            section_temperature=0.3,
+            outline_max_tokens=2500,
+            section_max_tokens=2400,
+            min_kept_fraction=0.4,
+            max_parallel_sections=args.max_parallel,
+            tier_fractions=dist,
+            domain=domain,
+            credibility_pass_gov_suffixes=_gov_suffixes,
+        )
+    except OutlineOnlyStop as _stop:
+        log.info("[outline-only] PG_STOP_AFTER_ROUTED_OUTLINE — stopped after routed-outline dump "
+                 "(%d sections, %.1fs); skipped per-section compose.",
+                 len(_stop.plans), time.time() - t0)
+        return 0
     dt = time.time() - t0
     kept = [s for s in multi.sections if not s.dropped_due_to_failure]
     log.info("[gen] elapsed=%.1fs  outline=%d sections  kept=%d  words=%s  "
