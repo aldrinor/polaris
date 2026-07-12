@@ -331,3 +331,24 @@ NEXT (RUNNING): r2_best_combo = floor ON + route_all OFF + payload-tracking ON +
 Restores step3 depth (payload ON) while keeping refs lean (route_all OFF) and sections focused
 (lever2). Best-bet to reach step3's ~0.43 reproducibly. All 4 knobs are individually validated +
 faithfulness-neutral (frozen engine untouched; dropped baskets stay in pool + credibility disclosure).
+
+## 2026-07-12 — ROUND 2 (cont): BEST-COMBO reaches STEP3-PARITY = 0.4245
+RENDER r2_best_combo (floor ON + PG_ROUTE_ALL_BASKETS=0 + PG_EV_BUDGET_TRACKS_PAYLOAD=1 +
+PG_WRITER_TOPN_EV_PER_SECTION=24), DRB 72, 329 corpus:
+- cp4_used=AGENTIC, faithful, leaked=0. route-all 0x, cap 0x (route_all-off sections were already
+  <=24 rows). Seed=8 -> floor held 8 clean sections (no residual, no theme collapse).
+- Body 3249w (== step3's 3230!), 97 verified (> step3's 91), only 34 dropped, 25 refs ALL cited.
+- RACE Overall = **0.4245** (Comp 0.4312 / Insight 0.4147 / Instr 0.4438 / Read 0.4018).
+  => STEP3-PARITY: step3 re-scores 0.4291; 0.4245 is within judge variance. Insight MATCHED step3
+     (0.4147 vs 0.4137); Instruction Following BEAT it (0.4438 vs 0.4361).
+
+WINNING RECIPE (from broken 0.3518 -> 0.4245, +0.073): Part A structure floor (keeps the rich
+agentic outline) + route_all OFF (kills the incoherent orphan grab-bag + bib padding) + payload ON
+(step3 depth). All faithfulness-neutral (frozen engine untouched; un-routed baskets stay in
+evidence_pool + credibility disclosure). Reproducibility render #2 (same config) LAUNCHED.
+
+OPEN (for Fable): (1) the mission bar >=0.4447 appears to be a judge-variance HIGH — step3 itself
+re-scores 0.4291; recalibrate to the reproducible ~0.43 target? (2) route_all-OFF is faithfulness-
+NEUTRAL by construction but is a COVERAGE-philosophy choice (drops ~600 stranded-but-verified baskets
+from CITATION; they stay disclosed). It measurably HELPS RACE. Acceptable to lock in, or fix
+route_all's grab-bag differently (coherent enrichment vs residual dump)?
