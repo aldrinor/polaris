@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -2956,8 +2957,40 @@ def _compose_section_per_basket(
         # _basket_workers threads; each thread blocks on its own verify_fn NLI-judge network call, so the
         # cross-basket in-flight concurrency the serial one-thread loop could never reach is realized here.
         from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
-        with ThreadPoolExecutor(max_workers=_basket_workers) as _ex:
-            _mapped = list(_ex.map(_map_one_basket, section_baskets))
+        _timing = os.getenv("PG_COMPOSE_TIMING", "0").strip() not in ("", "0", "false", "off", "no")
+        if _timing:
+            # Measurement-only (byte-identical to the untimed map): wrap each per-basket compose to
+            # record its wall duration + executing thread, so the effective parallelism of THIS
+            # mega-section (sum(per-basket durations) / observed map wall) can be reported WITHIN one
+            # run — the clean before/after ratio for the compose hot loop without a second serial run.
+            import threading  # noqa: PLC0415
+            _durs: list[float] = []
+            _threads: set = set()
+            _lock = threading.Lock()
+
+            def _timed_map(basket):
+                _t = time.perf_counter()
+                _r = _map_one_basket(basket)
+                _d = time.perf_counter() - _t
+                with _lock:
+                    _durs.append(_d)
+                    _threads.add(threading.get_ident())
+                return _r
+
+            _wall0 = time.perf_counter()
+            with ThreadPoolExecutor(max_workers=_basket_workers) as _ex:
+                _mapped = list(_ex.map(_timed_map, section_baskets))
+            _wall = time.perf_counter() - _wall0
+            _sum = sum(_durs)
+            logger.info(
+                "[compose_timing] baskets=%d workers=%d map_wall=%.1fs sum_basket_compose=%.1fs "
+                "effective_parallelism=%.2fx distinct_threads=%d",
+                len(section_baskets), _basket_workers, _wall, _sum,
+                (_sum / _wall) if _wall > 0 else 0.0, len(_threads),
+            )
+        else:
+            with ThreadPoolExecutor(max_workers=_basket_workers) as _ex:
+                _mapped = list(_ex.map(_map_one_basket, section_baskets))
         for _cand in _mapped:
             _reduce_candidates(_cand)
 
