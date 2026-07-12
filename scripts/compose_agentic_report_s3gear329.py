@@ -141,6 +141,16 @@ async def main() -> int:
         return 2
     # The mission model-lock: agentic outliner ON.
     os.environ.setdefault("PG_OUTLINE_AGENT", "1")
+    # P0 CONFIRMED-SAFE COMPOSE CONFIG (2026-07-12) — PIN the non-deadlocking config in the launch
+    # path. The clean 24.2min/1449.7s run used exactly this: off-loop ON (shipped, verdict-safe),
+    # PG_COMPOSE_BASKET_WORKERS=1 (serial byte-identical MAP+REDUCE — NEVER >1 without a full-328
+    # verdict-identity A/B), PG_SIDE_JUDGE_MAX_CONCURRENCY in the 4-8 band (NEVER >=48), and
+    # PG_PARALLEL_SECTIONS=3. These are setdefault (an explicit operator override still wins) but they
+    # keep this driver on the certified-safe path; the startup guard (compose_config_guard) refuses the
+    # deadlocking regime regardless. Faithfulness-neutral: pure concurrency knobs.
+    os.environ.setdefault("PG_COMPOSE_BASKET_WORKERS", "1")
+    os.environ.setdefault("PG_SIDE_JUDGE_MAX_CONCURRENCY", "8")
+    os.environ.setdefault("PG_PARALLEL_SECTIONS", "3")
     # STEP 2: topic-driven, synthesis-enabling structure. Facet outline (thematic sections emerge
     # from the evidence) + the general research-report skeleton (intro / thematic bodies /
     # cross-study synthesis+contradictions / conclusions+gaps). GENERAL structural flags — they
@@ -307,6 +317,16 @@ async def main() -> int:
     (run_dir / "bibliography.json").write_text(
         json.dumps(biblio, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
+    # P0/proof: the agentic-outliner digest surfaced on MultiSectionResult — PROVE the deep render
+    # stayed agentic (cp4_used='agentic'), NOT degraded-to-seed (mission metric-1).
+    oa_stats = dict(getattr(multi, "outline_agent_stats", None) or {})
+    cp4_used = str(oa_stats.get("cp4_used", "MISSING"))
+    degraded_to_seed = bool(oa_stats.get("degraded_to_seed", False))
+    degrade_reason = str(oa_stats.get("degrade_reason", ""))
+    log.info("[agentic] cp4_used=%s degraded_to_seed=%s turns=%s degrade_reason=%r -> %s",
+             cp4_used, degraded_to_seed, oa_stats.get("turns"), degrade_reason[:160],
+             "AGENTIC" if cp4_used == "agentic" else "NOT-AGENTIC")
+
     audit = _audit_citations(final_report, biblio)
     faithful = (audit["leaked_cite_ev_tokens"] == 0 and not audit["unresolved_markers"])
     log.info("[faithfulness] leaked_[CITE:ev]=%d  bib_markers_in_prose=%d  bib_entries=%d  "
@@ -337,6 +357,10 @@ async def main() -> int:
         "report_words": len(final_report.split()),
         "faithfulness_audit": audit,
         "faithfulness_pass": faithful,
+        "cp4_used": cp4_used,
+        "degraded_to_seed": degraded_to_seed,
+        "degrade_reason": degrade_reason[:200],
+        "outline_agent_turns": oa_stats.get("turns"),
         "moat_quantified_models": len(getattr(multi, "quantified_models", None) or {}),
         "agent_model": outliner_agent_model(),
         "code_model": outliner_code_model(),
