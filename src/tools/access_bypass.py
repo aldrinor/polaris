@@ -803,6 +803,18 @@ _BLOCK_PAGE_VISIBLE_RULES = (
     # trips it.
     ("cookie_error", ("cookies turned off",)),
     ("cookie_error", ("error - cookies",)),
+    # Interstitial whose visible body is the challenge ITSELF but which carries none
+    # of the classic Cloudflare wording above (ResearchGate's "Security check required
+    # / We've detected unusual activity from your network / Ray ID / Client IP" card).
+    # It says neither "just a moment" (that is only its <title>) nor "enable javascript
+    # and cookies to continue", so every rule above misses it and the body — being
+    # >=200 chars — then satisfies detect_content_integrity_junk's ZYTE-RECOVERY GUARD,
+    # which reads a substantial body as "Zyte recovered real content" and KEEPS the row.
+    # The guard's premise only holds when the body is not itself a block page, so the
+    # miss here is what let 52 failed fetches reach the evidence pool as T7 sources.
+    # AND-pairs (never a bare "security check", which a real security paper says).
+    ("captcha_wall", ("security check required", "ray id:")),
+    ("captcha_wall", ("unusual activity from your network", "complete the security check")),
 )
 
 # Visible-body ceiling for the gated VISIBLE-TEXT rules. A CF "Just a moment"

@@ -27,6 +27,7 @@ from src.tools.access_bypass import (  # noqa: E402
     AccessBypass,
     block_page_detector_enabled,
     classify_block_page,
+    detect_content_integrity_junk,
     get_block_page_canary,
     is_block_page_or_stub,
     reset_block_page_canary,
@@ -137,10 +138,36 @@ CONTROL_PARTIAL_PHRASE = (
     "healthcare access for rural patients.</p></body></html>"
 )
 
+# ResearchGate's challenge card: the visible body IS the challenge, but it says
+# neither "just a moment" (that is only its <title>) nor "enable javascript and
+# cookies to continue", so it matched none of the classic Cloudflare rules. Its
+# body is also >=200 chars, which satisfies detect_content_integrity_junk's
+# ZYTE-RECOVERY GUARD ("substantial body => Zyte recovered real content => KEEP")
+# — so a body-detector miss here silently promoted the failed fetch to a citable
+# T7 source. 52 of these were grounding prose in the baseline corpus.
+SAMPLE_RG_SECURITY_CHECK = (
+    "## Security check required\n\n"
+    "We've detected unusual activity from your network. To continue, complete "
+    "the security check below.\n\n"
+    "Ray ID: a17bc0b3e998eb06\n"
+    "Client IP: 2600:1900:0:2d09::b00\n"
+    "© 2008-2026 ResearchGate GmbH. All rights reserved.\n"
+)
+
+# Precision control: a REAL paper about security screening, short enough to clear
+# the visible-text gate, that says "security check" WITHOUT the paired challenge
+# phrase. Proves the new rules need the AND-pair and cannot fire on the topic word.
+CONTROL_SECURITY_PAPER = (
+    "<html><body><p>We evaluate airport security check throughput and find that "
+    "automated screening reduces passenger wait times, though unusual activity "
+    "flagged by the system still requires manual review.</p></body></html>"
+)
+
 CONTROL_SAMPLES = {
     "long_article_quoting_block_phrases": CONTROL_LONG_ARTICLE,
     "short_real_abstract": CONTROL_SHORT_ABSTRACT,
     "short_quotes_one_phrase_only": CONTROL_PARTIAL_PHRASE,
+    "security_paper_without_paired_phrase": CONTROL_SECURITY_PAPER,
     "empty_body": "",
 }
 
@@ -168,6 +195,43 @@ def test_controls_not_flagged():
         got = classify_block_page(body, _URL)
         assert got == "", f"{name}: false-positive {got!r}"
         assert is_block_page_or_stub(body, _URL) is False
+
+
+def test_researchgate_security_check_card_is_a_block_page():
+    """The RG challenge card must be caught by the BODY detector.
+
+    Regression: it must NOT depend on the "Just a moment..." title. The card's body
+    is >=200 chars, so detect_content_integrity_junk's ZYTE-RECOVERY GUARD returns
+    early ("real content recovered — KEEP") BEFORE the bot-challenge title screen
+    can ever run. The guard's premise only holds when the body is not itself a block
+    page, so the body detector is the ONLY layer that can reject this row. Assert the
+    full junk verdict with the real Cloudflare title attached: it must resolve to
+    `block_page` (body-driven), never slip through as a kept source.
+    """
+    assert len(SAMPLE_RG_SECURITY_CHECK.strip()) >= 200  # the guard really does fire
+    assert classify_block_page(SAMPLE_RG_SECURITY_CHECK, _URL) == "captcha_wall"
+    assert is_block_page_or_stub(SAMPLE_RG_SECURITY_CHECK, _URL) is True
+    assert detect_content_integrity_junk(
+        SAMPLE_RG_SECURITY_CHECK, _URL, "Just a moment...",
+    ) == (True, "block_page")
+
+
+def test_zyte_recovered_source_survives_a_stale_challenge_title():
+    """The guard's REAL job still works: a genuinely Zyte-recovered body must be KEPT
+    even though its title is a stale Cloudflare card. This is the false-positive fence
+    for the rules above — 3 real ScienceDirect papers in the baseline corpus look exactly
+    like this, and deleting them would destroy on-topic evidence (§-1.3)."""
+    recovered = (
+        "Software Quality Assurance (SQA) is a fundamental part of software "
+        "engineering to ensure stakeholders that software products work as expected "
+        "after release in operation. Machine learning (ML) techniques are now widely "
+        "applied across the testing lifecycle, and we survey their measured effects "
+        "on defect detection rates in industrial settings."
+    )
+    assert detect_content_integrity_junk(
+        recovered, "https://www.sciencedirect.com/science/article/pii/S0950584924002040",
+        "Just a moment...",
+    ) == (False, "")
 
 
 def test_detector_default_off_is_noop():
@@ -248,6 +312,8 @@ _ALL_TESTS = [
     test_canary_detects_and_recovers,
     test_canary_all_blocked_marks_failed,
     test_control_not_flagged_when_enabled,
+    test_researchgate_security_check_card_is_a_block_page,
+    test_zyte_recovered_source_survives_a_stale_challenge_title,
 ]
 
 
