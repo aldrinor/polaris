@@ -306,3 +306,28 @@ NEXT (RUNNING): render r2_lean_noroute = floor ON + PG_ROUTE_ALL_BASKETS=0 + PG_
 (both default-OFF legacy paths; orphan baskets stay in evidence_pool + credibility disclosure, never
 deleted — faithfulness-neutral) to deterministically reproduce step3's winning inert-route_all
 profile. Hypothesis: floor (structure) + lean profile -> ~0.43 reproducibly.
+
+## 2026-07-12 — ROUND 2 (cont): route_all-OFF lean render + full trajectory
+RENDER r2_lean_noroute (floor ON + PG_ROUTE_ALL_BASKETS=0 + PG_EV_BUDGET_TRACKS_PAYLOAD=0):
+- cp4_used=AGENTIC, faithful, leaked=0. route-all fired 0x -> NO residual grab-bag; 9 clean sections;
+  floor held (3rd distinct agentic draw, still 9 rich sections). bib=22 ALL cited (no padding).
+- Body 2442w / 72 verified / 46 dropped (over-lean: killing payload-tracking applied the legacy
+  30-row cap and STARVED sections below step3's 3230w).
+- RACE Overall = **0.4058** (Comp 0.4214 / Insight 0.3747 / Instr 0.4306 / Read 0.4004).
+  => BEST of my 3 renders. Removing the grab-bag LIFTED Comp/Instr/Read (grab-bag + bib bloat were
+     the drag, CONFIRMED); only Insight dipped (thinner body).
+
+FULL TRAJECTORY (all agentic + faithful, DRB 72, same 329 corpus):
+  step5 (pre-fix)        0.3518   route_all ON, 8 secs (theme collapse), 2046w, 52 refs
+  r2_partA_floor         0.3959   floor ON,               9+resid, 2141w, 77v, 64 refs
+  r2_lever2_top24        0.3982   floor+lever2,           9+resid, 3104w, 99v, 54 refs
+  r2_lean_noroute        0.4058   floor+route_all OFF,    9 clean, 2442w, 72v, 22 refs
+  step3 (re-score)       0.4291   route_all inert,        9 clean, 3230w, 91v, 37 refs  <-- TARGET
+  step3 (orig logged)    0.4447
+Reading: the ~0.03 residual gap to step3 is now Insight + body-depth. route_all-off removed the
+structural drag; the remaining lever is DEPTH-with-lean-refs.
+
+NEXT (RUNNING): r2_best_combo = floor ON + route_all OFF + payload-tracking ON + lever2 top-N=24.
+Restores step3 depth (payload ON) while keeping refs lean (route_all OFF) and sections focused
+(lever2). Best-bet to reach step3's ~0.43 reproducibly. All 4 knobs are individually validated +
+faithfulness-neutral (frozen engine untouched; dropped baskets stay in pool + credibility disclosure).
