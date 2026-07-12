@@ -205,3 +205,40 @@ COMPLETED CLEAN. LIVE NUMBERS (outputs/step5_clean_credfix, snapshot docs/step5_
   cp4_used=agentic, degraded_to_seed=False, turns=12, leaked_[CITE:ev]=0, unresolved_markers=[], baskets=329,
   faithfulness_pass=true) as the criterion-(1) FULL-agentic measurement. No product code changed this round
   (docs-only re-anchor); faithfulness surface untouched.
+
+## 2026-07-12 — QUALITY WHEEL R1: theme-collapse diagnosis + thematic-coverage floor (Part A)
+GOAL: raise the RACE FLOOR on DRB task 72 to >=0.4447 reproducibly by making the agentic outline
+reliably produce the RICH, COMPLETE section structure every run (query-agnostic, faithfulness-safe).
+
+DIAGNOSIS (from the two artifacts, not assumption):
+- step3 (RACE 0.4447): 9 focused thematic sections, 3230 body words, Wage-Inequality(470w) +
+  Policy(157w) present, outline carries 132 ev_ids total (~15/section), 37 refs.
+- step5 (RACE 0.3518): 12 agentic turns -> 7 body sections + a residual "Additional Corroborated
+  Findings" catch-all (533 ev_ids), 2046 body words, Wage-Inequality + Policy DROPPED, outline
+  carries 1033 ev_ids total (60-95/section), 52 refs.
+- Both AGENTIC (PG_OUTLINE_AGENT=1), same models/tiers.
+- MECHANISM lever 1 (outline): run_outline_agent_or_legacy SEEDS via _call_outline (corpus-grounded)
+  then the loop issues update_outline merge ops. apply_revision_ops has a required_titles HARD lock
+  but it is EMPTY on the free-form DRB render, so merges are unconstrained -> distinct themes get
+  collapsed. This is the pure non-determinism the mission targets.
+- MECHANISM lever 2 (compose, HONEST NEW FINDING): the gap is NOT purely outline-turn
+  non-determinism. step3's outline has 132 ev_ids vs step5's 1033. The compose script sets
+  PG_ROUTE_ALL_BASKETS=1 + PG_EV_BUDGET_TRACKS_PAYLOAD=1 (removes the 30-row/section cap). When
+  credibility_analysis is available, route_all crams 60-95 ev_ids/section into a FIXED per-section
+  CHARACTER budget -> each row more truncated -> shallower grounding -> strict_verify drops more
+  (step5 verified 61 sentences vs step3's 91) -> THIN prose; plus the D4 facet-route residual dumps
+  533 orphans into "Additional Corroborated Findings" and inflates the bibliography to 52. step3's
+  132-ev_id outline means route_all was effectively INERT there (deep, focused sections). This lever
+  is compose-stage and is NOT addressed by the Part A outline fix.
+
+FIX LANDED (Part A — commit 03fbb8d): OutlineWorkspace.min_sections = SEED outline's own section
+count (query-agnostic corpus theme decomposition). Threaded into apply_revision_ops, which DEFERS
+any merge whose net reduction drops the running live-section count below the floor
+(reason_code=min_sections_floor). split/add raise the count; keep/retitle/reassign are count-neutral.
+Gate PG_OUTLINE_SECTION_FLOOR default-ON; =0 = byte-identical legacy. Faithfulness-NEUTRAL (pure
+structural placement; strict_verify/NLI/[#calc] untouched).
+EXERCISED: 6 new unit+seam tests (tests/polaris_graph/test_outline_theme_floor.py) PASS — guard
+defers theme-collapsing merges, preserves both themes, allows split/add/reassign, threads through the
+live _tool_update_outline workspace seam. Existing 17 test_outline_revise tests still PASS.
+NO expensive render yet (per ROUND-1 scope). Awaiting Fable gate on: render Part A alone first, or
+also dial back the compose-stage cramming/residual (lever 2) before the ROUND-2 render.
