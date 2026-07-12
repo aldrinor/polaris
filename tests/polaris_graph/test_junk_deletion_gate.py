@@ -231,3 +231,64 @@ def test_partition_fresh_verdict_only_stale_kept(monkeypatch):
     kept2, deleted2 = jd.partition_rows(rows, fresh_off_subject_ids={"ev_subj"})
     assert len(deleted2) == 1 and deleted2[0]["evidence_id"] == "ev_subj"
     assert deleted2[0]["deletion_reason"] == "confirmed_offtopic_subject"
+
+
+# --- UNSTAMPED-CORPUS chrome fallback (the pre-built-corpus hole) ------------
+
+def _unstamped_rg_card():
+    """A ResearchGate challenge card exactly as it sits in a PRE-BUILT corpus: real
+    evidence_id, real tier, real URL — and NO ``content_integrity_junk`` stamp, because
+    nothing on the pre-built path ever runs the fetch-time stamp pass."""
+    return {
+        "evidence_id": "ev_072",
+        "tier": "T7",
+        "title": "Just a moment...",
+        "source_url": "https://www.researchgate.net/publication/397097756_A_Review",
+        "direct_quote": (
+            "## Security check required\n\nWe've detected unusual activity from your "
+            "network. To continue, complete the security check below.\n\n"
+            "Ray ID: a17bc0b3e998eb06\nClient IP: 2600:1900:0:2d09::b00\n"
+            "© 2008-2026 ResearchGate GmbH. All rights reserved.\n"
+        ),
+    }
+
+
+def test_unstamped_chrome_row_is_deleted():
+    """A chrome row with NO stamp must still be deleted.
+
+    The stamp is only written by the fetch-path fold-in, so a run fed a pre-built corpus
+    carries none — a stamp-only predicate fails open on every row and silently reduces this
+    gate to a no-op precisely when it is the last thing between a failed fetch and the
+    grounding pool. 52 of these were citable T7 sources in the baseline corpus.
+    """
+    kept, deleted = jd.partition_rows([_clean(), _unstamped_rg_card()])
+    assert [r["evidence_id"] for r in deleted] == ["ev_072"]
+    assert [r["evidence_id"] for r in kept] == ["ev_ok"]
+    assert deleted[0]["deletion_reason"].startswith("content_integrity_junk")
+
+
+def test_unstamped_empty_row_is_kept():
+    """FAIL-OPEN fence: the unstamped fallback must NOT delete on the detector's ``empty``
+    class. At the pool, "no text in any field I know" is an ABSENCE, not an affirmative chrome
+    signature — a row keeping its prose under an unfamiliar key would otherwise be deleted for
+    the predicate's own ignorance (the false hard-drop §-1.3 forbids)."""
+    rows = [{}, {"evidence_id": "ev_meta"}, {"evidence_id": "ev_t", "title": "A Study"}]
+    kept, deleted = jd.partition_rows(rows)
+    assert deleted == []
+    assert len(kept) == 3
+
+
+def test_unstamped_real_source_never_deleted():
+    """Precision fence: a real ON-TOPIC paper — even low-tier — is never chrome."""
+    real = {
+        "evidence_id": "ev_real", "tier": "T7",
+        "title": "Generative AI and the Future of Work",
+        "direct_quote": (
+            "We study 5,179 customer-support agents and find a 14 percent increase in "
+            "issues resolved per hour, concentrated among novice workers."
+        ),
+        "source_url": "https://example.org/paper",
+    }
+    kept, deleted = jd.partition_rows([real])
+    assert deleted == []
+    assert kept == [real]

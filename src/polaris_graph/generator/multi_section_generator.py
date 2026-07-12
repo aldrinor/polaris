@@ -87,7 +87,7 @@ from src.polaris_graph.generator.verified_compose import (  # noqa: F401
 # I-deepfix-001 (#1344) Bug B: retraction grounding gate — a retracted/withdrawn
 # source must never ground generated prose (it is excluded from evidence_pool BEFORE
 # selection / M-44 injection / M-52 pull, then disclosed in run telemetry — §-1.3).
-from src.polaris_graph.generator import retraction_gate
+from src.polaris_graph.generator import junk_deletion_gate, retraction_gate
 # I-deepfix-001 (#1344) W9: content-dedup CONSOLIDATE-KEEP-ALL — group near-identical-
 # body syndicated sources into keep-all corroboration baskets (annotate, never drop,
 # never merge). Wired on the groundable pool so W9 fires on the Gate-B path (§-1.3).
@@ -1403,6 +1403,12 @@ class MultiSectionResult:
     # retracted source (byte-identical). The source is recorded here, NEVER silently
     # dropped (§-1.3 weight-not-filter).
     retraction_disclosed: list[dict[str, Any]] = field(default_factory=list)
+    # §-1.3.1 class (a): chrome non-sources (bot/captcha/cookie/404/login/empty) DELETED from
+    # the grounding pool — failed fetches, not sources. One disclosure record per deleted row
+    # (evidence_id/title/url/which-signal); empty when the corpus carries no chrome (byte-
+    # identical). DISCLOSED, never silently dropped — the carve-out requires the deleted-row
+    # count + reason to reach Methods (fail loud).
+    junk_disclosed: list[dict[str, Any]] = field(default_factory=list)
     # I-deepfix-001 (#1344) W9: content-dedup consolidate-keep-all telemetry — how many
     # near-identical-body syndication baskets were formed (rows_grouped, rows_dropped=0).
     # Empty dict when the stage is OFF or no near-dup bodies (byte-identical). Makes W9
@@ -10056,6 +10062,43 @@ async def generate_multi_section_report(
             [r.get("evidence_id") for r in _retracted_rows],
         )
 
+    # §-1.3.1 class (a) — CHROME NON-SOURCE DELETION. A bot/captcha/cookie/404 page is a
+    # FAILED FETCH, not a source: it carries no claim, so nothing it "supports" is real. The
+    # faithfulness engine cannot catch this — strict_verify checks sentence<->span fidelity,
+    # and a sentence really can be entailed by the text of a challenge card, so a chrome row
+    # PASSES the only hard gate and still grounds prose on nothing.
+    #
+    # ``junk_deletion_gate`` has implemented exactly this since the carve-out landed, but
+    # NOTHING in the pipeline called its run-level ``partition_rows`` — the chrome arm was
+    # unwired, and the fetch-path stamp it relied on is never written for a PRE-BUILT corpus.
+    # Net effect: 52 ResearchGate challenge cards were sitting in the baseline corpus as
+    # citable T7 sources. Wire it HERE, at the same pool seam as the retraction gate, so every
+    # grounding surface built from ``evidence_pool`` (M-52 pull, M-44 injection, outline
+    # selection, per-section baskets) is chrome-free from one chokepoint.
+    #
+    # §-1.3 fence: this deletes ONLY content-integrity chrome and JUDGE-confirmed off-topic
+    # rows (fail-open — no judge stamp => no off-topic deletion). It is NOT a tier/quality/
+    # relevance filter: a credible ON-TOPIC source, however low-tier, is never touched. Every
+    # deleted row is DISCLOSED + LOUD-logged, never silently dropped.
+    _pool_rows_pre_junk = list(evidence_pool.values())
+    _kept_rows, _junk_rows = junk_deletion_gate.partition_rows(_pool_rows_pre_junk)
+    junk_disclosed: list[dict[str, Any]] = list(_junk_rows)
+    if _junk_rows:
+        evidence_pool = {
+            str(r.get("evidence_id", "")): r
+            for r in _kept_rows
+            if str(r.get("evidence_id", ""))
+        }
+        logger.warning(
+            "[multi_section] JUNK-GATE (§-1.3.1a): deleted %d chrome non-source(s) / "
+            "confirmed-off-topic row(s) from the grounding pool (disclosed, not silent): %s",
+            len(_junk_rows),
+            [
+                (r.get("evidence_id"), r.get("deletion_reason"))
+                for r in _junk_rows[:12]
+            ],
+        )
+
     # I-deepfix-001 (#1344) W9 — content-dedup CONSOLIDATE-KEEP-ALL. Group near-
     # identical-BODY syndicated sources (the same report republished under a different
     # title with no shared DOI — what finding_dedup's DOI/title keying MISSES) into
@@ -12059,6 +12102,9 @@ async def generate_multi_section_report(
         # I-deepfix-001 (#1344) Bug B: disclosure records for retracted/withdrawn
         # sources excluded from grounding (compact: evidence_id/title/url/flag).
         retraction_disclosed=retraction_gate.disclosure_records(retraction_disclosed),
+        # §-1.3.1 class (a): disclosure records for chrome non-sources / confirmed-off-topic
+        # rows DELETED from the grounding pool (compact: evidence_id/title/url/signal).
+        junk_disclosed=junk_deletion_gate.disclosure_records(junk_disclosed),
         # I-deepfix-001 (#1344) W9: body-syndication consolidate-keep-all telemetry.
         body_syndication_telemetry=_w9_body_syndication_telemetry,
         # M-47 (2026-04-22)

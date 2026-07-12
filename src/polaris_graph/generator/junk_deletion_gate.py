@@ -61,6 +61,13 @@ _TOPIC_JUDGE_ONLY_FLAG = "PG_DELETE_OFFTOPIC_TOPIC_JUDGE_ONLY"
 _FRESH_VERDICT_FLAG = "PG_DELETE_OFFTOPIC_FRESH_VERDICT_ONLY"
 _OFF_VALUES = frozenset({"0", "false", "no", "off", "disabled", ""})
 
+# Detector classes the UNSTAMPED pool-level fallback refuses to delete on. ``empty`` is an
+# ABSENCE (no title, no body in any known field), not an affirmative chrome signature — at the
+# pool it cannot tell "this row is a failed fetch" from "this row keeps its text under a key we
+# do not know", so deleting on it would be a false hard-drop (§-1.3). A row explicitly STAMPED
+# by the fetch path bypasses this and still deletes on any class.
+_POOL_FALLBACK_IGNORED_CLASSES = frozenset({"empty"})
+
 # An affirmative positive-relevance verdict from the content-relevance judge. A row carrying
 # one is on-topic by the judge's own word and VETOES deletion unconditionally.
 _POSITIVE_RELEVANCE_LABELS = frozenset({"relevant", "escalated_relevant"})
@@ -103,12 +110,53 @@ def fresh_verdict_only_deletion_enabled() -> bool:
 
 
 def is_row_content_junk(row: Mapping[str, Any]) -> bool:
-    """True iff the content-integrity detector stamped this row as a chrome non-source
-    (bot / cookie / 404 / login / empty). FAIL-OPEN: any error / missing / falsey flag
-    => NOT junk (row KEPT). A predicate bug must NEVER delete a source."""
+    """True iff this row is a chrome non-source (bot / cookie / 404 / login / empty).
+
+    Reads a pre-existing ``content_integrity_junk`` stamp first (cheap), and when the stamp
+    is ABSENT runs the pure leaf detector on the row itself. The stamp is only written by the
+    fetch-path fold-in (``outline/_fold_in.py``), so a run fed a PRE-BUILT corpus carries no
+    stamp at all — and a stamp-only predicate then fails open on every row, silently reducing
+    this gate to a no-op exactly when it is the only thing standing between a failed fetch and
+    the grounding pool. Falling back to the detector makes the gate independent of WHO
+    assembled the corpus.
+
+    Reuses ``topic_relevance_gate._row_is_chrome_nonsource`` — the same stamp-then-detect
+    predicate the topic gate's own chrome screen applies — so the two screens can never
+    disagree about what "chrome" means (the module's single-source-of-truth posture, as with
+    ``is_row_confirmed_offtopic`` / ``weighted_enrichment._is_confirmed_offtopic``).
+
+    The unstamped fallback deletes ONLY on an AFFIRMATIVE chrome signature (a block page /
+    bot challenge / cookie wall / 404 / login wall / non-article stub). It deliberately does
+    NOT honour the detector's ``empty`` class, which fires when a row has no title and no body
+    in any KNOWN text field. On the fetch path "empty" is a real verdict (the fetch returned
+    nothing); at the POOL it only means the text was not where this module looked — a row that
+    keeps its prose under an unfamiliar key would then be deleted for the predicate's own
+    ignorance, which is exactly the false hard-drop §-1.3 forbids. Absence of evidence is not
+    a chrome signature. A row STAMPED by the fetch path still deletes on any class (that
+    caller genuinely saw the empty body).
+
+    FAIL-OPEN: any error / missing / falsey flag => NOT junk (row KEPT). A predicate bug must
+    NEVER delete a source."""
     try:
         v = row.get("content_integrity_junk")
-        return bool(v) and str(v).strip().lower() not in _OFF_VALUES
+        if bool(v) and str(v).strip().lower() not in _OFF_VALUES:
+            return True
+        # Reuse the topic gate's body-field ordering (single source of truth for "which field
+        # holds this row's text") + the pure leaf detector, so the two chrome screens judge the
+        # SAME body and can never disagree about what chrome means.
+        from src.polaris_graph.retrieval.topic_relevance_gate import (  # noqa: PLC0415
+            _CHROME_BODY_FIELDS,
+        )
+        from src.tools.access_bypass import (  # noqa: PLC0415
+            detect_content_integrity_junk,
+        )
+        body = max(
+            (str(row.get(k) or "") for k in _CHROME_BODY_FIELDS), key=len, default="",
+        )
+        url = str(row.get("source_url") or row.get("url") or "")
+        title = str(row.get("title") or row.get("source_title") or "")
+        is_junk, cls = detect_content_integrity_junk(body, url, title)
+        return bool(is_junk) and cls not in _POOL_FALLBACK_IGNORED_CLASSES
     except Exception as exc:  # noqa: BLE001 — never delete on a predicate bug
         logger.warning(
             "[junk_deletion_gate] content-junk predicate errored (%s) — row KEPT "
