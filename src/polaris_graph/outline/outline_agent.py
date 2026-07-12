@@ -499,6 +499,17 @@ class OutlineWorkspace:
     # silently add a 5th section behind the caller's back — see `_tool_update_outline` and the
     # auto-assign fallback in `OutlineAgent._execute_tool`.
     required_titles: list[str] = field(default_factory=list)
+    # RACE-FLOOR fix (2026-07-12, this wheel): the corpus-DERIVED thematic-coverage floor. The SEED
+    # outline (built by ``_call_outline`` from the evidence/baskets — query-agnostic, NOT a hardcoded
+    # task-72 structure) is the corpus's own theme decomposition. Two byte-identical renders diverged
+    # (RACE 0.4447 vs 0.3518) because the agentic loop, over more turns, freely issued ``merge`` ops
+    # that COLLAPSED distinct corpus themes (e.g. Wage-Inequality, Policy) into fewer, thinner
+    # sections — pure non-determinism that thinned comprehensiveness. This floor caps NET thematic
+    # reduction: the loop may still split / add / retitle / reassign / search (all coverage-improving),
+    # but a ``merge`` that would drop the live section count below the seed count is DEFERRED as a
+    # disclosed no-op. GENERAL (floor = seed's own section count), faithfulness-NEUTRAL (pure
+    # structural placement; strict_verify / NLI / [#calc] lane untouched). 0 => no floor (legacy).
+    min_sections: int = 0
     # Iter-3 P0 fix (real-corpus THINNED run: 8 search_more_evidence calls, 31 genuinely NEW
     # fetched rows, ZERO landed in any required section — the whole retrieval budget was spent
     # re-chasing the SAME unhomeable section label, e.g. "Summary Table", under 8 differently
@@ -910,6 +921,7 @@ async def _tool_update_outline(
     apply_result = apply_revision_ops(
         workspace.outline_draft, parse_result,
         required_titles=(workspace.required_titles or None),
+        min_sections=(workspace.min_sections or 0),
     )
     # Iter-2 fix (found via offline smoke test): ``apply_revision_ops`` ALWAYS returns
     # ``list[dict]`` (``outline_revise`` is dict-native; it is not currently wired into
@@ -2035,6 +2047,15 @@ async def run_outline_agent_or_legacy(
         ) or []
         if str(t).strip()
     ]
+    # RACE-FLOOR fix: the corpus-derived thematic-coverage floor = the SEED outline's own section
+    # count. The seed is built by ``_call_outline`` from the evidence/baskets (query-agnostic), so
+    # its section count is the corpus's own theme decomposition — NOT a hardcoded task-72 structure.
+    # The loop may enrich (split/add/retitle/reassign/search) but must not NET-collapse below this
+    # count via ``merge``. Gate default-ON; ``PG_OUTLINE_SECTION_FLOOR=0`` restores the legacy
+    # (no-floor) behavior. A required-structure lock already pins the count, so it takes precedence.
+    _section_floor = 0
+    if _env_flag("PG_OUTLINE_SECTION_FLOOR", default_on=True) and not _required_titles:
+        _section_floor = len(parse_result.plans)
     workspace = OutlineWorkspace(
         research_question=research_question,
         ev_store=ev_store,
@@ -2044,7 +2065,13 @@ async def run_outline_agent_or_legacy(
         total_input_tokens=in_tok,
         total_output_tokens=out_tok,
         required_titles=_required_titles,
+        min_sections=_section_floor,
     )
+    if _section_floor:
+        logger.info(
+            "[outline_agent] thematic-coverage floor armed: seed=%d sections; the loop may not "
+            "net-collapse below this via merge (RACE-FLOOR fix)", _section_floor,
+        )
     agent = OutlineAgent(workspace, domain=domain or None)
     # W2 P0 fix (Fable-authoritative, 2026-07-11): this call used to be BARE. On the dense
     # full-corpus real run a single glm-5.2 ``ReasoningFirstTruncationError`` (reasoning

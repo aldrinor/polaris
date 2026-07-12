@@ -393,6 +393,7 @@ def apply_revision_ops(
     max_recompose_cap: int | None = None,
     outcomes: Sequence[SectionOutcome] | None = None,
     required_titles: Sequence[str] | None = None,
+    min_sections: int = 0,
 ) -> RevisionApplyResult:
     """Apply validated ops deterministically and return the new plan set + the recompose set.
 
@@ -412,7 +413,15 @@ def apply_revision_ops(
     retitled) is skipped as a disclosed no-op (never a ghost recompose title); retitled sections are
     resolved by their CURRENT title. Item 5 (apply half): a NEW title colliding with a live section
     is deferred. Item 12: an ``add`` with no evidence, or a ``reassign`` that empties a section, is
-    marked ``undersupplied=True`` (the gap is disclosed, never faked)."""
+    marked ``undersupplied=True`` (the gap is disclosed, never faked).
+
+    ``min_sections`` (RACE-FLOOR fix, 2026-07-12): the corpus-derived thematic-coverage FLOOR — the
+    minimum number of live sections the outline must retain. A ``merge`` whose net reduction
+    (``len(titles) - 1``) would drop the running live-section count below this floor is DEFERRED as a
+    disclosed no-op (``reason_code=min_sections_floor``). ``split``/``add`` still raise the count and
+    are never blocked; ``keep``/``retitle``/``reassign`` are count-neutral. This stops the multi-turn
+    loop from silently collapsing distinct corpus themes into fewer, thinner sections (the observed
+    RACE 0.4447 -> 0.3518 regression). ``0`` => no floor (byte-identical legacy)."""
     cap = max_recompose_cap if max_recompose_cap is not None else max_recompose()
     base = [_as_dict(p) for p in plans]
     by_title = {p["title"]: p for p in base}
@@ -461,6 +470,11 @@ def apply_revision_ops(
     added_plans: list[dict[str, Any]] = []
     # item 5 (apply half): live section titles (case-insensitive) for the collision guard.
     live_lower: set[str] = {_ci(p["title"]) for p in base}
+    # RACE-FLOOR fix: running count of live sections. merge lowers it (net -(len(titles)-1)),
+    # split/add raise it; keep/retitle/reassign are count-neutral. A merge that would drop this
+    # below ``min_sections`` is deferred (preserves the corpus's distinct thematic sections).
+    live_count = len(base)
+    floor = int(min_sections or 0)
 
     def _recompose_budget_left() -> int:
         return cap - len(recompose)
@@ -503,6 +517,14 @@ def apply_revision_ops(
 
         if kind == "merge":
             titles = [_resolve_current(str(t)) for t in op["titles"]]
+            # RACE-FLOOR fix: a merge that would net-collapse the outline below the corpus-derived
+            # thematic floor is DEFERRED (the loop keeps distinct themes as distinct sections). The
+            # net reduction is (#distinct live sources merged) - 1; count only sources still live.
+            _live_sources = {_ci(t) for t in titles} & live_lower
+            _reduction = max(0, len(_live_sources) - 1)
+            if floor and _reduction and (live_count - _reduction) < floor:
+                deferred.append({**op, "reason_code": f"min_sections_floor:{floor}"})
+                continue
             new_title = str(op["new_title"])
             prospective = live_lower - {_ci(t) for t in titles}
             if _ci(new_title) in prospective:   # item 5: merged title collides with a survivor
@@ -522,6 +544,7 @@ def apply_revision_ops(
                 "archetype": "merged", "undersupplied": not merged_ev,
             })
             live_lower = prospective | {_ci(new_title)}
+            live_count -= _reduction  # RACE-FLOOR: net sections removed by this merge
             recompose.append(new_title)
             applied.append(op)
         elif kind == "split":
@@ -544,6 +567,7 @@ def apply_revision_ops(
                 })
                 live_lower.add(_ci(ct))
                 recompose.append(ct)
+            live_count += max(0, len(child_titles) - 1)  # RACE-FLOOR: net sections added by split
             applied.append(op)
         elif kind == "retitle":
             src_title = _resolve_current(str(op["title"]))
@@ -596,6 +620,7 @@ def apply_revision_ops(
                 "basket_ids": [], "archetype": "added", "undersupplied": not add_ev,
             })
             live_lower.add(_ci(at))
+            live_count += 1  # RACE-FLOOR: an add raises the live section count
             recompose.append(at)
             applied.append(op)
 
