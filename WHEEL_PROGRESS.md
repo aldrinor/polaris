@@ -276,3 +276,33 @@ EXERCISED: 8 new faithfulness-contract tests (test_writer_menu_cap_lever2.py) PA
 byte-identical, bad/neg env disables, head-N deterministic, NEVER mutates input (pool/bib keep every
 withheld row), short menu untouched. 31 existing multi_section+outline_revise tests still PASS (45 total).
 NEXT: render with PG_WRITER_TOPN_EV_PER_SECTION=24 to test the depth hypothesis; target >=0.4447.
+
+## 2026-07-12 — ROUND 2 (cont): lever-2 MEASURED + DECISIVE step3 re-score baseline
+RENDER r2_lever2_top24 (floor ON + PG_WRITER_TOPN_EV_PER_SECTION=24, DRB 72, 329 corpus):
+- cp4_used=AGENTIC, faithfulness_pass=TRUE, leaked=0. Cap FIRED on all 9 sections (assigned
+  104/84/123/43/67/59/41/52/447 -> top 24 each; tails withheld from writer prompt only).
+- ARTIFACT DEPTH transformed vs r2_partA_floor: body 2141->3104 words, verified 77->99 (ABOVE
+  step3's 91!), dropped sentences 102->73, bib 64->54. Per-section 152-448w (balanced, deep).
+- Outline: different agentic draw but floor held at 9 rich sections incl BOTH "Skill Transformation
+  and Labor Market Polarization" AND "Policy Frameworks for Managing AI-Driven Change".
+- RACE Overall = **0.3982** (Comp 0.4107 / Insight 0.3830 / Instr 0.4094 / Read 0.3878).
+  => lever 2 fixed DEPTH but RACE moved only +0.002 (0.3959 -> 0.3982). Artifact depth is NOT the
+     RACE bottleneck.
+
+DECISIVE DIAGNOSTIC — re-scored step3_control/report.md fresh: **0.4291** (Comp 0.4417 / Insight
+0.4137 / Instr 0.4361 / Read 0.4256) vs its logged 0.4447. So RACE-judge variance is ~0.015 and
+step3's ~0.43-0.44 is a REAL reproducible target, NOT a lucky draw. My floor+lever2 renders trail
+step3 by ~0.031 UNIFORMLY across ALL FOUR dims — despite MORE words (4082 vs 3914) and MORE verified
+(99 vs 91). So the gap is QUALITATIVE/STRUCTURAL, not depth.
+
+ROOT CAUSE (measured, confirmed): step3 has NO residual section and only 132 outline ev_ids
+(route_all effectively INERT: sections 3-35 rows, no orphan dump) + 37 clean all-cited refs. My
+renders have route_all ACTIVE: 1007 outline ev_ids, a 481-orphan "Additional Corroborated Findings"
+GRAB-BAG body section (topically-incoherent dump), 54-64 refs (many uncited padding). A grab-bag
+appendix + padded bib degrades EVERY RACE dim uniformly. Notably step3's Comprehensiveness (0.4417)
+BEATS my route_all-active run (0.4107) — route_all's "breadth" HURTS, not helps.
+
+NEXT (RUNNING): render r2_lean_noroute = floor ON + PG_ROUTE_ALL_BASKETS=0 + PG_EV_BUDGET_TRACKS_PAYLOAD=0
+(both default-OFF legacy paths; orphan baskets stay in evidence_pool + credibility disclosure, never
+deleted — faithfulness-neutral) to deterministically reproduce step3's winning inert-route_all
+profile. Hypothesis: floor (structure) + lean profile -> ~0.43 reproducibly.
