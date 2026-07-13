@@ -188,7 +188,18 @@ def validate(syn: Synthesis, premises: dict[str, Premise]) -> tuple[bool, str]:
     blob_lower = blob.lower()
     prem_caps = set(CAP_TOKEN.findall(blob))
     prem_stems = _content_lemmas(blob)
+    # A PROPER NOUN is a capitalised token appearing MID-SENTENCE. A capital at the start of a sentence
+    # (or after a full stop) is ORTHOGRAPHY, not an entity. Turn 2 rejected "Whether", "Reconciliation",
+    # "AI's" and "driven" (from "AI-driven") as FABRICATED ENTITIES — every one a false positive, and
+    # together they deleted 74 legitimate sentences. The gate's job is to catch INVENTED NAMES, not
+    # capital letters.
+    sentence_initial = set()
+    for m in re.finditer(r'(?:^|[.!?]\s+)([A-Z][A-Za-z&.\-\']*)', s):
+        sentence_initial.add(m.group(1))
     for tok in CAP_TOKEN.findall(s):
+        if tok in sentence_initial:
+            continue                      # orthography, not an entity
+        tok = re.sub(r"'s$", '', tok)     # strip the possessive: "AI's" -> "AI"
         for part in re.split(r'[-–]', tok):
             if not part:
                 continue
