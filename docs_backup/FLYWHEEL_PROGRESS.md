@@ -400,3 +400,54 @@ NEXT (turn 4) must do all three or it locks the regression in:
     1. the evidence/numbers work (D1 5.90 vs cellcog 9.20)
     2. INDUSTRY-SPECIFIC corpus expansion (w=.0725 + .0375 bleeding)
     3. a dedicated IMPLICATIONS/foresight pass (w=.0480 bleeding; we have no such pass at all)
+
+## SOL'S VERDICT (Codex 5.6, max reasoning, read the code line by line)
+
+HE FOUND THE EVIDENCE-LAUNDERING PATH — a hole I built and then publicly vouched for.
+
+    src = f'{span} {claim}'          # cellcog_composer.py:519
+
+`claim` is WRITTEN BY THE MODEL (the extract prompt says "state the finding IN YOUR WORDS"), and
+_fmt_cards() handed the writer ONLY the claim, never the verbatim span. So the chain was:
+
+    the model writes the claim -> the writer sees only the claim -> the gate checks the writing
+    against the claim.
+
+THE GATE VALIDATED THE MODEL AGAINST ITSELF. A figure hallucinated into `claim` was found by the number
+check IN THE HALLUCINATION and shipped under a real citation. I had just called the evidence table
+"fabrication structurally impossible". It was not. We were one step from pouring 200 figures through it.
+CLOSED (canary 16/16): the gate validates against THE SPAN ALONE; the writer now SEES the span; the span
+is verified WHOLE (it was checked by its first 60 CHARACTERS); the table's claim must be OF its span.
+
+HIS RANKING (expected score units, not raw criterion points):
+    +0.010..0.016  document-level COMPARISON PLANNER   <- the 28 subsections are written INDEPENDENTLY
+                                                          with NO SHARED ARGUMENT STATE. A cohesion pass
+                                                          CANNOT manufacture comparisons the planner
+                                                          never selected.
+    +0.010..0.015  coverage-matrix INDUSTRY EXPANSION
+    +0.005..0.009  FULL-DOCUMENT extraction (we mine 31.9% of the text — mostly INTRODUCTIONS)
+    +0.005..0.008  facet-aware 4IR extraction (generic, not hardcoded)
+    +0.004..0.007  restricted cohesion (owned lane only; attributed clauses IMMUTABLE)
+    +0.004..0.006  implications / research agenda
+    +0.001..0.003  analytical tables
+    +0.001..0.003  fact-use ledger
+     ~0            integrity repair — MANDATORY, precedes everything
+     0             generality measurement — zero task-72 points, mission-critical
+
+HE KILLED FOUR OF OUR IDEAS:
+    * the formal reference list: ZERO expected benefit (the cleaner deletes it). The judge's "no
+      reference list" complaint is a PROXY for poor visible verifiability — which TABLES fix.
+    * hard "one card, one section" partitioning: would STARVE synthesis.
+    * a free-form cohesion rewrite: can silently alter numbers and swap source bindings.
+    * "reach 202 quantitative claims" as an objective: count-chasing yields contextless figures.
+      The target is INTERPRETABLE EVIDENCE TUPLES (effect + unit + population + design + scope).
+
+IS 0.5603 REACHABLE? "Not with the current architecture, and not credibly in this single round."
+    His integrated program lands at 0.50-0.53, upside ~0.54. Banking on 0.5603 would be "cheerleading".
+    Cellcog's weighted mean is ~9.4; ours is 6.857. It is not winning with one exploit — it has deep
+    evidence, document-level argument, quantitative texture and sectoral comparison SIMULTANEOUSLY.
+    Reaching #1 requires replacing the subsection composer with a general research architecture:
+      question/genre compiler -> adaptive coverage matrix -> recursive retrieval until cells close ->
+      source-bound evidence graph -> comparison bundles -> report-level argument planner ->
+      attributed-clause + explicit-owned-synthesis generation -> implications from admitted body ->
+      independent faithfulness audit -> unseen-question evaluation
