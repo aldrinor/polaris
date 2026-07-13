@@ -56,7 +56,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from deep_fetch import CORPUS, fetch_text, jget  # reuse the proven fetchers
 
 MAILTO = 'polaris@example.org'
-MIN_WORDS = 500          # below this it is an abstract wearing a fulltext's clothes
+# A journal article is 5,000-20,000 words. At 500 we stamped FULLTEXT on a 535-word ABSTRACT --
+# and the extractor would then mine it as a whole paper, find nothing, and we would believe we had
+# the evidence. A label that asserts more than the content supports is the exact failure that has
+# cost us all night. Below this, it is an abstract wearing a fulltext's clothes.
+MIN_WORDS = 2500
+EXTENDED_ABSTRACT = 500  # still worth keeping -- but NOT as fulltext
 
 _LAST = [0.0]
 
@@ -202,13 +207,19 @@ def main() -> int:
                 break
 
         nw = len(best.split())
+        nums = len(re.findall(r'\b\d+(?:\.\d+)?\s*(?:percent|%|percentage points|pp)\b|\b\d+\.\d+\b', best))
         if nw >= MIN_WORDS:
-            nums = len(re.findall(r'\b\d+(?:\.\d+)?\s*(?:percent|%|percentage points|pp)\b|\b\d+\.\d+\b', best))
             c['fulltext'] = best[:120000]
             c['content_status'] = 'FULLTEXT'
             c['fulltext_source'] = 'working_paper'
             won += 1
-            say(f'  [{i:2}/{len(targets)}] ** GOT IT ** {nw:>6,}w  {nums:>3} numbers  {who[:34]:<34}')
+            say(f'  [{i:2}/{len(targets)}] ** GOT IT ** {nw:>6,}w {nums:>5} numbers  {who[:34]:<34}')
+        elif nw >= EXTENDED_ABSTRACT:
+            # keep it, but DO NOT call it a paper. The extractor must know what it is holding.
+            c['abstract'] = best[:8000]
+            if c.get('content_status') == 'CITATION_ONLY':
+                c['content_status'] = 'ABSTRACT_ONLY'
+            say(f'  [{i:2}/{len(targets)}] abstract only {nw:>5,}w  (NOT fulltext)  {who[:30]:<30}')
         else:
             say(f'  [{i:2}/{len(targets)}] no free text        {who[:34]:<34}')
 
