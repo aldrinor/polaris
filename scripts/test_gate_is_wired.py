@@ -138,6 +138,32 @@ try:
     check('ATTRIBUTED number that is only a SUBSTRING of a source number is REJECTED',
           shipped3.strip() == '',
           'a fabricated 0.2 passed because the source said 10.25' if shipped3.strip() else '')
+    # CROSS-SOURCE SYNTHESIS: the sentence that puts two papers in tension IS critical synthesis --
+    # the joint-heaviest criterion on the board. The gate deleted every one of them (it credited the
+    # whole sentence to the first author it recognised, then failed the second paper's content against
+    # the first paper's span), which is why our synthesis section was 210 words out of 8,012.
+    autor = dict(bres, authors=['Autor'], year=2003, venue='The Quarterly Journal of Economics',
+                 span='we contend that computer capital substitutes for workers in carrying out a limited '
+                      'and well-defined set of cognitive and manual activities, namely routine tasks',
+                 claim='computer capital substitutes for workers in routine tasks',
+                 mechanisms=['task displacement'])
+    # BOTH clauses must be faithful to their OWN span -- an earlier draft of this very test fabricated
+    # the Bresnahan clause, and the gate correctly killed it. The canary caught its author.
+    synth, why_s = cc._clean(
+        'Writing in The Quarterly Journal of Economics in 2003, Autor shows that computer capital '
+        'substitutes for workers in routine tasks, while Bresnahan reports that computer automation of '
+        'such work has been correspondingly limited in its scope.', [autor, bres])
+    check('CROSS-SOURCE SYNTHESIS survives the gate (it is the heaviest criterion, w=0.0800)',
+          bool(synth.strip()),
+          f'comparison DELETED -- critical synthesis cannot reach the judge: {why_s[:1] if why_s else ""}')
+
+    # ...and the fabricated binding must STILL die when hidden inside a comparison
+    leak_s, _ = cc._clean(
+        'Writing in The Quarterly Journal of Economics in 2002, Bresnahan et al. show that task '
+        'displacement drives the labor share down, while Autor reports organisational change.', [autor, bres])
+    check('fabricated binding is REJECTED even when hidden inside a comparison',
+          not leak_s.strip(),
+          'the multi-source lane let a fabricated binding through' if leak_s.strip() else '')
 except Exception as e:
     check('composer gate importable', False, str(e))
 

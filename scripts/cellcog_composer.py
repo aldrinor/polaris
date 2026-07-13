@@ -446,6 +446,62 @@ def _cited_author(s: str, cards: list) -> dict | None:
     return None
 
 
+_CLAUSE = re.compile(r',\s*(?:while|whereas|but|although|though|by contrast|however)\s+|;\s*|\s+--\s+', re.I)
+
+
+def _cited_cards(s: str, cards: list) -> list:
+    """EVERY card this sentence names -- not just the first one we happen to recognise."""
+    out, seen = [], set()
+    for c in cards:
+        for au in (c.get('authors') or [])[:2]:
+            if len(au) >= 4 and re.search(rf'\b{re.escape(au)}\b', s):
+                k = c.get('doi') or f"{au}:{c.get('year')}"   # a card need not carry a DOI
+                if k not in seen:
+                    seen.add(k)
+                    out.append(c)
+                break
+    return out
+
+
+def _gate_multi(s: str, named: list, cards: list) -> tuple[bool, str]:
+    """THE SENTENCE THAT PUTS TWO PAPERS IN TENSION -- and the gate was deleting every one of them.
+
+    A comparative sentence ("Acemoglu reports displacement at the occupational level, while Bresnahan
+    finds complementarity at the firm level") is the most valuable sentence in a literature review: it
+    IS critical synthesis, the joint-heaviest criterion on the board (w=0.0800). The old classifier
+    credited the WHOLE sentence to the FIRST author it recognised, then failed the SECOND paper's
+    content against the FIRST paper's span. CONTENT_NOT_IN_SOURCE. Deleted. Every time.
+
+    That is why our Critical Synthesis section was 210 words out of 8,012, and scored 6.36.
+
+    The correct reading: a comparative sentence is a CONJUNCTION OF ATTRIBUTED CLAUSES. Gate each
+    clause against the source named IN THAT CLAUSE. Every source is still checked against its own
+    span, so the moat holds -- and the fabricated binding ("Bresnahan reports task displacement",
+    where task displacement is Autor's term) is still caught, because that clause names Bresnahan and
+    'task displacement' is not in Bresnahan's span.
+    """
+    clauses = [c for c in _CLAUSE.split(s) if c and c.strip()] or [s]
+    for cl in clauses:
+        own = _cited_cards(cl, cards)
+        if len(own) == 1:
+            ok, why = _gate_attributed(cl, own[0])
+            if not ok:
+                return False, f'MULTI/{why}'
+        elif not own:
+            # a connective clause in the reviewer's own voice: it may not smuggle in a particular
+            if re.search(r'\d', cl) and len(cl.split()) > 4:
+                return False, 'MULTI_UNSOURCED_NUMBER_IN_CONNECTIVE_CLAUSE'
+        else:
+            # two sources still inside one clause: every figure must come from one of THEM
+            src = ' '.join(f"{c.get('span') or ''} {c.get('claim') or ''}" for c in own).lower()
+            for num in re.findall(r'\d+(?:\.\d+)?', cl):
+                if len(num) < 2 or any(num == str(c.get('year')) for c in own):
+                    continue
+                if not re.search(rf'(?<![\d.]){re.escape(num)}(?![\d])', src):
+                    return False, f'MULTI_NUMBER_NOT_IN_ANY_NAMED_SOURCE:{num}'
+    return True, ''
+
+
 def _gate_attributed(s: str, card: dict) -> tuple[bool, str]:
     """THE LANE WHERE A LIE IS FRAUD. A sentence that NAMES A SOURCE must be supported by THAT source.
 
@@ -479,6 +535,12 @@ def _gate_attributed(s: str, card: dict) -> tuple[bool, str]:
     body_words = {w for w in re.findall(r'[a-z]{4,}', body.lower())}
     body_words -= {'writing', 'article', 'journal', 'review', 'that', 'show', 'shows', 'find', 'finds',
                    'report', 'reports', 'demonstrate', 'demonstrates', 'evidence', 'study', 'their'}
+    # The JOURNAL NAME is attribution, not content. "writing in The Quarterly Journal of Economics"
+    # was contributing {quarterly, economics} to the content words -- terms that are almost never in
+    # the paper's own span, so they silently dragged the overlap ratio down and caused FALSE DROPS on
+    # correctly-sourced sentences. The venue is how we cite, not what we claim.
+    body_words -= {w for w in re.findall(r'[a-z]{4,}', (card.get('venue') or '').lower())}
+    body_words -= {w for w in re.findall(r'[a-z]{4,}', ' '.join(card.get('authors') or []).lower())}
     if body_words and len(body_words & src_words) / len(body_words) < 0.25:
         return False, f'ATTRIBUTED_CONTENT_NOT_IN_SOURCE (credited to {card["authors"][0]})'
     return True, ''
@@ -510,12 +572,20 @@ def _clean(md: str, cards: list) -> tuple[str, list[str]]:
                 dropped.append(f'meta-commentary: {s[:55]}')
                 continue
 
-            card = _cited_author(s, cards) if cards else None
-            if card is not None:
+            named = _cited_cards(s, cards) if cards else []
+            if len(named) == 1:
                 # ---- ATTRIBUTED LANE: a lie here is FRAUD. Check it against its own source.
-                ok, why = _gate_attributed(s, card)
+                ok, why = _gate_attributed(s, named[0])
                 if not ok:
                     dropped.append(f'ATTRIB[{why}]: {s[:55]}')
+                    continue
+            elif len(named) >= 2:
+                # ---- CROSS-SOURCE SYNTHESIS: the most valuable sentence in the review. Gate each
+                #      clause against the source IT names, instead of blaming the whole sentence on
+                #      the first author we recognise and deleting it.
+                ok, why = _gate_multi(s, named, cards)
+                if not ok:
+                    dropped.append(f'MULTI[{why}]: {s[:55]}')
                     continue
             elif cards and len(s.split()) > 8:
                 # ---- OWNED LANE: the reviewer's own reasoning. It may be non-entailed.
