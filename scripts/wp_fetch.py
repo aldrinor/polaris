@@ -43,7 +43,13 @@ LOG = open('/home/polaris/wt/flywheel/outputs/wp_fetch.log', 'w', buffering=1)
 def say(m):
     print(m, flush=True)
     LOG.write(m + '\n')
+import urllib.error
 import urllib.parse
+import urllib.request      # MUST be module-level: importing it INSIDE a function makes `urllib` a
+                           # local name for that whole function, so the urllib.parse call ABOVE the
+                           # import raised UnboundLocalError -- and killed the run on paper 1, in
+                           # silence, because stderr went to /dev/null. That is how a fetcher spends
+                           # 25 minutes "running" and recovers nothing.
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -52,10 +58,43 @@ from deep_fetch import CORPUS, fetch_text, jget  # reuse the proven fetchers
 MAILTO = 'polaris@example.org'
 MIN_WORDS = 500          # below this it is an abstract wearing a fulltext's clothes
 
+_LAST = [0.0]
+
+
+def polite_get(url: str, tries: int = 4):
+    """A rate-limited, backoff-aware GET. THIS IS NOT POLISH -- IT IS CORRECTNESS.
+
+    Semantic Scholar and OpenAlex were BOTH returning HTTP 429 (we hammered them all night with
+    repeated fetch runs). `jget` swallows the error and returns None, and the caller reads None as
+    "NO FREE COPY OF THIS PAPER EXISTS".
+
+    That is a false conclusion of the most dangerous kind: it looks like a fact about the world
+    ("the literature is paywalled") when it is a fact about our own request rate. We nearly concluded
+    the canonical papers were unreachable when we were merely being throttled.
+    """
+    import time
+    for a in range(tries):
+        wait = _LAST[0] + 1.1 - time.time()          # >= 1.1s between calls, always
+        if wait > 0:
+            time.sleep(wait)
+        _LAST[0] = time.time()
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': f'polaris/1.0 (mailto:{MAILTO})'})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503):
+                time.sleep(3 * (2 ** a))              # 3s, 6s, 12s, 24s -- let the API breathe
+                continue
+            return None
+        except Exception:
+            return None
+    return None
+
 
 def s2_oa_pdf(doi: str) -> str:
-    d = jget(f'https://api.semanticscholar.org/graph/v1/paper/DOI:{urllib.parse.quote(doi)}'
-             f'?fields=openAccessPdf,externalIds,title')
+    d = polite_get(f'https://api.semanticscholar.org/graph/v1/paper/DOI:{urllib.parse.quote(doi)}'
+                   f'?fields=openAccessPdf,externalIds,title')
     if not d:
         return ''
     url = ((d.get('openAccessPdf') or {}).get('url') or '')
@@ -68,7 +107,7 @@ def s2_oa_pdf(doi: str) -> str:
 
 def openalex_pdfs(doi: str) -> list[str]:
     """EVERY OA location OpenAlex knows. This is where the NBER/IZA copy shows up."""
-    d = jget(f'https://api.openalex.org/works/doi:{urllib.parse.quote(doi)}?mailto={MAILTO}')
+    d = polite_get(f'https://api.openalex.org/works/doi:{urllib.parse.quote(doi)}?mailto={MAILTO}')
     if not d:
         return []
     urls = []
@@ -81,10 +120,35 @@ def openalex_pdfs(doi: str) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
+def s2_search_by_title(title: str) -> str:
+    """THE ONE THAT ACTUALLY FINDS THE WORKING PAPER.
+
+    Autor/Levy/Murnane (2003) returns NOTHING from Semantic Scholar or OpenAlex when asked BY DOI --
+    because the free copy is not an OA location of the QJE article, it is a SEPARATE WORK: NBER
+    Working Paper 8337. A DOI lookup can never find it. You have to search by TITLE.
+    """
+    q = urllib.parse.quote(title[:120])
+    d = polite_get(f'https://api.semanticscholar.org/graph/v1/paper/search?query={q}&limit=5'
+                   f'&fields=title,openAccessPdf,externalIds')
+    if not d:
+        return ''
+    want = re.sub(r'[^a-z]', '', title.lower())[:55]
+    for p in (d.get('data') or []):
+        got = re.sub(r'[^a-z]', '', (p.get('title') or '').lower())
+        if not want or want not in got and got[:55] not in want:
+            continue                                   # must be THIS paper, not a topical neighbour
+        url = ((p.get('openAccessPdf') or {}).get('url') or '')
+        if url:
+            return url
+        ax = (p.get('externalIds') or {}).get('ArXiv')
+        if ax:
+            return f'https://arxiv.org/pdf/{ax}'
+    return ''
+
+
 def arxiv_by_title(title: str) -> str:
     q = urllib.parse.quote(f'ti:"{title[:110]}"')
     try:
-        import urllib.request
         with urllib.request.urlopen(
                 f'http://export.arxiv.org/api/query?search_query={q}&max_results=1', timeout=25) as r:
             xml = r.read().decode('utf-8', 'ignore')
@@ -112,20 +176,26 @@ def main() -> int:
     won = 0
     for i, c in enumerate(targets, 1):
         doi = c.get('doi') or ''
+        title = c.get('title') or ''
         who = f"{c['authors'][0] if c.get('authors') else '?'} ({c.get('year')})"
+
+        # NO SOURCE MAY KILL THE RUN. One paper's failure is one paper's failure.
         urls: list[str] = []
-        if doi:
-            u = s2_oa_pdf(doi)
-            if u:
-                urls.append(u)
-            urls += openalex_pdfs(doi)
-        ax = arxiv_by_title(c.get('title') or '')
-        if ax:
-            urls.append(ax)
+        for name, fn in (('s2/doi', lambda: [s2_oa_pdf(doi)] if doi else []),
+                         ('openalex', lambda: openalex_pdfs(doi) if doi else []),
+                         ('s2/title', lambda: [s2_search_by_title(title)]),   # finds the NBER/IZA copy
+                         ('arxiv', lambda: [arxiv_by_title(title)])):
+            try:
+                urls += [u for u in (fn() or []) if u]
+            except Exception as e:
+                say(f'       ({name} failed: {type(e).__name__})')
 
         best = ''
-        for u in list(dict.fromkeys(urls))[:3]:
-            txt = fetch_text(u)
+        for u in list(dict.fromkeys(urls))[:4]:
+            try:
+                txt = fetch_text(u)
+            except Exception:
+                continue
             if len(txt.split()) > len(best.split()):
                 best = txt
             if len(best.split()) >= 3000:
