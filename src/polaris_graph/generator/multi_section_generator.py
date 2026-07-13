@@ -550,6 +550,56 @@ def _writer_topn_ev_per_section() -> int:
     return v if v > 0 else 0
 
 
+_TIER_FIRST_ENV = "PG_WRITER_MENU_TIER_FIRST"
+# Rank order for the writer's menu. Anything unrecognised (UNKNOWN, "", a tier the corpus never
+# assigned) sorts LAST rather than raising -- an unranked row must never outrank a journal article.
+_TIER_RANK = {"T1": 1, "T2": 2, "T3": 3, "T4": 4, "T5": 5, "T6": 6, "T7": 7}
+_TIER_RANK_UNKNOWN = 99
+
+
+def _tier_first_menu(ev_subset: list, *, section_title: str = "") -> list:
+    """STABLE tier-first ordering of the writer's prompt menu. ``PG_WRITER_MENU_TIER_FIRST``, default OFF.
+
+    THE DEFECT: the top-N cap below takes the HEAD of the assigned list, and that list is ranked by
+    relevance ONLY. So the 30 slots fill with whatever the router ranked highest -- which in practice
+    means a T4 "[PDF]" scrape of a paper outranks the T1 journal version of the SAME work, and a Toptal
+    freelancer listicle occupies a slot while 112 T1-T3 works in the pool are never cited at all.
+    Measured on rank10: cited-entry tier compliance FELL from 57.8% (baseline) to 43.3% as the report
+    got longer. DRB task 72 instructs the review to cite "only high-quality, English-language journal
+    articles", so this is an instruction-following failure, not a matter of taste.
+
+    STABLE sort: rows keep their existing relevance order WITHIN a tier. This raises quality among
+    equals; it does not re-rank on quality INSTEAD of relevance. An off-topic T1 row is still an
+    off-topic T1 row -- the topic judge, not this, is the instrument for that (tier is not relevance;
+    see compose_agentic_report_s3gear329.py:155-160).
+
+    WRITER-MENU ONLY, exactly like the cap it feeds: ``section.ev_ids`` (bibliography + disclosure),
+    ``evidence_pool`` (the strict_verify pool) and the frozen faithfulness engine are untouched, and
+    every rendered sentence is still gated against the FULL pool. Default-OFF => the input list object
+    is returned unchanged (byte-identical legacy render).
+    """
+    if os.getenv(_TIER_FIRST_ENV, "0").strip().lower() in {"0", "false", "off", "no", ""}:
+        return ev_subset
+    if not ev_subset:
+        return ev_subset
+
+    def _rank(row: object) -> int:
+        tier = row.get("tier") if isinstance(row, dict) else getattr(row, "tier", None)
+        return _TIER_RANK.get(str(tier or "").strip().upper(), _TIER_RANK_UNKNOWN)
+
+    ordered = sorted(ev_subset, key=_rank)  # sorted() is STABLE -- ties keep relevance order
+    before = [_rank(r) for r in ev_subset]
+    after = [_rank(r) for r in ordered]
+    if before != after:
+        logger.info(
+            "[multi_section] %s writer-menu TIER-FIRST reorder: quality mix now %d T1-T3 of %d row(s) "
+            "in the prompt menu (was head-ranked by relevance only; WRITER PROMPT ONLY — ev_ids, "
+            "evidence_pool, bibliography and strict_verify untouched)",
+            section_title, sum(1 for r in after if r <= 3), len(after),
+        )
+    return ordered
+
+
 def _apply_writer_menu_cap(
     ev_subset: list, *, section_title: str = "", total_assigned: int = 0
 ) -> list:
@@ -5994,6 +6044,12 @@ async def _run_section(
     # ``evidence_pool`` (the strict_verify pool), and the frozen faithfulness engine are ALL untouched;
     # every emitted sentence is still gated against the FULL pool below. Deterministic head-N of the
     # already-ranked list; DISCLOSED (LOUD). Default-OFF => byte-identical (see _writer_topn_ev_per_section).
+    # RACE-FLOOR lever 3: order the menu TIER-FIRST *before* the cap takes its head-N, so the N slots
+    # go to journal articles rather than to whatever the relevance ranker happened to put on top (a T4
+    # scrape of a paper was outranking the T1 journal version of the same work). Must precede the cap:
+    # reordering AFTER the truncation would only shuffle rows already chosen and change nothing.
+    # Default-OFF => byte-identical.
+    ev_subset = _tier_first_menu(ev_subset, section_title=section.title)
     ev_subset = _apply_writer_menu_cap(
         ev_subset, section_title=section.title, total_assigned=len(section.ev_ids or []),
     )

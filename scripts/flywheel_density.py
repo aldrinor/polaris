@@ -30,10 +30,25 @@ _WS_RE = re.compile(r"\s+")
 _MIRROR_SUFFIX_RE = re.compile(r"\(also mirrored\)", re.IGNORECASE)
 # The reference list is part of report.md. Everything from this heading on is NOT prose.
 _REFS_HEADING_RE = re.compile(r"^#{1,3}\s+(references|bibliography)\s*$", re.IGNORECASE | re.MULTILINE)
+# Scrape prefixes a search engine prepends to a mirrored copy of a paper ("[PDF] Automation ...").
+_SCRAPE_PREFIX_RE = re.compile(r"^\s*\[(pdf|html|doc|epub)\]\s*", re.IGNORECASE)
+# DRB task 72 instructs: cite only high-quality, English-language JOURNAL articles. Tier compliance
+# is therefore an instruction-following metric, not a nicety -- RACE grades it.
+_QUALITY_TIERS = frozenset({"T1", "T2", "T3"})
+# Mirrors disagree on the tail of a title (the corpus truncates them), so match on a PREFIX.
+_TITLE_PREFIX = 45
 
 
 def _norm_title(title: str) -> str:
-    t = _MIRROR_SUFFIX_RE.sub(" ", str(title or "")).lower()
+    """Normalize a title so a work's MIRRORS collapse onto it.
+
+    ``[PDF]``/``[HTML]`` scrape prefixes must go BEFORE punctuation stripping: otherwise
+    "[PDF] Automation and New Tasks" keeps a leading "pdf" token and never matches the T1
+    journal entry it is a mirror of -- which is precisely how a T4 preprint scrape got counted
+    as a work distinct from the paper it copies.
+    """
+    t = _MIRROR_SUFFIX_RE.sub(" ", str(title or ""))
+    t = _SCRAPE_PREFIX_RE.sub(" ", t).lower()
     t = _PUNCT_RE.sub(" ", t)
     t = _WS_RE.sub(" ", t).strip()
     return t[:70]
@@ -50,17 +65,58 @@ def _entries(bib: object) -> list[dict]:
     return []
 
 
-def _work_key(entry: dict, work_of: dict[str, str]) -> str:
-    ev = str(entry.get("evidence_id") or entry.get("ev_id") or "")
-    if ev in work_of:
-        return work_of[ev]
-    doi = str(entry.get("doi") or "").strip().lower()
-    if doi:
-        return f"doi:{doi}"
-    title = _norm_title(entry.get("title") or "")
-    if title:
-        return f"t:{title}"
-    return f"ev:{ev}"
+def _count_works(entries: list[dict], work_of: dict[str, str]) -> int:
+    """Number of distinct WORKS among cited entries, collapsing mirrors by UNION-FIND.
+
+    A priority chain (same_work_group -> DOI -> title) CANNOT do this, and two earlier cuts of
+    this function proved it by reporting 94 works where there are ~68:
+
+      * the title lives under ``source_title``; reading ``title`` (absent) made every title ""
+        and keyed each entry by its own ev_id -- collapsing nothing;
+      * with that fixed, DOI-before-title still failed, because a work WITH a doi never meets
+        its doi-LESS mirror: [1] Acemoglu-Restrepo keys as doi:10.1257/jep.33.2.3 while [13],
+        the IZA "[PDF]" scrape of the same paper, keys by title. Same for "Generative AI at
+        Work" [42] vs its arXiv mirror [78].
+
+    No single key identifies a work, because the mirrors disagree on WHICH field they carry.
+    So merge on ANY agreement: same_work_group, or DOI, or normalized title prefix. Title
+    prefix (not full title) because the corpus stores truncated titles ("... Displaces and
+    ..."), so a full-string match misaligns a mirror against its own paper.
+
+    Inflating this number flatters the LONG arms specifically -- they cite more mirrors -- i.e.
+    exactly the arms being sold. It is the metric the depth claims are graded on, so it gets
+    union-find rather than a convenient key.
+    """
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for e in entries:
+        ev = str(e.get("evidence_id") or e.get("ev_id") or "")
+        node = f"ev:{ev}"
+        find(node)
+        if ev in work_of:
+            union(node, work_of[ev])
+        doi = str(e.get("doi") or "").strip().lower()
+        if doi:
+            union(node, f"doi:{doi}")
+        title = _norm_title(e.get("source_title") or e.get("title") or "")
+        if len(title) >= _TITLE_PREFIX:
+            union(node, f"t:{title[:_TITLE_PREFIX]}")
+        elif title:
+            union(node, f"t:{title}")
+
+    return len({find(f'ev:{e.get("evidence_id") or e.get("ev_id") or ""}') for e in entries})
 
 
 def _same_work_map(corpus_path: Path) -> dict[str, str]:
@@ -105,29 +161,35 @@ def density(run_dir: Path, corpus_path: Path) -> dict:
     cited_entries = [e for i, e in enumerate(entries, start=1) if i in cited_markers]
 
     words = len(body.split())
-    works = {_work_key(e, work_of) for e in cited_entries}
-    per_1k = 1000.0 * len(works) / words if words else 0.0
+    n_works = _count_works(cited_entries, work_of)
+    per_1k = 1000.0 * n_works / words if words else 0.0
+    quality = [e for e in cited_entries if str(e.get("tier") or "").upper() in _QUALITY_TIERS]
     return {
         "run": run_dir.name,
         "words": words,
         "bib_entries": len(entries),
         "cited_entries": len(cited_entries),
-        "distinct_works": len(works),
+        "distinct_works": n_works,
         "works_per_1k_words": round(per_1k, 2),
-        "entry_inflation": round(len(cited_entries) / len(works), 2) if works else 0.0,
+        "entry_inflation": round(len(cited_entries) / n_works, 2) if n_works else 0.0,
+        "quality_tier_pct": round(100.0 * len(quality) / len(cited_entries), 1) if cited_entries else 0.0,
     }
 
 
 def main() -> int:
     corpus = Path(sys.argv[1])
     rows = [density(Path(d), corpus) for d in sys.argv[2:]]
-    hdr = f'{"run":26}{"words":>7}{"bib":>5}{"cited":>7}{"works":>7}{"works/1k":>10}{"inflation":>11}'
+    hdr = (
+        f'{"run":26}{"body_w":>7}{"cited":>7}{"works":>7}{"works/1k":>10}'
+        f'{"inflation":>11}{"T1-T3%":>8}'
+    )
     print(hdr)
     print("-" * len(hdr))
     for r in rows:
         print(
-            f'{r["run"]:26}{r["words"]:>7}{r["bib_entries"]:>5}{r["cited_entries"]:>7}'
+            f'{r["run"]:26}{r["words"]:>7}{r["cited_entries"]:>7}'
             f'{r["distinct_works"]:>7}{r["works_per_1k_words"]:>10}{r["entry_inflation"]:>10}x'
+            f'{r["quality_tier_pct"]:>7}%'
         )
     return 0
 
