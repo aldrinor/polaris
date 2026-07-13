@@ -112,7 +112,25 @@ TEXT (verbatim from the paper):
 ---
 
 Extract up to {k} findings that bear on AI/automation/technology and work, employment, wages, skills, tasks,
-productivity, inequality, or industry restructuring. For EACH finding return an object:
+productivity, inequality, or industry restructuring.
+
+** PRIORITISE THE QUANTITATIVE FINDINGS. THE NUMBERS ARE THE EVIDENCE. **
+The #1 system on this benchmark reports 202 quantitative findings; we reported 2, and the judge's verdict was
+"rarely presents quantitative evidence clearly... describes findings in generic terms". A finding WITHOUT a
+number is usually a topic description wearing a finding's clothes.
+
+Take, in this order of preference:
+  1. effect sizes and elasticities  ("one more robot per thousand workers reduces the employment-to-population
+     ratio by 0.2 percentage points")
+  2. magnitudes, shares, percentages, counts, wage/employment changes, productivity gains
+  3. confidence intervals, significance levels, sample sizes, study periods
+  4. only then, a qualitative finding -- and only if it is genuinely a finding
+
+THE NUMBER MUST APPEAR IN THE SPAN. A downstream gate deletes any figure it cannot find verbatim in this
+paper's own span, so a claim whose number is missing from its span is DISCARDED and the evidence is lost.
+Copy the sentence that CONTAINS the figure.
+
+For EACH finding return an object:
 
 {{
  "claim": "one sentence stating the finding, in your words, NO citation markers",
@@ -126,8 +144,10 @@ productivity, inequality, or industry restructuring. For EACH finding return an 
 
 RULES:
 - The "span" MUST appear verbatim in the TEXT. If you cannot find a supporting quote, DO NOT emit the finding.
+- If the finding has a number, THE SPAN MUST CONTAIN THAT NUMBER. Never state a figure in the claim that is
+  not in the span you quote -- that is the one thing that gets an entire report thrown away.
 - "mechanisms" must be mechanisms the PAPER states. Do not infer. Empty list is correct and common.
-- Extract findings, not topic descriptions. A finding says what was found.
+- Extract findings, not topic descriptions. A finding says what was found, and usually says how much.
 Return ONLY a JSON array."""
 
 
@@ -140,7 +160,8 @@ def extract_cards() -> int:
         text = (c.get('fulltext') or '')[:28000] or c.get('abstract') or ''
         if len(text.split()) < 60:
             return None
-        k = 8 if c['content_status'] == 'FULLTEXT' else 4
+        # 1,825 quantitative claims sit in the fulltext we already hold; 8 cards/paper cannot carry them.
+        k = 16 if c['content_status'] == 'FULLTEXT' else 6
         p = EXTRACT_PROMPT.format(title=c['title'], authors=', '.join(c['authors']),
                                   venue=c['venue'], year=c['year'], text=text, k=k)
         try:
@@ -292,15 +313,30 @@ EVIDENCE AVAILABLE TO YOU (these are the ONLY facts you may state; each has a ve
 
 WRITE 2-4 PARAGRAPHS OF ~100 WORDS EACH. Rules, all mandatory:
 
-1. ATTRIBUTION -- every factual claim must name its source IN THE RUNNING PROSE, in this exact shape:
-     "Writing in the <JOURNAL> in <YEAR>, <AUTHORS> show that <finding>."
-     "<AUTHORS>, writing in the <JOURNAL> in <YEAR>, report that <finding>."
-   NEVER use [1]-style markers. NEVER put the year in parentheses -- write it as prose.
+1. ATTRIBUTION -- every factual claim must name its source (AUTHORS + JOURNAL + YEAR) IN THE RUNNING PROSE.
+   NEVER use [1]-style markers. NEVER put the year in parentheses -- write the year as prose.
    (A citation marker or a parenthetical year is DELETED before this is graded. Naming the journal in
    the sentence is the only thing that survives.)
+   ** ROTATE THE FORM. ** The last report opened 131 sentences with the identical template and the judge
+   called the prose repetitive. Vary it -- no form twice in a row:
+     "Writing in <JOURNAL> in <YEAR>, <AUTHORS> show that ..."
+     "<AUTHORS>, writing in <JOURNAL> in <YEAR>, report that ..."
+     "A <YEAR> <JOURNAL> study by <AUTHORS> finds that ..."
+     "<AUTHORS> put the figure at ... in their <YEAR> <JOURNAL> paper."
+     "The evidence in <JOURNAL> (<AUTHORS>, writing in <YEAR>) points the other way: ..."
+     "... -- a result <AUTHORS> establish in <JOURNAL> in <YEAR>."
+   If the journal name already begins with "The", do not write "the The".
 
-2. FACTS -- you may ONLY state findings from the evidence above. Every number must come from a card.
-   Do not add a fact, a number, a study, or an organisation that is not in the evidence.
+2. FACTS, AND ABOVE ALL **THE NUMBERS** -- you may ONLY state findings from the evidence above.
+   ** WHERE A CARD CARRIES A FIGURE, YOU MUST REPORT THAT FIGURE. ** State the effect size, the
+   percentage, the elasticity, the magnitude -- in the sentence, attached to its source.
+   The #1 system on this benchmark reports 202 quantitative findings; our last report reported 2, and the
+   judge wrote: "rarely presents quantitative evidence clearly... often describes findings in generic terms,
+   citations are named but findings are missing." A named source with no finding attached is the single
+   most expensive defect in our prose. Do not write "Acemoglu and Restrepo document employment effects" --
+   write what the effect WAS, with its number.
+   Do not add a fact, a number, a study, or an organisation that is not in the evidence. Every digit you
+   write is checked against its own source and deleted if it is not there.
 
 3. ADJUDICATE -- do not merely list. Where findings agree, say what they jointly establish. Where they
    conflict, say WHY they can both be true (different unit of analysis? horizon? method?) and state what
