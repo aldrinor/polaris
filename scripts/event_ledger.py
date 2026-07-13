@@ -54,13 +54,25 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# THE REGISTRY, AND THE ONE COMPLETENESS REDUCER. Imported — never re-implemented. This module used to
+# carry its own `FULLTEXT_MIN = 2500` while provenance.py used 1,200, and neither knew about the
+# other. See the headstone at "3. content profile", below.
+from provenance import (  # noqa: E402
+    KIND_PROFILE, judge_completeness,
+    SOURCE_TYPE as _SOURCE_TYPE, WORK_KIND_ARTIFACT as _WORK_KIND_ARTIFACT,
+)
+
 CORPUS = ROOT / 'outputs' / 'journal_corpus_content.json'
+LEDGER_OUT = ROOT / 'outputs' / 'event_ledger.jsonl'
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -163,13 +175,84 @@ def _scan_for_conclusions(kind: str, payload: dict) -> list[str]:
     return bad
 
 
-class Ledger:
-    """Append-only. You may add an observation. You may not edit, delete, or conclude."""
+class LedgerCorrupt(Exception):
+    """The persisted log does not agree with itself. It is REFUSED, never silently repaired."""
 
-    def __init__(self, path: Path | None = None):
+
+class Ledger:
+    """Append-only, DURABLE, and RELOADABLE. You may add an observation. You may not edit, delete,
+    or conclude.
+
+    IT DID NOT RELOAD. `__init__` set `self._events = []` and never read the file, so a ledger opened
+    over an existing JSONL began with an EMPTY HISTORY — while still appending to the end of it. Every
+    standalone script therefore reduced over the handful of events IT had emitted, not over what
+    happened. `derive_route_status()` would find one adapter planned instead of four and call the route
+    COMPLETE; `derive_coverage_status()` would license a scoped absence off a history it could not see.
+    A reducer over an append-only log that does not read the log is not a reducer over anything — and
+    it fails in the direction of CONFIDENCE, which is the only direction that ships.
+    """
+
+    def __init__(self, path: Path | str | None = None, *, load: bool = True):
         self._events: list[Event] = []
-        self._path = path
+        self._path = Path(path) if path else None
         self._seq = 0
+        if self._path is not None:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            if load and self._path.exists():
+                self._load()
+
+    @classmethod
+    def load(cls, path: Path | str) -> 'Ledger':
+        """Open the ledger AS IT STANDS ON DISK. This is the constructor a standalone script wants."""
+        return cls(path, load=True)
+
+    # -- read the history back --------------------------------------------------------------------
+    def _load(self) -> None:
+        """A PERSISTED LEDGER IS AN UNTRUSTED INPUT, and it is exactly as untrusted as the corpus was.
+
+        The emit-time guard is RE-APPLIED here. Bypassing it on read would leave the door it locks
+        standing open: `echo '{"payload":{"content_status":"FULLTEXT"}}' >> ledger.jsonl` is not a
+        harder attack than calling emit(), it is an easier one.
+
+        A record written by a reducer (it carries `derived_by`) is exempt from that scan, because its
+        whole job is to hold a derived verdict. Forging one buys nothing: NO REDUCER READS THEM. They
+        are audit artifacts, and every derive_*() in this file re-derives from the OBSERVATIONS. That
+        is the difference between a ledger and a cache, and caching the label is how we shipped
+        FULLTEXT on a cookie banner.
+        """
+        seen: set[int] = set()
+        events: list[Event] = []
+        for i, line in enumerate(self._path.read_text().splitlines(), 1):
+            line = line.strip()
+            if not line:
+                continue
+            where = f'{self._path.name}:{i}'
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise LedgerCorrupt(f'{where}: not JSON — {e}')
+            missing = {'seq', 'unit', 'kind', 'actor', 'payload', 'ts'} - set(d)
+            if missing:
+                raise LedgerCorrupt(f'{where}: missing field(s) {sorted(missing)}')
+            if d['kind'] not in EventKind.ALL:
+                raise LedgerCorrupt(f'{where}: unknown event kind {d["kind"]!r}')
+            if not isinstance(d['payload'], dict):
+                raise LedgerCorrupt(f'{where}: payload is not an object')
+            if not isinstance(d['seq'], int) or d['seq'] in seen:
+                raise LedgerCorrupt(f'{where}: seq {d["seq"]!r} is duplicated or not an integer — an '
+                                    f'append-only log with a repeated sequence number has been edited')
+            if 'derived_by' not in d['payload']:
+                problems = _scan_for_conclusions(d['kind'], d['payload'])
+                if problems:
+                    raise LedgerCorrupt(
+                        f'{where}: this line writes a CONCLUSION into the ledger — the emit guard '
+                        f'refuses it, and so does the loader:\n    ' + '\n    '.join(problems))
+            seen.add(d['seq'])
+            events.append(Event(seq=d['seq'], unit=d['unit'], kind=d['kind'], actor=d['actor'],
+                                payload=d['payload'], ts=d['ts']))
+        events.sort(key=lambda e: e.seq)
+        self._events = events
+        self._seq = max(seen, default=0)     # ...so the next append CONTINUES the log, never collides
 
     # -- write side: exactly one method, and it is guarded -------------------------------------
     def emit(self, unit: str, kind: str, actor: str, **payload) -> Event:
@@ -186,8 +269,12 @@ class Ledger:
         ev = Event(seq=self._seq, unit=unit, kind=kind, actor=actor, payload=dict(payload))
         self._events.append(ev)
         if self._path:
+            # One line, one open, closed immediately: the record is with the OS before emit() returns.
+            # An event that is in memory but not on disk is a history that disagrees with itself the
+            # moment the process dies.
             with open(self._path, 'a') as fh:
                 fh.write(ev.to_json() + '\n')
+                fh.flush()
         return ev
 
     # -- the reducer's audit trail --------------------------------------------------------------
@@ -367,10 +454,25 @@ def derive_route_status(events: list[Event]) -> RouteStatus:
     return RouteStatus(state, tuple(planned), outcomes, missing, failed, budget)
 
 
-# ---- 3. content profile ----------------------------------------------------------------------
-
-FULLTEXT_MIN = 2500      # a journal article is 5,000-20,000 words
-ABSTRACT_MIN = 120
+# ---- 3. content profile — DRIVEN BY THE ONE REGISTRY, NOT BY A NUMBER ------------------------
+#
+# THERE WAS A `FULLTEXT_MIN = 2500` HERE. It is deleted, and this comment is its headstone.
+#
+# It was written in the fix for the bug it is. `provenance.py`'s own header says, in Sol's words: "A
+# universal word threshold cannot define 'full text': a short judicial opinion, statute section,
+# trial-registry record, and journal article have different completeness profiles" — and then this
+# module, the CURE, reinstated one universal number two files away, where nothing compared them. It
+# did not merely contradict the principle; it contradicted `provenance.profile()`, whose scholarly
+# floor is 1,200. TWO REDUCERS THAT DISAGREE ARE NOT A SHARED RULE. Which document a card could cite
+# depended on which module happened to look at it last.
+#
+# So completeness is not decided here at all. It is READ FROM THE REGISTRY, by the ONE reducer:
+#
+#     provenance.KIND_PROFILE      what each artifact kind is, and its stub floor (or None)
+#     provenance.judge_completeness(kind, n_words, extraction_verdict)
+#
+# A judicial opinion, a statute section and a trial-registry record have stub_floor=None and are
+# COMPLETE AT ANY LENGTH. A cookie banner is incomplete at any length. Neither fact is a word count.
 
 C_FULLTEXT     = 'FULLTEXT'
 C_ABSTRACT     = 'ABSTRACT'
@@ -378,9 +480,87 @@ C_CITATION     = 'CITATION_ONLY'
 C_NOT_DOC      = 'NOT_A_DOCUMENT'        # a cookie banner, a login wall, a paywall interstitial
 C_UNREADABLE   = 'UNREADABLE_ENCODING'   # a PDF whose glyphs never decoded
 
+GLYPH_GARBAGE_MAX = 0.10   # > this share of (cid:NN) tokens => the font never decoded
+CHROME_PER_1K_MAX = 5.0    # web furniture DENSITY. Density, not length — see below.
+
+#: The content class each artifact kind reports as. The finding-bearing kinds are absent on purpose:
+#: for those, THE REGISTRY decides (complete => FULLTEXT), and hardcoding them here would be a second
+#: opinion about completeness, which is the whole defect.
+_CLASS_OF_KIND = {
+    'extraction_failure': C_UNREADABLE,
+    'landing_page':       C_NOT_DOC,
+    'wrong_work':         C_NOT_DOC,
+    'abstract':           C_ABSTRACT,
+    'citation_only':      C_CITATION,
+    'unknown':            C_CITATION,
+}
+
+
+def derive_artifact_kind(prof: dict, source_type: str = '') -> tuple[str, str]:
+    """WHAT KIND OF DOCUMENT IS THIS? Registry-driven, from OBSERVATIONS only.
+
+    `source_type` is the kind of RECORD the unit came from — a Crossref `journal-article`, a court's
+    opinions endpoint, ClinicalTrials.gov. It selects WHICH COMPLETENESS PROFILE APPLIES and nothing
+    else, and it is REBUTTABLE BY THE BYTES: the demotions below run first, so a login wall served by
+    a court's website is a login wall.
+
+    It is NOT `fulltext_source` wearing a new hat. `fulltext_source='working_paper'` was a claim about
+    WHAT THE DOCUMENT IS, written by whichever script ran, believed by everyone, and false in both
+    directions. `source_type` cannot promote anything: it cannot make a cookie banner an article, and
+    it cannot make a working paper a journal version — the header stamp decides that, in
+    derive_semantic_binding(), untouched. All it can do is stop us judging a judicial opinion by a
+    journal article's word count.
+    """
+    wc = prof.get('word_count', 0)
+    readable = prof.get('readable_word_count', 0)
+    chrome = prof.get('chrome_markers', 0)
+    glyph = prof.get('glyph_garbage_ratio', 0)
+
+    # Which profile do we judge this against? Default: the scholarly one (every row in this corpus is
+    # a Crossref journal-article). An UNREGISTERED type is not silently accepted — it falls back to
+    # scholarly and SAYS SO, because a kind nobody registered has no completeness profile to use.
+    work_kind, _claimed = _SOURCE_TYPE.get((source_type or '').strip().lower(), ('study', ''))
+    declared = _WORK_KIND_ARTIFACT.get(work_kind) or 'journal_article'
+    spec = KIND_PROFILE[declared]
+    floor = spec['stub_floor']
+    src = f'source_type={source_type!r}' if source_type else 'no source_type declared (scholarly default)'
+
+    if wc <= 0:
+        return 'citation_only', 'we hold no bytes at all'
+    if glyph > GLYPH_GARBAGE_MAX:
+        return 'extraction_failure', (f'{glyph:.0%} of tokens are (cid:NN) glyph codes — the font '
+                                      f'never decoded')
+    # A cookie banner is not a short paper. It is NOT A PAPER — and that is true of a 300-word statute
+    # section's landing page too, which is why the LENGTH half of this test applies only where there
+    # IS a length below which a document is a fragment. Where there is not (stub_floor=None), only
+    # web-furniture DENSITY may condemn it.
+    chrome_per_kw = 1000.0 * chrome / max(1, wc)
+    if chrome and (chrome_per_kw >= CHROME_PER_1K_MAX or (floor is not None and wc < floor)):
+        return 'landing_page', (f'{chrome} site-chrome marker(s) in {wc}w ({chrome_per_kw:.0f}/1k) — '
+                                f'this is a web page about the document, not the document')
+    if floor is not None and readable < floor:
+        # A SCHOLARLY FRAGMENT. Which fragment it is, is the registry's abstract_floor — not a second
+        # universal number invented here.
+        af = spec['abstract_floor']
+        if af is not None and readable < af:
+            return 'citation_only', f'{readable:,} readable words — a citation stub, not even an abstract'
+        return 'abstract', (f'{readable:,} readable words is below the stub floor for `{declared}` '
+                            f'({floor:,}) — a fragment of the article, not the article')
+    return declared, f'{readable:,} readable words; judged as `{declared}` ({src})'
+
+
+def _source_type_of(events: list[Event]) -> str:
+    """The record type OBSERVED for this unit. An observation about what we asked for, with a basis."""
+    for e in reversed(events):
+        st = e.payload.get('source_type')
+        if st:
+            return str(st)
+    return ''
+
 
 def derive_content_profile(events: list[Event]) -> tuple[str, dict]:
-    """FULLTEXT is EARNED BY WORD COUNT AND READABILITY. It is never a thing a fetcher may declare."""
+    """FULLTEXT IS EARNED — AGAINST THE PROFILE FOR ITS KIND. It is never a thing a fetcher declares,
+    and it is never a number this module keeps to itself."""
     prof = None
     for e in events:
         if e.kind == EventKind.CONTENT_PROFILE_DERIVED:
@@ -388,23 +568,18 @@ def derive_content_profile(events: list[Event]) -> tuple[str, dict]:
     if prof is None:
         return C_CITATION, {'reason': 'no content was ever profiled'}
 
-    wc = prof.get('word_count', 0)
-    readable = prof.get('readable_word_count', 0)
-    chrome = prof.get('chrome_markers', 0)
+    kind, basis = derive_artifact_kind(prof, _source_type_of(events))
+    readable = prof.get('readable_word_count', 0) or prof.get('word_count', 0)
+    verdict = 'CORRUPT' if prof.get('glyph_garbage_ratio', 0) > GLYPH_GARBAGE_MAX else 'CLEAN'
+    # THE ONE REDUCER. Not a number in this file.
+    complete, reasons = judge_completeness(kind, readable, verdict)
 
-    # A cookie banner is not a short paper. It is NOT A PAPER.
-    if chrome and wc < FULLTEXT_MIN:
-        return C_NOT_DOC, {'reason': f'{chrome} site-chrome marker(s) in {wc}w — this is a web page, '
-                                     f'not a document', **prof}
-    if wc and prof.get('glyph_garbage_ratio', 0) > 0.10:
-        return C_UNREADABLE, {'reason': f'{prof["glyph_garbage_ratio"]:.0%} of tokens are (cid:NN) '
-                                        f'glyph codes — the font never decoded', **prof}
-    if readable >= FULLTEXT_MIN:
-        return C_FULLTEXT, {'reason': f'{readable:,} readable words', **prof}
-    if max(wc, readable) >= ABSTRACT_MIN:
-        return C_ABSTRACT, {'reason': f'{wc:,}w — an abstract, not a paper (floor {FULLTEXT_MIN:,})',
-                            **prof}
-    return C_CITATION, {'reason': f'{wc}w', **prof}
+    cls = _CLASS_OF_KIND.get(kind)
+    if cls is None:                       # a finding-bearing kind: THE REGISTRY says if it is whole
+        cls = C_FULLTEXT if complete else C_ABSTRACT
+    info = {'reason': basis if complete else '; '.join(reasons) or basis,
+            'artifact_kind': kind, 'complete': complete, **prof}
+    return cls, info
 
 
 # ---- 4. semantic binding ---------------------------------------------------------------------
@@ -837,6 +1012,88 @@ def selftest() -> int:
           not hasattr(w, 'label') and 'directness=high' in w.render() and 'method_quality=low' in w.render(),
           w.render())
     print(f'         {w.render()}')
+
+    # 9. NO UNIVERSAL WORD THRESHOLD. `FULLTEXT_MIN = 2500` lived here, in the CURE for itself.
+    print('\n=== NO UNIVERSAL WORD THRESHOLD (the bug that reappeared inside its own fix) ===')
+    check('FULLTEXT_MIN is GONE from this module (it contradicted provenance.profile() by 1,300 words)',
+          not hasattr(sys.modules[__name__], 'FULLTEXT_MIN')
+          and not hasattr(sys.modules[__name__], 'ABSTRACT_MIN'))
+
+    def _profile_of(text, source_type=''):
+        L = Ledger()
+        L.emit('u', EventKind.MANIFESTATION_FETCHED, 'fetch', url='u', source_type=source_type,
+               requested_title='Smith v. Jones', requested_authors=['Smith'])
+        L.emit('u', EventKind.CONTENT_PROFILE_DERIVED, 'observer', **observe_text(text))
+        return derive_content_profile(L.events('u'))
+
+    opinion = ('Smith v. Jones. The appellant challenges the order of the court below. We have '
+               'considered the record and the submissions of both parties. The appeal is dismissed '
+               'with costs. It is so ordered. ') * 3
+    cls_op, info_op = _profile_of(opinion, source_type='judicial-opinion')
+    check(f'a {len(opinion.split())}-word JUDICIAL OPINION is COMPLETE (the old floor called it an ABSTRACT)',
+          cls_op == C_FULLTEXT and info_op['complete'] and info_op['artifact_kind'] == 'judicial_opinion',
+          f'got {cls_op} / {info_op.get("artifact_kind")}')
+    cls_sch, _ = _profile_of(opinion)          # the SAME BYTES, judged as a scholarly work
+    check(f'...and THE SAME {len(opinion.split())} WORDS as a scholarly article is a fragment, NOT the article',
+          cls_sch != C_FULLTEXT, f'got {cls_sch}')
+    cls_tr, info_tr = _profile_of('Recruiting. Estimated enrolment 240. Primary outcome: overall '
+                                  'survival at 24 months.', source_type='clinical-trial')
+    check('a 13-word TRIAL-REGISTRY RECORD is COMPLETE AT ANY LENGTH',
+          cls_tr == C_FULLTEXT and info_tr['complete'], f'got {cls_tr}')
+    # ...and the bytes may still DEMOTE a kind that has no floor. `source_type` cannot promote.
+    cls_wall, _ = _profile_of('This website uses cookies. By clicking the "Accept" button you agree. '
+                              'Sign in to your account. Privacy policy. ' * 4,
+                              source_type='judicial-opinion')
+    check('a LOGIN WALL served from a court website is STILL not a document (source_type cannot promote)',
+          cls_wall == C_NOT_DOC, f'got {cls_wall}')
+    check('the completeness rule is provenance.judge_completeness — ONE reducer, not two',
+          judge_completeness('judicial_opinion', 105)[0] is True
+          and judge_completeness('journal_article', 105)[0] is False)
+
+    # 10. THE LEDGER MUST SURVIVE THE PROCESS. It did not reload, so every standalone script started
+    #     with an empty history and reduced over nothing.
+    print('\n=== DURABILITY (a reducer over a log it cannot read is a reducer over nothing) ===')
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / 'sub' / 'ledger.jsonl'          # the parent dir does not exist yet, either
+        L1 = Ledger(p)
+        L1.emit('p9', EventKind.ROUTE_PLANNED, 'router', adapters=['s2', 'openalex', 'arxiv'])
+        for a in ('s2', 'openalex', 'arxiv'):
+            L1.emit('p9', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter=a)
+            L1.emit('p9', EventKind.RESPONSE_RECEIVED, 'fetch', adapter=a, http_status=200, n_results=0)
+        before, _ = derive_coverage_status(L1, 'p9')
+
+        L2 = Ledger.load(p)                            # A DIFFERENT PROCESS'S VIEW OF THE SAME LOG
+        after, _ = derive_coverage_status(L2, 'p9')
+        check('a reopened Ledger RELOADS its history (it used to start empty and reduce over nothing)',
+              len(L2) == len(L1) == 7 and [e.seq for e in L2.events()] == [e.seq for e in L1.events()],
+              f'reloaded {len(L2)} of {len(L1)} events')
+        check('...and the reducers give THE SAME ANSWER on the reloaded log',
+              after == before == SEARCHED_NONE, f'{before!r} -> {after!r}')
+
+        # the empty in-memory history did not merely lose events — it CHANGED THE VERDICT.
+        blind = Ledger(p, load=False)
+        blind_st, _ = derive_coverage_status(blind, 'p9')
+        check('WITHOUT the reload the very same log reduces to UNROUTED — the old behaviour, exposed',
+              blind_st == UNROUTED, f'got {blind_st}')
+
+        L2.emit('p9', EventKind.BUDGET_STOPPED, 'driver', spent_usd=4.0, cap_usd=4.0)
+        check('an append after reload CONTINUES the sequence (it does not collide at seq=1)',
+              L2.events('p9')[-1].seq == 8)
+        check('...and the appended event is on disk, and changes the verdict on the NEXT reload',
+              derive_coverage_status(Ledger.load(p), 'p9')[0] == SEARCH_FAILED)
+
+        # A PERSISTED LEDGER IS AN UNTRUSTED INPUT. The emit guard is re-applied on read.
+        with open(p, 'a') as fh:
+            fh.write(json.dumps({'seq': 99, 'unit': 'p9', 'kind': 'content_profile_derived',
+                                 'actor': 'evil', 'payload': {'content_status': 'FULLTEXT'},
+                                 'ts': 0.0}) + '\n')
+        try:
+            Ledger.load(p)
+            check('a CONCLUSION hand-written into the JSONL is REFUSED ON LOAD', False, 'IT WAS LOADED')
+        except LedgerCorrupt:
+            check('a CONCLUSION hand-written into the JSONL is REFUSED ON LOAD (echo >> is not a '
+                  'harder attack than emit())', True)
 
     print(f'\n  {ok} passed, {fail} failed')
     return 1 if fail else 0

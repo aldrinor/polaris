@@ -542,3 +542,60 @@ THE REVISED FORECAST -- IT IS WORSE, AND IT IS HONEST:
 
     "No scalar improvement should be forecast from wiring or the canary. THEIR VALUE IS THAT THE NEXT
      MEASURED SCORE DESCRIBES A REAL ARTIFACT."
+
+## SOL PLAN 4 — SOTA IS REACHABLE. HE REVERSED HIS VERDICT.
+
+    "Architecture alone cannot reach the leader from this corpus. A SOTA-CLASS CORPUS MAKES THE TARGET
+     REACHABLE, but does not make it expected."
+
+    strict manifestation enforcement first      -0.005 to -0.020
+    SOTA-class corpus, current writer           +0.035 to +0.065
+    architecture that exploits the baskets      +0.025 to +0.055
+    COMBINED PLAUSIBLE BAND                     0.520 - 0.580     <- cellcog's 0.5603 is INSIDE it
+
+THE CORPUS IS TEN PAPERS. Provenance applied read-only to our 70 rows:
+    complete evidence-bearing manifestations : 16
+    JOURNAL-ATTRIBUTABLE MANIFESTATIONS      : 10     <- ten.
+    complete working-paper manifestations    :  6
+    unknown-version manifestations           : 50
+    wrong-work bodies                        :  1
+    corrupt extraction                       :  1
+We have been writing an 8,000-word literature review on TEN defensible sources.
+
+HE REFUSED OPUS'S WORKING-PAPER SUGGESTION, AND HE WAS RIGHT:
+    "Cellcog's use of Webb, Schwab's book, and Foreign Affairs is honest attribution but IMPERFECT
+     INSTRUCTION FOLLOWING. It is not fabrication, yet it remains a policy violation. WE SHOULD NOT COPY
+     THAT VIOLATION MERELY BECAUSE THE JUDGE WAS LENIENT."
+Opus had argued that since the leader gets away with it, we could too. That is optimising against the
+JUDGE'S LENIENCY rather than the INSTRUCTION. Autor's 1,085 numbers stay out of task 72.
+
+THE OPERATOR'S OWN INSIGHT, VINDICATED, WITH THE MECHANISM:
+    "'Just search by date' is correct because BACKWARD CITATION EXPANSION SYSTEMATICALLY MISSES RECENT
+     WORK: recent papers have not accumulated references or citations."
+    OUR CORPUS ENDS IN 2023. The generative-AI turn is 2023-2025 and we have NOTHING.
+    Two lanes: FOUNDATION (no recency penalty) + FRONTIER (explicit date windows, sorted by DATE, never
+    by citations). Worth +0.006 to +0.015, and task 72 sits near the TOP of that range.
+
+AND THE OBSERVATION THAT KILLS THE 'MORE SOURCES' THEORY:
+    "bodhi: 0.5441 with ONE venue mention and 4,361 words. Cellcog proves what a deep corpus plus strong
+     document architecture can do; BODHI PROVES CITATION COUNT IS NOT THE MECHANISM."
+    Bodhi beats us by 0.08 with HALF our words and ONE-SEVENTEENTH of our visible sourcing.
+
+THE MAP TO SOTA (weighted headroom, us -> leader):
+    critical cross-industry synthesis   6.36 -> 9.60   +0.0259
+    industry-specific analysis          5.76 -> 9.30   +0.0257
+    novel themes / linkages             7.20 -> 9.80   +0.0166
+    analytical mechanisms               7.96 -> 9.70   +0.0139
+    depth / representativeness          7.16 -> 9.50   +0.0102
+    SOURCE EXCLUSIVITY                  7.32 -> 8.00   +0.0025   <- what Opus spent the night chasing
+    The top TWO are worth +0.052 together. Source exclusivity is worth +0.0025.
+
+RELEASE ORDER (Sol's ladder):
+    1. frozen current corpus + strict manifestation boundary
+    2. same writer + repaired publisher/OA locations
+    3. add OA-native discovery routes (DOAJ 13M+, PMC/Europe PMC, CORE, OpenAIRE, OpenDOAR, Zenodo)
+    4. add DATE-LANE searches
+    5. add gap recursion (DISCOVERY|ACCESS|EXTRACTION|DIVERSITY|RECENCY|CONTRADICTION|EVIDENCE gaps)
+    6. add marginal-insight scheduling + basket consolidation
+    7. ONLY THEN enable report-level synthesis over the frozen enriched corpus
+    8. run the same ladder on UNSEEN clinical, legal/comparative and thin-evidence questions
