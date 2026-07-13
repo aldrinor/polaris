@@ -119,6 +119,14 @@ class ResearchContract:
     negators: list[str]
     design_rank: dict[str, int]                           # method -> evidential strength
     empirical_designs: list[str]                          # designs that produce an ESTIMATE
+    secondhand_cues: list[str] = field(default_factory=list)   # the span reports ANOTHER paper's finding
+    forecast_cues: list[str] = field(default_factory=list)     # the span is a projection, not a finding
+    # ADJUDICATIVE SUBSECTIONS are about the ARGUMENT, not about a topic. "Where the literature
+    # genuinely disagrees" shares no content word with any card, so a lexical matcher hands it NOTHING --
+    # and that subsection is the one this whole planner exists to feed (Critical Synthesis: 210 words of
+    # 8,012, scoring 6.36 on the joint-heaviest criterion). These are matched on the vocabulary of
+    # ADJUDICATION, which is general to any research question, and they get FIRST PICK of the bundles.
+    adjudicative_roles: dict[str, list[str]] = field(default_factory=dict)
     outcome_facet: str = 'outcome'                        # which facet is the dependent variable
     outline: list[tuple[str, list[str]]] = field(default_factory=list)
 
@@ -157,8 +165,13 @@ def default_contract() -> ResearchContract:
                 'automation':      [r'automat\w*'],
             },
             'outcome': {
-                'employment':      [r'employment', r'\bemploy\w*', r'\bjobs?\b', r'unemploy\w*',
-                                    r'workforce', r'\bhiring\b', r'job loss\w*'],
+                # `\bjobs?\b` matched "JOB SATISFACTION" and `\bemploy\w*` matched "EMPLOYEE EXPERIENCE".
+                # Neither is the quantity of employment, and both were feeding a fabricated conflict.
+                # An outcome pattern must name the QUANTITY, not merely share a word with it.
+                'employment':      [r'\bemployment\b', r'\bunemploy\w*', r'\bjob loss\w*',
+                                    r'\bjobs?\b(?!\s+(?:satisfaction|security|quality|content|title|'
+                                    r'description|design))',
+                                    r'\bworkforce\b', r'\bhiring\b', r'\blab(?:o|ou)r demand\b'],
                 'wages':           [r'wages?\b', r'earnings?\b', r'salar\w*', r'\bincome\b',
                                     r'compensation'],
                 'productivity':    [r'productivity', r'output per', r'efficiency'],
@@ -191,22 +204,92 @@ def default_contract() -> ResearchContract:
             },
         },
         # ---- DIRECTION: the most dangerous facet on the board. See derive_direction().
+        #
+        #      A POLARITY CUE MUST PREDICATE A CHANGE OF THE OUTCOME. It may not merely be a word with
+        #      a direction-ish flavour sitting near it. The first build shipped `\bincreas\w*`, which
+        #      matched the ADVERB in "employment of the less-skilled is increasingly DEPENDENT on
+        #      physical proximity" -- where 'increasingly' modifies 'dependent' and says nothing whatever
+        #      about the level of employment -- and `\bhigher\b`/`\blower\w*`, which match the COMPARATIVE
+        #      ADJECTIVE in "higher-skilled workers". Those two cues, between them, produced this
+        #      planner's top-ranked GENUINE CONFLICT out of two cards that were not in tension and were
+        #      not even about the same thing.
+        #      So: verbs and magnitude nouns only. No adverbs, no comparative adjectives.
         polarity={
-            'negative': [r'\breduc\w*', r'\bdeclin\w*', r'\bfell\b', r'\bfalls?\b', r'\bfalling\b',
-                         r'\bdecreas\w*', r'\bdisplac\w*', r'\blower\w*', r'\bloss\w*', r'\bshrink\w*',
-                         r'\bsubstitut\w*', r'\bdestroy\w*', r'\berod\w*', r'\bnegative\b'],
-            'positive': [r'\bincreas\w*', r'\brais\w*', r'\brise\w*', r'\brose\b', r'\bgrow\w*',
-                         r'\bgrew\b', r'\bgains?\b', r'\bhigher\b', r'\bcreat\w*', r'\bcomplement\w*',
-                         r'\bexpand\w*', r'\bimprov\w*', r'\baugment\w*', r'\bpositive\b'],
+            'negative': [r'\breduc(?:e|es|ed|ing|tion|tions)\b', r'\bdeclin(?:e|es|ed|ing)\b',
+                         r'\bfell\b', r'\bfalls?\b', r'\bfalling\b', r'\bdecreas(?:e|es|ed|ing)\b',
+                         r'\bdisplac(?:e|es|ed|ing|ement)\b', r'\bloss(?:es)?\b', r'\bshrink\w*',
+                         r'\bshrank\b', r'\bsubstitut(?:e|es|ed|ing|ion)\b', r'\bdestroy\w*',
+                         r'\berod(?:e|es|ed|ing)\b', r'\bnegative\b', r'\bredundant\b', r'\bobsolete\b',
+                         r'\breplac(?:e|es|ed|ing|ement)\b', r'\beliminat(?:e|es|ed|ing)\b'],
+            'positive': [r'\bincreas(?:e|es|ed|ing)\b',          # NOT "increasingly"
+                         r'\brais(?:e|es|ed|ing)\b', r'\bris(?:e|es|ing)\b', r'\brose\b',
+                         r'\bgrow(?:s|ing|th)?\b', r'\bgrew\b', r'\bgains?\b',
+                         r'\bcreat(?:e|es|ed|ing|ion)\b', r'\bcomplement(?:s|ed|ing|arity)?\b',
+                         r'\bexpand(?:s|ed|ing)?\b', r'\bexpansion\b', r'\bimprov(?:e|es|ed|ing)\b',
+                         r'\baugment(?:s|ed|ing)?\b', r'\bpositive\b'],
             'null':     [r'\bno significant\b', r'\bno effect\b', r'\bno evidence\b', r'\binsignificant\b',
                          r'\btoo small to detect\b', r'\bnot significant\b', r'\bunchanged\b'],
         },
+        # ---- NEGATORS *AND ATTENUATORS*. An attenuator inverts a cue as surely as a negator does:
+        #      "the SLOWER GROWTH of employment ... accounted for by an acceleration in the DISPLACEMENT
+        #      effect" (Acemoglu and Restrepo 2019) is a finding about employment being DESTROYED, and the
+        #      bare cue 'growth' read it as POSITIVE. We do not flip on these -- flipping is inference --
+        #      we DISCARD the cue and return UNKNOWN, which is the one answer that cannot be wrong.
         negators=[r'\bnot\b', r'\bno\b', r'\bnor\b', r'\bnever\b', r'\bwithout\b', r'\bneither\b',
-                  r'\bfails? to\b', r'\bunable to\b', r'\bcannot\b', r"\bdoes ?n[o']t\b", r'\blittle\b'],
+                  r'\bfails? to\b', r'\bunable to\b', r'\bcannot\b', r"\bdoes ?n[o']t\b", r'\blittle\b',
+                  r'\bslow(?:er|ing|ly)?\b', r'\bweak(?:er|ening)?\b', r'\bless\b', r'\bslower\b',
+                  r'\bdampen\w*', r'\bmuted\b', r'\bmodest\b', r'\blimited\b'],
         # ---- an ESTIMATE from a stronger design outranks one from a weaker design. DECLARED fields only.
         design_rank={'experiment': 5, 'quasi-experimental': 4, 'observational': 3, 'survey': 2,
                      'review': 1, 'theory': 0},
         empirical_designs=['experiment', 'quasi-experimental', 'observational', 'survey'],
+        # ---- THE SECOND-HAND SPAN. A span can be VERBATIM IN THE PAPER and still not be the paper's
+        #      own finding: a literature-review sentence inside Damioli 2021 reads "Graetz and Michaels
+        #      (2018) use country-level data ... and find that ...". The extraction gate passes it --
+        #      the text IS in the paper -- and the composer then prints "Writing in the Eurasian Business
+        #      Review in 2021, Damioli et al. show that ..." over GRAETZ AND MICHAELS' FINDING AND THEIR
+        #      FIGURES. That is a fabricated binding of exactly the kind this codebase already bled for
+        #      ('task displacement' credited to Bresnahan), and no span check can see it, because the
+        #      span check asks "is this text in the paper?" and never "is this finding the paper's OWN?"
+        #      MEASURED: 5 such cards, 6 figures that would print under the wrong paper's name.
+        secondhand_cues=[
+            r'\b[A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+)?\s*\(\s*(?:19|20)\d\d\s*\)',
+            r'\bet al\.\s*\(\s*(?:19|20)\d\d', r'\bcommission\s*\(\s*(?:19|20)\d\d',
+            r'\btheir (?:results|findings|study|analysis|paper|estimates|data)\b',
+            r'\baccording to\b', r'\bhas predicted\b', r'\bhave (?:shown|found|argued|documented)\b',
+            r'\b(?:studies|scholars|researchers|authors|others) (?:have )?(?:show|find|argue|suggest)',
+            r'\b(?:world economic forum|mckinsey|oecd|gartner|pwc|deloitte)\b',
+        ],
+        # ---- A PROJECTION IS NOT A FINDING. synthesis_contract already treats a forecast as fabrication
+        #      when the REVIEWER writes one; it is no more ADJUDICABLE as evidence. "AI will make 75
+        #      million jobs redundant" cannot be weighed against a measured estimate -- there is nothing
+        #      to weigh, because nothing was measured. But a forecast is still CITABLE ("Agrawal and
+        #      colleagues argue that AI will affect labor"), so this is the SOFTER penalty: barred from
+        #      comparisons, admitted as attributed prose. Barring it outright starves the corpus, which
+        #      is the failure this codebase already suffered when a gate ate its own evidence.
+        #
+        #      NOTE THE PATTERNS. A first draft used bare `\bpredict\w*` and it deleted Agrawal, Gans and
+        #      Goldfarb entirely -- because "a PREDICTION technology" and "the cost of PREDICTION" are the
+        #      SUBJECT MATTER of Prediction Machines, not forecasts. The noun sense is the whole framework
+        #      and an outline subsection is named after it. Only the ATTRIBUTIVE, forward-looking forms
+        #      count; `project` and `prediction` as nouns are technical vocabulary and are left alone.
+        forecast_cues=[r'\bwill\b', r'\bis going to\b', r'\bby 20[3-9]\d\b',
+                       r'\b(?:is|are|was|were|has been|have been) (?:predicted|expected|projected|'
+                       r'forecast) to\b', r'\b(?:predicts|predicted|forecasts|projects) that\b',
+                       r'\bhas predicted\b', r'\bexpected to\b'],
+        # ---- WHICH SUBSECTIONS ADJUDICATE, AND ON WHAT. Keyed on the vocabulary of ARGUMENT (disagree,
+        #      establish, resolve, gap), which belongs to no particular research question.
+        adjudicative_roles={
+            r'genuinely disagree|disagree|conflict|contested|tension|contradict':
+                ['SAME_UNIT_OPPOSITE_DIRECTION', 'SAME_OUTCOME_DIFFERENT_UNIT'],
+            r'establish|converge|robust|consensus|what the evidence (?:shows|establishes)':
+                ['SAME_FINDING_DIFFERENT_METHOD', 'SAME_OUTCOME_DIFFERENT_HORIZON',
+                 'SAME_OUTCOME_DIFFERENT_UNIT'],
+            r'cannot yet resolve|unresolved|cannot resolve|does not settle|gap|agenda|research agenda':
+                ['UNCOUNTERED', 'SAME_OUTCOME_DIFFERENT_HORIZON'],
+            r'diverge|why .* differ|reconcile':
+                ['SAME_OUTCOME_DIFFERENT_UNIT', 'SAME_UNIT_OPPOSITE_DIRECTION'],
+        },
         outline=OUTLINE,
     )
 
@@ -234,9 +317,22 @@ class Facet:
 DIR_WINDOW = 8      # a polarity cue must sit within this many tokens of an outcome cue
 NEG_WINDOW = 3      # a negator this close BEFORE a cue voids the cue (we discard; we never flip)
 
+# A POLARITY FLIPS AT A CONTRASTIVE CONNECTIVE. "Robots reduce employment while raising productivity"
+# is one span carrying two opposite findings about two different quantities, and a cue may only be read
+# as the direction of an outcome that stands IN ITS OWN CLAUSE. This is the same reading
+# `cellcog_composer._gate_multi` already takes of a comparative sentence -- a conjunction of clauses,
+# each answerable for itself.
+_CLAUSE_BREAK = re.compile(
+    r'[;:]|\bwhile\b|\bwhereas\b|\bbut\b|\balthough\b|\bthough\b|\bhowever\b|\byet\b|'
+    r'\bby contrast\b|\bin contrast\b|\bon the other hand\b|\beven as\b|\bwhile\b', re.I)
+
 
 def _tokens(s: str) -> list[str]:
     return re.findall(r"[a-z0-9''.\-]+", s.lower())
+
+
+def _clauses(span: str) -> list[str]:
+    return [c for c in _CLAUSE_BREAK.split(span) if c and c.strip()]
 
 
 def _match_spans(text: str, patterns: list[str]) -> list[tuple[int, str]]:
@@ -291,40 +387,130 @@ def derive_span_facet_all(span: str, name: str, vocab: dict[str, list[str]]) -> 
     return sorted(v for v, pats in vocab.items() if _match_spans(span, pats))
 
 
+def derive_outcome_direction(span: str, contract: ResearchContract) -> tuple[Facet, Facet, list[str]]:
+    """OUTCOME AND DIRECTION ARE ONE JOINT DERIVATION, OR THEY ARE NOTHING.
+
+    Derived separately, they need not even be about each other. That is not a hypothetical: this exact
+    span, from Acemoglu and Restrepo 2018 --
+
+        "In an extension with heterogeneous SKILLS, we show that INEQUALITY INCREASES during
+         transitions driven by automation"
+
+    was tagged outcome=SKILLS (the earliest outcome word in the span) and direction=POSITIVE (from
+    'increases', which belongs to INEQUALITY). Neither tag was about the other, and the pair went on to
+    become the planner's top-ranked GENUINE CONFLICT. Earliest-mention-wins is an arbitrary rule, and an
+    arbitrary rule applied to the most dangerous facet on the board produces exactly what you would expect.
+
+    THE OUTCOME OF A FINDING IS THE QUANTITY WHOSE CHANGE IS REPORTED. So we look for (outcome, polarity)
+    pairs that stand together in one clause, and let the pair decide both facets at once:
+
+      * exactly one outcome, exactly one polarity   -> A DIRECTIONAL FINDING. Both facets assigned.
+        (Acemoglu above now resolves correctly to outcome=inequality, direction=positive.)
+      * one outcome, MIXED polarity                 -> outcome assigned, direction UNKNOWN.
+      * SEVERAL outcomes, each with a direction     -> the span reports several findings and we cannot
+        say which is THE finding. AMBIGUOUS: citable, never a comparison term.
+      * no polarity anywhere                        -> a TOPICAL mention, not a finding. Direction UNKNOWN.
+        The outcome is assigned only if the span mentions exactly ONE outcome family; if it mentions
+        several with nothing to choose between them, it is AMBIGUOUS and cannot anchor a bundle.
+
+    MEASURED ON THIS CORPUS: 17 cards of 133 are directional findings. 15 report several directed
+    outcomes at once. 98 report no direction at all. The scarcity is the point -- it is what makes a
+    "genuine conflict" a claim that has to be earned.
+    """
+    vocab = contract.span_facets.get('outcome', {})
+    if not vocab:
+        return Facet('outcome'), Facet('direction'), []
+
+    # A POLARITY CUE GOVERNS EXACTLY ONE QUANTITY: THE NEAREST ONE. Attaching it to every outcome inside
+    # the window is what bound 'increases' to SKILLS at a distance of seven tokens, when it plainly
+    # belongs to INEQUALITY at a distance of one. Nearest-cue attachment is the whole fix.
+    pairs: dict[str, dict[str, str]] = {}       # outcome -> {polarity: matched_form}
+    first_seen: dict[str, int] = {}
+    for clause in _clauses(span):
+        neg_idx = {i for i, _ in _match_spans(clause, contract.negators)}
+        occ: list[tuple[int, str]] = []                            # (token_index, outcome_value)
+        for ov, pats in vocab.items():
+            for i, _ in _match_spans(clause, pats):
+                occ.append((i, ov))
+        if not occ:
+            continue
+        for i, ov in occ:
+            first_seen.setdefault(ov, i)
+            first_seen[ov] = min(first_seen[ov], i)
+        for cls, ppats in contract.polarity.items():
+            for ti, form in _match_spans(clause, ppats):
+                if any(0 < ti - ni <= NEG_WINDOW for ni in neg_idx):
+                    continue                                       # negated: DISCARD, never flip
+                oi, ov = min(occ, key=lambda x: abs(ti - x[0]))    # the NEAREST outcome, and only it
+                if abs(ti - oi) > DIR_WINDOW:
+                    continue                                       # too far to govern anything here
+                pairs.setdefault(ov, {}).setdefault(cls, form)
+
+    mentioned = derive_span_facet_all(span, 'outcome', vocab)
+    if not mentioned:
+        return Facet('outcome'), Facet('direction'), []
+
+    # THE PRIMARY OUTCOME IS THE ONE WHOSE CHANGE IS REPORTED -- the earliest outcome that actually
+    # carries a direction. Only when nothing carries a direction do we fall back to the earliest
+    # mention, and then the card is TOPICAL: direction UNKNOWN, so it can never enter a conflict.
+    directed = [ov for ov in sorted(pairs, key=lambda v: first_seen.get(v, 10 ** 6))]
+    ov = directed[0] if directed else min(mentioned, key=lambda v: first_seen.get(v, 10 ** 6))
+    o_form = derive_span_facet(span, 'outcome', {ov: vocab[ov]}).evidence
+    o_facet = Facet('outcome', ov, 'span', o_form)
+
+    pol = pairs.get(ov, {})
+    if len(pol) != 1:
+        return o_facet, Facet('direction'), []     # no direction, or this outcome moves both ways
+    cls, form = next(iter(pol.items()))
+    return o_facet, Facet('direction', cls, 'span', form), []
+
+
 def derive_direction(span: str, contract: ResearchContract, outcome_vocab: list[str]) -> Facet:
     """THE FACET THAT MANUFACTURES FALSE CONFLICTS. It returns UNKNOWN at the first sign of trouble.
 
+    A DIRECTION IS ALWAYS THE DIRECTION *OF AN OUTCOME*. A bare "positive" is not a fact about the
+    world; it is a fact about some quantity, and if we do not know which quantity, we know nothing.
+    So `outcome_vocab` is the vocabulary of THIS CARD'S PRIMARY OUTCOME -- not of outcomes in general.
+    The first version of this function took every outcome pattern at once, and duly read
+
+        "the model improves prediction accuracy; employment is measured separately"
+
+    as a POSITIVE finding about EMPLOYMENT, because 'improves' fell within eight tokens of 'employment'.
+    Pair that card with any negative employment card and the planner would have "discovered" a conflict
+    between a paper about prediction accuracy and a paper about jobs, then dissolved it by pointing at
+    the unit of analysis. A false reconciliation, assembled entirely from true particulars, and no
+    downstream gate on earth would catch it: every word of the resulting sentence is true.
+
     A direction is assigned ONLY when, in the verbatim span:
-       (a) at least one polarity cue sits within DIR_WINDOW tokens of an OUTCOME cue -- so that
-           "AI improves prediction accuracy" is not read as a POSITIVE finding about EMPLOYMENT;
-       (b) no negator sits within NEG_WINDOW tokens before the cue -- and a negated cue is DISCARDED,
-           never FLIPPED, because flipping is an inference and inference is what we are refusing;
-       (c) exactly ONE polarity class survives. A span that says employment fell while productivity
-           rose fires two classes and is therefore UNKNOWN.
-    Measured on this corpus: 82/133 spans carry no polarity cue at all and 15 fire both. About three
-    quarters of the corpus is direction-UNKNOWN, and can never enter a conflict bundle. That is the
-    honest number, and it is the whole reason this function exists.
+       (a) a polarity cue and a cue for THIS CARD'S OUTCOME stand IN THE SAME CLAUSE (polarity flips at
+           a contrastive connective, so a cue may not reach across one) and within DIR_WINDOW tokens;
+       (b) no negator sits within NEG_WINDOW tokens before the cue -- a negated cue is DISCARDED, never
+           FLIPPED, because flipping is an inference and inference is what we are refusing;
+       (c) exactly ONE polarity class survives across all such clauses. A span that reports the outcome
+           falling in one clause and rising in another is UNKNOWN, not a conflict we get to adjudicate.
+    Measured on this corpus: 82/133 spans carry no polarity cue at all. Roughly three quarters of the
+    corpus is direction-UNKNOWN and can never enter a conflict bundle. That is the honest number, and it
+    is the whole reason this function exists.
     """
     if not outcome_vocab:
         return Facet('direction')
-    toks = _tokens(span)
-    out_idx = [i for i, _ in _match_spans(span, outcome_vocab)]
-    if not out_idx:
-        return Facet('direction')
-    neg_idx = {i for i, _ in _match_spans(span, contract.negators)}
-
+    neg_pats = contract.negators
     survivors: dict[str, str] = {}
-    for cls, pats in contract.polarity.items():
-        for ti, form in _match_spans(span, pats):
-            if not any(abs(ti - oi) <= DIR_WINDOW for oi in out_idx):
-                continue                                     # cue is not about this outcome
-            if any(0 < ti - ni <= NEG_WINDOW for ni in neg_idx):
-                continue                                     # negated: DISCARD, do not flip
-            survivors.setdefault(cls, form)
+    for clause in _clauses(span):
+        out_idx = [i for i, _ in _match_spans(clause, outcome_vocab)]
+        if not out_idx:
+            continue                                         # this clause is not about our outcome
+        neg_idx = {i for i, _ in _match_spans(clause, neg_pats)}
+        for cls, pats in contract.polarity.items():
+            for ti, form in _match_spans(clause, pats):
+                if not any(abs(ti - oi) <= DIR_WINDOW for oi in out_idx):
+                    continue                                 # cue is too far from the outcome it governs
+                if any(0 < ti - ni <= NEG_WINDOW for ni in neg_idx):
+                    continue                                 # negated: DISCARD, do not flip
+                survivors.setdefault(cls, form)
     if len(survivors) != 1:
-        return Facet('direction')                            # zero cues, or a mixed span -> UNKNOWN
+        return Facet('direction')                            # no cue, or the outcome moves both ways
     cls, form = next(iter(survivors.items()))
-    _ = toks
     return Facet('direction', cls, 'span', form)
 
 
@@ -342,6 +528,41 @@ def span_numbers(card: dict) -> list[str]:
     return [n for n in re.findall(r'\d+(?:\.\d+)?', s) if len(n) >= 2 and n != year]
 
 
+def span_eligibility(span: str, contract: ResearchContract) -> tuple[list[str], list[str]]:
+    """IS THIS SPAN THE PAPER'S OWN, MEASURED FINDING? Two failures, two DIFFERENT severities.
+
+      SECOND-HAND (fatal) -- the span reports somebody ELSE'S study. The finding, and the figure, belong
+        to a paper we have not read and are not citing. Printing it under this paper's name is a
+        fabricated binding: "Writing in the Eurasian Business Review in 2021, Damioli et al. show that
+        [Graetz and Michaels' result, and their number]". Such a card may not be attributed AT ALL, and
+        may not enter a comparison. This is fraud, and it is invisible to every gate we have, because
+        the span check asks "is this text in the paper?" and never "is this FINDING the paper's OWN?"
+
+      FORECAST (soft) -- the span projects rather than measures. Nothing was estimated, so there is
+        nothing to weigh against an estimate, and a projection placed in "conflict" with a measurement
+        is a manufactured conflict. But it remains perfectly CITABLE as what it is -- an argument, an
+        expectation -- so it is barred from COMPARISONS ONLY. Barring it from the prose as well would
+        starve the corpus, and a gate that eats its own evidence is a failure this codebase has already
+        paid for once.
+
+    Returns (fatal, soft). Nothing is repaired; everything is recorded and counted.
+    """
+    fatal, soft = [], []
+    for pat in contract.secondhand_cues:
+        m = re.search(pat, span, re.I)
+        if m:
+            fatal.append(f'SECOND_HAND: the span reports another study ("{m.group(0)[:40]}") -- the '
+                         f'finding is not this paper\'s own')
+            break
+    for pat in contract.forecast_cues:
+        m = re.search(pat, span, re.I)
+        if m:
+            soft.append(f'FORECAST: the span projects rather than measures ("{m.group(0)[:30]}") -- '
+                        f'citable as an argument, but there is no estimate to adjudicate')
+            break
+    return fatal, soft
+
+
 @dataclass
 class CardFacets:
     card_id: str
@@ -350,6 +571,8 @@ class CardFacets:
     outcomes_all: list[str]
     industries_all: list[str]
     numbers: list[str]
+    ineligibility: list[str] = field(default_factory=list)     # FATAL: may not be attributed at all
+    not_adjudicable: list[str] = field(default_factory=list)   # SOFT: citable, but not a comparison term
 
     def f(self, name: str) -> Facet:
         return self.facets.get(name, Facet(name))
@@ -357,6 +580,16 @@ class CardFacets:
     @property
     def quantitative(self) -> bool:
         return bool(self.numbers)
+
+    @property
+    def eligible(self) -> bool:
+        """May this card be an ATTRIBUTED clause under its OWN authors' names? (No, if second-hand.)"""
+        return not self.ineligibility
+
+    @property
+    def adjudicable(self) -> bool:
+        """May this card be a TERM IN A COMPARISON? (No, if second-hand OR a projection.)"""
+        return not self.ineligibility and not self.not_adjudicable
 
 
 def derive_facets(card: dict, contract: ResearchContract) -> CardFacets:
@@ -368,13 +601,18 @@ def derive_facets(card: dict, contract: ResearchContract) -> CardFacets:
         fx[fname] = Facet(fname, v, 'declared') if v else Facet(fname)
     for fname, vocab in contract.span_facets.items():
         fx[fname] = derive_span_facet(span, fname, vocab)
-    outcome_vocab = [p for pats in contract.span_facets.get('outcome', {}).values() for p in pats]
-    fx['direction'] = derive_direction(span, contract, outcome_vocab)
+    # OUTCOME AND DIRECTION ARE DERIVED TOGETHER. Derived apart, they need not be about each other --
+    # and on the real corpus they were not. This OVERWRITES the independent outcome tag above.
+    o_facet, d_facet, ambiguous = derive_outcome_direction(span, contract)
+    fx[contract.outcome_facet] = o_facet
+    fx['direction'] = d_facet
+    _elig = span_eligibility(span, contract)
     return CardFacets(
         card_id=card['id'], doi=card.get('doi', ''), facets=fx,
         outcomes_all=derive_span_facet_all(span, 'outcome', contract.span_facets.get('outcome', {})),
         industries_all=derive_span_facet_all(span, 'industry', contract.span_facets.get('industry', {})),
         numbers=span_numbers(card),
+        ineligibility=_elig[0], not_adjudicable=_elig[1] + ambiguous,
     )
 
 
@@ -406,9 +644,35 @@ class Bundle:
     incomparability: list[str]      # ...and if not, exactly why not
     score: float
     note: str = ''
+    evidence_tier: str = ''         # estimates | findings | positions -- WHAT KIND of thing conflicts
 
     def key(self) -> tuple:
         return (self.kind, self.axis, tuple(sorted(self.card_ids)))
+
+
+def _evidence_tier(a: CardFacets, b: CardFacets, contract: ResearchContract) -> str:
+    """WHAT KIND OF THING IS IN TENSION HERE? The verdict is only allowed to say what is true of it.
+
+    'The evidence conflicts' is a claim ABOUT EVIDENCE. Two theoretical models that reach opposite
+    conclusions are not evidence in conflict -- they are FRAMEWORKS in disagreement, and a review that
+    reports the second as the first has overstated the literature. This tier decides which sentence the
+    planner is permitted to license, and it is the difference between an adjudication and an overclaim.
+    """
+    emp = set(contract.empirical_designs)
+    ma, mb = a.f('method'), b.f('method')
+    a_emp = ma.known and ma.value in emp
+    b_emp = mb.known and mb.value in emp
+    if not a_emp and not b_emp:
+        return 'positions'                      # two models/reviews: frameworks disagree, not evidence
+    if a_emp != b_emp:
+        # ONE MODEL, ONE MEASUREMENT. This is neither "the frameworks disagree" nor "the estimates
+        # disagree" -- it is a prediction that has not been reconciled with the one measurement we hold,
+        # and saying exactly that is both true and more interesting than either alternative. Both of the
+        # genuine conflicts this corpus actually contains are of this kind.
+        return 'model_vs_measurement'
+    if a.quantitative and b.quantitative:
+        return 'estimates'
+    return 'findings'
 
 
 def _comparability(a: CardFacets, b: CardFacets, contract: ResearchContract) -> tuple[bool, list[str]]:
@@ -476,6 +740,13 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
     out: list[Bundle] = []
     by_id = {c.card_id: c for c in cfs}
 
+    # A SECOND-HAND OR FORECAST SPAN IS NOT A TERM IN AN ARGUMENT. Excluded here, at the source, so no
+    # bundle anywhere downstream can be built on one. Before this line, FOUR of the five "genuine
+    # conflicts" this planner found were artifacts: the top-scoring one set Acemoglu's theoretical model
+    # against a World Economic Forum press-release projection quoted inside a review paper, and called it
+    # a conflict in the literature.
+    eligible = [c for c in cfs if c.adjudicable]
+
     def pair_ok(a: CardFacets, b: CardFacets) -> bool:
         # A CARD CANNOT BE COMPARED WITH ITSELF, AND A PAPER CANNOT CORROBORATE ITSELF.
         # synthesis_contract rejects this as `premises_share_a_single_source`; we must not hand the
@@ -483,7 +754,7 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
         # cards at two levels -- a tempting, and entirely invalid, level contrast.)
         return a.doi != b.doi
 
-    for a, b in itertools.combinations(cfs, 2):
+    for a, b in itertools.combinations(eligible, 2):
         if not pair_ok(a, b):
             continue
         oa, ob = a.f('outcome'), b.f('outcome')
@@ -496,6 +767,7 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
         da, db = a.f('direction'), b.f('direction')
         apparent = _apparent_conflict(a, b)
         comparable, why = _comparability(a, b, contract)
+        tier = _evidence_tier(a, b, contract)
         sc = _score(a, b, apparent, comparable)
         shared = {'outcome': outcome}
         for fn in ('technology', 'industry'):
@@ -509,7 +781,7 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
                 kind='SAME_OUTCOME_DIFFERENT_UNIT', axis='unit_of_analysis',
                 card_ids=[a.card_id, b.card_id], shared=shared,
                 varies={a.card_id: ua.value, b.card_id: ub.value},
-                operation='CONTRASTS_LEVEL', apparent_conflict=apparent,
+                operation='CONTRASTS_LEVEL', apparent_conflict=apparent, evidence_tier=tier,
                 comparable=comparable, incomparability=why, score=sc,
                 note=('the estimates point in opposite directions and differ on exactly one declared '
                       'axis -- a reconciliation is licensed'
@@ -524,7 +796,7 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
                     kind='SAME_UNIT_OPPOSITE_DIRECTION', axis='direction',
                     card_ids=[a.card_id, b.card_id], shared={**shared, 'unit_of_analysis': ua.value},
                     varies={a.card_id: da.value, b.card_id: db.value},
-                    operation='CONTRASTS_DIRECTION', apparent_conflict=True,
+                    operation='CONTRASTS_DIRECTION', apparent_conflict=True, evidence_tier=tier,
                     comparable=comparable, incomparability=why, score=sc + 2,
                     note='same outcome, same declared unit, opposed span-derived directions -- this '
                          'conflict cannot be dissolved by pointing at the unit of analysis'))
@@ -536,7 +808,7 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
                     card_ids=[a.card_id, b.card_id],
                     shared={**shared, 'unit_of_analysis': ua.value, 'direction': da.value},
                     varies={a.card_id: ma.value, b.card_id: mb.value},
-                    operation='RANK_EVIDENCE', apparent_conflict=False,
+                    operation='RANK_EVIDENCE', apparent_conflict=False, evidence_tier=tier,
                     comparable=comparable, incomparability=why, score=sc + 1,
                     note='the same directional finding survives a change of identification strategy'))
 
@@ -546,14 +818,14 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
                 kind='SAME_OUTCOME_DIFFERENT_HORIZON', axis='horizon',
                 card_ids=[a.card_id, b.card_id], shared=shared,
                 varies={a.card_id: ha.value, b.card_id: hb.value},
-                operation='CONTRASTS_HORIZON', apparent_conflict=apparent,
+                operation='CONTRASTS_HORIZON', apparent_conflict=apparent, evidence_tier=tier,
                 comparable=comparable, incomparability=why, score=sc,
                 note='' if apparent else 'no apparent conflict: this is a horizon SPREAD, not a horizon '
                                          'DISPUTE'))
 
     # ---- 5. THE REFUSALS. Two cards on the same outcome whose axis is NOT DECLARED are NOT a comparison.
     #         We emit them so the refusal is VISIBLE and auditable, instead of silently inventing a tag.
-    for a, b in itertools.combinations(cfs, 2):
+    for a, b in itertools.combinations(eligible, 2):
         if not pair_ok(a, b):
             continue
         oa, ob = a.f('outcome'), b.f('outcome')
@@ -573,11 +845,11 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
 
     # ---- 6. UNCOUNTERED: a cell of (outcome x unit) that exactly ONE source occupies -> a boundary
     cell: dict[tuple[str, str], set[str]] = {}
-    for c in cfs:
+    for c in eligible:
         o, u = c.f('outcome'), c.f('unit_of_analysis')
         if o.known and u.known:
             cell.setdefault((o.value, u.value), set()).add(c.doi)
-    for c in cfs:
+    for c in eligible:
         o, u = c.f('outcome'), c.f('unit_of_analysis')
         if not (o.known and u.known):
             continue
@@ -586,6 +858,7 @@ def find_bundles(cfs: list[CardFacets], contract: ResearchContract,
                 kind='UNCOUNTERED', axis='unit_of_analysis', card_ids=[c.card_id],
                 shared={'outcome': o.value, 'unit_of_analysis': u.value}, varies={},
                 operation='COVERAGE_GAP', apparent_conflict=False, comparable=False,
+                evidence_tier=('estimates' if c.quantitative else 'findings'),
                 incomparability=['there is no second source in this cell to compare against'],
                 score=2.0 + len(c.numbers),
                 note='a span-verified figure that NO other source in the corpus counters at the same '
@@ -704,43 +977,84 @@ def _premises(bundle: Bundle, cards_by_id: dict[str, dict]) -> dict[str, Premise
 #      synthesis_contract.validate() before it is allowed into a plan: THE PLANNER CANNOT PLAN A
 #      SENTENCE THE COMPOSER'S GATE WOULD DELETE. That is the floor the synthesis section never had.
 
+def _anchor_forms(bundle: Bundle, cf: dict[str, CardFacets]) -> tuple[str, str]:
+    """THE VERBATIM SURFACE FORMS, LIFTED FROM THE SPANS. Two jobs, both load-bearing.
+
+    1. THE SOURCE'S OWN WORD. The facet VALUE is our canonical label ('wages'); the span may say
+       'earnings'. A verdict that says "wages" about a paper that said "earnings" has quietly restated
+       the source in our vocabulary -- and it also fails to anchor, because 'wages' is nowhere in the
+       span. Using the matched surface form fixes the faithfulness and the anchoring at one stroke.
+    2. ANCHORING. `synthesis_contract.validate()` requires a synthesis to share >= 2 content lemmas with
+       its premises, and it rejected 7 of our verdicts for exactly this. A form lifted verbatim from a
+       span is guaranteed to be in that span, so anchoring becomes a property of construction rather
+       than a hope.
+    """
+    forms: list[str] = []
+    for cid in bundle.card_ids:
+        c = cf.get(cid)
+        if not c:
+            continue
+        for fname in ('outcome', 'technology', 'direction', 'industry'):
+            ev = c.f(fname).evidence
+            if ev and len(ev) >= 4 and ev.lower() not in [f.lower() for f in forms]:
+                forms.append(ev)
+    primary = cf[bundle.card_ids[0]].f('outcome').evidence or bundle.shared.get('outcome', 'the outcome')
+    second = next((f for f in forms if f.lower() != primary.lower()), '')
+    return primary, second
+
+
 def _verdict_text(bundle: Bundle, cf: dict[str, CardFacets]) -> str:
-    o = bundle.shared.get('outcome', 'the outcome')
+    o, o2 = _anchor_forms(bundle, cf)
     ids = bundle.card_ids
+    ctx = f' in studies of {o2}' if o2 else ''   # number-agnostic: the surface form may be sing. or pl.
     if bundle.kind == 'SAME_OUTCOME_DIFFERENT_UNIT':
         ua, ub = (bundle.varies[i] for i in ids)
         if bundle.apparent_conflict:
-            return (f'These {o} findings are not contradictory: the two estimates observe different '
-                    f'units of analysis, and the evidence establishes the effect at the {ua} level '
-                    f'without establishing it at the {ub} level.')
-        return (f'The evidence on {o} is limited to two different units of analysis, and the estimates '
-                f'do not speak to the same quantity: what holds at the {ua} level does not establish '
-                f'a comparable result at the {ub} level.')
+            return (f'These {o} findings are not contradictory{ctx}: the two estimates observe '
+                    f'different units of analysis, and the evidence establishes the effect at the '
+                    f'{ua} level without establishing it at the {ub} level.')
+        return (f'The evidence on {o} is limited to two different units of analysis{ctx}, and the '
+                f'estimates do not speak to the same quantity: what holds at the {ua} level does not '
+                f'establish a comparable result at the {ub} level.')
     if bundle.kind == 'SAME_UNIT_OPPOSITE_DIRECTION':
         u = bundle.shared.get('unit_of_analysis', 'the same')
-        return (f'The evidence on {o} at the {u} level genuinely conflicts: the estimates point in '
+        # THE VERDICT MAY ONLY SAY WHAT IS TRUE OF THE THING IN TENSION. Two theoretical models reaching
+        # opposite conclusions are NOT "the evidence" conflicting, and a review that says so has
+        # overstated its own literature -- the quietest and most respectable way to lie.
+        if bundle.evidence_tier == 'positions':
+            return (f'The literature on {o} at the {u} level does not speak with one voice, but the '
+                    f'disagreement is between frameworks rather than between measurements: what is in '
+                    f'tension is how the process is modelled, and the evidence does not settle it.')
+        if bundle.evidence_tier == 'model_vs_measurement':
+            return (f'What the {o} literature sets against itself at the {u} level is a model and a '
+                    f'measurement, not two measurements: the theoretical account and the observed '
+                    f'result point in opposite directions, and the evidence is limited to a single '
+                    f'design, so the prediction has not yet been confronted with enough measurement '
+                    f'to be either established or overturned.')
+        thing = 'estimates' if bundle.evidence_tier == 'estimates' else 'findings'
+        return (f'The evidence on {o} at the {u} level genuinely conflicts{ctx}: the {thing} point in '
                 f'opposite directions at the same unit of analysis, so the difference cannot be '
                 f'dissolved by appeal to level, and it remains unresolved.')
     if bundle.kind == 'SAME_FINDING_DIFFERENT_METHOD':
         ma, mb = (bundle.varies[i] for i in ids)
-        return (f'The {o} finding rests on a {ma} design in one case and a {mb} design in the other; '
-                f'the evidence therefore establishes it more securely than either study does alone.')
+        return (f'The {o} finding{ctx} rests on a {ma} design in one case and a {mb} design in the '
+                f'other; the evidence therefore establishes it more securely than either study alone.')
     if bundle.kind == 'SAME_OUTCOME_DIFFERENT_HORIZON':
         ha, hb = (bundle.varies[i] for i in ids)
-        return (f'These {o} estimates differ because they observe different time horizons: the evidence '
-                f'is limited to the {ha} in one case and the {hb} in the other, and cannot distinguish '
-                f'a transitional effect from a settled one.')
+        return (f'These {o} estimates differ because they observe different time horizons{ctx}: the '
+                f'evidence is limited to the {ha} in one case and the {hb} in the other, and cannot '
+                f'distinguish a transitional effect from a settled one.')
     if bundle.kind == 'UNCOUNTERED':
         u = bundle.shared.get('unit_of_analysis', '')
-        return (f'The {o} result at the {u} level rests on a single source, and no other study in this '
-                f'literature examines the same outcome at the same unit of analysis; the evidence is '
-                f'therefore limited to that setting and cannot distinguish a general pattern from a '
+        return (f'The {o} result at the {u} level rests on a single source{ctx}, and no other study in '
+                f'this literature examines the same outcome at the same unit of analysis; the evidence '
+                f'is therefore limited to that setting and cannot distinguish a general pattern from a '
                 f'feature of one design.')
     return ''
 
 
 def _boundary_text(bundle: Bundle, cf: dict[str, CardFacets]) -> str:
-    o = bundle.shared.get('outcome', 'the outcome')
+    o, _o2 = _anchor_forms(bundle, cf)
     if bundle.incomparability:
         return (f'What the evidence does not settle is the magnitude: the estimates on {o} are not on '
                 f'the same footing, and the literature cannot distinguish a real difference from an '
@@ -750,8 +1064,9 @@ def _boundary_text(bundle: Bundle, cf: dict[str, CardFacets]) -> str:
 
 
 _BRIDGE = {
-    'unit_of_analysis': ('the evidence just reviewed observes {a}, and cannot establish what happens '
-                         'once these effects aggregate; the estimates that follow observe {b}'),
+    'unit_of_analysis': ('the evidence just reviewed observes the {a} level, and cannot establish what '
+                         'happens once these effects aggregate; the estimates that follow observe the '
+                         '{b} level'),
     'method': ('the finding above rests on a {a} design; what follows asks whether it survives a {b} '
                'design'),
     'horizon': ('the estimates above are limited to the {a}; what follows observes the {b}'),
@@ -761,6 +1076,9 @@ _BRIDGE = {
 
 
 def _bridge_text(axis: str, a: str, b: str) -> str:
+    """AN ANALYTICAL MOVEMENT ALONG A NAMED AXIS. Never "Turning now to". If no axis moves between two
+    subsections, there is no movement to narrate and the planner emits NOTHING -- an invented transition
+    is a claim that an argument advanced when it did not."""
     t = _BRIDGE.get(axis)
     if not t or not a or not b or a == b:
         return ''
@@ -812,25 +1130,58 @@ def plan_subsections(cards: list[dict], cfs: list[CardFacets], bundles: list[Bun
     used: set[tuple] = set()
     plans: list[SubsectionPlan] = []
 
+    def roles_for(sub: str) -> list[str]:
+        for pat, kinds in contract.adjudicative_roles.items():
+            if re.search(pat, sub, re.I):
+                return kinds
+        return []
+
+    # PASS 1: THE ADJUDICATIVE SUBSECTIONS GET FIRST PICK. They are about the argument itself, so they
+    # are matched on bundle KIND, not on lexical overlap -- "Where the literature genuinely disagrees"
+    # shares no content word with any evidence card, and a lexical matcher hands it nothing at all. It
+    # was handed nothing, which is precisely how a Critical Synthesis section ends up 210 words long.
+    preassigned: dict[str, Bundle] = {}
+    for _sec, sub in jobs:
+        kinds = roles_for(sub)
+        if not kinds:
+            continue
+        cand = [b for b in real if b.kind in kinds and b.key() not in used]
+        cand.sort(key=lambda b: (kinds.index(b.kind), -b.score))
+        if cand:
+            preassigned[sub] = cand[0]
+            used.add(cand[0].key())
+
     for sec, sub in jobs:
         refusals: list[str] = []
-        scored = sorted(((_relevance(sub, cf_by_id[c['id']], c), c) for c in cards),
+        # ONLY ELIGIBLE CARDS MAY BE ATTRIBUTED. A second-hand span ("Graetz and Michaels (2018) ...
+        # find that ...", sitting inside Damioli 2021) would otherwise be printed as "Writing in the
+        # Eurasian Business Review in 2021, Damioli et al. show that ..." -- crediting one paper with
+        # another's finding and another's figures.
+        pool = [c for c in cards if cf_by_id[c['id']].eligible]
+        n_drop = len(cards) - len(pool)
+        scored = sorted(((_relevance(sub, cf_by_id[c['id']], c), c) for c in pool),
                         key=lambda x: -x[0])
         sel = [c for s, c in scored[:12] if s > 0]
         sel_ids = {c['id'] for c in sel}
 
-        # THE COMPARISON: the highest-value bundle whose BOTH cards are relevant to this subsection and
-        # which no earlier subsection has already argued. A bundle is never reused -- 41 exact
-        # repetitions is what happens when 222 card slots are drawn from 82 cards with no bookkeeping.
-        cand = [b for b in real
-                if b.key() not in used and set(b.card_ids) <= sel_ids]
-        cand.sort(key=lambda b: -b.score)
-        bundle = cand[0] if cand else None
-        if bundle:
-            used.add(bundle.key())
-        else:
+        # THE COMPARISON: an adjudicative subsection already claimed one by KIND in pass 1. A topical
+        # subsection takes the highest-value bundle whose BOTH cards are relevant to it and which no
+        # earlier subsection has argued. A bundle is NEVER reused -- 41 exact repetitions is what
+        # happens when 222 card slots are drawn from 82 cards with no bookkeeping anywhere.
+        bundle = preassigned.get(sub)
+        if bundle is None:
+            cand = [b for b in real if b.key() not in used and set(b.card_ids) <= sel_ids]
+            cand.sort(key=lambda b: -b.score)
+            bundle = cand[0] if cand else None
+            if bundle:
+                used.add(bundle.key())
+        if bundle is None:
             refusals.append('no comparison bundle available whose cards are both relevant here -- this '
                             'subsection can REPORT but must not ADJUDICATE')
+        else:
+            # an adjudicative subsection is argued FROM its bundle, so its cards must be in scope
+            sel_ids |= set(bundle.card_ids)
+            sel = sel + [cards_by_id[c] for c in bundle.card_ids if c not in {x['id'] for x in sel}]
 
         # THE EVIDENCE CLAUSES: >= 2, each bound to a CARD_ID, each carrying its own VERBATIM SPAN.
         ev_ids = list(bundle.card_ids) if bundle else []
@@ -947,37 +1298,107 @@ def self_test() -> int:
         if not ok:
             fails += 1
 
-    # 1. a span with NO polarity cue must NOT get a direction
-    d = derive_direction('we estimate the probability of computerisation for 702 occupations',
-                         ct, [p for v in ct.span_facets['outcome'].values() for p in v])
-    check('no polarity cue -> direction is UNKNOWN (cannot enter a conflict)', not d.known,
-          f'assigned {d.value}' if d.known else '')
-
-    # 2. a span firing BOTH polarities is UNKNOWN, not a conflict
-    d2 = derive_direction('robots reduce employment while raising the productivity of the firm',
-                          ct, [p for v in ct.span_facets['outcome'].values() for p in v])
-    check('a span that fires BOTH polarities -> UNKNOWN (a mixed span is not a direction)',
-          not d2.known, f'assigned {d2.value}' if d2.known else '')
-
-    # 3. NEGATION IS DISCARDED, NEVER FLIPPED
-    d3 = derive_direction('we find no significant increase in employment in the treated regions',
-                          ct, [p for v in ct.span_facets['outcome'].values() for p in v])
-    check('a negated cue is DISCARDED, not flipped (flipping is inference)',
-          d3.value != 'positive', f'read a negated "increase" as {d3.value}')
-
-    # 4. a polarity cue far from the outcome does not colour the outcome
-    d4 = derive_direction('the model improves prediction accuracy; employment is measured separately',
-                          ct, [p for v in ct.span_facets['outcome'].values() for p in v])
-    check('a polarity cue about something else does not become the outcome\'s direction',
-          not d4.known or d4.evidence != 'improves',
-          'read "improves prediction accuracy" as a positive EMPLOYMENT finding')
-
-    # 5. TWO CARDS FROM ONE PAPER ARE NOT A COMPARISON
     mk = lambda i, doi, span, lvl, meth, hor: {
         'id': i, 'doi': doi, 'span': span, 'claim': 'IGNORED — model-authored', 'level': lvl,
         'method': meth, 'horizon': hor, 'mechanisms': [], 'authors': ['Solo'], 'year': 2020,
         'venue': 'J', 'attribution': 'Writing in J in 2020, Solo', 'source': 'Solo (2020), J',
         'has_number': True}
+    # Direction is exercised THROUGH derive_facets -- the real path, including the binding of direction
+    # to the card's PRIMARY outcome. A test that calls the function in isolation tests a function; the
+    # bug that shipped here last time lived in the WIRING, not in the function.
+    dirof = lambda span: derive_facets(mk('t', '10.0/t', span, 'firm', 'observational', 'long-run'),
+                                       ct).f('direction')
+
+    # 1. a span with NO polarity cue must NOT get a direction
+    d = dirof('we estimate the probability of computerisation for 702 detailed occupations')
+    check('no polarity cue -> direction is UNKNOWN (cannot enter a conflict)', not d.known,
+          f'assigned {d.value}' if d.known else '')
+
+    # 2. THE SAME OUTCOME MOVING BOTH WAYS IS UNKNOWN -- not a conflict for us to adjudicate
+    d2 = dirof('employment fell in manufacturing but employment rose in services')
+    check('the SAME outcome moving both ways -> UNKNOWN (we do not get to pick one)',
+          not d2.known, f'assigned {d2.value}' if d2.known else '')
+
+    # 3. NEGATION IS DISCARDED, NEVER FLIPPED
+    d3 = dirof('we find no significant increase in employment in the treated regions')
+    check('a negated cue is DISCARDED, not flipped (flipping is inference)',
+          d3.value != 'positive', f'read a negated "increase" as {d3.value}')
+
+    # 4. THE CROSS-QUANTITY LEAK. A cue governing ANOTHER quantity must never become this outcome's
+    #    direction. This attack FAILED on the first build: 'improves prediction accuracy' was read as a
+    #    positive EMPLOYMENT finding because it fell within eight tokens of the word 'employment'.
+    d4 = dirof('the model improves prediction accuracy; employment is measured separately')
+    check('a polarity cue governing ANOTHER quantity is not this outcome\'s direction',
+          not d4.known,
+          f'read "improves prediction accuracy" as a {d4.value} EMPLOYMENT finding' if d4.known else '')
+
+    # 4b. ...but a contrastive span still yields the direction of ITS OWN primary outcome
+    d4b = dirof('robots reduce employment while raising the productivity of the firm')
+    check('a contrastive span still resolves the PRIMARY outcome (employment: negative)',
+          d4b.value == 'negative', f'got {d4b.value or "UNKNOWN"} for a span that says employment fell')
+
+    # 4c. THE ADVERB TRAP -- found by reading the REAL output, not by writing a test. This exact span
+    #     produced the planner's TOP-RANKED "genuine conflict": 'increasingly' modifies DEPENDENT, and
+    #     says nothing whatever about the level of employment.
+    d4c = dirof('employment of the less-skilled is increasingly dependent on physical proximity to '
+                'the more-skilled')
+    check('"increasingly dependent" is NOT a positive employment finding (the adverb trap)',
+          not d4c.known,
+          f'read an adverb of degree as a {d4c.value} direction -- this fabricated a conflict')
+
+    # 4d. THE COMPOUND-NOUN TRAP -- 'job satisfaction' is not employment, and was the OTHER half of
+    #     that same fabricated conflict.
+    jf = derive_facets(mk('j', '10.7/s', 'fear of future replacement does negatively affect workers\' '
+                                         'job satisfaction at present', 'worker', 'quasi-experimental',
+                          'short-run'), ct)
+    check('"job satisfaction" is not the EMPLOYMENT outcome (the compound-noun trap)',
+          jf.f('outcome').value != 'employment',
+          f'tagged outcome={jf.f("outcome").value} from the word "job" in "job satisfaction"')
+
+    # 4f. THE JOINT-DERIVATION ATTACK, TAKEN VERBATIM FROM ACEMOGLU AND RESTREPO 2018. Derived apart,
+    #     outcome and direction were not even about each other: outcome=SKILLS (the earliest outcome
+    #     word) and direction=POSITIVE (from 'increases', which belongs to INEQUALITY). That pair became
+    #     the planner's top-ranked GENUINE CONFLICT.
+    acem = derive_facets(mk('ac', '10.a/1', 'In an extension with heterogeneous skills, we show that '
+                                            'inequality increases during transitions driven by '
+                                            'automation', 'worker', 'theory', ''), ct)
+    check('outcome is the quantity WHOSE CHANGE IS REPORTED, not the first one mentioned',
+          acem.f('outcome').value == 'inequality' and acem.f('direction').value == 'positive',
+          f'tagged outcome={acem.f("outcome").value or "NONE"} / '
+          f'direction={acem.f("direction").value or "NONE"} -- these are not about each other')
+
+    # 4g. NEAREST-CUE ATTACHMENT. A span carrying several directed outcomes must bind each direction to
+    #     the quantity it actually governs, and must never let one outcome inherit another's direction.
+    many = derive_facets(mk('mn', '10.b/2', 'employment fell and wages declined, but productivity '
+                                            'increased across the sample', 'firm', 'observational',
+                            'long-run'), ct)
+    check('each direction binds to the outcome it GOVERNS (employment: negative, not productivity\'s +)',
+          many.f('outcome').value == 'employment' and many.f('direction').value == 'negative',
+          f'outcome={many.f("outcome").value} direction={many.f("direction").value} -- an outcome '
+          f'inherited a direction that belongs to another quantity')
+
+    # 4h. THE ATTENUATOR TRAP -- "SLOWER GROWTH" IS NOT A POSITIVE FINDING. Verbatim from Acemoglu and
+    #     Restrepo 2019, where the bare cue 'growth' read a passage about DISPLACEMENT as POSITIVE.
+    d4h = dirof('the slower growth of employment over the last three decades is accounted for by an '
+                'acceleration in the displacement effect')
+    check('"slower growth" is not a positive finding (the attenuator trap)',
+          d4h.value != 'positive',
+          f'read "slower growth of employment" as a {d4h.value} finding')
+
+    # 4e. TWO THEORY PAPERS DISAGREEING IS NOT "THE EVIDENCE CONFLICTING"
+    t1 = mk('t1', '10.8/a', 'automation reduces employment in the model', 'economy', 'theory', 'long-run')
+    t2 = mk('t2', '10.9/b', 'automation creates employment through new tasks', 'economy', 'theory',
+            'long-run')
+    t2['authors'] = ['Duo']
+    cft = [derive_facets(c, ct) for c in (t1, t2)]
+    bt = [b for b in find_bundles(cft, ct, {c['id']: c for c in (t1, t2)})
+          if b.kind == 'SAME_UNIT_OPPOSITE_DIRECTION']
+    vtt = _verdict_text(bt[0], {c.card_id: c for c in cft}) if bt else ''
+    check('two THEORY papers in tension -> "frameworks", never "the evidence genuinely conflicts"',
+          bool(bt) and bt[0].evidence_tier == 'positions' and 'genuinely conflicts' not in vtt,
+          f'OVERCLAIM: "{vtt[:78]}"')
+
+    # 5. TWO CARDS FROM ONE PAPER ARE NOT A COMPARISON
     same = [mk('a', '10.1/x', 'employment increased by 4.15 percent at the firm', 'firm',
                'observational', 'long-run'),
             mk('b', '10.1/x', 'employment increased by 12.0 percent in the economy', 'economy',
@@ -1034,6 +1455,49 @@ def self_test() -> int:
           '99' not in pf.numbers and pf.f('direction').value != 'negative',
           'the claim leaked into the derivation path')
 
+    # 11. THE SECOND-HAND SPAN. Verbatim in the paper; the finding is somebody else's. THE SPAN GATE
+    #     CANNOT SEE THIS -- it asks "is this text in the paper?", never "is this finding the paper's
+    #     own?" -- and it is live on disk in the real corpus (5 cards, 6 misbindable figures).
+    sh = mk('sh', '10.3/z', 'Graetz and Michaels (2018) use country-level data on industrial robots '
+                            'and find that they raised labor productivity by 15 percent.',
+            'economy', 'observational', 'long-run')
+    shf = derive_facets(sh, ct)
+    check('a SECOND-HAND span cannot be attributed to the paper that merely quotes it',
+          not shf.eligible, (shf.ineligibility or ['ADMITTED — it would print Graetz and Michaels\' '
+                                                   'finding under Damioli\'s name'])[0][:88])
+
+    # 12. A PROJECTION IS NOT A FINDING and may not be a term in a conflict -- but it stays CITABLE.
+    fc = mk('fc', '10.4/w', 'the adoption of AI will make 75 million jobs redundant and create 133 '
+                            'million new roles', 'economy', 'review', 'long-run')
+    fcf = derive_facets(fc, ct)
+    check('a FORECAST span cannot be a term in a comparison', not fcf.adjudicable,
+          (fcf.not_adjudicable or ['ADMITTED — a press-release projection would be "adjudicated" '
+                                   'against a measured estimate'])[0][:88])
+    check('...but a FORECAST is still CITABLE as an argument (a gate must not eat its own evidence)',
+          fcf.eligible, 'the forecast was barred from the prose entirely -- the corpus is starving')
+
+    # 12b. THE FALSE POSITIVE THAT KILLED A FRAMEWORK. "a prediction technology" is the SUBJECT MATTER
+    #      of Prediction Machines, not a forecast. A bare \\bpredict\\w* cue deleted Agrawal entirely.
+    pm = mk('pm', '10.6/u', 'Recent advances in artificial intelligence are primarily driven by machine '
+                            'learning, a prediction technology, lowering the cost of prediction',
+            'task', 'theory', 'long-run')
+    pmf = derive_facets(pm, ct)
+    check('the NOUN "prediction" is technical vocabulary, not a forecast (do not delete the framework)',
+          pmf.eligible and pmf.adjudicable,
+          f'Prediction Machines was excluded as a forecast: {(pmf.not_adjudicable or [""])[0][:60]}')
+
+    # 13. ...and neither can reach a BUNDLE. (The real corpus built 4 of its 5 "genuine conflicts" on
+    #     exactly these before they were excluded.)
+    real_c = mk('ok', '10.5/v', 'automation reduces employment across the economy', 'economy',
+                'observational', 'long-run')
+    real_c['authors'] = ['Duo']
+    pool = [sh, fc, real_c]
+    cfp = [derive_facets(c, ct) for c in pool]
+    bp = [b for b in find_bundles(cfp, ct, {c['id']: c for c in pool}) if b.kind != 'NOT_A_COMPARISON']
+    tainted = [b for b in bp if {'sh', 'fc'} & set(b.card_ids)]
+    check('no bundle anywhere can be built on a second-hand or forecast span',
+          not tainted, f'{len(tainted)} tainted bundle(s) formed')
+
     print()
     if fails:
         print(f'** {fails} FAILURE(S). THE PLANNER CAN MANUFACTURE A FALSE RECONCILIATION. **')
@@ -1086,6 +1550,30 @@ def main() -> int:
         print(f'  {fn:<18} {len(known):>3}/{len(cfs)}  ({prov}){verdict}')
     print(f'  {"span-verified figure":<18} {sum(1 for c in cfs if c.quantitative):>3}/{len(cfs)}'
           f'  (recomputed from the span; `has_number` reads the claim and undercounts)')
+
+    inelig = [c for c in cfs if not c.eligible]
+    soft = [c for c in cfs if c.eligible and not c.adjudicable]
+    if inelig:
+        print(f'\n--- {len(inelig)} SECOND-HAND CARDS: THE FINDING IS NOT THIS PAPER\'S OWN ---')
+        print('    A span can be VERBATIM in the paper and still not be the paper\'s finding. The span')
+        print('    gate cannot see this -- it asks "is this text in the paper?", never "is this FINDING')
+        print('    the paper\'s OWN?" Each of these would print A DIFFERENT PAPER\'S RESULT under the')
+        print('    named authors. This is the fabricated-binding failure, live on disk.')
+        for c in inelig:
+            card = cards_by_id[c.card_id]
+            print(f'\n      [{_short(card):<16}] {c.ineligibility[0][:92]}')
+            if c.numbers:
+                print(f'          FIGURES THAT WOULD BE MISATTRIBUTED: {c.numbers}')
+            print(f'          would print as: "{(card.get("attribution") or "")[:60]}..."')
+            print(f'          span: "{re.sub(chr(10), " ", card.get("span") or "")[:94]}..."')
+    if soft:
+        print(f'\n--- {len(soft)} FORECAST CARDS: citable, but barred from every comparison ---')
+        print('    Nothing was measured, so there is no estimate to weigh. Putting one of these in')
+        print('    "conflict" with a measured result manufactures the conflict.')
+        for c in soft[:6]:
+            card = cards_by_id[c.card_id]
+            figs = f'  figures={c.numbers}' if c.numbers else ''
+            print(f'      [{_short(card):<16}]{figs}  "{re.sub(chr(10), " ", card.get("span") or "")[:74]}..."')
 
     print(f'\n--- COMPARISON BUNDLES: {len(real)} licensed, {len(refused)} REFUSED ---')
     by_kind: dict[str, list[Bundle]] = {}

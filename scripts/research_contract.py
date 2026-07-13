@@ -76,9 +76,11 @@ CRITERIA = DRB / 'criteria_data' / 'criteria.jsonl'
 CARDS = ROOT / 'outputs' / 'evidence_cards.json'
 CACHE = ROOT / 'outputs' / 'contracts'
 
-# Bump when the compile prompt or the schema changes: it is part of the cache key, so an old
-# contract compiled by an older prompt can never be silently reused.
-PROMPT_VERSION = 'rc-1'
+# THE COMPILER VERSION. It is part of the cache key, so a contract compiled by an older prompt OR an
+# older gate can never be silently reused. Bump it when the prompt, the schema, OR the admission
+# logic changes -- the cache stores the POST-GATE contract, so a loosened gate lives on in the cache
+# until this changes. (rc-2 cached a fabricated `recency_from: 2015`.)
+PROMPT_VERSION = 'rc-3'
 
 # Coverage thresholds. Defaults from the specification; overridable per contract, never per topic.
 MIN_WORKS_PER_CELL = 2       # >=2 groundable relevant works
@@ -363,8 +365,13 @@ RULES
 - subject_axis: 5-9 values, and they must be the ones a literature in THIS field would actually be
   organised by. If the question demands breadth across nothing, return values: [].
 - outcome_dimensions: 4-8. These are the columns of a coverage matrix; they must be distinct.
-- aliases are for a LEXICAL MATCHER over paper text. Give the words papers use, lowercase, no
-  punctuation, no duplicates across entries where you can avoid it.
+- aliases: THE WORDS PAPERS IN THIS FIELD ACTUALLY PRINT. A deterministic lexical matcher looks for
+  these in the VERBATIM TEXT of journal articles, so give SURFACE FORMS, not restatements of the
+  concept. Include: single words as well as phrases; the field's technical vocabulary; the terms the
+  SEMINAL papers on this topic use; spelling variants (including British spellings). 6-12 per entry,
+  lowercase, no punctuation. Prefer words that separate this entry from its SIBLINGS -- a word shared
+  by every entry (like "job" across several outcome dimensions) routes nothing and is discarded.
+  A concept whose aliases do not literally occur in real papers is INVISIBLE to the pipeline.
 - source_policy.question_evidence MUST be verbatim substrings of the question. A constraint whose
   clause you cannot quote is DROPPED downstream.
 
@@ -439,7 +446,7 @@ def compile_contract(question: str, question_id: int | None = None, *, use_llm: 
     path = CACHE / f'{_key(question, model)}.json'
     if path.exists() and not force:
         if verbose:
-            print(f'  [contract] cache hit {path.name}')
+            print(f'  [contract] cache hit {path.name}', file=sys.stderr)
         return Contract.from_dict(json.loads(path.read_text()))
 
     warnings: list[str] = []
@@ -465,13 +472,48 @@ def compile_contract(question: str, question_id: int | None = None, *, use_llm: 
         warnings.append(f'{len(dropped_ev)} source-constraint quote(s) were NOT verbatim in the '
                         f'question and were dropped: {dropped_ev[:2]}')
 
+    # ---- PER-CONSTRAINT ENTAILMENT. THE HOLE I ALREADY DUG ONCE, IN A NEW PLACE. -----------------
+    # This block first read `... if kept_ev`, i.e. a constraint was admitted whenever ANY OTHER
+    # constraint had produced a verbatim quote. On task 72 the model asserted `recency_from: 2015`;
+    # the question contains no year at all; and it was ADMITTED, because the quote for the
+    # journal-only rule had verified. A claim validated by the evidence for a DIFFERENT claim is the
+    # evidence-laundering shape, and it would have silently deleted Autor 2003, Bresnahan 2002 and
+    # Frey and Osborne 2017 -- the seminal literature -- from our own corpus.
+    #
+    # EVERY CONSTRAINT NOW CARRIES ITS OWN PROOF, CHECKED AGAINST THE QUESTION ITSELF.
+    def _asks_peer_review() -> bool:
+        return bool(re.search(_FLOOR[0][0], question, re.I))
+
+    langs = list(floor.languages)
+    for l in (sp_raw.get('languages') or []):
+        if isinstance(l, str) and re.search(rf'\b{re.escape(l)}\b', question, re.I) and l not in langs:
+            langs.append(l)          # a language is admitted only if the question NAMES it
+
+    qb = floor.quality_bar
+    if not qb:
+        cand = (sp_raw.get('quality_bar') or '').strip()
+        if cand and re.sub(r'[-\s]+', ' ', cand.lower()) in re.sub(r'[-\s]+', ' ', qnorm):
+            qb = cand                # a quality bar is admitted only if its wording is IN the question
+
+    rec = floor.recency_from
+    if rec is None:
+        cand = sp_raw.get('recency_from')
+        if isinstance(cand, int) and str(cand) in question:
+            rec = cand               # a cutoff year is admitted only if THAT YEAR is in the question
+        elif cand:
+            warnings.append(f'DROPPED fabricated recency cutoff {cand}: the question names no year. '
+                            f'It would have deleted every pre-{cand} paper in the corpus.')
+
     sp = SourcePolicy(
-        # a model-asserted constraint needs a verbatim clause; the FLOOR needs nothing.
-        peer_reviewed_only=bool(floor.peer_reviewed_only or (sp_raw.get('peer_reviewed_only') and kept_ev)),
-        languages=_dedup(list(floor.languages) + ([l for l in (sp_raw.get('languages') or []) if kept_ev])),
+        peer_reviewed_only=bool(floor.peer_reviewed_only or
+                                (sp_raw.get('peer_reviewed_only') and _asks_peer_review())),
+        languages=_dedup(langs),
+        # excluded_types are ENTAILMENTS of the journal-only rule, not assertions about the question.
+        # Over-excluding cannot fabricate; it can only narrow the corpus, which is the requested
+        # direction. So the model may add to this list freely.
         excluded_types=_dedup(list(floor.excluded_types) + list(sp_raw.get('excluded_types') or [])),
-        quality_bar=floor.quality_bar or (sp_raw.get('quality_bar') or '' if kept_ev else ''),
-        recency_from=floor.recency_from or (sp_raw.get('recency_from') if kept_ev else None),
+        quality_bar=qb,
+        recency_from=rec,
         question_evidence=_dedup(list(floor.question_evidence) + kept_ev),
     )
     if sp.peer_reviewed_only and not sp.excluded_types:
@@ -535,7 +577,7 @@ def compile_contract(question: str, question_id: int | None = None, *, use_llm: 
 
     path.write_text(c.to_json())
     if verbose:
-        print(f'  [contract] compiled -> {path}')
+        print(f'  [contract] compiled -> {path}', file=sys.stderr)
     return c
 
 
@@ -554,18 +596,81 @@ def _fallback_subject(q: str) -> str:
 # routing a card by its claim would let the model's paraphrase decide which cell its own evidence
 # lands in, which is the same self-validation loop that shipped a fabricated figure.
 
-def _pattern(t: Term) -> re.Pattern:
-    forms = sorted({a for a in ([t.label.lower()] + [x.lower() for x in t.aliases]) if len(a) >= 3},
-                   key=len, reverse=True)
-    return re.compile(r'(?<![a-z])(?:' + '|'.join(re.escape(f) for f in forms) + r')(?![a-z])', re.I)
+from synthesis_contract import _stem  # noqa: E402  (one stemmer in the repo, not two)
+
+# Words that appear in every research paper ever written and therefore route nothing. Without this,
+# "effect" -- a stem of the dimension "Wage effects" -- would match every span in the corpus.
+_GENERIC = {
+    'effect', 'effects', 'impact', 'impacts', 'result', 'results', 'finding', 'findings', 'study',
+    'studies', 'evidence', 'analysis', 'research', 'paper', 'article', 'data', 'model', 'models',
+    'change', 'changes', 'level', 'levels', 'rate', 'rates', 'factor', 'factors', 'outcome',
+    'outcomes', 'significant', 'increase', 'decrease', 'high', 'low', 'large', 'small', 'new',
+    'different', 'various', 'related', 'associated', 'measure', 'measures', 'estimate', 'estimates',
+    'approach', 'method', 'methods', 'framework', 'literature', 'review', 'context', 'role',
+}
+
+
+@dataclass
+class TermMatcher:
+    key: str
+    phrases: list[str]          # multi-word surface forms: matched verbatim
+    disc: set[str]              # stems UNIQUE to this term within its family
+
+
+def build_matchers(family: list[Term]) -> tuple[dict[str, TermMatcher], list[str]]:
+    """A term matches a span if the span contains one of its PHRASES verbatim, or one of its
+    DISCRIMINATIVE stems.
+
+    WHY NOT JUST LOOK FOR THE ALIASES. The aliases are the compound noun phrases the CONTRACT speaks
+    in ("job displacement", "wage effects"); the corpus is academic prose that says "computerisation",
+    "wages and educational attainment", "substitute for labor". Exact-phrase matching routed 125 of
+    133 real cards to NO CELL AT ALL -- a matcher artifact that prints as a corpus covering nothing,
+    and is indistinguishable, in the output, from a genuine evidence gap. Manufacturing a false
+    evidence gap is the exact failure this module exists to prevent, so the matcher may not do it.
+
+    WHY DISCRIMINATIVE. Backing off to every content word makes "job" -- which occurs in three of
+    task 72's five outcome dimensions -- match everything, and every card lands in every cell. A word
+    earns the right to route a card only if it separates ONE term from its siblings. Document
+    frequency inside the family, and nothing cleverer.
+    """
+    stems: dict[str, set[str]] = {}
+    phrases: dict[str, list[str]] = {}
+    for t in family:
+        forms = [t.label.lower()] + [a.lower() for a in t.aliases]
+        phrases[t.key] = sorted({f for f in forms if ' ' in f and len(f) >= 6}, key=len, reverse=True)
+        ws = {w for f in forms for w in re.findall(r'[a-z]{4,}', f)}
+        stems[t.key] = {_stem(w) for w in ws if w not in _STOP and w not in _GENERIC} - _GENERIC
+
+    df: dict[str, int] = {}
+    for ss in stems.values():
+        for s in ss:
+            df[s] = df.get(s, 0) + 1
+
+    out, warn = {}, []
+    for t in family:
+        disc = {s for s in stems[t.key] if df[s] == 1}
+        if not disc and not phrases[t.key]:
+            warn.append(f'term "{t.label}" has no discriminative vocabulary -- it shares every word '
+                        f'with a sibling and can never route a card')
+        out[t.key] = TermMatcher(key=t.key, phrases=phrases[t.key], disc=disc)
+    return out, warn
 
 
 def _card_text(card: dict, corpus_titles: dict | None = None) -> str:
+    """THE SOURCE-AUTHORED TEXT OF A CARD. The span is the evidence; the title is Crossref metadata.
+    Neither is written by the model, so neither can launder a routing decision."""
     span = card.get('span') or ''
-    title = ''
-    if corpus_titles:
-        title = corpus_titles.get(card.get('doi'), '')
+    title = corpus_titles.get(card.get('doi'), '') if corpus_titles else ''
     return re.sub(r'\s+', ' ', f'{title} {span}').lower()
+
+
+def _hits(matchers: dict[str, TermMatcher], blob: str) -> list[str]:
+    blob_stems = {_stem(w) for w in re.findall(r'[a-z]{4,}', blob)}
+    out = []
+    for k, m in matchers.items():
+        if (m.disc & blob_stems) or any(p in blob for p in m.phrases):
+            out.append(k)
+    return out
 
 
 _YEAR = re.compile(r'\b(?:1[89]|20)\d\d\b')
@@ -658,8 +763,11 @@ def coverage_matrix(contract: Contract, cards: list[dict],
     rows = list(contract.subject_axis.values) + [cross]
     cols = list(contract.outcome_dimensions)
 
-    row_pat = {r.key: _pattern(r) for r in contract.subject_axis.values}
-    col_pat = {c.key: _pattern(c) for c in cols}
+    row_m, w1 = build_matchers(contract.subject_axis.values)
+    col_m, w2 = build_matchers(cols)
+    for w in w1 + w2:
+        if w not in contract.warnings:
+            contract.warnings.append(w)
 
     cells: dict[tuple[str, str], Cell] = {
         (r.key, c.key): Cell(row=r.key, row_label=r.label, col=c.key, col_label=c.label)
@@ -668,8 +776,8 @@ def coverage_matrix(contract: Contract, cards: list[dict],
     unrouted = []
     for card in cards:
         blob = _card_text(card, titles)
-        hit_rows = [k for k, p in row_pat.items() if p.search(blob)]
-        hit_cols = [k for k, p in col_pat.items() if p.search(blob)]
+        hit_rows = _hits(row_m, blob)
+        hit_cols = _hits(col_m, blob)
         if not hit_cols:
             unrouted.append(card.get('id', '?'))
             continue
@@ -738,12 +846,43 @@ class Slot:
     title: str
     kind: str                                  # scope|framing|concept|outcome|axis|contrast|gap|agenda
     cells: list[tuple[str, str]] = field(default_factory=list)
-    card_ids: list[str] = field(default_factory=list)
+    candidates: list[str] = field(default_factory=list)   # every card eligible for this slot
+    card_ids: list[str] = field(default_factory=list)     # what the allocator actually gave it
     must_do: str = ''
     evidence_status: str = ''
 
 
-def derive_outline(contract: Contract, matrix: Matrix | None = None) -> list[Slot]:
+def _cells_of(matrix: Matrix | None, *, col: str | None = None, row: str | None = None,
+              cols: set[str] | None = None) -> list[tuple[str, str]]:
+    if not matrix:
+        return []
+    out = []
+    for c in matrix.cells.values():
+        if c.status not in (CLOSED, THIN):
+            continue
+        if col and c.col != col:
+            continue
+        if row and c.row != row:
+            continue
+        if cols is not None and c.col not in cols:
+            continue
+        out.append((c.row, c.col))
+    return out
+
+
+def _cands(matrix: Matrix | None, cells: list[tuple[str, str]]) -> list[str]:
+    if not matrix:
+        return []
+    out = []
+    for rc in cells:
+        for cid in matrix.cells[rc].card_ids:
+            if cid and cid not in out:
+                out.append(cid)
+    return out
+
+
+def derive_outline(contract: Contract, matrix: Matrix | None = None,
+                   cards: list[dict] | None = None) -> list[Slot]:
     """PURE FUNCTION. contract (+ what the corpus can actually cash) -> the outline.
 
     The genre picks the skeleton; the contract fills it; THE MATRIX VETOES ANY SUBSECTION THE CORPUS
@@ -751,6 +890,7 @@ def derive_outline(contract: Contract, matrix: Matrix | None = None) -> list[Slo
     hold produces exactly the generic prose the judge scored 6.36 on critical synthesis."""
     slots: list[Slot] = []
     A = contract.subject_axis.name
+    col_m, _ = build_matchers(contract.outcome_dimensions)
 
     # 1. SCOPE & METHODS -- the compliance narration. On a question graded "only cites high-quality
     #    journal articles", this EXPLAINS OUR COMPLIANCE TO THE GRADER, in prose that survives the
@@ -772,29 +912,35 @@ def derive_outline(contract: Contract, matrix: Matrix | None = None) -> list[Slo
             evidence_status='contract'))
 
     # 2. THE FRAMING DEVICE THE QUESTION IMPOSES. If the question names a lens, the lens is graded --
-    #    and a lens dropped after paragraph one is a lens not used.
+    #    and a lens dropped after paragraph one is a lens not used. The framing slot is given the
+    #    cards that actually SPEAK to the lens, so it is not a paragraph of assertion.
+    fd_m, _ = build_matchers(contract.framing_devices) if contract.framing_devices else ({}, [])
     for fd in contract.framing_devices:
+        cand = []
+        for c in (cards or []):
+            if _hits({fd.key: fd_m[fd.key]}, _card_text(c)):
+                cand.append(c.get('id'))
         slots.append(Slot(
             section=f'{fd.label}',
             title=f'How {fd.label} reframes {contract.review_subject}',
             kind='framing',
-            must_do=f'Carry this framing THROUGH the review, not just in the introduction. '
-                    f'{fd.aliases and ""}',
-            evidence_status='contract+evidence'))
+            candidates=[x for x in cand if x],
+            must_do=f'Carry this framing THROUGH the review, not just in the introduction. Where a '
+                    f'source itself invokes {fd.label}, say what it claims and whether the evidence '
+                    f'bears it out.',
+            evidence_status='evidence' if cand else 'contract'))
 
     # 3. OUTCOME DIMENSIONS -- one subsection per dimension the corpus can actually speak to.
     for col in contract.outcome_dimensions:
-        cells = []
-        if matrix:
-            cells = [(c.row, c.col) for c in matrix.cells.values()
-                     if c.col == col.key and c.status in (CLOSED, THIN)]
-            if not cells:
-                continue
+        cells = _cells_of(matrix, col=col.key)
+        if matrix and not cells:
+            continue
         slots.append(Slot(
-            section=f'Evidence by {_plural(_outcome_word(contract))}',
+            section='Evidence by Outcome Dimension',
             title=col.label,
             kind='outcome',
             cells=cells,
+            candidates=_cands(matrix, cells),
             must_do=f'State what the evidence establishes about {col.label.lower()}, at what unit of '
                     f'analysis, over what horizon, and what it does not establish.',
             evidence_status='evidence'))
@@ -804,47 +950,57 @@ def derive_outline(contract: Contract, matrix: Matrix | None = None) -> list[Slo
     for r in rows:
         if r.key == CROSS.key:
             continue
-        cells = []
-        if matrix:
-            cells = [(c.row, c.col) for c in matrix.cells.values()
-                     if c.row == r.key and c.status in (CLOSED, THIN)]
+        cells = _cells_of(matrix, row=r.key)
         slots.append(Slot(
-            section=f'{A}-Specific Restructuring' if A.lower() != 'subpopulation'
-                    else 'Subpopulation-Specific Findings',
+            section=f'{_plural(A)}: Sector-Specific Evidence',
             title=r.label,
             kind='axis',
             cells=cells,
+            candidates=_cands(matrix, cells),
             must_do=f'What does the evidence say specifically about {r.label}, and how does it differ '
                     f'from the cross-cutting picture?',
             evidence_status='evidence'))
 
-    # 5. THE REQUIRED CONTRASTS -- the sentences that ARE critical synthesis.
+    # 5. THE REQUIRED CONTRASTS -- the sentences that ARE critical synthesis, the joint-heaviest
+    #    criterion on the board (w=0.0800). These slots used to be handed NO EVIDENCE AT ALL, which
+    #    is how a "critical synthesis" section ends up 210 words long in an 8,012-word report: the
+    #    writer had nothing to put in tension, so it wrote atmosphere. A contrast is routed to the
+    #    OUTCOME DIMENSIONS ITS OWN TEXT NAMES, so both sides arrive with sources attached.
     for k in contract.required_contrasts:
+        hit = set(_hits(col_m, f'{k.label} {k.a} {k.b}'.lower()))
+        cells = _cells_of(matrix, cols=hit) if hit else []
         slots.append(Slot(
             section='Critical Synthesis',
             title=k.label,
             kind='contrast',
+            cells=cells,
+            candidates=_cands(matrix, cells),
             must_do=f'Put "{k.a}" and "{k.b}" in tension. Where they conflict, say WHY they can both '
-                    f'be true (different unit? horizon? design?) and what the evidence does not settle. '
-                    f'{k.why}',
-            evidence_status='evidence'))
+                    f'be true (different unit of analysis? horizon? design?) and state what the '
+                    f'evidence does NOT settle. {k.why}',
+            evidence_status='evidence' if cells else 'UNGROUNDED'))
 
     # 6. THE EVIDENCE GAPS -- an HONEST CLOSE, and worth more than filler.
+    #    NOTE THE SCOPE OF THE CLAIM. This says "the literature REVIEWED HERE does not cover X", not
+    #    "the literature does not cover X". We hold 70 works; the field holds thousands. A gap in our
+    #    corpus is a fact about our corpus. Overclaiming it as a fact about the field would be a
+    #    fabrication with no source to check it against -- the worst kind.
     if matrix:
         gaps = matrix.by_status(GAP)
         gap_rows = matrix.gap_rows()
         if gaps:
             slots.append(Slot(
                 section='Critical Synthesis',
-                title='What the literature does not cover',
+                title='What the reviewed literature does not cover',
                 kind='gap',
-                cells=[(c.row, c.col) for c in gaps],
-                must_do=('State, scoped to the literature reviewed, which combinations are not '
-                         'covered. Name them: ' +
+                cells=[],          # a gap slot cites NOTHING: that is what makes it a gap
+                must_do=('State, SCOPED EXPLICITLY TO THE LITERATURE REVIEWED HERE (not to the field '
+                         'at large), which combinations this review could not ground. Name them: ' +
                          '; '.join(f'{c.row_label} x {c.col_label}' for c in gaps[:8]) +
-                         (f'. {A}s with no groundable evidence at all: ' +
-                          ', '.join(r.label for r in gap_rows) if gap_rows else '') +
-                         '. Do NOT fill these with generic prose -- an explicit gap is the finding.'),
+                         (f'. {_plural(A)} with no groundable evidence anywhere in the reviewed '
+                          f'corpus: ' + ', '.join(r.label for r in gap_rows) if gap_rows else '') +
+                         '. Do NOT fill these with generic prose -- the explicit gap IS the finding, '
+                         'and it is worth more than filler.'),
                 evidence_status='gap'))
 
     # 7. IMPLICATIONS -- what the genre obliges.
@@ -859,38 +1015,71 @@ def derive_outline(contract: Contract, matrix: Matrix | None = None) -> list[Slo
     return slots
 
 
-def _outcome_word(c: Contract) -> str:
-    return 'Outcome Dimension'
-
-
 def _plural(s: str) -> str:
-    return s + 's' if not s.endswith('s') else s
+    if s.endswith('y') and not re.search(r'[aeiou]y$', s):
+        return s[:-1] + 'ies'          # Industry -> Industries, not "Industrys"
+    if s.endswith(('s', 'x', 'ch', 'sh')):
+        return s + 'es'
+    return s + 's'
 
 
-def allocate_cards(slots: list[Slot], matrix: Matrix, max_reuse: int = MAX_CARD_REUSE) -> dict:
+def _rank(cand: list[str], by_id: dict[str, dict]) -> list[str]:
+    """ROUND-ROBIN ACROSS PAPERS, strongest evidence first within each paper.
+
+    A subsection that takes its top-k cards by lexical score takes them from whichever paper happens
+    to use the subsection's words most often -- so one paper supplies the whole subsection and the
+    review reads as a serial summary of it. Interleaving by DOI forces the writer to have more than
+    one source in front of it, which is the precondition for a comparative sentence existing at all.
+    """
+    buckets: dict[str, list[str]] = {}
+    for cid in cand:
+        c = by_id.get(cid)
+        if not c:
+            continue
+        buckets.setdefault(c.get('doi') or cid, []).append(cid)
+    for doi, ids in buckets.items():
+        ids.sort(key=lambda i: (not has_verified_figure(by_id[i]),      # figures first
+                                not has_direct_result(by_id[i]),        # then stated results
+                                i))                                     # then stable
+    order = sorted(buckets)
+    out: list[str] = []
+    i = 0
+    while any(buckets[d] for d in order):
+        d = order[i % len(order)]
+        if buckets[d]:
+            out.append(buckets[d].pop(0))
+        i += 1
+    return out
+
+
+def allocate_cards(slots: list[Slot], cards: list[dict], max_reuse: int = MAX_CARD_REUSE,
+                   slot_cap: int = 12) -> dict:
     """GLOBAL CARD ALLOCATION. 222 card slots were drawn from 82 cards; one finding was used EIGHT
     times and there were 41 exact repetitions, because every subsection independently ran a lexical
-    _select() over the whole deck with no idea what its neighbours had taken.
+    _select() over the whole deck with NO IDEA WHAT ITS NEIGHBOURS HAD TAKEN. Repetition is not a
+    writing defect to be cleaned up afterwards; it is a PLANNING defect, and it belongs here.
 
-    Deterministic, greedy, capped. A card may be handed to at most `max_reuse` slots. Slots are
-    served in outline order, so the section that has first claim on a finding gets it."""
+    Deterministic, greedy, capped. A card may be handed to at most `max_reuse` slots; a slot may hold
+    at most `slot_cap` cards. Slots are served in outline order, so the section with first claim on a
+    finding gets it, and the ones after it are forced onto evidence nobody has spent yet."""
+    by_id = {c.get('id'): c for c in cards}
     used: dict[str, int] = {}
+    starved: list[str] = []
     for s in slots:
-        if not s.cells:
+        if not s.candidates:
             continue
-        want: list[str] = []
-        for (r, c) in s.cells:
-            for cid in matrix.cells[(r, c)].card_ids:
-                if cid and cid not in want:
-                    want.append(cid)
-        s.card_ids = [cid for cid in want if used.get(cid, 0) < max_reuse]
+        avail = [c for c in _rank(s.candidates, by_id) if used.get(c, 0) < max_reuse]
+        s.card_ids = avail[:slot_cap]
+        if not s.card_ids:
+            starved.append(s.title)
         for cid in s.card_ids:
             used[cid] = used.get(cid, 0) + 1
     hist: dict[int, int] = {}
     for n in used.values():
         hist[n] = hist.get(n, 0) + 1
     return {'cards_used': len(used), 'slot_assignments': sum(used.values()),
-            'reuse_histogram': dict(sorted(hist.items())), 'max_reuse': max_reuse}
+            'reuse_histogram': dict(sorted(hist.items())), 'max_reuse': max_reuse,
+            'slot_cap': slot_cap, 'starved_slots': starved}
 
 
 # ===================================================================== derived prompts
@@ -1056,8 +1245,14 @@ def print_matrix(m: Matrix, cards: list[dict]) -> None:
     print()
     n = len(m.cells)
     cl, th, gp = len(m.by_status(CLOSED)), len(m.by_status(THIN)), len(m.by_status(GAP))
-    print(f'  {cl}/{n} CLOSED   {th}/{n} thin   {gp}/{n} gap        '
-          f'(cards routed to no dimension: {len(m.unrouted)})')
+    print(f'  {cl}/{n} CLOSED   {th}/{n} thin   {gp}/{n} gap')
+    if m.unrouted:
+        pct = 100 * len(m.unrouted) / max(1, len(cards))
+        print(f'  {len(m.unrouted)}/{len(cards)} cards ({pct:.0f}%) speak to NO outcome dimension of this '
+              f'question. That is a CORPUS signal, not a')
+        print(f'  matcher one: the miner is holding evidence the question did not ask for, and every '
+              f'one of those cards is')
+        print(f'  a slot the writer can fill with something irrelevant.')
     print()
     print('  CELLS THE CORPUS CLOSES ON EVIDENCE:')
     for c in sorted(m.by_status(CLOSED), key=lambda x: -x.n_works)[:12]:
@@ -1069,8 +1264,8 @@ def print_matrix(m: Matrix, cards: list[dict]) -> None:
     print()
     gr = m.gap_rows()
     if gr:
-        print(f'  {m.axis_name.upper()}S THE OUTLINE MUST NOT PROMISE (no groundable evidence anywhere '
-              f'in the corpus):')
+        print(f'  {_plural(m.axis_name).upper()} THE OUTLINE MUST NOT PROMISE (no groundable evidence '
+              f'anywhere in the reviewed corpus):')
         print(textwrap.fill(', '.join(r.label for r in gr), W - 6,
                             initial_indent='    ', subsequent_indent='    '))
         print('    -> these close as an EXPLICIT, CORPUS-SCOPED EVIDENCE GAP, not as filler.')
@@ -1087,15 +1282,25 @@ def print_outline(slots: list[Slot], alloc: dict | None) -> None:
         if s.section != sec:
             sec = s.section
             print(f'\n  ## {sec}')
-        n = f'{len(s.card_ids):>3} cards' if s.card_ids else '  contract'
-        print(f'     ### {s.title[:58]:<60} [{s.kind:<8}] {n}')
+        if s.card_ids:
+            n = f'{len(s.card_ids):>3} cards / {len(s.candidates):>3} elig'
+        elif s.evidence_status == 'gap':
+            n = '  cites nothing (that is the point)'
+        elif s.evidence_status == 'UNGROUNDED':
+            n = '  ** UNGROUNDED **'
+        else:
+            n = '  contract'
+        print(f'     ### {s.title[:52]:<54} [{s.kind:<8}] {n}')
     if alloc:
         print()
         print(f'  CARD ALLOCATION: {alloc["cards_used"]} distinct cards -> '
-              f'{alloc["slot_assignments"]} slot assignments, cap {alloc["max_reuse"]}/card')
-        print(f'  reuse histogram (cards used N times): {alloc["reuse_histogram"]}')
-        print(f'  (the shipped run drew 222 slots from 82 cards; one finding was used 8 times and '
-              f'41 were exact repetitions)')
+              f'{alloc["slot_assignments"]} slot assignments '
+              f'(cap {alloc["max_reuse"]}/card, {alloc["slot_cap"]}/slot)')
+        print(f'  reuse histogram (N cards used exactly K times): {alloc["reuse_histogram"]}')
+        if alloc['starved_slots']:
+            print(f'  ** STARVED (every candidate already spent): {alloc["starved_slots"]}')
+        print(f'  the shipped run drew 222 slots from 82 cards: one finding used 8 times, '
+              f'41 exact repetitions.')
     print()
 
 
@@ -1157,6 +1362,115 @@ def audit_rubric(contract: Contract, qid: int) -> None:
     print()
 
 
+# ===================================================================== self-test
+#
+# NO NETWORK. Every derivation downstream of the single LLM call is a pure function, so all of it is
+# testable offline -- including the branches the live corpus happens never to take. A gate nobody
+# exercises is worth nothing; that lesson is already written on this repo in blood.
+
+def self_test() -> int:
+    fails: list[str] = []
+
+    def ck(name: str, ok: bool, detail: str = '') -> None:
+        print(f"  [{'PASS' if ok else '**FAIL**'}] {name}")
+        if detail and not ok:
+            print(f'            {detail}')
+        if not ok:
+            fails.append(name)
+
+    print('=== research_contract self-test (no network) ===\n')
+
+    # 1. THE MATCHER MUST DISCRIMINATE. "job" occurs in three of task 72's five outcome dimensions;
+    #    if it routes, every card lands in every cell and the matrix says nothing.
+    fam = [Term('job_displacement', 'Job displacement', ['job displacement', 'job loss', 'unemployment']),
+           Term('job_creation', 'Job creation', ['job creation', 'new jobs', 'labor demand']),
+           Term('wage_effects', 'Wage effects', ['wage effects', 'wages', 'earnings'])]
+    m, _w = build_matchers(fam)
+    ck('shared word ("job") is NOT discriminative and routes nothing',
+       'job' not in m['job_displacement'].disc and 'job' not in m['job_creation'].disc)
+    ck('unique word ("wage") DOES route', 'wage' in m['wage_effects'].disc)
+    ck('a generic research word ("effect") never routes',
+       'effect' not in m['wage_effects'].disc, '"effect" would match every span in any corpus')
+    ck('the matcher stems: a span saying "wages" hits the term "Wage effects"',
+       'wage_effects' in _hits(m, 'occupational wages and educational attainment'))
+    ck('a span about nothing in the family routes nowhere',
+       _hits(m, 'the gut microbiota regulates intestinal barrier integrity') == [])
+
+    # 2. THE SOURCE-POLICY GATE. Each constraint must be entailed by ITS OWN verbatim clause of the
+    #    question -- not by some other constraint's clause. (rc-2 admitted a fabricated recency
+    #    cutoff of 2015 because the journal-only quote had verified. That is evidence laundering.)
+    Q = ('Please write a literature review on X. Ensure the review only cites high-quality, '
+         'English-language journal articles.')
+    sp = _floor_source_policy(Q)
+    ck('regex floor detects journal-only + English + quality bar',
+       sp.peer_reviewed_only and sp.languages == ['English'] and sp.quality_bar == 'high-quality')
+    ck('the floor quotes a VERBATIM clause of the question',
+       all(e.lower() in ' '.join(Q.lower().split()) for e in sp.question_evidence),
+       f'{sp.question_evidence}')
+    ck('a question with NO source constraint yields NO source policy',
+       not _floor_source_policy('What causes Parkinson\'s disease?').peer_reviewed_only)
+    ck('compliance prose carries no digits (an OWNED sentence with a number is dropped by the gate)',
+       not re.search(r'\d', sp.compliance_prose()), sp.compliance_prose())
+
+    # 3. THE CLOSE RULE, including the branch the live corpus never took.
+    con = Contract(question=Q, method_designs=['observational', 'quasi-experimental'],
+                   outcome_dimensions=fam, subject_axis=Axis('Industry', [Term('m', 'Manufacturing', ['manufacturing'])]))
+
+    def mk(n_works, n_methods, quant, qual):
+        c = Cell('m', 'Manufacturing', 'wage_effects', 'Wage effects')
+        c.dois = [f'd{i}' for i in range(n_works)]
+        c.methods = [f'meth{i}' for i in range(n_methods)]
+        c.n_quant, c.n_qual = quant, qual
+        _close(c, con)
+        return c
+
+    ck('1 work -> GAP (an honest, corpus-scoped evidence gap)', mk(1, 1, 1, 0).status == GAP)
+    ck('2 works but no stated result -> GAP', mk(2, 2, 0, 0).status == GAP)
+    ck('2 works + 1 result + single design -> CLOSED (contrast not material at this depth)',
+       mk(2, 1, 1, 0).status == CLOSED)
+    ck('3 works + result + ONE design -> THIN (design contrast IS material here)',
+       mk(3, 1, 1, 0).status == THIN, 'the THIN branch is dead')
+    ck('3 works + result + TWO designs -> CLOSED', mk(3, 2, 1, 0).status == CLOSED)
+
+    # 4. QUANTITATIVE = VERIFIED AGAINST THE SPAN, never against the model-written `claim`.
+    ck('a figure in the SPAN counts as quantitative',
+       has_verified_figure({'span': 'employment fell by 0.2 percentage points per robot'}))
+    ck('a figure the model put in `claim` but NOT in the span does NOT count',
+       not has_verified_figure({'span': 'automation reduced employment.',
+                                'claim': 'employment fell 47 percent'}),
+       'the claim is a display cache and is never evidence')
+    ck('a bare year in the span is not an effect size',
+       not has_verified_figure({'span': 'we study the period since 2003.'}))
+
+    # 5. THE ALLOCATOR. A card may not be spent more than max_reuse times, and one paper may not
+    #    supply a whole subsection.
+    cards = [{'id': f'c{i}', 'doi': f'doi{i % 2}', 'span': f'employment fell by {i}.5 percent'}
+             for i in range(6)]
+    slots = [Slot('S', f't{i}', 'outcome', candidates=[c['id'] for c in cards]) for i in range(4)]
+    alloc = allocate_cards(slots, cards, max_reuse=2, slot_cap=3)
+    counts: dict[str, int] = {}
+    for s in slots:
+        for cid in s.card_ids:
+            counts[cid] = counts.get(cid, 0) + 1
+    ck('no card is handed to more than max_reuse slots',
+       all(v <= 2 for v in counts.values()), f'{counts}')
+    ck('no slot exceeds slot_cap', all(len(s.card_ids) <= 3 for s in slots))
+    ck('a slot draws from >1 paper (round-robin by DOI, so one paper cannot own a subsection)',
+       len({c['doi'] for c in cards if c['id'] in slots[0].card_ids}) > 1,
+       f'{slots[0].card_ids}')
+    ck('a starved slot is REPORTED, not silently emptied',
+       'starved_slots' in alloc)
+
+    print()
+    if fails:
+        print(f'** {len(fails)} FAILURE(S) **')
+        for f in fails:
+            print(f'    - {f}')
+        return 1
+    print('** ALL DERIVATIONS PASS (no network) **')
+    return 0
+
+
 # ===================================================================== entry point
 
 def load_question(task: int) -> tuple[str, int]:
@@ -1180,7 +1494,11 @@ def main() -> int:
     ap.add_argument('--force', action='store_true', help='ignore the cache and recompile')
     ap.add_argument('--json', action='store_true', help='dump the contract as JSON and exit')
     ap.add_argument('--audit-rubric', action='store_true', help='POST-HOC diagnostic only')
+    ap.add_argument('--self-test', action='store_true', help='exercise every derivation, no network')
     a = ap.parse_args()
+
+    if a.self_test:
+        return self_test()
 
     if a.question:
         q, qid = a.question, None
@@ -1205,8 +1523,8 @@ def main() -> int:
     if cards:
         m = coverage_matrix(c, cards, corpus)
         print_matrix(m, cards)
-        slots = derive_outline(c, m)
-        alloc = allocate_cards(slots, m)
+        slots = derive_outline(c, m, cards)
+        alloc = allocate_cards(slots, cards)
         print_outline(slots, alloc)
     else:
         print(f'  (no evidence cards at {cp} -- outline shown WITHOUT the corpus veto)\n')

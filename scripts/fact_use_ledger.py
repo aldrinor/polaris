@@ -99,24 +99,41 @@ SIM_RESTATE = 0.55
 
 # Corroboration threshold: two findings whose spans overlap this much MAY be saying the same thing.
 #
-# DO NOT TUNE THIS DOWN TO MANUFACTURE CLUSTERS. Measured on our corpus: the maximum cross-work span
-# Jaccard is 0.231, and the pair sitting at 0.200 is
+# DO NOT TUNE THIS DOWN TO MANUFACTURE CLUSTERS. Measured: max cross-work span Jaccard is 0.231, and
+# at a loosened threshold 5 of the 9 near-miss pairs would merge with NOTHING stopping them --
+# including Pillai 2020 ("stickiness negatively moderates talent acquisition") with Baakeel 2020
+# ("the correlation ... is strong and significant"), which are not the same claim at all.
 #
-#     Autor 2015    "automation creates strong COMPLEMENTARITIES ... INCREASING labor demand"
-#     Acemoglu 2019 "automation ... REDUCES labor's share ... DIMINISHING labor demand"
+# AND THE GUARDS ARE WEAKER THAN THEY LOOK. I wrote a polarity guard believing it caught this pair:
 #
-# -- a CONTRADICTION with high lexical overlap. Lexical similarity does not know direction. Any
-# threshold loose enough to produce clusters on this corpus would fuse a claim with its own
-# refutation and then narrate only the representative, SILENTLY DELETING THE DISAGREEMENT. That is
-# the precise failure R5 exists to prevent, and it would look like a win in the cluster count.
+#     Autor 2015    span: "...complementarities between automation and labor that INCREASE
+#                          productivity, RAISE earnings, and AUGMENT demand for labor."   -> {UP}
+#     Acemoglu 2019 span: "automation always REDUCES the labor share in value added and may REDUCE
+#                          labor demand EVEN AS IT RAISES productivity."             -> {UP, DOWN}
 #
-# So corroboration is gated on THREE conditions, not one (see build_clusters): lexical overlap AND
-# agreement on the declared unit of analysis AND a polarity check. Until a direction-aware semantic
-# check exists, this correctly clusters almost nothing, and that is the honest answer.
+# It does not. Acemoglu's span is MIXED-polarity -- the paper's own sentence says one thing falls
+# while another rises -- so the bags of direction words intersect and `contradicts()` returns False.
+# The pair is actually saved by the UNIT-OF-ANALYSIS guard (worker vs economy), not by polarity.
+#
+# The lesson is structural: direction words BIND TO OBJECTS ("reduces [the labor share]" vs "raises
+# [productivity]"), and a bag of words loses the binding. Sound contradiction detection needs
+# (direction, quantity) tuples -- the interpretable evidence tuple the diagnosis already asks for
+# (effect + unit + population + design + scope + uncertainty). It cannot be done at this layer.
+#
+# Note also, and this is the whole reason for THE LAW: the model's CLAIM for Acemoglu reads
+# "...reduces labor's share and may diminish labor demand" -> polarity {DOWN}. The claim DROPPED the
+# "even as it raises productivity" hedge. THE CLAIM IS MORE POLARIZED THAN THE PAPER. Had this
+# detector run on `claim` instead of `span` it would have "found" a contradiction that the source
+# does not contain, and been more confident for having lost the evidence.
+#
+# So: corroboration stays gated at 0.50 and correctly clusters ~nothing on this corpus. The basket
+# is BUILT and CORRECT; the DETECTOR is the missing piece and it is not lexical. Zero is the honest
+# answer. A tuned threshold would have been a cluster count that deletes evidence.
 SIM_CORROBORATE = 0.50
 
 # Direction words. Two findings that overlap lexically but point OPPOSITE WAYS are a CONTRAST -- the
-# most valuable thing in a review -- not a corroboration. They must never be merged.
+# most valuable thing in a review -- not a corroboration. NECESSARY BUT NOT SUFFICIENT: this fires
+# only on spans whose direction is UNMIXED (see above). It is a backstop, never a licence.
 POLARITY: dict[str, str] = {}
 for _up, _dn in [('increase', 'decrease'), ('increases', 'decreases'), ('increasing', 'decreasing'),
                  ('raise', 'reduce'), ('raises', 'reduces'), ('raising', 'reducing'),
@@ -140,9 +157,15 @@ def polarity(span: str) -> set[str]:
 
 
 def contradicts(a: str, b: str) -> bool:
-    """True when two spans assert OPPOSITE directions. Such a pair is a CONTRAST, never a merge."""
+    """True when two spans assert UNMIXED OPPOSITE directions. A CONTRAST, never a merge.
+
+    HONEST LIMIT: returns False on mixed-polarity spans ("reduces the labor share ... even as it
+    raises productivity" -> {UP, DOWN}), which are common precisely in the literatures where the
+    disagreement matters. It cannot bind a direction to the quantity it modifies. Treat a False as
+    "not proven to disagree", NEVER as "agrees".
+    """
     pa, pb = polarity(a), polarity(b)
-    return bool(pa and pb and pa != pb and not (pa & pb))
+    return bool(pa and pb and not (pa & pb))
 
 
 # ===================================================================== identity
@@ -173,8 +196,16 @@ def finding_id(card: dict) -> str:
     Why not the `claim`? Because the claim is written by the model. Identity keyed on model prose is
     identity the model can change by rewording -- the writer could launder a spent fact into a fresh
     one just by paraphrasing it. Keyed on the paper's bytes, it cannot.
+
+    Why (WORK, SPAN) and not the span alone? Because two different papers can assert the same
+    sentence, and that is CORROBORATION -- the most valuable thing evidence can do. Hashing the span
+    alone collapses them into one finding and silently destroys the second paper's provenance: the
+    basket would lose a source without anyone deleting anything. A finding is a claim MADE BY A
+    WORK. (The span-only version passed on the live corpus -- 133 spans, 133 ids, no collision --
+    and would have quietly eaten a corroborating source the first time two papers agreed verbatim.
+    The self-test found it; the corpus never would have.)
     """
-    return f'F:{hashlib.sha1(_norm_text(card.get("span")).encode()).hexdigest()[:10]}'
+    return f'F:{work_id(card)[2:12]}:{hashlib.sha1(_norm_text(card.get("span")).encode()).hexdigest()[:10]}'
 
 
 # ===================================================================== roles
@@ -213,6 +244,27 @@ FUNCTION_LEXICON: list[tuple[str, Function]] = [
     (r'\b(sector|industr|across|domain|profession|setting|application)\b', Function.DOMAIN),
     (r'\b(evidence|effect|impact|outcome|result|finding)\b', Function.EVIDENCE),
 ]
+
+# NARRATION-ONLY roles: these roles ARE the telling of the fact. To "reuse" a finding as ESTABLISH
+# is to assert it again as primary support; to reuse it as MAGNITUDE is to print its number again;
+# to reuse it as DEFINE is to restate it as a definition. None of these is a new analytical job --
+# they are restatement wearing a hat, which is the exact thing R3 exists to stop.
+#
+# (The first version of this planner granted 49 of its 84 reuses in these three roles. The rule was
+# in the docstring and the code did the opposite. That is how the report got this way in the first
+# place: a plausible-sounding licence, never checked against what it actually emitted.)
+NARRATION_ONLY_ROLES = frozenset({Role.ESTABLISH, Role.MAGNITUDE, Role.DEFINE})
+
+# REUSABLE roles: the fact is PUT TO WORK rather than told. Each is a genuinely different job --
+# it explains, it cuts against something, it bounds a claim, it impugns a design, it implies.
+REUSABLE_ROLES = frozenset({Role.MECHANISM, Role.CONTRAST, Role.BOUNDARY,
+                            Role.METHOD_CRITIQUE, Role.IMPLICATION})
+
+# A finding may be used beyond its one full narration AT MOST this many times in the whole document.
+# Without a global budget the canonical findings get re-granted to every section that scores them
+# highly -- which is precisely how one card came to be drawn 8 times.
+REUSE_BUDGET = 2
+MAX_BACKREF_PER_SUBSECTION = 2      # more than this and the section reads like a table of contents
 
 # Which roles a section of a given function may LICENSE. This is what makes reuse legitimate:
 # a canonical finding may appear in THEORY as a MECHANISM and again in SYNTHESIS as a CONTRAST,
@@ -496,29 +548,43 @@ def plan_bundles(cards: list[dict], outline=OUTLINE, contract: dict | None = Non
         rec.uses.append(Use(b.section, b.subsection, rec.primary_role, 'NARRATE'))
 
     # ---- pass 2: LEGITIMATE REUSE. Theory and synthesis sections need the canonical findings. They
-    # get them -- in a role the finding has NOT yet played, and only if they ADD something.
+    # get them -- but ONLY in a REUSABLE role (never a narration role), only if the finding has not
+    # already played that role, only if the use ADDS something, and only within a GLOBAL budget.
+    MUST_ADD = {Role.CONTRAST: 'comparison', Role.BOUNDARY: 'boundary',
+                Role.METHOD_CRITIQUE: 'method', Role.IMPLICATION: 'implication',
+                Role.MECHANISM: 'mechanism'}
+    reuse_count: collections.Counter = collections.Counter()
+
     for b in bundles:
-        want = [(relevance(by_fid[f], f'{b.section} {b.subsection}'), f)
-                for f in reps if f not in b.narrate]
-        want.sort(key=lambda x: -x[0])
-        for score, f in want[:8]:
-            if score <= 0:
+        # Rank candidates by fit, but PENALISE findings already spent elsewhere. This is what drives
+        # sibling sections apart: without it, "What the evidence establishes" and "What the evidence
+        # cannot yet resolve" score every finding identically and are dealt the SAME bundle (measured
+        # Jaccard 0.750). The tie-break on prior reuse is the only thing that makes them diverge.
+        want = sorted(((relevance(by_fid[f], f'{b.section} {b.subsection}'), -reuse_count[f], f)
+                       for f in reps if f not in b.narrate),
+                      key=lambda t: (-t[0], -t[1]))
+        for score, _, f in want:
+            if score <= 0 or (len(b.new_role) >= 3 and len(b.backref) >= MAX_BACKREF_PER_SUBSECTION):
                 continue
+            if reuse_count[f] >= REUSE_BUDGET:
+                continue                      # this fact is spent. Some other section may not have it.
             rec = ledger[f]
-            used = {u.role for u in rec.uses if u.mode in ('NARRATE', 'NEW_ROLE')}
-            free = [r for r in FUNCTION_ROLES[b.function] if r not in used]
+            played = {u.role for u in rec.uses if u.mode in ('NARRATE', 'NEW_ROLE')}
+            free = [r for r in FUNCTION_ROLES[b.function]
+                    if r in REUSABLE_ROLES and r not in played]
             if free and len(b.new_role) < 3:
                 role = free[0]
-                must_add = {Role.CONTRAST: 'comparison', Role.BOUNDARY: 'boundary',
-                            Role.METHOD_CRITIQUE: 'method', Role.IMPLICATION: 'implication',
-                            Role.MECHANISM: 'mechanism', Role.MAGNITUDE: 'comparison',
-                            Role.DEFINE: 'boundary', Role.ESTABLISH: 'comparison'}[role]
-                b.new_role.append((f, role, must_add))
-                rec.uses.append(Use(b.section, b.subsection, role, 'NEW_ROLE', adds={must_add}))
-            else:
-                # R4: the fact is spent. Point at it; do not say it again.
+                b.new_role.append((f, role, MUST_ADD[role]))
+                rec.uses.append(Use(b.section, b.subsection, role, 'NEW_ROLE',
+                                    adds={MUST_ADD[role]}))
+                reuse_count[f] += 1
+            elif len(b.backref) < MAX_BACKREF_PER_SUBSECTION:
+                # R4: the fact is spent, or this section has no new job for it. Point at it; do not
+                # say it again. An OWNED backward reference names no source and carries no new
+                # particular -- it is a legal OWNED sentence under THE LAW, by construction.
                 b.backref.append(f)
                 rec.uses.append(Use(b.section, b.subsection, Role.ESTABLISH, 'BACKREF'))
+                reuse_count[f] += 1
 
     # ---- pass 3: THE BASKET. Corroborators ride along with their representative. Retained, cited,
     # never re-narrated.
@@ -562,9 +628,14 @@ class Narration:
     words: int
     residue: set[str]                # the sentence MINUS its attribution -- i.e. the FACT it states
     adds: set[str]
-    order: int
+    order: int                       # SENTENCE index. Two Narrations sharing an `order` are the SAME
+    #                                  sentence telling two findings -- dedupe on this before summing
+    #                                  words, or a compound sentence is billed once per fact it tells.
     anaphoric: bool = False
-    tiebreak_used_claim: bool = False
+    multi: bool = False              # this sentence narrates >1 finding
+    verdict: str = ''                # '' | OK | RESTATEMENT | RESTATED_BUT_ADDS. Declared, not
+    #                                  monkey-patched: the first narration of every finding never
+    #                                  gets one assigned, and any consumer reading it would explode.
 
 
 def _strip_attribution(sent: str, card: dict) -> str:
@@ -639,26 +710,39 @@ def audit_report(report_md: str, cards: list[dict]) -> dict:
                 owned += 1                                # OWNED voice: legal, and not a narration
                 continue
 
-            # Which finding of the named work is this sentence telling? Score on the SPAN.
+            # WHICH finding(s) is this sentence telling? Score every candidate against its SPAN.
+            #
+            # MULTI-LABEL, because sentences are. Measured, in "Why large task gains coexist":
+            #
+            #   "Autor ... reports that automation creates strong COMPLEMENTARITIES ... , YET
+            #    technological changes ... have POLARIZED the labor market ..."
+            #
+            # -- one 57-word sentence narrating TWO distinct Autor findings, both already spent.
+            # Charging it to the argmax alone (0.286 vs 0.242 -- nearly a coin-flip) books one
+            # restatement and misses the other. So a sentence is credited to EVERY finding it
+            # substantially tells, and the WASTE is then deduped by sentence so no word is billed
+            # twice. This mirrors the composer's own _gate_multi, which gates each clause against
+            # the source it names rather than blaming the whole sentence on the first author it
+            # recognises.
+            #
+            # This also retires the claim-tiebreak that used to sit here. `claim` now touches NO
+            # logic in this module -- it is a display label and nothing else.
             scored = sorted(((jaccard(_content(_strip_attribution(sent, by_fid[f])),
                                       _content(by_fid[f].get('span'))), f) for f in hits),
                             key=lambda x: -x[0])
-            best, fid = scored[0]
-            tie = False
-            if len(scored) > 1 and scored[1][0] > 0 and (best - scored[1][0]) < 0.02:
-                cand = [f for s, f in scored if best - s < 0.02]
-                fid = max(cand, key=lambda f: jaccard(_content(sent), _content(by_fid[f].get('claim'))))
-                tie = True
+            best = scored[0][0]
             if best < 0.10:
                 unresolved += 1                           # names a source but matches no span: say so
                 continue
+            told = [f for s, f in scored if s >= 0.10 and s >= 0.70 * best]
 
-            card = by_fid[fid]
-            last_work = work_id(card)
-            residue = _content(_strip_attribution(sent, card))
+            last_work = work_id(by_fid[told[0]])
             adds = {k for k, p in ADDS_MARKERS.items() if p.search(sent)}
-            narrations.append(Narration(fid, sec, sub, sent, len(sent.split()), residue, adds,
-                                        order, anaphoric, tie))
+            for fid in told:
+                card = by_fid[fid]
+                residue = _content(_strip_attribution(sent, card))
+                narrations.append(Narration(fid, sec, sub, sent, len(sent.split()), residue, adds,
+                                            order, anaphoric, len(told) > 1))
 
     # ---- who is over-narrated, and what did the repeats cost?
     by_finding: dict[str, list[Narration]] = collections.defaultdict(list)
@@ -681,21 +765,33 @@ def audit_report(report_md: str, cards: list[dict]) -> dict:
             else:
                 n.verdict = 'OK'
 
-    # exact byte-level repeats (after normalisation) -- the unarguable floor
-    norm_counts = collections.Counter(_norm_text(n.sentence) for n in narrations)
+    # exact byte-level repeats (after normalisation) -- the unarguable floor. Dedupe by sentence:
+    # a compound sentence appears once per finding it tells, and must be counted ONCE.
+    seen_sent = {n.order: n for n in narrations}
+    norm_counts = collections.Counter(_norm_text(n.sentence) for n in seen_sent.values())
     exact = {k: v for k, v in norm_counts.items() if v > 1}
 
-    hard_words = sum(n.words for _, n, _ in hard)
-    hard_waste = max(0, hard_words - BACKREF_COST_WORDS * len(hard))
-    soft_words = sum(n.words for _, n, _ in soft)
+    # A SENTENCE is wasted only if EVERY finding it tells was already spent and it adds nothing.
+    # Billing per (sentence, finding) pair would charge a 57-word compound twice. Dedupe on `order`.
+    hard_orders = {n.order for _, n, _ in hard}
+    soft_orders = {n.order for _, n, _ in soft}
+    ok_orders = {n.order for n in narrations if n.verdict == 'OK'}
+    hard_orders -= ok_orders        # a sentence that does new work for ANY finding is not waste
+    soft_orders -= (ok_orders | hard_orders)
+
+    hard_words = sum(seen_sent[o].words for o in hard_orders)
+    hard_waste = max(0, hard_words - BACKREF_COST_WORDS * len(hard_orders))
+    soft_words = sum(seen_sent[o].words for o in soft_orders)
 
     return {
         'narrations': narrations,
         'by_finding': by_finding,
         'hard': hard, 'soft': soft, 'exact': exact,
+        'hard_orders': hard_orders, 'soft_orders': soft_orders, 'sent_by_order': seen_sent,
         'owned': owned, 'unresolved': unresolved,
-        'tiebreaks': sum(1 for n in narrations if n.tiebreak_used_claim),
-        'anaphoric': sum(1 for n in narrations if n.anaphoric),
+        'multi': len({n.order for n in narrations if n.multi}),
+        'anaphoric': len({n.order for n in narrations if n.anaphoric}),
+        'n_sentences': len(seen_sent),
         'hard_words': hard_words, 'hard_waste': hard_waste, 'soft_words': soft_words,
         'excess_exact': sum(v - 1 for v in exact.values()),
     }
@@ -709,13 +805,100 @@ def _rule(t=''):
         print('=' * 78)
 
 
+def self_test() -> int:
+    """Adversarial checks. A rule that is only asserted in a docstring is not a rule.
+
+    (Both real defects this module shipped with -- 49 of 84 reuses granted in narration-only roles,
+    and a polarity guard that never fired -- were rules that existed ONLY in prose. Test the rules.)
+    """
+    fails = []
+
+    def ck(name, cond):
+        print(f'  [{"PASS" if cond else "FAIL"}] {name}')
+        if not cond:
+            fails.append(name)
+
+    print('--- identity: the span is the evidence; the claim is a display cache')
+    base = {'span': 'robot adoption reduced employment by 0.2 percent per thousand workers',
+            'claim': 'Robots cut jobs.', 'doi': '10.1/x', 'authors': ['A'], 'year': 2020,
+            'level': 'firm', 'method': 'observational', 'mechanisms': [], 'has_number': True}
+    reworded = dict(base, claim='A COMPLETELY DIFFERENT PARAPHRASE, invented by the model.')
+    respanned = dict(base, span='robot adoption RAISED employment by 0.2 percent')
+    ck('rewording `claim` does NOT change finding_id (the model cannot forge a fresh identity '
+       'for a spent fact by paraphrasing it)', finding_id(base) == finding_id(reworded))
+    ck('changing `span` DOES change finding_id (identity tracks the paper, not the prose)',
+       finding_id(base) != finding_id(respanned))
+    ck('work_id is DOI-stable across differing spans',
+       work_id(base) == work_id(respanned))
+
+    print('\n--- the basket: consolidation must never delete a disagreement')
+    up = dict(base, span='automation increases labor demand and raises earnings for workers')
+    dn = dict(base, span='automation decreases labor demand and reduces earnings for workers')
+    ck('unmixed opposite polarity is detected as a contradiction',
+       contradicts(up['span'], dn['span']))
+    ck('a contradictory pair is BLOCKED from merging even at zero lexical distance',
+       'POLARITY' in ' '.join(corroboration_blocks(up, dn, ignore_lexical=True)))
+    mixed = dict(base, span='automation reduces the labor share even as it raises productivity')
+    ck('mixed-polarity span does NOT report a contradiction (honest limit, documented)',
+       not contradicts(up['span'], mixed['span']))
+    diff_level = dict(up, level='economy')
+    ck('same claim at a DIFFERENT unit of analysis is blocked from merging',
+       'unit-of-analysis' in corroboration_blocks(up, diff_level, ignore_lexical=True))
+    cl = build_clusters([base, dict(base, doi='10.1/y', authors=['B'])])
+    ck('a corroborator is RETAINED in the basket, never dropped',
+       sum(1 + len(c.corroborators) for c in cl.values()) == 2)
+
+    print('\n--- the rules')
+    rec = FindingRecord('F:1', 'W:1', 'span', 'label', 'C:1')
+    rec.uses = [Use('S', 'a', Role.ESTABLISH, 'NARRATE'), Use('S', 'b', Role.ESTABLISH, 'NARRATE')]
+    ck('R1 fires: a finding narrated twice is a violation',
+       any(v.startswith('R1') for v in rec.violations()))
+    rec.uses = [Use('S', 'a', Role.CONTRAST, 'NARRATE'), Use('S', 'b', Role.CONTRAST, 'NEW_ROLE',
+                                                             adds={'comparison'})]
+    ck('R2 fires: the same analytical role reused is a violation',
+       any(v.startswith('R2') for v in rec.violations()))
+    rec.uses = [Use('S', 'a', Role.ESTABLISH, 'NARRATE'), Use('S', 'b', Role.CONTRAST, 'NEW_ROLE')]
+    ck('R3 fires: a new role that ADDS NOTHING is a violation',
+       any(v.startswith('R3') for v in rec.violations()))
+    ck('narration-only roles are excluded from reuse (ESTABLISH/MAGNITUDE/DEFINE)',
+       not (NARRATION_ONLY_ROLES & REUSABLE_ROLES))
+
+    print('\n--- the plan over the REAL corpus')
+    cards = json.loads(CARDS_PATH.read_text())
+    bundles, ledger = plan_bundles(cards)
+    ck('the plan itself contains ZERO rule violations',
+       sum(len(r.violations()) for r in ledger.values()) == 0)
+    ck('narration is a PARTITION: every finding narrated exactly once',
+       all(len(r.narrations) == 1 for r in ledger.values()))
+    ck('no reuse is granted in a narration-only role',
+       not any(r in NARRATION_ONLY_ROLES for b in bundles for _, r, _ in b.new_role))
+    ck('no finding exceeds the global reuse budget',
+       all(sum(1 for u in r.uses if u.mode in ('NEW_ROLE', 'BACKREF')) <= REUSE_BUDGET
+           for r in ledger.values()))
+    ck('every finding we hold is used somewhere (nothing is silently dropped)',
+       all(r.uses for r in ledger.values()))
+
+    print('\n--- waste accounting')
+    au = audit_report(REPORT_PATH.read_text(), cards)
+    ck('compound sentences are billed ONCE, not once per fact they tell',
+       au['hard_words'] == sum(au['sent_by_order'][o].words for o in au['hard_orders']))
+    ck('a sentence doing new work for ANY finding is not counted as waste',
+       not (au['hard_orders'] & {n.order for n in au['narrations'] if n.verdict == 'OK'}))
+
+    print(f'\n{"** ALL CHECKS PASS **" if not fails else "** " + str(len(fails)) + " FAILED **"}')
+    return 1 if fails else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--cards', default=str(CARDS_PATH))
     ap.add_argument('--report', default=str(REPORT_PATH))
     ap.add_argument('--audit-only', action='store_true')
     ap.add_argument('--plan-only', action='store_true')
+    ap.add_argument('--self-test', action='store_true')
     a = ap.parse_args()
+    if a.self_test:
+        return self_test()
 
     cards = json.loads(Path(a.cards).read_text())
     report_md = Path(a.report).read_text()
@@ -746,16 +929,24 @@ def main() -> int:
             print(f'    J={j:.3f}  still blocked by: {flag}')
             print(f'      {x["authors"][0]} {x.get("year")}: {x["claim"][:76]}')
             print(f'      {y["authors"][0]} {y.get("year")}: {y["claim"][:76]}')
-        print('\n  THE POINT: the 0.200 pair is Autor ("automation ... INCREASING labor demand")')
-        print('  against Acemoglu ("automation ... DIMINISHING labor demand"). They overlap')
-        print('  lexically because they argue about THE SAME THING -- and they DISAGREE. A looser')
-        print('  threshold would fuse them, narrate one, and silently delete the disagreement.')
-        print('  Lexical similarity cannot see direction. So the honest cluster count is ~0, and')
-        print('  corroboration detection needs a DIRECTION-AWARE SEMANTIC check the corpus does not')
-        print('  yet carry (the cards have level/horizon/method but no direction field).')
-        print(f'\n  near-miss pairs (J>=0.15) and what blocked each: {dict(d["blocked"])}')
-        print('  The basket structure is built and correct. The DETECTOR is the missing piece,')
-        print('  and reporting a fake cluster count would have been the evidence-deleting bug.')
+        print(f'\n  near-miss pairs (J>=0.15), what would STILL block each: {dict(d["blocked"])}')
+        print('\n  READ THAT AGAIN: at a loosened threshold, most near-miss pairs merge with NOTHING')
+        print('  stopping them -- and one of them (Pillai/Baakeel) is not the same claim at all.')
+        print('\n  AND THE POLARITY GUARD IS WEAKER THAN IT LOOKS. I wrote it believing it caught')
+        print('  Autor("...INCREASE productivity, RAISE earnings, AUGMENT demand") against')
+        print('  Acemoglu("...REDUCES the labor share ... EVEN AS IT RAISES productivity").')
+        print('  It does not. Acemoglu\'s span is MIXED ({UP,DOWN}), the bags intersect, and')
+        print('  contradicts() returns False. That pair is saved by the UNIT-OF-ANALYSIS guard')
+        print('  (worker vs economy) -- NOT by polarity. Direction words bind to OBJECTS, and a bag')
+        print('  of words loses the binding. Sound detection needs (direction, quantity) tuples.')
+        print('\n  Note what the model did to that sentence: its CLAIM reads "reduces labor\'s share')
+        print('  and may diminish labor demand" -- the "even as it raises productivity" hedge is')
+        print('  GONE. polarity(claim)={DOWN} but polarity(span)={UP,DOWN}. THE CLAIM IS MORE')
+        print('  POLARIZED THAN THE PAPER. A detector run on `claim` would have "found" a')
+        print('  contradiction the source does not contain -- and been more confident for having')
+        print('  lost the evidence. This is why the span is the only evidence.')
+        print('\n  The basket is BUILT and CORRECT; the DETECTOR is the missing piece and it is not')
+        print('  lexical. Zero is the honest count. A tuned threshold would delete disagreements.')
 
     # ---------------------------------------------------------------- what the SELECTOR does today
     if not a.audit_only:
@@ -783,12 +974,12 @@ def main() -> int:
     if not a.plan_only:
         _rule('THE AUDIT: WHAT THE SHIPPED REPORT ACTUALLY DID')
         au = audit_report(report_md, cards)
-        n_narr = len(au['narrations'])
-        print(f'  attributed narrations found : {n_narr}')
-        print(f'    ...of which anaphoric ("They also find that...") : {au["anaphoric"]}')
+        print(f'  attributed SENTENCES              : {au["n_sentences"]}')
+        print(f'  (finding, sentence) narration pairs : {len(au["narrations"])}  '
+              f'-- {au["multi"]} sentences narrate MORE THAN ONE finding')
+        print(f'    ...anaphoric ("They also find that...") : {au["anaphoric"]}')
         print(f'  OWNED sentences (name no source -- legal, not narrations) : {au["owned"]}')
         print(f'  names a source but matches no span (UNRESOLVED, not counted): {au["unresolved"]}')
-        print(f'  ambiguous within-work matches broken by claim-tiebreak, flagged: {au["tiebreaks"]}')
 
         over = {f: ns for f, ns in au['by_finding'].items() if len(ns) > 1}
         print(f'\n  distinct findings narrated  : {len(au["by_finding"])} of {len(by_fid)} held')
@@ -814,27 +1005,28 @@ def main() -> int:
         print(f'  {len(au["exact"])} sentence forms appear more than once; '
               f'{au["excess_exact"]} excess instances.\n')
         for k, v in sorted(au['exact'].items(), key=lambda x: -(x[1] * len(x[0].split())))[:8]:
-            orig = next(n.sentence for n in au['narrations'] if _norm_text(n.sentence) == k)
-            where = [n.subsection[:30] for n in au['narrations'] if _norm_text(n.sentence) == k]
-            print(f'  {v}x [{len(k.split())}w] "{orig[:104]}..."')
-            print(f'       in: {" | ".join(where)}\n')
+            hitset = [n for n in au['sent_by_order'].values() if _norm_text(n.sentence) == k]
+            print(f'  {v}x [{len(k.split())}w] "{hitset[0].sentence[:104]}..."')
+            print(f'       in: {" | ".join(n.subsection[:30] for n in hitset)}\n')
 
         _rule('THE MEASURED RESTATEMENT WASTE')
         body_words = len(re.sub(r'(?m)^#.*$|^\|.*$', '', report_md).split())
         print(f'  report body                                     : {body_words:,} words')
         print(f'  [1] EXACT duplicate sentences (excess instances) : {au["excess_exact"]} sentences')
-        print(f'  [2] HARD RESTATEMENT -- same fact, same role, adds nothing:')
-        print(f'         {len(au["hard"])} sentences, {au["hard_words"]:,} words')
+        print(f'  [2] HARD RESTATEMENT -- every fact it tells was already spent, and it adds nothing:')
+        print(f'         {len(au["hard_orders"])} sentences, {au["hard_words"]:,} words')
         print(f'         replaced by an OWNED backward reference (~{BACKREF_COST_WORDS}w each):')
         print(f'         RECLAIMABLE = {au["hard_waste"]:,} words '
               f'({au["hard_waste"] / body_words * 100:.1f}% of the report)')
         print(f'  [3] SOFT -- fact restated but the sentence DOES add something:')
-        print(f'         {len(au["soft"])} sentences, {au["soft_words"]:,} words.')
-        print(f'         Not counted as waste. The fact could still be a pointer, keeping the new')
-        print(f'         clause -- a further ~{max(0, au["soft_words"] // 2 - BACKREF_COST_WORDS * len(au["soft"])):,}w'
-              f' is plausibly recoverable, but that is an ESTIMATE and I do not claim it.')
+        print(f'         {len(au["soft_orders"])} sentences, {au["soft_words"]:,} words.')
+        print(f'         NOT counted as waste. The fact could still be compressed to a pointer while')
+        print(f'         keeping the new clause, but I am not going to put a number on that.')
         print(f'\n  HONEST TOTAL (defensible, [2] only) : {au["hard_waste"]:,} words '
               f'= {au["hard_waste"] / body_words * 100:.1f}% of the report says nothing new.')
+        print(f'  Charging one backward reference per restatement OVERSTATES the replacement cost')
+        print(f'  (a section restating a fact 5x needs one pointer, not five), so this UNDERSTATES')
+        print(f'  the recoverable words. Words are billed per SENTENCE, never per (sentence,fact).')
 
     # ---------------------------------------------------------------- THE PLAN
     if not a.audit_only:
