@@ -180,9 +180,18 @@ def extract_cards() -> int:
             if not span or not claim:
                 continue
             # HARD GATE 1: the span must really be in the source text. No span, no claim.
+            #
+            # This checked only the FIRST 60 CHARACTERS. A span could open with 60 characters lifted
+            # verbatim from the paper and then continue into pure invention -- carrying the fabricated
+            # figure in its unverified tail -- and pass. The span is our ONLY tie to the source; it is
+            # now verified WHOLE. If the model could not copy it exactly, we do not have the evidence.
             norm = lambda s: re.sub(r'\s+', ' ', s.lower())
-            if norm(span)[:60] not in norm(text):
+            nspan, ntext = norm(span), norm(text)
+            if nspan not in ntext:
                 continue
+            # and the offsets, so nothing downstream has to trust a string match again
+            f['span_offset'] = ntext.find(nspan)
+            f['span_len'] = len(nspan)
 
             # HARD GATE 2 -- THE MECHANISM LAUNDER, CLOSED.
             # This field was copied straight from LLM output while `span` and `claim` beside it were
@@ -405,8 +414,15 @@ def _fmt_cards(sel):
     out = []
     for c in sel:
         mech = f" | mechanism stated by the paper: {', '.join(c['mechanisms'])}" if c['mechanisms'] else ''
+        # THE WRITER MUST SEE THE EVIDENCE, NOT A PARAPHRASE OF IT.
+        # It used to receive ONLY `claim` -- the model's own restatement -- and never the verbatim
+        # span. It then wrote from that paraphrase, and the gate checked its prose against the same
+        # paraphrase. The source text was never in the loop. Now the SPAN leads, and every figure the
+        # writer prints must come out of the span it can actually see.
+        span = re.sub(r'\s+', ' ', (c.get('span') or '')).strip()
         out.append(
-            f"- FINDING: {c['claim']}\n"
+            f"- THE SOURCE SAYS (verbatim -- every number you write MUST appear here): \"{span}\"\n"
+            f"  (paraphrase, for orientation only -- NOT evidence): {c['claim']}\n"
             f"  ATTRIBUTION (use this exact wording): {c['attribution']}\n"
             f"  unit of analysis: {c['level'] or '?'} | horizon: {c['horizon'] or '?'} | "
             f"method: {c['method'] or '?'}{mech}")
@@ -514,9 +530,24 @@ def _gate_attributed(s: str, card: dict) -> tuple[bool, str]:
     paper that never states it ('task displacement' credited to Bresnahan 2002). No 'new entity' rule
     catches that. THE LIE IS IN THE BINDING, so we check the binding.
     """
-    span = (card.get('span') or '').lower()
-    claim = (card.get('claim') or '').lower()
-    src = f'{span} {claim}'
+    # ------------------------------------------------------------------------------------------
+    # THE EVIDENCE-LAUNDERING PATH -- the deepest hole of the night, and I built it, then vouched
+    # for it.  This line used to read:  src = f'{span} {claim}'
+    #
+    #   `claim` is WRITTEN BY THE MODEL. The extract prompt says, in as many words, "state the
+    #   finding IN YOUR WORDS". And _fmt_cards() hands the writer ONLY the claim -- never the span.
+    #
+    #   So the chain was:  the model writes the claim
+    #                   -> the writer sees only the claim
+    #                   -> the gate checks the writing against the claim.
+    #
+    #   THE GATE WAS VALIDATING THE MODEL AGAINST ITSELF. A number hallucinated into `claim` was
+    #   found by the number check -- IN THE HALLUCINATION -- and shipped under a real citation. The
+    #   verbatim span, the only thing that ties this report to reality, never entered the loop.
+    #
+    # The span is the evidence. The claim is a display cache. NOTHING IS EVER VALIDATED AGAINST IT.
+    # ------------------------------------------------------------------------------------------
+    src = (card.get('span') or '').lower()
     src_words = {w for w in re.findall(r'[a-z]{4,}', src)}
 
     # 1. EVERY NUMBER in an attributed sentence must appear in the source it cites.
@@ -638,10 +669,18 @@ def _evidence_table(cards: list, limit: int = 14) -> str:
         claim, span = html.unescape((c.get('claim') or '').strip()), (c.get('span') or '')
         if not claim or not quant(claim):
             continue
-        # the figure in the claim must stand as its own number in this card's own span
+        # `claim` IS MODEL-WRITTEN. I called this table "fabrication structurally impossible"; it was
+        # not. Checking only the NUMBER lets a claim MISDESCRIBE a real figure -- span says
+        # "productivity grew 15%", claim says "employment fell 15%", the 15 is found, the lie prints.
+        # So the claim is a DISPLAY CACHE that must EARN its place: every figure must stand as its own
+        # number in the span, AND the claim's content must actually be what the span says.
         ok = all(re.search(rf'(?<![\d.]){re.escape(n)}(?![\d])', span)
                  for n in re.findall(r'\d+(?:\.\d+)?', claim) if len(n) >= 2 and n != str(c.get('year')))
         if not ok:
+            continue
+        cw = {w for w in re.findall(r'[a-z]{4,}', claim.lower())}
+        sw = {w for w in re.findall(r'[a-z]{4,}', span.lower())}
+        if not cw or len(cw & sw) / len(cw) < 0.34:      # the claim must be OF the span, not merely near it
             continue
         prev = best.get(c['doi'])
         if prev is None or len(quant(claim)) > len(quant(html.unescape(prev.get('claim') or ''))):

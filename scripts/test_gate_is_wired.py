@@ -17,6 +17,7 @@ kind of test that would have caught the bug.
 """
 from __future__ import annotations
 
+import inspect
 import ast
 import json
 import re
@@ -164,6 +165,45 @@ try:
     check('fabricated binding is REJECTED even when hidden inside a comparison',
           not leak_s.strip(),
           'the multi-source lane let a fabricated binding through' if leak_s.strip() else '')
+    # ===================== THE EVIDENCE-LAUNDERING ATTACK =====================
+    # The gate used to validate a sentence against `span + claim`. `claim` is WRITTEN BY THE MODEL
+    # ("state the finding in your words"), and the writer was handed ONLY the claim, never the span.
+    # So: model writes claim -> writer writes from claim -> gate checks writing against claim.
+    # THE GATE VALIDATED THE MODEL AGAINST ITSELF. A figure hallucinated into `claim` was found by the
+    # number check -- in the hallucination -- and shipped under a real citation.
+    laundered = {'authors': ['Bresnahan'], 'year': 2002, 'doi': 'x',
+                 'venue': 'The Quarterly Journal of Economics',
+                 'span': 'Computer automation of such work has been correspondingly limited in its scope.',
+                 'claim': 'Computerisation reduced employment by 47 percent across affected firms.',
+                 'mechanisms': []}
+    laund, _ = cc._clean(
+        'Writing in The Quarterly Journal of Economics in 2002, Bresnahan et al. show that '
+        'computerisation reduced employment by 47 percent across affected firms.', [laundered])
+    check('EVIDENCE LAUNDERING: a figure the extractor invented in `claim` is REJECTED',
+          not laund.strip(),
+          'THE MODEL VALIDATED ITSELF -- a fabricated number shipped under a real citation')
+
+    # ...and a TRUE figure, present in the verbatim span, must still reach the page
+    true_c = dict(laundered,
+                  span='we find that employment fell by 0.2 percentage points per robot per thousand workers',
+                  claim='employment fell per robot')
+    real, why_r = cc._clean(
+        'Writing in The Quarterly Journal of Economics in 2002, Bresnahan et al. report that employment '
+        'fell by 0.2 percentage points per robot per thousand workers.', [true_c])
+    check('a TRUE figure, present in the span, still reaches the page',
+          bool(real.strip()),
+          f'real evidence deleted -- the gate is starving again: {why_r[:1]}')
+
+    # the span must be verified WHOLE. 60 chars of real text + an invented tail used to pass.
+    src = inspect.getsource(cc)
+    check('the verbatim span is verified WHOLE, not by its first 60 characters',
+          'norm(span)[:60] not in norm(text)' not in src and 'nspan not in ntext' in src,
+          'a span can still open with 60 real characters and continue into invention')
+    # must match ACTIVE CODE, not the comment that documents the bug -- the naive substring test
+    # matched its own tombstone.
+    check('the gate NEVER validates against the model-authored `claim`',
+          not re.search(r"(?m)^\s*src\s*=\s*f'\{span\}\s*\{claim\}'", src),
+          'the evidence-laundering path is open again: the gate validates the model against itself')
 except Exception as e:
     check('composer gate importable', False, str(e))
 
