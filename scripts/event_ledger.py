@@ -1,0 +1,1110 @@
+#!/usr/bin/env python3
+"""EVENT LEDGER — every status is a PURE REDUCER over an append-only event log.
+
+    Sol, item 8: "NO COMPONENT MAY WRITE `complete`, `fulltext`, `no evidence`, `same work`,
+                  or `high quality` DIRECTLY."
+
+THE FAILURE THIS IS THE STRUCTURAL CURE FOR
+
+  Every defect we have shipped had ONE shape: A LABEL THAT ASSERTED MORE THAN ITS CONTENT
+  SUPPORTED, WITH NOTHING CHECKING. Not one announced itself; each read as a fact about the world.
+
+      "gate: WIRED"          -> it checked the wrong lane; fabrication shipped
+      "span-verified"        -> verified by its FIRST 60 CHARACTERS
+      "still paywalled"      -> we asked by DOI; the free copy is a SEPARATE WORK
+      "FULLTEXT"             -> 535 words. A cookie banner.
+      "no free copy exists"  -> we were HTTP 429/404. A fact about OUR REQUEST and THEIR INDEX,
+                                disguised as a fact about the world.
+      "working_paper"        -> written by whichever SCRIPT ran, not by what the document IS.
+
+  A component that CAN assert its own success will eventually assert it falsely, and nothing will
+  catch it. So here a component may ONLY EMIT EVENTS — observations, in the vocabulary of the world:
+  an HTTP status, a word count, a byline, a glyph ratio. The LABEL is DERIVED from those events by a
+  reducer nobody can bypass, and the label is never stored anywhere a component could overwrite it.
+
+THE TWO RULES THAT MAKE IT STRUCTURAL, NOT ADVISORY
+
+  1. EMIT-TIME CONCLUSION GUARD. `Ledger.emit()` REJECTS any event whose payload carries a terminal
+     conclusion — a key like `content_status`, or a value like "FULLTEXT" / "same work" /
+     "no evidence" / "high quality". You cannot write the label into the ledger even if you try.
+     Raw text quoted from the world (`header_text`, `span`, `document_title`) is exempt: a fetched
+     PDF is allowed to contain the word "complete". A COMPONENT is not.
+
+  2. LABELS ARE NEVER STORED. They are computed on read by `derive_*` pure functions over the event
+     list. There is no field to corrupt, no cache to go stale, and no way to "just set it".
+
+THE DISTINCTIONS THAT MUST NEVER COLLAPSE (Sol)
+
+    HTTP 429/503        -> BACKEND_FAILED.  ** NOT "no evidence exists". **
+    HTTP 404            -> NOT_INDEXED_BY_THIS_BACKEND. A fact about THEIR INDEX. Also not absence.
+    route_complete      -> EVERY PLANNED ADAPTER HAS A TERMINAL OUTCOME RECORD.
+                           It must NEVER mean "an adapter was mapped."
+    a budget stop       -> IS NOT AN EVIDENCE GAP.
+    absence             -> only an ADEQUATE route (every adapter genuinely answered, none throttled,
+                           none blocked, no budget stop) can support a scoped absence statement.
+    "high_quality"      -> FORBIDDEN as a bare label. It renders as its COMPONENTS, each with
+                           provenance: directness=high, method_quality=low, influence_percentile=0.92.
+
+Run it:
+    python3 scripts/event_ledger.py            # self-test + replay of our real history
+    python3 scripts/event_ledger.py --replay   # just the replay
+    python3 scripts/event_ledger.py --selftest # just the invariants
+"""
+from __future__ import annotations
+
+import json
+import re
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Iterable
+
+ROOT = Path(__file__).resolve().parents[1]
+CORPUS = ROOT / 'outputs' / 'journal_corpus_content.json'
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# EVENTS — the only thing a component may write.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+class EventKind:
+    """Sol's twelve, verbatim, plus the budget stop (which must be distinguishable from a gap)."""
+    ROUTE_PLANNED             = 'route_planned'
+    BACKEND_ATTEMPTED         = 'backend_attempted'
+    RESPONSE_RECEIVED         = 'response_received'
+    THROTTLED                 = 'throttled'
+    BLOCKED                   = 'blocked'
+    CANDIDATE_IDENTIFIED      = 'candidate_identified'
+    MANIFESTATION_FETCHED     = 'manifestation_fetched'
+    CONTENT_PROFILE_DERIVED   = 'content_profile_derived'
+    SEMANTIC_BINDING_DECIDED  = 'semantic_binding_decided'
+    ELIGIBILITY_DECIDED       = 'eligibility_decided'
+    WEIGHT_COMPONENTS_DERIVED = 'weight_components_derived'
+    COVERAGE_STATUS_DERIVED   = 'coverage_status_derived'
+    # "a budget stop IS NOT AN EVIDENCE GAP" — so it needs its own event, or it cannot be told apart.
+    BUDGET_STOPPED            = 'budget_stopped'
+
+    ALL = {ROUTE_PLANNED, BACKEND_ATTEMPTED, RESPONSE_RECEIVED, THROTTLED, BLOCKED,
+           CANDIDATE_IDENTIFIED, MANIFESTATION_FETCHED, CONTENT_PROFILE_DERIVED,
+           SEMANTIC_BINDING_DECIDED, ELIGIBILITY_DECIDED, WEIGHT_COMPONENTS_DERIVED,
+           COVERAGE_STATUS_DERIVED, BUDGET_STOPPED}
+
+
+class ForbiddenLabel(Exception):
+    """A component tried to write a conclusion into the ledger. That is the whole disease."""
+
+
+#: Terminal conclusions. A component may not state these — the reducer derives them.
+RESERVED_VALUES = (
+    'fulltext', 'full text', 'full-text',
+    'complete', 'route_complete',
+    'no evidence', 'no free copy', 'no free text', 'not available', 'nothing found',
+    'same work', 'same_work', 'version equivalent',
+    'high quality', 'high_quality', 'low quality', 'low_quality',
+    'paywalled', 'still paywalled',
+    'supported', 'searched_none', 'conflicted',
+    'admissible', 'inadmissible', 'eligible',
+    'verified', 'span-verified', 'fabrication-proof',
+)
+
+#: Keys that ARE labels. Naming one is an attempt to set the label directly.
+RESERVED_KEYS = (
+    'content_status', 'status', 'label', 'verdict', 'quality', 'tier', 'grade',
+    'fulltext_source', 'is_fulltext', 'route_complete', 'complete', 'coverage',
+    'coverage_status', 'eligibility', 'binding', 'admissible', 'evidence_status',
+)
+
+#: Fields that are RAW TEXT QUOTED FROM THE WORLD. A PDF may contain any word at all; that is not
+#: the component asserting it. These are exempt from the value scan (never from the key scan).
+#: NOTE what is NOT here: `note`. A free-text `note` is the COMPONENT talking, not the world, and it
+#: is precisely where a conclusion would be smuggled in ("note: no free copy exists"). It stays
+#: scanned. (The guard caught exactly that in this file's own replay code, and the fix was to reword
+#: the note into an observation — not to exempt the field.)
+VERBATIM_KEYS = frozenset({
+    'header_text', 'identity_window', 'span', 'document_title', 'byline', 'snippet', 'raw', 'title',
+    'reason_text', 'requested_title', 'url', 'doi', 'venue',
+})
+
+
+@dataclass(frozen=True)
+class Event:
+    """An OBSERVATION. Immutable, ordered, and never a conclusion."""
+    seq: int
+    unit: str                    # what this is about — a DOI, a coverage cell id, a route id
+    kind: str
+    actor: str                   # which component observed it (for provenance, not for authority)
+    payload: dict[str, Any] = field(default_factory=dict)
+    ts: float = field(default_factory=time.time)
+
+    def to_json(self) -> str:
+        return json.dumps({'seq': self.seq, 'unit': self.unit, 'kind': self.kind,
+                           'actor': self.actor, 'payload': self.payload, 'ts': self.ts},
+                          sort_keys=True)
+
+
+def _scan_for_conclusions(kind: str, payload: dict) -> list[str]:
+    """Return the reasons this payload is an ASSERTION rather than an OBSERVATION."""
+    bad: list[str] = []
+    for k, v in payload.items():
+        kl = str(k).lower()
+        if kl in RESERVED_KEYS:
+            bad.append(f'key {k!r} IS a label — the reducer derives it; a component may not set it')
+            continue
+        if kl in VERBATIM_KEYS:
+            continue                       # raw text from the world. It may say anything.
+        if isinstance(v, str):
+            vl = v.lower().strip()
+            for r in RESERVED_VALUES:
+                # match the whole value or a word-bounded occurrence — not a substring of a word
+                if vl == r or re.search(rf'(?<![a-z0-9_]){re.escape(r)}(?![a-z0-9_])', vl):
+                    bad.append(f'{k}={v!r} states the conclusion {r!r}; emit the OBSERVATION instead '
+                               f'(word_count / http_status / byline), and let the reducer conclude')
+                    break
+    return bad
+
+
+class Ledger:
+    """Append-only. You may add an observation. You may not edit, delete, or conclude."""
+
+    def __init__(self, path: Path | None = None):
+        self._events: list[Event] = []
+        self._path = path
+        self._seq = 0
+
+    # -- write side: exactly one method, and it is guarded -------------------------------------
+    def emit(self, unit: str, kind: str, actor: str, **payload) -> Event:
+        if kind not in EventKind.ALL:
+            raise ForbiddenLabel(f'unknown event kind {kind!r}')
+        problems = _scan_for_conclusions(kind, payload)
+        if problems:
+            raise ForbiddenLabel(
+                f'{actor} tried to write a CONCLUSION into the ledger:\n    ' + '\n    '.join(problems))
+        return self._append(unit, kind, actor, payload)
+
+    def _append(self, unit: str, kind: str, actor: str, payload: dict) -> Event:
+        self._seq += 1
+        ev = Event(seq=self._seq, unit=unit, kind=kind, actor=actor, payload=dict(payload))
+        self._events.append(ev)
+        if self._path:
+            with open(self._path, 'a') as fh:
+                fh.write(ev.to_json() + '\n')
+        return ev
+
+    # -- the reducer's audit trail --------------------------------------------------------------
+    def record_derivation(self, unit: str, kind: str, reducer: str, inputs: list[int],
+                          **verdict) -> Event:
+        """A reducer may append its own verdict — FOR AUDIT ONLY. Nobody else can call this.
+
+        The frame check below is not decoration. `emit()` is the door components use, and it refuses
+        conclusions. This is the door the reducer uses, and it is bolted from the inside: if the
+        calling frame is not this module, it raises. There is no third door.
+
+        Downstream reducers NEVER TRUST these records — they RE-DERIVE from the observations. A
+        recorded verdict is an audit artifact, not an authority. That is the difference between a
+        ledger and a cache, and caching the label is how we shipped "FULLTEXT" on a cookie banner.
+        """
+        import inspect
+        caller = inspect.currentframe().f_back
+        if caller.f_globals.get('__name__') != __name__:
+            raise ForbiddenLabel(
+                f'{caller.f_globals.get("__name__")!r} tried to record a DERIVED label directly. '
+                f'Only a reducer inside {__name__} may. Emit OBSERVATIONS and call derive_*().')
+        return self._append(unit, kind, reducer,
+                            {**verdict, 'derived_by': reducer, 'from_events': list(inputs)})
+
+    # -- read side ------------------------------------------------------------------------------
+    def events(self, unit: str | None = None, kind: str | None = None) -> list[Event]:
+        return [e for e in self._events
+                if (unit is None or e.unit == unit) and (kind is None or e.kind == kind)]
+
+    def units(self) -> list[str]:
+        return list(dict.fromkeys(e.unit for e in self._events))
+
+    def __len__(self) -> int:
+        return len(self._events)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# OBSERVERS — pure functions from raw content to OBSERVATIONS. They conclude nothing.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+_CID = re.compile(r'\(cid:\d+\)')
+_CHROME = re.compile(
+    r'website uses cookies|accept\s+(?:all\s+)?cookies|by clicking the "accept" button|'
+    r'enable javascript|sign in to (?:your account|continue)|create an account|'
+    r'this site requires|subscribe to (?:read|view)|purchase access|add to cart|'
+    # ...the repository LANDING PAGES that fooled us: Oxford ORA, PubMed Central, generic portals.
+    r'skip to main content|we welcome feedback|send message|research archive|'
+    r'privacy policy|terms of use|all rights reserved|official websites use',
+    re.I)
+_PUBLISHED_STAMP = re.compile(r'published version|version of record|\(refereed\)|original citation', re.I)
+_PREPRINT_STAMP = re.compile(
+    r'nber working paper (?:series|no)|national bureau of economic research|'
+    r'iza (?:dp|discussion paper)|this (?:draft|version):|preliminary(?: and incomplete)?|'
+    r'do not (?:cite|quote) without|arxiv:\d', re.I)
+
+
+def observe_text(text: str, header_chars: int = 1500) -> dict:
+    """Everything the ledger needs to know about a blob of retrieved text — and NOT ONE CONCLUSION.
+
+    Note `header_chars`: a preprint stamp is only evidence of what a document IS when it appears in
+    the document's OWN header. Every economics paper cites NBER working papers in its REFERENCES —
+    scanning the whole text for "NBER Working Paper" identifies the bibliography, not the paper.
+    (That naive scan called the actual Journal of Economic Perspectives article a working paper.)
+    """
+    words = text.split()
+    header = text[:header_chars]
+    cid_tokens = sum(1 for t in words if 'cid:' in t)
+    stripped = _CID.sub('', text)
+    real_words = len(re.findall(r'[A-Za-z]{3,}', stripped))
+    # How much REAL text is in the header? A title page of pure (cid:NN) glyph codes decodes to
+    # nothing — and a header we cannot READ is a header we cannot CHECK AN IDENTITY AGAINST. It is
+    # not a stranger's paper. It is an unreadable one, and those are different facts.
+    header_real = len(re.findall(r'[A-Za-z]{3,}', _CID.sub('', header)))
+    return {
+        'word_count': len(words),
+        'char_count': len(text),
+        'readable_word_count': real_words,
+        'glyph_garbage_ratio': round(cid_tokens / max(1, len(words)), 4),
+        'chrome_markers': len(_CHROME.findall(text)),
+        'published_stamp_in_header': bool(_PUBLISHED_STAMP.search(header)),
+        'preprint_stamp_in_header': bool(_PREPRINT_STAMP.search(header)),
+        'preprint_stamp_anywhere': bool(_PREPRINT_STAMP.search(text)),
+        'header_real_words': header_real,
+        # the window identity is checked in. BOUNDED ON PURPOSE: searching the WHOLE document for an
+        # author name matches the REFERENCES — every requested author is "present" somewhere in every
+        # paper. (A mathematician named Parry is cited in the maths paper we misfiled under Parry
+        # et al. A whole-text search "confirmed" the wrong paper.)
+        'identity_window': header,
+        'header_text': header[:400],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# REDUCERS — the ONLY place a label may come into existence.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+# ---- 1. backend outcome ----------------------------------------------------------------------
+
+RESPONDED            = 'RESPONDED'                    # the backend answered with content
+NOT_INDEXED          = 'NOT_INDEXED_BY_THIS_BACKEND'  # 404 — a fact about THEIR INDEX, not the world
+BACKEND_FAILED       = 'BACKEND_FAILED'               # 429/503/timeout — a fact about OUR REQUEST
+ACCESS_BLOCKED       = 'ACCESS_BLOCKED'               # 401/403/paywall — a fact about ENTITLEMENT
+NO_OUTCOME           = 'NO_OUTCOME'                   # attempted, never came back. A HANG, not a gap.
+
+
+def derive_backend_outcome(events: list[Event], adapter: str) -> str:
+    """What actually happened to one adapter. `None` is not an answer — it is four different worlds."""
+    mine = [e for e in events if e.payload.get('adapter') == adapter]
+    if any(e.kind == EventKind.THROTTLED for e in mine):
+        return BACKEND_FAILED
+    if any(e.kind == EventKind.BLOCKED for e in mine):
+        return ACCESS_BLOCKED
+    for e in mine:
+        if e.kind != EventKind.RESPONSE_RECEIVED:
+            continue
+        code = e.payload.get('http_status')
+        if code in (429, 503):
+            return BACKEND_FAILED           # even if someone logged it as a "response"
+        if code in (401, 403):
+            return ACCESS_BLOCKED
+        if code == 404:
+            return NOT_INDEXED
+        if e.payload.get('transport_error'):
+            return BACKEND_FAILED           # timeout / DNS / reset / bad JSON
+        return RESPONDED
+    if any(e.kind == EventKind.BACKEND_ATTEMPTED for e in mine):
+        return NO_OUTCOME
+    return NO_OUTCOME
+
+
+# ---- 2. route status -------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class RouteStatus:
+    state: str                     # UNROUTED | INCOMPLETE | COMPLETE_DEGRADED | COMPLETE
+    planned: tuple[str, ...]
+    outcomes: dict[str, str]
+    missing: tuple[str, ...]       # planned adapters with NO terminal outcome
+    failed: tuple[str, ...]        # adapters that were throttled/blocked/errored
+    budget_stopped: bool
+
+    @property
+    def supports_absence(self) -> bool:
+        """THE question. Only an ADEQUATE route licenses "we looked, and it is not there."
+
+        Every planned adapter must have genuinely ANSWERED. One 429, one hang, or a budget stop and
+        the honest label is SEARCH_FAILED — we do not know, and we may not say we do.
+        """
+        return (self.state == 'COMPLETE'
+                and not self.missing and not self.failed and not self.budget_stopped
+                and bool(self.planned))
+
+
+def derive_route_status(events: list[Event]) -> RouteStatus:
+    """route_complete means EVERY PLANNED ADAPTER HAS A TERMINAL OUTCOME RECORD.
+
+    It NEVER means "an adapter was mapped".
+    """
+    planned: list[str] = []
+    for e in events:
+        if e.kind == EventKind.ROUTE_PLANNED:
+            planned += [a for a in e.payload.get('adapters', []) if a not in planned]
+    if not planned:
+        return RouteStatus('UNROUTED', (), {}, (), (), False)
+
+    budget = any(e.kind == EventKind.BUDGET_STOPPED for e in events)
+    outcomes = {a: derive_backend_outcome(events, a) for a in planned}
+    missing = tuple(a for a, o in outcomes.items() if o == NO_OUTCOME)
+    failed = tuple(a for a, o in outcomes.items() if o in (BACKEND_FAILED, ACCESS_BLOCKED))
+
+    if missing:
+        state = 'INCOMPLETE'
+    elif failed or budget:
+        state = 'COMPLETE_DEGRADED'     # every adapter has a record — but the search DID NOT WORK
+    else:
+        state = 'COMPLETE'
+    return RouteStatus(state, tuple(planned), outcomes, missing, failed, budget)
+
+
+# ---- 3. content profile ----------------------------------------------------------------------
+
+FULLTEXT_MIN = 2500      # a journal article is 5,000-20,000 words
+ABSTRACT_MIN = 120
+
+C_FULLTEXT     = 'FULLTEXT'
+C_ABSTRACT     = 'ABSTRACT'
+C_CITATION     = 'CITATION_ONLY'
+C_NOT_DOC      = 'NOT_A_DOCUMENT'        # a cookie banner, a login wall, a paywall interstitial
+C_UNREADABLE   = 'UNREADABLE_ENCODING'   # a PDF whose glyphs never decoded
+
+
+def derive_content_profile(events: list[Event]) -> tuple[str, dict]:
+    """FULLTEXT is EARNED BY WORD COUNT AND READABILITY. It is never a thing a fetcher may declare."""
+    prof = None
+    for e in events:
+        if e.kind == EventKind.CONTENT_PROFILE_DERIVED:
+            prof = e.payload
+    if prof is None:
+        return C_CITATION, {'reason': 'no content was ever profiled'}
+
+    wc = prof.get('word_count', 0)
+    readable = prof.get('readable_word_count', 0)
+    chrome = prof.get('chrome_markers', 0)
+
+    # A cookie banner is not a short paper. It is NOT A PAPER.
+    if chrome and wc < FULLTEXT_MIN:
+        return C_NOT_DOC, {'reason': f'{chrome} site-chrome marker(s) in {wc}w — this is a web page, '
+                                     f'not a document', **prof}
+    if wc and prof.get('glyph_garbage_ratio', 0) > 0.10:
+        return C_UNREADABLE, {'reason': f'{prof["glyph_garbage_ratio"]:.0%} of tokens are (cid:NN) '
+                                        f'glyph codes — the font never decoded', **prof}
+    if readable >= FULLTEXT_MIN:
+        return C_FULLTEXT, {'reason': f'{readable:,} readable words', **prof}
+    if max(wc, readable) >= ABSTRACT_MIN:
+        return C_ABSTRACT, {'reason': f'{wc:,}w — an abstract, not a paper (floor {FULLTEXT_MIN:,})',
+                            **prof}
+    return C_CITATION, {'reason': f'{wc}w', **prof}
+
+
+# ---- 4. semantic binding ---------------------------------------------------------------------
+
+SAME_WORK        = 'SAME_WORK'              # this IS the journal article
+VERSION_PUBLISHED = 'VERSION_OF_PUBLISHED'  # a repository copy OF the published version
+VERSION_PREPRINT = 'VERSION_OF_PREPRINT'    # a working paper. A DIFFERENT SOURCE until proven equal.
+DIFFERENT_WORK   = 'DIFFERENT_WORK'         # we fetched somebody else's paper
+UNRESOLVED       = 'UNRESOLVED_BINDING'
+
+
+def _norm(s: str) -> set[str]:
+    stop = {'the', 'a', 'an', 'of', 'and', 'for', 'in', 'on', 'to', 'from', 'with'}
+    return {w for w in re.findall(r'[a-z]+', (s or '').lower()) if w not in stop and len(w) > 2}
+
+
+def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
+    """Is the text we fetched the work we asked for? A fetcher MAY NOT ANSWER THIS ABOUT ITSELF.
+
+    Sol: "A predecessor working paper and later journal article may be closely related, but they are
+    DIFFERENT SOURCES until version equivalence is proven."
+    """
+    fetched = None
+    for e in events:
+        if e.kind == EventKind.MANIFESTATION_FETCHED:
+            fetched = e.payload
+    prof = None
+    for e in events:
+        if e.kind == EventKind.CONTENT_PROFILE_DERIVED:
+            prof = e.payload
+    if fetched is None or prof is None:
+        return UNRESOLVED, {'reason': 'nothing was fetched'}
+
+    # The identity window is BOUNDED (see observe_text): a whole-document scan finds every author in
+    # the references and "confirms" anything you ask it to.
+    window = fetched.get('document_title', '') or prof.get('identity_window', '') \
+        or prof.get('header_text', '')
+    want_t = _norm(fetched.get('requested_title', ''))
+    got_t = _norm(window)
+    want_a = {a.lower() for a in fetched.get('requested_authors', [])}
+    byline = (fetched.get('byline', '') or window).lower()
+
+    overlap = len(want_t & got_t) / max(1, len(want_t))
+    author_hit = any(a in byline for a in want_a if a)
+    title_match = overlap >= 0.90
+    # A SPECIFIC title (>=4 content words) matching in full is itself strong identity evidence.
+    # A GENERIC one is not: {rise, machines} sits entirely inside {mathematics, rise, machines}.
+    title_specific = len(want_t) >= 4
+
+    ev = {'title_overlap': round(overlap, 2), 'author_in_byline': author_hit,
+          'title_content_words': len(want_t),
+          'requested_title': fetched.get('requested_title', '')[:70],
+          'header_text': (prof.get('header_text') or '')[:120]}
+
+    # ── AN UNREADABLE HEADER IS NOT A STRANGER'S PAPER. ───────────────────────────────────────
+    # Autor, Levy & Murnane (2003) arrives as a PDF whose title page is pure (cid:NN) glyph codes:
+    # ZERO readable words in the header, though the BODY has 10,902. An earlier version of this
+    # reducer read "no title, no author" as DIFFERENT_WORK — turning a FONT-ENCODING FAILURE into a
+    # confident claim about whose paper it is. That is this project's whole disease, committed by
+    # the cure. We cannot read it, therefore we cannot bind it. Say exactly that.
+    if prof.get('header_real_words', 0) < 10:
+        return UNRESOLVED, {'reason': f'the header decoded to {prof.get("header_real_words", 0)} '
+                                      f'readable words — we CANNOT READ it, so we cannot establish '
+                                      f'identity. Not a stranger\'s paper: an unreadable one', **ev}
+
+    # ── IDENTITY IS CONFIRMED BY AN AUTHOR, OR BY A SPECIFIC TITLE IN FULL. ───────────────────
+    confirmed = author_hit or (title_match and title_specific)
+
+    if not confirmed:
+        # DIFFERENT_WORK is a STRONG CLAIM ("we are holding a stranger's paper") and it needs
+        # POSITIVE evidence. Absence of a confirming author is NOT that evidence — it is absence of
+        # evidence, and reading the two as the same is how "429" became "no free copy exists".
+        if title_match and not title_specific:
+            return DIFFERENT_WORK, {
+                'reason': f'the requested title has only {len(want_t)} content word(s), and no '
+                          f'requested author appears in the header. A {overlap:.0%} match on a '
+                          f'GENERIC title is a TITLE COLLISION, not identity — the short title sits '
+                          f'inside a stranger\'s longer one', **ev}
+        return UNRESOLVED, {'reason': f'title overlap {overlap:.0%}, no requested author in the '
+                                      f'header — identity is NOT established, so this text may not '
+                                      f'be attributed to this source', **ev}
+
+    # ...an author alone is not identity either: prolific authors write many papers.
+    if author_hit and not title_match and not title_specific:
+        return DIFFERENT_WORK, {'reason': f'the author matches but the title does not ({overlap:.0%}) '
+                                          f'— same author, DIFFERENT PAPER', **ev}
+
+    if prof.get('published_stamp_in_header'):
+        return VERSION_PUBLISHED, {'reason': 'identity confirmed, and the header carries a '
+                                             'published-version/refereed stamp', **ev}
+    if prof.get('preprint_stamp_in_header'):
+        return VERSION_PREPRINT, {'reason': 'identity confirmed, but the header carries a '
+                                            'preprint/working-paper stamp — peer review CHANGES '
+                                            'NUMBERS; this is a DIFFERENT SOURCE until version '
+                                            'equivalence is proven', **ev}
+    return SAME_WORK, {'reason': 'identity confirmed by '
+                                 + ('author and title' if author_hit and title_match
+                                    else 'author in the header' if author_hit
+                                    else f'a specific {len(want_t)}-word title matched in full')
+                                 + ', and no preprint stamp in the header', **ev}
+
+
+# ---- 5. eligibility --------------------------------------------------------------------------
+
+ADMISSIBLE     = 'ADMISSIBLE'
+DISCOVERY_LEAD = 'DISCOVERY_LEAD'     # Sol's word, exactly. Real text — but not attributable HERE.
+INADMISSIBLE   = 'INADMISSIBLE'
+
+
+def derive_eligibility(events: list[Event], journal_articles_only: bool = True) -> tuple[str, dict]:
+    """May this text be attributed to THIS source, under THIS task's instruction?
+
+    Task 72 demands JOURNAL ARTICLES ONLY. So citing the working paper BREAKS THE INSTRUCTION, and
+    citing the journal with the working paper's text IS FABRICATION. There is no version in which the
+    working-paper span ships as journal evidence.
+    """
+    cls, cinfo = derive_content_profile(events)
+    binding, binfo = derive_semantic_binding(events)
+
+    if cls == C_NOT_DOC:
+        return INADMISSIBLE, {'reason': f'not a document ({cinfo["reason"]})',
+                              'content_class': cls, 'binding': binding}
+    if cls == C_UNREADABLE:
+        return INADMISSIBLE, {'reason': f'unreadable ({cinfo["reason"]})',
+                              'content_class': cls, 'binding': binding}
+    if binding == DIFFERENT_WORK:
+        return INADMISSIBLE, {'reason': f'wrong paper ({binfo["reason"]})',
+                              'content_class': cls, 'binding': binding}
+    if binding == VERSION_PREPRINT:
+        return DISCOVERY_LEAD, {
+            'reason': 'working-paper text. A DISCOVERY LEAD, not automatically journal-attributable '
+                      'evidence — version equivalence is not proven'
+                      + (' and the task demands journal articles only' if journal_articles_only else ''),
+            'content_class': cls, 'binding': binding}
+    if binding == UNRESOLVED:
+        return INADMISSIBLE, {'reason': 'we cannot show this text is the work we cite',
+                              'content_class': cls, 'binding': binding}
+    if cls == C_CITATION:
+        return INADMISSIBLE, {'reason': 'no content', 'content_class': cls, 'binding': binding}
+    return ADMISSIBLE, {'reason': f'{binding.lower().replace("_", " ")}; {cinfo["reason"]}',
+                        'content_class': cls, 'binding': binding}
+
+
+# ---- 6. weight components — "high_quality" IS FORBIDDEN ---------------------------------------
+
+@dataclass(frozen=True)
+class WeightComponents:
+    """Sol: "high_quality" must render as its COMPONENTS, each with provenance.
+
+    There is deliberately NO `.label` and NO `__str__` that collapses to a scalar. A single word
+    ("high quality") is exactly the kind of claim that outruns its evidence — one strong component
+    carries the two weak ones, and nobody can see it happen.
+    """
+    components: dict[str, Any]
+    provenance: dict[str, str]
+
+    def render(self) -> str:
+        return ', '.join(f'{k}={v} [{self.provenance.get(k, "?")}]'
+                         for k, v in self.components.items())
+
+
+def derive_weight_components(events: list[Event]) -> WeightComponents:
+    comps, prov = {}, {}
+    for e in events:
+        if e.kind != EventKind.WEIGHT_COMPONENTS_DERIVED:
+            continue
+        for k, v in e.payload.items():
+            if k.endswith('_provenance'):
+                continue
+            comps[k] = v
+            prov[k] = e.payload.get(f'{k}_provenance', f'observed by {e.actor}')
+    return WeightComponents(comps, prov)
+
+
+# ---- 7. coverage status ----------------------------------------------------------------------
+
+UNSEARCHED    = 'UNSEARCHED'
+SEARCH_FAILED = 'SEARCH_FAILED'
+UNROUTED      = 'UNROUTED'
+SEARCHED_NONE = 'SEARCHED_NONE'
+THIN          = 'THIN'
+SUPPORTED     = 'SUPPORTED'
+CONFLICTED    = 'CONFLICTED'
+
+THIN_MAX = 1     # 1 admissible source is THIN; 2+ agreeing is SUPPORTED
+
+
+def derive_coverage_status(ledger: 'Ledger', cell: str, thin_max: int = THIN_MAX) -> tuple[str, dict]:
+    """The seven-way distinction. Collapsing any two of these is how we lied about the world.
+
+    Only SEARCHED_NONE — after ADEQUATE route completion — supports a scoped absence statement.
+    CONFLICTED and THIN directly support "the literature does not settle this", which is a CORRECT
+    ANSWER, not a failure.
+
+    NOTE THE SIGNATURE. It takes the LEDGER, not a flat event list, because it must go and RE-DERIVE
+    the eligibility of every candidate source from that source's OWN observations. It will not read
+    an `admissible` flag — no component is allowed to write one, and a reducer that trusted a stored
+    verdict would re-open the exact hole this module closes.
+    """
+    events = ledger.events(cell)
+    route = derive_route_status(events)
+    if route.state == 'UNROUTED':
+        return UNROUTED, {'reason': 'no route was ever planned for this cell'}
+    if route.missing:
+        return UNSEARCHED, {'reason': f'planned but never answered: {", ".join(route.missing)} '
+                                      f'— an attempt with no outcome is a HANG, not an absence'}
+    if route.budget_stopped:
+        return SEARCH_FAILED, {'reason': 'we stopped on BUDGET. A budget stop IS NOT AN EVIDENCE GAP '
+                                         '— we do not know what is there'}
+    if route.failed:
+        detail = ', '.join(f'{a}={route.outcomes[a]}' for a in route.failed)
+        return SEARCH_FAILED, {'reason': f'the search itself failed ({detail}) — this is a fact about '
+                                         f'OUR REQUEST, not about the literature'}
+
+    # Re-derive admissibility for every candidate, from that candidate's own event stream.
+    cards, rejected = [], []
+    for e in events:
+        if e.kind != EventKind.CANDIDATE_IDENTIFIED or not e.payload.get('source_unit'):
+            continue
+        src = e.payload['source_unit']
+        elig, einfo = derive_eligibility(ledger.events(src))
+        if elig == ADMISSIBLE:
+            cards.append(e)
+        else:
+            rejected.append((src, elig, einfo.get('reason', '')))
+
+    dirs = {e.payload.get('direction') for e in cards} - {None}
+
+    if not cards:
+        if not route.supports_absence:
+            return SEARCH_FAILED, {'reason': 'route did not complete adequately; absence is not '
+                                             'established'}
+        n = len(route.planned)
+        if rejected:
+            # WE RETRIEVED THINGS AND COULD NOT ADMIT THEM. That is a statement about OUR EVIDENCE,
+            # and it must never be read as "the literature is silent". A scoped absence sentence
+            # written off this cell has to say so out loud.
+            detail = '; '.join(f'{s}={e} ({r})' for s, e, r in rejected[:4])
+            return SEARCHED_NONE, {
+                'reason': f'all {n} adapters answered, but every one of the {len(rejected)} candidate(s) '
+                          f'retrieved was INADMISSIBLE — we hold no usable evidence. This is a fact '
+                          f'about OUR EVIDENCE, not about the literature: {detail}',
+                'n_sources': 0, 'n_rejected': len(rejected), 'rejected': rejected}
+        return SEARCHED_NONE, {'reason': f'every planned adapter genuinely answered ({n}/{n}) and '
+                                         f'returned nothing — a SCOPED ABSENCE, and the only state '
+                                         f'that licenses one',
+                               'n_sources': 0, 'n_rejected': 0}
+    if len(dirs) > 1:
+        return CONFLICTED, {'reason': f'{len(cards)} admissible sources disagree ({", ".join(sorted(dirs))}) '
+                                      f'— "the literature does not settle this" IS THE CORRECT ANSWER',
+                            'n_sources': len(cards), 'n_rejected': len(rejected)}
+    if len(cards) <= thin_max:
+        return THIN, {'reason': f'{len(cards)} admissible source — enough to report, not enough to '
+                                f'settle', 'n_sources': len(cards), 'n_rejected': len(rejected)}
+    return SUPPORTED, {'reason': f'{len(cards)} admissible sources agree', 'n_sources': len(cards),
+                       'n_rejected': len(rejected)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# The bypass detector — which labels in a corpus have NO ledger behind them?
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+def find_underived_labels(row: dict) -> list[str]:
+    """A label with no event behind it is a component asserting its own success."""
+    out = []
+    if 'content_status' in row:
+        out.append(f'content_status={row["content_status"]!r} — written directly, derived from nothing')
+    if row.get('fulltext_source'):
+        out.append(f'fulltext_source={row["fulltext_source"]!r} — names the SCRIPT THAT RAN, '
+                   f'not what the document IS')
+    fw, actual = row.get('fulltext_words'), len((row.get('fulltext') or '').split())
+    if fw and fw != actual:
+        out.append(f'fulltext_words={fw:,} but the row holds {actual:,} — the count describes a '
+                   f'document we no longer have')
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# SELF-TEST — the invariants that must never regress.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+def selftest() -> int:
+    ok = fail = 0
+
+    def check(name, cond, detail=''):
+        nonlocal ok, fail
+        if cond:
+            ok += 1
+            print(f'  [PASS] {name}')
+        else:
+            fail += 1
+            print(f'  [FAIL] {name}\n         {detail}')
+
+    print('\n=== INVARIANTS ===')
+
+    # 1. A component cannot write the label. At all.
+    L = Ledger()
+    try:
+        L.emit('d', EventKind.CONTENT_PROFILE_DERIVED, 'wp_fetch', content_status='FULLTEXT')
+        check('a component CANNOT write content_status directly', False, 'IT WAS ACCEPTED')
+    except ForbiddenLabel:
+        check('a component CANNOT write content_status directly', True)
+
+    try:
+        L.emit('d', EventKind.RESPONSE_RECEIVED, 'deep_fetch', note='no free copy exists')
+        check('a component CANNOT assert "no free copy exists"', False, 'IT WAS ACCEPTED')
+    except ForbiddenLabel:
+        check('a component CANNOT assert "no free copy exists"', True)
+
+    try:
+        L.emit('d', EventKind.WEIGHT_COMPONENTS_DERIVED, 'scorer', quality='high quality')
+        check('a component CANNOT assert "high quality"', False, 'IT WAS ACCEPTED')
+    except ForbiddenLabel:
+        check('a component CANNOT assert "high quality"', True)
+
+    # ...but the WORLD may say anything. Raw quoted text is not an assertion.
+    try:
+        L.emit('d', EventKind.CONTENT_PROFILE_DERIVED, 'observer',
+               header_text='Full text available. This work is complete.', word_count=9000)
+        check('raw text from the world MAY contain those words (it is quoted, not claimed)', True)
+    except ForbiddenLabel as e:
+        check('raw text from the world MAY contain those words', False, str(e))
+
+    # 1b. ...and the reducer's own door is bolted from the inside. Call it from a FOREIGN module and
+    #     it refuses — this exec() really does run with __name__ = 'evil_component'.
+    ns = {'__name__': 'evil_component', 'L': L, 'EventKind': EventKind}
+    try:
+        exec("L.record_derivation('d', EventKind.ELIGIBILITY_DECIDED, 'sneaky', [1], eligible=True)", ns)
+        check('an outside module CANNOT call record_derivation', False, 'IT WAS ACCEPTED')
+    except ForbiddenLabel:
+        check('an outside module CANNOT call record_derivation (the reducer door is bolted inside)',
+              True)
+
+    # 2. 429 is not absence.
+    L = Ledger()
+    L.emit('p1', EventKind.ROUTE_PLANNED, 'router', adapters=['s2', 'openalex'])
+    for a in ('s2', 'openalex'):
+        L.emit('p1', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter=a)
+        L.emit('p1', EventKind.THROTTLED, 'fetch', adapter=a, http_status=429)
+    st, info = derive_coverage_status(L, 'p1')
+    check('HTTP 429 on every adapter -> SEARCH_FAILED (never SEARCHED_NONE)',
+          st == SEARCH_FAILED, f'got {st}')
+    check('a throttled route does NOT support an absence claim',
+          not derive_route_status(L.events('p1')).supports_absence)
+
+    # 3. route_complete requires an OUTCOME for every planned adapter, not a mapping.
+    L = Ledger()
+    L.emit('p2', EventKind.ROUTE_PLANNED, 'router', adapters=['s2', 'openalex', 'arxiv'])
+    L.emit('p2', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2')
+    L.emit('p2', EventKind.RESPONSE_RECEIVED, 'fetch', adapter='s2', http_status=200)
+    r = derive_route_status(L.events('p2'))
+    check('route with 1/3 adapters answered is NOT complete',
+          r.state == 'INCOMPLETE' and set(r.missing) == {'openalex', 'arxiv'}, f'got {r.state} {r.missing}')
+
+    # an attempt that never returned is a HANG, not an absence
+    L.emit('p2', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='openalex')
+    L.emit('p2', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='arxiv')
+    r = derive_route_status(L.events('p2'))
+    check('adapters ATTEMPTED but never answered are still MISSING (a hang is not a gap)',
+          r.state == 'INCOMPLETE' and set(r.missing) == {'openalex', 'arxiv'}, f'got {r.state} {r.missing}')
+
+    # 4. a budget stop is not an evidence gap.
+    L = Ledger()
+    L.emit('p3', EventKind.ROUTE_PLANNED, 'router', adapters=['s2'])
+    L.emit('p3', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2')
+    L.emit('p3', EventKind.RESPONSE_RECEIVED, 'fetch', adapter='s2', http_status=200)
+    L.emit('p3', EventKind.BUDGET_STOPPED, 'driver', spent_usd=4.0, cap_usd=4.0)
+    st, _ = derive_coverage_status(L, 'p3')
+    check('a BUDGET STOP -> SEARCH_FAILED, not SEARCHED_NONE', st == SEARCH_FAILED, f'got {st}')
+
+    # 5. a clean, complete route with nothing found DOES license absence.
+    L = Ledger()
+    L.emit('p4', EventKind.ROUTE_PLANNED, 'router', adapters=['s2', 'openalex'])
+    for a in ('s2', 'openalex'):
+        L.emit('p4', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter=a)
+        L.emit('p4', EventKind.RESPONSE_RECEIVED, 'fetch', adapter=a, http_status=200, n_results=0)
+    st, _ = derive_coverage_status(L, 'p4')
+    check('an ADEQUATE route with zero results -> SEARCHED_NONE (a scoped absence IS sayable)',
+          st == SEARCHED_NONE, f'got {st}')
+
+    # 6. 404 is a fact about their index, not the world.
+    L = Ledger()
+    L.emit('p5', EventKind.ROUTE_PLANNED, 'router', adapters=['s2'])
+    L.emit('p5', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2')
+    L.emit('p5', EventKind.RESPONSE_RECEIVED, 'fetch', adapter='s2', http_status=404)
+    check('HTTP 404 -> NOT_INDEXED_BY_THIS_BACKEND (not "no free copy exists")',
+          derive_backend_outcome(L.events('p5'), 's2') == NOT_INDEXED)
+
+    # 7. CONFLICTED and THIN are correct answers, not failures.
+    #    Note what the component emits: a source_unit and a DIRECTION (an observation — the sign of
+    #    the reported effect). It does NOT get to say the source is admissible. The reducer goes and
+    #    re-derives that from each source's own observations, below.
+    L = Ledger()
+    L.emit('c1', EventKind.ROUTE_PLANNED, 'router', adapters=['s2'])
+    L.emit('c1', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2')
+    L.emit('c1', EventKind.RESPONSE_RECEIVED, 'fetch', adapter='s2', http_status=200)
+    for src, direction, words in (('10.1/a', 'positive', 9000), ('10.1/b', 'negative', 8000)):
+        L.emit('c1', EventKind.CANDIDATE_IDENTIFIED, 'miner', source_unit=src, direction=direction)
+        L.emit(src, EventKind.MANIFESTATION_FETCHED, 'fetch', url='u',
+               requested_title='Robots and Jobs', requested_authors=['Acemoglu'])
+        L.emit(src, EventKind.CONTENT_PROFILE_DERIVED, 'observer',
+               **observe_text('Robots and Jobs by Acemoglu and Restrepo. ' + 'word ' * words))
+    st, info = derive_coverage_status(L, 'c1')
+    check('two admissible sources that disagree -> CONFLICTED', st == CONFLICTED, f'got {st} {info}')
+
+    # 7b. a cell whose every candidate is INADMISSIBLE must not read as "the literature is silent".
+    L = Ledger()
+    L.emit('c2', EventKind.ROUTE_PLANNED, 'router', adapters=['s2'])
+    L.emit('c2', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2')
+    L.emit('c2', EventKind.RESPONSE_RECEIVED, 'fetch', adapter='s2', http_status=200)
+    L.emit('c2', EventKind.CANDIDATE_IDENTIFIED, 'miner', source_unit='10.1/junk', direction='positive')
+    L.emit('10.1/junk', EventKind.MANIFESTATION_FETCHED, 'fetch', url='u',
+           requested_title='Rise of the Machines', requested_authors=['Parry'])
+    L.emit('10.1/junk', EventKind.CONTENT_PROFILE_DERIVED, 'observer',
+           **observe_text('This website uses cookies. By clicking the "Accept" button you agree. '
+                          + 'word ' * 300))
+    st, info = derive_coverage_status(L, 'c2')
+    check('every candidate inadmissible -> SEARCHED_NONE that says so ("about OUR EVIDENCE")',
+          st == SEARCHED_NONE and info['n_rejected'] == 1 and 'OUR EVIDENCE' in info['reason'],
+          f'got {st} {info}')
+
+    # 8. weight components never collapse to a scalar.
+    L = Ledger()
+    L.emit('w1', EventKind.WEIGHT_COMPONENTS_DERIVED, 'scorer',
+           directness='high', directness_provenance='span names the outcome variable',
+           method_quality='low', method_quality_provenance='cross-section, no identification',
+           influence_percentile=0.92, influence_percentile_provenance='4,743 citations (S2)')
+    w = derive_weight_components(L.events('w1'))
+    check('weights render as COMPONENTS with provenance, never as "high_quality"',
+          not hasattr(w, 'label') and 'directness=high' in w.render() and 'method_quality=low' in w.render(),
+          w.render())
+    print(f'         {w.render()}')
+
+    print(f'\n  {ok} passed, {fail} failed')
+    return 1 if fail else 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# REPLAY — our REAL history, through the ledger. What SHOULD the labels have been?
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+def _row(rows, author, year):
+    for r in rows:
+        if (r.get('authors') or ['?'])[0] == author and r.get('year') == year:
+            return r
+    raise KeyError(f'{author} {year}')
+
+
+def replay() -> int:
+    if not CORPUS.exists():
+        print(f'!! corpus not found: {CORPUS}')
+        return 1
+    rows = json.loads(CORPUS.read_text())
+
+    print('\n' + '=' * 98)
+    print('REPLAY OF OUR REAL HISTORY — the label we shipped vs the label the events earn')
+    print('=' * 98)
+    print(f'corpus: {CORPUS}  ({len(rows)} papers)')
+
+    caught = []
+
+    # ── CASE 1 ────────────────────────────────────────────────────────────────────────────────
+    # Autor (2015), JEP. We stamped FULLTEXT. It is 535 words of aeaweb.org COOKIE BANNER.
+    r = _row(rows, 'Autor', 2015)
+    L = Ledger()
+    u = r['doi']
+    L.emit(u, EventKind.ROUTE_PLANNED, 'wp_fetch', adapters=['s2/doi', 'openalex', 's2/title', 'arxiv'])
+    for a in ('s2/doi', 'openalex', 's2/title', 'arxiv'):
+        L.emit(u, EventKind.BACKEND_ATTEMPTED, 'wp_fetch', adapter=a)
+        L.emit(u, EventKind.RESPONSE_RECEIVED, 'wp_fetch', adapter=a, http_status=200)
+    L.emit(u, EventKind.CANDIDATE_IDENTIFIED, 'wp_fetch', adapter='s2/doi', url=r.get('oa_url', ''))
+    L.emit(u, EventKind.MANIFESTATION_FETCHED, 'wp_fetch', url=r.get('oa_url', ''),
+           requested_title=r['title'], requested_authors=r.get('authors', []))
+    L.emit(u, EventKind.CONTENT_PROFILE_DERIVED, 'observer', **observe_text(r.get('fulltext') or ''))
+    cls, cinfo = derive_content_profile(L.events(u))
+    elig, einfo = derive_eligibility(L.events(u))
+    caught.append(dict(
+        case='Autor (2015) — Journal of Economic Perspectives', doi=u,
+        shipped='content_status = FULLTEXT   (fulltext_source = working_paper)',
+        derived=f'{cls} -> {elig}',
+        why=cinfo['reason'],
+        proof=f'the 535 "words": {(r.get("fulltext") or "")[:96]!r}',
+        events=len(L)))
+
+    # ── CASE 2 ────────────────────────────────────────────────────────────────────────────────
+    # Parry (2016), Group & Organization Management. The title search matched SOMEBODY ELSE'S PAPER.
+    r = _row(rows, 'Parry', 2016)
+    L = Ledger()
+    u = r['doi']
+    L.emit(u, EventKind.ROUTE_PLANNED, 'wp_fetch', adapters=['s2/doi', 'openalex', 's2/title', 'arxiv'])
+    for a, code in (('s2/doi', 404), ('openalex', 404), ('s2/title', 200), ('arxiv', 200)):
+        L.emit(u, EventKind.BACKEND_ATTEMPTED, 'wp_fetch', adapter=a)
+        L.emit(u, EventKind.RESPONSE_RECEIVED, 'wp_fetch', adapter=a, http_status=code)
+    L.emit(u, EventKind.CANDIDATE_IDENTIFIED, 'wp_fetch', adapter='s2/title',
+           url='https://arxiv.org/pdf/2511.17203', matched_on='title substring "rise of the machines"')
+    L.emit(u, EventKind.MANIFESTATION_FETCHED, 'wp_fetch', url='https://arxiv.org/pdf/2511.17203',
+           requested_title=r['title'], requested_authors=r.get('authors', []),
+           document_title='MATHEMATICS: THE RISE OF THE MACHINES', byline='YANG-HUI HE')
+    L.emit(u, EventKind.CONTENT_PROFILE_DERIVED, 'observer', **observe_text(r.get('fulltext') or ''))
+    binding, binfo = derive_semantic_binding(L.events(u))
+    elig, einfo = derive_eligibility(L.events(u))
+    caught.append(dict(
+        case='Parry (2016) — Group & Organization Management', doi=u,
+        shipped='content_status = FULLTEXT, 4,027w  (fulltext_source = working_paper)',
+        derived=f'{binding} -> {elig}',
+        why=binfo['reason'],
+        proof='we hold Yang-Hui He, "Mathematics: The Rise of the Machines" (arXiv, 2025) — a paper '
+              'on theorem-proving — filed under an HR journal article by Parry et al. (2016)',
+        events=len(L)))
+
+    # ── CASE 3 ────────────────────────────────────────────────────────────────────────────────
+    # Autor/Levy/Murnane (2003), QJE. "no free text" — the sentence that is four worlds at once.
+    r = _row(rows, 'Autor', 2003)
+    L = Ledger()
+    u = r['doi']
+    L.emit(u, EventKind.ROUTE_PLANNED, 'wp_fetch', adapters=['s2/doi', 'openalex', 's2/title', 'arxiv'])
+    # what actually happens, verified live: S2 does not resolve this DOI. jget turns it into None.
+    L.emit(u, EventKind.BACKEND_ATTEMPTED, 'wp_fetch', adapter='s2/doi')
+    L.emit(u, EventKind.RESPONSE_RECEIVED, 'wp_fetch', adapter='s2/doi', http_status=404,
+           note='live probe 2026-07-13: S2 returned 404 for this DOI')
+    L.emit(u, EventKind.BACKEND_ATTEMPTED, 'wp_fetch', adapter='openalex')
+    L.emit(u, EventKind.THROTTLED, 'wp_fetch', adapter='openalex', http_status=429,
+           note='we hammered OpenAlex all night with repeated fetch runs')
+    L.emit(u, EventKind.BACKEND_ATTEMPTED, 'wp_fetch', adapter='s2/title')
+    L.emit(u, EventKind.THROTTLED, 'wp_fetch', adapter='s2/title', http_status=429)
+    # arxiv: attempted, never came back. THAT IS A HANG, and it looked exactly like a gap.
+    L.emit(u, EventKind.BACKEND_ATTEMPTED, 'wp_fetch', adapter='arxiv')
+    route = derive_route_status(L.events(u))
+    cov, cinfo = derive_coverage_status(L, u)
+    caught.append(dict(
+        case='Autor, Levy & Murnane (2003) — QJE  [the "no free text" line]', doi=u,
+        shipped='log: "no free text"    (read by us as: no free copy of this paper exists)',
+        derived=f'route={route.state}  coverage={cov}',
+        why=cinfo['reason'] + f'; outcomes: ' +
+            ', '.join(f'{a}={o}' for a, o in route.outcomes.items()),
+        proof='and the paper IS free — NBER Working Paper 8337, in full, forever. "no free text" was '
+              'false in every reading: 404 = their index, 429 = our request rate, no-outcome = a hang',
+        events=len(L)))
+
+    # ── CASE 4 ────────────────────────────────────────────────────────────────────────────────
+    # Acemoglu & Restrepo (2019), JEP. Labelled working_paper. IT IS THE JOURNAL ARTICLE.
+    # The reducer must not be a sledgehammer: a blanket quarantine would DESTROY real evidence.
+    r = _row(rows, 'Acemoglu', 2019)
+    L = Ledger()
+    u = r['doi']
+    L.emit(u, EventKind.ROUTE_PLANNED, 'wp_fetch', adapters=['s2/doi'])
+    L.emit(u, EventKind.BACKEND_ATTEMPTED, 'wp_fetch', adapter='s2/doi')
+    L.emit(u, EventKind.RESPONSE_RECEIVED, 'wp_fetch', adapter='s2/doi', http_status=200)
+    L.emit(u, EventKind.MANIFESTATION_FETCHED, 'wp_fetch', url=r.get('oa_url', ''),
+           requested_title=r['title'], requested_authors=r.get('authors', []))
+    L.emit(u, EventKind.CONTENT_PROFILE_DERIVED, 'observer', **observe_text(r.get('fulltext') or ''))
+    binding, binfo = derive_semantic_binding(L.events(u))
+    elig, einfo = derive_eligibility(L.events(u))
+    prof = observe_text(r.get('fulltext') or '')
+    caught.append(dict(
+        case='Acemoglu & Restrepo (2019) — JEP  [the label was false in the OTHER direction]', doi=u,
+        shipped='fulltext_source = working_paper  (so a blanket quarantine would DELETE it)',
+        derived=f'{binding} -> {elig}',
+        why=f'header reads "Journal of Economic Perspectives—Volume 33, Number 2—Spring 2019—Pages 3–30". '
+            f'It IS the article. The "working_paper" label named the SCRIPT, not the document. '
+            f'(NBER appears at char 74,747 — in the REFERENCES.)',
+        proof=f'preprint stamp in header: {prof["preprint_stamp_in_header"]}   '
+              f'anywhere in text: {prof["preprint_stamp_anywhere"]}  <- a whole-text scan reads the '
+              f'BIBLIOGRAPHY and calls the JEP article a working paper',
+        events=len(L)))
+
+    # ── CASE 5 ────────────────────────────────────────────────────────────────────────────────
+    # The counts that describe a document we threw away.
+    trunc = [x for x in rows if x.get('fulltext_words')
+             and x['fulltext_words'] != len((x.get('fulltext') or '').split())]
+
+    # ── CASE 6 — THE DECISIVE ONE ─────────────────────────────────────────────────────────────
+    # Sol's P0 says working-paper text is filed under journal DOIs. It is. But the label that is
+    # supposed to mark it, `fulltext_source='working_paper'`, is written by WHICHEVER SCRIPT RAN —
+    # so we tested it against what the documents ACTUALLY ARE.
+    marked, truly_preprint, binding_of = set(), set(), {}
+    for r in rows:
+        if r.get('content_status') != 'FULLTEXT':
+            continue
+        key = f'{(r.get("authors") or ["?"])[0]} {r.get("year")}'
+        if r.get('fulltext_source') == 'working_paper':
+            marked.add(key)
+        L = Ledger()
+        u = r.get('doi') or r.get('title', '?')
+        L.emit(u, EventKind.MANIFESTATION_FETCHED, 'corpus', url=r.get('oa_url', ''),
+               requested_title=r.get('title', ''), requested_authors=r.get('authors', []))
+        L.emit(u, EventKind.CONTENT_PROFILE_DERIVED, 'observer',
+               **observe_text(r.get('fulltext') or ''))
+        b, _ = derive_semantic_binding(L.events(u))
+        e, _ = derive_eligibility(L.events(u))
+        binding_of[key] = (b, e)
+        if b == VERSION_PREPRINT:
+            truly_preprint.add(key)
+
+    # ── render ────────────────────────────────────────────────────────────────────────────────
+    for i, c in enumerate(caught, 1):
+        print(f'\n┌─ CASE {i}: {c["case"]}')
+        print(f'│  doi        {c["doi"]}')
+        print(f'│  WE SHIPPED {c["shipped"]}')
+        print(f'│  LEDGER SAYS{"":1}{c["derived"]}')
+        print(f'│  because    {c["why"]}')
+        print(f'│  proof      {c["proof"]}')
+        print(f'└─ ({c["events"]} events)')
+
+    print('\n┌─ CASE 5: four word-counts that describe text we no longer hold')
+    for x in trunc:
+        au = (x.get('authors') or ['?'])[0]
+        print(f'│  {au[:12]:<12}{x["year"]}  claims {x["fulltext_words"]:>6,}w   holds '
+              f'{len((x.get("fulltext") or "").split()):>6,}w   (truncated at 120,000 chars)')
+    print('└─ the count was taken BEFORE the truncation and never re-derived')
+
+    # Count ONLY what the evidence supports: the marked rows that are genuinely ADMISSIBLE journal
+    # articles. ("marked but not a preprint" would include the cookie banner and the stranger's
+    # paper — calling those "genuine journal articles" would be this project's own disease, in the
+    # summary line of its cure.)
+    would_destroy = sorted(k for k in marked if binding_of.get(k, ('', ''))[1] == ADMISSIBLE)
+
+    print('\n┌─ CASE 6: THE LABEL THAT IS SUPPOSED TO CATCH SOL\'S P0 — TESTED AGAINST THE DOCUMENTS')
+    print(f'│  rows the LABEL `fulltext_source=working_paper` marks : {len(marked)}')
+    for k in sorted(marked):
+        b, e = binding_of.get(k, ('?', '?'))
+        print(f'│      {k:<18} is actually {b:<22} -> {e}')
+    print(f'│  rows whose HEADER SAYS they are working papers        : {len(truly_preprint)}')
+    for k in sorted(truly_preprint):
+        print(f'│      {k:<18} <- NOT marked by the label')
+    print(f'│')
+    print(f'│  AGREEMENT BETWEEN THE LABEL AND THE TRUTH: {len(marked & truly_preprint)}')
+    print(f'│')
+    print(f'│  The label is wrong in BOTH directions, because it names THE SCRIPT THAT FETCHED, not the')
+    print(f'│  document. Quarantining on it would have DELETED {len(would_destroy)} genuine journal articles')
+    print(f'│      ({", ".join(would_destroy)})')
+    print(f'│  AND LEFT ALL {len(truly_preprint - marked)} REAL WORKING PAPERS IN THE CORPUS — the fabrication ships anyway.')
+    print('└─ this is why the label must be DERIVED FROM THE HEADER, and never asserted by a fetcher')
+
+    # ── the whole corpus, re-derived ──────────────────────────────────────────────────────────
+    print('\n' + '=' * 98)
+    print('THE WHOLE CORPUS, RE-DERIVED FROM CONTENT')
+    print('=' * 98)
+    claimed = {}
+    derived = {}
+    for r in rows:
+        claimed[r.get('content_status')] = claimed.get(r.get('content_status'), 0) + 1
+        L = Ledger()
+        u = r.get('doi') or r.get('title', '?')
+        if (r.get('fulltext') or r.get('abstract')):
+            L.emit(u, EventKind.MANIFESTATION_FETCHED, 'corpus', url=r.get('oa_url', ''),
+                   requested_title=r.get('title', ''), requested_authors=r.get('authors', []))
+            L.emit(u, EventKind.CONTENT_PROFILE_DERIVED, 'observer',
+                   **observe_text(r.get('fulltext') or r.get('abstract') or ''))
+        cls, _ = derive_content_profile(L.events(u))
+        derived[cls] = derived.get(cls, 0) + 1
+
+    print(f'\n  {"label":<22}{"the corpus CLAIMS":>18}{"the CONTENT earns":>20}')
+    for k in ('FULLTEXT', 'ABSTRACT', 'ABSTRACT_ONLY', 'CITATION_ONLY', 'NOT_A_DOCUMENT',
+              'UNREADABLE_ENCODING'):
+        c, d = claimed.get(k, 0), derived.get(k, 0)
+        if not c and not d:
+            continue
+        mark = '   <-- ' if c != d else ''
+        print(f'  {k:<22}{c if c else "-":>18}{d if d else "-":>20}{mark}')
+
+    # admissibility of everything the corpus calls FULLTEXT
+    adm = lead = inad = 0
+    for r in rows:
+        if r.get('content_status') != 'FULLTEXT':
+            continue
+        L = Ledger()
+        u = r.get('doi') or r.get('title', '?')
+        L.emit(u, EventKind.MANIFESTATION_FETCHED, 'corpus', url=r.get('oa_url', ''),
+               requested_title=r.get('title', ''), requested_authors=r.get('authors', []))
+        L.emit(u, EventKind.CONTENT_PROFILE_DERIVED, 'observer',
+               **observe_text(r.get('fulltext') or ''))
+        e, _ = derive_eligibility(L.events(u))
+        adm += e == ADMISSIBLE
+        lead += e == DISCOVERY_LEAD
+        inad += e == INADMISSIBLE
+
+    n_underived = sum(1 for r in rows if find_underived_labels(r))
+    print(f'\n  of the {adm + lead + inad} rows the corpus calls FULLTEXT, the events earn:')
+    print(f'      ADMISSIBLE as journal evidence : {adm}')
+    print(f'      DISCOVERY_LEAD (working paper) : {lead}   <- real text, NOT journal-attributable')
+    print(f'      INADMISSIBLE                   : {inad}   <- chrome, unreadable, or a stranger\'s paper')
+    print(f'\n  rows carrying at least one label NO EVENT SUPPORTS: {n_underived}/{len(rows)}')
+    print('\n  Sol: "The recovered text is presently A DISCOVERY LEAD, not automatically')
+    print('        journal-attributable evidence."')
+    print('\n  And note what the reducer did NOT do: it did not blanket-quarantine. It ADMITTED the')
+    print('  rows whose headers prove they are the real article (Acemoglu 2019 JEP, Goos 2014 AER,')
+    print('  Chalmers 2021 ETP) — every one of which the "working_paper" label would have destroyed —')
+    print('  while catching four NBER/MIT/Fed working papers that same label never saw.')
+    print('\n  A label that names the script will be wrong in both directions. A label derived from the')
+    print('  header is right in both.')
+    return 0
+
+
+if __name__ == '__main__':
+    import sys
+    args = sys.argv[1:]
+    rc = 0
+    if not args or '--selftest' in args:
+        rc |= selftest()
+    if not args or '--replay' in args:
+        rc |= replay()
+    raise SystemExit(rc)
