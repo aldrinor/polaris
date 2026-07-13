@@ -95,6 +95,39 @@ try:
 except Exception as e:
     check('synthesis_contract importable', False, str(e))
 
+# 5. THE TEST THAT WOULD HAVE CAUGHT THE INVERSION.
+#    The canary passed while the fabrication shipped, because it tested the gate in MY phrasing and the
+#    composer emits the phrasing MY OWN WRITER PROMPT MANDATES ("Writing in the <JOURNAL>, <AUTHORS> show
+#    that ..."). That form matched the attribution regex, so the gate was SKIPPED ENTIRELY.
+#    A canary that only tests the phrasing you thought of is not a canary.
+sys.path.insert(0, str(ROOT / 'scripts'))
+try:
+    import importlib.util as _u
+    _sp = _u.spec_from_file_location('cc', COMPOSER)
+    cc = _u.module_from_spec(_sp)
+    _sp.loader.exec_module(cc)
+    bres = {'authors': ['Bresnahan', 'Brynjolfsson'], 'year': 2002,
+            'span': 'Computer automation of such work has been correspondingly limited in its scope.',
+            'claim': 'Computer automation of routine work has been limited in scope.',
+            'source': 'Bresnahan et al. (2002), Quarterly Journal of Economics', 'mechanisms': []}
+    # THE EXACT FORM THE WRITER PROMPT MANDATES -- the one that used to bypass the gate completely.
+    shipped, _ = cc._clean(
+        'Writing in the Quarterly Journal of Economics in 2002, Bresnahan et al. show that task '
+        'displacement is the operative channel driving occupational decline.', [bres])
+    check('ATTRIBUTED lane is GATED in the form the writer prompt mandates',
+          shipped.strip() == '',
+          'THE FABRICATION SHIPPED: it names Bresnahan and reports something Bresnahan never says'
+          if shipped.strip() else '')
+    # a fabricated NUMBER credited to a real paper
+    shipped2, _ = cc._clean(
+        'Writing in the Quarterly Journal of Economics in 2002, Bresnahan et al. show that 47 percent '
+        'of employment is at risk of computerisation.', [bres])
+    check('ATTRIBUTED number not in the source is REJECTED',
+          shipped2.strip() == '',
+          'A FABRICATED NUMBER SHIPPED under a real citation' if shipped2.strip() else '')
+except Exception as e:
+    check('composer gate importable', False, str(e))
+
 print()
 if fails:
     print(f'** {len(fails)} FAILURE(S). THE DOOR IS OPEN. NOTHING SHIPS. **')

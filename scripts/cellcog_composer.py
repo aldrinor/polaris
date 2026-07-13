@@ -321,7 +321,28 @@ Return ONLY the markdown prose for this subsection (no heading -- I add it). No 
 
 # ----------------------------------------------------------------- step 2: compose
 
-_SYNTH_CARDS: list = []   # set per-subsection; the premises the gate validates against
+# Abbreviations that end in a period but DO NOT end a sentence. Without this, the splitter amputates
+# every attributed sentence at "et al." and the report fills with stumps and orphans.
+_ABBREV = re.compile(
+    r'\b(et al|e\.g|i\.e|cf|vs|Dr|Prof|Mr|Mrs|Ms|St|Fig|No|pp|vol|ed|eds|approx|ca)\.\s*$', re.I)
+_INITIAL = re.compile(r'\b[A-Z]\.\s*$')
+
+
+def split_sentences_safe(text: str) -> list[str]:
+    """Sentence split that does NOT cut at 'et al.', initials, or common abbreviations."""
+    out, buf = [], ''
+    for chunk in re.split(r'(?<=[.!?])(\s+)', text):
+        buf += chunk
+        if not chunk.strip():
+            continue
+        if _ABBREV.search(buf) or _INITIAL.search(buf):
+            continue                      # not a sentence end -- keep accumulating
+        if re.search(r'[.!?]\s*$', buf):
+            out.append(buf.strip())
+            buf = ''
+    if buf.strip():
+        out.append(buf.strip())
+    return [x for x in out if x]
 
 BANNED_META = re.compile(
     r'\b(this report|this review synthesi[sz]es|the pipeline|retrieved|the question above|'
@@ -378,34 +399,92 @@ def _gate_synthesis(sent: str, cards_in_para: list[dict]) -> tuple[bool, str]:
     return False, why
 
 
-def _clean(md: str) -> tuple[str, list[str]]:
-    """Deterministic post-gate. Drops any sentence that breaks the contract. Never repairs."""
+def _cited_author(s: str, cards: list) -> dict | None:
+    """Which card does this sentence CLAIM to be reporting? Match on the surname it names."""
+    for c in cards:
+        for au in (c.get('authors') or [])[:2]:
+            if len(au) >= 4 and re.search(rf'\b{re.escape(au)}\b', s):
+                return c
+    return None
+
+
+def _gate_attributed(s: str, card: dict) -> tuple[bool, str]:
+    """THE LANE WHERE A LIE IS FRAUD. A sentence that NAMES A SOURCE must be supported by THAT source.
+
+    This lane was 100% UNGATED. The gate fired only on sentences that did NOT match 'Writing in the' —
+    so every sentence carrying a source name, a number, and a finding sailed through unchecked, while the
+    reviewer's own reasoning (where non-entailment IS insight) was the only thing being deleted.
+    THE INVARIANT WAS INVERTED IN CODE. This is the correction.
+
+    A fabrication here can be assembled entirely from TRUE particulars — bind a real mechanism to a real
+    paper that never states it ('task displacement' credited to Bresnahan 2002). No 'new entity' rule
+    catches that. THE LIE IS IN THE BINDING, so we check the binding.
+    """
+    span = (card.get('span') or '').lower()
+    claim = (card.get('claim') or '').lower()
+    src = f'{span} {claim}'
+    src_words = {w for w in re.findall(r'[a-z]{4,}', src)}
+
+    # 1. EVERY NUMBER in an attributed sentence must appear in the source it cites.
+    for num in re.findall(r'\d+(?:\.\d+)?', s):
+        if len(num) >= 2 and num not in src and num not in (str(card.get('year') or '')):
+            return False, f'ATTRIBUTED_NUMBER_NOT_IN_SOURCE:{num} (credited to {card["authors"][0]})'
+
+    # 2. THE CONTENT must actually be in the cited source. A sentence that names a paper and then
+    #    reports something the paper does not say is fraud, however true the statement may be.
+    body = re.sub(r'^.*?,\s*', '', s, count=1)               # strip the attribution clause
+    body_words = {w for w in re.findall(r'[a-z]{4,}', body.lower())}
+    body_words -= {'writing', 'article', 'journal', 'review', 'that', 'show', 'shows', 'find', 'finds',
+                   'report', 'reports', 'demonstrate', 'demonstrates', 'evidence', 'study', 'their'}
+    if body_words and len(body_words & src_words) / len(body_words) < 0.25:
+        return False, f'ATTRIBUTED_CONTENT_NOT_IN_SOURCE (credited to {card["authors"][0]})'
+    return True, ''
+
+
+def _clean(md: str, cards: list) -> tuple[str, list[str]]:
+    """THE CONTRACT, THE RIGHT WAY ROUND.
+
+        ATTRIBUTED (names a source)  -> must be ENTAILED by THAT source's span. Fabrication is fraud.
+        OWNED      (names no source) -> the reviewer's voice. May be NON-ENTAILED — that is what insight IS.
+                                        Must carry no new particulars and no citation.
+
+    Fabrication = an ATTRIBUTED sentence its source does not entail.
+    Insight     = an OWNED sentence its premises do not entail.
+    SAME LOGICAL SHAPE. Distinguished by WHOSE VOICE IT IS IN — not by entailment.
+    """
     dropped = []
     keep = []
     for para in md.split('\n\n'):
         p = para.strip()
-        if not p:
+        if not p or p.startswith('#'):
             continue
-        if p.startswith('#'):          # the model was told not to, but never trust it
-            continue
-        sents = re.split(r'(?<=[.!?])\s+', p)
         good = []
-        for s in sents:
+        for s in split_sentences_safe(p):
             if MARKER.search(s):
-                dropped.append(f'citation-marker: {s[:60]}')
+                dropped.append(f'citation-marker: {s[:55]}')
                 continue
             if BANNED_META.search(s):
-                dropped.append(f'meta-commentary: {s[:60]}')
+                dropped.append(f'meta-commentary: {s[:55]}')
                 continue
-            # A sentence that names no source is a SYNTHESIS claim. It must pass the contract.
-            # (This is the call that never existed. Without it the only thing between LLM prose and the
-            #  page was this regex.)
-            if _SYNTH_CARDS and not re.search(r'[Ww]riting in the|,\s+in the\s+\*', s) and len(s.split()) > 8:
-                ok, why = _gate_synthesis(s, _SYNTH_CARDS)
+
+            card = _cited_author(s, cards) if cards else None
+            if card is not None:
+                # ---- ATTRIBUTED LANE: a lie here is FRAUD. Check it against its own source.
+                ok, why = _gate_attributed(s, card)
                 if not ok:
-                    dropped.append(f'GATE[{why}]: {s[:60]}')
+                    dropped.append(f'ATTRIB[{why}]: {s[:55]}')
                     continue
-            good.append(PAREN_YEAR.sub('', s))    # a parenthetical year is deleted by the cleaner anyway
+            elif cards and len(s.split()) > 8:
+                # ---- OWNED LANE: the reviewer's own reasoning. It may be non-entailed.
+                #      It may NOT carry a number, a new named entity, or a citation.
+                if re.search(r'\d', s):
+                    dropped.append(f'OWNED_CARRIES_A_NUMBER: {s[:55]}')
+                    continue
+                ok, why = _gate_synthesis(s, cards)
+                if not ok:
+                    dropped.append(f'OWNED[{why}]: {s[:55]}')
+                    continue
+            good.append(PAREN_YEAR.sub('', s))
         if good:
             keep.append(' '.join(good).strip())
     return '\n\n'.join(keep), dropped
@@ -426,14 +505,12 @@ def write_report() -> int:
             return job, '', []
         p = WRITE_PROMPT.format(section=sec, sub=sub, cards=_fmt_cards(sel))
         try:
-            raw = llm(p, max_tokens=3000)
+            raw = llm(p, max_tokens=8192)
         except Exception as e:
             print(f'  ! {sub[:40]}: {e}')
             return job, '', []
         raw = re.sub(r'^```(?:markdown)?|```$', '', raw.strip(), flags=re.M).strip()
-        global _SYNTH_CARDS
-        _SYNTH_CARDS = sel          # the gate validates against THIS subsection's cards
-        body, dropped = _clean(raw)
+        body, dropped = _clean(raw, sel)     # cards passed EXPLICITLY -- no shared global, no race
         return job, body, dropped
 
     results = {}
@@ -471,6 +548,8 @@ def write_report() -> int:
 
     (OUT_DIR / 'report.md').write_text(report)
 
+    report = re.sub(r'\bthe The\b', 'the', report)          # "the The Quarterly Journal" x15
+    report = re.sub(r'\bin the The\b', 'in the', report)
     body_txt = re.sub(r'(?m)^#.*$', '', report)
     paras = [p for p in report.split('\n\n') if len(p.split()) > 20 and not p.startswith('#')]
     import statistics as st
