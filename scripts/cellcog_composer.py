@@ -151,25 +151,51 @@ def extract_cards() -> int:
         if not isinstance(arr, list):
             return None
         out = []
+        dropped_mech = 0
         for i, f in enumerate(arr):
             span = (f.get('span') or '').strip()
             claim = (f.get('claim') or '').strip()
             if not span or not claim:
                 continue
-            # HARD GATE: the span must really be in the source text. No span, no claim.
+            # HARD GATE 1: the span must really be in the source text. No span, no claim.
             norm = lambda s: re.sub(r'\s+', ' ', s.lower())
             if norm(span)[:60] not in norm(text):
                 continue
+
+            # HARD GATE 2 -- THE MECHANISM LAUNDER, CLOSED.
+            # This field was copied straight from LLM output while `span` and `claim` beside it were
+            # gated. MEASURED on the 133-card corpus it produced: 42/81 mechanisms (52%) were absent
+            # from their own span; 35/81 (43%) appeared in NEITHER span nor claim -- pure invention.
+            # "task displacement" (Autor-Levy-Murnane's term) was bound to Bresnahan et al. (2002),
+            # which never says it: a REAL mechanism, a REAL paper, a FABRICATED binding. That is a lie
+            # assembled entirely from true particulars, and no "no new entities" rule would catch it.
+            # synthesis_contract.py documents Premise.mechanisms as "mechanisms STATED IN THE SPAN".
+            # We now enforce exactly that: a mechanism survives ONLY if its content words are present
+            # in the span it claims to come from. Everything else is DROPPED, never repaired.
+            mechs = []
+            for m in (f.get('mechanisms') or []):
+                m = (m or '').strip()
+                if not m:
+                    continue
+                m_words = {w for w in re.findall(r'[a-z]{4,}', m.lower())}
+                span_words = {w for w in re.findall(r'[a-z]{4,}', span.lower())}
+                if m_words and len(m_words & span_words) / len(m_words) >= 0.6:
+                    mechs.append(m)
+                else:
+                    dropped_mech += 1
+
             out.append({
                 'id': f"{c['doi'].replace('/', '_')}_{i}",
                 'claim': claim, 'span': span,
                 'level': f.get('level', ''), 'horizon': f.get('horizon', ''),
-                'method': f.get('method', ''), 'mechanisms': f.get('mechanisms') or [],
+                'method': f.get('method', ''), 'mechanisms': mechs,
                 'has_number': bool(re.search(r'\d', claim)),
                 'doi': c['doi'], 'authors': c['authors'], 'venue': c['venue'], 'year': c['year'],
                 'attribution': c['attribution'],           # "Writing in the X in YYYY, Author"
                 'source': c['attribution_short'],
             })
+        if dropped_mech:
+            print(f"    [mechanism gate] dropped {dropped_mech} mechanism(s) not present in their own span")
         print(f"  {c['authors'][0]:<16.16} {c['year']}  {len(out):>2} cards  {c['venue'][:38]}")
         return out
 
@@ -308,6 +334,8 @@ Return ONLY the markdown prose for this subsection (no heading -- I add it). No 
 
 # ----------------------------------------------------------------- step 2: compose
 
+_SYNTH_CARDS: list = []   # set per-subsection; the premises the gate validates against
+
 BANNED_META = re.compile(
     r'\b(this report|this review synthesi[sz]es|the pipeline|retrieved|the question above|'
     r'span-grounded|telemetry|our system|we retrieved|the corpus)\b', re.I)
@@ -339,6 +367,30 @@ def _fmt_cards(sel):
     return '\n'.join(out)
 
 
+def _gate_synthesis(sent: str, cards_in_para: list[dict]) -> tuple[bool, str]:
+    """THE GATE, ON THE CRITICAL PATH. This is the call that was missing.
+
+    `validate()` was imported at :49 and never invoked anywhere in the repo except its own self_test().
+    The gate was a closed loop -- fed its own hand-written examples, printing green, never seeing a
+    sentence from the pipeline. Behind it, 43% of our evidence-card mechanisms were pure invention.
+    A test that passes because the gate returns True in isolation is worth nothing.
+    """
+    prem = {}
+    for i, c in enumerate(cards_in_para):
+        prem[f'p{i}'] = Premise(
+            id=f'p{i}', text=c['claim'], source=c['source'],
+            level=c.get('level', ''), horizon=c.get('horizon', ''),
+            method=c.get('method', ''), mechanisms=c.get('mechanisms') or [])
+    if len(prem) < 2:
+        return False, 'fewer_than_2_premises'
+    for op in OPERATIONS:
+        ok, _ = validate(Synthesis(op, list(prem), sent), prem)
+        if ok:
+            return True, op
+    _, why = validate(Synthesis('CONTRASTS_LEVEL', list(prem), sent), prem)
+    return False, why
+
+
 def _clean(md: str) -> tuple[str, list[str]]:
     """Deterministic post-gate. Drops any sentence that breaks the contract. Never repairs."""
     dropped = []
@@ -358,6 +410,14 @@ def _clean(md: str) -> tuple[str, list[str]]:
             if BANNED_META.search(s):
                 dropped.append(f'meta-commentary: {s[:60]}')
                 continue
+            # A sentence that names no source is a SYNTHESIS claim. It must pass the contract.
+            # (This is the call that never existed. Without it the only thing between LLM prose and the
+            #  page was this regex.)
+            if _SYNTH_CARDS and not re.search(r'[Ww]riting in the|,\s+in the\s+\*', s) and len(s.split()) > 8:
+                ok, why = _gate_synthesis(s, _SYNTH_CARDS)
+                if not ok:
+                    dropped.append(f'GATE[{why}]: {s[:60]}')
+                    continue
             good.append(PAREN_YEAR.sub('', s))    # a parenthetical year is deleted by the cleaner anyway
         if good:
             keep.append(' '.join(good).strip())
@@ -384,6 +444,8 @@ def write_report() -> int:
             print(f'  ! {sub[:40]}: {e}')
             return job, '', []
         raw = re.sub(r'^```(?:markdown)?|```$', '', raw.strip(), flags=re.M).strip()
+        global _SYNTH_CARDS
+        _SYNTH_CARDS = sel          # the gate validates against THIS subsection's cards
         body, dropped = _clean(raw)
         return job, body, dropped
 

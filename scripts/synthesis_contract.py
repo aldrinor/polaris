@@ -194,15 +194,34 @@ def validate(syn: Synthesis, premises: dict[str, Premise]) -> tuple[bool, str]:
                 continue
             return False, f'new_entity:{part}'
 
-    # 6. NO IMPORTED MECHANISM. A causal claim is legal ONLY if a premise span states that mechanism.
+    # 6. NO IMPORTED MECHANISM, AND NO FABRICATED BINDING.
+    #    A fabrication can be assembled ENTIRELY FROM TRUE PARTICULARS: bind a REAL mechanism to a REAL
+    #    paper that never states it. Found live on disk: "task displacement" (Autor-Levy-Murnane's term)
+    #    attributed to Bresnahan et al. (2002), whose span never says it. No "new entity" rule catches
+    #    that -- both the mechanism and the paper are real. THE LIE IS IN THE BINDING.
+    #    So we check TWO things: (a) is a causal mechanism asserted at all, and (b) if the sentence NAMES
+    #    a source, does THAT source's own span state the mechanism it is being credited with?
     m = CAUSAL_IMPORT.search(s)
     if m:
         stated = {mm.lower() for p in prem for mm in p.mechanisms}
         if not stated:
             return False, f'causal_language_with_no_stated_mechanism:"{m.group(0)}"'
-        # the mechanism named must actually be one the premises state
         if not any(mech in s.lower() for mech in stated):
             return False, f'causal_language_names_a_mechanism_no_premise_states:"{m.group(0)}"'
+    # (b) THE BINDING CHECK -- runs whether or not causal vocabulary is present.
+    #     If the sentence names an author from a premise AND asserts a mechanism, that mechanism must be
+    #     stated by THAT author's premise -- not by some other paper in the room.
+    for p in prem:
+        surname = p.source.split()[0].rstrip(',')
+        if len(surname) < 4 or surname.lower() not in s.lower():
+            continue                      # this source is not named in the sentence
+        for other in prem:
+            if other is p:
+                continue
+            for mech in other.mechanisms:
+                if mech.lower() in s.lower() and mech.lower() not in {x.lower() for x in p.mechanisms}:
+                    return False, (f'FABRICATED_BINDING: "{mech}" is stated by {other.source.split()[0]}, '
+                                   f'not by {surname} — the sentence credits the wrong paper')
 
     # 7. NO FORECAST, NO UNIVERSAL
     if FORECAST.search(s):
