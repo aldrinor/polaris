@@ -368,3 +368,35 @@ Regression: 75 failed / 2269 passed vs **77 / 2266 at pre-flywheel baseline (0e0
   **I DELETED THE RESULT RATHER THAN SHIP IT.** Adding junk sources to fix a THIN-CONTENT problem would have made comprehensiveness *worse* — and would have been another BET dressed as a REPAIR, which is exactly what lost turn 2.
 - 2026-07-13 20:10 | **THE DISCIPLINE THIS FORCES: KEYWORD SEARCH CANNOT SELECT SCHOLARLY RELEVANCE. It has now failed FOUR distinct ways tonight** — Crossref-by-citations returns famous ML papers; Crossref-by-relevance returns near-predatory journals with the keywords in the title; my regex filters admit ResNet; and the corpus we INHERITED was built the same way (only 17 of 120 enriched journal works were on-topic). **The operator said this hours ago: SELECT is the broken stage and it needs an LLM RELEVANCE JUDGE, not a regex. I keep half-implementing it and getting bitten.**
 - 2026-07-13 20:10 | **AND THE HONEST RE-READ OF THE JUDGE, WHICH CHANGES TURN 3: THE COMPREHENSIVENESS COLLAPSE IS A *WRITING* FAILURE, NOT A *SOURCING* FAILURE.** Its exact words: 4IR is *"thin, fragmented"*; disruption scale is *"extremely brief"*; implications are *"truncated"*. **Those sections EXIST and are SHALLOW.** The 4IR section is there and says nothing; the scale section is two sentences; the implications section was cut off mid-thought by the gate. **We do not need more papers. We need to actually WRITE the sections the rubric names, from the evidence we already hold, and stop the gate from truncating them.** Turn 3 is repairs only. No new corpus. No new bet.
+
+## TURN 3 — THE FIRST WIN, AND THE REGRESSION I ALMOST MISSED (k=5 paired, criterion-level)
+
+    BASELINE (rank10)  6.047/10  ->  0.4292
+    TURN 3             6.857/10  ->  0.4603      DELTA +0.0310  (4.2x the smallest resolvable effect)
+
+WON (the two heaviest criteria both moved):
+    +5.82  w=.0375  Exclusive citation, high-quality journals   1.50 -> 7.32
+    +3.76  w=.0250  English-language journal articles           5.10 -> 8.86
+    +2.00  w=.0435  Depth/representativeness of synthesis       5.16 -> 7.16
+    +1.34  w=.0640  Emergent themes                             5.86 -> 7.20
+    +1.34  w=.0500  Consistent focus on the question            6.70 -> 8.04
+    +1.06  w=.0800  Analytical depth (HEAVIEST)                 6.90 -> 7.96
+    +1.00  w=.0800  Critical synthesis (HEAVIEST)               5.36 -> 6.36
+
+LOST -- and I first reported "no regressions" because I sorted by absolute move and read only the
+top 9. FOUR criteria went backwards and they share ONE cause:
+    -0.84  w=.0725  Scope of Industry-Specific Analysis         6.60 -> 5.76
+    -0.78  w=.0375  Coverage of AI's impact on VARIOUS INDUSTRIES 6.60 -> 5.82
+    -0.68  w=.0480  Value/Foresight in implications and future  6.10 -> 5.42
+    -0.26  w=.0725  Breadth of restructuring dimensions         8.04 -> 7.78
+
+0.23 of the rubric's weight moving BACKWARDS. This is turn 2's failure again, milder, and masked by
+the citation win: WE TRADED A BROAD CORPUS FOR A NARROW ONE. 70 journal papers deep in labour
+economics, thin on healthcare/manufacturing/retail/finance. The judge noticed both times.
+
+THE LESSON: a scalar win can hide a structural loss. Read every criterion, not the top of the sort.
+
+NEXT (turn 4) must do all three or it locks the regression in:
+    1. the evidence/numbers work (D1 5.90 vs cellcog 9.20)
+    2. INDUSTRY-SPECIFIC corpus expansion (w=.0725 + .0375 bleeding)
+    3. a dedicated IMPLICATIONS/foresight pass (w=.0480 bleeding; we have no such pass at all)
