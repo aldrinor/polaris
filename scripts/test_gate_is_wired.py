@@ -125,6 +125,19 @@ try:
     check('ATTRIBUTED number not in the source is REJECTED',
           shipped2.strip() == '',
           'A FABRICATED NUMBER SHIPPED under a real citation' if shipped2.strip() else '')
+
+    # THE SUBSTRING LEAK: `"0.2" in "10.25"` is True. A fabricated effect size passes whenever the
+    # source contains ANY longer number that happens to contain its digits. We are about to fill the
+    # report with figures, which loads this hole with live rounds.
+    leak = dict(bres)
+    leak['span'] = 'productivity growth of 10.25 percent was observed in the sample'
+    leak['claim'] = 'productivity rose'
+    shipped3, _ = cc._clean(
+        'Writing in the Quarterly Journal of Economics in 2002, Bresnahan et al. report that employment '
+        'fell by 0.2 percentage points per robot.', [leak])
+    check('ATTRIBUTED number that is only a SUBSTRING of a source number is REJECTED',
+          shipped3.strip() == '',
+          'a fabricated 0.2 passed because the source said 10.25' if shipped3.strip() else '')
 except Exception as e:
     check('composer gate importable', False, str(e))
 

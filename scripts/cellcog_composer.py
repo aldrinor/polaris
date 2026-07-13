@@ -463,8 +463,13 @@ def _gate_attributed(s: str, card: dict) -> tuple[bool, str]:
     src_words = {w for w in re.findall(r'[a-z]{4,}', src)}
 
     # 1. EVERY NUMBER in an attributed sentence must appear in the source it cites.
+    #    A plain `num in src` is a SUBSTRING test, and it leaks: a fabricated "0.2" passes whenever the
+    #    source happens to contain "10.25". We are about to flood the prose with figures, which loads
+    #    that hole. Require the number to stand as its OWN number, not a fragment of a longer one.
     for num in re.findall(r'\d+(?:\.\d+)?', s):
-        if len(num) >= 2 and num not in src and num not in (str(card.get('year') or '')):
+        if len(num) < 2 or num == str(card.get('year') or ''):
+            continue
+        if not re.search(rf'(?<![\d.]){re.escape(num)}(?![\d])', src):
             return False, f'ATTRIBUTED_NUMBER_NOT_IN_SOURCE:{num} (credited to {card["authors"][0]})'
 
     # 2. THE CONTENT must actually be in the cited source. A sentence that names a paper and then
