@@ -497,3 +497,48 @@ PROVEN, AND IT IS THE FINDING OF THE NIGHT: PEER REVIEW CHANGED THE NUMBERS.
     The fabricated binding, at the level of DOCUMENTS. A lie assembled entirely from true particulars.
     AND IT WOULD HAVE RAISED OUR SCORE -- more quantitative findings, better D1. The dishonest artifact
     OUTSCORES the honest one, and the wheel would have optimised toward the lie.
+
+## SOL PLAN 3 — STOP RELEASE. THE 0.4603 IS NOT A REAL NUMBER.
+
+    "Under the law, the currently contaminated artifact scores 0.00 regardless of its judge scalar."
+
+THE ANSWER TO "WHAT TEST CANNOT BE ROUTED AROUND": IT IS NOT A TEST.
+    "The enforcement point must be THE FINAL ARTIFACT WRITER -- not another optional preflight."
+    "Composers may write only DRAFTS. ONLY THE PUBLISHER PROCESS HAS FILESYSTEM PERMISSION to create
+     files in the judged release directory. The attack runs the same submission command used for scoring."
+    A report must be IMPOSSIBLE TO PUBLISH unless every attributed sentence resolves through:
+       sentence -> card -> bound span -> manifestation_id + content_hash -> permitted expression -> attribution
+    A test can be bypassed. A PROCESS THAT LACKS WRITE PERMISSION CANNOT.
+
+HE FOUND DEFECTS IN THE P0 MODULES THEMSELVES:
+    * provenance.bind_span() does not validate bounds; migrate() ASSUMES EVERY ROW IS A JOURNAL
+      EXPRESSION -- invalid for a judicial opinion or a statute
+    * event_ledger.derive_content_profile() REINSTATES A UNIVERSAL FULLTEXT_MIN = 2500 -- OPUS'S OWN BUG,
+      REAPPEARING INSIDE THE FIX FOR IT, contradicting provenance.profile()
+    * event_ledger's Ledger does not reload persisted JSONL -- every script starts with empty history
+
+AND HE CORRECTED OPUS'S WORST CALL OF THE NIGHT:
+    "D1 has weight 0.014. Even moving it from 5.90 to 10.00 can add only about +0.0057 scalar."
+    Opus pushed "NUMBERS FIRST" extraction to chase D1 -- a criterion that at a PERFECT score moves less
+    than the resolvable threshold. To chase it, the extractor now silently discards every source without
+    a digit: judicial opinions, doctrinal holdings, ALL qualitative evidence. Opus traded the system's
+    GENERALITY for a criterion that can barely move the needle.
+    REPLACEMENT: TYPED EVIDENCE ACTS -- quantitative_estimate | qualitative_empirical_result |
+    doctrinal_holding_or_rule | recommendation_or_guidance | null_or_inconclusive_result |
+    methodological_limitation | forecast_or_projection. The quantitative extractor survives as ONE
+    SCHEMA AMONG SEVERAL and D1 does not fall.
+
+QUARANTINE, DO NOT PURGE (purging destroys the audit trail):
+    * Frey & Osborne's ORA LANDING PAGE is quarantined. Its 4 cards DO NOT SURVIVE.
+    * The 6 journal-labelled working-paper manifestations LOSE journal attribution.
+    * The Acemoglu-Restrepo 0.37 card is EXCLUDED. The JPE article must be mined for 0.2/0.42.
+    * A 429 leaves the work SEARCH_FAILED and ELIGIBLE FOR RETRY -- never a permanent exclusion.
+
+THE REVISED FORECAST -- IT IS WORSE, AND IT IS HONEST:
+    immediate rebuild from admissible bytes : 0.45 - 0.49
+    after recovering articles-of-record     : 0.48 - 0.52
+    the prior 0.49-0.53 is now RECOVERY-CONDITIONAL UPSIDE, not the base range
+    0.5603 REMAINS UNSUPPORTED
+
+    "No scalar improvement should be forecast from wiring or the canary. THEIR VALUE IS THAT THE NEXT
+     MEASURED SCORE DESCRIBES A REAL ARTIFACT."
