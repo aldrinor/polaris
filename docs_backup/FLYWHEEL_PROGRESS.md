@@ -451,3 +451,49 @@ IS 0.5603 REACHABLE? "Not with the current architecture, and not credibly in thi
       source-bound evidence graph -> comparison bundles -> report-level argument planner ->
       attributed-clause + explicit-owned-synthesis generation -> implications from admitted body ->
       independent faithfulness audit -> unseen-question evaluation
+
+## THE ADVERSARY: 6 OF 6 ATTACKS SUCCEED, AND THE CANARY IS GREEN
+
+ROOT CAUSE, ONE LINE: provenance.py is a closed loop. The module built to enforce Sol's P0 is CALLED BY
+NOBODY. event_ledger.py is imported by NOTHING AT ALL.
+
+    "This is the exact bug from test_gate_is_wired.py's own docstring -- validate() imported and never
+     called -- REPRODUCED IN THE FIX FOR IT."
+
+    "Nothing was weakened -- THE CHECKS CERTIFY A LANE THE FABRICATION NO LONGER USES."
+
+WHAT IS ON DISK RIGHT NOW:
+  * 8 cards cite Bresnahan's WORKING PAPER as "The Quarterly Journal of Economics"
+  * 6 rows carry a JOURNAL attribution over WORKING-PAPER bytes (Acemoglu JPE, Bresnahan QJE,
+    Krueger QJE, Goldin QJE, Lin REStat, Gray)
+  * cards carry NO manifestation_id and NO content_hash -- they CANNOT SAY WHICH DOCUMENT THEY CAME FROM
+  * the composer's gate admitted a JPE-attributed span from bytes headed "NBER WORKING PAPER SERIES",
+    with reasons: []
+  * FREY & OSBORNE -- the paper our synthesis leaned on -- IS A WEB PAGE. Its bytes are the Oxford ORA
+    LANDING PAGE (548w, artifact_kind=landing_page). 4 live cards cite it as "Technological Forecasting
+    and Social Change", spans "verified" present in the landing page.
+  * the SAME STUDY closed a coverage cell as TWO INDEPENDENT WORKS: Acemoglu-Restrepo as NBER (0.37pp)
+    and as JPE (0.2pp) -- double-counting a number PEER REVIEW CHANGED, both standing as citable
+    findings that contradict each other
+  * the dimension named `Wages` is STRUCTURALLY INCAPABLE OF MATCHING THE WORD "wage" (build_matchers
+    drops a stem shared by >=2 term families). Cards reading "wages fell by 4.1 percent" go UNROUTED --
+    and the report prints "What the reviewed literature does not cover". A MATCHER BUG AND A GENUINE
+    ABSENCE OF EVIDENCE PRODUCE IDENTICAL OUTPUT.
+  * a JUDICIAL OPINION produced ZERO cards -- harvest() skips any sentence without a digit -- AND THE
+    DISCARD IS NOT COUNTED. A first-rank source vanished leaving no trace in the pipeline's own
+    self-report of what it discarded.
+
+PROVEN, AND IT IS THE FINDING OF THE NIGHT: PEER REVIEW CHANGED THE NUMBERS.
+    Acemoglu & Restrepo, employment-to-population effect of robots:
+        NBER WP 23285 (2017), WHAT WE MINED : 0.37 pp   (wages 0.73%)
+        PUBLISHED JPE 2020, THE ARTICLE OF RECORD: 0.2 pp   (wages 0.42%)
+    Evidence card #1 read: effect "0.37 percentage points lower", attribution "Writing in the Journal of
+    Political Economy in 2020, Acemoglu and Restrepo". WE WERE ONE COMPOSE-RUN FROM PRINTING 0.37 AND
+    CREDITING IT TO A JOURNAL THAT SAYS 0.2.
+
+    "Note the failure shape: THE SPAN IS VERBATIM. THE GATE WOULD HAVE PASSED IT. The document named is
+     simply not the document the span came from."
+
+    The fabricated binding, at the level of DOCUMENTS. A lie assembled entirely from true particulars.
+    AND IT WOULD HAVE RAISED OUR SCORE -- more quantitative findings, better D1. The dishonest artifact
+    OUTSCORES the honest one, and the wheel would have optimised toward the lie.
