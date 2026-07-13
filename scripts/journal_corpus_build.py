@@ -119,7 +119,8 @@ def card(msg: dict) -> dict | None:
         'citations': msg.get('is-referenced-by-count', 0),
         'type': typ,
         # THE format the cleaner-survival test proved survives RACE (journal named, year as PROSE):
-        'attribution': f'Writing in the {venue} in {yr}, {who}',
+        'attribution': (f'Writing in {venue} in {yr}, {who}' if venue[:4].lower() == 'the '
+                        else f'Writing in the {venue} in {yr}, {who}'),
         'attribution_short': f'{who} ({yr}), {venue}',
     }
 

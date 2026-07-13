@@ -100,7 +100,10 @@ def main() -> int:
         who = au[0] if len(au) == 1 else (f'{au[0]} and {au[1]}' if len(au) == 2 else f'{au[0]} et al.')
         # the ONLY citation form that survives RACE's LLM cleaner (measured, 10-12/12 vs 0/12 for
         # [n] markers and 0/12 for "(Author, Year)"). Year as PROSE -- every parenthetical year is deleted.
-        attribution = f'Writing in the {venue} in {yr}, {who}'
+        # venues carry their own article ("The Quarterly Journal of Economics"), so a hardcoded "the"
+        # produces "in the The Quarterly Journal" -- 18x in the last report, straight to the judge.
+        _in = f'in {venue}' if venue[:4].lower() == 'the ' else f'in the {venue}'
+        attribution = f'Writing {_in} in {yr}, {who}'
 
         for r in rows:
             q = (r.get('direct_quote') or '').strip()

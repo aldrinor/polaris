@@ -128,6 +128,29 @@ try:
 except Exception as e:
     check('composer gate importable', False, str(e))
 
+# ---------------------------------------------------------------------------------------------
+# CHECK THE ARTIFACT, NOT THE CODE.
+#
+# Every defect that has cost us a turn got past a GREEN canary, because the canary tested a CODE
+# PATH in a phrasing I invented, and the judge reads a FILE.
+#   - the gate inversion:   the fabrication was rejected in MY phrasing, admitted in the writer's.
+#   - the 'the The' bug:    the fix ran AFTER write_text() on a dead variable. The stats printed the
+#                           CORRECTED string; the disk kept the BROKEN one. Both looked fine.
+# The only question that cannot be fooled is: WHAT IS IN THE FILE THE JUDGE WILL READ?
+# ---------------------------------------------------------------------------------------------
+rep = ROOT / 'outputs' / 'cellcog_arm' / 'report.md'
+if rep.exists():
+    art = rep.read_text()
+    n_the = len(re.findall(r'\bthe The\b', art))
+    check('SHIPPED ARTIFACT: no "the The <Journal>" doubling',
+          n_the == 0, f'{n_the} in the file the judge reads')
+    orphan = [p for p in art.split('\n\n')
+              if re.match(r'^\*{0,2}\[[A-Za-z /-]+\]\*{0,2}[.:]?$', p.strip())]
+    check('SHIPPED ARTIFACT: no paragraph the gate emptied to a bare label',
+          not orphan, f'{len(orphan)} orphan label(s): {orphan[:2]}')
+    check('SHIPPED ARTIFACT: no [n] citation markers (the cleaner deletes them anyway)',
+          not re.search(r'\[\d+\]', art), 'markers present')
+
 print()
 if fails:
     print(f'** {len(fails)} FAILURE(S). THE DOOR IS OPEN. NOTHING SHIPS. **')

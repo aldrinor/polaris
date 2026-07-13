@@ -348,6 +348,7 @@ BANNED_META = re.compile(
     r'\b(this report|this review synthesi[sz]es|the pipeline|retrieved|the question above|'
     r'span-grounded|telemetry|our system|we retrieved|the corpus)\b', re.I)
 MARKER = re.compile(r'\[\d+\]')
+LABEL_ONLY = re.compile(r'^\*{0,2}\[[A-Za-z /-]+\]\*{0,2}[.:]?$')   # a paragraph the gate emptied
 PAREN_YEAR = re.compile(r'\((?:19|20)\d\d[a-z]?\)')
 
 
@@ -486,7 +487,14 @@ def _clean(md: str, cards: list) -> tuple[str, list[str]]:
                     continue
             good.append(PAREN_YEAR.sub('', s))
         if good:
-            keep.append(' '.join(good).strip())
+            txt = ' '.join(good).strip()
+            # An epistemic label is < 8 words, so it BYPASSES the OWNED lane and always survives.
+            # When the gate removes every real sentence around it, the label is left standing alone --
+            # the judge then reads a paragraph that is nothing but "**[Unresolved]**". Drop the stump.
+            if LABEL_ONLY.match(txt):
+                dropped.append(f'ORPHAN_LABEL (gate removed the whole paragraph): {txt[:55]}')
+                continue
+            keep.append(txt)
     return '\n\n'.join(keep), dropped
 
 
@@ -546,10 +554,13 @@ def write_report() -> int:
             md += [f'### {sub}', '', body, '']
     report = '\n'.join(md)
 
-    (OUT_DIR / 'report.md').write_text(report)
+    # "Writing in the {venue}" + venue "The Quarterly Journal of Economics" -> "in the The Quarterly".
+    # THIS RAN AFTER write_text ON A DEAD VARIABLE: the stats below were computed on the CORRECTED
+    # string while the DISK KEPT THE BROKEN ONE. The metrics described an artifact that was never saved.
+    report = re.sub(r'\bthe The\b', 'The', report)
 
-    report = re.sub(r'\bthe The\b', 'the', report)          # "the The Quarterly Journal" x15
-    report = re.sub(r'\bin the The\b', 'in the', report)
+    (OUT_DIR / 'report.md').write_text(report)              # write LAST, after every correction
+    (OUT_DIR / 'drops.json').write_text(json.dumps(all_dropped, indent=1))   # the ledger, on disk
     body_txt = re.sub(r'(?m)^#.*$', '', report)
     paras = [p for p in report.split('\n\n') if len(p.split()) > 20 and not p.startswith('#')]
     import statistics as st
