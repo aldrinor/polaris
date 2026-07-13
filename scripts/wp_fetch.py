@@ -36,6 +36,13 @@ from __future__ import annotations
 import json
 import re
 import sys
+
+LOG = open('/home/polaris/wt/flywheel/outputs/wp_fetch.log', 'w', buffering=1)
+
+
+def say(m):
+    print(m, flush=True)
+    LOG.write(m + '\n')
 import urllib.parse
 from pathlib import Path
 
@@ -99,7 +106,7 @@ def arxiv_by_title(title: str) -> str:
 def main() -> int:
     corpus = json.loads(CORPUS.read_text())
     targets = [c for c in corpus if c.get('content_status') != 'FULLTEXT']
-    print(f'=== working-paper fetch: {len(targets)} papers without full text ===')
+    say(f'=== working-paper fetch: {len(targets)} papers without full text ===')
     print('    (NBER / IZA / RePEc / arXiv — where economists actually put the paper)\n')
 
     won = 0
@@ -117,7 +124,7 @@ def main() -> int:
             urls.append(ax)
 
         best = ''
-        for u in list(dict.fromkeys(urls))[:6]:
+        for u in list(dict.fromkeys(urls))[:3]:
             txt = fetch_text(u)
             if len(txt.split()) > len(best.split()):
                 best = txt
@@ -131,9 +138,9 @@ def main() -> int:
             c['content_status'] = 'FULLTEXT'
             c['fulltext_source'] = 'working_paper'
             won += 1
-            print(f'  [{i:2}/{len(targets)}] ** GOT IT ** {nw:>6,}w  {nums:>3} numbers  {who[:34]:<34}')
+            say(f'  [{i:2}/{len(targets)}] ** GOT IT ** {nw:>6,}w  {nums:>3} numbers  {who[:34]:<34}')
         else:
-            print(f'  [{i:2}/{len(targets)}] no free text        {who[:34]:<34}')
+            say(f'  [{i:2}/{len(targets)}] no free text        {who[:34]:<34}')
 
     Path(CORPUS).write_text(json.dumps(corpus, indent=1))
     ft = sum(1 for c in corpus if c.get('content_status') == 'FULLTEXT')
