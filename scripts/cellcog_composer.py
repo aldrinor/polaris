@@ -215,19 +215,6 @@ def extract_cards() -> int:
     return 0
 
 
-if __name__ == '__main__':
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--extract', action='store_true')
-    ap.add_argument('--write', action='store_true')
-    a = ap.parse_args()
-    if a.extract:
-        raise SystemExit(extract_cards())
-    if a.write:
-        raise SystemExit(write_report())
-        raise SystemExit(extract_cards())
-    print('use --extract then --write')
-
-
 # ----------------------------------------------------------------- step 2: the outline
 #
 # Driven by the RUBRIC, not by whim. Task 72's graded criteria name these facets explicitly:
@@ -506,3 +493,16 @@ def write_report() -> int:
     print(f'  vs cellcog (#1)  : 13,580w | 9 H2 | 31 H3 | ~100w paras | 0 markers | 131 journal mentions')
     print(f'\nwrote {OUT_DIR / "report.md"}')
     return 0
+
+
+# ----------------------------------------------------------------- entry point
+if __name__ == '__main__':
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--extract', action='store_true')
+    ap.add_argument('--write', action='store_true')
+    a = ap.parse_args()
+    if a.extract:
+        raise SystemExit(extract_cards())
+    if a.write:
+        raise SystemExit(write_report())
+    print('use --extract then --write')
