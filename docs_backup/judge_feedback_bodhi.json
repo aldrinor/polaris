@@ -1,0 +1,170 @@
+{
+ "task": "72",
+ "report": "outputs/bodhi_72.md",
+ "judge_output": {
+  "comprehensiveness": [
+   {
+    "criterion": "Grounding in AI and the Fourth Industrial Revolution (4IR) Context",
+    "analysis": "Article 1 explicitly defines its scope around AI, machine learning, generative AI, and the Fourth Industrial Revolution, linking AI to digital platforms, data infrastructures, cyber-physical systems, and organizational forms. It treats 4IR as an analytical context for labor-market restructuring, although the dedicated definitional discussion is relatively concise. Article 2 provides a fuller introductory explanation of 4IR, Industry 4.0, AI's technological components, and the fusion of digital, physical, and biological systems. Its 4IR framing is broader and more accessible, but sometimes more generalized and less tightly evidence-linked than Article 1.",
+    "article_1_score": 8.6,
+    "article_2_score": 8.4
+   },
+   {
+    "criterion": "Breadth of Labor Market Restructuring Dimensions Covered",
+    "analysis": "Article 1 covers a very wide range of restructuring dimensions: task rebundling, employment changes, non-AI hiring reductions, AI-skill wage premia, firm growth, productivity, resilience, market concentration, geographic sorting, training, algorithmic management, monitoring, bargaining power, and regulation. It also distinguishes short-run firm-level restructuring from aggregate labor-market effects. Article 2 also addresses displacement, job creation, task transformation, skill change, wages, inequality, productivity, labor share, policy, and future work, but it is less granular on firm-level and organizational restructuring channels and relies more on broad summaries of automation and robotics literature.",
+    "article_1_score": 9.4,
+    "article_2_score": 8.1
+   },
+   {
+    "criterion": "Scope of Industry-Specific Analysis",
+    "analysis": "Article 1 provides sector-specific discussion for manufacturing, healthcare/radiology, finance, transportation/freight, media/creative industries, professional services, and public sector work. It identifies concrete restructuring pathways in each sector, such as digital twins in manufacturing, workflow reallocation in radiology, algorithmic trading and robo-advisory in finance, autonomous trucking in freight, and human-AI co-creation in media. Article 2 covers manufacturing/logistics, healthcare, finance, transportation, creative industries, marketing, and customer service, but much of the industry discussion is generic and explicitly admits limited journal evidence for healthcare labor-market impacts. Article 1 is more source-sensitive and nuanced sector by sector.",
+    "article_1_score": 8.9,
+    "article_2_score": 7.2
+   },
+   {
+    "criterion": "Exploration of AI's Disruptive Character and Scale",
+    "analysis": "Article 1 explores disruption through GPT diffusion lags, task-level restructuring, establishment-level hiring shifts, superstar-firm concentration, geographic divides, algorithmic control, and sectoral workflow redesign. It avoids overstating scale where evidence is early or mixed, which strengthens its scholarly credibility. Article 2 emphasizes speed, scale, transformative potential, technological unemployment, inequality, and pervasive sectoral disruption, and it discusses the productivity paradox and adoption lags. However, it sometimes asserts broad disruption more rhetorically than evidentially. Article 1 gives a more precise account of scale and mechanisms; Article 2 gives a broader narrative of disruptive potential.",
+    "article_1_score": 8.7,
+    "article_2_score": 7.8
+   },
+   {
+    "criterion": "Depth and Representativeness of Literature Synthesized",
+    "analysis": "Article 1 synthesizes a large and representative set of high-quality journal literature, including task-based theory, AI exposure measurement, establishment vacancy evidence, firm-level AI investment, adoption surveys, productivity studies, training effects, algorithmic management, monitoring, bargaining, sector-specific studies, and policy-relevant institutional work. It repeatedly distinguishes causal, correlational, survey, vacancy, and disclosure-based evidence. Article 2 includes important literature such as Acemoglu and Restrepo, Graetz and Michaels, Damioli et al., and AI vacancy work, but it mixes AI with robotics and automation more heavily and includes questionable or non-journal sources. Its synthesis is broad but less disciplined and less consistently representative of journal-only AI-specific evidence.",
+    "article_1_score": 9.3,
+    "article_2_score": 6.7
+   },
+   {
+    "criterion": "Balanced Discussion of AI's Labor Market Impacts",
+    "analysis": "Article 1 is strongly balanced: it discusses displacement and reduced non-AI hiring, but also AI-skill premia, firm employment growth, productivity, resilience, new tasks, augmentation, and institutional moderation. It also incorporates job quality and bargaining-power concerns, not only employment counts. Article 2 also presents optimistic and pessimistic scenarios and discusses both displacement and job creation, productivity gains and inequality risks. However, some positive impacts are treated more generally, while Article 1 more consistently ties both opportunities and harms to specific studies and mechanisms.",
+    "article_1_score": 9.2,
+    "article_2_score": 8.0
+   }
+  ],
+  "insight": [
+   {
+    "criterion": "Analytical Depth in Characterizing AI-Driven Labor Market Restructuring Mechanisms",
+    "analysis": "Article 1 offers deep mechanism-level analysis: task automation, augmentation, reinstatement, GPT diffusion lags, organizational complements, establishment hiring changes, skill-bundle shifts, wage premia, product innovation, market concentration, algorithmic control, monitoring, and training reallocation. It repeatedly links empirical measurement strategies to restructuring mechanisms. Article 2 explains displacement, reinstatement, productivity effects, SBTC, RBTC, substitution, complementarity, and augmentation clearly, but its mechanism analysis is more textbook-like and less connected to specific AI evidence and organizational implementation details.",
+    "article_1_score": 9.3,
+    "article_2_score": 8.0
+   },
+   {
+    "criterion": "Critical Synthesis and Nuanced Evaluation of AI's Disruptive Impacts Across Industries",
+    "analysis": "Article 1 critically synthesizes sectoral effects by distinguishing measured labor outcomes from workflow evidence and by explicitly flagging evidence limitations where only bibliographic or snippet-level information is available. It identifies sector-specific restructuring pathways rather than simply listing applications. Article 2 covers several industries and identifies common skill shifts, but much of its industry section is descriptive and generic, with limited critical evaluation of the strength of evidence. Article 1 is more nuanced, especially in separating documented impacts from plausible implications.",
+    "article_1_score": 8.8,
+    "article_2_score": 6.8
+   },
+   {
+    "criterion": "Insightful Integration of AI's Role within the Fourth Industrial Revolution (4IR) Context",
+    "analysis": "Article 1 integrates 4IR through a GPT and organizational-complements lens, connecting AI to digital platforms, data infrastructures, cyber-physical systems, Industry 4.0 manufacturing, and organizational redesign. The 4IR theme supports its interpretation of lags, complementarities, and uneven adoption. Article 2 gives a more expansive conceptual introduction to 4IR and AI's role within interconnected digital technologies, but after the introduction the 4IR frame becomes less analytically central. Article 1 uses 4IR more functionally throughout the review, while Article 2 defines it more extensively upfront.",
+    "article_1_score": 8.4,
+    "article_2_score": 7.8
+   },
+   {
+    "criterion": "Identification and Articulation of Emergent Themes, Theoretical Linkages, or Novel Perspectives",
+    "analysis": "Article 1 identifies several strong emergent themes: restructuring occurs before aggregate effects are measurable; complementarities are central; AI can produce firm-level job growth alongside concentration; exposure is not adoption; algorithmic control is a labor-market restructuring channel; and policy must influence the direction of AI. These themes are well connected to theory and empirical evidence. Article 2 identifies standard themes such as displacement versus reinstatement, productivity paradox, inequality, skill shifts, and policy adaptation, but these are more conventional and less tightly synthesized into novel interpretive claims.",
+    "article_1_score": 9.0,
+    "article_2_score": 7.4
+   },
+   {
+    "criterion": "Value and Foresight in Delineating Implications and Future Research Agendas",
+    "analysis": "Article 1 presents a focused future research agenda around measurement drift, causal identification, general equilibrium effects, job quality, and sector coverage, and it derives policy implications around innovation direction, bargaining, training, and regulation. Article 2 offers a broader policy and future research agenda covering education, social safety nets, taxation, governance, generative AI, developing countries, market structure, and policy evaluation. Article 2 is broader on policy options, but Article 1 is more directly grounded in the reviewed journal evidence. Both are strong; Article 1 is more disciplined, Article 2 more expansive.",
+    "article_1_score": 8.7,
+    "article_2_score": 8.2
+   }
+  ],
+  "instruction_following": [
+   {
+    "criterion": "Adherence to 'Literature Review' Format and Purpose",
+    "analysis": "Article 1 is clearly structured as a literature review, with scope, conceptual frameworks, measurement strategies, empirical findings, sectoral evidence, policy implications, synthesis, debates, and gaps. It consistently synthesizes existing research rather than presenting original results. Article 2 also adopts a literature-review structure with introduction, theory, empirical findings, sectoral discussion, policy, and conclusion. However, Article 2 sometimes reads like a general report because it lacks consistent source attribution and includes broad claims not clearly anchored to specific journal articles.",
+    "article_1_score": 9.4,
+    "article_2_score": 8.1
+   },
+   {
+    "criterion": "Consistent Focus on 'Restructuring Impact of AI on the Labor Market'",
+    "analysis": "Article 1 remains highly focused on labor-market restructuring, defining restructuring explicitly and returning to task composition, hiring, wages, skill demand, job quality, firm structure, and institutions throughout. Article 2 is also substantially focused on AI and labor markets, but it digresses more into general AI governance, existential risks, broad 4IR description, and policy debates that are not always tied back to labor-market restructuring. Article 1 is more consistently aligned with the core task.",
+    "article_1_score": 9.5,
+    "article_2_score": 7.7
+   },
+   {
+    "criterion": "Integration of 'AI as a Key Driver of the Fourth Industrial Revolution' Theme",
+    "analysis": "Article 1 explicitly frames AI as part of 4IR and repeatedly connects AI to Industry 4.0, cyber-physical systems, digital platforms, and organizational complements. Article 2 also explicitly and extensively discusses AI as a key driver of 4IR in the introduction, including robotics, IoT, cloud computing, big data, and cyber-physical systems. Article 2's initial treatment is fuller, but Article 1 integrates the theme more consistently into the labor-market analysis.",
+    "article_1_score": 8.8,
+    "article_2_score": 8.5
+   },
+   {
+    "criterion": "Explicit Addressal of AI-Driven 'Significant Disruptions' in the Labor Market",
+    "analysis": "Article 1 directly addresses significant disruptions through specific mechanisms: non-AI hiring reductions, skill-premium changes, productivity and resilience effects, concentration, geographic divides, algorithmic management, monitoring, training changes, and industry-level workflow transformation. Article 2 explicitly discusses disruption, technological unemployment, wage polarization, skill shifts, and sectoral change, but more often at a generalized level. Article 1 better substantiates disruption with evidence and mechanisms.",
+    "article_1_score": 9.1,
+    "article_2_score": 8.0
+   },
+   {
+    "criterion": "Coverage of AI's Impact on 'Various Industries'",
+    "analysis": "Article 1 covers a wide range of industries and sectors, including manufacturing, healthcare, finance, transportation, media/creative work, professional services, and public sector decision-making, with attention to concrete restructuring pathways. Article 2 also covers manufacturing, logistics, healthcare, finance, transportation, creative industries, marketing, and customer service. However, Article 2's sectoral treatment is more generic and less clearly tied to journal evidence. Both meet the instruction, but Article 1 does so with greater specificity and evidence discipline.",
+    "article_1_score": 8.9,
+    "article_2_score": 7.5
+   },
+   {
+    "criterion": "Exclusive Citation of 'High-Quality Journal Articles'",
+    "analysis": "Article 1 explicitly states an evidence constraint to cite only journal articles and mostly discusses recognizable peer-reviewed journal literature. It is not perfect because it sometimes refers vaguely to papers without full bibliographic detail and includes some journal evidence with limited extractable content, but it generally honors the constraint. Article 2 substantially violates or weakens this requirement: its table cites MPRA, Diva Portal, PMC as a source label rather than a journal citation, an unspecified Emerald Insight study, and policy recommendations with blank supporting sources. It also makes broad claims without clear journal article attribution. Therefore Article 1 performs much better on this criterion.",
+    "article_1_score": 8.2,
+    "article_2_score": 3.2
+   },
+   {
+    "criterion": "Exclusive Citation of 'English-Language' Journal Articles",
+    "analysis": "Article 1 appears to rely on English-language journal articles and explicitly states this scope. No obvious non-English sources are used. Article 2 also appears to discuss English-language sources, but because several sources are not clearly specified as journal articles and some are repository or platform references, verification is weaker. The language constraint itself is mostly met by both, but Article 1 is more explicit and reliable.",
+    "article_1_score": 9.0,
+    "article_2_score": 7.0
+   }
+  ],
+  "readability": [
+   {
+    "criterion": "L1: Language Clarity, Precision, and Academic Tone",
+    "analysis": "Article 1 uses precise academic language and technical terminology accurately, including task rebundling, GPT diffusion lags, AI exposure, vacancy measures, algorithmic control, and organizational complements. It is dense but generally clear. Article 2 is fluent, polished, and accessible, with clear explanations of SBTC, RBTC, displacement, reinstatement, and productivity effects. However, some claims are more sweeping and less precisely sourced. Both are readable; Article 1 is more technically precise, Article 2 slightly more accessible.",
+    "article_1_score": 8.7,
+    "article_2_score": 8.4
+   },
+   {
+    "criterion": "S1: Overall Structure and Logical Organization",
+    "analysis": "Article 1 has a strong thematic structure: scope, frameworks, measurement strategies, empirical impacts, industries, firm/market reallocation, job quality, policy, and synthesis. This organization is highly suitable for a research literature review, although the level of subdivision can feel heavy. Article 2 also has a clear and conventional structure moving from introduction to theory, empirical findings, sectors, wages/skills, future debate, policy, and conclusion. Article 1's structure is more analytically rigorous and evidence-oriented; Article 2 is more textbook-like but coherent.",
+    "article_1_score": 9.0,
+    "article_2_score": 8.3
+   },
+   {
+    "criterion": "S2: Paragraph Cohesion and Transitions",
+    "analysis": "Article 1 uses short subsections and bullets to maintain cohesion, and most paragraphs focus on a clear concept or evidence stream. Transitions are often implicit through headings rather than flowing prose, but the logic is easy to follow. Article 2 has smoother prose transitions and more narrative continuity, but some long sections accumulate broad claims and examples without consistently connecting them back to specific evidence. Article 1 is more modular and controlled; Article 2 is more fluid but occasionally diffuse.",
+    "article_1_score": 8.2,
+    "article_2_score": 8.0
+   },
+   {
+    "criterion": "P1: Clarity and Synthesis in Presenting Sourced Information",
+    "analysis": "Article 1 is very strong in presenting sourced information: it explains what specific studies measure, what they find, their strengths and limitations, and how they fit into larger themes. It avoids simple serial summary by synthesizing around mechanisms and empirical strategies. Article 2 presents many findings clearly, especially in its theoretical and empirical sections, but it sometimes serially lists studies and mixes AI, robotics, and general automation evidence without consistently clarifying evidentiary status. Article 1 is superior in synthesis and source discipline.",
+    "article_1_score": 9.1,
+    "article_2_score": 7.2
+   },
+   {
+    "criterion": "D1: Clarity of Data/Evidence Referenced or Summarized",
+    "analysis": "Article 1 clearly summarizes evidence types and limitations, including O*NET task measures, AI exposure indices, online vacancies, posted wage premia, Census adoption surveys, IV designs, event studies, DiD training evidence, and disclosure-text measures. It rarely gives exact numerical estimates, but it interprets empirical findings clearly. Article 2 includes some numerical estimates and a summary table of key empirical studies, which aids comprehension. However, the table includes questionable source labels, incomplete sourcing, and some potentially unreliable or non-journal entries. Article 1 is more reliable; Article 2 is visually helpful but evidentially less disciplined.",
+    "article_1_score": 8.6,
+    "article_2_score": 7.3
+   },
+   {
+    "criterion": "F1: Formatting, Layout, and Visual Consistency",
+    "analysis": "Article 1 uses consistent headings, numbered sections, bullets, and bolded key concepts. It is easy to navigate, though its many subsections and bullets can make it feel more like an annotated synthesis than a conventional prose review. Article 2 has professional headings, bullets, and two tables, giving it a polished report-like layout. However, Table 2 has blank supporting-source cells, which weakens academic presentation. Both are visually clear; Article 2 has stronger visual variety, while Article 1 has stronger consistency and fewer incomplete elements.",
+    "article_1_score": 8.4,
+    "article_2_score": 8.0
+   },
+   {
+    "criterion": "A1: Audience Adaptation and Explanation of Terms",
+    "analysis": "Article 1 is well adapted to a scholarly audience and explains core constructs such as restructuring, AI exposure, GPTs, algorithmic control, and measurement limitations. It assumes some familiarity with labor economics and empirical methods, which is appropriate for an academic review but may be demanding for broader readers. Article 2 explains concepts more fully for a general academic audience, including 4IR, SBTC, RBTC, displacement, reinstatement, and productivity effects. Article 2 is somewhat better for accessibility, while Article 1 is better for expert readers.",
+    "article_1_score": 8.2,
+    "article_2_score": 8.6
+   }
+  ]
+ },
+ "weights": {
+  "readability": 0.14,
+  "insight": 0.32,
+  "comprehensiveness": 0.29,
+  "instruction_following": 0.25
+ }
+}
