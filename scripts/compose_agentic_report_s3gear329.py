@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -162,6 +163,89 @@ def _audit_citations(report_text: str, biblio: list[dict]) -> dict:
 # the pool seam exactly as today => byte-identical.
 _TOPIC_JUDGE_ENV = "PG_PREBUILT_TOPIC_JUDGE"
 _TOPIC_DELETE_MAX_FRACTION_ENV = "PG_TOPIC_DELETE_MAX_FRACTION"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# W6 — the SHIPPING VEHICLE: wire the offline reflow (scripts/reflow_report.py) in-line.
+#
+# The reflow was built and proven as a report -> report transform over BANKED artifacts. Until it
+# runs inside the composer it can never reach a scored run, so this is the vehicle — and nothing
+# more: it is DEFAULT OFF and it is a NO-OP when off.
+#
+# House rule (Rank11's flag fired and consolidated ZERO): default-off is not enough — the ON path
+# must PROVE IT BITES. So the ON path writes ``reflow_audit.json`` next to report.md with the
+# structural deltas (H3s, bullets, tables, class-I kept, confessions purged), and it logs a
+# BITE / NO-BITE verdict. A reflow that changed nothing says so, loudly, instead of taking credit.
+#
+# Faithfulness is NOT re-implemented here. The ON path calls ``reflow_report.reflow_markdown``,
+# the exact function the CLI calls, so it inherits every validator and every fail-closed revert:
+#   - class-I: validate_interpretation (no digit/cite/quote/new-proper-noun/certainty ...)
+#              + fail-closed contradiction_screen (CONTRADICTED / judge error / sentinel => DROP)
+#   - class-S: gate_headings (a heading that fails is DELETED, never shipped)
+#   - structural: validate_reflow per SECTION (fail => that whole section reverts to source text)
+#                 and again over the WHOLE document (fail => the entire body reverts to source)
+# On top of that, this wrapper adds an outer fail-closed seam of its own: ANY exception, an empty
+# result, or a result that lost the References block => ship the unreflowed report.
+_REPORT_REFLOW_ENV = "PG_REPORT_REFLOW"
+
+
+def _reflow_enabled() -> bool:
+    return os.getenv(_REPORT_REFLOW_ENV, "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _maybe_reflow_report(final_report: str, biblio: list[dict], run_dir: Path) -> str:
+    """DEFAULT OFF. Unset/0 => returns ``final_report`` unchanged (no import, no model call)."""
+    if not _reflow_enabled():
+        return final_report
+
+    log = logging.getLogger("compose")
+    try:
+        import importlib.util
+
+        _spec = importlib.util.spec_from_file_location(
+            "_pg_reflow_report", str(Path(__file__).resolve().parent / "reflow_report.py")
+        )
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+        t0 = time.time()
+        reflowed, audit = _mod.reflow_markdown(
+            final_report,
+            bib=list(biblio or []) or None,
+            model=os.getenv("PG_REFLOW_MODEL", "").strip() or None,
+            emit=lambda m: log.info("[reflow] %s", m),
+        )
+    except Exception as exc:  # fail-closed: the unreflowed report is always shippable
+        log.warning("[reflow] FAILED -> shipping the UNREFLOWED report unchanged: %r", exc)
+        return final_report
+
+    # Outer sanity seam: an empty body or a lost bibliography is a broken document, not a reflow.
+    if not (reflowed or "").strip() or ("## References" in final_report
+                                        and "## References" not in reflowed):
+        log.warning("[reflow] output failed the outer sanity seam -> shipping the UNREFLOWED report")
+        return final_report
+
+    # PROVE IT BITES — or say, in the artifact, that it did not.
+    bit = reflowed != final_report
+    audit = {
+        **audit,
+        "enabled": True,
+        "bit": bit,
+        "elapsed_s": round(time.time() - t0, 1),
+        "src_report_sha256": hashlib.sha256(final_report.encode("utf-8")).hexdigest(),
+        "out_report_sha256": hashlib.sha256(reflowed.encode("utf-8")).hexdigest(),
+    }
+    (run_dir / "reflow_audit.json").write_text(
+        json.dumps(audit, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    log.info(
+        "[reflow] %s  words %s->%s  H3=%s bullets=%s tables=%s  class-I kept=%s  confessions purged=%s",
+        "BIT (document changed)" if bit else "NO-BITE (document IDENTICAL — the lever did nothing)",
+        audit["src_body_words"], audit["out_body_words"], audit["h3_subsections"],
+        audit["bullets"], audit["tables"], audit["class_I_count"], audit["confessions_purged"])
+    if not bit:
+        log.warning("[reflow] PG_REPORT_REFLOW=1 but the reflow consolidated ZERO — "
+                    "do NOT claim this lever moved the score.")
+    return reflowed
+
+
 # Fixed so pass B is REPRODUCIBLE: the shuffle must be a different batch composition,
 # not a different result run-to-run.
 _TWOPASS_SEED = 1729
@@ -665,6 +749,14 @@ async def main() -> int:
                            f"{b.get('url','')} (tier {b.get('tier','')})\n")
 
     final_report = (f"# {title}\n\n{intro}\n\n{sections_concat}{biblio_section}")
+
+    # W6 — the SHIPPING VEHICLE for the offline reflow (scripts/reflow_report.py), in-line.
+    # DEFAULT OFF (PG_REPORT_REFLOW unset => `_maybe_reflow_report` returns its input object
+    # unchanged, imports nothing, calls no model): report.md stays BYTE-IDENTICAL to today.
+    # ON (PG_REPORT_REFLOW=1) it runs the SAME `reflow_markdown` the CLI runs — same class-I
+    # validators, same heading gate, same fail-closed contradiction screen, same whole-paragraph /
+    # section / document reverts — and any exception anywhere reverts to the unreflowed report.
+    final_report = _maybe_reflow_report(final_report, biblio, run_dir)
     (run_dir / "report.md").write_text(final_report, encoding="utf-8")
 
     # Pipeline telemetry / Methods is a SIDECAR artifact (provenance for us), NOT part of the judged
