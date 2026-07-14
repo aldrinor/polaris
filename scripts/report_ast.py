@@ -544,12 +544,16 @@ _STOP = {'writing', 'article', 'journal', 'review', 'that', 'show', 'shows', 'fi
          'than', 'when', 'more', 'most', 'such', 'they', 'them', 'about', 'paper', 'papers', 'result',
          'results', 'finding', 'findings', 'authors', 'author'}
 
-_NUM = re.compile(r'\d+(?:\.\d+)?')
+#: A number, WITH ITS LEADING SIGN. The sign is part of the number's identity: span "-3 percent" and
+#: clause "3 percent" are DIFFERENT quantities (Sol burn #9b), and a sign-blind extractor admits the lie
+#: by reading both as "3". `-?` captures the minus so the two never compare equal.
+_NUM = re.compile(r'-?\d+(?:\.\d+)?')
 
 #: A number followed (optionally) by its unit. Longest units first so "percentage points" is not read as
-#: bare "points", and "%" / "$" attach. `(?<![\d.])` keeps "0.2" from being read out of "10.25".
+#: bare "points", and "%" / "$" attach. `(?<![\d.])` keeps "0.2" from being read out of "10.25". The
+#: number group carries its leading sign, so "-3 percent" != "3 percent".
 _NUM_UNIT = re.compile(
-    r'(?<![\d.])(\d+(?:\.\d+)?)\s*'
+    r'(?<![\d.])(-?\d+(?:\.\d+)?)\s*'
     r'(percentage\s+points?|percentage\s+point|basis\s+points?|percent|points?|bps|'
     r'pp|%|\$|fold|times|million|billion|trillion|thousand)?',
     re.I)
@@ -595,8 +599,12 @@ def numbers_in(s: str) -> list[str]:
 def number_stands_alone(num: str, src: str) -> bool:
     """`"0.2" in "10.25"` IS TRUE. A substring test leaks a fabricated effect size through any source
     that happens to contain a longer number with the same digits in it — and we deliberately flood this
-    prose with figures, which loads that hole with live rounds."""
-    return bool(re.search(rf'(?<![\d.]){re.escape(num)}(?![\d])', src))
+    prose with figures, which loads that hole with live rounds.
+
+    The lookbehind also forbids a leading sign ('-'/'−'), so an UNSIGNED clause number ("3 percent") does
+    NOT match a SIGNED span number ("-3 percent"): they are opposite quantities and must not be read as
+    the same one (Sol burn #9b)."""
+    return bool(re.search(rf'(?<![\d.\-−]){re.escape(num)}(?![\d])', src))
 
 
 def _norm_unit(u: str) -> str:
@@ -660,9 +668,12 @@ def _quantity_supported(num: str, unit: str, src: str, span_q: list[tuple[str, s
 # problem.
 #
 # The deterministic layer (numbers+units, a strict direction opposition, a content floor) is REJECT-ONLY
-# defence-in-depth: it may kill an obvious fabrication cheaply and offline, but it may NEVER conclude
-# ADMIT. Passing it means "not yet rejected", never "entailed" — the only thing that says "entailed" is
-# the judge.
+# defence-in-depth: it may kill an obvious fabrication cheaply and offline. It concludes ADMIT in EXACTLY
+# ONE truth-preserving case — a clause that is a CONTIGUOUS window of ONE source clause, dropping no
+# edge qualifier that could flip meaning, AND carrying no figure (`contiguous_window_admit`). That is the
+# only deletion a span cannot lie by, so it is admitted even when the judge is down, and a real compose
+# is not emptied by a blip. Passing the pre-filter WITHOUT clearing that window means "not yet rejected",
+# never "entailed" — for everything else, the only thing that says "entailed" is the judge.
 #
 # A judge is a callable(clause_text, span_text) -> (verdict, excerpt) where verdict is ENTAILED |
 # NOT_ENTAILED | UNCERTAIN (MATCH/NO_MATCH accepted as aliases so an older stub still wires). Tests
@@ -878,6 +889,87 @@ def _modality_residue(ctext: str, src: str) -> str:
     return ''
 
 
+# ---- THE SOUND DETERMINISTIC ADMIT — A CONTIGUOUS WINDOW OF ONE SOURCE CLAUSE ----------------------
+#
+# The invariant of this file (report_ast.py header, and the block above) is that the deterministic layer
+# may only REJECT. There is exactly ONE truth-preserving exception, and this is it: a clause that is a
+# CONTIGUOUS run of words drawn from a SINGLE clause of the span, dropping nothing at its edges that
+# could flip meaning. A contiguous window cannot RECOMBINE non-adjacent fragments — that was hole #9,
+# 'employment rose ACROSS THE NATION' spliced out of 'rose in cities but fell across the nation'. And a
+# window whose dropped LEAD/TRAIL context carries no negation, contrast, direction or scope term cannot
+# silently invert ('substitute' out of 'does NOT substitute') or over-generalise ('employment rose' out
+# of 'IN CITIES, employment rose') what its clause says.
+#
+# A SUBSEQUENCE with a gap is FORBIDDEN here — it can drop a 'but/fell' (the #9 hole). A window that
+# straddles a strong break, or sheds a poison term at an edge, is NOT admitted and routes to the judge,
+# which fails closed. And a clause CARRYING A FIGURE is never admitted here at all: numbers are exactly
+# where sign/magnitude fabrication lives, so a numeric finding stays on the judge and is held (rejected)
+# when the judge is down. What this admits is the verbatim NON-numeric finding — a doctrinal restatement
+# quoted contiguously from one clause — so a real compose is not emptied by a model blip.
+#
+# STRONG breaks ('.', ';', ':') delimit the clause a window must sit inside; commas do NOT, so a fronted
+# scope adverbial ('in cities, employment rose') is still caught as dropped LEAD context.
+
+_CONTRAST_WORDS = {'but', 'while', 'whereas', 'however', 'although', 'though', 'yet', 'nonetheless',
+                   'nevertheless', 'conversely', 'instead'}
+_SCOPE_WORDS = {'across', 'among', 'amongst', 'within', 'throughout', 'worldwide', 'nationwide',
+                'nationally', 'globally', 'internationally', 'regionally', 'locally', 'only', 'solely',
+                'merely', 'except', 'excluding', 'in', 'for'}
+_NEG_WORDS = {'not', 'no', 'never', 'without', 'cannot', "can't", "didn't", "doesn't", "don't", "isn't",
+              "aren't", "wasn't", "weren't", 'fail', 'fails', 'failed', 'neither', 'nor', 'unable',
+              'unlikely', 'none'}
+#: Dropping any of these from the LEAD of a window can invert or over-generalise the clause.
+_LEAD_POISON = _CONTRAST_WORDS | _SCOPE_WORDS | _NEG_WORDS | _UP | _DOWN
+#: Dropping any of these from the TRAIL can flip a clause via a following opposed clause.
+_TRAIL_POISON = _CONTRAST_WORDS | _NEG_WORDS | _UP | _DOWN
+
+#: Word tokens (signed numbers, hyphen/apostrophe words) and the STRONG-break punctuation, in order.
+_TOKEN_RE = re.compile(r"[.;:]|-?\d+(?:\.\d+)?|[a-z]+(?:['\-][a-z]+)*")
+
+
+def _words_regions(s: str) -> tuple[list[str], list[int]]:
+    """Word tokens of `s` (lower-cased) plus, per word, the STRONG-region index it lives in. '.', ';'
+    and ':' bump the region; commas and other punctuation do not — so a window may span a comma (that is
+    the 'modulo punctuation' clause) but never a sentence-strong break."""
+    words: list[str] = []
+    regions: list[int] = []
+    rid = 0
+    for m in _TOKEN_RE.finditer((s or '').lower()):
+        t = m.group(0)
+        if t in ('.', ';', ':'):
+            rid += 1
+        else:
+            words.append(t)
+            regions.append(rid)
+    return words, regions
+
+
+def contiguous_window_admit(text: str, span: str, min_words: int = 4) -> bool:
+    """THE ONLY DETERMINISTIC ADMIT. True iff `text` is a contiguous word-window of ONE clause of `span`
+    that sheds no meaning-flipping term at either edge. It NEVER admits a subsequence, a window that
+    crosses a strong break, or a window that drops a leading negation/scope/direction/contrast — those
+    fall through to the judge. See the block comment above for why this is truth-preserving."""
+    cw, _ = _words_regions(text)
+    if len(cw) < min_words:
+        return False
+    sw, sr = _words_regions(span)
+    n = len(cw)
+    for i in range(len(sw) - n + 1):
+        if sw[i:i + n] != cw:
+            continue
+        if sr[i] != sr[i + n - 1]:
+            continue                                   # the window crosses a strong '.'/';'/':' break
+        region = sr[i]
+        lead = [sw[k] for k in range(i) if sr[k] == region]
+        trail = [sw[k] for k in range(i + n, len(sw)) if sr[k] == region]
+        if any(w in _LEAD_POISON for w in lead):
+            continue
+        if any(w in _TRAIL_POISON for w in trail):
+            continue
+        return True
+    return False
+
+
 def entailed_by_span(text: str, span: str, work: P.Work | None = None,
                      min_overlap: float = 0.25) -> tuple[bool, str]:
     """Is THIS text ENTAILED by THIS verbatim span? The span is the only evidence there is.
@@ -887,16 +979,20 @@ def entailed_by_span(text: str, span: str, work: P.Work | None = None,
     the model writes the claim -> the writer writes from the claim -> the gate checks the writing
     against the claim. THE GATE VALIDATED THE MODEL AGAINST ITSELF.
 
-    Two layers, in order:
+    Three layers, in order:
 
       1. A DETERMINISTIC PRE-FILTER that may only REJECT (numbers+units, a strict direction opposition, a
-         content floor). It is cheap and certain and it kills the obvious fabrication offline. It NEVER
-         admits — surviving it means "not yet rejected".
-      2. THE JUDGE, consulted on the WHOLE clause vs the WHOLE span for EVERY clause that survives (1),
-         not conditioned on any word list. ONLY 'ENTAILED' admits; 'NOT_ENTAILED' and 'UNCERTAIN' — and a
-         judge that cannot be reached — REJECT. This is the line that catches the synonym sign-flip
-         ('plunged'), the magnitude fabrication ('doubled'), the scope swap ('worldwide') and the
-         modality flip ('causes'), none of which any lexicon here names.
+         content floor). It is cheap and certain and it kills the obvious fabrication offline. Surviving
+         it means "not yet rejected", never "entailed".
+      2. THE ONE SOUND DETERMINISTIC ADMIT: a NON-numeric clause that is a contiguous window of ONE
+         source clause, dropping no meaning-flipping edge qualifier (`contiguous_window_admit`). This is
+         the only deletion a span cannot lie by, so it admits even with the judge down — the true finding
+         reaches the page during a model blip instead of being starved. Everything else falls through.
+      3. THE JUDGE, consulted on the WHOLE clause vs the WHOLE span for EVERY clause that survives (1) and
+         is not admitted by (2), not conditioned on any word list. ONLY 'ENTAILED' admits; 'NOT_ENTAILED'
+         and 'UNCERTAIN' — and a judge that cannot be reached — REJECT. This is the line that catches the
+         synonym sign-flip ('plunged'), the magnitude fabrication ('doubled'), the scope swap
+         ('worldwide') and the modality flip ('causes'), none of which any lexicon here names.
     """
     src = (span or '').lower()
     if not src:
@@ -933,6 +1029,17 @@ def entailed_by_span(text: str, span: str, work: P.Work | None = None,
     src_words = {w for w in re.findall(r'[a-z]{4,}', src)}
     if words and len(words & src_words) / len(words) < min_overlap:
         return False, 'CONTENT_NOT_IN_SPAN'
+
+    # ============ THE ONE SOUND DETERMINISTIC ADMIT — a contiguous window of ONE source clause =========
+    # This is the ONLY place the deterministic layer concludes ADMIT, and it is truth-preserving: a
+    # contiguous window of one clause that sheds no edge qualifier cannot flip meaning by deletion (see
+    # `contiguous_window_admit`). It lets a verbatim NON-numeric finding reach the page even when the
+    # judge is unreachable, so a real compose is not emptied by a blip. A clause carrying a FIGURE is
+    # excluded — numbers stay on the judge and are held when it is down (the fail-closed guarantee for
+    # sign/magnitude is not traded away). Everything else falls through to the judge below.
+    if not re.search(r'\d', ctext) and not _SPELLED_UNIT.search(ctext) \
+            and contiguous_window_admit(text, span):
+        return True, ''
 
     # ============ THE JUDGE — WHOLE CLAUSE vs WHOLE SPAN, EVERY TIME. ONLY 'ENTAILED' ADMITS. ==========
     verdict, why = _semantic_judge(text, span)

@@ -707,3 +707,28 @@ deterministic where it can be, judge for the residue, fail-closed on the residue
 
 STATE: 8/8 burns behaviourally closed; canary RED on 2 false positives (the fail-closed pre-filter gap);
 P0 hops 5&7 still open. NOT for Sol re-review yet. Release burned+empty+0555, fetch fenced, 0 blobs.
+
+## OVERFIT AUDIT OF THE P0 LANE (operator: "how many P0 fixes are also overfit?")
+
+Answer: 2 of 4 hop-fixes are overfit word-list patching; a residual fail-open hole remains.
+  hop 4 (cover sheet counted venue anywhere)  -> FIXED STRUCTURALLY (segment_cover_sheet)  general ✅
+  hop 5 (event_ledger _ACCEPTED_STAMP drifted from provenance _AM_MARK) -> unified to ONE detector, but
+         it is STILL a ~13-word stamp list                                                 overfit ⚠️
+  hop 6 (added 'nihms'/'author manuscript; available in pmc' to the list) -> literally adding a word to
+         the list                                                                          whack-a-mole 🔴
+  hop 7 (cover-sheet typeset counterfeit) -> FIXED STRUCTURALLY (body-only folios)         general ✅
+
+REJECT SIDE IS FAIL-SAFE (correct): the fallthrough is UNDETERMINED_VERSION/INADMISSIBLE. Unknown ->
+inadmissible. version_veto + wp_series disqualifiers run FIRST as preconditions.
+
+RESIDUAL FAIL-OPEN HOLE -- alignment_census.py:256:
+    if oa_native and tp['wp_series_marks'] == 0:  return ('JOURNAL_ARTICLE','ADMISSIBLE',...)
+  wp_series_marks==0 means 'none of the ~13 stamp words present'. A working paper from a series NOT on
+  the list (CESifo, Bank of England Staff WP, Tinbergen, Cowles) has wp_series_marks==0 and, with an OA
+  header, is ADMITTED as a journal. ABSENCE OF A KNOWN MARK IS NOT PROOF OF JOURNAL-HOOD.
+
+GENERAL FIX (Sol's call, in scope of his running overfit audit -- NOT hand-fixed by Opus, because
+deleting branch 3 may over-reject born-digital OA journals like PLOS/Nature Communications that lack
+typeset page-folios -- that trade-off is a design decision): admission should require POSITIVE
+typeset/authenticated proof; the stamp list becomes reject-only optimization whose incompleteness is no
+longer a hole. Queued for Sol.
