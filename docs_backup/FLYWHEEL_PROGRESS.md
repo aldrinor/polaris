@@ -732,3 +732,41 @@ deleting branch 3 may over-reject born-digital OA journals like PLOS/Nature Comm
 typeset page-folios -- that trade-off is a design decision): admission should require POSITIVE
 typeset/authenticated proof; the stamp list becomes reject-only optimization whose incompleteness is no
 longer a hole. Queued for Sol.
+
+## SOL OVERFIT AUDIT (V11) — THE WHOLE VALIDATOR IS FAIL-OPEN DENYLISTS
+
+Operator was right: 'make sure every fix is not overfitting.' Sol audited the whole validator. Verdict:
+the disease is everywhere, and my zero-drop rule was INSUFFICIENT.
+
+ZERO-DROP IS UNSOUND: even a BYTE-IDENTICAL quotation fabricates, because the SPEECH ACT is dropped:
+  SPAN 'Daily aspirin reduced all-cause mortality?'  (a QUESTION)  -> rendered 'Smith et al. SHOW THAT
+  daily aspirin reduced mortality' = FABRICATION.  'Hypothesis: X' -> asserted as a finding.
+SOL'S SOUND RULE -- TWO LANES:
+  1. QUOTATION lane: byte-identical to the WHOLE evidence unit, rendered NEUTRALLY 'Author writes: "<exact
+     bytes>"' -- NEVER 'show/find/establish/demonstrate'. Guarantee: only 'these bytes occur in this source'.
+  2. FINDING/PARAPHRASE lane: EVERYTHING ELSE goes to the semantic judge (claim + full unit + governing
+     heading/caption/quotation context + source identity). UNCERTAIN/unavailable/missing-context -> REJECT.
+  Clause-boundary detection may ONLY reject/route, NEVER authorize admission.
+
+WHOLE-VALIDATOR FAIL-OPEN LISTS (each: unlisted value ADMITS):
+  report_ast: _LEAD/_TRAIL_POISON, _KNOWN_VENUES, _REPORTING_VERB, _GROUP_WORDS, _EMPIRICAL_VERB (:786 --
+    no listed verb => judge never called), _MAGNITUDE_ABS, heading validator, 'while'=neutral.
+    LIVE FALSE ADMISSIONS (judge forced UNCERTAIN): 'The Cambridge cohort uncovered that the treatment
+    cured disease', 'The treatment eradicated disease', heading 'Daily aspirin eradicates disease' -- ALL
+    PASS (uncovered/cohort/cured/eradicated not on the lists).
+  synthesis_contract: a recognized phrase licenses a proof while an UNRELATED fabrication rides the same
+    sentence: 'These studies observe different units, AND the intervention eradicates disease' -- PASSES.
+    SAFE_CAPS contains 'Artificial Intelligence'/'Fourth Industrial Revolution' = EXPLICIT TASK-72 OVERFIT.
+    LEVEL_CUES economics-specific ('plant' = factory or botanical).
+  argument_planner: default contract task-72-specific (loaded by report_ast too); secondhand/forecast spans
+    eligible ('Brown demonstrated...', 'is anticipated to reduce mortality'); digit presence = estimate;
+    corpus absence = research gap.
+  cohesion_pass: templates CREATE new factual relations ('their agreement carries more weight'); reorder
+    changes anaphora antecedents.
+
+GENERAL REPLACEMENT (Sol): lists may only REJECT (fail-safe); absence means UNKNOWN -> judge; ADMIT
+requires POSITIVE structural/semantic proof; every proposition in a synthesis maps to a proof conclusion;
+facets need {value, exact span, verdict}; premise-free cohesion nodes may express ONLY document structure.
+
+This supersedes the zero-drop wheel (killed). It is a substantial multi-file rebuild of the validator's
+ADMIT logic, not a patch. Release burned, fetch fenced, 0 blobs.
