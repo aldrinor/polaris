@@ -207,9 +207,6 @@ def _mode_apply_dry(bank: dict) -> int:
 
     sigs_before = {str(p.get('title', '')): plan_signature(p) for p in plans}
     parsed = parse_revision_ops(reviser_output, allowed_ev_ids=allowed, plan_titles=titles)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
     # item 13: when the bank has a required-section structure, thread it so apply restricts ops to
     # keep/reassign and cannot break the user's exact-N-in-order contract.
     _required = [
@@ -217,12 +214,6 @@ def _mode_apply_dry(bank: dict) -> int:
         for t in ((bank.get("deliverable") or {}).get("required_sections", []) or [])
         if str(t).strip()
     ]
-    applied = apply_revision_ops(plans, parsed, outcomes=outcomes, required_titles=_required)
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     # Fable item 6: thread the digest ev_id->basket map so apply RE-BACKFILLS basket_ids on the
     # recomposed sections (a reassign that homes an orphan basket's members must clear it from the
     # orphan list — the compose router is ev-overlap-keyed, find_orphan_baskets is basket_id-keyed;
@@ -233,15 +224,9 @@ def _mode_apply_dry(bank: dict) -> int:
         for ev in (members or [])
     }
     applied = apply_revision_ops(
-        plans, parsed, outcomes=outcomes, ev_id_to_basket=ev_id_to_basket,
+        plans, parsed, outcomes=outcomes,
+        required_titles=_required, ev_id_to_basket=ev_id_to_basket,
     )
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 
     print("\n=== APPLY RESULT ===")
     print(f"[parse] accepted={len(parsed.ops)} rejected={len(parsed.rejected)} "
@@ -394,26 +379,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     # folded same-work alias. The ACCEPTANCE gate below asserts that as set-equality (§-1.3 none
     # dropped) — the machine check that would have caught finding 1 instead of a false prose claim.
     assigned_ev_ids = {str(e) for p in plans for e in (p.ev_ids or [])}
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-    # item 9(a): the WORK keys already anchored by an assigned ev_id. A still-unassigned singleton
-    # whose WORK is anchored via a DIFFERENT ev_id of the same paper is NOT a coverage gap — ev_882
-    # is the same work as the anchored eloundou "GPTs are GPTs" and must not read as unassigned. Uses
-    # the SAME alias_of that fix-3/item-2 built (now chrome-stripped + prefix-folded + false-merge
-    # guarded), so the exclusion tracks the honest work identity. §-1.3: the row stays in the pool/
-    # bibliography (disclosed via its canonical); it just stops double-reporting as a gap. This is
-    # why the prior 136 unassigned-high-tier count was OVERSTATED.
-    assigned_work_keys = {alias_of.get(e, e) for e in assigned_ev_ids}
-=======
     assigned_basket_ids = {str(b) for p in plans for b in (p.basket_ids or [])}
->>>>>>> Stashed changes
-=======
-    assigned_basket_ids = {str(b) for p in plans for b in (p.basket_ids or [])}
->>>>>>> Stashed changes
-=======
-    assigned_basket_ids = {str(b) for p in plans for b in (p.basket_ids or [])}
->>>>>>> Stashed changes
     row_by_id = {str(r.get("evidence_id", "")): r for r in evidence}
 
     def _basket_member_union(bids) -> set[str]:
@@ -435,53 +401,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         str(r.get("evidence_id", "")) for r in evidence
         if str(r.get("evidence_id", "")) and str(r.get("evidence_id", "")) not in menu.ev_id_to_basket
     ]
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-    # item 14 + item 9(a): exclude a singleton that is (i) an assigned ev_id, (ii) a same-work alias
-    # folded OUT of a plan's anchors (accounted for by its canonical, disclosed in plan_work_folds),
-    # or (iii) a copy whose WORK is already anchored by an assigned ev_id. All three keep the pool
-    # accounting honest and stop the unassigned count from being overstated (§-1.3: never a drop).
-    unassigned_singletons = [
-        e for e in singleton_ev_ids
-        if e not in assigned_ev_ids
-        and e not in folded_alias_ev_ids
-        and alias_of.get(e, e) not in assigned_work_keys
-    ]
-    # item 9(b): collapse same-work unassigned candidates to ONE line carrying the aliases (ev_085 +
-    # ev_1110 are the same UK-employment PDF listed twice today). §-1.3 consolidate: aliased +
-    # disclosed, never dropped. The FIRST candidate seen per work is canonical (deterministic: pool
-    # order). ``topic_verdict`` reads the row's SEMANTIC topic-judge stamp via the fail-open predicate
-    # (§-1.3.1): "off_subject" ONLY on an affirmative OFF_SUBJECT stamp (positive relevance vetoes);
-    # any uncertainty/missing => "unjudged" (KEEP). The compose router consumes the SAME predicate.
-    unassigned_high_tier: list[dict] = []
-    _seen_work: dict[str, dict] = {}
-    for e in unassigned_singletons:
-        if str(row_by_id[e].get("tier", "") or "").upper() not in _HIGH_TIERS:
-            continue
-        _wk = alias_of.get(e, e)
-        if _wk in _seen_work:
-            _seen_work[_wk]["same_work_aliases"].append(e)
-            continue
-        _entry = {
-            "ev_id": e,
-            "tier": str(row_by_id[e].get("tier", "") or ""),
-            "title": str(row_by_id[e].get("title", "") or "")[:90],
-            "disposition": "reassign_candidate",
-            "topic_verdict": _row_topic_verdict(row_by_id[e]),
-            "same_work_aliases": [],
-        }
-        _seen_work[_wk] = _entry
-        unassigned_high_tier.append(_entry)
-=======
     unassigned_singletons = [e for e in singleton_ev_ids if e not in assigned_ev_ids]
->>>>>>> Stashed changes
-=======
-    unassigned_singletons = [e for e in singleton_ev_ids if e not in assigned_ev_ids]
->>>>>>> Stashed changes
-=======
-    unassigned_singletons = [e for e in singleton_ev_ids if e not in assigned_ev_ids]
->>>>>>> Stashed changes
 
     # (Fable item 1) the high-tier disclosure scan now covers unassigned SINGLETONS **and** the
     # member rows of BOTH orphan and single-work unassigned baskets — a T1 row buried inside an
@@ -528,26 +448,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
             # routing, §-1.3.1 disclosed); if ANY member is not confirmed off-topic => "unjudged"
             # (fail-open => KEEP + route). Empty-members => "unjudged".
             {"basket_id": bid, "members": basket_members.get(bid, []),
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-             "disposition": "reassign_candidate",
-             "topic_verdict": (
-                 "off_subject"
-                 if (basket_members.get(bid)
-                     and all(_row_topic_verdict(row_by_id.get(m, {})) == "off_subject"
-                             for m in basket_members.get(bid, [])))
-                 else "unjudged"
-             )}
-=======
              "disposition": "unassigned"}   # item 10: topic-judge gated, not auto-reassign
->>>>>>> Stashed changes
-=======
-             "disposition": "unassigned"}   # item 10: topic-judge gated, not auto-reassign
->>>>>>> Stashed changes
-=======
-             "disposition": "unassigned"}   # item 10: topic-judge gated, not auto-reassign
->>>>>>> Stashed changes
             for bid in final_orphans
         ],
         # Fable item 1: single-work unassigned baskets (work-corroboration <2) — DISCLOSED so no
@@ -558,9 +459,6 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         ],
         "unassigned_singletons_count": len(unassigned_singletons),
         "unassigned_high_tier": unassigned_high_tier,
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
         # item 14: same-work anchor folds per section (canonical kept, aliases disclosed) — §-1.3
         # consolidate; the folded aliases remain in the pool/bibliography, never dropped.
         "plan_work_folds": plan_work_folds,
@@ -577,26 +475,6 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
             "mode is correct) — its firing is an explicit S5 acceptance criterion; do not let the "
             "revise loop fall silently between section loops.",
         ],
-        "note": ("orphan baskets AND unassigned high-tier singletons are routed to section plans at "
-                 "COMPOSE via PG_ROUTE_ALL_BASKETS (verified_compose.py "
-                 "route_orphan_baskets_to_section_plans, default-OFF). Item 3b/3c (§-1.3.1): the "
-                 "compose call site computes the JUDGE-CONFIRMED off-topic ev_id set from the pool "
-                 "via the SAME fail-open predicate that stamps `topic_verdict` above "
-                 "(is_row_deletable_offtopic — affirmative OFF_SUBJECT only, positive relevance "
-                 "vetoes) and hands it to the router with the unassigned high-tier singleton "
-                 "candidates; the router's BASKET leg routes each orphan basket and its SINGLETON "
-                 "leg routes each candidate by the same title+focus overlap rule (keep-all residual "
-                 "otherwise), DELETING only judge-CONFIRMED off-topic items before routing "
-                 "(disclosed) — uncertainty => KEEP, so no zero-overlap off-topic junk lands in the "
-                 "keep-all residual section. This cp4 audit is DISCLOSURE ONLY — zero plan mutation "
-                 "here. Every pool member is accounted for: assigned to a section, same-work-folded "
-                 "(plan_work_folds), orphan-basket-disclosed, or unassigned-singleton-disclosed "
-                 "(§-1.3 consolidate — none silently dropped)."),
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
         "note": ("orphan baskets, single-work unassigned baskets, and unassigned singletons are ALL "
                  "DISCLOSED here (§-1.3 consolidate — none dropped); this cp4 audit is DISCLOSURE "
                  "ONLY, zero plan mutation. Any actual reassignment at COMPOSE "
@@ -605,13 +483,6 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
                  "list includes plainly off-topic rows that must NOT be pulled into a section as-is. "
                  "The S2 off-topic leak + S3 title-like-claim gap are escalated cross-section in "
                  "docs/s4_outline_upstream_escalations.md."),
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     }
 
     # (Fable item 2) machine ACCOUNTING identity: assigned ev_ids + members of assigned baskets +
@@ -683,9 +554,6 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         stats["undersupplied_sections"] = list(undersupplied_sections)
 
     # (d) cp4 write + load (verdict-leak guarded on BOTH)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
     # item 6: record the FULL effective S4 knob set + a sha256 of it as run_config_sha (until
     # RunConfig WP-0b lands) so the checkpoint can PROVE what produced it — the prior hardcoded
     # {"PG_OUTLINE_BASKET_DIGEST":"1"} + run_config_sha="" proved nothing about the actual run.
@@ -695,33 +563,6 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     ).hexdigest()
     print(f"\n[d] effective S4 flag_slate={json.dumps(flag_slate, sort_keys=True)} "
           f"run_config_sha={run_config_sha[:12]}")
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-    # Fable item 8: pin EVERY env knob this run's behavior (and the downstream compose promise in the
-    # note) actually reads — not just PG_OUTLINE_BASKET_DIGEST — and thread a REAL run_config sha
-    # (was hardcoded ''), so the cp4 envelope is reproducible. Effective env value per knob; unset =>
-    # "" (the code default applied). The sha is over the sorted slate so it is order-independent.
-    _env_knobs = (
-        "PG_OUTLINE_BASKET_DIGEST",
-        "PG_OUTLINE_DIGEST_MAX_CHARS",
-        "PG_OUTLINE_MIN_MAX_TOKENS",
-        "PG_OUTLINE_REASONING_MAX_TOKENS",
-        "PG_ROUTE_ALL_BASKETS",
-    )
-    flag_slate = {k: os.getenv(k, "") for k in _env_knobs}
-    run_config_sha = hashlib.sha256(
-        json.dumps(flag_slate, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     payload = build_cp4_payload(
         question_sha=hashlib.sha256(question.encode("utf-8")).hexdigest(),
         upstream=[{"stage": "basket", "sha": str(bank.get("cp3_sha", ""))}],
