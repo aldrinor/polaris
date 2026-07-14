@@ -378,10 +378,57 @@ _CHROME = re.compile(
     r'privacy policy|terms of use|all rights reserved|official websites use',
     re.I)
 _PUBLISHED_STAMP = re.compile(r'published version|version of record|\(refereed\)|original citation', re.I)
+#: PREPRINT / WORKING-PAPER STAMPS — a DATA-DRIVEN REGISTRY, not a wall of ifs. Each row is
+#: (repository/series key, header-regex fragment). ADDING A NEW REPOSITORY IS A ONE-LINE DATA EDIT.
+#:
+#: A stamp in a document's OWN header is evidence the manifestation is a WORKING-PAPER / PREPRINT
+#: EXPRESSION — NOT the journal version of record. Peer review CHANGES NUMBERS (Acemoglu & Restrepo's
+#: robot effect: 0.37pp in the NBER working paper, 0.2pp in the published JPE), so under a journal-only
+#: policy a stamped manifestation is a DISCOVERY LEAD, never journal evidence (derive_semantic_binding
+#: -> VERSION_PREPRINT -> derive_eligibility -> DISCOVERY_LEAD).
+#:
+#: WHY THE LIST GREW: the census caught the reducer scoring a GLO Discussion Paper and an arXiv preprint
+#: AS JOURNAL FULLTEXT — the P0 crawling back through a gap. The old pattern knew nber|iza|arxiv but NOT
+#: the working-paper vocabulary below, so an EconStor working paper (Gray 2013) passed as the journal
+#: article. Whenever a new repository stamps its cover page, ADD A ROW HERE — do not touch a reducer.
+PREPRINT_STAMP_REGISTRY: list[tuple[str, str]] = [
+    #  registry key           header pattern (case-insensitive; matched as a fragment)
+    ('nber',              r'nber working paper|national bureau of economic research'),
+    ('iza',               r'iza\s+(?:dp|discussion paper)'),
+    ('glo',               r'glo discussion paper'),
+    ('cepr',              r'cepr discussion paper'),
+    ('ssrn',              r'\bssrn\b'),
+    ('repec',             r'\brepec\b'),
+    ('mpra',              r'\bmpra\b'),
+    ('munich_repec',      r'munich personal repec'),
+    ('econstor',          r'\beconstor\b'),
+    ('documento_trabajo', r'documento de trabajo'),
+    ('cahier_recherche',  r'cahier de recherche'),
+    ('discussion_paper',  r'discussion paper no'),
+    ('working_paper',     r'working paper'),
+    ('arxiv',             r'arxiv:\s*\d'),
+    ('preprint',          r'\bpreprint\b'),
+    ('this_version',      r'this\s+(?:draft|version):'),
+    ('preliminary',       r'preliminary(?: and incomplete)?|do not (?:cite|quote) without'),
+]
+
+#: The registry compiled to ONE alternation. Named groups let a self-test report WHICH stamp fired
+#: (see preprint_stamp_key). observe_text scans the HEADER ONLY: every economics paper CITES NBER
+#: working papers in its REFERENCES, and a whole-text scan reads the bibliography, not the paper —
+#: which is exactly how a naive scan once called the actual JEP article a working paper.
 _PREPRINT_STAMP = re.compile(
-    r'nber working paper (?:series|no)|national bureau of economic research|'
-    r'iza (?:dp|discussion paper)|this (?:draft|version):|preliminary(?: and incomplete)?|'
-    r'do not (?:cite|quote) without|arxiv:\d', re.I)
+    '|'.join(f'(?P<{key}>{pat})' for key, pat in PREPRINT_STAMP_REGISTRY), re.I)
+
+
+def preprint_stamp_key(text: str) -> str | None:
+    """The registry key of the FIRST preprint/working-paper stamp in `text`, or None.
+
+    A pure OBSERVATION helper — it CONCLUDES NOTHING. derive_semantic_binding() decides what a stamp
+    MEANS (a DIFFERENT SOURCE until version equivalence is proven); this only reports which one is
+    present, for provenance and for the self-test that proves the registry covers each repository.
+    """
+    m = _PREPRINT_STAMP.search(text)
+    return m.lastgroup if m else None
 
 
 def observe_text(text: str, header_chars: int = 1500) -> dict:
