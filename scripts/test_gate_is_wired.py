@@ -2,233 +2,236 @@
 """CI CANARY — FAILS IF THE FAITHFULNESS GATE IS BYPASSED.
 
 WHY THIS EXISTS, IN ONE PARAGRAPH:
-I built `synthesis_contract.py`, ran 14 adversarial attacks I had written myself, watched it print
-"ZERO FALSE ADMISSIONS", and reported it as working. An adversarial reviewer then found that
-`validate()` was imported at `cellcog_composer.py:49` and **never called anywhere in the repo except
-its own self_test()**. The gate was a closed loop: invoked only by its own test, fed its own examples,
-printing green. It had never seen a sentence from the pipeline. Behind that unlocked door, 43% of our
-evidence-card mechanisms were pure LLM invention.
+I built `synthesis_contract.py`, ran 14 adversarial attacks I had written myself, watched it print "ZERO
+FALSE ADMISSIONS", and reported it as working. An adversarial reviewer then found that `validate()` was
+imported at `cellcog_composer.py:49` and **never called anywhere in the repo except its own self_test()**.
+The gate was a closed loop: invoked only by its own test, fed its own examples, printing green.
 
-A self-test that passes because the gate returns True in isolation is worth NOTHING.
-This test FAILS IF THE GATE IS NOT ON THE CRITICAL PATH. That is a different thing, and it is the only
-kind of test that would have caught the bug.
+WHY IT WAS REWRITTEN — AND THIS IS THE WHOLE LESSON OF THE NIGHT:
+This canary then went 16/16 GREEN while SIX ADVERSARY ATTACKS SUCCEEDED and nothing had been weakened.
+It was not defeated. It was ORPHANED. It drove `cellcog_composer._clean()` with hand-built dicts —
+`{'authors': [...], 'span': '...'}` — and the fabrication had moved to a lane where cards carry
+manifestations and content hashes. **THE CHECKS CERTIFIED A LANE THE FABRICATION NO LONGER USED.**
+
+A canary that tests a dead function is worse than no canary, because it is green.
+
+So every fixture here is now a BOUND card in a real graph (`_test_fixtures.py`), and every check drives
+THE CODE THAT ACTUALLY SHIPS: `report_ast.validate_report()` -> `publisher.publish()` -> the sealed
+release directory. If the composer, the AST or the publisher stops calling the gate, this goes red.
 
     python scripts/test_gate_is_wired.py
 """
 from __future__ import annotations
 
-import inspect
 import ast
+import inspect
 import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'scripts'))
+
+import provenance as P                                                    # noqa: E402
+import report_ast as A                                                    # noqa: E402
+import publisher                                                          # noqa: E402
+import _test_fixtures                                                     # noqa: E402
+from report_ast import Attributed, Clause, Owned, CardBundle              # noqa: E402
+
 COMPOSER = ROOT / 'scripts' / 'cellcog_composer.py'
-CARDS = ROOT / 'outputs' / 'evidence_cards.json'
+MINER = ROOT / 'scripts' / 'evidence_miner.py'
+BOUND = ROOT / 'outputs' / 'evidence_cards_bound.json'
+RELEASE = publisher.RELEASE / 'report.md'
 
 fails: list[str] = []
 
 
 def check(name: str, ok: bool, detail: str = '') -> None:
     print(f"  [{'PASS' if ok else '**FAIL**'}] {name}")
-    if detail:
-        print(f"            {detail}")
+    if detail and not ok:
+        print(f'            {detail}')
     if not ok:
         fails.append(name)
 
 
 print('=== CI CANARY: IS THE FAITHFULNESS GATE ACTUALLY ON THE CRITICAL PATH? ===\n')
 
-src = COMPOSER.read_text()
-tree = ast.parse(src)
+g, CARDS = _test_fixtures.build()
+B = CardBundle(CARDS, g, P.JOURNAL_ONLY)
 
-# 1. validate() must be CALLED, not merely imported. This is the exact bug that shipped.
-calls = {n.func.id for n in ast.walk(tree)
-         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-check('validate() is CALLED in the composer (not just imported)',
-      'validate' in calls,
-      'imported at :49 and never called — the gate has never seen a real sentence' if 'validate' not in calls else '')
+# =================================================================================================
+# 1-2. THE GATE IS CALLED. This is the exact bug that shipped: imported, never invoked.
+# =================================================================================================
+csrc = COMPOSER.read_text()
+ctree = ast.parse(csrc)
+ccalls = {n.func.id for n in ast.walk(ctree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+cattrs = {n.func.attr for n in ast.walk(ctree)
+          if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
 
-# 2. the mechanism field must be span-gated at extraction
-mech_gated = bool(re.search(r'mechanism gate|m_words\s*&\s*span_words', src))
-check('the `mechanisms` field is span-checked at extraction',
-      mech_gated,
-      'mechanisms copied raw from LLM output -> 43% pure invention' if not mech_gated else '')
+check('the composer CALLS the AST validator (not just imports it)',
+      'validate_report' in ccalls,
+      'validate_report is imported and never called — the gate has never seen a real sentence')
+check('the composer CALLS the publisher (the release is not written by the composer)',
+      'publish' in cattrs)
 
-# 3. no card on disk may carry a mechanism absent from its own span
-if CARDS.exists():
-    cards = json.loads(CARDS.read_text())
-    norm = lambda s: re.sub(r'\s+', ' ', (s or '').lower())
+asrc = inspect.getsource(A)
+atree = ast.parse(asrc)
+acalls = {n.func.id for n in ast.walk(atree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+aattrs = {n.func.attr for n in ast.walk(atree)
+          if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+check('the AST CALLS synthesis_contract.validate() on the owned lane',
+      'validate' in acalls)
+check('the AST CALLS graph.verify_span() — the bytes are re-checked, not trusted',
+      'verify_span' in aattrs)
+check('the AST CALLS graph.resolve_attribution() — the policy decides what may be named',
+      'resolve_attribution' in aattrs)
+
+# =================================================================================================
+# 3-4. THE MECHANISM LAUNDER. 43% of our card mechanisms were pure invention.
+# =================================================================================================
+msrc = MINER.read_text()
+check('the `mechanisms` field is span-checked where cards are MINED',
+      bool(re.search(r'mechanism|m_words\s*&\s*span_words|MECH', msrc)),
+      'mechanisms copied raw from LLM output -> 43% pure invention')
+
+if BOUND.exists():
+    cards = json.loads(BOUND.read_text())
     bad = []
     for c in cards:
-        sw = {w for w in re.findall(r'[a-z]{4,}', norm(c.get('span')))}
+        sw = {w for w in re.findall(r'[a-z]{4,}', re.sub(r'\s+', ' ', (c.get('span') or '').lower()))}
         for m in (c.get('mechanisms') or []):
             mw = {w for w in re.findall(r'[a-z]{4,}', m.lower())}
             if mw and len(mw & sw) / len(mw) < 0.6:
                 bad.append((m, (c.get('authors') or ['?'])[0], c.get('year')))
-    check(f'zero fabricated mechanisms in {CARDS.name}',
+    check(f'zero fabricated mechanisms in the SHIPPING bundle ({BOUND.name}, {len(cards)} cards)',
           not bad,
-          f'{len(bad)} mechanisms not present in their own span, e.g. "{bad[0][0]}" -> {bad[0][1]} ({bad[0][2]})' if bad else '')
+          f'{len(bad)} mechanisms absent from their own span, e.g. "{bad[0][0]}" -> {bad[0][1]}'
+          if bad else '')
 else:
-    print('  [skip] no evidence_cards.json on disk yet')
+    check(f'the shipping card bundle exists ({BOUND.name})', False,
+          'run scripts/quarantine.py — the composer has no lane to read')
 
-# 4. THE ATTACK CASES. The gate must REJECT a fabricated binding assembled from REAL particulars.
-sys.path.insert(0, str(ROOT / 'scripts'))
-try:
-    from synthesis_contract import Premise, Synthesis, validate  # noqa: E402
-    P = {
-        'p1': Premise('p1', 'Computer automation of such work has been correspondingly limited in its scope.',
-                      'Bresnahan et al. (2002), Quarterly Journal of Economics',
-                      level='firm', horizon='long-run', method='observational', mechanisms=[]),
-        'p2': Premise('p2', 'Routine task-intensive occupations declined as computerisation spread.',
-                      'Autor et al. (2003), Quarterly Journal of Economics',
-                      level='occupation', horizon='long-run', method='observational',
-                      mechanisms=['task displacement']),
-    }
-    # THE EXACT FABRICATION FOUND ON DISK: a real mechanism bound to the wrong paper.
-    ok, why = validate(Synthesis('CONTRASTS_LEVEL', ['p1', 'p2'],
-                                 'These findings are attributable to task displacement, which Bresnahan '
-                                 'and colleagues establish as the operative channel.'), P)
-    check('gate REJECTS a real mechanism bound to a paper that never states it',
-          not ok, f'ADMITTED IT: {why or "no reason"}' if ok else f'rejected: {why}')
-except Exception as e:
-    check('synthesis_contract importable', False, str(e))
+# THE EXACT FABRICATION FOUND ON DISK: a real mechanism, bound to a paper that never states it.
+check('the gate REJECTS a real mechanism bound to a paper that never states it',
+      bool(A.validate_report(
+          [Attributed(clauses=(Clause('c:bres',
+                                      'task displacement is the operative channel driving occupational '
+                                      'decline'),))], B)),
+      'ADMITTED IT — "task displacement" is Autor\'s term and Bresnahan\'s span does not contain it')
 
-# 5. THE TEST THAT WOULD HAVE CAUGHT THE INVERSION.
-#    The canary passed while the fabrication shipped, because it tested the gate in MY phrasing and the
-#    composer emits the phrasing MY OWN WRITER PROMPT MANDATES ("Writing in the <JOURNAL>, <AUTHORS> show
-#    that ..."). That form matched the attribution regex, so the gate was SKIPPED ENTIRELY.
-#    A canary that only tests the phrasing you thought of is not a canary.
-sys.path.insert(0, str(ROOT / 'scripts'))
-try:
-    import importlib.util as _u
-    _sp = _u.spec_from_file_location('cc', COMPOSER)
-    cc = _u.module_from_spec(_sp)
-    _sp.loader.exec_module(cc)
-    bres = {'authors': ['Bresnahan', 'Brynjolfsson'], 'year': 2002,
-            'span': 'Computer automation of such work has been correspondingly limited in its scope.',
-            'claim': 'Computer automation of routine work has been limited in scope.',
-            'source': 'Bresnahan et al. (2002), Quarterly Journal of Economics', 'mechanisms': []}
-    # THE EXACT FORM THE WRITER PROMPT MANDATES -- the one that used to bypass the gate completely.
-    shipped, _ = cc._clean(
-        'Writing in the Quarterly Journal of Economics in 2002, Bresnahan et al. show that task '
-        'displacement is the operative channel driving occupational decline.', [bres])
-    check('ATTRIBUTED lane is GATED in the form the writer prompt mandates',
-          shipped.strip() == '',
-          'THE FABRICATION SHIPPED: it names Bresnahan and reports something Bresnahan never says'
-          if shipped.strip() else '')
-    # a fabricated NUMBER credited to a real paper
-    shipped2, _ = cc._clean(
-        'Writing in the Quarterly Journal of Economics in 2002, Bresnahan et al. show that 47 percent '
-        'of employment is at risk of computerisation.', [bres])
-    check('ATTRIBUTED number not in the source is REJECTED',
-          shipped2.strip() == '',
-          'A FABRICATED NUMBER SHIPPED under a real citation' if shipped2.strip() else '')
+# =================================================================================================
+# 5-11. THE ATTRIBUTED LANE. A lie here is FRAUD.
+# =================================================================================================
+check('a TRUE finding, present in its own span, REACHES THE PAGE',
+      not A.validate_report(
+          [Attributed(clauses=(Clause('c:autor', 'computer capital substitutes for workers in a limited '
+                                                 'and well-defined set of routine tasks'),))], B),
+      'real evidence deleted — the gate is starving again')
 
-    # THE SUBSTRING LEAK: `"0.2" in "10.25"` is True. A fabricated effect size passes whenever the
-    # source contains ANY longer number that happens to contain its digits. We are about to fill the
-    # report with figures, which loads this hole with live rounds.
-    leak = dict(bres)
-    leak['span'] = 'productivity growth of 10.25 percent was observed in the sample'
-    leak['claim'] = 'productivity rose'
-    shipped3, _ = cc._clean(
-        'Writing in the Quarterly Journal of Economics in 2002, Bresnahan et al. report that employment '
-        'fell by 0.2 percentage points per robot.', [leak])
-    check('ATTRIBUTED number that is only a SUBSTRING of a source number is REJECTED',
-          shipped3.strip() == '',
-          'a fabricated 0.2 passed because the source said 10.25' if shipped3.strip() else '')
-    # CROSS-SOURCE SYNTHESIS: the sentence that puts two papers in tension IS critical synthesis --
-    # the joint-heaviest criterion on the board. The gate deleted every one of them (it credited the
-    # whole sentence to the first author it recognised, then failed the second paper's content against
-    # the first paper's span), which is why our synthesis section was 210 words out of 8,012.
-    autor = dict(bres, authors=['Autor'], year=2003, venue='The Quarterly Journal of Economics',
-                 span='we contend that computer capital substitutes for workers in carrying out a limited '
-                      'and well-defined set of cognitive and manual activities, namely routine tasks',
-                 claim='computer capital substitutes for workers in routine tasks',
-                 mechanisms=['task displacement'])
-    # BOTH clauses must be faithful to their OWN span -- an earlier draft of this very test fabricated
-    # the Bresnahan clause, and the gate correctly killed it. The canary caught its author.
-    synth, why_s = cc._clean(
-        'Writing in The Quarterly Journal of Economics in 2003, Autor shows that computer capital '
-        'substitutes for workers in routine tasks, while Bresnahan reports that computer automation of '
-        'such work has been correspondingly limited in its scope.', [autor, bres])
-    check('CROSS-SOURCE SYNTHESIS survives the gate (it is the heaviest criterion, w=0.0800)',
-          bool(synth.strip()),
-          f'comparison DELETED -- critical synthesis cannot reach the judge: {why_s[:1] if why_s else ""}')
+check('an ATTRIBUTED number that is not in the cited source is REJECTED',
+      bool(A.validate_report(
+          [Attributed(clauses=(Clause('c:bres', '47 percent of employment is at risk of '
+                                                'computerisation'),))], B)),
+      'A FABRICATED NUMBER SHIPPED under a real citation')
 
-    # ...and the fabricated binding must STILL die when hidden inside a comparison
-    leak_s, _ = cc._clean(
-        'Writing in The Quarterly Journal of Economics in 2002, Bresnahan et al. show that task '
-        'displacement drives the labor share down, while Autor reports organisational change.', [autor, bres])
-    check('fabricated binding is REJECTED even when hidden inside a comparison',
-          not leak_s.strip(),
-          'the multi-source lane let a fabricated binding through' if leak_s.strip() else '')
-    # ===================== THE EVIDENCE-LAUNDERING ATTACK =====================
-    # The gate used to validate a sentence against `span + claim`. `claim` is WRITTEN BY THE MODEL
-    # ("state the finding in your words"), and the writer was handed ONLY the claim, never the span.
-    # So: model writes claim -> writer writes from claim -> gate checks writing against claim.
-    # THE GATE VALIDATED THE MODEL AGAINST ITSELF. A figure hallucinated into `claim` was found by the
-    # number check -- in the hallucination -- and shipped under a real citation.
-    laundered = {'authors': ['Bresnahan'], 'year': 2002, 'doi': 'x',
-                 'venue': 'The Quarterly Journal of Economics',
-                 'span': 'Computer automation of such work has been correspondingly limited in its scope.',
-                 'claim': 'Computerisation reduced employment by 47 percent across affected firms.',
-                 'mechanisms': []}
-    laund, _ = cc._clean(
-        'Writing in The Quarterly Journal of Economics in 2002, Bresnahan et al. show that '
-        'computerisation reduced employment by 47 percent across affected firms.', [laundered])
-    check('EVIDENCE LAUNDERING: a figure the extractor invented in `claim` is REJECTED',
-          not laund.strip(),
-          'THE MODEL VALIDATED ITSELF -- a fabricated number shipped under a real citation')
+# THE SUBSTRING LEAK: `"0.2" in "10.25"` is True. c:leak's span really does say 10.25.
+check('an ATTRIBUTED number that is only a SUBSTRING of a source number is REJECTED',
+      bool(A.validate_report(
+          [Attributed(clauses=(Clause('c:leak', 'employment fell by 0.2 percentage points per '
+                                                'robot'),))], B)),
+      'a fabricated 0.2 passed because the source happened to say 10.25')
 
-    # ...and a TRUE figure, present in the verbatim span, must still reach the page
-    true_c = dict(laundered,
-                  span='we find that employment fell by 0.2 percentage points per robot per thousand workers',
-                  claim='employment fell per robot')
-    real, why_r = cc._clean(
-        'Writing in The Quarterly Journal of Economics in 2002, Bresnahan et al. report that employment '
-        'fell by 0.2 percentage points per robot per thousand workers.', [true_c])
-    check('a TRUE figure, present in the span, still reaches the page',
-          bool(real.strip()),
-          f'real evidence deleted -- the gate is starving again: {why_r[:1]}')
+# CROSS-SOURCE SYNTHESIS — the joint-heaviest criterion on the board (w=0.0800). The old gate deleted
+# EVERY one of these, which is why our synthesis section was 210 words out of 8,012.
+synth = [Attributed(clauses=(
+    Clause('c:autor', 'computer capital substitutes for workers in a limited and well-defined set of '
+                      'routine tasks'),
+    Clause('c:bres', 'computer automation of such work has been correspondingly limited in its scope')),
+    connective='while')]
+check('CROSS-SOURCE SYNTHESIS survives the gate (it is the heaviest criterion, w=0.0800)',
+      not A.validate_report(synth, B),
+      'the comparison was DELETED — critical synthesis cannot reach the judge')
 
-    # the span must be verified WHOLE. 60 chars of real text + an invented tail used to pass.
-    src = inspect.getsource(cc)
-    check('the verbatim span is verified WHOLE, not by its first 60 characters',
-          'norm(span)[:60] not in norm(text)' not in src and 'nspan not in ntext' in src,
-          'a span can still open with 60 real characters and continue into invention')
-    # must match ACTIVE CODE, not the comment that documents the bug -- the naive substring test
-    # matched its own tombstone.
-    check('the gate NEVER validates against the model-authored `claim`',
-          not re.search(r"(?m)^\s*src\s*=\s*f'\{span\}\s*\{claim\}'", src),
-          'the evidence-laundering path is open again: the gate validates the model against itself')
-except Exception as e:
-    check('composer gate importable', False, str(e))
+check('a fabricated binding is REJECTED even when hidden inside a comparison',
+      bool(A.validate_report([Attributed(clauses=(
+          Clause('c:autor', 'computer capital substitutes for workers in routine tasks'),
+          Clause('c:bres', 'task displacement drives the labor share down')), connective='while')], B)),
+      'the multi-source lane let a fabricated binding through')
 
-# ---------------------------------------------------------------------------------------------
-# CHECK THE ARTIFACT, NOT THE CODE.
-#
-# Every defect that has cost us a turn got past a GREEN canary, because the canary tested a CODE
-# PATH in a phrasing I invented, and the judge reads a FILE.
-#   - the gate inversion:   the fabrication was rejected in MY phrasing, admitted in the writer's.
-#   - the 'the The' bug:    the fix ran AFTER write_text() on a dead variable. The stats printed the
-#                           CORRECTED string; the disk kept the BROKEN one. Both looked fine.
-# The only question that cannot be fooled is: WHAT IS IN THE FILE THE JUDGE WILL READ?
-# ---------------------------------------------------------------------------------------------
-rep = ROOT / 'outputs' / 'cellcog_arm' / 'report.md'
-if rep.exists():
-    art = rep.read_text()
-    n_the = len(re.findall(r'\bthe The\b', art))
+# THE EVIDENCE-LAUNDERING ATTACK. The gate used to validate against `span + claim`, and `claim` is
+# WRITTEN BY THE MODEL. So: model writes claim -> writer sees only claim -> gate checks writing against
+# claim. THE GATE VALIDATED THE MODEL AGAINST ITSELF.
+laundered = dict(CARDS[0], claim='Computerisation reduced employment by 47 percent across affected firms.')
+check('EVIDENCE LAUNDERING: a figure the extractor invented in `claim` is REJECTED',
+      bool(A.validate_report(
+          [Attributed(clauses=(Clause('c:bres', 'computerisation reduced employment by 47 percent across '
+                                                'affected firms'),))],
+          CardBundle([laundered], g, P.JOURNAL_ONLY))),
+      'THE MODEL VALIDATED ITSELF — a fabricated number shipped under a real citation')
+
+check('the gate NEVER validates against the model-authored `claim`',
+      not re.search(r"(?m)^\s*src\s*=\s*f?['\"]?\{?span\}?\s*\{?claim\}?", asrc)
+      and 'claim' not in inspect.signature(A.entailed_by_span).parameters,
+      'the evidence-laundering path is open again: the gate validates the model against itself')
+
+# =================================================================================================
+# 12-14. THE NEW LAW — the lanes that did not exist when this canary was written.
+# =================================================================================================
+# THE P0. Working-paper bytes wearing a journal's name. This is the card that scored us 0.4603.
+r = B.resolve('c:ar')
+check('THE P0: working-paper bytes labelled "Journal of Political Economy" CANNOT BE CITED',
+      not r.ok and 'SOURCE_POLICY' in (r.refusal or ''),
+      f'IT RESOLVED, and would have printed: {r.attribution!r}')
+
+check('an UNBOUND card (a DOI and a span, no manifestation) is REFUSED',
+      not CardBundle([{'id': 'x', 'span': 'anything', 'claim': 'anything', 'authors': ['Z'],
+                       'doi': '10.1/x', 'venue': 'Nature'}], g, P.JOURNAL_ONLY).resolve('x').ok,
+      'a card with no bytes behind it was admitted — a DOI names a work, and a work has no bytes')
+
+check('the model may NOT name a source in its prose (voice is never inferred from surnames)',
+      bool(A.validate_report(
+          [Attributed(clauses=(Clause('c:autor', 'Bresnahan and colleagues show that computer capital '
+                                                 'substitutes for workers in routine tasks'),))], B)),
+      'the model typed a citation, and the gate accepted its choice of source')
+
+check('an OWNED sentence may not carry a number, and may not name a source',
+      bool(A.validate_report([Owned(text='the effect is about 5 percentage points')], B))
+      and bool(A.validate_report([Owned(text='Acemoglu is right about this')], B)))
+
+# =================================================================================================
+# 15-17. THE ARTIFACT. The only question that cannot be fooled: WHAT IS IN THE FILE THE JUDGE READS?
+# =================================================================================================
+check('the judged release directory is SEALED — the composer CANNOT write the artifact',
+      publisher.is_sealed(),
+      'the release directory is writable: the composer can publish around the publisher')
+
+if RELEASE.exists():
+    art = RELEASE.read_text()
+    side = publisher.RELEASE / 'report.bindings.json'
     check('SHIPPED ARTIFACT: no "the The <Journal>" doubling',
-          n_the == 0, f'{n_the} in the file the judge reads')
-    orphan = [p for p in art.split('\n\n')
-              if re.match(r'^\*{0,2}\[[A-Za-z /-]+\]\*{0,2}[.:]?$', p.strip())]
-    check('SHIPPED ARTIFACT: no paragraph the gate emptied to a bare label',
-          not orphan, f'{len(orphan)} orphan label(s): {orphan[:2]}')
+          not re.findall(r'\bthe The\b', art))
     check('SHIPPED ARTIFACT: no [n] citation markers (the cleaner deletes them anyway)',
-          not re.search(r'\[\d+\]', art), 'markers present')
+          not re.search(r'\[\d+\]', art))
+    check('SHIPPED ARTIFACT: no paragraph the gate emptied to a bare label',
+          not [p for p in art.split('\n\n')
+               if re.match(r'^\*{0,2}\[[A-Za-z /-]+\]\*{0,2}[.:]?$', p.strip())])
+    check('SHIPPED ARTIFACT: it has a sentence-hash-to-binding sidecar', side.exists())
+    if side.exists():
+        known = {e['sentence_hash'] for e in json.loads(side.read_text())['sentences']}
+        orphan = []
+        for line in art.splitlines():
+            t = line.strip()
+            if not t or t.startswith('#') or t.startswith('|') or t.startswith('**Table'):
+                continue
+            for s in publisher._sentences(t):
+                if A.sentence_hash(s) not in known:
+                    orphan.append(s)
+        check('SHIPPED ARTIFACT: EVERY sentence in it resolves to a binding',
+              not orphan, f'{len(orphan)} unbound sentence(s), e.g. {orphan[:1]}')
+else:
+    print('  [skip] no release on disk yet (run the composer with --write)')
 
 print()
 if fails:

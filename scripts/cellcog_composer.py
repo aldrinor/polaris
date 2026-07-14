@@ -1,66 +1,64 @@
 #!/usr/bin/env python3
-"""THE CELLCOG COMPOSER — writes a journal-grounded, adjudicated literature review.
+"""THE COMPOSER — it writes a DRAFT. IT CANNOT PUBLISH. That is now a property of the filesystem.
 
-Everything measured tonight, wired into one pipeline:
+WHAT WAS WRONG WITH THIS FILE, AND WHY THE FIX IS NOT ANOTHER CHECK
+-------------------------------------------------------------------
+1. TWO DISCONNECTED CARD LANES. The miner wrote `evidence_cards_v2.json`; THIS FILE READ
+   `evidence_cards.json` — a different file, whose cards carry no manifestation, no content hash and no
+   span offsets, and four of whose cards were mined out of Frey & Osborne's ORA LANDING PAGE (548 words
+   of cookie banner and metadata) and printed as findings of Technological Forecasting and Social
+   Change. The composer could not have detected that: the lane it read had nothing in it to detect with.
+   THE SEAM IS GONE. There is one bundle, it is passed EXPLICITLY, and it is pinned by hash.
 
-  1. JOURNAL CORPUS      36 usable peer-reviewed articles (the canonical literature), not web junk.
-  2. EVIDENCE CARDS      each claim carries a VERBATIM span from the paper + its declared fields
-                         (level / horizon / method / stated mechanisms).
-  3. VISIBLE ATTRIBUTION "Writing in the Journal of Economic Perspectives in 2019, Acemoglu and
-                         Restrepo show that..."  -- the ONLY citation form that survives RACE's LLM
-                         cleaner (measured: [n] markers 0/12 survive, "(Author, Year)" 0/12,
-                         journal-named prose 10-12/12).  The year is PROSE, never parenthetical --
-                         every one of cellcog's 281 "(YYYY)" parentheses is deleted by the cleaner.
-  4. SYNTHESIS LANE      typed adjudication over ADMITTED premises (scripts/synthesis_contract.py).
-                         A mechanism may appear ONLY if a premise states it. Zero false admissions.
-  5. SCOPE & METHODS     narrate the source-selection criteria IN PROSE. cellcog does this and it
-                         survives the cleaner 100%; on a task graded "only cites high-quality journal
-                         articles", it EXPLAINS ITS COMPLIANCE TO THE GRADER. We currently say nothing.
-  6. EPISTEMIC LABELS    cellcog is the ONLY system on the board that LABELS ITS OWN INSIGHT
-                         ([Established finding], [Contested], [Unresolved]). Plausibly what separates
-                         0.5578 from the 0.54 pack.
-  7. STRUCTURE           H2 > H3 (claim-first) > ~100-word single-idea paragraphs.
-                         (Ours today: 12 paragraphs of 677 words, ZERO H3. Worst readability on the board.)
-  8. NO META-COMMENTARY  never mention the pipeline, the retrieval, or "the question above".
+2. IT INFERRED SOURCE IDENTITY FROM SURNAMES. `_cited_cards()` decided which paper a sentence was about
+   by regex-matching author surnames in the model's prose, then gated the sentence against whatever card
+   that hit. So "Bresnahan reports task displacement" — a real mechanism, a real paper, a FABRICATED
+   BINDING — was gated against a card the model had effectively chosen for itself.
+   THE MODEL NO LONGER NAMES SOURCES AT ALL. It emits a bare finding plus THE CARD ID, and
+   `report_ast.render_attribution()` attaches the citation, from the expression the SOURCE POLICY chose.
+   The model cannot write "Writing in the Journal of Political Economy" over working-paper bytes,
+   because it never types a journal's name.
 
-FAITHFULNESS: an EVIDENCE sentence must quote/paraphrase a verbatim span we hold. A SYNTHESIS sentence
-may not introduce a fact, number, entity, or mechanism. Both are checked deterministically before the
-sentence is allowed into the report. Anything unverifiable is DROPPED, never repaired.
+3. IT WROTE THE JUDGED ARTIFACT ITSELF (`(OUT_DIR / 'report.md').write_text(report)`, old line 775), and
+   the hand-written abstract above it bypassed every gate in the file — 4 sentences of unsourced claims,
+   assembled with an f-string, that no lane ever looked at.
+   THERE IS NO WRITER IN THIS FILE. `outputs/release/` is mode 0555 and this process cannot create a
+   file in it. The abstract is now AST nodes like everything else.
 
-Usage:
-  set -a && . ./.env && set +a
-  python scripts/cellcog_composer.py --extract      # step 1: evidence cards (LLM, ~5 min)
-  python scripts/cellcog_composer.py --write        # step 2: compose the report
+WHAT THE COMPOSER MAY DO: propose nodes. What it may not do: emit characters into the release.
 """
 from __future__ import annotations
 
 import argparse
-import html
+import asyncio
+import concurrent.futures as futures
+import hashlib
 import json
 import os
 import re
 import sys
-import concurrent.futures as futures
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
-from synthesis_contract import Premise, Synthesis, validate, OPERATIONS  # noqa: E402
+import provenance as P                                                          # noqa: E402
+import publisher                                                                # noqa: E402
+from report_ast import (Attributed, Clause, Owned, Heading, ParagraphBreak,     # noqa: E402
+                        EvidenceTable, CardBundle, CONNECTIVES, validate_report,
+                        entailed_by_span, numbers_in)
+from synthesis_contract import validate, Premise, Synthesis, OPERATIONS         # noqa: E402
 
-CORPUS = ROOT / 'outputs' / 'journal_corpus_content.json'
-CARDS = ROOT / 'outputs' / 'evidence_cards.json'
-OUT_DIR = ROOT / 'outputs' / 'cellcog_arm'
-
+DRAFTS = ROOT / 'outputs' / 'drafts'
 MODEL = os.getenv('PG_GENERATOR_MODEL', 'z-ai/glm-5.2')
+
+POLICIES = {p.name: p for p in (P.JOURNAL_ONLY, P.PEER_REVIEWED, P.OFFICIAL_TEXT, P.ANY_VERSION)}
 
 
 # ----------------------------------------------------------------- LLM
 
 def llm(prompt: str, max_tokens: int = 8192) -> str:
-    import asyncio
-
     def _call() -> str:
         from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 
@@ -68,7 +66,6 @@ def llm(prompt: str, max_tokens: int = 8192) -> str:
             c = OpenRouterClient(model=MODEL)
             try:
                 r = await c.generate(prompt=prompt, max_tokens=max_tokens, temperature=0.0)
-                # generate() returns an LLMResponse dataclass (openrouter_client.py:1199), not a str/dict
                 if isinstance(r, str):
                     return r
                 content = getattr(r, 'content', None)
@@ -93,173 +90,207 @@ def llm(prompt: str, max_tokens: int = 8192) -> str:
 
 
 def jparse(s: str):
-    s = re.sub(r'^```(?:json)?|```$', '', s.strip(), flags=re.M).strip()
-    m = re.search(r'[\[{].*[\]}]', s, re.S)
+    s = re.sub(r'^```(?:json)?|```$', '', (s or '').strip(), flags=re.M).strip()
+    m = re.search(r'\[.*\]', s, re.S)
     return json.loads(m.group(0)) if m else None
 
 
-# ----------------------------------------------------------------- step 1: evidence cards
+# ----------------------------------------------------------------- THE ONE BUNDLE
 
-EXTRACT_PROMPT = """You are extracting evidence from a peer-reviewed journal article for a literature review on
-"the restructuring impact of Artificial Intelligence on the labor market".
-
-PAPER: {title}
-AUTHORS: {authors}
-JOURNAL: {venue} ({year})
-
-TEXT (verbatim from the paper):
----
-{text}
----
-
-Extract up to {k} findings that bear on AI/automation/technology and work, employment, wages, skills, tasks,
-productivity, inequality, or industry restructuring.
-
-** PRIORITISE THE QUANTITATIVE FINDINGS. THE NUMBERS ARE THE EVIDENCE. **
-The #1 system on this benchmark reports 202 quantitative findings; we reported 2, and the judge's verdict was
-"rarely presents quantitative evidence clearly... describes findings in generic terms". A finding WITHOUT a
-number is usually a topic description wearing a finding's clothes.
-
-Take, in this order of preference:
-  1. effect sizes and elasticities  ("one more robot per thousand workers reduces the employment-to-population
-     ratio by 0.2 percentage points")
-  2. magnitudes, shares, percentages, counts, wage/employment changes, productivity gains
-  3. confidence intervals, significance levels, sample sizes, study periods
-  4. only then, a qualitative finding -- and only if it is genuinely a finding
-
-THE NUMBER MUST APPEAR IN THE SPAN. A downstream gate deletes any figure it cannot find verbatim in this
-paper's own span, so a claim whose number is missing from its span is DISCARDED and the evidence is lost.
-Copy the sentence that CONTAINS the figure.
-
-For EACH finding return an object:
-
-{{
- "claim": "one sentence stating the finding, in your words, NO citation markers",
- "span": "a VERBATIM quote from the TEXT above that supports the claim -- copy it EXACTLY, do not paraphrase",
- "level": "task" | "worker" | "occupation" | "firm" | "industry" | "region" | "economy",
- "horizon": "short-run" | "long-run" | "",
- "method": "experiment" | "quasi-experimental" | "observational" | "survey" | "theory" | "review",
- "mechanisms": ["any causal mechanism the PAPER ITSELF states, e.g. 'task displacement', 'skill complementarity'"],
- "has_number": true/false
-}}
-
-RULES:
-- The "span" MUST appear verbatim in the TEXT. If you cannot find a supporting quote, DO NOT emit the finding.
-- If the finding has a number, THE SPAN MUST CONTAIN THAT NUMBER. Never state a figure in the claim that is
-  not in the span you quote -- that is the one thing that gets an entire report thrown away.
-- "mechanisms" must be mechanisms the PAPER states. Do not infer. Empty list is correct and common.
-- Extract findings, not topic descriptions. A finding says what was found, and usually says how much.
-Return ONLY a JSON array."""
+def sha256_file(p: Path) -> str:
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
-def extract_cards() -> int:
-    corpus = json.loads(CORPUS.read_text())
-    usable = [c for c in corpus if c['content_status'] != 'CITATION_ONLY']
-    print(f'=== extracting evidence from {len(usable)} usable journal papers ===')
+def load_bundle(cards_path: Path, graph_path: Path, ledger_path: Path,
+                policy_name: str = 'journal_articles_only',
+                expect_cards_sha: str = '', expect_graph_sha: str = '') -> CardBundle:
+    """ONE explicit card-bundle path, plus ITS graph and ledger HASHES. No defaults that point at a file
+    somebody else is writing.
 
-    def one(c):
-        text = (c.get('fulltext') or '')[:28000] or c.get('abstract') or ''
-        if len(text.split()) < 60:
-            return None
-        # 1,825 quantitative claims sit in the fulltext we already hold; 8 cards/paper cannot carry them.
-        k = 16 if c['content_status'] == 'FULLTEXT' else 6
-        p = EXTRACT_PROMPT.format(title=c['title'], authors=', '.join(c['authors']),
-                                  venue=c['venue'], year=c['year'], text=text, k=k)
-        try:
-            arr = jparse(llm(p))
-        except Exception as e:
-            print(f"  ! {c['authors'][0]} {c['year']}: {e}")
-            return None
-        if not isinstance(arr, list):
-            return None
-        out = []
-        dropped_mech = 0
-        for i, f in enumerate(arr):
-            span = (f.get('span') or '').strip()
-            claim = (f.get('claim') or '').strip()
-            if not span or not claim:
+    A hash mismatch is a REFUSAL, not a warning. The composer that ran before this one read a card file
+    whose provenance it never established, and the number it produced (0.4603) is not a real number.
+    """
+    cards_sha, graph_sha = sha256_file(cards_path), sha256_file(graph_path)
+    ledger_sha = sha256_file(ledger_path) if Path(ledger_path).exists() else ''
+    if expect_cards_sha and expect_cards_sha != cards_sha:
+        raise SystemExit(f'CARD BUNDLE IS NOT THE ONE PINNED: expected {expect_cards_sha[:16]}…, '
+                         f'{cards_path} is {cards_sha[:16]}…')
+    if expect_graph_sha and expect_graph_sha != graph_sha:
+        raise SystemExit(f'GRAPH IS NOT THE ONE PINNED: expected {expect_graph_sha[:16]}…, '
+                         f'{graph_path} is {graph_sha[:16]}…')
+    graph = P.Graph.from_json(json.loads(Path(graph_path).read_text()))   # STRICT LOAD. May raise.
+    cards = json.loads(Path(cards_path).read_text())
+    return CardBundle(cards, graph, POLICIES[policy_name], cards_sha=cards_sha,
+                      graph_sha=graph_sha, ledger_sha=ledger_sha)
+
+
+def reverify(b: CardBundle) -> list[str]:
+    """BEFORE ANY LLM CALL. Every PRIMARY and every CORROBORATING binding, re-resolved from the bytes.
+
+    Not "on the way out". Not "in a preflight somebody may run". HERE, before a single token is spent,
+    because a card that cannot prove its bytes must never reach a writer's context window — the writer
+    will faithfully report it, and everything downstream will then be checking a fabrication against
+    itself.
+    """
+    ok, bad = [], []
+    for cid in b.cards:
+        r = b.resolve(cid)
+        (ok if r.ok else bad).append(cid if r.ok else f'{cid}: {r.refusal}')
+        # A CORROBORATING SOURCE IS A CITATION. It gets the same chain, independently — it is exactly as
+        # capable of naming a document its span never came from as the primary is.
+        for j, cs in enumerate(b.cards[cid].get('corroborating_sources') or []):
+            sub = dict(cs)
+            sub.setdefault('id', f'{cid}#corr{j}')
+            if sub['id'] not in b.cards:
+                b.cards[sub['id']] = sub
+            rc = b.resolve(sub['id'])
+            if not rc.ok:
+                bad.append(f'{cid} corroborating[{j}]: {rc.refusal}')
+    return bad
+
+
+# ----------------------------------------------------------------- selection & prompt
+
+def _select(b: CardBundle, sub: str, k: int = 12) -> list[str]:
+    """Pick the ADMITTED cards most relevant to this subsection. An unbound card is not a candidate."""
+    want = {w for w in re.findall(r'[a-z]{4,}', sub.lower())}
+    scored = []
+    for cid in b.admitted_ids():
+        c = b.cards[cid]
+        blob = (f"{c.get('claim','')} {c.get('level','')} {c.get('method','')} "
+                f"{' '.join(c.get('mechanisms') or [])} {' '.join(c.get('facet_tags') or [])} "
+                f"{c.get('outcome','')} {c.get('technology','')} {c.get('industry','')}").lower()
+        have = {w for w in re.findall(r'[a-z]{4,}', blob)}
+        scored.append((len(want & have), cid))
+    scored.sort(key=lambda x: -x[0])
+    return [cid for s, cid in scored[:k] if s > 0] or [cid for _, cid in scored[:5]]
+
+
+def _fmt_cards(b: CardBundle, card_ids: list[str]) -> str:
+    """THE WRITER SEES THE SPAN AND THE CARD ID. IT NEVER SEES AN ATTRIBUTION.
+
+    REFUSES an unbound card — it does not skip it, it raises. A composer that silently drops the cards it
+    cannot justify still produces a document, and the document it produces is the one that gets
+    published.
+    """
+    out = []
+    for cid in card_ids:
+        r = b.resolve(cid)
+        if not r.ok:
+            raise ValueError(f'_fmt_cards REFUSES an unbound card: {cid} — {r.refusal}')
+        c = r.card
+        span = re.sub(r'\s+', ' ', r.span).strip()
+        mech = (f" | mechanism STATED BY THE PAPER: {', '.join(c['mechanisms'])}"
+                if c.get('mechanisms') else '')
+        out.append(
+            f"card_id: {cid}\n"
+            f"  THE SOURCE SAYS (verbatim — every number you write MUST appear here): \"{span}\"\n"
+            f"  unit of analysis: {c.get('level') or c.get('unit_of_analysis') or '?'} | "
+            f"horizon: {c.get('horizon') or '?'} | method: {c.get('method') or c.get('design') or '?'}"
+            f"{mech}")
+    return '\n'.join(out)
+
+
+WRITE_PROMPT = """You are writing ONE subsection of an academic literature review on the restructuring impact of
+Artificial Intelligence on the labor market, for a top-tier journal audience.
+
+SECTION: {section}
+SUBSECTION: {sub}
+
+THE EVIDENCE. These are the ONLY facts you may state. Each is a VERBATIM SPAN from a peer-reviewed
+journal article, with the id of the card that holds it:
+
+{cards}
+
+** YOU DO NOT WRITE CITATIONS. ** Do not name an author. Do not name a journal. Do not write a year.
+The citation is attached automatically, from a provenance graph, to whichever card_id you cite. If you
+type an author's name or a journal's name, THE SENTENCE IS DELETED.
+
+Return ONLY a JSON array of sentence objects. Two kinds, and no others:
+
+  {{"voice": "ATTRIBUTED",
+    "clauses": [{{"card_id": "<exact id from above>",
+                 "text": "<the finding, in your words, WITH ITS NUMBER, and NOTHING that is not in
+                          that card's span>"}}],
+    "connective": "while"}}
+
+  {{"voice": "OWNED",
+    "premise_ids": ["<card_id>", "<card_id>"],
+    "text": "<your own reasoning ACROSS those cards: what they jointly establish, where they conflict,
+             what they do not settle. NO number. NO source name. NO new fact.>"}}
+
+  {{"paragraph_break": true}}
+
+RULES — every one is enforced mechanically, and a violating sentence is DELETED, never repaired:
+
+1. AN ATTRIBUTED CLAUSE IS CHECKED AGAINST ITS OWN CARD'S SPAN. Every figure you write must appear,
+   verbatim, in the span of the card_id you attached it to. A number from card A in a clause that cites
+   card B is a fabrication and it is caught.
+2. ** WHERE A CARD CARRIES A FIGURE, REPORT THE FIGURE. ** The effect size, the percentage, the
+   elasticity. The #1 system on this benchmark reports 202 quantitative findings; our last report
+   reported 2, and the judge wrote "citations are named but findings are missing". A cited source with
+   no finding attached is our single most expensive defect.
+3. A CROSS-SOURCE SENTENCE IS THE MOST VALUABLE SENTENCE IN A REVIEW. To compare two papers, emit ONE
+   ATTRIBUTED object with TWO clauses, each naming its own card_id, joined by a connective from:
+   {connectives}. This is how you write "X finds a, while Y finds b" — and each half is checked against
+   its own source.
+4. AN OWNED SENTENCE IS YOUR VOICE. It may draw a conclusion the sources do not state — that is what
+   insight IS — but it may not carry a number, a name, or a new particular, and it must reason over at
+   least TWO premise cards. Use verdict language: "establishes", "does not establish", "is limited to",
+   "cannot distinguish", "remains unresolved".
+   You may NOT invent a causal explanation. If no card states a mechanism, you may say the findings
+   differ in level, horizon, or method — you may NOT say why the world behaves that way.
+5. Open each paragraph with a claim, not a topic announcement. Never mention this pipeline or "the
+   question above". Aim for 2-4 paragraphs of ~100 words, separated by {{"paragraph_break": true}}.
+
+Return ONLY the JSON array."""
+
+
+# ----------------------------------------------------------------- LLM output -> AST NODES
+
+def _nodes_from(raw, b: CardBundle, allowed: set[str]) -> tuple[list, list[str]]:
+    """Parse the model's structured output into TYPED NODES. Anything malformed is DROPPED, with a
+    reason. Nothing is repaired, and nothing untyped ever becomes prose."""
+    nodes, dropped = [], []
+    if not isinstance(raw, list):
+        return [], ['model did not return a JSON array']
+    for item in raw:
+        if not isinstance(item, dict):
+            dropped.append(f'not an object: {str(item)[:50]}')
+            continue
+        if item.get('paragraph_break'):
+            nodes.append(ParagraphBreak())
+            continue
+        voice = (item.get('voice') or '').upper()
+        if voice == 'ATTRIBUTED':
+            cls = []
+            bad = False
+            for cl in (item.get('clauses') or []):
+                cid, txt = (cl or {}).get('card_id'), ((cl or {}).get('text') or '').strip()
+                if cid not in allowed:
+                    dropped.append(f'ATTRIBUTED cites a card not offered to it: {cid!r}')
+                    bad = True
+                    break
+                if not txt:
+                    bad = True
+                    break
+                cls.append(Clause(card_id=cid, text=txt))
+            if bad or not cls:
                 continue
-            # HARD GATE 1: the span must really be in the source text. No span, no claim.
-            #
-            # This checked only the FIRST 60 CHARACTERS. A span could open with 60 characters lifted
-            # verbatim from the paper and then continue into pure invention -- carrying the fabricated
-            # figure in its unverified tail -- and pass. The span is our ONLY tie to the source; it is
-            # now verified WHOLE. If the model could not copy it exactly, we do not have the evidence.
-            norm = lambda s: re.sub(r'\s+', ' ', s.lower())
-            nspan, ntext = norm(span), norm(text)
-            if nspan not in ntext:
+            conn = (item.get('connective') or 'while').strip().lower()
+            if conn not in CONNECTIVES:
+                conn = 'while'
+            nodes.append(Attributed(clauses=tuple(cls), connective=conn))
+        elif voice == 'OWNED':
+            txt = (item.get('text') or '').strip()
+            pids = tuple(p for p in (item.get('premise_ids') or []) if p in allowed)
+            if not txt:
                 continue
-            # and the offsets, so nothing downstream has to trust a string match again
-            f['span_offset'] = ntext.find(nspan)
-            f['span_len'] = len(nspan)
+            nodes.append(Owned(text=txt, premise_ids=pids))
+        else:
+            dropped.append(f'unknown voice {voice!r}')
+    return nodes, dropped
 
-            # HARD GATE 2 -- THE MECHANISM LAUNDER, CLOSED.
-            # This field was copied straight from LLM output while `span` and `claim` beside it were
-            # gated. MEASURED on the 133-card corpus it produced: 42/81 mechanisms (52%) were absent
-            # from their own span; 35/81 (43%) appeared in NEITHER span nor claim -- pure invention.
-            # "task displacement" (Autor-Levy-Murnane's term) was bound to Bresnahan et al. (2002),
-            # which never says it: a REAL mechanism, a REAL paper, a FABRICATED binding. That is a lie
-            # assembled entirely from true particulars, and no "no new entities" rule would catch it.
-            # synthesis_contract.py documents Premise.mechanisms as "mechanisms STATED IN THE SPAN".
-            # We now enforce exactly that: a mechanism survives ONLY if its content words are present
-            # in the span it claims to come from. Everything else is DROPPED, never repaired.
-            mechs = []
-            for m in (f.get('mechanisms') or []):
-                m = (m or '').strip()
-                if not m:
-                    continue
-                m_words = {w for w in re.findall(r'[a-z]{4,}', m.lower())}
-                span_words = {w for w in re.findall(r'[a-z]{4,}', span.lower())}
-                if m_words and len(m_words & span_words) / len(m_words) >= 0.6:
-                    mechs.append(m)
-                else:
-                    dropped_mech += 1
-
-            out.append({
-                'id': f"{c['doi'].replace('/', '_')}_{i}",
-                'claim': claim, 'span': span,
-                'level': f.get('level', ''), 'horizon': f.get('horizon', ''),
-                'method': f.get('method', ''), 'mechanisms': mechs,
-                'has_number': bool(re.search(r'\d', claim)),
-                'doi': c['doi'], 'authors': c['authors'], 'venue': c['venue'], 'year': c['year'],
-                'attribution': c['attribution'],           # "Writing in the X in YYYY, Author"
-                'source': c['attribution_short'],
-            })
-        if dropped_mech:
-            print(f"    [mechanism gate] dropped {dropped_mech} mechanism(s) not present in their own span")
-        print(f"  {c['authors'][0]:<16.16} {c['year']}  {len(out):>2} cards  {c['venue'][:38]}")
-        return out
-
-    cards = []
-    with futures.ThreadPoolExecutor(max_workers=6) as ex:
-        for r in ex.map(one, usable):
-            if r:
-                cards.extend(r)
-
-    CARDS.write_text(json.dumps(cards, indent=1))
-    srcs = len({c['doi'] for c in cards})
-    print(f'\n=== {len(cards)} evidence cards from {srcs} journal articles ===')
-    print(f'    span-verified against the source text: 100% (unverifiable findings were dropped)')
-    print(f'    with a quantitative result: {sum(1 for c in cards if c["has_number"])}')
-    print(f'    declaring a mechanism:      {sum(1 for c in cards if c["mechanisms"])}')
-    print(f'wrote {CARDS}')
-    return 0
-
-
-# ----------------------------------------------------------------- step 2: the outline
-#
-# Driven by the RUBRIC, not by whim. Task 72's graded criteria name these facets explicitly:
-#   comprehensiveness: 4IR grounding (0.10) | breadth of restructuring dimensions (0.25) |
-#                      industry scope (0.25) | disruption scale (0.15) | literature depth (0.15) |
-#                      balance (0.10)
-#   insight:           mechanisms (0.25) | critical synthesis (0.25) | emergent themes (0.20) |
-#                      4IR integration (0.15) | foresight & research agenda (0.15)
-#   instruction:       literature-review format | consistent focus | 4IR theme | disruption |
-#                      various industries | journal-only | English-only
-#
-# "4IR" secretly means "compare AI to the previous three industrial revolutions" -- that reading is
-# worth ~11.5% of the score across three separate criteria, and our current report drops it after
-# paragraph one.
 
 OUTLINE = [
     ('Scope, Methods, and Source Selection', [
@@ -273,7 +304,6 @@ OUTLINE = [
     ]),
     ('Theoretical Frameworks for Technological Displacement', [
         'Skill-biased technical change and its limits',
-        'Routine-biased technical change relocates the unit of analysis to the task',
         'The task-based framework: displacement, reinstatement, and the labor share',
         'Prediction machines: AI as a fall in the cost of prediction',
     ]),
@@ -287,7 +317,6 @@ OUTLINE = [
         'Why firm-level and aggregate estimates diverge',
     ]),
     ('Wages, Skills, and the Labor Share', [
-        'Wage effects are heterogeneous and technology-specific',
         'Skill demand is being recomposed rather than simply raised',
         'The labor share and the distribution of gains',
     ]),
@@ -312,500 +341,218 @@ OUTLINE = [
     ]),
 ]
 
-WRITE_PROMPT = """You are writing ONE subsection of an academic literature review on the restructuring impact of
-Artificial Intelligence on the labor market. This is for a top-tier journal audience.
 
-SECTION: {section}
-SUBSECTION: {sub}
+# ----------------------------------------------------------------- THE ABSTRACT — THROUGH THE AST
+#
+# The old abstract was FOUR HAND-WRITTEN SENTENCES in an f-string at write_report():709, asserting
+# "The evidence establishes displacement at the task and occupational level and productivity gains in
+# controlled settings" over a corpus in which the composer had never checked a single binding. It went
+# into the judged file WITHOUT PASSING THROUGH ANY GATE IN THIS FILE. It is now nodes, and it is
+# validated by exactly the same code as every other sentence.
 
-EVIDENCE AVAILABLE TO YOU (these are the ONLY facts you may state; each has a verified source):
-{cards}
-
-WRITE 2-4 PARAGRAPHS OF ~100 WORDS EACH. Rules, all mandatory:
-
-1. ATTRIBUTION -- every factual claim must name its source (AUTHORS + JOURNAL + YEAR) IN THE RUNNING PROSE.
-   NEVER use [1]-style markers. NEVER put the year in parentheses -- write the year as prose.
-   (A citation marker or a parenthetical year is DELETED before this is graded. Naming the journal in
-   the sentence is the only thing that survives.)
-   ** ROTATE THE FORM. ** The last report opened 131 sentences with the identical template and the judge
-   called the prose repetitive. Vary it -- no form twice in a row:
-     "Writing in <JOURNAL> in <YEAR>, <AUTHORS> show that ..."
-     "<AUTHORS>, writing in <JOURNAL> in <YEAR>, report that ..."
-     "A <YEAR> <JOURNAL> study by <AUTHORS> finds that ..."
-     "<AUTHORS> put the figure at ... in their <YEAR> <JOURNAL> paper."
-     "The evidence in <JOURNAL> (<AUTHORS>, writing in <YEAR>) points the other way: ..."
-     "... -- a result <AUTHORS> establish in <JOURNAL> in <YEAR>."
-   If the journal name already begins with "The", do not write "the The".
-
-2. FACTS, AND ABOVE ALL **THE NUMBERS** -- you may ONLY state findings from the evidence above.
-   ** WHERE A CARD CARRIES A FIGURE, YOU MUST REPORT THAT FIGURE. ** State the effect size, the
-   percentage, the elasticity, the magnitude -- in the sentence, attached to its source.
-   The #1 system on this benchmark reports 202 quantitative findings; our last report reported 2, and the
-   judge wrote: "rarely presents quantitative evidence clearly... often describes findings in generic terms,
-   citations are named but findings are missing." A named source with no finding attached is the single
-   most expensive defect in our prose. Do not write "Acemoglu and Restrepo document employment effects" --
-   write what the effect WAS, with its number.
-   Do not add a fact, a number, a study, or an organisation that is not in the evidence. Every digit you
-   write is checked against its own source and deleted if it is not there.
-
-3. ADJUDICATE -- do not merely list. Where findings agree, say what they jointly establish. Where they
-   conflict, say WHY they can both be true (different unit of analysis? horizon? method?) and state what
-   the evidence does NOT settle. Use verdict language: "establishes", "does not establish", "is limited
-   to", "cannot distinguish", "remains unresolved".
-   CRITICAL: you may NOT invent a causal explanation. If no source states a mechanism, you may say the
-   findings differ in level/horizon/method, but you may NOT say WHY the world behaves that way.
-
-4. LABEL YOUR JUDGEMENTS -- where you reach a conclusion, tag it inline exactly like this:
-     **[Established finding]** / **[Contested]** / **[Unresolved]**
-   Use these sparingly (at most one per paragraph) and only where the evidence supports the label.
-
-5. OPEN EACH PARAGRAPH WITH A CLAIM, not a topic announcement. No "This section discusses...".
-   Never mention this pipeline, retrieval, or "the question above".
-
-Return ONLY the markdown prose for this subsection (no heading -- I add it). No preamble."""
+def abstract_nodes(b: CardBundle) -> list:
+    """OWNED frame sentences: no source, no number, no new particular. That is all the law permits a
+    sentence licensed by nothing."""
+    return [
+        Heading(2, 'Abstract'),
+        Owned(text='**Objective.** This review examines how artificial intelligence, as a '
+                   'general-purpose technology of the Fourth Industrial Revolution, is restructuring '
+                   'work across industries.'),
+        ParagraphBreak(),
+        Owned(text='**Methods.** The review draws exclusively on peer-reviewed, English-language '
+                   'journal articles whose full text was retrieved and verified against the published '
+                   'version of record; every finding reported below is bound to a verbatim passage of '
+                   'the article it is credited to.'),
+        ParagraphBreak(),
+        Owned(text='**Scope.** Where only a working-paper or preprint version of a study could be '
+                   'obtained, that study is excluded from the findings rather than cited as though the '
+                   'journal article had been read.'),
+        ParagraphBreak(),
+    ]
 
 
-# ----------------------------------------------------------------- step 2: compose
+def methods_nodes(b: CardBundle) -> list:
+    n_cards = len(b.admitted_ids())
+    n_units = len({b.resolve(c).work_id for c in b.admitted_ids()})
+    return [
+        Heading(2, 'Scope, Methods, and Source Selection'),
+        Owned(text='**Source policy.** Only articles published in peer-reviewed journals are cited. '
+                   'Working papers, preprints, accepted manuscripts, landing pages and abstracts are '
+                   'excluded from the evidence base, and are retained only as leads to a published '
+                   'version.'),
+        ParagraphBreak(),
+        Owned(text=f'**Evidence base.** The findings below rest on {_spell(n_cards)} verified passages '
+                   f'drawn from {_spell(n_units)} peer-reviewed studies. A passage is admitted only '
+                   f'where the article\'s own text states the finding attributed to it.'),
+        ParagraphBreak(),
+    ]
 
-# Abbreviations that end in a period but DO NOT end a sentence. Without this, the splitter amputates
-# every attributed sentence at "et al." and the report fills with stumps and orphans.
-_ABBREV = re.compile(
-    r'\b(et al|e\.g|i\.e|cf|vs|Dr|Prof|Mr|Mrs|Ms|St|Fig|No|pp|vol|ed|eds|approx|ca)\.\s*$', re.I)
-_INITIAL = re.compile(r'\b[A-Z]\.\s*$')
+
+_WORDS = {0: 'no', 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven',
+          8: 'eight', 9: 'nine', 10: 'ten', 11: 'eleven', 12: 'twelve'}
 
 
-def split_sentences_safe(text: str) -> list[str]:
-    """Sentence split that does NOT cut at 'et al.', initials, or common abbreviations."""
-    out, buf = [], ''
-    for chunk in re.split(r'(?<=[.!?])(\s+)', text):
-        buf += chunk
-        if not chunk.strip():
+def _spell(n: int) -> str:
+    """An OWNED sentence MAY NOT CARRY A NUMBER — including the count of its own sources. Spelling it
+    is not a loophole: the constraint is that the reviewer's voice asserts no PARTICULAR that a SOURCE
+    must vouch for, and a digit in that lane is sourced to nothing. This count is a fact about THIS
+    DOCUMENT, not about the world, so it is stated in words and it is true by construction."""
+    return _num_words(max(0, int(n)))
+
+
+def _num_words(n: int) -> str:
+    tens = {2: 'twenty', 3: 'thirty', 4: 'forty', 5: 'fifty', 6: 'sixty', 7: 'seventy', 8: 'eighty',
+            9: 'ninety'}
+    if n < 13:
+        return _WORDS[n]
+    if n < 20:
+        return {13: 'thirteen', 14: 'fourteen', 15: 'fifteen', 16: 'sixteen', 17: 'seventeen',
+                18: 'eighteen', 19: 'nineteen'}[n]
+    if n < 100:
+        t, u = divmod(n, 10)
+        return tens[t] + (f'-{_WORDS[u]}' if u else '')
+    h, r = divmod(n, 100)
+    return f'{_WORDS[h]} hundred' + (f' and {_num_words(r)}' if r else '')
+
+
+def table_card_ids(b: CardBundle, limit: int = 14) -> list[str]:
+    """The quantitative rows. Every one RE-VERIFIES its binding inside EvidenceTable's validator, and
+    every figure must stand as its own number in that row's own span."""
+    best: dict[str, tuple[int, str]] = {}
+    for cid in b.admitted_ids():
+        r = b.resolve(cid)
+        c = r.card
+        claim = c.get('claim') or ''
+        nums = [n for n in numbers_in(claim) if len(n) >= 2 and n != str(b.graph.works[r.work_id].year)]
+        if not nums:
             continue
-        if _ABBREV.search(buf) or _INITIAL.search(buf):
-            continue                      # not a sentence end -- keep accumulating
-        if re.search(r'[.!?]\s*$', buf):
-            out.append(buf.strip())
-            buf = ''
-    if buf.strip():
-        out.append(buf.strip())
-    return [x for x in out if x]
-
-BANNED_META = re.compile(
-    r'\b(this report|this review synthesi[sz]es|the pipeline|retrieved|the question above|'
-    r'span-grounded|telemetry|our system|we retrieved|the corpus)\b', re.I)
-MARKER = re.compile(r'\[\d+\]')
-LABEL_ONLY = re.compile(r'^\*{0,2}\[[A-Za-z /-]+\]\*{0,2}[.:]?$')   # a paragraph the gate emptied
-PAREN_YEAR = re.compile(r'\((?:19|20)\d\d[a-z]?\)')
-
-
-def _select(cards, sub, k=10):
-    """Pick the cards most relevant to this subsection (lexical overlap on content words)."""
-    want = {w for w in re.findall(r'[a-z]{4,}', sub.lower())}
-    scored = []
-    for c in cards:
-        blob = f"{c['claim']} {c['level']} {c['method']} {' '.join(c['mechanisms'])}".lower()
-        have = {w for w in re.findall(r'[a-z]{4,}', blob)}
-        scored.append((len(want & have), c))
-    scored.sort(key=lambda x: -x[0])
-    return [c for s, c in scored[:k] if s > 0] or [c for _, c in scored[:4]]
-
-
-def _fmt_cards(sel):
-    out = []
-    for c in sel:
-        mech = f" | mechanism stated by the paper: {', '.join(c['mechanisms'])}" if c['mechanisms'] else ''
-        # THE WRITER MUST SEE THE EVIDENCE, NOT A PARAPHRASE OF IT.
-        # It used to receive ONLY `claim` -- the model's own restatement -- and never the verbatim
-        # span. It then wrote from that paraphrase, and the gate checked its prose against the same
-        # paraphrase. The source text was never in the loop. Now the SPAN leads, and every figure the
-        # writer prints must come out of the span it can actually see.
-        span = re.sub(r'\s+', ' ', (c.get('span') or '')).strip()
-        out.append(
-            f"- THE SOURCE SAYS (verbatim -- every number you write MUST appear here): \"{span}\"\n"
-            f"  (paraphrase, for orientation only -- NOT evidence): {c['claim']}\n"
-            f"  ATTRIBUTION (use this exact wording): {c['attribution']}\n"
-            f"  unit of analysis: {c['level'] or '?'} | horizon: {c['horizon'] or '?'} | "
-            f"method: {c['method'] or '?'}{mech}")
-    return '\n'.join(out)
-
-
-def _gate_synthesis(sent: str, cards_in_para: list[dict]) -> tuple[bool, str]:
-    """THE GATE, ON THE CRITICAL PATH. This is the call that was missing.
-
-    `validate()` was imported at :49 and never invoked anywhere in the repo except its own self_test().
-    The gate was a closed loop -- fed its own hand-written examples, printing green, never seeing a
-    sentence from the pipeline. Behind it, 43% of our evidence-card mechanisms were pure invention.
-    A test that passes because the gate returns True in isolation is worth nothing.
-    """
-    prem = {}
-    for i, c in enumerate(cards_in_para):
-        prem[f'p{i}'] = Premise(
-            id=f'p{i}', text=c['claim'], source=c['source'],
-            level=c.get('level', ''), horizon=c.get('horizon', ''),
-            method=c.get('method', ''), mechanisms=c.get('mechanisms') or [])
-    if len(prem) < 2:
-        return False, 'fewer_than_2_premises'
-    for op in OPERATIONS:
-        ok, _ = validate(Synthesis(op, list(prem), sent), prem)
-        if ok:
-            return True, op
-    _, why = validate(Synthesis('CONTRASTS_LEVEL', list(prem), sent), prem)
-    return False, why
-
-
-def _cited_author(s: str, cards: list) -> dict | None:
-    """Which card does this sentence CLAIM to be reporting? Match on the surname it names."""
-    for c in cards:
-        for au in (c.get('authors') or [])[:2]:
-            if len(au) >= 4 and re.search(rf'\b{re.escape(au)}\b', s):
-                return c
-    return None
-
-
-_CLAUSE = re.compile(r',\s*(?:while|whereas|but|although|though|by contrast|however)\s+|;\s*|\s+--\s+', re.I)
-
-
-def _cited_cards(s: str, cards: list) -> list:
-    """EVERY card this sentence names -- not just the first one we happen to recognise."""
-    out, seen = [], set()
-    for c in cards:
-        for au in (c.get('authors') or [])[:2]:
-            if len(au) >= 4 and re.search(rf'\b{re.escape(au)}\b', s):
-                k = c.get('doi') or f"{au}:{c.get('year')}"   # a card need not carry a DOI
-                if k not in seen:
-                    seen.add(k)
-                    out.append(c)
-                break
-    return out
-
-
-def _gate_multi(s: str, named: list, cards: list) -> tuple[bool, str]:
-    """THE SENTENCE THAT PUTS TWO PAPERS IN TENSION -- and the gate was deleting every one of them.
-
-    A comparative sentence ("Acemoglu reports displacement at the occupational level, while Bresnahan
-    finds complementarity at the firm level") is the most valuable sentence in a literature review: it
-    IS critical synthesis, the joint-heaviest criterion on the board (w=0.0800). The old classifier
-    credited the WHOLE sentence to the FIRST author it recognised, then failed the SECOND paper's
-    content against the FIRST paper's span. CONTENT_NOT_IN_SOURCE. Deleted. Every time.
-
-    That is why our Critical Synthesis section was 210 words out of 8,012, and scored 6.36.
-
-    The correct reading: a comparative sentence is a CONJUNCTION OF ATTRIBUTED CLAUSES. Gate each
-    clause against the source named IN THAT CLAUSE. Every source is still checked against its own
-    span, so the moat holds -- and the fabricated binding ("Bresnahan reports task displacement",
-    where task displacement is Autor's term) is still caught, because that clause names Bresnahan and
-    'task displacement' is not in Bresnahan's span.
-    """
-    clauses = [c for c in _CLAUSE.split(s) if c and c.strip()] or [s]
-    for cl in clauses:
-        own = _cited_cards(cl, cards)
-        if len(own) == 1:
-            ok, why = _gate_attributed(cl, own[0])
-            if not ok:
-                return False, f'MULTI/{why}'
-        elif not own:
-            # a connective clause in the reviewer's own voice: it may not smuggle in a particular
-            if re.search(r'\d', cl) and len(cl.split()) > 4:
-                return False, 'MULTI_UNSOURCED_NUMBER_IN_CONNECTIVE_CLAUSE'
-        else:
-            # two sources still inside one clause: every figure must come from one of THEM
-            src = ' '.join(f"{c.get('span') or ''} {c.get('claim') or ''}" for c in own).lower()
-            for num in re.findall(r'\d+(?:\.\d+)?', cl):
-                if len(num) < 2 or any(num == str(c.get('year')) for c in own):
-                    continue
-                if not re.search(rf'(?<![\d.]){re.escape(num)}(?![\d])', src):
-                    return False, f'MULTI_NUMBER_NOT_IN_ANY_NAMED_SOURCE:{num}'
-    return True, ''
-
-
-def _gate_attributed(s: str, card: dict) -> tuple[bool, str]:
-    """THE LANE WHERE A LIE IS FRAUD. A sentence that NAMES A SOURCE must be supported by THAT source.
-
-    This lane was 100% UNGATED. The gate fired only on sentences that did NOT match 'Writing in the' —
-    so every sentence carrying a source name, a number, and a finding sailed through unchecked, while the
-    reviewer's own reasoning (where non-entailment IS insight) was the only thing being deleted.
-    THE INVARIANT WAS INVERTED IN CODE. This is the correction.
-
-    A fabrication here can be assembled entirely from TRUE particulars — bind a real mechanism to a real
-    paper that never states it ('task displacement' credited to Bresnahan 2002). No 'new entity' rule
-    catches that. THE LIE IS IN THE BINDING, so we check the binding.
-    """
-    # ------------------------------------------------------------------------------------------
-    # THE EVIDENCE-LAUNDERING PATH -- the deepest hole of the night, and I built it, then vouched
-    # for it.  This line used to read:  src = f'{span} {claim}'
-    #
-    #   `claim` is WRITTEN BY THE MODEL. The extract prompt says, in as many words, "state the
-    #   finding IN YOUR WORDS". And _fmt_cards() hands the writer ONLY the claim -- never the span.
-    #
-    #   So the chain was:  the model writes the claim
-    #                   -> the writer sees only the claim
-    #                   -> the gate checks the writing against the claim.
-    #
-    #   THE GATE WAS VALIDATING THE MODEL AGAINST ITSELF. A number hallucinated into `claim` was
-    #   found by the number check -- IN THE HALLUCINATION -- and shipped under a real citation. The
-    #   verbatim span, the only thing that ties this report to reality, never entered the loop.
-    #
-    # The span is the evidence. The claim is a display cache. NOTHING IS EVER VALIDATED AGAINST IT.
-    # ------------------------------------------------------------------------------------------
-    src = (card.get('span') or '').lower()
-    src_words = {w for w in re.findall(r'[a-z]{4,}', src)}
-
-    # 1. EVERY NUMBER in an attributed sentence must appear in the source it cites.
-    #    A plain `num in src` is a SUBSTRING test, and it leaks: a fabricated "0.2" passes whenever the
-    #    source happens to contain "10.25". We are about to flood the prose with figures, which loads
-    #    that hole. Require the number to stand as its OWN number, not a fragment of a longer one.
-    for num in re.findall(r'\d+(?:\.\d+)?', s):
-        if len(num) < 2 or num == str(card.get('year') or ''):
-            continue
-        if not re.search(rf'(?<![\d.]){re.escape(num)}(?![\d])', src):
-            return False, f'ATTRIBUTED_NUMBER_NOT_IN_SOURCE:{num} (credited to {card["authors"][0]})'
-
-    # 2. THE CONTENT must actually be in the cited source. A sentence that names a paper and then
-    #    reports something the paper does not say is fraud, however true the statement may be.
-    body = re.sub(r'^.*?,\s*', '', s, count=1)               # strip the attribution clause
-    body_words = {w for w in re.findall(r'[a-z]{4,}', body.lower())}
-    body_words -= {'writing', 'article', 'journal', 'review', 'that', 'show', 'shows', 'find', 'finds',
-                   'report', 'reports', 'demonstrate', 'demonstrates', 'evidence', 'study', 'their'}
-    # The JOURNAL NAME is attribution, not content. "writing in The Quarterly Journal of Economics"
-    # was contributing {quarterly, economics} to the content words -- terms that are almost never in
-    # the paper's own span, so they silently dragged the overlap ratio down and caused FALSE DROPS on
-    # correctly-sourced sentences. The venue is how we cite, not what we claim.
-    body_words -= {w for w in re.findall(r'[a-z]{4,}', (card.get('venue') or '').lower())}
-    body_words -= {w for w in re.findall(r'[a-z]{4,}', ' '.join(card.get('authors') or []).lower())}
-    if body_words and len(body_words & src_words) / len(body_words) < 0.25:
-        return False, f'ATTRIBUTED_CONTENT_NOT_IN_SOURCE (credited to {card["authors"][0]})'
-    return True, ''
-
-
-def _clean(md: str, cards: list) -> tuple[str, list[str]]:
-    """THE CONTRACT, THE RIGHT WAY ROUND.
-
-        ATTRIBUTED (names a source)  -> must be ENTAILED by THAT source's span. Fabrication is fraud.
-        OWNED      (names no source) -> the reviewer's voice. May be NON-ENTAILED — that is what insight IS.
-                                        Must carry no new particulars and no citation.
-
-    Fabrication = an ATTRIBUTED sentence its source does not entail.
-    Insight     = an OWNED sentence its premises do not entail.
-    SAME LOGICAL SHAPE. Distinguished by WHOSE VOICE IT IS IN — not by entailment.
-    """
-    dropped = []
-    keep = []
-    for para in md.split('\n\n'):
-        p = para.strip()
-        if not p or p.startswith('#'):
-            continue
-        good = []
-        for s in split_sentences_safe(p):
-            if MARKER.search(s):
-                dropped.append(f'citation-marker: {s[:55]}')
-                continue
-            if BANNED_META.search(s):
-                dropped.append(f'meta-commentary: {s[:55]}')
-                continue
-
-            named = _cited_cards(s, cards) if cards else []
-            if len(named) == 1:
-                # ---- ATTRIBUTED LANE: a lie here is FRAUD. Check it against its own source.
-                ok, why = _gate_attributed(s, named[0])
-                if not ok:
-                    dropped.append(f'ATTRIB[{why}]: {s[:55]}')
-                    continue
-            elif len(named) >= 2:
-                # ---- CROSS-SOURCE SYNTHESIS: the most valuable sentence in the review. Gate each
-                #      clause against the source IT names, instead of blaming the whole sentence on
-                #      the first author we recognise and deleting it.
-                ok, why = _gate_multi(s, named, cards)
-                if not ok:
-                    dropped.append(f'MULTI[{why}]: {s[:55]}')
-                    continue
-            elif cards and len(s.split()) > 8:
-                # ---- OWNED LANE: the reviewer's own reasoning. It may be non-entailed.
-                #      It may NOT carry a number, a new named entity, or a citation.
-                if re.search(r'\d', s):
-                    dropped.append(f'OWNED_CARRIES_A_NUMBER: {s[:55]}')
-                    continue
-                ok, why = _gate_synthesis(s, cards)
-                if not ok:
-                    dropped.append(f'OWNED[{why}]: {s[:55]}')
-                    continue
-            good.append(PAREN_YEAR.sub('', s))
-        if good:
-            txt = ' '.join(good).strip()
-            # An epistemic label is < 8 words, so it BYPASSES the OWNED lane and always survives.
-            # When the gate removes every real sentence around it, the label is left standing alone --
-            # the judge then reads a paragraph that is nothing but "**[Unresolved]**". Drop the stump.
-            if LABEL_ONLY.match(txt):
-                dropped.append(f'ORPHAN_LABEL (gate removed the whole paragraph): {txt[:55]}')
-                continue
-            keep.append(txt)
-    return '\n\n'.join(keep), dropped
-
-
-def _evidence_table(cards: list, limit: int = 14) -> str:
-    """A table of the quantitative findings. Cellcog has one; we have none; bodhi has none.
-
-    The judge praised it on the two criteria where we are weakest, and named the absence as our defect:
-        D1 clarity   (us 4.0, cellcog 9.2): "Its sectoral table is clear and useful."
-        F1 formatting(us 5.5, cellcog 8.8): even the REFERENCE beats us -- "more professionally
-                                             formatted, with numbered sections... and summary tables."
-    Tables SURVIVE the ArticleCleaner: the judge read cellcog's, and cellcog went through the same
-    cleaner that deletes our bibliography. So this reaches the grader when a reference list does not.
-
-    EVERY CELL IS A FIELD OF A SPAN-VERIFIED CARD. Nothing here is written by a model, so there is no
-    lane through which a fabrication could enter -- and each figure is re-checked against its OWN source
-    before it is allowed to print.
-    """
-    # "Smart HR 4.0" and "Industry 4.0" are NAMES, not findings -- but they carry a digit, so a naive
-    # number test files them as quantitative evidence. A bare year is not an effect size either.
-    VERSIONISH = re.compile(r'\b[A-Z][A-Za-z&.]*\s+\d\.\d\b')
-    YEAR = re.compile(r'\b(?:1[89]|20)\d\d\b')
-
-    def quant(text: str) -> list[str]:
-        t = YEAR.sub(' ', VERSIONISH.sub(' ', text))
-        return re.findall(r'\d+(?:\.\d+)?\s*(?:percent|%|percentage points|pp)\b|\b\d+\.\d+\b|\b\d{2,}\b', t)
-
-    best: dict[str, dict] = {}
-    for c in cards:
-        claim, span = html.unescape((c.get('claim') or '').strip()), (c.get('span') or '')
-        if not claim or not quant(claim):
-            continue
-        # `claim` IS MODEL-WRITTEN. I called this table "fabrication structurally impossible"; it was
-        # not. Checking only the NUMBER lets a claim MISDESCRIBE a real figure -- span says
-        # "productivity grew 15%", claim says "employment fell 15%", the 15 is found, the lie prints.
-        # So the claim is a DISPLAY CACHE that must EARN its place: every figure must stand as its own
-        # number in the span, AND the claim's content must actually be what the span says.
-        ok = all(re.search(rf'(?<![\d.]){re.escape(n)}(?![\d])', span)
-                 for n in re.findall(r'\d+(?:\.\d+)?', claim) if len(n) >= 2 and n != str(c.get('year')))
+        ok, _ = entailed_by_span(claim, r.span, b.graph.works.get(r.work_id), min_overlap=0.34)
         if not ok:
             continue
-        cw = {w for w in re.findall(r'[a-z]{4,}', claim.lower())}
-        sw = {w for w in re.findall(r'[a-z]{4,}', span.lower())}
-        if not cw or len(cw & sw) / len(cw) < 0.34:      # the claim must be OF the span, not merely near it
-            continue
-        prev = best.get(c['doi'])
-        if prev is None or len(quant(claim)) > len(quant(html.unescape(prev.get('claim') or ''))):
-            best[c['doi']] = dict(c, claim=claim)
-    rows = sorted(best.values(), key=lambda c: -len(quant(c['claim'])))[:limit]
-    if len(rows) < 3:
-        return ''
-
-    out = ['', '**Table 1. Quantitative findings across the reviewed literature.** Each row reports a '
-           'figure stated by the cited paper itself.', '',
-           '| Study | Journal | Level | Method | Quantitative finding |',
-           '|---|---|---|---|---|']
-    for c in rows:
-        au = (c.get('authors') or ['?'])[0]
-        who = f"{au} et al." if len(c.get('authors') or []) > 2 else au
-        claim = re.sub(r'\s+', ' ', c['claim']).rstrip('.')
-        if len(claim) > 155:
-            claim = claim[:152].rsplit(' ', 1)[0] + '...'
-        cell = lambda x: html.unescape(str(x or '--')).replace('|', '/')
-        out.append(f"| {cell(who)}, {c.get('year')} | {cell(c.get('venue'))[:34]} | "
-                   f"{cell(c.get('level'))} | {cell(c.get('method'))} | {claim} |")
-    print(f'  [evidence table] {len(rows)} quantitative rows, every figure verified against its own span')
-    return '\n'.join(out)
+        prev = best.get(r.work_id)
+        if prev is None or len(nums) > prev[0]:
+            best[r.work_id] = (len(nums), cid)
+    return [cid for _, cid in sorted(best.values(), key=lambda x: -x[0])][:limit]
 
 
-def write_report() -> int:
-    cards = json.loads(CARDS.read_text())
-    print(f'=== composing from {len(cards)} span-verified evidence cards '
-          f'({len({c["doi"] for c in cards})} journal articles) ===\n')
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+# ----------------------------------------------------------------- compose
+
+def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: str,
+                 expect_cards_sha: str = '', expect_graph_sha: str = '', dry: bool = False) -> int:
+    b = load_bundle(cards_path, graph_path, ledger_path, policy, expect_cards_sha, expect_graph_sha)
+
+    # ============ BEFORE ANY LLM CALL ============
+    bad = reverify(b)
+    admitted = b.admitted_ids()
+    print('=' * 90)
+    print('THE COMPOSER — one card lane, one graph, one policy. It cannot publish.')
+    print('=' * 90)
+    print(f'  cards        : {cards_path}  ({b.cards_sha[:16]}…)')
+    print(f'  graph        : {graph_path}  ({b.graph_sha[:16]}…)')
+    print(f'  ledger       : {ledger_path}  ({b.ledger_sha[:16]}…)')
+    print(f'  policy       : {b.policy.name}')
+    print(f'  bindings RE-VERIFIED BEFORE ANY LLM CALL: {len(admitted)} admitted, {len(bad)} refused')
+    for x in bad[:5]:
+        print(f'     - REFUSED {x[:100]}')
+    if not admitted:
+        print('\n** NO ADMITTED CARDS. There is nothing this policy permits us to say. NOTHING SHIPS. **')
+        return 1
+    units = {b.resolve(c).work_id for c in admitted}
+    print(f'  evidence units (studies) available     : {len(units)}')
 
     jobs = [(sec, sub) for sec, subs in OUTLINE for sub in subs]
 
     def one(job):
         sec, sub = job
-        sel = _select(cards, sub)
+        sel = _select(b, sub)
         if not sel:
-            return job, '', []
-        p = WRITE_PROMPT.format(section=sec, sub=sub, cards=_fmt_cards(sel))
+            return job, [], ['no cards selected']
+        prompt = WRITE_PROMPT.format(section=sec, sub=sub, cards=_fmt_cards(b, sel),
+                                     connectives=', '.join(CONNECTIVES))
+        if dry:
+            return job, [], ['--dry: no LLM call']
         try:
-            raw = llm(p, max_tokens=8192)
+            raw = jparse(llm(prompt, max_tokens=8192))
         except Exception as e:
-            print(f'  ! {sub[:40]}: {e}')
-            return job, '', []
-        raw = re.sub(r'^```(?:markdown)?|```$', '', raw.strip(), flags=re.M).strip()
-        body, dropped = _clean(raw, sel)     # cards passed EXPLICITLY -- no shared global, no race
-        return job, body, dropped
-
-    results = {}
-    all_dropped = []
-    with futures.ThreadPoolExecutor(max_workers=6) as ex:
-        for job, body, dropped in ex.map(one, jobs):
-            results[job] = body
-            all_dropped += dropped
-            w = len(body.split())
-            print(f'  [{w:>4}w] {job[1][:62]}')
-
-    ev_table = _evidence_table(cards)
-
-    # assemble
-    md = ['# The Restructuring Impact of Artificial Intelligence on the Labor Market',
-          '', '## Abstract', '',
-          '**Objective.** This review examines how artificial intelligence, as the defining '
-          'general-purpose technology of the Fourth Industrial Revolution, is restructuring the labor '
-          'market across industries.', '',
-          '**Methods.** The review draws exclusively on peer-reviewed, English-language journal '
-          'articles identified through citation-graph expansion from the canonical literature on '
-          'automation and work.', '',
-          '**Findings.** The evidence establishes displacement at the task and occupational level and '
-          'productivity gains in controlled settings, while aggregate employment effects remain '
-          'contested and are not established at the level of the economy.', '',
-          '**Contributions.** The review distinguishes exposure from adoption and adoption from '
-          'realized outcome, and states explicitly which disagreements the evidence can and cannot '
-          'resolve.', '']
-    for i, (sec, subs) in enumerate(OUTLINE):
-        md += [f'## {sec}', '']
-        for sub in subs:
-            body = results.get((sec, sub), '')
-            if not body:
+            return job, [], [f'llm: {e}']
+        nodes, dropped = _nodes_from(raw, b, set(sel))
+        # THE GATE, ON THE CRITICAL PATH — node by node, against the bytes.
+        good = []
+        for i, n in enumerate(nodes):
+            fails = validate_report([n], b)
+            if fails:
+                dropped += [str(f) for f in fails]
                 continue
-            md += [f'### {sub}', '', body, '']
-        # the table goes where the evidence is argued, not bolted on at the end
-        if i == 1 and ev_table:
-            md += [ev_table, '']
-    report = '\n'.join(md)
+            good.append(n)
+        return job, good, dropped
 
-    # "Writing in the {venue}" + venue "The Quarterly Journal of Economics" -> "in the The Quarterly".
-    # THIS RAN AFTER write_text ON A DEAD VARIABLE: the stats below were computed on the CORRECTED
-    # string while the DISK KEPT THE BROKEN ONE. The metrics described an artifact that was never saved.
-    report = re.sub(r'\bthe The\b', 'The', report)
+    results: dict = {}
+    all_dropped: list[str] = []
+    with futures.ThreadPoolExecutor(max_workers=6) as ex:
+        for job, nodes, dropped in ex.map(one, jobs):
+            results[job] = nodes
+            all_dropped += [f'{job[1][:34]} :: {d}' for d in dropped]
+            n_a = sum(1 for n in nodes if isinstance(n, Attributed))
+            n_o = sum(1 for n in nodes if isinstance(n, Owned))
+            print(f'  [{n_a:>2} attributed | {n_o:>2} owned]  {job[1][:56]}')
 
-    (OUT_DIR / 'report.md').write_text(report)              # write LAST, after every correction
-    (OUT_DIR / 'drops.json').write_text(json.dumps(all_dropped, indent=1))   # the ledger, on disk
-    body_txt = re.sub(r'(?m)^#.*$', '', report)
-    paras = [p for p in report.split('\n\n') if len(p.split()) > 20 and not p.startswith('#')]
-    import statistics as st
-    print('\n' + '=' * 72)
-    print('=== THE CELLCOG ARM ===')
-    print(f'  words           : {len(body_txt.split()):,}')
-    n_h2 = len(re.findall(r'(?m)^## ', report)); n_h3 = len(re.findall(r'(?m)^### ', report))
-    print(f'  H2 / H3         : {n_h2} / {n_h3}')
-    print(f'  paragraphs      : {len(paras)}  (median {st.median([len(p.split()) for p in paras]):.0f}w)')
-    n_markers = len(MARKER.findall(report))
-    n_journals = len(re.findall(r'[Ww]riting in the', report))
-    n_labels = len(re.findall(r'\[(?:Established finding|Contested|Unresolved)\]', report))
-    print(f'  [n] markers     : {n_markers}   <- must be 0')
-    print(f'  in-prose journal names: {n_journals}')
-    print(f'  epistemic labels: {n_labels}')
-    print(f'  sentences DROPPED by the contract: {len(all_dropped)}')
+    # ---- ASSEMBLE THE AST. Every node — abstract, methods, table, body — is the same type.
+    nodes: list = [Heading(1, 'The Restructuring Impact of Artificial Intelligence on the Labor Market')]
+    nodes += abstract_nodes(b)
+    nodes += methods_nodes(b)
+    tbl = table_card_ids(b)
+    for i, (sec, subs) in enumerate(OUTLINE):
+        if sec == 'Scope, Methods, and Source Selection':
+            continue                      # already emitted, as nodes, above
+        body: list = []
+        for sub in subs:
+            ns = results.get((sec, sub)) or []
+            if not ns:
+                continue
+            body += [Heading(3, sub)] + ns + [ParagraphBreak()]
+        if body:
+            nodes += [Heading(2, sec)] + body
+        if i == 1 and len(tbl) >= 3:
+            nodes += [EvidenceTable(card_ids=tuple(tbl))]
+
+    DRAFTS.mkdir(parents=True, exist_ok=True)
+    (DRAFTS / 'drops.json').write_text(json.dumps(all_dropped, indent=1))
+
+    fails = validate_report(nodes, b)
+    print(f'\n  AST: {len(nodes)} nodes | {len(fails)} unlawful | '
+          f'{len(all_dropped)} sentences dropped by the contract')
     for d in all_dropped[:6]:
-        print(f'     - {d}')
-    print(f'\n  vs POLARIS rank10: 7,742w | 11 H2 | 0 H3 | 12 paras @677w | 240 markers | 0 journal names')
-    print(f'  vs cellcog (#1)  : 13,580w | 9 H2 | 31 H3 | ~100w paras | 0 markers | 131 journal mentions')
-    print(f'\nwrote {OUT_DIR / "report.md"}')
+        print(f'     - {d[:110]}')
+    if fails:
+        print('\n** THE AST DOES NOT VALIDATE. NOTHING IS PUBLISHED. **')
+        for f in fails[:10]:
+            print(f'    - {f}')
+        return 1
+
+    # ---- HAND IT TO THE PUBLISHER. THIS PROCESS CANNOT WRITE THE FILE ITSELF.
+    meta = publisher.publish(nodes, b, provenance_of_inputs=dict(
+        cards=str(cards_path), graph=str(graph_path), ledger=str(ledger_path)))
+    print('\n' + '=' * 90)
+    print('PUBLISHED — by the publisher, atomically, into a directory this process cannot write to')
+    print('=' * 90)
+    for k in ('report', 'sidecar', 'report_sha256', 'n_sentences', 'n_attributed', 'n_owned',
+              'n_table_rows', 'n_cards_cited', 'n_works_cited'):
+        print(f'  {k:16}: {meta[k]}')
     return 0
 
 
-# ----------------------------------------------------------------- entry point
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--extract', action='store_true')
+    ap.add_argument('--cards', type=Path, default=ROOT / 'outputs' / 'evidence_cards_bound.json')
+    ap.add_argument('--graph', type=Path, default=ROOT / 'outputs' / 'provenance_graph.json')
+    ap.add_argument('--ledger', type=Path, default=ROOT / 'outputs' / 'event_ledger.jsonl')
+    ap.add_argument('--policy', default='journal_articles_only', choices=sorted(POLICIES))
+    ap.add_argument('--expect-cards-sha', default='')
+    ap.add_argument('--expect-graph-sha', default='')
     ap.add_argument('--write', action='store_true')
+    ap.add_argument('--dry', action='store_true', help='no LLM: prove the bindings and the AST only')
     a = ap.parse_args()
-    if a.extract:
-        raise SystemExit(extract_cards())
-    if a.write:
-        raise SystemExit(write_report())
-    print('use --extract then --write')
+    if a.write or a.dry:
+        raise SystemExit(write_report(a.cards, a.graph, a.ledger, a.policy,
+                                      a.expect_cards_sha, a.expect_graph_sha, a.dry))
+    print('use --write (or --dry)')
