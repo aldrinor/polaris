@@ -53,6 +53,7 @@ decide anything. Those are display caches. The graph decides.
 from __future__ import annotations
 
 import hashlib
+import html
 import re
 import sys
 from dataclasses import dataclass, field
@@ -63,7 +64,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 import provenance as P  # noqa: E402
-from synthesis_contract import Premise, Synthesis, validate, OPERATIONS  # noqa: E402
+from synthesis_contract import (Premise, Synthesis, validate, OPERATIONS,  # noqa: E402
+                                SPELLED_QTY, FORECAST)
 
 
 # =================================================================================================
@@ -85,7 +87,20 @@ class Clause:
 
 #: How clause i>0 joins the clause before it. A CLOSED SET — the model may not write connective prose,
 #: because a connective is where an unsourced particular hides ("..., which explains why 40% of...").
-CONNECTIVES = ('while', 'whereas', 'by contrast', 'and', 'though', 'but', 'yet')
+#:
+#: The set is SPLIT by what the connective ASSERTS. A NEUTRAL joiner asserts only conjunction or
+#: simultaneity — "X finds a, while/and Y finds b" — a relation both spans already license by merely
+#: co-existing. A CONTRASTIVE joiner asserts that the second finding OPPOSES the first ("whereas",
+#: "by contrast", "but", "yet", "though"); THAT relation is a claim, and it is a claim NEITHER
+#: span-check tests — the lie sits BETWEEN the clauses, outside both. Sol admitted two POSITIVE,
+#: unrelated findings joined by "by contrast"; neither source entails the contrast. Until a
+#: proof-carrying planner verdict supplies the relation (an Owned synthesis, rung 4), the WRITER may
+#: not assert it, so a model-chosen contrastive connective is REFUSED. `while` is retained as a
+#: neutral simultaneity joiner: it asserts no direction of opposition, and the honest cross-source
+#: synthesis — the most valuable sentence in the review — is written with it.
+NEUTRAL_CONNECTIVES = ('while', 'and')
+CONTRASTIVE_CONNECTIVES = ('whereas', 'by contrast', 'but', 'yet', 'though')
+CONNECTIVES = NEUTRAL_CONNECTIVES + CONTRASTIVE_CONNECTIVES
 
 
 @dataclass(frozen=True)
@@ -185,6 +200,41 @@ def _binding_from_card(c: dict) -> dict:
     )
 
 
+#: Well-known venue names that a model may TYPE even when they are nowhere in this corpus — Sol's
+#: "Science reports that ..." is the canonical case: the corpus never contained Science, so indexing the
+#: corpus alone could never catch it. Used ONLY NEGATIVELY, across domains (Sol's paired clinical/legal
+#: fixtures), to refuse a clause that names one of them. Multi-word entries are matched as a phrase.
+_KNOWN_VENUES = frozenset({
+    'science', 'nature', 'cell', 'lancet', 'the lancet', 'jama', 'nejm', 'bmj', 'pnas', 'plos one',
+    'econometrica', 'american economic review', 'quarterly journal of economics', 'the economist',
+    'new england journal of medicine', 'journal of the american medical association',
+    'harvard law review', 'yale law journal', 'stanford law review', 'columbia law review',
+    'supreme court reporter', 'federal reporter', 'us reports',
+})
+
+#: A reporting-attribution construction the WRITER may never type: "<Proper subject> <reporting verb>
+#: that ...". Attribution is rendered from the graph ("Bloom and Draca show that ..."), so a clause that
+#: says who found the finding is either naming a source or nesting a second attribution — both unlawful.
+#: It catches ANY invented venue, not only the ones on the denylist above.
+_REPORTING_VERBS = (
+    r'report|reports|reported|find|finds|found|show|shows|showed|state|states|stated|argue|argues|'
+    r'argued|note|notes|noted|observe|observes|observed|conclude|concludes|concluded|demonstrate|'
+    r'demonstrates|demonstrated|establish|establishes|established|claim|claims|claimed|suggest|'
+    r'suggests|suggested|write|writes|wrote|prove|proves|proved|hold|holds|held|rule|rules|ruled')
+_ATTRIB_PATTERN = re.compile(
+    r'\b([A-Z][A-Za-z.&\'\-]+)(?:\s+(?:and|&)\s+[A-Z][A-Za-z.&\'\-]+|\s+et\s+al\.?)?\s+'
+    r'(?:' + _REPORTING_VERBS + r')\s+that\b')
+#: ...but a common noun/pronoun subject ("Firms report that ...", "These studies show that ...") is NOT
+#: a source name. Only a subject NOT on this list trips the attribution refusal.
+_COMMON_SUBJECTS = frozenset({
+    'the', 'this', 'these', 'those', 'they', 'we', 'it', 'a', 'an', 'one', 'some', 'many', 'most',
+    'both', 'several', 'few', 'all', 'each', 'firms', 'workers', 'studies', 'study', 'researchers',
+    'results', 'result', 'findings', 'finding', 'data', 'evidence', 'authors', 'author', 'scholars',
+    'economists', 'papers', 'paper', 'estimates', 'models', 'analyses', 'experiments', 'trials',
+    'surveys', 'reviews', 'here', 'there', 'such', 'our', 'their', 'its', 'his', 'her', 'who', 'which',
+    'courts', 'court', 'patients', 'participants', 'respondents', 'clinicians', 'firms', 'markets'})
+
+
 class CardBundle:
     """ONE card lane. ONE graph. ONE policy. THE SEAM IS GONE.
 
@@ -230,17 +280,52 @@ class CardBundle:
                 f'whose ids are ambiguous is not a bundle, and a sentence citing one of them names no '
                 f'determinate evidence. Offenders: {sorted(dupes)[:3]}')
         self._cache: dict[str, Resolution] = {}
-        # Every surname and venue the bundle knows. Used ONLY NEGATIVELY — to refuse a source name in
-        # a lane that is not allowed to have one. We never infer WHICH source from a surname again.
-        self._source_words: set[str] = set()
+        # Every surname AND venue the bundle knows. Used ONLY NEGATIVELY — to refuse a source name in a
+        # lane that is not allowed to have one. We never infer WHICH source from a surname again.
+        #
+        # THE OLD SET ADDED AUTHORS ONLY, AND ONLY AT len>=4. Sol walked through both holes: a journal
+        # name ("Science reports that ...") was never in the set, so it shipped under an AER card; and a
+        # sub-4-char surname ("Wu", "Ng") was invisible, as was a bare surname when the author was stored
+        # as a full name ("Daron Acemoglu" is one token to `\bdaron acemoglu\b`, so "Acemoglu" alone slips
+        # the exact match). We now index venues too, and index each NAME TOKEN, not only the whole string.
+        self._source_words: set[str] = set()      # single tokens, matched at word boundaries
+        self._source_phrases: set[str] = set()    # multi-word venue names, matched as a phrase
         for c in self.cards.values():
             for a in (c.get('authors') or []):
-                if len(a) >= 4:
-                    self._source_words.add(a.lower())
+                self._index_person(a)
+            self._index_venue(c.get('venue'))
         for w in graph.works.values():
             for a in (w.authors or []):
-                if len(a) >= 4:
-                    self._source_words.add(a.lower())
+                self._index_person(a)
+            self._index_venue(getattr(w, 'venue', None))
+
+    def _index_person(self, name: str) -> None:
+        """A person can be named by the whole string OR by a single token of it (the surname alone)."""
+        n = re.sub(r'\s+', ' ', (name or '').strip().lower())
+        if not n:
+            return
+        toks = re.findall(r"[a-z][a-z.'’\-]*[a-z]", n)  # drop bare initials ("j."), keep "wu", "ng"
+        if len(n) >= 4:
+            self._source_words.add(n)
+        for t in toks:
+            if len(t) >= 2:
+                self._source_words.add(t)
+
+    def _index_venue(self, venue: str) -> None:
+        """A venue can be named whole ("the American Economic Review") or, when it is one distinctive
+        word ("Science", "Nature", "Technovation"), by that word. We do NOT add single tokens of a
+        multi-word venue — "economic" or "review" are common words and would refuse honest prose."""
+        v = re.sub(r'\s+', ' ', (venue or '').strip().lower())
+        if not v:
+            return
+        core = re.sub(r'^the\s+', '', v)
+        toks = core.split(' ')
+        if len(toks) == 1 and len(toks[0]) >= 4:
+            self._source_words.add(toks[0])
+        else:
+            self._source_phrases.add(v)
+            if core != v:
+                self._source_phrases.add(core)
 
     # -- THE ONLY DOOR ----------------------------------------------------------------------------
     def resolve(self, card_id: str) -> Resolution:
@@ -320,11 +405,23 @@ class CardBundle:
         is this sentence about?" and answered with a guess, then gated the sentence against the guess.
         This one asks "does this text name ANY source at all?" and uses the answer only to say NO. There
         is no lane in which a surname selects a card.
+
+        It refuses on THREE grounds: (1) a corpus surname or single-word venue; (2) a venue name — a
+        corpus multi-word venue, or a well-known journal/reporter the model typed from memory though the
+        corpus never held it (Sol's "Science"); (3) a reporting-attribution construction ("<X> reports
+        that ..."), which names a source for ANY invented venue, not only the ones we can enumerate.
         """
-        low = text.lower()
+        raw = text or ''
+        low = ' ' + re.sub(r'\s+', ' ', raw.lower()) + ' '
         for w in self._source_words:
             if re.search(rf'\b{re.escape(w)}\b', low):
                 return w
+        for p in self._source_phrases | _KNOWN_VENUES:
+            if p and re.search(rf'\b{re.escape(p)}\b', low):
+                return p
+        m = _ATTRIB_PATTERN.search(raw)
+        if m and m.group(1).lower() not in _COMMON_SUBJECTS:
+            return m.group(1)
         return ''
 
 
@@ -410,6 +507,27 @@ def render_attribution(work: P.Work, expr: P.Expression, lead: bool = True, form
 # =================================================================================================
 # 3. ENTAILMENT — AGAINST THE VERBATIM SPAN, AND NOTHING ELSE
 # =================================================================================================
+#
+# SOL LADDER RUNG 2. The old check here was bag-of-words: a multi-digit-number-presence test plus 25%
+# lexical overlap. It ADMITTED "the ratio FELL by 1.5 points" over a span that says the ratio ROSE by
+# 1.5 points, because "rose"/"fell" is one token of overlap and the number 1.5 is present in both. That
+# is not entailment. Word overlap is a NECESSARY support signal, never a SUFFICIENT one.
+#
+# The replacement is a real entailment check with three deterministic gates that can only fire on a
+# genuine CONFLICT (so a true finding is never wrongly rejected), plus a fail-closed semantic judge for
+# the residue deterministic rules cannot adjudicate:
+#
+#   (A) NUMBERS + UNITS. Every numeric quantity in the clause — INCLUDING single digits, INCLUDING a
+#       number that happens to equal the publication year — must appear STANDING ALONE in the span with
+#       the SAME UNIT. "1.5 points" != "1.5 percent". A fabricated "9 percent" that is absent dies here.
+#   (B) DIRECTION / POLARITY. A clause that asserts the OPPOSITE direction of its span (rose vs fell,
+#       increased vs decreased, more vs less) is REJECTED. This is burn #1, the worst one.
+#   (C) CONTENT FLOOR. The clause's content words must actually be in the span (necessary support).
+#   (D) SEMANTIC RESIDUE. Modality/hedging ("may reduce" vs "reduces"), negation ("did not reduce" vs
+#       "reduces"), and comparator/scope claims that the deterministic layer flags but cannot resolve
+#       route to a CONSTRAINED entailment judge. MATCH ships; NO_MATCH and UNCERTAIN FAIL CLOSED. A
+#       doctrinal clause with no number is not auto-passed and not auto-failed: it is supported by the
+#       content floor when it is a faithful restatement, and routed to the judge when it is not.
 
 _STOP = {'writing', 'article', 'journal', 'review', 'that', 'show', 'shows', 'find', 'finds', 'found',
          'report', 'reports', 'reported', 'demonstrate', 'demonstrates', 'evidence', 'study', 'their',
@@ -418,6 +536,47 @@ _STOP = {'writing', 'article', 'journal', 'review', 'that', 'show', 'shows', 'fi
          'results', 'finding', 'findings', 'authors', 'author'}
 
 _NUM = re.compile(r'\d+(?:\.\d+)?')
+
+#: A number followed (optionally) by its unit. Longest units first so "percentage points" is not read as
+#: bare "points", and "%" / "$" attach. `(?<![\d.])` keeps "0.2" from being read out of "10.25".
+_NUM_UNIT = re.compile(
+    r'(?<![\d.])(\d+(?:\.\d+)?)\s*'
+    r'(percentage\s+points?|percentage\s+point|basis\s+points?|percent|points?|bps|'
+    r'pp|%|\$|fold|times|million|billion|trillion|thousand)?',
+    re.I)
+
+#: Spelled cardinals we resolve to digits so "five percent" is checked against "5 percent" (and vice
+#: versa). Kept small and only counted when a unit follows, so "one of the" is never read as a quantity.
+_SPELLED = {'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6',
+            'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10', 'eleven': '11', 'twelve': '12',
+            'twenty': '20', 'thirty': '30', 'forty': '40', 'fifty': '50', 'hundred': '100'}
+_SPELLED_UNIT = re.compile(
+    r'\b(' + '|'.join(_SPELLED) + r')\s+'
+    r'(percentage\s+points?|basis\s+points?|percent|points?|bps|pp|fold|times|'
+    r'million|billion|trillion|thousand)\b', re.I)
+
+#: Direction / polarity lexicons. A conflict fires ONLY when the clause is exclusively one direction and
+#: the span is exclusively the opposite — so a true finding, which shares its span's direction, is safe.
+_UP = {'rose', 'rise', 'rises', 'rising', 'risen', 'increase', 'increased', 'increases', 'increasing',
+       'grew', 'grow', 'grows', 'growing', 'grown', 'growth', 'gain', 'gained', 'gains', 'gaining',
+       'higher', 'greater', 'up', 'upward', 'upwards', 'expand', 'expanded', 'expands', 'expanding',
+       'expansion', 'climb', 'climbed', 'surge', 'surged', 'doubled', 'tripled', 'quadrupled',
+       'raise', 'raised', 'raises', 'boost', 'boosted', 'positive'}
+_DOWN = {'fell', 'fall', 'falls', 'falling', 'fallen', 'decline', 'declined', 'declines', 'declining',
+         'decrease', 'decreased', 'decreases', 'decreasing', 'drop', 'dropped', 'drops', 'dropping',
+         'lower', 'lowered', 'fewer', 'down', 'downward', 'downwards', 'shrink', 'shrank', 'shrunk',
+         'shrinks', 'shrinking', 'contract', 'contracted', 'contracts', 'contraction', 'reduce',
+         'reduced', 'reduces', 'reducing', 'reduction', 'diminish', 'diminished', 'negative', 'halve',
+         'halved', 'loss', 'lost'}
+
+_HEDGE = {'may', 'might', 'could', 'suggest', 'suggests', 'suggesting', 'appear', 'appears', 'appeared',
+          'likely', 'possibly', 'potentially', 'seem', 'seems', 'seemed', 'tend', 'tends', 'perhaps',
+          'presumably', 'arguably'}
+_NEG = re.compile(r"\b(not|no|never|without|cannot|can't|didn't|doesn't|don't|isn't|aren't|wasn't|"
+                  r"weren't|fails?|failed|neither|nor|un(?:able|likely))\b", re.I)
+_COMPARATOR = re.compile(r'\b(more than|less than|greater than|fewer than|compared (?:to|with)|'
+                         r'relative to|versus|as much as|twice as|half as|outperform\w*|'
+                         r'exceed\w*|larger than|smaller than)\b', re.I)
 
 
 def numbers_in(s: str) -> list[str]:
@@ -431,35 +590,172 @@ def number_stands_alone(num: str, src: str) -> bool:
     return bool(re.search(rf'(?<![\d.]){re.escape(num)}(?![\d])', src))
 
 
+def _norm_unit(u: str) -> str:
+    """Fold surface unit forms to a canonical tag. 'points' != 'percent'; 'percentage points' == 'pp'."""
+    if not u:
+        return ''
+    u = re.sub(r'\s+', ' ', u.strip().lower())
+    if u in ('%', 'percent', 'pct', 'percentage'):
+        return 'percent'
+    if u.startswith('percentage point'):
+        return 'pp'
+    if u == 'pp':
+        return 'pp'
+    if u.startswith('basis point') or u == 'bps':
+        return 'bps'
+    if u.startswith('point'):
+        return 'points'
+    if u in ('fold', 'times'):
+        return 'times'
+    if u == '$':
+        return 'dollars'
+    if u in ('million', 'billion', 'trillion', 'thousand'):
+        return u
+    return u
+
+
+def quantities_in(s: str) -> list[tuple[str, str]]:
+    """Every (number, canonical-unit) pair in the text. Digit forms and spelled forms both, so a clause
+    that swaps the unit — or invents a figure the span never states — cannot slip through."""
+    out: list[tuple[str, str]] = []
+    for m in _NUM_UNIT.finditer(s or ''):
+        out.append((m.group(1), _norm_unit(m.group(2) or '')))
+    for m in _SPELLED_UNIT.finditer(s or ''):
+        out.append((_SPELLED[m.group(1).lower()], _norm_unit(m.group(2))))
+    return out
+
+
+def _quantity_supported(num: str, unit: str, src: str, span_q: list[tuple[str, str]]) -> bool:
+    """The clause's (num, unit) is supported iff the SAME number stands alone in the span AND, when the
+    clause carries a unit, some standing-alone occurrence in the span carries the SAME unit."""
+    if not number_stands_alone(num, src):
+        return False
+    if not unit:
+        return True
+    return any(n == num and u == unit for n, u in span_q)
+
+
+# ---- THE CONSTRAINED SEMANTIC JUDGE. Injectable; defaults to UNAVAILABLE, which FAILS CLOSED. --------
+# A judge is a callable(clause_text, span_text) -> ('MATCH' | 'NO_MATCH' | 'UNCERTAIN', excerpt). It is
+# consulted ONLY for the residue the deterministic gates cannot settle (modality/negation/comparator).
+# UNCERTAIN and NO_MATCH both REJECT. When no judge is wired and no residue is present, no call is made,
+# so the deterministic path stays offline-pure; when residue IS present and no judge is wired, the clause
+# is rejected — the safe direction.
+_ENTAILMENT_JUDGE = None  # type: ignore[var-annotated]
+
+
+def set_entailment_judge(fn) -> None:
+    """Wire a real LLM entailment judge. Tests inject a deterministic stub; production wires the model."""
+    global _ENTAILMENT_JUDGE
+    _ENTAILMENT_JUDGE = fn
+
+
+def _llm_entailment_judge(clause: str, span: str) -> tuple[str, str]:
+    """Default judge. Consults a constrained model ONLY when explicitly enabled (PG_ENTAILMENT_JUDGE=1);
+    otherwise, and on any error, returns UNCERTAIN so the caller FAILS CLOSED. It never returns MATCH
+    without an affirmative model verdict."""
+    import os
+    if os.getenv('PG_ENTAILMENT_JUDGE', '') != '1':
+        return 'UNCERTAIN', 'no entailment judge wired (fail closed)'
+    prompt = (
+        'You are a strict entailment judge. Decide whether the CLAIM is ENTAILED by the SPAN — i.e., '
+        'the SPAN, read literally, makes the CLAIM true. Attend to direction (rose/fell), magnitude and '
+        'units, modality/hedging (may/appears vs is), negation, comparator and the population/scope. If '
+        'the CLAIM asserts anything the SPAN does not support, it is NOT entailed. If you cannot tell, '
+        'say UNCERTAIN. Reply with ONLY a JSON object: '
+        '{"verdict":"MATCH"|"NO_MATCH"|"UNCERTAIN","excerpt":"<the span words that decided it>"}.\n\n'
+        f'SPAN:\n{span}\n\nCLAIM:\n{clause}\n')
+    try:
+        import json as _json
+        from cellcog_composer import llm  # lazy: composer owns the model client
+        raw = llm(prompt, max_tokens=400)
+        m = re.search(r'\{.*\}', raw, re.S)
+        obj = _json.loads(m.group(0)) if m else {}
+        v = str(obj.get('verdict', 'UNCERTAIN')).upper()
+        if v not in ('MATCH', 'NO_MATCH', 'UNCERTAIN'):
+            v = 'UNCERTAIN'
+        return v, str(obj.get('excerpt', ''))[:120]
+    except Exception as e:  # noqa: BLE001  — any failure fails closed
+        return 'UNCERTAIN', f'judge error (fail closed): {type(e).__name__}'
+
+
+def _semantic_judge(clause: str, span: str) -> tuple[str, str]:
+    fn = _ENTAILMENT_JUDGE or _llm_entailment_judge
+    try:
+        v, why = fn(clause, span)
+    except Exception as e:  # noqa: BLE001
+        return 'UNCERTAIN', f'judge raised (fail closed): {type(e).__name__}'
+    v = str(v).upper()
+    return (v if v in ('MATCH', 'NO_MATCH', 'UNCERTAIN') else 'UNCERTAIN'), why
+
+
+def _modality_residue(ctext: str, src: str) -> str:
+    """A residue signal the deterministic layer cannot settle: the clause states categorically what its
+    span only HEDGES, or their negation polarity differs. Returns a reason, or '' when there is none."""
+    cw = set(re.findall(r"[a-z']+", ctext))
+    sw = set(re.findall(r"[a-z']+", src))
+    if (sw & _HEDGE) and not (cw & _HEDGE):
+        return 'span hedges; clause asserts categorically'
+    if bool(_NEG.search(ctext)) != bool(_NEG.search(src)):
+        return 'negation polarity differs'
+    if _COMPARATOR.search(ctext) and not _COMPARATOR.search(src):
+        return 'clause asserts a comparison the span does not state'
+    return ''
+
+
 def entailed_by_span(text: str, span: str, work: P.Work | None = None,
                      min_overlap: float = 0.25) -> tuple[bool, str]:
-    """Is THIS text supported by THIS verbatim span? The span is the only evidence there is.
+    """Is THIS text ENTAILED by THIS verbatim span? The span is the only evidence there is.
 
     `claim` — the model's restatement — is not a parameter of this function and never will be. The old
     gate read `src = f'{span} {claim}'`, and since the writer was handed only the claim, the chain was:
     the model writes the claim -> the writer writes from the claim -> the gate checks the writing
     against the claim. THE GATE VALIDATED THE MODEL AGAINST ITSELF.
+
+    This is entailment, not overlap: a clause that reverses its span's direction, swaps its unit, or
+    invents a figure is REJECTED even though every word but one is shared. See the section header.
     """
     src = (span or '').lower()
     if not src:
         return False, 'NO_SPAN'
-    year = str(work.year) if work and work.year else ''
+    ctext = (text or '').lower()
 
-    for num in numbers_in(text):
-        if len(num) < 2 or num == year:
-            continue
+    # (A) NUMBERS + UNITS. Every quantity in the clause must stand alone in the span with the SAME unit.
+    #     No single-digit exemption. No year exemption. "1.5 points" does not support "1.5 percent".
+    span_q = quantities_in(src)
+    for num, unit in quantities_in(ctext):
+        if not _quantity_supported(num, unit, src, span_q):
+            return False, f'NUMBER_OR_UNIT_NOT_IN_SPAN:{num}{(" " + unit) if unit else ""}'
+    # A bare integer with no recognised unit (e.g. a fabricated "2021 regions") is still a quantity.
+    for num in numbers_in(ctext):
         if not number_stands_alone(num, src):
             return False, f'NUMBER_NOT_IN_SPAN:{num}'
 
-    words = {w for w in re.findall(r'[a-z]{4,}', (text or '').lower())} - _STOP
+    # (B) DIRECTION / POLARITY. Reject only a strict opposition — clause one way, span the other way.
+    cw = set(re.findall(r'[a-z]+', ctext))
+    sw = set(re.findall(r'[a-z]+', src))
+    c_up, c_down = bool(cw & _UP), bool(cw & _DOWN)
+    s_up, s_down = bool(sw & _UP), bool(sw & _DOWN)
+    if (c_down and not c_up and s_up and not s_down) or (c_up and not c_down and s_down and not s_up):
+        return False, 'DIRECTION_CONTRADICTS_SPAN'
+
+    # (C) CONTENT FLOOR. The clause's content words must actually be present in the span.
+    words = {w for w in re.findall(r'[a-z]{4,}', ctext)} - _STOP
     if work:
         words -= {w for w in re.findall(r'[a-z]{4,}', (work.venue or '').lower())}
         words -= {w for w in re.findall(r'[a-z]{4,}', ' '.join(work.authors or []).lower())}
-    if not words:
-        return True, ''
     src_words = {w for w in re.findall(r'[a-z]{4,}', src)}
-    if len(words & src_words) / len(words) < min_overlap:
+    if words and len(words & src_words) / len(words) < min_overlap:
         return False, 'CONTENT_NOT_IN_SPAN'
+
+    # (D) SEMANTIC RESIDUE. Hedge/negation/comparator differences the deterministic gates flagged but
+    #     cannot resolve go to the constrained judge. UNCERTAIN and NO_MATCH both FAIL CLOSED.
+    residue = _modality_residue(ctext, src)
+    if residue:
+        verdict, why = _semantic_judge(text, span)
+        if verdict != 'MATCH':
+            return False, f'SEMANTIC_{verdict}:{residue}' + (f' :: {why}' if why else '')
+
     return True, ''
 
 
@@ -534,11 +830,113 @@ def _common(text: str) -> str:
     return ''
 
 
+def _claim_text(r: Resolution) -> str:
+    """The ONE rendering of a table row's finding — used by BOTH the validator and the renderer, so the
+    string that is checked is byte-for-byte the string that ships. Un-escaped, whitespace-collapsed, no
+    trailing period; never truncated, because a truncation could drop the very figure that was verified."""
+    return re.sub(r'\s+', ' ', html.unescape(r.card.get('claim') or '')).strip().rstrip('.')
+
+
+# =================================================================================================
+# 4a. THE OWNED-FRAME AND HEADING PARTICULAR GATES  (SOL_BURN_V10 §2 and §3)
+#
+# A premise-free OWNED node and a Heading were the two lanes that could assert ANYTHING: the owned
+# frame was checked only for digits + source names, and a heading only for non-emptiness. Both are the
+# reviewer's own voice, licensed by no span, so BOTH may carry no new PARTICULAR — no spelled quantity,
+# no magnitude word, no forecast, no novel named entity. The released abstract used the owned-frame
+# bypass; "## Acemoglu proves that 47 percent of jobs will disappear." used the heading bypass.
+# =================================================================================================
+
+#: A magnitude/severity absolute stands in for a number the reviewer cannot vouch for: "fatal" is a
+#: 100%-mortality claim, exactly as "doubled" is a x2 claim. SPELLED_QTY (imported from the synthesis
+#: contract) already catches doubl*/tripl*/halv*/percent*/majority/most-of; these are the unbounded
+#: absolutes it does not. Kept tiny and word-boundaried so "fatally flawed argument" is the only kind of
+#: false positive, and that phrase has no place in a section frame either.
+_MAGNITUDE_ABS = re.compile(r'\b(fatal|fatally|lethal|lethally|deadly|mortal|mortally)\b', re.I)
+
+#: A run-in bold label — "**Objective.** ...", "**Evidence base.** ..." — is a mini-heading, not prose.
+#: Stripped before the entity scan so the label's capitals are not read as named entities.
+_FRAME_LABEL = re.compile(r'^\s*\*\*[^*]+\*\*\s*')
+
+#: Capitals that are orthography or discourse, never a named entity, even mid-sentence.
+_DISCOURSE_CAPS = {'the', 'this', 'these', 'those', 'a', 'an', 'and', 'or', 'but', 'of', 'in', 'on',
+                   'at', 'by', 'for', 'to', 'with', 'as', 'ai'}
+
+
+def _novel_multiword_entity(text: str) -> str:
+    """A premise-free frame is licensed by nothing, so it may name NO entity. A run of TWO OR MORE
+    consecutive Title-Case tokens that are not sentence-initial and not pure discourse is a named entity
+    the review has not earned — "Fourth Industrial Revolution", "Goldman Sachs". A lone proper adjective
+    ("English-language") is NOT flagged: a single capital mid-sentence is too often orthography, and the
+    synthesis lane (which HAS premises) is where single new entities are caught against premise spans."""
+    body = _FRAME_LABEL.sub('', text or '')
+    toks = re.findall(r'\S+', body)
+    run: list[str] = []
+    for idx, tok in enumerate(toks):
+        core = re.sub(r"[^A-Za-z'\-]", '', tok)
+        is_entity_cap = bool(re.match(r'[A-Z][a-z]', core)) and idx != 0 \
+            and core.lower() not in _DISCOURSE_CAPS
+        if is_entity_cap:
+            run.append(core)
+            continue
+        if len(run) >= 2:
+            return ' '.join(run)
+        run = []
+    return ' '.join(run) if len(run) >= 2 else ''
+
+
+def _owned_frame_particular(text: str) -> str:
+    """The premise-free OWNED lane. Digits and source names are already refused by the shared checks;
+    THIS refuses the particulars they missed: a spelled quantity ("doubled", "a third", "the vast
+    majority"), a magnitude word ("fatal"), or a novel named entity. Returns a refusal, or ''.
+
+    This is the gate the released abstract bypassed: an Owned() with no premises used to assert any
+    factual claim it liked as long as it typed no digit. Now it must be a genuine FRAME."""
+    m = SPELLED_QTY.search(text or '')
+    if m:
+        return f'OWNED_CARRIES_A_SPELLED_QUANTITY:{m.group(0)!r}'
+    m = _MAGNITUDE_ABS.search(text or '')
+    if m:
+        return f'OWNED_CARRIES_A_MAGNITUDE_WORD:{m.group(0)!r}'
+    ent = _novel_multiword_entity(text or '')
+    if ent:
+        return f'OWNED_CARRIES_A_NOVEL_NAMED_ENTITY:{ent!r}'
+    return ''
+
+
+def validate_heading(i: int, n: Heading, b: CardBundle) -> list[Failure]:
+    """A heading LABELS a section; it is not a third voice that may assert a finding. It carries no
+    factual assertion: no number (digit, spelled quantity, or magnitude word), no named source, and no
+    forecast. "## Acemoglu proves that 47 percent of jobs will disappear." is refused on THREE counts
+    (the digit, the source name, and the forecast); "Employment effects" and a Title-Case section title
+    carry none of them and pass. The publisher still skips heading LINES in its prose-receipt sweep, but
+    that is now safe: a heading that reaches the page has passed HERE, so it carries no assertion to
+    fabricate. The "third voice that can say anything" is closed by refusing the assertion, not by
+    receipting it."""
+    t = (n.text or '').strip()
+    if not t:
+        return [Failure(i, 'Heading', 'EMPTY')]
+    if re.search(r'\d', t):
+        return [Failure(i, 'Heading', 'HEADING_CARRIES_A_NUMBER', t[:70])]
+    m = SPELLED_QTY.search(t) or _MAGNITUDE_ABS.search(t)
+    if m:
+        return [Failure(i, 'Heading', 'HEADING_CARRIES_A_QUANTITY', m.group(0))]
+    named = b.names_a_source(t)
+    if named:
+        return [Failure(i, 'Heading', 'HEADING_NAMES_A_SOURCE',
+                        f'{named!r} — a heading that names a source asserts that source found something; '
+                        f'that is an attribution, and an attribution must be entailed by a span.')]
+    m = FORECAST.search(t)
+    if m:
+        return [Failure(i, 'Heading', 'HEADING_FORECASTS', m.group(0))]
+    return []
+
+
 def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
     if isinstance(n, ParagraphBreak):
         return []
     if isinstance(n, Heading):
-        return [] if (n.text or '').strip() else [Failure(i, 'Heading', 'EMPTY')]
+        return validate_heading(i, n, b)
 
     # ---------------------------------------------------------------- ATTRIBUTED
     if isinstance(n, Attributed):
@@ -547,6 +945,14 @@ def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
             return [Failure(i, 'Attributed', 'NO_CLAUSES')]
         if n.connective and n.connective not in CONNECTIVES:
             f.append(Failure(i, 'Attributed', 'CONNECTIVE_NOT_IN_CLOSED_SET', n.connective))
+        # A CONTRASTIVE connective, on a MULTI-CLAUSE sentence, asserts that the findings OPPOSE — a
+        # relation neither clause's span-check tests. The writer may not assert it. (A single-clause
+        # node has no join, so its connective is inert; it is only refused when it actually joins.)
+        if len(n.clauses) > 1 and n.connective in CONTRASTIVE_CONNECTIVES:
+            f.append(Failure(i, 'Attributed', 'CONTRASTIVE_CONNECTIVE_ASSERTS_UNPROVEN_RELATION',
+                             f'{n.connective!r} claims the findings oppose; no span-check proves that '
+                             f'relation. Join with a neutral connective, or let a proof-carrying Owned '
+                             f'synthesis assert the contrast.'))
         for cl in n.clauses:
             why = _common(cl.text)
             if why:
@@ -608,8 +1014,13 @@ def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
                     return []
             _, why2 = validate(Synthesis('CONTRASTS_LEVEL', list(prem), n.text), prem)
             return [Failure(i, 'Owned', f'SYNTHESIS_REFUSED:{why2}', n.text[:70])]
-        # 4. A FRAME sentence: licensed by nothing, so it asserts nothing particular. Already checked
-        #    for numbers and source names above. That is the whole of what the law permits it.
+        # 4. A FRAME sentence: licensed by nothing, so it may assert NO PARTICULAR. Digits and source
+        #    names are refused above; a spelled quantity, a magnitude word ("fatal", "doubled"), or a
+        #    novel named entity ("...the Fourth Industrial Revolution...") is refused HERE. This closes
+        #    the premise-free OWNED bypass — the lane the released abstract used (SOL_BURN_V10 §2).
+        why2 = _owned_frame_particular(n.text)
+        if why2:
+            return [Failure(i, 'Owned', why2, n.text[:70])]
         return []
 
     # ---------------------------------------------------------------- TABLE
@@ -620,12 +1031,24 @@ def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
             if not r.ok:
                 f.append(Failure(i, 'EvidenceTable', r.refusal, cid))
                 continue
-            # EVERY FIGURE IN THE ROW MUST STAND AS ITS OWN NUMBER IN THAT ROW'S OWN SPAN.
-            claim = (r.card.get('claim') or '')
+            # A TABLE CELL IS AN ATTRIBUTED CLAUSE IN A BOX. It is held to the SAME law: the claim the
+            # judge reads must be ENTAILED by this row's own span (number, unit, polarity), and it may
+            # not itself NAME A SOURCE. The exact string validated here is the exact string _table_cells
+            # renders — `_claim_text(r)` — so there is no gap between what is checked and what ships.
+            claim = _claim_text(r)
             work = b.graph.works.get(r.work_id)
             ok, why = entailed_by_span(claim, r.span, work, min_overlap=0.34)
             if not ok:
                 f.append(Failure(i, 'EvidenceTable', f'ROW_{why}', f'{cid} :: {claim[:50]}'))
+                continue
+            named = b.names_a_source(claim)
+            if named:
+                f.append(Failure(i, 'EvidenceTable', 'ROW_NAMES_A_SOURCE',
+                                 f'{cid} :: {named!r} — attribution is rendered from the graph, not '
+                                 f'typed into the cell'))
+            # `level` and `method` are NOT printed (see `_table_cells`): they are model/extractor facets
+            # with NO span binding — Sol shipped level="children with cancer", method="randomized trial"
+            # under an employment span. An unverifiable facet does not reach the page, so it cannot lie.
         return f
 
     return [Failure(i, type(n).__name__, 'UNKNOWN_NODE_TYPE')]
@@ -658,27 +1081,37 @@ def _fmt_sentence(n: Attributed, b: CardBundle, form_seed: int) -> str:
     return re.sub(r'\s+', ' ', s).strip() + '.'
 
 
-def _table(n: EvidenceTable, b: CardBundle, limit: int = 14) -> str:
-    import html
-    rows = []
+def _table_cells(n: EvidenceTable, b: CardBundle, limit: int = 14) -> list[dict]:
+    """The rows the renderer AND the sidecar both draw from — computed ONCE, so the page and its receipts
+    can never disagree. Study/journal/year are RENDERED FROM THE GRAPH (never off the card); the finding
+    is `_claim_text(r)`, the exact span-entailed string the validator already cleared. There is no Level
+    or Method cell: those facets have no span binding and so may not reach the page.
+    """
+    out = []
     for cid in n.card_ids[:limit]:
         r = b.resolve(cid)
-        c = r.card
+        if not r.ok:
+            continue
         expr = b.graph.expressions[r.names_expression_id]
         work = b.graph.works[expr.work_id]
-        who = _who(work)
-        claim = re.sub(r'\s+', ' ', html.unescape(c.get('claim') or '')).rstrip('.')
-        if len(claim) > 155:
-            claim = claim[:152].rsplit(' ', 1)[0] + '...'
-        cell = lambda x: html.unescape(str(x or '--')).replace('|', '/')
-        rows.append(f"| {cell(who)}, {work.year} | {cell(work.venue)[:34]} | "
-                    f"{cell(c.get('level') or c.get('unit_of_analysis'))} | "
-                    f"{cell(c.get('method') or c.get('design'))} | {claim} |")
-    if len(rows) < 3:
+        out.append(dict(cid=cid, res=r, who=_who(work), year=work.year,
+                        venue=(work.venue or ''), claim=_claim_text(r)))
+    return out
+
+
+def _table_md(n: EvidenceTable, cells: list[dict]) -> str:
+    if len(cells) < 3:
         return ''
+    cell = lambda x: html.unescape(str(x if (x is not None and str(x) != '') else '--')).replace('|', '/')
+    rows = [f"| {cell(c['who'])}, {c['year']} | {cell(c['venue'])[:34]} | {cell(c['claim'])} |"
+            for c in cells]
     return '\n'.join(['', n.caption, '',
-                      '| Study | Journal | Level | Method | Quantitative finding |',
-                      '|---|---|---|---|---|'] + rows)
+                      '| Study | Journal | Quantitative finding |',
+                      '|---|---|---|'] + rows)
+
+
+def _table(n: EvidenceTable, b: CardBundle, limit: int = 14) -> str:
+    return _table_md(n, _table_cells(n, b, limit))
 
 
 def sentence_hash(s: str) -> str:
@@ -738,15 +1171,19 @@ def render(nodes: list[Node], b: CardBundle) -> tuple[str, list[dict]]:
                                 content_hash=None, policy=b.policy.name))
         elif isinstance(n, EvidenceTable):
             flush()
-            t = _table(n, b)
+            cells = _table_cells(n, b)
+            t = _table_md(n, cells)
             if t:
                 md.append(t)
                 md.append('')
-                for cid in n.card_ids:
-                    r = b.resolve(cid)
-                    row = f'TABLE_ROW::{cid}'
-                    sidecar.append(dict(sentence_hash=sentence_hash(row), sentence=row, voice='TABLE',
-                                        card_id=cid, manifestation_id=r.manifestation_id,
+                # THE RECEIPT IS THE CELL THE JUDGE READS — the finding string that is actually printed,
+                # keyed by its own hash — NOT an opaque `TABLE_ROW::<id>` that resolves to nothing. The
+                # publisher can now re-verify a table row against its span exactly as it does a sentence.
+                for c in cells:
+                    r = c['res']
+                    claim = c['claim']
+                    sidecar.append(dict(sentence_hash=sentence_hash(claim), sentence=claim, voice='TABLE',
+                                        card_id=c['cid'], manifestation_id=r.manifestation_id,
                                         content_hash=r.content_hash, span_start=r.span_start,
                                         span_end=r.span_end, span=r.span, work_id=r.work_id,
                                         expression_id=r.expression_id,

@@ -126,6 +126,40 @@ def record(name: str, admitted: bool, refusal: str, note: str = '') -> None:
     RESULTS.append((name, admitted, refusal, note))
 
 
+# ---- P0  POSITIVE CONTROL: a TRUE attributed finding, entailed by its span, MUST still ship ---------
+#      Rung 2 must reject the reversals WITHOUT killing the truth. This is the same "rose by 1.5 points"
+#      span, stated faithfully. It must be ADMITTED (admitted==True here means CORRECTLY shipped).
+def p0_positive_control(b):
+    n = Attributed(clauses=(Clause('c:up',
+        'the local employment-to-population ratio rose by 1.5 points in regions that adopted '
+        'the technology'),))
+    admitted, refusal = _admitted([n], b)
+    # For this ONE row, "admitted" is the desired outcome; record its refusal so a regression is visible.
+    record('P0  POSITIVE CONTROL (true "rose by 1.5 points" finding MUST ship)', admitted, refusal,
+           note='this row is a TRUE finding: ADMITTED == correct, REJECTED == regression')
+
+
+# ---- P1  POSITIVE CONTROL: a LEGITIMATE owned synthesis over two admitted premises MUST still ship ---
+#      Rung 3a tightens the OWNED lane; it must reject premise-free factual claims WITHOUT killing a
+#      genuine reviewer synthesis. This one names two admitted premises, carries no particular (no
+#      number, no spelled quantity, no magnitude word, no novel named entity) and adjudicates them.
+def p1_positive_synthesis(b):
+    n = Owned(text='These employment findings concern different units of analysis and are not directly '
+                   'comparable across regions.',
+              premise_ids=('c:up', 'c:down'))
+    admitted, refusal = _admitted([n], b)
+    record('P1  POSITIVE CONTROL (legitimate owned synthesis MUST ship)', admitted, refusal,
+           note='premise-bound owned synthesis, no particular: ADMITTED == correct, REJECTED == regression')
+
+
+# ---- P2  POSITIVE CONTROL: a NORMAL heading (a section label, no assertion) MUST still ship ----------
+def p2_positive_heading(b):
+    n = Heading(2, 'Employment effects')
+    admitted, refusal = _admitted([n], b)
+    record('P2  POSITIVE CONTROL (normal heading "Employment effects" MUST ship)', admitted, refusal,
+           note='a section label carries no number/source/forecast: ADMITTED == correct, REJECTED == regression')
+
+
 # ---- T1  NEGATION: "rose ... 1.5 points" (span) rendered as "fell ... 1.5 points" (clause) ----------
 def t1_negation(b):
     n = Attributed(clauses=(Clause('c:up',
@@ -255,15 +289,37 @@ def t7_owned_verdict(b):
 
 def main() -> int:
     b = build_bundle()
-    for t in (t1_negation, t1b_units, t1c_single_digit, t1d_fake_year,
+    for t in (p0_positive_control, p1_positive_synthesis, p2_positive_heading,
+              t1_negation, t1b_units, t1c_single_digit, t1d_fake_year,
               t2_owned_fact, t2b_owned_number, t3_heading, t4_table,
               t5_connective, t6_venue, t7_owned_verdict):
         t(b)
 
-    print('=== SOL LADDER RUNG 1 — HOSTILE FABRICATION TESTS (driving the REAL validator) ===')
-    print('    Each attack MUST be REJECTED. An ADMITTED attack means THE HOLE IS OPEN at HEAD.\n')
+    print('=== SOL LADDER RUNG 2+3a — FABRICATION TESTS (driving the REAL validator) ===')
+    print('    Each attack MUST be REJECTED. The P0/P1/P2 POSITIVE CONTROLS MUST be ADMITTED.\n')
+    # Rung 2 closes the ENTAILMENT lanes: T1 (direction), T1b (units), T1c (single digit), T1d (year),
+    # and T4 (the evidence-table row, which shares this same entailment check).
+    # Rung 3a closes the OWNED-FRAME and HEADING lanes: T2 (premise-free owned fact), T2b (premise-free
+    # owned spelled quantity), and T3 (a heading that asserts a fabricated finding).
+    # The connective/venue/verdict lanes (T5, T6, T7) are LATER rungs and remain open here.
+    RUNG2 = {'T1 ', 'T1b', 'T1c', 'T1d', 'T4 '}
+    RUNG3 = {'T2 ', 'T2b', 'T3 '}
+
+    def tag(name):  # the short test id at the head of the name
+        return name.split('(')[0].strip()[:3].rstrip()
+
     holes_open = 0
+    positive_regressed = False
     for name, admitted, refusal, note in RESULTS:
+        is_positive = name[:2] in ('P0', 'P1', 'P2')
+        if is_positive:
+            if admitted:
+                print(f'  [OK  — legitimate node SHIPPED] {name}')
+            else:
+                positive_regressed = True
+                print(f'  [REGRESSION — LEGITIMATE REJECTED] {name}')
+                print(f'                                 refusal: {refusal}')
+            continue
         if admitted:
             holes_open += 1
             print(f'  [HOLE OPEN  — attack ADMITTED] {name}')
@@ -272,19 +328,23 @@ def main() -> int:
         else:
             print(f'  [closed — attack REJECTED    ] {name}')
             print(f'                                 refusal: {refusal}')
-    n = len(RESULTS)
-    print(f'\n  {holes_open}/{n} attacks WRONGLY ADMITTED by the current validator (HEAD).')
-    if holes_open == n:
-        print('  Sol\'s prediction holds: EVERY hostile input is admitted. The holes are real.')
-    elif holes_open:
-        print('  Some attacks were blocked — those tests are TOO WEAK and must be strengthened until')
-        print('  they exercise the real hole (see Sol\'s note in the task).')
+
+    def _open(rung):
+        ids = {t.strip() for t in rung}
+        return [name for name, admitted, _, _ in RESULTS
+                if admitted and name[:2] not in ('P0', 'P1', 'P2') and tag(name) in ids]
+
+    rung2_open, rung3_open = _open(RUNG2), _open(RUNG3)
+    print(f'\n  Rung-2 lanes still open (entailment): {len(rung2_open)}  (target: 0)')
+    print(f'  Rung-3a lanes still open (owned/heading): {len(rung3_open)}  (target: 0)')
+    print(f'  Positive controls: {"REGRESSED — a legitimate node was rejected" if positive_regressed else "OK — every legitimate node still ships"}')
+    ok = (not rung2_open) and (not rung3_open) and (not positive_regressed)
+    if ok:
+        print('  RUNG 2+3a CLEAR: every entailment/owned/heading attack is rejected AND every '
+              'legitimate node still ships.')
     else:
-        print('  No holes open — either HEAD already fixed these, or the tests do not reach the gate.')
-    # RUNG-1 DELIVERABLE: the tests exist and CURRENT CODE FAILS THEM (holes open). We EXIT 0 when the
-    # holes are demonstrably open, because that is the proof this rung is asked to produce. After the
-    # fix lands (rung 2+), holes_open must drop to 0 and this script must be inverted to gate on it.
-    return 0
+        print('  NOT CLEAR: a lane is open or a positive control regressed.')
+    return 0 if ok else 1
 
 
 if __name__ == '__main__':

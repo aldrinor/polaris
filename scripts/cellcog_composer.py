@@ -58,7 +58,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import provenance as P                                                          # noqa: E402
 import publisher                                                                # noqa: E402
 from report_ast import (Attributed, Clause, Owned, Heading, ParagraphBreak,     # noqa: E402
-                        EvidenceTable, CardBundle, CONNECTIVES, validate_report,
+                        EvidenceTable, CardBundle, NEUTRAL_CONNECTIVES, validate_report,
                         entailed_by_span, numbers_in, split_sentences)
 from synthesis_contract import validate, Premise, Synthesis, OPERATIONS         # noqa: E402
 import argument_planner as AP                                                   # noqa: E402
@@ -326,8 +326,11 @@ def _nodes_from(raw, b: CardBundle, allowed: set[str]) -> tuple[list, list[str]]
                 cls.append(Clause(card_id=cid, text=txt))
             if bad or not cls:
                 continue
+            # A contrastive connective asserts a relation no span-check proves; the writer may not.
+            # Anything not a NEUTRAL joiner collapses to 'while' — the two findings still ship, stripped
+            # of the unproven contrast (the validator refuses a contrastive connective outright).
             conn = (item.get('connective') or 'while').strip().lower()
-            if conn not in CONNECTIVES:
+            if conn not in NEUTRAL_CONNECTIVES:
                 conn = 'while'
             nodes.append(Attributed(clauses=tuple(cls), connective=conn))
         elif voice == 'OWNED':
@@ -407,12 +410,19 @@ OUTLINE = [
 
 def abstract_nodes(b: CardBundle) -> list:
     """OWNED frame sentences: no source, no number, no new particular. That is all the law permits a
-    sentence licensed by nothing."""
+    sentence licensed by nothing — and it is now ENFORCED by the same premise-free OWNED gate every
+    sentence below passes (report_ast `_owned_frame_particular`), not merely intended in this docstring.
+
+    The Objective sentence used to be the live bypass Sol named (SOL_BURN_V10 §2): as an Owned() with no
+    premises it asserted, in the reviewer's own voice, that AI *is* a general-purpose technology of the
+    *Fourth Industrial Revolution* and *is restructuring* work — a categorical factual claim, licensed by
+    nothing, carrying a named entity ("Fourth Industrial Revolution") the review had not earned. It now
+    names the review's SUBJECT without asserting the finding: what the relationship is, is left to the
+    body, where every claim is bound to a span."""
     return [
         Heading(2, 'Abstract'),
-        Owned(text='**Objective.** This review examines how artificial intelligence, as a '
-                   'general-purpose technology of the Fourth Industrial Revolution, is restructuring '
-                   'work across industries.'),
+        Owned(text='**Objective.** This review examines the peer-reviewed evidence on artificial '
+                   'intelligence and the restructuring of labor markets across industries.'),
         ParagraphBreak(),
         # The first draft of THIS sentence said "...whose full text was retrieved and verified", and the
         # gate deleted it as META_COMMENTARY. It was right to: "retrieved" is a fact about a pipeline,
@@ -924,7 +934,7 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
             return job, list(owned), (['no cards selected'] if not owned else [])
         prompt = WRITE_PROMPT.format(section=sec, sub=sub, plan=_plan_brief(comps),
                                      cards=_fmt_cards(b, sel), ledger=_ledger_brief(b, lic),
-                                     connectives=', '.join(CONNECTIVES))
+                                     connectives=', '.join(NEUTRAL_CONNECTIVES))
         try:
             raw = jparse(llm(prompt, max_tokens=8192))
         except Exception as e:
