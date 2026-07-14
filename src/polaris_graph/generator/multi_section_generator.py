@@ -1916,6 +1916,7 @@ def _parse_outline(
             unknown = [e for e in ev_ids if e not in allowed_ev_ids]
             if unknown:
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                 reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
                 ev_ids = [e for e in ev_ids if e in allowed_ev_ids]
         # Item 5b: a DUPLICATE title (a model splitting ONE required heading across two JSON blocks)
@@ -1935,6 +1936,8 @@ def _parse_outline(
                         target.undersupplied = False
             continue
 =======
+=======
+>>>>>>> Stashed changes
                 if _is_required:
                     # Fable item 7: a REQUIRED section must never be discarded over one
                     # hallucinated ev_id — that strands the required section empty (then conform
@@ -1948,6 +1951,9 @@ def _parse_outline(
                 else:
                     reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
                     continue
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
         # PUSH 1(d): a required title is accepted with ANY ev_id count (including 0) and tagged
         # ``undersupplied`` when below the >=2 floor — the section is DISCLOSED, never faked. A

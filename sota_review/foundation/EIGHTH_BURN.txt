@@ -1,0 +1,92 @@
+{
+  "summary": "Replace the lexical direction/magnitude/scope/modality gate with a constrained LLM entailment judge on the WHOLE clause (fail closed), build Rung-4 RelationProof for verdicts, then a fresh adversary re-runs the synonym/scope/modality attacks + hunts an eighth.",
+  "agentCount": 3,
+  "logs": [],
+  "result": {
+    "judge": "All work complete. Here is the report.\n\n## What I changed\n\n**File:** `/home/polaris/wt/flywheel/scripts/report_ast.py`, Section 3 (`entailed_by_span` and its judge helpers). One file, +107/−44. Not committed. No test weakened.\n\nThe lexical entailment gate is replaced with the mandated two-layer architecture:\n\n1. **Deterministic pre-filter — REJECT-ONLY.** Numbers+units (a quantity in the clause not standing alone in the span with the same unit), a strict direction opposition, and a content floor. These may only *reject*; surviving them means \"not yet rejected,\" never \"entailed.\" The named-entity/venue/source reject already lives in `validate_node` via `names_a_source` (attributed and table l",
+    "verdicts": "All three green. Not committed, per instructions.\n\n---\n\n## RUNG 4 — Proof-carrying verdicts: complete\n\n**T7 now rejects the unproven verdict while the proven \"different units\" one still ships.** All three self-tests green; `test_fabrication_paths.py` exits 0 with `Rung-4 lanes still open: 0`.\n\n### The hole\n`report_ast.py`'s Owned lane tried **every** operation and admitted if *any* passed. `CONVERGES` had no precondition, so it admitted both \"these point in opposite directions\" **and** \"these are not contradictory\" over the same premises — a false reconciliation assembled from true particulars.\n\n### The fix — a verdict now carries a proof object, not a tag\n\n**`/home/polaris/wt/flywheel/scrip",
+    "attack": "VERDICT: NOT DONE. Seven burns are dead; the eighth is live. All runs below drove the REAL `report_ast.validate_report`/`render` against a bound graph (bytes on disk, real `bind_span`/`resolve_attribution`). Nothing committed. Only `scripts/test_gate_is_wired.py` edited by me (+176); `report_ast.py` is untouched by me (the builder's uncommitted work).\n\n## 1. `scripts/test_fabrication_paths.py` — all green, exit 0\nT1 direction, T1b units, T1c single-digit, T1d fake-year, T2 owned-fact, T2b owned-number, T3 heading, T4 table, T5 connective, T6 venue, T7 verdict — **all REJECTED**. P0/P1/P2 positive controls **SHIP**. \"Rung-2/3a/4 lanes still open: 0.\"\n\n## 2. Previous adversary harnesses (`scratchpad/adv2.py`, `adversary.py`) — the old burns are DEAD\nA `plunged`, B `doubled`/`tripled`, C `worldwide`/`across every advanced economy`, D `causes` vs `associated with`, F table synonym sign-flip — **all HELD (JUDGE_NOT_ENTAILED)**. adv2's \"prove the sign flip reaches the page\" now raises `ValueError: NOTHING IS RENDERED` — `render()` refuses it (report_ast.py:1255). (adv2's `POS2 REGRESSED` and `E`/`G` \"unclassifiable\" are the adversary's own mislabels — its POS2 asserts \"different units\" over two *region-level* premises, correctly rejected.)\n\n## 3. New attacks (my `scratchpad/adv3.py`, `adv4.py`)\n- **HELD** — sign-flip via rare synonym/metaphor `cratered`, `went south`, `evaporated`, `nosedived` → JUDGE_NOT_ENTAILED.\n- **HELD** — modality-by-noun `the collapse of employment` and `the total annihilation of employment` over span `showed a decline` → JUDGE_NOT_ENTAILED (report_ast.py:820).\n- **HELD** — wrong-quantity through the judge: clause `unemployment rose by 3 percent` over span `3 percent of firms adopted the technology` (digit span survives the number filter) → JUDGE_NOT_ENTAILED. The judge, not the pre-filter, caught it.\n- **HELD** — true clause + fabricated 2nd sentence in one node → NODE_HOLDS_MORE_THAN_ONE_SENTENCE (report_ast.py:892).\n- **HELD** — number-word: `two and a half points` (span `1.5`) REJECTED; `one and a half points` (== 1.5) correctly SHIPS (no false positive).\n- **HELD** — verdict rule-misapplied: `not contradictory` over two same-scope opposed premises → OWNED_VERDICT_UNPROVEN:RECONCILES; `different units` over two region-level premises → SYNTHESIS_REFUSED.\n\n## 4. The judge is ACTUALLY CALLED, and fails closed (instrumented via `set_entailment_judge`)\n- Injected a spy judge; a bare synonym `cratered` (no deterministic rule matches it) invoked the judge **exactly once**, whole clause vs whole span, and the stub's verdict decided admission. It is NOT fenced behind a residue.\n- Fail-closed confirmed on a *true* finding that passes the pre-filter (judge is the only remaining gate): judge **RAISES → JUDGE_UNCERTAIN reject**; **TIMES OUT → reject**; **UNCERTAIN → reject**; **GARBAGE verdict → reject**. Control: same node with stub=ENTAILED → admitted. The judge is the deciding gate and unavailability rejects.\n\n## 5. THE EIGHTH — BROKEN: oblique source in the premise-free OWNED frame (the attack Sol named)\nExact inputs, all **ADMITTED** and rendered to the page (`voice: OWNED, premise_ids: []`):\n- `Owned(\"The Cambridge team found the effect reverses across the whole economy.\")`\n- `Owned(\"The Cambridge team found that the effect reverses across the whole economy.\")`\n- `Owned(\"The effect reverses across the whole economy.\")`\n\nRoot cause, `scripts/report_ast.py`:\n- `_owned_frame_particular` (report_ast.py:952, called at :1143) screens only spelled quantities, `_MAGNITUDE_ABS` words, digits, and `_novel_multiword_entity`.\n- `_novel_multiword_entity` (report_ast.py:930) requires **≥2 consecutive Title-Case tokens** (:946/:949). \"The Cambridge team\" is a single cap run (`team` is lowercase) → not flagged. \"Goldman Sachs\" (two caps) IS caught — that variant HELD.\n- `names_a_source` (report_ast.py:402) misses \"Cambridge\" (not in the corpus), and `_ATTRIB_PATTERN` (report_ast.py:225) needs the capital subject **adjacent** to the reporting verb + \"that\"; the lowercase \"team\" intervenes, so `found`/`found that` never match.\n\nSo a premise-free owned sentence can attribute obliquely AND assert a directional economy-wide finding, licensed by nothing. This is precisely Sol's \"oblique source ('The Cambridge team')\" burn — still live in the OWNED lane.\n\n## 6. Rebuilt `scripts/test_gate_is_wired.py` — RED, exit 1, not artificially greened\nAdded an entailment-judge battery (synonym/magnitude/scope/modality-verb+noun/wrong-quantity/number-word/multi-sentence/table) + a judge-is-called spy + four fail-closed checks + the oblique-source attacks, all driving the real validator on a bound graph. Result: **30+ PASS, 3 FAIL**, exit 1, on exactly the three oblique-source / bare-directional owned-frame attacks. \"3 FAILURE(S). THE DOOR IS OPEN. NOTHING SHIPS.\" It goes green only when the owned-frame gate rejects an oblique source and a bare directional finding.\n\nBottom line: the synonym/magnitude/scope/modality/table burns are closed and the judge is genuinely the gate and fails closed — but the eighth hole (oblique-source premise-free OWNED frame) lands and reaches the page. **We are not done; this is not for Sol's re-review yet.**"
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Judge"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Verdicts"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 3,
+      "title": "Attack"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "constrained entailment judge",
+      "phaseIndex": 1,
+      "phaseTitle": "Judge",
+      "agentId": "a57d7fec686f10d7b",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784015912795,
+      "queuedAt": 1784015908696,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && git diff --stat scripts/rep…",
+      "promptPreview": "=== THE LAW ===\nAn ATTRIBUTED sentence MUST be ENTAILED by its source's verbatim span. Entailment means: same direction/\npolarity, same numbers WITH units, same modality (associational != causal), same scope/population/\ncomparator, and the clause asserts nothing the span does not support. An OWNED sentence carries no new\nparticular. Fabrication = an attributed sentence its source does not entail.\n…",
+      "lastProgressAt": 1784017218694,
+      "tokens": 115183,
+      "toolCalls": 29,
+      "durationMs": 1305899,
+      "resultPreview": "All work complete. Here is the report.\n\n## What I changed\n\n**File:** `/home/polaris/wt/flywheel/scripts/report_ast.py`, Section 3 (`entailed_by_span` and its judge helpers). One file, +107/−44. Not committed. No test weakened.\n\nThe lexical entailment gate is replaced with the mandated two-layer architecture:\n\n1. **Deterministic pre-filter — REJECT-ONLY.** Numbers+units (a quantity in the clause no…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "rung 4: proof-carrying verdicts",
+      "phaseIndex": 2,
+      "phaseTitle": "Verdicts",
+      "agentId": "af76b03cbf26c9637",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784017231384,
+      "queuedAt": 1784017224007,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && for t in synthesis_contract…",
+      "promptPreview": "=== THE LAW ===\nAn ATTRIBUTED sentence MUST be ENTAILED by its source's verbatim span. Entailment means: same direction/\npolarity, same numbers WITH units, same modality (associational != causal), same scope/population/\ncomparator, and the clause asserts nothing the span does not support. An OWNED sentence carries no new\nparticular. Fabrication = an attributed sentence its source does not entail.\n…",
+      "lastProgressAt": 1784019313597,
+      "tokens": 204169,
+      "toolCalls": 79,
+      "durationMs": 2082213,
+      "resultPreview": "All three green. Not committed, per instructions.\n\n---\n\n## RUNG 4 — Proof-carrying verdicts: complete\n\n**T7 now rejects the unproven verdict while the proven \"different units\" one still ships.** All three self-tests green; `test_fabrication_paths.py` exits 0 with `Rung-4 lanes still open: 0`.\n\n### The hole\n`report_ast.py`'s Owned lane tried **every** operation and admitted if *any* passed. `CONVER…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "fresh adversary: synonyms + find #8",
+      "phaseIndex": 3,
+      "phaseTitle": "Attack",
+      "agentId": "a140267fa52894395",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784019326629,
+      "queuedAt": 1784019318555,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && grep -n \"def _novel_multiwo…",
+      "promptPreview": "=== THE LAW ===\nAn ATTRIBUTED sentence MUST be ENTAILED by its source's verbatim span. Entailment means: same direction/\npolarity, same numbers WITH units, same modality (associational != causal), same scope/population/\ncomparator, and the clause asserts nothing the span does not support. An OWNED sentence carries no new\nparticular. Fabrication = an attributed sentence its source does not entail.\n…",
+      "lastProgressAt": 1784020333866,
+      "tokens": 110834,
+      "toolCalls": 30,
+      "durationMs": 1007236,
+      "resultPreview": "VERDICT: NOT DONE. Seven burns are dead; the eighth is live. All runs below drove the REAL `report_ast.validate_report`/`render` against a bound graph (bytes on disk, real `bind_span`/`resolve_attribution`). Nothing committed. Only `scripts/test_gate_is_wired.py` edited by me (+176); `report_ast.py` is untouched by me (the builder's uncommitted work).\n\n## 1. `scripts/test_fabrication_paths.py` — a…"
+    }
+  ],
+  "totalTokens": 430186,
+  "totalToolCalls": 138
+}

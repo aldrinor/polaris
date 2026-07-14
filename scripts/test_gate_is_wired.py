@@ -34,11 +34,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
+import hashlib                                                            # noqa: E402
 import provenance as P                                                    # noqa: E402
 import report_ast as A                                                    # noqa: E402
 import publisher                                                          # noqa: E402
 import _test_fixtures                                                     # noqa: E402
-from report_ast import Attributed, Clause, Owned, CardBundle              # noqa: E402
+import test_fabrication_paths as _FAB                                     # noqa: E402
+from report_ast import (Attributed, Clause, Owned, Heading, EvidenceTable,  # noqa: E402
+                        CardBundle, set_entailment_judge)
 
 COMPOSER = ROOT / 'scripts' / 'cellcog_composer.py'
 MINER = ROOT / 'scripts' / 'evidence_miner.py'
@@ -199,6 +202,177 @@ check('the model may NOT name a source in its prose (voice is never inferred fro
 check('an OWNED sentence may not carry a number, and may not name a source',
       bool(A.validate_report([Owned(text='the effect is about 5 percentage points')], B))
       and bool(A.validate_report([Owned(text='Acemoglu is right about this')], B)))
+
+# =================================================================================================
+# 11b. THE ENTAILMENT-JUDGE BATTERY — SOL'S SYNONYM/MAGNITUDE/SCOPE/MODALITY BURNS + THE 8th.
+#
+# The prior fix replaced a bag-of-words check with a BIGGER 40-word DIRECTION LEXICON, and a fresh
+# adversary walked past it on first contact with a SYNONYM ('rose' rendered 'plunged'). These checks
+# drive `validate_report`/`render` against a REAL bound graph. Every attack MUST be REJECTED; the two
+# positive controls MUST SHIP. The judge is REAL (production llm()) unless a check injects a stub.
+# =================================================================================================
+_JB = _FAB.build_bundle()            # c:up (rose 1.5 pts), c:down, c:firm, c:up_rev — all bound
+_JG = _JB.graph
+_JFILLER = _FAB._FILLER
+
+
+def _add(cid, span, claim, authors, year, venue, **facets):
+    """Bind ONE more real journal card (bytes on disk, real bind_span/resolve_attribution)."""
+    wid, eid, mid = f'w:{cid}', f'e:{cid}', f'm:{cid}'
+    _JG.works[wid] = P.Work(id=wid, title='A study', authors=authors, year=year, venue=venue,
+                            doi=f'10.8/{wid}', kind='study')
+    _JG.expressions[eid] = P.Expression(id=eid, work_id=wid, kind='journal_version',
+        kind_basis='test', attribution=P._attribution_for('journal_version', _JG.works[wid]))
+    text = _JFILLER + span + ' ' + _JFILLER
+    _JG.manifestations[mid] = P.Manifestation(id=mid, expression_id=eid, work_id=wid, text=text,
+        content_hash=hashlib.sha256(text.encode()).hexdigest(), n_words=len(text.split()),
+        locator='http://x', locator_status='RECORDED', fetched_by='t', text_field='fulltext',
+        profile=dict(artifact_kind='journal_article', complete=True,
+                     extractability=P.extractability(text), incomplete_because=[]))
+    s = text.index(span)
+    bnd = _JG.bind_span(mid, s, s + len(span))
+    att = _JG.resolve_attribution(mid, P.JOURNAL_ONLY)
+    return dict(id=cid, manifestation_id=mid, content_hash=bnd['content_hash'],
+        span_start=s, span_end=s + len(span), span_raw=bnd['text'], span=span, claim=claim,
+        expression_id=bnd['expression_id'],
+        permitted_expression_ids=list(bnd['permitted_expression_ids']),
+        attribution_target_expression_id=att.names_expression_id,
+        work_id=wid, evidence_unit_id=wid, authors=authors, year=year, venue=venue,
+        level=facets.get('level', 'region'), horizon=facets.get('horizon', 'long-run'),
+        method=facets.get('method', 'observational'), mechanisms=facets.get('mech', []),
+        corroborating_sources=[], source_version=_JG.manifestations[mid].content_hash[:12],
+        text_field='fulltext')
+
+
+_extra = [
+    _add('c:assoc', 'exposure to the pesticide is associated with elevated cancer incidence in farm workers',
+         'exposure to the pesticide is associated with elevated cancer incidence in farm workers',
+         ['Nurse'], 2020, 'The Lancet'),
+    _add('c:us', 'the unemployment rate rose by 3 percent in the United States during the study window',
+         'the unemployment rate rose by 3 percent in the United States during the study window',
+         ['Katz'], 2018, 'Quarterly Journal of Economics'),
+    _add('c:decl', 'employment showed a decline in the regions that adopted the technology',
+         'employment showed a decline in the regions that adopted the technology',
+         ['Autor'], 2015, 'Journal of Economic Perspectives'),
+    _add('c:adopt3', '3 percent of firms adopted the technology during the study window',
+         'unemployment rose by 3 percent during the study window',
+         ['Katz'], 2018, 'Quarterly Journal of Economics'),
+    _add('c:plunge', _FAB.ROSE_SPAN, 'the local employment-to-population ratio plunged by 1.5 points',
+         ['Bloom', 'Draca'], 2021, 'American Economic Review'),
+    _add('c:metq', _FAB.ROSE_SPAN,
+         'the local employment-to-population ratio rose by one and a half points',
+         ['Bloom', 'Draca'], 2021, 'American Economic Review'),
+]
+_JB = CardBundle(list(_JB.cards.values()) + _extra, _JG, P.JOURNAL_ONLY)
+
+
+def _attr(cid, text):
+    return [Attributed(clauses=(Clause(cid, text),))]
+
+
+def _rej(cid, text):
+    return bool(A.validate_report(_attr(cid, text), _JB))
+
+
+set_entailment_judge(None)                      # the REAL production judge decides the semantic burns
+
+# ---- SIGN FLIP via OUT-OF-LEXICON synonym / metaphor (span says ROSE) --------------------------------
+for _w, _p in [('plunged', 'the local employment-to-population ratio plunged by 1.5 points in regions that adopted the technology'),
+               ('cratered', 'the local employment-to-population ratio cratered in regions that adopted the technology'),
+               ('evaporated', 'local employment-to-population gains evaporated in regions that adopted the technology'),
+               ('went south', 'the local employment-to-population ratio went south in regions that adopted the technology')]:
+    check(f'SIGN FLIP via synonym "{_w}" (span says ROSE) is REJECTED', _rej('c:up', _p),
+          'the judge admitted a reversed finding — the synonym walked past the lexicon')
+
+# ---- MAGNITUDE fabrication (span says "1.5 points") --------------------------------------------------
+check('MAGNITUDE "doubled" (span says "1.5 points") is REJECTED',
+      _rej('c:up', 'the local employment-to-population ratio doubled in regions that adopted the technology'))
+check('MAGNITUDE "tripled" (span says "1.5 points") is REJECTED',
+      _rej('c:up', 'the local employment-to-population ratio tripled in regions that adopted the technology'))
+
+# ---- SCOPE swap, identical numbers (span says "in the United States") --------------------------------
+check('SCOPE "worldwide" over span "in the United States" is REJECTED',
+      _rej('c:us', 'the unemployment rate rose by 3 percent worldwide during the study window'))
+check('SCOPE "across every advanced economy" over span "in regions that adopted" is REJECTED',
+      _rej('c:up', 'the local employment-to-population ratio rose by 1.5 points across every advanced economy'))
+
+# ---- MODALITY flip: verb ("causes" vs "associated with") AND noun ("collapse" vs "a decline") --------
+check('MODALITY "causes" over span "is associated with" is REJECTED',
+      _rej('c:assoc', 'exposure to the pesticide causes elevated cancer incidence in farm workers'))
+check('MODALITY-BY-NOUN "the collapse of employment" over span "a decline" is REJECTED',
+      _rej('c:decl', 'the collapse of employment in the regions that adopted the technology was severe'))
+
+# ---- WRONG QUANTITY: the span's number attached to a DIFFERENT quantity (survives the number filter) --
+check('WRONG-QUANTITY "unemployment rose 3 percent" over span "3 percent of firms ADOPTED" is REJECTED',
+      _rej('c:adopt3', 'unemployment rose by 3 percent among workers during the study window'))
+
+# ---- NUMBER-WORD: spelled WRONG value rejected; spelled SAME value ships -----------------------------
+check('NUMBER-WORD wrong value "two and a half points" (span "1.5 points") is REJECTED',
+      _rej('c:up', 'the local employment-to-population ratio rose by two and a half points in regions that adopted the technology'))
+check('NUMBER-WORD same value "one and a half points" (span "1.5 points") SHIPS (no false positive)',
+      not _rej('c:metq', 'the local employment-to-population ratio rose by one and a half points in regions that adopted the technology'))
+
+# ---- MULTI-SENTENCE node: a true clause + a fabricated SECOND sentence -------------------------------
+check('TRUE clause + a fabricated SECOND sentence in one node is REJECTED',
+      _rej('c:up', 'the local employment-to-population ratio rose by 1.5 points in regions that adopted '
+                   'the technology. The effect was fatal for every worker in the country.'))
+
+# ---- TABLE row: real number, wrong sign via synonym -------------------------------------------------
+check('TABLE row "plunged by 1.5 points" over span "rose by 1.5 points" is REJECTED',
+      bool(A.validate_report([EvidenceTable(card_ids=('c:plunge',))], _JB)))
+
+# ---- POSITIVE CONTROL: a TRUE finding, faithful to its span, still SHIPS (real judge) ----------------
+check('POSITIVE CONTROL: a TRUE "rose by 1.5 points" finding STILL SHIPS (real judge says ENTAILED)',
+      not _rej('c:up', 'the local employment-to-population ratio rose by 1.5 points in regions that adopted the technology'),
+      'the judge starved a faithful finding — false-positive regression')
+
+# ---- THE JUDGE IS ACTUALLY CALLED (not fenced behind a residue detector) -----------------------------
+_spy = {'n': 0, 'saw': None}
+def _spy_judge(clause, span):
+    _spy['n'] += 1
+    _spy['saw'] = (clause, span)
+    return ('ENTAILED', 'stub')
+set_entailment_judge(_spy_judge)
+_ok = not A.validate_report(_attr('c:up',
+    'the local employment-to-population ratio cratered in regions that adopted the technology'), _JB)
+check('THE JUDGE IS CALLED on a clause NO deterministic rule catches ("cratered")',
+      _spy['n'] >= 1 and _ok,
+      'the judge was never consulted for a bare synonym — it is fenced behind a residue again')
+
+# ---- FAIL CLOSED: judge unavailable / uncertain / garbage => REJECT (never admit) --------------------
+def _raise(clause, span):
+    raise RuntimeError('transport down')
+def _timeout(clause, span):
+    raise TimeoutError('deadline exceeded')
+def _uncertain(clause, span):
+    return ('UNCERTAIN', 'cannot tell')
+def _garbage(clause, span):
+    return ('???', 'unparseable')
+_true = 'the local employment-to-population ratio rose by 1.5 points in regions that adopted the technology'
+for _name, _fn in [('RAISES', _raise), ('TIMES OUT', _timeout),
+                   ('returns UNCERTAIN', _uncertain), ('returns GARBAGE', _garbage)]:
+    set_entailment_judge(_fn)
+    check(f'FAIL-CLOSED: judge {_name} => a faithful finding is REJECTED (not admitted)',
+          _rej('c:up', _true),
+          'the validator ADMITTED when it could not check — that is the whole disease')
+set_entailment_judge(None)                      # restore the real judge for anything downstream
+
+# ---- THE 8th: OBLIQUE SOURCE in a premise-free OWNED frame (Sol NAMED this: "The Cambridge team") -----
+# A premise-free OWNED sentence is licensed by nothing, so per THE LAW it may carry NO new particular and
+# name NO source. `names_a_source` misses "Cambridge" (not in corpus) and the attribution regex needs the
+# capital subject ADJACENT to the reporting verb — "team" (lowercase) intervenes — so the oblique source
+# and the bare directional finding both slip. render() then prints them to the page.
+check('OBLIQUE SOURCE owned frame "The Cambridge team found the effect reverses..." is REJECTED',
+      bool(A.validate_report(
+          [Owned(text='The Cambridge team found the effect reverses across the whole economy.')], _JB)),
+      'ADMITTED — an oblique-source attribution + a directional finding shipped in the owned voice')
+check('OBLIQUE SOURCE with "that": "The Cambridge team found that the effect reverses..." is REJECTED',
+      bool(A.validate_report(
+          [Owned(text='The Cambridge team found that the effect reverses across the whole economy.')], _JB)))
+check('BARE DIRECTIONAL owned frame "The effect reverses across the whole economy." is REJECTED',
+      bool(A.validate_report(
+          [Owned(text='The effect reverses across the whole economy.')], _JB)),
+      'ADMITTED — a premise-free owned frame asserted a directional finding licensed by nothing')
 
 # =================================================================================================
 # 15-17. THE ARTIFACT. The only question that cannot be fooled: WHAT IS IN THE FILE THE JUDGE READS?

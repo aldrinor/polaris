@@ -64,8 +64,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 import provenance as P  # noqa: E402
-from synthesis_contract import (Premise, Synthesis, validate, OPERATIONS,  # noqa: E402
-                                SPELLED_QTY, FORECAST)
+from synthesis_contract import (Premise, Synthesis, validate,  # noqa: E402
+                                SPELLED_QTY, FORECAST, classify_claim, prove,
+                                level_span_support)
 
 
 # =================================================================================================
@@ -635,63 +636,119 @@ def _quantity_supported(num: str, unit: str, src: str, span_q: list[tuple[str, s
     return any(n == num and u == unit for n, u in span_q)
 
 
-# ---- THE CONSTRAINED SEMANTIC JUDGE. Injectable; defaults to UNAVAILABLE, which FAILS CLOSED. --------
-# A judge is a callable(clause_text, span_text) -> ('MATCH' | 'NO_MATCH' | 'UNCERTAIN', excerpt). It is
-# consulted ONLY for the residue the deterministic gates cannot settle (modality/negation/comparator).
-# UNCERTAIN and NO_MATCH both REJECT. When no judge is wired and no residue is present, no call is made,
-# so the deterministic path stays offline-pure; when residue IS present and no judge is wired, the clause
-# is rejected — the safe direction.
+# ---- THE CONSTRAINED SEMANTIC JUDGE — CONSULTED ON EVERY CLAUSE, FAIL CLOSED -----------------------
+#
+# SOL LADDER RUNG 2, THE HONEST FIX. The prior rung asked the judge ONLY when a hand-built residue
+# detector (hedge/negation/comparator word lists) fired. A fresh adversary walked straight past it with
+# SYNONYMS the lists never named — 'rose' rendered as 'plunged' (Sol's Burn #1), 'doubled' when the span
+# says '1.5 points', 'worldwide' when the span says 'in the US', 'causes' when the span says 'associated
+# with'. None of those trip a residue word, so the judge WAS NEVER CALLED and the lie shipped.
+#
+# THE LESSON, MECHANISED: a gate assembled from a list of words only catches the words its author
+# imagined. So the judge is no longer conditional on anything. EVERY attributed clause and EVERY
+# evidence-table row that survives the deterministic pre-filter is put to the judge, WHOLE CLAUSE vs
+# WHOLE SPAN. Only ENTAILED admits. NOT_ENTAILED and UNCERTAIN both REJECT. If the model cannot be
+# reached, that is UNCERTAIN and it REJECTS — a validator that admits when it cannot check is the whole
+# problem.
+#
+# The deterministic layer (numbers+units, a strict direction opposition, a content floor) is REJECT-ONLY
+# defence-in-depth: it may kill an obvious fabrication cheaply and offline, but it may NEVER conclude
+# ADMIT. Passing it means "not yet rejected", never "entailed" — the only thing that says "entailed" is
+# the judge.
+#
+# A judge is a callable(clause_text, span_text) -> (verdict, excerpt) where verdict is ENTAILED |
+# NOT_ENTAILED | UNCERTAIN (MATCH/NO_MATCH accepted as aliases so an older stub still wires). Tests
+# inject a deterministic stub via set_entailment_judge(); production uses the repo llm() model.
+
+_ENTAILED = 'ENTAILED'
+_NOT_ENTAILED = 'NOT_ENTAILED'
+_UNCERTAIN = 'UNCERTAIN'
+
 _ENTAILMENT_JUDGE = None  # type: ignore[var-annotated]
+#: Judge verdicts memoised by (span_hash, normalised clause). A re-run is then stable and cheap, and the
+#: deterministic pre-filter means the judge is only ever asked the semantic residue the cheap rules leave.
+_JUDGE_CACHE: dict[tuple[str, str], tuple[str, str]] = {}
 
 
 def set_entailment_judge(fn) -> None:
-    """Wire a real LLM entailment judge. Tests inject a deterministic stub; production wires the model."""
+    """Wire a real LLM entailment judge. Tests inject a deterministic stub; production wires the model.
+    Clearing the cache here keeps a swapped stub from reading a previous judge's verdict for the same
+    (span, clause)."""
     global _ENTAILMENT_JUDGE
     _ENTAILMENT_JUDGE = fn
+    _JUDGE_CACHE.clear()
+
+
+def _canon_verdict(v) -> str:
+    """Fold a judge's surface verdict to the canonical three. Anything unrecognised is UNCERTAIN, so an
+    unparseable or novel reply FAILS CLOSED rather than being read as an admit."""
+    s = str(v or '').strip().upper()
+    if s in ('ENTAILED', 'MATCH', 'YES', 'TRUE', 'ENTAILS'):
+        return _ENTAILED
+    if s in ('NOT_ENTAILED', 'NOT ENTAILED', 'NO_MATCH', 'NO', 'FALSE', 'CONTRADICTED', 'CONTRADICTS'):
+        return _NOT_ENTAILED
+    return _UNCERTAIN
+
+
+def _span_hash(span: str) -> str:
+    return hashlib.sha256(re.sub(r'\s+', ' ', (span or '').strip()).encode('utf-8')).hexdigest()
 
 
 def _llm_entailment_judge(clause: str, span: str) -> tuple[str, str]:
-    """Default judge. Consults a constrained model ONLY when explicitly enabled (PG_ENTAILMENT_JUDGE=1);
-    otherwise, and on any error, returns UNCERTAIN so the caller FAILS CLOSED. It never returns MATCH
-    without an affirmative model verdict."""
-    import os
-    if os.getenv('PG_ENTAILMENT_JUDGE', '') != '1':
-        return 'UNCERTAIN', 'no entailment judge wired (fail closed)'
+    """The production judge: a constrained call to the repo model via cellcog_composer.llm().
+
+    It is ALWAYS attempted — there is no opt-in flag, because the judge is now the gate, not an optional
+    second opinion. On ANY failure (import error, transport error, timeout, unparseable reply) it returns
+    UNCERTAIN, and UNCERTAIN REJECTS. It NEVER returns ENTAILED without an affirmative model verdict."""
     prompt = (
-        'You are a strict entailment judge. Decide whether the CLAIM is ENTAILED by the SPAN — i.e., '
-        'the SPAN, read literally, makes the CLAIM true. Attend to direction (rose/fell), magnitude and '
-        'units, modality/hedging (may/appears vs is), negation, comparator and the population/scope. If '
-        'the CLAIM asserts anything the SPAN does not support, it is NOT entailed. If you cannot tell, '
-        'say UNCERTAIN. Reply with ONLY a JSON object: '
-        '{"verdict":"MATCH"|"NO_MATCH"|"UNCERTAIN","excerpt":"<the span words that decided it>"}.\n\n'
+        'You are a STRICT textual-entailment judge for a scientific literature review. You are given a '
+        'verbatim SPAN from a source document and a CLAIM a reviewer wrote. Decide whether the SPAN, '
+        'read literally and alone, ENTAILS the CLAIM — i.e. everything the CLAIM asserts is supported by '
+        'the SPAN, with:\n'
+        '  - the SAME DIRECTION/POLARITY (rose vs fell/plunged/slid/weakened are NOT the same);\n'
+        '  - the SAME MAGNITUDE (a span that says "1.5 points" does NOT entail "doubled"/"tripled");\n'
+        '  - the SAME NUMBERS WITH UNITS;\n'
+        '  - the SAME MODALITY ("is associated with" does NOT entail "causes"; "may reduce" is not '
+        '"reduces");\n'
+        '  - the SAME SCOPE/POPULATION/COMPARATOR ("in the United States" does NOT entail "worldwide"/'
+        '"across every advanced economy").\n'
+        'If the CLAIM asserts ANYTHING the SPAN does not support, answer NOT_ENTAILED. If you genuinely '
+        'cannot tell from the SPAN alone, answer UNCERTAIN. Do not be generous.\n'
+        'Reply with ONLY a JSON object and nothing else: '
+        '{"verdict":"ENTAILED"|"NOT_ENTAILED"|"UNCERTAIN","excerpt":"<the SPAN words that decided it>"}.\n\n'
         f'SPAN:\n{span}\n\nCLAIM:\n{clause}\n')
     try:
         import json as _json
-        from cellcog_composer import llm  # lazy: composer owns the model client
-        raw = llm(prompt, max_tokens=400)
-        m = re.search(r'\{.*\}', raw, re.S)
+        from cellcog_composer import llm  # lazy: composer owns the model client (avoids an import cycle)
+        raw = llm(prompt, max_tokens=300)
+        m = re.search(r'\{.*\}', raw or '', re.S)
         obj = _json.loads(m.group(0)) if m else {}
-        v = str(obj.get('verdict', 'UNCERTAIN')).upper()
-        if v not in ('MATCH', 'NO_MATCH', 'UNCERTAIN'):
-            v = 'UNCERTAIN'
-        return v, str(obj.get('excerpt', ''))[:120]
-    except Exception as e:  # noqa: BLE001  — any failure fails closed
-        return 'UNCERTAIN', f'judge error (fail closed): {type(e).__name__}'
+        return _canon_verdict(obj.get('verdict')), str(obj.get('excerpt', ''))[:160]
+    except Exception as e:  # noqa: BLE001  — any failure FAILS CLOSED
+        return _UNCERTAIN, f'judge unavailable (fail closed): {type(e).__name__}'
 
 
 def _semantic_judge(clause: str, span: str) -> tuple[str, str]:
+    """The judge, memoised and normalised. Returns (canonical verdict, deciding excerpt). A stub raising,
+    or any non-verdict, is folded to UNCERTAIN — the fail-closed direction."""
+    key = (_span_hash(span), re.sub(r'\s+', ' ', (clause or '').strip()))
+    if key in _JUDGE_CACHE:
+        return _JUDGE_CACHE[key]
     fn = _ENTAILMENT_JUDGE or _llm_entailment_judge
     try:
         v, why = fn(clause, span)
     except Exception as e:  # noqa: BLE001
-        return 'UNCERTAIN', f'judge raised (fail closed): {type(e).__name__}'
-    v = str(v).upper()
-    return (v if v in ('MATCH', 'NO_MATCH', 'UNCERTAIN') else 'UNCERTAIN'), why
+        v, why = _UNCERTAIN, f'judge raised (fail closed): {type(e).__name__}'
+    res = (_canon_verdict(v), str(why or '')[:160])
+    _JUDGE_CACHE[key] = res
+    return res
 
 
 def _modality_residue(ctext: str, src: str) -> str:
-    """A residue signal the deterministic layer cannot settle: the clause states categorically what its
-    span only HEDGES, or their negation polarity differs. Returns a reason, or '' when there is none."""
+    """LEGACY, kept only for backward import compatibility (an old probe imports it). It is NO LONGER a
+    gate: the judge is now consulted UNCONDITIONALLY, precisely because this residue detector — a list of
+    hedge/negation/comparator words — was blind to every synonym its author did not enumerate. Returns a
+    human-readable note about the residue it happens to notice, and nothing depends on the value."""
     cw = set(re.findall(r"[a-z']+", ctext))
     sw = set(re.findall(r"[a-z']+", src))
     if (sw & _HEDGE) and not (cw & _HEDGE):
@@ -712,14 +769,23 @@ def entailed_by_span(text: str, span: str, work: P.Work | None = None,
     the model writes the claim -> the writer writes from the claim -> the gate checks the writing
     against the claim. THE GATE VALIDATED THE MODEL AGAINST ITSELF.
 
-    This is entailment, not overlap: a clause that reverses its span's direction, swaps its unit, or
-    invents a figure is REJECTED even though every word but one is shared. See the section header.
+    Two layers, in order:
+
+      1. A DETERMINISTIC PRE-FILTER that may only REJECT (numbers+units, a strict direction opposition, a
+         content floor). It is cheap and certain and it kills the obvious fabrication offline. It NEVER
+         admits — surviving it means "not yet rejected".
+      2. THE JUDGE, consulted on the WHOLE clause vs the WHOLE span for EVERY clause that survives (1),
+         not conditioned on any word list. ONLY 'ENTAILED' admits; 'NOT_ENTAILED' and 'UNCERTAIN' — and a
+         judge that cannot be reached — REJECT. This is the line that catches the synonym sign-flip
+         ('plunged'), the magnitude fabrication ('doubled'), the scope swap ('worldwide') and the
+         modality flip ('causes'), none of which any lexicon here names.
     """
     src = (span or '').lower()
     if not src:
         return False, 'NO_SPAN'
     ctext = (text or '').lower()
 
+    # ============ DETERMINISTIC PRE-FILTER — REJECT-ONLY. It may kill; it may never admit. ============
     # (A) NUMBERS + UNITS. Every quantity in the clause must stand alone in the span with the SAME unit.
     #     No single-digit exemption. No year exemption. "1.5 points" does not support "1.5 percent".
     span_q = quantities_in(src)
@@ -732,6 +798,8 @@ def entailed_by_span(text: str, span: str, work: P.Work | None = None,
             return False, f'NUMBER_NOT_IN_SPAN:{num}'
 
     # (B) DIRECTION / POLARITY. Reject only a strict opposition — clause one way, span the other way.
+    #     This catches the IN-lexicon flip ("fell" vs "rose") without a model call; the OUT-of-lexicon
+    #     flip ("plunged", "slid", "weakened") is left for the judge, which is the whole point of (2).
     cw = set(re.findall(r'[a-z]+', ctext))
     sw = set(re.findall(r'[a-z]+', src))
     c_up, c_down = bool(cw & _UP), bool(cw & _DOWN)
@@ -739,7 +807,7 @@ def entailed_by_span(text: str, span: str, work: P.Work | None = None,
     if (c_down and not c_up and s_up and not s_down) or (c_up and not c_down and s_down and not s_up):
         return False, 'DIRECTION_CONTRADICTS_SPAN'
 
-    # (C) CONTENT FLOOR. The clause's content words must actually be present in the span.
+    # (C) CONTENT FLOOR. A clause whose content words are largely absent from the span is unsupported.
     words = {w for w in re.findall(r'[a-z]{4,}', ctext)} - _STOP
     if work:
         words -= {w for w in re.findall(r'[a-z]{4,}', (work.venue or '').lower())}
@@ -748,14 +816,10 @@ def entailed_by_span(text: str, span: str, work: P.Work | None = None,
     if words and len(words & src_words) / len(words) < min_overlap:
         return False, 'CONTENT_NOT_IN_SPAN'
 
-    # (D) SEMANTIC RESIDUE. Hedge/negation/comparator differences the deterministic gates flagged but
-    #     cannot resolve go to the constrained judge. UNCERTAIN and NO_MATCH both FAIL CLOSED.
-    residue = _modality_residue(ctext, src)
-    if residue:
-        verdict, why = _semantic_judge(text, span)
-        if verdict != 'MATCH':
-            return False, f'SEMANTIC_{verdict}:{residue}' + (f' :: {why}' if why else '')
-
+    # ============ THE JUDGE — WHOLE CLAUSE vs WHOLE SPAN, EVERY TIME. ONLY 'ENTAILED' ADMITS. ==========
+    verdict, why = _semantic_judge(text, span)
+    if verdict != _ENTAILED:
+        return False, f'JUDGE_{verdict}' + (f' :: {why}' if why else '')
     return True, ''
 
 
@@ -904,6 +968,56 @@ def _owned_frame_particular(text: str) -> str:
     return ''
 
 
+#: The research contract used to derive a premise's facets FROM ITS SPAN. Cached: building it lazily
+#: imports the composer's outline, and we do not want that on every premise.
+_FACET_CONTRACT = None
+
+
+def _facet_contract():
+    global _FACET_CONTRACT
+    if _FACET_CONTRACT is None:
+        import argument_planner as _AP          # lazy: avoids any import-time coupling to the planner
+        _FACET_CONTRACT = _AP.default_contract()
+    return _FACET_CONTRACT
+
+
+def _premise_with_span_facets(pid: str, r: Resolution) -> Premise:
+    """A premise carrying facets DERIVED FROM ITS OWN VERBATIM SPAN, not trusted off the card.
+
+    The unit of analysis is the facet a reconciliation turns on, and the card's DECLARED `level` is a
+    string an extractor wrote — a card can say `firm` over a span that only ever says `regions`. So the
+    declared level is kept ONLY if the span supports it (`unit_span`); outcome and direction are read
+    straight from the span through the planner's joint derivation. A proof may then turn on facets that
+    are bound to bytes, which is the whole of RUNG 4 obligation 2.
+    """
+    import argument_planner as _AP              # lazy
+    c = r.card
+    span = r.span or ''
+    level = (c.get('level', '') or c.get('unit_of_analysis', '')).strip()
+    horizon = c.get('horizon', '')
+    method = c.get('method', '') or c.get('design', '')
+    card_for_facets = {
+        'id': pid, 'doi': c.get('doi', ''), 'span': span, 'claim': '', 'level': level,
+        'method': method, 'horizon': horizon, 'mechanisms': c.get('mechanisms') or [],
+        'authors': c.get('authors') or [], 'year': c.get('year'), 'venue': c.get('venue', ''),
+    }
+    try:
+        cf = _AP.derive_facets(card_for_facets, _facet_contract())
+        outcome = cf.f('outcome')
+        direction = cf.f('direction')
+        outcome_v, outcome_span = outcome.value, outcome.evidence
+        direction_v, direction_span = direction.value, direction.evidence
+    except Exception:                            # fail closed: no span facets => an unprovable premise
+        outcome_v = outcome_span = direction_v = direction_span = ''
+    return Premise(
+        id=pid, text=span, source=r.attribution,
+        level=level, horizon=horizon, method=method, mechanisms=c.get('mechanisms') or [],
+        outcome=outcome_v, direction=direction_v,
+        unit_span=level_span_support(span, level),
+        outcome_span=outcome_span, direction_span=direction_span,
+        horizon_span=horizon)
+
+
 def validate_heading(i: int, n: Heading, b: CardBundle) -> list[Failure]:
     """A heading LABELS a section; it is not a third voice that may assert a finding. It carries no
     factual assertion: no number (digit, spelled quantity, or magnitude word), no named source, and no
@@ -993,27 +1107,35 @@ def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
         # 2. CARRIES NO NEW PARTICULAR. A figure in the reviewer's own voice is sourced to nothing.
         if re.search(r'\d', n.text):
             return [Failure(i, 'Owned', 'OWNED_CARRIES_A_NUMBER', n.text[:70])]
-        # 3. If it is licensed by premises, it must be a TYPED SYNTHESIS over them.
+        # 3. If it is licensed by premises, it must be a PROOF-CARRYING VERDICT over them (RUNG 4).
+        #    The old gate tried EVERY operation and admitted if ANY passed — so it admitted BOTH "these
+        #    point in opposite directions" AND "these are not contradictory" for the same premises, a
+        #    false reconciliation assembled from true particulars. Now the sentence's OWN claim selects
+        #    the operation, and only that operation's proof — checked against SPAN-BOUND facets — admits.
         if n.premise_ids:
             prem: dict[str, Premise] = {}
             for pid in n.premise_ids:
                 r = b.resolve(pid)
                 if not r.ok:
                     return [Failure(i, 'Owned', f'PREMISE_UNRESOLVED: {r.refusal}', pid)]
-                c = r.card
-                prem[pid] = Premise(
-                    id=pid, text=r.span, source=r.attribution,
-                    level=c.get('level', '') or c.get('unit_of_analysis', ''),
-                    horizon=c.get('horizon', ''), method=c.get('method', '') or c.get('design', ''),
-                    mechanisms=c.get('mechanisms') or [])
+                prem[pid] = _premise_with_span_facets(pid, r)
             if len(prem) < 2:
                 return [Failure(i, 'Owned', 'SYNTHESIS_NEEDS_2_PREMISES', str(n.premise_ids))]
-            for op in OPERATIONS:
-                ok, _ = validate(Synthesis(op, list(prem), n.text), prem)
-                if ok:
-                    return []
-            _, why2 = validate(Synthesis('CONTRASTS_LEVEL', list(prem), n.text), prem)
-            return [Failure(i, 'Owned', f'SYNTHESIS_REFUSED:{why2}', n.text[:70])]
+            # (a) the sentence's claim names the operation that must license it; fail closed if unrecognised
+            claim_class, op = classify_claim(n.text)
+            if not op:
+                return [Failure(i, 'Owned', 'OWNED_VERDICT_UNCLASSIFIABLE',
+                                'the sentence makes no recognised verdict, so no proof can be checked '
+                                f'against it — {n.text[:60]!r}')]
+            # (b) generic safety: no new particular, anchored, no imported mechanism (unchanged bar)
+            ok_safe, why_safe = validate(Synthesis(op, list(prem), n.text), prem)
+            if not ok_safe:
+                return [Failure(i, 'Owned', f'SYNTHESIS_REFUSED:{why_safe}', n.text[:70])]
+            # (c) THE PROOF. The operation that licenses THIS claim must have its preconditions satisfied.
+            proof, why = prove(op, list(prem.values()), n.text)
+            if proof is None:
+                return [Failure(i, 'Owned', f'OWNED_VERDICT_UNPROVEN:{claim_class}', why)]
+            return []
         # 4. A FRAME sentence: licensed by nothing, so it may assert NO PARTICULAR. Digits and source
         #    names are refused above; a spelled quantity, a magnitude word ("fatal", "doubled"), or a
         #    novel named entity ("...the Fourth Industrial Revolution...") is refused HERE. This closes

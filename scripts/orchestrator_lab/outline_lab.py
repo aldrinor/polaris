@@ -208,6 +208,7 @@ def _mode_apply_dry(bank: dict) -> int:
     sigs_before = {str(p.get('title', '')): plan_signature(p) for p in plans}
     parsed = parse_revision_ops(reviser_output, allowed_ev_ids=allowed, plan_titles=titles)
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     # item 13: when the bank has a required-section structure, thread it so apply restricts ops to
     # keep/reassign and cannot break the user's exact-N-in-order contract.
     _required = [
@@ -217,6 +218,8 @@ def _mode_apply_dry(bank: dict) -> int:
     ]
     applied = apply_revision_ops(plans, parsed, outcomes=outcomes, required_titles=_required)
 =======
+=======
+>>>>>>> Stashed changes
     # Fable item 6: thread the digest ev_id->basket map so apply RE-BACKFILLS basket_ids on the
     # recomposed sections (a reassign that homes an orphan basket's members must clear it from the
     # orphan list — the compose router is ev-overlap-keyed, find_orphan_baskets is basket_id-keyed;
@@ -229,6 +232,9 @@ def _mode_apply_dry(bank: dict) -> int:
     applied = apply_revision_ops(
         plans, parsed, outcomes=outcomes, ev_id_to_basket=ev_id_to_basket,
     )
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 
     print("\n=== APPLY RESULT ===")
@@ -383,6 +389,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     # dropped) — the machine check that would have caught finding 1 instead of a false prose claim.
     assigned_ev_ids = {str(e) for p in plans for e in (p.ev_ids or [])}
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     # item 9(a): the WORK keys already anchored by an assigned ev_id. A still-unassigned singleton
     # whose WORK is anchored via a DIFFERENT ev_id of the same paper is NOT a coverage gap — ev_882
     # is the same work as the anchored eloundou "GPTs are GPTs" and must not read as unassigned. Uses
@@ -391,6 +398,9 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     # bibliography (disclosed via its canonical); it just stops double-reporting as a gap. This is
     # why the prior 136 unassigned-high-tier count was OVERSTATED.
     assigned_work_keys = {alias_of.get(e, e) for e in assigned_ev_ids}
+=======
+    assigned_basket_ids = {str(b) for p in plans for b in (p.basket_ids or [])}
+>>>>>>> Stashed changes
 =======
     assigned_basket_ids = {str(b) for p in plans for b in (p.basket_ids or [])}
 >>>>>>> Stashed changes
@@ -415,6 +425,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         str(r.get("evidence_id", "")) for r in evidence
         if str(r.get("evidence_id", "")) and str(r.get("evidence_id", "")) not in menu.ev_id_to_basket
     ]
+<<<<<<< Updated upstream
 <<<<<<< Updated upstream
     # item 14 + item 9(a): exclude a singleton that is (i) an assigned ev_id, (ii) a same-work alias
     # folded OUT of a plan's anchors (accounted for by its canonical, disclosed in plan_work_folds),
@@ -451,6 +462,9 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         }
         _seen_work[_wk] = _entry
         unassigned_high_tier.append(_entry)
+=======
+    unassigned_singletons = [e for e in singleton_ev_ids if e not in assigned_ev_ids]
+>>>>>>> Stashed changes
 =======
     unassigned_singletons = [e for e in singleton_ev_ids if e not in assigned_ev_ids]
 >>>>>>> Stashed changes
@@ -501,6 +515,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
             # (fail-open => KEEP + route). Empty-members => "unjudged".
             {"basket_id": bid, "members": basket_members.get(bid, []),
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
              "disposition": "reassign_candidate",
              "topic_verdict": (
                  "off_subject"
@@ -509,6 +524,9 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
                              for m in basket_members.get(bid, [])))
                  else "unjudged"
              )}
+=======
+             "disposition": "unassigned"}   # item 10: topic-judge gated, not auto-reassign
+>>>>>>> Stashed changes
 =======
              "disposition": "unassigned"}   # item 10: topic-judge gated, not auto-reassign
 >>>>>>> Stashed changes
@@ -522,6 +540,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         ],
         "unassigned_singletons_count": len(unassigned_singletons),
         "unassigned_high_tier": unassigned_high_tier,
+<<<<<<< Updated upstream
 <<<<<<< Updated upstream
         # item 14: same-work anchor folds per section (canonical kept, aliases disclosed) — §-1.3
         # consolidate; the folded aliases remain in the pool/bibliography, never dropped.
@@ -555,6 +574,8 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
                  "(plan_work_folds), orphan-basket-disclosed, or unassigned-singleton-disclosed "
                  "(§-1.3 consolidate — none silently dropped)."),
 =======
+=======
+>>>>>>> Stashed changes
         "note": ("orphan baskets, single-work unassigned baskets, and unassigned singletons are ALL "
                  "DISCLOSED here (§-1.3 consolidate — none dropped); this cp4 audit is DISCLOSURE "
                  "ONLY, zero plan mutation. Any actual reassignment at COMPOSE "
@@ -563,6 +584,9 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
                  "list includes plainly off-topic rows that must NOT be pulled into a section as-is. "
                  "The S2 off-topic leak + S3 title-like-claim gap are escalated cross-section in "
                  "docs/s4_outline_upstream_escalations.md."),
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     }
 
@@ -636,6 +660,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
 
     # (d) cp4 write + load (verdict-leak guarded on BOTH)
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     # item 6: record the FULL effective S4 knob set + a sha256 of it as run_config_sha (until
     # RunConfig WP-0b lands) so the checkpoint can PROVE what produced it — the prior hardcoded
     # {"PG_OUTLINE_BASKET_DIGEST":"1"} + run_config_sha="" proved nothing about the actual run.
@@ -646,6 +671,8 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     print(f"\n[d] effective S4 flag_slate={json.dumps(flag_slate, sort_keys=True)} "
           f"run_config_sha={run_config_sha[:12]}")
 =======
+=======
+>>>>>>> Stashed changes
     # Fable item 8: pin EVERY env knob this run's behavior (and the downstream compose promise in the
     # note) actually reads — not just PG_OUTLINE_BASKET_DIGEST — and thread a REAL run_config sha
     # (was hardcoded ''), so the cp4 envelope is reproducible. Effective env value per knob; unset =>
@@ -661,6 +688,9 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     run_config_sha = hashlib.sha256(
         json.dumps(flag_slate, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     payload = build_cp4_payload(
         question_sha=hashlib.sha256(question.encode("utf-8")).hexdigest(),

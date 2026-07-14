@@ -50,6 +50,12 @@ ROSE_SPAN = ('the local employment-to-population ratio rose by 1.5 points in reg
 # test. "declined ... 2.3 points". Review of Economic Studies, 2019.
 FELL_SPAN = ('the local employment-to-population ratio declined by 2.3 points in regions that adopted '
              'the technology')
+# A FIRM-LEVEL employment finding from a THIRD, distinct source. Same outcome (employment), a DIFFERENT
+# unit of analysis (the firm), and the span SAYS so ("firm-level ... establishments") — so "these concern
+# different units and are not directly comparable" is a PROVABLE verdict over (firm, region), where the
+# same claim over two region-level findings (T7) is not.
+FIRM_SPAN = ('firm-level employment expanded at the establishments that adopted the technology, relative '
+             'to non-adopting firms')
 
 _FILLER = ('The paper proceeds as follows. We describe the data, the identification strategy and the '
            'estimation. ') * 120
@@ -77,6 +83,8 @@ def build_bundle() -> CardBundle:
     add_journal('w:up', 'e:up:j', 'm:up', ['Bloom', 'Draca'], 2021, 'American Economic Review', ROSE_SPAN)
     add_journal('w:down', 'e:down:j', 'm:down', ['Graetz', 'Michaels'], 2019,
                 'The Review of Economic Studies', FELL_SPAN)
+    add_journal('w:firm', 'e:firm:j', 'm:firm', ['Babina', 'Fedyk'], 2024,
+                'Journal of Financial Economics', FIRM_SPAN)
 
     def card(cid, mid, span, claim, **kw):
         m = g.manifestations[mid]
@@ -104,6 +112,9 @@ def build_bundle() -> CardBundle:
         # The opposed "declined" card, a distinct source.
         card('c:down', 'm:down', FELL_SPAN,
              'the local employment-to-population ratio declined by 2.3 points'),
+        # A firm-level employment card, a third distinct source and a genuinely different unit.
+        card('c:firm', 'm:firm', FIRM_SPAN,
+             'firm-level employment expanded at adopting establishments', level='firm'),
     ]
     return CardBundle(cards, g, P.JOURNAL_ONLY)
 
@@ -144,9 +155,12 @@ def p0_positive_control(b):
 #      genuine reviewer synthesis. This one names two admitted premises, carries no particular (no
 #      number, no spelled quantity, no magnitude word, no novel named entity) and adjudicates them.
 def p1_positive_synthesis(b):
+    # A PROVABLE "different units" verdict: a firm-level finding and a region-level finding, same outcome
+    # (employment), each unit SPAN-SUPPORTED. This is the verdict RUNG 4 must still ship, while it rejects
+    # the same words asserted over two findings that share a unit (T7's "not contradictory").
     n = Owned(text='These employment findings concern different units of analysis and are not directly '
-                   'comparable across regions.',
-              premise_ids=('c:up', 'c:down'))
+                   'comparable across the firm and regional levels.',
+              premise_ids=('c:firm', 'c:down'))
     admitted, refusal = _admitted([n], b)
     record('P1  POSITIVE CONTROL (legitimate owned synthesis MUST ship)', admitted, refusal,
            note='premise-bound owned synthesis, no particular: ADMITTED == correct, REJECTED == regression')
@@ -301,9 +315,13 @@ def main() -> int:
     # and T4 (the evidence-table row, which shares this same entailment check).
     # Rung 3a closes the OWNED-FRAME and HEADING lanes: T2 (premise-free owned fact), T2b (premise-free
     # owned spelled quantity), and T3 (a heading that asserts a fabricated finding).
-    # The connective/venue/verdict lanes (T5, T6, T7) are LATER rungs and remain open here.
+    # Rung 4 closes the VERDICT lane: T7 (a false reconciliation — "not contradictory" over premises that
+    # share a scope). An owned verdict now carries the operation its own claim names and ships ONLY if
+    # that operation's proof holds against span-bound facets. At most ONE of two contradictory
+    # reconciliations may pass; both passing is the hole, and it is now closed.
     RUNG2 = {'T1 ', 'T1b', 'T1c', 'T1d', 'T4 '}
     RUNG3 = {'T2 ', 'T2b', 'T3 '}
+    RUNG4 = {'T7'}
 
     def tag(name):  # the short test id at the head of the name
         return name.split('(')[0].strip()[:3].rstrip()
@@ -334,13 +352,14 @@ def main() -> int:
         return [name for name, admitted, _, _ in RESULTS
                 if admitted and name[:2] not in ('P0', 'P1', 'P2') and tag(name) in ids]
 
-    rung2_open, rung3_open = _open(RUNG2), _open(RUNG3)
+    rung2_open, rung3_open, rung4_open = _open(RUNG2), _open(RUNG3), _open(RUNG4)
     print(f'\n  Rung-2 lanes still open (entailment): {len(rung2_open)}  (target: 0)')
     print(f'  Rung-3a lanes still open (owned/heading): {len(rung3_open)}  (target: 0)')
+    print(f'  Rung-4 lanes still open (false verdict): {len(rung4_open)}  (target: 0)')
     print(f'  Positive controls: {"REGRESSED — a legitimate node was rejected" if positive_regressed else "OK — every legitimate node still ships"}')
-    ok = (not rung2_open) and (not rung3_open) and (not positive_regressed)
+    ok = (not rung2_open) and (not rung3_open) and (not rung4_open) and (not positive_regressed)
     if ok:
-        print('  RUNG 2+3a CLEAR: every entailment/owned/heading attack is rejected AND every '
+        print('  RUNG 2+3a+4 CLEAR: every entailment/owned/heading/verdict attack is rejected AND every '
               'legitimate node still ships.')
     else:
         print('  NOT CLEAR: a lane is open or a positive control regressed.')

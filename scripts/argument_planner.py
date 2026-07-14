@@ -92,7 +92,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'scripts'))
 
-from synthesis_contract import Premise, Synthesis, validate, OPERATIONS  # noqa: E402
+from synthesis_contract import (Premise, Synthesis, validate, OPERATIONS,  # noqa: E402
+                                RelationProof, classify_claim, prove, level_span_support)
 
 CARDS_V2 = ROOT / 'outputs' / 'evidence_cards_v2.json'
 CARDS_V1 = ROOT / 'outputs' / 'evidence_cards.json'
@@ -573,9 +574,16 @@ class CardFacets:
     numbers: list[str]
     ineligibility: list[str] = field(default_factory=list)     # FATAL: may not be attributed at all
     not_adjudicable: list[str] = field(default_factory=list)   # SOFT: citable, but not a comparison term
+    #: RUNG 4 obligation 2 — for each DECLARED facet, the verbatim span excerpt that supports it (or ''
+    #: if the span never states it). A declared value the span does not corroborate is a string off the
+    #: card; a verdict may not turn on it.
+    facet_spans: dict[str, str] = field(default_factory=dict)
 
     def f(self, name: str) -> Facet:
         return self.facets.get(name, Facet(name))
+
+    def facet_span(self, name: str) -> str:
+        return self.facet_spans.get(name, '')
 
     @property
     def quantitative(self) -> bool:
@@ -596,9 +604,16 @@ def derive_facets(card: dict, contract: ResearchContract) -> CardFacets:
     """The 8-facet key. DECLARED fields are read off the card; the rest come from the SPAN, or are MISSING."""
     span = card.get('span') or ''
     fx: dict[str, Facet] = {}
+    facet_spans: dict[str, str] = {}
     for fname, field_name in contract.declared_facets.items():
         v = (card.get(field_name) or '').strip()
         fx[fname] = Facet(fname, v, 'declared') if v else Facet(fname)
+        # RUNG 4 obligation 2: a DECLARED facet is only usable in a verdict if the SPAN corroborates it.
+        # The unit of analysis is the axis a reconciliation turns on, so its span-binding is load-bearing;
+        # `level_span_support` returns the verbatim excerpt, or '' when the card asserts a level the span
+        # never states (the exact way argument_planner.py:599 used to trust a string off the card).
+        if v and fname == 'unit_of_analysis':
+            facet_spans[fname] = level_span_support(span, v)
     for fname, vocab in contract.span_facets.items():
         fx[fname] = derive_span_facet(span, fname, vocab)
     # OUTCOME AND DIRECTION ARE DERIVED TOGETHER. Derived apart, they need not be about each other --
@@ -613,6 +628,7 @@ def derive_facets(card: dict, contract: ResearchContract) -> CardFacets:
         industries_all=derive_span_facet_all(span, 'industry', contract.span_facets.get('industry', {})),
         numbers=span_numbers(card),
         ineligibility=_elig[0], not_adjudicable=_elig[1] + ambiguous,
+        facet_spans=facet_spans,
     )
 
 
@@ -916,6 +932,7 @@ class SentenceIR:
     premise_card_ids: list[str] = field(default_factory=list)
     role: str = ''                               # thesis | evidence | verdict | boundary | bridge
     gate: str = ''                               # which bar this sentence has ALREADY cleared
+    proof: RelationProof | None = None           # RUNG 4: the verdict's proof object (owned verdicts only)
 
 
 def _corpus_surnames(cards: list[dict]) -> set[str]:
@@ -955,20 +972,39 @@ def owned_is_safe(text: str, surnames: set[str], premise_blob: str) -> tuple[boo
     return True, ''
 
 
-def _premises(bundle: Bundle, cards_by_id: dict[str, dict]) -> dict[str, Premise]:
-    """Premises for synthesis_contract.validate().
+def _premises(bundle: Bundle, cards_by_id: dict[str, dict],
+              cf: dict[str, CardFacets] | None = None) -> dict[str, Premise]:
+    """Premises for synthesis_contract.validate() and prove().
 
     `text` IS THE VERBATIM SPAN, not the card's `claim`. The composer passes `claim` here, which makes
     the model-authored paraphrase the ALLOWLIST for the no-new-entity check: an entity hallucinated into
     a claim becomes a permitted entity in the reviewer's own voice. The span is the only evidence, so the
     span is what the premise carries.
+
+    When `cf` is supplied, the premise also carries the SPAN-BOUND facets a proof needs: outcome and
+    direction (span-derived) and the verbatim excerpt that supports the declared unit of analysis. A
+    verdict built on these can be PROVED, not merely validated for safety.
     """
     prem = {}
     for cid in bundle.card_ids:
         c = cards_by_id[cid]
-        prem[cid] = Premise(id=cid, text=c.get('span') or '', source=c.get('source') or '',
-                            level=c.get('level') or '', horizon=c.get('horizon') or '',
-                            method=c.get('method') or '', mechanisms=c.get('mechanisms') or [])
+        level = c.get('level') or ''
+        cfx = cf.get(cid) if cf else None
+        outcome = cfx.f('outcome').value if cfx else ''
+        outcome_span = cfx.f('outcome').evidence if cfx else ''
+        direction = cfx.f('direction').value if cfx else ''
+        direction_span = cfx.f('direction').evidence if cfx else ''
+        unit_span = cfx.facet_span('unit_of_analysis') if cfx else level_span_support(c.get('span') or '', level)
+        prem[cid] = Premise(
+            id=cid, text=c.get('span') or '',
+            # A ROBUST SOURCE IDENTITY. Real cards leave `source` blank and carry the paper's identity in
+            # `doi`; the "a paper cannot corroborate itself" check must key on that, not on an empty string.
+            source=c.get('source') or c.get('doi') or c.get('work_id') or c.get('evidence_unit_id') or cid,
+            level=level, horizon=c.get('horizon') or '',
+            method=c.get('method') or '', mechanisms=c.get('mechanisms') or [],
+            outcome=outcome, direction=direction, unit_span=unit_span,
+            outcome_span=outcome_span, direction_span=direction_span,
+            horizon_span=c.get('horizon') or '')
     return prem
 
 
@@ -1214,21 +1250,30 @@ def plan_subsections(cards: list[dict], cfs: list[CardFacets], bundles: list[Bun
         comparable = bundle.comparable if bundle else False
         incomp = bundle.incomparability if bundle else ['no comparison was selected']
         if bundle:
-            prem = _premises(bundle, cards_by_id)
+            prem = _premises(bundle, cards_by_id, cf_by_id)
             blob = ' '.join(p.text + ' ' + p.source for p in prem.values())
             vt = _verdict_text(bundle, cf_by_id)
+            # THE VERDICT CARRIES THE OPERATION ITS OWN CLAIM NAMES, and is checked against THAT
+            # operation's proof -- not against "any operation that passes". The template's surface words
+            # decide the claim (e.g. "not contradictory" => RECONCILES, which needs a span-bound DIFFERING
+            # scope and opposed results), so a mislabelled bundle cannot license a stronger claim than it
+            # has proved. `bundle.operation` is recorded for the audit trail but does not get a vote.
+            claim_class, op = classify_claim(vt)
             ok_safe, why_safe = owned_is_safe(vt, surnames, blob)
             ok_gate, why_gate = validate(
-                Synthesis(bundle.operation, list(prem), vt), prem) if ok_safe else (False, why_safe)
-            if ok_safe and ok_gate:
+                Synthesis(op or bundle.operation, list(prem), vt), prem) if ok_safe else (False, why_safe)
+            proof, why_proof = (prove(op, list(prem.values()), vt) if (ok_safe and ok_gate and op)
+                                else (None, why_safe or why_gate or 'the verdict makes no recognised claim'))
+            if proof is not None:
                 verdict = SentenceIR(
                     voice='owned', text=vt, source_clauses=[],
-                    premise_card_ids=list(bundle.card_ids), role='verdict',
-                    gate=f'synthesis_contract:{bundle.operation} (PASSED at plan time)')
+                    premise_card_ids=list(bundle.card_ids), role='verdict', proof=proof,
+                    gate=f'synthesis_contract:{op} proof [{proof.rule}] (PASSED at plan time)')
             else:
                 # DO NOT REPAIR. DO NOT SHIP. The plan records that it could not license a verdict.
-                refusals.append(f'OWNED verdict refused by the contract '
-                                f'({why_safe or why_gate}) -- no verdict is planned for this subsection')
+                refusals.append(f'OWNED verdict refused ({why_proof}) -- bundle {bundle.kind}/'
+                                f'{bundle.operation} produced a claim ({claim_class or "UNCLASSIFIED"}) '
+                                f'it could not prove; no verdict is planned for this subsection')
 
             bt = _boundary_text(bundle, cf_by_id)
             ok_b, why_b = owned_is_safe(bt, surnames, blob)
