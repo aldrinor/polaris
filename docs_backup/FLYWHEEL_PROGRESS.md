@@ -624,3 +624,33 @@ NOT COMMITTED. One guard (_OUTCOME_DECOY, cellcog_composer.py:491) is POROUS -- 
 'new jobs' SDG span; harmless today only because that card has an empty unit_of_analysis so the planner
 refuses it anyway. Fix upstream (default_contract employment lookahead) before shipping, and stop routing
 'not contradictory' verdicts under a 'genuinely disagrees' heading. The wiring is preserved on disk.
+
+## GENERALITY GATE — RAN FOR THE FIRST TIME. VERDICT: task-72 machine in a general scaffold.
+
+Ran the REAL pipeline (contract -> route -> coverage -> extraction dry-run) on clinical / legal /
+thin-evidence questions. No paid compose.
+
+GENUINELY GENERAL (keep, proven live):
+  * THE CONTRACT MODEL. Clinical Q -> [Empagliflozin, Dapagliflozin...], outcomes [HF hospitalization,
+    Mortality, Safety]. Legal Q -> [US, UK, Germany...], [Enforceability, Blue-pencil doctrine]. ZERO
+    AI/labour leakage on all three. The brain works on any question.
+  * THE HONESTY LAYER. 'A 429 is SEARCH_FAILED, never an absence -- HOLDS. 0 false gaps everywhere.'
+    The thing we built tonight TRANSFERS.
+
+THREE BREAKS (each pinned):
+  1. JSON PARSER BUG -- cellcog_composer.py:106 extracts a JSON ARRAY (\[.*\]) but the contract prompt
+     returns an OBJECT, so the model's PERFECT contract is discarded and the pipeline falls to an empty
+     regex floor. 'The parser, not the model, is at fault' -- json.loads(raw) yields the perfect
+     contract. ~ONE-LINE FIX.
+  2. OVER-GENERIC ROUTING TOKENS -- config/source_routes.yaml: 'trade','employment','occupation' route
+     a legal non-compete Q (restraint of TRADE) and an occupational-health Q to NBER. DATA-TABLE fix.
+     The router's own canary passes because its 4 built-in examples happen to avoid those words --
+     overfit to its own tests.
+  3. THE CORPUS IS AI/LABOUR-ONLY -- every non-AI Q compiles a perfect contract, routes right, then
+     finds ZERO relevant evidence. journal_corpus_build.py:44-72 ANCHORS 12 AI/labour papers + hardcoded
+     TOPIC regexes produce the sole corpus.
+
+THE THROUGH-LINE: 'the tell moved from a regex on the live path to a hardcoded corpus behind it. Until a
+PER-QUESTION ACQUISITION RUN replaces that static corpus, general research system remains unsupported.'
+=> THE GENERALITY FIX AND THE CORPUS FIX ARE THE SAME FIX. The acquisition campaign is what makes the
+system general, not merely deeper.
