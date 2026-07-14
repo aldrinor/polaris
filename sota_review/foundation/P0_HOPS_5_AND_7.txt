@@ -1,0 +1,92 @@
+{
+  "summary": "The adversary found the accepted-manuscript P0 REOPENED at a 4th hop (alignment_census ruling-ladder order). Close it, then re-run all 11 of Sol's tests, then fire the fetch.",
+  "agentCount": 3,
+  "logs": [],
+  "result": {
+    "close": "The P0 was open at hop 4 **and** at a fifth and a sixth hop. All are closed, proven by mutation. Nothing committed.\n\n## What I found\n\n**The adversary was right about hop 4, and it was worse than described.** The `acceptedVersion → INADMISSIBLE` rung sat below `is_publisher_typeset → ADMISSIBLE`. That earlier rung counted the venue name *anywhere* in the text — so a repository **cover sheet** (which cites the journal) plus an ordinary **bibliography** (every econ paper cites the JPE) reached 3 \"running heads\" and admitted the manuscript. I proved it on a realistic accepted manuscript: `JOURNAL_ARTICLE / ADMISSIBLE`, 17 cards riding on it.\n\nWorse, the test's flagship case was passing *through the same bug*: the LSE deposit of Goos-Manning-Salomons was ruled a journal article on the strength ",
+    "reattack": "I have re-derived all eleven from scratch with my own fixtures. Here is my verdict.\n\n---\n\n# FRESH ADVERSARY — RE-RUN OF SOL'S 11 TESTS (from scratch, my own fixtures)\n\nAll checks ran against the working tree, which is **byte-identical to HEAD `639e254`** for every verifier file (`git diff HEAD` empty). I therefore tested the committed \"fixed\" code, and I **deleted or loosened nothing** — nor does the working tree relative to HEAD.\n\n## RESULT: 9 / 11 HOLD. **TEST 2 (THE P0) IS BROKEN. THE FETCH DOES NOT RUN.**\n\n| # | Test | Verdict |\n|---|------|---------|\n| 1 | PMC VoR JATS → ADMISSIBLE | **HOLDS** |\n| 2 | NIH / accepted manuscript stays NON-VoR | **BROKEN** (two hops) |\n| 3 | Parry / Yang-Hui He wrong-work quarantined | **HOLDS** |\n| 4 | Acemoglu 0.37 vs 0.2 cannot align | **HOLDS** |\n| 5 | A genuinely matching VoR span can be rebound | **HOLDS** |\n| 6 | Short legal judgment is complete | **HOLDS** |\n| 7 | Registry record is complete | **HOLDS** |\n| 8 | 429 never becomes SEARCHED_NONE | **HOLDS** |\n| 9 | One route cannot inherit another's manifestation | **HOLDS** |\n| 10 | Multiple worker processes stay in host budget | **HOLDS** (proven with 1/4/8 real processes) |\n| 11 | Truncated / HTML-error downloads can't enter synthesis | **HOLDS** |\n\n`python scripts/test_gate_is_wired.py` → **GREEN, 25/25** (exit 0). But that canary exercises the `resolve_attribution` citation lane only; it does **not** touch the two P0 hops that broke, so its green does not clear the P0.\n\n---\n\n## TEST 2 IS BROKEN — THE P0 IS REOPENED AT A SEVENTH HOP, AND HOP 5 IS INCOMPLETE\n\nThe previous agent closed hops 4/5/6 for the **White Rose** accepted manuscript (\"this is an author produced version\"). I attacked from the other directions Sol named, and two of them are open.\n\n### FINDING A (severest) — `scripts/alignment_census.py:111` `is_publisher_typeset` — THE COUNTERFEIT TYPESET. **No metadata lie required.**\n\nThe census makes inadmissibility a precondition (`version_veto`), re-checks it in `_admit`, and re-asserts it in a postcondition. **All three share one escape hatch: `is_publisher_typeset(tp)`.** Counterfeit that one fact and all three fall together.\n\n`is_publisher_typeset` returns True on `folios_in_declared_range >= 3` — folios that land in the masthead's declared page range. The claim is \"an author manuscript paginates from 1 and cannot counterfeit that.\" **It can, for any issue-restart-paginated journal** (Nature Communications, JMLR, PLOS, most OA venues), whose article of record is declared `1–12`. And the fatal detail: `declared_page_range` (line 54), `folio_numbers` (line 49) and `page_top_heads` (line 73) scan the **whole text including the repository cover sheet** — the census, unlike `provenance.segment_cover_sheet` and `event_ledger.segment_front_matter`, **never segments the cover sheet off.** So the acquitting page range `1–12` is read from the cover sheet's own citation, and the manuscript's from-1 body folios land inside it.\n\nFailing input: a White Rose accepted manuscript whose cover sheet cites `Nature Communications 2023, 14(1): 1-12` and whose body paginates from 1:\n```\nAC.rule(prof, tp, bid=None, align_ver=None)          -> JOURNAL_ARTICLE / ADMISSIBLE\nAC.rule(prof, tp, bid=None, align_ver='acceptedVersion') -> JOURNAL_ARTICLE / ADMISSIBLE\n  folios_in_declared_range=10, declared_range=[1,12], is_publisher_typeset=True\n```\nMeanwhile `provenance.derive_expression_kind` on the *same bytes* correctly returns `accepted_manuscript`. The census disagrees with the citation lane and rules the manuscript the article of record.\n\n### FINDING B — `scripts/event_ledger.py:411` `_ACCEPTED_STAMP` — HOP 5 DIVERGED FROM HOP 6 ON NIH.\n\nThe hop-6 fix widened `provenance._AM_MARK` (line 441) to catch the NIH tell: `author manuscript;? *available in pmc` and `\\bnihms\\s*\\d{3,}`. **That clause was never added to the event-ledger lane's `_ACCEPTED_STAMP`.** The two accepted-manuscript detectors have drifted:\n\n```\nstamp                                         provenance._AM_MARK   event_ledger._ACCEPTED_STAMP\n\"Author manuscript; available in PMC 2026\"    True                  False\n\"NIHMS2075474\"                                True                  False\n```\n\nFailing input: an NIH-funded accepted manuscript (`\"Author manuscript; available in PMC 2026 Jan 01.\"` + `NIHMS…`), exactly the case Sol's PMC silent-failure list names:\n```\nevent_ledger.derive_eligibility(...)  -> ADMISSIBLE / SAME_WORK   (\"this IS the journal article\")\nprovenance.derive_expression_kind(...) -> accepted_manuscript      (correct)\n```\nThe event lane admits the NIH manuscript as journal evidence; it feeds `derive_coverage_status`, so it counts as an admissible journal source for synthesis.\n\n### FINDING C (weaker; needs stale metadata) — census trusts a `publishedVersion` label over accepted-manuscript bytes.\n\n`_admit` (line 223) admits on any `publishedVersion` byte-identity/align label because the census has **no byte-level accepted-manuscript detector at all** (`typeset_profile` has `wp_series_marks` for working papers but nothing for accepted manuscripts). A stale/mislabeled `publishedVersion` record over AM bytes → `JOURNAL_ARTICLE / ADMISSIBLE`. This is the CORE-record vector Sol named (\"fullText is the AM, downloadUrl points at the VoR\"); it requires the metadata to be wrong, whereas Finding A requires nothing wrong at all.\n\nNote: the final `resolve_attribution` citation gate (test_gate_is_wired) correctly refuses both the White Rose and NIH manuscripts (`kind=accepted_manuscript`), so the *last* door holds. But Sol's law is that the P0 must be shut at **every** hop — \"the fix was applied and the path remained open\" — and hops 4 and 5 are open. The moment any consumer trusts the census ruling or the ledger eligibility instead of re-deriving through `resolve_attribution`, a manuscript's number prints under a journal's name.\n\n---\n\n## The other tests (re-derived, real output)\n\n- **1 HOLDS** — PMC VoR JATS → `ADMISSIBLE / SAME_WORK`; provenance → `journal_version`.\n- **3 HOLDS** — Yang-Hui He arXiv theorem paper requested as an HR journal article → `INADMISSIBLE / DIFFERENT_WORK` (front-matter DOI is foreign; quarantined, not merely unbound).\n- **4 HOLDS** — `make_correspondence` from the WP's `0.37 percentage points` span to the JPE's `0.2` span fails on canonical-span inequality, even with both manifestations complete and identity-CONFIRMED; `add_correspondence` refuses it; an expression-wide `exact_copy_of` cannot be ASSERTED by a convincing basis sentence (the canonical texts differ by the one number).\n- **5 HOLDS** — a span *verbatim-identical in both held documents* verifies, is admitted, and names `e:j` (the journal expression); the 0.37 span next door and the whole-manifestation question remain refused. The correspondence grants exactly one span.\n- **6/7 HOLD** — a 41-word PER CURIAM opinion (`kind=judgment`) and a registry record are `complete=True`; the scholarly version taxonomy is not run over the judgment (`official_text`, no \"preprint of a statute\").\n- **8 HOLDS** — 429 on every adapter → `SEARCH_FAILED`, `supports_absence=False`; a BUDGET_STOPPED → `SEARCH_FAILED`; `acquisition.THROTTLED ∈ NEVER_AN_ABSENCE`. Never `SEARCHED_NONE`.\n- **9 HOLDS** — CORE (429, fetched nothing) → `derive_backend_outcome='BLOCKED'` while unpaywall='RESPONDED'; the cell is `SEARCH_FAILED`, not SUPPORTED off unpaywall's bytes.\n- **10 HOLDS** — real proof with **1, 4, and 8 concurrent OS processes** contending for one `flock`'d bucket at 0.25s spacing: aggregate rate is a **flat 3.99 grants/s across all three process counts** (not 4× or 8×), min cross-process gap 0.249–0.250s, max in-flight = 1 (concurrency honored), every launched process reported and the single host file recorded all grants + deferrals. (An early apparent breach was a bug in *my* harness — the worker had hard-coded 0.20s spacing; corrected, the scheduler is exact.)\n- **11 HOLDS** — an HTML `403 Forbidden` page → `INADMISSIBLE` (not a document); a mid-abstract truncation → not ADMISSIBLE; a `(cid:N)` glyph-garbage extraction → `INADMISSIBLE / C_UNREADABLE` (not misfiled as a stranger's paper); `provenance.profile` marks the HTML page not complete.\n\n---\n\n## Weakening check\n`git diff HEAD` is empty for `provenance.py`, `alignment_census.py`, `event_ledger.py`, `host_scheduler.py`, `acquisition.py`, `version_align.py`, `source_router.py`, `routes_repo.py`, `test_gate_is_wired.py`. I weakened nothing and deleted nothing; the working tree matches HEAD. `test_gate_is_wired.py` is GREEN.\n\n## Bottom line\n**NOT 11/11 — it is 9/11. The P0 (Test 2) is REOPENED at a seventh hop** (`alignment_census.is_publisher_typeset`, counterfeit typeset via the un-segmented cover sheet) **and incompletely closed at hop 5** (`event_ledger._ACCEPTED_STAMP` never got the NIH clause that `provenance._AM_MARK` did). Per the standing order — **the fetch does not run.** Same disease as before: the fix was applied at three hops, then six, and the path is still open at another.",
+    "fetch": "Confirmed. I have verified the environment state and the specific broken hop. Here is my report.\n\n---\n\n## DECISION: FETCH NOT LAUNCHED — STOP RULE TRIGGERED\n\nThe adversary reported **9/11, not 11/11**. Test 2 (the P0 — \"an accepted manuscript can never name the journal\") is **BROKEN**. My standing order is unambiguous: if the adversary did not report 11/11, do not fetch. **I launched nothing.** A ~5,000-candidate fetch against a still-open P0 would arrive pre-poisoned and the whole haul would have to be burned. That is exactly the outcome the block exists to prevent.\n\n## What I independently confirmed\n\n- **Verifier code is the tested code.** `/home/polaris/wt/flywheel` is at HEAD `639e254`; `git diff HEAD` there touches only `config/source_routes.yaml` (108+/15−), **not** `alignment_census.py`. The census I inspected is byte-identical to the committed/\"fixed\" code. (My own cwd repo is a different worktree at `1cdd0c8`; unrelated.)\n- **`scripts/test_gate_is_wired.py` is GREEN but does not clear the P0.** By the adversary's own account it exercises only the `resolve_attribution` citation lane and never touches the two P0 hops that broke. Green canary ≠ closed P0.\n\n## What is still broken (do not fetch until closed)\n\n**FINDING A — severest — the counterfeit typeset. `/home/polaris/wt/flywheel/scripts/alignment_census.py:111` `is_publisher_typeset`, escape hatch at line 126:**\n\n```python\nreturn (tp['folios_in_declared_range'] >= 3\n        or (tp['page_top_heads'] >= 3 and tp['fol"
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Close"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Reattack"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 3,
+      "title": "Fetch"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "close the P0 (4th hop)",
+      "phaseIndex": 1,
+      "phaseTitle": "Close",
+      "agentId": "a9b5371e63df75dde",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784010893050,
+      "queuedAt": 1784010889984,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && echo \"=== alignment_census.…",
+      "promptPreview": "=== THE LAW ===\nAn ACCEPTED MANUSCRIPT is NOT the journal version. Peer review changes numbers: Acemoglu's robot effect is\n0.37pp in the NBER working paper and 0.2pp in the published JPE. A span may name a journal ONLY if that\nexact span is verified in the journal's own bytes. `/home/polaris/wt/flywheel/scripts/test_gate_is_wired.py` must stay GREEN;\nNEVER weaken a check to make it pass.\n\n=== WHY …",
+      "lastProgressAt": 1784012476294,
+      "tokens": 184304,
+      "toolCalls": 89,
+      "durationMs": 1583244,
+      "resultPreview": "The P0 was open at hop 4 **and** at a fifth and a sixth hop. All are closed, proven by mutation. Nothing committed.\n\n## What I found\n\n**The adversary was right about hop 4, and it was worse than described.** The `acceptedVersion → INADMISSIBLE` rung sat below `is_publisher_typeset → ADMISSIBLE`. That earlier rung counted the venue name *anywhere* in the text — so a repository **cover sheet** (whic…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "fresh adversary: 11 tests",
+      "phaseIndex": 2,
+      "phaseTitle": "Reattack",
+      "agentId": "a4ec7208b1126ce49",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784012490779,
+      "queuedAt": 1784012482906,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && echo \"=== who consumes alig…",
+      "promptPreview": "=== THE LAW ===\nAn ACCEPTED MANUSCRIPT is NOT the journal version. Peer review changes numbers: Acemoglu's robot effect is\n0.37pp in the NBER working paper and 0.2pp in the published JPE. A span may name a journal ONLY if that\nexact span is verified in the journal's own bytes. `/home/polaris/wt/flywheel/scripts/test_gate_is_wired.py` must stay GREEN;\nNEVER weaken a check to make it pass.\n\n=== WHY …",
+      "lastProgressAt": 1784013498968,
+      "tokens": 147961,
+      "toolCalls": 52,
+      "durationMs": 1008188,
+      "resultPreview": "I have re-derived all eleven from scratch with my own fixtures. Here is my verdict.\n\n---\n\n# FRESH ADVERSARY — RE-RUN OF SOL'S 11 TESTS (from scratch, my own fixtures)\n\nAll checks ran against the working tree, which is **byte-identical to HEAD `639e254`** for every verifier file (`git diff HEAD` empty). I therefore tested the committed \"fixed\" code, and I **deleted or loosened nothing** — nor does …"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "launch the fetch",
+      "phaseIndex": 3,
+      "phaseTitle": "Fetch",
+      "agentId": "ad52841673f7e205c",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784013505559,
+      "queuedAt": 1784013500653,
+      "attempt": 1,
+      "lastToolName": "Read",
+      "lastToolSummary": "/home/polaris/wt/flywheel/scripts/alignment_census.py",
+      "promptPreview": "=== THE LAW ===\nAn ACCEPTED MANUSCRIPT is NOT the journal version. Peer review changes numbers: Acemoglu's robot effect is\n0.37pp in the NBER working paper and 0.2pp in the published JPE. A span may name a journal ONLY if that\nexact span is verified in the journal's own bytes. `/home/polaris/wt/flywheel/scripts/test_gate_is_wired.py` must stay GREEN;\nNEVER weaken a check to make it pass.\n\n=== WHY …",
+      "lastProgressAt": 1784013566958,
+      "tokens": 20506,
+      "toolCalls": 4,
+      "durationMs": 61399,
+      "resultPreview": "Confirmed. I have verified the environment state and the specific broken hop. Here is my report.\n\n---\n\n## DECISION: FETCH NOT LAUNCHED — STOP RULE TRIGGERED\n\nThe adversary reported **9/11, not 11/11**. Test 2 (the P0 — \"an accepted manuscript can never name the journal\") is **BROKEN**. My standing order is unambiguous: if the adversary did not report 11/11, do not fetch. **I launched nothing.** A …"
+    }
+  ],
+  "totalTokens": 352771,
+  "totalToolCalls": 145
+}

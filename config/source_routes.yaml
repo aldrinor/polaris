@@ -67,17 +67,39 @@ roles:
   evidence.dataset:                "Research datasets and their DOIs."
 
 # ───────────────────────────────────────────────────────────────────────────────────────────────────
-# ROLE REQUIREMENTS — how the CONTRACT decides which roles the plan needs. Each rule matches DATA
-# tokens against the plan's ROUTING TEXT (question + review_subject + method_designs + unit_levels +
-# core_concept aliases + framing devices + genre + geographies — assembled by source_router.py). The
-# tokens are FIELD-NATIVE vocabulary a real contract in that field prints; the matcher is generic and
-# lives in code, the vocabulary lives here. `default: true` = always required (the OA-first backbone).
-# `any_of` = required if the routing text contains ANY listed token as a whole word/phrase.
+# ROLE REQUIREMENTS — how the CONTRACT decides which roles the plan needs.
 #
-# OVER-FIRING IS SAFE (we look in one more place); UNDER-FIRING is the danger. So triggers are
-# INCLUSIVE. The one hard invariant the demo checks: a clinical plan must NOT acquire the economics
-# working-paper role — so `evidence.working_paper.economics` is triggered ONLY by economics-native
-# terms, none of which a clinical or legal question carries.
+# THE ROUTER'S PRIMARY INPUT IS THE CONTRACT'S STRUCTURED CAPABILITIES, NOT LEXICAL TOPIC MATCHING.
+# Each rule may carry three kinds of trigger, in DESCENDING CONFIDENCE (source_router.required_roles):
+#
+#   default: true      the OA-first backbone. Always required.
+#
+#   capability:        {in: [<structured contract fields>], any_of: [<tokens>]}   ← HIGH CONFIDENCE.
+#                      Matches ONLY inside what the contract DECLARES ITSELF TO BE: genre,
+#                      review_subject, title, method_designs, unit_levels, subject_axis,
+#                      outcome_dimensions, core_concepts, framing_devices, evidence_tuple,
+#                      geographies, source_constraints. NOT the user's raw prose.
+#
+#   any_of:            [<tokens>]   ← LOW-CONFIDENCE LEXICAL FALLBACK over the whole routing text
+#                      (question prose included). Kept so a degraded, no-LLM contract still routes.
+#   corroborated_by:   {in: [...], any_of: [...]}  — when present, a LEXICAL hit is admitted ONLY IF
+#                      the contract's STRUCTURE independently declares the capability. This is how an
+#                      over-generic token ('trade', 'employment', 'occupation') is stopped from
+#                      requisitioning a domain's evidence route off topic prose alone.
+#
+# WHY corroborated_by EXISTS — THE BUG IT CLOSES (found by scripts/generality_gate.py, not by a unit
+# test we wrote to pass). `evidence.working_paper.economics` used to list 'trade', 'employment',
+# 'occupation' and 'occupations' as bare any_of tokens. A common-law/civil-law NON-COMPETE question is
+# restraint of TRADE and EMPLOYMENT law: it fired nber + iza + repec. An OCCUPATIONAL-health question
+# (microplastic inhalation in occupational settings) fired them too. The router's own canary passed only
+# because its four built-in examples happened to avoid those four words — it was OVERFIT TO ITS OWN
+# TESTS. Those tokens now live ONLY in the low-confidence lexical row, and that row is admitted only
+# with structured economics corroboration. A legal or occupational-health contract has none, so NBER
+# stays cold; task 72's contract declares "labor market"/"wage" in its own structure, so it stays hot.
+#
+# OVER-FIRING IS SAFE (we look in one more place); UNDER-FIRING is the danger — so triggers stay
+# INCLUSIVE, and the corroboration requirement is applied ONLY where a token is genuinely ambiguous
+# ACROSS DOMAINS. Everything here is DATA: adding a domain is new rows, and ZERO lines of Python.
 # ───────────────────────────────────────────────────────────────────────────────────────────────────
 role_requirements:
   - role: discover.index
@@ -96,11 +118,36 @@ role_requirements:
              "academic literature", "state of the art", "research synthesis"]
 
   - role: evidence.working_paper.economics
-    any_of: ["labor market", "labour market", "labor economics", "wage", "wages", "employment",
-             "unemployment", "gdp", "productivity", "inflation", "monetary policy", "fiscal",
-             "trade", "tariff", "econometric", "difference-in-differences", "instrumental variable",
-             "quasi-experimental", "elasticity", "occupation", "occupations", "firm-level",
-             "labor supply", "labor demand", "economic growth", "nber", "iza"]
+    # HIGH CONFIDENCE — the contract's own structure declares an UNAMBIGUOUS economics capability.
+    # Every token here is economics-NATIVE: a legal, clinical or occupational-health contract does not
+    # print it. Deliberately EXCLUDED, because they are cross-domain words a non-economics contract
+    # legitimately carries (an employment-law contract discusses wages; an occupational-health contract
+    # discusses occupations): 'wage', 'wages', 'trade', 'employment', 'occupation', 'occupations',
+    # 'productivity', 'labor', 'labour', 'fiscal'. Those live in the low-confidence lexical row and fire
+    # ONLY with corroborating economics structure.
+    ECON_STRONG: &econ_strong
+      ["labor market", "labour market", "labor economics", "labour economics", "labor supply",
+       "labor demand", "labor force", "wage inequality", "wage growth", "wage distribution",
+       "unemployment", "gdp", "inflation", "monetary policy", "fiscal policy", "economic growth",
+       "productivity growth", "econometric", "econometrics", "macroeconomic", "microeconomic",
+       "difference-in-differences", "instrumental variable", "quasi-experimental", "elasticity",
+       "firm-level", "trade policy", "job displacement", "nber working paper", "iza discussion paper",
+       "nber", "iza"]
+    capability:
+      in: [genre, review_subject, title, method_designs, unit_levels, subject_axis,
+           outcome_dimensions, core_concepts, framing_devices, evidence_tuple]
+      any_of: *econ_strong
+    # LOW CONFIDENCE — cross-domain topic words. A hit fires the economics role ONLY when the contract's
+    # STRUCTURE independently carries an unambiguous economics signal (`corroborated_by`, same strong
+    # list). A legal non-compete contract whose only economics-shaped token is an incidental "wage" or
+    # "employment" therefore does NOT requisition NBER; task 72, whose review_subject is literally
+    # "... on labor market", does.
+    any_of: ["trade", "employment", "occupation", "occupations", "productivity", "fiscal",
+             "wage", "wages", "labor", "labour", "economic", "economics"]
+    corroborated_by:
+      in: [genre, review_subject, title, method_designs, unit_levels, subject_axis,
+           outcome_dimensions, core_concepts, framing_devices, evidence_tuple]
+      any_of: *econ_strong
 
   - role: evidence.preprint.general
     any_of: ["machine learning", "deep learning", "neural network", "neural networks", "algorithm",
@@ -109,6 +156,16 @@ role_requirements:
              "natural language processing", "artificial intelligence", "generative ai", "gpu"]
 
   - role: evidence.preprint.biomedical
+    # HIGH CONFIDENCE — the contract declares a biomedical design/outcome/population in its structure.
+    capability:
+      in: [genre, review_subject, title, method_designs, unit_levels, subject_axis,
+           outcome_dimensions, core_concepts, framing_devices, evidence_tuple]
+      any_of: ["clinical", "clinical trial", "randomized", "randomised", "randomized-trial", "rct",
+               "placebo", "efficacy", "adverse event", "adverse events", "mortality", "morbidity",
+               "cohort", "patients", "patient", "dose", "dosing", "therapy", "therapeutic", "disease",
+               "diagnosis", "biomarker", "hazard ratio", "epidemiolog", "incidence", "prevalence",
+               "comorbidit", "pathophysiolog", "hospitalization", "hospitalisation", "safety",
+               "exposure", "toxicity", "inhalation", "health effects"]
     any_of: ["clinical", "clinical trial", "randomized", "randomised", "rct", "placebo", "efficacy",
              "adverse event", "adverse events", "mortality", "morbidity", "cohort", "in vitro",
              "in vivo", "patients", "patient", "dose", "dosing", "therapy", "therapeutic", "disease",
@@ -116,27 +173,63 @@ role_requirements:
              "comorbidit", "pathophysiolog"]
 
   - role: evidence.working_paper.social_legal
+    # HIGH CONFIDENCE — the contract declares a legal/doctrinal design, forum or outcome.
+    capability:
+      in: [genre, review_subject, title, method_designs, unit_levels, subject_axis,
+           outcome_dimensions, core_concepts, framing_devices, evidence_tuple]
+      any_of: ["case law", "case-law", "statute", "statutes", "statutory", "doctrine", "doctrinal",
+               "doctrinal analysis", "jurisdiction", "jurisdictions", "common law", "common-law",
+               "civil law", "civil-law", "court", "courts", "judicial", "precedent", "enforceability",
+               "enforcement", "liability", "litigation", "constitutional", "public policy",
+               "comparative legal analysis", "regulation", "regulations", "regulatory"]
     any_of: ["case law", "statute", "statutes", "statutory", "regulation", "regulations", "regulatory",
              "court", "courts", "judicial", "holding", "liability", "plaintiff", "defendant", "tort",
              "doctrine", "doctrinal", "jurisdiction", "constitutional", "litigation", "precedent",
              "damages", "negligence", "governance", "policy analysis"]
 
   - role: evidence.trial_registration
+    capability:
+      in: [genre, review_subject, title, method_designs, unit_levels, subject_axis,
+           outcome_dimensions, core_concepts, framing_devices, evidence_tuple]
+      any_of: ["clinical trial", "clinical trials", "randomized", "randomised", "randomized-trial",
+               "randomized controlled", "randomised controlled", "rct", "phase iii", "phase ii",
+               "placebo-controlled", "efficacy", "safety", "adverse event", "endpoint",
+               "intervention", "treatment arm", "patients", "dose-response"]
     any_of: ["clinical trial", "clinical trials", "randomized controlled", "randomised controlled",
              "rct", "phase iii", "phase ii", "placebo-controlled", "efficacy", "safety", "adverse event",
              "endpoint", "intervention", "treatment arm", "patients", "dose-response"]
 
   - role: evidence.clinical_guideline
+    capability:
+      in: [genre, review_subject, title, method_designs, unit_levels, subject_axis,
+           outcome_dimensions, core_concepts, framing_devices, evidence_tuple]
+      any_of: ["clinical guideline", "clinical guidelines", "practice guideline", "standard of care",
+               "cochrane", "systematic review", "meta-analysis", "meta analysis", "screening",
+               "management of", "diagnosis and treatment", "recommendation", "recommendations"]
     any_of: ["clinical guideline", "clinical guidelines", "practice guideline", "guidance",
              "recommendation", "recommendations", "standard of care", "cochrane", "systematic review",
              "screening", "management of", "diagnosis and treatment"]
 
   - role: evidence.case_law
+    capability:
+      in: [genre, review_subject, title, method_designs, unit_levels, subject_axis,
+           outcome_dimensions, core_concepts, framing_devices, evidence_tuple]
+      any_of: ["case law", "case-law", "judicial opinion", "judicial opinions", "court", "courts",
+               "holding", "ruling", "rulings", "precedent", "litigation", "appellate", "supreme court",
+               "common law", "common-law", "civil law", "civil-law", "doctrinal analysis",
+               "enforceability", "blue pencil", "public policy exception", "public policy exceptions"]
     any_of: ["case law", "case-law", "judicial opinion", "judicial opinions", "court", "courts",
              "holding", "ruling", "rulings", "precedent", "liability", "plaintiff", "defendant",
              "tort", "litigation", "appellate", "supreme court", "damages", "negligence"]
 
   - role: evidence.statute_regulation
+    capability:
+      in: [genre, review_subject, title, method_designs, unit_levels, subject_axis,
+           outcome_dimensions, core_concepts, framing_devices, evidence_tuple]
+      any_of: ["statute", "statutes", "statutory", "statutory analysis", "legislation", "regulation",
+               "regulations", "regulatory", "code of federal", "directive", "ordinance", "rulemaking",
+               "compliance", "legal framework", "enacted", "civil code", "civil law", "civil-law",
+               "enforceability"]
     any_of: ["statute", "statutes", "statutory", "legislation", "regulation", "regulations",
              "regulatory", "code of federal", "directive", "act of", "bill", "ordinance", "rulemaking",
              "compliance", "legal framework", "enacted"]
