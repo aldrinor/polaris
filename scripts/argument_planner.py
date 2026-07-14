@@ -382,6 +382,39 @@ def _match_spans(text: str, patterns: list[str]) -> list[tuple[int, str]]:
     return out
 
 
+_FUT_MODALS = {'will', 'shall', "'ll", 'wo'}                        # 'wo' is how "won't" tokenizes
+_BE_FORMS = {'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am', "'s", "'re"}
+
+
+def _forward_looking(toks: list[str], i: int) -> bool:
+    """Is the polarity cue at token `i` a PROJECTION rather than an OBSERVED, reported result?
+
+    STRUCTURAL, NOT LEXICAL. A directional verb is forward-looking when it sits in a periphrastic-
+    future / subject-raising frame: an infinitival 'to <cue>' governed by a BE-copula or a future
+    modal -- "employment IS destined TO fall", "... IS bound/due/on course/going/poised/set/slated
+    ... TO fall" -- or a bare future modal directly, "employment WILL fall". It keys on the FRAME
+    (the infinitival 'to' plus a BE/modal, or a bare modal), so EVERY modal-of-expectation synonym
+    funnels through the one grammatical shape and no synonym list is needed. It never fires on a
+    finite REPORTED result -- "employment fell", "automation reduces employment", "led to reduced
+    employment" -- because those carry no BE/modal governing an infinitive before the cue.
+
+    This is the POSITIVE-PROOF half of adjudicability: a direction is OBSERVED (weighable) only when
+    it is NOT forward-looking. A projected direction is read off a forecast, not a measurement, and
+    may anchor no comparison -- so its absence-of-observation, not the absence of a cue string, is
+    what bars it.
+    """
+    if i <= 0:
+        return False
+    prev = toks[i - 1]
+    if prev in _FUT_MODALS:                                        # "employment will fall"
+        return True
+    if prev == 'to':                                               # infinitival "... to <cue>"
+        window = toks[max(0, i - 6):i - 1]                         # what governs the infinitive
+        if _BE_FORMS & set(window) or _FUT_MODALS & set(window):
+            return True
+    return False
+
+
 def derive_span_facet(span: str, name: str, vocab: dict[str, list[str]]) -> Facet:
     """Match a facet in the VERBATIM SPAN. Records the surface form so a human can audit the tag.
 
@@ -446,9 +479,11 @@ def derive_outcome_direction(span: str, contract: ResearchContract) -> tuple[Fac
     # A POLARITY CUE GOVERNS EXACTLY ONE QUANTITY: THE NEAREST ONE. Attaching it to every outcome inside
     # the window is what bound 'increases' to SKILLS at a distance of seven tokens, when it plainly
     # belongs to INEQUALITY at a distance of one. Nearest-cue attachment is the whole fix.
-    pairs: dict[str, dict[str, str]] = {}       # outcome -> {polarity: matched_form}
+    pairs: dict[str, dict[str, str]] = {}       # outcome -> {polarity: matched_form}  (OBSERVED only)
+    projected: dict[str, str] = {}              # outcome -> forward-looking cue form  (a PROJECTION)
     first_seen: dict[str, int] = {}
     for clause in _clauses(span):
+        ctoks = _tokens(clause)
         neg_idx = {i for i, _ in _match_spans(clause, contract.negators)}
         occ: list[tuple[int, str]] = []                            # (token_index, outcome_value)
         for ov, pats in vocab.items():
@@ -466,6 +501,12 @@ def derive_outcome_direction(span: str, contract: ResearchContract) -> tuple[Fac
                 oi, ov = min(occ, key=lambda x: abs(ti - x[0]))    # the NEAREST outcome, and only it
                 if abs(ti - oi) > DIR_WINDOW:
                     continue                                       # too far to govern anything here
+                if _forward_looking(ctoks, ti):
+                    # A PROJECTED direction ("is destined/bound/due/on course to fall", "will fall").
+                    # It is read off a forecast frame, not a measured result, so it does NOT assign an
+                    # observed direction. Recorded so a purely-projected outcome can be barred below.
+                    projected.setdefault(ov, form)
+                    continue
                 pairs.setdefault(ov, {}).setdefault(cls, form)
 
     mentioned = derive_span_facet_all(span, 'outcome', vocab)
@@ -481,10 +522,21 @@ def derive_outcome_direction(span: str, contract: ResearchContract) -> tuple[Fac
     o_facet = Facet('outcome', ov, 'span', o_form)
 
     pol = pairs.get(ov, {})
-    if len(pol) != 1:
-        return o_facet, Facet('direction'), []     # no direction, or this outcome moves both ways
-    cls, form = next(iter(pol.items()))
-    return o_facet, Facet('direction', cls, 'span', form), []
+    if len(pol) == 1:
+        cls, form = next(iter(pol.items()))
+        return o_facet, Facet('direction', cls, 'span', form), []
+    # No single OBSERVED direction for the primary outcome. If its ONLY directional signal is
+    # FORWARD-LOOKING, this is a PROJECTION, not a measured finding: the "direction" was read off a
+    # forecast frame ("is destined to fall"), and a projected direction may anchor NO comparison.
+    # POSITIVE PROOF -- adjudicability requires an OBSERVED result, never merely "no forecast cue
+    # matched"; so the span is barred here by the ABSENCE of an observed direction, structurally,
+    # no matter which modal-of-expectation phrased the projection. It stays CITABLE (eligible).
+    if not pol and ov in projected:
+        return o_facet, Facet('direction'), [
+            f'FORECAST: the span PROJECTS the outcome\'s direction ("{projected[ov][:30]}") rather '
+            f'than reporting a measured change -- citable as an argument, but there is no observed '
+            f'result to adjudicate']
+    return o_facet, Facet('direction'), []     # no direction, or this outcome moves both ways
 
 
 def derive_direction(span: str, contract: ResearchContract, outcome_vocab: list[str]) -> Facet:

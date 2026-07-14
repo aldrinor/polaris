@@ -159,9 +159,18 @@ RESERVED_KEYS = (
 #: bibliography. There is a journal called `Information & Management` and there could be one called
 #: `Complete Systems`; a guard that refused to record which journal we asked about, because the
 #: journal's name contains one of our reserved words, would be a guard against nothing.
+#: `article_front_matter` and `cover_sheet_text` are the two halves segment_front_matter() carves out
+#: of the fetched document (observe_text, below) — RAW DOCUMENT TEXT, in the same category as
+#: `header_text` and `identity_window`. A real article's front matter routinely contains a reserved
+#: word ("Complete list of authors" on a PubMed page, a paper whose title includes "validated" or
+#: "supported"), and a guard that refused to record the document's own front matter because the
+#: document contains one of our words would silently DROP the paper — the exact failure this project
+#: exists to end. They are exempt from the VALUE scan (never from the key scan), like every other
+#: quote from the world.
 VERBATIM_KEYS = frozenset({
     'header_text', 'identity_window', 'span', 'document_title', 'byline', 'snippet', 'raw', 'title',
     'reason_text', 'requested_title', 'requested_venue', 'url', 'locator', 'doi', 'venue',
+    'article_front_matter', 'cover_sheet_text',
 })
 
 
