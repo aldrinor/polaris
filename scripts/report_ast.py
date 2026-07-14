@@ -217,11 +217,19 @@ _KNOWN_VENUES = frozenset({
 #: that ...". Attribution is rendered from the graph ("Bloom and Draca show that ..."), so a clause that
 #: says who found the finding is either naming a source or nesting a second attribution — both unlawful.
 #: It catches ANY invented venue, not only the ones on the denylist above.
-_REPORTING_VERBS = (
-    r'report|reports|reported|find|finds|found|show|shows|showed|state|states|stated|argue|argues|'
-    r'argued|note|notes|noted|observe|observes|observed|conclude|concludes|concluded|demonstrate|'
-    r'demonstrates|demonstrated|establish|establishes|established|claim|claims|claimed|suggest|'
-    r'suggests|suggested|write|writes|wrote|prove|proves|proved|hold|holds|held|rule|rules|ruled')
+#: THE ONE LIST OF REPORTING VERBS. Every ascription-of-finding detector (the WRITER's `<X> reports
+#: that ...` construction below, and the OWNED oblique-attribution firewall further down) reads from
+#: this tuple, so adding a verb is a one-line data edit that strengthens BOTH at once.
+_REPORTING_VERB_WORDS = (
+    'report', 'reports', 'reported', 'find', 'finds', 'found', 'show', 'shows', 'showed', 'state',
+    'states', 'stated', 'argue', 'argues', 'argued', 'note', 'notes', 'noted', 'observe', 'observes',
+    'observed', 'conclude', 'concludes', 'concluded', 'demonstrate', 'demonstrates', 'demonstrated',
+    'establish', 'establishes', 'established', 'claim', 'claims', 'claimed', 'suggest', 'suggests',
+    'suggested', 'write', 'writes', 'wrote', 'prove', 'proves', 'proved', 'hold', 'holds', 'held',
+    'rule', 'rules', 'ruled', 'estimate', 'estimates', 'estimated', 'discover', 'discovers',
+    'discovered', 'reveal', 'reveals', 'revealed', 'document', 'documents', 'documented')
+_REPORTING_VERBS = '|'.join(_REPORTING_VERB_WORDS)
+_REPORTING_VERB_SET = frozenset(_REPORTING_VERB_WORDS)
 _ATTRIB_PATTERN = re.compile(
     r'\b([A-Z][A-Za-z.&\'\-]+)(?:\s+(?:and|&)\s+[A-Z][A-Za-z.&\'\-]+|\s+et\s+al\.?)?\s+'
     r'(?:' + _REPORTING_VERBS + r')\s+that\b')
@@ -744,6 +752,116 @@ def _semantic_judge(clause: str, span: str) -> tuple[str, str]:
     return res
 
 
+# =================================================================================================
+# THE OWNED FRAME EMPIRICAL-CLAIM JUDGE (PART 2 of the firewall).
+#
+# A premise-free OWNED sentence is the reviewer's REASONING over admitted premises — a transition
+# ("this section turns from the firm to the economy"), a framing of the evidence ("these findings
+# concern different units and are not comparable"), a hedge about structure. It may NOT assert a
+# FIRST-ORDER empirical result about the world ("the effect reverses across the whole economy"): that
+# is a finding, and a finding is licensed only by a span. "Names no source, carries no number" is not
+# enough — a bare directional claim slips both.
+#
+# The distinction (empirical claim vs framing) is semantic, so we REUSE the entailment-judge plumbing:
+# a constrained LLM call, folded to a canonical verdict, memoised, FAILING CLOSED to REJECT when the
+# judge is unavailable/uncertain. A separate directional/empirical VERB lexicon gates the judge so the
+# common case (framing with no empirical verb) never pays for a model call and always ships.
+# =================================================================================================
+
+#: A directional / causal / empirical action verb. Its presence in a premise-free OWNED sentence marks
+#: a CANDIDATE first-order finding — then the judge decides claim-vs-framing. Framing verbs (concern,
+#: turn, discuss, examine, compare, differ, address) are deliberately NOT here, so a legitimate frame
+#: never reaches the judge. DATA: extend to catch a new bare-finding verb.
+_EMPIRICAL_VERB = re.compile(
+    r'\b(revers\w+|rise[sn]?|rising|rose|risen|fall[sn]?|falling|fell|fallen|'
+    r'double[sd]?|doubling|tripl\w+|halv\w+|increas\w+|decreas\w+|reduce[sd]?|reducing|reduction|'
+    r'grow[sn]?|growing|grew|grown|shrink[sn]?|shrank|shrunk|shrinking|declin\w+|expand\w+|'
+    r'contract\w+|caus\w+|eliminat\w+|offset\w*|boost\w*|worsen\w*|improv\w+|accelerat\w+|'
+    r'surg\w+|plummet\w*|plunge[sd]?|climb\w*|drop\w*|dropped|raise[sd]?|raising|lower[sed]*|'
+    r'weaken\w*|strengthen\w*|displac\w+|erode[sd]?|eroding)\b', re.I)
+
+_OWNED_EMPIRICAL = 'EMPIRICAL'
+_OWNED_FRAMING = 'FRAMING'
+
+#: Pluggable, mirroring `set_entailment_judge`: tests may inject a deterministic classifier. Default is
+#: the production llm() below. Cleared through the same cache the entailment judge uses.
+_OWNED_FRAME_JUDGE = None  # type: ignore[var-annotated]
+
+
+def set_owned_frame_judge(fn) -> None:
+    """Wire a classifier(sentence) -> (verdict, why) for the premise-free OWNED lane, where verdict is
+    EMPIRICAL | FRAMING | UNCERTAIN. Tests inject a stub; production uses the model. Clears the cache."""
+    global _OWNED_FRAME_JUDGE
+    _OWNED_FRAME_JUDGE = fn
+    _JUDGE_CACHE.clear()
+
+
+def _canon_frame_verdict(v) -> str:
+    s = str(v or '').strip().upper()
+    if s in ('EMPIRICAL', 'FINDING', 'CLAIM', 'EMPIRICAL_CLAIM', 'OWNED_EMPIRICAL_CLAIM'):
+        return _OWNED_EMPIRICAL
+    if s in ('FRAMING', 'FRAME', 'REVIEWER_FRAMING', 'TRANSITION', 'STRUCTURE'):
+        return _OWNED_FRAMING
+    return _UNCERTAIN
+
+
+def _llm_owned_frame_judge(sentence: str) -> tuple[str, str]:
+    """Constrained model call: is this OWNED sentence a first-order EMPIRICAL claim about the world, or
+    REVIEWER FRAMING about the evidence/structure? Any failure -> UNCERTAIN (fail closed -> REJECT)."""
+    prompt = (
+        'You are a STRICT editor for a scientific literature review. A "reviewer sentence" is written in '
+        'the reviewer\'s OWN voice and is licensed by NO source. Such a sentence may FRAME or organise '
+        '(a transition between sections, a statement ABOUT the evidence — its units, scope, '
+        'comparability, structure — or the reviewer\'s reasoning over already-cited findings). It may '
+        'NOT assert a FIRST-ORDER EMPIRICAL RESULT about the world (a direction, effect, or causal '
+        'outcome), because a finding must come from a cited source.\n'
+        'Classify the SENTENCE:\n'
+        '  - EMPIRICAL: it asserts a first-order empirical/directional/causal result about the world '
+        '(e.g. "the effect reverses across the whole economy", "automation reduces employment").\n'
+        '  - FRAMING: it is a transition, or a statement about the evidence/its structure/its limits '
+        '(e.g. "this section turns from the firm to the economy level", "these findings concern '
+        'different units and are not directly comparable").\n'
+        'If you genuinely cannot tell, answer UNCERTAIN. Do not be generous.\n'
+        'Reply with ONLY a JSON object: {"verdict":"EMPIRICAL"|"FRAMING"|"UNCERTAIN","why":"<brief>"}.\n\n'
+        f'SENTENCE:\n{sentence}\n')
+    try:
+        import json as _json
+        from cellcog_composer import llm  # lazy: composer owns the model client
+        raw = llm(prompt, max_tokens=200)
+        m = re.search(r'\{.*\}', raw or '', re.S)
+        obj = _json.loads(m.group(0)) if m else {}
+        return _canon_frame_verdict(obj.get('verdict')), str(obj.get('why', ''))[:160]
+    except Exception as e:  # noqa: BLE001 — any failure FAILS CLOSED
+        return _UNCERTAIN, f'frame judge unavailable (fail closed): {type(e).__name__}'
+
+
+def _owned_frame_empirical(sentence: str) -> str:
+    """PART 2 OF THE FIREWALL. A premise-free OWNED sentence that asserts a first-order empirical finding
+    is REJECTED; a legitimate frame/transition SHIPS. Returns a refusal reason, or ''.
+
+    Gate: only a sentence carrying a directional/empirical verb is a candidate — a frame with none ships
+    for free. On a candidate, the constrained judge classifies EMPIRICAL vs FRAMING and FAILS CLOSED to
+    REJECT on UNCERTAIN (or an unreachable judge)."""
+    if not _EMPIRICAL_VERB.search(sentence or ''):
+        return ''
+    key = ('owned_frame', re.sub(r'\s+', ' ', (sentence or '').strip()))
+    if key in _JUDGE_CACHE:
+        verdict, why = _JUDGE_CACHE[key]
+    else:
+        fn = _OWNED_FRAME_JUDGE or _llm_owned_frame_judge
+        try:
+            v, why = fn(sentence)
+        except Exception as e:  # noqa: BLE001
+            v, why = _UNCERTAIN, f'frame judge raised (fail closed): {type(e).__name__}'
+        verdict, why = _canon_frame_verdict(v), str(why or '')[:160]
+        _JUDGE_CACHE[key] = (verdict, why)
+    if verdict == _OWNED_FRAMING:
+        return ''
+    m = _EMPIRICAL_VERB.search(sentence or '')
+    return (f'OWNED_ASSERTS_UNLICENSED_FINDING:{m.group(0)!r} — a premise-free owned sentence made a '
+            f'first-order empirical claim ({verdict}); a finding is licensed only by a span')
+
+
 def _modality_residue(ctext: str, src: str) -> str:
     """LEGACY, kept only for backward import compatibility (an old probe imports it). It is NO LONGER a
     gate: the judge is now consulted UNCONDITIONALLY, precisely because this residue detector — a list of
@@ -926,6 +1044,85 @@ _FRAME_LABEL = re.compile(r'^\s*\*\*[^*]+\*\*\s*')
 _DISCOURSE_CAPS = {'the', 'this', 'these', 'those', 'a', 'an', 'and', 'or', 'but', 'of', 'in', 'on',
                    'at', 'by', 'for', 'to', 'with', 'as', 'ai'}
 
+# =================================================================================================
+# THE OWNED OBLIQUE-ATTRIBUTION FIREWALL (SOL_BURN_V?? — "The Cambridge team found ...")
+#
+# An OWNED sentence is the reviewer's OWN voice: it ascribes a finding to NO actor. The prior guards
+# (`names_a_source`, `_novel_multiword_entity`) both missed "The Cambridge team found the effect
+# reverses ...": "Cambridge" is not a corpus surname, "Cambridge team" is one cap + one lowercase (not
+# two consecutive Title-Case tokens), and the `<X> reports THAT` regex needs the capital subject
+# ADJACENT to the verb — the lowercase "team" intervenes. So an owned sentence could attribute
+# OBLIQUELY and slip.
+#
+# The fix is GENERAL, not a phrase patch: the subject of a REPORTING VERB (this same
+# `_REPORTING_VERB_SET`) may not be an ACTOR — a proper noun ("Cambridge", "MIT", "Stanford"), OR an
+# institution/role/group word ("team", "group", "researchers", "study", "a Stanford study", "the
+# Oxford group", "researchers at MIT"). Both are DATA below; a new institution word is a one-line edit.
+# =================================================================================================
+
+#: Institution / role / collective nouns that name an ACTOR who could "find" something. A subject drawn
+#: from this list, in front of a reporting verb, is an ascription of a finding — even with no proper
+#: noun present ("the team found ...", "researchers showed ..."). DATA: extend to close a new oblique.
+_GROUP_WORDS = frozenset({
+    'team', 'teams', 'group', 'groups', 'researcher', 'researchers', 'study', 'studies', 'author',
+    'authors', 'analyst', 'analysts', 'economist', 'economists', 'scientist', 'scientists', 'scholar',
+    'scholars', 'lab', 'labs', 'laboratory', 'laboratories', 'unit', 'units', 'institute', 'institutes',
+    'institution', 'institutions', 'department', 'departments', 'faculty', 'panel', 'committee',
+    'commission', 'consortium', 'collaboration', 'project', 'initiative', 'programme', 'program',
+    'centre', 'center', 'agency', 'bureau', 'board', 'council', 'association', 'foundation', 'society',
+    'network', 'investigator', 'investigators', 'academics', 'statisticians', 'sociologists',
+})
+
+#: A subject token that is a COMMON noun / pronoun, never an actor with a name — the evidence itself
+#: ("the evidence suggests"), or a generic plural ("firms report"). Sentence-initial capitals of these
+#: are orthography, not a proper name, so they do NOT trip the proper-noun branch. (Group words are NOT
+#: exempt here — "researchers found" IS an ascription in the owned voice, per THE LAW.)
+_NONACTOR_SUBJECTS = _COMMON_SUBJECTS - _GROUP_WORDS
+
+#: A capitalised token that is a genuine PROPER NOUN: initial-cap-then-lower ("Cambridge") or an all-caps
+#: acronym ("MIT", "NASA"). Discourse/common words are screened out by the caller before this is trusted.
+_PROPER_TOKEN = re.compile(r"^(?:[A-Z][a-z][A-Za-z.&'\-]*|[A-Z]{2,}[A-Za-z.&'\-]*)$")
+
+
+def _owned_attributes_a_finding(text: str) -> str:
+    """PART 1 OF THE FIREWALL. An OWNED sentence that ascribes a finding to ANY actor is REJECTED.
+
+    General, data-driven, phrase-independent. For every REPORTING VERB in the sentence, look at the
+    (up to five) subject tokens IMMEDIATELY before it, back to the nearest clause boundary (start or
+    ,;:—). If that subject contains a GROUP WORD ("team", "researchers", "a Stanford study") or a real
+    PROPER NOUN ("Cambridge", "MIT", "Goldman Sachs"), the sentence attributes a finding and is refused.
+
+    A determiner is stripped; a pronoun / common-noun subject ("the evidence suggests", "firms report",
+    "these findings show") does NOT trip — the subject is the evidence, not a named actor. Returns the
+    offending "<subject> <verb>" phrase, or ''."""
+    body = _FRAME_LABEL.sub('', text or '')
+    # Tokens with positions, plus a boundary marker anywhere a clause resets.
+    toks = re.findall(r"[A-Za-z][A-Za-z.&'\-]*|[,;:—]", body)
+    for i, tok in enumerate(toks):
+        if tok.lower() not in _REPORTING_VERB_SET:
+            continue
+        # Walk back over the subject window: up to 5 tokens, stopping at a clause boundary.
+        window: list[str] = []
+        j = i - 1
+        while j >= 0 and len(window) < 5 and toks[j] not in (',', ';', ':', '—'):
+            window.append(toks[j])
+            j -= 1
+        window.reverse()
+        # Drop a leading determiner so "The Cambridge team" and "A Stanford study" read cleanly.
+        if window and window[0].lower() in ('the', 'a', 'an'):
+            window = window[1:]
+        if not window:
+            continue
+        for w in window:
+            low = w.lower()
+            if low in _GROUP_WORDS:
+                return f'{w} … {tok}'
+            if low in _NONACTOR_SUBJECTS or low in _DISCOURSE_CAPS:
+                continue
+            if _PROPER_TOKEN.match(w):
+                return f'{w} … {tok}'
+    return ''
+
 
 def _novel_multiword_entity(text: str) -> str:
     """A premise-free frame is licensed by nothing, so it may name NO entity. A run of TWO OR MORE
@@ -1104,6 +1301,16 @@ def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
             return [Failure(i, 'Owned', 'OWNED_NAMES_A_SOURCE',
                             f'{named!r} — a sentence that names a source is ATTRIBUTED, and must be '
                             f'entailed by that source. It may not enter through the owned lane.')]
+        # 1b. ASCRIBES NO FINDING TO AN ACTOR — obliquely or otherwise. "The Cambridge team found ...",
+        #     "researchers at MIT showed ...", "a Stanford study reported ..." attribute a finding in the
+        #     owned voice; the attribution regex missed them because a group word intervenes and the
+        #     name is not in the corpus. This catches the general construction (PART 1 of the firewall).
+        attrib = _owned_attributes_a_finding(n.text)
+        if attrib:
+            return [Failure(i, 'Owned', 'OWNED_ATTRIBUTES_A_FINDING',
+                            f'{attrib!r} — an owned sentence ascribes a finding to an actor; that is an '
+                            f'attribution, and an attribution must be rendered from the graph and '
+                            f'entailed by a span. It may not enter through the owned lane.')]
         # 2. CARRIES NO NEW PARTICULAR. A figure in the reviewer's own voice is sourced to nothing.
         if re.search(r'\d', n.text):
             return [Failure(i, 'Owned', 'OWNED_CARRIES_A_NUMBER', n.text[:70])]
@@ -1143,6 +1350,13 @@ def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
         why2 = _owned_frame_particular(n.text)
         if why2:
             return [Failure(i, 'Owned', why2, n.text[:70])]
+        # 5. NOR A BARE FIRST-ORDER FINDING. "The effect reverses across the whole economy." names no
+        #    source and no number, but it is a DIRECTIONAL EMPIRICAL CLAIM, not reviewer synthesis. A
+        #    premise-free owned sentence carrying a directional/empirical verb is classified by the
+        #    constrained judge (EMPIRICAL vs FRAMING), failing closed to REJECT (PART 2 of the firewall).
+        why3 = _owned_frame_empirical(n.text)
+        if why3:
+            return [Failure(i, 'Owned', why3, n.text[:70])]
         return []
 
     # ---------------------------------------------------------------- TABLE
