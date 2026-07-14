@@ -654,3 +654,36 @@ THE THROUGH-LINE: 'the tell moved from a regex on the live path to a hardcoded c
 PER-QUESTION ACQUISITION RUN replaces that static corpus, general research system remains unsupported.'
 => THE GENERALITY FIX AND THE CORPUS FIX ARE THE SAME FIX. The acquisition campaign is what makes the
 system general, not merely deeper.
+
+## ACQUISITION CAMPAIGN — THE RUN DID NOT RUN (census of 0.3%)
+
+Discovery (4 scouts): ~5,061 unique candidate journal works vs a corpus of 10. THE LITERATURE IS NOT
+THIN; our retrieval was. But:
+
+THE FETCH WORKER WAS KILLED ~63s into a 55-min/900-unit budget. The ledger holds 16 units EVER, of 5,061
+(0.3%). 2,571 candidates carried an OFFLINE OA URL (zero network cost) and were NEVER SPENT. So the
+numbers below are a census of a barely-started run, NOT the access ceiling.
+
+WITHIN THE 16 ATTEMPTED (all the hardest empty-cell targets):
+  NEW admissible journal works: 10 -> 15 (+1 predatory IJFMR, recommend exclude)
+    all healthcare/frontier: BMC Nursing 2024, Nursing Reports 2024, Open Forum Infect Dis 2024,
+    Bull WHO 2025, PNAS Nexus 2024. All bound to byte_sha256 + text_sha256.
+  EMPTY CELLS CLOSED: healthcare 4 (the ONLY cell to clear >=2). manufacturing/retail/finance/education/
+    agriculture/transport: 0 credible each.
+  FRONTIER (2023-2025): 5/5 admitted -- the recency gap is addressed IN KIND, not in volume.
+  CONTRASTS gained: ~0. The healthcare papers EXTEND coverage (new sector, worker-apprehension theme);
+    none numerically contradict the seed. THE ARGUMENT PLANNER IS STILL STARVED.
+
+STRUCTURAL FINDINGS (these are the real value):
+  * THE CEILING IS ACCESS-CONTROL, NOT THROTTLING. ZERO 429s. The 24 blocks were all 403 (Wiley, MDPI,
+    Elsevier JS-walls, OUP). 'Nothing here is wait-and-retry; it is publisher access-control.'
+  * HEALTHCARE CLOSED BECAUSE OF ROUTE, NOT TOPIC: PMC/EuropePMC exposes health-science full text openly;
+    Wiley/Elsevier/MDPI/ACM 403. Industrial cells stay empty partly because credible journals there are
+    paywalled and the keyword net surfaces PREDATORY venues (BAFR, IJFMR, GJCSAI, AIH).
+  * THE P0 TRIED TO CRAWL BACK: the reducer scored a GLO Discussion Paper (working paper) and an arXiv
+    preprint AS JOURNAL FULL TEXT. Cause: _PREPRINT_STAMP (event_ledger.py:381) knows nber|iza|arxiv but
+    NOT 'GLO Discussion Paper' or a bare 'Working Paper' heading. Census caught it; it did not ship.
+    DATA-EDIT FIX: extend the preprint-stamp list.
+
+NEXT (cheapest high-value move): RE-RUN THE FETCH properly, prioritising the 2,571 offline-OA-URL
+candidates (zero network). And extend _PREPRINT_STAMP. The real 10->? number is still unknown.
