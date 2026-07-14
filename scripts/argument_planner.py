@@ -138,15 +138,20 @@ class ResearchContract:
         return ResearchContract(**d)
 
 
-def default_contract() -> ResearchContract:
-    """Compiled from: 'the restructuring impact of AI on the labor market'.
+def _ai_labor_demo_contract() -> ResearchContract:
+    """DEMO / TEST FIXTURE ONLY — compiled from 'the restructuring impact of AI on the labor market'.
+
+    Sol P1: this is NOT a production default. It carries one benchmark question's subject vocabulary, so
+    a production path that returned it would make every review — clinical, legal, CS — inherit AI/labor
+    facets. It survives ONLY as a named demo used by this module's `__main__` and by tests. Production
+    callers build a contract from the REAL compiled question via `contract_from_research_contract()`.
 
     Every vocabulary below is a list of surface forms we expect to find IN A SPAN. They are matched
     against the verbatim span and the matched form is recorded. They are NOT a taxonomy of the world;
     they are a taxonomy of what the papers actually SAY, which is the only thing we are allowed to key on.
     """
     try:
-        from cellcog_composer import OUTLINE            # the outline the composer will actually write
+        from cellcog_composer import DEMO_OUTLINE as OUTLINE   # the outline the demo composer writes
     except Exception:
         OUTLINE = []
     return ResearchContract(
@@ -314,6 +319,67 @@ def default_contract() -> ResearchContract:
         },
         outline=OUTLINE,
     )
+
+
+def _empty_contract(question: str = '',
+                    outline: list[tuple[str, list[str]]] | None = None) -> ResearchContract:
+    """A FACET-AGNOSTIC contract. It keys on NOTHING subject-specific: no technology, outcome, industry,
+    geography or direction vocabulary, so it cannot inherit one benchmark's subject. The design-rank and
+    empirical-design fields are METHOD types (experiment/observational/...), which are general to any
+    empirical literature, and the adjudicative roles key on the vocabulary of ARGUMENT, which belongs to
+    no particular question. This is what a no-contract or an unknown-subject call returns — never AI."""
+    return ResearchContract(
+        question=question,
+        declared_facets={'unit_of_analysis': 'level', 'method': 'method', 'horizon': 'horizon'},
+        span_facets={},                       # NO subject vocabulary — the generality guarantee
+        polarity={},
+        negators=[r'\bnot\b', r'\bno\b', r'\bnor\b', r'\bnever\b', r'\bwithout\b', r'\bneither\b',
+                  r'\bfails? to\b', r'\bunable to\b', r'\bcannot\b', r"\bdoes ?n[o']t\b"],
+        design_rank={'experiment': 5, 'quasi-experimental': 4, 'observational': 3, 'survey': 2,
+                     'review': 1, 'theory': 0},
+        empirical_designs=['experiment', 'quasi-experimental', 'observational', 'survey'],
+        secondhand_cues=[],
+        forecast_cues=[r'\bwill\b', r'\bis going to\b', r'\bby 20[3-9]\d\b'],
+        adjudicative_roles={
+            r'genuinely disagree|disagree|conflict|contested|tension|contradict':
+                ['SAME_UNIT_OPPOSITE_DIRECTION', 'SAME_OUTCOME_DIFFERENT_UNIT'],
+            r'establish|converge|robust|consensus|what the evidence (?:shows|establishes)':
+                ['SAME_FINDING_DIFFERENT_METHOD', 'SAME_OUTCOME_DIFFERENT_HORIZON',
+                 'SAME_OUTCOME_DIFFERENT_UNIT'],
+            r'cannot yet resolve|unresolved|cannot resolve|does not settle|gap|agenda|research agenda':
+                ['UNCOUNTERED', 'SAME_OUTCOME_DIFFERENT_HORIZON'],
+            r'diverge|why .* differ|reconcile':
+                ['SAME_OUTCOME_DIFFERENT_UNIT', 'SAME_UNIT_OPPOSITE_DIRECTION'],
+        },
+        outline=list(outline or []),
+    )
+
+
+def default_contract() -> ResearchContract:
+    """A no-contract call returns an EMPTY, FACET-AGNOSTIC contract (Sol P1) — NOT an AI contract.
+
+    The AI/labor fixture is `_ai_labor_demo_contract()`, used only by `__main__` and tests. Nothing in
+    production may key on one benchmark's subject vocabulary."""
+    return _empty_contract()
+
+
+def contract_from_research_contract(contract, outline: list[tuple[str, list[str]]] | None = None
+                                    ) -> ResearchContract:
+    """Build the planner's ResearchContract from a COMPILED `research_contract.Contract` (Sol P1).
+
+    The planner keys only on GENERAL, subject-free machinery (method ranks, argument vocabulary); the
+    one subject-bearing thing it carries is the QUESTION itself, taken verbatim from the compiled
+    contract. If the compiled contract already carries an outline, it is used; otherwise the caller's
+    `outline` (e.g. `research_contract.derive_outline(...)`) is threaded through. No AI/labor/4IR default
+    is ever substituted — an unknown subject yields a facet-agnostic contract carrying the real
+    question, so downstream prose speaks about the ACTUAL review, not a benchmark's."""
+    question = ''
+    ol = outline
+    if contract is not None:
+        question = getattr(contract, 'question', '') or getattr(contract, 'title', '') or ''
+        if ol is None:
+            ol = getattr(contract, 'outline', None)
+    return _empty_contract(question=question, outline=ol)
 
 
 # ===================================================================== FACETS
@@ -1025,7 +1091,11 @@ def owned_is_safe(text: str, surnames: set[str], premise_blob: str) -> tuple[boo
             return False, f'OWNED_NAMES_A_SOURCE:{s}'
     if re.search(r'\d', text):
         return False, 'OWNED_CARRIES_A_NUMBER'
-    from synthesis_contract import SPELLED_QTY, FORECAST, UNIVERSAL, CAUSAL_IMPORT, CAP_TOKEN, SAFE_CAPS
+    # THE SAME STRUCTURAL PREDICATE the deterministic gate uses (Sol P1). owned_is_safe no longer imports
+    # a SECOND allow-list (the old `SAFE_CAPS`) — a caps rule that lived in two places is a caps rule that
+    # can disagree with itself. `caps_earned` decides here exactly as it decides in `validate()`.
+    from synthesis_contract import (SPELLED_QTY, FORECAST, UNIVERSAL, CAUSAL_IMPORT, CAP_TOKEN,
+                                    caps_earned, _content_lemmas)
     if SPELLED_QTY.search(text):
         return False, f'OWNED_CARRIES_A_SPELLED_QUANTITY:{SPELLED_QTY.search(text).group(0)}'
     if FORECAST.search(text):
@@ -1036,10 +1106,14 @@ def owned_is_safe(text: str, surnames: set[str], premise_blob: str) -> tuple[boo
         return False, f'OWNED_IMPORTS_A_MECHANISM:{CAUSAL_IMPORT.search(text).group(0)}'
     sent_initial = {m.group(1) for m in re.finditer(r"(?:^|[.!?;:]\s+)([A-Z][A-Za-z&.\-']*)", text)}
     blob_low = premise_blob.lower()
+    prem_caps = set(CAP_TOKEN.findall(premise_blob))
+    prem_stems = _content_lemmas(premise_blob)
     for tok in CAP_TOKEN.findall(text):
-        if tok in sent_initial or tok in SAFE_CAPS:
-            continue
-        if re.sub(r"'s$", '', tok).lower() in blob_low:
+        if tok in sent_initial:
+            continue                       # orthography, not an entity
+        part = re.sub(r"'s$", '', tok)
+        if caps_earned(part, premise_caps=prem_caps, premise_blob_lower=blob_low,
+                       premise_stems=prem_stems):
             continue
         return False, f'OWNED_NEW_ENTITY:{tok}'
     return True, ''
@@ -1405,7 +1479,7 @@ def self_test() -> int:
     print('=== ARGUMENT PLANNER — adversarial suite ===')
     print('    (the planner\'s unique failure is the FALSE RECONCILIATION: a true sentence about a\n'
           '     relation that does not exist. Every attack below is one.)\n')
-    ct = default_contract()
+    ct = _ai_labor_demo_contract()          # the DEMO fixture — the suite is written against its facets
     fails = 0
 
     def check(name: str, ok: bool, detail: str = '') -> None:

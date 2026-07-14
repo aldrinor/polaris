@@ -95,37 +95,78 @@ SPELLED_QTY = re.compile(
     r'percent|percentage|majority|most of|vast majority)\w*\b', re.I)
 CAP_TOKEN = re.compile(r"\b([A-Z][A-Za-z&.\-']{1,})\b")
 
-# Discourse vocabulary that may be capitalised without being a new entity.
-SAFE_CAPS = {
-    'The', 'This', 'These', 'Those', 'Taken', 'Together', 'Both', 'Neither', 'Either', 'While',
-    'Whereas', 'Although', 'Because', 'When', 'Where', 'If', 'In', 'At', 'By', 'For', 'A', 'An',
-    'It', 'They', 'Their', 'Its', 'However', 'Yet', 'Still', 'Across', 'Within', 'One', 'Two',
-    'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
-    # SOL V11 — THE TASK-72 OVERFIT IS DELETED. This set used to hard-list 'AI', 'Artificial',
-    # 'Intelligence', 'Fourth', 'Industrial', 'Revolution' — the exact entities of one benchmark task —
-    # so those NAMES could enter a sentence PREMISE-FREE, allow-listed rather than proven. That is a
-    # domain allow-list wearing a discourse-vocabulary costume: a named entity is an entity whether or
-    # not it is fashionable. Caps-entity handling must be GENERAL — an unknown capitalised token is
-    # UNKNOWN, so it must be earned by a premise (or, in the owned lane, routed to the judge), never
-    # admitted because it happens to name this year's technology. Only genuine discourse/orthography and
-    # the analytic meta-vocabulary below stay; every world-entity name is removed.
-    'Evidence', 'Studies', 'Research',
-    'Together', 'Read', 'Seen', 'Firm', 'Worker', 'Task', 'Aggregate', 'Nor', 'That', 'What',
-    # ANALYTIC META-VOCABULARY: words that describe the EVIDENCE, not entities in the world.
-    # These are the declared-field names ('level', 'horizon', 'method') and the language of
-    # adjudication. Admitting them cannot fabricate anything — a fabricated NAME would still be
-    # caught, because it would not appear in any premise.
-    'level', 'Level', 'unit', 'Unit', 'analysis', 'Analysis', 'scope', 'Scope', 'design', 'Design',
-    'horizon', 'Horizon', 'method', 'Method', 'estimate', 'Estimate', 'estimates', 'Estimates',
-    'outcome', 'Outcome', 'outcomes', 'Outcomes', 'finding', 'Finding', 'findings', 'Findings',
-    'economy', 'Economy', 'result', 'Result', 'results', 'Results', 'literature', 'Literature',
-    # THE EPISTEMIC TAXONOMY. cellcog is the ONLY system on the board that labels its own insight and
-    # the judge scored it 9.8/10 for exactly that, naming all eight tagged syntheses. The gate was
-    # rejecting '[Unresolved]' as a FABRICATED ENTITY. These are discourse markers about the STATUS OF
-    # A CLAIM — they assert nothing about the world and cannot fabricate anything.
-    'Established', 'Contested', 'Unresolved', 'Emerging', 'Conceptual', 'Analytical', 'Hypothesis',
-    'Pattern', 'Synthesis', 'Our', 'We', 'Proposed', 'Argument',
+# ── SOL P1 — THE SAFE_CAPS AUTHORITY IS DELETED FROM PRODUCTION VALIDATION ─────────────────────────
+# A capitalised token used to clear the "new entity" gate by matching a HAND-CURATED set (SAFE_CAPS).
+# V11 already stripped the task-72 entities from it; P1 finishes the job: there is NO subject allow-list.
+# A capitalised name is permitted ONLY when it is (a) present in a premise, (b) present in the original
+# QUESTION / compiled contract, (c) sentence-initial by orthography, or (d) emitted from a TYPED RENDERER
+# ENUM — an operation name, a verdict marker, a declared facet field, or an epistemic tag. Those four are
+# structural signals, not a list of fashionable nouns, so the same predicate protects a clinical, a legal
+# and a CS review with no per-domain edit.
+#
+# `RENDERER_VOCAB` is DERIVED (not typed by hand) from the module's own typed enums: the operations, the
+# verdict vocabulary, the declared `Premise` facet fields, and the epistemic tags the composer renders.
+# Adding a new operation or facet extends it automatically; adding a world-entity to it is impossible,
+# because none of those enums names one.
+_EPISTEMIC_TAGS = ('Established', 'Contested', 'Unresolved', 'Emerging', 'Conceptual', 'Analytical',
+                   'Hypothesis', 'Pattern', 'Synthesis', 'Proposed', 'Argument')
+#: pure grammar/discourse: pronouns, determiners, conjunctions, small numbers, connectives. None of these
+#: is a world-entity, and a fabricated NAME is still caught because it appears in none of the four signals.
+_DISCOURSE_CAPS = {
+    'the', 'this', 'these', 'those', 'taken', 'together', 'both', 'neither', 'either', 'while',
+    'whereas', 'although', 'because', 'when', 'where', 'if', 'in', 'at', 'by', 'for', 'a', 'an',
+    'it', 'they', 'their', 'its', 'however', 'yet', 'still', 'across', 'within', 'among', 'between',
+    'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'our', 'we',
+    'that', 'what', 'nor', 'read', 'seen', 'and', 'but', 'not', 'are', 'than', 'then', 'thus',
+    'therefore', 'hence', 'also', 'only', 'more', 'most', 'less', 'least', 'former', 'latter',
+    'whether', 'which', 'does', 'cannot', 'them', 'with', 'without', 'about', 'over', 'under',
 }
+
+
+#: the DECLARED facet fields (they mirror `Premise`'s dataclass fields — the axes a verdict may turn on),
+#: plus the evidence-meta nouns the renderers emit. Every one describes the EVIDENCE, not a world-entity.
+_FACET_WORDS = ('level', 'unit', 'analysis', 'scope', 'design', 'horizon', 'method', 'estimate',
+                'outcome', 'direction', 'modality', 'comparator', 'population', 'mechanism', 'source',
+                'premise', 'finding', 'result', 'evidence', 'study', 'studies', 'research',
+                'literature', 'economy', 'aggregate', 'firm', 'worker', 'task', 'region', 'occupation',
+                'industry', 'sector')
+
+
+def _renderer_vocab() -> set[str]:
+    words: set[str] = set()
+    for phrase in (list(OPERATIONS) + list(VERDICT_VOCAB) + list(_EPISTEMIC_TAGS) + list(_FACET_WORDS)):
+        for w in re.findall(r'[A-Za-z]+', str(phrase)):
+            if len(w) >= 2:
+                words.add(w.lower())
+    return words
+
+
+def caps_earned(token: str, *, premise_caps: set[str], premise_blob_lower: str,
+                premise_stems: set[str], context_lower: str = '',
+                context_caps: frozenset[str] | set[str] = frozenset()) -> bool:
+    """THE single structural predicate for "is this capitalised token NOT a fabricated world-entity?".
+
+    Both `validate()` (the deterministic gate) and `argument_planner.owned_is_safe()` (the owned-voice
+    gate) call THIS — there is exactly one caps rule, not two allow-lists that can drift apart. True iff
+    the token is earned by a premise, by the original question/compiled contract, by a typed renderer
+    enum, or by pure discourse/orthography. It is NEVER earned by a subject allow-list, because there
+    is none."""
+    if token in premise_caps or token in context_caps:
+        return True
+    low = token.lower()
+    if low in premise_blob_lower or _stem(low) in premise_stems:
+        return True
+    if context_lower and low in context_lower:
+        return True
+    return low in RENDERER_VOCAB or low in _DISCOURSE_CAPS
+
+
+RENDERER_VOCAB = _renderer_vocab()
+
+#: BACKWARD-COMPAT ONLY. `SAFE_CAPS` is no longer an authority anywhere in production validation; it is
+#: retained as the union of the discourse + renderer vocabularies so any external diagnostic that still
+#: imports the name keeps working. Nothing in `validate()` or `owned_is_safe()` consults it.
+SAFE_CAPS = {w.capitalize() for w in (_DISCOURSE_CAPS | RENDERER_VOCAB)} | set(_EPISTEMIC_TAGS)
 
 
 # ---- SOL V11 — THE RIDING-FABRICATION GUARD --------------------------------------------------------
@@ -278,8 +319,13 @@ def _content_lemmas(s: str) -> set[str]:
     return {_stem(w) for w in re.findall(r'[a-z]{4,}', s.lower())}
 
 
-def validate(syn: Synthesis, premises: dict[str, Premise]) -> tuple[bool, str]:
-    """Deterministic. No LLM. Returns (ok, reason_if_rejected)."""
+def validate(syn: Synthesis, premises: dict[str, Premise], context: str = '') -> tuple[bool, str]:
+    """Deterministic. No LLM. Returns (ok, reason_if_rejected).
+
+    `context` is the original question / compiled-contract text (optional). A capitalised token that
+    appears in it is EARNED — the reviewer asked about it — exactly as a token appearing in a premise
+    is. This is what lets a clinical, a legal, or a CS review name its OWN subject without any per-domain
+    allow-list: the subject is in the question, so it is not a fabricated entity."""
     s = syn.text.strip()
     if not s:
         return False, 'empty'
@@ -316,6 +362,8 @@ def validate(syn: Synthesis, premises: dict[str, Premise]) -> tuple[bool, str]:
     blob_lower = blob.lower()
     prem_caps = set(CAP_TOKEN.findall(blob))
     prem_stems = _content_lemmas(blob)
+    ctx_lower = (context or '').lower()
+    ctx_caps = set(CAP_TOKEN.findall(context or ''))
     # A PROPER NOUN is a capitalised token appearing MID-SENTENCE. A capital at the start of a sentence
     # (or after a full stop) is ORTHOGRAPHY, not an entity. Turn 2 rejected "Whether", "Reconciliation",
     # "AI's" and "driven" (from "AI-driven") as FABRICATED ENTITIES — every one a false positive, and
@@ -331,11 +379,10 @@ def validate(syn: Synthesis, premises: dict[str, Premise]) -> tuple[bool, str]:
         for part in re.split(r'[-–]', tok):
             if not part:
                 continue
-            if part in SAFE_CAPS or part in prem_caps:
-                continue
-            pl = part.lower()
-            # a capitalised form of a word the premises already use (incl. plural/singular)
-            if pl in blob_lower or _stem(pl) in prem_stems:
+            # THE ONE STRUCTURAL PREDICATE (Sol P1): earned by a premise, the question/contract, a typed
+            # renderer enum, or pure discourse — never by a subject allow-list. Same rule owned_is_safe runs.
+            if caps_earned(part, premise_caps=prem_caps, premise_blob_lower=blob_lower,
+                           premise_stems=prem_stems, context_lower=ctx_lower, context_caps=ctx_caps):
                 continue
             return False, f'new_entity:{part}'
 

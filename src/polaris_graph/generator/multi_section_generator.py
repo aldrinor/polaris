@@ -1917,6 +1917,7 @@ def _parse_outline(
             if unknown:
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                 reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
                 ev_ids = [e for e in ev_ids if e in allowed_ev_ids]
         # Item 5b: a DUPLICATE title (a model splitting ONE required heading across two JSON blocks)
@@ -1938,6 +1939,8 @@ def _parse_outline(
 =======
 =======
 >>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
                 if _is_required:
                     # Fable item 7: a REQUIRED section must never be discarded over one
                     # hallucinated ev_id — that strands the required section empty (then conform
@@ -1952,6 +1955,9 @@ def _parse_outline(
                     reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
                     continue
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes

@@ -218,6 +218,7 @@ def parse_revision_ops(
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         # item 1: ``split`` MUST validate its source ``title`` here too. Without it a split with a
         # missing title passes parse then crashes ``KeyError`` at apply (``op["title"]``), and a split
         # with an UNKNOWN title silently keeps the original section AND adds the children (content
@@ -225,11 +226,16 @@ def parse_revision_ops(
 =======
 =======
 >>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
         # Fable item 3: a ``split`` MUST validate its source title too. Without this, a split whose
         # ``title`` names no live section was accepted, then apply appended the children and removed
         # nothing (reproduced final titles ['A','B','X','Y']). Validate it alongside keep/retitle/
         # reassign so a bad-source split is rejected (unknown_title) before the children are built.
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -306,6 +312,7 @@ def parse_revision_ops(
             continue
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         # item 8 (STRIP-AND-KEEP, consistent with the outline's item-5a): a reassign/add/split that
         # references some UNKNOWN ev_ids KEEPS its valid remainder — the good ids were already retained
         # in ``op`` above; only the bad ones are stripped — and the strip is DISCLOSED as a
@@ -318,6 +325,8 @@ def parse_revision_ops(
 =======
 =======
 >>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
         if kind == "add":
             _add_title = str(op.get("title", "")).strip()
             # collision guard (item 5): adding a section whose title equals an existing heading
@@ -326,6 +335,9 @@ def parse_revision_ops(
                 rejected.append({"op": dict(op), "reason_code": f"title_collision:{_add_title}"})
                 continue
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -447,8 +459,12 @@ def apply_revision_ops(
     outcomes: Sequence[SectionOutcome] | None = None,
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     required_titles: Sequence[str] | None = None,
     min_sections: int = 0,
+=======
+    ev_id_to_basket: Mapping[str, str] | None = None,
+>>>>>>> Stashed changes
 =======
     ev_id_to_basket: Mapping[str, str] | None = None,
 >>>>>>> Stashed changes
@@ -699,6 +715,7 @@ def apply_revision_ops(
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     # item 4: dedupe recompose_titles AND drop any GHOST title not present in the final plan set —
     # a ghost would make the compose stage re-open a section that does not exist.
     _final_titles = {p["title"] for p in new_plans}
@@ -710,6 +727,8 @@ def apply_revision_ops(
     _recompose_final = set(recompose)
     kept = [p["title"] for p in new_plans if p["title"] not in _recompose_final]
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
     # Fable item 6: a reassign (and split/add) mutates a section's ev_ids, but the apply branches
@@ -729,6 +748,9 @@ def apply_revision_ops(
                      for e in (p.get("ev_ids", []) or []) if e in ev_id_to_basket}
                 )
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes

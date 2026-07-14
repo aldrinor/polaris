@@ -130,6 +130,7 @@ class OutlineDigestMenu:
     basket_work_corroboration: dict[str, int] = field(default_factory=dict)
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     # Item 4 observability tripwire: how many DOI groups hit the false-merge REFUSAL branch
     # (``_build_alias_map``: ``len(stamped) >= 2`` — TWO OR MORE distinct cp3 works share one DOI, so
     # the fold declines to merge them and folds only the UNCLAIMED members). Empirically ZERO on the
@@ -142,6 +143,8 @@ class OutlineDigestMenu:
 =======
 =======
 >>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
     # PUSH (Fable item 9): fraction of basket CLAIMS the planner reads that are still bare TITLES —
     # measured on the FINAL chosen claim, AFTER the member-scan mitigation. On the real cp3 pool
     # this ran high (61/69) because the S3 representative_statement fell back to the row title; a
@@ -151,6 +154,9 @@ class OutlineDigestMenu:
     # DATA-only telemetry surfaced into digest_stats; NEVER a gate (§-1.1 no metadata pass/fail).
     title_like_claim_fraction: float = 0.0
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -708,6 +714,7 @@ def build_outline_digest(
                     break
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         # item 5: strip leading fetch/format chrome ("[PDF] ", "URL Source:") + trailing ellipsis off
         # the chosen claim BEFORE cleaning, so a basket whose members are all title-like renders a
         # CLEAN title instead of "[PDF] ... ...". Cosmetic display fix only — the underlying S3 defect
@@ -716,6 +723,8 @@ def build_outline_digest(
         claim = _clean(_strip_title_chrome(chosen_claim))[:_CLAIM_MAX_CHARS]
         tiers = [t for (_e, t) in member_pairs]   # item 9: aligned with member_ev_ids (same order)
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
         # Fable item 9 telemetry: count this basket if the FINAL chosen claim is STILL title-like
@@ -777,6 +786,7 @@ def build_outline_digest(
         singleton_alias_ev_ids.setdefault(ev_id, [])
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         _raw_title = str(row.get("title", "") or "")
         _raw_stmt = str(row.get("statement", "") or "")
         # item 10: when the statement is just the title (or title-like), render TITLE-ONLY. Printing
@@ -791,6 +801,8 @@ def build_outline_digest(
 =======
 =======
 >>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
         _s_title = _clean(str(row.get("title", "") or ""))
         _s_stmt = _clean(str(row.get("statement", "") or ""))
         # Fable item 9: when a singleton's statement is a byte-copy of its title, the row would
@@ -801,6 +813,9 @@ def build_outline_digest(
         if _s_stmt and _s_title and _s_stmt.strip() == _s_title.strip():
             _s_stmt = ""
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -808,6 +823,7 @@ def build_outline_digest(
             {
                 "ev_id": ev_id,
                 "tier": str(row.get("tier", "") or ""),
+<<<<<<< Updated upstream
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
                 "title": _clean(_raw_title)[:_TITLE_MAX_CHARS],
@@ -818,6 +834,10 @@ def build_outline_digest(
                 # item 4: WEIGHT-demote marker (row demoted for relevance) — surfaced to the planner,
                 # never a drop (§-1.3 principle 1). False on a bank row with no demote stamp.
                 "demoted": _is_weight_demoted(row),
+=======
+                "title": _s_title[:_TITLE_MAX_CHARS],
+                "statement": _s_stmt[:_STATEMENT_MAX_CHARS],
+>>>>>>> Stashed changes
 =======
                 "title": _s_title[:_TITLE_MAX_CHARS],
                 "statement": _s_stmt[:_STATEMENT_MAX_CHARS],
@@ -906,8 +926,14 @@ def build_outline_digest(
         basket_work_corroboration=basket_work_corroboration,
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
         doi_false_merge_guard_hits=_doi_guard_hits,
         title_false_merge_guard_hits=_title_guard_hits,
+=======
+        title_like_claim_fraction=(
+            title_like_basket_count / len(basket_specs) if basket_specs else 0.0
+        ),
+>>>>>>> Stashed changes
 =======
         title_like_claim_fraction=(
             title_like_basket_count / len(basket_specs) if basket_specs else 0.0

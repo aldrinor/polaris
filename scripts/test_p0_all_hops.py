@@ -177,7 +177,7 @@ L.emit('u', EventKind.MANIFESTATION_FETCHED, 'test', adapter='x', locator='u', b
        source_type='journal-article')
 L.emit('u', EventKind.CONTENT_PROFILE_DERIVED, 'observe_text', **EL.observe_text(AM_TEXT))
 binding5, _ = EL.derive_semantic_binding(L.events('u'))
-elig5, info5 = EL.derive_eligibility(L.events('u'), journal_articles_only=True)
+elig5, info5 = EL.derive_eligibility(L.events('u'), policy=P.JOURNAL_ONLY)
 check('HOP 5: the event lane binds the manuscript as VERSION_OF_ACCEPTED, not VERSION_OF_PUBLISHED',
       binding5 == EL.VERSION_ACCEPTED,
       f'bound as {binding5} — a cover sheet phrase was read as the document\'s own testimony')

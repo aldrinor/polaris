@@ -68,6 +68,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # other. See the headstone at "3. content profile", below.
 from provenance import (  # noqa: E402
     KIND_PROFILE, judge_completeness,
+    # THE TWO-STATE SOURCE POLICY, shared with the resolver: eligibility consults the policy's own
+    # `permitted_expression_kinds`, so the ledger and the gate can never disagree about what a version
+    # may be cited as. ANY_VERSION is the default — a preprint is a discovery lead ONLY when the policy
+    # in force does not permit its kind, never unconditionally.
+    SourcePolicy as _SourcePolicy, ANY_VERSION as _ANY_VERSION,
     SOURCE_TYPE as _SOURCE_TYPE, WORK_KIND_ARTIFACT as _WORK_KIND_ARTIFACT,
     # ONE definition of "what is a repository cover sheet", shared with the provenance lane. Two
     # copies of this pattern would drift, and the one that drifts is always the one a gate reads.
@@ -79,6 +84,15 @@ from provenance import (  # noqa: E402
     # manuscript that provenance ruled `accepted_manuscript` was scored VERSION_PUBLISHED here and
     # became journal evidence. There is now ONE detector, imported, so the two lanes CANNOT diverge.
     _AM_MARK as _ACCEPTED_STAMP,
+    # ══ THE ONE VERSION-FURNITURE VOCABULARY (Sol P2) ══════════════════════════════════════════════
+    # The version reducer USED to read one set of stamps here (_PUBLISHED_STAMP/_ACCEPTED_STAMP/
+    # _PREPRINT_STAMP) while provenance.derive_expression_kind read a DIFFERENT set (_JOURNAL_MARK/
+    # _AM_MARK/_WP_MARK/_PREPRINT_MARK) — two derivations of the same fact that could, and did, disagree.
+    # P2 unifies them: `version_furniture()` below reads the PROVENANCE marks (the same ones the
+    # expression lane has always used), so the semantic-binding lane and the expression-kind lane are
+    # ONE reducer over ONE vocabulary and can never diverge again.
+    _WP_MARK as _WP_MARK, _PREPRINT_MARK as _PREPRINT_MARK, _JOURNAL_MARK as _JOURNAL_MARK,
+    segment_cover_sheet as _segment_cover_sheet,
 )
 
 CORPUS = ROOT / 'outputs' / 'journal_corpus_content.json'
@@ -540,6 +554,31 @@ def segment_front_matter(text: str, header_chars: int = 1500) -> tuple[str, str]
     return text[:boundary], text[boundary:boundary + header_chars]
 
 
+def version_furniture(text: str) -> dict:
+    """THE ONE VERSION-FURNITURE OBSERVER (Sol P2). Booleans only — it CONCLUDES NOTHING.
+
+    Read with the SAME provenance marks, the SAME windows, and the SAME cover-sheet segmentation that
+    `provenance.derive_expression_kind` has always used, so the two lanes cannot diverge:
+
+      * am / wp / preprint stamps are read from the whole head (a library describing the file it
+        deposited is testimony about these bytes — the cover sheet MAY CONVICT);
+      * journal furniture is read ONLY from the article's own body, with the cover sheet segmented off
+        (a cover sheet's DOI / citation block is the library CITING the article of record, which is the
+        one thing the article of record itself never has to do — the cover sheet MAY NOT ACQUIT).
+
+    `version_evidence()` maps these booleans to a VersionDecision; this function decides nothing.
+    """
+    head = text[:12000]
+    _cover, document = _segment_cover_sheet(head)
+    return {
+        'am':       bool(_ACCEPTED_STAMP.search(head)),
+        'wp':       bool(_WP_MARK.search(head)),
+        'preprint': bool(_PREPRINT_MARK.search(head)),
+        'journal':  bool(_JOURNAL_MARK.search(document[:12000])),
+        'has_cover_sheet': bool(_cover),
+    }
+
+
 def observe_text(text: str, header_chars: int = 1500) -> dict:
     """Everything the ledger needs to know about a blob of retrieved text — and NOT ONE CONCLUSION.
 
@@ -601,6 +640,10 @@ def observe_text(text: str, header_chars: int = 1500) -> dict:
         # disjointness AT ALL: an absent byline is not a disjoint one. (A cookie banner names no author
         # because it is not a document, not because a stranger wrote it.)
         'byline_present': bool(_BYLINE_CUE.search(article_front) or _BYLINE.search(article_front)),
+        # ---- THE ONE VERSION-FURNITURE OBSERVATION (Sol P2) ------------------------------------
+        # Read with the PROVENANCE marks (see version_furniture): the SAME vocabulary the expression
+        # lane uses, so `version_evidence()` here and `derive_expression_kind` there are ONE reducer.
+        'version_furniture': version_furniture(text),
     }
 
 
@@ -1076,42 +1119,113 @@ VERSION_PREPRINT = 'VERSION_OF_PREPRINT'    # a working paper. A DIFFERENT SOURC
 DIFFERENT_WORK   = 'DIFFERENT_WORK'         # we fetched somebody else's paper
 UNRESOLVED       = 'UNRESOLVED_BINDING'
 
+#: THE IDENTITY ALLOWLIST (Sol, binding-gate design §1). A span may be ATTRIBUTED only when the bytes'
+#: identity is POSITIVELY PROVEN to be the requested Work. This is an ALLOWLIST, not a denylist: a
+#: missing, malformed, stale, or newly-introduced verdict is NOT in it and therefore REJECTS by default.
+#: DIFFERENT_WORK -> quarantine (a stranger's paper); UNRESOLVED_BINDING -> lead-only (we cannot tell);
+#: both are `admitted=False`. Version disposition (which EXPRESSION, under which policy) is orthogonal
+#: and decided downstream — identity only says "these bytes ARE this Work".
+IDENTITY_PROVEN = frozenset({SAME_WORK, VERSION_PUBLISHED, VERSION_ACCEPTED, VERSION_PREPRINT})
 
-#: ══ WHICH EXPRESSION DO THESE BYTES TESTIFY TO BEING? ════════════════════════════════════════════
+
+#: ══ WHICH EXPRESSION DO THESE BYTES TESTIFY TO BEING, AND WHAT SEMANTIC VERSION DOES THAT MAKE THEM? ═
 #:
-#: THE ORDER OF THIS TUPLE IS THE RULE, AND IT IS A STATEMENT — not an accident of where an `if` landed
-#: in a ladder. The INADMISSIBLE kinds are asked FIRST, on purpose, because the commonest shape in an
-#: institutional repository carries BOTH kinds of stamp at once:
+#: THE ONE VERSION REDUCER (Sol P2). It returns BOTH the semantic binding and the own-expression kind
+#: from ONE pass over ONE set of observations, so `ingest_bytes` (which needs the expression kind) and
+#: `derive_binding_core` (which needs the semantic binding) can never again be TWO derivations that
+#: disagree. There is exactly one mapping from expression kind to semantic binding, below, and the
+#: resolver's compatibility table is literally its inverse — so the pair the reducer emits is, by
+#: construction, always a consistent pair, and the ONLY way an inconsistent pair can reach the resolver
+#: is tampering or in-memory corruption, which is what DERIVATION_CONFLICT quarantines.
+#:
+#: THE ORDER OF THE RULES IS THE PRECEDENCE, AND IT IS A STATEMENT — not an accident of where an `if`
+#: landed. Accepted / working-paper / preprint furniture VETOES published furniture, because the
+#: commonest shape in an institutional repository carries BOTH at once:
 #:
 #:     "This is an author produced version of a paper published in <journal>.     <- ACCEPTED
 #:      Citation for the published version: ..."                                  <- PUBLISHED
 #:
-#: The old reducer asked `published_stamp_in_header` first and answered VERSION_PUBLISHED. Reading the
-#: SECOND line and ignoring the FIRST is how an accepted manuscript became journal evidence. Whichever
-#: way a future edit reorders the code, the precedence lives HERE, in data, and `derive_eligibility`
-#: re-checks the result against a veto that does not consult this order at all.
-#:
-#: (`*_in_cover` is the LIBRARY's voice, `*_in_header` the DOCUMENT's own. For the two inadmissible
-#: kinds EITHER voice convicts — a repository saying "this is the author's manuscript" is describing
-#: the file it filed. For PUBLISHED, either voice may acquit, but only because nothing above it fired.)
-VERSION_EVIDENCE: tuple[tuple[str, tuple[str, ...], str], ...] = (
-    (VERSION_ACCEPTED,  ('accepted_stamp_in_cover', 'accepted_stamp_in_header'),
+#: Reading the SECOND line and ignoring the FIRST is how an accepted manuscript became journal evidence.
+#: The precedence lives HERE, in data (accepted, then working paper, then preprint, then published, then
+#: no evidence), and `derive_eligibility` / the resolver re-check the result against tables that do not
+#: consult this order at all.
+
+@dataclass(frozen=True)
+class VersionDecision:
+    """The ONE reducer's output: BOTH the semantic binding AND the own-expression kind, plus the
+    evidence key that fired and a human basis. `ingest_bytes` assigns its expression kind from this;
+    `derive_binding_core` uses its semantic binding when identity is proven; the two therefore agree
+    by construction, never by coincidence."""
+    semantic_binding: str
+    expression_kind: str
+    evidence_key: str
+    basis: str
+
+
+#: THE SINGLE MAPPING expression-kind -> semantic-binding. The resolver's COMPATIBLE_VERSION_PAIRS is
+#: built as its inverse (below), so the reducer and the gate cannot drift: adding a version kind here
+#: without deciding its binding is impossible, because both come from this one dict.
+_EXPRESSION_TO_BINDING: dict[str, str] = {
+    'journal_version':     VERSION_PUBLISHED,
+    'proceedings_version': VERSION_PUBLISHED,
+    'accepted_manuscript': VERSION_ACCEPTED,
+    'working_paper':       VERSION_PREPRINT,
+    'preprint':            VERSION_PREPRINT,
+    'official_text':       SAME_WORK,
+    'registry_record':     SAME_WORK,
+    'unknown':             SAME_WORK,
+}
+
+#: THE ONE DECLARATIVE COMPATIBILITY TABLE (Sol P2). The resolver validates the pair
+#: (semantic_binding, own_expression_kind) against THIS and nothing else. It is the inverse of the
+#: reducer's own mapping, so a pair the reducer can emit is always in it, and a pair it cannot emit
+#: (e.g. VERSION_OF_PREPRINT + journal_version) is a DERIVATION_CONFLICT — the medRxiv/working-paper-
+#: as-journal P0, quarantined structurally.
+COMPATIBLE_VERSION_PAIRS: frozenset[tuple[str, str]] = frozenset(
+    (binding, kind) for kind, binding in _EXPRESSION_TO_BINDING.items())
+
+#: Typed ordered rules — (evidence-furniture key, own expression kind, basis). The order IS the
+#: precedence. Working-paper and preprint furniture are SPLIT structurally (two rules, two expression
+#: kinds), though both map to VERSION_OF_PREPRINT. No DOI, title, author, journal or subject appears
+#: here — only the structural furniture booleans version_furniture() observed.
+VERSION_EVIDENCE: tuple[tuple[str, str, str], ...] = (
+    ('am',       'accepted_manuscript',
      'the bytes (or the repository that filed them) declare this an ACCEPTED MANUSCRIPT — acceptance '
      'precedes copy-editing, proofs and the editor\'s last round, and THE NUMBERS MOVE ACROSS THEM'),
-    (VERSION_PREPRINT,  ('preprint_stamp_in_cover', 'preprint_stamp_in_header'),
-     'the header carries a preprint/working-paper stamp — peer review CHANGES NUMBERS; this is a '
-     'DIFFERENT SOURCE until version equivalence is proven'),
-    (VERSION_PUBLISHED, ('published_stamp_in_cover', 'published_stamp_in_header'),
-     'a published-version/refereed stamp, and NO accepted-manuscript or preprint stamp contradicting it'),
+    ('wp',       'working_paper',
+     'the header carries a working-paper stamp — peer review CHANGES NUMBERS; this is a DIFFERENT '
+     'SOURCE until version equivalence is proven'),
+    ('preprint', 'preprint',
+     'the header carries a preprint stamp — peer review CHANGES NUMBERS; this is a DIFFERENT SOURCE '
+     'until version equivalence is proven'),
+    ('journal',  'journal_version',
+     'typeset journal furniture in the article\'s OWN front matter (not a cover sheet), and NO '
+     'accepted-manuscript or working-paper or preprint stamp contradicting it'),
 )
 
 
-def version_evidence(prof: dict) -> tuple[str, str]:
-    """-> (binding, why). The ONE place a stamp becomes a version. Consulted by nothing else."""
-    for binding, fields, why in VERSION_EVIDENCE:
-        if any(prof.get(f) for f in fields):
-            return binding, why
-    return SAME_WORK, 'no version furniture contradicts the identity we confirmed'
+def version_evidence(prof: dict, work_kind: str = 'study') -> VersionDecision:
+    """THE ONE PLACE version furniture becomes a (semantic binding, expression kind) pair.
+
+    For a non-scholarly TYPED work (case / statute / trial) the version taxonomy is not the scholarly
+    one — there is no preprint of a statute — so the expression is derived from `Work.kind` via the
+    registry, never from scholarly furniture the opinion happens to quote. For a scholarly work the
+    typed ordered rules (VERSION_EVIDENCE) decide, in precedence order.
+    """
+    fam = _WORK_KIND_ARTIFACT.get(work_kind or 'study')
+    if fam is not None:
+        ek = KIND_PROFILE[fam]['expression']    # official_text / registry_record
+        return VersionDecision(
+            _EXPRESSION_TO_BINDING[ek], ek, f'work_kind:{work_kind}',
+            f'work kind `{work_kind}` — the version taxonomy of a {fam.replace("_", " ")} is not the '
+            f'scholarly one; these bytes are its {ek.replace("_", " ")}')
+    furn = prof.get('version_furniture') or {}
+    for key, ek, why in VERSION_EVIDENCE:
+        if furn.get(key):
+            return VersionDecision(_EXPRESSION_TO_BINDING[ek], ek, key, why)
+    return VersionDecision(SAME_WORK, 'unknown', 'none',
+                           'no self-identifying version furniture — the version is UNRESOLVED, though '
+                           'the identity is not')
 
 
 def _norm(s: str) -> set[str]:
@@ -1134,15 +1248,48 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
     if best is None:
         return UNRESOLVED, {'reason': 'nothing was fetched'}
     fetched, prof, _cls, _info = best
+    return derive_binding_core(
+        requested_doi=fetched.get('requested_doi', ''),
+        requested_title=fetched.get('requested_title', ''),
+        requested_authors=fetched.get('requested_authors', []),
+        prof=prof,
+        document_title=fetched.get('document_title', ''),
+        observed_byline=fetched.get('byline', ''),
+        work_kind=fetched.get('work_kind', 'study'))
 
+
+def derive_binding_core(*, requested_doi: str, requested_title: str,
+                        requested_authors: list, prof: dict,
+                        document_title: str = '', observed_byline: str = '',
+                        work_kind: str = 'study') -> tuple[str, dict]:
+    """THE single per-manifestation identity rule. `derive_semantic_binding(events)` is a thin wrapper
+    that pulls the requested identity + profile off the ledger and calls this; `provenance.ingest_bytes`
+    calls it directly with the Work's identity and `observe_text(bytes)`. ONE reducer, both paths — a
+    second identity rule in the graph is exactly the split that let DIFFERENT_WORK bytes be admitted.
+
+    `prof` is an `observe_text()` result (or a stored profile with the same keys): it supplies
+    front_matter_dois, byline_present, header_real_words, identity_window/header_text, and the version
+    stamps. `requested_*` is what we ASKED for (the Work). Positive evidence only — DIFFERENT_WORK
+    needs a foreign DOI or a disjoint byline; absence is never a stranger's paper."""
     # The identity window is BOUNDED (see observe_text): a whole-document scan finds every author in
     # the references and "confirms" anything you ask it to.
-    window = fetched.get('document_title', '') or prof.get('identity_window', '') \
+    window = document_title or prof.get('identity_window', '') \
         or prof.get('header_text', '')
-    want_t = _norm(fetched.get('requested_title', ''))
+    # ── VERIFIED MACHINE-METADATA RECEIPTS (Sol P5) ──────────────────────────────────────────────
+    # A verified self-metadata receipt (a PDF Info/XMP DOI, an HTML <head> citation_title/author, a
+    # JATS <article-id>) is presented to THIS reducer as the positive, readable identity evidence it
+    # is. It is POSITIVE-ONLY: `salvage_identity_window` joins the identity window, `salvage_byline`
+    # asserts a byline, and `salvage_front_matter_dois` join the document's own DOIs below. When such a
+    # receipt is present, the unreadable-header guard is lifted (a glyph title page carries no readable
+    # header, but its machine metadata IS readable and IS about identity). Absent these keys — every
+    # non-salvage call — nothing here changes. identity_receipts.build_salvage is the ONLY producer.
+    _salvage = bool(prof.get('verified_identity_receipts'))
+    if prof.get('salvage_identity_window'):
+        window = (window + ' ' + str(prof.get('salvage_identity_window'))).strip()
+    want_t = _norm(requested_title)
     got_t = _norm(window)
-    want_a = {a.lower() for a in fetched.get('requested_authors', [])}
-    byline = (fetched.get('byline', '') or window).lower()
+    want_a = {a.lower() for a in (requested_authors or [])}
+    byline = (observed_byline or window).lower()
 
     overlap = len(want_t & got_t) / max(1, len(want_t))
     author_hit = any(a in byline for a in want_a if a)
@@ -1156,16 +1303,19 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
     # ONE identity signal that is both positive and decisive in BOTH directions: an exact front-matter
     # DOI CONFIRMS, and a front matter that prints a DIFFERENT DOI and NOT ours is the positive evidence
     # of a stranger's paper that DIFFERENT_WORK has always needed and never had.
-    want_doi = str(fetched.get('requested_doi') or '').strip().lower().rstrip('.')
+    want_doi = str(requested_doi or '').strip().lower().rstrip('.')
     front_dois = [str(d).lower().rstrip('.') for d in (prof.get('front_matter_dois') or [])]
+    # A verified self-identifier DOI receipt (Sol P5) joins the document's own front-matter DOIs — it
+    # is the same kind of positive evidence (the document naming itself), read from machine metadata.
+    front_dois += [str(d).lower().rstrip('.') for d in (prof.get('salvage_front_matter_dois') or [])]
     doi_hit = bool(want_doi and want_doi in front_dois)
     foreign_doi = bool(want_doi and front_dois and not doi_hit)
     #: A byline was POSITIVELY OBSERVED. Absence of one is NOT disjointness — see _BYLINE.
-    byline_present = bool(prof.get('byline_present'))
+    byline_present = bool(prof.get('byline_present') or prof.get('salvage_byline'))
 
     ev = {'title_overlap': round(overlap, 2), 'author_in_byline': author_hit,
           'title_content_words': len(want_t),
-          'requested_title': fetched.get('requested_title', '')[:70],
+          'requested_title': (requested_title or '')[:70],
           'front_matter_dois': front_dois[:4], 'doi_in_front_matter': doi_hit,
           'cover_sheet_chars': prof.get('cover_sheet_chars', 0),
           'header_text': (prof.get('header_text') or '')[:120]}
@@ -1176,7 +1326,7 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
     # reducer read "no title, no author" as DIFFERENT_WORK — turning a FONT-ENCODING FAILURE into a
     # confident claim about whose paper it is. That is this project's whole disease, committed by
     # the cure. We cannot read it, therefore we cannot bind it. Say exactly that.
-    if prof.get('header_real_words', 0) < 10:
+    if prof.get('header_real_words', 0) < 10 and not _salvage:
         return UNRESOLVED, {'reason': f'the header decoded to {prof.get("header_real_words", 0)} '
                                       f'readable words — we CANNOT READ it, so we cannot establish '
                                       f'identity. Not a stranger\'s paper: an unreadable one', **ev}
@@ -1258,17 +1408,20 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
                                       f'evidence of a stranger\'s work: it is UNRESOLVED', **ev}
 
     # IDENTITY IS SETTLED — these bytes ARE the work we asked for. The remaining question is WHICH
-    # EXPRESSION of it, and that is decided in ONE place, by a declared precedence (VERSION_EVIDENCE),
-    # so that no reordering of this function can promote a manuscript to the version of record.
-    binding, why = version_evidence(prof)
-    if binding is SAME_WORK:
+    # EXPRESSION of it, and that is decided in ONE place, by the ONE version reducer (version_evidence),
+    # which returns BOTH the semantic binding and the own-expression kind so that this lane and the
+    # expression lane cannot diverge. No reordering of this function can promote a manuscript to the
+    # version of record: the precedence lives in VERSION_EVIDENCE, in data.
+    dec = version_evidence(prof, work_kind)
+    ev = {**ev, 'expression_kind': dec.expression_kind, 'version_evidence_key': dec.evidence_key}
+    if dec.semantic_binding == SAME_WORK:
         return SAME_WORK, {'reason': 'identity confirmed by '
                                      + ('the article\'s OWN front-matter DOI' if doi_hit
                                         else 'author and title' if author_hit and title_match
                                         else 'author in the header' if author_hit
                                         else f'a specific {len(want_t)}-word title matched in full')
-                                     + ', and no version furniture contradicting it', **ev}
-    return binding, {'reason': f'identity confirmed, but {why}', **ev}
+                                     + f', and its version is {dec.expression_kind}', **ev}
+    return dec.semantic_binding, {'reason': f'identity confirmed, but {dec.basis}', **ev}
 
 
 # ---- 5. eligibility --------------------------------------------------------------------------
@@ -1292,13 +1445,26 @@ NEVER_JOURNAL_EVIDENCE: dict[str, str] = {
                        'correspondence into the VoR\'s own bytes'),
 }
 
+#: THE EXPRESSION KIND(S) a proven version binding can be cited AS. Eligibility tests membership of
+#: these against the policy's `permitted_expression_kinds`: a working-paper binding is admissible under
+#: ANY_VERSION (which permits `working_paper`/`preprint`) and a discovery lead under a policy that does
+#: not. This is registry data, keyed on the STRUCTURAL binding — no DOI, title, author or subject.
+_BINDING_EXPRESSION_KINDS: dict[str, tuple[str, ...]] = {
+    VERSION_PREPRINT: ('working_paper', 'preprint'),
+    VERSION_ACCEPTED: ('accepted_manuscript',),
+}
 
-def derive_eligibility(events: list[Event], journal_articles_only: bool = True) -> tuple[str, dict]:
-    """May this text be attributed to THIS source, under THIS task's instruction?
 
-    Task 72 demands JOURNAL ARTICLES ONLY. So citing the working paper BREAKS THE INSTRUCTION, and
-    citing the journal with the working paper's text IS FABRICATION. There is no version in which the
-    working-paper span ships as journal evidence.
+def derive_eligibility(events: list[Event],
+                       policy: '_SourcePolicy' = _ANY_VERSION) -> tuple[str, dict]:
+    """May this text be attributed to THIS source, under THE REQUESTED SOURCE POLICY?
+
+    The policy is a provenance.SourcePolicy — the ADJUSTABLE source constraint the prompt imposed,
+    defaulting to ANY_VERSION. Version eligibility consults `policy.permitted_expression_kinds`: a
+    working-paper or accepted-manuscript binding is a DISCOVERY LEAD only when the policy in force does
+    NOT permit its expression kind (e.g. JOURNAL_ONLY). Under ANY_VERSION such a version is admissible
+    as its OWN expression — it is never journal evidence, but it is not unconditionally a lead either.
+    Citing the journal with a working paper's bytes remains FABRICATION under every policy.
     """
     cls, cinfo = derive_content_profile(events)
     binding, binfo = derive_semantic_binding(events)
@@ -1313,10 +1479,22 @@ def derive_eligibility(events: list[Event], journal_articles_only: bool = True) 
         return INADMISSIBLE, {'reason': f'wrong paper ({binfo["reason"]})',
                               'content_class': cls, 'binding': binding}
     # ---- THE VERSION VETO. A PRECONDITION, checked before anything may be admitted. -------------
+    # A preprint/accepted-manuscript binding is admissible ONLY when the requested policy permits its
+    # own expression kind; otherwise it is a discovery lead. Positive proof: membership in the policy's
+    # explicit allowlist, never absence.
     if binding in NEVER_JOURNAL_EVIDENCE:
+        permitted = policy.permitted_expression_kinds
+        own_kinds = _BINDING_EXPRESSION_KINDS[binding]
+        if any(k in permitted for k in own_kinds):
+            if cls == C_CITATION:
+                return INADMISSIBLE, {'reason': 'no content', 'content_class': cls, 'binding': binding}
+            return ADMISSIBLE, {
+                'reason': f'{binding.lower().replace("_", " ")} admissible as its own expression under '
+                          f'the {policy.name} policy; {cinfo["reason"]}',
+                'content_class': cls, 'binding': binding}
         return DISCOVERY_LEAD, {
             'reason': NEVER_JOURNAL_EVIDENCE[binding]
-                      + (' and the task demands journal articles only' if journal_articles_only else ''),
+                      + f'; the requested source policy ({policy.name}) does not permit its kind',
             'content_class': cls, 'binding': binding}
     if binding == UNRESOLVED:
         return INADMISSIBLE, {'reason': 'we cannot show this text is the work we cite',
@@ -1469,10 +1647,10 @@ def record_content_profile(ledger: 'Ledger', unit: str) -> tuple[str, dict]:
 
 
 def record_eligibility(ledger: 'Ledger', unit: str,
-                       journal_articles_only: bool = True) -> tuple[str, dict]:
+                       policy: '_SourcePolicy' = _ANY_VERSION) -> tuple[str, dict]:
     """Derive whether a span from these bytes may be attributed to THIS source, and MINUTE it."""
     events = ledger.events(unit)
-    elig, info = derive_eligibility(events, journal_articles_only=journal_articles_only)
+    elig, info = derive_eligibility(events, policy=policy)
     binding, _ = derive_semantic_binding(events)
     ledger.record_derivation(
         unit, EventKind.ELIGIBILITY_DECIDED, 'derive_eligibility',

@@ -103,6 +103,7 @@ import re
 import statistics
 import sys
 import unicodedata
+import dataclasses
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
@@ -198,6 +199,14 @@ class Manifestation:
     fetched_by: str               # which fetcher wrote it
     text_field: str               # which corpus field it came from ('fulltext' | 'abstract')
     profile: dict = field(default_factory=dict)   # the content-derived artifact profile
+    # ── RAW-ARTIFACT LINEAGE (Sol P5) ────────────────────────────────────────────────────────────
+    # The IMMUTABLE raw artifact these text bytes were extracted from (the PDF/HTML/XML, not the
+    # extracted text). Machine-metadata identity receipts are derived from THIS, and revalidated
+    # against it at load. Empty when no raw artifact is on record (legacy rows, abstract-only bytes).
+    raw_blob_id: str = ''         # content-addressed id of the raw artifact in the blob store
+    raw_content_hash: str = ''    # sha256 of the raw artifact bytes
+    content_type: str = ''        # the fetched content type ('application/pdf', 'text/html', ...)
+    identity_receipts: list = field(default_factory=list)   # verified self-metadata receipts (dicts)
 
 
 @dataclass
@@ -254,7 +263,7 @@ what we cannot check.
 A `SpanCorrespondence` is the narrowest true thing: THIS span, in THESE bytes, is character-for-character
 THAT span, in THOSE bytes. It carries both manifestation ids, both content hashes, both offset pairs,
 both verbatim spans, the canonicalization ALGORITHM AND VERSION under which they were compared, the exact
-canonical-span hash, and the identity decision for each manifestation. The verifier RECHECKS all of it —
+canonical-span hash, and the semantic-binding verdict for each manifestation. The verifier RECHECKS all of it —
 the hashes, the offsets, and exact canonical text equality — because a correspondence that arrives from a
 JSON file is an untrusted input, like everything else here.
 
@@ -336,12 +345,9 @@ class SpanCorrespondence:
     canonicalization: str         # ALGORITHM:VERSION under which the two were compared
     canonical_span_hash: str      # the exact hash of the shared canonical text
 
-    source_identity: str          # the identity decision for the SOURCE manifestation
-    target_identity: str          # ...and for the TARGET. Both must be CONFIRMED.
+    source_identity: str          # the SEMANTIC-BINDING verdict for the SOURCE manifestation
+    target_identity: str          # ...and for the TARGET. Both must be in IDENTITY_PROVEN.
     basis: str                    # how this correspondence was established. Never empty.
-
-
-CORRESPONDENCE_IDENTITY_OK = ('CONFIRMED',)
 
 
 def make_correspondence(g: 'Graph', source_mid: str, source_start: int, source_end: int,
@@ -365,8 +371,12 @@ def make_correspondence(g: 'Graph', source_mid: str, source_start: int, source_e
         target_start=target_start, target_end=target_end, target_span=t_span,
         canonicalization=f'{CANON_ALGORITHM}:{CANON_VERSION}',
         canonical_span_hash=canonical_hash(s_span),
-        source_identity=(src.profile.get('identity') or {}).get('verdict', 'UNRESOLVED'),
-        target_identity=(tgt.profile.get('identity') or {}).get('verdict', 'UNRESOLVED'),
+        # The identity a correspondence carries is the SEMANTIC BINDING re-derived from the bytes and the
+        # Work RIGHT NOW — never the legacy whole-body `identity.verdict`, which "confirms" any author it
+        # can find in the references. `verify_correspondence()` re-derives it again and refuses a stale
+        # stored value, so this is a convenience snapshot, never an authority.
+        source_identity=g._live_semantic_binding(src),
+        target_identity=g._live_semantic_binding(tgt),
         basis=basis)
 
 
@@ -738,49 +748,24 @@ def identity_agreement(text: str, work: Work, independent_abstract: str = '',
 
 
 def derive_expression_kind(text: str, work_kind: str = 'study') -> tuple[str, str]:
-    """Which VERSION do these bytes say they are? Derived from self-identifying furniture.
+    """Which VERSION do these bytes say they are? A COMPATIBILITY WRAPPER over the ONE reducer (Sol P2).
 
-    Returns ('unknown', ...) freely. `unknown` is the honest answer for a PDF body with its title
-    page mangled, and an honest `unknown` costs us evidence -- which is the correct price.
+    This USED to be a second, independent derivation — it read `_WP_MARK`/`_PREPRINT_MARK`/`_AM_MARK`/
+    `_JOURNAL_MARK` here, while `event_ledger.version_evidence` read a DIFFERENT set of stamps there,
+    and the two could disagree about the very same bytes. They are now ONE reducer:
+    `event_ledger.version_furniture()` reads exactly these marks (imported from this module) and
+    `event_ledger.version_evidence()` maps them to a VersionDecision. This wrapper returns that
+    decision's expression kind and basis, so every caller — `profile()`, the census, the P0-hop
+    probes — sees the same answer the semantic-binding lane sees.
 
     THE SCHOLARLY VERSION TAXONOMY APPLIES ONLY TO SCHOLARLY WORKS. There is no preprint of a statute
     and no accepted manuscript of a judicial opinion; the authoritative text IS the artifact, and the
-    registry says so. Running the NBER/arXiv/"accepted manuscript" regexes over a court opinion does
-    not find nothing — it finds whatever the opinion happens to QUOTE, which is how a whole-text scan
-    for "NBER Working Paper" once read the bibliography and called the JEP article a working paper.
+    registry (via `Work.kind`) says so — the reducer derives `official_text`/`registry_record` from the
+    typed work, never from scholarly furniture the opinion happens to quote.
     """
-    fam = WORK_KIND_ARTIFACT.get(work_kind or 'study')
-    if fam is not None:
-        ex = KIND_PROFILE[fam]['expression']
-        return ex, (f'work kind `{work_kind}` — the version taxonomy of a {fam.replace("_", " ")} is '
-                    f'not the scholarly one; these bytes are its {ex.replace("_", " ")}')
-    head = text[:12000]
-    # THE COVER SHEET MAY CONVICT BUT MAY NEVER ACQUIT (see `_COVER_SHEET`). The three INADMISSIBLE
-    # marks are read from the whole head — a library describing the file it deposited is testimony
-    # about these bytes. The one ADMITTING mark is read ONLY from the article's own front matter,
-    # because a cover sheet's DOI and citation block are the library CITING the article of record,
-    # which is the one thing the article of record itself never has to do.
-    cover, document = segment_cover_sheet(head)
-    wp, pre, am = _WP_MARK.search(head), _PREPRINT_MARK.search(head), _AM_MARK.search(head)
-    jr = _JOURNAL_MARK.search(document[:12000])
-
-    # Order still matters (an accepted manuscript carries the journal's citation block too), but it is
-    # no longer LOAD-BEARING: the only branch that can return `journal_version` cannot see the cover
-    # sheet at all, so no reordering of these four lines can promote a manuscript to the article of
-    # record. The ordering is a courtesy to the ERROR MESSAGE, not the thing keeping the door shut.
-    if am:
-        return 'accepted_manuscript', f'bytes say: {am.group(0)[:48]!r}'
-    if wp:
-        return 'working_paper', f'bytes say: {wp.group(0)[:48]!r}'
-    if pre:
-        return 'preprint', f'bytes say: {pre.group(0)[:48]!r}'
-    if jr:
-        return 'journal_version', (f'typeset journal furniture in the ARTICLE\'S OWN front matter '
-                                   f'(not on a cover sheet): {jr.group(0)[:48]!r}')
-    if cover:
-        return 'unknown', ('a repository cover sheet, and NO version furniture in the document under '
-                           'it — the library\'s citation of the article is not the article')
-    return 'unknown', 'no self-identifying version furniture in the first 12,000 chars'
+    from event_ledger import version_furniture, version_evidence  # noqa: PLC0415
+    dec = version_evidence({'version_furniture': version_furniture(text)}, work_kind)
+    return dec.expression_kind, dec.basis
 
 
 def profile(text: str, work: Work, independent_abstract: str = '',
@@ -941,6 +926,29 @@ ANY_VERSION   = SourcePolicy('any_identified_version',
                               'working_paper', 'preprint', 'official_text', 'registry_record'))
 
 
+#: ══ STABLE DISPOSITION / REASON-CODE CONSTANTS (Sol binding-gate §1, edit 3) ═══════════════════════
+#: Every resolver return is stamped with one DISPOSITION and one REASON_CODE. Callers switch on these
+#: MACHINE TOKENS — never on refusal prose (which is human-facing and may change). Defining them ONCE,
+#: here, is the rule: a string literal scattered through a caller is a token nobody can grep for and a
+#: typo that fails open. `DISPOSITIONS` / `REASON_CODES` are the closed registries the tests assert on.
+DISPOSITION_ADMIT      = 'ADMIT'
+DISPOSITION_LEAD_ONLY  = 'LEAD_ONLY'
+DISPOSITION_QUARANTINE = 'QUARANTINE'
+DISPOSITIONS = frozenset({DISPOSITION_ADMIT, DISPOSITION_LEAD_ONLY, DISPOSITION_QUARANTINE})
+
+RC_ADMITTED                 = 'ADMITTED'
+RC_SPAN_BINDING_INVALID     = 'SPAN_BINDING_INVALID'
+RC_IDENTITY_DIFFERENT_WORK  = 'IDENTITY_DIFFERENT_WORK'
+RC_IDENTITY_UNRESOLVED      = 'IDENTITY_UNRESOLVED'
+RC_IDENTITY_UNKNOWN_VERDICT = 'IDENTITY_UNKNOWN_VERDICT'
+RC_INCOMPLETE_BYTES         = 'INCOMPLETE_BYTES'
+RC_VERSION_NOT_PERMITTED    = 'VERSION_NOT_PERMITTED'
+RC_DERIVATION_CONFLICT      = 'DERIVATION_CONFLICT'
+REASON_CODES = frozenset({RC_ADMITTED, RC_SPAN_BINDING_INVALID, RC_IDENTITY_DIFFERENT_WORK,
+                          RC_IDENTITY_UNRESOLVED, RC_IDENTITY_UNKNOWN_VERDICT, RC_INCOMPLETE_BYTES,
+                          RC_VERSION_NOT_PERMITTED, RC_DERIVATION_CONFLICT})
+
+
 @dataclass(frozen=True)
 class Attribution:
     """The resolved answer to: may a span from these bytes be attributed AT ALL, and TO WHAT?"""
@@ -956,6 +964,13 @@ class Attribution:
     #: WHICH SPAN this permission was granted to. `None` means the question was asked about a whole
     #: manifestation, and the answer therefore carries NO per-span widening — see resolve_attribution.
     binding_id: str | None = None
+    #: THE IDENTITY LAYER (Sol binding-gate §1). Structured so callers never parse refusal prose.
+    #: `identity_verdict` is the semantic_binding (SAME_WORK / VERSION_OF_* / DIFFERENT_WORK /
+    #: UNRESOLVED_BINDING / …). `disposition` is ADMIT | LEAD_ONLY | QUARANTINE. `reason_code` is a
+    #: stable machine token (IDENTITY_DIFFERENT_WORK, IDENTITY_UNRESOLVED, IDENTITY_UNKNOWN_VERDICT, …).
+    identity_verdict: str | None = None
+    disposition: str | None = None
+    reason_code: str | None = None
 
 
 @dataclass
@@ -988,6 +1003,29 @@ class Graph:
         self.edges.append(e)
         return e
 
+    def _live_semantic_binding(self, m: 'Manifestation') -> str:
+        """Re-derive THIS manifestation's semantic binding FROM ITS BYTES and its Work, right now.
+
+        Correspondence and whole-copy authorization may not trust any STORED identity token — not the
+        legacy whole-body `identity.verdict` (which "confirms" any requested author it finds anywhere,
+        references included), and not even the profile's cached `semantic_binding`, which a JSON file can
+        carry. We run the ONE reducer (event_ledger.derive_binding_core) over the live bytes, exactly as
+        the strict loader and the resolver's identity gate do, so a correspondence built when identity
+        looked proven is re-judged against what these bytes derive TODAY. A manifestation whose Work we no
+        longer hold cannot be identity-derived at all, so it fails closed to UNRESOLVED_BINDING — which is
+        not in IDENTITY_PROVEN and therefore authorizes nothing.
+        """
+        from event_ledger import (observe_text as _obs, derive_binding_core as _bind,  # noqa: PLC0415
+                                   UNRESOLVED as _UNR)
+        wk = self.works.get(m.work_id)
+        if wk is None:
+            return _UNR
+        sig = _obs(m.text or '')
+        live, _basis = _bind(requested_doi=wk.doi or '', requested_title=wk.title or '',
+                             requested_authors=list(wk.authors or []), prof=sig,
+                             work_kind=wk.kind or 'study')
+        return live
+
     def exact_copy_failure(self, src: str, dst: str) -> str:
         """'' if the graph's OWN BYTES prove `src` and `dst` are the same document; else the reason.
 
@@ -1002,8 +1040,8 @@ class Graph:
         asserted the edge, and NO BYTES WERE EVER COMPARED. A rule enforced by reading an English
         sentence is a rule enforced by whoever writes the sentence. The basis check is kept (it is a
         cheap filter and it catches the honest mistake), but the edge now also has to be TRUE: we must
-        HOLD both documents, both must be identity-CONFIRMED, and their ENTIRE canonical texts must be
-        equal. An expression-wide claim requires expression-wide evidence.
+        HOLD both documents, both must carry a PROVEN SEMANTIC BINDING to their requested Work, and their
+        ENTIRE canonical texts must be equal. An expression-wide claim requires expression-wide evidence.
 
         This is deliberately hard to satisfy. It should be: an expression-wide edge is the only thing in
         this graph that widens EVERY span at once, and there are only two ways to earn one — hold both
@@ -1021,13 +1059,14 @@ class Graph:
             return (f'we hold NO BYTES for {dst!r} — THE DOCUMENT THIS EDGE WOULD LET US NAME. This is the '
                     f'exact shape of the P0: claiming equality with bytes we have never seen. Get the '
                     f'target document, or bind the span to what we actually hold')
+        from event_ledger import IDENTITY_PROVEN as _IDOK  # noqa: PLC0415
         for label, mans in (('source', smans), ('target', tmans)):
             for m in mans:
-                v = (m.profile.get('identity') or {}).get('verdict')
-                if v not in CORRESPONDENCE_IDENTITY_OK:
-                    return (f'the {label} manifestation {m.id!r} is identity `{v}`, not CONFIRMED — '
-                            f'two documents we cannot even prove are OUR work cannot be proven equal '
-                            f'to each other')
+                v = self._live_semantic_binding(m)
+                if v not in _IDOK:
+                    return (f'the {label} manifestation {m.id!r} has semantic binding `{v}`, which is '
+                            f'not a PROVEN binding to its requested Work — two documents we cannot even '
+                            f'prove are OUR work cannot be proven equal to each other')
         for sm in smans:
             for tm in tmans:
                 if canonicalize(sm.text) == canonicalize(tm.text):
@@ -1124,14 +1163,22 @@ class Graph:
         if bad:
             return False, bad
 
-        # 5. IDENTITY. A correspondence between two documents we cannot prove are the works we asked for
-        #    proves only that two strangers agree.
+        # 5. IDENTITY — the SEMANTIC BINDING, re-derived from the bytes and the Work RIGHT NOW. A
+        #    correspondence between two documents we cannot prove are the works we asked for proves only
+        #    that two strangers agree. The legacy whole-body `identity.verdict` is NOT consulted here: it
+        #    "confirms" any requested author it finds anywhere in the bytes, including the references, so a
+        #    manuscript that merely CITES the requested authors would have passed. We recompute the
+        #    semantic binding (bounded identity window, cover-sheet segmented, positive evidence only),
+        #    reject a stale stored value, and admit only IDENTITY_PROVEN verdicts — DIFFERENT_WORK,
+        #    UNRESOLVED_BINDING, missing, and unknown all fail closed.
+        from event_ledger import IDENTITY_PROVEN as _IDOK  # noqa: PLC0415
         for who, m, stored in (('source', src, sc.source_identity), ('target', tgt, sc.target_identity)):
-            live = (m.profile.get('identity') or {}).get('verdict', 'UNRESOLVED')
+            live = self._live_semantic_binding(m)
             if stored != live:
-                bad.append(f'{who} identity decision {stored!r} is stale — the bytes now derive {live!r}')
-            elif live not in CORRESPONDENCE_IDENTITY_OK:
-                bad.append(f'{who} manifestation {m.id!r} is identity `{live}`, not CONFIRMED')
+                bad.append(f'{who} semantic binding {stored!r} is stale — the bytes now derive {live!r}')
+            elif live not in _IDOK:
+                bad.append(f'{who} manifestation {m.id!r} has semantic binding `{live}`, not a proven '
+                           f'binding to its requested Work')
 
         # 6. EXACT CANONICAL EQUALITY. The whole edifice reduces to this line.
         cs, ct = canonicalize(src.text[sc.source_start:sc.source_end]), \
@@ -1262,7 +1309,7 @@ class Graph:
         return self.bind_span(target_manifestation_id, i, i + len(span))
 
     def resolve_attribution(self, ref: dict | str,
-                            source_policy: SourcePolicy = JOURNAL_ONLY) -> Attribution:
+                            source_policy: SourcePolicy = ANY_VERSION) -> Attribution:
         """MAY THIS BOUND SPAN be attributed under THIS task's instruction, and TO WHAT ID?
 
         Sol V9 §4 moved this API from manifestation-wide permission to BINDING-SPECIFIC permission:
@@ -1308,17 +1355,82 @@ class Graph:
                     policy=source_policy.name, admitted=False, names_expression_id=None, text=None,
                     binding_id=bid,
                     refusal=('this binding does not verify against the bytes it names — the offsets, the '
-                             'hash, the stored span or the permitted set disagree with the manifestation'))
+                             'hash, the stored span or the permitted set disagree with the manifestation'),
+                    identity_verdict=m.profile.get('semantic_binding'),
+                    disposition=DISPOSITION_QUARANTINE, reason_code=RC_SPAN_BINDING_INVALID)
             targets = tuple(self.attribution_targets_for_binding(binding))
 
         base = dict(manifestation_id=manifestation_id, content_hash=m.content_hash,
                     expression_id=m.expression_id, permitted_expression_ids=targets,
                     policy=source_policy.name, binding_id=bid)
 
+        # ── IDENTITY GATE (Sol binding-gate §1) — PRECEDES completeness and expression policy ────────
+        # A span may be ATTRIBUTED only when these bytes are POSITIVELY PROVEN to be the requested Work.
+        # This is the universal naming boundary: census, quarantine sweep, miner preflight, card
+        # construction, publisher, and report-AST all converge here, so no caller can acquire attribution
+        # by bypassing miner selection. ALLOWLIST — a missing/unknown/stale verdict rejects by default.
+        # Import ONLY the canonical allowlist and the two explicit negative verdicts (Sol §1, edit 4).
+        # The version constants are NOT consulted here — identity is orthogonal to which expression a
+        # proven work may name, and an unused import is a place a future edit reaches for the wrong tool.
+        from event_ledger import (IDENTITY_PROVEN as _IDOK, DIFFERENT_WORK as _DW,  # noqa: PLC0415
+                                   UNRESOLVED as _UNR)
+        _iv = m.profile.get('semantic_binding')
+        if _iv not in _IDOK:
+            if _iv == _DW:
+                _disp, _rc = DISPOSITION_QUARANTINE, RC_IDENTITY_DIFFERENT_WORK
+                _why = ('these bytes are a DIFFERENT WORK than the one this span would cite (positive '
+                        'evidence of a stranger — foreign front-matter DOI or disjoint byline); '
+                        'attributing them to this source would be fabrication')
+            elif _iv == _UNR:
+                _disp, _rc = DISPOSITION_LEAD_ONLY, RC_IDENTITY_UNRESOLVED
+                _why = ('identity is NOT positively proven for these bytes (UNRESOLVED_BINDING) — a lead '
+                        'for retrieval/coverage, but it may not be attributed to this source')
+            else:
+                _disp, _rc = DISPOSITION_QUARANTINE, RC_IDENTITY_UNKNOWN_VERDICT
+                _why = (f'no positive identity verdict is on these bytes ({_iv!r} is not in the proven '
+                        f'allowlist) — fail closed, name nothing')
+            return Attribution(
+                manifestation_id=manifestation_id, content_hash=m.content_hash,
+                expression_id=m.expression_id, permitted_expression_ids=(),
+                policy=source_policy.name, binding_id=bid,
+                admitted=False, names_expression_id=None, text=None, refusal=_why,
+                identity_verdict=_iv, disposition=_disp, reason_code=_rc)
+
+        # ── THE PAIR GATE (Sol P2) — validate (semantic binding, own expression kind), quarantine impossible ─
+        # AFTER identity, BEFORE completeness. This is NOT a second version derivation: ingest_bytes and
+        # the loader already derived the pair from ONE reducer, so a consistent pair is guaranteed for any
+        # graph this schema wrote. This is an INVARIANT CHECK against tampering or in-memory corruption —
+        # the medRxiv/working-paper-as-journal P0, where the semantic binding says preprint/accepted but
+        # the manifestation's own expression node claims a more-published version. The check is ONE
+        # declarative table (COMPATIBLE_VERSION_PAIRS), the inverse of the reducer's own mapping, so it
+        # cannot drift from what the reducer can emit. Positive-proof: an admissible pair must be IN the
+        # table; anything else fails closed to QUARANTINE.
+        from event_ledger import COMPATIBLE_VERSION_PAIRS as _PAIRS  # noqa: PLC0415
+        _own_kind = self.expressions[m.expression_id].kind
+        if (_iv, _own_kind) not in _PAIRS:
+            return Attribution(
+                manifestation_id=manifestation_id, content_hash=m.content_hash,
+                expression_id=m.expression_id, permitted_expression_ids=(),
+                policy=source_policy.name, binding_id=bid,
+                admitted=False, names_expression_id=None, text=None,
+                refusal=(f'DERIVATION CONFLICT: identity re-derives {_iv!r} but this manifestation\'s own '
+                         f'expression node is {_own_kind!r} — an impossible pair (a proven version bound '
+                         f'to an expression its bytes cannot testify to). Naming anything here would cite '
+                         f'a version these bytes are not; fail closed'),
+                identity_verdict=_iv, disposition=DISPOSITION_QUARANTINE,
+                reason_code=RC_DERIVATION_CONFLICT)
+
         if source_policy.require_complete and not m.profile.get('complete'):
             why = '; '.join(m.profile.get('incomplete_because') or ['the bytes are not a usable document'])
-            return Attribution(**base, admitted=False, names_expression_id=None, text=None,
-                               refusal=f'these bytes may not carry a finding: {why}')
+            # An integrity failure: permitted set is emptied — nothing may be named from unusable bytes.
+            return Attribution(
+                manifestation_id=manifestation_id, content_hash=m.content_hash,
+                expression_id=m.expression_id, permitted_expression_ids=(),
+                policy=source_policy.name, binding_id=bid,
+                admitted=False, names_expression_id=None, text=None,
+                refusal=f'these bytes may not carry a finding: {why}',
+                identity_verdict=_iv, disposition=DISPOSITION_QUARANTINE,
+                reason_code=RC_INCOMPLETE_BYTES)
 
         # Prefer the expression whose bytes these ACTUALLY ARE. Widening is a fallback, never a first
         # choice: naming the document we hold is always the strongest true thing we can say.
@@ -1331,10 +1443,13 @@ class Graph:
                 refusal=(f'policy `{source_policy.name}` permits '
                          f'{{{", ".join(source_policy.permitted_expression_kinds)}}}, and a span here '
                          f'may only name {{{kinds}}}. No ASSERTED span-preserving edge widens it — '
-                         f'citing a permitted source with THESE bytes would be fabrication'))
+                         f'citing a permitted source with THESE bytes would be fabrication'),
+                identity_verdict=_iv, disposition=DISPOSITION_LEAD_ONLY,
+                reason_code=RC_VERSION_NOT_PERMITTED)
         chosen = m.expression_id if m.expression_id in permitted else permitted[0]
         return Attribution(**base, admitted=True, names_expression_id=chosen,
-                           text=self.expressions[chosen].attribution, refusal=None)
+                           text=self.expressions[chosen].attribution, refusal=None,
+                           identity_verdict=_iv, disposition=DISPOSITION_ADMIT, reason_code=RC_ADMITTED)
 
     def verify_span(self, binding: dict) -> bool:
         """The enforcement point. A binding arriving here is AN UNTRUSTED INPUT — by now it has been
@@ -1389,7 +1504,7 @@ class Graph:
         )
 
     @classmethod
-    def from_json(cls, data: dict | str) -> 'Graph':
+    def from_json(cls, data: dict | str, blob_store=None) -> 'Graph':
         """STRICT LOAD. A GRAPH ON DISK IS AN UNTRUSTED INPUT.
 
         Every check here exists because the file it reads is the same KIND of artifact that lied to us
@@ -1422,13 +1537,22 @@ class Graph:
         def _fields(cl) -> set[str]:
             return set(cl.__dataclass_fields__)
 
+        def _required(cl) -> set[str]:
+            # A field is REQUIRED iff it declares neither a default nor a default_factory. This is read
+            # MECHANICALLY from the dataclass, so a new field with a default never becomes a phantom
+            # "missing" error and a new field WITHOUT a default is enforced automatically — no handwritten
+            # exemption list (the old `{'profile', 'kind'}`) to drift out of sync with the schema.
+            return {f.name for f in dataclasses.fields(cl)
+                    if f.default is dataclasses.MISSING
+                    and f.default_factory is dataclasses.MISSING}  # type: ignore[misc]
+
         def _take(cl, d: dict, what: str):
             extra = set(d) - _fields(cl)
             if extra:
                 err.append(f'{what}: unknown field(s) {sorted(extra)} — this graph was not written by '
                            f'this schema, and a field a gate reads may be missing from it')
                 return None
-            missing = _fields(cl) - set(d) - {'profile', 'kind'}
+            missing = _required(cl) - set(d)
             if missing:
                 err.append(f'{what}: missing field(s) {sorted(missing)}')
                 return None
@@ -1497,6 +1621,113 @@ class Graph:
                 err.append(f'{where}: profile says complete={prof.get("complete")!r}, but the registry '
                            f'derives complete={ok!r} for a `{kind}` of {words:,} words '
                            f'({"; ".join(reasons) if reasons else "no objection"})')
+
+            # 4. THE IDENTITY VERDICT, re-derived from the bytes through the ONE reducer (Sol §1, inv 5).
+            # A stored `semantic_binding` the bytes do not earn is the graph-tampering attack: edit
+            # DIFFERENT_WORK -> SAME_WORK on disk and the naming boundary would honour it. We never USE
+            # the stored value — we RE-DERIVE both verdict AND basis, and refuse any disagreement, exactly
+            # as for hash/completeness. This is the STRICT graph path (Sol §5): a missing or unknown stored
+            # verdict is an INTEGRITY ERROR here, not an old-file compatibility shim. `migrate()` is the
+            # only compatibility path for legacy corpus rows; strict load must never silently migrate one.
+            _wk = g.works.get(m.work_id)
+            if _wk is not None:
+                from event_ledger import (observe_text as _obs,  # noqa: PLC0415
+                                          derive_binding_core as _bind2, version_evidence as _ver2,
+                                          SAME_WORK as _SW, VERSION_PUBLISHED as _VPUB,
+                                          VERSION_ACCEPTED as _VACC, VERSION_PREPRINT as _VPRE,
+                                          DIFFERENT_WORK as _DW, UNRESOLVED as _UNR,
+                                          IDENTITY_PROVEN as _IDOK2)
+                _known_verdicts = {_SW, _VPUB, _VACC, _VPRE, _DW, _UNR}
+                _sig2 = _obs(m.text or '')
+                _wkind = _wk.kind or 'study'
+
+                # ── IDENTITY RECEIPTS, RE-VALIDATED AGAINST THE RAW ARTIFACT (Sol P5 loader) ──────────
+                # A manifestation whose STORED binding was promoted by machine metadata carries the
+                # receipts that promoted it. The bytes' rendered text alone re-derives UNRESOLVED, so
+                # unless we re-supply the SAME verified receipts the stored SAME_WORK would look like
+                # tampering and the graph would be (correctly) refused. So we RE-VALIDATE every receipt
+                # against the immutable raw artifact — load it by blob id, verify its hash, rerun the
+                # named extractor, re-find the exact match at the recorded offsets, re-normalize,
+                # re-evaluate against the Work — and only THEN feed the verified receipts to the reducer.
+                # A graph with receipts CANNOT LOAD without the blob store, and any receipt that does not
+                # revalidate refuses the whole graph. Positive-proof: a receipt can only re-earn the
+                # promotion, never assert it.
+                if m.identity_receipts:
+                    import identity_receipts as _ir  # noqa: PLC0415
+                    if blob_store is None:
+                        err.append(f'{where}: carries {len(m.identity_receipts)} identity receipt(s) '
+                                   f'but no blob store was provided — a graph with receipts cannot load '
+                                   f'without access to the raw artifacts they revalidate against')
+                    elif not m.raw_blob_id:
+                        err.append(f'{where}: carries identity receipts but no raw_blob_id to '
+                                   f'revalidate them against')
+                    else:
+                        try:
+                            _raw = blob_store.get(m.raw_blob_id)
+                        except (FileNotFoundError, ValueError) as _e:
+                            _raw = None
+                            err.append(f'{where}: identity-receipt raw artifact unavailable: {_e}')
+                        if _raw is not None:
+                            _rok, _rerrs = _ir.revalidate_all(_raw, m.identity_receipts, _wk)
+                            if not _rok:
+                                err.append(f'{where}: identity receipt(s) DO NOT REVALIDATE — '
+                                           + '; '.join(_rerrs))
+                            else:
+                                # The verified receipts become the observation the reducer consumes.
+                                _sig2 = {**_sig2, **_ir.receipts_supplement(m.identity_receipts)}
+
+                _live, _live_ev = _bind2(requested_doi=_wk.doi or '', requested_title=_wk.title or '',
+                                         requested_authors=list(_wk.authors or []), prof=_sig2,
+                                         work_kind=_wkind)
+                _stored_sb = prof.get('semantic_binding')
+                if _stored_sb is None:
+                    err.append(f'{where}: no stored semantic_binding — a strict graph must carry a '
+                               f're-derivable identity verdict; this file is not one this schema wrote')
+                elif _stored_sb not in _known_verdicts:
+                    err.append(f'{where}: stored semantic_binding {_stored_sb!r} is not a known verdict '
+                               f'{sorted(_known_verdicts)} — fail closed on an unknown identity token')
+                elif _stored_sb != _live:
+                    err.append(f'{where}: stored semantic_binding {_stored_sb!r} but the bytes re-derive '
+                               f'{_live!r} — identity may not be promoted by editing the file')
+                # USE the byte-derived verdict AND basis, never the stored ones. A stored row-cache verdict
+                # is never consulted here (see `row_binding_cache`, which is audit-only).
+                prof['semantic_binding'] = _live
+                prof['semantic_binding_basis'] = _live_ev
+
+                # ── THE VERSION PAIR, re-derived from the bytes through the SAME ONE reducer (Sol P2). ──
+                # A stored expression kind the bytes do not earn, or an expression NODE the bytes cannot
+                # testify to, is the version-tampering attack: relabel a preprint node `journal_version`
+                # on disk and a JOURNAL_ONLY answer would name the journal over the preprint's numbers.
+                # We RE-DERIVE the expression kind and refuse (a) any disagreement with the stored
+                # expression kind, and (b) any manifestation whose own expression node is a REAL kind
+                # other than the one the bytes derive. The quarantine/unresolved sentinel `unknown` is
+                # always allowed as the node kind (a stranger's paper or an unreadable one keeps its
+                # bytes under a node that names no version). This is the loader half of the pair gate the
+                # resolver enforces at read time.
+                _live_dec = _ver2(_sig2, _wkind)
+                _stored_ek = prof.get('expression_kind')
+                if _stored_ek is not None and _stored_ek != _live_dec.expression_kind:
+                    err.append(f'{where}: stored expression_kind {_stored_ek!r} but the bytes re-derive '
+                               f'{_live_dec.expression_kind!r} — a version may not be promoted by editing '
+                               f'the file')
+                if m.expression_id in g.expressions:
+                    _node_kind = g.expressions[m.expression_id].kind
+                    if _node_kind not in (_live_dec.expression_kind, 'unknown'):
+                        err.append(f'{where}: its own expression node {m.expression_id!r} is '
+                                   f'{_node_kind!r}, but the bytes derive {_live_dec.expression_kind!r} '
+                                   f'(and only that or the `unknown` quarantine sentinel is permitted) — '
+                                   f'DERIVATION CONFLICT: an expression node relabelled away from what '
+                                   f'its bytes testify to')
+                    # ...and when identity is proven, the (binding, own node kind) pair must be one the
+                    # resolver would admit — the loader refuses what the gate would quarantine.
+                    if _live in _IDOK2 and _node_kind != 'unknown':
+                        from event_ledger import COMPATIBLE_VERSION_PAIRS as _PAIRS2  # noqa: PLC0415
+                        if (_live, _node_kind) not in _PAIRS2:
+                            err.append(f'{where}: identity {_live!r} paired with own expression node kind '
+                                       f'{_node_kind!r} is not a compatible pair — DERIVATION CONFLICT '
+                                       f'baked into the file')
+                prof['expression_kind'] = _live_dec.expression_kind
+                prof['expression_kind_basis'] = _live_dec.basis
 
         for i, d in enumerate(data.get('edges', [])):
             e = _take(Edge, d, f'edge #{i}')
@@ -1638,7 +1869,8 @@ def ensure_work(g: Graph, *, doi: str, title: str, authors: list[str], year, ven
 
 def ingest_bytes(g: Graph, work: Work, text: str, *, text_field: str, fetched_by: str,
                  locator: str | None, locator_status: str, claimed_id: str, claimed_kind: str,
-                 independent_abstract: str = '') -> str:
+                 independent_abstract: str = '', raw_blob_id: str = '', raw_content_hash: str = '',
+                 content_type: str = '') -> str:
     """THE ONE PLACE BYTES BECOME A TYPED NODE. -> manifestation id.
 
     `migrate()` (corpus rows) and `provenance_construct.construct()` (the event ledger) BOTH come
@@ -1647,20 +1879,53 @@ def ingest_bytes(g: Graph, work: Work, text: str, *, text_field: str, fetched_by
     """
     wid = work.id
     prof = profile(text, work, independent_abstract=independent_abstract)
-    ekind = prof['expression_kind']
-    ebasis = prof['expression_kind_basis']
 
-    if prof['artifact_kind'] in ('wrong_work', 'landing_page', 'extraction_failure'):
+    # ── THE ONE VERSION DECISION AND THE ONE IDENTITY RULE (Sol P2 + binding-gate §1) ─────────────
+    # A SINGLE VersionDecision supplies BOTH the own-expression kind (below) and — when identity is
+    # proven — the semantic binding, so the graph can never hold a manifestation whose stored version
+    # disagrees with its own expression node. The graph re-derives identity FROM THE BYTES through the
+    # SAME reducer the ledger uses — never a provenance-specific approximation, and never the row's
+    # cached verdict. A DIFFERENT_WORK verdict (positive foreign DOI or disjoint byline) is a STRANGER'S
+    # PAPER: it takes the quarantine path below, exactly like an artifact that is not a rendering of this
+    # work. UNRESOLVED stays retained and attributable to nobody (resolve_attribution enforces
+    # lead-only). Deferred import: event_ledger imports provenance at module top, so this must be lazy.
+    from event_ledger import (observe_text as _observe, derive_binding_core as _bind,  # noqa: PLC0415
+                              version_evidence as _ver)
+    _sig = _observe(text)
+    _dec = _ver(_sig, work.kind or 'study')
+    ekind = _dec.expression_kind
+    ebasis = _dec.basis
+    prof['version_evidence_key'] = _dec.evidence_key   # the rule that fired — audit provenance for P2
+    _binding, _binding_ev = _bind(requested_doi=work.doi or '', requested_title=work.title or '',
+                                  requested_authors=list(work.authors or []), prof=_sig,
+                                  work_kind=work.kind or 'study')
+    prof['semantic_binding'] = _binding
+    prof['semantic_binding_basis'] = _binding_ev
+    prof['semantic_binding_derived_by'] = 'ingest_bytes:derive_binding_core'
+
+    if prof['artifact_kind'] in ('wrong_work', 'landing_page', 'extraction_failure') \
+            or _binding == 'DIFFERENT_WORK':
         # NOT A RENDERING OF ANY VERSION OF THIS WORK. It gets a QUARANTINE expression, not a version
         # node: the ORA landing page for Frey & Osborne contains the words "published version
         # (refereed)", and if we let that furniture name the expression we would have filed a WEB PAGE
         # as an accepted manuscript of a journal article. The bytes are RETAINED in full (nothing is
         # ever deleted) and attributable to nobody.
-        eid = f'{wid}:quarantine:{prof["artifact_kind"]}'
-        att = (f'THESE BYTES ARE NOT A USABLE RENDERING OF THIS WORK '
-               f'({prof["artifact_kind"]}) — no attribution is possible')
+        if _binding == 'DIFFERENT_WORK':
+            # A STRANGER'S PAPER, proven positively (foreign front-matter DOI, or a disjoint byline).
+            # It may render perfectly — as SOMEONE ELSE'S work. It creates no edge to the claimed
+            # expression (below) and names nobody.
+            eid = f'{wid}:quarantine:different_work'
+            att = (f'THESE BYTES ARE A DIFFERENT WORK than the one requested — '
+                   f'{_binding_ev.get("reason", "positive evidence of a stranger")} — no attribution '
+                   f'to this Work is possible')
+            _qbasis = str(_binding_ev.get('reason', 'different_work'))
+        else:
+            eid = f'{wid}:quarantine:{prof["artifact_kind"]}'
+            att = (f'THESE BYTES ARE NOT A USABLE RENDERING OF THIS WORK '
+                   f'({prof["artifact_kind"]}) — no attribution is possible')
+            _qbasis = prof['artifact_kind_basis']
         g.expressions[eid] = Expression(
-            id=eid, work_id=wid, kind='unknown', kind_basis=prof['artifact_kind_basis'],
+            id=eid, work_id=wid, kind='unknown', kind_basis=_qbasis,
             attribution=att)
     elif ekind == 'unknown':
         eid = f'{wid}:unresolved_version'
@@ -1678,7 +1943,9 @@ def ingest_bytes(g: Graph, work: Work, text: str, *, text_field: str, fetched_by
     g.manifestations[mid] = Manifestation(
         id=mid, expression_id=eid, work_id=wid, text=text, content_hash=h,
         n_words=prof['n_words'], locator=locator, locator_status=locator_status,
-        fetched_by=fetched_by, text_field=text_field, profile=prof)
+        fetched_by=fetched_by, text_field=text_field, profile=prof,
+        raw_blob_id=raw_blob_id or '', raw_content_hash=raw_content_hash or '',
+        content_type=content_type or '', identity_receipts=[])
 
     # ---- EDGES. Only what the bytes support. ----------------------------------------------------
     # An edge needs somewhere to point. If the row claimed no published expression, there is no target
@@ -1746,10 +2013,150 @@ def migrate(corpus: list[dict]) -> Graph:
                 lstatus = 'CONTRADICTS_CONTENT (oa_url points at the publisher; these bytes were ' \
                           'fetched by wp_fetch, which never recorded its own URL)'
 
-            ingest_bytes(g, work, text, text_field=fieldname, fetched_by=claimed_src,
-                         locator=locator, locator_status=lstatus, claimed_id=claimed_id,
-                         claimed_kind=claimed_kind, independent_abstract=indep)
+            # ── RAW-ARTIFACT LINEAGE (Sol P5) ────────────────────────────────────────────────────
+            # A legacy row may carry a `manifestations` list with immutable blob references. Match the
+            # SELECTED fulltext manifestation (or an exact text_sha256) against it and pass its raw blob
+            # reference — never copying any receipt or verdict the row might also carry (those are
+            # re-derived and re-validated, never trusted). Absent that list, no raw lineage is known.
+            raw_blob_id = raw_content_hash = content_type = ''
+            _text_sha = hashlib.sha256(text.encode('utf-8', 'ignore')).hexdigest()
+            for _rm in (row.get('manifestations') or []):
+                _sf = _rm.get('source_field')
+                if fieldname == 'fulltext' and _sf not in (None, '', 'fulltext', 'body'):
+                    continue
+                if _rm.get('text_sha256') and _rm.get('text_sha256') == _text_sha:
+                    raw_blob_id = _rm.get('blob_id') or ''
+                    raw_content_hash = _rm.get('byte_sha256') or ''
+                    content_type = _rm.get('content_type') or ''
+                    break
+
+            mid = ingest_bytes(g, work, text, text_field=fieldname, fetched_by=claimed_src,
+                               locator=locator, locator_status=lstatus, claimed_id=claimed_id,
+                               claimed_kind=claimed_kind, independent_abstract=indep,
+                               raw_blob_id=raw_blob_id, raw_content_hash=raw_content_hash,
+                               content_type=content_type)
+
+            # ── ROW-CACHE AUDIT ONLY (Sol §1, edit 2) ────────────────────────────────────────────
+            # A legacy corpus row may carry its OWN cached identity verdict. It is COMPARED — never
+            # trusted — and only against the row's SELECTED fulltext manifestation, when that
+            # relationship is explicitly present (fieldname == 'fulltext'). The live, byte-derived
+            # verdict is already on the profile; we record the disagreement as an AUDIT trail. NO
+            # resolver or constructor reads `row_binding_cache` to grant permission — it exists so a
+            # stale on-row label can be SEEN, not so it can decide anything.
+            _row_cache = row.get('semantic_binding')
+            if _row_cache is not None and fieldname == 'fulltext' and mid in g.manifestations:
+                _live_v = g.manifestations[mid].profile.get('semantic_binding')
+                g.manifestations[mid].profile['row_binding_cache'] = {
+                    'stored': _row_cache, 'live': _live_v, 'agrees': _row_cache == _live_v}
     return g
+
+
+# =================================================================================================
+# 4b. MACHINE-METADATA IDENTITY SALVAGE (Sol P5)
+# =================================================================================================
+
+def _refile_manifestation(g: Graph, m: 'Manifestation', work: Work, ekind: str, ebasis: str) -> None:
+    """Move a manifestation onto the expression node its (now proven) version implies, EXACTLY as
+    `ingest_bytes` would have filed it had identity been proven at ingest. No new decision is made
+    here — `ekind` came from the ONE version reducer over this manifestation's own bytes."""
+    wid = work.id
+    if ekind == 'unknown':
+        eid = f'{wid}:unresolved_version'
+        g.expressions.setdefault(eid, Expression(
+            id=eid, work_id=wid, kind='unknown', kind_basis=ebasis,
+            attribution=_attribution_for('unknown', work)))
+    else:
+        eid = f'{wid}:{ekind}'
+        g.expressions.setdefault(eid, Expression(
+            id=eid, work_id=wid, kind=ekind, kind_basis=ebasis,
+            attribution=_attribution_for(ekind, work)))
+    m.expression_id = eid
+
+
+def reresolve_unresolved_metadata(g: Graph, blobs) -> dict:
+    """POSITIVE machine-metadata salvage over live `UNRESOLVED_BINDING` manifestations (Sol P5).
+
+    Runs ONLY after baseline manifestations exist, and ONLY over manifestations whose STORED semantic
+    binding is UNRESOLVED. For each, it reads the RAW artifact (PDF/HTML/XML) by its immutable blob id,
+    extracts self-metadata identity receipts, revalidates them, and — on positive evidence — feeds the
+    verified receipts to `derive_binding_core`, which RE-DERIVES the verdict. This function never
+    assigns a verdict itself; it only supplies the observation the reducer consumes.
+
+    Fail-closed everywhere: no raw artifact, a conflicting self-identifier, or a receipt that does not
+    revalidate all leave the manifestation UNRESOLVED. Absence of metadata changes nothing.
+    """
+    import identity_receipts as ir  # noqa: PLC0415
+    from event_ledger import (observe_text as _obs, derive_binding_core as _bind,  # noqa: PLC0415
+                              version_evidence as _ver, UNRESOLVED as _UNR, IDENTITY_PROVEN as _IDOK)
+    stats = dict(examined=0, promotions=0, conflicts=0, residual=0, no_raw_artifact=0,
+                 promoted_ids=[], conflict_ids=[])
+    for mid, m in list(g.manifestations.items()):
+        if m.profile.get('semantic_binding') != _UNR:
+            continue
+        stats['examined'] += 1
+        work = g.works.get(m.work_id)
+        if work is None or not m.raw_blob_id:
+            stats['no_raw_artifact'] += 1
+            stats['residual'] += 1
+            continue
+        try:
+            raw = blobs.get(m.raw_blob_id)
+        except (FileNotFoundError, ValueError):
+            stats['no_raw_artifact'] += 1
+            stats['residual'] += 1
+            continue
+
+        res = ir.build_salvage(
+            raw, work, manifestation_id=mid, manifestation_content_hash=m.content_hash,
+            artifact_blob_id=m.raw_blob_id, artifact_sha256=m.raw_content_hash or '',
+            media_type=ir.sniff_media_type(raw, m.content_type))
+
+        if res.conflict:
+            m.profile['identity_metadata'] = res.conflict
+            m.profile['identity_metadata_basis'] = res.basis
+            stats['conflicts'] += 1
+            stats['residual'] += 1
+            stats['conflict_ids'].append(mid)
+            continue
+        if not res.receipts:
+            stats['residual'] += 1
+            continue
+
+        receipts = [asdict(r) for r in res.receipts]
+        # Belt and suspenders: the receipts we just built must revalidate against the raw bytes exactly
+        # as the loader will demand, or they are not storable evidence.
+        ok, _errs = ir.revalidate_all(raw, receipts, work)
+        if not ok:
+            stats['residual'] += 1
+            continue
+
+        # THE VERIFIED RECEIPT BECOMES AN OBSERVATION. The reducer re-derives the verdict.
+        sup = ir.receipts_supplement(res.receipts)
+        prof2 = {**m.profile, **_obs(m.text or ''), **sup}
+        new_binding, new_ev = _bind(
+            requested_doi=work.doi or '', requested_title=work.title or '',
+            requested_authors=list(work.authors or []), prof=prof2, work_kind=work.kind or 'study')
+        if new_binding not in _IDOK:
+            stats['residual'] += 1
+            continue
+
+        # PROMOTE. Store the receipts; record the re-derived binding; re-derive the version from the
+        # manifestation's OWN bytes (receipts carry no version furniture); re-file the expression node.
+        m.identity_receipts = receipts
+        m.profile['semantic_binding'] = new_binding
+        m.profile['semantic_binding_basis'] = new_ev
+        m.profile['semantic_binding_derived_by'] = 'identity_receipts:reresolve_unresolved_metadata'
+        m.profile.pop('identity_metadata', None)
+        m.profile.pop('identity_metadata_basis', None)
+        dec = _ver(prof2, work.kind or 'study')
+        m.profile['expression_kind'] = dec.expression_kind
+        m.profile['expression_kind_basis'] = dec.basis
+        m.profile['version_evidence_key'] = dec.evidence_key
+        _refile_manifestation(g, m, work, dec.expression_kind, dec.basis)
+        stats['promotions'] += 1
+        stats['promoted_ids'].append(mid)
+
+    return stats
 
 
 # =================================================================================================
@@ -1903,6 +2310,24 @@ def self_test() -> int:
 
     w = Work(id='work:w', title='Robots and Jobs', authors=['Acemoglu', 'Restrepo'], year=2020,
              venue='Journal of Political Economy', doi='10.1086/705716')
+
+    # A hand-built Manifestation skips ingest_bytes, so it must carry the ONE reducer's semantic_binding
+    # the resolver reads — otherwise it fails closed as IDENTITY_UNKNOWN_VERDICT. `_sb` stamps exactly
+    # what ingest_bytes stamps (event_ledger.derive_binding_core over the live bytes), never a hand-picked
+    # verdict: these fixtures are held to the SAME positive-proof identity gate as the corpus.
+    from event_ledger import (observe_text as _st_obs, derive_binding_core as _st_bind,  # noqa: PLC0415
+                              version_evidence as _st_ver)
+
+    def _sb(p, text, work=w):
+        sig = _st_obs(text)
+        b, ev = _st_bind(requested_doi=work.doi or '', requested_title=work.title or '',
+                         requested_authors=list(work.authors or []), prof=sig,
+                         work_kind=work.kind or 'study')
+        p['semantic_binding'] = b
+        p['semantic_binding_basis'] = ev
+        p['semantic_binding_derived_by'] = 'self_test:derive_binding_core'
+        return p
+
     g = Graph(works={'work:w': w})
     g.expressions['work:w:journal_version'] = Expression(
         'work:w:journal_version', 'work:w', 'journal_version', 'metadata',
@@ -1919,7 +2344,7 @@ def self_test() -> int:
         'manif:wp', 'work:w:working_paper', 'work:w', body,
         hashlib.sha256(body.encode()).hexdigest(), len(body.split()), None,
         'NOT_RECORDED_BY_FETCHER', 'wp_fetch', 'fulltext',
-        profile(body, w))
+        _sb(profile(body, w), body))
 
     # ---- THE CORE RULE ---------------------------------------------------------------------
     ck('a span in a WORKING PAPER may NOT name the journal article',
@@ -1995,7 +2420,7 @@ def self_test() -> int:
     g.manifestations['manif:jv'] = Manifestation(
         'manif:jv', 'work:w:journal_version', 'work:w', jbody,
         hashlib.sha256(jbody.encode()).hexdigest(), len(jbody.split()), None, 'RECORDED',
-        'publisher', 'fulltext', profile(jbody, w))
+        'publisher', 'fulltext', _sb(profile(jbody, w), jbody))
     del g.expressions['work:w2:journal_version']
     try:
         g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
@@ -2009,7 +2434,7 @@ def self_test() -> int:
     g.manifestations['manif:jv'] = Manifestation(
         'manif:jv', 'work:w:journal_version', 'work:w', body,
         hashlib.sha256(body.encode()).hexdigest(), len(body.split()), None, 'RECORDED',
-        'publisher', 'fulltext', profile(body, w))
+        'publisher', 'fulltext', _sb(profile(body, w), body))
     g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
                'sha-256 of the entire canonical text of both manifestations: equal')
     ck('an ASSERTED exact_copy_of (both documents HELD, entire canonical text equal) DOES license it',
@@ -2044,7 +2469,7 @@ def self_test() -> int:
         'Acemoglu and Restrepo (2020), Journal of Political Economy')
 
     def _man(mid, eid, text):
-        p = profile(text, w)
+        p = _sb(profile(text, w), text)
         p['identity'] = dict(p['identity'], verdict='CONFIRMED', basis='test fixture: identity confirmed')
         pg.manifestations[mid] = Manifestation(
             mid, eid, 'work:w', text, hashlib.sha256(text.encode()).hexdigest(),
@@ -2123,11 +2548,18 @@ def self_test() -> int:
     p = profile(caesar, w)
     ck('a CAESAR-SHIFTED PDF dump is an extraction_failure, not full text',
        p['artifact_kind'] == 'extraction_failure' and not p['complete'])
+    # A corrupt extraction cannot claim the journal_version node — its bytes derive `unknown`, and the
+    # STRICT loader now (P2) refuses a node relabelled away from what its bytes testify to. So this
+    # manifestation carries the QUARANTINE expression ingest_bytes itself mints for an extraction failure
+    # (kind='unknown'): loader-legitimate, attributable to nobody, and STILL not journal-attributable.
+    g.expressions['work:w:quarantine:extraction_failure'] = Expression(
+        'work:w:quarantine:extraction_failure', 'work:w', 'unknown', p['artifact_kind_basis'],
+        'THESE BYTES ARE NOT A USABLE RENDERING OF THIS WORK (extraction_failure) — no attribution')
     g.manifestations['manif:bad'] = Manifestation(
-        'manif:bad', 'work:w:journal_version', 'work:w', caesar,
+        'manif:bad', 'work:w:quarantine:extraction_failure', 'work:w', caesar,
         hashlib.sha256(caesar.encode()).hexdigest(), len(caesar.split()), None, 'RECORDED',
-        'publisher', 'fulltext', p)
-    ck('...and corrupt bytes OF THE JOURNAL VERSION ITSELF are still NOT journal-attributable',
+        'publisher', 'fulltext', _sb(p, caesar))
+    ck('...and corrupt bytes claimed for this journal Work are still NOT journal-attributable',
        not g.journal_attributable('manif:bad'))
 
     # ---- NO UNIVERSAL WORD THRESHOLD (Sol, item 4) ------------------------------------------
@@ -2310,14 +2742,21 @@ def self_test() -> int:
 
 
 def main() -> int:
-    if '--self-test' in sys.argv:
+    # A BARE INVOCATION runs the embedded self-test — the P6 acceptance entry point. It is offline, it
+    # writes NOTHING, and every case is an attack on the core identity/version rule. Rebuilding the real
+    # corpus graph (which reads the full corpus and writes the 28 MB GRAPH_OUT) is an explicit act,
+    # requested with `--build`, never the default.
+    if len(sys.argv) == 1 or '--self-test' in sys.argv:
         print('=== provenance.py SELF-TEST (every case is an attack on the core rule) ===\n')
         return self_test()
-    corpus = json.loads(CORPUS.read_text())
-    g = migrate(corpus)
-    census(g, corpus)
-    GRAPH_OUT.write_text(json.dumps(g.to_json(), indent=1))
-    print(f'\n  graph written to {GRAPH_OUT}  (all text retained — nothing deleted)')
+    if '--build' in sys.argv:
+        corpus = json.loads(CORPUS.read_text())
+        g = migrate(corpus)
+        census(g, corpus)
+        GRAPH_OUT.write_text(json.dumps(g.to_json(), indent=1))
+        print(f'\n  graph written to {GRAPH_OUT}  (all text retained — nothing deleted)')
+        return 0
+    print('usage: provenance.py [--self-test | --build]   (no args = --self-test)')
     return 0
 
 

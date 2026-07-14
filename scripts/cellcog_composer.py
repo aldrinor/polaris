@@ -235,14 +235,14 @@ def _fmt_cards(b: CardBundle, card_ids: list[str]) -> str:
     return '\n'.join(out)
 
 
-WRITE_PROMPT = """You are writing ONE subsection of an academic literature review on the restructuring impact of
-Artificial Intelligence on the labor market, for a top-tier journal audience.
+WRITE_PROMPT = """You are writing ONE subsection of an academic literature review on {subject}, for a
+top-tier journal audience.
 
 SECTION: {section}
 SUBSECTION: {sub}
 {plan}
-THE EVIDENCE. These are the ONLY facts you may state. Each is a VERBATIM SPAN from a peer-reviewed
-journal article, with the id of the card that holds it:
+THE EVIDENCE. These are the ONLY facts you may state. Each is a VERBATIM SPAN from a PERMITTED SOURCE
+(the source class the request allows), with the id of the card that holds it:
 
 {cards}
 {ledger}
@@ -399,6 +399,59 @@ OUTLINE = [
     ]),
 ]
 
+#: SOL P1: `OUTLINE` above is the DEMO / task-72 outline — it carries one benchmark's subject headings
+#: ('Fourth Industrial Revolution', 'labor share', …) and is used ONLY by the LLM demo writer path and by
+#: fixtures. A production run derives its outline from the compiled contract via
+#: `research_contract.derive_outline(contract)`; nothing may key a real review on these demo headings.
+DEMO_OUTLINE = OUTLINE
+
+
+def report_title(contract=None) -> str:
+    """The H1 title. Derived from the compiled contract (its title, else a titled form of its question);
+    NEVER a fixed task-72 string in production. Falls back to a subject-free generic only when no
+    contract is supplied (the demo/LLM path passes the real one)."""
+    if contract is not None:
+        t = (getattr(contract, 'title', '') or '').strip()
+        if t:
+            return t
+        q = (getattr(contract, 'question', '') or '').strip().rstrip('.?')
+        if q:
+            return q[0].upper() + q[1:]
+    return 'A Literature Review'
+
+
+def _subject_phrase(contract=None) -> str:
+    """A NEUTRAL noun phrase naming the review's own subject, taken from the compiled contract. No task
+    default: when no contract is supplied it says 'the reviewed literature', which names no domain."""
+    if contract is not None:
+        subj = (getattr(contract, 'review_subject', '') or '').strip()
+        if subj:
+            return subj
+        q = (getattr(contract, 'question', '') or '').strip().rstrip('.?')
+        if q:
+            # strip a leading imperative so 'Summarize the evidence on X' -> 'the evidence on X'
+            for lead in ('summarize ', 'summarise ', 'review ', 'analyze ', 'analyse ',
+                         'explain ', 'describe ', 'discuss ', 'assess ', 'evaluate '):
+                if q.lower().startswith(lead):
+                    q = q[len(lead):]
+                    break
+            return q
+    return 'the reviewed literature'
+
+
+def _source_policy_prose(contract=None) -> str:
+    """The Scope/Methods sentence about SOURCE SELECTION, rendered from
+    `Contract.source_policy.compliance_prose()` (Sol P1) — NOT a fixed 'peer-reviewed journal' string.
+    When the question imposed no source constraint, the policy prose is empty and we say only that
+    findings rest on the permitted sources, naming no source class the reviewer did not request."""
+    if contract is not None:
+        sp = getattr(contract, 'source_policy', None)
+        prose = sp.compliance_prose() if sp is not None and hasattr(sp, 'compliance_prose') else ''
+        if prose:
+            return prose
+    return ('This review draws on the sources permitted by the request, and admits a passage only where '
+            'the permitted source it is attributed to states the finding itself.')
+
 
 # ----------------------------------------------------------------- THE ABSTRACT — THROUGH THE AST
 #
@@ -408,55 +461,55 @@ OUTLINE = [
 # into the judged file WITHOUT PASSING THROUGH ANY GATE IN THIS FILE. It is now nodes, and it is
 # validated by exactly the same code as every other sentence.
 
-def abstract_nodes(b: CardBundle) -> list:
+def abstract_nodes(b: CardBundle, contract=None) -> list:
     """OWNED frame sentences: no source, no number, no new particular. That is all the law permits a
     sentence licensed by nothing — and it is now ENFORCED by the same premise-free OWNED gate every
     sentence below passes (report_ast `_owned_frame_particular`), not merely intended in this docstring.
 
-    The Objective sentence used to be the live bypass Sol named (SOL_BURN_V10 §2): as an Owned() with no
-    premises it asserted, in the reviewer's own voice, that AI *is* a general-purpose technology of the
-    *Fourth Industrial Revolution* and *is restructuring* work — a categorical factual claim, licensed by
-    nothing, carrying a named entity ("Fourth Industrial Revolution") the review had not earned. It now
-    names the review's SUBJECT without asserting the finding: what the relationship is, is left to the
-    body, where every claim is bound to a span."""
-    return [
+    Sol P1: the WORDING IS DERIVED FROM THE COMPILED CONTRACT. The Objective names the review's own
+    subject (`contract.review_subject` / question), never a fixed 'artificial intelligence and the
+    restructuring of labor markets'. The Methods sentence about source selection is rendered from
+    `Contract.source_policy.compliance_prose()`, so a review that imposed no journal-only constraint does
+    not claim to have imposed one. A clinical, legal or CS contract yields a clinical, legal or CS frame
+    with no per-domain edit here."""
+    subject = _subject_phrase(contract)
+    nodes = [
         Heading(2, 'Abstract'),
-        Owned(text='**Objective.** This review examines the peer-reviewed evidence on artificial '
-                   'intelligence and the restructuring of labor markets across industries.'),
-        ParagraphBreak(),
-        # The first draft of THIS sentence said "...whose full text was retrieved and verified", and the
-        # gate deleted it as META_COMMENTARY. It was right to: "retrieved" is a fact about a pipeline,
-        # and a literature review has no pipeline. Then the PUBLISHER refused the next draft, because
-        # it packed two sentences into one node and the sidecar could not issue a receipt for either.
-        # The law caught its own author twice, in the one lane that used to have no gate at all.
-        Owned(text='**Methods.** The review draws exclusively on peer-reviewed, English-language '
-                   'journal articles.'),
-        Owned(text='Every finding below is taken from a verbatim passage of the article it is credited '
-                   'to, and no finding is stated that its cited article does not itself state.'),
-        ParagraphBreak(),
-        Owned(text='**Scope.** Where only a working-paper or preprint version of a study could be '
-                   'obtained, that study is excluded from the findings rather than cited as though the '
-                   'journal article of record had been read.'),
+        Owned(text=f'**Objective.** This review examines the evidence on {subject}.'),
         ParagraphBreak(),
     ]
+    src = _source_policy_prose(contract)
+    if src:
+        nodes.append(Owned(text=f'**Methods.** {src}'))
+    nodes += [
+        Owned(text='Every finding below is taken from a verbatim passage of the source it is credited '
+                   'to, and no finding is stated that its cited source does not itself state.'),
+        ParagraphBreak(),
+    ]
+    return nodes
 
 
-def methods_nodes(b: CardBundle) -> list:
+def methods_nodes(b: CardBundle, contract=None) -> list:
+    """Scope, Methods & Source Selection. Sol P1: the source-policy prose is DERIVED from the compiled
+    contract's `source_policy.compliance_prose()`, not a fixed 'peer-reviewed journals only' string.
+    The evidence-base count is a fact about THIS document (spelled, never a digit in an owned sentence).
+    """
     n_cards = len(b.admitted_ids())
     n_units = len({b.resolve(c).work_id for c in b.admitted_ids()})
-    return [
-        Heading(2, 'Scope, Methods, and Source Selection'),
-        Owned(text='**Source policy.** Only articles published in peer-reviewed journals are cited.'),
-        Owned(text='Working papers, preprints, accepted manuscripts, landing pages and abstracts are '
-                   'excluded from the evidence base, and are retained only as leads to a published '
-                   'version of record.'),
+    heading = 'Scope, Methods, and Source Selection'
+    nodes = [Heading(2, heading)]
+    src = _source_policy_prose(contract)
+    if src:
+        nodes.append(Owned(text=f'**Source policy.** {src}'))
+    nodes += [
         ParagraphBreak(),
         Owned(text=f'**Evidence base.** The findings below rest on {_spell(n_cards)} verified passages '
-                   f'drawn from {_spell(n_units)} peer-reviewed studies.'),
-        Owned(text='A passage is admitted only where the article\'s own text states the finding '
+                   f'drawn from {_spell(n_units)} permitted sources.'),
+        Owned(text='A passage is admitted only where the source\'s own text states the finding '
                    'attributed to it.'),
         ParagraphBreak(),
     ]
+    return nodes
 
 
 _WORDS = {0: 'no', 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven',
@@ -827,7 +880,12 @@ def _ledger_gate(nodes: list, lic: Licence, comp_ids: set[str], sub: str) -> tup
 # ----------------------------------------------------------------- compose
 
 def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: str,
-                 expect_cards_sha: str = '', expect_graph_sha: str = '', dry: bool = False) -> int:
+                 expect_cards_sha: str = '', expect_graph_sha: str = '', dry: bool = False,
+                 contract=None) -> int:
+    """`contract` (Sol P1) is the compiled `research_contract.Contract`. Its question/title, outline and
+    `source_policy.compliance_prose()` drive the report's title, abstract and methods wording — there is
+    NO fixed task-72 title or subject baked into this runtime path. When it is absent, the frame degrades
+    to a subject-free generic, never to a benchmark's subject."""
     b = load_bundle(cards_path, graph_path, ledger_path, policy, expect_cards_sha, expect_graph_sha)
 
     # ============ BEFORE ANY LLM CALL ============
@@ -932,7 +990,8 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
             return job, list(owned), ['--dry: no LLM call']
         if not sel:
             return job, list(owned), (['no cards selected'] if not owned else [])
-        prompt = WRITE_PROMPT.format(section=sec, sub=sub, plan=_plan_brief(comps),
+        prompt = WRITE_PROMPT.format(subject=_subject_phrase(contract), section=sec, sub=sub,
+                                     plan=_plan_brief(comps),
                                      cards=_fmt_cards(b, sel), ledger=_ledger_brief(b, lic),
                                      connectives=', '.join(NEUTRAL_CONNECTIVES))
         try:
@@ -966,11 +1025,13 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
             print(f'  [{n_a:>2} attributed | {n_o:>2} owned]  {job[1][:56]}')
 
     # ---- ASSEMBLE THE AST. Every node — abstract, methods, table, body — is the same type.
-    nodes: list = [Heading(1, 'The Restructuring Impact of Artificial Intelligence on the Labor Market')]
-    nodes += abstract_nodes(b)
-    nodes += methods_nodes(b)
+    # Sol P1: the title and frame are DERIVED from the compiled contract, never a fixed task string.
+    nodes: list = [Heading(1, report_title(contract))]
+    nodes += abstract_nodes(b, contract)
+    nodes += methods_nodes(b, contract)
     tbl = table_card_ids(b)
-    for i, (sec, subs) in enumerate(OUTLINE):
+    _outline = (getattr(contract, 'outline', None) or OUTLINE) if contract is not None else OUTLINE
+    for i, (sec, subs) in enumerate(_outline):
         if sec == 'Scope, Methods, and Source Selection':
             continue                      # already emitted, as nodes, above
         body: list = []

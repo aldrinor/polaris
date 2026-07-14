@@ -141,6 +141,12 @@ class SourcePolicy:
     quality_bar: str = ''
     recency_from: int | None = None
     question_evidence: list[str] = field(default_factory=list)   # VERBATIM spans of the question
+    #: THE ADJUSTABLE VERSION POLICY, inferred from the ORIGINAL prompt by `derive_version_scope`.
+    #: Two states only: 'JOURNAL_ONLY' (a clause POSITIVELY demanded a published/peer-reviewed/journal
+    #: source class) or 'ANY_VERSION' (the default — no such demand). It is what the miner maps onto a
+    #: provenance.SourcePolicy; the LLM contract compiler may neither invent nor broaden it.
+    version_scope: str = "ANY_VERSION"
+    version_scope_evidence: list[str] = field(default_factory=list)  # VERBATIM justifying clause(s)
 
     def compliance_prose(self) -> str:
         """What the Scope & Methods section must SAY. On a question graded 'only cites high-quality
@@ -247,6 +253,67 @@ _RECENCY = re.compile(r'(?:since|after|from|published in or after|past\s+\d+\s+y
                       r'((?:19|20)\d\d)', re.I)
 
 
+# ── THE ADJUSTABLE VERSION POLICY, DERIVED FROM THE PROMPT (Sol binding-gate P1S) ─────────────────
+#
+# `derive_version_scope` is the ONE positive-proof rule that decides whether the answer is confined to
+# the JOURNAL/PUBLISHED source class. It is CLAUSE-SCOPED: a source-class demand and the directive that
+# binds it must live in the SAME clause, and negation or widening in that clause defeats the reading.
+# It carries NO subject, DOI, title, author, venue or benchmark literal — it fires on structural source-
+# class + directive signal only, so it is identical across clinical, legal, economics and CS prompts.
+
+#: A demand for a PUBLISHED / PEER-REVIEWED / JOURNAL source CLASS. A bare "journals" or "publication"
+#: is NOT here on purpose: mere mention or comparison of source types is not a directive.
+_VS_SOURCE_CLASS = re.compile(
+    r'\b(?:journal\s+(?:article|source|publication|literature)s?'
+    r'|peer[-\s]?reviewed\s+(?:article|source|publication|literature)s?'
+    r'|published\s+(?:article|study|source|paper)s?)\b', re.I)
+
+#: A DIRECTIVE or EXCLUSIVITY relation that turns a source class into an INSTRUCTION.
+_VS_DIRECTIVE = re.compile(
+    r'\b(?:use|using|cite|citing|include|including|draw\s+on|drawing\s+on|rely\s+on|relying\s+on|'
+    r'restrict(?:ed)?\s+to|limit(?:ed)?\s+to|must\s+be|should\s+be|ensure\s+(?:that\s+)?sources\s+are|'
+    r'only|exclusively|solely)\b', re.I)
+
+#: NEGATION or WIDENING in the SAME clause DEFEATS the journal-only reading. "not limited to journals",
+#: "do not restrict to journals", "... and preprints", "include working papers".
+_VS_WIDEN = re.compile(
+    r'\bnot\s+(?:be\s+)?limited\s+to\b'
+    r'|\bdo\s+not\s+(?:restrict|limit)\b'
+    r"|\bdon'?t\s+(?:restrict|limit)\b"
+    r'|\b(?:and|or|include|including|plus)\s+(?:preprint|working\s+paper|accepted\s+manuscript|'
+    r'unpublished|manuscript)s?\b', re.I)
+
+
+def derive_version_scope(question: str) -> tuple[str, list[str]]:
+    """Infer the ADJUSTABLE version policy from the ORIGINAL prompt, clause by clause.
+
+    Returns ("JOURNAL_ONLY", [verbatim clause(s)]) ONLY when some clause POSITIVELY directs the system
+    to use a published / peer-reviewed / journal source class -- a source-class phrase AND a directive
+    or exclusivity relation in the SAME clause, with no negation or widening in that clause. Otherwise
+    ("ANY_VERSION", []).
+
+    POSITIVE PROOF ONLY. Mere discussion of journals, publication, or peer review, and comparisons
+    between source types, never set the gate. The returned clauses are the exact spans that justified
+    the restriction; a caller may narrow but never broaden this value.
+    """
+    q = question or ''
+    evidence: list[str] = []
+    for clause in re.split(r'[.;\n]', q):
+        c = clause.strip()
+        if not c:
+            continue
+        if not _VS_SOURCE_CLASS.search(c):
+            continue                       # no source-class demand in this clause
+        if not _VS_DIRECTIVE.search(c):
+            continue                       # a source class mentioned but not COMMANDED
+        if _VS_WIDEN.search(c):
+            continue                       # negation / widening in the SAME clause defeats it
+        evidence.append(c)
+    if evidence:
+        return 'JOURNAL_ONLY', _dedup(evidence)
+    return 'ANY_VERSION', []
+
+
 def _floor_source_policy(q: str) -> SourcePolicy:
     """Detect the constraints that are cheap to detect. The LLM cannot argue these away."""
     sp = SourcePolicy()
@@ -270,6 +337,8 @@ def _floor_source_policy(q: str) -> SourcePolicy:
     if sp.peer_reviewed_only:
         sp.excluded_types = list(_EXCLUDE_IF_PEER_REVIEWED)
     sp.question_evidence = _dedup(sp.question_evidence)
+    # THE VERSION SCOPE IS SET EXCLUSIVELY HERE, through the one prompt-derivation rule.
+    sp.version_scope, sp.version_scope_evidence = derive_version_scope(q)
     return sp
 
 
@@ -525,6 +594,10 @@ def compile_contract(question: str, question_id: int | None = None, *, use_llm: 
     )
     if sp.peer_reviewed_only and not sp.excluded_types:
         sp.excluded_types = list(_EXCLUDE_IF_PEER_REVIEWED)
+    # THE VERSION SCOPE IS PROMPT-DERIVED AND NON-NEGOTIABLE: the model may not invent or broaden it,
+    # so it is carried straight from the floor (which set it via derive_version_scope on the question).
+    sp.version_scope = floor.version_scope
+    sp.version_scope_evidence = floor.version_scope_evidence
 
     # ---- the rest ------------------------------------------------------------------------------
     ax = d.get('subject_axis') or {}

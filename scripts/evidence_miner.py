@@ -289,26 +289,53 @@ def _source_policy_from(sp) -> object:
     EXPRESSIONS a span may therefore name). Two modules, two vocabularies, ONE instruction — and the
     translation between them is the only place the task's rule becomes a rule about bytes.
 
-    Task 72 says "only cites high-quality journal articles". That is not a preference about metadata:
-    it means a span from the NBER working paper MAY NOT BE PRINTED under the JPE's name, however
-    verbatim the span and however real the DOI.
+    THIS IS A TWO-STATE POLICY, keyed ONLY on the prompt-derived `version_scope` (research_contract.
+    derive_version_scope). The old inference read `peer_reviewed_only + excluded_types`, and it invented
+    a third `PEER_REVIEWED` state that this gate does not model — both are gone. A source-class demand
+    means a span from the NBER working paper MAY NOT BE PRINTED under the journal's name, however
+    verbatim the span; the absence of one means ANY identified version may name its OWN expression.
     """
     P = prov()
     if sp is None:
         return P.ANY_VERSION
     get = (lambda k: sp.get(k)) if isinstance(sp, dict) else (lambda k: getattr(sp, k, None))
-    if not get('peer_reviewed_only'):
+    return P.JOURNAL_ONLY if get('version_scope') == 'JOURNAL_ONLY' else P.ANY_VERSION
+
+
+def _provenance_policy_for(question: str) -> object:
+    """THE ONE PLACE the provenance source policy is decided, and it is decided from the ORIGINAL
+    question — never from a cached or foreign contract. Two states only (Sol P1S): a clause that
+    positively demands a published/peer-reviewed/journal source class -> JOURNAL_ONLY; otherwise
+    ANY_VERSION. Positive proof only, so a missing/empty/unparsable question fails to the wider policy,
+    which cannot fabricate — it only lets an expression name its OWN version."""
+    P = prov()
+    if not question:
         return P.ANY_VERSION
-    excluded = [str(x).lower() for x in (get('excluded_types') or [])]
-    if any('proceeding' in x or 'conference' in x for x in excluded):
-        return P.JOURNAL_ONLY
-    return P.PEER_REVIEWED
+    try:
+        import research_contract as rc  # type: ignore
+        scope, _ev = rc.derive_version_scope(question)
+    except Exception as e:                # noqa: BLE001 — a derivation failure must not fail open loudly
+        log(f'  [contract] version-scope derivation failed ({type(e).__name__}: {e}); ANY_VERSION')
+        return P.ANY_VERSION
+    return P.JOURNAL_ONLY if scope == 'JOURNAL_ONLY' else P.ANY_VERSION
+
+
+def _finalize_contract(c: MiningContract, question: str) -> MiningContract:
+    """THE SINGLE FINALIZER every return path of load_contract passes through. Whatever taxonomy the
+    contract carries, the PROVENANCE POLICY is (re)derived here from the original question, so a cached
+    contract compiled for a different prompt — or an explicit-facets call with no source demand — can
+    never smuggle a stale source policy into the gate."""
+    c.source_policy = _provenance_policy_for(question)
+    return c
 
 
 def load_contract(question: str = '', facets: list | None = None) -> MiningContract:
     """explicit facets > research_contract.py > a cached contract JSON > the bare question > nothing.
     NEVER raises. NEVER blocks. A miner that cannot mine without another agent's module is not a
-    miner, it is a dependency."""
+    miner, it is a dependency.
+
+    EVERY return passes through `_finalize_contract`, so the source policy is derived from the ORIGINAL
+    question on every path, not inherited from whichever contract happened to answer."""
     if facets:
         terms = []
         for f in facets:
@@ -320,7 +347,7 @@ def load_contract(question: str = '', facets: list | None = None) -> MiningContr
                 terms.append({'key': f, 'label': f, 'aliases': [f]})
         c = MiningContract(question=question, families=[_family('facet', terms)], origin='argument')
         log(f'  [contract] {len(terms)} facets passed in by the caller')
-        return c
+        return _finalize_contract(c, question)
 
     if question:
         try:
@@ -331,7 +358,7 @@ def load_contract(question: str = '', facets: list | None = None) -> MiningContr
                 log(f'  [contract] research_contract.compile_contract() -> '
                     f'{sum(len(f.matchers) for f in c.families)} terms across '
                     f'{len(c.families)} families ({", ".join(f.axis for f in c.families)})')
-                return c
+                return _finalize_contract(c, question)
         except Exception as e:
             log(f'  [contract] research_contract.py did not yield a contract ({type(e).__name__}: {e})')
 
@@ -354,7 +381,7 @@ def load_contract(question: str = '', facets: list | None = None) -> MiningContr
                     c.origin = f'cache:{p.name}'
                     log(f'  [contract] reusing the contract compiled for THIS question ({p.name}, '
                         f'{sum(len(f.matchers) for f in c.families)} terms)')
-                    return c
+                    return _finalize_contract(c, question)
             except Exception:
                 continue
 
@@ -363,12 +390,14 @@ def load_contract(question: str = '', facets: list | None = None) -> MiningContr
         terms = sorted({w for w in words if w not in _STOP})
         if terms:
             log(f'  [contract] no research_contract — falling back to {len(terms)} question terms')
-            return MiningContract(question=question, origin='question',
-                                  families=[_family('topic', [{'key': t, 'label': t, 'aliases': [t]}
-                                                              for t in terms])])
+            return _finalize_contract(
+                MiningContract(question=question, origin='question',
+                               families=[_family('topic', [{'key': t, 'label': t, 'aliases': [t]}
+                                                           for t in terms])]),
+                question)
 
     log('  [contract] no contract, no question — mining FACET-AGNOSTICALLY (no gate is affected)')
-    return MiningContract(question=question, origin='none')
+    return _finalize_contract(MiningContract(question=question, origin='none'), question)
 
 
 # =============================================================================================
@@ -1341,7 +1370,7 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
     document named was not the document the span came from.
     """
     P = prov()
-    policy = source_policy or getattr(contract, 'source_policy', None) or P.JOURNAL_ONLY
+    policy = source_policy or getattr(contract, 'source_policy', None) or P.ANY_VERSION
 
     # ---- GATE 1: the span must be VERBATIM AND WHOLE in the source, and we keep the SOURCE's copy.
     loc = locate_span(view, raw.get('span') or '', chunk.v_start, chunk.v_end)
@@ -1398,7 +1427,10 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
         rejects['span_binding_mismatch'] += 1
         return None
 
-    target = graph.resolve_attribution(mid, policy)
+    # Sol binding-gate inv 7: resolve the BINDING we just built, not the bare manifestation id — the
+    # bare-id call discards this span's binding, skips verify_span(), and forecloses legitimate
+    # span-specific correspondence. The binding carries manifestation_id, so identity still applies.
+    target = graph.resolve_attribution(binding, policy)
     if not target.admitted:
         # A REAL span, from a REAL document, that THIS TASK'S INSTRUCTION does not permit us to cite.
         # It is not a defect in the evidence and it is not deleted: it is quarantined, with its reason,
@@ -2154,18 +2186,50 @@ def _mining_units(graph, corpus: list[dict], policy) -> tuple[list[dict], dict]:
         if m.text_field == 'abstract':
             abstracts.setdefault(m.work_id, m.text)
 
+    # ── P4: PRE-SKIP IDENTITY FAILURES BEFORE THE LLM (Sol build-plan P4) ─────────────────────────────
+    # A manifestation whose STRUCTURED reason_code says its identity can NEVER be attributed — a
+    # different work, an unresolved binding, an unknown/tampered verdict, or an impossible version pair —
+    # cannot yield an admissible card no matter what the miner extracts, so paying the LLM to mine it is
+    # pure waste. This is ONLY a spend optimization: the SAME universal resolver that card construction
+    # calls (gate_card → resolve_attribution) is called here, and we switch on the machine token alone,
+    # never on prose. We do NOT pre-skip VERSION_NOT_PERMITTED from the whole-manifestation answer: a
+    # verified EXACT-SPAN correspondence may still let a particular span name a permitted expression even
+    # when the whole manifestation cannot (e.g. a preprint whose one span exactly copies the journal).
+    P = prov()
+    _PRESKIP_BUCKETS = {
+        P.RC_IDENTITY_UNRESOLVED:      'identity_unresolved_lead',
+        P.RC_IDENTITY_DIFFERENT_WORK:  'different_work_quarantine',
+        P.RC_IDENTITY_UNKNOWN_VERDICT: 'identity_integrity_quarantine',
+        P.RC_DERIVATION_CONFLICT:      'derivation_conflict_quarantine',
+    }
+
     units: list[dict] = []
     skipped: dict[str, list] = {}
     for mid, m in sorted(graph.manifestations.items()):
         w = graph.works[m.work_id]
         prof = m.profile
+        # Ask the universal resolver FIRST. The identity and pair gates precede completeness inside it,
+        # so a different-work/unresolved/unknown/conflicting manifestation is caught here even when its
+        # bytes are also incomplete — identity failure is the more fundamental fact to record.
+        att = graph.resolve_attribution(mid, policy)
+        bucket = _PRESKIP_BUCKETS.get(att.reason_code)
+        if bucket is not None:
+            skipped.setdefault(bucket, []).append({
+                'manifestation_id': mid,
+                'work_id': m.work_id,
+                'content_hash': m.content_hash,
+                'identity_verdict': att.identity_verdict,
+                'disposition': att.disposition,
+                'reason_code': att.reason_code,
+                'why': att.refusal,
+            })
+            continue
         if not prof.get('complete'):
             why = '; '.join(prof.get('incomplete_because') or ['not a usable document'])
             skipped.setdefault(prof.get('artifact_kind', 'unknown'), []).append(
                 {'manifestation_id': mid, 'work': w.title[:60], 'doi': w.doi, 'why': why,
                  'n_words': m.n_words})
             continue
-        att = graph.resolve_attribution(mid, policy)
         units.append({
             # THE PAPER DICT IS BUILT FROM THE GRAPH. Not one field of it is copied off the corpus row,
             # because `row['attribution']` on the Acemoglu-Restrepo row says "Journal of Political
@@ -2195,7 +2259,20 @@ def mine(corpus_path: Path, question: str = '', facets: list | None = None, use_
     P = prov()
     if graph is None:
         graph = P.migrate(corpus)
-    policy = source_policy or contract.source_policy
+    # THE PROMPT DECIDES THE POLICY. When there is a question, the policy derived from it (already set
+    # on the contract by load_contract's finalizer) is AUTHORITATIVE; an explicit source_policy that
+    # DISAGREES with it is a policy-laundering attempt and is refused. An explicit policy is honoured
+    # only for the low-level, question-less callers (tests) where there is no prompt to derive from.
+    if question:
+        derived = contract.source_policy
+        if source_policy is not None and getattr(source_policy, 'name', None) != derived.name:
+            raise ValueError(
+                f'explicit source_policy {getattr(source_policy, "name", source_policy)!r} disagrees '
+                f'with the policy derived from the prompt ({derived.name!r}); the prompt is '
+                f'authoritative and this override is refused')
+        policy = derived
+    else:
+        policy = source_policy or contract.source_policy
 
     usable, skipped = _mining_units(graph, corpus, policy)
     if limit:
@@ -2473,11 +2550,14 @@ def self_test() -> int:
     JOURNAL_SRC = (f'Robots and Jobs: Evidence from US Labor Markets\n'
                    f'doi: 10.1086/705716\n'
                    f'1. Introduction\n{FILLER}\n{RESULTS}')
-    row_j = {'doi': '10.x/y', 'title': 'Robots and Jobs: Evidence from US Labor Markets',
+    # The requested DOI MATCHES the DOI the bytes self-identify with, so the identity reducer proves
+    # SAME_WORK from the front matter (a mismatched requested DOI would be DIFFERENT_WORK and quarantine
+    # every card built on it — the gate is doing its job, so the fixture must be an HONEST journal article).
+    row_j = {'doi': '10.1086/705716', 'title': 'Robots and Jobs: Evidence from US Labor Markets',
              'authors': ['Acemoglu', 'Restrepo'], 'venue': 'Journal of Political Economy',
              'year': 2020, 'type': 'journal-article', 'fulltext': JOURNAL_SRC, 'abstract': ''}
     G = build_graph([row_j])
-    MID = manif_of(G, '10.x/y')
+    MID = manif_of(G, '10.1086/705716')
     ck('the synthetic journal article profiles as a COMPLETE journal_article (derived, not stamped)',
        G.manifestations[MID].profile['artifact_kind'] == 'journal_article'
        and G.manifestations[MID].profile['complete'],
@@ -2492,7 +2572,7 @@ def self_test() -> int:
     ck('100% of the text is chunked',
        sum(c.v_end - c.v_start for c in chunks) >= len(view.text) - 2)
 
-    paper = {'doi': '10.x/y', 'authors': ['Acemoglu'], 'year': 2020, 'venue': 'JPE',
+    paper = {'doi': '10.1086/705716', 'authors': ['Acemoglu'], 'year': 2020, 'venue': 'JPE',
              'title': 'Robots and Jobs', 'abstract': '', 'attribution': 'W', 'attribution_short': 'S',
              '_source_version': 'abc', '_text_field': 'fulltext', 'manifestation_id': MID}
     ch = [c for c in chunks if 'robot per thousand' in c.text][0]
@@ -2733,26 +2813,30 @@ def self_test() -> int:
     #
     # A SECOND STUDY that finds the same thing is CORROBORATION, which is the strongest thing a review
     # can show. A SECOND VERSION OF THE SAME STUDY is not — it is one study, reported twice.
-    row_g = {'doi': '10.z/w', 'title': 'Robots at Work in Europe',
+    row_g = {'doi': '10.1162/rest', 'title': 'Robots at Work in Europe',
              'authors': ['Graetz'], 'venue': 'Review of Economics and Statistics', 'year': 2018,
              'type': 'journal-article',
              'fulltext': f'Robots at Work in Europe\ndoi: 10.1162/rest\n1. Introduction\n{FILLER}\n{RESULTS}',
              'abstract': ''}
     # THE ACEMOGLU-RESTREPO CASE, EXACTLY: the SAME DOI (one work) whose bytes are the NBER WORKING
     # PAPER. A different document, a different expression — the SAME STUDY.
-    row_wp = {'doi': '10.x/y', 'title': 'Robots and Jobs: Evidence from US Labor Markets',
+    # The SAME work (same requested DOI) rendered as its NBER working paper: the bytes self-identify with
+    # the requested DOI (so identity is proven) AND carry a working-paper stamp that vetoes the published
+    # furniture, so the ONE reducer derives VERSION_OF_PREPRINT / working_paper for this manifestation.
+    row_wp = {'doi': '10.1086/705716', 'title': 'Robots and Jobs: Evidence from US Labor Markets',
               'authors': ['Acemoglu', 'Restrepo'], 'venue': 'Journal of Political Economy',
               'year': 2020, 'type': 'journal-article',
               'fulltext': (f'Robots and Jobs: Evidence from US Labor Markets\n'
-                           f'NBER Working Paper No. 23285\n1. Introduction\n{FILLER}\n{RESULTS}'),
+                           f'NBER Working Paper No. 23285\ndoi: 10.1086/705716\n'
+                           f'1. Introduction\n{FILLER}\n{RESULTS}'),
               'abstract': ''}
     G2 = build_graph([row_j, row_g, row_wp])
-    MID_J = manif_of(G2, '10.x/y', 'fulltext')
+    MID_J = manif_of(G2, '10.1086/705716', 'fulltext')
     MID_WP = [m for m, x in G2.manifestations.items()
-              if G2.works[x.work_id].doi == '10.x/y' and m != MID_J]
+              if G2.works[x.work_id].doi == '10.1086/705716' and m != MID_J]
     # migrate() hashes bytes, so the journal and the working-paper renderings are two manifestations
     MID_WP = MID_WP[0] if MID_WP else MID_J
-    MID_G = manif_of(G2, '10.z/w', 'fulltext')
+    MID_G = manif_of(G2, '10.1162/rest', 'fulltext')
     ck('two renderings of ONE study are TWO manifestations of ONE work',
        G2.manifestations[MID_J].work_id == G2.manifestations[MID_WP].work_id and MID_J != MID_WP,
        f'{G2.manifestations[MID_J].work_id} vs {G2.manifestations[MID_WP].work_id}')
@@ -2766,7 +2850,7 @@ def self_test() -> int:
         chunk_document('w', G2.manifestations[MID_WP].text))
 
     p_j = dict(paper, manifestation_id=MID_J)
-    p_g = dict(paper, doi='10.z/w', authors=['Graetz'], manifestation_id=MID_G)
+    p_g = dict(paper, doi='10.1162/rest', authors=['Graetz'], manifestation_id=MID_G)
     p_w = dict(paper, manifestation_id=MID_WP)
     c_a = gate_card(dict(base), v_j, ch_j, p_j, pw, MC, new_rejects(), graph=G2,
                     source_policy=P.ANY_VERSION)
@@ -2888,14 +2972,19 @@ def self_test() -> int:
     # TYPED EVIDENCE ACTS — Sol (c). The judicial opinion that produced ZERO cards.
     # =========================================================================================
     print('\n  -- TYPED EVIDENCE ACTS (the registry, and the sources it used to destroy) --')
+    # The opinion self-identifies with a DISTINCTIVE case name in its own front matter (>=4 content
+    # words), so the identity reducer proves SAME_WORK for the typed opinion. A 3-word generic name
+    # ("Smith v. Acme") would be a TITLE COLLISION -> UNRESOLVED -> not attributable, which is the gate
+    # protecting against exactly the generic-title collision this suite is NOT trying to exercise here.
     OPINION = ('SUPREME COURT OF THE UNITED STATES\n'
-               'Smith v. Acme Logistics\n'
+               'Smith versus Acme Logistics Holdings Incorporated\n'
                'Opinion of the Court\n'
                'The question presented is whether an employer may rely on an automated system it '
                'cannot explain. We hold that an employer remains liable for an adverse employment '
                'decision produced by an algorithmic system whose reasoning it cannot explain to the '
                'affected employee. The judgment of the Court of Appeals is affirmed.\n')
-    row_op = {'doi': '', 'title': 'Smith v. Acme Logistics', 'authors': [], 'venue': 'US Reports',
+    row_op = {'doi': '', 'title': 'Smith versus Acme Logistics Holdings Incorporated', 'authors': [],
+              'venue': 'US Reports',
               'year': 2021, 'type': 'judicial-opinion', 'fulltext': OPINION, 'abstract': ''}
     GO = build_graph([row_op])
     MID_OP = next(iter(GO.manifestations))
@@ -2914,7 +3003,8 @@ def self_test() -> int:
        seen > 0, f'blocks examined={seen}, no-act={noact}')
 
     p_op = {'doi': '', 'authors': [], 'year': 2021, 'venue': 'US Reports',
-            'title': 'Smith v. Acme Logistics', 'abstract': '', 'manifestation_id': MID_OP,
+            'title': 'Smith versus Acme Logistics Holdings Incorporated', 'abstract': '',
+            'manifestation_id': MID_OP,
             '_source_version': 'x', '_text_field': 'fulltext'}
     pw_op = paper_window(v_op, ch_ops, p_op)
     holding = {
@@ -3072,6 +3162,11 @@ def main() -> int:
     ap.add_argument('--workers', type=int, default=8)
     ap.add_argument('--limit', type=int, default=None, help='first N papers (smoke test)')
     ap.add_argument('--max-chunks-per-paper', type=int, default=0, help='0 = all')
+    # A BARE INVOCATION (`python scripts/evidence_miner.py`, no arguments) runs the embedded adversarial
+    # self-test, NEVER a live mine. This is the P6 acceptance entry point: it must exit 0 offline and it
+    # MUST NOT invoke OpenRouter or write to outputs/. A real mine is an explicit, argument-bearing act.
+    if len(sys.argv) == 1:
+        return self_test()
     a = ap.parse_args()
 
     if a.self_test:

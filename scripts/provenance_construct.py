@@ -190,7 +190,14 @@ def construct(ledger: Ledger, graph: Graph | None = None, blobs: BlobStore | Non
                 locator=m.get('locator') or None,
                 locator_status=_locator_status(m),
                 claimed_id=claimed_id, claimed_kind=claimed_kind,
-                independent_abstract=indep if field == 'fulltext' else '')
+                independent_abstract=indep if field == 'fulltext' else '',
+                # RAW-ARTIFACT LINEAGE (Sol P5). The ledger's MANIFESTATION_FETCHED carries the
+                # immutable raw blob id, its byte hash and the fetched content type, WRITTEN AT FETCH.
+                # These let machine-metadata identity receipts be derived from the raw PDF/HTML/XML and
+                # revalidated against it — the row could never carry them; the ledger did not forget.
+                raw_blob_id=m.get('blob_id') or '',
+                raw_content_hash=m.get('byte_sha256') or '',
+                content_type=m.get('content_type') or '')
             stats['manifestations'] += 1
             if ':quarantine:' in g.manifestations[mid].expression_id:
                 stats['quarantined'] += 1
@@ -213,7 +220,7 @@ def main() -> int:
     g = None
     if not rebuild and GRAPH_OUT.exists():
         try:
-            g = Graph.from_json(json.loads(GRAPH_OUT.read_text()))
+            g = Graph.from_json(json.loads(GRAPH_OUT.read_text()), blob_store=blobs)
             print(f'  extending the graph on disk: {len(g.works)} works, '
                   f'{len(g.manifestations)} manifestations')
         except GraphIntegrityError as e:
