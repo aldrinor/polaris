@@ -72,6 +72,13 @@ from provenance import (  # noqa: E402
     # ONE definition of "what is a repository cover sheet", shared with the provenance lane. Two
     # copies of this pattern would drift, and the one that drifts is always the one a gate reads.
     _COVER_SHEET,
+    # ...and ONE definition of "which stamps mark an accepted manuscript", for the SAME reason. This
+    # used to be a SECOND copy (`_ACCEPTED_STAMP`, hand-maintained here) and the two DID drift: hop 6
+    # widened provenance._AM_MARK to catch the NIH author-manuscript tells ("author manuscript;
+    # available in PMC", "NIHMS<digits>") and this file's copy never learned them, so an NIH accepted
+    # manuscript that provenance ruled `accepted_manuscript` was scored VERSION_PUBLISHED here and
+    # became journal evidence. There is now ONE detector, imported, so the two lanes CANNOT diverge.
+    _AM_MARK as _ACCEPTED_STAMP,
 )
 
 CORPUS = ROOT / 'outputs' / 'journal_corpus_content.json'
@@ -390,10 +397,11 @@ _CHROME = re.compile(
     re.I)
 _PUBLISHED_STAMP = re.compile(r'published version|version of record|\(refereed\)|original citation', re.I)
 
-#: ══ THE ACCEPTED-MANUSCRIPT STAMP — THE V9 P0'S FIFTH HOP ════════════════════════════════════════
+#: ══ THE ACCEPTED-MANUSCRIPT STAMP — THE V9 P0'S FIFTH HOP, AND ITS SEVENTH ══════════════════════════
 #:
 #: `_PUBLISHED_STAMP` above matches the phrase "published version". A repository cover sheet prints that
-#: phrase IN TWO OPPOSITE SENSES, and until this stamp existed the reducer could not tell them apart:
+#: phrase IN TWO OPPOSITE SENSES, and until an accepted-manuscript stamp existed the reducer could not
+#: tell them apart:
 #:
 #:    LSE, on the file that IS the AER article:
 #:        "Article (Published version) (Refereed)"        <- the library says: THIS FILE is the VoR
@@ -406,13 +414,14 @@ _PUBLISHED_STAMP = re.compile(r'published version|version of record|\(refereed\)
 #: VERSION_PUBLISHED, `derive_eligibility` returned ADMISSIBLE, and an accepted manuscript became
 #: journal evidence — the SAME P0 as the census ladder, in a different file, reached by a different road.
 #:
-#: So the sense is now decided by an explicit stamp, and this one CANNOT match LSE's "(Published
-#: version) (Refereed)" — it matches only a statement that the file underneath is THE AUTHOR'S.
-_ACCEPTED_STAMP = re.compile(
-    r"(author[- ]?(produced|accepted|final)[- ]?(version|manuscript)"
-    r"|author'?s? (accepted|final) (version|manuscript)"
-    r"|accepted (manuscript|version)|post[- ]?print"
-    r"|this is an? (author|accepted)|this is the (author|accepted))", re.I)
+#: `_ACCEPTED_STAMP` IS NO LONGER DEFINED HERE. It WAS — a second, hand-maintained copy of the same
+#: pattern that lives in provenance._AM_MARK — and the two DIVERGED, which is the seventh hop: hop 6
+#: widened `_AM_MARK` to catch the NIH author-manuscript tells ("author manuscript; available in PMC",
+#: "NIHMS<digits>") and this copy never learned them, so `derive_semantic_binding` scored an NIH
+#: accepted manuscript VERSION_PUBLISHED while provenance ruled it `accepted_manuscript`. Two detectors
+#: for ONE question ("which stamps mark an accepted manuscript") is two answers waiting to disagree, and
+#: the one that drifts is always the one a gate reads. So the name now BINDS THE IMPORTED `_AM_MARK`
+#: (see the import at the top of this file): ONE statement, ONE place, and the two lanes cannot drift.
 #: PREPRINT / WORKING-PAPER STAMPS — a DATA-DRIVEN REGISTRY, not a wall of ifs. Each row is
 #: (repository/series key, header-regex fragment). ADDING A NEW REPOSITORY IS A ONE-LINE DATA EDIT.
 #:

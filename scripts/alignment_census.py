@@ -25,9 +25,18 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path('/home/polaris/wt/flywheel')
+sys.path.insert(0, str(ROOT / 'scripts'))
+
+# ONE definition of "what a repository cover sheet is", shared with the provenance / event_ledger lanes.
+# The census reads typeset furniture (folios, page ranges, running heads) to decide whether a typesetter
+# made a document — and a cover sheet FORGES every one of those signals (it CITES the article: its
+# journal name, its "14(1): 1-12" page range, its masthead-looking header). So the cover sheet must be
+# segmented off BEFORE any typeset fact is derived, using the SAME segmenter the other two lanes use.
+from provenance import segment_cover_sheet  # noqa: E402
 
 
 def nz(s: str) -> str:
@@ -92,13 +101,32 @@ def page_top_heads(text: str, venue: str, window: int = 200) -> int:
 
 
 def typeset_profile(text: str, venue: str) -> dict:
-    """Is this the PUBLISHER'S rendering? Only a typesetter emits page furniture."""
-    rng = declared_page_range(text, venue)
-    folios = folio_numbers(text)
+    """Is this the PUBLISHER'S rendering? Only a typesetter emits page furniture.
+
+    THE COUNTERFEIT TYPESET (the seventh hop of the V9 P0). Every ADMITTING signal in this profile —
+    the declared page range, the folios, the running heads — was read from the WHOLE text, cover sheet
+    included. But a repository cover sheet CITES the article it wraps: it prints the journal's name, it
+    prints "Nature Communications 14(1): 1-12", and an accepted manuscript underneath paginates from 1.
+    So `declared_page_range` read "1-12" off the cover sheet's citation, `folio_numbers` counted the
+    manuscript's own 1,2,3,…,10, `is_publisher_typeset` found >=3 folios "in range", and a Nature
+    Communications ACCEPTED MANUSCRIPT was ruled the JOURNAL ARTICLE — while `provenance.
+    derive_expression_kind`, reading the same bytes, correctly returned `accepted_manuscript`.
+    THE CENSUS MUST AGREE WITH PROVENANCE, NOT OVERRULE IT.
+
+    So the cover sheet is SEGMENTED OFF FIRST, and every typeset fact is derived from the ARTICLE BODY
+    ONLY — where a manuscript CANNOT counterfeit them: it has no masthead printing the journal's page
+    range, and its folios paginate from 1, landing in no range the body itself declares. The LSE deposit
+    of the AER article is untouched: its cover sheet is stripped, but the typeset first page UNDER it
+    still prints "American Economic Review 2014, 104(8): 2509-2526" and its folios ARE 2509-2526.
+    (`wp_series_marks` is a DISQUALIFIER — a cover sheet MAY CONVICT — so it still reads the whole text.)
+    """
+    _cover, body = segment_cover_sheet(text)
+    rng = declared_page_range(body, venue)
+    folios = folio_numbers(body)
     p = venue_running_head_pattern(venue)
     return dict(
-        running_heads=len(re.findall(p, text, re.I)) if p else 0,   # RETAINED, but no longer decides
-        page_top_heads=page_top_heads(text, venue),
+        running_heads=len(re.findall(p, body, re.I)) if p else 0,   # RETAINED, but no longer decides
+        page_top_heads=page_top_heads(body, venue),
         folios=len(folios),
         declared_range=list(rng) if rng else None,
         folios_in_declared_range=len([f for f in folios if rng and rng[0] <= f <= rng[1]]),
