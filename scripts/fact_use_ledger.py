@@ -81,7 +81,15 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 # differently from the writer and the gate, its "duplicate sentence" counts would be artifacts of
 # the splitter, not facts about the report. (Measured: a naive (?<=[.!?])\s+ split cuts at "et al."
 # and inflates the duplicate count from 30 to 76. That number would have been a lie.)
-from cellcog_composer import OUTLINE, split_sentences_safe, _select  # noqa: E402
+# (This import named `split_sentences_safe`, a function that has never existed in this repo. The module
+# therefore could not be IMPORTED, let alone called: 1,089 lines that had never once run against the
+# composer they were written for. That is the orphan diagnosis in one line — "built and tested" was not
+# true, because the test could not load the file either. The splitter it wanted is the one the GATE and
+# the PUBLISHER use, and it is imported from the same place they import it from.)
+from report_ast import split_sentences                                # noqa: E402
+from cellcog_composer import OUTLINE, _select                         # noqa: E402
+
+split_sentences_safe = split_sentences   # the audit lane's historical name for the shipping splitter
 
 CARDS_PATH = ROOT / 'outputs' / 'evidence_cards.json'
 REPORT_PATH = ROOT / 'outputs' / 'cellcog_arm' / 'report.md'
@@ -235,14 +243,27 @@ class Function(str, Enum):
 
 # Review moves, not topics. "framework", "measure", "establishes", "implication" are words about
 # ARGUMENT, and they mean the same thing in a review of oncology trials or monetary policy.
+#
+# THESE ARE PREFIX STEMS, AND THEY MUST NOT CARRY A TRAILING \b.
+# Every stem here shipped as `\b(theor|framework|...)\b`, and a trailing word-boundary after a STEM is
+# a contradiction: `\btheor\b` cannot match "Theoretical", `\bframework\b` cannot match "Frameworks",
+# `\bmeasur\b` cannot match "Measuring". MEASURED on the live outline: all 26 subsections fell through
+# every line of this table to the `EVIDENCE` default -- including "Theoretical Frameworks for
+# Technological Displacement" and "Measuring Exposure, Adoption, and Realized Outcomes".
+#
+# That is not a cosmetic mis-label. FUNCTION_ROLES[EVIDENCE] is (ESTABLISH, MAGNITUDE, CONTRAST), and
+# two of those three are NARRATION_ONLY. So the reuse pass below could offer a theory section nothing
+# but CONTRAST, and could never offer MECHANISM or BOUNDARY to anybody -- the precise roles Sol built
+# this thing to grant. The starvation of the theory and synthesis sections that the reuse budget exists
+# to PREVENT was being caused, silently, by a word-boundary.
 FUNCTION_LEXICON: list[tuple[str, Function]] = [
-    (r'\b(scope|method|source|selection|criteri|what counts|definition|defining|draws only)\b', Function.SCOPE),
-    (r'\b(theor|framework|model|hypothes|conceptual|mechanism|explanat)\b', Function.THEORY),
-    (r'\b(measur|exposure|index|indicator|operationali|estimat|data|adoption)\b', Function.MEASUREMENT),
-    (r'\b(synthes|establishes|establish|disagree|contested|unresolved|cannot|critical)\b', Function.SYNTHESIS),
-    (r'\b(implication|agenda|gap|future|recommend|polic)\b', Function.IMPLICATION),
-    (r'\b(sector|industr|across|domain|profession|setting|application)\b', Function.DOMAIN),
-    (r'\b(evidence|effect|impact|outcome|result|finding)\b', Function.EVIDENCE),
+    (r'\b(scope|method|source|selection|criteri|what counts|definition|defining|draws only)', Function.SCOPE),
+    (r'\b(theor|framework|model|hypothes|conceptual|mechanism|explanat)', Function.THEORY),
+    (r'\b(measur|exposure|index|indicator|operationali|estimat|data|adoption)', Function.MEASUREMENT),
+    (r'\b(synthes|establish|disagree|contested|unresolved|cannot|critical)', Function.SYNTHESIS),
+    (r'\b(implication|agenda|gap|future|recommend|polic)', Function.IMPLICATION),
+    (r'\b(sector|industr|across|domain|profession|setting|application)', Function.DOMAIN),
+    (r'\b(evidence|effect|impact|outcome|result|finding)', Function.EVIDENCE),
 ]
 
 # NARRATION-ONLY roles: these roles ARE the telling of the fact. To "reuse" a finding as ESTABLISH

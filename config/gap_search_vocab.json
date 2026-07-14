@@ -14,29 +14,73 @@
   ],
   "evidence_shape": {
     "null_result": [
-      "no significant", "no significant effect", "no statistically significant", "no association",
-      "null result", "null finding", "statistically insignificant", "not significant",
-      "no measurable", "found no evidence", "did not differ", "no detectable", "insignificant effect"
+      "no significant",
+      "no significant effect",
+      "no statistically significant",
+      "no association",
+      "null result",
+      "null finding",
+      "statistically insignificant",
+      "not significant",
+      "no measurable",
+      "found no evidence",
+      "did not differ",
+      "no detectable",
+      "insignificant effect"
     ],
     "moderator": [
-      "moderator", "moderating", "moderated by", "subgroup", "heterogeneity", "heterogeneous effects",
-      "interaction effect", "depends on", "conditional on", "boundary condition", "contingent on",
-      "varies by", "stratified"
+      "moderator",
+      "moderating",
+      "moderated by",
+      "subgroup",
+      "heterogeneity",
+      "heterogeneous effects",
+      "interaction effect",
+      "depends on",
+      "conditional on",
+      "boundary condition",
+      "contingent on",
+      "varies by",
+      "stratified"
     ],
     "counterevidence": [
-      "contrary to", "contradicts", "challenges", "in contrast to", "fails to replicate",
-      "does not support", "inconsistent with", "at odds with", "counter to"
+      "contrary to",
+      "contradicts",
+      "challenges",
+      "in contrast to",
+      "fails to replicate",
+      "does not support",
+      "inconsistent with",
+      "at odds with",
+      "counter to"
     ],
     "synthesis_designs": [
-      "systematic review", "meta-analysis", "meta analysis", "scoping review", "evidence synthesis",
-      "umbrella review", "pooled analysis"
+      "systematic review",
+      "meta-analysis",
+      "meta analysis",
+      "scoping review",
+      "evidence synthesis",
+      "umbrella review",
+      "pooled analysis"
     ],
     "by_genre": {
       "_comment": "OPTIONAL genre-specific shape words, merged over the general lists above when the",
       "_comment2": "contract.genre matches. This is the DATA seam for legal/clinical shape vocabulary.",
       "case-law analysis": {
-        "counterevidence": ["distinguished", "overruled", "abrogated", "circuit split", "split of authority", "declined to follow"],
-        "moderator": ["as applied", "under the facts of", "limited to its facts", "narrow holding"]
+        "counterevidence": [
+          "distinguished",
+          "overruled",
+          "abrogated",
+          "circuit split",
+          "split of authority",
+          "declined to follow"
+        ],
+        "moderator": [
+          "as applied",
+          "under the facts of",
+          "limited to its facts",
+          "narrow holding"
+        ]
       }
     }
   },
@@ -44,12 +88,34 @@
     "_comment": "Backend fan-out per gap type. These are ADAPTER NAMES the acquisition layer (acquisition.py",
     "_comment2": "Acquirer.plan_route + the fetchers) already speaks. gap_search EMITS a plan; it does not",
     "_comment3": "open a socket. discovery/access/etc. differ so a gap never re-issues a copy of the broad query.",
-    "discovery": ["openalex", "semantic_scholar", "crossref"],
-    "access": ["unpaywall", "openalex_locations", "arxiv", "content_host", "core"],
+    "discovery": [
+      "openalex",
+      "semantic_scholar",
+      "crossref"
+    ],
+    "access": [
+      "unpaywall",
+      "openalex_locations",
+      "arxiv",
+      "content_host",
+      "core"
+    ],
     "extraction": [],
-    "diversity": ["openalex", "semantic_scholar", "openalex_citations"],
-    "recency": ["openalex_recent", "arxiv", "semantic_scholar"],
-    "contradiction": ["openalex_citations", "semantic_scholar", "crossref"],
+    "diversity": [
+      "openalex",
+      "semantic_scholar",
+      "openalex_citations"
+    ],
+    "recency": [
+      "openalex_recent",
+      "arxiv",
+      "semantic_scholar"
+    ],
+    "contradiction": [
+      "openalex_citations",
+      "semantic_scholar",
+      "crossref"
+    ],
     "evidence": []
   },
   "saturation": {
@@ -58,11 +124,51 @@
     "_comment3": "citation-chasing and version-pursuit were attempted, and duplicates were collapsed.",
     "min_query_families": 3,
     "min_adapters": 2,
-    "required_families": ["discovery", "diversity", "recency"]
+    "required_families": [
+      "discovery",
+      "diversity",
+      "recency"
+    ]
   },
   "limits": {
     "max_terms_per_query": 8,
     "max_queries_per_family": 6,
     "max_concept_aliases": 6
+  },
+  "recency": {
+    "_comment": [
+      "RECENCY BINDING (Sol plan 4 item 3). Turns CONTRACT DATA into the two keys scripts/recency.py needs:",
+      "a CLAIM KIND (a row in recency_frontier_profile.yaml:claim_recency_policy -- it decides the LANES,",
+      "foundation-only vs frontier, and whether age is penalized at all) and an optional FRONTIER BOUNDARY.",
+      "",
+      "THE DEFAULTS MUST NEVER REQUIRE A BOUNDARY. A claim kind with boundary_required=true (e.g.",
+      "current_adoption_rate) is a HARD ERROR when no boundary is named -- recency._policy_for raises, and",
+      "rightly so. So the genre rows below name only boundary-FREE kinds, and we UPGRADE to the",
+      "boundary-requiring kind ONLY when boundary_by_concept actually resolves one. A generic literature",
+      "review therefore gets a relative 24-month frontier window; the AI question gets the 2023 epoch.",
+      "",
+      "GENERALITY: a FOUNDATIONAL_THEORY question resolves to lanes=[foundation], penalize_age=false -- a",
+      "1979 theorem is NEVER stale and NEVER a RECENCY_GAP. Legal -> statute_current_text; clinical ->",
+      "clinical_conclusion; thin -> thin_evidence_current. A NEW DOMAIN IS A ROW HERE, NEVER A CODE EDIT."
+    ],
+    "default_claim_kind": "thin_evidence_current",
+    "by_genre": {
+      "literature review": "thin_evidence_current",
+      "systematic review": "thin_evidence_current",
+      "case-law analysis": "statute_current_text",
+      "clinical guideline": "clinical_conclusion",
+      "randomized controlled trial": "clinical_conclusion",
+      "theory": "foundational_theory"
+    },
+    "_boundary_comment": [
+      "concept KEY (contract.core_concepts[].key) -> frontier_boundaries key. The contract names the",
+      "concept; this row names the epoch after which the citation graph cannot see the work."
+    ],
+    "boundary_by_concept": {
+      "artificial_intelligence": "generative_ai_turn",
+      "semaglutide": "incretin_obesity_pivotal",
+      "reproductive_rights": "post_dobbs"
+    },
+    "claim_kind_when_boundary": "current_adoption_rate"
   }
 }

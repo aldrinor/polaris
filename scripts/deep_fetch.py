@@ -50,7 +50,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from acquisition import (  # noqa: E402
     MAILTO, Acquirer, BlobStore, content_host, extract_text, holds_nothing, open_ledger,
-    select_evidence,
 )
 from event_ledger import derive_backend_outcome, derive_content_profile, derive_route_status  # noqa: E402
 
@@ -77,19 +76,23 @@ def jget(acq: Acquirer, unit: str, adapter: str, url: str):
     return acq.get_json(unit, adapter, url)[1]
 
 
-def fetch_text(acq: Acquirer, unit: str, url: str, row: dict) -> str:
+def fetch_text(acq: Acquirer, unit: str, url: str, row: dict, candidate_id: str = '') -> str:
     """Fetch a document and RECORD IT AS AN IMMUTABLE MANIFESTATION. Returns the text, verbatim.
 
     No threshold. No deletion. A 500-word landing page is stored, hashed and profiled like anything
     else — and the shared reducer calls it a landing_page, with its reasons, on the record.
+
+    `candidate_id` IS THE LINEAGE (Sol V9 §1). It says WHICH ROUTE proposed this URL, and it rides the
+    content request onto the manifestation. Without it the discovery reducer cannot tell whose document
+    this is, and — as it did — credits every route with it.
     """
     adapter = content_host(url)
-    r = acq.get(unit, adapter, url)
+    r = acq.get(unit, adapter, url, candidate_id=candidate_id)
     if not r.ok:
         return ''
     text, method = extract_text(r.raw, r.content_type)
     acq.record_manifestation(
-        unit, locator=url, raw=r.raw, text=text, adapter=adapter,
+        unit, locator=url, raw=r.raw, text=text, adapter=adapter, candidate_id=candidate_id,
         requested_title=row.get('title') or '',
         requested_authors=list(row.get('authors') or []),
         requested_doi=row.get('doi') or '',
@@ -101,31 +104,39 @@ def fetch_text(acq: Acquirer, unit: str, url: str, row: dict) -> str:
     return text
 
 
-def all_oa_locations(acq: Acquirer, unit: str, doi: str) -> list[str]:
-    """EVERY OA location Unpaywall knows — repositories, not just the publisher's best."""
+def all_oa_locations(acq: Acquirer, unit: str, doi: str) -> list[tuple[str, str]]:
+    """EVERY OA location Unpaywall knows — repositories, not just the publisher's best.
+
+    -> [(url, candidate_id)]. The candidate_id is CARRIED, not discarded: these URLs are UNPAYWALL'S
+    candidates, and when one of them yields bytes it is Unpaywall's route that earned them. `oa_version`
+    stays an OBSERVATION (`acceptedVersion` is a string a repository emitted, never a fact about bytes —
+    that conflation is the V9 P0).
+    """
     up = jget(acq, unit, 'unpaywall',
               f'https://api.unpaywall.org/v2/{urllib.parse.quote(doi)}?email={MAILTO}')
     if not up:
         return []
-    urls = []
+    out: dict[str, str] = {}
     for loc in (up.get('oa_locations') or []):
         for k in ('url_for_pdf', 'url'):
-            if loc.get(k):
-                urls.append(loc[k])
-                acq.candidate(unit, 'unpaywall', loc[k],
-                              oa_version=str(loc.get('version') or ''),
-                              host_type=str(loc.get('host_type') or ''))
-    return list(dict.fromkeys(urls))
+            if loc.get(k) and loc[k] not in out:
+                out[loc[k]] = acq.candidate(
+                    unit, 'unpaywall', loc[k],
+                    oa_version=str(loc.get('version') or ''),
+                    host_type=str(loc.get('host_type') or ''))
+    return list(out.items())
 
 
-def semantic_scholar_pdf(acq: Acquirer, unit: str, doi: str) -> str:
+def semantic_scholar_pdf(acq: Acquirer, unit: str, doi: str) -> tuple[str, str]:
+    """-> (url, candidate_id). Semantic Scholar's OWN candidate — and it is credited to Semantic Scholar,
+    not to whoever else happened to fetch a document for this work."""
     d = jget(acq, unit, 's2/oa-pdf',
              f'https://api.semanticscholar.org/graph/v1/paper/DOI:{urllib.parse.quote(doi)}'
              f'?fields=openAccessPdf,abstract')
     url = ((d or {}).get('openAccessPdf') or {}).get('url') or ''
-    if url:
-        acq.candidate(unit, 's2/oa-pdf', url)
-    return url
+    if not url:
+        return '', ''
+    return url, acq.candidate(unit, 's2/oa-pdf', url)
 
 
 def s2_abstract(acq: Acquirer, unit: str, doi: str) -> str:
@@ -164,17 +175,17 @@ def main() -> int:
 
         # 2. every OA location Unpaywall knows (repository copies, working papers)
         locs = all_oa_locations(acq, unit, doi)
-        for url in locs[:MAX_LOCATIONS]:
-            fetch_text(acq, unit, url, c)
+        for url, cid in locs[:MAX_LOCATIONS]:
+            fetch_text(acq, unit, url, c, candidate_id=cid)
         if len(locs) > MAX_LOCATIONS:
             # A BUDGET STOP IS NOT AN EVIDENCE GAP. We stopped; the world did not run out.
             acq.budget_stopped(unit, n_locations_known=len(locs), n_locations_tried=MAX_LOCATIONS,
                                reason_text=f'tried {MAX_LOCATIONS} of {len(locs)} known OA locations')
 
         # 3. Semantic Scholar's own OA pdf pointer
-        pdf = semantic_scholar_pdf(acq, unit, doi)
+        pdf, pdf_cid = semantic_scholar_pdf(acq, unit, doi)
         if pdf:
-            fetch_text(acq, unit, pdf, c)
+            fetch_text(acq, unit, pdf, c, candidate_id=pdf_cid)
 
         # 4. at minimum, an abstract. (Note: NOT gated on "did we get full text?" — we have no way of
         #    knowing that here, and asking would mean concluding.)
@@ -183,12 +194,53 @@ def main() -> int:
             c['abstract'] = ab
 
         # ---- what do the EVENTS say we now hold? -------------------------------------------------
-        best = select_evidence(ledger, unit, blobs)
-        if best is not None and best['content_class'] != 'CITATION_ONLY':
-            c['fulltext'] = best['text'][:120000]
-            c['fulltext_words'] = len(c['fulltext'].split())
-            c['oa_url'] = best['manifestation'].get('locator') or c.get('oa_url') or ''
-            c['fulltext_manifestation'] = best['manifestation'].get('text_sha256', '')[:12]
+        # THE FLAT-CORPUS WRITE IS GONE (Sol V9 §1). It used to be four lines:
+        #
+        #     if best is not None and best['content_class'] != 'CITATION_ONLY':
+        #         c['fulltext'] = best['text'][:120000]
+        #         c['fulltext_words'] = len(c['fulltext'].split())
+        #         c['oa_url'] = best['manifestation'].get('locator') or c.get('oa_url') or ''
+        #
+        # and each of them did damage:
+        #
+        #   1. `!= 'CITATION_ONLY'` ADMITS ANYTHING ELSE. A landing page, an unreadable PDF, a
+        #      stranger's paper — all of them are "not CITATION_ONLY", so all of them became `fulltext`.
+        #      That is admission by ELIMINATION, which is not a reducer's judgment; it is the absence of
+        #      one. The reducers already say what a document IS (`derive_content_profile`,
+        #      `derive_semantic_binding`), and this line did not ask them.
+        #   2. `[:120000]` SILENTLY TRUNCATES. A span mined at offset 121,000 of the real document simply
+        #      cannot exist, and — far worse — a span mined from the truncated text has offsets into a
+        #      STRING NOBODY HOLDS. The manifestation's hash covers the full bytes; the corpus row held a
+        #      prefix. Every offset in every card built from that row indexed a document that was never
+        #      stored anywhere.
+        #   3. IT DISCARDS THE MANIFESTATION IDENTITY THE LAW NEEDS. `c['fulltext']` is a detached string.
+        #      A span bound to it binds to nothing: no manifestation_id, no content hash, no route, no
+        #      candidate, no identity decision. That is precisely the shape of the original P0 — a row
+        #      with a journal's name and a working paper's text — reintroduced by the fetcher that was
+        #      written to end it.
+        #
+        # What the row gets instead is a REFERENCE: the ids of the immutable manifestations this run
+        # recorded, each already hashed, profiled and lineage-bearing. Downstream synthesis resolves
+        # those through provenance.Graph and binds spans to REAL BYTES, or it gets nothing. There is no
+        # third option, and there is no `fulltext` key written here to provide one.
+        held = []
+        for e in ledger.events(unit):
+            if e.kind != 'manifestation_fetched' or 'derived_by' in e.payload:
+                continue
+            held.append(dict(
+                manifestation_id=e.payload.get('text_sha256', '')[:12],
+                text_sha256=e.payload.get('text_sha256', ''),
+                text_blob_id=e.payload.get('text_blob_id', ''),
+                blob_id=e.payload.get('blob_id', ''),
+                byte_sha256=e.payload.get('byte_sha256', ''),
+                locator=e.payload.get('locator', ''),
+                adapter=e.payload.get('adapter', ''),
+                candidate_id=e.payload.get('candidate_id', ''),
+            ))
+        if held:
+            # NOT `fulltext`, NOT `fulltext_words`, NOT `content_status`. This key names BYTES WE HOLD,
+            # and it is the only thing this file is entitled to say about them.
+            c['manifestations'] = held
 
         cls, _ = derive_content_profile(ledger.events(unit))
         route = derive_route_status(ledger.events(unit))

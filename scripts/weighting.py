@@ -195,6 +195,30 @@ def profile_for(domain: str) -> dict:
     return prof
 
 
+def quality_bar_components(domain: str) -> dict:
+    """What "high-quality" ACTUALLY MEANS, as the components that decide it -- so the phrase is never
+    shipped as a BARE LABEL that no fetcher can act on and no reader can audit.
+
+    A contract says `quality_bar: "high-quality"`. That is a word. This returns the HARD GATES a source
+    must pass and the WEIGHTED DIMENSIONS that then rank it, each with its weight, read from the
+    registry for this domain. Callers render the components; nobody asserts the adjective.
+    """
+    reg = load_registry()
+    prof = profile_for(domain)
+    weights = prof.get('weights', {}) or {}
+    known = list(reg.get('weighted_dimensions', []) or [])
+    return {
+        'domain': (domain or 'general').lower().strip(),
+        'hard_gates': list(reg.get('hard_gates', []) or []),   # a source must PASS these to rank at all
+        'weighted_dimensions': [
+            {'dimension': name, 'weight': float(weights.get(name, 0) or 0)}
+            for name in sorted(known, key=lambda n: -float(weights.get(n, 0) or 0))
+        ],
+        'note': 'a bare "high-quality" is not a filter; these components are. Raw citation count is '
+                'NOT among them -- it returns the famous, not the relevant.',
+    }
+
+
 def load_domain_pack(domain: str) -> dict:
     p = DOMAIN_PACK_DIR / f'{(domain or "general").lower().strip()}.yaml'
     if not p.exists():

@@ -37,6 +37,7 @@ CONFLICTED is a SUCCESSFUL terminal state, not a failure.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import re
 import sys
@@ -50,6 +51,8 @@ ROOT = HERE.parent
 
 import research_contract as RC          # the contract + coverage matrix we plug into
 import event_ledger as EL              # the reducers that license (or forbid) an absence
+import recency as RCY                  # the FRONTIER lane: date windows, SORTED BY DATE, never by cites
+import weighting as WGT                # field-normalized quality VECTOR -- never a bare citation count
 
 # ---- the seven gap types, plus two honest NON-gap verdicts ------------------------------------
 DISCOVERY_GAP     = 'DISCOVERY_GAP'
@@ -169,12 +172,82 @@ def _has_result(card: dict) -> bool:
     return RC.has_verified_figure(card) or RC.has_direct_result(card)
 
 
-def frontier_year(contract, override: int | None = None) -> int | None:
-    """The recency frontier THIS QUESTION imposed. None means the question is not time-sensitive, and
-    a cell in a non-time-sensitive review is never a RECENCY_GAP. This reads only contract data."""
+def recency_binding(contract, vocab: dict) -> tuple[str, str | None]:
+    """(claim_kind, boundary_key) -- BOTH FROM DATA. The claim kind is the registry row selected by the
+    contract's own genre/design tags; the boundary is the row selected by the contract's own concept
+    KEYS. No topic string, no year, and no regex appears in this file: a new domain is a row in
+    config/gap_search_vocab.json:recency, never a code edit."""
+    reg = (vocab or {}).get('recency', {}) or {}
+    tags = genre_tags(contract)
+    kind = reg.get('default_claim_kind', 'thin_evidence_current')
+    for gk, ck in (reg.get('by_genre', {}) or {}).items():
+        if str(gk).lower() in tags:
+            kind = ck
+            break
+    boundary = None
+    bbc = reg.get('boundary_by_concept', {}) or {}
+    for c in (getattr(contract, 'core_concepts', None) or []):
+        key = getattr(c, 'key', None) if not isinstance(c, dict) else c.get('key')
+        if key and key in bbc:
+            boundary = bbc[key]
+            break
+    # A claim kind with boundary_required=true is a HARD ERROR without a boundary (recency._policy_for
+    # raises -- correctly: "add a policy ROW, do not special-case it in code"). So the genre rows name
+    # only boundary-FREE kinds, and we upgrade to the boundary-requiring kind ONLY once a boundary has
+    # actually resolved. A generic review keeps a relative frontier window instead of losing the lane.
+    upgrade = reg.get('claim_kind_when_boundary')
+    if boundary and upgrade and kind not in ('foundational_theory', 'landmark_method',
+                                             'long_run_evidence'):
+        kind = upgrade          # never upgrade a FOUNDATION claim into a frontier one: age is no defect
+    return kind, boundary
+
+
+def recency_need(contract, vocab: dict, cell=None, as_of: dt.date | None = None) -> RCY.RecencyNeed:
+    """The contract (+ optionally ONE cell) -> the RecencyNeed scripts/recency.py plans against."""
+    kind, boundary = recency_binding(contract, vocab)
+    terms = _flatten_aliases(contract.core_concepts, 3)
+    if cell is not None:
+        terms = (_flatten_aliases([r for r in contract.subject_axis.values if r.key == cell.row])
+                 + _flatten_aliases([c for c in contract.outcome_dimensions if c.key == cell.col])
+                 + terms[:2])
+    return RCY.RecencyNeed(claim_kind=kind, subject_terms=[t for t in terms if t][:8],
+                           as_of=as_of or dt.date.today(), boundary=boundary,
+                           unit=f'{cell.row}|{cell.col}' if cell is not None else '')
+
+
+def frontier_year(contract, override: int | None = None, vocab: dict | None = None,
+                  as_of: dt.date | None = None) -> int | None:
+    """The recency FRONTIER: the year our NEWEST evidence must reach.
+
+    THE BUG THIS REPLACES. This used to `return contract.source_policy.recency_from` -- but that is the
+    FLOOR ("only cite work published from 2015 onward"), NOT the frontier. So `stale = newest < frontier`
+    asked "is 2022 < 2015?", which is FALSE FOR EVERY CELL: RECENCY_GAP was structurally unable to fire
+    and the entire 2023-2025 generative-AI turn was invisible to the acquisition planner. Backward
+    citation expansion cannot reach that window (the edges do not exist yet) -- it must be searched BY
+    DATE, which is exactly what scripts/recency.py builds.
+
+    The frontier now comes from the RECENCY PROFILE (data): the named boundary's start year, else
+    as_of - default_frontier_months. A FOUNDATION-ONLY claim kind (a theorem, a landmark method, a long
+    panel) has NO frontier lane -> returns None -> that cell is NEVER stale and NEVER a RECENCY_GAP,
+    because age is not a defect there. That is the generality guarantee, and it is data, not a branch."""
     if override is not None:
         return override
-    return contract.source_policy.recency_from
+    vocab = vocab if vocab is not None else load_vocab()
+    try:
+        profile = RCY.load_profile()
+    except RCY.RecencyProfileError:
+        return None                        # no profile on disk -> no frontier claim. Never invent one.
+    # NOTE: everything below is allowed to RAISE. A claim kind that requires a boundary and has none is
+    # a DATA inconsistency in the registry, and recency.py is right to be loud about it. Swallowing it
+    # here (an earlier draft of this function did) silently disabled the whole frontier lane for
+    # clinical questions and reintroduced the exact bug this wiring exists to kill: a stale corpus that
+    # never reports itself as stale. A misconfigured row must fail the run, not quietly downgrade it.
+    need = recency_need(contract, vocab, as_of=as_of)
+    pol = RCY._policy_for(need, profile)
+    if 'frontier' not in (pol.get('lanes') or []):
+        return None                        # foundation-only: age carries no penalty. Not a gap. Ever.
+    sinces = [b.since for b in RCY.resolve_bands(need, profile) if b.since]
+    return min(sinces).year if sinces else None
 
 
 # =============================================================================== the per-cell funnel
@@ -240,7 +313,7 @@ def _doi_ledger_funnel(ledger: EL.Ledger) -> dict[str, dict]:
 
 def cell_funnel(cell, cards_here: list[dict], doi_funnel: dict[str, dict],
                 contract, ledger, vocab: dict, override_frontier: int | None = None) -> CellFunnel:
-    fr = frontier_year(contract, override_frontier)
+    fr = frontier_year(contract, override_frontier, vocab)
     years = [y for y in (_card_year(c) for c in cards_here) if y is not None]
     newest = max(years) if years else None
     designs = sorted({d for d in (_card_design(c) for c in cards_here) if d})
@@ -371,8 +444,77 @@ class QueryFamily:
 
 def _base_filters(contract) -> dict:
     sp = contract.source_policy
-    return {'peer_reviewed_only': sp.peer_reviewed_only, 'languages': list(sp.languages),
-            'from_year': sp.recency_from, 'quality_bar': sp.quality_bar}
+    f = {'peer_reviewed_only': sp.peer_reviewed_only, 'languages': list(sp.languages),
+         'from_year': sp.recency_from, 'quality_bar': sp.quality_bar}
+    # 'high-quality' IS NOT A FILTER. It is a BARE LABEL, and no fetcher can act on it. Expand it into
+    # the DIMENSIONS the quality model actually scores, so what we mean by it is auditable downstream
+    # instead of being a word we assert. (weighting.py owns the definition; this file names none of it.)
+    comps = WGT.quality_bar_components(_weight_domain(contract))
+    if comps:
+        f['quality_bar_components'] = comps
+    return f
+
+
+def _weight_domain(contract) -> str:
+    """The weight-profile domain for this contract -- a DATA lookup, never a branch. An unknown domain
+    resolves to `general` inside weighting.profile_for (never to clinical or legal)."""
+    for t in genre_tags(contract):
+        if t and t in WGT.load_registry().get('profiles', {}):
+            return t
+    return 'general'
+
+
+def _card_row(card: dict) -> dict:
+    """An evidence CARD, viewed as the ROW weighting.py scores.
+
+    WHY THIS ADAPTER EXISTS -- IT IS NOT COSMETIC. weighting.score_topical_relevance reads
+    title/abstract/venue. A card has no title and no abstract: its text lives in `claim`, `finding` and
+    the verbatim `span`. Without this mapping EVERY card matched 0/8 contract terms, took the 0.15
+    relevance floor, and the ranking was therefore decided by `source_authority` alone -- which is
+    precisely the "returns ResNet and SMOTE: famous, not relevant" failure weighting.py was built to
+    kill, quietly reintroduced through a schema mismatch. We map the card's own text in; we do not
+    touch a scorer."""
+    r = dict(card)
+    r['title'] = card.get('title') or card.get('claim') or card.get('finding') or ''
+    r['abstract'] = ' '.join(str(card.get(k) or '') for k in ('span', 'finding', 'claim', 'source')).strip()
+    r['design'] = card.get('design') or card.get('study_design') or card.get('method') or ''
+    r['year'] = card.get('year') or card.get('publication_year')
+    return r
+
+
+def prioritise_targets(card_ids: list[str], idx: dict[str, dict], contract, cap: int = 20) -> list[str]:
+    """WHICH held works we chase / re-mine / citation-expand, IN ORDER.
+
+    THE BUG THIS REPLACES: this was `sorted(set(cell.card_ids))[:20]` -- an ALPHABETICAL SORT ON THE
+    CARD ID, then truncated at 20. Which works we pursued was therefore decided by a string, and the
+    21st was silently dropped. Raw citation count is no better: it "returns ResNet and SMOTE -- famous,
+    not relevant".
+
+    So we rank by weighting.py's FIELD-NORMALIZED VECTOR (relevance, directness, method quality,
+    authority, influence, independence, recency, completeness, marginal coverage) and let
+    `blended_priority` collapse it ONLY at the moment of comparison -- renormalizing over the dimensions
+    we actually KNOW (offline, `influence` is UNKNOWN and is dropped from numerator AND normaliser, so a
+    work is never sunk to zero for a number we failed to fetch). A hard-failed gate zeroes the priority.
+    No network is opened here; gap_search never fetches."""
+    if not card_ids:
+        return []
+    rows = [_card_row(idx[c]) for c in card_ids if c in idx]
+    if not rows:
+        return sorted(set(card_ids))[:cap]
+    domain = _weight_domain(contract)
+    terms = _flatten_aliases(contract.core_concepts, 8)
+    probes = [{} for _ in rows]                       # OFFLINE: no influence probe, and we say so
+    ctx = WGT.CorpusContext.build(rows, probes)
+    scored = []
+    for r, probe in zip(rows, probes):
+        try:
+            vec = WGT.build_vector(r, domain=domain, ctx=ctx, probe=probe, question_terms=terms)
+            blend = WGT.blended_priority(vec, domain)
+            scored.append((blend.priority, r.get('id'), vec, blend))
+        except Exception:
+            scored.append((0.0, r.get('id'), None, None))   # never let scoring drop a candidate
+    scored.sort(key=lambda s: (-s[0], str(s[1])))     # priority DESC, id only as a stable tie-break
+    return [cid for _, cid, _, _ in scored][:cap]
 
 
 def _q(terms: list[str], note: str, limits: dict, extra: dict | None = None) -> dict:
@@ -383,7 +525,8 @@ def _q(terms: list[str], note: str, limits: dict, extra: dict | None = None) -> 
     return out
 
 
-def query_family(gap: str, cell, f: CellFunnel, contract, vocab: dict) -> QueryFamily:
+def query_family(gap: str, cell, f: CellFunnel, contract, vocab: dict,
+                 idx: dict[str, dict] | None = None) -> QueryFamily:
     """The gap -> the query family. EVERY topical term comes from the contract; the evidence-shape
     words come from the registry; the structure is the same for every domain."""
     tags = genre_tags(contract)
@@ -394,6 +537,7 @@ def query_family(gap: str, cell, f: CellFunnel, contract, vocab: dict) -> QueryF
     col_terms = _flatten_aliases([c for c in contract.outcome_dimensions if c.key == cell.col])
     methods = list(contract.method_designs or [])
     filt = _base_filters(contract)
+    idx = idx or {}
     ck = f.cellkey
 
     if gap == DISCOVERY_GAP:
@@ -416,7 +560,8 @@ def query_family(gap: str, cell, f: CellFunnel, contract, vocab: dict) -> QueryF
                       'topic query never did -- discovery licenses NO absence claim')
 
     if gap == ACCESS_GAP:
-        targets = sorted({c for c in cell.unbound}) or sorted({cid for cid in cell.card_ids})
+        targets = (prioritise_targets(sorted(cell.unbound), idx, contract)
+                   or prioritise_targets(list(cell.card_ids), idx, contract))
         return QueryFamily(
             gap, ck, intent=f'ACCESS an admissible complete manifestation for [{cell.col_label}]',
             adapters=list(ad.get('access', [])),
@@ -433,7 +578,8 @@ def query_family(gap: str, cell, f: CellFunnel, contract, vocab: dict) -> QueryF
         probes = [fc.probe for fc in contract.facets
                   if fc.serves in ('', cell.col) or fc.key == cell.col][:6] or \
                  [f'What result does this source report about {cell.col_label}?']
-        targets = sorted({c for c in cell.ambiguous}) or sorted({cid for cid in cell.card_ids})
+        targets = (prioritise_targets(sorted(cell.ambiguous), idx, contract)
+                   or prioritise_targets(list(cell.card_ids), idx, contract))
         return QueryFamily(
             gap, ck, intent=f'RE-EXTRACT a result / disambiguating facet for [{cell.col_label}]',
             adapters=list(ad.get('extraction', [])),           # [] -> no network
@@ -463,23 +609,47 @@ def query_family(gap: str, cell, f: CellFunnel, contract, vocab: dict) -> QueryF
         return QueryFamily(
             gap, ck, intent=f'DIVERSIFY the evidence for [{cell.row_label} x {cell.col_label}]',
             adapters=list(ad.get('diversity', [])), queries=qs[:lim.get('max_queries_per_family', 6)],
-            targets=sorted(set(cell.card_ids))[:20], filters=filt, absence_licensed=False,
+            targets=prioritise_targets(list(cell.card_ids), idx, contract), filters=filt, absence_licensed=False,
             stop_rule='a second design + a null-or-counter + one different context are held -> the cell '
                       'is DIVERSE; else narrate the design limitation explicitly',
             rationale='evidence exists but from one study/design/context: buy a contrast or a null via '
                       'citation-chase and method-specific queries, not another same-corner estimate')
 
     if gap == RECENCY_GAP:
+        # THE FRONTIER LANE IS scripts/recency.py's, NOT A HAND-ROLLED from_year FILTER. It builds
+        # OVERLAPPING, EXPLICIT DATE WINDOWS against the databases' real date fields and SORTS BY DATE
+        # -- and it REFUSES the citation sort, because a 2025 paper has no citations yet and citation
+        # order would bury exactly the work we are trying to find. Removing this call collapses this
+        # family back to one undated topic query.
+        need = recency_need(contract, vocab, cell)
+        plan_ = RCY.plan(need)
+        qs: list[dict] = []
+        for dq in plan_.frontier_queries:
+            if not dq.supported:
+                continue                      # the DB does not expose that date-type: say so, never fake it
+            qs.append(_q(row_terms + col_terms + concept[:2],
+                         f'FRONTIER [{dq.band}] on {dq.database}: {dq.date_type}-date window, '
+                         f'sorted by {dq.sort or "the API own date order"} -- NEVER by citations',
+                         lim, {'database': dq.database, 'band': dq.band, 'date_type': dq.date_type,
+                               'date_field': dq.date_field, 'sort': dq.sort, 'url': dq.url}))
+        bands = ' | '.join(f'{b.key}={b.window_prose()}' for b in plan_.frontier_bands)
         return QueryFamily(
             gap, ck, intent=f'REFRESH to the current frontier for [{cell.col_label}]',
             adapters=list(ad.get('recency', [])),
-            queries=[_q(row_terms + col_terms + concept[:2],
-                        f'newest-first, from the recency floor the question imposed ({f.frontier})', lim,
-                        {'sort': 'publication_date_desc', 'from_year': f.frontier})],
-            filters={**filt, 'from_year': f.frontier}, absence_licensed=False,
-            stop_rule=f'the current-frontier window is queried on >=2 databases and the newest '
-                      f'admissible unit is still < {f.frontier} -> report the frontier limitation',
-            rationale='time-sensitive claim, stale evidence: pull the current frontier (incl. preprints)')
+            queries=qs[:lim.get('max_queries_per_family', 6)] or [
+                _q(row_terms + col_terms + concept[:2],
+                   'no supported frontier window for this claim kind -- a limitation, not a search', lim)],
+            filters={**filt, 'from_year': f.frontier, 'frontier_bands': bands,
+                     'lanes': list(plan_.lanes), 'claim_kind': need.claim_kind,
+                     'boundary': need.boundary},
+            targets=[], absence_licensed=False,
+            stop_rule=f'every supported frontier band is queried on >=2 databases and the newest '
+                      f'admissible unit is STILL < {f.frontier} -> "{plan_.on_empty_template}" -- a '
+                      f'SCOPED ABSENCE (a frontier limitation), never a disproof',
+            rationale=f'time-sensitive claim ({need.claim_kind}), newest held evidence is '
+                      f'{f.newest_year} but the frontier opens at {f.frontier}: backward citation '
+                      f'expansion CANNOT reach that window (the citing edges do not exist yet), so '
+                      f'search the dates directly. Bands: {bands or "(none)"}')
 
     if gap == CONTRADICTION_GAP:
         mods = _shape(vocab, 'moderator', tags)
@@ -496,7 +666,7 @@ def query_family(gap: str, cell, f: CellFunnel, contract, vocab: dict) -> QueryF
                 _q(syn[:2] + concept[:1] + col_terms[:2],
                    'find the synthesis (meta-analysis / systematic review) that reconciles them', lim),
             ][:lim.get('max_queries_per_family', 6)],
-            targets=sorted(set(cell.card_ids))[:20], filters=filt, absence_licensed=False,
+            targets=prioritise_targets(list(cell.card_ids), idx, contract), filters=filt, absence_licensed=False,
             stop_rule='a moderator or a reconciling synthesis is held -> a SETTLED contrast; else "the '
                       'literature does not settle this" is the correct, terminal answer',
             rationale='findings conflict and the moderator is missing: chase citations and moderators, '
@@ -532,9 +702,14 @@ class GapResult:
 
 
 def analyze(contract, cards: list[dict], ledger: EL.Ledger, vocab: dict | None = None,
-            override_frontier: int | None = None) -> list[GapResult]:
+            override_frontier: int | None = None, order_by_insight: bool = True) -> list[GapResult]:
     """Build the coverage matrix and classify every cell. THE reusable entry point (insight_value
-    imports this)."""
+    imports this).
+
+    THE RETURNED LIST IS AN ACQUISITION SCHEDULE, NOT A MATRIX DUMP. It is ordered by MARGINAL INSIGHT
+    (insight_value.schedule), so the cell that would buy a moderator for an open contradiction is
+    searched BEFORE a 34th first-estimate-in-an-empty-corner. Pass order_by_insight=False to get raw
+    matrix order (the ablation the wiring proof uses)."""
     vocab = vocab or load_vocab()
     matrix = RC.coverage_matrix(contract, cards, corpus=[], ledger=ledger)
     by_cell: dict[tuple[str, str], list[dict]] = {}
@@ -546,8 +721,13 @@ def analyze(contract, cards: list[dict], ledger: EL.Ledger, vocab: dict | None =
     for key, cell in matrix.cells.items():
         f = cell_funnel(cell, by_cell[key], doi_funnel, contract, ledger, vocab, override_frontier)
         gap = classify_gap(cell, f, contract)
-        fam = query_family(gap, cell, f, contract, vocab)
+        fam = query_family(gap, cell, f, contract, vocab, idx)
         out.append(GapResult(cell, f, gap, fam))
+    if order_by_insight:
+        # SELECTION ranks by the marginal-insight VECTOR, never by cell name and never by a scalar.
+        # Imported HERE (not at module scope) because insight_value imports this module.
+        import insight_value as IV
+        out = IV.schedule(out)
     return out
 
 

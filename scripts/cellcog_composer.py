@@ -62,6 +62,7 @@ from report_ast import (Attributed, Clause, Owned, Heading, ParagraphBreak,     
                         entailed_by_span, numbers_in, split_sentences)
 from synthesis_contract import validate, Premise, Synthesis, OPERATIONS         # noqa: E402
 import argument_planner as AP                                                   # noqa: E402
+import cohesion_pass as CP                                                      # noqa: E402
 
 DRAFTS = ROOT / 'outputs' / 'drafts'
 MODEL = os.getenv('PG_GENERATOR_MODEL', 'z-ai/glm-5.2')
@@ -218,6 +219,7 @@ THE EVIDENCE. These are the ONLY facts you may state. Each is a VERBATIM SPAN fr
 journal article, with the id of the card that holds it:
 
 {cards}
+{ledger}
 
 ** YOU DO NOT WRITE CITATIONS. ** Do not name an author. Do not name a journal. Do not write a year.
 The citation is attached automatically, from a provenance graph, to whichever card_id you cite. If you
@@ -259,6 +261,10 @@ RULES — every one is enforced mechanically, and a violating sentence is DELETE
    differ in level, horizon, or method — you may NOT say why the world behaves that way.
 5. Open each paragraph with a claim, not a topic announcement. Never mention this pipeline or "the
    question above". Aim for 2-4 paragraphs of ~100 words, separated by {{"paragraph_break": true}}.
+6. ** SAY EACH FACT ONCE. ** A finding stated in full in one place and REFERRED BACK TO in another is a
+   review; a finding re-narrated in eight places is a list. Where a fact below is marked SPENT or is
+   licensed only in a NEW ROLE, obey that: the sentence that restates it is deleted, and you will have
+   spent your paragraph on nothing.
 
 Return ONLY the JSON array."""
 
@@ -633,6 +639,155 @@ def _assign_comparisons(jobs, plans, all_bundles, cf_by_id, cards_by_id, b, cont
     return out
 
 
+# ----------------------------------------------------------------- THE FACT-USE LEDGER
+#
+# MEASURED ON THE SHIPPED REPORT: 222 card slots drawn from 82 cards. ONE finding narrated EIGHT TIMES.
+# 41 exact repetitions. ~1,500-2,000 words of pure restatement — in a document whose lowest criterion is
+# paragraph cohesion and whose judge wrote "fragmented narrative".
+#
+# THE CAUSE IS IN THIS FILE, AND IT IS `_select()`. Every subsection independently scores every admitted
+# card by lexical fit and takes the top 12. A canonical finding — the one with the big number and the
+# familiar vocabulary — scores in the top 12 of EIGHT subsections, so it is DEALT to eight writers, and
+# eight writers each faithfully narrate it. No writer misbehaved. Nobody ever told them it was spent.
+#
+# `fact_use_ledger.plan_bundles()` deals every subsection a DELIBERATELY DIFFERENT bundle: narration is
+# a PARTITION over findings (R1 — narrated in full exactly once), reuse is granted only in a NEW
+# ANALYTICAL ROLE that must ADD something (R2/R3 — mechanism / contrast / boundary / method / implication),
+# and everything else degrades to an OWNED BACKWARD REFERENCE that POINTS at the fact without SAYING it
+# again (R4).
+#
+# IDENTITY IS KEYED ON sha1(THE VERBATIM SPAN), NEVER ON THE MODEL'S `claim`: "identity keyed on model
+# prose is identity the model can forge by rewording" — a writer could otherwise launder a spent fact
+# into a fresh one just by paraphrasing it.
+#
+# WHAT THE LEDGER DOES NOT DO: it does not touch the BASKET. Corroborating sources stay retained, cited
+# and counted (`Cluster.corroborators`); the ledger governs RHETORICAL REUSE ONLY. And it is NOT a
+# "one card, one section" partition of the EVIDENCE — Sol rejected that explicitly, because it starves
+# the theory and synthesis sections of the canonical findings they exist to reason over. Those sections
+# still get the big findings; they get them in a role that does a NEW JOB.
+
+
+class Licence:
+    """What THIS subsection may do with each card. The unit of authority is (card, subsection)."""
+
+    __slots__ = ('narrate', 'new_role', 'backref')
+
+    def __init__(self, narrate=(), new_role=(), backref=()):
+        self.narrate = list(narrate)                 # card_ids: state in full, WITH the figure
+        self.new_role = list(new_role)               # (card_id, role, must_add)
+        self.backref = list(backref)                 # card_ids: point at it, NEVER restate it
+
+    @property
+    def attributable(self) -> list[str]:
+        """The ONLY cards this subsection may put in an ATTRIBUTED clause."""
+        return list(dict.fromkeys(self.narrate + [cid for cid, _r, _a in self.new_role]))
+
+
+def _fact_use_plan(b: CardBundle, admitted: list[str], jobs: list) -> tuple[dict, dict]:
+    """Run the ledger's planner over the ADMITTED cards and translate findings -> card_ids.
+
+    The ledger speaks in FINDING ids (work + span hash). The composer speaks in CARD ids. This is the
+    only place the two vocabularies meet, and the mapping is deterministic: `admitted` is ordered, so
+    where two cards carry the same finding (same work, same bytes — 13 of them do in this bundle) the
+    first one always wins and the duplicate is not separately narratable. That is not a loss: a second
+    card over the SAME SPAN OF THE SAME PAPER is the same fact twice, which is the disease.
+    """
+    import fact_use_ledger as FUL          # deferred: FUL imports OUTLINE from this module (a cycle)
+
+    plan_cards = [b.cards[cid] for cid in admitted]
+    cid_of_fid: dict[str, str] = {}
+    for cid in admitted:
+        cid_of_fid.setdefault(FUL.finding_id(b.cards[cid]), cid)
+
+    bundles, records = FUL.plan_bundles(plan_cards, OUTLINE)
+    by_job = {(bd.section, bd.subsection): bd for bd in bundles}
+
+    lic: dict = {}
+    for job in jobs:
+        bd = by_job.get(job)
+        if bd is None:
+            lic[job] = Licence()
+            continue
+        lic[job] = Licence(
+            narrate=[cid_of_fid[f] for f in bd.narrate if f in cid_of_fid],
+            new_role=[(cid_of_fid[f], r, add) for f, r, add in bd.new_role if f in cid_of_fid],
+            backref=[cid_of_fid[f] for f in bd.backref if f in cid_of_fid])
+    return lic, records
+
+
+def _rank(b: CardBundle, cids: list[str], sub: str, k: int) -> list[str]:
+    """Order a LICENSED set by how well it fits this subsection — scored on the PAPER'S SPAN and its
+    declared fields (`fact_use_ledger.relevance`), never on the model-written `claim` that `_select`
+    scores on. Licence decides WHETHER a card may be spoken here; relevance only decides the order."""
+    import fact_use_ledger as FUL
+
+    return sorted(dict.fromkeys(cids), key=lambda c: -FUL.relevance(b.cards[c], sub))[:k]
+
+
+_NUM = re.compile(r'\d')
+
+
+def _backref_topic(b: CardBundle, cid: str) -> str:
+    """A NUMBER-FREE handle for a spent fact, built from the card's DECLARED FIELDS.
+
+    The writer is asked to point back at this finding in its OWN voice. So it must not be shown the
+    span (it would restate it) and must not be shown the `claim` (it carries the figure). It is shown
+    the outcome, the unit and the sector — enough to refer, not enough to re-narrate. Any field that
+    contains a digit is dropped: a backward reference that carries a number is a restatement.
+    """
+    c = b.cards[cid]
+    bits = [str(c.get(k) or '').strip() for k in ('outcome', 'level', 'technology', 'industry')]
+    bits = [x for x in bits if x and not _NUM.search(x) and len(x) < 42]
+    return ' / '.join(dict.fromkeys(bits)) or 'a finding stated earlier in this review'
+
+
+def _ledger_brief(b: CardBundle, lic: Licence) -> str:
+    """The writer's standing orders on RHETORICAL REUSE. Mechanically enforced below — a violating
+    sentence is DELETED, never repaired."""
+    out: list[str] = []
+    if lic.new_role:
+        out.append('THESE FACTS HAVE ALREADY BEEN STATED IN FULL ELSEWHERE IN THIS REVIEW. You may use '
+                   'each ONE more time, but ONLY TO DO A NEW JOB — not to tell it again:')
+        for cid, role, add in lic.new_role:
+            out.append(f'  card {cid} — permitted role here: {role.value} '
+                       f'(the sentence must perform a {add}: set it AGAINST another finding, BOUND it, '
+                       f'impugn its METHOD, or draw an IMPLICATION from it). Do not re-narrate it.')
+    if lic.backref:
+        out.append('THESE FACTS ARE SPENT. They are stated in full elsewhere and you may NOT state them '
+                   'again — not their figure, not their finding. Where one bears on your argument, refer '
+                   'BACKWARD to it in an OWNED sentence that names no source and carries NO NUMBER '
+                   '(e.g. "the occupational-level displacement evidence considered above bears directly '
+                   'on this question"). An ATTRIBUTED clause citing one of these is DELETED:')
+        for cid in lic.backref:
+            out.append(f'  (spent) {_backref_topic(b, cid)}')
+    return ('\n' + '\n'.join(out) + '\n') if out else ''
+
+
+def _ledger_gate(nodes: list, lic: Licence, comp_ids: set[str], sub: str) -> tuple[list, list[str]]:
+    """THE ENFORCEMENT. An ATTRIBUTED clause may cite ONLY a card this subsection is licensed to speak.
+
+    This is the check that makes the ledger REAL rather than advisory. The prompt above merely ASKS;
+    a model that ignores it and narrates a spent fact anyway — which is exactly what a model under
+    instruction-pressure does — has the sentence DELETED here, against the plan, before it can reach
+    the page. Removing this function puts the eighth narration back.
+
+    The comparison cards from `argument_planner` are licensed BY THE COMPARISON: adjudicating two
+    findings against each other IS a new analytical role (CONTRAST), and the verdict that follows is
+    unreadable if the two sides are not on the page.
+    """
+    allowed = set(lic.attributable) | set(comp_ids)
+    good, dropped = [], []
+    for n in nodes:
+        if isinstance(n, Attributed):
+            spent = [cl.card_id for cl in n.clauses if cl.card_id not in allowed]
+            if spent:
+                dropped.append(f'FACT_LEDGER: card {spent[0]} is SPENT here — it is narrated in full '
+                               f'elsewhere; this subsection is licensed only to refer BACK to it')
+                continue
+        good.append(n)
+    return good, dropped
+
+
 # ----------------------------------------------------------------- compose
 
 def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: str,
@@ -683,16 +838,51 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
     print(f'  sound cross-source verdicts placed       : {n_verdicts} '
           f'(across {sum(1 for v in comps_for.values() if v)} subsections)')
 
+    # ============ WHO MAY SAY WHAT, AND WHERE — the fact-use ledger, BEFORE any prose exists.
+    # Narration is a PARTITION over findings; reuse must do a NEW JOB; everything else is a backward
+    # reference. If the ledger fails, the composer does NOT silently fall back to the old lexical
+    # free-for-all — that is the defect. It refuses, because a report that restates one finding eight
+    # times is the exact artifact we are here to stop shipping.
+    licences, fact_records = _fact_use_plan(b, admitted, jobs)
+    unspoken = set(admitted) - {cid for lc in licences.values()
+                                for cid in (lc.narrate + [c for c, _r, _a in lc.new_role])}
+    n_narr = sum(len(lc.narrate) for lc in licences.values())
+    n_reuse = sum(len(lc.new_role) for lc in licences.values())
+    n_back = sum(len(lc.backref) for lc in licences.values())
+    print(f'  FACT-USE LEDGER: {len(fact_records)} distinct findings (span-keyed) over {len(admitted)} cards')
+    print(f'     narrated ONCE each                   : {n_narr} slots  (was: 222 slots from 82 cards)')
+    print(f'     reused only in a NEW ANALYTICAL ROLE : {n_reuse}')
+    print(f'     degraded to an OWNED BACKWARD REF    : {n_back}')
+    print(f'     unspoken (free to any starved section): {len(unspoken)}')
+
     def one(job):
         sec, sub = job
         comps = comps_for.get(job) or []
+        lic = licences.get(job) or Licence()
         # THE WRITER'S CARD SET: the comparison pairs FIRST (they must be on the page for the verdict to
-        # read), then whatever else is relevant. The plan is FILLED, not freelanced.
+        # read), then WHATEVER THIS SUBSECTION IS LICENSED TO SPEAK. The plan is FILLED, not freelanced.
+        #
+        # This line is the whole of TASK A's behavioural change. It used to be `_select(b, sub)` — an
+        # INDEPENDENT top-12-by-lexical-fit, run 26 times over the same 232 cards, which is precisely how
+        # one card came to be dealt to eight subsections and narrated eight times. The candidate pool is
+        # now the LICENCE: the cards this subsection may narrate, plus the cards it may reuse IN A NEW
+        # ROLE. A card spent elsewhere is not in the writer's context window at all, so the cheapest way
+        # to not restate a fact is used first — never show it to the writer — and `_ledger_gate` below
+        # catches the case where the model cites one anyway.
         comp_ids = [cid for (bd, _v, _bnd) in comps for cid in bd.card_ids]
         sel = [cid for cid in dict.fromkeys(comp_ids) if b.resolve(cid).ok]
+        licensed = [cid for cid in lic.attributable if b.resolve(cid).ok]
+        sel = list(dict.fromkeys(sel + _rank(b, licensed, sub, k=12)))[:12]
         if len(sel) < 3:
-            sel = [cid for cid in dict.fromkeys(sel + _select(b, sub)) if b.resolve(cid).ok]
-        sel = sel[:12]
+            # THE LEDGER STARVED THIS SUBSECTION, and an empty subsection is worse than an imperfect one.
+            # But the fallback may NOT be the old lexical `_select`: that re-opens the exact lane R1
+            # closes, and every card it returned would then be DELETED by `_ledger_gate` anyway — a paid
+            # LLM call spent to produce nothing. It falls back only onto UNSPOKEN cards: admitted cards
+            # that no subsection anywhere narrates or reuses. Speaking one of those breaks no rule,
+            # because nobody else was ever going to say it.
+            extra = [cid for cid in _select(b, sub) if cid in unspoken and b.resolve(cid).ok]
+            sel = list(dict.fromkeys(sel + extra))[:12]
+            lic.narrate += [cid for cid in extra if cid not in lic.narrate]   # the gate must let them by
 
         # THE DETERMINISTIC ADJUDICATION — planner-authored, already re-gated in _assign_comparisons.
         # Each comparison contributes its VERDICT (the varied payload — a different outcome/unit each);
@@ -707,12 +897,16 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
         if not sel:
             return job, list(owned), (['no cards selected'] if not owned else [])
         prompt = WRITE_PROMPT.format(section=sec, sub=sub, plan=_plan_brief(comps),
-                                     cards=_fmt_cards(b, sel), connectives=', '.join(CONNECTIVES))
+                                     cards=_fmt_cards(b, sel), ledger=_ledger_brief(b, lic),
+                                     connectives=', '.join(CONNECTIVES))
         try:
             raw = jparse(llm(prompt, max_tokens=8192))
         except Exception as e:
             return job, list(owned), [f'llm: {e}']
         nodes, dropped = _nodes_from(raw, b, set(sel))
+        # THE FACT-USE LEDGER, ON THE CRITICAL PATH — a spent fact may not be narrated again.
+        nodes, spent_drops = _ledger_gate(nodes, lic, set(comp_ids), sub)
+        dropped += spent_drops
         # THE GATE, ON THE CRITICAL PATH — node by node, against the bytes.
         good = []
         for i, n in enumerate(nodes):
@@ -754,8 +948,28 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
         if i == 1 and len(tbl) >= 3:
             nodes += [EvidenceTable(card_ids=tuple(tbl))]
 
+    # ---- THE COHESION PASS. It runs on TYPED NODES, never on prose, and it may not touch a fact.
+    # S2 Paragraph Cohesion = 4.90 is our LOWEST criterion and the judge named the cause: "fragmented
+    # narrative... without adequate transitions". The cause is that 26 subsections were written by 26
+    # independent calls, none of which could see the paragraph above it. This pass adds the OWNED
+    # connective tissue those writers had no way to write — and it CANNOT do anything else: every
+    # attributed node it returns is the same OBJECT it was handed (`_assert_frozen`, by identity), and
+    # every sentence it writes goes back through `validate_report` before it may stand.
+    nodes, coh = CP.apply(nodes, b)
+    print(f'\n  COHESION PASS: +{coh.get("transitions_added", 0)} owned transitions, '
+          f'+{coh.get("topics_added", 0)} topic sentences, '
+          f'-{coh.get("owned_duplicates_deleted", 0)} duplicate owned sentences, '
+          f'{coh.get("reordered_subsections", 0)} subsections reordered, '
+          f'{coh.get("owned_refused_by_gate", 0)} of its own sentences REFUSED by the gate')
+
     DRAFTS.mkdir(parents=True, exist_ok=True)
     (DRAFTS / 'drops.json').write_text(json.dumps(all_dropped, indent=1))
+    # THE LEDGER'S RECEIPT — a draft, never a release artifact. Who said what, where, in which role.
+    (DRAFTS / 'fact_use_ledger.json').write_text(json.dumps(
+        {f: {'work': r.work_id, 'narrations': len(r.narrations),
+             'uses': [{'sub': u.subsection, 'role': u.role.value, 'mode': u.mode} for u in r.uses],
+             'violations': r.violations()}
+         for f, r in fact_records.items()}, indent=1))
 
     fails = validate_report(nodes, b)
     print(f'\n  AST: {len(nodes)} nodes | {len(fails)} unlawful | '

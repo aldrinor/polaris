@@ -277,8 +277,12 @@ class CardBundle:
         mid = binding['manifestation_id']
         m = self.graph.manifestations[mid]
 
-        # ---- 2. THE POLICY. What, if anything, may a span in these bytes NAME?
-        att = self.graph.resolve_attribution(mid, self.policy)
+        # ---- 2. THE POLICY. What, if anything, may THIS SPAN name?
+        #         Sol V9 §4: the question is asked about the BINDING, not about the manifestation. A
+        #         manifestation-wide answer would hand THIS span whatever permission any OTHER span in
+        #         the same document had earned — and the spans peer review rewrote sit in the very same
+        #         document as the spans it left alone. Permission is per span or it is fiction.
+        att = self.graph.resolve_attribution(binding, self.policy)
         if not att.admitted:
             return Resolution(False, card_id, refusal=f'SOURCE_POLICY_REFUSES: {att.refusal}')
 

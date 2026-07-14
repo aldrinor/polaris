@@ -107,11 +107,19 @@ class ForbiddenLabel(Exception):
 
 
 #: Terminal conclusions. A component may not state these — the reducer derives them.
+#:
+#: Sol V9 §1, verbatim: "The adapter must not write FULLTEXT, THIS_WORK, VERSION_OF_RECORD, ADMISSIBLE,
+#: or an expression edge. Those are reducer outputs derived from immutable metadata and document bytes."
+#: FULLTEXT, ADMISSIBLE and `same work` were already here. THIS_WORK and VERSION_OF_RECORD were not —
+#: and an adapter that may write `version_of_record` into a payload has been handed, by the back door,
+#: precisely the authority the V9 P0 was about taking away from it. A repository saying `acceptedVersion`
+#: is an OBSERVATION; a component writing `version_of_record` is a VERDICT.
 RESERVED_VALUES = (
     'fulltext', 'full text', 'full-text',
     'complete', 'route_complete',
     'no evidence', 'no free copy', 'no free text', 'not available', 'nothing found',
-    'same work', 'same_work', 'version equivalent',
+    'same work', 'same_work', 'this work', 'this_work', 'different work', 'different_work',
+    'version equivalent', 'version of record', 'version_of_record',
     'high quality', 'high_quality', 'low quality', 'low_quality',
     'paywalled', 'still paywalled',
     'supported', 'searched_none', 'conflicted',
@@ -431,6 +439,67 @@ def preprint_stamp_key(text: str) -> str | None:
     return m.lastgroup if m else None
 
 
+#: A REPOSITORY COVER SHEET IS NOT THE ARTICLE'S FRONT MATTER (Sol V9 §5).
+#:
+#: An institutional repository staples its own page onto the front of the PDF: "This is a repository copy
+#: of…", the handle, the licence, and — fatally — A FULL CITATION OF THE ARTICLE, DOI AND ALL. So the
+#: first thing a front-matter DOI extractor sees is a DOI printed by the LIBRARY, not by the publisher,
+#: and it is printed identically whether the file underneath is the VoR, the accepted manuscript, or
+#: (this has happened) a DIFFERENT PAPER filed under the wrong handle. A cover sheet proves what a
+#: repository BELIEVES it deposited. The article's own front matter proves what it IS.
+#:
+#: So the cover sheet is SEGMENTED OFF and the article's front matter is read after it. The cover sheet
+#: is not discarded — it is a real observation, kept under `cover_sheet_text` — it is just not allowed
+#: to be the article's own testimony about itself.
+_COVER_SHEET = re.compile(
+    r'(this is a repository copy of|this is an? (author|accepted|final)[- ]?(produced|version)'
+    r'|white rose research online|enlighten|eprints|dspace|munin|hal (open science|id)'
+    r'|citation for (the )?published version|the version (presented here|in the repository)'
+    r'|downloaded from .{0,60}(repository|eprints|dspace|core\.ac\.uk)'
+    r'|this version is available at|general rights|take down policy'
+    r'|users may download and print one copy)', re.I)
+
+_DOI_RE = re.compile(r'\b10\.\d{4,9}/[^\s"\'<>,;)\]]+', re.I)
+
+#: IS THERE A BYLINE AT ALL? Sol V9 §5 lets DIFFERENT_WORK be reached by "an incompatible foreign title
+#: PLUS A DISJOINT BYLINE" — and BOTH halves are load-bearing. A byline that is ABSENT is not a byline
+#: that is disjoint, and the difference is the whole of this project's disease.
+#:
+#: This was not academic. My first cut of the rule read "no requested author appears in the front matter"
+#: as disjointness, and the router's own demo convicted it INSIDE A MINUTE: the cookie-banner fixture —
+#: "This website uses cookies. Sign in to continue." — came out DIFFERENT_WORK. A landing page names no
+#: author because IT IS NOT A DOCUMENT, and reading that silence as "somebody else's paper" would have
+#: quarantined it under a claim about authorship that nothing supported. It is a landing page. Say that.
+#:
+#: So a byline must be POSITIVELY OBSERVED: an explicit authorship cue, or two full names conjoined. When
+#: this is False the reducer may not use disjointness for anything, in either direction.
+#: An explicit authorship CUE. Case-insensitive: "By Yang-Hui He", "AUTHORS:", "Author —".
+_BYLINE_CUE = re.compile(r'\bby\s+[A-Z]|\bauthors?\s*[:—-]', re.I)
+#: ...or a conjoined pair of full names. CASE-SENSITIVE ON PURPOSE — names are capitalised, and folding
+#: case here would match "the paper and the data", which is not a byline.
+_BYLINE = re.compile(r'[A-Z][a-z]+\s+[A-Z][\w.-]+\s*(?:,|\band\b)\s*[A-Z][a-z]+\s+[A-Z][\w.-]+')
+
+
+def segment_front_matter(text: str, header_chars: int = 1500) -> tuple[str, str]:
+    """-> (cover_sheet_text, article_front_matter). Sol V9 §5: "Repository cover sheets are SEGMENTED
+    from article front matter."
+
+    The boundary is taken at the first form-feed after the last cover-sheet marker (a PDF page break —
+    the cover sheet IS a separate page, which is the one structural thing that is reliably true of it),
+    and failing that at the end of the marker block. If no cover-sheet marker is present, the cover sheet
+    is empty and the article's front matter is simply the header — which is the common case and must
+    stay cheap.
+    """
+    head = text[:header_chars * 4]           # look further than the header: a cover sheet displaces it
+    hits = list(_COVER_SHEET.finditer(head))
+    if not hits:
+        return '', text[:header_chars]
+    end = hits[-1].end()
+    ff = text.find('\x0c', end)
+    boundary = ff + 1 if 0 <= ff < len(head) else end
+    return text[:boundary], text[boundary:boundary + header_chars]
+
+
 def observe_text(text: str, header_chars: int = 1500) -> dict:
     """Everything the ledger needs to know about a blob of retrieved text — and NOT ONE CONCLUSION.
 
@@ -441,6 +510,11 @@ def observe_text(text: str, header_chars: int = 1500) -> dict:
     """
     words = text.split()
     header = text[:header_chars]
+    # THE ARTICLE'S OWN FRONT MATTER, with any repository cover sheet segmented off it. The DOIs found
+    # HERE are the document's own claim about which article it is — as distinct from the DOI a library
+    # printed on a cover page, which is the library's claim about what it filed.
+    cover, article_front = segment_front_matter(text, header_chars)
+    front_dois = sorted({d.rstrip('.').lower() for d in _DOI_RE.findall(article_front)})
     cid_tokens = sum(1 for t in words if 'cid:' in t)
     stripped = _CID.sub('', text)
     real_words = len(re.findall(r'[A-Za-z]{3,}', stripped))
@@ -464,6 +538,18 @@ def observe_text(text: str, header_chars: int = 1500) -> dict:
         # et al. A whole-text search "confirmed" the wrong paper.)
         'identity_window': header,
         'header_text': header[:400],
+        # ---- SOL V9 §5: IDENTITY FROM THE FETCHED CONTENT ITSELF -------------------------------
+        # The DOI the ARTICLE prints on itself (JATS article-DOI, PDF front matter, HTML header) — with
+        # any repository COVER SHEET segmented off, because a cover sheet's DOI is the library's opinion
+        # of what it deposited, not the document's testimony about what it is.
+        'front_matter_dois': front_dois,
+        'cover_sheet_chars': len(cover),
+        'cover_sheet_text': cover[:400],
+        'article_front_matter': article_front[:400],
+        # A BYLINE IS PRESENT — or it is not. `False` means the reducer may not reason about
+        # disjointness AT ALL: an absent byline is not a disjoint one. (A cookie banner names no author
+        # because it is not a document, not because a stranger wrote it.)
+        'byline_present': bool(_BYLINE_CUE.search(article_front) or _BYLINE.search(article_front)),
     }
 
 
@@ -527,6 +613,83 @@ def _outcome_of_request(evs: list[Event]) -> str:
     if e.payload.get('transport_error'):
         return BACKEND_FAILED           # timeout / DNS / reset / bad JSON / 5xx
     return RESPONDED
+
+
+# ---- 1b. ROUTE LINEAGE — WHOSE DOCUMENT IS THIS? (Sol V9 §1) ---------------------------------
+#
+# THE BUG THIS EXISTS TO CLOSE: a route could be credited with a document some OTHER route fetched.
+#
+# The chain is:  resolver request -> candidate -> content request -> redirects -> manifestation
+# and `candidate_id` is the thread that runs through all of it. A MANIFESTATION_FETCHED event carries the
+# CONTENT HOST in `adapter` (`content:arxiv.org`) — never the resolver that proposed the URL — so
+# "which adapter found this document?" is NOT answerable from the manifestation alone. It is answerable
+# only by walking back to the CANDIDATE_IDENTIFIED event that minted the candidate_id, whose `adapter`
+# IS the resolver.
+#
+# Reducing over "all manifestations of the unit", as the discovery reducer did, answers a different
+# question — "did ANYBODY get a document for this work?" — and reports it once per route. Every route
+# then inherits every other route's success, unique incremental yield is identically equal to gross
+# yield, and the ladder Sol asks for in §9 measures nothing at all.
+
+
+def candidates_of_adapter(events: list[Event], adapter: str) -> set[str]:
+    """The candidate_ids THIS ADAPTER PROPOSED. The lineage root — an adapter owns what it discovered."""
+    return {str(e.payload['candidate_id']) for e in _observations(events)
+            if e.kind == EventKind.CANDIDATE_IDENTIFIED
+            and e.payload.get('adapter') == adapter
+            and e.payload.get('candidate_id')}
+
+
+def manifestations_of_adapter(events: list[Event], adapter: str) -> list[Event]:
+    """The MANIFESTATION_FETCHED events that descend from a candidate `adapter` proposed.
+
+    Also includes manifestations whose OWN adapter is `adapter` — a content host IS a route (if nber.org
+    403s us we were blocked BY NBER), and when a fetcher pulls a URL with no candidate lineage the
+    content host is the only route there is.
+
+    A manifestation with NO candidate_id and a different adapter belongs to NOBODY, and is therefore
+    credited to nobody. That is the safe default and the honest one: we do not know which route earned
+    it, and inventing an answer is the failure this reducer exists to end.
+    """
+    mine = candidates_of_adapter(events, adapter)
+    out = []
+    for e in _observations(events):
+        if e.kind != EventKind.MANIFESTATION_FETCHED:
+            continue
+        cid = str(e.payload.get('candidate_id') or '')
+        if (cid and cid in mine) or e.payload.get('adapter') == adapter:
+            out.append(e)
+    return out
+
+
+def events_of_adapter_lineage(events: list[Event], adapter: str) -> list[Event]:
+    """This unit's events with EVERY OTHER ROUTE'S DOCUMENTS REMOVED — and their profiles with them.
+
+    This is what lets the existing content reducers (`derive_content_profile`, `derive_semantic_binding`)
+    answer "what did THIS ROUTE get?" without any of them learning a second vocabulary. They still reduce
+    over an event list; the list is just no longer somebody else's.
+
+    MANIFESTATION_FETCHED and its CONTENT_PROFILE_DERIVED are emitted ADJACENTLY and are paired by
+    adjacency downstream (`_holdings`), so a foreign manifestation must take its profile out with it.
+    Dropping the manifestation alone would leave an orphan profile that pairs with the NEXT
+    manifestation — one route's bytes wearing another route's word count, which is the same class of bug
+    one layer down.
+    """
+    keep = {id(e) for e in manifestations_of_adapter(events, adapter)}
+    out: list[Event] = []
+    drop_profile = False
+    for e in events:
+        if e.kind == EventKind.MANIFESTATION_FETCHED and 'derived_by' not in e.payload:
+            drop_profile = id(e) not in keep
+            if not drop_profile:
+                out.append(e)
+            continue
+        if e.kind == EventKind.CONTENT_PROFILE_DERIVED and drop_profile:
+            drop_profile = False
+            continue
+        drop_profile = False
+        out.append(e)
+    return out
 
 
 def derive_backend_outcome(events: list[Event], adapter: str) -> str:
@@ -899,9 +1062,23 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
     # A GENERIC one is not: {rise, machines} sits entirely inside {mathematics, rise, machines}.
     title_specific = len(want_t) >= 4
 
+    # ── THE DOCUMENT'S OWN DOI (Sol V9 §5) ────────────────────────────────────────────────────
+    # Read from the ARTICLE'S front matter, with any repository cover sheet segmented off. This is the
+    # ONE identity signal that is both positive and decisive in BOTH directions: an exact front-matter
+    # DOI CONFIRMS, and a front matter that prints a DIFFERENT DOI and NOT ours is the positive evidence
+    # of a stranger's paper that DIFFERENT_WORK has always needed and never had.
+    want_doi = str(fetched.get('requested_doi') or '').strip().lower().rstrip('.')
+    front_dois = [str(d).lower().rstrip('.') for d in (prof.get('front_matter_dois') or [])]
+    doi_hit = bool(want_doi and want_doi in front_dois)
+    foreign_doi = bool(want_doi and front_dois and not doi_hit)
+    #: A byline was POSITIVELY OBSERVED. Absence of one is NOT disjointness — see _BYLINE.
+    byline_present = bool(prof.get('byline_present'))
+
     ev = {'title_overlap': round(overlap, 2), 'author_in_byline': author_hit,
           'title_content_words': len(want_t),
           'requested_title': fetched.get('requested_title', '')[:70],
+          'front_matter_dois': front_dois[:4], 'doi_in_front_matter': doi_hit,
+          'cover_sheet_chars': prof.get('cover_sheet_chars', 0),
           'header_text': (prof.get('header_text') or '')[:120]}
 
     # ── AN UNREADABLE HEADER IS NOT A STRANGER'S PAPER. ───────────────────────────────────────
@@ -915,27 +1092,81 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
                                       f'readable words — we CANNOT READ it, so we cannot establish '
                                       f'identity. Not a stranger\'s paper: an unreadable one', **ev}
 
-    # ── IDENTITY IS CONFIRMED BY AN AUTHOR, OR BY A SPECIFIC TITLE IN FULL. ───────────────────
-    confirmed = author_hit or (title_match and title_specific)
+    # ── DIFFERENT_WORK NEEDS POSITIVE EVIDENCE OF A STRANGER. IT ALWAYS DID. ──────────────────
+    # Sol V9 §5 sets the bar exactly: DIFFERENT_WORK requires "a positive foreign DOI, or an
+    # incompatible foreign title PLUS a disjoint byline". And, verbatim: "A generic title without an
+    # author must NOT produce DIFFERENT_WORK; the current event reducer is TOO AGGRESSIVE here."
+    #
+    # It was. Two branches below used to return DIFFERENT_WORK on ABSENCE:
+    #
+    #   1. a generic-title match with no author in the header -> DIFFERENT_WORK ("title collision")
+    #   2. an author match with a weak title                  -> DIFFERENT_WORK ("same author, different
+    #                                                                             paper")
+    #
+    # Neither is positive evidence of anyone else's paper. (1) fires on a real article with a two-word
+    # title whose PDF header happens not to carry a byline — which describes a large fraction of
+    # publisher HTML. (2) fires on the RIGHT paper whose title page decoded badly, and it fires while the
+    # BYLINE AGREES WITH US, which is the opposite of a disjoint byline. Both convict on absence, and
+    # DIFFERENT_WORK is not a shrug — it is `wrong_work`, a QUARANTINE, and it destroys the document.
+    #
+    # UNRESOLVED is the honest verdict for both, and it costs us the same evidence while making a claim
+    # we can actually support. Absence of our evidence read as evidence of absence is the 429-means-"no
+    # free copy exists" error, and it does not become sound by being pointed at a PDF.
+    if foreign_doi:
+        # POSITIVE. The document PRINTS A DOI ON ITSELF, and it is not ours. (Cover sheet already
+        # segmented off — a library's citation of us is not the document identifying itself as us.)
+        return DIFFERENT_WORK, {
+            'reason': f'the article front matter prints DOI {front_dois[0]!r}, and we asked for '
+                      f'{want_doi!r}. The document says whose it is, and it is not ours', **ev}
+
+    # ── IDENTITY IS CONFIRMED BY ITS OWN DOI, AN AUTHOR, OR A SPECIFIC TITLE IN FULL. ─────────
+    confirmed = doi_hit or author_hit or (title_match and title_specific)
 
     if not confirmed:
-        # DIFFERENT_WORK is a STRONG CLAIM ("we are holding a stranger's paper") and it needs
-        # POSITIVE evidence. Absence of a confirming author is NOT that evidence — it is absence of
-        # evidence, and reading the two as the same is how "429" became "no free copy exists".
-        if title_match and not title_specific:
+        # POSITIVE, the second way: A DISJOINT BYLINE. The document SAYS WHO WROTE IT, we know who we
+        # asked for, and they are different people — while nothing else (its DOI, its title) puts our
+        # work in these bytes. That is testimony from the document, not an inference from silence.
+        #
+        # BOTH halves are required, and both are checked:
+        #   - `byline_present`: an authorship cue was POSITIVELY OBSERVED in the article's own front
+        #     matter (cover sheet segmented off). An ABSENT byline is not a disjoint one.
+        #   - `want_a`: we actually asked for named authors. If we asked for none, no byline on earth
+        #     can be disjoint from them, and claiming otherwise convicts every document we hold.
+        #
+        # THIS IS THE PARRY / YANG-HUI HE CASE, and it stays quarantined: we asked for Parry, the front
+        # matter says "By Yang-Hui He", and the only thing that "matched" was the two-word phrase "rise
+        # of the machines". What convicts it is the BYLINE — not the title collision, which convicts
+        # nothing.
+        if byline_present and want_a and not author_hit:
             return DIFFERENT_WORK, {
-                'reason': f'the requested title has only {len(want_t)} content word(s), and no '
-                          f'requested author appears in the header. A {overlap:.0%} match on a '
-                          f'GENERIC title is a TITLE COLLISION, not identity — the short title sits '
-                          f'inside a stranger\'s longer one', **ev}
+                'reason': f'the article front matter carries a byline, and it names NONE of the '
+                          f'{len(want_a)} requested author(s). Nothing else identifies these bytes as '
+                          f'ours (title overlap {overlap:.0%}, no matching front-matter DOI) — an '
+                          f'incompatible work with a DISJOINT BYLINE', **ev}
+        if title_match and not title_specific:
+            # A TITLE COLLISION, with NO byline to convict on. {rise, machines} sits inside
+            # {mathematics, rise, machines}. Sol V9 §5, verbatim: "A generic title without an author must
+            # NOT produce DIFFERENT_WORK." This is not knowledge that we hold a stranger's paper. It is
+            # knowledge that WE CANNOT TELL — and those are different facts, one of which is true.
+            return UNRESOLVED, {
+                'reason': f'the requested title has only {len(want_t)} content word(s) and no requested '
+                          f'author appears in the front matter. A {overlap:.0%} match on a GENERIC title '
+                          f'is a TITLE COLLISION — it establishes NEITHER identity NOR its absence. '
+                          f'UNRESOLVED, and therefore not attributable', **ev}
         return UNRESOLVED, {'reason': f'title overlap {overlap:.0%}, no requested author in the '
                                       f'header — identity is NOT established, so this text may not '
                                       f'be attributed to this source', **ev}
 
-    # ...an author alone is not identity either: prolific authors write many papers.
-    if author_hit and not title_match and not title_specific:
-        return DIFFERENT_WORK, {'reason': f'the author matches but the title does not ({overlap:.0%}) '
-                                          f'— same author, DIFFERENT PAPER', **ev}
+    # ...an author alone is not identity either: prolific authors write many papers. But the byline
+    # AGREES WITH US, so this is NOT a stranger's paper — it is a paper we cannot pin down. This branch
+    # used to return DIFFERENT_WORK ("same author, DIFFERENT PAPER") and it was the second half of Sol's
+    # "too aggressive" finding: it convicted while the byline was CONFIRMING us, which is the exact
+    # opposite of the disjoint byline the rule requires.
+    if author_hit and not doi_hit and not title_match and not title_specific:
+        return UNRESOLVED, {'reason': f'a requested author appears in the front matter but the title '
+                                      f'matches only {overlap:.0%} — same author, possibly a different '
+                                      f'paper. The byline is NOT disjoint, so this is not positive '
+                                      f'evidence of a stranger\'s work: it is UNRESOLVED', **ev}
 
     if prof.get('published_stamp_in_header'):
         return VERSION_PUBLISHED, {'reason': 'identity confirmed, and the header carries a '
@@ -946,7 +1177,8 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
                                             'NUMBERS; this is a DIFFERENT SOURCE until version '
                                             'equivalence is proven', **ev}
     return SAME_WORK, {'reason': 'identity confirmed by '
-                                 + ('author and title' if author_hit and title_match
+                                 + ('the article\'s OWN front-matter DOI' if doi_hit
+                                    else 'author and title' if author_hit and title_match
                                     else 'author in the header' if author_hit
                                     else f'a specific {len(want_t)}-word title matched in full')
                                  + ', and no preprint stamp in the header', **ev}

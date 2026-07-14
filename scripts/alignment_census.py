@@ -138,9 +138,31 @@ def main() -> int:
             why = (f"held bytes are {bid['cover']:.3f}-identical to a location an authenticated backend "
                    f"labels `publishedVersion` — these ARE the article of record")
         elif (a.get('journal_bytes') or {}).get('version') == 'acceptedVersion':
-            kind, ruling = 'ACCEPTED_MANUSCRIPT', 'ADMISSIBLE'
-            why = ('an authenticated post-peer-review accepted manuscript (repository version '
-                   'statement, via Unpaywall) — accepted_manuscript_of is span-preserving')
+            # ── THE V9 P0, AT ITS LAST HOP ────────────────────────────────────────────────────────
+            # This branch used to read `ruling = 'ADMISSIBLE'`, on the basis that
+            # "accepted_manuscript_of is span-preserving". It was, and it should never have been.
+            #
+            # Read what the condition actually tests: a field in a JSON record that came from Unpaywall,
+            # whose value is the string 'acceptedVersion'. NOT ONE BYTE OF THE DOCUMENT IS CONSULTED.
+            # A repository's one-word opinion — self-reported by the depositing author, frequently stale,
+            # never audited — was the whole evidence for printing a manuscript's numbers as a journal's
+            # findings. Every other branch in this ruling ladder reads the BYTES: running heads, printed
+            # folios, cover-sheet furniture, an 8-gram distinctness test. This one read a label.
+            #
+            # Sol V9 §4: "An accepted manuscript is NEVER the journal version merely because a repository
+            # says acceptedVersion." Acceptance precedes copy-editing, proofs and the editor's last
+            # round, and THE NUMBERS MOVE ACROSS THEM (0.37pp -> 0.2pp, Acemoglu & Restrepo).
+            #
+            # An accepted manuscript is now attributable AS AN ACCEPTED MANUSCRIPT and as nothing else.
+            # Under a JOURNAL-ONLY contract that means INADMISSIBLE — and it is not a downgrade of the
+            # evidence, it is the correct name for it. A span in it reaches the journal only across a
+            # verified SpanCorrespondence (provenance.SpanCorrespondence): that span, both hashes, both
+            # offsets, exact canonical equality, and THAT SPAN ONLY.
+            kind, ruling = 'ACCEPTED_MANUSCRIPT', 'INADMISSIBLE'
+            why = ('a repository VERSION LABEL (`acceptedVersion`, via Unpaywall) — a string, not bytes. '
+                   'An accepted manuscript is NOT the journal version: peer review is not the last thing '
+                   'that changes a number. Attributable as an accepted manuscript ONLY; a span reaches '
+                   'the journal only across a verified per-span SpanCorrespondence into VoR bytes')
         elif preprint and not oa_native:
             kind, ruling = 'PREPRINT', 'INADMISSIBLE'
             why = 'the bytes say which journal they are FOR — an author preprint, not the journal’s text'

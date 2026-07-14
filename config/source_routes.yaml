@@ -193,6 +193,23 @@ jurisdiction_lexicon:
 #   coverage_note        what it is and is not.
 #   endpoints            real URL templates for the live probes (may be empty where there is no clean API;
 #                        `discovery_via` then names the resolver route that finds this route's works).
+#
+#   ---- the three columns that make a route EXECUTABLE as a FULL-TEXT lane (Sol V9 §2) -------------
+#   identifier_transforms  how one identifier becomes another (PMCID -> numeric -> OAI identifier). The
+#                        transforms are a tiny DECLARED vocabulary (strip_prefix / format), evaluated by
+#                        routes_bio._transform. A NEW REPOSITORY IS A ROW, NOT A FUNCTION.
+#   selectors            where the answer lives in the response — dotted paths into JSON, or the JATS/XML
+#                        element names. Changing "which field holds the PDF link" is a DATA edit.
+#   batch                batch sizes the endpoint documents (PMC ID converter: 200 ids per request).
+#
+#   Sol V9 §2, verbatim: "Data edit: PMC endpoints, identifier transforms, metadata prefixes, and rate
+#   budget. Code changes only for a new protocol/parser primitive." So the ONE parser primitive these
+#   three routes needed — a JATS linearizer — is code (routes_bio.jats_to_text); every endpoint, every
+#   identifier transform, every response selector and every rate budget below is DATA.
+#
+#   WHAT AN ADAPTER MAY NOT PUT HERE: a document_type CONCLUSION. `document_types` says what expressions
+#   a route CAN yield; it never says what a fetched document IS. That is derived from the bytes, by
+#   provenance.derive_expression_kind, and by nothing else.
 # ───────────────────────────────────────────────────────────────────────────────────────────────────
 routes:
 
@@ -244,47 +261,161 @@ routes:
       identity: "https://api.unpaywall.org/v2/{doi}?email={mailto}"
 
   - adapter_id: doaj
-    evidence_roles: [discover.index, evidence.peer_reviewed]
+    evidence_roles: [discover.index, resolve.locations, evidence.peer_reviewed]
     document_types: [journal_version]
     jurisdiction_coverage: [ANY]
     query_dialects: [doaj_query]
     identifier_types: [doi, issn]
-    version_resolvers: []
-    rate_policy: {host: doaj.org, min_spacing_s: 1.2, needs_key: false, pool: public}
+    version_resolvers: [doaj_fulltext_links]
+    # ~2 req/s (DOAJ documents an average of two/second; brief bursts are queued). ONE in flight.
+    rate_policy: {host: doaj.org, min_spacing_s: 0.5, max_in_flight: 1, needs_key: false, pool: public}
     coverage_note: >-
       Directory of Open Access Journals — 13M+ articles from vetted OA journals. Its entire index is
       peer-reviewed journal expressions, so it is the strongest single index for a journal-only policy.
+      IT RETURNS LINKS, NOT BYTES. A live probe on 10.1186/s13643-025-03000-0 returned exactly one
+      `type: fulltext` link and it was `https://doi.org/10.1186/...` — a DOI RESOLVER, i.e. a landing
+      page that redirects to the publisher. So a DOAJ hit is a CANDIDATE URL and never a document, and
+      DIRECTORY MEMBERSHIP IS NOT BYTE-LEVEL VERSION PROOF. A DOAJ miss means "not indexed in DOAJ" —
+      it does NOT mean "not open", and it may never be reduced to one.
     endpoints:
-      search: "https://doaj.org/api/v2/search/articles/{query}?pageSize={limit}"
+      search:   "https://doaj.org/api/search/articles/{query}?pageSize={limit}"
+      # EXACT-DOI article search. The DOI is embedded in the PATH, so it is quoted whole (safe='').
+      identity: "https://doaj.org/api/search/articles/doi%3A{doi}"
+    selectors:
+      results:        "results"              # the array of article records
+      total:          "total"                # 0 = not indexed in DOAJ. NOT "not open".
+      links:          "bibjson.link"         # [] of {type, url, content_type}
+      link_kind_key:  "type"                 # the key whose value names the link kind
+      link_kind_want: "fulltext"             # the kind we want. NOTE: this literal token is DATA, and
+      #                                      # routes_bio compares against it — it never EMITS it, because
+      #                                      # `fulltext` is a RESERVED_VALUE in the ledger's conclusion
+      #                                      # guard. The adapter records n_links_matched (a count) and
+      #                                      # puts DOAJ's own bytes in the blob store instead.
+      link_url:       "url"
+      link_media:     "content_type"         # "HTML" / "PDF" — an OBSERVATION, checked against the bytes
+      record_page:    "id"                   # -> https://doaj.org/article/{id}
 
   - adapter_id: europe_pmc
-    evidence_roles: [discover.index, fetch.oa_fulltext]
+    evidence_roles: [discover.index, resolve.locations, fetch.oa_fulltext]
     document_types: [journal_version, accepted_manuscript, preprint]
     jurisdiction_coverage: [ANY]
     query_dialects: [europepmc_query]
     identifier_types: [doi, pmid, pmcid]
     version_resolvers: [europepmc_fulltext]
-    rate_policy: {host: www.ebi.ac.uk, min_spacing_s: 1.0, needs_key: false, pool: public}
+    # Sol V9 §2: "official documentation does not publish a stable numeric public quota. Start at one
+    # request/second and one in flight, then obey 429, Retry-After, and any returned limit headers."
+    rate_policy: {host: www.ebi.ac.uk, min_spacing_s: 1.0, max_in_flight: 1, needs_key: false, pool: public}
     coverage_note: >-
       Life-sciences + cross-discipline index over PMC with OA full-text XML retrieval. Full text where
       the licence permits; abstract-only otherwise (which the reducer reports as ABSTRACT_ONLY, not a gap).
+      A RECORD IS NOT A DOCUMENT: three NIH author manuscripts found live (PMC13200213, PMC13071806,
+      PMC12353900) all carry a PMCID and all 404 on fullTextXML — "record found, no accessible full
+      text" is a DIFFERENT fact from "identifier not found", and both are different from "not open".
     endpoints:
       search:   "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={query}&format=json&pageSize={limit}"
-      fulltext: "https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{id}/fullTextXML"
+      # EXACT-DOI search, resultType=core (the only resultType that carries the OA/fullText fields).
+      identity: 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI%3A%22{doi}%22&resultType=core&format=json&pageSize=1'
+      # ** THE SHAPE FIX (Sol V9 §2: "the currently configured /{source}/{id}/fullTextXML shape is WRONG
+      # ** for PMCID retrieval"). PROVEN LIVE, 2026-07-14:
+      #      /PMC/PMC12754963/fullTextXML  -> HTTP 404, 0 bytes
+      #      /PMC12754963/fullTextXML      -> HTTP 200, 86,022 bytes, 34 <sec>
+      # The {source}/{id} shape is for the MED/PMID-keyed endpoints, not for full text. Full text is
+      # keyed by the BARE PMCID.
+      fulltext: "https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML"
+    selectors:
+      results:          "resultList.result"
+      hit_count:        "hitCount"           # 0 = not in the EPMC index. NOT "no full text exists".
+      pmcid:            "pmcid"
+      pmid:             "pmid"
+      doi:              "doi"
+      is_open_access:   "isOpenAccess"       # "Y"/"N" — an OBSERVATION. The bytes decide.
+      in_epmc:          "inEPMC"
+      has_pdf:          "hasPDF"
+      license:          "license"
+      full_text_ids:    "fullTextIdList.fullTextId"
+      # ---- THE PAYWALL TRAP, ENCODED AS DATA ------------------------------------------------------
+      # fullTextUrlList is NOT a list of open documents. Live on 10.1186/s13643-025-03000-0 its FIRST
+      # entry was {"availability": "Subscription required", "site": "DOI", url: doi.org/...}. An adapter
+      # that took fullTextUrlList[0] would fetch a PUBLISHER PAYWALL and hand it to the miner. We select
+      # ONLY entries whose availabilityCode is in the open set.
+      full_text_urls:        "fullTextUrlList.fullTextUrl"
+      url_availability_key:  "availabilityCode"
+      url_availability_open: [OA, F]         # OA = Open access; F = Free (neither means "is the VoR")
+      url_value:             "url"
+      url_style:             "documentStyle" # html / pdf / doi
+      # ---- THE NIH-AUTHOR-MANUSCRIPT TELLS -------------------------------------------------------
+      # EPMC states these plainly, and they are exactly the "NIH accepted manuscript mistaken for the
+      # publisher VoR" silent failure. Recorded as version_hint OBSERVATIONS on the candidate — they
+      # decide NOTHING (V9 P0: a repository label is not a fact about bytes). The VERSION VERDICT is
+      # derived from the fetched front matter by provenance.derive_expression_kind.
+      auth_man:         "authMan"            # "Y"/"N"
+      nih_auth_man:     "nihAuthMan"         # "Y"/"N"
+      epmc_auth_man:    "epmcAuthMan"        # "Y"/"N"
 
   - adapter_id: pmc
-    evidence_roles: [fetch.oa_fulltext]
+    evidence_roles: [resolve.identity, resolve.locations, fetch.oa_fulltext]
     document_types: [journal_version, accepted_manuscript]
     jurisdiction_coverage: [ANY]
     query_dialects: [pmc_id]
-    identifier_types: [pmcid, pmid]
-    version_resolvers: []
-    rate_policy: {host: www.ncbi.nlm.nih.gov, min_spacing_s: 1.2, needs_key: false, pool: public}
+    identifier_types: [doi, pmcid, pmid]
+    version_resolvers: [pmc_oai_jats, pmc_oa_service]
+    # PMC OAI allows AT MOST 3 req/s and NO CONCURRENT REQUESTS. 0.34s is the 3/s budget; the effective
+    # spacing is max(this, acquisition.SPACING_S=1.1s), because routes_bio._space_for() may only ever
+    # make us MORE polite than the acquirer already is — never less. Register tool+email (NCBI usage
+    # guidance): `tool` and `email` are threaded into every ID-converter call.
+    rate_policy: {host: pmc.ncbi.nlm.nih.gov, min_spacing_s: 0.34, max_in_flight: 1,
+                  needs_key: false, pool: public, tool: polaris}
     coverage_note: >-
-      PubMed Central OA full-text article pages by PMCID. A retrieval TARGET — its landing pages are a
-      known LANDING_PAGE trap, which is exactly why completeness is derived from the bytes, not the URL.
+      PubMed Central, as a FULL-TEXT route: DOI/PMID -> PMCID (ID converter, batched) -> JATS via the
+      OAI GetRecord -> PDF/tarball links via the OA service. A PMCID DOES NOT GUARANTEE DOWNLOADABLE OA
+      FULL TEXT, and this is not a theoretical caveat: PMC13200213 has a PMCID, and the OA service
+      answers `idDoesNotExist` while the OAI answers `cannotDisseminateFormat` — it is an NIH author
+      manuscript outside the OA subset. Neither answer is "no document exists"; both are observations
+      about PMC's OA subset, and the reducer must never collapse them into an evidence gap.
     endpoints:
-      fulltext: "https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+      # ---- HOP 1: ID CONVERSION (DOI/PMID -> PMCID), BATCHED --------------------------------------
+      # The legacy /pmc/utils/idconv/v1.0/ path 302-redirects here. We name the CANONICAL host, because
+      # a redirect charges the WRONG host in the politeness budget and hides the real endpoint.
+      id_convert: "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/?tool={tool}&email={mailto}&format=json&ids={ids}"
+      # ---- HOP 2: THE DOCUMENT (JATS full text) ---------------------------------------------------
+      # The configured www.ncbi.nlm.nih.gov/pmc/oai/oai.cgi 301s here; pmc.ncbi.nlm.nih.gov/oai/oai.cgi
+      # is a 404 that returns FORTY-EIGHT KILOBYTES OF HTML with a <body> tag in it. A route that
+      # believed "<body> is present" would have called that error page a full-text document. Proven
+      # live 2026-07-14: this URL returns 108,635 bytes of JATS with 17 <sec> for PMC12754963.
+      oai_getrecord: "https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/?verb=GetRecord&identifier={oai_identifier}&metadataPrefix={metadata_prefix}"
+      # ---- HOP 3: THE OA SERVICE (PDF / tarball links) --------------------------------------------
+      oa_service: "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id={pmcid}"
+    identifier_transforms:
+      # A TINY DECLARED VOCABULARY, evaluated by routes_bio._transform. Adding a repository whose OAI
+      # identifier is shaped differently is A ROW HERE, not a function.
+      pmcid_numeric:  "strip_prefix:PMC"                          # PMC12754963 -> 12754963
+      oai_identifier: "format:oai:pubmedcentral.nih.gov:{pmcid_numeric}"
+    metadata_prefix: pmc                     # `pmc` = full-text JATS. `oai_dc` is metadata only.
+    batch:
+      id_convert_max_ids: 200                # the ID converter documents a 200-id ceiling
+    selectors:
+      # -- ID converter
+      id_records:        "records"
+      id_record_pmcid:   "pmcid"
+      id_record_pmid:    "pmid"
+      id_record_doi:     "doi"
+      # A PER-RECORD ERROR INSIDE AN HTTP 200. The transport RESPONDED; this record did not resolve.
+      # Live: {"status":"error","errmsg":"Identifier not found in PMC"} for 3 of our 4 probe DOIs. That
+      # is a fact about PMC'S INDEX, and the ledger must keep it distinct from a 429 and from a gap.
+      id_record_error:   "status"            # "error" when the id did not resolve
+      id_record_errmsg:  "errmsg"
+      # -- OA service (XML)
+      oa_error_code:     "error/@code"       # idDoesNotExist | idIsNotOpenAccess  -> OBSERVATIONS
+      oa_links:          "records/record/link"
+      oa_link_format:    "@format"           # pdf | tgz
+      oa_link_href:      "@href"             # NOTE: an ftp:// URL. Recorded as a candidate; the
+      #                                      # executor fetches http(s) only, so the tarball stays a
+      #                                      # LEAD rather than being silently dropped.
+      oa_license:        "records/record/@license"
+      oa_retracted:      "records/record/@retracted"
+      # -- OAI GetRecord (JATS)
+      oai_error_code:    "error/@code"       # cannotDisseminateFormat | idDoesNotExist
+      jats_article:      "GetRecord/record/metadata/article"
 
   - adapter_id: core
     evidence_roles: [discover.index, fetch.oa_fulltext, resolve.locations]
@@ -297,22 +428,92 @@ routes:
     coverage_note: >-
       Aggregates 200M+ full texts from institutional & subject REPOSITORIES — the channel most likely to
       hold a readable copy when the publisher blocks us. Needs a free API key (rate_policy.needs_key).
+      ** THE CONFIGURED CREDENTIAL RETURNS 401 (probed live, 2026-07-14). ** That is a fact about OUR
+      KEY. The route is UNAVAILABLE and the literature is UNEXAMINED — `routes_repo.preflight()` refuses
+      to run it, and a refused route can never be read as "no OA copy exists".
     endpoints:
       search: "https://api.core.ac.uk/v3/search/works?q={query}&limit={limit}"
+    resolver:
+      kind: json_api
+      auth:
+        scheme: bearer            # Authorization: Bearer <key>
+        key_env: CORE_API_KEY
+        required: true            # no key / rejected key -> UNAVAILABLE, never an absence
+      queries:
+        - {id: doi_exact, accepts: doi, q: 'doi:"{doi}"',
+           url: "https://api.core.ac.uk/v3/search/works?q={q}&limit={limit}"}
+      records: results
+      # Which record is the work we ASKED for. A wrong-DOI record is dropped here, before it can
+      # become a candidate — CORE's index is an aggregate and a DOI query can surface a citing work.
+      identity:
+        doi_paths: [doi, identifiers.doi, "identifiers[].doi"]
+        title_path: title
+      # ONE ROW PER CANDIDATE-BEARING FIELD. `fullText` is DERIVED TEXT (Sol V9 §2: "Treat a returned
+      # `fullText` field as a derived text manifestation, NOT automatically as a complete PDF
+      # equivalent") — so it carries its own media_hint and can never be scored as publisher bytes.
+      selectors:
+        - {path: downloadUrl,          media_hint: document,     origin: record_download}
+        - {path: "links[].url",        media_hint: document,     origin: record_link,
+           where: {type: download}}
+        - {path: "sourceFulltextUrls[]", media_hint: document,   origin: repository_fulltext}
+        - {path: fullText,             media_hint: derived_text, origin: api_extracted_text,
+           inline: true}   # the text arrives IN the metadata: the executor reads it from the blob
+      # The OAI identifiers CORE exposes are the SEED of the institutional OAI-PMH lane (Sol V9 §2:
+      # "Obtain the OAI identifier and repository base URL through CORE"). Observation, not a fetch.
+      oai_id_paths: [oaiIds, "dataProviders[].id"]
+      version_hint_paths: [documentType, "repositoryDocument.pdfStatus"]
+      license_paths: [license]
+      rate:
+        min_spacing_s: 2.0
+        headers: [x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset, retry-after]
 
   - adapter_id: openaire
     evidence_roles: [discover.index, resolve.locations, evidence.dataset]
     document_types: [journal_version, accepted_manuscript, preprint, working_paper, dataset]
     jurisdiction_coverage: [ANY]
-    query_dialects: [openaire_query]
+    query_dialects: [openaire_graph_v3]
     identifier_types: [doi, openaire_id, handle]
     version_resolvers: [openaire_instances]
     rate_policy: {host: api.openaire.eu, min_spacing_s: 1.5, needs_key: false, pool: public}
     coverage_note: >-
-      Cross-repository graph (publications + datasets + software) with per-record access instances.
-      Strong for European repository copies and for linking a work to its underlying data.
+      Cross-repository graph (publications + datasets + software) with per-record access INSTANCES.
+      Strong for European repository copies and for linking a work to its underlying data. Its URLs are
+      CANDIDATES: OpenAIRE metadata is NOT document proof, and an `accessRight: OPEN` label sits on
+      records whose only URL is a doi.org landing page (observed live).
     endpoints:
-      search: "https://api.openaire.eu/search/publications?keywords={query}&format=json&size={limit}"
+      # THE LEGACY ENDPOINT WAS `/search/publications?keywords=` (Sol V9 §2: "replace the legacy
+      # endpoint in the YAML with the Graph v3 operation"). It is a keyword search — the wrong shape for
+      # a lane that must resolve an EXACT identifier, and lexical matching is how a query for one DOI
+      # comes home with somebody else's paper. Graph v3 resolves `?pid=<doi>` exactly.
+      search: "https://api.openaire.eu/graph/v3/research-products?pid={doi}"
+    resolver:
+      kind: json_api
+      auth:
+        scheme: bearer
+        key_env: OPENAIRE_TOKEN
+        required: false           # runs unauthenticated at the lower budget; a token only RAISES it
+      queries:
+        - {id: pid_exact, accepts: doi, q: "{doi}",
+           url: "https://api.openaire.eu/graph/v3/research-products?pid={q}&pageSize={limit}"}
+      records: results
+      identity:
+        doi_paths: ["pids[].value", "instances[].pids[].value"]
+        title_path: mainTitle
+      # An INSTANCE is a claimed location. Several instances routinely name the SAME file (Sol's named
+      # silent failure), so candidates are deduplicated on the URL by the generic emitter.
+      selectors:
+        - {path: "instances[].urls[]", media_hint: unknown, origin: graph_instance}
+      version_hint_paths: ["instances[].refereed", "instances[].type", version]
+      license_paths: ["instances[].license", "instances[].accessRight.label",
+                      "instances[].accessRight.openAccessRoute"]
+      rate:
+        # Sol V9 §2: 60/hr unauthenticated, 7,200/hr authenticated. §7: an OBSERVED limit may only
+        # REDUCE the configured rate — so the `x-ratelimit-limit: 7199` this endpoint returns to an
+        # UNAUTHENTICATED caller (observed live, 2026-07-14) does NOT raise us to 7,199/hr.
+        per_hour_unauthenticated: 60
+        per_hour_authenticated: 7200
+        min_spacing_s: 1.5
+        headers: [x-ratelimit-limit, x-ratelimit-used, x-ratelimit-remaining, retry-after]
 
   - adapter_id: zenodo
     evidence_roles: [fetch.oa_fulltext, evidence.dataset, resolve.locations]
@@ -324,9 +525,76 @@ routes:
     rate_policy: {host: zenodo.org, min_spacing_s: 1.5, needs_key: false, pool: public}
     coverage_note: >-
       CERN OA repository — deposited manuscripts, datasets and software, with explicit version DOIs.
-      A discovery + fetch target, not a peer-review signal.
+      A discovery + fetch target, NOT a peer-review signal. Its artifact type is EXPLICIT and stays
+      explicit: a dataset, a slide deck or a supplement is not an article, however complete its bytes.
     endpoints:
-      search: "https://zenodo.org/api/records?q={query}&size={limit}"
+      search: "https://zenodo.org/api/records?q={q}&size={limit}"
+    resolver:
+      kind: json_api
+      auth: {scheme: none, required: false}
+      # THREE FIELDED PROBES. Never an unfielded one: `q="10.5281/zenodo.1215934"` (bare) returns
+      # 5,723,169 hits — a match on any word of the string — and the first of them is a dataset that has
+      # nothing to do with the DOI. An unfielded query is a false-positive generator, so the code
+      # REFUSES a query form with no field prefix.
+      # `match.kind` names WHICH of the three generic identity primitives proves the record is about the
+      # identifier we asked for: it IS that id (self_identifier), it is an ALIAS of it (alias_identifier),
+      # or it merely RELATES to it (relation — and then the whitelist rules).
+      queries:
+        - {id: doi_exact,   accepts: doi, q: 'doi:"{doi}"',
+           url: "https://zenodo.org/api/records?q={q}&size={limit}",
+           match: {kind: self_identifier}}
+        # A CONCEPT DOI IS NOT FOUND BY `doi:` (observed live: 0 hits for the concept DOI of a record
+        # that exists). It needs its own field — and what comes back is a DIFFERENT DOI, the version's.
+        # `alias_identifier` is what forces that substitution onto the candidate as an observation
+        # instead of letting the concept DOI quietly stand as the version's identity.
+        - {id: concept_doi, accepts: doi, q: 'conceptdoi:"{doi}"',
+           url: "https://zenodo.org/api/records?q={q}&size={limit}",
+           match: {kind: alias_identifier, alias_path: conceptdoi, self_path: doi}}
+        # The relation probe finds a deposit that IS the work. It also finds every deposit that merely
+        # CITES the work — see `relations.identity` below, which is the only thing standing between us
+        # and filing somebody's training slides as the AlphaFold paper.
+        - {id: related_id,  accepts: doi, q: 'related.identifier:"{doi}"',
+           url: "https://zenodo.org/api/records?q={q}&size={limit}",
+           match: {kind: relation, list_path: "metadata.related_identifiers",
+                   id_field: identifier, rel_field: relation}}
+      records: hits.hits
+      identity:
+        doi_paths: [doi, conceptdoi, "metadata.related_identifiers[].identifier"]
+        title_path: metadata.title
+      # ── THE RELATION WHITELIST ────────────────────────────────────────────────────────────────────
+      # Sol's silent failure "the DOI belongs to a cited reference", live: a `related.identifier` query
+      # for the AlphaFold DOI (10.1038/s41586-021-03819-2) returns zenodo.7865494 — a training-materials
+      # deposit whose relation to it is `cites`, and whose files are "Event metadata.pdf" and "Index of
+      # training materials.pdf". Admitting it would file those two PDFs as the AlphaFold paper.
+      # Only a relation that asserts the record IS the work may generate a candidate.
+      relations:
+        identity: [isidenticalto, isversionof, isnewversionof, ispreviousversionof, isvariantformof]
+        # everything else (cites, references, iscitedby, haspart, ispartof, issupplementto,
+        # issupplementedby, documents, compiles, ...) means the deposit is ABOUT the work, not the work.
+      # ── ARTIFACT TYPE STAYS EXPLICIT ──────────────────────────────────────────────────────────────
+      # `metadata.resource_type.type` (+ `.subtype`). The map does not GRANT article-hood: it records
+      # what the depositor declared, and the reducer judges the bytes. `article: true` marks the only
+      # declarations that can fill an ARTICLE role at all.
+      artifact_types:
+        path: metadata.resource_type
+        article_declarations: ["publication/article", "publication/preprint",
+                               "publication/workingpaper", "publication/report",
+                               "publication/conferencepaper", "publication/thesis"]
+      # ── ONE CANDIDATE PER FILE. NEVER A CONCATENATION. ───────────────────────────────────────────
+      # Sol: "multiple files are concatenated into a fictitious document." A record's files are separate
+      # artifacts — a manuscript, its appendix, a slide deck, a README — and joining them manufactures a
+      # document that does not exist and never existed. Each file is its own candidate, with its own
+      # bytes, its own hash and its own reducer verdict.
+      selectors:
+        - {path: "files[]", media_hint: from_filename, origin: record_file,
+           url_field: links.self, name_field: key, size_field: size, checksum_field: checksum}
+      access_paths: [metadata.access_right, access]     # restricted -> metadata, no bytes
+      version_hint_paths: [metadata.version, revision, "metadata.resource_type.subtype"]
+      license_paths: ["metadata.license.id", "metadata.license"]
+      rate:
+        # Observed live: x-ratelimit-limit 30 (per minute), with -remaining and -reset. Obey them.
+        min_spacing_s: 1.5
+        headers: [x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset, retry-after]
 
   - adapter_id: hal
     evidence_roles: [fetch.oa_fulltext, resolve.locations]
@@ -575,3 +843,128 @@ routes:
       resolved from jurisdiction_scopes.yaml INTL block.
     scope_ref: {file: config/discovery/jurisdiction_scopes.yaml, need: standards}
     endpoints: {}
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+# HOST BUDGETS — Sol V9 §7. THE SCHEDULER READS ITS LIMITS FROM HERE AND NOWHERE ELSE.
+#
+# `routes[*].rate_policy` above already budgets the RESOLVER/INDEX hosts. These two blocks budget the
+# other two kinds of host, and they exist because the scheduler is keyed by HOST, not by adapter:
+#
+#   default_host_policy   what an UNKNOWN host gets. It is the STRICTEST row in this file, on purpose:
+#                         a host we have never met is a host whose limits we do not know, and the
+#                         direction to be wrong in is SLOW.
+#   host_policies         CONTENT hosts. A publisher that serves us a PDF is a backend — it can 403 us
+#                         and it can throttle us — and until now nothing in the table budgeted it at
+#                         all, because it is nobody's `adapter_id`. www.aeaweb.org 403'd us all night
+#                         and had no row anywhere.
+#
+# Columns: host, min_spacing_s, max_concurrency, burst, breaker_threshold/window/cooldown.
+# DYNAMIC LIMITS MAY ONLY REDUCE THESE (scripts/host_scheduler.py:_spacing) — a server header can slow
+# us down and can never speed us up.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+default_host_policy:
+  min_spacing_s: 2.0
+  max_concurrency: 1
+  burst: 1
+  breaker_threshold: 6          # FAILED LOGICAL REQUESTS (a 4-attempt retry that 429s is ONE)
+  breaker_window_s: 300
+  breaker_cooldown_s: 300       # doubles per consecutive trip, capped at one hour
+
+host_policies:
+  # -- PMC / NCBI. Their published ceiling is 3 req/s with NO concurrent requests, and large harvests
+  #    are asked to run off-peak. We take 1 req/s and one in flight: we are not the only tenant.
+  - {host: pmc.ncbi.nlm.nih.gov,  min_spacing_s: 1.0, max_concurrency: 1, burst: 1}
+  - {host: eutils.ncbi.nlm.nih.gov, min_spacing_s: 1.0, max_concurrency: 1, burst: 1}
+  # -- content hosts we have actually been refused by. A row here does not buy access; it buys ORDER.
+  - {host: www.aeaweb.org,   min_spacing_s: 3.0, max_concurrency: 1, breaker_threshold: 3}
+  - {host: www.nber.org,     min_spacing_s: 3.0, max_concurrency: 1}
+  - {host: www.jstor.org,    min_spacing_s: 5.0, max_concurrency: 1, breaker_threshold: 2}
+  - {host: linkinghub.elsevier.com, min_spacing_s: 5.0, max_concurrency: 1, breaker_threshold: 2}
+  - {host: www.sciencedirect.com,   min_spacing_s: 5.0, max_concurrency: 1, breaker_threshold: 2}
+  - {host: onlinelibrary.wiley.com, min_spacing_s: 5.0, max_concurrency: 1, breaker_threshold: 2}
+  - {host: doi.org,          min_spacing_s: 1.0, max_concurrency: 2, burst: 2}
+  - {host: europepmc.org,    min_spacing_s: 1.0, max_concurrency: 1}
+  - {host: core.ac.uk,       min_spacing_s: 2.0, max_concurrency: 1}
+  - {host: arxiv.org,        min_spacing_s: 3.0, max_concurrency: 1}
+  - {host: ora.ox.ac.uk,     min_spacing_s: 2.0, max_concurrency: 1}
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+# OAI-PMH REPOSITORIES — Sol V9 §2, "EACH REPOSITORY IS A DATA ROW".
+#
+# WHAT THIS TABLE IS NOT: a plan to harvest the world's repositories. Sol is explicit — "Do NOT attempt
+# global per-work OAI harvesting." OAI-PMH HAS NO EXACT-DOI LOOKUP. The only thing it answers well is
+# `GetRecord(identifier, metadataPrefix)`, and we get the identifier from somewhere else: CORE's
+# `oaiIds`, OpenAIRE's `originalId`, a repository's own metadata, or the local DOI->OAI index we build
+# as we go (outputs/oai_index/doi_to_oai.jsonl).
+#
+# `metadata_prefixes` IS ORDERED, RICHEST FIRST, AND THE ORDER IS THE WHOLE DEFENCE. oai_dc's
+# <dc:identifier> is usually A LANDING PAGE. JATS/METS/MODS/OAI-ORE expose actual FILE URLs. Asking for
+# oai_dc and taking its first http link as "the PDF" is the documented silent failure — you get an HTML
+# splash page, it strips to 500 words of navigation chrome, and the reducer has to catch what the
+# adapter should never have proposed.
+#
+# Columns:
+#   repository_id       stable id; also the acquisition `adapter` name (oai:<repository_id>)
+#   base_url            the OAI-PMH endpoint
+#   metadata_prefixes   ORDERED, richest first
+#   identifier_pattern  how to build an OAI identifier from an id we hold ({pmcid_numeric}, {handle}, ...)
+#   identifier_from     which identifier type feeds the pattern (empty => the OAI id must come from
+#                       CORE/OpenAIRE/local index; there is no way to construct it from a DOI)
+#   file_selectors      which metadata elements may carry a DOCUMENT url, by dialect
+#   rate_policy         host budget (read by host_scheduler.load_policies)
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+oai_repositories:
+  - repository_id: pmc
+    # THE BASE URL IS THE ONE PROVEN LIVE (2026-07-14), not the one in the docs. `.../oai/oai.cgi` is a
+    # 404 THAT RETURNS FORTY-EIGHT KILOBYTES OF HTML WITH A <body> TAG IN IT — an adapter that trusted
+    # HTTP 200-shaped bytes would have filed that error page as a document. The endpoint below returned
+    # 108,635 bytes of real JATS for PMC12754963. (Same URL as routes[pmc].endpoints.oai_getrecord.)
+    base_url: "https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/"
+    metadata_prefixes: [pmc, oai_dc]
+    identifier_pattern: "oai:pubmedcentral.nih.gov:{pmcid_numeric}"
+    identifier_from: pmcid
+    identifier_transforms: {pmcid_numeric: "strip_prefix:PMC"}
+    file_selectors: [jats_self_uri]
+    rate_policy: {host: pmc.ncbi.nlm.nih.gov, min_spacing_s: 1.0, max_concurrency: 1}
+    coverage_note: >-
+      The ONE repository whose OAI identifier we can CONSTRUCT (from a PMCID). Everything else in this
+      table needs its identifier handed to it. `metadataPrefix=pmc` returns JATS; oai_dc returns a
+      landing page. A PMCID does not guarantee OA full text — PMC13200213 has a PMCID and the OAI
+      answers `cannotDisseminateFormat`. That is a fact about PMC'S OA SUBSET, not about the world.
+
+  - repository_id: zenodo
+    base_url: "https://zenodo.org/oai2d"
+    metadata_prefixes: [oai_datacite, datacite, oai_dc]
+    identifier_pattern: "oai:zenodo.org:{record_id}"
+    identifier_from: zenodo_id
+    file_selectors: [datacite_alternate_identifier, ore_aggregated_resource]
+    rate_policy: {host: zenodo.org, min_spacing_s: 1.5, max_concurrency: 1}
+    coverage_note: >-
+      Deposits, not peer review. A dataset or a supplement carrying a DOI is not the article, and the
+      resource type must stay explicit — "it has a DOI" is not "it is the paper".
+
+  - repository_id: hal
+    base_url: "https://api.archives-ouvertes.fr/oai/hal/"
+    metadata_prefixes: [xml-tei, oai_dc]
+    identifier_pattern: "oai:HAL:{hal_id}"
+    identifier_from: hal_id
+    file_selectors: [tei_ref_target]
+    rate_policy: {host: api.archives-ouvertes.fr, min_spacing_s: 1.5, max_concurrency: 1}
+    coverage_note: >-
+      French national archive. Its TEI carries a direct file <ref type="file" target="...">; its oai_dc
+      does not. The accepted manuscript it holds is NOT the journal version (V9 P0).
+
+  - repository_id: dspace_generic
+    base_url: ""                       # filled in per repository from CORE/OpenAIRE `repository.oaiPmhUrl`
+    metadata_prefixes: [mets, mods, oai_dc]
+    identifier_pattern: ""             # DSpace ids are opaque — they MUST be handed to us
+    identifier_from: ""
+    file_selectors: [mets_flocat, mods_location_url]
+    rate_policy: {host: "", min_spacing_s: 2.0, max_concurrency: 1}
+    coverage_note: >-
+      THE TEMPLATE ROW for the long tail (DSpace/EPrints institutional repositories). A concrete
+      repository is DISCOVERED — CORE and OpenAIRE both return the repository's OAI base URL and the
+      record's OAI identifier — and it is written here, or into the local index, as a NEW ROW. That is
+      what "each repository is a data row" buys: the long tail costs YAML, not Python.

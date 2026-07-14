@@ -102,6 +102,7 @@ import json
 import re
 import statistics
 import sys
+import unicodedata
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
@@ -120,10 +121,13 @@ GRAPH_OUT = ROOT / 'outputs' / 'provenance_graph.json'
 #:     resolve_attribution(manifestation_id, policy)  -> Graph.resolve_attribution
 #:     verify_span(binding)                           -> Graph.verify_span
 __all__ = [
-    'Graph', 'Work', 'Expression', 'Manifestation', 'Edge',
+    'Graph', 'Work', 'Expression', 'Manifestation', 'Edge', 'SpanCorrespondence',
     'SourcePolicy', 'Attribution', 'SpanBindingError', 'GraphIntegrityError',
     'JOURNAL_ONLY', 'PEER_REVIEWED', 'OFFICIAL_TEXT', 'ANY_VERSION',
     'KIND_PROFILE', 'ARTIFACT_KINDS', 'FINDING_BEARING_KINDS', 'EXPRESSION_KINDS', 'WORK_KINDS',
+    'SPAN_PRESERVING', 'NON_SPAN_PRESERVING',
+    'CANON_ALGORITHM', 'CANON_VERSION', 'canonicalize', 'canonical_hash', 'binding_id',
+    'make_correspondence',
     'judge_completeness', 'profile', 'derive_expression_kind', 'derive_source_type', 'migrate',
 ]
 
@@ -209,11 +213,161 @@ class Edge:
 EDGE_TYPES = ('exact_copy_of', 'accepted_manuscript_of', 'predecessor_of',
               'reports_same_study', 'supersedes', 'cites')
 
-# THE ONLY EDGES THAT MAY WIDEN AN ATTRIBUTION.
-# A span in manifestation M may name expression E != M.expression ONLY across one of these, and ONLY
-# when the edge is ASSERTED. `predecessor_of` and `reports_same_study` are deliberately absent:
-# a working paper and the journal article report the same study, and PEER REVIEW CHANGES NUMBERS.
-SPAN_PRESERVING = ('exact_copy_of', 'accepted_manuscript_of')
+# THE ONLY EXPRESSION-WIDE EDGE THAT MAY WIDEN AN ATTRIBUTION.
+# A span in manifestation M may name expression E != M.expression ONLY across this edge, and ONLY when
+# the edge is ASSERTED. `predecessor_of` and `reports_same_study` are deliberately absent: a working
+# paper and the journal article report the same study, and PEER REVIEW CHANGES NUMBERS.
+#
+# `accepted_manuscript_of` WAS IN THIS TUPLE AND IS NOT ANY MORE. (Sol, V9 §4: "`accepted_manuscript_of`
+# remains a useful bibliographic edge, but it is not span-preserving.") It stayed here on the theory that
+# an accepted manuscript is post-peer-review and therefore says what the journal says. It is not, and it
+# does not: copy-editing, proof corrections, and the editor's own last round all land AFTER acceptance,
+# and the numbers move. Worse, the edge was reachable FROM REPOSITORY METADATA — version_align mapped
+# Unpaywall's `acceptedVersion` string straight onto it and alignment_census declared the result
+# journal-ADMISSIBLE. That is a live fabrication path: a repository's one-word label, three hops later,
+# printing a manuscript's number under a journal's name.
+#
+# AN ACCEPTED MANUSCRIPT IS NEVER THE JOURNAL VERSION MERELY BECAUSE A REPOSITORY SAYS `acceptedVersion`.
+# What CAN carry a span from an accepted manuscript into the journal is a verified SpanCorrespondence —
+# THAT SPAN, those two hashes, those two offsets, exact canonical equality — and nothing else.
+SPAN_PRESERVING = ('exact_copy_of',)
+
+#: An edge that is a real bibliographic fact and transfers NO attribution whatsoever. Kept explicit so
+#: that "which edges are inert" is a statement in the code and not an absence from a tuple.
+NON_SPAN_PRESERVING = tuple(t for t in ('exact_copy_of', 'accepted_manuscript_of', 'predecessor_of',
+                                        'reports_same_study', 'supersedes', 'cites')
+                            if t not in SPAN_PRESERVING)
+
+
+# =================================================================================================
+# 1b. PER-SPAN ATTRIBUTION — THE SpanCorrespondence  (Sol V9 §4)
+# =================================================================================================
+"""
+THE API MOVED FROM MANIFESTATION-WIDE PERMISSION TO BINDING-SPECIFIC PERMISSION.
+
+The old shape was `resolve_attribution(manifestation_id, policy)`: ONE answer for a whole document. An
+edge that widened it widened it for EVERY span in the manifestation at once — so proving that ONE
+sentence of an accepted manuscript survived into the journal would have licensed the OTHER four hundred,
+including the ones peer review rewrote. That is permission by association, and the association is exactly
+what we cannot check.
+
+A `SpanCorrespondence` is the narrowest true thing: THIS span, in THESE bytes, is character-for-character
+THAT span, in THOSE bytes. It carries both manifestation ids, both content hashes, both offset pairs,
+both verbatim spans, the canonicalization ALGORITHM AND VERSION under which they were compared, the exact
+canonical-span hash, and the identity decision for each manifestation. The verifier RECHECKS all of it —
+the hashes, the offsets, and exact canonical text equality — because a correspondence that arrives from a
+JSON file is an untrusted input, like everything else here.
+
+Consequences, all of them mechanical below:
+
+  * Repository metadata can NEVER prove span equivalence. There is no field on this record where a
+    repository's opinion could be written; the record is made of hashes and offsets or it is not made.
+  * A correspondence grants permission FOR THAT SPAN ONLY — not for every assertion in the manuscript.
+  * "0.37 versus 0.2" FAILS IMMEDIATELY: canonicalization does not touch digits, so the canonical texts
+    differ and `verify_correspondence()` returns False before any policy is consulted.
+  * A span found independently in the VoR's own bytes should be REBOUND to the VoR manifestation
+    (`Graph.rebind()`), which is strictly stronger than a correspondence: no cross-document permission
+    is needed at all when the span is IN the document you want to name.
+  * An accepted manuscript with no VoR bytes stays accepted-manuscript-attributable ONLY.
+"""
+
+#: THE CANONICALIZATION. Named and VERSIONED, because two documents compared under different rules were
+#: never compared. It does exactly two things — Unicode compatibility normalisation (so a ligature or a
+#: non-breaking space in a PDF is not a "difference"), and whitespace collapse (so a column break is not
+#: a difference either).
+#:
+#: WHAT IT DELIBERATELY DOES NOT DO, and why each omission is load-bearing:
+#:   - it does not case-fold      : "Table 3" and "table 3" may genuinely be different objects
+#:   - it does not strip punctuation: "0.37" vs "037" is not a rounding, it is a different number
+#:   - it does not normalise digits or units: THIS IS THE ACEMOGLU TEST. 0.37pp in the NBER working
+#:     paper, 0.2pp in the published JPE. Any "smart" numeric tolerance here would align them, and the
+#:     whole point of this file is that PEER REVIEW CHANGES NUMBERS.
+CANON_ALGORITHM = 'nfkc_whitespace_collapse'
+CANON_VERSION = '1'
+
+
+def canonicalize(s: str) -> str:
+    """The ONE canonicalization. Its name and version travel with every correspondence that uses it."""
+    return re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', s or '')).strip()
+
+
+def canonical_hash(s: str) -> str:
+    """sha256 of the canonical form, DOMAIN-SEPARATED BY ALGORITHM AND VERSION.
+
+    Without the prefix, a hash computed under algorithm v1 and a hash computed under a future v2 would be
+    indistinguishable strings, and a stored hash would silently certify a comparison that was never made.
+    """
+    return hashlib.sha256(
+        f'{CANON_ALGORITHM}:{CANON_VERSION}:{canonicalize(s)}'.encode('utf-8', 'ignore')).hexdigest()
+
+
+def binding_id(manifestation_id: str, content_hash: str, start: int, end: int) -> str:
+    """The identity of a BOUND SPAN — the unit `resolve_attribution()` now answers about.
+
+    It is derived, not minted: the same span of the same bytes always has the same id, and a binding whose
+    offsets or whose source bytes were edited IS A DIFFERENT BINDING and cannot inherit the old one's
+    permission.
+    """
+    h = hashlib.sha256(f'{manifestation_id}|{content_hash}|{start}|{end}'.encode()).hexdigest()
+    return f'bind:{h[:16]}'
+
+
+@dataclass
+class SpanCorrespondence:
+    """THIS span in THESE bytes IS THAT span in THOSE bytes. The only thing that can move a span across
+    documents — and it moves exactly one span.
+
+    Every field is a hash, an offset, a verbatim string, or a decision derived from bytes. There is no
+    field for a repository's version label, and that absence is the design.
+    """
+    id: str
+    source_manifestation_id: str
+    source_raw_hash: str          # sha256 of the source manifestation's text (its content_hash)
+    source_start: int
+    source_end: int
+    source_span: str              # VERBATIM, as sliced
+
+    target_manifestation_id: str
+    target_raw_hash: str
+    target_start: int
+    target_end: int
+    target_span: str              # VERBATIM, as sliced
+
+    canonicalization: str         # ALGORITHM:VERSION under which the two were compared
+    canonical_span_hash: str      # the exact hash of the shared canonical text
+
+    source_identity: str          # the identity decision for the SOURCE manifestation
+    target_identity: str          # ...and for the TARGET. Both must be CONFIRMED.
+    basis: str                    # how this correspondence was established. Never empty.
+
+
+CORRESPONDENCE_IDENTITY_OK = ('CONFIRMED',)
+
+
+def make_correspondence(g: 'Graph', source_mid: str, source_start: int, source_end: int,
+                        target_mid: str, target_start: int, target_end: int,
+                        basis: str) -> SpanCorrespondence:
+    """Build a correspondence FROM THE BYTES. It is then still VERIFIED before it grants anything —
+    the constructor is a convenience, never an authority.
+    """
+    src = g.manifestations[source_mid]
+    tgt = g.manifestations[target_mid]
+    s_span = src.text[source_start:source_end]
+    t_span = tgt.text[target_start:target_end]
+    cid = hashlib.sha256(
+        f'{source_mid}|{source_start}|{source_end}|{target_mid}|{target_start}|{target_end}'
+        .encode()).hexdigest()[:16]
+    return SpanCorrespondence(
+        id=f'corr:{cid}',
+        source_manifestation_id=source_mid, source_raw_hash=src.content_hash,
+        source_start=source_start, source_end=source_end, source_span=s_span,
+        target_manifestation_id=target_mid, target_raw_hash=tgt.content_hash,
+        target_start=target_start, target_end=target_end, target_span=t_span,
+        canonicalization=f'{CANON_ALGORITHM}:{CANON_VERSION}',
+        canonical_span_hash=canonical_hash(s_span),
+        source_identity=(src.profile.get('identity') or {}).get('verdict', 'UNRESOLVED'),
+        target_identity=(tgt.profile.get('identity') or {}).get('verdict', 'UNRESOLVED'),
+        basis=basis)
 
 
 # =================================================================================================
@@ -251,7 +405,28 @@ _WP_MARK = re.compile(
 _PREPRINT_MARK = re.compile(r'(arxiv[:\s]*\d{4}\.\d{4,5}|ssrn[- ]id|preprint (submitted|version)|biorxiv)', re.I)
 _AM_MARK = re.compile(
     r"(accepted manuscript|author'?s? (accepted|final) (version|manuscript)|postprint"
-    r'|published version\)? *\(refereed\)|this is the (author|accepted))', re.I)
+    r'|published version\)? *\(refereed\)|this is the (author|accepted)'
+    # ---- THE NIH AUTHOR MANUSCRIPT (Sol V9 §2, the PMC silent failure list, verbatim: "NIH manuscript
+    # ---- is mistaken for publisher VoR") ---------------------------------------------------------
+    # PMC deposits NIH-funded accepted manuscripts ALONGSIDE publisher VoRs, in the same JATS dialect,
+    # under the same kind of PMCID. Nothing on the wire distinguishes them — Europe PMC's `nihAuthMan`
+    # flag is a REPOSITORY LABEL, and the whole V9 P0 was the project of refusing to let a repository
+    # label decide what bytes ARE. So the tell has to come from THE DOCUMENT'S OWN FRONT MATTER, and
+    # there are exactly two that are reliable:
+    #
+    #   1. the stamp PMC prints in the running head of every page of one:
+    #        "Author manuscript; available in PMC 2026 Jan 01."
+    #      Note this did NOT match the old pattern: `author'?s? (accepted|final) (version|manuscript)`
+    #      requires the word `accepted` or `final`, and the NIH stamp says neither. The most common
+    #      accepted manuscript in biomedicine was invisible to the accepted-manuscript detector.
+    #   2. the JATS front-matter id <article-id pub-id-type="manuscript">NIHMS2075474</article-id>,
+    #      which routes_bio.jats_to_text linearizes into the header. A VoR does not carry one.
+    #
+    # Both are ANCHORED (the stamp requires "in PMC"; the id requires the NIHMS prefix + digits), so a
+    # paper that merely discusses author manuscripts in its prose cannot trip them. This is a STRICTLY
+    # WIDENING change to an accepted-manuscript detector: it can only move bytes OUT of journal_version,
+    # never into it. Under a JOURNAL-ONLY contract that is the safe direction, and it is the true one.
+    r'|author manuscript;? *available in pmc|\bnihms\s*\d{3,})', re.I)
 # Typeset journal furniture: a running head with volume/issue/pages, or a publisher rights block.
 _JOURNAL_MARK = re.compile(
     r'(volume \d+[,—-] *number \d+|vol\.? *\d+[,(]? *(no\.?|issue|\()? *\d+'
@@ -690,6 +865,9 @@ class Attribution:
     names_expression_id: str | None           # THE id the sentence must name. None => name NOTHING.
     text: str | None                          # display cache. NOTHING IS EVER VALIDATED AGAINST IT.
     refusal: str | None
+    #: WHICH SPAN this permission was granted to. `None` means the question was asked about a whole
+    #: manifestation, and the answer therefore carries NO per-span widening — see resolve_attribution.
+    binding_id: str | None = None
 
 
 @dataclass
@@ -698,6 +876,7 @@ class Graph:
     expressions: dict[str, Expression] = field(default_factory=dict)
     manifestations: dict[str, Manifestation] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
+    correspondences: list[SpanCorrespondence] = field(default_factory=list)
 
     # -- construction -----------------------------------------------------------------------------
     def add_edge(self, src: str, dst: str, type: str, status: str, basis: str) -> Edge:
@@ -714,18 +893,87 @@ class Graph:
             why = authentication_failure(basis)
             if why:
                 raise ValueError(f'cannot ASSERT {type} — {why}')
+            why = self.exact_copy_failure(src, dst)
+            if why:
+                raise ValueError(f'cannot ASSERT {type} — {why}')
         e = Edge(src, dst, type, status, basis)
         self.edges.append(e)
         return e
 
+    def exact_copy_failure(self, src: str, dst: str) -> str:
+        """'' if the graph's OWN BYTES prove `src` and `dst` are the same document; else the reason.
+
+        Sol V9 §4: "Expression-wide `exact_copy_of` is reserved for identity-confirmed manifestations
+        whose entire canonical document text is equal."
+
+        The old guard was `authentication_failure()` — a REGEX OVER THE BASIS STRING. It asked whether the
+        PROSE mentioned a checksum. So the sentence
+
+            'byte-for-byte comparison against the journal PDF: identical'
+
+        asserted the edge, and NO BYTES WERE EVER COMPARED. A rule enforced by reading an English
+        sentence is a rule enforced by whoever writes the sentence. The basis check is kept (it is a
+        cheap filter and it catches the honest mistake), but the edge now also has to be TRUE: we must
+        HOLD both documents, both must be identity-CONFIRMED, and their ENTIRE canonical texts must be
+        equal. An expression-wide claim requires expression-wide evidence.
+
+        This is deliberately hard to satisfy. It should be: an expression-wide edge is the only thing in
+        this graph that widens EVERY span at once, and there are only two ways to earn one — hold both
+        documents and find them identical, or don't have the edge. For anything narrower there is
+        `SpanCorrespondence`, which grants one span.
+        """
+        def held(eid: str) -> list[Manifestation]:
+            return [m for m in self.manifestations.values() if m.expression_id == eid]
+
+        smans, tmans = held(src), held(dst)
+        if not smans:
+            return (f'we hold NO BYTES for {src!r}. An expression-wide exact_copy_of is a claim that two '
+                    f'ENTIRE documents are equal; it cannot be made about a document we do not have')
+        if not tmans:
+            return (f'we hold NO BYTES for {dst!r} — THE DOCUMENT THIS EDGE WOULD LET US NAME. This is the '
+                    f'exact shape of the P0: claiming equality with bytes we have never seen. Get the '
+                    f'target document, or bind the span to what we actually hold')
+        for label, mans in (('source', smans), ('target', tmans)):
+            for m in mans:
+                v = (m.profile.get('identity') or {}).get('verdict')
+                if v not in CORRESPONDENCE_IDENTITY_OK:
+                    return (f'the {label} manifestation {m.id!r} is identity `{v}`, not CONFIRMED — '
+                            f'two documents we cannot even prove are OUR work cannot be proven equal '
+                            f'to each other')
+        for sm in smans:
+            for tm in tmans:
+                if canonicalize(sm.text) == canonicalize(tm.text):
+                    return ''
+        # Report the closest pair's disagreement, because "not equal" with no locus is unactionable.
+        sm, tm = smans[0], tmans[0]
+        cs, ct = canonicalize(sm.text), canonicalize(tm.text)
+        return (f'the canonical texts are NOT equal ({len(cs):,} vs {len(ct):,} chars under '
+                f'{CANON_ALGORITHM}:{CANON_VERSION}) — these are two different documents, and PEER '
+                f'REVIEW CHANGES NUMBERS. If ONE SPAN survives, prove THAT SPAN with a '
+                f'SpanCorrespondence; it grants that span and nothing else')
+
+    def add_correspondence(self, sc: SpanCorrespondence) -> SpanCorrespondence:
+        """A correspondence is VERIFIED AT CONSTRUCTION and re-verified at every use. It never enters
+        the graph on its author's word — which is the one thing this whole file refuses to accept."""
+        ok, why = self.verify_correspondence(sc)
+        if not ok:
+            raise ValueError(f'cannot add SpanCorrespondence {sc.id!r} — ' + '; '.join(why))
+        self.correspondences.append(sc)
+        return sc
+
     # -- THE CORE RULE ----------------------------------------------------------------------------
     def attribution_targets(self, manifestation_id: str) -> list[str]:
-        """Which expressions a span in this manifestation MAY name. Sol's rule, mechanised.
+        """Which expressions a span in this manifestation MAY name WITHOUT A PER-SPAN PROOF.
 
         Always: the manifestation's own expression -- the bytes we hold are, definitionally, that
         expression's bytes. Additionally: any expression reachable by an ASSERTED, SPAN-PRESERVING
-        edge, because such an edge is exactly a proof that the cited source contains the same span.
-        Nothing else. A `predecessor_of` edge, however obvious, transfers NOTHING.
+        edge — and after Sol V9 there is exactly ONE such edge type, `exact_copy_of`, which now requires
+        that we HOLD both documents and that their ENTIRE canonical texts be equal. If two documents are
+        the same document, every span in one is in the other, and widening is not a leap.
+
+        Nothing else. `predecessor_of`, `reports_same_study` and — SINCE V9 — `accepted_manuscript_of`
+        transfer NOTHING, however obvious the relation. To move ONE span across a non-identical document
+        boundary, prove THAT SPAN: see `attribution_targets_for_binding()`.
         """
         m = self.manifestations[manifestation_id]
         targets = [m.expression_id]
@@ -733,6 +981,107 @@ class Graph:
             if e.src == m.expression_id and e.type in SPAN_PRESERVING and e.status == 'ASSERTED':
                 if e.dst not in targets:
                     targets.append(e.dst)
+        return targets
+
+    # -- THE CORE RULE, PER SPAN (Sol V9 §4) ------------------------------------------------------
+    def verify_correspondence(self, sc: SpanCorrespondence) -> tuple[bool, list[str]]:
+        """RECHECK EVERYTHING: both hashes, both offsets, and exact canonical text equality.
+
+        A correspondence is an untrusted input — it has been through a JSON file, like the graph itself.
+        So nothing stored on it is believed: the hashes are recomputed from the bytes on the node, the
+        offsets are re-sliced, the canonical forms are recomputed under the NAMED algorithm and version,
+        and the two canonical spans must be EXACTLY equal.
+
+        THE ACEMOGLU TEST LIVES HERE. "0.37 percentage points" and "0.2 percentage points" canonicalize
+        to two different strings, so this returns False, and no policy is ever consulted. The failure is
+        at the level of the bytes, which is the only level at which it cannot be argued with.
+        """
+        bad: list[str] = []
+        src = self.manifestations.get(sc.source_manifestation_id)
+        tgt = self.manifestations.get(sc.target_manifestation_id)
+        if src is None:
+            bad.append(f'source manifestation {sc.source_manifestation_id!r} is not held')
+        if tgt is None:
+            bad.append(f'target manifestation {sc.target_manifestation_id!r} is not held')
+        if bad:
+            return False, bad
+
+        if sc.canonicalization != f'{CANON_ALGORITHM}:{CANON_VERSION}':
+            bad.append(f'canonicalization {sc.canonicalization!r} is not this build\'s '
+                       f'{CANON_ALGORITHM}:{CANON_VERSION} — two documents compared under a rule we no '
+                       f'longer run were never compared by us at all')
+            return False, bad
+
+        for who, m, h, s, e, span in (
+                ('source', src, sc.source_raw_hash, sc.source_start, sc.source_end, sc.source_span),
+                ('target', tgt, sc.target_raw_hash, sc.target_start, sc.target_end, sc.target_span)):
+            # 1. the hash on the correspondence must be the hash of the bytes on the node...
+            if h != m.content_hash:
+                bad.append(f'{who} hash {h[:12]}… is not the held manifestation\'s content_hash '
+                           f'{m.content_hash[:12]}… — the document moved under the correspondence')
+                continue
+            # 2. ...and the node's bytes must still hash to it.
+            if hashlib.sha256(m.text.encode('utf-8', 'ignore')).hexdigest() != m.content_hash:
+                bad.append(f'{who} manifestation {m.id!r} does not hash to its own content_hash')
+                continue
+            # 3. the offsets are re-validated, never trusted (see bind_span for why `text[900:100]` is
+            #    not merely wrong but INVISIBLY wrong).
+            if (isinstance(s, bool) or isinstance(e, bool) or not isinstance(s, int)
+                    or not isinstance(e, int) or s < 0 or e <= s or e > len(m.text)):
+                bad.append(f'{who} offsets [{s}:{e}] are not a valid span of {m.id!r} ({len(m.text)} chars)')
+                continue
+            # 4. the verbatim span must BE what those offsets slice.
+            if m.text[s:e] != span:
+                bad.append(f'{who} verbatim span does not match the bytes at [{s}:{e}] of {m.id!r}')
+        if bad:
+            return False, bad
+
+        # 5. IDENTITY. A correspondence between two documents we cannot prove are the works we asked for
+        #    proves only that two strangers agree.
+        for who, m, stored in (('source', src, sc.source_identity), ('target', tgt, sc.target_identity)):
+            live = (m.profile.get('identity') or {}).get('verdict', 'UNRESOLVED')
+            if stored != live:
+                bad.append(f'{who} identity decision {stored!r} is stale — the bytes now derive {live!r}')
+            elif live not in CORRESPONDENCE_IDENTITY_OK:
+                bad.append(f'{who} manifestation {m.id!r} is identity `{live}`, not CONFIRMED')
+
+        # 6. EXACT CANONICAL EQUALITY. The whole edifice reduces to this line.
+        cs, ct = canonicalize(src.text[sc.source_start:sc.source_end]), \
+            canonicalize(tgt.text[sc.target_start:sc.target_end])
+        if cs != ct:
+            bad.append(f'the canonical spans are NOT equal under {sc.canonicalization} — '
+                       f'{cs[:60]!r} vs {ct[:60]!r}. THIS IS THE FINDING, not a bug to tune away: the '
+                       f'two documents say different things, and peer review is what changed them')
+        elif sc.canonical_span_hash != canonical_hash(src.text[sc.source_start:sc.source_end]):
+            bad.append('the stored canonical_span_hash is not the hash of the canonical span')
+        if not (sc.basis or '').strip():
+            bad.append('a correspondence MUST carry a basis naming how it was established')
+        return (not bad), bad
+
+    def attribution_targets_for_binding(self, binding: dict) -> list[str]:
+        """Which expressions THIS BOUND SPAN may name. The binding-specific rule.
+
+        = the manifestation-wide targets (own expression + whole-document exact_copy_of)
+        + the expression of every manifestation to which a VERIFIED CORRESPONDENCE carries THIS SPAN.
+
+        "THIS SPAN" means these exact offsets. NOT a span that contains it, and NOT a span it contains —
+        and that is not pedantry. Canonicalization collapses whitespace, so character offsets in the
+        source do not map linearly onto the target; a sub-range of a proven-equal span has no proven
+        counterpart. A correspondence grants permission for THAT SPAN ONLY (Sol V9 §4), and the only
+        unfoolable reading of "that span" is offset equality.
+        """
+        mid = binding.get('manifestation_id')
+        s, e = binding.get('span_start'), binding.get('span_end')
+        targets = list(self.attribution_targets(mid))
+        for sc in self.correspondences:
+            if sc.source_manifestation_id != mid or sc.source_start != s or sc.source_end != e:
+                continue
+            ok, _why = self.verify_correspondence(sc)
+            if not ok:
+                continue          # a correspondence that no longer verifies grants NOTHING. Silently.
+            tgt = self.manifestations[sc.target_manifestation_id]
+            if tgt.expression_id not in targets:
+                targets.append(tgt.expression_id)
         return targets
 
     # -- THE API. THREE FUNCTIONS. --------------------------------------------------------------
@@ -774,34 +1123,109 @@ class Graph:
             raise SpanBindingError(
                 f'span [{start}:{end}] runs past the end of {manifestation_id} ({n} chars) — Python '
                 f'would truncate it silently, and the stored text would not be the span that was mined')
-        return dict(
+        b = dict(
             manifestation_id=manifestation_id,
             content_hash=m.content_hash,
             span_start=start, span_end=end,
             text=m.text[start:end],
             expression_id=m.expression_id,
-            permitted_expression_ids=list(self.attribution_targets(manifestation_id)),
         )
+        # THE BINDING IS NOW A NAMED THING. `resolve_attribution()` answers about IT, not about the
+        # whole document — so it needs an identity, and that identity is DERIVED from the bytes and the
+        # offsets. Edit either and you have a different binding, which inherits no permission.
+        b['binding_id'] = binding_id(manifestation_id, m.content_hash, start, end)
+        b['permitted_expression_ids'] = list(self.attribution_targets_for_binding(b))
+        return b
 
-    def resolve_attribution(self, manifestation_id: str,
+    def rebind(self, binding: dict, target_manifestation_id: str) -> dict | None:
+        """THE SPAN IS IN THE VoR's OWN BYTES — so bind it THERE, and stop needing permission.
+
+        Sol V9 §4: "A matching span found independently in VoR bytes should normally be rebound directly
+        to the VoR manifestation."
+
+        This is strictly stronger than any correspondence, and it is the path we should take whenever it
+        is open. A correspondence says "trust this proof that the other document contains the span". A
+        REBINDING says "the document you want to cite contains the span; here are its offsets". The
+        second needs no cross-document permission at all, because there is no crossing.
+
+        Returns a NEW binding on the target, or None if the span is not verbatim in the target's bytes —
+        and None is the honest answer, not a reason to fall back to a weaker claim.
+        """
+        tgt = self.manifestations.get(target_manifestation_id)
+        if tgt is None:
+            raise SpanBindingError(f'no manifestation {target_manifestation_id!r}')
+        span = (binding or {}).get('text') or ''
+        if not span:
+            return None
+        i = tgt.text.find(span)
+        if i < 0:
+            # Try the canonical view: a PDF column break inside the span is a rendering artifact, not a
+            # textual difference. The OFFSETS returned are always into the RAW text, never the canonical
+            # one — a card that indexes a canonical string indexes a document nobody holds.
+            cspan = canonicalize(span)
+            if not cspan:
+                return None
+            for j in range(len(tgt.text)):
+                if canonicalize(tgt.text[j:j + len(span) + 64]).startswith(cspan):
+                    for k in range(j + len(cspan), min(len(tgt.text), j + len(span) + 64) + 1):
+                        if canonicalize(tgt.text[j:k]) == cspan:
+                            return self.bind_span(target_manifestation_id, j, k)
+            return None
+        return self.bind_span(target_manifestation_id, i, i + len(span))
+
+    def resolve_attribution(self, ref: dict | str,
                             source_policy: SourcePolicy = JOURNAL_ONLY) -> Attribution:
-        """MAY a span from these bytes be attributed under THIS task's instruction, and TO WHAT ID?
+        """MAY THIS BOUND SPAN be attributed under THIS task's instruction, and TO WHAT ID?
+
+        Sol V9 §4 moved this API from manifestation-wide permission to BINDING-SPECIFIC permission:
+
+            resolve_attribution(binding, attribution_policy)
+
+        `ref` is therefore a BINDING (the dict `bind_span()` returns, which is also what a card carries).
+        A bare `manifestation_id` string is still accepted — the honest whole-document question, asked by
+        the census and by the quarantine sweep — and it answers WITHOUT any per-span widening: a
+        manifestation-wide question can only be answered with manifestation-wide evidence, i.e. the
+        document's own expression plus a whole-document `exact_copy_of`. A SpanCorrespondence grants ONE
+        SPAN and therefore cannot answer a question that was not asked about a span.
 
         Two independent conditions, BOTH required:
           1. the bytes are usable as evidence at all — complete, uncorrupted, the right work; AND
-          2. some expression the span MAY LEGALLY NAME (own expression, or one across an ASSERTED
-             span-preserving edge) is of a kind THIS POLICY PERMITS.
+          2. some expression this span MAY LEGALLY NAME is of a kind THIS POLICY PERMITS.
 
         A span from a corrupt PDF of the real journal article is still inadmissible -- see Weiss, whose
         verbatim span said "633 per cent" because the PDF was a Caesar-shifted encoding of "300".
         """
+        if isinstance(ref, str):
+            manifestation_id, bid, targets_of = ref, None, self.attribution_targets
+            binding = None
+        else:
+            binding = ref
+            manifestation_id = binding.get('manifestation_id')
+            bid = binding.get('binding_id')
+            targets_of = None
+
         m = self.manifestations.get(manifestation_id)
         if m is None:
             raise KeyError(f'no manifestation {manifestation_id!r}')
-        targets = tuple(self.attribution_targets(manifestation_id))
+
+        if binding is None:
+            targets = tuple(targets_of(manifestation_id))
+        else:
+            # THE BINDING IS AN UNTRUSTED INPUT. It has been through a JSON file, and a binding whose
+            # offsets nobody rechecked is `text[900:100]` — empty, self-consistent, and citing nothing.
+            if not self.verify_span(binding):
+                return Attribution(
+                    manifestation_id=manifestation_id, content_hash=m.content_hash,
+                    expression_id=m.expression_id, permitted_expression_ids=(),
+                    policy=source_policy.name, admitted=False, names_expression_id=None, text=None,
+                    binding_id=bid,
+                    refusal=('this binding does not verify against the bytes it names — the offsets, the '
+                             'hash, the stored span or the permitted set disagree with the manifestation'))
+            targets = tuple(self.attribution_targets_for_binding(binding))
+
         base = dict(manifestation_id=manifestation_id, content_hash=m.content_hash,
                     expression_id=m.expression_id, permitted_expression_ids=targets,
-                    policy=source_policy.name)
+                    policy=source_policy.name, binding_id=bid)
 
         if source_policy.require_complete and not m.profile.get('complete'):
             why = '; '.join(m.profile.get('incomplete_because') or ['the bytes are not a usable document'])
@@ -849,10 +1273,14 @@ class Graph:
             return False
         if m.text[s:e] != stored:
             return False
-        # ...and the permitted set is not a cache. If an edge changed, the STORED permission is stale,
-        # and a stale permission is how a span keeps naming a journal it was never allowed to name.
+        # ...and the permitted set is not a cache. If an edge changed, or a SpanCorrespondence stopped
+        # verifying, the STORED permission is stale — and a stale permission is how a span keeps naming
+        # a journal it was never allowed to name. Recomputed PER SPAN, because that is now the unit at
+        # which permission exists.
         if 'permitted_expression_ids' in binding:
-            if list(binding['permitted_expression_ids']) != list(self.attribution_targets(mid)):
+            live = self.attribution_targets_for_binding(
+                dict(manifestation_id=mid, span_start=s, span_end=e))
+            if list(binding['permitted_expression_ids']) != live:
                 return False
         return True
 
@@ -869,6 +1297,7 @@ class Graph:
             # text is retained on disk too: NOTHING IS EVER DELETED.
             manifestations=[asdict(m) for m in self.manifestations.values()],
             edges=[asdict(e) for e in self.edges],
+            correspondences=[asdict(c) for c in self.correspondences],
         )
 
     @classmethod
@@ -997,9 +1426,26 @@ class Graph:
             if not (e.basis or '').strip():
                 err.append(f'{where}: carries NO BASIS')
             if e.status == 'ASSERTED' and e.type in SPAN_PRESERVING:
-                why = authentication_failure(e.basis)
+                why = authentication_failure(e.basis) or g.exact_copy_failure(e.src, e.dst)
                 if why:
                     err.append(f'{where}: ASSERTED span-preserving edge — {why}')
+
+        # ---- CORRESPONDENCES. Every one of them is RE-VERIFIED AGAINST THE BYTES ON DISK. ---------
+        # A correspondence is the ONLY per-span door out of a document, so a file that could smuggle one
+        # in would be a file that could make any manuscript's number into any journal's finding. The
+        # loader runs the SAME verifier the resolver runs — hashes, offsets, exact canonical equality —
+        # and refuses the whole graph if any of them fails. An edge that cannot be constructed but CAN
+        # BE LOADED is not a rule; it is a speed bump, and we have been over that speed bump already.
+        for i, d in enumerate(data.get('correspondences', [])):
+            sc = _take(SpanCorrespondence, d, f'correspondence #{i}')
+            if sc is None:
+                continue
+            g.correspondences.append(sc)
+            ok, why = g.verify_correspondence(sc)
+            if not ok:
+                err.append(f'correspondence #{i} {sc.id!r} '
+                           f'({sc.source_manifestation_id} -> {sc.target_manifestation_id}) '
+                           f'DOES NOT VERIFY: ' + '; '.join(why))
 
         if err:
             raise GraphIntegrityError(
@@ -1376,8 +1822,11 @@ def self_test() -> int:
     g.expressions['work:w:working_paper'] = Expression(
         'work:w:working_paper', 'work:w', 'working_paper', 'bytes say NBER WORKING PAPER SERIES',
         'Acemoglu and Restrepo (2020), working paper [NOT the Journal of Political Economy article]')
-    body = ('NBER WORKING PAPER SERIES ROBOTS AND JOBS ' + 'the effect of robots on employment is '
-            'estimated across commuting zones and we find a decline. ' * 80)
+    # The authors are NAMED in the header, so identity derives CONFIRMED — which the V9 exact_copy_of
+    # rule now REQUIRES on both sides. (Two documents we cannot prove are ours cannot be proven equal.)
+    body = ('NBER WORKING PAPER SERIES ROBOTS AND JOBS by Acemoglu and Restrepo. '
+            + 'the effect of robots on employment is '
+              'estimated across commuting zones and we find a decline. ' * 80)
     g.manifestations['manif:wp'] = Manifestation(
         'manif:wp', 'work:w:working_paper', 'work:w', body,
         hashlib.sha256(body.encode()).hexdigest(), len(body.split()), None,
@@ -1416,23 +1865,22 @@ def self_test() -> int:
         ok = True
     ck('a TITLE MATCH may not ASSERT exact_copy_of (Sol: it can only PROPOSE predecessor_of)', ok)
 
-    # THE HOLE THE OLD CHECK LEFT OPEN. It read `type == 'exact_copy_of' and 'title' in basis`, so the
-    # OTHER span-preserving type was completely unguarded — and it widens attribution identically.
-    try:
-        g.add_edge('work:w:working_paper', 'work:w:journal_version', 'accepted_manuscript_of',
-                   'ASSERTED', 'the titles match')
-        ok = False
-    except ValueError:
-        ok = True
-    ck('a TITLE MATCH may not ASSERT accepted_manuscript_of EITHER (the unguarded second door)', ok)
-
-    try:
-        g.add_edge('work:w:working_paper', 'work:w:journal_version', 'accepted_manuscript_of',
-                   'ASSERTED', 'the repository record says it is the accepted manuscript')
-        ok = False
-    except ValueError:
-        ok = True
-    ck('...nor may the ARTIFACT\'S OWN SAY-SO — an ASSERTED edge needs BYTE-LEVEL evidence', ok)
+    # ---- THE V9 P0: `accepted_manuscript_of` IS NOT SPAN-PRESERVING -------------------------------
+    # It WAS. It was in SPAN_PRESERVING, and it widened attribution exactly as exact_copy_of does — so an
+    # ASSERTED accepted_manuscript_of made a manuscript's spans printable under the journal's name. And
+    # the edge was reachable from A REPOSITORY'S ONE-WORD LABEL: Unpaywall says `acceptedVersion`,
+    # version_align mapped that to this edge, alignment_census called the result ADMISSIBLE. Three hops
+    # from a metadata string to a fabricated journal finding.
+    ck('accepted_manuscript_of is NO LONGER span-preserving (the V9 P0)',
+       'accepted_manuscript_of' not in SPAN_PRESERVING
+       and 'accepted_manuscript_of' in NON_SPAN_PRESERVING)
+    g.add_edge('work:w:working_paper', 'work:w:journal_version', 'accepted_manuscript_of', 'ASSERTED',
+               'byte-for-byte checksum of the repository deposit against the accepted manuscript')
+    ck('even an ASSERTED accepted_manuscript_of, on BYTE-LEVEL evidence, TRANSFERS NOTHING',
+       'work:w:journal_version' not in g.attribution_targets('manif:wp')
+       and not g.journal_attributable('manif:wp'))
+    ck('...and the refusal still names fabrication — an AM is not the journal version',
+       'fabrication' in (g.resolve_attribution('manif:wp', JOURNAL_ONLY).refusal or ''))
 
     try:
         g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED', '')
@@ -1441,14 +1889,146 @@ def self_test() -> int:
         ok = True
     ck('an edge with NO BASIS cannot be constructed at all', ok)
 
+    # A BASIS THAT *SAYS* "byte-for-byte" IS STILL A SENTENCE. The old guard was a REGEX OVER PROSE, so
+    # the string below asserted the edge and NO BYTES WERE EVER COMPARED. We hold no journal bytes here.
+    try:
+        g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
+                   'byte-for-byte comparison against the journal PDF: identical span at 76927-77299')
+        ok = False
+    except ValueError:
+        ok = True
+    ck('an exact_copy_of asserted on a SENTENCE about bytes we do not hold is REFUSED (V9 §4)', ok)
+
     # The rule must also WORK when the proof is genuinely earned -- a gate that never opens is a gate
-    # nobody will keep.
+    # nobody will keep. Expression-wide equality requires EXPRESSION-WIDE EVIDENCE: we must hold BOTH
+    # documents, both identity-CONFIRMED, and their ENTIRE canonical texts must be equal.
+    jbody = body.replace('NBER WORKING PAPER SERIES ', '')   # ...a DIFFERENT document. Not equal.
+    g.expressions['work:w2:journal_version'] = g.expressions['work:w:journal_version']
+    g.manifestations['manif:jv'] = Manifestation(
+        'manif:jv', 'work:w:journal_version', 'work:w', jbody,
+        hashlib.sha256(jbody.encode()).hexdigest(), len(jbody.split()), None, 'RECORDED',
+        'publisher', 'fulltext', profile(jbody, w))
+    del g.expressions['work:w2:journal_version']
+    try:
+        g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
+                   'sha-256 of both canonical texts compared')
+        ok = False
+    except ValueError:
+        ok = True
+    ck('an exact_copy_of between two documents whose canonical texts DIFFER is REFUSED', ok)
+
+    # ...and now the honest case: the journal bytes really ARE the same document.
+    g.manifestations['manif:jv'] = Manifestation(
+        'manif:jv', 'work:w:journal_version', 'work:w', body,
+        hashlib.sha256(body.encode()).hexdigest(), len(body.split()), None, 'RECORDED',
+        'publisher', 'fulltext', profile(body, w))
     g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
-               'byte-for-byte comparison against the journal PDF: identical span at 76927-77299')
-    ck('an ASSERTED exact_copy_of (proven against the journal BYTES) DOES license the journal name',
+               'sha-256 of the entire canonical text of both manifestations: equal')
+    ck('an ASSERTED exact_copy_of (both documents HELD, entire canonical text equal) DOES license it',
        g.journal_attributable('manif:wp'))
     ck('...and resolve_attribution then names the JOURNAL EXPRESSION BY ID, not by prose',
        g.resolve_attribution('manif:wp', JOURNAL_ONLY).names_expression_id == 'work:w:journal_version')
+    g.edges = [e for e in g.edges if e.type != 'exact_copy_of' or e.status != 'ASSERTED']
+    del g.manifestations['manif:jv']
+
+    # ---- PER-SPAN ATTRIBUTION (Sol V9 §4) --------------------------------------------------------
+    # An ACCEPTED MANUSCRIPT and the JOURNAL VERSION. They are NOT the same document — the AM says
+    # 0.37, the journal says 0.2 — but ONE sentence survived peer review verbatim. That sentence, and
+    # NOTHING ELSE IN THE MANUSCRIPT, may be printed under the journal's name.
+    SURVIVED = 'Industrial robots are fully autonomous and reprogrammable machines used in manufacturing.'
+    CHANGED_AM = 'we estimate that one more robot per thousand workers reduces employment by 0.37 percent'
+    CHANGED_J = 'we estimate that one more robot per thousand workers reduces employment by 0.2 percent'
+    pad = 'The analysis proceeds in three stages across commuting zones and industries. ' * 90
+
+    # Each document's own front matter says what it is, and NAMES ITS AUTHORS — so profile() derives
+    # `accepted_manuscript` / `journal_article`, both complete, both identity CONFIRMED. Nothing here is
+    # asserted; it is all read out of the bytes, exactly as in production.
+    am_head = 'Accepted manuscript. Robots and Jobs. Acemoglu and Restrepo. '
+    jv_head = 'Journal of Political Economy Vol. 128, No. 6. Robots and Jobs. Acemoglu and Restrepo. '
+    am_text = am_head + pad + SURVIVED + ' ' + CHANGED_AM + ' ' + pad
+    jv_text = jv_head + pad + SURVIVED + ' ' + CHANGED_J + ' ' + pad
+    pg = Graph(works={'work:w': w})
+    pg.expressions['work:w:accepted_manuscript'] = Expression(
+        'work:w:accepted_manuscript', 'work:w', 'accepted_manuscript', 'bytes say ACCEPTED MANUSCRIPT',
+        _attribution_for('accepted_manuscript', w))
+    pg.expressions['work:w:journal_version'] = Expression(
+        'work:w:journal_version', 'work:w', 'journal_version', 'typeset',
+        'Acemoglu and Restrepo (2020), Journal of Political Economy')
+
+    def _man(mid, eid, text):
+        p = profile(text, w)
+        p['identity'] = dict(p['identity'], verdict='CONFIRMED', basis='test fixture: identity confirmed')
+        pg.manifestations[mid] = Manifestation(
+            mid, eid, 'work:w', text, hashlib.sha256(text.encode()).hexdigest(),
+            len(text.split()), None, 'RECORDED', 'test', 'fulltext', p)
+
+    _man('manif:am', 'work:w:accepted_manuscript', am_text)
+    _man('manif:jv', 'work:w:journal_version', jv_text)
+
+    a_s = am_text.index(SURVIVED)
+    j_s = jv_text.index(SURVIVED)
+    a_c = am_text.index(CHANGED_AM)
+    j_c = jv_text.index(CHANGED_J)
+
+    b_surv = pg.bind_span('manif:am', a_s, a_s + len(SURVIVED))
+    b_chng = pg.bind_span('manif:am', a_c, a_c + len(CHANGED_AM))
+    ck('a bound span now carries a BINDING_ID — permission is a property OF THE SPAN',
+       b_surv['binding_id'].startswith('bind:') and b_surv['binding_id'] != b_chng['binding_id'])
+    ck('with NO correspondence, an accepted manuscript is NOT journal-attributable, span by span',
+       not pg.resolve_attribution(b_surv, JOURNAL_ONLY).admitted
+       and not pg.resolve_attribution(b_chng, JOURNAL_ONLY).admitted)
+    ck('...and it IS attributable AS AN ACCEPTED MANUSCRIPT (V9: "accepted-manuscript-attributable only")',
+       pg.resolve_attribution(b_surv, ANY_VERSION).admitted
+       and pg.resolve_attribution(b_surv, ANY_VERSION).names_expression_id
+       == 'work:w:accepted_manuscript')
+
+    # THE ACEMOGLU TEST. 0.37 in the manuscript, 0.2 in the journal. IT MUST FAIL AT THE BYTES.
+    bad_sc = make_correspondence(pg, 'manif:am', a_c, a_c + len(CHANGED_AM),
+                                 'manif:jv', j_c, j_c + len(CHANGED_J),
+                                 basis='the same sentence in both documents')
+    okc, whyc = pg.verify_correspondence(bad_sc)
+    ck('THE ACEMOGLU TEST: a 0.37-vs-0.2 correspondence FAILS IMMEDIATELY (canonical texts differ)',
+       not okc and any('NOT equal' in x for x in whyc))
+    ck('...and add_correspondence REFUSES it — it never reaches the graph',
+       _raises(lambda: pg.add_correspondence(bad_sc), ValueError))
+
+    # THE SURVIVING SENTENCE. Verbatim in both. It — and only it — earns the journal's name.
+    good_sc = make_correspondence(pg, 'manif:am', a_s, a_s + len(SURVIVED),
+                                  'manif:jv', j_s, j_s + len(SURVIVED),
+                                  basis='exact canonical equality of the span in both held documents')
+    pg.add_correspondence(good_sc)
+    b_surv = pg.bind_span('manif:am', a_s, a_s + len(SURVIVED))       # re-bind: permission changed
+    b_chng = pg.bind_span('manif:am', a_c, a_c + len(CHANGED_AM))
+    ck('a VERIFIED correspondence makes THAT SPAN journal-attributable',
+       pg.resolve_attribution(b_surv, JOURNAL_ONLY).admitted
+       and pg.resolve_attribution(b_surv, JOURNAL_ONLY).names_expression_id
+       == 'work:w:journal_version')
+    ck('THAT SPAN ONLY: the 0.37 sentence in the SAME manuscript is STILL refused',
+       not pg.resolve_attribution(b_chng, JOURNAL_ONLY).admitted)
+    ck('...and the MANIFESTATION-WIDE question is still NO (a per-span proof is not a document permit)',
+       not pg.journal_attributable('manif:am'))
+
+    # THE REBINDING. The span is in the VoR's OWN bytes, so bind it THERE and need no permission at all.
+    rb = pg.rebind(b_surv, 'manif:jv')
+    ck('a span found independently in the VoR bytes REBINDS directly to the VoR manifestation',
+       rb is not None and rb['manifestation_id'] == 'manif:jv'
+       and rb['text'] == SURVIVED and pg.verify_span(rb)
+       and pg.resolve_attribution(rb, JOURNAL_ONLY).names_expression_id == 'work:w:journal_version')
+    ck('...and a span that is NOT in the VoR bytes cannot be rebound to them (None, not a fallback)',
+       pg.rebind(b_chng, 'manif:jv') is None)
+
+    # THE CORRESPONDENCE IS RE-VERIFIED AT EVERY USE, INCLUDING FROM DISK.
+    tampered = json.loads(json.dumps(pg.to_json()))
+    tampered['correspondences'][0]['target_start'] = j_c
+    tampered['correspondences'][0]['target_end'] = j_c + len(CHANGED_J)
+    ck('from_json REFUSES a correspondence whose offsets were re-pointed at a DIFFERENT sentence',
+       _raises(lambda: Graph.from_json(tampered), GraphIntegrityError))
+    tampered2 = json.loads(json.dumps(pg.to_json()))
+    tampered2['correspondences'][0]['source_span'] = 'anything at all'
+    ck('from_json REFUSES a correspondence whose verbatim span is not what its offsets slice',
+       _raises(lambda: Graph.from_json(tampered2), GraphIntegrityError))
+    ck('a graph carrying a GENUINE correspondence round-trips through the strict loader',
+       len(Graph.from_json(json.loads(json.dumps(pg.to_json()))).correspondences) == 1)
 
     # ---- corrupt bytes of the RIGHT paper are still inadmissible ----------------------------
     caesar = 'Vhfwlrq 5 wkdw wkh qxpehu ri kdluguhvvhuv juhz pruh wkdq 633 shu fhqw. ' * 40
@@ -1531,9 +2111,12 @@ def self_test() -> int:
 
     # THE BINDING RETURNS IDS, NOT PROSE. A consumer that must string-match an English sentence to
     # find out what it may cite has a suggestion, not a rule.
+    # The ASSERTED exact_copy_of was withdrawn above (we no longer hold the journal bytes), and the
+    # ASSERTED accepted_manuscript_of transfers NOTHING — so the ONLY thing this span may name is the
+    # working paper whose bytes it is. That is the V9 P0, visible in the permitted set itself.
     ck('a bound span carries expression_id + PERMITTED EXPRESSION IDS (not `may_name` prose)',
        b['expression_id'] == 'work:w:working_paper'
-       and b['permitted_expression_ids'] == ['work:w:working_paper', 'work:w:journal_version']
+       and b['permitted_expression_ids'] == ['work:w:working_paper']
        and 'may_name' not in b)
 
     n = len(g.manifestations['manif:wp'].text)
@@ -1617,10 +2200,10 @@ def self_test() -> int:
          lambda d: d['edges'].append(dict(src='work:w:working_paper', dst='work:w:journal_version',
                                           type='exact_copy_of', status='ASSERTED',
                                           basis='the titles and metadata match exactly'))),
-        ('an ASSERTED accepted_manuscript_of is smuggled in on the artifact\'s OWN say-so',
+        ('an ASSERTED exact_copy_of is smuggled in NAMING BYTES WE DO NOT HOLD (V9 §4)',
          lambda d: d['edges'].append(dict(src='work:w:working_paper', dst='work:w:journal_version',
-                                          type='accepted_manuscript_of', status='ASSERTED',
-                                          basis='the PDF says "Accepted Manuscript" on page 1'))),
+                                          type='exact_copy_of', status='ASSERTED',
+                                          basis='sha-256 checksum of both documents: identical'))),
         ('`complete: true` is written onto a CORRUPT extraction (the registry does not derive it)',
          lambda d: [m for m in d['manifestations'] if m['id'] == 'manif:bad'][0]['profile']
          .__setitem__('complete', True)),

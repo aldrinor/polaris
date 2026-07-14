@@ -74,6 +74,9 @@ from event_ledger import (  # noqa: E402
     C_ABSTRACT, C_CITATION, C_FULLTEXT, C_NOT_DOC, C_UNREADABLE,
     EventKind, Ledger, derive_content_profile, observe_text,
 )
+from host_scheduler import (  # noqa: E402  THE PERSISTENT, CROSS-PROCESS POLITENESS GOVERNOR (Sol §7)
+    BudgetedRedirectHandler, HttpCache, Scheduler, host_of, parse_retry_after,
+)
 
 #: THE ONE DURABLE LEDGER. The run orchestrator opens it BEFORE retrieval; every fetcher appends.
 LEDGER_PATH = ROOT / 'outputs' / 'event_ledger.jsonl'
@@ -84,22 +87,44 @@ BLOB_DIR = ROOT / 'outputs' / 'blobs'
 MAILTO = os.environ.get('POLARIS_MAILTO', 'aldrin.or@c-polarbiotech.com')
 UA = {'User-Agent': f'POLARIS/1.0 (mailto:{MAILTO})'}
 
-#: Politeness spacing, PER HOST — we are the ones who got ourselves throttled, and we got throttled by
-#: hammering two hosts, not "the network". Backoff is scaled by POLARIS_BACKOFF_SCALE so an adversarial
-#: test can force a 429 storm without sleeping for four minutes. It scales SLEEP ONLY: it cannot change
-#: an event, a retry count, or an outcome.
-SPACING_S = float(os.environ.get('POLARIS_SPACING', '1.1'))
+#: Backoff is scaled by POLARIS_BACKOFF_SCALE so an adversarial test can force a 429 storm without
+#: sleeping for four minutes. It scales SLEEP ONLY: it cannot change an event, a retry count, or an
+#: outcome.
 BACKOFF_SCALE = float(os.environ.get('POLARIS_BACKOFF_SCALE', '1.0'))
 
+#: `SPACING_S` AND `_HOST_LAST` ARE GONE (Sol V9 §7). They were a module-level dict: they died with the
+#: process, they were not shared between our own workers, and they could not remember a refusal. Their
+#: replacement is scripts/host_scheduler.py — a per-host token bucket and concurrency limit in a file,
+#: under an flock, whose limits come from config/source_routes.yaml and whose `not_before` OUTLIVES THE
+#: PROCESS THAT WAS TOLD. Nothing in this module holds a rate any more; it ASKS.
+SCHEDULER = Scheduler()
+HTTP_CACHE = HttpCache()
+
 #: What the transport did. NOT what the world contains — that distinction is the whole module.
-RESPONDED       = 'RESPONDED'         # the backend answered with content
-NOT_INDEXED     = 'NOT_INDEXED'       # HTTP 404: a fact about THEIR INDEX
-THROTTLED       = 'THROTTLED'         # HTTP 429/503: a fact about OUR REQUEST RATE
-BLOCKED         = 'BLOCKED'           # HTTP 401/403/402/451: a fact about ENTITLEMENT
-TRANSPORT_ERROR = 'TRANSPORT_ERROR'   # timeout / DNS / reset / 5xx: we never got an answer
+#:
+#: SOL §7 SPLIT `BLOCKED` IN TWO, AND THE SPLIT IS NOT COSMETIC. 401 is A FACT ABOUT OUR CREDENTIAL —
+#: the CORE key returns 401, and the honest consequence is that THE ROUTE IS UNAVAILABLE AND THE
+#: LITERATURE IS UNEXAMINED. 403 is a fact about THAT URL's entitlement, and the honest consequence is
+#: to try a repository instead. Collapsed into one word, an expired key of ours read exactly like a
+#: publisher's paywall, and the retrieval plan could not tell "fix your key" from "look elsewhere".
+RESPONDED      = 'RESPONDED'        # the backend answered with content
+NOT_INDEXED    = 'NOT_INDEXED'      # HTTP 404: a fact about THEIR INDEX
+THROTTLED      = 'THROTTLED'        # HTTP 429/503: a fact about OUR REQUEST RATE
+AUTH_FAILED    = 'AUTH_FAILED'      # HTTP 401: a fact about OUR CREDENTIAL. The route is unavailable.
+ACCESS_DENIED  = 'ACCESS_DENIED'    # HTTP 402/403/451: a fact about ENTITLEMENT, for THAT URL
+BACKEND_FAILED = 'BACKEND_FAILED'   # timeout / DNS / reset / 5xx, after bounded retry
+DEFERRED       = 'DEFERRED'         # OUR OWN GOVERNOR stopped us. We never touched the backend.
+
+#: NOT ONE OF THESE IS AN ABSENCE, AND THERE IS NO SPELLING OF THIS MODULE THAT MAKES ONE. The reducer
+#: (event_ledger.derive_backend_outcome) maps every one of them to BACKEND_FAILED / ACCESS_BLOCKED, and
+#: `RouteStatus.supports_absence` is False for all of them. Only NOT_INDEXED — a backend that ANSWERED,
+#: saying its own index lacks the id — contributes to a scoped absence, and only if every route agrees.
+NEVER_AN_ABSENCE = (THROTTLED, AUTH_FAILED, ACCESS_DENIED, BACKEND_FAILED, DEFERRED)
 
 THROTTLE_CODES = (429, 503)
-BLOCK_CODES    = (401, 402, 403, 451)
+AUTH_CODES     = (401,)
+DENIED_CODES   = (402, 403, 451)
+BLOCK_CODES    = AUTH_CODES + DENIED_CODES     # both still emit EventKind.BLOCKED on the ledger
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -200,6 +225,12 @@ class Response:
     adapter: str
     request_id: str
     transport_error: str = ''
+    #: THE RESPONSE HEADERS, lowercased. Sol V9 §2 requires the repository routes to OBEY the servers'
+    #: own rate headers (CORE's tier headers, Zenodo's `X-RateLimit-*`, OpenAIRE's `x-ratelimit-*`) —
+    #: and a header you cannot see is a budget you cannot honour. They are OBSERVATIONS, like every
+    #: other thing on this record: they say what the server told us about OUR request rate, and nothing
+    #: whatever about what the literature contains.
+    resp_headers: dict = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -224,6 +255,106 @@ class Response:
 
 _HOST_LAST: dict[str, float] = {}
 _RID = itertools.count(1)
+
+#: The response headers that describe OUR BUDGET at a backend. Sol V9 §2 makes obeying them a
+#: requirement of the CORE / OpenAIRE / Zenodo routes; §7 makes "dynamic limits may only REDUCE the
+#: configured rate" the rule for reading them. Recorded as observations, on the request that saw them.
+RATE_HEADERS = ('x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset',
+                'x-ratelimit-used', 'retry-after')
+
+
+def _headers_dict(h) -> dict:
+    """Response headers, lowercased. An absent header object is {} — never an exception, and never a
+    silent claim that the server said nothing about our rate."""
+    try:
+        return {str(k).lower(): str(v) for k, v in h.items()} if h else {}
+    except Exception:
+        return {}
+
+
+def _rate_obs(h: dict) -> dict:
+    """Just the rate headers, for the ledger. `_scan_for_conclusions` sees only numbers and dates here,
+    which is the point: what the server said about our request rate, stated as what it is."""
+    return {k.replace('-', '_'): v for k, v in (h or {}).items() if k in RATE_HEADERS}
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# THE LANE RECORDS (Sol V9 §1) — AND THE LINEAGE THAT MAKES ROUTE CREDIT MEAN ANYTHING
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+"""
+THE ROUTE-CREDIT BUG, IN ONE SENTENCE: a route could be credited with a full text SOMEBODY ELSE FETCHED.
+
+`source_router.classify_discovery_outcome(ledger, unit, adapter)` checked the TRANSPORT outcome per
+adapter — correctly — and then asked what we HELD by reducing over EVERY manifestation of the unit. But
+a manifestation's `adapter` is the CONTENT HOST it was pulled from (`content:arxiv.org`), not the
+resolver that proposed it. So the reduction had no way to tell whose candidate those bytes came from:
+if Unpaywall proposed the URL that produced the PDF, and CORE merely answered "RESPONDED" to a search
+that found nothing, CORE's discovery outcome read FETCHED. A ladder built on that number measures
+nothing — every route inherits the union of every other route's luck, and "unique incremental yield"
+becomes an arithmetic identity.
+
+THE FIX IS A CHAIN, NOT A FLAG:
+
+    resolver request  ->  candidate  ->  content request  ->  redirects  ->  manifestation
+    (request_id)          (candidate_id)   (request_id, candidate_id)         (candidate_id)
+
+`candidate_id` is minted where the candidate is BORN — inside the adapter that proposed the URL — and it
+is carried, unchanged, through the content request and onto the manifestation. A reducer can then ask
+the only question that means anything: "which manifestations descend from a candidate THIS ADAPTER
+proposed?" A route that proposed nothing gets credited with nothing, however many other routes succeeded.
+
+THE ADAPTER STILL MAY NOT WRITE A CONCLUSION. Sol V9 §1: "The adapter must not write FULLTEXT, THIS_WORK,
+VERSION_OF_RECORD, ADMISSIBLE, or an expression edge." Those are REDUCER outputs. `version_hint` and
+`license_observation` below are named `_hint` / `_observation` for exactly that reason: they are what a
+repository SAID, kept because it is evidence, and they are never read as what a document IS.
+"""
+
+
+@dataclass(frozen=True)
+class ResolveContext:
+    """WHAT WE ARE LOOKING FOR, and what the contract will and will not accept. Sol V9 §1.
+
+    The router's input is this — STRUCTURED CAPABILITIES — never a lexical guess at the topic.
+    """
+    work_id: str
+    contract_id: str = ''
+    identifiers: tuple[str, ...] = ()          # DOI, PMCID, PMID, OAI ID, CELEX, ECLI, NCT...
+    title: str = ''
+    authors: tuple[str, ...] = ()
+    year: int | None = None
+    required_artifact_kinds: tuple[str, ...] = ()
+    permitted_expression_kinds: tuple[str, ...] = ()
+    required_capabilities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DocumentCandidate:
+    """A URL AN ADAPTER PROPOSED. NOT a document, not a version, not evidence — a lead with a lineage.
+
+    `version_hint` and `license_observation` are OBSERVATIONS ONLY, and the suffixes are load-bearing:
+    `acceptedVersion` from a repository is a string a repository emitted, and the entire V9 P0 was the
+    project of treating that string as a fact about bytes. It is recorded and it concludes NOTHING.
+    """
+    candidate_id: str
+    work_id: str
+    discovered_by_route: str                   # the ADAPTER that proposed it. The lineage root.
+    resolver_request_id: str = ''              # the request in which it was proposed
+    identifier_used: str = ''
+    retrieval_url: str = ''
+    repository_record_url: str = ''
+    media_hint: str = ''
+    version_hint: str = ''                     # observation only — NEVER a version decision
+    license_observation: str = ''              # observation only
+    raw_metadata_blob_id: str = ''
+    raw_metadata_hash: str = ''
+
+
+def make_candidate_id(unit: str, adapter: str, url: str) -> str:
+    """DERIVED, never minted. The same adapter proposing the same URL for the same work is the same
+    candidate — so a re-run does not fork the lineage, and two adapters proposing the SAME url are two
+    DIFFERENT candidates, which is exactly right: they are two routes, and each must be scored alone."""
+    h = hashlib.sha256(f'{unit}|{adapter}|{url}'.encode()).hexdigest()
+    return f'cand:{h[:16]}'
 
 
 def open_ledger(path: Path | str | None = None) -> Ledger:
@@ -268,7 +399,7 @@ class Acquirer:
 
     # -- 2 & 3. THE EXCEPTION BOUNDARY ------------------------------------------------------------
     def get(self, unit: str, adapter: str, url: str, *, tries: int = 4, timeout: int = 30,
-            **obs) -> Response:
+            candidate_id: str = '', headers: dict | None = None, **obs) -> Response:
         """One logical request. BACKEND_ATTEMPTED before each attempt; EXACTLY ONE of
         RESPONSE_RECEIVED | THROTTLED | BLOCKED at the exception boundary of each attempt.
 
@@ -287,9 +418,13 @@ class Acquirer:
         for attempt in range(1, max(1, tries) + 1):
             self._space(url)
             self.ledger.emit(unit, EventKind.BACKEND_ATTEMPTED, self.actor,
-                             adapter=adapter, url=url, request_id=rid, attempt=attempt, **obs)
+                             adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt, **obs)
             try:
-                req = urllib.request.Request(url, headers=UA)
+                # `headers` carries CREDENTIALS (CORE requires `Authorization: Bearer`). THE SECRET
+                # NEVER REACHES THE LEDGER: `_rate_obs` below records only the server's rate headers,
+                # and the request headers are not emitted at all. A key in an append-only, committed log
+                # is a key you cannot rotate.
+                req = urllib.request.Request(url, headers={**UA, **(headers or {})})
                 # NOTE: `urllib.request.urlopen` is resolved AT CALL TIME, on purpose. The adversary
                 # harness monkeypatches it to force a 429 storm, and a `from ... import urlopen` would
                 # bind past the patch and test nothing.
@@ -297,20 +432,24 @@ class Acquirer:
                     raw = r.read()
                     ctype = r.headers.get('Content-Type', '') or ''
                     code = int(getattr(r, 'status', 200) or 200)
+                    rhdr = _headers_dict(r.headers)
                 self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
-                                 adapter=adapter, url=url, request_id=rid, attempt=attempt,
-                                 http_status=code, content_type=ctype, n_bytes=len(raw))
-                return Response(RESPONDED, code, raw, ctype, url, adapter, rid)
+                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
+                                 http_status=code, content_type=ctype, n_bytes=len(raw),
+                                 **_rate_obs(rhdr))
+                return Response(RESPONDED, code, raw, ctype, url, adapter, rid, resp_headers=rhdr)
 
             except urllib.error.HTTPError as e:
                 code = int(getattr(e, 'code', 0) or 0)
+                ehdr = _headers_dict(getattr(e, 'headers', None))
 
                 if code in THROTTLE_CODES:
                     # ** A 429 PERSISTS AS THROTTLED. IT CANNOT BECOME CITATION_ONLY. **
                     self.ledger.emit(unit, EventKind.THROTTLED, self.actor,
-                                     adapter=adapter, url=url, request_id=rid, attempt=attempt,
-                                     http_status=code, retry_after=self._retry_after(e))
-                    last = Response(THROTTLED, code, b'', '', url, adapter, rid, f'HTTP {code}')
+                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
+                                     http_status=code, retry_after=self._retry_after(e), **_rate_obs(ehdr))
+                    last = Response(THROTTLED, code, b'', '', url, adapter, rid, f'HTTP {code}',
+                                    resp_headers=ehdr)
                     if attempt < tries:
                         self._backoff(attempt)
                         continue
@@ -318,23 +457,26 @@ class Acquirer:
 
                 if code in BLOCK_CODES:
                     # A fact about ENTITLEMENT. Retrying a paywall is not politeness, it is noise.
+                    # 401 lands here, and it is the CORE case Sol V9 §2 names: a rejected credential is
+                    # a fact about OUR KEY. The route is UNAVAILABLE; the literature is unexamined.
                     self.ledger.emit(unit, EventKind.BLOCKED, self.actor,
-                                     adapter=adapter, url=url, request_id=rid, attempt=attempt,
-                                     http_status=code)
-                    return Response(BLOCKED, code, b'', '', url, adapter, rid, f'HTTP {code}')
+                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
+                                     http_status=code, **_rate_obs(ehdr))
+                    return Response(BLOCKED, code, b'', '', url, adapter, rid, f'HTTP {code}',
+                                    resp_headers=ehdr)
 
                 if code == 404:
                     # THE BACKEND ANSWERED. "My index does not have this" is a RESPONSE, and it is a
                     # fact about THEIR INDEX — not about whether the paper is free somewhere else.
                     # (Semantic Scholar 404s the QJE DOI for Autor/Levy/Murnane. NBER WP 8337 exists.)
                     self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
-                                     adapter=adapter, url=url, request_id=rid, attempt=attempt,
+                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
                                      http_status=404, n_bytes=0)
                     return Response(NOT_INDEXED, 404, b'', '', url, adapter, rid)
 
                 # 5xx and the rest: they responded, and the response is not an answer.
                 self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
-                                 adapter=adapter, url=url, request_id=rid, attempt=attempt,
+                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
                                  http_status=code, transport_error=f'HTTP {code}')
                 last = Response(TRANSPORT_ERROR, code, b'', '', url, adapter, rid, f'HTTP {code}')
                 if code >= 500 and attempt < tries:
@@ -348,7 +490,7 @@ class Acquirer:
                 # conclusion guard treats as raw text from the world — because an exception string is
                 # free text and could otherwise smuggle "not available" into the log as a conclusion.
                 self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
-                                 adapter=adapter, url=url, request_id=rid, attempt=attempt,
+                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
                                  transport_error=type(e).__name__, reason_text=str(e)[:200])
                 last = Response(TRANSPORT_ERROR, None, b'', '', url, adapter, rid, type(e).__name__)
                 if attempt < tries:
@@ -363,14 +505,28 @@ class Acquirer:
         return r, r.json()
 
     # -- 4. CANDIDATE_IDENTIFIED ------------------------------------------------------------------
-    def candidate(self, unit: str, adapter: str, url: str, **obs) -> None:
-        """An adapter returned a URL. It is a CANDIDATE — not evidence, not a copy of anything yet."""
+    def candidate(self, unit: str, adapter: str, url: str, *,
+                  resolver_request_id: str = '', **obs) -> str:
+        """An adapter returned a URL. It is a CANDIDATE — not evidence, not a copy of anything yet.
+
+        RETURNS THE `candidate_id`, AND THE CALLER MUST CARRY IT. That id is the root of the lineage
+
+            resolver request -> candidate -> content request -> redirects -> manifestation
+
+        and it is the ONLY thing that can say WHICH ROUTE a document is owed to. Without it the
+        discovery reducer had to guess, and it guessed by reducing over every manifestation of the work —
+        so a route that found nothing was credited with a route that found everything. A ladder measured
+        with that reducer cannot see incremental yield at all.
+        """
+        cid = make_candidate_id(unit, adapter, url)
         self.ledger.emit(unit, EventKind.CANDIDATE_IDENTIFIED, self.actor,
-                         adapter=adapter, url=url, **obs)
+                         adapter=adapter, url=url, candidate_id=cid,
+                         resolver_request_id=resolver_request_id, **obs)
+        return cid
 
     # -- 5 & 6. MANIFESTATION_FETCHED, then CONTENT_PROFILE_DERIVED -------------------------------
     def record_manifestation(self, unit: str, *, locator: str, raw: bytes, text: str,
-                             adapter: str, requested_title: str = '',
+                             adapter: str, candidate_id: str = '', requested_title: str = '',
                              requested_authors: Iterable[str] | None = None,
                              requested_doi: str = '', requested_venue: str = '',
                              requested_year: int | None = None, source_type: str = '',
@@ -389,6 +545,11 @@ class Acquirer:
         self.ledger.emit(
             unit, EventKind.MANIFESTATION_FETCHED, self.actor,
             adapter=adapter,
+            # THE LINEAGE (Sol V9 §1). WHICH CANDIDATE, AND THEREFORE WHICH ROUTE, THESE BYTES ARE OWED
+            # TO. Empty means UNATTRIBUTED — and an unattributed manifestation credits NO route, which
+            # is the honest answer and, importantly, the SAFE default: the old reducer credited EVERY
+            # route instead.
+            candidate_id=candidate_id or '',
             locator=locator,                 # THE URL THESE BYTES CAME FROM. wp_fetch never recorded
             #                                # it, so `oa_url` (the PUBLISHER's link, left by an
             #                                # earlier fetcher) was the only URL on the row — a locator

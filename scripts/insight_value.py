@@ -92,6 +92,31 @@ class InsightVector:
             -self.relevance,                                     # 8. broad relevance breaks ties
         )
 
+    def schedule_key(self) -> tuple:
+        """LEXICOGRAPHIC priority for the ACQUISITION SCHEDULE (what to go and BUY next), as distinct
+        from `rank_key` (how much a family we ALREADY HOLD is worth). The two differ in ONE place, and
+        deliberately: `rank_key` puts new_cell_coverage first, which is right for a held paper -- a
+        family that keeps five required cells closed is load-bearing. But for a candidate we have not
+        bought yet, Sol's rule governs: "A FIFTH POSITIVE ESTIMATE in the same context usually adds less
+        insight than THE FIRST CREDIBLE NULL, a different population, or a design that resolves a
+        disagreement." So a study that ADJUDICATES AN OPEN CONTRADICTION, or buys the first null or the
+        first design/population contrast, outranks a first weak estimate in an empty corner of the
+        matrix -- and REDUNDANCY sorts last, always.
+
+        This is the key that unstarves the argument planner: it found ZERO cross-source conflicts in our
+        10 papers, and the schedule that ran before this existed reached the contradiction cells only
+        after 34 empty-corner discovery cells had spent the budget."""
+        return (
+            self.redundancy,                                       # 0. terminal/redundant cells LAST
+            -(self.explains_contradiction + self.null_or_counter),  # 1. resolve it / buy the null
+            -(self.method_contrast + self.context_contrast),       # 2. a genuine design/population contrast
+            -self.current_frontier,                                # 3. the frontier the citation graph cannot see
+            -self.new_cell_coverage,                               # 4. a first estimate in an empty cell
+            -self.completes_tuple,                                 # 5. a complete, interpretable result
+            -self.independent_corroboration,                       # 6. corroboration of another unit
+            -self.relevance,                                       # 7. tie-break only
+        )
+
     def dominates(self, other: 'InsightVector') -> bool:
         """Pareto domination over the insight dimensions (redundancy inverted). Makes the vector's
         multi-dimensionality explicit: a family on the frontier is beaten by no single other family."""
@@ -256,6 +281,75 @@ def target_profile(gap_result) -> dict:
     }.get(g, {})
     base['acquire_a_candidate_with'] = want
     return base
+
+
+# ======================================================== the RANKED ACQUISITION SCHEDULE (item 5)
+def target_vector(gap_result) -> InsightVector:
+    """The insight a candidate acquired FOR THIS CELL would deliver -- `target_profile` as the VECTOR we
+    can actually sort on. This is the bridge item 4 -> item 5, and it is what stops the schedule being
+    ordered by CELL NAME.
+
+    WHY IT MATTERS, MEASURED: before this existed the schedule ran in matrix order, so 34 empty
+    'Agriculture x ...' DISCOVERY cells were searched BEFORE the 3 CONTRADICTION cells -- i.e. the whole
+    budget bought a first weak estimate in an empty corner while the study that ADJUDICATES AN EXISTING
+    DISAGREEMENT was never sought. Sol: "a FIFTH POSITIVE ESTIMATE in the same context usually adds less
+    insight than THE FIRST CREDIBLE NULL, a different population, or a design that resolves a
+    disagreement." So contradictions and contrasts sort FIRST, and a saturated cell sorts LAST.
+
+    The funnel is consulted (not just the gap label) so a cell in CONFLICT is credited for the null /
+    moderator it would buy even when another constraint is binding."""
+    f = gap_result.funnel
+    g = gap_result.gap
+    v = InsightVector(family=f'target:{f.cellkey}', label=f'{g} @ {f.cellkey}')
+    v.notes.append(g)
+
+    # A cell in genuine conflict is where a null / moderator has the highest marginal value ANYWHERE.
+    if getattr(f, 'has_conflict', False) and not getattr(f, 'has_moderator', False):
+        v.explains_contradiction = 1
+        v.null_or_counter = 1
+
+    if g == GS.CONTRADICTION_GAP:
+        v.explains_contradiction = 1
+        v.null_or_counter = 1
+    elif g == GS.DIVERSITY_GAP:
+        # a design/population contrast, and the first credible null, are exactly what this cell lacks
+        v.method_contrast = 1
+        v.context_contrast = 1
+        v.null_or_counter = 1
+    elif g == GS.RECENCY_GAP:
+        v.current_frontier = 1         # currency, NOT coverage: the cell already holds evidence
+    elif g == GS.DISCOVERY_GAP:
+        v.new_cell_coverage = 1        # real, but the WEAKEST kind: a first estimate in an empty corner
+    elif g == GS.EXTRACTION_GAP:
+        v.completes_tuple = 1          # no network spend at all: we already hold the text
+    elif g == GS.ACCESS_GAP:
+        v.completes_tuple = 1
+        v.independent_corroboration = 1   # the same work, made groundable -- no NEW unit
+    elif g in (GS.NOT_A_GAP, GS.EVIDENCE_GAP, GS.BUDGET_STOP):
+        v.redundancy = 1               # terminal: acquiring here buys a same-context restatement
+        v.notes.append('TERMINAL: acquire nothing')
+
+    v.relevance = len(getattr(f, 'designs', ()) or ())      # tie-break only; never buys rank
+    v.recency = getattr(f, 'newest_year', None)
+    return v
+
+
+def schedule(gap_results: list) -> list:
+    """THE ACQUISITION SCHEDULE: the gap census, ORDERED BY MARGINAL INSIGHT (lexicographic over the
+    insight vector -- see InsightVector.rank_key). Returns the SAME GapResult objects, reordered, each
+    carrying `.insight` (the vector) so nothing is collapsed to a scalar and every position is auditable.
+
+    Ties keep matrix order (a stable sort), so the ordering is deterministic."""
+    pairs = [(target_vector(r), r) for r in gap_results]
+    pairs.sort(key=lambda p: p[0].schedule_key())
+    out = []
+    for vec, r in pairs:
+        try:
+            r.insight = vec                      # attach; the caller may render the components
+        except Exception:                        # a frozen dataclass -- ordering still holds
+            pass
+        out.append(r)
+    return out
 
 
 # =============================================================================== CLI

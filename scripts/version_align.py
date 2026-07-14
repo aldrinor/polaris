@@ -33,11 +33,32 @@ WHAT COUNTS AS A JOURNAL VERSION
 
   Unpaywall and OpenAlex both label every OA location with a `version`:
       publishedVersion   the typeset article of record        -> exact_copy_of        (span-preserving)
-      acceptedVersion    post-peer-review author manuscript   -> accepted_manuscript_of (span-preserving)
+      acceptedVersion    post-peer-review author manuscript   -> accepted_manuscript_of (TRANSFERS NOTHING)
       submittedVersion   the PREPRINT / WORKING PAPER         -> predecessor_of   (TRANSFERS NOTHING)
   That field is a version statement made by the repository, and it is the only authenticated one we
   can get without human eyes on the PDF. `submittedVersion` is not a weaker journal version. It is
   NOT THE JOURNAL VERSION. It is the thing we already hold and already cannot cite.
+
+WHAT CHANGED IN V9, AND WHY IT WAS A P0
+
+  `acceptedVersion` used to map to a SPAN-PRESERVING edge. So this file's most innocuous-looking line —
+  a two-entry dict — was hop one of a path that ended with a repository's eleven-character string
+  authorising a manuscript's numbers to be printed under a journal masthead:
+
+      Unpaywall says   version: "acceptedVersion"
+          -> version_align maps it to     accepted_manuscript_of
+          -> provenance lists that in     SPAN_PRESERVING
+          -> alignment_census rules it    ADMISSIBLE
+          -> a span from the manuscript   prints as a finding of the journal
+
+  No component lied. Each one passed on what it was given. Sol, V9 §4: "An accepted manuscript is NEVER
+  the journal version merely because a repository says acceptedVersion." Acceptance is not publication:
+  copy-editing, proofs and the editor's last round all land after it, and THE NUMBERS MOVE — 0.37pp in
+  Acemoglu & Restrepo's NBER working paper, 0.2pp in the published JPE.
+
+  An accepted manuscript is now attributable AS AN ACCEPTED MANUSCRIPT and as nothing else. A span in it
+  reaches the journal only across a verified SpanCorrespondence: THAT span, both hashes, both offsets,
+  exact canonical equality — and it carries THAT SPAN ONLY, never the paragraph beside it.
 """
 from __future__ import annotations
 
@@ -217,8 +238,43 @@ def openalex(unit: str, doi: str) -> dict:
                 locations=locs)
 
 
+#: A REPOSITORY'S VERSION LABEL -> THE EDGE IT COULD AT MOST SUPPORT. It is not an edge we may ASSERT,
+#: and — since V9 — for `acceptedVersion` it is not even a span-preserving one.
+#:
+#: THIS DICT WAS THE FIRST HOP OF A LIVE FABRICATION PATH. It read:
+#:
+#:     JOURNAL_VERSIONS = {'publishedVersion': 'exact_copy_of',
+#:                         'acceptedVersion':  'accepted_manuscript_of'}   # <- span-preserving
+#:
+#: `accepted_manuscript_of` was in provenance.SPAN_PRESERVING, so an Unpaywall record whose `version`
+#: field held the eleven characters `acceptedVersion` was, three hops later, licence to print that
+#: manuscript's numbers under the journal's name. A repository's one-word opinion, laundered into a
+#: claim about bytes.
+#:
+#: Sol V9, verbatim: "An accepted manuscript is NEVER the journal version merely because a repository
+#: says acceptedVersion." The mapping stays — the label is real EVIDENCE and worth fetching on — but what
+#: it maps to is now inert, and the assertion below makes that structural rather than remembered.
 JOURNAL_VERSIONS = {'publishedVersion': 'exact_copy_of',
                     'acceptedVersion': 'accepted_manuscript_of'}
+
+sys.path.insert(0, str(ROOT / 'scripts'))
+from provenance import SPAN_PRESERVING as _SPAN_PRESERVING  # noqa: E402
+
+#: WHICH OF THOSE EDGES ACTUALLY CARRIES A SPAN. Read from provenance — never restated here, because a
+#: second list of "the span-preserving edges" is a second answer to the only question that matters, and
+#: the one that ships is whichever module the reducer imported.
+assert 'accepted_manuscript_of' not in _SPAN_PRESERVING, (
+    'accepted_manuscript_of is span-preserving again. THAT IS THE V9 P0 REOPENED: a repository label '
+    'would once more be sufficient to print a manuscript under a journal masthead.')
+
+
+def span_preserving(version_label: str) -> bool:
+    """Does a location carrying THIS repository label license a span to name the journal article?
+
+    Only `publishedVersion` — and even then only after the BYTES are fetched, profiled, and found to be
+    the article of record. This function reports what the LABEL could support. It never concludes.
+    """
+    return JOURNAL_VERSIONS.get(version_label) in _SPAN_PRESERVING
 
 
 def candidate_journal_locations(up: dict, oa: dict) -> list[dict]:
@@ -420,13 +476,23 @@ def main() -> int:
                                      'The row is re-minable AGAINST THE JOURNAL BYTES.')
         elif v['n_verified'] and not v['n_unverified']:
             rec['alignment'] = 'ALIGNED_FULL'
-            rec['alignment_note'] = (f"all {v['n_verified']} spans appear VERBATIM in the "
-                                     f"{cand['version']}. Edge {cand['edge']} may be ASSERTED.")
+            rec['alignment_note'] = (
+                f"all {v['n_verified']} spans appear VERBATIM in the {cand['version']}. "
+                + (f"Edge {cand['edge']} may be ASSERTED (subject to provenance.exact_copy_failure: we "
+                   f"must HOLD both documents and their ENTIRE canonical texts must be equal)."
+                   if span_preserving(cand['version']) else
+                   f"THE {cand['version']} IS NOT THE JOURNAL VERSION. `{cand['edge']}` is not "
+                   f"span-preserving (V9 §4), so this licenses NOTHING wholesale. Each verified span "
+                   f"gets a SpanCorrespondence — that span, those two hashes, those two offsets, exact "
+                   f"canonical equality — and each grants THAT SPAN ONLY."))
         elif v['n_verified']:
             rec['alignment'] = 'ALIGNED_PARTIAL'
             rec['alignment_note'] = (
                 f"{v['n_verified']} of {ncards} spans appear verbatim in the {cand['version']}; "
-                f"{v['n_unverified']} DO NOT and stay inadmissible. Per-span, never per-paper.")
+                f"{v['n_unverified']} DO NOT and stay inadmissible. Per-span, never per-paper."
+                + ('' if span_preserving(cand['version']) else
+                   f" And the {cand['version']} is not the journal version: even the verified spans name "
+                   f"the accepted manuscript unless a SpanCorrespondence carries them into VoR bytes."))
         else:
             rec['alignment'] = 'NOT_ALIGNED'
             rec['alignment_note'] = (

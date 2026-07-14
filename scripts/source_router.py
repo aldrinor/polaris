@@ -74,6 +74,7 @@ import yaml  # noqa: E402
 from event_ledger import (  # noqa: E402
     EventKind, Ledger, observe_text,
     derive_content_profile, derive_semantic_binding,
+    events_of_adapter_lineage as event_lineage,
     C_FULLTEXT, C_ABSTRACT, C_CITATION, C_NOT_DOC, C_UNREADABLE, DIFFERENT_WORK,
 )
 import provenance  # noqa: E402  (SourcePolicy + the named admissibility policies)
@@ -129,6 +130,19 @@ class Route:
     endpoints: dict
     discovery_via: tuple[str, ...] = ()
     scope_ref: dict | None = None
+    # ---- Sol V9 §2: "Endpoints, identifier transforms, metadata prefixes and rate budgets are DATA." --
+    # These three columns are what turn a route from a DISCOVERY probe into an executable FULL-TEXT lane
+    # without writing a per-repository function. They are read by scripts/routes_bio.py; a route that
+    # does not set them is unaffected.
+    selectors: dict = field(default_factory=dict)              # where the answer lives in the response
+    identifier_transforms: dict = field(default_factory=dict)  # PMCID -> numeric -> OAI identifier
+    batch: dict = field(default_factory=dict)                  # documented batch ceilings (PMC: 200 ids)
+    metadata_prefix: str = ''                                  # OAI: `pmc` (full text) vs `oai_dc` (not)
+    #: THE RESOLVER ROW (Sol V9 §2/§6): auth profile, query forms, response selectors, artifact-type
+    #: map, relation whitelist, rate budget. It is DATA, and it is the whole reason `routes_repo.py`
+    #: contains no endpoint, no field path and no repository's name: "Adding GovInfo, EUR-Lex,
+    #: CourtListener, or another repository should normally mean adding ROWS."
+    resolver: dict = field(default_factory=dict)
 
     @property
     def is_evidence_route(self) -> bool:
@@ -183,6 +197,7 @@ def load_table(path: Path | str = ROUTES_YAML) -> RouteTable:
             endpoints=dict(row.get('endpoints', {}) or {}),
             discovery_via=tuple(row.get('discovery_via', []) or []),
             scope_ref=row.get('scope_ref'),
+            resolver=dict(row.get('resolver', {}) or {}),
         ))
     mailto_env = raw.get('mailto_env', 'POLARIS_MAILTO')
     table = RouteTable(
@@ -449,18 +464,43 @@ def _transport_outcome(events: list, adapter: str) -> str:
     return TRANSIENT_ERROR
 
 
-def _content_outcome(events: list) -> tuple[str, str]:
-    """When the transport RESPONDED, WHAT DID WE ACTUALLY GET? Derived from the SAME reducers the rest
-    of the pipeline uses, so this module cannot disagree with the corpus about what a document is."""
-    mans = [e for e in events
+def _content_outcome(events: list, adapter: str) -> tuple[str, str]:
+    """When the transport RESPONDED, WHAT DID *THIS ROUTE* ACTUALLY GET?
+
+    ── THE ROUTE-CREDIT BUG (Sol V9 §1) ──────────────────────────────────────────────────────────────
+    This function used to take `events` — ALL of the unit's events — and reduce over EVERY manifestation
+    in them. But a manifestation's `adapter` is the CONTENT HOST the bytes came from
+    (`content:arxiv.org`), never the resolver that proposed the URL. So the question it answered was not
+    "what did this route get?" but "did ANYBODY get a document for this work?" — and it answered that,
+    identically, once per route.
+
+    The consequence was not cosmetic. Under it:
+
+      * a route that searched, RESPONDED, and found nothing reads FETCHED, as long as some other route
+        succeeded;
+      * "unique incremental yield" — the number Sol's ladder (§9) is built to measure, and the number
+        that decides which of the six unbuilt lanes is worth building — becomes identically equal to
+        gross yield, for every route, forever;
+      * `licenses_absence()` is fed outcomes that were never that route's own.
+
+    The fix is the LINEAGE, not a flag: `candidate_id` runs from the resolver request that proposed the
+    URL, through the content request, to the manifestation. `events_of_adapter_lineage()` hands the
+    ordinary reducers the ordinary event list with every other route's documents removed. A route is now
+    credited with exactly what it discovered, and a route that discovered nothing is credited with
+    nothing — however well its neighbours did.
+    """
+    mine = event_lineage(events, adapter)
+    mans = [e for e in mine
             if e.kind == EventKind.MANIFESTATION_FETCHED and 'derived_by' not in e.payload]
     if not mans:
-        return NOT_FOUND, ('the backend answered but no document was fetched — an index/identity probe, '
-                           'or a search that located no accessible copy')
-    binding, binfo = derive_semantic_binding(events)
+        return NOT_FOUND, ('the backend answered, but no document is owed to THIS route — it proposed no '
+                           'candidate that produced bytes. (An index/identity probe, or a search that '
+                           'located no accessible copy. Another route may well hold a document for this '
+                           'work; that is THAT route\'s outcome, and it is not this one\'s.)')
+    binding, binfo = derive_semantic_binding(mine)
     if binding == DIFFERENT_WORK:
         return WRONG_WORK, binfo.get('reason', 'the fetched document is a different work')
-    cls, info = derive_content_profile(events)
+    cls, info = derive_content_profile(mine)
     return _CLASS_TO_OUTCOME.get(cls, NOT_FOUND), info.get('reason', '')
 
 
@@ -479,7 +519,7 @@ def classify_discovery_outcome(ledger: Ledger, unit: str, adapter: str) -> tuple
             TRANSIENT_ERROR: 'timeout / DNS / reset / 5xx / hang — we never got an answer',
         }[t]
         return t, basis
-    return _content_outcome(events)
+    return _content_outcome(events, adapter)
 
 
 def licenses_absence(outcomes: Iterable[str]) -> tuple[bool, str]:
