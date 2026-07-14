@@ -253,9 +253,21 @@ def default_contract() -> ResearchContract:
         #      ('task displacement' credited to Bresnahan), and no span check can see it, because the
         #      span check asks "is this text in the paper?" and never "is this finding the paper's OWN?"
         #      MEASURED: 5 such cards, 6 figures that would print under the wrong paper's name.
+        #      NOTE ON GENERALITY: `Name (Year)` is the citation form of THIS corpus's discipline;
+        #      other literatures attribute WITHOUT a parenthetical year -- "Brown demonstrated that the
+        #      drug reduced mortality" is Brown reporting a result, and the year-in-parens patterns below
+        #      never see it. A NAMED SUBJECT governing a REPORTING VERB + `that` is the discipline-neutral
+        #      shape of a second-hand attribution, so it is matched here too. (A LIST MAY ONLY REJECT:
+        #      a hit routes the span OUT of first-hand attribution, the fail-closed direction -- the
+        #      fatal sin is printing another study's finding under this paper's name, never the reverse.)
         secondhand_cues=[
             r'\b[A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+)?\s*\(\s*(?:19|20)\d\d\s*\)',
             r'\bet al\.\s*\(\s*(?:19|20)\d\d', r'\bcommission\s*\(\s*(?:19|20)\d\d',
+            r'\b[A-Z][a-z]+(?:\s+(?:and|&)\s+[A-Z][a-z]+|\s+et al\.?)?\s+'
+            r'(?:demonstrated|demonstrates|showed|shows|shown|found|finds|reported|reports|'
+            r'argued|argues|documented|documents|observed|observes|noted|notes|concluded|'
+            r'concludes|suggested|suggests|claimed|claims|established|establishes|revealed|'
+            r'reveals|proved|proves|proven)\s+that\b',
             r'\btheir (?:results|findings|study|analysis|paper|estimates|data)\b',
             r'\baccording to\b', r'\bhas predicted\b', r'\bhave (?:shown|found|argued|documented)\b',
             r'\b(?:studies|scholars|researchers|authors|others) (?:have )?(?:show|find|argue|suggest)',
@@ -274,9 +286,18 @@ def default_contract() -> ResearchContract:
         #      SUBJECT MATTER of Prediction Machines, not forecasts. The noun sense is the whole framework
         #      and an outline subsection is named after it. Only the ATTRIBUTIVE, forward-looking forms
         #      count; `project` and `prediction` as nouns are technical vocabulary and are left alone.
+        #      NOTE ON GENERALITY: the FORWARD-LOOKING copula takes more auxiliaries than 'predicted/
+        #      expected/projected/forecast'. 'is anticipated to reduce mortality' and 'is poised to
+        #      improve survival' are projections with nothing measured, yet the first draft's list saw
+        #      neither. The modal-of-expectation set (anticipated|poised|slated|set|likely|on track|
+        #      about|going) closes that hole. Kept SOFT: a projection is still citable AS a projection,
+        #      barred only from comparisons -- barring it from the prose starves the corpus.
         forecast_cues=[r'\bwill\b', r'\bis going to\b', r'\bby 20[3-9]\d\b',
-                       r'\b(?:is|are|was|were|has been|have been) (?:predicted|expected|projected|'
-                       r'forecast) to\b', r'\b(?:predicts|predicted|forecasts|projects) that\b',
+                       r'\b(?:is|are|was|were|has been|have been|being|be) (?:predicted|expected|'
+                       r'projected|forecast|anticipated|poised|slated|set|likely|on track|about|going) '
+                       r'to\b',
+                       r'\b(?:anticipated|poised|slated|expected|projected|forecast) to\b',
+                       r'\b(?:predicts|predicted|forecasts|projects|anticipates|anticipated) that\b',
                        r'\bhas predicted\b', r'\bexpected to\b'],
         # ---- WHICH SUBSECTIONS ADJUDICATE, AND ON WHAT. Keyed on the vocabulary of ARGUMENT (disagree,
         #      establish, resolve, gap), which belongs to no particular research question.

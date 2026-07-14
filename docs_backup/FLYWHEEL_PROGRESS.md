@@ -804,3 +804,23 @@ node byte-identical-to-whole-span, rendered neutrally. NOT verified by adversary
 HONEST: reaching 266/266 + the six controls is a substantial build, likely beyond the remaining hours to
 FULLY close. The battery is now the durable acceptance gate; progress will be reported as N/266 + which
 invariants hold, never as a claim. Release burned, fetch fenced, 0 blobs.
+
+## REAL FINDING (I first MISDIAGNOSED it — correcting): the JUDGE is too lenient, not a deterministic hole
+
+I first reported 'deterministic admit still fires, builder lied.' WRONG -- I ran set_entailment_judge(None)
+thinking it meant judge-down; it means USE THE REAL LLM JUDGE. Decisive re-test (judge forced
+NOT_ENTAILED -> A03/A12 REJECT; judge forced ENTAILED -> ADMIT) proves the finding lane correctly routes
+EVERYTHING to the judge with no deterministic admit. The builder's report_ast rebuild is structurally
+sound on this point.
+
+THE ACTUAL HOLE: the real GLM-5.2 entailment judge is LENIENT on facet-dropping:
+  A03 'wages rose' from 'wages rose in treated firms BUT FELL IN CONTROLS' -> judge says ENTAILED (drops
+      the contrast) -> SHIPS a lie.
+  A12 'output was 8% higher' from 'output was 8% higher THAN PLACEBO' -> ENTAILED (drops comparator).
+Architecture sound; JUDGE RUBRIC insufficient. Sol battery invariant 3 demands every facet preserved
+(speech-act/polarity/direction/modality/scope/comparator/qty/unit/population/method/time/condition/attr).
+FIX = the JUDGE PROMPT must reject if the claim drops ANY scope/comparator/contrast/condition the span
+carries. Targeted (judge rubric), not a rebuild. Sol's design domain.
+
+LESSON (both ways): distrust the builder AND verify my own test before accusing -- I nearly reported a
+false 'builder lied' to the operator. The forced-stub test separated architecture-hole from judge-leniency.
