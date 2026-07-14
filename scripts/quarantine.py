@@ -277,6 +277,34 @@ def main() -> int:
     else:
         print('\n--- 5. CORROBORATING SOURCES: none present in this bundle (0 cards carry any) ---')
 
+    # ---- THE CARD ID MUST NAME EXACTLY ONE CARD -------------------------------------------------
+    #      The miner ids a card `{doi}:{span_start}-{span_end}`. That is the BINDING, and it is right
+    #      that it is the binding — but it is not UNIQUE: two findings mined from ONE span (a different
+    #      act, a different outcome) collide. Measured on the first real bundle: 13 of 52 cards shared
+    #      an id with another card. A consumer keyed on id silently kept the last one and dropped the
+    #      rest — no error, no check failed, a quarter of the evidence simply gone. And a sentence
+    #      citing a collided id names no determinate finding.
+    #
+    #      Disambiguated HERE, deterministically, at the one place the shipping bundle is minted, and
+    #      the id keeps its binding as a prefix so it still reads as what it is.
+    seen: dict[str, int] = {}
+    n_disambiguated = 0
+    for c in sorted(retained, key=lambda x: (x['id'], x.get('act', ''), x.get('claim', ''))):
+        base = c['id']
+        k = seen.get(base, 0)
+        seen[base] = k + 1
+        if k:
+            c['id'] = f'{base}#{k}'
+            c['id_disambiguated_from'] = base
+            n_disambiguated += 1
+    ids = [c['id'] for c in retained]
+    assert len(ids) == len(set(ids)), 'card ids are STILL not unique — the bundle would drop evidence'
+    if n_disambiguated:
+        print(f'\n--- CARD IDS: {n_disambiguated} collision(s) disambiguated ---')
+        print(f'  the miner ids on the span, and two findings can share one span. Without this, a '
+              f'consumer\n  keyed on id would have silently dropped {n_disambiguated} of '
+              f'{len(retained)} retained cards.')
+
     # ---- 6. EVIDENCE-UNIT FAMILIES --------------------------------------------------------------
     #      Two expressions of ONE study are ONE evidence unit. They may not corroborate each other, and
     #      counting them twice inflates both "corroborated" and "literature depth". The family is keyed

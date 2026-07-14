@@ -205,11 +205,30 @@ class CardBundle:
         self.cards_sha = cards_sha
         self.graph_sha = graph_sha
         self.ledger_sha = ledger_sha
+        # A DUPLICATE CARD ID IS A REFUSAL, NOT AN OVERWRITE.
+        #
+        # This dict used to be filled with `self.cards[cid] = c`, and the miner's id is
+        # `{doi}:{span_start}-{span_end}` — so TWO FINDINGS MINED FROM ONE SPAN COLLIDE. On the first
+        # real bundle, 13 of 52 cards were silently overwritten: the composer printed "52 cards, 0
+        # refused" and had 39. The evidence did not fail a check. IT LEFT WITHOUT ONE, which is the
+        # quieter half of every defect in this file's header. And a sentence citing a colliding id
+        # names an AMBIGUOUS card: same span, different claim, different act, different table row.
         self.cards: dict[str, dict] = {}
+        dupes: dict[str, int] = {}
         for c in cards:
             cid = c.get('id')
-            if cid:
-                self.cards[cid] = c
+            if not cid:
+                raise ValueError('a card with no `id` cannot be cited by a sentence, and is REFUSED')
+            if cid in self.cards:
+                dupes[cid] = dupes.get(cid, 1) + 1
+                continue
+            self.cards[cid] = c
+        if dupes:
+            n = sum(dupes.values()) - len(dupes)
+            raise ValueError(
+                f'{len(dupes)} DUPLICATE CARD ID(S) ({n} cards would be silently dropped) — a bundle '
+                f'whose ids are ambiguous is not a bundle, and a sentence citing one of them names no '
+                f'determinate evidence. Offenders: {sorted(dupes)[:3]}')
         self._cache: dict[str, Resolution] = {}
         # Every surname and venue the bundle knows. Used ONLY NEGATIVELY — to refuse a source name in
         # a lane that is not allowed to have one. We never infer WHICH source from a surname again.
@@ -333,12 +352,25 @@ _TRAIL_FORMS = (
 _JOURNAL_KINDS = ('journal_version', 'proceedings_version')
 
 
+#: Venue names that take a definite article ("in the American Economic Review") as against those that do
+#: not ("in PLOS ONE", "in Technovation", "in AI and Ethics"). Getting this wrong is not cosmetic: the
+#: released artifact said "in the AI and Ethics in 2022", and a reviewer who writes that has not read
+#: the journal. The rule is the head noun, not a hand-list of titles.
+_TAKES_THE = re.compile(r'\b(journal|review|quarterly|proceedings|annals|bulletin|letters|transactions'
+                        r'|magazine|gazette|record|reporter)\b', re.I)
+
+
 def _venue_the(venue: str) -> str:
-    """'the Journal of Political Economy' / 'The Quarterly Journal of Economics' — never 'the The'."""
+    """'the Journal of Political Economy', 'The Quarterly Journal of Economics', 'PLOS ONE'.
+
+    Never 'the The' (the venue already carries its article) and never 'the AI and Ethics'.
+    """
     v = (venue or '').strip()
     if not v:
         return ''
-    return v if v.lower().startswith('the ') else f'the {v}'
+    if v.lower().startswith('the '):
+        return v
+    return f'the {v}' if _TAKES_THE.search(v) else v
 
 
 def _who(work: P.Work) -> str:
@@ -450,6 +482,31 @@ class Failure:
         return f'[{self.node_index}] {self.kind}: {self.reason}{d}'
 
 
+#: A sentence boundary: a terminator, whitespace, then a capital. Abbreviations ("et al.", "e.g.") and
+#: initials are not boundaries — the old splitter amputated every attributed sentence at "et al." and
+#: filled the report with stumps.
+_ABBREV = re.compile(r'\b(et al|e\.g|i\.e|cf|vs|Dr|Prof|Mr|Mrs|Ms|St|Fig|No|pp|vol|ed|eds|approx|ca)\.$',
+                     re.I)
+_INITIAL = re.compile(r'\b[A-Z]\.$')
+
+
+def split_sentences(text: str) -> list[str]:
+    out, buf = [], ''
+    for chunk in re.split(r'(?<=[.!?])(\s+)', text or ''):
+        buf += chunk
+        if not chunk.strip():
+            continue
+        head = buf.strip()
+        if _ABBREV.search(head) or _INITIAL.search(head):
+            continue
+        if re.search(r'[.!?]$', head):
+            out.append(head)
+            buf = ''
+    if buf.strip():
+        out.append(buf.strip())
+    return [x for x in out if x]
+
+
 def _common(text: str) -> str:
     """Refusals that apply in EVERY lane, in EVERY node, including the abstract."""
     if not (text or '').strip():
@@ -460,6 +517,16 @@ def _common(text: str) -> str:
         return 'PARENTHETICAL_YEAR'       # deleted by the cleaner; the year must be prose
     if BANNED_META.search(text):
         return 'META_COMMENTARY'
+    # ---- ONE NODE, ONE SENTENCE. THE LAW IS PER-SENTENCE, SO THE TYPE MUST BE PER-SENTENCE.
+    #
+    # The publisher caught this on the first real release, and refused it. A node holding TWO sentences
+    # gets ONE sentence_hash — the hash of the blob — so the sidecar has no receipt for either sentence
+    # as it appears in the file, and `verify_release()` finds prose in the judged artifact that resolves
+    # to NOTHING. The receipt has to be per-sentence because THE JUDGE READS SENTENCES.
+    #
+    # (The offender was my own hand-written Methods paragraph. The law caught its author again.)
+    if len(split_sentences(text)) > 1:
+        return 'NODE_HOLDS_MORE_THAN_ONE_SENTENCE'
     return ''
 
 

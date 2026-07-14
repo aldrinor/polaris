@@ -296,7 +296,15 @@ clean = rep.read_text()
 TAMPER_FROM = 'correspondingly limited in its scope.'
 TAMPER_TO = 'correspondingly limited in its scope, and 47 percent of all jobs are at risk.'
 assert TAMPER_FROM in clean, 'the tamper fixture does not match the rendered file — it would be a no-op'
-with publisher._gate():                       # only the publisher can even STAGE this attack
+
+# A RELEASED FILE IS 0444 AND CANNOT BE REWRITTEN IN PLACE — not even by the publisher, which is why
+# the first version of this attack died with EPERM on its own `write_text`. So the attacker must do what
+# an attacker would actually have to do: unlink the released file and put a different one in its place.
+# The sidecar does not care how the bytes changed. It cares that they no longer resolve.
+check('a released file cannot be rewritten IN PLACE (it is 0444)',
+      not (rep.stat().st_mode & 0o222), f'mode is {stat.filemode(rep.stat().st_mode)}')
+with publisher._gate():
+    rep.unlink()
     rep.write_text(clean.replace(TAMPER_FROM, TAMPER_TO))
 
 

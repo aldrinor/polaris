@@ -47,7 +47,7 @@ import provenance as P                                                          
 import publisher                                                                # noqa: E402
 from report_ast import (Attributed, Clause, Owned, Heading, ParagraphBreak,     # noqa: E402
                         EvidenceTable, CardBundle, CONNECTIVES, validate_report,
-                        entailed_by_span, numbers_in)
+                        entailed_by_span, numbers_in, split_sentences)
 from synthesis_contract import validate, Premise, Synthesis, OPERATIONS         # noqa: E402
 
 DRAFTS = ROOT / 'outputs' / 'drafts'
@@ -133,7 +133,11 @@ def reverify(b: CardBundle) -> list[str]:
     itself.
     """
     ok, bad = [], []
-    for cid in b.cards:
+    # ITERATE A SNAPSHOT. The loop body ADDS corroborating cards to `b.cards`, and iterating a dict
+    # while inserting into it is a RuntimeError. It does not fire today only because no card in this
+    # bundle carries a corroborating source — i.e. the crash is waiting for the first one that does,
+    # which is precisely the code path we least want to discover in production.
+    for cid in list(b.cards):
         r = b.resolve(cid)
         (ok if r.ok else bad).append(cid if r.ok else f'{cid}: {r.refusal}')
         # A CORROBORATING SOURCE IS A CITATION. It gets the same chain, independently — it is exactly as
@@ -286,7 +290,13 @@ def _nodes_from(raw, b: CardBundle, allowed: set[str]) -> tuple[list, list[str]]
             pids = tuple(p for p in (item.get('premise_ids') or []) if p in allowed)
             if not txt:
                 continue
-            nodes.append(Owned(text=txt, premise_ids=pids))
+            # ONE NODE, ONE SENTENCE. A model that packs three sentences into one OWNED object is not
+            # granted one licence for three claims: each sentence becomes its own node, over the SAME
+            # premises, and each must pass the owned lane ALONE. This is strictly stricter than gating
+            # the blob — it is not a repair, it is the law applied at the granularity the law is
+            # written at, and it is what makes a per-sentence receipt possible.
+            for s in split_sentences(txt):
+                nodes.append(Owned(text=s, premise_ids=pids))
         else:
             dropped.append(f'unknown voice {voice!r}')
     return nodes, dropped
@@ -359,14 +369,19 @@ def abstract_nodes(b: CardBundle) -> list:
                    'general-purpose technology of the Fourth Industrial Revolution, is restructuring '
                    'work across industries.'),
         ParagraphBreak(),
+        # The first draft of THIS sentence said "...whose full text was retrieved and verified", and the
+        # gate deleted it as META_COMMENTARY. It was right to: "retrieved" is a fact about a pipeline,
+        # and a literature review has no pipeline. Then the PUBLISHER refused the next draft, because
+        # it packed two sentences into one node and the sidecar could not issue a receipt for either.
+        # The law caught its own author twice, in the one lane that used to have no gate at all.
         Owned(text='**Methods.** The review draws exclusively on peer-reviewed, English-language '
-                   'journal articles whose full text was retrieved and verified against the published '
-                   'version of record; every finding reported below is bound to a verbatim passage of '
-                   'the article it is credited to.'),
+                   'journal articles.'),
+        Owned(text='Every finding below is taken from a verbatim passage of the article it is credited '
+                   'to, and no finding is stated that its cited article does not itself state.'),
         ParagraphBreak(),
         Owned(text='**Scope.** Where only a working-paper or preprint version of a study could be '
                    'obtained, that study is excluded from the findings rather than cited as though the '
-                   'journal article had been read.'),
+                   'journal article of record had been read.'),
         ParagraphBreak(),
     ]
 
@@ -376,14 +391,15 @@ def methods_nodes(b: CardBundle) -> list:
     n_units = len({b.resolve(c).work_id for c in b.admitted_ids()})
     return [
         Heading(2, 'Scope, Methods, and Source Selection'),
-        Owned(text='**Source policy.** Only articles published in peer-reviewed journals are cited. '
-                   'Working papers, preprints, accepted manuscripts, landing pages and abstracts are '
+        Owned(text='**Source policy.** Only articles published in peer-reviewed journals are cited.'),
+        Owned(text='Working papers, preprints, accepted manuscripts, landing pages and abstracts are '
                    'excluded from the evidence base, and are retained only as leads to a published '
-                   'version.'),
+                   'version of record.'),
         ParagraphBreak(),
         Owned(text=f'**Evidence base.** The findings below rest on {_spell(n_cards)} verified passages '
-                   f'drawn from {_spell(n_units)} peer-reviewed studies. A passage is admitted only '
-                   f'where the article\'s own text states the finding attributed to it.'),
+                   f'drawn from {_spell(n_units)} peer-reviewed studies.'),
+        Owned(text='A passage is admitted only where the article\'s own text states the finding '
+                   'attributed to it.'),
         ParagraphBreak(),
     ]
 
@@ -535,9 +551,9 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
     print('\n' + '=' * 90)
     print('PUBLISHED — by the publisher, atomically, into a directory this process cannot write to')
     print('=' * 90)
-    for k in ('report', 'sidecar', 'report_sha256', 'n_sentences', 'n_attributed', 'n_owned',
-              'n_table_rows', 'n_cards_cited', 'n_works_cited'):
-        print(f'  {k:16}: {meta[k]}')
+    for k in ('report', 'sidecar', 'report_sha256', 'n_sentences', 'n_attributed_sentences',
+              'n_clause_bindings', 'n_owned', 'n_table_rows', 'n_cards_cited', 'n_works_cited'):
+        print(f'  {k:24}: {meta[k]}')
     return 0
 
 

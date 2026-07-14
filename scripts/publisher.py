@@ -118,6 +118,9 @@ def _atomic_write(name: str, data: str) -> Path:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
+        # `mkstemp` creates 0600. A JUDGED ARTIFACT THAT THE JUDGE CANNOT READ IS NOT A RELEASE — and a
+        # released file that its own author can still rewrite in place is not a release either. 0444.
+        os.chmod(tmp, 0o444)
         os.replace(tmp, dst)
     except BaseException:
         with contextlib.suppress(FileNotFoundError):
@@ -190,13 +193,22 @@ def publish(nodes: list[A.Node], bundle: A.CardBundle, *, name: str = 'report.md
                     f'THE RELEASED FILE WOULD CONTAIN A SENTENCE NO NODE PRODUCED: {s[:90]!r}')
 
     # ---- 4. the release is PINNED to the exact inputs that produced it.
+    #
+    # COUNT SENTENCES AS SENTENCES. The first version of this block reported
+    # `n_attributed = len([e for e in sidecar if voice == 'ATTRIBUTED'])` = 153, and the file held 94
+    # attributed sentences: the sidecar carries ONE ENTRY PER CLAUSE, and a cross-source sentence has
+    # two. So the release announced 153 sentences it did not contain. That is a small number and it was
+    # inflated by 63%, in the metrics of the very artifact whose subject is inflated numbers. The counts
+    # below are now named for what they COUNT.
+    att = [e for e in sidecar if e['voice'] == 'ATTRIBUTED']
     meta = dict(
         policy=bundle.policy.name,
         cards_sha256=bundle.cards_sha,
         graph_sha256=bundle.graph_sha,
         ledger_sha256=bundle.ledger_sha,
-        n_sentences=len(sidecar),
-        n_attributed=sum(1 for e in sidecar if e['voice'] == 'ATTRIBUTED'),
+        n_sentences=len({e['sentence_hash'] for e in sidecar}),
+        n_attributed_sentences=len({e['sentence_hash'] for e in att}),
+        n_clause_bindings=len(att),          # a cross-source sentence binds more than once
         n_owned=sum(1 for e in sidecar if e['voice'] == 'OWNED'),
         n_table_rows=sum(1 for e in sidecar if e['voice'] == 'TABLE'),
         n_cards_cited=len({e['card_id'] for e in sidecar if e.get('card_id')}),
