@@ -687,3 +687,23 @@ STRUCTURAL FINDINGS (these are the real value):
 
 NEXT (cheapest high-value move): RE-RUN THE FETCH properly, prioritising the 2,571 offline-OA-URL
 candidates (zero network). And extend _PREPRINT_STAMP. The real 10->? number is still unknown.
+
+## CANARY IS RED (2 FALSE POSITIVES) — the builder said GREEN. I ran it.
+
+8-burn behaviour VERIFIED CORRECT by me (not the builder): 3 oblique attacks reject, 2 framing controls
+ship, Goldman Sachs rejects. BUT the canary has 2 FAILURES, opposite of a hole -- FALSE POSITIVES:
+  FAIL: 'a TRUE finding, present in its own span, REACHES THE PAGE'
+  FAIL: 'CROSS-SOURCE SYNTHESIS survives the gate (w=0.0800)'
+
+CAUSE: the new entailment judge FAILS CLOSED, and the test env has NO judge stub -> the judge is
+unreachable -> it rejects LEGITIMATE entailed findings, not just fabrications. This is the TURN-1 failure
+(the gate that deleted 163 real sentences) resurfacing. Fail-closed is right for safety, but if the judge
+is unreachable during a real compose it DELETES THE WHOLE REPORT -- output-dead, not fabrication-safe.
+
+REQUIRED FIX: deterministic pre-filter must ADMIT a clause it can PROVE entailed (exact span containment +
+number/unit/direction all present) WITHOUT the judge, so a plainly-true finding is not gated on model
+availability. Fail-closed applies ONLY to the genuine semantic residue. That is exactly Sol's spec:
+deterministic where it can be, judge for the residue, fail-closed on the residue only.
+
+STATE: 8/8 burns behaviourally closed; canary RED on 2 false positives (the fail-closed pre-filter gap);
+P0 hops 5&7 still open. NOT for Sol re-review yet. Release burned+empty+0555, fetch fenced, 0 blobs.
