@@ -770,3 +770,37 @@ facets need {value, exact span, verdict}; premise-free cohesion nodes may expres
 
 This supersedes the zero-drop wheel (killed). It is a substantial multi-file rebuild of the validator's
 ADMIT logic, not a patch. Release burned, fetch fenced, 0 blobs.
+
+## SOL ACCEPTANCE BATTERY V12 — the exhaustive fabrication-safety gate (65KB, 266 vectors)
+
+Forced Sol to stop toothpaste and deliver EVERYTHING in one pass. He did:
+  * 266 concrete vectors across classes A-Q, each REJECT case + legitimate positive control
+  * METAMORPHIC/GENERATIVE PROPERTIES over arbitrary predicates/actors/facets/surfaces/render-transforms
+    -- 'passing the examples without passing the properties is a failure.' This is the anti-overfit gate:
+    it tests PROPERTIES ('dropping any scope modifier rejects'), not a word list a synonym defeats.
+  * 7 fabrication FAMILIES nobody had touched: provenance laundering, hidden propositions, epistemic
+    upgrades, calculations, multi-source claims, normalization attacks, POST-VALIDATION MUTATION.
+
+VERDICT: 'the V11 two-lane + positive-proof architecture is NECESSARY BUT NOT SUFFICIENT ALONE.'
+The 8-point invariant checklist for 'done':
+  1 every reader-visible surface parsed into typed nodes
+  2 every proposition in every non-quotation node has an evidence/calculation proof
+  3 every facet preserved (speech-act,polarity,direction,modality,scope,comparator,qty,unit,population,
+    method,time,condition,attribution)
+  4 every RELATION has its OWN proof (endpoints != edge)
+  5 quotation = deterministic span equality; renderer can't turn a quote into an assertion
+  6 owned prose STRUCTURE-ONLY
+  7 unknown/missing/malformed/stale/judge-down -> REJECT
+  8 validation binds the EXACT FINAL RENDERED BYTES -- nothing mutates after the gate
+
+SIX CONTROLS NEEDED BEYOND THE 4 V11 MODULE CHANGES: total surface parser, immutable span/source
+identities, open-class proposition atomization, typed calculation lane, final-render revalidation,
+fail-closed publisher interlock (publisher.py/cellcog_composer.py).
+
+report_ast.py V11 rebuild LANDED (uncommitted, builder's word only): removed the unsound
+contiguous_window_admit; finding lane has NO deterministic admit (judge or fail-closed); new Quotation
+node byte-identical-to-whole-span, rendered neutrally. NOT verified by adversary yet, NOT counted done.
+
+HONEST: reaching 266/266 + the six controls is a substantial build, likely beyond the remaining hours to
+FULLY close. The battery is now the durable acceptance gate; progress will be reported as N/266 + which
+invariants hold, never as a claim. Release burned, fetch fenced, 0 blobs.

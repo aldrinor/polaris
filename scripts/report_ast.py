@@ -115,6 +115,23 @@ class Attributed:
 
 
 @dataclass(frozen=True)
+class Quotation:
+    """THE QUOTATION LANE (SOL V11 §1a). The ONLY deterministic ADMIT in this file.
+
+    The payload MUST be BYTE-IDENTICAL to the WHOLE bound evidence unit — case, punctuation, signs,
+    quote characters and internal whitespace ALL preserved, with NO normalization, because case and
+    punctuation are semantic (gene symbols, math, question marks). It is rendered NEUTRALLY —
+    `<Author> writes: "<exact bytes>"` — and NEVER as show/find/establish/'the study found'. Its ONLY
+    guarantee is that THESE BYTES OCCUR IN THIS SOURCE; it makes no claim that the source FOUND or
+    ESTABLISHED anything, so a quoted HYPOTHESIS or QUESTION is reproduced faithfully AS a quotation and
+    is never upgraded into a finding. A payload that is a window, a paraphrase, or a normalized form of
+    the span is NOT a quotation: it must go through the finding lane and the judge.
+    """
+    card_id: str
+    text: str
+
+
+@dataclass(frozen=True)
 class Owned:
     """The reviewer's voice. MAY BE NON-ENTAILED — that is what insight IS.
 
@@ -155,7 +172,7 @@ class EvidenceTable:
                     'a figure stated by the cited paper itself, verified against that paper\'s own bytes.')
 
 
-Node = Attributed | Owned | Heading | ParagraphBreak | EvidenceTable
+Node = Attributed | Quotation | Owned | Heading | ParagraphBreak | EvidenceTable
 
 
 # =================================================================================================
@@ -850,10 +867,18 @@ def _owned_frame_empirical(sentence: str) -> str:
     """PART 2 OF THE FIREWALL. A premise-free OWNED sentence that asserts a first-order empirical finding
     is REJECTED; a legitimate frame/transition SHIPS. Returns a refusal reason, or ''.
 
-    Gate: only a sentence carrying a directional/empirical verb is a candidate — a frame with none ships
-    for free. On a candidate, the constrained judge classifies EMPIRICAL vs FRAMING and FAILS CLOSED to
-    REJECT on UNCERTAIN (or an unreachable judge)."""
-    if not _EMPIRICAL_VERB.search(sentence or ''):
+    SOL V11 — THE ANTI-OVERFIT LAW. The old gate was `if not _EMPIRICAL_VERB.search(...): return ''` —
+    i.e. a sentence with no LISTED verb was WAVED THROUGH without ever seeing the judge. That is a
+    FAIL-OPEN word list: every unlisted verb is a hole. Sol admitted 'The treatment eradicated disease.'
+    and 'The Cambridge cohort uncovered that the treatment cured disease.' precisely because 'eradicate',
+    'cure' and 'uncover' are not in the lexicon, so the judge was NEVER CALLED and the finding shipped.
+
+    A LIST MAY ONLY REJECT. Absence of a listed verb is UNKNOWN, not proof-of-framing. So the judge is
+    now consulted UNCONDITIONALLY on every premise-free owned sentence, and only a positive FRAMING
+    verdict admits. EMPIRICAL, UNCERTAIN, an unparseable reply and an unreachable judge ALL FAIL CLOSED
+    to REJECT. `_EMPIRICAL_VERB` survives only to name the offending token in the refusal message; it no
+    longer decides whether the judge runs."""
+    if not (sentence or '').strip():
         return ''
     key = ('owned_frame', re.sub(r'\s+', ' ', (sentence or '').strip()))
     if key in _JUDGE_CACHE:
@@ -869,8 +894,105 @@ def _owned_frame_empirical(sentence: str) -> str:
     if verdict == _OWNED_FRAMING:
         return ''
     m = _EMPIRICAL_VERB.search(sentence or '')
-    return (f'OWNED_ASSERTS_UNLICENSED_FINDING:{m.group(0)!r} — a premise-free owned sentence made a '
-            f'first-order empirical claim ({verdict}); a finding is licensed only by a span')
+    tok = f':{m.group(0)!r}' if m else ''
+    return (f'OWNED_ASSERTS_UNLICENSED_FINDING{tok} — a premise-free owned sentence is not classified as '
+            f'reviewer framing ({verdict}); a finding is licensed only by a span, and a list may only '
+            f'reject — absence of a listed verb is UNKNOWN, so this routed to the judge and failed closed')
+
+
+# =================================================================================================
+# THE HEADING JUDGE (SOL V11 §2 — the heading validator).
+#
+# A heading was admitted by a stack of REJECT-ONLY lists (no digit, no spelled quantity, no source, no
+# forecast) and NOTHING ELSE — so any propositional assertion the lists did not enumerate SHIPPED as a
+# section title. Sol admitted the heading 'Daily aspirin eradicates disease': it carries no number, no
+# corpus source and no forecast word, so every list missed it, and a heading with a finite verb asserting
+# a first-order finding reached the page as a label.
+#
+# THE LAW: a heading must be a STRUCTURALLY-GENERATED label (the pipeline built it, not the model — such
+# a node would carry provenance) OR be SEMANTICALLY CLASSIFIED as a NON-PROPOSITIONAL noun phrase. Absence
+# of a list hit is UNKNOWN, so a heading that clears the cheap reject-only lists routes to this judge and
+# FAILS CLOSED: only a LABEL verdict admits; PROPOSITION, UNCERTAIN and an unreachable judge REJECT.
+# =================================================================================================
+_HEADING_LABEL = 'LABEL'
+_HEADING_PROPOSITION = 'PROPOSITION'
+_HEADING_JUDGE = None  # type: ignore[var-annotated]
+
+
+def set_heading_judge(fn) -> None:
+    """Wire a classifier(heading) -> (verdict, why) where verdict is LABEL | PROPOSITION | UNCERTAIN.
+    Tests inject a deterministic stub; production uses the model. Clears the shared judge cache."""
+    global _HEADING_JUDGE
+    _HEADING_JUDGE = fn
+    _JUDGE_CACHE.clear()
+
+
+def _canon_heading_verdict(v) -> str:
+    s = str(v or '').strip().upper()
+    if s in ('LABEL', 'NOUN_PHRASE', 'NOUN PHRASE', 'TITLE', 'NON_PROPOSITIONAL', 'NONPROPOSITIONAL',
+             'SECTION_LABEL', 'HEADING'):
+        return _HEADING_LABEL
+    if s in ('PROPOSITION', 'PROPOSITIONAL', 'ASSERTION', 'CLAIM', 'FINDING', 'SENTENCE', 'STATEMENT'):
+        return _HEADING_PROPOSITION
+    return _UNCERTAIN
+
+
+def _llm_heading_judge(heading: str) -> tuple[str, str]:
+    """Constrained model call: is this heading a non-propositional section LABEL, or a PROPOSITION that
+    asserts a finding? Any failure -> UNCERTAIN (fail closed -> REJECT)."""
+    prompt = (
+        'You are a STRICT editor for a scientific literature review. A section HEADING must be a LABEL — '
+        'a non-propositional noun phrase that names a section ("Employment effects", "Methods", "Evidence '
+        'for displacement at the occupational level"). It may NOT be a PROPOSITION — a full sentence or '
+        'clause that ASSERTS a finding or claim about the world ("Daily aspirin eradicates disease", '
+        '"Automation reduces employment"), because a finding must come from a cited source, not a title.\n'
+        'Classify the HEADING:\n'
+        '  - LABEL: a noun phrase / section title that asserts nothing (no subject-predicate claim).\n'
+        '  - PROPOSITION: it asserts a first-order finding or claim (it has a subject and a predicate that '
+        'states something is/does the case).\n'
+        'If you genuinely cannot tell, answer UNCERTAIN. Do not be generous.\n'
+        'Reply with ONLY a JSON object: {"verdict":"LABEL"|"PROPOSITION"|"UNCERTAIN","why":"<brief>"}.\n\n'
+        f'HEADING:\n{heading}\n')
+    try:
+        import json as _json
+        from cellcog_composer import llm  # lazy: composer owns the model client
+        raw = llm(prompt, max_tokens=200)
+        m = re.search(r'\{.*\}', raw or '', re.S)
+        obj = _json.loads(m.group(0)) if m else {}
+        return _canon_heading_verdict(obj.get('verdict')), str(obj.get('why', ''))[:160]
+    except Exception as e:  # noqa: BLE001 — any failure FAILS CLOSED
+        return _UNCERTAIN, f'heading judge unavailable (fail closed): {type(e).__name__}'
+
+
+def _heading_is_proposition(heading: str) -> str:
+    """A heading that clears the reject-only lists must still be a NON-PROPOSITIONAL label. Routes to the
+    heading judge and FAILS CLOSED: returns a refusal for PROPOSITION / UNCERTAIN / unreachable, '' only
+    on a positive LABEL verdict.
+
+    ONE SOUND STRUCTURAL ADMIT (a positive proof, not a fail-open list): a heading with fewer than two
+    word tokens CANNOT be a proposition — a subject-predicate assertion needs at least a subject and a
+    predicate, so a single token ('Methods', 'Introduction', 'T') asserts no finding. Two or more tokens
+    is UNKNOWN and routes to the judge, fail-closed."""
+    if not (heading or '').strip():
+        return ''
+    if len(re.findall(r"[A-Za-z][A-Za-z.'’\-]*", heading or '')) < 2:
+        return ''
+    key = ('heading', re.sub(r'\s+', ' ', (heading or '').strip()))
+    if key in _JUDGE_CACHE:
+        verdict, why = _JUDGE_CACHE[key]
+    else:
+        fn = _HEADING_JUDGE or _llm_heading_judge
+        try:
+            v, why = fn(heading)
+        except Exception as e:  # noqa: BLE001
+            v, why = _UNCERTAIN, f'heading judge raised (fail closed): {type(e).__name__}'
+        verdict, why = _canon_heading_verdict(v), str(why or '')[:160]
+        _JUDGE_CACHE[key] = (verdict, why)
+    if verdict == _HEADING_LABEL:
+        return ''
+    return (f'HEADING_IS_A_PROPOSITION ({verdict}) — a heading must be a non-propositional section label, '
+            f'not an assertion of a finding; a list may only reject, so this routed to the judge and '
+            f'failed closed ({why})')
 
 
 def _modality_residue(ctext: str, src: str) -> str:
@@ -1030,16 +1152,16 @@ def entailed_by_span(text: str, span: str, work: P.Work | None = None,
     if words and len(words & src_words) / len(words) < min_overlap:
         return False, 'CONTENT_NOT_IN_SPAN'
 
-    # ============ THE ONE SOUND DETERMINISTIC ADMIT — a contiguous window of ONE source clause =========
-    # This is the ONLY place the deterministic layer concludes ADMIT, and it is truth-preserving: a
-    # contiguous window of one clause that sheds no edge qualifier cannot flip meaning by deletion (see
-    # `contiguous_window_admit`). It lets a verbatim NON-numeric finding reach the page even when the
-    # judge is unreachable, so a real compose is not emptied by a blip. A clause carrying a FIGURE is
-    # excluded — numbers stay on the judge and are held when it is down (the fail-closed guarantee for
-    # sign/magnitude is not traded away). Everything else falls through to the judge below.
-    if not re.search(r'\d', ctext) and not _SPELLED_UNIT.search(ctext) \
-            and contiguous_window_admit(text, span):
-        return True, ''
+    # ============ NO DETERMINISTIC ADMIT IN THE FINDING LANE (SOL V11) ================================
+    # The old `contiguous_window_admit` concluded ADMIT for a contiguous word-window of ONE source clause.
+    # SOL V11 — THE ANTI-OVERFIT LAW: clause-boundary detection may ONLY reject or route, NEVER authorize
+    # admission. A window is still rendered as a FINDING ('<Author> show that ...'), and even a
+    # BYTE-IDENTICAL run of a span may be a HYPOTHESIS, a QUESTION, or someone else's claim — the speech
+    # act is dropped the moment a window is upgraded into a finding. So the finding lane has NO
+    # deterministic admit: the ONLY thing that says ENTAILED is the judge, and NOT_ENTAILED, UNCERTAIN and
+    # an unreachable judge all fail closed. The single structural ADMIT in the whole file now lives in the
+    # QUOTATION lane (a `Quotation` node: payload byte-identical to the WHOLE evidence unit, rendered
+    # NEUTRALLY as '<Author> writes: "..."', whose only guarantee is 'these bytes occur in this source').
 
     # ============ THE JUDGE — WHOLE CLAUSE vs WHOLE SPAN, EVERY TIME. ONLY 'ENTAILED' ADMITS. ==========
     verdict, why = _semantic_judge(text, span)
@@ -1347,6 +1469,13 @@ def validate_heading(i: int, n: Heading, b: CardBundle) -> list[Failure]:
     m = FORECAST.search(t)
     if m:
         return [Failure(i, 'Heading', 'HEADING_FORECASTS', m.group(0))]
+    # SOL V11: the cheap lists above may only REJECT. A heading that clears them is still UNKNOWN, not
+    # proven safe — 'Daily aspirin eradicates disease' clears every list. Admission requires POSITIVE
+    # PROOF: the judge must classify it as a non-propositional LABEL. PROPOSITION/UNCERTAIN/unreachable
+    # all fail closed.
+    why = _heading_is_proposition(t)
+    if why:
+        return [Failure(i, 'Heading', 'HEADING_IS_A_PROPOSITION', why)]
     return []
 
 
@@ -1396,6 +1525,28 @@ def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
             if not ok:
                 f.append(Failure(i, 'Attributed', why2, f'{cl.card_id} :: {cl.text[:60]}'))
         return f
+
+    # ---------------------------------------------------------------- QUOTATION
+    if isinstance(n, Quotation):
+        r = b.resolve(n.card_id)
+        if not r.ok:
+            return [Failure(i, 'Quotation', r.refusal, n.card_id)]
+        # BYTE-IDENTICAL TO THE WHOLE BOUND EVIDENCE UNIT — no normalization. Case, punctuation, signs
+        # and internal whitespace are semantic and are all preserved. A payload that is a WINDOW, a
+        # PARAPHRASE, or a normalized form of the span is NOT a quotation: it must go through the finding
+        # lane and the judge. This is the file's ONLY deterministic ADMIT, and its only guarantee is that
+        # these bytes occur in this source.
+        if n.text != r.span:
+            return [Failure(i, 'Quotation', 'QUOTATION_NOT_BYTE_IDENTICAL_TO_WHOLE_EVIDENCE_UNIT',
+                            f'{n.card_id} :: a quotation must reproduce the WHOLE bound unit verbatim; '
+                            f'a window or paraphrase must go through the finding lane and the judge')]
+        # A run-in defence: markers, parenthetical years, meta and multi-sentence blobs are refused here
+        # exactly as elsewhere (the per-sentence receipt law needs one sentence per node). This only ever
+        # REJECTS, never admits, so it does not weaken the byte-identity proof above.
+        why = _common(n.text)
+        if why:
+            return [Failure(i, 'Quotation', why, n.text[:70])]
+        return []
 
     # ---------------------------------------------------------------- OWNED
     if isinstance(n, Owned):
@@ -1449,6 +1600,17 @@ def validate_node(i: int, n: Node, b: CardBundle) -> list[Failure]:
             proof, why = prove(op, list(prem.values()), n.text)
             if proof is None:
                 return [Failure(i, 'Owned', f'OWNED_VERDICT_UNPROVEN:{claim_class}', why)]
+            # (d) SOL V11 — A SYNTHESIS IS A VERDICT ABOUT THE PREMISES, NOT A LANE TO SMUGGLE A FINDING.
+            #     'These studies observe different units, and the intervention eradicates disease.'
+            #     classifies and PROVES as a CONTRASTS_LEVEL verdict on its first conjunct, then rides its
+            #     second conjunct — an unlicensed first-order empirical claim — onto the page. `classify_
+            #     claim`/`prove` verify the RELATION; they never inspect the rest of the sentence for a
+            #     smuggled finding. The same claim/framing judge that guards the premise-free lane guards
+            #     this one: a genuine verdict ('...are not directly comparable') is FRAMING and ships; a
+            #     sentence carrying a first-order finding is EMPIRICAL and fails closed.
+            why_emp = _owned_frame_empirical(n.text)
+            if why_emp:
+                return [Failure(i, 'Owned', 'SYNTHESIS_SMUGGLES_A_FINDING', why_emp)]
             return []
         # 4. A FRAME sentence: licensed by nothing, so it may assert NO PARTICULAR. Digits and source
         #    names are refused above; a spelled quantity, a magnitude word ("fatal", "doubled"), or a
@@ -1522,6 +1684,18 @@ def _fmt_sentence(n: Attributed, b: CardBundle, form_seed: int) -> str:
         parts.append((att + body) if j == 0 else f'{n.connective} {att}{body}')
     s = ', '.join(parts) if len(parts) > 1 else parts[0]
     return re.sub(r'\s+', ' ', s).strip() + '.'
+
+
+def _fmt_quotation(n: Quotation, b: CardBundle) -> str:
+    """THE QUOTATION LANE, RENDERED NEUTRALLY. '<Author> writes: "<exact bytes>"'. NEVER 'show that' /
+    'find that' / 'the study found'. The quoted bytes are reproduced verbatim (no whitespace collapse, no
+    escaping), so the quotation's only claim is that these bytes occur in this source — a quoted
+    hypothesis or question stays a hypothesis or question."""
+    r = b.resolve(n.card_id)
+    work = b.graph.works.get(r.work_id)
+    who = (_who(work) if work else '') or 'The source'
+    verb = 'writes' if (work and len([x for x in (work.authors or []) if x]) == 1) else 'write'
+    return f'{who} {verb}: "{n.text}"'
 
 
 def _table_cells(n: EvidenceTable, b: CardBundle, limit: int = 14) -> list[dict]:
@@ -1606,6 +1780,17 @@ def render(nodes: list[Node], b: CardBundle) -> tuple[str, list[dict]]:
                     span=r.span, work_id=r.work_id, expression_id=r.expression_id,
                     names_expression_id=r.names_expression_id, policy=b.policy.name,
                     attribution=r.attribution))
+        elif isinstance(n, Quotation):
+            s = _fmt_quotation(n, b)
+            para.append(s)
+            r = b.resolve(n.card_id)
+            sidecar.append(dict(
+                sentence_hash=sentence_hash(s), sentence=s, voice='QUOTATION',
+                card_id=n.card_id, manifestation_id=r.manifestation_id,
+                content_hash=r.content_hash, span_start=r.span_start, span_end=r.span_end,
+                span=r.span, work_id=r.work_id, expression_id=r.expression_id,
+                names_expression_id=r.names_expression_id, policy=b.policy.name,
+                attribution=r.attribution))
         elif isinstance(n, Owned):
             s = re.sub(r'\s+', ' ', n.text.strip())
             para.append(s)
