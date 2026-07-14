@@ -121,8 +121,8 @@ def main() -> int:
     for rid in ROUTES:
         t = tally[rid]
         print(f'  {rid:10s} {sum(t.values()):9d} {t[RR.ANSWERED]:9d} '
-              f'{t[RR.AUTH_FAILED] + t[RR.UNAVAILABLE]:11d} {t[RR.ROUTE_THROTTLED]:9d} '
-              f'{t[RR.BACKEND_FAILED] + t[RR.ROUTE_DENIED]:7d} {cand_urls[rid]:9d}')
+              f'{t[RR.AUTH_FAILED] + t[RR.UNAVAILABLE]:11d} {t[RR.THROTTLED]:9d} '
+              f'{t[RR.BACKEND_FAILED] + t[RR.ACCESS_DENIED]:7d} {cand_urls[rid]:9d}')
 
     if rejects:
         print(f'\n  RECORDS REFUSED BY THE IDENTITY/RELATION GUARDS: {len(rejects)}')

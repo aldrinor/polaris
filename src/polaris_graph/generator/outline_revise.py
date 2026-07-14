@@ -40,8 +40,9 @@ _ORPHAN_CORROBORATION_MIN = 2
 
 _VALID_OPS = frozenset({"keep", "merge", "split", "retitle", "reassign", "add"})
 # reassign op fields (WP-3a compose-stage prompt schema): `add_ev_ids` = pool members to ADD
-# into this section, `drop_ev_ids` = members to REMOVE. A bare `ev_ids` on a reassign is aliased
-# to `add_ev_ids` (fail-open, §-1.3); a reassign carrying neither is rejected as no_op_reassign.
+# into this section, `drop_ev_ids` = members to REMOVE. Any `ev_ids` on a reassign is UNIONED into
+# `add_ev_ids` (fail-open, §-1.3) — even alongside add/drop, so it is never validated-then-ignored;
+# a reassign carrying no add/drop/ev_ids payload is rejected as no_op_reassign.
 
 
 def _env_int(name: str, default: int) -> int:
@@ -192,6 +193,10 @@ def parse_revision_ops(
         return RevisionParseResult([], [], [], False, parse_failed=True)
 
     titles = {str(t) for t in plan_titles}
+    # case-insensitive title set for the collision guard (Fable item 5): a new/added heading must
+    # not equal (case-insensitively) an existing plan title — every downstream consumer keys by
+    # title (by_title / section_results), so a duplicate silently cross-wires or collapses.
+    titles_lower = {t.lower() for t in titles}
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
 
@@ -211,15 +216,30 @@ def parse_revision_ops(
                 return None
             return t
 
+<<<<<<< Updated upstream
         # item 1: ``split`` MUST validate its source ``title`` here too. Without it a split with a
         # missing title passes parse then crashes ``KeyError`` at apply (``op["title"]``), and a split
         # with an UNKNOWN title silently keeps the original section AND adds the children (content
         # duplication). Validating here rejects both before apply.
+=======
+        # Fable item 3: a ``split`` MUST validate its source title too. Without this, a split whose
+        # ``title`` names no live section was accepted, then apply appended the children and removed
+        # nothing (reproduced final titles ['A','B','X','Y']). Validate it alongside keep/retitle/
+        # reassign so a bad-source split is rejected (unknown_title) before the children are built.
+>>>>>>> Stashed changes
         if kind in ("keep", "retitle", "reassign", "split") and _need_title() is None:
             continue
         if kind == "retitle" and not str(op.get("new_title", "")).strip():
             rejected.append({"op": dict(op), "reason_code": "missing_new_title"})
             continue
+        if kind == "retitle":
+            _new_title = str(op.get("new_title", "")).strip()
+            # collision guard (item 5): retitling ONTO an existing heading (other than the source
+            # itself, which allows an identity / case-only retitle) collapses two sections.
+            if (_new_title.lower() in titles_lower
+                    and _new_title.lower() != str(op.get("title", "")).strip().lower()):
+                rejected.append({"op": dict(op), "reason_code": f"title_collision:{_new_title}"})
+                continue
         if kind == "merge":
             merge_titles = [str(t) for t in (op.get("titles", []) or [])]
             unknown = [t for t in merge_titles if t not in titles]
@@ -229,15 +249,26 @@ def parse_revision_ops(
             if not str(op.get("new_title", "")).strip():
                 rejected.append({"op": dict(op), "reason_code": "missing_new_title"})
                 continue
+            _merge_new = str(op.get("new_title", "")).strip()
+            # collision guard (item 5): the merged heading may reuse one of the titles being merged
+            # away, but must NOT equal a section that survives the merge.
+            if (_merge_new.lower() in titles_lower
+                    and _merge_new.lower() not in {t.lower() for t in merge_titles}):
+                rejected.append({"op": dict(op), "reason_code": f"title_collision:{_merge_new}"})
+                continue
 
-        # reassign fail-open alias (§-1.3): a reassign carrying a bare ``ev_ids`` but neither
-        # ``add_ev_ids`` nor ``drop_ev_ids`` means "assign these members INTO this section".
-        # Alias ev_ids -> add_ev_ids BEFORE validation so the payload is KEPT — the apply branch
-        # reads ONLY add_ev_ids/drop_ev_ids, so without this the members are silently dropped
-        # while the op still fakes accepted=1 and burns a recompose slot (the reproduced no-op).
-        if kind == "reassign" and "add_ev_ids" not in op and "drop_ev_ids" not in op and "ev_ids" in op:
+        # reassign ev_ids alias (§-1.3 fail-open, Fable item 4): on a reassign, a bare ``ev_ids``
+        # ALWAYS means "assign these members INTO this section". UNION it into ``add_ev_ids`` BEFORE
+        # validation so the payload is KEPT — the apply branch reads ONLY add_ev_ids/drop_ev_ids, so
+        # any ev_ids left un-unioned is validated-then-silently-ignored. This now also covers a
+        # reassign carrying ``ev_ids`` ALONGSIDE ``add_ev_ids``/``drop_ev_ids`` (the prior alias
+        # fired only when BOTH were absent, so a co-present ev_ids was validated then dropped — the
+        # same silent-no-op family the a5dec74 P0 closed). Never validate-then-ignore; never lose a
+        # member (union, not reject-as-ambiguous — §-1.3 keep-all).
+        if kind == "reassign" and "ev_ids" in op:
+            merged_add = list(op.get("add_ev_ids", []) or []) + list(op.get("ev_ids") or [])
             aliased = {k: v for k, v in op.items() if k != "ev_ids"}
-            aliased["add_ev_ids"] = op["ev_ids"]
+            aliased["add_ev_ids"] = merged_add
             op = aliased
 
         # ev_id references, wherever they appear
@@ -267,6 +298,7 @@ def parse_revision_ops(
         if kind == "add" and not str(op.get("title", "")).strip():
             rejected.append({"op": dict(op), "reason_code": "missing_add_title"})
             continue
+<<<<<<< Updated upstream
         # item 8 (STRIP-AND-KEEP, consistent with the outline's item-5a): a reassign/add/split that
         # references some UNKNOWN ev_ids KEEPS its valid remainder — the good ids were already retained
         # in ``op`` above; only the bad ones are stripped — and the strip is DISCLOSED as a
@@ -276,6 +308,15 @@ def parse_revision_ops(
         # ``undersupplied`` downstream (item 12 — the gap is DISCLOSED, never faked). §-1.3: an ev_id
         # reference is a routing hint, not the source itself, so one bad hint never deletes the good
         # remainder (the prior blanket reject discarded valid reassignments over a single stale id).
+=======
+        if kind == "add":
+            _add_title = str(op.get("title", "")).strip()
+            # collision guard (item 5): adding a section whose title equals an existing heading
+            # yields two sections with one title — reject rather than silently cross-wire.
+            if _add_title.lower() in titles_lower:
+                rejected.append({"op": dict(op), "reason_code": f"title_collision:{_add_title}"})
+                continue
+>>>>>>> Stashed changes
         if bad_all:
             rejected.append({"op": dict(op), "reason_code": f"unknown_ev_ids_stripped:{bad_all[:5]}"})
         if kind == "reassign" and not op.get("add_ev_ids") and not op.get("drop_ev_ids"):
@@ -392,8 +433,12 @@ def apply_revision_ops(
     *,
     max_recompose_cap: int | None = None,
     outcomes: Sequence[SectionOutcome] | None = None,
+<<<<<<< Updated upstream
     required_titles: Sequence[str] | None = None,
     min_sections: int = 0,
+=======
+    ev_id_to_basket: Mapping[str, str] | None = None,
+>>>>>>> Stashed changes
 ) -> RevisionApplyResult:
     """Apply validated ops deterministically and return the new plan set + the recompose set.
 
@@ -636,6 +681,7 @@ def apply_revision_ops(
         new_plans.append(by_title.get(cur_title, p))
     new_plans += added_plans
 
+<<<<<<< Updated upstream
     # item 4: dedupe recompose_titles AND drop any GHOST title not present in the final plan set —
     # a ghost would make the compose stage re-open a section that does not exist.
     _final_titles = {p["title"] for p in new_plans}
@@ -646,6 +692,24 @@ def apply_revision_ops(
     ]
     _recompose_final = set(recompose)
     kept = [p["title"] for p in new_plans if p["title"] not in _recompose_final]
+=======
+    # Fable item 6: a reassign (and split/add) mutates a section's ev_ids, but the apply branches
+    # above do NOT recompute basket_ids. Because find_orphan_baskets is basket_id-keyed while the
+    # compose router (verified_compose.route_orphan_baskets_to_section_plans) is ev-overlap-keyed,
+    # a reassign that HOMES an orphan basket's members would leave that basket still listed as an
+    # orphan — the two orphan definitions disagree. Re-backfill the RECOMPOSED sections' basket_ids
+    # from the digest ev_id->basket map (the same deterministic PUSH-2 backfill as the outline
+    # stage) so the definitions agree. KEPT sections are never recomputed — their wave-1 basket_ids
+    # stay byte-identical (the acceptance-bar #5 hash-compare). Map absent (lab/tests with no
+    # digest) => unchanged, fail-open (§-1.3 no drop).
+    if ev_id_to_basket:
+        for p in new_plans:
+            if p["title"] in recompose_set:
+                p["basket_ids"] = sorted(
+                    {ev_id_to_basket[e]
+                     for e in (p.get("ev_ids", []) or []) if e in ev_id_to_basket}
+                )
+>>>>>>> Stashed changes
 
     changed = bool(recompose or removed_titles)
     return RevisionApplyResult(

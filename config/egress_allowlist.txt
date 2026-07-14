@@ -64,6 +64,23 @@ pubmed.ncbi.nlm.nih.gov
 nlm.nih.gov
 www.nlm.nih.gov
 eutils.ncbi.nlm.nih.gov
+# PMC OA package host (the OA service hands back ftp://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_package/...).
+# Listed because the CANDIDATE is real and we want the option of fetching it; routes_bio currently
+# fetches http(s) only, so the tarball stays a recorded LEAD rather than a silently dropped one.
+ftp.ncbi.nlm.nih.gov
+
+# ----- Biomedical + OA-index FULL-TEXT routes (Sol V9 §2; scripts/routes_bio.py) -----
+# Without these three, the pmc / europe_pmc / doaj rows in config/source_routes.yaml resolve, propose
+# candidates, and then have every fetch DROPPED BY THE FIREWALL — which the ledger would faithfully
+# record as TRANSPORT_ERROR (never as "no OA copy exists"), but the lane would still yield nothing and
+# the cause would be a line missing from THIS file. Europe PMC is EMBL-EBI (UK, intergovernmental);
+# DOAJ is IS4OA (UK/Denmark non-profit). Both are sovereignty-aligned.
+www.ebi.ac.uk
+ebi.ac.uk
+europepmc.org
+www.europepmc.org
+doaj.org
+www.doaj.org
 # DailyMed (NLM-hosted FDA labels) — clinical url_pattern path
 dailymed.nlm.nih.gov
 

@@ -188,6 +188,41 @@ def test_same_work_singletons_collapse_and_stay_covered() -> None:
     assert menu.covered_ev_ids() == {"ev1", "ev2", "ev3", "ev4", "ev5", "ev6"}
 
 
+# ── Fable item 9: title-like telemetry + statement==title suppression ───────
+def test_singleton_statement_equal_title_suppressed() -> None:
+    # a singleton whose statement is a byte-copy of its title renders title-only (no "X | X").
+    ev = [{"evidence_id": "e1", "tier": "T3", "title": "Generative AI and jobs", "statement": "Generative AI and jobs"}]
+    menu = build_outline_digest(ev, [], sanitizer=_IDENTITY)
+    line = menu.singleton_lines[0]
+    assert line == "e1 [T3] | title: Generative AI and jobs"  # statement suppressed, not doubled
+    assert menu.covered_ev_ids() == {"e1"}  # row never dropped
+
+
+def test_title_like_claim_fraction_measured() -> None:
+    # a 2-member basket whose BOTH members' statements are byte-copies of their titles => the final
+    # chosen claim is still title-like => fraction 1.0. DATA-only telemetry, never a gate.
+    ev = [
+        {"evidence_id": "e1", "tier": "T1", "title": "AI report", "statement": "AI report"},
+        {"evidence_id": "e2", "tier": "T1", "title": "AI report 2", "statement": "AI report 2"},
+    ]
+    cl = [SimpleNamespace(representative_index=0, member_indices=[0, 1],
+                          corroboration_count=2, member_hosts=[])]
+    menu = build_outline_digest(ev, cl, sanitizer=_IDENTITY)
+    assert menu.title_like_claim_fraction == 1.0
+
+
+def test_title_like_claim_fraction_zero_on_real_claim() -> None:
+    # a basket whose representative carries a real claim sentence => fraction 0.0.
+    ev = [
+        {"evidence_id": "e1", "tier": "T1", "title": "Study A", "statement": "GenAI raised output by 14% for support agents"},
+        {"evidence_id": "e2", "tier": "T1", "title": "Study B", "statement": "another finding"},
+    ]
+    cl = [SimpleNamespace(representative_index=0, member_indices=[0, 1],
+                          corroboration_count=2, member_hosts=[])]
+    menu = build_outline_digest(ev, cl, sanitizer=_IDENTITY)
+    assert menu.title_like_claim_fraction == 0.0
+
+
 # ── ORCH-2 requirements block ───────────────────────────────────────────────
 def test_requirements_block_empty_is_byte_identical_noappend() -> None:
     assert build_requirements_block(None, None) == ""

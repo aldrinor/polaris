@@ -104,9 +104,35 @@ def llm(prompt: str, max_tokens: int = 8192) -> str:
 
 
 def jparse(s: str):
+    """Parse the JSON payload of an LLM reply. It may be an ARRAY (the composer's node lists) or an
+    OBJECT (research_contract's compile prompt returns `{...}`), with or without a ```json fence and
+    with or without prose around it.
+
+    THE BUG THIS FIXES. The old body was `re.search(r'\\[.*\\]', s, re.S)` — it extracted a JSON
+    *array* and nothing else. On the compile prompt's *object* reply the regex grabbed from the first
+    inner array to the last inner array and json.loads raised "Extra data", so compile_contract
+    (research_contract.py:456) crashed or silently fell back to the regex-floor contract on any
+    genuinely new question. The model was never at fault; this parser was.
+
+    It stays array-safe: we decode the FIRST top-level container we find, so a reply that IS an array
+    of objects still parses as an array (the earliest opener is `[`), exactly as before.
+    """
     s = re.sub(r'^```(?:json)?|```$', '', (s or '').strip(), flags=re.M).strip()
-    m = re.search(r'\[.*\]', s, re.S)
-    return json.loads(m.group(0)) if m else None
+    if not s:
+        return None
+    try:
+        return json.loads(s)                      # the common case: the reply IS the JSON
+    except Exception:
+        pass
+    dec = json.JSONDecoder()
+    for i, ch in enumerate(s):                    # first `{` or `[`, whichever comes first
+        if ch in '{[':
+            try:
+                val, _end = dec.raw_decode(s, i)  # balanced scan: trailing prose can no longer poison it
+                return val
+            except ValueError:
+                continue
+    return None
 
 
 # ----------------------------------------------------------------- THE ONE BUNDLE

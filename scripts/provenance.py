@@ -404,8 +404,20 @@ _WP_MARK = re.compile(
     r'|comments? welcome|this draft)', re.I)
 _PREPRINT_MARK = re.compile(r'(arxiv[:\s]*\d{4}\.\d{4,5}|ssrn[- ]id|preprint (submitted|version)|biorxiv)', re.I)
 _AM_MARK = re.compile(
-    r"(accepted manuscript|author'?s? (accepted|final) (version|manuscript)|postprint"
-    r'|published version\)? *\(refereed\)|this is the (author|accepted)'
+    # ---- THE WHITE ROSE GAP (found by the hop-6 probe; it was a LIVE fabrication path) -----------
+    # This detector required the literal word `accepted` or `final`, or the phrase "this is THE
+    # author". White Rose, Enlighten and most EPrints repositories write, verbatim:
+    #
+    #     "This is AN AUTHOR PRODUCED VERSION of a paper published in <journal>."
+    #
+    # `produced` is neither `accepted` nor `final`, and `an` is not `the` — so the commonest
+    # accepted-manuscript cover sheet in the UK was INVISIBLE to the accepted-manuscript detector. It
+    # then fell through to _JOURNAL_MARK, which matched the DOI THE COVER SHEET PRINTS, and the
+    # manuscript was classified `journal_version` and CITED AS THE JOURNAL ARTICLE.
+    # Like the NIH widening below, this can only move bytes OUT of journal_version, never into it.
+    r"(accepted manuscript|author'?s? (accepted|final|original) (version|manuscript)"
+    r'|author[- ]?produced[- ]?(version|manuscript)|postprint|post-print'
+    r'|published version\)? *\(refereed\)|this is (?:the|an?) (author|accepted)'
     # ---- THE NIH AUTHOR MANUSCRIPT (Sol V9 §2, the PMC silent failure list, verbatim: "NIH manuscript
     # ---- is mistaken for publisher VoR") ---------------------------------------------------------
     # PMC deposits NIH-funded accepted manuscripts ALONGSIDE publisher VoRs, in the same JATS dialect,
@@ -431,7 +443,70 @@ _AM_MARK = re.compile(
 _JOURNAL_MARK = re.compile(
     r'(volume \d+[,—-] *number \d+|vol\.? *\d+[,(]? *(no\.?|issue|\()? *\d+'
     r'|doi[:\s]*10\.\d{4,9}/|©\s*(the author|\d{4})|article reuse guidelines'
-    r'|received .{0,40}(revised|accepted).{0,40}\d{4})', re.I)
+    r'|received .{0,40}(revised|accepted).{0,40}\d{4}'
+    # ---- THE MASTHEAD FORMS THIS PATTERN COULD NOT SEE ------------------------------------------
+    # Segmenting the cover sheet off (below) exposed a gap that the cover sheet had been HIDING: the
+    # two commonest article-of-record mastheads in this corpus matched NOTHING here, and both real
+    # journal articles were being rescued by the DOI THEIR COVER SHEET PRINTED. Remove the cover
+    # sheet and the AER deposit fell to `unknown`. The furniture was always right there:
+    #     "American Economic Review 2014, 104(8): 2509-2526"   <- vol(issue): page-range
+    #     "AI and Ethics (2021) 1:119-130"                     <- (year) vol:page-range
+    #     "https://doi.org/10.1007/..."                        <- `doi[:\s]*10\.` cannot match this:
+    #                                                             ".org/" sits between `doi` and `10.`
+    # Widening an ADMITTING mark is the dangerous direction, and it is safe ONLY because of where this
+    # mark may now be read: the article's OWN front matter, never a cover sheet, and only after the
+    # accepted-manuscript / working-paper / preprint marks have all declined to fire.
+    r'|doi\.org/10\.\d{4,9}/'
+    r'|\b\d{1,4} *\( *\d{1,3} *\) *: *\d{1,5} *[-–—] *\d{1,5}'
+    r'|\(\d{4}\) *\d{1,4} *: *\d{1,5} *[-–—] *\d{1,5})', re.I)
+
+#: ══ A REPOSITORY COVER SHEET IS NOT THE DOCUMENT. THE *ONE* DEFINITION. ═════════════════════════
+#:
+#: THE SIXTH HOP OF THE V9 P0 LIVED IN EXACTLY THIS GAP. `_JOURNAL_MARK` above matches a bare DOI
+#: string — and this file's own census docstring has warned, in writing, the whole time:
+#:
+#:     "`_JOURNAL_MARK` matches a DOI string — but a DOI string is printed by every repository COVER
+#:      SHEET, which cites the article rather than being it."
+#:
+#: The warning was written and the code was never changed. `derive_expression_kind` read its marks out
+#: of `text[:12000]` — cover sheet included — so a White Rose deposit of an ACCEPTED MANUSCRIPT was
+#: classified `journal_version` on the strength of the DOI ITS OWN COVER SHEET PRINTS, and
+#: `resolve_attribution(JOURNAL_ONLY)` then ADMITTED it and would have printed "Acemoglu and Restrepo
+#: (2020), Journal of Political Economy" over the manuscript's 0.37pp.
+#:
+#: THE RULE, AND IT IS NOT NEGOTIABLE:
+#:   * the cover sheet MAY CONVICT — a library writing "this is an author produced version" is
+#:     describing THE FILE IT DEPOSITED, and that is testimony about these bytes;
+#:   * the cover sheet MAY NEVER ACQUIT — its DOI, its volume/issue, its citation block are the
+#:     library CITING the article of record, which is precisely what a document that IS the article
+#:     of record never needs to do.
+#: Convicting evidence is read from the whole document; ACQUITTING evidence only from the article's
+#: own front matter. (event_ledger imports this same pattern, so "what is a cover sheet" is defined
+#: ONCE in this repo and cannot drift between the two lanes that ask.)
+_COVER_SHEET = re.compile(
+    r'(this is a repository copy of|this is an? (author|accepted|final)[- ]?(produced|version)'
+    r'|white rose research online|enlighten|eprints|dspace|munin|hal (open science|id)'
+    r'|citation for (the )?published version|the version (presented here|in the repository)'
+    r'|downloaded from .{0,60}(repository|eprints|dspace|core\.ac\.uk)'
+    r'|this version is available at|general rights|take down policy'
+    r'|users may download and print one copy)', re.I)
+
+
+def segment_cover_sheet(text: str, window: int = 12000) -> tuple[str, str]:
+    """-> (cover_sheet_text, the_document_itself).
+
+    The boundary is the first form feed after the last cover-sheet marker — a cover sheet IS a
+    separate PDF page, and that is the one structural thing reliably true of it. No marker => no cover
+    sheet, and the document is the whole text (the common case, which must stay cheap).
+    """
+    head = text[:window]
+    hits = list(_COVER_SHEET.finditer(head))
+    if not hits:
+        return '', text
+    end = hits[-1].end()
+    ff = text.find('\x0c', end)
+    boundary = ff + 1 if 0 <= ff < window else end
+    return text[:boundary], text[boundary:]
 
 # =================================================================================================
 # THE REGISTRY — the ONE table that says what each artifact kind IS and when it is COMPLETE.
@@ -680,10 +755,19 @@ def derive_expression_kind(text: str, work_kind: str = 'study') -> tuple[str, st
         return ex, (f'work kind `{work_kind}` — the version taxonomy of a {fam.replace("_", " ")} is '
                     f'not the scholarly one; these bytes are its {ex.replace("_", " ")}')
     head = text[:12000]
-    wp, pre, am, jr = (_WP_MARK.search(head), _PREPRINT_MARK.search(head),
-                       _AM_MARK.search(head), _JOURNAL_MARK.search(head))
-    # Order matters: an accepted manuscript deposited in a repository carries the journal's citation
-    # block too, so the AM marker must be read BEFORE the journal marker or every AM reads as typeset.
+    # THE COVER SHEET MAY CONVICT BUT MAY NEVER ACQUIT (see `_COVER_SHEET`). The three INADMISSIBLE
+    # marks are read from the whole head — a library describing the file it deposited is testimony
+    # about these bytes. The one ADMITTING mark is read ONLY from the article's own front matter,
+    # because a cover sheet's DOI and citation block are the library CITING the article of record,
+    # which is the one thing the article of record itself never has to do.
+    cover, document = segment_cover_sheet(head)
+    wp, pre, am = _WP_MARK.search(head), _PREPRINT_MARK.search(head), _AM_MARK.search(head)
+    jr = _JOURNAL_MARK.search(document[:12000])
+
+    # Order still matters (an accepted manuscript carries the journal's citation block too), but it is
+    # no longer LOAD-BEARING: the only branch that can return `journal_version` cannot see the cover
+    # sheet at all, so no reordering of these four lines can promote a manuscript to the article of
+    # record. The ordering is a courtesy to the ERROR MESSAGE, not the thing keeping the door shut.
     if am:
         return 'accepted_manuscript', f'bytes say: {am.group(0)[:48]!r}'
     if wp:
@@ -691,7 +775,11 @@ def derive_expression_kind(text: str, work_kind: str = 'study') -> tuple[str, st
     if pre:
         return 'preprint', f'bytes say: {pre.group(0)[:48]!r}'
     if jr:
-        return 'journal_version', f'typeset journal furniture: {jr.group(0)[:48]!r}'
+        return 'journal_version', (f'typeset journal furniture in the ARTICLE\'S OWN front matter '
+                                   f'(not on a cover sheet): {jr.group(0)[:48]!r}')
+    if cover:
+        return 'unknown', ('a repository cover sheet, and NO version furniture in the document under '
+                           'it — the library\'s citation of the article is not the article')
     return 'unknown', 'no self-identifying version furniture in the first 12,000 chars'
 
 

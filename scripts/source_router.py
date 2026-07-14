@@ -198,6 +198,10 @@ def load_table(path: Path | str = ROUTES_YAML) -> RouteTable:
             discovery_via=tuple(row.get('discovery_via', []) or []),
             scope_ref=row.get('scope_ref'),
             resolver=dict(row.get('resolver', {}) or {}),
+            selectors=dict(row.get('selectors', {}) or {}),
+            identifier_transforms=dict(row.get('identifier_transforms', {}) or {}),
+            batch=dict(row.get('batch', {}) or {}),
+            metadata_prefix=str(row.get('metadata_prefix', '') or ''),
         ))
     mailto_env = raw.get('mailto_env', 'POLARIS_MAILTO')
     table = RouteTable(
@@ -284,9 +288,76 @@ def _contains(text: str, token: str) -> bool:
     return re.search(rf'(?<![a-z0-9]){re.escape(tok)}(?![a-z0-9])', text) is not None
 
 
+# ── STRUCTURED CAPABILITY FIELDS. The contract's OWN declared capabilities — what kind of artifact it
+#    is, what designs it admits, what it measures, what it compares — as opposed to the raw question
+#    string, which is just the user's topic prose. A rule that keys on these is reading the plan's
+#    CAPABILITIES; a rule that keys on the whole routing text is doing lexical topic matching. The two
+#    are different confidences and the router below treats them as such.
+#    The names are DATA (`in:` in source_routes.yaml). Adding a domain edits the YAML, never this dict.
+_CAPABILITY_FIELDS: dict[str, Any] = {
+    'genre':            lambda c: [str(_get(c, 'genre', '') or '')],
+    'review_subject':   lambda c: [str(_get(c, 'review_subject', '') or '')],
+    'title':            lambda c: [str(_get(c, 'title', '') or '')],
+    'method_designs':   lambda c: [str(x) for x in (_get(c, 'method_designs', []) or [])],
+    'unit_levels':      lambda c: [str(x) for x in (_get(c, 'unit_levels', []) or [])],
+    'evidence_tuple':   lambda c: [str(x) for x in (_get(c, 'evidence_tuple', []) or [])],
+    'geographies':      lambda c: [str(x) for x in (_get(c, 'geographies', []) or [])],
+    'core_concepts':    lambda c: _term_forms(_get(c, 'core_concepts', [])),
+    'framing_devices':  lambda c: _term_forms(_get(c, 'framing_devices', [])),
+    'outcome_dimensions': lambda c: _term_forms(_get(c, 'outcome_dimensions', [])),
+    'subject_axis':     lambda c: ([str(_get(_get(c, 'subject_axis', None), 'name', '') or '')]
+                                   + _term_forms(_get(_get(c, 'subject_axis', None), 'values', []))
+                                   if _get(c, 'subject_axis', None) is not None else []),
+    'source_constraints': lambda c: ([str(x) for x in
+                                      (_get(_get(c, 'source_policy', None), 'question_evidence', []) or [])]
+                                     if _get(c, 'source_policy', None) is not None else []),
+    'question':         lambda c: [str(_get(c, 'question', '') or '')],
+}
+
+
+def capability_text(contract: Any, fields: Iterable[str]) -> str:
+    """The lowercased blob of ONLY the named structured capability fields of the contract."""
+    bits: list[str] = []
+    for name in fields or []:
+        fn = _CAPABILITY_FIELDS.get(str(name))
+        if fn is None:
+            continue
+        bits += [b for b in fn(contract) if b]
+    return re.sub(r'\s+', ' ', ' '.join(bits)).lower()
+
+
+def _clause_hit(contract: Any, clause: Any) -> str | None:
+    """A generic {in: [<capability field>...], any_of: [<token>...]} clause -> the token that hit."""
+    if not isinstance(clause, dict):
+        return None
+    fields = clause.get('in') or list(_CAPABILITY_FIELDS)
+    text = capability_text(contract, fields)
+    for tok in clause.get('any_of', []) or []:
+        if _contains(text, tok):
+            return str(tok)
+    return None
+
+
 def required_roles(table: RouteTable, contract: Any) -> dict[str, str]:
-    """The evidence roles this plan REQUIRES -> {role: basis}. `default: true` rules are the OA-first
-    backbone (always required). The rest fire when the plan's routing text contains a trigger token."""
+    """The evidence roles this plan REQUIRES -> {role: basis}.
+
+    THREE TIERS, in descending confidence — the router's PRIMARY input is the contract's STRUCTURED
+    CAPABILITIES, not lexical topic matching on the question:
+
+      `default: true`  the OA-first backbone. Always required.
+      `capability:`    {in: [structured fields], any_of: [tokens]} — a HIGH-CONFIDENCE trigger, because
+                       the evidence-kind vocabulary appears in what the contract DECLARES ITSELF TO BE
+                       (its genre / designs / units / outcomes / axis / concepts), not merely somewhere
+                       in the user's prose.
+      `any_of:`        the LEGACY LEXICAL trigger over the whole routing text — kept, but LOW CONFIDENCE
+                       and demotable: if the rule also carries `corroborated_by:` (itself a capability
+                       clause), a lexical hit is ADMITTED ONLY WITH structured corroboration. That is
+                       what stops a legal question's "restraint of TRADE / EMPLOYMENT law" prose from
+                       requisitioning the economics working-paper role.
+
+    All three are DATA. This function contains no adapter name, no domain name and no topic word; adding
+    a domain is new YAML rows and zero lines of Python.
+    """
     text = routing_text(contract)
     out: dict[str, str] = {}
     for rule in table.role_requirements:
@@ -294,10 +365,28 @@ def required_roles(table: RouteTable, contract: Any) -> dict[str, str]:
         if rule.get('default'):
             out[role] = 'OA-first backbone (every scholarly plan needs it)'
             continue
-        for tok in rule.get('any_of', []) or []:
-            if _contains(text, tok):
-                out[role] = f'plan vocabulary contains {tok!r}'
-                break
+
+        # (1) HIGH CONFIDENCE — a structured capability of the contract itself.
+        cap = rule.get('capability')
+        hit = _clause_hit(contract, cap)
+        if hit is not None:
+            fields = (cap.get('in') if isinstance(cap, dict) else None) or ['<all capability fields>']
+            out[role] = f'[capability] contract structure ({", ".join(fields)}) declares {hit!r}'
+            continue
+
+        # (2) LOW CONFIDENCE — a lexical token anywhere in the routing text (question prose included).
+        lex = next((t for t in (rule.get('any_of') or []) if _contains(text, t)), None)
+        if lex is None:
+            continue
+        corr = rule.get('corroborated_by')
+        if corr:
+            chit = _clause_hit(contract, corr)
+            if chit is None:
+                continue                      # lexical-only, uncorroborated -> NOT required. The fix.
+            out[role] = (f'[lexical+corroborated] text contains {lex!r} and the contract structure '
+                         f'declares {chit!r}')
+        else:
+            out[role] = f'[lexical] plan vocabulary contains {lex!r}'
     return out
 
 

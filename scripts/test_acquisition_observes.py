@@ -25,6 +25,16 @@ from pathlib import Path
 
 os.environ['POLARIS_BACKOFF_SCALE'] = '0'      # SLEEP ONLY. It cannot change an event or an outcome.
 os.environ['POLARIS_SPACING'] = '0'
+os.environ['POLARIS_SPACING_SCALE'] = '0'      # ditto, for host_scheduler's token bucket (Sol V9 §7)
+
+#: ** THIS TEST FIRES A 429 STORM. IT MUST NOT DO SO AT THE PRODUCTION SCHEDULER. **
+#: The host scheduler's state is DURABLE and CROSS-PROCESS, which is the whole point of it — a
+#: `not_before` and an open circuit breaker survive the process that earned them. That means a test
+#: that hammers `api.crossref.org` with synthetic 429s against the REAL state directory would leave a
+#: REAL circuit open, and the next overnight run would defer every request to a host that was never
+#: actually angry with us. The storm is simulated; the throttle must not be.
+#: (Not one assertion below is relaxed by this. It redirects WHERE the state is written, and nothing else.)
+os.environ['POLARIS_SCHED_STATE'] = tempfile.mkdtemp(prefix='polaris_sched_canary_')
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))

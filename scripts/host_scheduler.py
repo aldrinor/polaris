@@ -455,82 +455,96 @@ class Scheduler:
         with self._locked(grant.host) as st:
             st['leases'].pop(grant.lease_id, None)
 
-    def charge(self, host: str, *, max_wait_s: float | None = None) -> Grant:
-        """SPEND A TOKEN ON `host` WITHOUT TAKING A CONCURRENCY SLOT — the REDIRECT case (Sol §7:
-        "redirects charge the destination host").
+    def debit_landing(self, origin_host: str, landed_url: str) -> str:
+        """A REDIRECT CHARGES ITS DESTINATION (Sol §7). -> the host charged, or ''.
 
-        We asked doi.org and we are now being sent to www.sciencedirect.com. The bytes will come out
-        of SCIENCEDIRECT's budget, so sciencedirect's bucket is what must pay — otherwise a resolver
-        with a generous limit becomes a laundering service for a strict one, and the host we actually
-        hammered never appears in our accounting at all.
+        We asked doi.org and the bytes came from www.sciencedirect.com. doi.org is a cheap, generous
+        resolver; sciencedirect is a host that will happily stop answering us. Charging only the host
+        we ADDRESSED makes every publisher fetch a laundering operation through a resolver's budget,
+        and the host we actually hammered never appears in our accounting at all.
 
-        No new slot: the redirect chain is one in-flight request, already held against the ORIGIN.
+        This is a pure DEBIT, taken after urllib has already followed the hops: it may drive the
+        bucket NEGATIVE, and that is the point — the NEXT request to that host waits for the deficit
+        to refill. It never blocks the request that already happened.
         """
-        host = (host or 'unknown').lower()
-        pol = self.policy(host)
-        budget = MAX_WAIT_S if max_wait_s is None else float(max_wait_s)
-        t0 = time.time()
-        deadline = t0 + budget
-        while True:
+        dest = host_of(landed_url)
+        if not dest or dest == (origin_host or '').lower() or dest == 'unknown':
+            return ''
+        pol = self.policy(dest)
+        with self._locked(dest) as st:
             now = time.time()
-            with self._locked(host) as st:
-                self._reap(st, now)
-                if float(st.get('circuit_open_until') or 0) > now:
-                    wait, reason = float(st['circuit_open_until']) - now, D_CIRCUIT
-                elif float(st.get('not_before') or 0) > now:
-                    wait, reason = float(st['not_before']) - now, D_NOT_BEFORE
-                else:
-                    spacing = self._spacing(st, pol)
-                    self._refill(st, pol, spacing, now)
-                    if float(st['tokens']) >= 1.0:
-                        st['tokens'] = float(st['tokens']) - 1.0
-                        st['grants'] = int(st.get('grants') or 0) + 1
-                        return Grant(host, True, lease_id='', waited_s=now - t0)
-                    wait = (1.0 - float(st['tokens'])) * spacing if spacing > 0 else 0.0
-                    reason = D_TOKEN
-                if now + wait > deadline:
-                    st['deferrals'] = int(st.get('deferrals') or 0) + 1
-                    return Grant(host, False, reason=reason, not_before=now + wait, waited_s=now - t0)
-            time.sleep(max(0.0, min(wait, deadline - time.time())))
+            self._refill(st, pol, self._spacing(st, pol), now)
+            # Floored at -2 bursts: a debit is a bill, not a punishment, and an unbounded negative
+            # bucket would take hours to climb out of after one redirect-heavy run.
+            st['tokens'] = max(-2.0 * pol.burst, float(st.get('tokens') or 0.0) - 1.0)
+            st['grants'] = int(st.get('grants') or 0) + 1
+        return dest
 
     # ---- what the server told us ----------------------------------------------------------------
-    def note_response(self, host: str, http_status: int | None, *,
-                      retry_after: Any = None, headers: Any = None) -> dict:
-        """Fold ONE response into this host's durable state. -> what changed (for the ledger).
+    def note_server_instruction(self, host: str, *, retry_after: Any = None,
+                                headers: Any = None) -> dict:
+        """THE SERVER TOLD US WHEN TO COME BACK, AND WHAT OUR RATE IS. -> what changed (for the ledger).
 
-        This is where a 429 stops being a number we printed and starts being a CONSTRAINT WE OBEY.
+        This is where a `Retry-After` stops being a number we printed into a log and starts being a
+        CONSTRAINT WE OBEY. It is NOT a strike: an instruction can arrive on every attempt of one
+        request, and counting each of them against the breaker would let one stubborn URL convict a
+        host. `note_request_outcome` does the scoring, exactly once per logical request.
         """
         host = (host or 'unknown').lower()
-        pol = self.policy(host)
         now = time.time()
         ra = parse_retry_after(retry_after, now)
         changed: dict[str, Any] = {}
         with self._locked(host) as st:
-            # 1. not_before — the server named a time. It is DURABLE, and it outlives this process.
+            # 1. not_before — the server NAMED A TIME. It is DURABLE and it outlives this process.
             if ra is not None and ra > 0:
                 nb = max(float(st.get('not_before') or 0.0), now + ra)
                 st['not_before'] = nb
                 changed['not_before_in_s'] = round(nb - now, 3)
                 changed['retry_after_parsed_s'] = round(ra, 3)
 
-            # 2. an observed rate limit may only SLOW US DOWN (never speed us up)
+            # 2. an observed rate limit MAY ONLY SLOW US DOWN (Sol §7). Never speed us up.
             spacing = _spacing_from_headers(headers)
             if spacing is not None and spacing > float(st.get('dyn_min_spacing_s') or 0.0):
                 st['dyn_min_spacing_s'] = spacing
-                changed['dyn_min_spacing_s'] = spacing
+                changed['dyn_min_spacing_s'] = round(spacing, 3)
+        return changed
 
-            # 3. the circuit breaker
-            code = int(http_status or 0)
+    def note_request_outcome(self, host: str, http_status: int | None, *,
+                             headers: Any = None) -> dict:
+        """SCORE ONE **LOGICAL REQUEST** AGAINST THE HOST. Called EXACTLY ONCE per request, at its
+        terminal outcome. -> what changed (for the ledger).
+
+        A request that was retried four times and 429'd four times is ONE strike against this host,
+        not four. And A CLEAN ANSWER CLEARS THE RECORD — including a 404, because a 404 is the host
+        ANSWERING US, and a breaker that counted honest answers as failures would trip on a
+        well-behaved index that simply does not have our DOI.
+        """
+        host = (host or 'unknown').lower()
+        pol = self.policy(host)
+        now = time.time()
+        code = int(http_status or 0)
+        changed: dict[str, Any] = {}
+        with self._locked(host) as st:
+            if headers:
+                spacing = _spacing_from_headers(headers)
+                if spacing is not None and spacing > float(st.get('dyn_min_spacing_s') or 0.0):
+                    st['dyn_min_spacing_s'] = spacing
+                    changed['dyn_min_spacing_s'] = round(spacing, 3)
+
             if code and code not in BREAKER_CODES and code < 500:
-                st['failures'] = []                       # a clean answer clears the record
+                st['failures'] = []                       # they answered. The record is clean.
                 if float(st.get('circuit_open_until') or 0) <= now:
                     st['trips'] = 0
-            elif code in BREAKER_CODES:
+                return changed
+
+            if code in BREAKER_CODES or code >= 500:
                 fails = [f for f in (st.get('failures') or [])
                          if now - float(f.get('ts') or 0) <= pol.breaker_window_s]
                 fails.append({'ts': now, 'code': code})
                 st['failures'] = fails
-                if len(fails) >= pol.breaker_threshold and float(st.get('circuit_open_until') or 0) <= now:
+                changed['host_failures_in_window'] = len(fails)
+                if (len(fails) >= pol.breaker_threshold
+                        and float(st.get('circuit_open_until') or 0) <= now):
                     st['trips'] = int(st.get('trips') or 0) + 1
                     cool = min(3600.0, pol.breaker_cooldown_s * (2 ** (int(st['trips']) - 1)))
                     st['circuit_open_until'] = now + cool
@@ -539,12 +553,6 @@ class Scheduler:
                     changed['circuit_trip'] = int(st['trips'])
                     changed['tripped_on_codes'] = sorted({int(f['code']) for f in fails})
         return changed
-
-    def note_request_failed(self, host: str, http_status: int | None, **kw) -> dict:
-        """ONE FAILED LOGICAL REQUEST, not one failed attempt. A request that was retried four times
-        and 429'd four times is ONE strike against the host, not four — otherwise a single stubborn
-        URL trips a breaker that is supposed to be measuring the HOST."""
-        return self.note_response(host, http_status, **kw)
 
     def observe_rate_limit(self, host: str, *, min_spacing_s: float | None = None,
                            requests_per_second: float | None = None) -> bool:
@@ -635,38 +643,6 @@ def _spacing_from_headers(headers: Any) -> float | None:
         except Exception:
             pass
     return None
-
-
-# ══════════════════════════════════════════════════════════════════════════════════════════════════
-# THE REDIRECT HANDLER — a redirect is a REQUEST TO ANOTHER HOST, and it pays for itself
-# ══════════════════════════════════════════════════════════════════════════════════════════════════
-
-class BudgetedRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Charges the DESTINATION host's bucket before urllib follows the hop.
-
-    Without this, `https://doi.org/10.1257/aer.20160696` costs ONE token on doi.org and then hits
-    aeaweb.org for free, as often as we like. doi.org is a cheap, generous resolver; aeaweb is the
-    host that 403'd us all night. The budget must land where the request lands.
-    """
-
-    def __init__(self, sched: 'Scheduler', origin_host: str):
-        self.sched = sched
-        self.origin_host = origin_host
-        self.hops: list[str] = []
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is None:
-            return None
-        dest = host_of(newurl)
-        self.hops.append(newurl)
-        if dest and dest != self.origin_host:
-            g = self.sched.charge(dest)
-            if not g.granted:
-                # The destination host will not have us. That is not a redirect we may follow.
-                raise urllib.error.HTTPError(
-                    newurl, 429, f'deferred by host scheduler ({g.reason})', headers, fp)
-        return new
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════

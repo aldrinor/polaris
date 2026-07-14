@@ -453,7 +453,14 @@ def compile_contract(question: str, question_id: int | None = None, *, use_llm: 
     d: dict = {}
     if use_llm:
         raw = _llm(COMPILE_PROMPT.format(question=question.strip()))
-        d = _jparse(raw) or {}
+        # GUARDED. A parser exception must NEVER be the difference between a rich contract and a
+        # silent regex-floor contract without anyone being told: it degrades LOUDLY, in warnings.
+        try:
+            d = _jparse(raw) or {}
+        except Exception as e:                                   # noqa: BLE001 — any parse failure
+            warnings.append(f'contract JSON did not parse ({type(e).__name__}: {str(e)[:80]}); '
+                            f'fell back to the regex floor')
+            d = {}
         if not isinstance(d, dict) or not d:
             warnings.append('LLM returned no parsable contract; fell back to the regex floor')
             d = {}

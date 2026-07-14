@@ -70,38 +70,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import source_router as SR                                                   # noqa: E402
 from acquisition import (                                                    # noqa: E402
-    Acquirer, BLOCKED, DocumentCandidate, NOT_INDEXED, RESPONDED, Response,
-    ResolveContext, THROTTLED, TRANSPORT_ERROR, make_candidate_id,
+    ACCESS_DENIED, AUTH_FAILED, Acquirer, BACKEND_FAILED, DEFERRED, DocumentCandidate,
+    NEVER_AN_ABSENCE, NOT_INDEXED, RESPONDED, Response, ResolveContext, THROTTLED,
 )
+from event_ledger import EventKind                                           # noqa: E402
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
 # THE ROUTE STATE VOCABULARY — every word is about US OR THE BACKEND. None is about the literature.
+#
+# It is acquisition's transport vocabulary, REUSED, not restated: AUTH_FAILED / ACCESS_DENIED /
+# THROTTLED / BACKEND_FAILED / DEFERRED all mean here exactly what they mean at the socket, and
+# `NEVER_AN_ABSENCE` is imported rather than re-typed — a second copy of that list is a second place
+# for one of these words to quietly go missing from it.
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
-#: The backend answered our exact-identifier question. ONLY THIS STATE can support "this backend does
+#: The backend answered our exact-identifier question. ONLY this state can support "this backend does
 #: not hold a copy" downstream — and even then only through the ledger reducer, never from here.
-ANSWERED        = 'ANSWERED'
-#: HTTP 401, or a credential we do not have. A fact about OUR KEY. ** THIS IS CORE, TODAY. **
-AUTH_FAILED     = 'AUTH_FAILED'
-#: We never even asked: no credential configured, or preflight already found the key rejected.
-UNAVAILABLE     = 'UNAVAILABLE'
-#: HTTP 429/503. A fact about OUR REQUEST RATE. (The event that started this whole project.)
-ROUTE_THROTTLED = 'THROTTLED'
-#: HTTP 403/451. A fact about ENTITLEMENT.
-ROUTE_DENIED    = 'ACCESS_DENIED'
-#: Timeout / 5xx / DNS / unparseable body. We never got an answer we could read.
-BACKEND_FAILED  = 'BACKEND_FAILED'
+ANSWERED    = 'ANSWERED'
+#: We never asked: no credential configured, no resolver row, or preflight already found the key
+#: rejected. THE ROUTE DID NOT LOOK.
+UNAVAILABLE = 'UNAVAILABLE'
 
-#: The states in which this route has NOT looked at the literature. Reading absence off any of them is
+#: The states in which this route HAS NOT LOOKED AT THE LITERATURE. Reading absence off any of them is
 #: the founding bug of this codebase, restated at the route layer.
-NOT_AN_OBSERVATION_OF_THE_WORLD = frozenset(
-    {AUTH_FAILED, UNAVAILABLE, ROUTE_THROTTLED, ROUTE_DENIED, BACKEND_FAILED})
-
-_HTTP_TO_STATE = {
-    RESPONDED: ANSWERED,
-    NOT_INDEXED: ANSWERED,          # HTTP 404 IS an answer: "my index does not have it" — about THEIR index
-    THROTTLED: ROUTE_THROTTLED,
-    TRANSPORT_ERROR: BACKEND_FAILED,
-}
+NOT_AN_OBSERVATION_OF_THE_WORLD = frozenset(set(NEVER_AN_ABSENCE) | {UNAVAILABLE})
 
 
 @dataclass(frozen=True)
@@ -112,7 +103,11 @@ class RouteResult:
     state: str
     candidates: tuple[DocumentCandidate, ...] = ()
     basis: str = ''
+    #: UNIQUE records the backend showed us (a record returned by two query forms is ONE record — a
+    #: ladder that counts it twice reports a coverage it does not have).
     records_seen: int = 0
+    #: the HTTP status behind a non-ANSWERED state, so a skipped unit can carry the real 401
+    http_status: int | None = None
     #: every record/URL we THREW AWAY and why — the audit trail for a whitelist that is doing real work
     rejected: tuple[dict, ...] = ()
     #: per-candidate observations too specific for the schema (file size, checksum, declared type)
@@ -182,6 +177,24 @@ def pluck(obj: Any, path: str) -> list:
                 nxt.append(v)
         cur = nxt
     return [c for c in cur if c is not None]
+
+
+def _flatten(vals: list) -> list:
+    """One level of list-in-list, flattened.
+
+    A DEFENCE AGAINST A SILENT MISCONFIGURATION, not a convenience. `metadata.related_identifiers`
+    (no `[]`) plucks THE LIST ITSELF, not its members — so the relation matcher iterated over one
+    object that was not a dict, found no relations, and refused every record it was shown, with the
+    message "the record does not name this DOI in any relation". It was WRONG and it looked RIGHT: the
+    trap test still passed, because the record it was supposed to refuse was refused. A whitelist that
+    rejects everything is not a whitelist, and a route that yields nothing reads downstream exactly like
+    a literature that contains nothing. This flattens, and `_match_relation` raises on an empty
+    whitelist, so that failure has to be loud in both directions.
+    """
+    out: list = []
+    for v in vals:
+        out.extend(v) if isinstance(v, list) else out.append(v)
+    return out
 
 
 def pluck_one(obj: Any, path: str) -> Any:
@@ -274,7 +287,14 @@ def _match_relation(record: dict, want: str, res: dict, q: dict) -> tuple[bool, 
     m = q.get('match') or {}
     allow = {str(r).lower().replace('_', '') for r in
              ((res.get('relations') or {}).get('identity') or [])}
-    rels = pluck(record, m.get('list_path') or '')
+    if not allow:
+        # A RELATION QUERY WITH AN EMPTY WHITELIST ADMITS NOTHING — and a route that admits nothing is
+        # indistinguishable, from the outside, from a literature that contains nothing. That is the bug
+        # this project is made of, so it is a CONFIGURATION ERROR and it is loud.
+        raise ValueError(f'query form {q.get("id")!r} matches by RELATION but `resolver.relations.'
+                         f'identity` is empty — every record would be refused, and a route that refuses '
+                         f'everything looks exactly like an empty literature.')
+    rels = _flatten(pluck(record, m.get('list_path') or ''))
     seen: list[str] = []
     for r in rels:
         if not isinstance(r, dict):
@@ -305,11 +325,19 @@ _EXT_MEDIA = {'pdf': 'pdf', 'xml': 'xml', 'nxml': 'xml', 'html': 'html', 'htm': 
               'gz': 'archive', 'docx': 'document', 'doc': 'document', 'ppt': 'slides', 'pptx': 'slides'}
 
 
+#: Hosts that RESOLVE an identifier rather than serve a document. A link to one of them is a link to a
+#: publisher's landing page — the exact bytes that profiled as a 535-word "document" and got stamped
+#: FULLTEXT. `doi.org` and `dx.doi.org` are the same resolver and must read the same. (An `openAccessRoute`
+#: of `hybrid` and an `accessRight: OPEN` sit on the AlphaFold record whose ONLY graph URL is one of these.)
+_RESOLVER_HOSTS = ('doi.org', 'dx.doi.org', 'hdl.handle.net')
+
+
 def media_hint_for(url: str, name: str = '') -> str:
-    ext = (Path(urllib.parse.urlparse(url or '').path).suffix or Path(name or '').suffix).lstrip('.').lower()
+    p = urllib.parse.urlparse(url or '')
+    ext = (Path(p.path).suffix or Path(name or '').suffix).lstrip('.').lower()
     if ext in _EXT_MEDIA:
         return _EXT_MEDIA[ext]
-    if url and '/doi.org/' in url:
+    if (p.netloc or '').lower().lstrip('www.') in _RESOLVER_HOSTS:
         return 'landing'          # a DOI link is a LANDING PAGE, whatever `accessRight: OPEN` says
     return 'unknown'
 
@@ -355,46 +383,79 @@ def preflight(acq: Acquirer, table: SR.RouteTable, adapter_id: str, *,
     if state == ANSWERED:
         r = RouteResult(adapter_id, '', ANSWERED, basis='the backend accepted our credential and answered')
     else:
-        r = RouteResult(adapter_id, '', state, basis=basis)
+        r = RouteResult(adapter_id, '', state, basis=basis, http_status=resp.http_status)
         _CIRCUIT[adapter_id] = r       # only FAILURE is sticky: a working route is re-checked cheaply
     return r
 
 
 def _state_of(resp: Response, route: SR.Route) -> tuple[str, str]:
     """The transport outcome, as a fact about the ROUTE. The 401 branch is the one that matters."""
-    if resp.outcome == BLOCKED and resp.http_status == 401:
+    if resp.outcome == AUTH_FAILED:
         env = ((route.resolver or {}).get('auth') or {}).get('key_env') or 'the credential'
         return AUTH_FAILED, (
             f'HTTP 401 — {env} was REJECTED by the backend. THE ROUTE IS UNAVAILABLE AND THE LITERATURE '
             f'BEHIND IT IS UNEXAMINED. This is a fact about our key. It is not, and can never be reduced '
             f'to, "no open copy of this work exists": we did not look. (Sol V9 §2.)')
-    if resp.outcome == BLOCKED:
-        return ROUTE_DENIED, f'HTTP {resp.http_status} — a fact about ENTITLEMENT at this backend'
+    if resp.outcome == ACCESS_DENIED:
+        return ACCESS_DENIED, f'HTTP {resp.http_status} — a fact about ENTITLEMENT at this backend'
     if resp.outcome == THROTTLED:
-        return ROUTE_THROTTLED, (f'HTTP {resp.http_status} — a fact about OUR REQUEST RATE. Deferred, '
-                                 f'not concluded.')
+        return THROTTLED, (f'HTTP {resp.http_status} — a fact about OUR REQUEST RATE. Deferred, '
+                           f'not concluded.')
+    if resp.outcome == DEFERRED:
+        return DEFERRED, ('OUR OWN governor stopped us before the request left the process — the budget '
+                          'is spent, and a budget stop is not an evidence gap')
     if resp.outcome == NOT_INDEXED:
         return ANSWERED, 'HTTP 404 — the backend answered: this identifier is not in ITS index'
-    if resp.outcome == TRANSPORT_ERROR:
+    if resp.outcome == BACKEND_FAILED:
         return BACKEND_FAILED, f'no readable answer ({resp.transport_error}) — we never heard back'
-    return ANSWERED, ''
+    if resp.outcome == RESPONDED:
+        return ANSWERED, ''
+    return BACKEND_FAILED, f'unrecognised transport outcome {resp.outcome!r}'
+
+
+#: URL PARAMETERS THAT MEAN "MATCH THIS ANYWHERE". An identifier dropped into one of these is not a
+#: lookup, it is a full-text search for a string that happens to be a DOI — and Zenodo answers it with
+#: 5,723,169 hits whose first row is an unrelated dataset. This is a fact about HTTP query conventions,
+#: not about any one repository, which is why it is a constant here and not a row in the YAML.
+FREE_TEXT_PARAMS = ('q', 'query', 'keywords', 'search', 'text', 'term', 'title')
 
 
 def _fill(q: dict, doi: str, limit: int = 10) -> str:
     """Build ONE exact-identifier query URL from a data row.
 
-    THE UNFIELDED-QUERY REFUSAL. Zenodo's `q="10.5281/zenodo.1215934"` — the same string with no field
-    prefix — returns 5,723,169 hits, the first of which is an unrelated dataset. A resolver that can be
-    handed an unfielded query form is one YAML typo away from filing the first of five million records
-    as a paper, so a query form with no `field:` prefix is a CONFIGURATION ERROR and dies loudly here.
+    THE UNSCOPED-QUERY REFUSAL. An identifier must land in a slot that MEANS "this identifier". There
+    are exactly two such slots, and this accepts both:
+
+      * a FIELDED expression in a free-text parameter — Zenodo/CORE: `q=doi:"10.x/y"`;
+      * a dedicated IDENTIFIER PARAMETER — OpenAIRE Graph v3: `?pid=10.x/y`.
+
+    What it refuses is the third shape: a bare identifier in a free-text parameter (`q=10.x/y`,
+    `keywords=10.x/y` — which is what the LEGACY OpenAIRE endpoint this row replaced actually did).
+    That is a lexical search for a string, and a lexical search is how a query for one DOI comes home
+    with somebody else's paper. It is a CONFIGURATION ERROR and it dies loudly, at build time, rather
+    than quietly returning five million candidates at 3am.
     """
     expr = str(q.get('q') or '')
-    if q.get('accepts') == 'doi' and not re.match(r'^[a-z_.]+:', expr, re.I) and '{doi}' in expr:
-        raise ValueError(f'query form {q.get("id")!r} is UNFIELDED ({expr!r}) — a bare identifier query '
-                         f'matches on any word of it. Give it a field prefix.')
+    url_t = str(q.get('url') or '')
+
+    if q.get('accepts') == 'doi':
+        fielded = bool(re.match(r'^\s*[a-z_.]+\s*:', expr, re.I))
+        if not fielded:
+            # the identifier is bare — so the URL slot it lands in must itself be identifier-scoped
+            qs = urllib.parse.parse_qs(urllib.parse.urlsplit(url_t).query, keep_blank_values=True)
+            slots = [p for p, vals in qs.items()
+                     if any('{q}' in v or '{doi}' in v for v in vals)]
+            free = [p for p in slots if p.lower() in FREE_TEXT_PARAMS]
+            if free or not slots:
+                raise ValueError(
+                    f'query form {q.get("id")!r} puts a bare identifier into '
+                    f'{free or "no identifiable parameter"} — that is a FREE-TEXT SEARCH for a string '
+                    f'that happens to be a DOI, not a lookup of it. Give the expression a `field:` '
+                    f'prefix, or bind the identifier to an identifier-scoped parameter (e.g. `pid=`).')
+
     expr = expr.replace('{doi}', doi)
-    return (str(q.get('url') or '')
-            .replace('{q}', urllib.parse.quote(expr, safe=''))
+    return (url_t
+            .replace('{q}', urllib.parse.quote(expr or doi, safe=''))
             .replace('{doi}', urllib.parse.quote(doi, safe=''))
             .replace('{limit}', str(limit)))
 
@@ -417,7 +478,17 @@ def resolve(acq: Acquirer, table: SR.RouteTable, adapter_id: str, ctx: ResolveCo
         # THE POINT OF THE WHOLE MODULE. We return ZERO candidates and a state that says WHY — and the
         # `answered=False` on it is what stops a downstream reducer from reading those zero candidates
         # as "this work has no open copy". Zero candidates from a route that never ran is not a finding.
-        return RouteResult(adapter_id, ctx.work_id, pre.state, basis=pre.basis)
+        #
+        # AND THE UNIT'S LEDGER MUST SAY SO TOO. The adversary caught this: returning early wrote NOTHING
+        # against the work, so `classify_discovery_outcome(unit, 'core')` reduced to NO_ATTEMPT — "this
+        # route was never tried". True, but it is the WRONG TRUE THING. It says we did not look; it does
+        # not say WE CANNOT LOOK BECAUSE OUR KEY IS DEAD. `licenses_absence` refuses both, so nothing was
+        # unsafe — but the run could not tell "fix the credential" from "we have not got to it yet", and
+        # the 401 that made a whole 60-140-document lane unreachable would have been invisible in the
+        # per-unit record. So the route's own terminal outcome is stamped on every unit it skips.
+        _record_skip(acq, ctx.work_id, adapter_id, pre)
+        return RouteResult(adapter_id, ctx.work_id, pre.state, basis=pre.basis,
+                           http_status=pre.http_status)
 
     res = route.resolver
     doi = doi_of(ctx)
@@ -432,7 +503,7 @@ def resolve(acq: Acquirer, table: SR.RouteTable, adapter_id: str, ctx: ResolveCo
     rejected: list[dict] = []
     obs_by_cid: dict = {}
     oai_ids: list[str] = []
-    records_seen = 0
+    seen_records: set[str] = set()
     states: list[str] = []
     bases: list[str] = []
     seen_urls: set[str] = set()
@@ -458,9 +529,20 @@ def resolve(acq: Acquirer, table: SR.RouteTable, adapter_id: str, ctx: ResolveCo
             continue
 
         records = [r for r in pluck(body, str(res.get('records') or '')) if isinstance(r, dict)]
-        records_seen += len(records)
 
         for rec in records:
+            # ONE RECORD, however many query forms return it. Zenodo's three probes routinely surface the
+            # same deposit; counting it once per probe would inflate the ladder's "records examined" by
+            # 3x and make a route look like it searched three times as much literature as it did.
+            #
+            # IT IS COUNTED ONCE AND EVALUATED EVERY TIME, and the difference matters: the three query
+            # forms carry three DIFFERENT identity semantics (self / alias / relation), so a record that
+            # fails to prove itself under one may legitimately prove itself under another. Skipping the
+            # match on a record we have merely SEEN before would let the first form's verdict silently
+            # veto the other two. Candidates are deduplicated separately, on the URL.
+            seen_records.add(str(pluck_first(rec, ['doi', 'id', 'objectIdentifier'])
+                                 or json.dumps(rec, sort_keys=True)[:200]))
+
             matcher = _MATCHERS.get(str((q.get('match') or {}).get('kind') or 'self_identifier'))
             ok, match_obs, why = matcher(rec, doi, res, q)
             if not ok:
@@ -483,8 +565,14 @@ def resolve(acq: Acquirer, table: SR.RouteTable, adapter_id: str, ctx: ResolveCo
                     if not url_ or url_ in seen_urls:
                         continue      # several instances naming ONE file are ONE candidate (Sol V9 §2)
                     seen_urls.add(url_)
-                    hint = sel.get('media_hint')
-                    hint = media_hint_for(url_, extra.get('file_name', '')) if hint == 'from_filename' else hint
+                    # `from_url` / `from_filename` / an absent hint all mean DERIVE IT. A row must not be
+                    # able to ASSERT `pdf` — the hint is a guess from a file extension either way, and
+                    # the bytes are what decide. (This is why a `.pdf` URL and a doi.org landing page
+                    # both arrive here as candidates and neither arrives as a document.)
+                    hint = str(sel.get('media_hint') or '')
+                    if hint in ('from_url', 'from_filename', 'unknown', ''):
+                        hint = media_hint_for(url_, extra.get('file_name', ''))
+                    extra = {**extra, **_url_identifier_conflict(url_, doi)}
                     cid = acq.candidate(
                         ctx.work_id, adapter_id, url_,
                         resolver_request_id=resp.request_id,
@@ -513,8 +601,32 @@ def resolve(acq: Acquirer, table: SR.RouteTable, adapter_id: str, ctx: ResolveCo
         basis='; '.join(bases) or ('the backend answered our exact-identifier query'
                                    + ('' if cands else ' and proposed no candidate URL for it — a fact '
                                       'about THIS backend\'s holdings, not about the literature')),
-        records_seen=records_seen, rejected=tuple(rejected), candidate_obs=obs_by_cid,
+        records_seen=len(seen_records), rejected=tuple(rejected), candidate_obs=obs_by_cid,
         oai_ids=tuple(dict.fromkeys(oai_ids)))
+
+
+def _record_skip(acq: Acquirer, unit: str, adapter_id: str, pre: RouteResult) -> None:
+    """Stamp a route's own unavailability onto a work it therefore could not examine.
+
+    These are OBSERVATIONS about the ROUTE, replayed onto the unit: they carry the http_status the
+    backend actually gave us and the request that got it. The reducer (`_transport_outcome`) reads
+    EventKind.BLOCKED -> ACCESS_DENIED and EventKind.THROTTLED -> THROTTLED, and `licenses_absence`
+    refuses an absence while either is in the set. Which is the whole point: the work is UNEXAMINED by
+    this route, the ledger says so, and nothing downstream can mistake that for an empty literature.
+    """
+    acq.ledger.emit(unit, EventKind.ROUTE_PLANNED, 'routes_repo',
+                    adapters=[adapter_id], route_state=pre.state)
+    rid = f'{adapter_id}#skipped'
+    kind = (EventKind.THROTTLED if pre.state == THROTTLED else
+            EventKind.BLOCKED if pre.state in (AUTH_FAILED, ACCESS_DENIED, UNAVAILABLE) else
+            EventKind.RESPONSE_RECEIVED)
+    payload: dict = {'adapter': adapter_id, 'request_id': rid, 'route_state': pre.state,
+                     'preflight': True}
+    if pre.http_status:
+        payload['http_status'] = pre.http_status
+    if kind == EventKind.RESPONSE_RECEIVED:
+        payload['transport_error'] = pre.state       # BACKEND_FAILED: never got a readable answer
+    acq.ledger.emit(unit, kind, 'routes_repo', **payload)
 
 
 def _worst(states: list[str]) -> str:
@@ -523,7 +635,7 @@ def _worst(states: list[str]) -> str:
     fact about our request rate becomes a fact about the world."""
     if not states:
         return BACKEND_FAILED
-    for s in (AUTH_FAILED, ROUTE_THROTTLED, ROUTE_DENIED, BACKEND_FAILED, UNAVAILABLE):
+    for s in (AUTH_FAILED, THROTTLED, DEFERRED, ACCESS_DENIED, BACKEND_FAILED, UNAVAILABLE):
         if s in states:
             return s
     return ANSWERED
@@ -585,6 +697,30 @@ def _urls_from_selector(rec: dict, sel: dict) -> list[tuple[str, dict]]:
                 extra['file_checksum'] = pluck_first(v, [str(sel['checksum_field'])])
             out.append((url, extra))
     return out
+
+
+def _url_identifier_conflict(url: str, want: str) -> dict:
+    """Does this candidate URL RESOLVE A DIFFERENT IDENTIFIER than the one we asked for?
+
+    FOUND IN THE LIVE PROBE, NOT IMAGINED: asked OpenAIRE for `10.52214/jla.v49i1.14439`, and among the
+    instance URLs of the record it returned was `https://doi.org/10.52214/jla.v49i1.14420` — a landing
+    page for A DIFFERENT ARTICLE in the same issue. The record's `pids` DID carry our DOI, so the
+    identity check passed; it is one of its INSTANCES that points somewhere else.
+
+    THIS IS AN OBSERVATION AND NOT A REJECTION, and the restraint is deliberate. Identity is decided
+    from the BYTES (Sol V9 §5), and an adapter that starts throwing away leads on a URL-string heuristic
+    is the "too aggressive" reducer Sol warns about in the same section — it would silently narrow the
+    corpus and call it precision. So we fetch it, and the byte-derived identity reducer rules
+    DIFFERENT_WORK with the document in hand. We simply refuse to be surprised: the conflict is on the
+    candidate, before a single byte is spent.
+    """
+    m = _DOI_RE.search(urllib.parse.unquote(url or ''))
+    if not m:
+        return {}
+    in_url = norm_doi(m.group(0))
+    if in_url and want and in_url != want:
+        return {'url_names_a_different_identifier': in_url}
+    return {}
 
 
 def reset_circuit() -> None:

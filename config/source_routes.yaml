@@ -359,10 +359,10 @@ routes:
     query_dialects: [pmc_id]
     identifier_types: [doi, pmcid, pmid]
     version_resolvers: [pmc_oai_jats, pmc_oa_service]
-    # PMC OAI allows AT MOST 3 req/s and NO CONCURRENT REQUESTS. 0.34s is the 3/s budget; the effective
-    # spacing is max(this, acquisition.SPACING_S=1.1s), because routes_bio._space_for() may only ever
-    # make us MORE polite than the acquirer already is — never less. Register tool+email (NCBI usage
-    # guidance): `tool` and `email` are threaded into every ID-converter call.
+    # PMC OAI allows AT MOST 3 req/s and NO CONCURRENT REQUESTS. `min_spacing_s: 0.34` is that 3/s
+    # ceiling and `max_in_flight: 1` is the no-concurrency rule; BOTH are read and enforced by
+    # scripts/host_scheduler.py (Sol §7), cross-process, under an flock — not by the adapter. Register
+    # tool+email (NCBI usage guidance): `tool` and `email` are threaded into every ID-converter call.
     rate_policy: {host: pmc.ncbi.nlm.nih.gov, min_spacing_s: 0.34, max_in_flight: 1,
                   needs_key: false, pool: public, tool: polaris}
     coverage_note: >-
@@ -388,7 +388,11 @@ routes:
     identifier_transforms:
       # A TINY DECLARED VOCABULARY, evaluated by routes_bio._transform. Adding a repository whose OAI
       # identifier is shaped differently is A ROW HERE, not a function.
-      pmcid_numeric:  "strip_prefix:PMC"                          # PMC12754963 -> 12754963
+      # strip_prefix:<source_field>:<prefix> — the SOURCE FIELD IS NAMED. It is not inferred from the
+      # output's name: a transform that guesses its own input returns '' when it guesses wrong, and an
+      # empty identifier becomes `?identifier=&metadataPrefix=` — a 400 that reads exactly like PMC
+      # refusing us. It did. See routes_bio._transform.
+      pmcid_numeric:  "strip_prefix:pmcid:PMC"                    # PMC12754963 -> 12754963
       oai_identifier: "format:oai:pubmedcentral.nih.gov:{pmcid_numeric}"
     metadata_prefix: pmc                     # `pmc` = full-text JATS. `oai_dc` is metadata only.
     batch:
@@ -442,7 +446,7 @@ routes:
       queries:
         - {id: doi_exact, accepts: doi, q: 'doi:"{doi}"',
            url: "https://api.core.ac.uk/v3/search/works?q={q}&limit={limit}"}
-      records: results
+      records: "results[]"
       # Which record is the work we ASKED for. A wrong-DOI record is dropped here, before it can
       # become a candidate — CORE's index is an aggregate and a DOI query can surface a citing work.
       identity:
@@ -495,14 +499,14 @@ routes:
       queries:
         - {id: pid_exact, accepts: doi, q: "{doi}",
            url: "https://api.openaire.eu/graph/v3/research-products?pid={q}&pageSize={limit}"}
-      records: results
+      records: "results[]"
       identity:
         doi_paths: ["pids[].value", "instances[].pids[].value"]
         title_path: mainTitle
       # An INSTANCE is a claimed location. Several instances routinely name the SAME file (Sol's named
       # silent failure), so candidates are deduplicated on the URL by the generic emitter.
       selectors:
-        - {path: "instances[].urls[]", media_hint: unknown, origin: graph_instance}
+        - {path: "instances[].urls[]", media_hint: from_url, origin: graph_instance}
       version_hint_paths: ["instances[].refereed", "instances[].type", version]
       license_paths: ["instances[].license", "instances[].accessRight.label",
                       "instances[].accessRight.openAccessRoute"]
@@ -555,11 +559,20 @@ routes:
         # and filing somebody's training slides as the AlphaFold paper.
         - {id: related_id,  accepts: doi, q: 'related.identifier:"{doi}"',
            url: "https://zenodo.org/api/records?q={q}&size={limit}",
-           match: {kind: relation, list_path: "metadata.related_identifiers",
+           match: {kind: relation, list_path: "metadata.related_identifiers[]",
                    id_field: identifier, rel_field: relation}}
-      records: hits.hits
+      records: "hits.hits[]"
       identity:
-        doi_paths: [doi, conceptdoi, "metadata.related_identifiers[].identifier"]
+        # ** THE RECORD'S OWN IDENTIFIER. NOTHING ELSE. **
+        # This list read `[doi, conceptdoi, metadata.related_identifiers[].identifier]` and the
+        # adversary killed it: `related_identifiers` is where a deposit names the works it CITES, so
+        # including it here made "the record IS this work" true of every record that so much as
+        # mentions it — reintroducing the citing-deposit trap through the identity door after the
+        # relation whitelist had shut the relation door. `conceptdoi` had to go too: with it here, a
+        # concept-DOI query matched as a plain self-identity and the version-substitution observation
+        # was never written. Each query form now has exactly ONE identity semantic, and they are not
+        # allowed to lend each other their evidence.
+        doi_paths: [doi]
         title_path: metadata.title
       # ── THE RELATION WHITELIST ────────────────────────────────────────────────────────────────────
       # Sol's silent failure "the DOI belongs to a cited reference", live: a `related.identifier` query

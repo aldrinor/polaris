@@ -242,3 +242,132 @@ def test_ceiling_prioritizes_dropped_sections() -> None:
     )
     applied = apply_revision_ops(plans, parsed, max_recompose_cap=1, outcomes=outcomes)
     assert applied.recompose_titles == ["B2"]  # dropped section wins the single slot
+
+
+# ── Fable item 3: split MUST validate its source title ──────────────────────
+def test_split_unknown_source_title_rejected() -> None:
+    # a split whose `title` names no live section used to be accepted, then apply appended the
+    # children and removed nothing (reproduced final titles ['A','B','X','Y']). Reject it.
+    plans = [{"title": "A", "ev_ids": ["e1", "e2"]}, {"title": "B", "ev_ids": ["e3"]}]
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "split", "title": "NOPE", "into": [
+            {"title": "X", "ev_ids": ["e1"]}, {"title": "Y", "ev_ids": ["e2"]}]}]},
+        allowed_ev_ids={"e1", "e2", "e3"}, plan_titles=["A", "B"],
+    )
+    assert parsed.ops == []
+    assert any(r["reason_code"].startswith("unknown_title:NOPE") for r in parsed.rejected)
+    applied = apply_revision_ops(plans, parsed)
+    assert [p["title"] for p in applied.new_plans] == ["A", "B"]  # nothing appended, nothing removed
+    assert applied.changed is False
+
+
+def test_split_valid_source_title_still_applies() -> None:
+    plans = [{"title": "Big", "ev_ids": ["e1", "e2"], "basket_ids": []}]
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "split", "title": "Big", "into": [
+            {"title": "Left", "ev_ids": ["e1"]}, {"title": "Right", "ev_ids": ["e2"]}]}]},
+        allowed_ev_ids={"e1", "e2"}, plan_titles=["Big"],
+    )
+    assert [op["op"] for op in parsed.ops] == ["split"]  # valid source title => still accepted
+
+
+# ── Fable item 4: ev_ids ALONGSIDE add/drop must be unioned, not ignored ────
+def test_reassign_ev_ids_and_add_ev_ids_both_land() -> None:
+    # a reassign carrying BOTH ev_ids and add_ev_ids used to validate ev_ids then silently ignore
+    # it (apply reads only add/drop). Now ev_ids is UNIONED into add_ev_ids so both members land.
+    plans = [{"title": "T", "ev_ids": ["e1"], "basket_ids": []}]
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "reassign", "title": "T", "ev_ids": ["e4"], "add_ev_ids": ["e5"]}]},
+        allowed_ev_ids={"e1", "e4", "e5"}, plan_titles=["T"],
+    )
+    assert [op["op"] for op in parsed.ops] == ["reassign"]
+    applied = apply_revision_ops(plans, parsed)
+    t = next(p for p in applied.new_plans if p["title"] == "T")
+    assert "e4" in t["ev_ids"] and "e5" in t["ev_ids"]  # BOTH landed
+    assert "e1" in t["ev_ids"]
+
+
+def test_reassign_ev_ids_with_drop_unions_into_add() -> None:
+    plans = [{"title": "T", "ev_ids": ["e1", "e2"], "basket_ids": []}]
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "reassign", "title": "T", "ev_ids": ["e3"], "drop_ev_ids": ["e2"]}]},
+        allowed_ev_ids={"e1", "e2", "e3"}, plan_titles=["T"],
+    )
+    applied = apply_revision_ops(plans, parsed)
+    t = next(p for p in applied.new_plans if p["title"] == "T")
+    assert t["ev_ids"] == ["e1", "e3"]  # e3 added (via ev_ids union), e2 dropped
+
+
+# ── Fable item 5: title collision guard (retitle / add / merge) ─────────────
+def test_retitle_collision_rejected() -> None:
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "retitle", "title": "A", "new_title": "B"}]},
+        allowed_ev_ids=set(), plan_titles=["A", "B"],
+    )
+    assert parsed.ops == []
+    assert any(r["reason_code"] == "title_collision:B" for r in parsed.rejected)
+
+
+def test_retitle_case_only_or_identity_allowed() -> None:
+    # retitling a section to a case variant of ITS OWN title is not a collision.
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "retitle", "title": "Cost", "new_title": "COST"}]},
+        allowed_ev_ids=set(), plan_titles=["Cost", "Efficacy"],
+    )
+    assert [op["op"] for op in parsed.ops] == ["retitle"]
+
+
+def test_add_collision_rejected() -> None:
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "add", "title": "cost", "ev_ids": []}]},  # case-insensitive collision
+        allowed_ev_ids=set(), plan_titles=["Cost"],
+    )
+    assert parsed.ops == []
+    assert any(r["reason_code"] == "title_collision:cost" for r in parsed.rejected)
+
+
+def test_merge_collision_rejected() -> None:
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "merge", "titles": ["A", "B"], "new_title": "C"}]},
+        allowed_ev_ids=set(), plan_titles=["A", "B", "C"],  # C survives the merge => collision
+    )
+    assert parsed.ops == []
+    assert any(r["reason_code"] == "title_collision:C" for r in parsed.rejected)
+
+
+def test_merge_may_reuse_a_merged_away_title() -> None:
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "merge", "titles": ["A", "B"], "new_title": "A"}]},  # A is merged away
+        allowed_ev_ids=set(), plan_titles=["A", "B"],
+    )
+    assert [op["op"] for op in parsed.ops] == ["merge"]  # reusing a merged-away title is allowed
+
+
+# ── Fable item 6: apply re-backfills basket_ids from the ev_id->basket map ──
+def test_reassign_rebackfills_basket_ids() -> None:
+    # a reassign that homes an orphan basket's member must clear that basket from find_orphan_baskets
+    # (basket_id-keyed) — the re-backfill reconciles it with the ev-overlap compose router.
+    plans = [{"title": "S", "ev_ids": ["e1"], "basket_ids": ["B00"]}]
+    ev2b = {"e1": "B00", "e2": "B00", "e9": "B01", "e10": "B01"}  # B01 = an orphan basket
+    corr = {"B00": 3, "B01": 2}
+    assert find_orphan_baskets(plans, corr) == ["B01"]  # B01 unassigned before the reassign
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "reassign", "title": "S", "add_ev_ids": ["e9"]}]},
+        allowed_ev_ids={"e1", "e9"}, plan_titles=["S"],
+    )
+    applied = apply_revision_ops(plans, parsed, ev_id_to_basket=ev2b)
+    s = next(p for p in applied.new_plans if p["title"] == "S")
+    assert "B01" in s["basket_ids"]  # re-backfilled from the homed member e9
+    assert find_orphan_baskets(applied.new_plans, corr) == []  # B01 no longer orphaned
+
+
+def test_apply_without_map_leaves_basket_ids_untouched() -> None:
+    # fail-open: no ev_id->basket map (lab/tests) => basket_ids unchanged on recomposed sections.
+    plans = [{"title": "S", "ev_ids": ["e1"], "basket_ids": ["B00"]}]
+    parsed = parse_revision_ops(
+        {"ops": [{"op": "reassign", "title": "S", "add_ev_ids": ["e9"]}]},
+        allowed_ev_ids={"e1", "e9"}, plan_titles=["S"],
+    )
+    applied = apply_revision_ops(plans, parsed)  # no map
+    s = next(p for p in applied.new_plans if p["title"] == "S")
+    assert s["basket_ids"] == ["B00"]  # untouched

@@ -69,6 +69,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from provenance import (  # noqa: E402
     KIND_PROFILE, judge_completeness,
     SOURCE_TYPE as _SOURCE_TYPE, WORK_KIND_ARTIFACT as _WORK_KIND_ARTIFACT,
+    # ONE definition of "what is a repository cover sheet", shared with the provenance lane. Two
+    # copies of this pattern would drift, and the one that drifts is always the one a gate reads.
+    _COVER_SHEET,
 )
 
 CORPUS = ROOT / 'outputs' / 'journal_corpus_content.json'
@@ -386,6 +389,30 @@ _CHROME = re.compile(
     r'privacy policy|terms of use|all rights reserved|official websites use',
     re.I)
 _PUBLISHED_STAMP = re.compile(r'published version|version of record|\(refereed\)|original citation', re.I)
+
+#: ══ THE ACCEPTED-MANUSCRIPT STAMP — THE V9 P0'S FIFTH HOP ════════════════════════════════════════
+#:
+#: `_PUBLISHED_STAMP` above matches the phrase "published version". A repository cover sheet prints that
+#: phrase IN TWO OPPOSITE SENSES, and until this stamp existed the reducer could not tell them apart:
+#:
+#:    LSE, on the file that IS the AER article:
+#:        "Article (Published version) (Refereed)"        <- the library says: THIS FILE is the VoR
+#:    White Rose, on an author's manuscript:
+#:        "This is an author produced version of a paper published in <journal>.
+#:         Citation for the published version: ..."       <- the library says: THE VoR IS ELSEWHERE
+#:
+#: The second one is a cover sheet POINTING AWAY FROM ITSELF, and `_PUBLISHED_STAMP` read it as the
+#: document testifying that it IS the version of record. `derive_semantic_binding` returned
+#: VERSION_PUBLISHED, `derive_eligibility` returned ADMISSIBLE, and an accepted manuscript became
+#: journal evidence — the SAME P0 as the census ladder, in a different file, reached by a different road.
+#:
+#: So the sense is now decided by an explicit stamp, and this one CANNOT match LSE's "(Published
+#: version) (Refereed)" — it matches only a statement that the file underneath is THE AUTHOR'S.
+_ACCEPTED_STAMP = re.compile(
+    r"(author[- ]?(produced|accepted|final)[- ]?(version|manuscript)"
+    r"|author'?s? (accepted|final) (version|manuscript)"
+    r"|accepted (manuscript|version)|post[- ]?print"
+    r"|this is an? (author|accepted)|this is the (author|accepted))", re.I)
 #: PREPRINT / WORKING-PAPER STAMPS — a DATA-DRIVEN REGISTRY, not a wall of ifs. Each row is
 #: (repository/series key, header-regex fragment). ADDING A NEW REPOSITORY IS A ONE-LINE DATA EDIT.
 #:
@@ -451,13 +478,8 @@ def preprint_stamp_key(text: str) -> str | None:
 #: So the cover sheet is SEGMENTED OFF and the article's front matter is read after it. The cover sheet
 #: is not discarded — it is a real observation, kept under `cover_sheet_text` — it is just not allowed
 #: to be the article's own testimony about itself.
-_COVER_SHEET = re.compile(
-    r'(this is a repository copy of|this is an? (author|accepted|final)[- ]?(produced|version)'
-    r'|white rose research online|enlighten|eprints|dspace|munin|hal (open science|id)'
-    r'|citation for (the )?published version|the version (presented here|in the repository)'
-    r'|downloaded from .{0,60}(repository|eprints|dspace|core\.ac\.uk)'
-    r'|this version is available at|general rights|take down policy'
-    r'|users may download and print one copy)', re.I)
+#: (the pattern itself now lives in provenance._COVER_SHEET and is imported at the top of this file —
+#:  see the note there. It is the SAME cover sheet in both lanes, so it is described in ONE place.)
 
 _DOI_RE = re.compile(r'\b10\.\d{4,9}/[^\s"\'<>,;)\]]+', re.I)
 
@@ -528,8 +550,19 @@ def observe_text(text: str, header_chars: int = 1500) -> dict:
         'readable_word_count': real_words,
         'glyph_garbage_ratio': round(cid_tokens / max(1, len(words)), 4),
         'chrome_markers': len(_CHROME.findall(text)),
-        'published_stamp_in_header': bool(_PUBLISHED_STAMP.search(header)),
-        'preprint_stamp_in_header': bool(_PREPRINT_STAMP.search(header)),
+        # ---- VERSION FURNITURE, READ IN THE RIGHT VOICE ----------------------------------------
+        # A stamp means something different depending on WHO PRINTED IT. The article's own front
+        # matter is the DOCUMENT'S TESTIMONY ABOUT ITSELF; the cover sheet is THE LIBRARY'S OPINION OF
+        # WHAT IT FILED. These were previously read from the same undifferentiated `header` slice, so a
+        # library's "citation for the published version" was scored as the article calling itself the
+        # version of record. They are separated now, and `derive_semantic_binding` weighs them by voice.
+        'has_cover_sheet': bool(cover),
+        'published_stamp_in_header': bool(_PUBLISHED_STAMP.search(article_front)),
+        'published_stamp_in_cover': bool(_PUBLISHED_STAMP.search(cover)),
+        'accepted_stamp_in_header': bool(_ACCEPTED_STAMP.search(article_front)),
+        'accepted_stamp_in_cover': bool(_ACCEPTED_STAMP.search(cover)),
+        'preprint_stamp_in_header': bool(_PREPRINT_STAMP.search(article_front)),
+        'preprint_stamp_in_cover': bool(_PREPRINT_STAMP.search(cover)),
         'preprint_stamp_anywhere': bool(_PREPRINT_STAMP.search(text)),
         'header_real_words': header_real,
         # the window identity is checked in. BOUNDED ON PURPOSE: searching the WHOLE document for an
@@ -1020,9 +1053,47 @@ def derive_content_profile(events: list[Event]) -> tuple[str, dict]:
 
 SAME_WORK        = 'SAME_WORK'              # this IS the journal article
 VERSION_PUBLISHED = 'VERSION_OF_PUBLISHED'  # a repository copy OF the published version
+VERSION_ACCEPTED = 'VERSION_OF_ACCEPTED'    # an ACCEPTED MANUSCRIPT. Peer review is not the last edit.
 VERSION_PREPRINT = 'VERSION_OF_PREPRINT'    # a working paper. A DIFFERENT SOURCE until proven equal.
 DIFFERENT_WORK   = 'DIFFERENT_WORK'         # we fetched somebody else's paper
 UNRESOLVED       = 'UNRESOLVED_BINDING'
+
+
+#: ══ WHICH EXPRESSION DO THESE BYTES TESTIFY TO BEING? ════════════════════════════════════════════
+#:
+#: THE ORDER OF THIS TUPLE IS THE RULE, AND IT IS A STATEMENT — not an accident of where an `if` landed
+#: in a ladder. The INADMISSIBLE kinds are asked FIRST, on purpose, because the commonest shape in an
+#: institutional repository carries BOTH kinds of stamp at once:
+#:
+#:     "This is an author produced version of a paper published in <journal>.     <- ACCEPTED
+#:      Citation for the published version: ..."                                  <- PUBLISHED
+#:
+#: The old reducer asked `published_stamp_in_header` first and answered VERSION_PUBLISHED. Reading the
+#: SECOND line and ignoring the FIRST is how an accepted manuscript became journal evidence. Whichever
+#: way a future edit reorders the code, the precedence lives HERE, in data, and `derive_eligibility`
+#: re-checks the result against a veto that does not consult this order at all.
+#:
+#: (`*_in_cover` is the LIBRARY's voice, `*_in_header` the DOCUMENT's own. For the two inadmissible
+#: kinds EITHER voice convicts — a repository saying "this is the author's manuscript" is describing
+#: the file it filed. For PUBLISHED, either voice may acquit, but only because nothing above it fired.)
+VERSION_EVIDENCE: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    (VERSION_ACCEPTED,  ('accepted_stamp_in_cover', 'accepted_stamp_in_header'),
+     'the bytes (or the repository that filed them) declare this an ACCEPTED MANUSCRIPT — acceptance '
+     'precedes copy-editing, proofs and the editor\'s last round, and THE NUMBERS MOVE ACROSS THEM'),
+    (VERSION_PREPRINT,  ('preprint_stamp_in_cover', 'preprint_stamp_in_header'),
+     'the header carries a preprint/working-paper stamp — peer review CHANGES NUMBERS; this is a '
+     'DIFFERENT SOURCE until version equivalence is proven'),
+    (VERSION_PUBLISHED, ('published_stamp_in_cover', 'published_stamp_in_header'),
+     'a published-version/refereed stamp, and NO accepted-manuscript or preprint stamp contradicting it'),
+)
+
+
+def version_evidence(prof: dict) -> tuple[str, str]:
+    """-> (binding, why). The ONE place a stamp becomes a version. Consulted by nothing else."""
+    for binding, fields, why in VERSION_EVIDENCE:
+        if any(prof.get(f) for f in fields):
+            return binding, why
+    return SAME_WORK, 'no version furniture contradicts the identity we confirmed'
 
 
 def _norm(s: str) -> set[str]:
@@ -1168,20 +1239,18 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
                                       f'paper. The byline is NOT disjoint, so this is not positive '
                                       f'evidence of a stranger\'s work: it is UNRESOLVED', **ev}
 
-    if prof.get('published_stamp_in_header'):
-        return VERSION_PUBLISHED, {'reason': 'identity confirmed, and the header carries a '
-                                             'published-version/refereed stamp', **ev}
-    if prof.get('preprint_stamp_in_header'):
-        return VERSION_PREPRINT, {'reason': 'identity confirmed, but the header carries a '
-                                            'preprint/working-paper stamp — peer review CHANGES '
-                                            'NUMBERS; this is a DIFFERENT SOURCE until version '
-                                            'equivalence is proven', **ev}
-    return SAME_WORK, {'reason': 'identity confirmed by '
-                                 + ('the article\'s OWN front-matter DOI' if doi_hit
-                                    else 'author and title' if author_hit and title_match
-                                    else 'author in the header' if author_hit
-                                    else f'a specific {len(want_t)}-word title matched in full')
-                                 + ', and no preprint stamp in the header', **ev}
+    # IDENTITY IS SETTLED — these bytes ARE the work we asked for. The remaining question is WHICH
+    # EXPRESSION of it, and that is decided in ONE place, by a declared precedence (VERSION_EVIDENCE),
+    # so that no reordering of this function can promote a manuscript to the version of record.
+    binding, why = version_evidence(prof)
+    if binding is SAME_WORK:
+        return SAME_WORK, {'reason': 'identity confirmed by '
+                                     + ('the article\'s OWN front-matter DOI' if doi_hit
+                                        else 'author and title' if author_hit and title_match
+                                        else 'author in the header' if author_hit
+                                        else f'a specific {len(want_t)}-word title matched in full')
+                                     + ', and no version furniture contradicting it', **ev}
+    return binding, {'reason': f'identity confirmed, but {why}', **ev}
 
 
 # ---- 5. eligibility --------------------------------------------------------------------------
@@ -1189,6 +1258,21 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
 ADMISSIBLE     = 'ADMISSIBLE'
 DISCOVERY_LEAD = 'DISCOVERY_LEAD'     # Sol's word, exactly. Real text — but not attributable HERE.
 INADMISSIBLE   = 'INADMISSIBLE'
+
+#: ══ THE VERSION VETO (event lane) ═══════════════════════════════════════════════════════════════
+#: WHICH BINDINGS CAN NEVER BE JOURNAL EVIDENCE. A STATEMENT — so that adding a version kind without
+#: deciding its admissibility is impossible, and so that no branch can admit one by answering first.
+#: (`derive_eligibility` asserts on this AFTER it has chosen, which is the check that does not care
+#:  what order anything ran in.)
+NEVER_JOURNAL_EVIDENCE: dict[str, str] = {
+    VERSION_PREPRINT: ('working-paper text. A DISCOVERY LEAD, not automatically journal-attributable '
+                       'evidence — version equivalence is not proven'),
+    VERSION_ACCEPTED: ('accepted-manuscript text. Peer review is NOT the last thing that changes a '
+                       'number: copy-editing, proofs and the editor\'s final round come after it '
+                       '(Acemoglu & Restrepo, 0.37pp in the manuscript -> 0.2pp in the JPE). A '
+                       'DISCOVERY LEAD; a span reaches the journal only across a verified per-span '
+                       'correspondence into the VoR\'s own bytes'),
+}
 
 
 def derive_eligibility(events: list[Event], journal_articles_only: bool = True) -> tuple[str, dict]:
@@ -1210,10 +1294,10 @@ def derive_eligibility(events: list[Event], journal_articles_only: bool = True) 
     if binding == DIFFERENT_WORK:
         return INADMISSIBLE, {'reason': f'wrong paper ({binfo["reason"]})',
                               'content_class': cls, 'binding': binding}
-    if binding == VERSION_PREPRINT:
+    # ---- THE VERSION VETO. A PRECONDITION, checked before anything may be admitted. -------------
+    if binding in NEVER_JOURNAL_EVIDENCE:
         return DISCOVERY_LEAD, {
-            'reason': 'working-paper text. A DISCOVERY LEAD, not automatically journal-attributable '
-                      'evidence — version equivalence is not proven'
+            'reason': NEVER_JOURNAL_EVIDENCE[binding]
                       + (' and the task demands journal articles only' if journal_articles_only else ''),
             'content_class': cls, 'binding': binding}
     if binding == UNRESOLVED:
@@ -1221,6 +1305,10 @@ def derive_eligibility(events: list[Event], journal_articles_only: bool = True) 
                               'content_class': cls, 'binding': binding}
     if cls == C_CITATION:
         return INADMISSIBLE, {'reason': 'no content', 'content_class': cls, 'binding': binding}
+
+    # ---- THE POSTCONDITION. It does not care which branch answered, or in what order. -----------
+    assert binding not in NEVER_JOURNAL_EVIDENCE, (
+        f'ADMISSIBLE was about to be minted for a {binding} binding. THE V9 P0 IS REOPENED.')
     return ADMISSIBLE, {'reason': f'{binding.lower().replace("_", " ")}; {cinfo["reason"]}',
                         'content_class': cls, 'binding': binding}
 

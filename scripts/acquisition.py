@@ -75,7 +75,7 @@ from event_ledger import (  # noqa: E402
     EventKind, Ledger, derive_content_profile, observe_text,
 )
 from host_scheduler import (  # noqa: E402  THE PERSISTENT, CROSS-PROCESS POLITENESS GOVERNOR (Sol §7)
-    BudgetedRedirectHandler, HttpCache, Scheduler, host_of, parse_retry_after,
+    HttpCache, Scheduler, host_of, parse_retry_after,
 )
 
 #: THE ONE DURABLE LEDGER. The run orchestrator opens it BEFORE retrieval; every fetcher appends.
@@ -231,10 +231,30 @@ class Response:
     #: other thing on this record: they say what the server told us about OUR request rate, and nothing
     #: whatever about what the literature contains.
     resp_headers: dict = field(default_factory=dict)
+    #: WHERE THE BYTES ACTUALLY CAME FROM after urllib followed the redirects. `url` is where we ASKED.
+    #: They differ on every doi.org resolution, and the difference is what `debit_landing` charges.
+    final_url: str = ''
+    #: A 304 revalidation: we hold these bytes already and the server confirmed they are current.
+    from_cache: bool = False
+    #: SET ONLY ON `DEFERRED` — OUR OWN GOVERNOR stopped us, and we never touched the backend.
+    deferred_until: float = 0.0
+    deferral_reason: str = ''
 
     @property
     def ok(self) -> bool:
         return self.outcome == RESPONDED
+
+    @property
+    def is_absence_evidence(self) -> bool:
+        """THE ONLY OUTCOME THAT MAY EVER CONTRIBUTE TO "we looked and it is not there."
+
+        A backend ANSWERED, and its answer was "my index does not have this id". Everything else —
+        THROTTLED, AUTH_FAILED, ACCESS_DENIED, BACKEND_FAILED, DEFERRED — is a fact about US, OUR
+        CREDENTIAL, OUR REQUEST RATE, or THEIR BOX, and this property is False for every one of them.
+        It exists so that a caller who wants to reason about absence has exactly one thing to read,
+        and cannot get there by testing `not resp.ok`.
+        """
+        return self.outcome == NOT_INDEXED
 
     def json(self) -> Any | None:
         """The parsed body, or None — and a None HERE means UNPARSEABLE JSON, nothing else."""
@@ -253,7 +273,6 @@ class Response:
 # THE ACQUIRER
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
 
-_HOST_LAST: dict[str, float] = {}
 _RID = itertools.count(1)
 
 #: The response headers that describe OUR BUDGET at a backend. Sol V9 §2 makes obeying them a
@@ -261,6 +280,16 @@ _RID = itertools.count(1)
 #: configured rate" the rule for reading them. Recorded as observations, on the request that saw them.
 RATE_HEADERS = ('x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset',
                 'x-ratelimit-used', 'retry-after')
+
+
+def _sched_max_wait() -> float:
+    """The longest a single request will WAIT for its turn before it defers (host_scheduler.MAX_WAIT_S).
+
+    Read through a function, not bound at import: an adversary harness that sets POLARIS_MAX_WAIT must
+    be able to move it, and a module-level constant would have frozen the value before the test ran.
+    """
+    import host_scheduler
+    return float(host_scheduler.MAX_WAIT_S)
 
 
 def _headers_dict(h) -> dict:
@@ -399,9 +428,11 @@ class Acquirer:
 
     # -- 2 & 3. THE EXCEPTION BOUNDARY ------------------------------------------------------------
     def get(self, unit: str, adapter: str, url: str, *, tries: int = 4, timeout: int = 30,
-            candidate_id: str = '', headers: dict | None = None, **obs) -> Response:
-        """One logical request. BACKEND_ATTEMPTED before each attempt; EXACTLY ONE of
-        RESPONSE_RECEIVED | THROTTLED | BLOCKED at the exception boundary of each attempt.
+            candidate_id: str = '', headers: dict | None = None, cacheable: bool = False,
+            max_wait_s: float | None = None, **obs) -> Response:
+        """One logical request, THROUGH THE PERSISTENT HOST SCHEDULER. BACKEND_ATTEMPTED before each
+        attempt; EXACTLY ONE of RESPONSE_RECEIVED | THROTTLED | BLOCKED at the exception boundary of
+        each attempt.
 
         THE RETRIES SHARE A `request_id`. That is load-bearing: a 429 that a backoff RESOLVED and a
         429 that we GAVE UP ON are different facts, and the reducer must be able to tell them apart
@@ -412,57 +443,145 @@ class Acquirer:
           429 then 200   -> the last terminal event is RESPONSE_RECEIVED -> RESPONDED. The 429 is
                             still on disk, because the backoff working is not the same as it never
                             having been throttled.
+
+        WHAT SOL §7 ADDED HERE, AND WHY EACH LINE IS A BUG WE SHIPPED
+
+        * THE TOKEN IS TAKEN BEFORE THE ATTEMPT, FROM A FILE. Four worker processes now share one
+          bucket per host, so "1.1s spacing" is 1.1s AT THE HOST and not 1.1s per process.
+        * `not_before` IS OBEYED. When the server said `Retry-After: 3600` we used to sleep three
+          seconds and hammer it again. Now the hour is written down, it survives this process, and
+          this request DEFERS instead of retrying into a wall.
+        * A DEFERRAL IS `BUDGET_STOPPED`, NEVER A RESPONSE. We did not touch the backend, so we emit
+          no BACKEND_ATTEMPTED and no RESPONSE_RECEIVED. `RouteStatus.supports_absence` is False
+          whenever a budget stop is on the log — which is exactly the guarantee we need: OUR OWN
+          GOVERNOR CAN NEVER MANUFACTURE AN ABSENCE. It is the one failure mode a rate limiter can
+          introduce, and the ledger already had the vocabulary to refuse it.
+        * A 429 IS ONE STRIKE PER LOGICAL REQUEST, NOT PER ATTEMPT. Every terminal path calls
+          `note_request_outcome` exactly once. The breaker measures a HOST; a stubborn URL retried
+          four times is not four pieces of evidence about that host — and a clean answer CLEARS it.
         """
         rid = f'{adapter}#{next(_RID)}'
+        host = host_of(url)
         last: Response | None = None
+
         for attempt in range(1, max(1, tries) + 1):
-            self._space(url)
+            # ---- THE GOVERNOR. It may refuse, and a refusal is not an answer about the world. ----
+            grant = SCHEDULER.acquire(host, max_wait_s=max_wait_s)
+            if not grant.granted:
+                self.ledger.emit(
+                    unit, EventKind.BUDGET_STOPPED, self.actor,
+                    adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id,
+                    attempt=attempt, host=host, deferral_reason=grant.reason,
+                    not_before_in_s=round(max(0.0, grant.not_before - time.time()), 1))
+                return Response(DEFERRED, None, b'', '', url, adapter, rid,
+                                transport_error=f'deferred:{grant.reason}',
+                                deferred_until=grant.not_before, deferral_reason=grant.reason)
+
             self.ledger.emit(unit, EventKind.BACKEND_ATTEMPTED, self.actor,
-                             adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt, **obs)
+                             adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id,
+                             attempt=attempt, host=host, **obs)
             try:
                 # `headers` carries CREDENTIALS (CORE requires `Authorization: Bearer`). THE SECRET
                 # NEVER REACHES THE LEDGER: `_rate_obs` below records only the server's rate headers,
                 # and the request headers are not emitted at all. A key in an append-only, committed log
                 # is a key you cannot rotate.
-                req = urllib.request.Request(url, headers={**UA, **(headers or {})})
+                #
+                # `cacheable` adds If-None-Match / If-Modified-Since for EXACT-ID RESOLVER queries
+                # (Sol §7). The answer to "what are the OA locations of DOI X" does not change between
+                # 2am and 3am, and re-asking it over and over on a host that is throttling us spends
+                # the budget that the DOCUMENT fetch needed.
+                cond = HTTP_CACHE.validators(url) if cacheable else {}
+                req = urllib.request.Request(url, headers={**UA, **(headers or {}), **cond})
                 # NOTE: `urllib.request.urlopen` is resolved AT CALL TIME, on purpose. The adversary
                 # harness monkeypatches it to force a 429 storm, and a `from ... import urlopen` would
-                # bind past the patch and test nothing.
+                # bind past the patch and test nothing. THERE IS EXACTLY ONE NETWORK CALL IN THIS
+                # MODULE and it is this line — so the lane the adversary attacks is the lane that ships.
                 with urllib.request.urlopen(req, timeout=timeout) as r:
                     raw = r.read()
-                    ctype = r.headers.get('Content-Type', '') or ''
+                    hdrs = r.headers
+                    ctype = hdrs.get('Content-Type', '') or ''
                     code = int(getattr(r, 'status', 200) or 200)
-                    rhdr = _headers_dict(r.headers)
+                    rhdr = _headers_dict(hdrs)
+                    landed = str(getattr(r, 'url', '') or url)
+                # ---- THE REDIRECT CHARGES ITS DESTINATION (Sol §7) --------------------------------
+                # urllib followed the hops for us, so we pay for where we LANDED, not where we asked.
+                # doi.org is a cheap, generous resolver and www.sciencedirect.com is not; without this
+                # line every publisher fetch is laundered through doi.org's budget and the host we
+                # actually hammered never appears in our accounting at all.
+                SCHEDULER.debit_landing(host, landed)
+                if cacheable:
+                    HTTP_CACHE.put(url, raw, hdrs, code)
                 self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
-                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
-                                 http_status=code, content_type=ctype, n_bytes=len(raw),
-                                 **_rate_obs(rhdr))
-                return Response(RESPONDED, code, raw, ctype, url, adapter, rid, resp_headers=rhdr)
+                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id,
+                                 attempt=attempt, http_status=code, content_type=ctype,
+                                 n_bytes=len(raw), locator=landed, **_rate_obs(rhdr))
+                SCHEDULER.note_request_outcome(host, code, headers=rhdr)   # a clean answer CLEARS
+                return Response(RESPONDED, code, raw, ctype, url, adapter, rid, resp_headers=rhdr,
+                                final_url=landed)
 
             except urllib.error.HTTPError as e:
                 code = int(getattr(e, 'code', 0) or 0)
                 ehdr = _headers_dict(getattr(e, 'headers', None))
 
+                if code == 304 and cacheable:
+                    # NOT MODIFIED. The bytes we already hold ARE the answer — and this cost the host
+                    # a header and cost this paper's retry budget nothing.
+                    try:
+                        raw, ctype = HTTP_CACHE.body(url)
+                        self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
+                                         adapter=adapter, url=url, request_id=rid,
+                                         candidate_id=candidate_id, attempt=attempt, http_status=200,
+                                         content_type=ctype, n_bytes=len(raw), revalidated_304=True)
+                        return Response(RESPONDED, 200, raw, ctype, url, adapter, rid,
+                                        resp_headers=ehdr, from_cache=True)
+                    except Exception:
+                        pass          # the cached body is gone; fall through and fetch it properly
+
                 if code in THROTTLE_CODES:
                     # ** A 429 PERSISTS AS THROTTLED. IT CANNOT BECOME CITATION_ONLY. **
+                    ra_raw = self._retry_after(e)
+                    ra_s = parse_retry_after(ra_raw)
+                    # `retry_after` is ALREADY in `_rate_obs` (it is a rate header). Passing it a second
+                    # time as a keyword is a duplicate-kwarg TypeError, and it fired on exactly the
+                    # response this whole module exists for: a 429 THAT CARRIES A Retry-After. The
+                    # harness's 429s had no headers, so nothing ever saw it. The parsed SECONDS go
+                    # beside the raw string — a reader of the ledger should not have to parse RFC 9110.
+                    rate = _rate_obs(ehdr)
+                    if ra_s is not None:
+                        rate['retry_after_parsed_s'] = round(ra_s, 1)
                     self.ledger.emit(unit, EventKind.THROTTLED, self.actor,
-                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
-                                     http_status=code, retry_after=self._retry_after(e), **_rate_obs(ehdr))
+                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id,
+                                     attempt=attempt, http_status=code, **rate)
                     last = Response(THROTTLED, code, b'', '', url, adapter, rid, f'HTTP {code}',
                                     resp_headers=ehdr)
+                    # THE SERVER NAMED A TIME. It is DURABLE, it is written down BEFORE we decide
+                    # whether to retry, and the decision is made against THE INSTRUCTION rather than
+                    # against a fixed 3*2**n. This is an instruction, not a strike: it is recorded on
+                    # every attempt, and it never double-counts against the breaker.
+                    SCHEDULER.note_server_instruction(host, retry_after=ra_raw, headers=ehdr)
+                    if ra_s is not None and ra_s > (max_wait_s if max_wait_s is not None
+                                                    else _sched_max_wait()):
+                        # "do not sleep and retry three seconds later when the server requests hours"
+                        SCHEDULER.note_request_outcome(host, code, headers=ehdr)
+                        return last
                     if attempt < tries:
                         self._backoff(attempt)
                         continue
+                    SCHEDULER.note_request_outcome(host, code, headers=ehdr)   # gave up. ONE strike.
                     return last
 
                 if code in BLOCK_CODES:
                     # A fact about ENTITLEMENT. Retrying a paywall is not politeness, it is noise.
-                    # 401 lands here, and it is the CORE case Sol V9 §2 names: a rejected credential is
-                    # a fact about OUR KEY. The route is UNAVAILABLE; the literature is unexamined.
+                    # 401 is the CORE case Sol V9 §2 names — a rejected credential is a fact about OUR
+                    # KEY: the route is UNAVAILABLE and the literature is UNEXAMINED. 403 is a fact
+                    # about THAT URL, and the answer to it is a repository, not another publisher hit
+                    # ("A publisher URL gets one normal attempt", Sol §3).
                     self.ledger.emit(unit, EventKind.BLOCKED, self.actor,
-                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
-                                     http_status=code, **_rate_obs(ehdr))
-                    return Response(BLOCKED, code, b'', '', url, adapter, rid, f'HTTP {code}',
+                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id,
+                                     attempt=attempt, http_status=code, **_rate_obs(ehdr))
+                    SCHEDULER.note_request_outcome(host, code, headers=ehdr)
+                    out = AUTH_FAILED if code in AUTH_CODES else ACCESS_DENIED
+                    return Response(out, code, b'', '', url, adapter, rid, f'HTTP {code}',
                                     resp_headers=ehdr)
 
                 if code == 404:
@@ -470,18 +589,22 @@ class Acquirer:
                     # fact about THEIR INDEX — not about whether the paper is free somewhere else.
                     # (Semantic Scholar 404s the QJE DOI for Autor/Levy/Murnane. NBER WP 8337 exists.)
                     self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
-                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
-                                     http_status=404, n_bytes=0)
+                                     adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id,
+                                     attempt=attempt, http_status=404, n_bytes=0)
+                    SCHEDULER.note_request_outcome(host, 404, headers=ehdr)  # they ANSWERED. CLEARS.
                     return Response(NOT_INDEXED, 404, b'', '', url, adapter, rid)
 
                 # 5xx and the rest: they responded, and the response is not an answer.
                 self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
-                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
-                                 http_status=code, transport_error=f'HTTP {code}')
-                last = Response(TRANSPORT_ERROR, code, b'', '', url, adapter, rid, f'HTTP {code}')
+                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id,
+                                 attempt=attempt, http_status=code, transport_error=f'HTTP {code}',
+                                 **_rate_obs(ehdr))
+                last = Response(BACKEND_FAILED, code, b'', '', url, adapter, rid, f'HTTP {code}',
+                                resp_headers=ehdr)
                 if code >= 500 and attempt < tries:
                     self._backoff(attempt)
                     continue
+                SCHEDULER.note_request_outcome(host, code, headers=ehdr)
                 return last
 
             except Exception as e:
@@ -490,15 +613,27 @@ class Acquirer:
                 # conclusion guard treats as raw text from the world — because an exception string is
                 # free text and could otherwise smuggle "not available" into the log as a conclusion.
                 self.ledger.emit(unit, EventKind.RESPONSE_RECEIVED, self.actor,
-                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id, attempt=attempt,
-                                 transport_error=type(e).__name__, reason_text=str(e)[:200])
-                last = Response(TRANSPORT_ERROR, None, b'', '', url, adapter, rid, type(e).__name__)
+                                 adapter=adapter, url=url, request_id=rid, candidate_id=candidate_id,
+                                 attempt=attempt, transport_error=type(e).__name__,
+                                 reason_text=str(e)[:200])
+                last = Response(BACKEND_FAILED, None, b'', '', url, adapter, rid, type(e).__name__)
                 if attempt < tries:
                     self._backoff(attempt)
                     continue
+                SCHEDULER.note_request_outcome(host, 599)   # a hang is a failed request. ONE strike.
                 return last
 
-        return last or Response(TRANSPORT_ERROR, None, b'', '', url, adapter, rid, 'no attempt made')
+            finally:
+                # THE SLOT COMES BACK EVEN IF WE CRASHED IN IT. A concurrency limit whose slots leak
+                # on an exception is a concurrency limit that wedges the host at zero after N errors —
+                # and the errors are exactly when it matters.
+                SCHEDULER.release(grant)
+
+        # EVERY path above scores itself EXACTLY ONCE — that is the invariant, and it is why a request
+        # that 429'd four times is ONE piece of evidence that this host does not want us. Scoring it
+        # per ATTEMPT would trip a breaker that is supposed to be measuring a HOST on the strength of
+        # one stubborn URL. This line is unreachable; it exists so the function has no implicit None.
+        return last or Response(BACKEND_FAILED, None, b'', '', url, adapter, rid, 'no attempt made')
 
     def get_json(self, unit: str, adapter: str, url: str, **kw) -> tuple[Response, Any | None]:
         r = self.get(unit, adapter, url, **kw)
@@ -588,14 +723,6 @@ class Acquirer:
             return str(e.headers.get('Retry-After') or '') if e.headers else ''
         except Exception:
             return ''
-
-    @staticmethod
-    def _space(url: str) -> None:
-        host = urllib.parse.urlparse(url).netloc or 'unknown'
-        wait = _HOST_LAST.get(host, 0.0) + SPACING_S - time.time()
-        if wait > 0:
-            time.sleep(wait)
-        _HOST_LAST[host] = time.time()
 
     @staticmethod
     def _backoff(attempt: int) -> None:

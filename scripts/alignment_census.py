@@ -46,12 +46,62 @@ def venue_running_head_pattern(venue: str):
     return r'\b' + r'[\s\W]+(?:of|and|the|in|for)?[\s\W]*'.join(re.escape(t) for t in toks[:4]) + r'\b'
 
 
+def folio_numbers(text: str) -> list[int]:
+    """The printed page numbers — the integer that follows a form feed. A PDF's own pagination."""
+    return [int(m.group(1)) for m in re.finditer(r'\x0c\s*(\d{1,5})\b', text)]
+
+
+def declared_page_range(text: str, venue: str) -> tuple[int, int] | None:
+    """The page range the document's OWN masthead prints beside the journal's name.
+
+    e.g. `American Economic Review 2014, 104(8): 2509-2526`. A repository cover sheet prints this too
+    (it is citing the article) — which is exactly why the range ALONE proves nothing. It is the
+    ANCHOR, not the evidence: what it lets us ask is whether THIS DOCUMENT'S OWN FOLIOS LAND IN IT.
+    """
+    p = venue_running_head_pattern(venue)
+    if not p:
+        return None
+    for m in re.finditer(p, text, re.I):
+        r = re.search(r'(\d{1,5})\s*[-–—]\s*(\d{1,5})', text[m.end():m.end() + 80])
+        if r:
+            lo, hi = int(r.group(1)), int(r.group(2))
+            if 0 < hi - lo < 200:          # a page range, not a year range or a DOI fragment
+                return lo, hi
+    return None
+
+
+def page_top_heads(text: str, venue: str, window: int = 200) -> int:
+    """The journal's name AT THE TOP OF A PAGE — i.e. immediately after a form feed. THIS is what a
+    running head IS, and the distinction is the whole point:
+
+    A repository COVER SHEET can print the journal's name (it is citing the article). A BIBLIOGRAPHY
+    can print it thirty times (every economics paper cites the AER). NEITHER can put it at the top of
+    three separate pages of the document's own body. Only the typesetter's page furniture does that.
+
+    The old test counted the venue name ANYWHERE in the text and called >=3 "running heads". On the
+    LSE deposit of Goos-Manning-Salomons it counted 9 -- ONE masthead, ONE cover-sheet citation, and
+    SEVEN references to other AER papers. It reached the right verdict on that file THROUGH ITS
+    BIBLIOGRAPHY, and it would have reached the same verdict for an accepted manuscript with the same
+    bibliography.
+    """
+    p = venue_running_head_pattern(venue)
+    if not p:
+        return 0
+    return sum(1 for m in re.finditer(r'\x0c', text)
+               if re.search(p, text[m.end():m.end() + window], re.I))
+
+
 def typeset_profile(text: str, venue: str) -> dict:
-    """Is this the PUBLISHER'S rendering? Only a typesetter emits running heads and printed folios."""
+    """Is this the PUBLISHER'S rendering? Only a typesetter emits page furniture."""
+    rng = declared_page_range(text, venue)
+    folios = folio_numbers(text)
     p = venue_running_head_pattern(venue)
     return dict(
-        running_heads=len(re.findall(p, text, re.I)) if p else 0,
-        folios=len(re.findall(r'\x0c\s*\d{1,4}\b', text)),
+        running_heads=len(re.findall(p, text, re.I)) if p else 0,   # RETAINED, but no longer decides
+        page_top_heads=page_top_heads(text, venue),
+        folios=len(folios),
+        declared_range=list(rng) if rng else None,
+        folios_in_declared_range=len([f for f in folios if rng and rng[0] <= f <= rng[1]]),
         wp_series_marks=len(re.findall(
             r'(nber working paper|working paper (no|series)|discussion paper|this draft)',
             text[:6000], re.I)),
@@ -59,9 +109,178 @@ def typeset_profile(text: str, venue: str) -> dict:
 
 
 def is_publisher_typeset(tp: dict) -> bool:
-    # Both, together. A cover sheet can print the journal's name once; it cannot print the article's
-    # page folios across a form-feed on every page.
-    return tp['running_heads'] >= 3 and tp['folios'] >= 3
+    """PROOF, IN THE BYTES, THAT A TYPESETTER MADE THIS DOCUMENT.
+
+    This is the ONLY thing in this file that may overturn an inadmissible version label, so it has to
+    be a fact a manuscript CANNOT counterfeit. Two independent proofs, either sufficient:
+
+      1. FOLIOS THAT LAND IN THE DECLARED PAGE RANGE. The masthead says the article runs 2509-2526 and
+         the document's own printed page numbers ARE 2510, 2511, ... 2526. An author manuscript
+         paginates from 1. To forge this, a manuscript would have to be typeset -- i.e. to BE the
+         article of record. (This is the test the file's own docstring always described and the code
+         never actually performed: it counted folios and never once checked they were in range.)
+
+      2. THE JOURNAL'S NAME AT THE TOP OF THREE OR MORE PAGES. A cover sheet is one page; a
+         bibliography is not page furniture. Neither can do this.
+    """
+    return (tp['folios_in_declared_range'] >= 3
+            or (tp['page_top_heads'] >= 3 and tp['folios'] >= 3))
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════════
+# THE VERSION VETO — WHICH VERSIONS ARE INADMISSIBLE IS A *STATEMENT*, NOT AN ORDERING ACCIDENT.
+# ═════════════════════════════════════════════════════════════════════════════════════════════════
+# The V9 P0 was patched at three hops (provenance.SPAN_PRESERVING, version_align, and the `acceptedVersion`
+# branch of the ruling ladder below) AND IT STAYED OPEN AT A FOURTH -- because the fix was a RUNG IN A
+# LADDER. The `acceptedVersion -> INADMISSIBLE` rung sat beneath `is_publisher_typeset -> ADMISSIBLE`,
+# and an accepted manuscript that tripped the earlier rung was ruled a JOURNAL ARTICLE and never reached
+# its own rule. The rule was right. It was simply never asked.
+#
+# A rule that is correct but UNREACHABLE is not a fix, and no amount of care about the ORDER of a ladder
+# will keep it reachable across the next edit. So the ladder no longer decides this. Inadmissibility is
+# now a PRECONDITION, evaluated before any admitting branch may run, and re-asserted after -- Sol's
+# principle, applied to versions: WHICH VERSIONS ARE INADMISSIBLE MUST BE A STATEMENT, NOT AN ABSENCE.
+
+#: A version label that can NEVER, on its own, name the journal under a journal-only policy.
+INADMISSIBLE_VERSION_LABELS: dict[str, str] = {
+    'acceptedVersion': ('an accepted manuscript — acceptance precedes copy-editing, proofs and the '
+                        'editor\'s last round, and THE NUMBERS MOVE ACROSS THEM (Acemoglu & Restrepo: '
+                        '0.37pp in the manuscript, 0.2pp in the JPE)'),
+    'submittedVersion': ('a submitted manuscript — the working paper / preprint, before peer review '
+                         'has touched a single number'),
+}
+#: ...and the only label that asserts the article of record.
+ADMISSIBLE_VERSION_LABELS: frozenset[str] = frozenset({'publishedVersion'})
+
+
+def version_statements(bid_ver: str | None, align_ver: str | None) -> list[tuple[str, str]]:
+    """EVERY authenticated version statement about these bytes, from EVERY source, in ONE list.
+
+    This exists so that no future source of a version label can be added without passing through the
+    veto: a label that is not in this list cannot influence the ruling at all, and a label that IS in
+    it is vetted by `version_veto()` before any admitting branch runs. There is no third way in.
+    """
+    out = []
+    if bid_ver:
+        out.append(('byte-identity against an authenticated backend', bid_ver))
+    if align_ver:
+        out.append(('a repository version label (via Unpaywall)', align_ver))
+    return out
+
+
+def version_veto(stmts: list[tuple[str, str]], typeset_ok: bool) -> tuple[str, str, str] | None:
+    """THE PRECONDITION. Returns a refusal if ANY version statement forbids a journal attribution.
+
+    The ONE thing that may overturn an inadmissible label is BYTE PROOF that a typesetter made this
+    document (`is_publisher_typeset`) -- never another label, never a metadata field, and never the
+    order of the branches below. That escape is not a courtesy to the label: it is the reason the LSE
+    deposit of Goos-Manning-Salomons is admissible AS THE AER ARTICLE, its folios landing inside the
+    page range its own masthead prints, WHILE UNPAYWALL CALLS IT `submittedVersion`. The bytes outrank
+    the label in BOTH directions -- and only the bytes ever do.
+    """
+    for src, label in stmts:
+        if label in INADMISSIBLE_VERSION_LABELS:
+            if typeset_ok:
+                continue          # the BYTES say typesetter. A label does not outrank the bytes.
+            kind = 'ACCEPTED_MANUSCRIPT' if label == 'acceptedVersion' else 'WORKING_PAPER'
+            return (kind, 'INADMISSIBLE',
+                    f'{src} says `{label}`: {INADMISSIBLE_VERSION_LABELS[label]}. Not one byte of this '
+                    f'document carries publisher typeset furniture, so nothing overturns that label. '
+                    f'Attributable AS AN ACCEPTED MANUSCRIPT / WORKING PAPER ONLY; a span reaches the '
+                    f'journal only across a verified per-span SpanCorrespondence into VoR bytes')
+    return None
+
+
+def _admit(prof: dict, tp: dict, stmts: list[tuple[str, str]], bid: dict | None,
+           oa_native, preprint) -> tuple[str, str, str]:
+    """THE ADMITTING BRANCHES. A ruling of ADMISSIBLE can be minted HERE AND NOWHERE ELSE.
+
+    DEFENCE IN DEPTH: this function re-checks the veto and REFUSES TO RUN if one is live. The caller
+    already checked it; that is the point. The P0 came back twice because a correct rule was placed
+    where something else could answer first, so the admitting code now makes the check ITSELF, and a
+    future refactor that calls `_admit()` directly -- or reorders `rule()` -- raises instead of
+    admitting. You cannot get here with an accepted manuscript. There is no branch order that permits it.
+    """
+    typeset_ok = is_publisher_typeset(tp)
+    veto = version_veto(stmts, typeset_ok)
+    if veto is not None:
+        raise AssertionError(
+            f'_admit() was reached for a manifestation the version veto forbids ({veto[0]}). '
+            f'THE V9 P0 HAS BEEN REOPENED BY A REORDERING. Nothing may be admitted here.')
+
+    if typeset_ok:
+        if tp['folios_in_declared_range'] >= 3:
+            return ('JOURNAL_ARTICLE', 'ADMISSIBLE',
+                    f"publisher typeset furniture: {tp['folios_in_declared_range']} printed page folios "
+                    f"landing inside the page range {tp['declared_range']} that this document's own "
+                    f"masthead prints — an author manuscript paginates from 1; only the article of "
+                    f"record is numbered with the journal's own pages")
+        return ('JOURNAL_ARTICLE', 'ADMISSIBLE',
+                f"publisher typeset furniture: the journal's name at the top of {tp['page_top_heads']} "
+                f"pages, {tp['folios']} printed page folios — a cover sheet is one page and a "
+                f"bibliography is not page furniture; only a typesetter emits these")
+
+    if any(lbl in ADMISSIBLE_VERSION_LABELS for _s, lbl in stmts) and bid:
+        return ('JOURNAL_ARTICLE', 'ADMISSIBLE',
+                f"held bytes are {bid['cover']:.3f}-identical to a location an authenticated backend "
+                f"labels `publishedVersion` — these ARE the article of record")
+
+    if oa_native and tp['wp_series_marks'] == 0:
+        return ('JOURNAL_ARTICLE', 'ADMISSIBLE',
+                f"open-access article-of-record header block ({oa_native.group(0)[:40]!r}) and no "
+                f"working-paper furniture anywhere in the front matter")
+
+    return ('UNDETERMINED_VERSION', 'INADMISSIBLE',
+            'no publisher typeset furniture and no authenticated version statement — we cannot show '
+            'these bytes are the article of record')
+
+
+def rule(prof: dict, tp: dict, bid: dict | None, align_ver: str | None,
+         oa_native, preprint) -> tuple[str, str, str]:
+    """THE ONE REDUCER. Every ruling in this file is minted here — (held_kind, ruling, why).
+
+    Read the shape, not the branches: DISQUALIFIERS FIRST, ALL OF THEM, and only then may `_admit()`
+    be called at all. Admissibility is what is left when nothing forbids it — it is never something a
+    branch races to say first.
+    """
+    bid_ver = (bid or {}).get('version')
+    stmts = version_statements(bid_ver, align_ver)
+    typeset_ok = is_publisher_typeset(tp)
+
+    # ---- 1. THE BYTES ARE NOT USABLE EVIDENCE AT ALL. Version is moot. --------------------------
+    if prof['identity']['verdict'] == 'CONTRADICTED':
+        return ('WRONG_WORK', 'PURGE',
+                'these bytes are a different work by a different author — nothing to align')
+    if prof['artifact_kind'] == 'landing_page':
+        return ('LANDING_PAGE', 'NO_EVIDENCE', 'a web page about the document, not the document')
+    if prof['extractability']['verdict'] == 'CORRUPT':
+        return ('EXTRACTION_FAILURE', 'NO_EVIDENCE', 'bytes are not readable prose')
+
+    # ---- 2. THE VERSION VETO. A PRECONDITION — checked before ANY admitting branch can run. -----
+    veto = version_veto(stmts, typeset_ok)
+    if veto is not None:
+        return veto
+
+    # ---- 3. THE BYTES DISQUALIFY THEMSELVES. Also a precondition, for the same reason: a preprint
+    #         that happens to trip an admitting branch is the identical bug with a different label.
+    if tp['wp_series_marks'] >= 1 and not typeset_ok:
+        return ('WORKING_PAPER', 'INADMISSIBLE',
+                'the bytes self-declare a working-paper series and carry no publisher typeset furniture')
+    if preprint and not oa_native and not typeset_ok:
+        return ('PREPRINT', 'INADMISSIBLE',
+                'the bytes say which journal they are FOR — an author preprint, not the journal’s text')
+
+    # ---- 4. NOTHING FORBIDS IT. Only now may anything be admitted. ------------------------------
+    kind, ruling, why = _admit(prof, tp, stmts, bid, oa_native, preprint)
+
+    # ---- 5. THE POSTCONDITION. The ladder cannot be reordered into a fabrication without tripping
+    #         this, and it does not care which branch answered or in what order.
+    if ruling == 'ADMISSIBLE':
+        bad = [lbl for _s, lbl in stmts if lbl in INADMISSIBLE_VERSION_LABELS]
+        assert not bad or typeset_ok, (
+            f'ADMISSIBLE was minted for a manifestation an authenticated backend labels {bad!r} and '
+            f'whose bytes carry NO publisher typeset furniture. THE V9 P0 IS REOPENED.')
+    return kind, ruling, why
 
 
 BYTE_ID: dict = {}
@@ -100,7 +319,6 @@ def main() -> int:
         # it acquits: Bresnahan's held bytes are 0.999-identical to UPenn's `submittedVersion`, which
         # is how we know the QJE row holds the working paper.
         bid = BYTE_ID.get(str(i)) or BYTE_ID.get(i)
-        bid_ver = (bid or {}).get('version')
 
         # An OA-NATIVE journal article (PLOS, JAIR, BMC, PMC, ScienceDirect) has no form-feed folios
         # to count -- the folio test is a PDF test and simply cannot see them. Their article-of-record
@@ -112,68 +330,9 @@ def main() -> int:
         # A preprint says which journal it is FOR. That is not the journal's rendering of it.
         preprint = re.search(r'\bfor [A-Z][a-z]+ and [A-Z][a-z]+\s*$|submitted to\b', ft[:3000], re.M)
 
-        # ---- THE RULING. Derived, in the order of what the bytes can prove. --------------------
-        if prof['identity']['verdict'] == 'CONTRADICTED':
-            kind, ruling = 'WRONG_WORK', 'PURGE'
-            why = 'these bytes are a different work by a different author — nothing to align'
-        elif prof['artifact_kind'] == 'landing_page':
-            kind, ruling = 'LANDING_PAGE', 'NO_EVIDENCE'
-            why = 'a web page about the document, not the document'
-        elif prof['extractability']['verdict'] == 'CORRUPT':
-            kind, ruling = 'EXTRACTION_FAILURE', 'NO_EVIDENCE'
-            why = 'bytes are not readable prose'
-        elif bid_ver == 'submittedVersion':
-            kind, ruling = 'WORKING_PAPER', 'INADMISSIBLE'
-            why = (f"held bytes are {bid['cover']:.3f}-identical to a location an authenticated backend "
-                   f"labels `submittedVersion` ({bid['host']}) — this IS the working paper")
-        elif tp['wp_series_marks'] >= 1 and not is_publisher_typeset(tp):
-            kind, ruling = 'WORKING_PAPER', 'INADMISSIBLE'
-            why = 'the bytes self-declare a working-paper series and carry no publisher typeset furniture'
-        elif is_publisher_typeset(tp):
-            kind, ruling = 'JOURNAL_ARTICLE', 'ADMISSIBLE'
-            why = (f"publisher typeset furniture: {tp['running_heads']} running heads of the journal's "
-                   f"name, {tp['folios']} printed page folios — only a typesetter emits these")
-        elif bid_ver == 'publishedVersion':
-            kind, ruling = 'JOURNAL_ARTICLE', 'ADMISSIBLE'
-            why = (f"held bytes are {bid['cover']:.3f}-identical to a location an authenticated backend "
-                   f"labels `publishedVersion` — these ARE the article of record")
-        elif (a.get('journal_bytes') or {}).get('version') == 'acceptedVersion':
-            # ── THE V9 P0, AT ITS LAST HOP ────────────────────────────────────────────────────────
-            # This branch used to read `ruling = 'ADMISSIBLE'`, on the basis that
-            # "accepted_manuscript_of is span-preserving". It was, and it should never have been.
-            #
-            # Read what the condition actually tests: a field in a JSON record that came from Unpaywall,
-            # whose value is the string 'acceptedVersion'. NOT ONE BYTE OF THE DOCUMENT IS CONSULTED.
-            # A repository's one-word opinion — self-reported by the depositing author, frequently stale,
-            # never audited — was the whole evidence for printing a manuscript's numbers as a journal's
-            # findings. Every other branch in this ruling ladder reads the BYTES: running heads, printed
-            # folios, cover-sheet furniture, an 8-gram distinctness test. This one read a label.
-            #
-            # Sol V9 §4: "An accepted manuscript is NEVER the journal version merely because a repository
-            # says acceptedVersion." Acceptance precedes copy-editing, proofs and the editor's last
-            # round, and THE NUMBERS MOVE ACROSS THEM (0.37pp -> 0.2pp, Acemoglu & Restrepo).
-            #
-            # An accepted manuscript is now attributable AS AN ACCEPTED MANUSCRIPT and as nothing else.
-            # Under a JOURNAL-ONLY contract that means INADMISSIBLE — and it is not a downgrade of the
-            # evidence, it is the correct name for it. A span in it reaches the journal only across a
-            # verified SpanCorrespondence (provenance.SpanCorrespondence): that span, both hashes, both
-            # offsets, exact canonical equality, and THAT SPAN ONLY.
-            kind, ruling = 'ACCEPTED_MANUSCRIPT', 'INADMISSIBLE'
-            why = ('a repository VERSION LABEL (`acceptedVersion`, via Unpaywall) — a string, not bytes. '
-                   'An accepted manuscript is NOT the journal version: peer review is not the last thing '
-                   'that changes a number. Attributable as an accepted manuscript ONLY; a span reaches '
-                   'the journal only across a verified per-span SpanCorrespondence into VoR bytes')
-        elif preprint and not oa_native:
-            kind, ruling = 'PREPRINT', 'INADMISSIBLE'
-            why = 'the bytes say which journal they are FOR — an author preprint, not the journal’s text'
-        elif oa_native and tp['wp_series_marks'] == 0:
-            kind, ruling = 'JOURNAL_ARTICLE', 'ADMISSIBLE'
-            why = (f"open-access article-of-record header block ({oa_native.group(0)[:40]!r}) and no "
-                   f"working-paper furniture anywhere in the front matter")
-        else:
-            kind, ruling = 'UNDETERMINED_VERSION', 'INADMISSIBLE'
-            why = ('no publisher typeset furniture and no authenticated version statement — we cannot '
-                   'show these bytes are the article of record')
+        # ---- THE RULING. ONE reducer, which no branch order can bypass. (See `rule()` above.) ----
+        kind, ruling, why = rule(prof, tp, bid, (a.get('journal_bytes') or {}).get('version'),
+                                 oa_native, preprint)
 
         out.append(dict(
             idx=i, doi=doi, title=r.get('title'), venue=r.get('venue'), year=r.get('year'),

@@ -1915,6 +1915,7 @@ def _parse_outline(
         if allowed_ev_ids is not None:
             unknown = [e for e in ev_ids if e not in allowed_ev_ids]
             if unknown:
+<<<<<<< Updated upstream
                 reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
                 ev_ids = [e for e in ev_ids if e in allowed_ev_ids]
         # Item 5b: a DUPLICATE title (a model splitting ONE required heading across two JSON blocks)
@@ -1933,6 +1934,21 @@ def _parse_outline(
                     if getattr(target, "undersupplied", False) and len(target.ev_ids) >= 2:
                         target.undersupplied = False
             continue
+=======
+                if _is_required:
+                    # Fable item 7: a REQUIRED section must never be discarded over one
+                    # hallucinated ev_id — that strands the required section empty (then conform
+                    # fills an undersupplied plan and only one retry saves it). Filter the unknown
+                    # ids out, KEEP the model's valid selection, and DISCLOSE the drop as a reason
+                    # code. If filtering leaves <2 ev_ids the section is tagged ``undersupplied``
+                    # below (disclosed, never faked). Non-required titles keep the exact legacy
+                    # whole-section drop — byte-identical when required_sections is empty.
+                    ev_ids = [e for e in ev_ids if e in allowed_ev_ids]
+                    reason_codes.append(f"unknown_ev_ids_filtered:{','.join(unknown[:3])}")
+                else:
+                    reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
+                    continue
+>>>>>>> Stashed changes
         # PUSH 1(d): a required title is accepted with ANY ev_id count (including 0) and tagged
         # ``undersupplied`` when below the >=2 floor — the section is DISCLOSED, never faked. A
         # non-required title keeps the exact legacy <2 drop (byte-identical when required is empty).
@@ -3530,6 +3546,13 @@ async def _call_outline(
         "digest_total_chars": int(getattr(_digest_menu, "total_chars", 0)) if _digest_menu is not None else 0,
         "digest_baskets": len(_digest_menu.basket_lines) if _digest_menu is not None else 0,
         "digest_singletons": len(_digest_menu.singleton_lines) if _digest_menu is not None else 0,
+        # Fable item 9: title-like basket-claim fraction (DATA-only quality telemetry). High => the
+        # planner is still reading titles, not claim sentences; the REAL fix is upstream (S3), filed
+        # cross-section in docs/s4_outline_upstream_escalations.md. Never a gate.
+        "title_like_claim_fraction": (
+            float(getattr(_digest_menu, "title_like_claim_fraction", 0.0))
+            if _digest_menu is not None else 0.0
+        ),
         "requirements_block_wired_into_call_outline": bool(_requirements_block),
         "requirements_block_chars": len(_requirements_block),
         "required_sections_count": len(_required_sections),
