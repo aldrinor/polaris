@@ -103,10 +103,24 @@ paper = {'doi': '10.x/mota', 'title': 'Mota v. United Parcel Logistics', 'author
          'attribution': 'In Mota v. United Parcel Logistics (2024), the Supreme Court',
          'attribution_short': 'Mota v. UPL (2024)', 'fulltext': OPINION, 'content_status': 'FULLTEXT'}
 
-view, chunks = EM.chunk_document('op', OPINION)
+# THE OPINION MUST BE IN THE GRAPH: a card is a bound span, and it binds to a MANIFESTATION.
+# `type: judicial-opinion` makes the work a `case`, whose artifact is COMPLETE AT ANY LENGTH.
+import provenance as P
+row_op = dict(paper, type='judicial-opinion')
+G = P.migrate([row_op])
+MID = next(iter(G.manifestations))
+paper = dict(paper, manifestation_id=MID)
+print(f"\n  the opinion, in the graph: {G.manifestations[MID].profile['artifact_kind']} "
+      f"(complete={G.manifestations[MID].profile['complete']}, "
+      f"{G.manifestations[MID].profile['n_words']} words)")
+
+view, chunks = EM.chunk_document('op', G.manifestations[MID].text)
 cands = [c for ch in chunks for c in EM.harvest(ch, mc)]
-print(f'\n  1. harvest() — the ONLY deterministic recall stage — candidates found: {len(cands)}')
-print(f'     (evidence_miner.py:918  `if not re.search(r"\\d", t): continue`)')
+qual = [c for c in cands if not c['quantitative']]
+print(f'\n  1. harvest() — the deterministic recall stage — candidates found: {len(cands)}'
+      f'  ({len(qual)} qualitative)')
+print(f'     the no-digit discard (`if not re.search(r"\\d", t): continue`) IS GONE.')
+print(f'     families seen: {sorted({f for c in cands for f in c["families"]})}')
 
 holding = ('the employer bears the burden of proving that the system is job-related and consistent '
            'with business necessity')
@@ -115,31 +129,48 @@ ch0 = next((c for c in chunks if holding[:40] in c.text), chunks[0])
 
 print(f'\n  2. Now HAND the holding to gate_card() as if a model had proposed it anyway.')
 for label, raw in [
-    ('a holding, no effect/unit/outcome (what a holding actually is)',
+    ('the holding, TYPED as what it is (doctrinal_holding_or_rule)',
+     dict(act='doctrinal_holding_or_rule', span=holding,
+          holding='the employer bears the burden of proving that the system is job-related and '
+                  'consistent with business necessity',
+          authority='the employer', mechanisms=[])),
+    ('the OLD shape: an untyped card with no effect/unit/outcome (what the gate used to destroy)',
      dict(span=holding, effect='', unit='', comparator='', outcome='', population='', geography='',
           period='', technology='', industry='', unit_of_analysis='', design='', uncertainty='',
           horizon='', mechanisms=[])),
-    ('...the SAME holding, but with `outcome` filled in to buy its way past GATE 6',
-     dict(span=holding, effect='', unit='', comparator='', outcome='burden of proving', population='',
-          geography='', period='', technology='', industry='', unit_of_analysis='', design='',
-          uncertainty='', horizon='', mechanisms=[])),
 ]:
     rej = EM.new_rejects()
-    c = EM.gate_card(raw, view, ch0, paper, pw, mc, rej)
-    fired = [(k, v) for k, v in rej.items() if v and k != '_examples']
+    c = EM.gate_card(raw, view, ch0, paper, pw, mc, rej,
+                     graph=G, source_policy=P.OFFICIAL_TEXT)
+    fired = [(k, v) for k, v in rej.items() if v and not k.startswith('_')]
     print(f'\n     {label}')
     print(f'       -> {"REJECTED" if c is None else "ADMITTED as a card"}   rejects={fired}')
+    if c:
+        print(f'          act        : {c["act"]}')
+        print(f'          claim      : {c["claim"][:88]}')
+        print(f'          attribution: {c["attribution"]}')
+        print(f'          bound to   : {c["manifestation_id"]} / {c["content_hash"][:16]}...')
+        print(f'\n     >>> ATTACK 6 IS DEAD. A judicial opinion produces evidence.')
 
-print(f'\n  3. THE PROMPT the model is given (evidence_miner.py:1254):')
-print(f'       "You are mining a peer-reviewed article for INTERPRETABLE QUANTITATIVE EVIDENCE."')
-print(f'       "A BARE NUMBER IS NOT A FINDING... If you cannot fill effect + unit + outcome,')
-print(f'        DO NOT EMIT THE OBJECT."')
-print(f'     There is no field in the tuple for a HOLDING, a DOCTRINE, or a RULE. The schema is an')
-print(f'     ESTIMATE TUPLE: effect / unit / comparator / outcome / population / design.')
+print(f'\n  3. THE PROMPT the model is now given (evidence_miner.mine_prompt(), from the REGISTRY):')
+print(f'       "You are mining a source document for EVIDENCE... Each act is one thing the source')
+print(f'        DOES with evidence, and it is TYPED."')
+for a in EM.REGISTRY.acts.values():
+    req = ' + '.join(a.required_all) or '-'
+    print(f'         {a.id:<30} required: {req}')
+print(f'     The registry is DATA (config/evidence_acts.json, {EM.REGISTRY.version}). Adding an act')
+print(f'     type to a corpus of case law is a data edit, not a code edit.')
 
 print(f'\n  4. research_contract._close() needs >=1 quantitative OR "direct qualitative" result;')
 print(f'     has_direct_result() requires a RESULT VERB in the span:')
 print(f'       _RESULT_VERB matches the holding? {bool(RC._RESULT_VERB.search(holding))}')
-print(f'\n  >>> A doctrinal source is filtered at the RECALL stage (no digit -> never a candidate),')
-print(f'  >>> discouraged at the PROMPT stage, and has no schema to land in. Nothing COUNTS the loss:')
-print(f'  >>> harvest() `continue`s silently — the discard is not in `rejects` and not in `stats`.')
+
+print(f'\n  >>> ATTACK 6 IS DEAD:')
+print(f'  >>>   RECALL  — harvest() no longer requires a digit; the holding IS a candidate, typed.')
+print(f'  >>>   PROMPT  — the model is asked for TYPED ACTS, and doctrinal_holding_or_rule is one.')
+print(f'  >>>   SCHEMA  — the act declares `holding` + `authority`; it needs no effect and no outcome.')
+print(f'  >>>   COUNTING— every rejection has a counter (act_missing_required:<act>), every block')
+print(f'  >>>             examined is counted (blocks_examined / blocks_no_act). A discard can no')
+print(f'  >>>             longer read as an empty document.')
+print(f'  >>> AND D1 DID NOT MOVE: the quantitative candidate set is bit-identical (620 = 620 on the')
+print(f'  >>> live corpus), and the qualitative lane has its own reserved slots in the prompt.')

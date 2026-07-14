@@ -29,6 +29,7 @@ print('=' * 100)
 # ---------------------------------------------------------------------------------------------
 # Step 0: establish, FROM THE BYTES, which rows are working papers wearing a journal's name.
 # ---------------------------------------------------------------------------------------------
+import provenance as P
 from provenance import Work, profile, derive_expression_kind
 
 print('\n--- STEP 0: what do the bytes of each FULLTEXT row actually say they are? ---')
@@ -62,6 +63,13 @@ src = target['fulltext']
 print(f"  TARGET: {(target['authors'] or ['?'])[0]} ({target['year']}), {target['venue']}")
 print(f"          bytes = {tprof['expression_kind']} ({tprof['expression_kind_basis'][:56]})")
 
+# THE GRAPH. gate_card() cannot be called without one — a card IS a bound span.
+G = P.migrate(CORPUS)
+MID = next(m for m, x in G.manifestations.items()
+           if G.works[x.work_id].doi == target['doi'] and x.text_field == 'fulltext')
+target = dict(target, manifestation_id=MID)
+src = G.manifestations[MID].text
+
 view, chunks = EM.chunk_document('t', src)
 contract = EM.load_contract('AI and the labour market', None)
 
@@ -87,10 +95,24 @@ raw = {'span': span, 'effect': nums[0] if nums else '', 'unit': '', 'comparator'
        'mechanisms': []}
 rejects = EM.new_rejects()
 pw = EM.paper_window(view, chunks, target)
-card = EM.gate_card(raw, view, chosen, target, pw, contract, rejects)
+card = EM.gate_card(raw, view, chosen, target, pw, contract, rejects,
+                    graph=G, source_policy=P.JOURNAL_ONLY)
 
 if card is None:
-    print(f'\n  gate_card REJECTED it: {[k for k, v in rejects.items() if v and k != "_examples"]}')
+    fired = [k for k, v in rejects.items() if not k.startswith('_') and v]
+    print(f'\n  gate_card REJECTED it under `journal_articles_only`: {fired}')
+    for q in rejects.get('_quarantine', []):
+        print(f"\n  >>> ATTACK 3 IS DEAD. The span is REAL and VERBATIM, and it is REFUSED.")
+        print(f"      it would have been printed as: {q['row_attribution_that_would_have_been_used']!r}")
+        print(f"      refusal: {q['refusal'][:150]}")
+        print(f"      QUARANTINED (not deleted): expression={q['expression_id']}")
+    card_any = EM.gate_card(raw, view, chosen, target, pw, contract, EM.new_rejects(),
+                            graph=G, source_policy=P.ANY_VERSION)
+    if card_any:
+        print(f"\n  under `any_identified_version` the SAME span IS admitted — as what it is:")
+        print(f"      attribution : {card_any['attribution']!r}")
+        print(f"      names       : {card_any['attribution_target_expression_id']}")
+        print(f"      bound to    : {card_any['manifestation_id']} / {card_any['content_hash'][:16]}...")
 else:
     print(f"\n  >>> gate_card ADMITTED the span. THE CARD IT PRODUCED:")
     print(f"        source      : {card['source']!r}")

@@ -1,0 +1,182 @@
+{
+  "registry_version": "ea-1",
+  "why_this_file_exists": [
+    "The extractor asked the model for QUANTITATIVE TUPLES and the gate destroyed anything without an",
+    "`outcome`. A judicial opinion produced ZERO cards and THE DISCARD WAS NOT EVEN COUNTED. Opus built",
+    "that to chase D1, which carries weight 0.014 -- moving it 5.90 -> 10.00 adds about +0.0057 scalar.",
+    "The price of those six thousandths was EVERY QUALITATIVE SOURCE IN THE WORLD.",
+    "",
+    "So an evidence act is TYPED, and its type lives HERE, IN DATA. Adding `doctrinal_holding_or_rule`",
+    "to a corpus of case law is a DATA EDIT to this file -- never a code edit. evidence_miner.py reads",
+    "the field table, the act table, the required-field rules and the prompt out of this registry and",
+    "hardcodes NONE of them.",
+    "",
+    "D1 MUST NOT FALL. `quantitative_estimate` below reproduces the pre-existing gate EXACTLY: an",
+    "effect, a number that is in the span, and at least one of unit/comparator/outcome (which is the",
+    "old GATE 6 orphan-number rule, `not (unit or comparator) and not outcome -> reject`, written as a",
+    "rule instead of an `if`). The qualitative acts are ADDITIVE. They cannot displace a quantitative",
+    "act, because nothing here is capped."
+  ],
+  "fields": {
+    "effect": {
+      "windows": ["span"],
+      "prompt": "the magnitude, e.g. '-0.39' or 'a fall of 0.2' or '14%'"
+    },
+    "unit": {
+      "windows": ["span"],
+      "prompt": "what the magnitude is measured in: 'percentage points', 'percent', 'log points', 'USD', 'standard deviations', 'jobs'"
+    },
+    "comparator": {
+      "windows": ["span", "chunk"],
+      "prompt": "per WHAT / relative to WHAT: 'per additional robot per thousand workers', 'relative to the control group', 'compared with 1990'"
+    },
+    "outcome": {
+      "windows": ["span", "chunk"],
+      "prompt": "the thing that changed or was measured: 'employment-to-population ratio', 'hourly wage', 'tasks completed per hour'"
+    },
+    "finding": {
+      "windows": ["span"],
+      "prompt": "WHAT THE SOURCE FOUND, in the source's own words as closely as you can keep them. Use this when the result is real but carries no interpretable magnitude ('adoption was concentrated among larger firms'). It is NOT a summary of the paper and NOT your opinion of it."
+    },
+    "holding": {
+      "windows": ["span"],
+      "prompt": "the RULE OR HOLDING the decision/instrument states, as stated: 'an employer is liable for an algorithmic decision it cannot explain'"
+    },
+    "authority": {
+      "windows": ["span", "chunk", "paper"],
+      "prompt": "the body whose rule this is: the court, tribunal, regulator, standards body or statute section"
+    },
+    "recommendation": {
+      "windows": ["span"],
+      "prompt": "the guidance or recommendation ISSUED BY THE SOURCE, as stated: 'firms should disclose the training data of models used in hiring'"
+    },
+    "limitation": {
+      "windows": ["span"],
+      "prompt": "the methodological limitation THE SOURCE ITSELF STATES about its own evidence: 'the sample excludes firms with fewer than 20 employees'"
+    },
+    "population": {
+      "windows": ["span", "chunk", "paper"],
+      "prompt": "who or what was measured: 'US commuting zones', '1,200 customer-support agents', 'French manufacturing firms'"
+    },
+    "geography": {
+      "windows": ["span", "chunk", "paper"],
+      "prompt": "country/region, if the source states one"
+    },
+    "period": {
+      "windows": ["span", "chunk", "paper"],
+      "prompt": "the years the data cover, if the source states them"
+    },
+    "technology": {
+      "windows": ["span", "chunk", "paper"],
+      "prompt": "the technology studied: 'industrial robots', 'generative AI', 'computers', 'machine learning'"
+    },
+    "industry": {
+      "windows": ["span", "chunk", "paper"],
+      "prompt": "the industry/sector, if the source states one"
+    },
+    "unit_of_analysis": {
+      "windows": [],
+      "enum": "levels",
+      "prompt": "one of task|worker|occupation|firm|industry|region|economy|household|team"
+    },
+    "design": {
+      "windows": [],
+      "enum": "designs",
+      "prompt": "one of experiment|quasi-experimental|observational|survey|simulation|theory|review|meta-analysis|case-study"
+    },
+    "uncertainty": {
+      "windows": ["span"],
+      "prompt": "the standard error, confidence interval or significance AS STATED: '(0.05)', '95% CI 0.1 to 0.4', 'p<0.01'"
+    }
+  },
+  "acts": [
+    {
+      "id": "quantitative_estimate",
+      "legacy_card_kind": "estimate",
+      "label": "A MEASURED QUANTITY",
+      "when": "the source REPORTS A MAGNITUDE IT MEASURED: an effect size, a coefficient, a rate, a share, a count.",
+      "fields": ["effect", "unit", "comparator", "outcome", "population", "geography", "period",
+                 "technology", "industry", "unit_of_analysis", "design", "uncertainty"],
+      "required_all": ["effect"],
+      "required_any": [["unit", "comparator", "outcome"]],
+      "requires_number_in_span": true,
+      "requires_result_verb": false,
+      "tuple_bearing": true
+    },
+    {
+      "id": "forecast_or_projection",
+      "legacy_card_kind": "projection",
+      "label": "A FORECAST",
+      "when": "the source PROJECTS a future magnitude rather than measuring one ('will displace', 'by 2030', 'is expected to'). It is evidence OF A CLAIM MADE, never evidence of an effect.",
+      "fields": ["effect", "unit", "comparator", "outcome", "population", "geography", "period",
+                 "technology", "industry", "unit_of_analysis", "design", "uncertainty"],
+      "required_all": ["effect"],
+      "required_any": [["unit", "comparator", "outcome"]],
+      "requires_number_in_span": true,
+      "requires_result_verb": false,
+      "tuple_bearing": false
+    },
+    {
+      "id": "qualitative_empirical_result",
+      "legacy_card_kind": "qualitative",
+      "label": "A RESULT WITH NO INTERPRETABLE MAGNITUDE",
+      "when": "the source STATES WHAT IT FOUND but the finding has no magnitude a reader could use ('the effect was concentrated in routine occupations', 'firms that adopted earliest were already larger').",
+      "fields": ["finding", "outcome", "population", "geography", "period", "technology", "industry",
+                 "unit_of_analysis", "design"],
+      "required_all": ["finding"],
+      "required_any": [],
+      "requires_number_in_span": false,
+      "requires_result_verb": true,
+      "tuple_bearing": false
+    },
+    {
+      "id": "doctrinal_holding_or_rule",
+      "legacy_card_kind": "qualitative",
+      "label": "A RULE, HOLDING OR OBLIGATION",
+      "when": "an authority STATES A RULE: a court's holding, a statutory obligation, a regulator's binding requirement, a standard's mandatory clause. THIS IS THE EVIDENCE A JUDICIAL OPINION IS MADE OF, and it has no effect size, no population and no design.",
+      "fields": ["holding", "authority", "geography", "period", "industry", "technology"],
+      "required_all": ["holding", "authority"],
+      "required_any": [],
+      "requires_number_in_span": false,
+      "requires_result_verb": false,
+      "tuple_bearing": false
+    },
+    {
+      "id": "recommendation_or_guidance",
+      "legacy_card_kind": "qualitative",
+      "label": "A RECOMMENDATION",
+      "when": "the source RECOMMENDS or ADVISES a course of action. It is evidence of what the source ADVISES, never evidence that the advice works.",
+      "fields": ["recommendation", "authority", "outcome", "population", "geography", "industry", "technology"],
+      "required_all": ["recommendation"],
+      "required_any": [],
+      "requires_number_in_span": false,
+      "requires_result_verb": false,
+      "tuple_bearing": false
+    },
+    {
+      "id": "null_or_inconclusive_result",
+      "legacy_card_kind": "qualitative",
+      "label": "A NULL OR INCONCLUSIVE RESULT",
+      "when": "the source LOOKED AND FOUND NOTHING ('no significant effect', 'the difference was not statistically distinguishable from zero', 'the evidence is inconclusive'). A NULL RESULT IS EVIDENCE. Publication bias is a real defect of literature reviews and dropping these is how a review manufactures a consensus.",
+      "fields": ["finding", "outcome", "population", "geography", "period", "technology", "industry",
+                 "unit_of_analysis", "design", "uncertainty"],
+      "required_all": ["finding", "outcome"],
+      "required_any": [],
+      "requires_number_in_span": false,
+      "requires_result_verb": false,
+      "tuple_bearing": false
+    },
+    {
+      "id": "methodological_limitation",
+      "legacy_card_kind": "qualitative",
+      "label": "A LIMITATION THE SOURCE STATES ABOUT ITSELF",
+      "when": "the source declares a limit on what its own evidence can support. A review that reports the estimate and hides the caveat the authors printed beside it is misrepresenting them.",
+      "fields": ["limitation", "outcome", "population", "geography", "period", "design"],
+      "required_all": ["limitation"],
+      "required_any": [],
+      "requires_number_in_span": false,
+      "requires_result_verb": false,
+      "tuple_bearing": false
+    }
+  ]
+}

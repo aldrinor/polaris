@@ -67,12 +67,34 @@ print(f'\n  cells CLOSED: {len(closed)}')
 for c in closed:
     print(f'    [{c.status}] {c.row_label[:24]} x {c.col_label[:26]}  n_works={c.n_works}  dois={c.dois}')
     print(f'         reason: {c.reason}')
-print(f'\n  MIN_WORKS_PER_CELL = {RC.MIN_WORKS_PER_CELL}, and Cell.n_works = len(distinct DOIs).')
+print(f'\n  MIN_WORKS_PER_CELL = {RC.MIN_WORKS_PER_CELL}, and Cell.n_works = DISTINCT EVIDENCE UNITS.')
 if closed:
     print('  >>> ATTACK 4 SUCCEEDS: ONE study closed a cell as TWO independent works.')
-    print('  >>> Nothing anywhere asks whether two DOIs report the SAME STUDY.')
 else:
-    print('  ATTACK 4 repelled.')
+    print('  >>> ATTACK 4 IS DEAD. No cell closed.')
+    print('      These cards carry NO BINDING (no manifestation_id, no work_id), and an unbound card')
+    print('      counts toward NO evidence unit — a DOI names a WORK, and a work has no bytes.')
+    print(f'      Matrix.unbound = {len(m.unbound)} card(s); every cell they touch is UNRESOLVED.')
+
+# ...and now the same attack with cards that ARE bound, both to expressions of ONE work.
+wp_b = dict(wp, work_id='work:10-1086-705716', evidence_unit_id='work:10-1086-705716',
+            manifestation_id='manif:aaa', expression_id='work:10-1086-705716:working_paper',
+            content_hash='a' * 64)
+jr_b = dict(jr, work_id='work:10-1086-705716', evidence_unit_id='work:10-1086-705716',
+            manifestation_id='manif:bbb', expression_id='work:10-1086-705716:journal_version',
+            content_hash='b' * 64)
+m2 = RC.coverage_matrix(contract, [wp_b, jr_b], corpus=CORPUS)
+closed2 = [c for c in m2.cells.values() if c.status == RC.CLOSED]
+print('\n  AND WITH THE CARDS PROPERLY BOUND (two expressions of ONE study):')
+print(f'    cells CLOSED: {len(closed2)}')
+for c in m2.cells.values():
+    if c.card_ids:
+        print(f'    [{c.status}] {c.row_label[:22]} x {c.col_label[:24]}  n_works={c.n_works} '
+              f'families={c.families}')
+print('    -> ONE evidence unit. MIN_WORKS_PER_CELL=2 is NOT met, so the cell cannot close on it.')
+print('    -> 0.37 vs 0.2 is A VERSION CHANGE. It is neither corroboration nor a literature conflict.')
+if closed2:
+    print('  >>> ATTACK 4 STILL SUCCEEDS: two expressions of one study closed a cell.')
 
 # and the corroboration lane
 cons = EM.consolidate([dict(wp), dict(jr)])

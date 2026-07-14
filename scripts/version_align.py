@@ -59,11 +59,26 @@ OUT = ROOT / 'outputs' / 'version_alignment.json'
 CACHE = ROOT / 'cache' / 'version_align'
 CACHE.mkdir(parents=True, exist_ok=True)
 
-MAILTO = 'aldrin.or@c-polarbiotech.com'
+sys.path.insert(0, str(ROOT / 'scripts'))
+from acquisition import (  # noqa: E402
+    MAILTO, Acquirer, BlobStore, content_host, extract_text as _extract, open_ledger,
+)
+
 UA = {'User-Agent': f'POLARIS/1.0 (mailto:{MAILTO})'}
 
-_LAST = [0.0]
-SPACING = 1.1
+#: The two backends we ask whether an OA JOURNAL version exists. Named before the loop walks them.
+ADAPTERS = ('unpaywall', 'openalex')
+
+#: THE ONE DURABLE LEDGER + the acquirer. Set in main(); the module-level default lets the helpers be
+#: imported and called in isolation without silently writing to the production log.
+ACQ: Acquirer | None = None
+
+
+def _acq() -> Acquirer:
+    global ACQ
+    if ACQ is None:
+        ACQ = Acquirer('version_align', ledger=open_ledger(), blobs=BlobStore())
+    return ACQ
 
 
 def nz(s: str) -> str:
@@ -72,35 +87,32 @@ def nz(s: str) -> str:
     return re.sub(r'\s+', ' ', s or '').strip()
 
 
-def polite(url: str, tries: int = 4, timeout: int = 30) -> tuple[str, object]:
+def polite(unit: str, adapter: str, url: str, tries: int = 4,
+           timeout: int = 30) -> tuple[str, object]:
     """(outcome, payload). outcome in {OK, HTTP_404, BACKEND_FAILED}.
 
     WE ARE THE ONES WHO GOT OURSELVES THROTTLED. 1.1s spacing, always; exponential backoff on 429/503;
     and if we exhaust the retries we say BACKEND_FAILED -- never, ever, "there is no copy".
+
+    This function ALREADY returned a typed outcome, which made it the most honest of the four
+    fetchers — and it was still not enough, because the outcome LIVED ONLY IN A LOCAL VARIABLE. It was
+    written into `version_alignment.json` as a string, in a field a later component could overwrite,
+    and NOTHING COULD REDUCE OVER IT. Now the observation goes to the durable ledger at the exception
+    boundary — BACKEND_ATTEMPTED, then exactly one of RESPONSE_RECEIVED | THROTTLED | BLOCKED — and the
+    typed return below is a CONVENIENCE FOR THIS FILE'S CONTROL FLOW, not the record of what happened.
     """
-    for a in range(tries):
-        wait = _LAST[0] + SPACING - time.time()
-        if wait > 0:
-            time.sleep(wait)
-        _LAST[0] = time.time()
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout) as r:
-                return 'OK', r.read()
-        except urllib.error.HTTPError as e:
-            if e.code in (429, 503, 502, 504):
-                time.sleep(3 * (2 ** a))
-                continue
-            if e.code == 404:
-                return 'HTTP_404', None          # the backend ANSWERED: it does not know this DOI
-            return 'BACKEND_FAILED', f'HTTP {e.code}'
-        except Exception as e:
-            time.sleep(1.5 * (2 ** a))
-            last = f'{type(e).__name__}'
-    return 'BACKEND_FAILED', 'retries exhausted'
+    r = _acq().get(unit, adapter, url, tries=tries, timeout=timeout)
+    if r.ok:
+        return 'OK', r.raw
+    if r.outcome == 'NOT_INDEXED':
+        return 'HTTP_404', None              # the backend ANSWERED: it does not know this DOI
+    # THROTTLED / BLOCKED / timeout. All of it is on the ledger with its status code. None of it is
+    # "there is no copy", and this file has never been allowed to say that.
+    return 'BACKEND_FAILED', f'{r.outcome} {r.transport_error}'.strip()
 
 
-def pget(url: str) -> tuple[str, object]:
-    o, raw = polite(url)
+def pget(unit: str, adapter: str, url: str) -> tuple[str, object]:
+    o, raw = polite(unit, adapter, url)
     if o != 'OK':
         return o, raw
     try:
@@ -109,25 +121,61 @@ def pget(url: str) -> tuple[str, object]:
         return 'BACKEND_FAILED', 'unparseable JSON'
 
 
-def fetch_doc(url: str) -> tuple[str, str]:
-    """(outcome, text). Cached on disk by URL hash so a re-run costs the network NOTHING."""
+def fetch_doc(unit: str, url: str, requested: dict | None = None) -> tuple[str, str]:
+    """(outcome, text). Cached on disk by URL hash so a re-run costs the network NOTHING.
+
+    These are THE JOURNAL VERSION'S BYTES — the only thing in the world that can make a working-paper
+    span journal-attributable. So they are recorded as a MANIFESTATION like any other bytes: blob id,
+    byte hash, locator, and the identity we asked for. An alignment that cannot name the bytes it
+    aligned against is not an alignment.
+    """
+    requested = requested or {}
+    acq = _acq()
+    adapter = content_host(url)
     key = CACHE / (hashlib.sha256(url.encode()).hexdigest()[:20] + '.txt')
+
     if key.exists():
-        return 'OK', key.read_text()
-    o, raw = polite(url, timeout=60)
-    if o != 'OK':
-        return o, ''
-    txt = ''
-    if raw[:4] == b'%PDF':
-        try:
-            from pdfminer.high_level import extract_text
-            txt = extract_text(io.BytesIO(raw)) or ''
-        except Exception as e:
-            return 'PDF_UNPARSEABLE', ''
-    else:
-        html = raw.decode('utf-8', 'ignore')
-        html = re.sub(r'(?is)<(script|style|nav|header|footer|aside)[^>]*>.*?</\1>', ' ', html)
-        txt = re.sub(r'\s{2,}', ' ', re.sub(r'&[a-z]+;', ' ', re.sub(r'<[^>]+>', ' ', html))).strip()
+        txt = key.read_text()
+        # No network request happened, so NO BACKEND_ATTEMPTED is emitted — we did not attempt a
+        # backend. But we DO hold the bytes, and a manifestation is a fact about what we hold.
+        acq.record_manifestation(
+            unit, locator=url, raw=txt.encode('utf-8'), text=txt, adapter=adapter,
+            requested_title=requested.get('title') or '',
+            requested_authors=list(requested.get('authors') or []),
+            requested_doi=requested.get('doi') or '',
+            requested_venue=requested.get('venue') or '',
+            requested_year=requested.get('year'),
+            source_type=str(requested.get('type') or 'journal-article'),
+            extraction_method='disk_cache', from_cache=True)
+        return 'OK', txt
+
+    r = acq.get(unit, adapter, url, timeout=60)
+    if not r.ok:
+        return ('HTTP_404' if r.outcome == 'NOT_INDEXED' else 'BACKEND_FAILED'), ''
+
+    txt, method = _extract(r.raw, r.content_type)
+    if not txt and method.startswith('pdf_unparseable'):
+        # WE HOLD BYTES WE CANNOT READ. That is not "no journal version exists" — it is an extraction
+        # failure, and the two must never share a label. The bytes are kept.
+        acq.record_manifestation(
+            unit, locator=url, raw=r.raw, text='', adapter=adapter,
+            requested_title=requested.get('title') or '',
+            requested_authors=list(requested.get('authors') or []),
+            requested_doi=requested.get('doi') or '',
+            requested_venue=requested.get('venue') or '',
+            requested_year=requested.get('year'),
+            extraction_method=method, http_status=r.http_status, content_type=r.content_type)
+        return 'PDF_UNPARSEABLE', ''
+
+    acq.record_manifestation(
+        unit, locator=url, raw=r.raw, text=txt, adapter=adapter,
+        requested_title=requested.get('title') or '',
+        requested_authors=list(requested.get('authors') or []),
+        requested_doi=requested.get('doi') or '',
+        requested_venue=requested.get('venue') or '',
+        requested_year=requested.get('year'),
+        source_type=str(requested.get('type') or 'journal-article'),
+        extraction_method=method, http_status=r.http_status, content_type=r.content_type)
     key.write_text(txt)
     return 'OK', txt
 
@@ -136,8 +184,9 @@ def fetch_doc(url: str) -> tuple[str, str]:
 # LOCATING A JOURNAL VERSION — and being honest about whether we actually asked
 # =====================================================================================================
 
-def unpaywall(doi: str) -> dict:
-    o, d = pget(f'https://api.unpaywall.org/v2/{urllib.parse.quote(doi)}?email={MAILTO}')
+def unpaywall(unit: str, doi: str) -> dict:
+    o, d = pget(unit, 'unpaywall',
+                f'https://api.unpaywall.org/v2/{urllib.parse.quote(doi)}?email={MAILTO}')
     if o != 'OK':
         return dict(backend='unpaywall', outcome=o, locations=[])
     locs = []
@@ -151,8 +200,9 @@ def unpaywall(doi: str) -> dict:
                 oa_status=d.get('oa_status'), journal=d.get('journal_name'), locations=locs)
 
 
-def openalex(doi: str) -> dict:
-    o, d = pget(f'https://api.openalex.org/works/doi:{urllib.parse.quote(doi)}?mailto={MAILTO}')
+def openalex(unit: str, doi: str) -> dict:
+    o, d = pget(unit, 'openalex',
+                f'https://api.openalex.org/works/doi:{urllib.parse.quote(doi)}?mailto={MAILTO}')
     if o != 'OK':
         return dict(backend='openalex', outcome=o, locations=[])
     locs = []
@@ -271,8 +321,18 @@ def main() -> int:
             results.append(rec)
             continue
 
-        up = unpaywall(doi)
-        oa = openalex(doi)
+        # ── ROUTE_PLANNED, before the adapter loop. ───────────────────────────────────────────────
+        # `route_complete` will mean BOTH of these have a terminal outcome record. It is what licenses
+        # the NO_JOURNAL_BYTES branch below to say "both backends answered, and NEITHER lists an OA
+        # published version" — a scoped absence, and the ONLY state that can support one.
+        acq = _acq()
+        acq.plan_route(doi, ADAPTERS, requested_title=r.get('title') or '', doi=doi,
+                       requested_venue=r.get('venue') or '', requested_year=r.get('year'),
+                       requested_authors=list(r.get('authors') or []),
+                       source_type=str(r.get('type') or 'journal-article'))
+
+        up = unpaywall(doi, doi)
+        oa = openalex(doi, doi)
         rec['unpaywall_outcome'] = up.get('outcome')
         rec['openalex_outcome'] = oa.get('outcome')
         rec['unpaywall_locations'] = up.get('locations')
@@ -303,8 +363,11 @@ def main() -> int:
 
         # We have a candidate. Go and get the bytes and TEST THE SPANS.
         best = None
+        want = dict(title=r.get('title') or '', authors=r.get('authors') or [], doi=doi,
+                    venue=r.get('venue') or '', year=r.get('year'),
+                    type=r.get('type') or 'journal-article')
         for c in cands:
-            o, txt = fetch_doc(c['url'])
+            o, txt = fetch_doc(doi, c['url'], want)
             got = dict(**c, fetch_outcome=o, words=len(txt.split()))
             if o != 'OK' or len(txt.split()) < 1200:
                 got['usable'] = False

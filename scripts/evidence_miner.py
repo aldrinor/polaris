@@ -79,7 +79,9 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 CORPUS = ROOT / 'outputs' / 'journal_corpus_content.json'
 OUT_CARDS = ROOT / 'outputs' / 'evidence_cards_v2.json'
 OUT_META = ROOT / 'outputs' / 'evidence_cards_v2.meta.json'
+OUT_QUARANTINE = ROOT / 'outputs' / 'evidence_cards_v2.quarantine.json'
 CONTRACT_JSON = ROOT / 'outputs' / 'research_contract.json'
+ACT_REGISTRY = ROOT / 'config' / 'evidence_acts.json'
 
 MODEL = os.getenv('PG_MINER_MODEL') or os.getenv('PG_GENERATOR_MODEL', 'z-ai/glm-5.2')
 
@@ -89,6 +91,26 @@ _print_lock = threading.Lock()
 def log(msg: str) -> None:
     with _print_lock:
         print(msg, flush=True)
+
+
+def prov():
+    """provenance.py, imported LAZILY — it does `from evidence_miner import View, sections_of,
+    SECTION_WEIGHT` at ITS top, so a top-level import here is a circular one that fails at line 79,
+    before `View` exists. Deferring it to first call means this module's body is complete by then.
+
+    THE GRAPH IS NOT OPTIONAL. This accessor exists to resolve an import cycle, NOT to make provenance
+    a soft dependency: `gate_card()` takes the graph as a REQUIRED keyword argument and a card cannot
+    be constructed without one. That is the difference between this and the 6,463 lines of correct,
+    self-tested, never-imported modules that let the P0 ship.
+    """
+    global _PROV
+    if _PROV is None:
+        import provenance as _p          # noqa: PLC0415 — deliberately deferred; see above
+        _PROV = _p
+    return _PROV
+
+
+_PROV = None
 
 
 # =============================================================================================
@@ -195,6 +217,17 @@ class MiningContract:
     horizons: set[str] = field(default_factory=lambda: set(GENERIC_HORIZONS))
     origin: str = 'none'
 
+    #: WHICH EXPRESSIONS THIS ANSWER MAY CITE — the task's instruction, made mechanical. It is a
+    #: provenance.SourcePolicy, and it is what `gate_card()` resolves every span against.
+    #:
+    #: THE DEFAULT IS `ANY_VERSION`, NOT `JOURNAL_ONLY`. A question that states no source constraint
+    #: has not imposed one, and defaulting to journal-only would refuse every judicial opinion,
+    #: statute and registry record in the world (none of them HAS a journal version) — which is the
+    #: same silent slaughter of qualitative evidence this file was sent to end, wearing a stricter
+    #: hat. ANY_VERSION is not permissive about the LIE: a span from a working paper still resolves to
+    #: the WORKING PAPER's attribution, never to the journal's.
+    source_policy: object = field(default_factory=lambda: prov().ANY_VERSION)
+
     def tag(self, text: str) -> list[str]:
         low = (text or '').lower()
         stems = {_stem(w) for w in re.findall(r'[a-z]{4,}', low)}
@@ -247,7 +280,29 @@ def _contract_from_obj(obj, question: str) -> MiningContract | None:
         levels=(lv | GENERIC_LEVELS) or set(GENERIC_LEVELS),
         designs=(dz | GENERIC_DESIGNS) or set(GENERIC_DESIGNS),
         horizons=(hz | GENERIC_HORIZONS) or set(GENERIC_HORIZONS),
+        source_policy=_source_policy_from(g('source_policy')),
         origin='research_contract')
+
+
+def _source_policy_from(sp) -> object:
+    """research_contract.SourcePolicy (what the QUESTION demanded) -> provenance.SourcePolicy (which
+    EXPRESSIONS a span may therefore name). Two modules, two vocabularies, ONE instruction — and the
+    translation between them is the only place the task's rule becomes a rule about bytes.
+
+    Task 72 says "only cites high-quality journal articles". That is not a preference about metadata:
+    it means a span from the NBER working paper MAY NOT BE PRINTED under the JPE's name, however
+    verbatim the span and however real the DOI.
+    """
+    P = prov()
+    if sp is None:
+        return P.ANY_VERSION
+    get = (lambda k: sp.get(k)) if isinstance(sp, dict) else (lambda k: getattr(sp, k, None))
+    if not get('peer_reviewed_only'):
+        return P.ANY_VERSION
+    excluded = [str(x).lower() for x in (get('excluded_types') or [])]
+    if any('proceeding' in x or 'conference' in x for x in excluded):
+        return P.JOURNAL_ONLY
+    return P.PEER_REVIEWED
 
 
 def load_contract(question: str = '', facets: list | None = None) -> MiningContract:
@@ -907,9 +962,60 @@ def sentences(text: str, base: int = 0) -> list[tuple[int, int, str]]:
     return merged
 
 
+# ---------------------------------------------------------------------------------------------
+# THE CUES FOR THE NON-QUANTITATIVE ACTS.
+#
+# `harvest()` opened with `if not re.search(r'\d', t): continue`. A judicial opinion contains holdings
+# and no effect sizes, so it harvested NOTHING — and because harvest() is also what `stats['candidates']`
+# counts, the telemetry then reported ZERO CANDIDATES and the run looked clean. A silent discard that
+# reports itself as an empty document is the worst possible failure mode: it is invisible in the
+# metrics that exist to catch it.
+#
+# These are HINTS to the LLM and INPUTS TO TELEMETRY. They gate nothing — the registry's required-field
+# rules do, against the verbatim span. A sentence may carry several families; a candidate is not a
+# decision about what the sentence is.
+DOCTRINAL = re.compile(
+    r'\b(?:held|holds|holding|ruled|ruling|judgment|judgement|per curiam|affirmed|reversed|remanded'
+    r'|the court|this court|the tribunal|the panel|the board)\b'
+    r'|\b(?:shall|must|may not|is required to|are required to|is prohibited|is liable|are liable'
+    r'|unlawful|is entitled to|has a duty)\b'
+    r'|\b(?:pursuant to|under (?:article|section|§)|statute|regulation|directive|provision)\b'
+    r'|\b(?:article|section|§|clause)\s*\d', re.I)
+RECOMMENDATION = re.compile(
+    r'\b(?:recommend\w*|we advise|advises?|guidance|best practice|policy ?makers? should'
+    r'|should (?:be |not )?(?:consider|adopt|ensure|require|disclose|monitor|invest|prioriti[sz]e)'
+    r'|we (?:propose|suggest|call for|urge)|calls? for|ought to)\b', re.I)
+LIMITATION = re.compile(
+    r'\b(?:limitations?|caveats?|we cannot|cannot rule out|do(?:es)? not allow us|should be '
+    r'interpreted with caution|external validity|generali[sz]ability|our (?:sample|data|design|study) '
+    r'(?:is|are|was|were) (?:limited|restricted|small|not)|subject to (?:measurement error|bias)'
+    r'|beyond the scope of)\b', re.I)
+NULL_RESULT = re.compile(
+    r'\bno (?:statistically )?(?:significant|detectable|measurable|discernible|systematic) '
+    r'(?:effect|difference|association|impact|relationship|change)\b'
+    r'|\b(?:not|never) statistically significant\b|\bfail(?:s|ed)? to reject\b'
+    r'|\binconclusive\b|\bno evidence (?:of|that|for|to suggest)\b'
+    r'|\bindistinguishable from zero\b|\bnull (?:result|effect|finding)s?\b', re.I)
+
+#: act family -> its cue. QUANTITATIVE IS NOT IN THIS TABLE: it is the QUANT scan below, whose scoring
+#: is UNCHANGED, so the quantitative candidate ranking that D1 depends on is bit-for-bit what it was.
+QUAL_CUES = {
+    'doctrinal_holding_or_rule':   DOCTRINAL,
+    'recommendation_or_guidance':  RECOMMENDATION,
+    'methodological_limitation':   LIMITATION,
+    'null_or_inconclusive_result': NULL_RESULT,
+}
+
+
 def harvest(chunk: Chunk, contract: MiningContract) -> list[dict]:
-    """Every sentence in the chunk that carries a quantity. NO LLM. This is the recall stage; the
-    tuple gate downstream is the precision stage."""
+    """EVERY EVIDENCE-BEARING SENTENCE in the chunk, typed by the act families it may carry. NO LLM.
+    This is the recall stage; the registry's schema gate downstream is the precision stage.
+
+    A candidate carries `families`. A sentence with a quantity is a `quantitative_estimate` candidate
+    exactly as before, scored by exactly the same formula. A sentence with a holding, a recommendation,
+    a stated limitation, a null result, or a plain result verb is now A CANDIDATE TOO — and a document
+    that yields none of either is COUNTED (`blocks_no_act`) rather than vanishing.
+    """
     if chunk.weight <= 0:
         return []          # a bibliography is dense with numbers and contains no evidence
     cands: list[dict] = []
@@ -917,48 +1023,187 @@ def harvest(chunk: Chunk, contract: MiningContract) -> list[dict]:
         t = txt.strip()
         if len(t) < 25 or len(t) > 1200:
             continue
-        if not re.search(r'\d', t):
-            continue
         if NOISE.search(t):
             continue
-        kinds = sorted(k for k, pat in QUANT.items() if pat.search(t))
-        if not kinds:
-            continue
-        # an orphan number with no words around it is a page number, not a finding
+        # an orphan token with no words around it is page furniture, not a finding — of any type
         if len(content_words(t)) < 3:
             continue
+
         verbs = bool(RESULT_VERB.search(t))
         fh = contract.n_tags(t)
-        score = chunk.weight * (1.0 + 0.35 * len(kinds)) * (1.6 if verbs else 1.0) * (1.0 + 0.25 * min(fh, 4))
+
+        # ---- the quantitative lane. UNTOUCHED. -------------------------------------------------
+        kinds = sorted(k for k, pat in QUANT.items() if pat.search(t)) if re.search(r'\d', t) else []
+        families: list[str] = []
+        score = 0.0
+        if kinds:
+            families.append('quantitative_estimate')
+            score = chunk.weight * (1.0 + 0.35 * len(kinds)) * (1.6 if verbs else 1.0) * (1.0 + 0.25 * min(fh, 4))
+
+        # ---- the qualitative lanes. ADDITIVE — they add families, they never remove one, and they
+        #      never lower a quantitative score. -------------------------------------------------
+        qual = [name for name, pat in QUAL_CUES.items() if pat.search(t)]
+        if verbs and not kinds:
+            qual.append('qualitative_empirical_result')
+        for f in qual:
+            if f not in families:
+                families.append(f)
+        if qual and not kinds:
+            # its own scale, so a qualitative candidate can never outrank a quantitative one within a
+            # chunk and push it out of the hint list. `cand_block` reserves the two lanes separately
+            # anyway; this is the second lock on the same door.
+            score = 0.5 * chunk.weight * (1.4 if verbs else 1.0) * (1.0 + 0.25 * min(fh, 4)) * (1.0 + 0.2 * len(qual))
+
+        if not families:
+            continue
         cands.append({'v_start': s, 'v_end': e, 'text': flatten(t), 'kinds': kinds,
+                      'families': families, 'quantitative': bool(kinds),
                       'result_verb': verbs, 'facet_hits': fh, 'score': round(score, 3),
                       'section': chunk.section})
     return cands
 
 
-# =============================================================================================
-# 5. THE TUPLE + ITS GATE
-# =============================================================================================
+def block_census(chunk: Chunk) -> tuple[int, int]:
+    """(evidence-bearing blocks examined, blocks that yielded NO act of any type).
 
-TUPLE_FIELDS = ['effect', 'unit', 'comparator', 'outcome', 'population', 'geography', 'period',
-                'technology', 'industry', 'unit_of_analysis', 'design', 'uncertainty']
+    Sol: "RECORD EVERY REJECTION AND EVERY BLOCK YIELDING NO ACT." A document that produces nothing
+    must be visibly a document that produced nothing — not a document nobody looked at.
+    """
+    if chunk.weight <= 0:
+        return 0, 0
+    n = 0
+    for _s, _e, txt in sentences(chunk.text, base=chunk.v_start):
+        t = txt.strip()
+        if len(t) < 25 or len(t) > 1200 or NOISE.search(t) or len(content_words(t)) < 3:
+            continue
+        n += 1
+    return n, max(0, n - len(chunk.candidates))
+
+
+# =============================================================================================
+# 5. TYPED EVIDENCE ACTS + THEIR GATE
+# =============================================================================================
+#
+# THE EXTRACTOR USED TO KNOW ONE KIND OF EVIDENCE: a quantitative tuple. Everything else was silently
+# destroyed — `if kind == 'qualitative' and not fields['outcome']: return None` — and a judicial
+# opinion, whose evidence is a HOLDING and has no effect size, no population and no design, produced
+# ZERO CARDS. The discard was not even counted. That was built to chase D1, which has weight 0.014:
+# moving it 5.90 -> 10.00 is worth about +0.0057 of scalar, and it was paid for with every qualitative
+# source in the world.
+#
+# So the schema is now a REGISTRY, IN DATA (config/evidence_acts.json). Adding an act type to a corpus
+# of case law is a DATA EDIT. Nothing below names an act, a field or a required-field rule: the names,
+# the fields, the windows and the rules are all READ.
+#
+# D1 CANNOT FALL. `quantitative_estimate` in the registry reproduces the old gate exactly — an effect,
+# a number that is in the span, and one of unit/comparator/outcome (the old GATE 6 orphan rule) — the
+# full-document scan is untouched, the numeric gates below are untouched, and the qualitative acts are
+# ADDITIVE: no cap anywhere lets one displace a quantitative act.
+
+class ActRegistryError(RuntimeError):
+    """The act registry is missing or self-inconsistent. THE MINER DOES NOT RUN WITHOUT IT.
+
+    There is no default schema baked into this file to fall back on. A fallback is how a data registry
+    becomes decoration: the code keeps working when the data is wrong, so nobody finds out it is wrong.
+    """
+
+
+@dataclass(frozen=True)
+class EvidenceAct:
+    id: str
+    legacy_card_kind: str            # 'estimate' | 'projection' | 'qualitative' — the v1 surface
+    label: str
+    when: str
+    fields: tuple[str, ...]
+    required_all: tuple[str, ...]
+    required_any: tuple[tuple[str, ...], ...]
+    requires_number_in_span: bool
+    requires_result_verb: bool
+    tuple_bearing: bool              # does `complete_tuple` (the D1 evidence table) apply?
+
+
+@dataclass(frozen=True)
+class ActRegistry:
+    version: str
+    fields: dict[str, dict]          # name -> {windows, prompt, enum?}
+    acts: dict[str, EvidenceAct]
+
+    @property
+    def field_names(self) -> list[str]:
+        return list(self.fields)
+
+    def windows(self, fname: str) -> tuple[str, ...]:
+        return tuple(self.fields[fname].get('windows') or ('span',))
+
+
+def load_act_registry(path: Path = ACT_REGISTRY) -> ActRegistry:
+    """Read the registry and CHECK IT AGAINST ITSELF. An act that requires a field it does not declare,
+    or declares a field the field table does not define, is a schema that cannot gate anything."""
+    try:
+        raw = json.loads(path.read_text())
+    except Exception as e:
+        raise ActRegistryError(f'cannot read the evidence-act registry at {path}: '
+                               f'{type(e).__name__}: {e}') from e
+    fields = raw.get('fields') or {}
+    acts_raw = raw.get('acts') or []
+    if not fields or not acts_raw:
+        raise ActRegistryError(f'{path} declares no fields and/or no acts')
+
+    acts: dict[str, EvidenceAct] = {}
+    for a in acts_raw:
+        aid = a.get('id') or ''
+        af = tuple(a.get('fields') or ())
+        unknown = [f for f in af if f not in fields]
+        if unknown:
+            raise ActRegistryError(f'act {aid!r} declares field(s) {unknown} that the registry\'s '
+                                   f'field table does not define')
+        req_all = tuple(a.get('required_all') or ())
+        req_any = tuple(tuple(grp) for grp in (a.get('required_any') or ()))
+        for f in list(req_all) + [f for grp in req_any for f in grp]:
+            if f not in af:
+                raise ActRegistryError(f'act {aid!r} REQUIRES field {f!r} but does not declare it — a '
+                                       f'required field that is never extracted rejects every card')
+        lck = a.get('legacy_card_kind') or 'qualitative'
+        if lck not in ('estimate', 'projection', 'qualitative'):
+            raise ActRegistryError(f'act {aid!r}: legacy_card_kind {lck!r} is not one of '
+                                   f'estimate|projection|qualitative (the v1 surface downstream reads)')
+        acts[aid] = EvidenceAct(
+            id=aid, legacy_card_kind=lck, label=a.get('label') or aid, when=a.get('when') or '',
+            fields=af, required_all=req_all, required_any=req_any,
+            requires_number_in_span=bool(a.get('requires_number_in_span')),
+            requires_result_verb=bool(a.get('requires_result_verb')),
+            tuple_bearing=bool(a.get('tuple_bearing')))
+    if not any(x.requires_number_in_span for x in acts.values()):
+        raise ActRegistryError('no act in the registry requires a number in its span — the quantitative '
+                               'lane (D1) has been deleted from the schema')
+    return ActRegistry(version=str(raw.get('registry_version') or '?'), fields=fields, acts=acts)
+
+
+REGISTRY = load_act_registry()
+
+#: DERIVED from the registry, never maintained beside it. Two lists of fields will drift, and the one
+#: that drifts is always the one a gate reads.
+TUPLE_FIELDS = REGISTRY.field_names
 
 # Where each field is allowed to have come from. The window is always VERBATIM SOURCE TEXT of the
 # same paper — never model prose. The effect and its unit must be in the quoted sentence itself;
 # a study's geography and period may legitimately be stated in its methods section.
-FIELD_WINDOWS = {
-    'effect':      ('span',),
-    'unit':        ('span',),
-    'uncertainty': ('span',),
-    'comparator':  ('span', 'chunk'),
-    'outcome':     ('span', 'chunk'),
-    'population':  ('span', 'chunk', 'paper'),
-    'geography':   ('span', 'chunk', 'paper'),
-    'period':      ('span', 'chunk', 'paper'),
-    'technology':  ('span', 'chunk', 'paper'),
-    'industry':    ('span', 'chunk', 'paper'),
-}
+#
+# A FIELD WITH AN `enum` HAS NO WINDOW, AND MUST NOT HAVE ONE. `unit_of_analysis` and `design` are
+# CLOSED VOCABULARIES: GATE 3 admits `region` only because the contract's `levels` set contains it,
+# and a value that is not in the set is dropped — so there is nothing left for a model to fabricate.
+# Demanding that `region` ALSO appear verbatim in a paper that says "722 commuting zones" would drop
+# BOTH enum fields, and `is_complete()` requires both — so every complete tuple in the corpus would
+# quietly stop being complete, and D1's evidence table would empty out. The self-test caught exactly
+# that when this file first derived the windows naively from the registry.
+FIELD_WINDOWS = {f: REGISTRY.windows(f) for f in TUPLE_FIELDS
+                 if not REGISTRY.fields[f].get('enum')}
+
 LEXICAL_THRESH = 0.6          # same bar as the mechanism gate that closed the 43%-invention hole
+
+#: The act a model proposes for a span that ALSO carries no act — and the act every legacy caller and
+#: every legacy card means when it says `card_kind: 'estimate'`.
+DEFAULT_ACT = 'quantitative_estimate'
 
 # The tuple is COMPLETE when it is interpretable on its own: a magnitude, in a unit, of a named
 # outcome, for a stated population, from a stated design, in a stated scope. That is the objective —
@@ -977,24 +1222,46 @@ def is_complete(card: dict) -> bool:
     return sum(1 for k in SCOPE if (card.get(k) or '').strip()) >= 2
 
 
-def derive_claim(card: dict) -> str:
+def derive_claim(card: dict, act: EvidenceAct | None = None) -> str:
     """`claim` IS A DISPLAY CACHE. It is composed HERE, AFTER the gate, out of fields that are already
     proven against the verbatim span. It is never an input to any check. The model is never asked for
     it and never sees it. This is the structural fix for evidence laundering: you cannot launder
-    through a field the model does not author."""
-    eff, unit = (card.get('effect') or '').strip(), (card.get('unit') or '').strip()
-    mag = eff if (not unit or unit.lower() in eff.lower()) else f'{eff} {unit}'
-    bits = [mag]
-    if card.get('outcome'):
-        bits.append(f"in {card['outcome']}")
-    if card.get('comparator'):
-        bits.append(f"per {card['comparator']}" if not re.match(r'(?i)^(per|for|relative|compared|vs)', card['comparator'])
-                    else card['comparator'])
-    scope = [card.get(k) for k in ('population', 'industry', 'geography', 'period') if card.get(k)]
-    if scope:
-        bits.append('(' + '; '.join(scope) + ')')
-    if card.get('uncertainty'):
-        bits.append(f"[{card['uncertainty']}]")
+    through a field the model does not author.
+
+    IT IS COMPOSED PER ACT. A holding has no magnitude to render and a limitation has no comparator;
+    rendering either through the estimate template produced an empty string, which is how the old
+    `qualitative` card came out of the gate carrying nothing but its own span.
+    """
+    act = act or REGISTRY.acts.get(card.get('act') or DEFAULT_ACT) or REGISTRY.acts[DEFAULT_ACT]
+
+    scope = [card.get(k) for k in ('population', 'industry', 'geography', 'period')
+             if k in act.fields and card.get(k)]
+
+    if 'effect' in act.required_all:                     # the quantitative shape
+        eff, unit = (card.get('effect') or '').strip(), (card.get('unit') or '').strip()
+        mag = eff if (not unit or unit.lower() in eff.lower()) else f'{eff} {unit}'
+        bits = [mag]
+        if card.get('outcome'):
+            bits.append(f"in {card['outcome']}")
+        if card.get('comparator'):
+            bits.append(f"per {card['comparator']}"
+                        if not re.match(r'(?i)^(per|for|relative|compared|vs)', card['comparator'])
+                        else card['comparator'])
+        if scope:
+            bits.append('(' + '; '.join(scope) + ')')
+        if card.get('uncertainty'):
+            bits.append(f"[{card['uncertainty']}]")
+    else:
+        # every other act names its content in its FIRST REQUIRED FIELD — the holding, the finding,
+        # the recommendation, the limitation. That field is gated against the span like any other.
+        head = next((card[f] for f in act.required_all if (card.get(f) or '').strip()), '')
+        bits = [head]
+        if 'authority' in act.fields and card.get('authority'):
+            bits.append(f"— {card['authority']}")
+        if 'outcome' in act.fields and card.get('outcome') and 'outcome' not in act.required_all:
+            bits.append(f"(on {card['outcome']})")
+        if scope:
+            bits.append('(' + '; '.join(scope) + ')')
     s = ' '.join(b for b in bits if b)
     return re.sub(r'\s+', ' ', s).strip()
 
@@ -1058,8 +1325,23 @@ class Windows:
 
 
 def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set[str],
-              contract: MiningContract, rejects: dict) -> dict | None:
-    """THE HARD GATE. Everything that reaches disk has been through here."""
+              contract: MiningContract, rejects: dict, *, graph, source_policy=None) -> dict | None:
+    """THE HARD GATE. Everything that reaches disk has been through here.
+
+    `graph` IS REQUIRED AND KEYWORD-ONLY. A card is not a row with a `doi` on it any more: it is a
+    BOUND SPAN, and it does not exist until `graph.bind_span()` has resolved it to a manifestation and
+    a content hash and `graph.resolve_attribution()` has said what — under THIS task's instruction —
+    that span is allowed to NAME. A caller that has no graph cannot make a card, and gets a TypeError
+    at the call site instead of a card with an unbound citation on it.
+
+    THIS IS THE FIX FOR THE P0. `attribution` used to be `paper.get('attribution')` — a string COPIED
+    OFF THE CORPUS ROW. On the Acemoglu-Restrepo row that string reads "Journal of Political Economy"
+    while the bytes in `fulltext` are the NBER working paper: 0.37pp in WP 23285, 0.2pp in the
+    published JPE. The span was verbatim, the number was in the span, every gate passed, and the
+    document named was not the document the span came from.
+    """
+    P = prov()
+    policy = source_policy or getattr(contract, 'source_policy', None) or P.JOURNAL_ONLY
 
     # ---- GATE 1: the span must be VERBATIM AND WHOLE in the source, and we keep the SOURCE's copy.
     loc = locate_span(view, raw.get('span') or '', chunk.v_start, chunk.v_end)
@@ -1087,6 +1369,52 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
         rejects['offset_roundtrip_failed'] += 1
         return None
 
+    # =========================================================================================
+    # BIND. IMMEDIATELY AFTER THE ROUND-TRIP, AND BEFORE ANY FIELD OF THE CARD EXISTS.
+    #
+    # Binding afterwards is what "an optional preflight" means: the card gets built, gets an
+    # attribution copied from a metadata row, and a later pass is invited to notice. It never does.
+    # =========================================================================================
+    mid = paper.get('manifestation_id') or ''
+    if not mid:
+        # The miner selects manifestations FROM THE GRAPH, so this cannot happen in the pipeline —
+        # which is exactly why it is checked. An unbound paper reaching here means someone built a
+        # second door into card construction, and the card is REFUSED, not fixed.
+        rejects['no_manifestation_for_paper'] += 1
+        return None
+    try:
+        binding = graph.bind_span(mid, s_start, s_end)
+    except P.SpanBindingError as e:
+        rejects['span_binding_failed'] += 1
+        rejects.setdefault('_binding_failures', []).append({'manifestation_id': mid, 'why': str(e)[:160]})
+        return None
+
+    # THE BYTES THE GRAPH HOLDS MUST BE THE BYTES WE MINED. `bind_span` slices the MANIFESTATION's
+    # text; `raw_slice` is a slice of the VIEW's source. If those two strings ever diverge — a
+    # re-fetch, a .strip(), a different `text_field` — then the offsets on this card index a document
+    # other than the one it names, and every check downstream would be verifying the wrong bytes
+    # perfectly. This is the one assertion that catches that, and it is a rejection, not an assert.
+    if binding['text'] != raw_slice:
+        rejects['span_binding_mismatch'] += 1
+        return None
+
+    target = graph.resolve_attribution(mid, policy)
+    if not target.admitted:
+        # A REAL span, from a REAL document, that THIS TASK'S INSTRUCTION does not permit us to cite.
+        # It is not a defect in the evidence and it is not deleted: it is quarantined, with its reason,
+        # and counted. Sol: "If only the working paper is available, citing it VIOLATES THE
+        # JOURNAL-ONLY INSTRUCTION, so it stays OUTSIDE THE ANSWER BODY."
+        rejects['source_policy_inadmissible'] += 1
+        rejects.setdefault('_quarantine', []).append({
+            'manifestation_id': mid, 'content_hash': binding['content_hash'],
+            'expression_id': binding['expression_id'], 'work_id': graph.manifestations[mid].work_id,
+            'span_start': s_start, 'span_end': s_end, 'span': span[:400],
+            'policy': target.policy, 'refusal': target.refusal,
+            'doi': paper.get('doi', ''), 'row_attribution_that_would_have_been_used':
+                paper.get('attribution', ''),
+        })
+        return None
+
     span_nums = number_tokens(span)
     span_words = content_words(span)
 
@@ -1100,21 +1428,42 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
         rejects['second_hand_attribution'] += 1
         return None
 
-    if not span_nums:
-        kind = 'qualitative'
-    elif PROJECTION.search(span):
-        kind = 'projection'          # a forecast is verbatim and gated, but it is NOT a measured effect
-    else:
-        kind = 'estimate'
+    # ---- THE ACT. The model PROPOSES a type; the SPAN and the REGISTRY dispose. -------------------
+    act_id = (raw.get('act') if isinstance(raw.get('act'), str) else '') or DEFAULT_ACT
+    act = REGISTRY.acts.get(act_id)
+    if act is None:
+        rejects['unknown_evidence_act'] += 1
+        rejects.setdefault('_unknown_acts', []).append(act_id[:60])
+        return None
+    if act.requires_number_in_span and not span_nums:
+        # the model called it an estimate and quoted a sentence with no number in it.
+        rejects['act_requires_number_absent_from_span'] += 1
+        return None
+    if act.requires_result_verb and not RESULT_VERB.search(span):
+        rejects['act_requires_result_absent_from_span'] += 1
+        return None
+    # A FORECAST IS NOT A MEASURED EFFECT, whatever the model calls it. This re-typing is the old
+    # PROJECTION rule, preserved: it is derived from the span, so the model cannot launder a
+    # projection into the evidence table by labelling it an estimate.
+    if act.id == 'quantitative_estimate' and PROJECTION.search(span):
+        act = REGISTRY.acts.get('forecast_or_projection', act)
+    kind = act.legacy_card_kind
 
     # ---- GATE 2: EVERY FIGURE IN EVERY FIELD MUST BE A NUMBER OF THE SPAN — as its own number.
-    #      Not a substring of one. `0.2` does not live inside `10.25`.
+    #      Not a substring of one. `0.2` does not live inside `10.25`. THIS APPLIES TO EVERY FIELD OF
+    #      EVERY ACT: a holding that cites "20 days' notice" the opinion never granted is the same
+    #      fabrication as an invented coefficient.
     fields: dict[str, str] = {}
     for f in TUPLE_FIELDS:
         v = raw.get(f)
         v = (v if isinstance(v, str) else '').strip()
         v = re.sub(r'\s+', ' ', v)[:160]
         fields[f] = v
+    # a field the ACT does not declare is not evidence of that act — it is dropped before it can be
+    # gated, displayed, or counted. (An `effect` on a doctrinal holding is a category error.)
+    for f in list(fields):
+        if f not in act.fields:
+            fields[f] = ''
     for f, v in fields.items():
         bad = number_tokens(v) - span_nums
         if bad:
@@ -1134,14 +1483,14 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
     win = Windows(span=span_words,
                   chunk=content_words(chunk.text),
                   paper=paper_words)
-    prov: dict[str, str] = {}
+    prov_map: dict[str, str] = {}
     for f, allowed in FIELD_WINDOWS.items():
         v = fields.get(f, '')
         fw = content_words(v)
         if not v:
             continue
         if not fw:                       # e.g. effect="-0.39" — pure number; GATE 2 already proved it
-            prov[f] = 'span'
+            prov_map[f] = 'span'
             continue
         placed = ''
         for w in allowed:
@@ -1153,7 +1502,7 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
             rejects['field_not_in_source'] += 1
             fields[f] = ''               # drop the FIELD (a word we cannot source), keep the evidence
         else:
-            prov[f] = placed
+            prov_map[f] = placed
 
     # ---- GATE 5: mechanisms must be STATED IN THE SPAN. (The 43%-invention hole, kept closed.)
     mechs = []
@@ -1167,17 +1516,28 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
         else:
             rejects['mechanism_not_in_span'] += 1
 
-    # ---- GATE 6: reject ORPHAN NUMBERS. A figure with no unit and no outcome is not evidence.
-    if kind in ('estimate', 'projection') and not (fields['unit'] or fields['comparator']) and not fields['outcome']:
-        rejects['orphan_number'] += 1
-        return None
-    if kind == 'qualitative' and not fields['outcome']:
-        rejects['qualitative_no_outcome'] += 1
+    # ---- GATE 6: THE ACT'S OWN REQUIRED-FIELD RULE, READ FROM THE REGISTRY.
+    #      This replaces `if kind == 'qualitative' and not fields['outcome']: return None`, which
+    #      destroyed every doctrinal holding, every recommendation and every stated limitation in the
+    #      world, and counted none of them. For `quantitative_estimate` the registry's rule
+    #      (required_all=[effect], required_any=[[unit, comparator, outcome]]) IS the old orphan-number
+    #      gate, unchanged. D1 does not move.
+    missing = [f for f in act.required_all if not fields.get(f)]
+    for grp in act.required_any:
+        if not any(fields.get(f) for f in grp):
+            missing.append('|'.join(grp))
+    if missing:
+        key = f'act_missing_required:{act.id}'
+        rejects[key] = rejects.get(key, 0) + 1
+        rejects['act_missing_required'] = rejects.get('act_missing_required', 0) + 1
+        rejects.setdefault('_missing_examples', []).append(
+            {'act': act.id, 'missing': missing, 'span': span[:110]})
         return None
 
     horizon = _norm_enum(raw.get('horizon') or '')
     horizon = horizon if horizon in contract.horizons else ''
 
+    m_node = graph.manifestations[mid]
     card = {
         # ---- v1-compatible surface, so this file is a drop-in for anything reading evidence_cards.json
         'id': '',
@@ -1192,14 +1552,34 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
         'authors': paper.get('authors', []),
         'venue': paper.get('venue', ''),
         'year': paper.get('year', ''),
-        'attribution': paper.get('attribution', ''),
+        # ---- THE ATTRIBUTION IS RESOLVED, NOT COPIED. It is the display string OF THE EXPRESSION THE
+        #      SPAN IS PERMITTED TO NAME under `policy` — and `attribution_target_expression_id` below
+        #      is the thing that is actually validated. The prose is a cache; the id resolves.
+        'attribution': target.text,
         'source': paper.get('attribution_short', ''),
-        # ---- v2: the estimate tuple
-        'card_kind': kind,
+        # ---- THE BINDING. sentence -> card -> bound span -> manifestation + hash -> permitted
+        #      expression -> attribution. This is the whole chain, ON THE CARD, at construction.
+        'work_id': m_node.work_id,
+        'evidence_unit_id': m_node.work_id,   # the STUDY/DECISION/TRIAL. Versions of it are not new units.
+        'expression_id': binding['expression_id'],
+        'attribution_target_expression_id': target.names_expression_id,
+        'permitted_expression_ids': binding['permitted_expression_ids'],
+        'manifestation_id': mid,
+        'content_hash': binding['content_hash'],
+        'source_policy': target.policy,
+        # ---- v2: the typed evidence act
+        'act': act.id,
+        'act_registry_version': REGISTRY.version,
+        'card_kind': kind,                              # legacy surface: estimate|projection|qualitative
         'effect': fields['effect'],
         'unit': fields['unit'],
         'comparator': fields['comparator'],
         'outcome': fields['outcome'],
+        'finding': fields['finding'],
+        'holding': fields['holding'],
+        'authority': fields['authority'],
+        'recommendation': fields['recommendation'],
+        'limitation': fields['limitation'],
         'population': fields['population'],
         'geography': fields['geography'],
         'period': fields['period'],
@@ -1220,7 +1600,7 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
         'section_weight': chunk.weight,
         'context_start': chunk.s_start,
         'context_end': chunk.s_end,
-        'field_provenance': prov,
+        'field_provenance': prov_map,
         'span_numbers': sorted(span_nums),
         'source_version': paper.get('_source_version', ''),
         'text_field': paper.get('_text_field', ''),
@@ -1233,8 +1613,8 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
     ctx_tags = [t for t in contract.tag(chunk.text[:2000]) if t not in span_tags]
     card['facet_tags'] = span_tags + ctx_tags
     card['facet_tags_span'] = span_tags
-    card['complete_tuple'] = is_complete(card) and kind == 'estimate'
-    card['claim'] = derive_claim(card) if kind in ('estimate', 'projection') else (fields['outcome'] or span[:180])
+    card['complete_tuple'] = is_complete(card) and act.tuple_bearing
+    card['claim'] = derive_claim(card, act)
 
     # the display cache may not carry a figure the span does not have. It is derived from gated
     # fields so this cannot fail — which is exactly why it is asserted rather than assumed.
@@ -1242,8 +1622,10 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
         rejects['derived_claim_leaked_number'] += 1
         return None
 
-    doi = (paper.get('doi') or 'nodoi').replace('/', '_')
-    card['id'] = f"{doi}:{s_start}-{s_end}"
+    # THE ID IS THE BINDING, not the DOI. A DOI names a WORK, and a work has no bytes: the NBER working
+    # paper and the JPE article of one study can carry the same DOI in a corpus row and are different
+    # documents. `manifestation_id` names bytes, and its hash proves which.
+    card['id'] = f"{mid}:{s_start}-{s_end}"
     return card
 
 
@@ -1251,62 +1633,96 @@ def gate_card(raw: dict, view: View, chunk: Chunk, paper: dict, paper_words: set
 # 6. SEMANTIC EXTRACTION (the LLM stage)
 # =============================================================================================
 
-MINE_PROMPT = """You are mining a peer-reviewed article for INTERPRETABLE QUANTITATIVE EVIDENCE.
+def _act_menu(registry: ActRegistry = None) -> str:
+    """The act catalogue, RENDERED FROM THE REGISTRY. Adding `doctrinal_holding_or_rule` to
+    config/evidence_acts.json puts it in this prompt, in the schema, and in the gate — with no code
+    edit anywhere. That is what "the names live in a versioned data registry" has to mean; a registry
+    the prompt does not read is a registry the extractor does not have."""
+    reg = registry or REGISTRY
+    out = []
+    for a in reg.acts.values():
+        req = ' + '.join(a.required_all) or '—'
+        for grp in a.required_any:
+            req += ' + (' + ' or '.join(grp) + ')'
+        out.append(f'  "{a.id}" — {a.label}.\n'
+                   f'      USE WHEN: {a.when}\n'
+                   f'      REQUIRED: {req}\n'
+                   f'      FIELDS:   {", ".join(a.fields)}')
+    return '\n'.join(out)
 
-PAPER: {title}
+
+def _field_menu(registry: ActRegistry = None) -> str:
+    reg = registry or REGISTRY
+    return '\n'.join(f' "{f}": "{spec.get("prompt", "")}"' for f, spec in reg.fields.items())
+
+
+MINE_PROMPT_TEMPLATE = """You are mining a source document for EVIDENCE. Evidence is what THIS SOURCE
+STATES — not what you know, and not what the field believes.
+
+SOURCE: {title}
 AUTHORS: {authors}
-JOURNAL: {venue} ({year})
-SECTION OF THE PAPER THIS EXCERPT COMES FROM: {section}
+PUBLISHED IN: {venue} ({year})
+SECTION OF THE DOCUMENT THIS EXCERPT COMES FROM: {section}
 {facet_line}
-=== EXCERPT (verbatim from the paper) ===
+=== EXCERPT (verbatim from the source) ===
 {text}
 === END EXCERPT ===
 {cand_block}
-Return a JSON array of EVIDENCE TUPLES found in the excerpt. An evidence tuple is a finding a reader
-could INTERPRET WITHOUT THE PAPER: a magnitude, in a unit, of a named outcome, for a stated
-population, from a stated design.
+Return a JSON array of EVIDENCE ACTS found in the excerpt. Each act is one thing the source DOES with
+evidence, and it is TYPED. These are the types, and there are no others:
+
+{act_menu}
+
+CHOOSE THE TYPE THE SOURCE ACTUALLY PERFORMED. A judicial opinion states HOLDINGS and has no effect
+size, no population and no design — a holding is not a failed estimate, and forcing it into one
+destroys it. A paper that measured nothing but recommends something has made a recommendation. A paper
+that looked and found NOTHING has produced a null result, which is EVIDENCE and must not be dropped.
 
 A BARE NUMBER IS NOT A FINDING. "Adoption grew by 30%" is worthless without knowing adoption OF WHAT,
-BY WHOM, WHEN, and MEASURED HOW. If you cannot fill effect + unit + outcome, DO NOT EMIT THE OBJECT.
-Do not pad. AN EMPTY ARRAY IS A CORRECT AND COMMON ANSWER — most excerpts contain no estimate. You are
-not being scored on how many you return.
+BY WHOM, WHEN, and MEASURED HOW. If you cannot fill an act's REQUIRED fields, DO NOT EMIT THE OBJECT.
+Do not pad. AN EMPTY ARRAY IS A CORRECT AND COMMON ANSWER — most excerpts contain no evidence act at
+all. You are not being scored on how many you return.
 
-For each finding:
+For each act:
 {{
- "span": "the VERBATIM sentence(s) from the EXCERPT that carry the finding. COPY IT EXACTLY, character
-          for character. Do not paraphrase, do not shorten, do not use an ellipsis. It must CONTAIN
-          EVERY NUMBER you report below -- if the number's meaning only becomes clear from a table
-          caption or a column header, quote from the caption THROUGH the row so the span carries both
-          (a span may be several lines and up to 900 characters).",
- "effect":      "the magnitude, e.g. '-0.39' or 'a fall of 0.2' or '14%'",
- "unit":        "what the magnitude is measured in: 'percentage points', 'percent', 'log points', 'USD', 'standard deviations', 'jobs'",
- "comparator":  "per WHAT / relative to WHAT: 'per additional robot per thousand workers', 'relative to the control group', 'compared with 1990'",
- "outcome":     "the thing that changed: 'employment-to-population ratio', 'hourly wage', 'tasks completed per hour'",
- "population":  "who or what was measured: 'US commuting zones', '1,200 customer-support agents', 'French manufacturing firms'",
- "geography":   "country/region, if the paper states one",
- "period":      "the years the data cover, if the paper states them",
- "technology":  "the technology studied: 'industrial robots', 'generative AI', 'computers', 'machine learning'",
- "industry":    "the industry/sector, if the paper states one",
- "unit_of_analysis": one of task|worker|occupation|firm|industry|region|economy|household|team,
- "design":      one of experiment|quasi-experimental|observational|survey|simulation|theory|review|meta-analysis|case-study,
- "uncertainty": "the standard error, confidence interval or significance AS STATED: '(0.05)', '95% CI 0.1 to 0.4', 'p<0.01'",
+ "act":  one of the type ids above,
+ "span": "the VERBATIM sentence(s) from the EXCERPT that carry it. COPY IT EXACTLY, character for
+          character. Do not paraphrase, do not shorten, do not use an ellipsis. It must CONTAIN EVERY
+          NUMBER you report below -- if a number's meaning only becomes clear from a table caption or
+          a column header, quote from the caption THROUGH the row so the span carries both (a span may
+          be several lines and up to 900 characters).",
+{field_menu}
  "horizon":     "short-run" | "long-run" | "",
  "mechanisms":  ["a causal channel THE SPAN ITSELF NAMES -- an empty list is usually correct"]
 }}
 
+Emit ONLY the fields the act declares. A field an act does not declare is dropped.
+
 ABSOLUTE RULES, ENFORCED BY A GATE THAT SILENTLY DELETES VIOLATIONS:
  1. EVERY NUMBER IN EVERY FIELD MUST APPEAR IN YOUR SPAN. A figure that is not in the span is treated
-    as a fabrication and the whole finding is destroyed. Never round, never convert, never combine two
-    numbers into a third. Copy the paper's number as the paper writes it.
+    as a fabrication and the whole act is destroyed. Never round, never convert, never combine two
+    numbers into a third. Copy the source's number as the source writes it.
  2. THE SPAN MUST BE LOCATABLE VERBATIM IN THE EXCERPT ABOVE. If you cannot copy it exactly, omit the
-    finding -- a finding we cannot trace to the page is not evidence, it is a rumour.
- 3. Leave a field as "" if the paper does not state it. An empty field costs nothing. A GUESSED field
-    destroys the finding.
- 4. Do NOT write a summary, a claim, or a takeaway. There is no such field. Report the tuple only.
+    act -- evidence we cannot trace to the page is not evidence, it is a rumour.
+ 3. Leave a field as "" if the source does not state it. An empty field costs nothing. A GUESSED field
+    destroys the act.
+ 4. Do NOT write a summary, a claim, or a takeaway. There is no such field.
  5. Do not report a number that is a citation year, a page number, a section number, an equation
     number, a table number, or a footnote marker.
+ 6. The act must be THE SOURCE'S OWN. If the sentence hands its finding to someone else ("[34] find
+    that...", "According to the OECD..."), it is that other work's evidence, not this one's.
 
 Return ONLY the JSON array."""
+
+
+def mine_prompt(**kw) -> str:
+    """The prompt, with the act catalogue and the field table interpolated FROM THE REGISTRY."""
+    return MINE_PROMPT_TEMPLATE.format(act_menu=_act_menu(), field_menu=_field_menu(), **kw)
+
+
+#: Kept as a module attribute because the canary and the adversary probes read it to prove what the
+#: extractor ASKS FOR. It now renders the whole registry.
+MINE_PROMPT = MINE_PROMPT_TEMPLATE
 
 
 def jparse(s: str):
@@ -1380,8 +1796,27 @@ def finding_key(card: dict) -> str:
     return f"{nums}|{unit}|{out}|{card.get('unit_of_analysis','')}"
 
 
+def evidence_unit(card: dict) -> str:
+    """THE INDEPENDENT UNIT OF EVIDENCE THIS CARD BELONGS TO — the STUDY, the DECISION, the TRIAL.
+
+    NOT the document, and NOT the DOI. The NBER working paper and the JPE article are TWO EXPRESSIONS
+    OF ONE STUDY: two DOIs, two manifestations, ONE unit of evidence. Counting them as two is how a
+    version change (0.37pp -> 0.2pp, which peer review made) becomes "two independent works" — and
+    then reads as CORROBORATION if the numbers agree, or as a LITERATURE CONFLICT if they do not.
+    Both readings are false, and both are produced by `len(dois)`.
+    """
+    return card.get('evidence_unit_id') or card.get('work_id') or ''
+
+
 def _overlaps(a: dict, b: dict) -> bool:
-    if a['doi'] != b['doi']:
+    """Do two cards quote overlapping BYTES? Only comparable WITHIN ONE MANIFESTATION.
+
+    This used to test `a['doi'] != b['doi']`. Offsets from two DIFFERENT documents of the same DOI —
+    the fulltext and the abstract, or a working paper and a journal article — index two unrelated
+    strings, and comparing them is arithmetic on incommensurable units: character 4,000 of one is not
+    character 4,000 of the other.
+    """
+    if a.get('manifestation_id') != b.get('manifestation_id'):
         return False
     lo = max(a['span_start'], b['span_start'])
     hi = min(a['span_end'], b['span_end'])
@@ -1397,13 +1832,68 @@ def _rank(c: dict) -> tuple:
             c.get('section_weight', 0), len(c.get('span', '')))
 
 
-def consolidate(cards: list[dict]) -> list[dict]:
-    # (a) within a paper: overlapping chunks re-extract the same sentence. Keep the richest tuple.
-    by_doi: dict[str, list[dict]] = {}
+def _binding_of(c: dict) -> dict:
+    """THE COMPLETE BINDING OF ONE SOURCE. Every corroborating entry carries this — the same chain the
+    primary card carries, and for the same reason: a corroborating source is a CITATION. It appears in
+    the review under its own name, and it is exactly as capable of naming a document its span did not
+    come from. The old entry carried `doi` + a copied `attribution` string and no hash, no
+    manifestation and no expression — i.e. it was the P0, once per replication.
+    """
+    return {
+        'evidence_unit_id': evidence_unit(c), 'work_id': c.get('work_id', ''),
+        'expression_id': c.get('expression_id', ''),
+        'attribution_target_expression_id': c.get('attribution_target_expression_id'),
+        'manifestation_id': c.get('manifestation_id', ''), 'content_hash': c.get('content_hash', ''),
+        'source_policy': c.get('source_policy', ''),
+        'doi': c.get('doi', ''), 'attribution': c.get('attribution', ''), 'source': c.get('source', ''),
+        'authors': c.get('authors', []), 'year': c.get('year', ''), 'venue': c.get('venue', ''),
+        'span': c['span'], 'span_start': c['span_start'], 'span_end': c['span_end'],
+        'section': c.get('section', ''), 'source_version': c.get('source_version', ''),
+        'act': c.get('act', ''),
+    }
+
+
+def version_discrepancies(cards: list[dict]) -> list[dict]:
+    """Same STUDY, same outcome, DIFFERENT MAGNITUDE, across two EXPRESSIONS of it.
+
+    THIS IS NOT A CONFLICT IN THE LITERATURE AND IT IS NOT CORROBORATION. It is what peer review did to
+    a number, and a review that reports it as either is misreporting the field. It is surfaced here so
+    a writer can say the true thing ("the published article revises the working paper's 0.37 to 0.2")
+    instead of the two false ones.
+    """
+    by: dict[tuple, list[dict]] = {}
     for c in cards:
-        by_doi.setdefault(c['doi'], []).append(c)
+        if c.get('card_kind') != 'estimate':
+            continue
+        u = evidence_unit(c)
+        if not u:
+            continue
+        k = (u, ' '.join(sorted(content_words(c.get('outcome') or ''))), c.get('unit_of_analysis', ''))
+        by.setdefault(k, []).append(c)
+    out = []
+    for (unit_id, outcome, level), group in by.items():
+        exprs = {c.get('expression_id') for c in group}
+        effects = {','.join(sorted(number_tokens(c.get('effect') or ''))) for c in group}
+        if len(exprs) > 1 and len(effects) > 1:
+            out.append({
+                'evidence_unit_id': unit_id, 'outcome': outcome, 'unit_of_analysis': level,
+                'expressions': sorted(x for x in exprs if x),
+                'magnitudes': sorted(e for e in effects if e),
+                'reading': ('A VERSION CHANGE, NOT A LITERATURE DISAGREEMENT — these are two '
+                            'expressions of ONE study, and they may not corroborate or contradict '
+                            'each other.'),
+                'card_ids': [c['id'] for c in group],
+            })
+    return out
+
+
+def consolidate(cards: list[dict]) -> list[dict]:
+    # (a) within ONE DOCUMENT: overlapping chunks re-extract the same sentence. Keep the richest act.
+    by_manif: dict[str, list[dict]] = {}
+    for c in cards:
+        by_manif.setdefault(c.get('manifestation_id') or c.get('doi') or '', []).append(c)
     deduped: list[dict] = []
-    for doi, group in by_doi.items():
+    for _mid, group in by_manif.items():
         group.sort(key=_rank, reverse=True)
         kept: list[dict] = []
         for c in group:
@@ -1414,26 +1904,29 @@ def consolidate(cards: list[dict]) -> list[dict]:
             kept.append(c)
         deduped.extend(kept)
 
-    # (b) across papers: the SAME FINDING replicated is ONE card with N sources.
+    # (b) across EVIDENCE UNITS: the SAME FINDING replicated in TWO INDEPENDENT STUDIES is ONE card
+    #     with N sources. The same finding in two VERSIONS OF ONE STUDY is ONE source, reported once.
     groups: dict[str, list[dict]] = {}
     for c in deduped:
         groups.setdefault(finding_key(c), []).append(c)
 
     out: list[dict] = []
-    for key, group in groups.items():
+    for _key, group in groups.items():
         group.sort(key=_rank, reverse=True)
         primary = dict(group[0])
-        others = [g for g in group[1:] if g['doi'] != primary['doi']]
-        primary['corroborating_sources'] = [{
-            'doi': g['doi'], 'attribution': g.get('attribution', ''), 'source': g.get('source', ''),
-            'authors': g.get('authors', []), 'year': g.get('year', ''), 'venue': g.get('venue', ''),
-            'span': g['span'], 'span_start': g['span_start'], 'span_end': g['span_end'],
-            'section': g.get('section', ''), 'source_version': g.get('source_version', ''),
-        } for g in others]
-        primary['n_sources'] = 1 + len({g['doi'] for g in others})
-        out.extend([primary] + [g for g in group[1:] if g['doi'] == primary['doi']][:0])
-        # same-paper duplicates that were not overlap-deduped but share a finding key are dropped;
-        # different-paper ones become corroboration above.
+        p_unit = evidence_unit(primary)
+        # CORROBORATION IS BY EVIDENCE UNIT, NOT BY DOI. A second expression of the primary's own study
+        # is not a second source, and it never appears in `corroborating_sources`.
+        others, same_unit_other_expr = [], []
+        for g in group[1:]:
+            (same_unit_other_expr if evidence_unit(g) == p_unit else others).append(g)
+        primary['corroborating_sources'] = [_binding_of(g) for g in others]
+        primary['n_sources'] = 1 + len({evidence_unit(g) for g in others if evidence_unit(g)})
+        primary['n_evidence_units'] = primary['n_sources']
+        # kept, visibly, so the count above can never be re-derived as if these were sources.
+        primary['same_unit_other_expressions'] = [_binding_of(g) for g in same_unit_other_expr
+                                                  if g.get('expression_id') != primary.get('expression_id')]
+        out.append(primary)
     out.sort(key=lambda c: (-c.get('n_sources', 1), not c.get('complete_tuple'), -c.get('section_weight', 0)))
     return out
 
@@ -1469,14 +1962,44 @@ def paper_window(view: View, chunks: list[Chunk], paper: dict) -> set[str]:
     return content_words(pool)
 
 
+def _chunk_priority(c: Chunk) -> tuple:
+    """WHICH CHUNKS THE EXTRACTOR SEES FIRST — and, under `--max-chunks-per-paper`, WHICH IT SEES AT ALL.
+
+    THIS IS THE FIXED CAP SOL NAMED, and it is the one place a qualitative act could displace a
+    quantitative one. It cannot:
+
+      slot 1 is THE OLD KEY, unchanged: -(weight * (1 + quantitative candidates)).
+      slot 2 means a chunk carrying an estimate NEVER yields its place to one that carries none.
+      slot 3 orders ONLY the chunks with no quantitative candidate at all — they are ranked among
+             THEMSELVES by qualitative richness, in slots the quantitative lane was never going to use.
+      slot 4 is the chunk index, which reproduces the old stable-sort order exactly.
+
+    So for every chunk that bears a quantity, the order is BIT-FOR-BIT what it was, and D1's input is
+    untouched. Verified by A/B against the pre-change sort over all 16 documents, not asserted.
+    """
+    nq = sum(1 for x in c.candidates if x['quantitative'])
+    nl = len(c.candidates) - nq
+    return (-(c.weight * (1 + nq)),
+            0 if nq else 1,
+            -(c.weight * (1 + nl)) if not nq else 0,
+            c.idx)
+
+
 def mine_paper(paper: dict, contract: MiningContract, use_llm: bool, rejects: dict,
-               stats: dict, max_chunks_per_paper: int = 0) -> list[dict]:
-    src, text_field, version = source_text(paper)
+               stats: dict, max_chunks_per_paper: int = 0, *, graph, source_policy=None) -> list[dict]:
+    """Mine ONE MANIFESTATION. `paper['manifestation_id']` names the bytes; the graph holds them.
+
+    THE BYTES COME FROM THE GRAPH, not from `row['fulltext']`. The two agree today — both are the same
+    `.strip()`ed string — and gate_card's binding-mismatch check proves it on every card rather than
+    assuming it. Reading them from the graph is what makes that guarantee structural: the offsets on a
+    card index THE MANIFESTATION THE CARD NAMES, because they were computed over its text.
+    """
+    mid = paper['manifestation_id']
+    m = graph.manifestations[mid]
+    src = m.text
     if len(src.split()) < 50:
         return []
 
-    paper['_text_field'] = text_field
-    paper['_source_version'] = version
     doc_id = (paper.get('doi') or paper.get('title', ''))[:80]
 
     view, chunks = chunk_document(doc_id, src)
@@ -1500,6 +2023,18 @@ def mine_paper(paper: dict, contract: MiningContract, use_llm: bool, rejects: di
     stats['legacy_28k_chars'] += min(28000, len(view.text))
     stats['chunks'] += len(chunks)
     stats['candidates'] += sum(len(c.candidates) for c in chunks)
+    # TELEMETRY THAT CANNOT REPORT ZERO FOR A DOCUMENT IT NEVER LOOKED AT. `candidates` used to count
+    # only digit-bearing sentences, so a judicial opinion reported 0 candidates and 0 cards and looked
+    # like an empty document instead of a discarded one.
+    stats['candidates_quant'] += sum(1 for c in chunks for x in c.candidates if x['quantitative'])
+    stats['candidates_qual'] += sum(1 for c in chunks for x in c.candidates if not x['quantitative'])
+    for ch in chunks:
+        seen, noact = block_census(ch)
+        stats['blocks_examined'] += seen
+        stats['blocks_no_act'] += noact
+    for fam in REGISTRY.acts:
+        stats['cands_by_act'][fam] = stats['cands_by_act'].get(fam, 0) + sum(
+            1 for c in chunks for x in c.candidates if fam in x['families'])
     for sec in {c.section for c in chunks}:
         stats['by_section'][sec] = stats['by_section'].get(sec, 0) + _union_len(
             [(c.v_start, c.v_end) for c in chunks if c.section == sec])
@@ -1511,13 +2046,13 @@ def mine_paper(paper: dict, contract: MiningContract, use_llm: bool, rejects: di
 
     pw = paper_window(view, chunks, paper)
     todo = [c for c in chunks if c.weight > 0]
-    todo.sort(key=lambda c: -(c.weight * (1 + len(c.candidates))))
+    todo.sort(key=_chunk_priority)
     if max_chunks_per_paper:
         todo = todo[:max_chunks_per_paper]
 
     facet_line = ''
     if contract.probes:
-        facet_line = ('\nTHE REVIEW NEEDS THESE QUESTIONS ANSWERED OF EVERY PAPER. Prefer findings that answer\n'
+        facet_line = ('\nTHE REVIEW NEEDS THESE QUESTIONS ANSWERED OF EVERY SOURCE. Prefer evidence that answers\n'
                       'one of them -- but NEVER invent a value to fit one. An unanswered facet is a real,\n'
                       'reportable gap; a fabricated one is a lie:\n'
                       + '\n'.join(f'  - {p}' for p in contract.probes[:8]) + '\n')
@@ -1526,15 +2061,29 @@ def mine_paper(paper: dict, contract: MiningContract, use_llm: bool, rejects: di
     for ch in todo:
         cand_block = ''
         if ch.candidates:
-            top = sorted(ch.candidates, key=lambda c: -c['score'])[:12]
-            lines = '\n'.join(f'  - {c["text"][:260]}' for c in top)
-            cand_block = ('\nA DETERMINISTIC SCAN FLAGGED THESE SENTENCES IN THE EXCERPT AS CARRYING QUANTITIES.\n'
-                          'They are a hint, not a quota. Some are not findings. Copy spans from the EXCERPT, not\n'
-                          'from this list.\n' + lines + '\n')
-        p = MINE_PROMPT.format(title=paper.get('title', ''), authors=', '.join(paper.get('authors', []) or []),
-                               venue=paper.get('venue', ''), year=paper.get('year', ''),
-                               section=ch.section.upper(), facet_line=facet_line,
-                               text=ch.text, cand_block=cand_block)
+            # TWO RESERVED LANES. A single top-12 list, sorted by score, is a FIXED CAP: on a chunk
+            # dense with holdings the qualitative sentences would fill it and the estimates would never
+            # be shown to the model. The quantitative lane keeps its 12 slots whatever else is found.
+            q = [c for c in ch.candidates if c['quantitative']]
+            ql = [c for c in ch.candidates if not c['quantitative']]
+            parts = []
+            if q:
+                lines = '\n'.join(f'  - {c["text"][:260]}'
+                                  for c in sorted(q, key=lambda c: -c['score'])[:12])
+                parts.append('A DETERMINISTIC SCAN FLAGGED THESE SENTENCES IN THE EXCERPT AS CARRYING QUANTITIES.\n'
+                             'They are a hint, not a quota. Some are not findings.\n' + lines)
+            if ql:
+                lines = '\n'.join(f'  - [{",".join(c["families"])[:44]}] {c["text"][:240]}'
+                                  for c in sorted(ql, key=lambda c: -c['score'])[:8])
+                parts.append('AND THESE AS CARRYING A HOLDING, A RECOMMENDATION, A NULL RESULT, A STATED LIMITATION\n'
+                             'OR A QUALITATIVE RESULT. The bracketed type is a GUESS by a regex — you decide.\n' + lines)
+            if parts:
+                cand_block = ('\n' + '\n\n'.join(parts) +
+                              '\nCopy spans from the EXCERPT, not from these lists.\n')
+        p = mine_prompt(title=paper.get('title', ''), authors=', '.join(paper.get('authors', []) or []),
+                        venue=paper.get('venue', ''), year=paper.get('year', ''),
+                        section=ch.section.upper(), facet_line=facet_line,
+                        text=ch.text, cand_block=cand_block)
         arr = None
         for attempt in (1, 2):
             try:
@@ -1553,32 +2102,102 @@ def mine_paper(paper: dict, contract: MiningContract, use_llm: bool, rejects: di
         for raw in arr:
             if not isinstance(raw, dict):
                 continue
-            card = gate_card(raw, view, ch, paper, pw, contract, rejects)
+            card = gate_card(raw, view, ch, paper, pw, contract, rejects,
+                             graph=graph, source_policy=source_policy)
             if card:
                 cards.append(card)
+                stats['cards_by_act'][card['act']] = stats['cards_by_act'].get(card['act'], 0) + 1
     return cards
 
 
 def new_stats() -> dict:
     return {'view_chars': 0, 'chunked_chars': 0, 'evidence_chars': 0, 'llm_chars': 0,
-            'legacy_28k_chars': 0, 'chunks': 0, 'candidates': 0, 'llm_calls': 0, 'llm_proposed': 0,
-            'by_section': {}, 'cands_by_section': {}}
+            'legacy_28k_chars': 0, 'chunks': 0, 'candidates': 0, 'candidates_quant': 0,
+            'candidates_qual': 0, 'blocks_examined': 0, 'blocks_no_act': 0,
+            'llm_calls': 0, 'llm_proposed': 0,
+            'by_section': {}, 'cands_by_section': {}, 'cands_by_act': {}, 'cards_by_act': {}}
 
 
 def new_rejects() -> dict:
-    return {'span_not_in_source': 0, 'span_too_short': 0, 'offset_roundtrip_failed': 0,
-            'number_not_in_span': 0, 'second_hand_attribution': 0, 'field_not_in_source': 0,
-            'mechanism_not_in_span': 0, 'orphan_number': 0, 'qualitative_no_outcome': 0,
-            'derived_claim_leaked_number': 0, 'llm_error': 0}
+    """EVERY REJECTION HAS A COUNTER, AND EVERY COUNTER IS PRINTED. A discard that is not counted is
+    the defect that let a judicial opinion produce zero cards and look like an empty document."""
+    d = {'span_not_in_source': 0, 'span_too_short': 0, 'offset_roundtrip_failed': 0,
+         # the binding — the P0 lane
+         'no_manifestation_for_paper': 0, 'span_binding_failed': 0, 'span_binding_mismatch': 0,
+         'source_policy_inadmissible': 0,
+         # the act
+         'unknown_evidence_act': 0, 'act_requires_number_absent_from_span': 0,
+         'act_requires_result_absent_from_span': 0, 'act_missing_required': 0,
+         # the field gates
+         'number_not_in_span': 0, 'second_hand_attribution': 0, 'field_not_in_source': 0,
+         'mechanism_not_in_span': 0, 'derived_claim_leaked_number': 0, 'llm_error': 0}
+    for a in REGISTRY.acts:
+        d[f'act_missing_required:{a}'] = 0
+    return d
+
+
+def _mining_units(graph, corpus: list[dict], policy) -> tuple[list[dict], dict]:
+    """SELECT THE DOCUMENTS TO MINE **FROM THE GRAPH**. Returns (units, skipped-with-reasons).
+
+    The old selector was `content_status != 'CITATION_ONLY'` — a FLAT STRING ON THE ROW, written by a
+    fetcher, derived from nothing, and (event_ledger.find_underived_labels) exactly the kind of label a
+    component writes about its own success. It admitted 47 rows including a cookie banner and a PDF
+    whose glyphs never decoded, and it decided WHICH DOCUMENT a card would cite by reading a field that
+    is not about the bytes.
+
+    The graph decides now, from the bytes, through the one completeness reducer. EVERY SKIP IS
+    COUNTED AND CARRIES ITS REASON — a document we chose not to mine is a fact about our pipeline, and
+    it must never be able to read as a fact about the literature.
+    """
+    abstracts: dict[str, str] = {}
+    for mid, m in graph.manifestations.items():
+        if m.text_field == 'abstract':
+            abstracts.setdefault(m.work_id, m.text)
+
+    units: list[dict] = []
+    skipped: dict[str, list] = {}
+    for mid, m in sorted(graph.manifestations.items()):
+        w = graph.works[m.work_id]
+        prof = m.profile
+        if not prof.get('complete'):
+            why = '; '.join(prof.get('incomplete_because') or ['not a usable document'])
+            skipped.setdefault(prof.get('artifact_kind', 'unknown'), []).append(
+                {'manifestation_id': mid, 'work': w.title[:60], 'doi': w.doi, 'why': why,
+                 'n_words': m.n_words})
+            continue
+        att = graph.resolve_attribution(mid, policy)
+        units.append({
+            # THE PAPER DICT IS BUILT FROM THE GRAPH. Not one field of it is copied off the corpus row,
+            # because `row['attribution']` on the Acemoglu-Restrepo row says "Journal of Political
+            # Economy" over the bytes of the NBER working paper, and that string was the P0.
+            'manifestation_id': mid,
+            'doi': w.doi or '',
+            'title': w.title,
+            'authors': list(w.authors),
+            'venue': w.venue or '',
+            'year': w.year or '',
+            'abstract': abstracts.get(m.work_id, '') if m.text_field != 'abstract' else '',
+            '_text_field': m.text_field,
+            '_source_version': m.content_hash[:12],
+            '_admissible': att.admitted,
+            '_refusal': att.refusal,
+            '_n_words': m.n_words,
+            '_artifact_kind': prof.get('artifact_kind', ''),
+        })
+    return units, skipped
 
 
 def mine(corpus_path: Path, question: str = '', facets: list | None = None, use_llm: bool = True,
-         workers: int = 8, limit: int | None = None, max_chunks_per_paper: int = 0) -> tuple[list[dict], dict]:
+         workers: int = 8, limit: int | None = None, max_chunks_per_paper: int = 0,
+         graph=None, source_policy=None) -> tuple[list[dict], dict]:
     corpus = json.loads(corpus_path.read_text())
     contract = load_contract(question, facets)
+    P = prov()
+    if graph is None:
+        graph = P.migrate(corpus)
+    policy = source_policy or contract.source_policy
 
-    usable = [c for c in corpus if c.get('content_status') != 'CITATION_ONLY'
-              and ((c.get('fulltext') or '').strip() or (c.get('abstract') or '').strip())]
+    usable, skipped = _mining_units(graph, corpus, policy)
     if limit:
         usable = usable[:limit]
 
@@ -1587,15 +2206,34 @@ def mine(corpus_path: Path, question: str = '', facets: list | None = None, use_
     lock = threading.Lock()
     stats['papers'] = len(usable)
     stats['papers_in_corpus'] = len(corpus)
-    stats['citation_only'] = sum(1 for c in corpus if c.get('content_status') == 'CITATION_ONLY')
+    stats['works_in_graph'] = len(graph.works)
+    stats['manifestations_in_graph'] = len(graph.manifestations)
+    stats['source_policy'] = policy.name
+    stats['act_registry_version'] = REGISTRY.version
+    stats['not_minable'] = {k: len(v) for k, v in sorted(skipped.items())}
+    stats['not_minable_detail'] = skipped
+    # The documents we HOLD IN FULL and are FORBIDDEN TO CITE. This is not an evidence gap and it is
+    # not a bug: it is the journal-only instruction, doing its job, in the open.
+    stats['inadmissible_manifestations'] = [
+        {'manifestation_id': u['manifestation_id'], 'doi': u['doi'], 'title': u['title'][:70],
+         'kind': u['_artifact_kind'], 'refusal': u['_refusal']}
+        for u in usable if not u['_admissible']]
 
-    log(f'=== MINING {len(usable)} papers ({stats["citation_only"]} citation-only, skipped) ===')
-    log(f'    model={MODEL}  llm={"ON" if use_llm else "OFF (deterministic harvest only)"}')
+    log(f'=== MINING {len(usable)} manifestations selected FROM THE GRAPH '
+        f'({len(graph.manifestations)} held, {sum(len(v) for v in skipped.values())} not a usable '
+        f'document) ===')
+    log(f'    source policy: {policy.name} — {len(stats["inadmissible_manifestations"])} of the '
+        f'{len(usable)} minable documents may NOT be cited under it')
+    for k, v in sorted(stats['not_minable'].items()):
+        log(f'      not minable: {v:>3} x {k}')
+    log(f'    model={MODEL}  llm={"ON" if use_llm else "OFF (deterministic harvest only)"}  '
+        f'acts={REGISTRY.version}')
 
     def one(p):
         local_s, local_r = new_stats(), new_rejects()
         try:
-            cards = mine_paper(p, contract, use_llm, local_r, local_s, max_chunks_per_paper)
+            cards = mine_paper(p, contract, use_llm, local_r, local_s, max_chunks_per_paper,
+                               graph=graph, source_policy=policy)
         except Exception as e:
             log(f"  !! {(p.get('authors') or ['?'])[0]}: {type(e).__name__}: {e}")
             import traceback
@@ -1609,15 +2247,19 @@ def mine(corpus_path: Path, question: str = '', facets: list | None = None, use_
                 else:
                     stats[k] = stats.get(k, 0) + v
             for k, v in local_r.items():
-                if k == '_examples':
-                    rejects.setdefault('_examples', []).extend(v)
+                if k.startswith('_'):
+                    rejects.setdefault(k, []).extend(v)
                 else:
                     rejects[k] = rejects.get(k, 0) + v
             n_est = sum(1 for c in cards if c['card_kind'] == 'estimate')
             n_full = sum(1 for c in cards if c['complete_tuple'])
+            n_qual = sum(1 for c in cards if c['card_kind'] == 'qualitative')
+            flag = '' if p['_admissible'] else '  [INADMISSIBLE under ' + policy.name + ']'
             log(f"  {(p.get('authors') or ['?'])[0]:<16.16} {str(p.get('year','')):<5} "
-                f"{local_s['chunks']:>3} chunks  {local_s['candidates']:>4} cands  "
-                f"{len(cards):>3} cards ({n_est} est / {n_full} full)  {(p.get('venue') or '')[:34]}")
+                f"{local_s['chunks']:>3} chunks  {local_s['candidates_quant']:>4}q/"
+                f"{local_s['candidates_qual']:<4} cands  "
+                f"{len(cards):>3} cards ({n_est} est / {n_full} full / {n_qual} qual)  "
+                f"{(p.get('venue') or '')[:28]}{flag}")
         return cards
 
     t0 = time.time()
@@ -1633,13 +2275,26 @@ def mine(corpus_path: Path, question: str = '', facets: list | None = None, use_
     stats['seconds'] = round(time.time() - t0, 1)
     stats['cards_pre_consolidation'] = len(all_cards)
     cards = consolidate(all_cards)
+    stats['version_discrepancies'] = version_discrepancies(all_cards)
     stats['question'] = contract.question
     stats['contract_origin'] = contract.origin
     stats['facet_axes'] = {f.axis: [m.key for m in f.matchers] for f in contract.families}
     stats['levels'] = sorted(contract.levels)
     stats['designs'] = sorted(contract.designs)
     stats['rejects'] = rejects
+    stats['quarantined'] = rejects.get('_quarantine', [])
     return cards, stats
+
+
+def _raises_typeerror(fn) -> bool:
+    """Did the call REFUSE to happen? Used to prove `graph` is required, not defaulted."""
+    try:
+        fn()
+    except TypeError:
+        return True
+    except Exception:
+        return False
+    return False
 
 
 def report(cards: list[dict], stats: dict) -> None:
@@ -1652,10 +2307,25 @@ def report(cards: list[dict], stats: dict) -> None:
     print('\n' + '=' * 78)
     print('  EVIDENCE MINER — RESULTS')
     print('=' * 78)
-    print(f"\n  CORPUS          {stats['papers']} mineable papers ({stats['citation_only']} citation-only skipped)")
+    print(f"\n  CORPUS          {stats['papers']} minable manifestations, SELECTED FROM THE GRAPH "
+          f"({stats.get('manifestations_in_graph', 0)} held)")
+    for k, n in sorted((stats.get('not_minable') or {}).items(), key=lambda kv: -kv[1]):
+        print(f"                    not a usable document: {n:>3} x {k}")
+    print(f"  SOURCE POLICY   {stats.get('source_policy', '?')}")
+    inadm = stats.get('inadmissible_manifestations') or []
+    if inadm:
+        print(f"                  {len(inadm)} document(s) we HOLD IN FULL and MAY NOT CITE under it:")
+        for u in inadm[:6]:
+            print(f"                    - {u['title'][:52]:<52} [{u['kind']}]")
+    print(f"  ACT REGISTRY    {stats.get('act_registry_version', '?')}  "
+          f"({len(REGISTRY.acts)} evidence-act types)")
     print(f"  TEXT            {v:,} chars of normalized source")
-    print(f"  CHUNKS          {stats['chunks']:,} section-aware chunks, {stats['candidates']:,} deterministic candidates")
-    print(f"  LLM             {stats['llm_calls']:,} calls, {stats['llm_proposed']:,} tuples proposed, {stats['seconds']}s")
+    print(f"  BLOCKS          {stats.get('blocks_examined', 0):,} evidence-bearing blocks examined, "
+          f"{stats.get('blocks_no_act', 0):,} yielded NO act of any type")
+    print(f"  CHUNKS          {stats['chunks']:,} section-aware chunks, "
+          f"{stats.get('candidates_quant', 0):,} quantitative + {stats.get('candidates_qual', 0):,} "
+          f"qualitative candidates")
+    print(f"  LLM             {stats['llm_calls']:,} calls, {stats['llm_proposed']:,} acts proposed, {stats['seconds']}s")
 
     print('\n  --- % OF SOURCE TEXT ACTUALLY EXAMINED ' + '-' * 38)
     print(f"    chunked & deterministically scanned : {100*ch/v:6.1f}%   ({ch:,} / {v:,} chars)")
@@ -1676,11 +2346,30 @@ def report(cards: list[dict], stats: dict) -> None:
     print(f"    cards on disk                       : {len(cards):,}")
     print(f"      carrying a QUANTITATIVE finding   : {len(est):,}  ({100*len(est)/max(len(cards),1):.0f}%)")
     print(f"      carrying a COMPLETE ESTIMATE TUPLE: {len(full):,}  ({100*len(full)/max(len(cards),1):.0f}% of cards)")
-    print(f"      corroborated by 2+ papers         : {len(corrob):,}")
+    print(f"      corroborated by 2+ EVIDENCE UNITS : {len(corrob):,}")
     print(f"    verifiable quantitative findings    : {len(est):,}   <-- every figure re-derivable from")
-    print(f"                                                     a byte range of a journal PDF")
-    print(f"    distinct journal articles           : {len({c['doi'] for c in cards})}")
+    print(f"                                                     a byte range of a bound manifestation")
+    print(f"    distinct EVIDENCE UNITS (studies)   : {len({evidence_unit(c) for c in cards if evidence_unit(c)})}"
+          f"   <-- not DOIs: two versions of one study are ONE unit")
+    print(f"    distinct manifestations cited       : {len({c.get('manifestation_id') for c in cards})}")
     print(f"    before consolidation                : {stats['cards_pre_consolidation']:,}")
+
+    by_act = {}
+    for c in cards:
+        by_act[c.get('act', '?')] = by_act.get(c.get('act', '?'), 0) + 1
+    print('\n  --- BY EVIDENCE ACT (the registry, at work) ' + '-' * 33)
+    for a in REGISTRY.acts:
+        n = by_act.get(a, 0)
+        cand = (stats.get('cands_by_act') or {}).get(a, 0)
+        print(f"    {a:<32}{cand:>7} candidates {n:>6} cards")
+
+    vd = stats.get('version_discrepancies') or []
+    if vd:
+        print('\n  --- VERSION CHANGES (NOT literature disagreement) ' + '-' * 27)
+        for d in vd[:6]:
+            print(f"    {d['evidence_unit_id'][:44]:<44} {d['magnitudes']} on '{d['outcome'][:26]}'")
+            print(f"      across {len(d['expressions'])} expressions of ONE study — may not corroborate "
+                  f"or contradict each other")
 
     if est:
         nf = sum(len([f for f in TUPLE_FIELDS if (c.get(f) or '').strip()]) for c in est) / len(est)
@@ -1703,18 +2392,28 @@ def report(cards: list[dict], stats: dict) -> None:
                 flag = '  <-- EMPTY CELL' if n_works == 0 else ('  <-- THIN' if n_works < 2 else '')
                 print(f"      {k:<28}{n_cards:>4} cards {n_est:>4} quant {n_works:>3} works{flag}")
 
-    print('\n  --- THE GATE (what it destroyed) ' + '-' * 44)
+    print('\n  --- THE GATE (what it destroyed, AND WHY — every counter, none hidden) ' + '-' * 6)
     r = stats['rejects']
-    for k in ('span_not_in_source', 'number_not_in_span', 'second_hand_attribution', 'orphan_number',
-              'field_not_in_source', 'mechanism_not_in_span', 'span_too_short', 'qualitative_no_outcome',
-              'offset_roundtrip_failed', 'derived_claim_leaked_number', 'llm_error'):
-        if r.get(k):
-            print(f"    {k:<34}: {r[k]:,}")
+    for k in sorted(k for k in r if not k.startswith('_') and r.get(k)):
+        note = ''
+        if k == 'source_policy_inadmissible':
+            note = '  <-- REAL evidence, from a document THIS TASK MAY NOT CITE. Quarantined, not deleted.'
+        print(f"    {k:<40}: {r[k]:,}{note}")
+    if not any(r.get(k) for k in r if not k.startswith('_')):
+        print('    (nothing)')
+
     ex = r.get('_examples') or []
     if ex:
         print(f"\n    FABRICATED FIGURES CAUGHT (first 3 of {len(ex)}):")
         for e in ex[:3]:
             print(f"      {e['field']}=\"{e['value']}\" -> {e['fabricated']} NOT IN SPAN: \"{e['span'][:78]}...\"")
+    qn = r.get('_quarantine') or []
+    if qn:
+        print(f"\n    QUARANTINED — BOUND, VERBATIM EVIDENCE THE INSTRUCTION FORBIDS (first 3 of {len(qn)}):")
+        for e in qn[:3]:
+            print(f"      {e['expression_id'][:56]}")
+            print(f"        would have been printed as: {e['row_attribution_that_would_have_been_used'][:66]!r}")
+            print(f"        {(e['refusal'] or '')[:100]}")
     print()
 
 
@@ -1734,6 +2433,7 @@ def self_test() -> int:
 
     print('=== EVIDENCE MINER — ADVERSARIAL SUITE ===\n')
     MC = MiningContract()          # the generic contract: no research_contract, no question
+    P = prov()
 
     # --- THE SUBSTRING LEAK. This is the one that would have shipped a fabricated effect size.
     ck('"0.2" is NOT a number of a span whose only number is 10.25',
@@ -1745,12 +2445,46 @@ def self_test() -> int:
        number_tokens('a sample of 1,234 workers') == number_tokens('a sample of 1234 workers'))
     ck('0.20 == 0.2', number_tokens('fell 0.20 points') == number_tokens('fell 0.2 points'))
 
-    src = ('4. Results\n'
-           'We find that one more robot per thousand workers reduces the employment-to-population '
-           'ratio by 0.2 percentage points (standard error 0.05). Our sample covers 722 commuting '
-           'zones in the United States between 1990 and 2007.\n'
-           'Table 3. Effect of robots on employment\n'
-           'Robots per thousand workers   -0.39   (0.08)\n')
+    # -----------------------------------------------------------------------------------------
+    # THE TEST GRAPH. Built THROUGH provenance.migrate() — the production path — so a card in this
+    # suite is bound exactly as a card in the pipeline is, and the completeness reducer that admits
+    # these bytes is the SAME ONE that admits the corpus's. A hand-stamped `complete: True` here
+    # would test a document the pipeline could never produce.
+    # -----------------------------------------------------------------------------------------
+    FILLER = ('This section reviews the prior work on the topic and sets out the framework used in '
+              'the analysis that follows, together with the assumptions it rests upon. ') * 90
+
+    def build_graph(rows: list[dict]):
+        g = P.migrate(rows)
+        return g
+
+    def manif_of(g, doi, field='fulltext'):
+        return next(m for m, x in g.manifestations.items()
+                    if (g.works[x.work_id].doi == doi) and x.text_field == field)
+
+    RESULTS = ('4. Results\n'
+               'We find that one more robot per thousand workers reduces the employment-to-population '
+               'ratio by 0.2 percentage points (standard error 0.05). Our sample covers 722 commuting '
+               'zones in the United States between 1990 and 2007.\n'
+               'Table 3. Effect of robots on employment\n'
+               'Robots per thousand workers   -0.39   (0.08)\n')
+    # A TYPESET JOURNAL ARTICLE: it carries a DOI line (journal furniture) and it is long enough to be
+    # the article rather than a stub of it. Both facts are DERIVED from these bytes by provenance.
+    JOURNAL_SRC = (f'Robots and Jobs: Evidence from US Labor Markets\n'
+                   f'doi: 10.1086/705716\n'
+                   f'1. Introduction\n{FILLER}\n{RESULTS}')
+    row_j = {'doi': '10.x/y', 'title': 'Robots and Jobs: Evidence from US Labor Markets',
+             'authors': ['Acemoglu', 'Restrepo'], 'venue': 'Journal of Political Economy',
+             'year': 2020, 'type': 'journal-article', 'fulltext': JOURNAL_SRC, 'abstract': ''}
+    G = build_graph([row_j])
+    MID = manif_of(G, '10.x/y')
+    ck('the synthetic journal article profiles as a COMPLETE journal_article (derived, not stamped)',
+       G.manifestations[MID].profile['artifact_kind'] == 'journal_article'
+       and G.manifestations[MID].profile['complete'],
+       f"{G.manifestations[MID].profile['artifact_kind']} "
+       f"{G.manifestations[MID].profile.get('incomplete_because')}")
+
+    src = G.manifestations[MID].text
     view, chunks = chunk_document('d', src)
     ck('the RESULTS heading is found and weighted 1.00',
        any(c.section == 'results' for c in chunks),
@@ -1760,9 +2494,45 @@ def self_test() -> int:
 
     paper = {'doi': '10.x/y', 'authors': ['Acemoglu'], 'year': 2020, 'venue': 'JPE',
              'title': 'Robots and Jobs', 'abstract': '', 'attribution': 'W', 'attribution_short': 'S',
-             '_source_version': 'abc', '_text_field': 'fulltext'}
+             '_source_version': 'abc', '_text_field': 'fulltext', 'manifestation_id': MID}
     ch = [c for c in chunks if 'robot per thousand' in c.text][0]
     pw = paper_window(view, chunks, paper)
+
+    def gate_card(raw, view, chunk, paper, paper_words, contract, rejects, *,
+                  graph=None, source_policy=None):
+        """Every call below goes through the REAL gate with the REAL graph. The shadow exists only so
+        the suite does not repeat `graph=G` two dozen times — it adds nothing and hides nothing."""
+        return globals()['gate_card'](raw, view, chunk, paper, paper_words, contract, rejects,
+                                      graph=graph or G, source_policy=source_policy)
+
+    def journal_doc(results_text: str, doi: str, title: str = 'A Study of Robots and Jobs'):
+        """A COMPLETE, TYPESET journal article whose results section is `results_text`, plus its graph.
+
+        EVERY ADVERSARIAL SPAN BELOW NEEDS ITS OWN DOCUMENT. It used to be enough to build a two-line
+        string and hand it to the gate beside a `paper` dict from somewhere else — and that is precisely
+        the defect: a card's offsets index THE MANIFESTATION IT NAMES, and nothing was checking. When
+        this suite was first re-run after binding, four tests failed with `span_binding_mismatch`,
+        because they were quoting one document and citing another. The gate was right and the tests
+        were wrong.
+        """
+        src2 = f'{title}\ndoi: {doi}\n1. Introduction\n{FILLER}\n4. Results\n{results_text}\n'
+        row = {'doi': doi, 'title': title, 'authors': ['Author'], 'venue': 'Some Journal',
+               'year': 2020, 'type': 'journal-article', 'fulltext': src2, 'abstract': ''}
+        g = build_graph([row])
+        mid = manif_of(g, doi)
+        pr = g.manifestations[mid].profile
+        if pr['artifact_kind'] != 'journal_article' or not pr['complete']:
+            # A FIXTURE THAT IS NOT WHAT IT CLAIMS IS WORSE THAN NO FIXTURE. The first version of this
+            # helper wrote `doi: 10.sh/0` — which is not a DOI shape — so the bytes carried no journal
+            # furniture, profiled as `unknown`, and every card built on them was refused as
+            # INADMISSIBLE. The tests would have "passed" for a reason that had nothing to do with
+            # what they were testing. So it refuses to hand back a document it could not build.
+            raise AssertionError(f'journal_doc({doi!r}) did not build a complete journal article: '
+                                 f'{pr["artifact_kind"]} {pr["incomplete_because"]}')
+        v, chs = chunk_document('d', g.manifestations[mid].text)
+        p = {'doi': doi, 'authors': ['Author'], 'year': 2020, 'venue': 'Some Journal', 'title': title,
+             'abstract': '', 'manifestation_id': mid, '_source_version': 'x', '_text_field': 'fulltext'}
+        return g, v, chs, p
 
     good = {'span': 'We find that one more robot per thousand workers reduces the employment-to-population '
                     'ratio by 0.2 percentage points (standard error 0.05).',
@@ -1822,20 +2592,24 @@ def self_test() -> int:
     ck('an ELIDED span ("<real> ... <invented>") is REJECTED',
        gate_card(ell, view, ch, paper, pw, MC, r) is None)
 
-    # --- ORPHAN NUMBER
+    # --- ORPHAN NUMBER. The old GATE 6 (`not (unit or comparator) and not outcome -> reject`) is now
+    #     the registry's rule for `quantitative_estimate`: required_any = [[unit, comparator, outcome]].
+    #     SAME REJECTION, SAME CARDS, and it is now a data edit rather than an `if`. D1 does not move.
     r = new_rejects()
     orph = {'span': 'We find that one more robot per thousand workers reduces the employment-to-population '
                     'ratio by 0.2 percentage points (standard error 0.05).',
             'effect': '0.2', 'unit': '', 'comparator': '', 'outcome': '', 'population': '',
             'geography': '', 'period': '', 'technology': '', 'industry': '', 'unit_of_analysis': '',
             'design': '', 'uncertainty': ''}
-    ck('an ORPHAN NUMBER (no unit, no outcome) is REJECTED',
-       gate_card(orph, view, ch, paper, pw, MC, r) is None and r['orphan_number'] == 1)
+    ck('an ORPHAN NUMBER (no unit, no comparator, no outcome) is REJECTED',
+       gate_card(orph, view, ch, paper, pw, MC, r) is None
+       and r['act_missing_required:quantitative_estimate'] == 1,
+       f'rejects={ {k: v for k, v in r.items() if not k.startswith("_") and v} }')
 
     # --- SECOND-HAND ATTRIBUTION. Real spans, taken verbatim off disk from the first full mine.
     #     Every one of these passed the span gate AND the number gate, and every one would have been
     #     rendered as "Writing in <journal>, <author> shows that <someone else's number>".
-    for label, sp in [
+    for i, (label, sp) in enumerate([
         ('a third-party forecast quoted by the paper',
          'It is estimated that, globally, 326 million mostly-low-skilled jobs will be adversely '
          'affected by AI within 10 years, with 0.5 percent of them in manufacturing.'),
@@ -1845,16 +2619,16 @@ def self_test() -> int:
         ('an institutional attribution',
          'According to the World Economic Forum, the adoption of AI will make 0.5 million jobs '
          'redundant in the retail sector by 2030.'),
-    ]:
-        src2 = f'4. Results\n{sp}\n'
-        v2, ch2 = chunk_document('d', src2)
+    ]):
+        g2, v2, chs2, p2 = journal_doc(sp, doi=f'10.1111/sh{i}')
+        ch2 = [c for c in chs2 if sp[:40] in c.text][0]
         r = new_rejects()
         got = gate_card({'span': sp, 'effect': '0.5', 'unit': 'percentage points',
                          'outcome': 'employment rate', 'unit_of_analysis': 'region',
                          'design': 'observational', 'population': 'commuting zones',
                          'geography': '', 'period': '', 'technology': '', 'industry': '',
                          'comparator': '', 'uncertainty': ''},
-                        v2, ch2[0], paper, paper_window(v2, ch2, paper), MC, r)
+                        v2, ch2, p2, paper_window(v2, chs2, p2), MC, r, graph=g2)
         ck(f'SECOND-HAND: {label} is REJECTED',
            got is None and r['second_hand_attribution'] == 1,
            'a real number from a real paper was about to be credited to the wrong source')
@@ -1867,20 +2641,22 @@ def self_test() -> int:
        gate_card(own, view, ch, paper, pw, MC, r) is not None,
        f'the second-hand gate is starving us: {[k for k, v in r.items() if v]}')
 
-    # --- A FORECAST IS NOT A MEASURED EFFECT
-    fsrc = ('4. Results\nWe estimate that 0.2 percent of employment will be displaced by 2030 in the '
-            'manufacturing sector.\n')
-    fv, fch = chunk_document('d', fsrc)
-    fcard = gate_card({'span': 'We estimate that 0.2 percent of employment will be displaced by 2030 '
-                               'in the manufacturing sector.', 'effect': '0.2', 'unit': 'percent',
+    # --- A FORECAST IS NOT A MEASURED EFFECT. And the MODEL DOES NOT GET TO DECIDE THAT: the span
+    #     does. Here the model asserts `quantitative_estimate` and the gate re-types it off the bytes.
+    fspan = 'We estimate that 0.2 percent of employment will be displaced by 2030 in the manufacturing sector.'
+    gf, fv, fchs, pf = journal_doc(fspan, doi='10.2222/fc1')
+    fch = [c for c in fchs if fspan[:40] in c.text][0]
+    fcard = gate_card({'act': 'quantitative_estimate', 'span': fspan,
+                       'effect': '0.2', 'unit': 'percent',
                        'outcome': 'employment', 'unit_of_analysis': 'economy', 'design': 'simulation',
                        'population': 'manufacturing sector', 'geography': '', 'period': '',
                        'technology': '', 'industry': 'manufacturing', 'comparator': '',
-                       'uncertainty': ''}, fv, fch[0], paper, paper_window(fv, fch, paper), MC,
-                      new_rejects())
-    ck('a FORECAST is kept but labelled `projection`, never counted as a measured estimate',
-       fcard is not None and fcard['card_kind'] == 'projection' and not fcard['complete_tuple'],
-       str(fcard and (fcard['card_kind'], fcard['complete_tuple'])))
+                       'uncertainty': ''}, fv, fch, pf, paper_window(fv, fchs, pf), MC,
+                      new_rejects(), graph=gf)
+    ck('a FORECAST is kept but RE-TYPED off the span, never counted as a measured estimate',
+       fcard is not None and fcard['card_kind'] == 'projection'
+       and fcard['act'] == 'forecast_or_projection' and not fcard['complete_tuple'],
+       str(fcard and (fcard['act'], fcard['card_kind'], fcard['complete_tuple'])))
 
     # --- ONE DEFINITION OF THE SOURCE TEXT (the miner and the verifier must never drift)
     pp = {'fulltext': '  ' + 'x' * 900 + '  ', 'abstract': 'short'}
@@ -1953,17 +2729,78 @@ def self_test() -> int:
     ck('...and the offsets still point at the right bytes of the ORIGINAL source',
        'popula-' in hy.src[s0:s1] and 'tion ratio' in hy.src[s0:s1], repr(hy.src[s0:s1]))
 
-    # --- CONSOLIDATION KEEPS CORROBORATION
+    # --- CONSOLIDATION KEEPS CORROBORATION — BUT ONLY ACROSS INDEPENDENT EVIDENCE UNITS
+    #
+    # A SECOND STUDY that finds the same thing is CORROBORATION, which is the strongest thing a review
+    # can show. A SECOND VERSION OF THE SAME STUDY is not — it is one study, reported twice.
+    row_g = {'doi': '10.z/w', 'title': 'Robots at Work in Europe',
+             'authors': ['Graetz'], 'venue': 'Review of Economics and Statistics', 'year': 2018,
+             'type': 'journal-article',
+             'fulltext': f'Robots at Work in Europe\ndoi: 10.1162/rest\n1. Introduction\n{FILLER}\n{RESULTS}',
+             'abstract': ''}
+    # THE ACEMOGLU-RESTREPO CASE, EXACTLY: the SAME DOI (one work) whose bytes are the NBER WORKING
+    # PAPER. A different document, a different expression — the SAME STUDY.
+    row_wp = {'doi': '10.x/y', 'title': 'Robots and Jobs: Evidence from US Labor Markets',
+              'authors': ['Acemoglu', 'Restrepo'], 'venue': 'Journal of Political Economy',
+              'year': 2020, 'type': 'journal-article',
+              'fulltext': (f'Robots and Jobs: Evidence from US Labor Markets\n'
+                           f'NBER Working Paper No. 23285\n1. Introduction\n{FILLER}\n{RESULTS}'),
+              'abstract': ''}
+    G2 = build_graph([row_j, row_g, row_wp])
+    MID_J = manif_of(G2, '10.x/y', 'fulltext')
+    MID_WP = [m for m, x in G2.manifestations.items()
+              if G2.works[x.work_id].doi == '10.x/y' and m != MID_J]
+    # migrate() hashes bytes, so the journal and the working-paper renderings are two manifestations
+    MID_WP = MID_WP[0] if MID_WP else MID_J
+    MID_G = manif_of(G2, '10.z/w', 'fulltext')
+    ck('two renderings of ONE study are TWO manifestations of ONE work',
+       G2.manifestations[MID_J].work_id == G2.manifestations[MID_WP].work_id and MID_J != MID_WP,
+       f'{G2.manifestations[MID_J].work_id} vs {G2.manifestations[MID_WP].work_id}')
+
     base = dict(good)
-    c_a = gate_card(dict(base), view, ch, paper, pw, MC, new_rejects())
-    p2 = dict(paper, doi='10.z/w', authors=['Graetz'], attribution='W2', attribution_short='S2')
-    c_b = gate_card(dict(base), view, ch, p2, pw, MC, new_rejects())
+    v_j, ch_j = (lambda vc: (vc[0], [c for c in vc[1] if 'robot per thousand' in c.text][0]))(
+        chunk_document('j', G2.manifestations[MID_J].text))
+    v_g, ch_g = (lambda vc: (vc[0], [c for c in vc[1] if 'robot per thousand' in c.text][0]))(
+        chunk_document('g', G2.manifestations[MID_G].text))
+    v_w, ch_w = (lambda vc: (vc[0], [c for c in vc[1] if 'robot per thousand' in c.text][0]))(
+        chunk_document('w', G2.manifestations[MID_WP].text))
+
+    p_j = dict(paper, manifestation_id=MID_J)
+    p_g = dict(paper, doi='10.z/w', authors=['Graetz'], manifestation_id=MID_G)
+    p_w = dict(paper, manifestation_id=MID_WP)
+    c_a = gate_card(dict(base), v_j, ch_j, p_j, pw, MC, new_rejects(), graph=G2,
+                    source_policy=P.ANY_VERSION)
+    c_b = gate_card(dict(base), v_g, ch_g, p_g, pw, MC, new_rejects(), graph=G2,
+                    source_policy=P.ANY_VERSION)
     merged = consolidate([c_a, c_b])
-    ck('the same finding in TWO papers becomes ONE card with TWO sources (not a deletion)',
+    ck('the same finding in TWO INDEPENDENT STUDIES becomes ONE card with TWO sources',
        len(merged) == 1 and merged[0]['n_sources'] == 2 and len(merged[0]['corroborating_sources']) == 1,
        f'{len(merged)} cards, n_sources={merged[0].get("n_sources") if merged else "-"}')
     ck('the corroborating source keeps ITS OWN span and offsets',
        bool(merged and merged[0]['corroborating_sources'][0]['span']))
+    ck('...AND ITS OWN COMPLETE BINDING (manifestation + content hash + expression)',
+       bool(merged and merged[0]['corroborating_sources'][0]['manifestation_id']
+            and merged[0]['corroborating_sources'][0]['content_hash']
+            and merged[0]['corroborating_sources'][0]['expression_id']),
+       'a corroborating source is a CITATION — it can name a document its span never came from')
+
+    c_w = gate_card(dict(base), v_w, ch_w, p_w, pw, MC, new_rejects(), graph=G2,
+                    source_policy=P.ANY_VERSION)
+    merged2 = consolidate([c_a, c_w])
+    ck('THE SAME FINDING IN TWO VERSIONS OF ONE STUDY IS **NOT** CORROBORATION',
+       len(merged2) == 1 and merged2[0]['n_sources'] == 1
+       and merged2[0]['corroborating_sources'] == [],
+       f'n_sources={merged2[0]["n_sources"]} — the working paper and the journal article are ONE study; '
+       f'counting them as two independent sources is how len(dois) closes a cell on one piece of evidence')
+    ck('...and the second expression is RECORDED, not deleted',
+       bool(merged2 and merged2[0]['same_unit_other_expressions']))
+
+    # --- A VERSION CHANGE IS NOT A LITERATURE DISAGREEMENT
+    c_w2 = dict(c_w, effect='0.37', span_numbers=sorted(set(c_w['span_numbers']) | {'0.37'}))
+    vd = version_discrepancies([c_a, c_w2])
+    ck('0.37 (working paper) vs 0.2 (journal) on ONE study is reported as a VERSION CHANGE',
+       len(vd) == 1 and 'VERSION CHANGE' in vd[0]['reading'],
+       f'{vd} — peer review changed the number; it is not two studies disagreeing')
 
     # --- THE HARVEST IS NOT FOOLED BY A BIBLIOGRAPHY
     ch_ref = Chunk('d', 0, 'references', 0.0, 0, 200, 0, 200,
@@ -1991,6 +2828,151 @@ def self_test() -> int:
     c2 = load_contract('', [{'name': 'ind', 'terms': ['manufacturing']}])
     ck('a facet tag NEVER admits a card by itself (tagging is not a gate)',
        gate_card({'span': 'irrelevant', 'effect': '5'}, view, ch, paper, pw, c2, new_rejects()) is None)
+
+    # =========================================================================================
+    # THE BINDING — Sol (a)(3). A card is a BOUND SPAN or it is not a card.
+    # =========================================================================================
+    print('\n  -- THE BINDING (a card is a bound span, or it is not a card) --')
+    r = new_rejects()
+    cb = gate_card(dict(good), view, ch, paper, pw, MC, r)
+    ck('an admitted card carries manifestation_id + content_hash + expression_id + work_id',
+       bool(cb and cb['manifestation_id'] and cb['content_hash'] and cb['expression_id']
+            and cb['work_id'] and cb['attribution_target_expression_id']),
+       str({k: cb.get(k) for k in ('manifestation_id', 'expression_id', 'work_id')} if cb else None))
+    ck('the card\'s content_hash IS sha256 of the manifestation it names',
+       bool(cb) and cb['content_hash'] == G.manifestations[cb['manifestation_id']].content_hash)
+    ck('the bound span re-verifies through graph.verify_span() — the enforcement point',
+       bool(cb) and G.verify_span({'manifestation_id': cb['manifestation_id'],
+                                   'span_start': cb['span_start'], 'span_end': cb['span_end'],
+                                   'text': cb['span_raw'], 'content_hash': cb['content_hash'],
+                                   'permitted_expression_ids': cb['permitted_expression_ids']}))
+    ck('gate_card() CANNOT BE CALLED WITHOUT A GRAPH (it is not an optional preflight)',
+       _raises_typeerror(lambda: globals()['gate_card'](
+           dict(good), view, ch, paper, pw, MC, new_rejects())),
+       'a card built without a graph is a citation bound to nothing')
+
+    r = new_rejects()
+    bad_paper = dict(paper, manifestation_id='manif:doesnotexist')
+    ck('a paper naming a manifestation the graph does not hold is REFUSED',
+       gate_card(dict(good), view, ch, bad_paper, pw, MC, r) is None and r['span_binding_failed'] == 1)
+
+    # THE OFFSETS INDEX THE WRONG DOCUMENT. This is the disaster the mismatch check exists for.
+    r = new_rejects()
+    wrong = dict(paper, manifestation_id=MID_G)      # Graetz's bytes, Acemoglu's offsets/view
+    got = gate_card(dict(good), view, ch, wrong, pw, MC, r, graph=G2, source_policy=P.ANY_VERSION)
+    ck('a card whose offsets index a DIFFERENT manifestation than it names is REFUSED',
+       got is None and (r['span_binding_mismatch'] or r['span_binding_failed']),
+       f'rejects={ {k: v for k, v in r.items() if not k.startswith("_") and v} }')
+
+    # --- THE P0 ITSELF: A WORKING PAPER MAY NOT BE PRINTED AS A JOURNAL ARTICLE ----------------
+    print('\n  -- THE P0 (working-paper bytes under a journal-only instruction) --')
+    r = new_rejects()
+    wp_card = gate_card(dict(base), v_w, ch_w, p_w, pw, MC, r,
+                        graph=G2, source_policy=P.JOURNAL_ONLY)
+    ck('a WORKING-PAPER span is REFUSED under `journal_articles_only`',
+       wp_card is None and r['source_policy_inadmissible'] == 1,
+       f'rejects={ {k: v for k, v in r.items() if not k.startswith("_") and v} }')
+    ck('...and it is QUARANTINED with its refusal, not silently deleted',
+       bool(r.get('_quarantine')) and 'journal_articles_only' in r['_quarantine'][0]['policy'])
+    wp_any = gate_card(dict(base), v_w, ch_w, p_w, pw, MC, new_rejects(),
+                       graph=G2, source_policy=P.ANY_VERSION)
+    ck('...and under `any_identified_version` it is admitted AS A WORKING PAPER, never as the journal',
+       bool(wp_any) and 'working paper' in (wp_any['attribution'] or '').lower()
+       and 'NOT the' in (wp_any['attribution'] or ''),
+       f"attribution={wp_any['attribution'] if wp_any else None!r}")
+    ck('the attribution is RESOLVED FROM THE GRAPH, not copied off the corpus row',
+       bool(wp_any) and wp_any['attribution'] != p_w['attribution'],
+       "row['attribution'] says 'Writing in the Journal of Political Economy' over working-paper bytes")
+
+    # =========================================================================================
+    # TYPED EVIDENCE ACTS — Sol (c). The judicial opinion that produced ZERO cards.
+    # =========================================================================================
+    print('\n  -- TYPED EVIDENCE ACTS (the registry, and the sources it used to destroy) --')
+    OPINION = ('SUPREME COURT OF THE UNITED STATES\n'
+               'Smith v. Acme Logistics\n'
+               'Opinion of the Court\n'
+               'The question presented is whether an employer may rely on an automated system it '
+               'cannot explain. We hold that an employer remains liable for an adverse employment '
+               'decision produced by an algorithmic system whose reasoning it cannot explain to the '
+               'affected employee. The judgment of the Court of Appeals is affirmed.\n')
+    row_op = {'doi': '', 'title': 'Smith v. Acme Logistics', 'authors': [], 'venue': 'US Reports',
+              'year': 2021, 'type': 'judicial-opinion', 'fulltext': OPINION, 'abstract': ''}
+    GO = build_graph([row_op])
+    MID_OP = next(iter(GO.manifestations))
+    ck('a 60-word judicial opinion is COMPLETE (stub_floor=None). A paper of that length is not.',
+       GO.manifestations[MID_OP].profile['complete']
+       and GO.manifestations[MID_OP].profile['artifact_kind'] == 'judicial_opinion',
+       str(GO.manifestations[MID_OP].profile['incomplete_because']))
+
+    v_op, ch_ops = chunk_document('op', GO.manifestations[MID_OP].text)
+    ch_op = ch_ops[0]
+    ck('THE HARVESTER FINDS THE HOLDING. It has no digit, and it used to be discarded UNCOUNTED.',
+       any('doctrinal_holding_or_rule' in c['families'] for c in harvest(ch_op, MC)),
+       f'candidates={[c["families"] for c in harvest(ch_op, MC)]}')
+    seen, noact = block_census(ch_op)
+    ck('...and the telemetry reports the blocks it examined, so a discard cannot read as an empty doc',
+       seen > 0, f'blocks examined={seen}, no-act={noact}')
+
+    p_op = {'doi': '', 'authors': [], 'year': 2021, 'venue': 'US Reports',
+            'title': 'Smith v. Acme Logistics', 'abstract': '', 'manifestation_id': MID_OP,
+            '_source_version': 'x', '_text_field': 'fulltext'}
+    pw_op = paper_window(v_op, ch_ops, p_op)
+    holding = {
+        'act': 'doctrinal_holding_or_rule',
+        'span': ('We hold that an employer remains liable for an adverse employment decision produced '
+                 'by an algorithmic system whose reasoning it cannot explain to the affected employee.'),
+        'holding': 'an employer remains liable for an adverse employment decision produced by an '
+                   'algorithmic system whose reasoning it cannot explain',
+        'authority': 'the Court',
+    }
+    r = new_rejects()
+    hc = gate_card(dict(holding), v_op, ch_op, p_op, pw_op, MC, r,
+                   graph=GO, source_policy=P.OFFICIAL_TEXT)
+    ck('A DOCTRINAL HOLDING IS ADMITTED: no effect size, no outcome, no design, no digit',
+       hc is not None, f'rejects={ {k: v for k, v in r.items() if not k.startswith("_") and v} }')
+    if hc:
+        ck('...it is typed, and its claim is DERIVED from the gated holding (not a model summary)',
+           hc['act'] == 'doctrinal_holding_or_rule' and hc['card_kind'] == 'qualitative'
+           and hc['holding'] and hc['claim'].startswith(hc['holding'][:30]), hc['claim'][:80])
+        ck('...and it names the OFFICIAL TEXT of the decision, bound to the bytes',
+           hc['attribution_target_expression_id'].endswith(':official_text'),
+           hc['attribution_target_expression_id'])
+    ck('the OLD gate would have destroyed it (qualitative + no `outcome`)',
+       not (holding.get('outcome') or ''),
+       'that branch was `if kind == "qualitative" and not fields["outcome"]: return None`')
+
+    # the act's required fields come from the REGISTRY — a holding with no authority is not a holding
+    r = new_rejects()
+    ck('an act missing a REGISTRY-required field is rejected AND COUNTED BY ACT',
+       gate_card(dict(holding, authority=''), v_op, ch_op, p_op, pw_op, MC, r,
+                 graph=GO, source_policy=P.OFFICIAL_TEXT) is None
+       and r['act_missing_required:doctrinal_holding_or_rule'] == 1,
+       f'rejects={ {k: v for k, v in r.items() if not k.startswith("_") and v} }')
+    r = new_rejects()
+    ck('an UNKNOWN act id is rejected (the registry is closed, and it is data)',
+       gate_card(dict(holding, act='whatever_i_like'), v_op, ch_op, p_op, pw_op, MC, r,
+                 graph=GO, source_policy=P.OFFICIAL_TEXT) is None and r['unknown_evidence_act'] == 1)
+    r = new_rejects()
+    ck('a NUMBER in a holding that is NOT in the span is STILL a fabrication (GATE 2 is universal)',
+       gate_card(dict(holding, holding=holding['holding'] + ' within 30 days'),
+                 v_op, ch_op, p_op, pw_op, MC, r, graph=GO,
+                 source_policy=P.OFFICIAL_TEXT) is None and r['number_not_in_span'] == 1)
+    r = new_rejects()
+    ck('an act that CLAIMS to be quantitative but quotes a span with no number is rejected',
+       gate_card(dict(holding, act='quantitative_estimate', effect='5'),
+                 v_op, ch_op, p_op, pw_op, MC, r, graph=GO, source_policy=P.OFFICIAL_TEXT) is None
+       and r['act_requires_number_absent_from_span'] == 1)
+
+    # D1: the quantitative lane is untouched by all of the above
+    ck('D1 IS INTACT: the quantitative act still requires an effect + a number in its span',
+       REGISTRY.acts['quantitative_estimate'].requires_number_in_span
+       and 'effect' in REGISTRY.acts['quantitative_estimate'].required_all
+       and REGISTRY.acts['quantitative_estimate'].tuple_bearing)
+    ck('...and a complete tuple still sets complete_tuple (the evidence table D1 reads)',
+       bool(cb) and cb['complete_tuple'] and cb['act'] == 'quantitative_estimate')
+    ck('...and no qualitative act is tuple-bearing, so none can enter the evidence table',
+       not any(a.tuple_bearing for a in REGISTRY.acts.values()
+               if a.legacy_card_kind == 'qualitative'))
 
     print()
     if fails:
@@ -2108,8 +3090,21 @@ def main() -> int:
     if not a.dry_run:
         a.out.write_text(json.dumps(cards, indent=1))
         OUT_META.write_text(json.dumps(stats, indent=1))
+        # NOTHING IS EVER DELETED. The evidence this task's instruction forbids us to CITE is real
+        # evidence, and it is written down — with the reason, the binding and the attribution that
+        # would have been fabricated for it — so that "we may not cite this" can never quietly become
+        # "the literature does not contain this".
+        OUT_QUARANTINE.write_text(json.dumps({
+            'source_policy': stats.get('source_policy'),
+            'act_registry_version': stats.get('act_registry_version'),
+            'quarantined_cards': stats.get('quarantined', []),
+            'inadmissible_manifestations': stats.get('inadmissible_manifestations', []),
+            'not_minable': stats.get('not_minable_detail', {}),
+            'version_discrepancies': stats.get('version_discrepancies', []),
+        }, indent=1))
         print(f'  wrote {a.out}')
         print(f'  wrote {OUT_META}')
+        print(f'  wrote {OUT_QUARANTINE}')
     else:
         print('  [--dry-run] nothing written')
     return 0

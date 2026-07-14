@@ -60,7 +60,17 @@ print('=' * 100)
 print(f'\n  {len(OPINION.split())} words. The holding is the evidence. There is no effect size,')
 print('  because a holding is not a measurement.\n')
 
-cards = EM.mine_paper(paper, mc, use_llm=True, rejects=rejects, stats=stats)
+# THE OPINION MUST BE IN THE GRAPH. `type: judicial-opinion` makes the work a `case`, whose
+# artifact is COMPLETE AT ANY LENGTH (KIND_PROFILE stub_floor=None) — a 143-word opinion IS the
+# document, while a 143-word "paper" is a stub of one.
+import provenance as P
+G = P.migrate([dict(paper, type='judicial-opinion')])
+MID = next(iter(G.manifestations))
+paper = dict(paper, manifestation_id=MID)
+print(f"  in the graph: {G.manifestations[MID].profile['artifact_kind']} "
+      f"(complete={G.manifestations[MID].profile['complete']})")
+cards = EM.mine_paper(paper, mc, use_llm=True, rejects=rejects, stats=stats,
+                      graph=G, source_policy=P.OFFICIAL_TEXT)
 
 print(f'\n  LLM calls          : {stats.get("llm_calls", "?")}')
 print(f'  candidates harvested: {stats["candidates"]}   <- the deterministic recall stage')

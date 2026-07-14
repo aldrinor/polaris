@@ -614,12 +614,16 @@ _GENERIC = {
 class TermMatcher:
     key: str
     phrases: list[str]          # multi-word surface forms: matched verbatim
-    disc: set[str]              # stems UNIQUE to this term within its family
+    disc: set[str]              # stems UNIQUE to this term within its family -> a CONFIDENT route
+    shared: set[str] = field(default_factory=set)   # stems a SIBLING also claims -> AMBIGUOUS, not dead
+    vocab: set[str] = field(default_factory=set)    # its whole definition (disc | shared): stage-2 evidence
+    label: str = ''
 
 
 def build_matchers(family: list[Term]) -> tuple[dict[str, TermMatcher], list[str]]:
     """A term matches a span if the span contains one of its PHRASES verbatim, or one of its
-    DISCRIMINATIVE stems.
+    DISCRIMINATIVE stems. A stem it SHARES with a sibling makes the span AN AMBIGUOUS CANDIDATE FOR
+    BOTH -- and ambiguity is resolved in a second stage, NOT by throwing the word away.
 
     WHY NOT JUST LOOK FOR THE ALIASES. The aliases are the compound noun phrases the CONTRACT speaks
     in ("job displacement", "wage effects"); the corpus is academic prose that says "computerisation",
@@ -630,8 +634,17 @@ def build_matchers(family: list[Term]) -> tuple[dict[str, TermMatcher], list[str
 
     WHY DISCRIMINATIVE. Backing off to every content word makes "job" -- which occurs in three of
     task 72's five outcome dimensions -- match everything, and every card lands in every cell. A word
-    earns the right to route a card only if it separates ONE term from its siblings. Document
-    frequency inside the family, and nothing cleverer.
+    earns the right to route a card ON ITS OWN only if it separates ONE term from its siblings.
+
+    AND WHY A DROPPED STEM WAS A BUG, NOT A TRADE-OFF. `disc = {s for s in stems if df[s] == 1}`
+    DELETED every stem two terms shared, so the dimension "Wages" -- whose entire vocabulary is the
+    word `wage`, shared with "Wage inequality" -- ended up with NO vocabulary at all and COULD NOT
+    MATCH THE WORD "WAGE". Every wage card in the corpus went unrouted, and its cell printed as an
+    EVIDENCE GAP: the review would have reported that the literature it holds says nothing about
+    wages, over a corpus full of wage results. The fix is NOT to special-case `wage` (that is a
+    task-72 regex wearing a fix's clothes). A shared stem is not noise and it is not decisive: it is
+    AMBIGUOUS, and it is kept, in `shared`, for `route_terms()` to resolve against the contract's own
+    definitions and the span's own context.
     """
     stems: dict[str, set[str]] = {}
     phrases: dict[str, list[str]] = {}
@@ -649,10 +662,13 @@ def build_matchers(family: list[Term]) -> tuple[dict[str, TermMatcher], list[str
     out, warn = {}, []
     for t in family:
         disc = {s for s in stems[t.key] if df[s] == 1}
-        if not disc and not phrases[t.key]:
-            warn.append(f'term "{t.label}" has no discriminative vocabulary -- it shares every word '
-                        f'with a sibling and can never route a card')
-        out[t.key] = TermMatcher(key=t.key, phrases=phrases[t.key], disc=disc)
+        shared = stems[t.key] - disc
+        if not disc and not phrases[t.key] and not shared:
+            # NOW this warning means what it says: the term has no vocabulary AT ALL. It no longer
+            # fires for a term whose every word is shared -- that term routes through stage 2.
+            warn.append(f'term "{t.label}" has no vocabulary of any kind -- it can never route a card')
+        out[t.key] = TermMatcher(key=t.key, phrases=phrases[t.key], disc=disc, shared=shared,
+                                 vocab=stems[t.key], label=t.label)
     return out, warn
 
 
@@ -664,13 +680,61 @@ def _card_text(card: dict, corpus_titles: dict | None = None) -> str:
     return re.sub(r'\s+', ' ', f'{title} {span}').lower()
 
 
-def _hits(matchers: dict[str, TermMatcher], blob: str) -> list[str]:
+def route_terms(matchers: dict[str, TermMatcher], blob: str) -> tuple[list[str], list[str]]:
+    """TWO STAGES. Returns (confidently routed keys, AMBIGUOUS keys).
+
+    STAGE 1 — DECISIVE EVIDENCE. A verbatim phrase, or a stem no sibling claims. This is the old
+    `_hits()`, unchanged, and it still does most of the work.
+
+    STAGE 2 — THE AMBIGUOUS CANDIDATE SET. A stem two terms share ("wage", in both `Wages` and `Wage
+    inequality`) does not route on its own and IS NOT DISCARDED. It nominates every term that claims
+    it, and those terms then COMPETE on the evidence actually present: how much of each term's own
+    contract definition the span contains. `hourly wages fell 0.2 percent` contains all of the
+    definition of `Wages` and half of `Wage inequality`, so it is Wages. `wage inequality rose`
+    carries `inequality`, which is decisive, so stage 1 has already answered and the shared `wage` is
+    EXPLAINED -- it does not also route the span to `Wages`.
+
+    NO WINNER -> AMBIGUOUS. Not a gap, not a silent drop, not a coin flip. The card belongs SOMEWHERE
+    in this family and we cannot say where, and the cells it might belong to may not close or declare
+    an absence until it is resolved.
+    """
     blob_stems = {_stem(w) for w in re.findall(r'[a-z]{4,}', blob)}
-    out = []
+    confident: list[str] = []
+    candidates: dict[str, set[str]] = {}
     for k, m in matchers.items():
         if (m.disc & blob_stems) or any(p in blob for p in m.phrases):
-            out.append(k)
-    return out
+            confident.append(k)
+            continue
+        hit = m.shared & blob_stems
+        if hit:
+            candidates[k] = hit
+
+    # A sibling that ALREADY won on its own decisive evidence explains the shared stem. The span said
+    # "wage inequality"; it is not also a bare wage-level finding.
+    for k in list(candidates):
+        if any(matchers[c].vocab & candidates[k] for c in confident):
+            del candidates[k]
+    if not candidates:
+        return confident, []
+
+    # THE SEMANTIC SECOND STAGE: the contract's definitions, scored against the span's own words.
+    scores: dict[str, tuple] = {}
+    for k, _hit in candidates.items():
+        m = matchers[k]
+        covered = len(m.vocab & blob_stems) / max(1, len(m.vocab))   # how much of ITS meaning is here
+        scores[k] = (round(covered, 6), len(m.vocab & blob_stems))
+    best = max(scores.values())
+    winners = [k for k, s in scores.items() if s == best]
+    if len(winners) == 1 and best[0] > 0:
+        return confident + winners, []
+    return confident, sorted(candidates)          # a tie is AMBIGUOUS. It is never broken by guessing.
+
+
+def _hits(matchers: dict[str, TermMatcher], blob: str) -> list[str]:
+    """Back-compat shim: the confidently-routed keys only. Anything that needs to know about
+    ambiguity must call route_terms() -- a caller that cannot see an ambiguity will report it as a gap.
+    """
+    return route_terms(matchers, blob)[0]
 
 
 _YEAR = re.compile(r'\b(?:1[89]|20)\d\d\b')
@@ -690,15 +754,85 @@ def has_verified_figure(card: dict) -> bool:
 
 
 def has_direct_result(card: dict) -> bool:
-    """A direct qualitative result: the SPAN states what was found, not what the topic is.
-    Heuristic, and labelled as one -- it decides coverage, never faithfulness."""
+    """Does this card STATE SOMETHING the source found/held/recommended, rather than name a topic?
+
+    A TYPED EVIDENCE ACT IS ALWAYS A RESULT OF ITS TYPE. If the card carries an `act`, it has already
+    been through that act's required-field rule in the miner's registry gate, against the verbatim
+    span: a `doctrinal_holding_or_rule` HAS a holding and an authority, or it would not exist.
+
+    THIS BRANCH IS LOAD-BEARING AND IT WAS MISSING. The fallback below is `_RESULT_VERB`, and a
+    judicial holding contains no result verb -- "the employer bears the burden of proving that the
+    system is job-related" has no `found`, no `showed`, no `increased`. So the miner would mine the
+    opinion, the gate would admit the holding, the card would be bound and correct -- and the coverage
+    matrix would score the cell `0 results` and refuse to close it. The evidence would have been
+    rescued at the extractor and thrown away at the matrix, which is exactly the shape of every defect
+    in this project's history: a repair that stops one component short of the thing that ships.
+
+    The fallback remains for LEGACY, untyped cards, and it is a heuristic, and it is labelled as one.
+    It decides COVERAGE, never faithfulness.
+    """
+    if (card.get('act') or '').strip():
+        return True
     return bool(_RESULT_VERB.search(card.get('span') or ''))
 
 
 # ===================================================================== the coverage matrix
 
 CLOSED, THIN, GAP = 'CLOSED', 'THIN', 'GAP'
+
+#: A FACT ABOUT OUR PIPELINE. NEVER A FACT ABOUT THE LITERATURE.
+#: An UNROUTED / UNSEARCHED / SEARCH_FAILED cell is one WE NEVER LOOKED IN, or looked in and the look
+#: failed. It has exactly nothing to say about what the field contains, and the one thing it may never
+#: do is print as an evidence gap. `GAP` now requires a LEDGER that says SEARCHED_NONE.
+LIMITATION = 'LIMITATION'
+
+#: Cards that MIGHT belong to this cell could not be assigned to it or to a sibling. Sol: "Unresolved
+#: -> AMBIGUOUS/UNROUTED, NEVER GAP. Coverage cannot close or declare absence while relevant cards
+#: remain unrouted." So the cell does neither.
+UNRESOLVED = 'UNRESOLVED'
+
 CROSS = Term(key='__cross__', label='Cross-cutting / not specific to one {axis}', aliases=[])
+
+
+def evidence_unit_of(card: dict, graph=None) -> tuple[str, bool]:
+    """(the INDEPENDENT EVIDENCE-UNIT FAMILY this card belongs to, is_bound).
+
+    A family is a STUDY, a DECISION, a TRIAL -- never a document and never a DOI.
+
+      scientific / clinical : distinct STUDIES or TRIALS. The NBER working paper and the JPE article
+                              are TWO EXPRESSIONS OF ONE STUDY, and they are ONE unit. 0.37 vs 0.2 is
+                              what PEER REVIEW DID TO A NUMBER -- it is A VERSION CHANGE, and it is
+                              never cross-study corroboration and never a literature conflict.
+      legal                 : distinct DECISIONS. Two reporters printing one judgment are ONE unit;
+                              the appellate and the lower-court opinions are SEPARATE units (they are
+                              separate decisions, and related authority), which falls out for free
+                              because the graph models them as separate works.
+
+    `len(dois)` gets every one of those wrong, in the direction that INFLATES the count -- and an
+    inflated count is what closes a cell.
+    """
+    u = card.get('evidence_unit_id') or card.get('work_id')
+    if u:
+        return u, True
+    if graph is not None:
+        mid = card.get('manifestation_id')
+        m = getattr(graph, 'manifestations', {}).get(mid) if mid else None
+        if m is not None:
+            return m.work_id, True
+
+    # UNBOUND: the card names a DOI and NOTHING THAT RESOLVES TO BYTES. It gets NO FAMILY.
+    #
+    # It would be so easy to fall back to the DOI here — the card is not lost, and the count still
+    # works. THAT FALLBACK IS THE ATTACK. Hand the matrix a working-paper card and a journal-article
+    # card of ONE STUDY, each with its own DOI and no binding, and `doi:` families count TWO
+    # independent works and CLOSE THE CELL on one piece of evidence. The adversary's attack 4 does
+    # exactly this, and it still succeeded against the first version of this function.
+    #
+    # A DOI names a WORK and a work has no bytes. It cannot tell two studies from two versions of one,
+    # so it cannot be an evidence unit, so an unbound card counts toward NOTHING. It is kept, reported
+    # (Cell.unbound, Matrix.unbound) and it BLOCKS the cell from closing or denying — because evidence
+    # we hold and cannot ground is not evidence of absence either.
+    return '', False
 
 
 @dataclass
@@ -709,15 +843,21 @@ class Cell:
     col_label: str
     card_ids: list[str] = field(default_factory=list)
     dois: list[str] = field(default_factory=list)
+    families: list[str] = field(default_factory=list)    # DISTINCT EVIDENCE UNITS — what n_works counts
+    unbound: list[str] = field(default_factory=list)     # card ids with no binding to any manifestation
+    ambiguous: list[str] = field(default_factory=list)   # cards that MAY belong here; unresolved
     methods: list[str] = field(default_factory=list)
     n_quant: int = 0
     n_qual: int = 0
-    status: str = GAP
+    status: str = LIMITATION
     reason: str = ''
+    coverage_status: str = ''      # the LEDGER's verdict (event_ledger.derive_coverage_status)
+    absence_licensed: bool = False  # may a scoped absence sentence be written off this cell?
 
     @property
     def n_works(self) -> int:
-        return len(self.dois)
+        """DISTINCT INDEPENDENT EVIDENCE-UNIT FAMILIES. This was `len(self.dois)`."""
+        return len(self.families)
 
 
 @dataclass
@@ -727,6 +867,9 @@ class Matrix:
     cols: list[Term]
     cells: dict[tuple[str, str], Cell]
     unrouted: list[str] = field(default_factory=list)   # cards no cell claimed
+    ambiguous: list[str] = field(default_factory=list)  # cards a matcher could not disambiguate
+    unbound: list[str] = field(default_factory=list)    # cards with no binding — they may not close a cell
+    has_ledger: bool = False
 
     def cell(self, r: str, c: str) -> Cell:
         return self.cells[(r, c)]
@@ -744,17 +887,50 @@ class Matrix:
         return [r for r in self.rows if r.key in ok]
 
     def gap_rows(self) -> list[Term]:
-        ok = {c.row for c in self.cells.values() if c.status in (CLOSED, THIN)}
-        return [r for r in self.rows if r.key not in ok and r.key != CROSS.key]
+        """Rows we may say the reviewed literature is SILENT on.
+
+        THIS IS AN ABSENCE CLAIM AND IT NOW REQUIRES A LICENCE. A row is only here if EVERY cell in it
+        is a LICENSED gap — i.e. the ledger says we planned a route, every adapter genuinely answered,
+        and nothing came back. A row full of LIMITATION cells (never routed, never searched, or the
+        search failed) is NOT a gap row: we do not know what is there, and saying we do was the lie.
+        """
+        out = []
+        for r in self.rows:
+            if r.key == CROSS.key:
+                continue
+            mine = [c for c in self.cells.values() if c.row == r.key]
+            if mine and all(c.status == GAP and c.absence_licensed for c in mine):
+                out.append(r)
+        return out
+
+    def limitation_rows(self) -> list[Term]:
+        """Rows we CANNOT SPEAK ABOUT AT ALL — a PIPELINE limitation, and it must be reported as one.
+        These used to be printed as evidence gaps, which asserted a fact about the world out of a fact
+        about our own plumbing."""
+        out = []
+        for r in self.rows:
+            if r.key == CROSS.key:
+                continue
+            mine = [c for c in self.cells.values() if c.row == r.key]
+            if mine and any(c.status == LIMITATION for c in mine) \
+                    and not any(c.status in (CLOSED, THIN) for c in mine):
+                out.append(r)
+        return out
 
 
 def coverage_matrix(contract: Contract, cards: list[dict],
-                    corpus: list[dict] | None = None) -> Matrix:
-    """PURE FUNCTION. cells = (subject axis x outcome dimension).
+                    corpus: list[dict] | None = None,
+                    graph=None, ledger=None) -> Matrix:
+    """cells = (subject axis x outcome dimension). IT CONSUMES BOTH THE GRAPH AND THE LEDGER.
 
-    A cell CLOSES when it has >=2 groundable relevant works, >=1 quantitative or direct qualitative
-    result, and a methodological contrast WHERE MATERIAL -- or, failing that, it closes as an
-    explicit, corpus-scoped EVIDENCE GAP, which is a legitimate close and is worth more than filler.
+    THE GRAPH says what an independent unit of evidence IS (a study, a decision, a trial — not a DOI),
+    so a cell can be counted. THE LEDGER says whether we ever actually looked, so a cell can be allowed
+    — or forbidden — to say the literature is silent.
+
+    A cell CLOSES on the evidence we HOLD: >=2 independent evidence-unit families, >=1 result, and a
+    methodological contrast where material. That is a POSITIVE claim and the cards license it.
+    A cell may only declare an ABSENCE with a ledger that says SEARCHED_NONE. Without one it is a
+    LIMITATION — a fact about this pipeline — and it says so.
     """
     titles = {c['doi']: c.get('title', '') for c in (corpus or []) if c.get('doi')}
     cross = Term(key=CROSS.key,
@@ -773,26 +949,54 @@ def coverage_matrix(contract: Contract, cards: list[dict],
         (r.key, c.key): Cell(row=r.key, row_label=r.label, col=c.key, col_label=c.label)
         for r in rows for c in cols}
 
-    unrouted = []
+    unrouted: list[str] = []
+    ambiguous_cards: list[str] = []
+    unbound_cards: list[str] = []
     for card in cards:
+        cid = card.get('id', '?')
         blob = _card_text(card, titles)
-        hit_rows = _hits(row_m, blob)
-        hit_cols = _hits(col_m, blob)
+        hit_rows, amb_rows = route_terms(row_m, blob)
+        hit_cols, amb_cols = route_terms(col_m, blob)
+        family, bound = evidence_unit_of(card, graph)
+        if not bound:
+            unbound_cards.append(cid)
+
+        # AN AMBIGUOUS CARD IS NOT A ROUTED CARD AND IT IS NOT A LOST ONE. It is registered against
+        # every cell it MIGHT belong to, and those cells may then neither close nor deny.
+        if amb_cols:
+            ambiguous_cards.append(cid)
+            for ck in amb_cols:
+                for rk in (hit_rows or amb_rows or [CROSS.key]):
+                    if (rk, ck) in cells:
+                        cells[(rk, ck)].ambiguous.append(cid)
         if not hit_cols:
-            unrouted.append(card.get('id', '?'))
+            if not amb_cols:
+                unrouted.append(cid)
             continue
         # evidence that names no axis value is CROSS-CUTTING, not lost. Most of the strongest work in
         # any field is economy-wide / population-wide; a matrix that discards it would look empty and
         # would lie about the corpus.
         if not hit_rows:
+            if amb_rows:
+                ambiguous_cards.append(cid) if cid not in ambiguous_cards else None
+                for rk in amb_rows:
+                    for ck in hit_cols:
+                        cells[(rk, ck)].ambiguous.append(cid)
+                continue
             hit_rows = [CROSS.key]
         for rk in hit_rows:
             for ck in hit_cols:
                 cell = cells[(rk, ck)]
-                cell.card_ids.append(card.get('id', ''))
+                cell.card_ids.append(cid)
                 doi = card.get('doi') or ''
                 if doi and doi not in cell.dois:
                     cell.dois.append(doi)
+                # THE COUNT THAT CLOSES THE CELL. Distinct STUDIES, not distinct DOIs — and an UNBOUND
+                # card contributes NO unit at all, so it can never close anything.
+                if bound and family and family not in cell.families:
+                    cell.families.append(family)
+                if not bound and cid not in cell.unbound:
+                    cell.unbound.append(cid)
                 m = (card.get('method') or '').strip().lower()
                 if m and m not in cell.methods:
                     cell.methods.append(m)
@@ -802,35 +1006,101 @@ def coverage_matrix(contract: Contract, cards: list[dict],
                     cell.n_qual += 1
 
     for cell in cells.values():
-        _close(cell, contract)
+        _close(cell, contract, ledger)
 
     return Matrix(axis_name=contract.subject_axis.name, rows=rows, cols=cols, cells=cells,
-                  unrouted=unrouted)
+                  unrouted=unrouted, ambiguous=sorted(set(ambiguous_cards)),
+                  unbound=unbound_cards, has_ledger=ledger is not None)
 
 
-def _close(cell: Cell, contract: Contract) -> None:
+def _ledger_status(cell: Cell, ledger) -> tuple[str, str]:
+    """(coverage status, reason) from event_ledger.derive_coverage_status — THE ONLY FUNCTION THAT MAY
+    LICENSE AN ABSENCE. With no ledger the answer is UNROUTED: we recorded no search, so we know
+    nothing, and 'we know nothing' is never 'there is nothing'."""
+    if ledger is None:
+        return 'UNROUTED', ('no ledger: this pipeline recorded no search for this cell, so it cannot '
+                            'know whether the literature is silent or whether we never looked')
+    import event_ledger as EL          # deferred: keeps this module importable without the ledger
+    st, info = EL.derive_coverage_status(ledger, f'{cell.row}:{cell.col}')
+    return st, info.get('reason', '')
+
+
+def _close(cell: Cell, contract: Contract, ledger=None) -> None:
     results = cell.n_quant + cell.n_qual
     # "methodological contrast where material": with only a couple of works, demanding two designs is
     # not a standard the literature can meet, so it is not material. Above the threshold it is.
     material = cell.n_works >= METHOD_CONTRAST_MATERIAL_AT and len(contract.method_designs) >= 2
 
-    if cell.n_works < MIN_WORKS_PER_CELL:
+    # ---- 1. A POSITIVE CLAIM, licensed by the cards we HOLD. No ledger is needed to say what we have,
+    #         and an unplaceable card cannot UN-say it: routing an ambiguous card INTO a cell that
+    #         already stands on its own confident evidence could only make the cell stronger. So the
+    #         ambiguity is RECORDED here rather than used to destroy a close — evidence we could not
+    #         place is a fact we must publish, not a reason to delete evidence we could.
+    if cell.n_works >= MIN_WORKS_PER_CELL and results >= MIN_RESULTS_PER_CELL:
+        notes = ''
+        if cell.unbound:
+            notes += (f' [{len(cell.unbound)} further card(s) here are NOT BOUND to any manifestation '
+                      f'and were counted toward NOTHING — the cell closes without them]')
+        if cell.ambiguous:
+            notes += (f' [{len(cell.ambiguous)} further card(s) MAY belong here and could not be '
+                      f'assigned — the cell closes on evidence that does not depend on them]')
+        if material and len(cell.methods) < 2:
+            cell.status = THIN
+            cell.reason = (f'{cell.n_works} evidence units, {results} result(s), but a single design '
+                           f'({cell.methods[0] if cell.methods else "?"}) -- narrate the design '
+                           f'limitation{notes}')
+        else:
+            cell.status = CLOSED
+            cell.reason = (f'{cell.n_works} independent evidence units, {cell.n_quant} quantitative + '
+                           f'{cell.n_qual} qualitative result(s), {len(cell.methods)} design(s)'
+                           f'{"" if material else " (design contrast not material at this depth)"}'
+                           f'{notes}')
+        return
+
+    # ---- 2. THE CELL DOES NOT CLOSE. Everything from here is a claim ABOUT AN ABSENCE, and there are
+    #         exactly two things that can license one — and an unrouted card forbids both.
+    #
+    #         AMBIGUITY FIRST. Sol: "Coverage cannot close or declare absence while relevant cards
+    #         remain unrouted." Here it BITES: a card that might belong to this cell is a card that
+    #         might CLOSE it, so we do not know that this cell is empty. Calling it an evidence gap is
+    #         how a corpus full of wage results reported that the literature says nothing about wages.
+    if cell.ambiguous or cell.unbound:
+        cell.status = UNRESOLVED
+        cell.absence_licensed = False
+        bits = []
+        if cell.ambiguous:
+            bits.append(f'{len(cell.ambiguous)} card(s) could belong to this dimension or to a sibling '
+                        f'and could not be assigned — one of them might be exactly this cell\'s '
+                        f'evidence. An unrouted card is a MATCHER artifact, and printing it as an '
+                        f'evidence gap asserts a fact about the literature out of a fact about a regex')
+        if cell.unbound:
+            bits.append(f'{len(cell.unbound)} card(s) here are NOT BOUND to a manifestation and cannot '
+                        f'be counted as evidence units — a DOI names a WORK, and a work has no bytes, '
+                        f'so it cannot tell two studies from two versions of one study')
+        cell.reason = (f'{cell.n_works} groundable evidence unit(s). THIS CELL MAY NOT CLOSE AND MAY NOT '
+                       f'DECLARE AN ABSENCE. ' + '; '.join(bits))
+        return
+
+    st, why = _ledger_status(cell, ledger)
+    cell.coverage_status = st
+
+    if st == 'SEARCHED_NONE':
         cell.status = GAP
-        cell.reason = (f'{cell.n_works} groundable work(s) in the corpus (need {MIN_WORKS_PER_CELL}) '
-                       f'-- CLOSE AS AN EXPLICIT EVIDENCE GAP, scoped to this corpus')
-    elif results < MIN_RESULTS_PER_CELL:
-        cell.status = GAP
-        cell.reason = (f'{cell.n_works} work(s) but no stated result (need {MIN_RESULTS_PER_CELL}) '
-                       f'-- the corpus mentions this cell but does not measure it')
-    elif material and len(cell.methods) < 2:
+        cell.absence_licensed = True
+        cell.reason = (f'{cell.n_works} evidence unit(s), {results} result(s). THE SEARCH RAN AND CAME '
+                       f'BACK EMPTY ({why}) -- a scoped absence MAY be stated, scoped to this corpus')
+    elif st in ('THIN', 'CONFLICTED'):
         cell.status = THIN
-        cell.reason = (f'{cell.n_works} works, {results} result(s), but a single design '
-                       f'({cell.methods[0] if cell.methods else "?"}) -- narrate the design limitation')
+        cell.absence_licensed = False
+        cell.reason = (f'ledger says {st}: {why} -- the honest sentence is "THE LITERATURE DOES NOT '
+                       f'SETTLE THIS", which is a correct answer, not a failure')
     else:
-        cell.status = CLOSED
-        cell.reason = (f'{cell.n_works} works, {cell.n_quant} quantitative + {cell.n_qual} qualitative '
-                       f'result(s), {len(cell.methods)} design(s)'
-                       f'{"" if material else " (design contrast not material at this depth)"}')
+        # UNROUTED | UNSEARCHED | SEARCH_FAILED, and the no-ledger case.
+        cell.status = LIMITATION
+        cell.absence_licensed = False
+        cell.reason = (f'{st}: {why}. THIS IS A PIPELINE LIMITATION AND MUST BE REPORTED AS ONE. It is '
+                       f'NOT an evidence gap: we cannot say the literature is silent about something '
+                       f'we never successfully looked for')
 
 
 # ===================================================================== the outline
@@ -985,8 +1255,14 @@ def derive_outline(contract: Contract, matrix: Matrix | None = None,
     #    "the literature does not cover X". We hold 70 works; the field holds thousands. A gap in our
     #    corpus is a fact about our corpus. Overclaiming it as a fact about the field would be a
     #    fabrication with no source to check it against -- the worst kind.
+    #
+    #    AND IT IS NOW LICENSED. `by_status(GAP)` no longer means "few cards landed here": it means
+    #    THE LEDGER SAYS WE SEARCHED AND FOUND NOTHING. A cell we never routed, never searched, or
+    #    whose search returned 429 is a LIMITATION, and it gets the slot below instead — because the
+    #    sentence "the literature does not cover X" and the sentence "we did not manage to look for X"
+    #    are different sentences, and only one of them was true.
     if matrix:
-        gaps = matrix.by_status(GAP)
+        gaps = [c for c in matrix.by_status(GAP) if c.absence_licensed]
         gap_rows = matrix.gap_rows()
         if gaps:
             slots.append(Slot(
@@ -995,13 +1271,38 @@ def derive_outline(contract: Contract, matrix: Matrix | None = None,
                 kind='gap',
                 cells=[],          # a gap slot cites NOTHING: that is what makes it a gap
                 must_do=('State, SCOPED EXPLICITLY TO THE LITERATURE REVIEWED HERE (not to the field '
-                         'at large), which combinations this review could not ground. Name them: ' +
+                         'at large), which combinations this review could not ground. THE SEARCH RAN '
+                         'AND RETURNED NOTHING for each of these — that is what licenses the sentence. '
+                         'Name them: ' +
                          '; '.join(f'{c.row_label} x {c.col_label}' for c in gaps[:8]) +
                          (f'. {_plural(A)} with no groundable evidence anywhere in the reviewed '
                           f'corpus: ' + ', '.join(r.label for r in gap_rows) if gap_rows else '') +
                          '. Do NOT fill these with generic prose -- the explicit gap IS the finding, '
                          'and it is worth more than filler.'),
                 evidence_status='gap'))
+
+        # 6b. THE PIPELINE LIMITATIONS. NOT an evidence gap, and it may NEVER be written as one.
+        lims = matrix.by_status(LIMITATION)
+        unres = matrix.by_status(UNRESOLVED)
+        if lims or unres:
+            bits = []
+            if lims:
+                bits.append('cells we could not establish coverage for at all: ' +
+                            '; '.join(f'{c.row_label} x {c.col_label} [{c.coverage_status or "UNROUTED"}]'
+                                      for c in lims[:8]))
+            if unres:
+                bits.append('cells holding evidence we could not route to a dimension: ' +
+                            '; '.join(f'{c.row_label} x {c.col_label}' for c in unres[:6]))
+            slots.append(Slot(
+                section='Scope and Method',
+                title='Limitations of this review\'s own evidence base',
+                kind='limitation',
+                cells=[],
+                must_do=('Report these AS LIMITATIONS OF THIS REVIEW, in the review\'s own voice. '
+                         'They are facts about OUR SEARCH, not about the literature. You may NOT '
+                         'write "the literature does not address X" for any of them -- we do not '
+                         'know whether it does. ' + '. '.join(bits) + '.'),
+                evidence_status='limitation'))
 
     # 7. IMPLICATIONS -- what the genre obliges.
     if contract.genre_rules:
@@ -1237,15 +1538,30 @@ def print_matrix(m: Matrix, cards: list[dict]) -> None:
     keys = [c.key for c in m.cols]
     hdr = ''.join(f'{k[:9]:>11.9}' for k in keys)
     print(f'  {"":<26}{hdr}')
-    sym = {CLOSED: ' CLOSED', THIN: '  thin ', GAP: '  gap  '}
+    sym = {CLOSED: ' CLOSED', THIN: '  thin ', GAP: '  gap  ',
+           LIMITATION: ' LIMIT ', UNRESOLVED: ' AMBIG '}
     for r in m.rows:
         cells = [m.cell(r.key, c.key) for c in m.cols]
-        line = ''.join(f'{sym[x.status]}({x.n_works:>2})' for x in cells)
+        line = ''.join(f'{sym.get(x.status, "   ?   ")}({x.n_works:>2})' for x in cells)
         print(f'  {r.label[:25]:<26}{line}')
     print()
     n = len(m.cells)
     cl, th, gp = len(m.by_status(CLOSED)), len(m.by_status(THIN)), len(m.by_status(GAP))
-    print(f'  {cl}/{n} CLOSED   {th}/{n} thin   {gp}/{n} gap')
+    li, am = len(m.by_status(LIMITATION)), len(m.by_status(UNRESOLVED))
+    print(f'  {cl}/{n} CLOSED   {th}/{n} thin   {gp}/{n} gap (LICENSED)   {li}/{n} LIMITATION   '
+          f'{am}/{n} AMBIGUOUS')
+    if not m.has_ledger:
+        print(f'  NO LEDGER WAS SUPPLIED. No cell may declare an evidence gap: an absence needs a '
+              f'record of a search that')
+        print(f'  ran and came back empty, and we have none. Every empty cell is reported as a '
+              f'PIPELINE LIMITATION.')
+    if m.unbound:
+        print(f'  {len(m.unbound)} card(s) carry NO BINDING to a manifestation. They are counted by '
+              f'DOI, which cannot tell')
+        print(f'  two studies from two versions of one study.')
+    if m.ambiguous:
+        print(f'  {len(m.ambiguous)} card(s) are AMBIGUOUS between sibling dimensions. Their cells may '
+              f'not close OR declare an absence.')
     if m.unrouted:
         pct = 100 * len(m.unrouted) / max(1, len(cards))
         print(f'  {len(m.unrouted)}/{len(cards)} cards ({pct:.0f}%) speak to NO outcome dimension of this '
@@ -1264,11 +1580,20 @@ def print_matrix(m: Matrix, cards: list[dict]) -> None:
     print()
     gr = m.gap_rows()
     if gr:
-        print(f'  {_plural(m.axis_name).upper()} THE OUTLINE MUST NOT PROMISE (no groundable evidence '
-              f'anywhere in the reviewed corpus):')
+        print(f'  {_plural(m.axis_name).upper()} THE REVIEW MAY REPORT AS A SCOPED EVIDENCE GAP '
+              f'(the search RAN and returned nothing):')
         print(textwrap.fill(', '.join(r.label for r in gr), W - 6,
                             initial_indent='    ', subsequent_indent='    '))
         print('    -> these close as an EXPLICIT, CORPUS-SCOPED EVIDENCE GAP, not as filler.')
+    lr = m.limitation_rows()
+    if lr:
+        print(f'  {_plural(m.axis_name).upper()} THE OUTLINE MUST NOT PROMISE -- AND MUST NOT CALL AN '
+              f'EVIDENCE GAP EITHER:')
+        print(textwrap.fill(', '.join(r.label for r in lr), W - 6,
+                            initial_indent='    ', subsequent_indent='    '))
+        print('    -> WE NEVER SUCCESSFULLY LOOKED. This is a limitation OF THIS REVIEW, and saying')
+        print('       "the literature does not cover it" would assert a fact about the world out of')
+        print('       a fact about our own plumbing.')
     print()
 
 
@@ -1386,7 +1711,7 @@ def self_test() -> int:
            Term('job_creation', 'Job creation', ['job creation', 'new jobs', 'labor demand']),
            Term('wage_effects', 'Wage effects', ['wage effects', 'wages', 'earnings'])]
     m, _w = build_matchers(fam)
-    ck('shared word ("job") is NOT discriminative and routes nothing',
+    ck('shared word ("job") is NOT discriminative and routes nothing ON ITS OWN',
        'job' not in m['job_displacement'].disc and 'job' not in m['job_creation'].disc)
     ck('unique word ("wage") DOES route', 'wage' in m['wage_effects'].disc)
     ck('a generic research word ("effect") never routes',
@@ -1395,6 +1720,34 @@ def self_test() -> int:
        'wage_effects' in _hits(m, 'occupational wages and educational attainment'))
     ck('a span about nothing in the family routes nowhere',
        _hits(m, 'the gut microbiota regulates intestinal barrier integrity') == [])
+
+    # 1b. THE WAGE MATCHER, GENERICALLY. Two sibling dimensions whose ONLY vocabulary is shared.
+    #     Under the old rule BOTH lost every stem, `Wages` could not match the word "wage", and every
+    #     wage card in the corpus went unrouted -- printing as an EVIDENCE GAP over a corpus full of
+    #     wage results. There is no regex for "wage" anywhere in this fix.
+    fam2 = [Term('wages', 'Wages', ['wages', 'wage', 'pay', 'earnings']),
+            Term('wage_ineq', 'Wage inequality', ['wage inequality', 'wage dispersion', 'wage gap'])]
+    m2, w2 = build_matchers(fam2)
+    ck('the stem "wage" is SHARED by both dimensions and is therefore NOT discriminative',
+       'wage' not in m2['wages'].disc and 'wage' not in m2['wage_ineq'].disc)
+    ck('...and it is KEPT as an AMBIGUOUS signal, not deleted',
+       'wage' in m2['wages'].shared and 'wage' in m2['wage_ineq'].shared,
+       'DELETING it is how the dimension "Wages" stopped being able to match the word "wage"')
+    ck('a term whose every stem is shared is NOT declared unroutable',
+       not any('never route' in x for x in w2), f'{w2}')
+    conf, amb = route_terms(m2, 'hourly wages fell by 0.2 percent for routine workers')
+    ck('SHARED STEM + span context -> the SEMANTIC second stage routes it to "Wages"',
+       conf == ['wages'] and not amb, f'confident={conf} ambiguous={amb}')
+    conf, amb = route_terms(m2, 'wage inequality rose sharply across the distribution')
+    ck('a DECISIVE sibling stem explains the shared one: "wage inequality" does NOT also route to Wages',
+       conf == ['wage_ineq'] and not amb, f'confident={conf} ambiguous={amb}')
+    # 'levels' and 'rates' are both GENERIC research words, so these two dimensions have the SAME
+    # single stem, {wage}, and NOTHING separates them. That is a real tie, and it is not broken.
+    fam3 = [Term('a', 'Wage levels', ['wage']), Term('b', 'Wage rates', ['wage'])]
+    m3, _ = build_matchers(fam3)
+    conf, amb = route_terms(m3, 'the wage was measured annually')
+    ck('a TIE between siblings is AMBIGUOUS -- never guessed, never a GAP',
+       conf == [] and amb == ['a', 'b'], f'confident={conf} ambiguous={amb}')
 
     # 2. THE SOURCE-POLICY GATE. Each constraint must be entailed by ITS OWN verbatim clause of the
     #    question -- not by some other constraint's clause. (rc-2 admitted a fabricated recency
@@ -1416,21 +1769,68 @@ def self_test() -> int:
     con = Contract(question=Q, method_designs=['observational', 'quasi-experimental'],
                    outcome_dimensions=fam, subject_axis=Axis('Industry', [Term('m', 'Manufacturing', ['manufacturing'])]))
 
-    def mk(n_works, n_methods, quant, qual):
+    def mk(n_works, n_methods, quant, qual, ledger=None, ambiguous=()):
         c = Cell('m', 'Manufacturing', 'wage_effects', 'Wage effects')
+        c.families = [f'work:w{i}' for i in range(n_works)]
         c.dois = [f'd{i}' for i in range(n_works)]
         c.methods = [f'meth{i}' for i in range(n_methods)]
         c.n_quant, c.n_qual = quant, qual
-        _close(c, con)
+        c.ambiguous = list(ambiguous)
+        _close(c, con, ledger)
         return c
 
-    ck('1 work -> GAP (an honest, corpus-scoped evidence gap)', mk(1, 1, 1, 0).status == GAP)
-    ck('2 works but no stated result -> GAP', mk(2, 2, 0, 0).status == GAP)
     ck('2 works + 1 result + single design -> CLOSED (contrast not material at this depth)',
        mk(2, 1, 1, 0).status == CLOSED)
     ck('3 works + result + ONE design -> THIN (design contrast IS material here)',
        mk(3, 1, 1, 0).status == THIN, 'the THIN branch is dead')
     ck('3 works + result + TWO designs -> CLOSED', mk(3, 2, 1, 0).status == CLOSED)
+
+    # ---- THE ABSENCE LICENCE. A positive close needs cards. An ABSENCE needs A LEDGER.
+    ck('1 work, NO LEDGER -> LIMITATION, and the absence is NOT licensed',
+       mk(1, 1, 1, 0).status == LIMITATION and not mk(1, 1, 1, 0).absence_licensed,
+       'an empty cell with no record of a search USED TO PRINT AS AN EVIDENCE GAP')
+    ck('2 works but no stated result, NO LEDGER -> LIMITATION, not GAP',
+       mk(2, 2, 0, 0).status == LIMITATION)
+    # AN UNROUTED CARD BITES WHERE IT COULD CHANGE THE ANSWER, AND ONLY THERE.
+    c = mk(1, 1, 1, 0, ambiguous=['c1'])
+    ck('a cell that does NOT close, with an AMBIGUOUS card, is UNRESOLVED -- never a GAP',
+       c.status == UNRESOLVED and not c.absence_licensed,
+       'that card might be exactly this cell\'s evidence; we do not know that the cell is empty')
+    c = mk(4, 2, 3, 0, ambiguous=['c1'])
+    ck('...but a cell that ALREADY closes on confident evidence still closes, and RECORDS the ambiguity',
+       c.status == CLOSED and 'MAY belong here' in c.reason,
+       'routing an unplaceable card INTO a closed cell could only strengthen it — destroying the close '
+       'would delete evidence we can place to punish evidence we cannot')
+
+    import event_ledger as EL
+    from types import SimpleNamespace
+
+    def fake_ledger(events):
+        return SimpleNamespace(events=lambda unit=None, kind=None: [e for e in events
+                                                                    if unit is None or e.unit == unit])
+
+    _seq = [0]
+
+    def ev(kind, unit, **payload):
+        _seq[0] += 1
+        return EL.Event(seq=_seq[0], kind=kind, unit=unit, actor='self_test', ts=0.0, payload=payload)
+
+    # a route that was PLANNED, RAN on every adapter, and came back EMPTY -> a scoped absence IS sayable
+    searched = fake_ledger([
+        ev(EL.EventKind.ROUTE_PLANNED, 'm:wage_effects', adapters=['openalex']),
+        ev(EL.EventKind.RESPONSE_RECEIVED, 'm:wage_effects', adapter='openalex', http_status=200)])
+    c = mk(0, 0, 0, 0, ledger=searched)
+    ck('SEARCHED_NONE (route ran, nothing came back) -> GAP, and the absence IS licensed',
+       c.status == GAP and c.absence_licensed, f'{c.status} {c.coverage_status}')
+
+    # the same empty cell, but the adapter was RATE-LIMITED. WE DO NOT KNOW WHAT IS THERE.
+    throttled = fake_ledger([
+        ev(EL.EventKind.ROUTE_PLANNED, 'm:wage_effects', adapters=['openalex']),
+        ev(EL.EventKind.RESPONSE_RECEIVED, 'm:wage_effects', adapter='openalex', http_status=429)])
+    c = mk(0, 0, 0, 0, ledger=throttled)
+    ck('SEARCH_FAILED (HTTP 429) -> LIMITATION. NEVER an evidence gap.',
+       c.status == LIMITATION and not c.absence_licensed and c.coverage_status == EL.SEARCH_FAILED,
+       f'{c.status} {c.coverage_status} — a 429 is a fact about OUR REQUEST, not about the literature')
 
     # 4. QUANTITATIVE = VERIFIED AGAINST THE SPAN, never against the model-written `claim`.
     ck('a figure in the SPAN counts as quantitative',
@@ -1441,6 +1841,19 @@ def self_test() -> int:
        'the claim is a display cache and is never evidence')
     ck('a bare year in the span is not an effect size',
        not has_verified_figure({'span': 'we study the period since 2003.'}))
+
+    # A TYPED ACT IS A RESULT OF ITS TYPE. Without this the miner rescues the judicial opinion and the
+    # MATRIX throws it away again: a holding has no result verb, so the cell would score `0 results`.
+    holding_card = {'act': 'doctrinal_holding_or_rule',
+                    'span': 'the employer bears the burden of proving that the system is job-related '
+                            'and consistent with business necessity',
+                    'holding': 'the employer bears the burden', 'authority': 'the Court'}
+    ck('a DOCTRINAL HOLDING counts as a direct result (it has no result verb, and it IS evidence)',
+       has_direct_result(holding_card) and not _RESULT_VERB.search(holding_card['span']),
+       'the extractor would have rescued it and the coverage matrix would have discarded it')
+    ck('a legacy UNTYPED card still falls back to the result-verb heuristic',
+       has_direct_result({'span': 'we found that adoption increased'})
+       and not has_direct_result({'span': 'this paper is about robots'}))
 
     # 5. THE ALLOCATOR. A card may not be spent more than max_reuse times, and one paper may not
     #    supply a whole subsection.

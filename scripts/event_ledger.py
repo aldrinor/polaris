@@ -132,10 +132,54 @@ RESERVED_KEYS = (
 #: is precisely where a conclusion would be smuggled in ("note: no free copy exists"). It stays
 #: scanned. (The guard caught exactly that in this file's own replay code, and the fix was to reword
 #: the note into an observation — not to exempt the field.)
+#: `locator` is here for the same reason `url` is: IT IS A URL. Publishers put our own reserved words
+#: inside their paths (`/articles/PMC.../?report=fulltext`, `/science/article/.../fulltext`), and a
+#: guard that refused to record THE ADDRESS THE BYTES CAME FROM — because the address contains the
+#: string "fulltext" — would have made the locator unrecordable and left us exactly where we were:
+#: holding an NBER working paper under a URL pointing at aeaweb.org.
+#: `requested_venue` sits beside `requested_title` for the same reason: it is a NAME, quoted from the
+#: bibliography. There is a journal called `Information & Management` and there could be one called
+#: `Complete Systems`; a guard that refused to record which journal we asked about, because the
+#: journal's name contains one of our reserved words, would be a guard against nothing.
 VERBATIM_KEYS = frozenset({
     'header_text', 'identity_window', 'span', 'document_title', 'byline', 'snippet', 'raw', 'title',
-    'reason_text', 'requested_title', 'url', 'doi', 'venue',
+    'reason_text', 'requested_title', 'requested_venue', 'url', 'locator', 'doi', 'venue',
 })
+
+
+def _scan_value(k: str, v, bad: list[str], path: str = '') -> None:
+    """Scan ONE value, RECURSIVELY.
+
+    IT DID NOT RECURSE. The scan ran over `payload.items()` and tested `isinstance(v, str)` — so a
+    conclusion one level down was invisible to it:
+
+        emit(..., adapter_observations={'content_status': 'FULLTEXT'})    # ACCEPTED. Silently.
+
+    A guard that only inspects the top level of a nested structure is a guard you step over by adding
+    a dict, and "the checks certify a lane the fabrication no longer uses" is the sentence this whole
+    project is trying to stop writing. Payloads stay flat by convention; this makes it true by force.
+    """
+    where = f'{path}{k}'
+    if isinstance(v, str):
+        vl = v.lower().strip()
+        for r in RESERVED_VALUES:
+            # match the whole value or a word-bounded occurrence — not a substring of a word
+            if vl == r or re.search(rf'(?<![a-z0-9_]){re.escape(r)}(?![a-z0-9_])', vl):
+                bad.append(f'{where}={v!r} states the conclusion {r!r}; emit the OBSERVATION instead '
+                           f'(word_count / http_status / byline), and let the reducer conclude')
+                return
+    elif isinstance(v, dict):
+        for k2, v2 in v.items():
+            if str(k2).lower() in RESERVED_KEYS:
+                bad.append(f'key {where}.{k2!r} IS a label — the reducer derives it; a component may '
+                           f'not set it, and burying it one level down does not make it an observation')
+                continue
+            if str(k2).lower() in VERBATIM_KEYS:
+                continue
+            _scan_value(str(k2), v2, bad, path=f'{where}.')
+    elif isinstance(v, (list, tuple)):
+        for i, v2 in enumerate(v):
+            _scan_value(f'[{i}]', v2, bad, path=where)
 
 
 @dataclass(frozen=True)
@@ -164,15 +208,24 @@ def _scan_for_conclusions(kind: str, payload: dict) -> list[str]:
             continue
         if kl in VERBATIM_KEYS:
             continue                       # raw text from the world. It may say anything.
-        if isinstance(v, str):
-            vl = v.lower().strip()
-            for r in RESERVED_VALUES:
-                # match the whole value or a word-bounded occurrence — not a substring of a word
-                if vl == r or re.search(rf'(?<![a-z0-9_]){re.escape(r)}(?![a-z0-9_])', vl):
-                    bad.append(f'{k}={v!r} states the conclusion {r!r}; emit the OBSERVATION instead '
-                               f'(word_count / http_status / byline), and let the reducer conclude')
-                    break
+        _scan_value(str(k), v, bad)
     return bad
+
+
+def _observations(events: list['Event']) -> list['Event']:
+    """THE OBSERVATIONS ONLY. A reducer NEVER reads another reducer's recorded verdict.
+
+    `record_derivation()` writes audit artifacts into the same log, and the module docstring has
+    always claimed "NO REDUCER READS THEM". That was true only BY ACCIDENT OF KIND CHOICE — nothing
+    enforced it. It was one line from being false in the worst way: a derived record written with
+    kind=CONTENT_PROFILE_DERIVED is picked up by `derive_content_profile`'s `for e in events` loop,
+    which keeps the LAST match — so the reducer would have read ITS OWN PREVIOUS OUTPUT as if it were
+    an observation of the bytes, and the label would have become a cache of itself. That is the cookie
+    banner, again, from the inside.
+
+    So the invariant is now structural, in one place, and every derive_*() below goes through it.
+    """
+    return [e for e in events if 'derived_by' not in e.payload]
 
 
 class LedgerCorrupt(Exception):
@@ -380,28 +433,90 @@ ACCESS_BLOCKED       = 'ACCESS_BLOCKED'               # 401/403/paywall — a fa
 NO_OUTCOME           = 'NO_OUTCOME'                   # attempted, never came back. A HANG, not a gap.
 
 
-def derive_backend_outcome(events: list[Event], adapter: str) -> str:
-    """What actually happened to one adapter. `None` is not an answer — it is four different worlds."""
-    mine = [e for e in events if e.payload.get('adapter') == adapter]
-    if any(e.kind == EventKind.THROTTLED for e in mine):
+#: The four kinds that constitute A REQUEST. CANDIDATE_IDENTIFIED and MANIFESTATION_FETCHED also carry
+#: an `adapter` (for provenance — WHICH backend found this), but they are not request outcomes and must
+#: not be read as one.
+_REQUEST_KINDS = (EventKind.BACKEND_ATTEMPTED, EventKind.RESPONSE_RECEIVED,
+                  EventKind.THROTTLED, EventKind.BLOCKED)
+
+#: Worst-first. An adapter that hung on one request and answered another has NOT answered: we asked it
+#: something and never found out. Between RESPONDED and NOT_INDEXED, RESPONDED wins — a backend that
+#: answered "not in my index" for one query and returned a paper for another IS WORKING.
+_OUTCOME_PRECEDENCE = (NO_OUTCOME, BACKEND_FAILED, ACCESS_BLOCKED, RESPONDED, NOT_INDEXED)
+
+
+def _outcome_of_request(evs: list[Event]) -> str:
+    """The outcome of ONE logical request, read from its FINAL terminal event.
+
+    A retry loop emits BACKEND_ATTEMPTED + one terminal event PER ATTEMPT, all sharing a `request_id`.
+    So a request reads:  ATTEMPTED, THROTTLED, ATTEMPTED, THROTTLED, ATTEMPTED, RESPONSE_RECEIVED(200)
+
+    The 429s ARE NOT DELETED — they are on disk forever, and `Ledger` has no operation that could
+    remove them. But a throttle the backoff RESOLVED and a throttle we GAVE UP ON are different facts
+    about the world, and only the second one means we never got the answer. Reading "any 429 anywhere"
+    as BACKEND_FAILED would mark every route degraded the moment a single retry succeeded, and a route
+    that is always degraded can never license a scoped absence — which sounds conservative and is
+    actually just as blind as always calling it complete.
+
+        exhausted retries -> final terminal event is THROTTLED         -> BACKEND_FAILED. FOREVER.
+        429 then 200      -> final terminal event is RESPONSE_RECEIVED -> RESPONDED.
+    """
+    terminal = [e for e in evs if e.kind in (EventKind.RESPONSE_RECEIVED, EventKind.THROTTLED,
+                                             EventKind.BLOCKED)]
+    if not terminal:
+        return NO_OUTCOME               # attempted and never came back. A HANG, not a gap.
+    e = terminal[-1]
+    if e.kind == EventKind.THROTTLED:
         return BACKEND_FAILED
-    if any(e.kind == EventKind.BLOCKED for e in mine):
+    if e.kind == EventKind.BLOCKED:
         return ACCESS_BLOCKED
-    for e in mine:
-        if e.kind != EventKind.RESPONSE_RECEIVED:
-            continue
-        code = e.payload.get('http_status')
-        if code in (429, 503):
-            return BACKEND_FAILED           # even if someone logged it as a "response"
-        if code in (401, 403):
-            return ACCESS_BLOCKED
-        if code == 404:
-            return NOT_INDEXED
-        if e.payload.get('transport_error'):
-            return BACKEND_FAILED           # timeout / DNS / reset / bad JSON
-        return RESPONDED
-    if any(e.kind == EventKind.BACKEND_ATTEMPTED for e in mine):
+    code = e.payload.get('http_status')
+    if code in (429, 503):
+        return BACKEND_FAILED           # even if someone logged it as a "response"
+    if code in (401, 403):
+        return ACCESS_BLOCKED
+    if code == 404:
+        return NOT_INDEXED
+    if e.payload.get('transport_error'):
+        return BACKEND_FAILED           # timeout / DNS / reset / bad JSON / 5xx
+    return RESPONDED
+
+
+def derive_backend_outcome(events: list[Event], adapter: str) -> str:
+    """What actually happened to one adapter. `None` is not an answer — it is four different worlds.
+
+    An adapter may be asked more than once (four candidate PDFs from one content host; a DOI lookup and
+    a title search). Each logical request is scored on its own; the adapter reports its WORST.
+    """
+    mine = [e for e in _observations(events)
+            if e.payload.get('adapter') == adapter and e.kind in _REQUEST_KINDS]
+    if not mine:
         return NO_OUTCOME
+
+    # Events carrying no `request_id` are a HISTORY WRITTEN BEFORE RETRIES EXISTED (our replay, the
+    # hand-written invariants, any older log). They are one bucket, scored by the original rule: ANY
+    # throttle anywhere condemns the adapter. Back-compat is not politeness here — a reducer that
+    # changed its answer about a log it had already reduced would make the whole record unreadable.
+    buckets: dict[str, list[Event]] = {}
+    for e in mine:
+        buckets.setdefault(str(e.payload.get('request_id') or ''), []).append(e)
+
+    outcomes: list[str] = []
+    for rid, evs in buckets.items():
+        if rid == '':
+            if any(e.kind == EventKind.THROTTLED for e in evs):
+                outcomes.append(BACKEND_FAILED)
+            elif any(e.kind == EventKind.BLOCKED for e in evs):
+                outcomes.append(ACCESS_BLOCKED)
+            else:
+                first = [e for e in evs if e.kind == EventKind.RESPONSE_RECEIVED][:1]
+                outcomes.append(_outcome_of_request(first) if first else NO_OUTCOME)
+        else:
+            outcomes.append(_outcome_of_request(evs))
+
+    for o in _OUTCOME_PRECEDENCE:
+        if o in outcomes:
+            return o
     return NO_OUTCOME
 
 
@@ -433,6 +548,7 @@ def derive_route_status(events: list[Event]) -> RouteStatus:
 
     It NEVER means "an adapter was mapped".
     """
+    events = _observations(events)
     planned: list[str] = []
     for e in events:
         if e.kind == EventKind.ROUTE_PLANNED:
@@ -443,6 +559,32 @@ def derive_route_status(events: list[Event]) -> RouteStatus:
     budget = any(e.kind == EventKind.BUDGET_STOPPED for e in events)
     outcomes = {a: derive_backend_outcome(events, a) for a in planned}
     missing = tuple(a for a, o in outcomes.items() if o == NO_OUTCOME)
+
+    # ── A BLOCKED RETRIEVAL IS A FAILED ROUTE. ───────────────────────────────────────────────────
+    # The SEARCH adapters are the ones in ROUTE_PLANNED. But finding the document's address is not
+    # holding the document: after a search answers, we go to the CONTENT HOST for the bytes, and that
+    # host is a backend too — it can throttle us, and it can shut the door in our face.
+    #
+    # This was live, and it was the whole disease wearing a new coat. Autor (2015), JEP:
+    #
+    #     crossref                RESPONDED        (the metadata)
+    #     unpaywall               RESPONDED        (...and here is where the PDF lives)
+    #     content:www.aeaweb.org  ACCESS_BLOCKED   HTTP 403
+    #
+    # and because the content host was not a PLANNED adapter, the route read COMPLETE, `supports_
+    # absence` read TRUE, and coverage reduced to SEARCHED_NONE — "a SCOPED ABSENCE, and the only
+    # state that licenses one". A 403 FROM THE PUBLISHER had become a statement that the literature
+    # is silent. That is a fact about ENTITLEMENT, printed as a fact about the world: the identical
+    # error to reading a 429 as "no free copy exists", committed one layer down, by the cure.
+    #
+    # So EVERY adapter that failed counts against the route — planned or not. We do not get to say we
+    # looked and found nothing when we were shown the door.
+    all_adapters = {e.payload.get('adapter') for e in events
+                    if e.kind in _REQUEST_KINDS and e.payload.get('adapter')}
+    for a in sorted(all_adapters - set(planned)):
+        o = derive_backend_outcome(events, a)
+        if o in (BACKEND_FAILED, ACCESS_BLOCKED):
+            outcomes[a] = o
     failed = tuple(a for a, o in outcomes.items() if o in (BACKEND_FAILED, ACCESS_BLOCKED))
 
     if missing:
@@ -482,6 +624,25 @@ C_UNREADABLE   = 'UNREADABLE_ENCODING'   # a PDF whose glyphs never decoded
 
 GLYPH_GARBAGE_MAX = 0.10   # > this share of (cid:NN) tokens => the font never decoded
 CHROME_PER_1K_MAX = 5.0    # web furniture DENSITY. Density, not length — see below.
+
+#: THE LEGACY THREE-WAY VOCABULARY. `cellcog_composer` and `evidence_miner` both select their usable
+#: corpus with `content_status != 'CITATION_ONLY'`, so the coarse label they contract on is a
+#: PROJECTION of the five-way derived class — computed in ONE place, here, and never by a word count.
+#:
+#: NOTE THE DIRECTION OF THE PROJECTION. NOT_A_DOCUMENT and UNREADABLE_ENCODING collapse to
+#: CITATION_ONLY — that is, TO UNUSABLE. It is tempting to send them to ABSTRACT_ONLY (they have
+#: hundreds of words, after all, and a word-count rule sends them there automatically — which is what
+#: `corpus_truth.FULLTEXT_MIN=2500` did). That would make a COOKIE BANNER MINABLE. The 535-word aeaweb
+#: banner and the 548-word ORA landing page would both have passed `!= 'CITATION_ONLY'` and been mined
+#: as the paper's own summary. Every collapse in this table must fail SAFE, and the safe direction for
+#: bytes that are not a document is: not evidence.
+LEGACY_STATUS = {
+    C_FULLTEXT:   'FULLTEXT',
+    C_ABSTRACT:   'ABSTRACT_ONLY',
+    C_CITATION:   'CITATION_ONLY',
+    C_NOT_DOC:    'CITATION_ONLY',      # a cookie banner is NOT an abstract of the paper
+    C_UNREADABLE: 'CITATION_ONLY',      # a PDF whose font never decoded is not a summary of anything
+}
 
 #: The content class each artifact kind reports as. The finding-bearing kinds are absent on purpose:
 #: for those, THE REGISTRY decides (complete => FULLTEXT), and hardcoding them here would be a second
@@ -551,34 +712,97 @@ def derive_artifact_kind(prof: dict, source_type: str = '') -> tuple[str, str]:
 
 def _source_type_of(events: list[Event]) -> str:
     """The record type OBSERVED for this unit. An observation about what we asked for, with a basis."""
-    for e in reversed(events):
+    for e in reversed(_observations(events)):
         st = e.payload.get('source_type')
         if st:
             return str(st)
     return ''
 
 
-def derive_content_profile(events: list[Event]) -> tuple[str, dict]:
-    """FULLTEXT IS EARNED — AGAINST THE PROFILE FOR ITS KIND. It is never a thing a fetcher declares,
-    and it is never a number this module keeps to itself."""
-    prof = None
-    for e in events:
-        if e.kind == EventKind.CONTENT_PROFILE_DERIVED:
-            prof = e.payload
-    if prof is None:
-        return C_CITATION, {'reason': 'no content was ever profiled'}
+#: WHICH DOCUMENT WE HOLD IS BETTER. Used ONLY to pick which of several manifestations a unit-level
+#: question is about — never to decide what any one of them IS.
+_CLASS_RANK = {C_FULLTEXT: 4, C_ABSTRACT: 3, C_CITATION: 2, C_NOT_DOC: 1, C_UNREADABLE: 1}
 
-    kind, basis = derive_artifact_kind(prof, _source_type_of(events))
+
+def _holdings(events: list[Event]) -> list[tuple[dict, dict]]:
+    """Every (manifestation, ITS OWN profile) PAIR this unit holds, in order.
+
+    `record_manifestation()` emits MANIFESTATION_FETCHED and CONTENT_PROFILE_DERIVED adjacently, so a
+    pair is a document and the profile OF THAT DOCUMENT. Pairing matters: without it, a unit holding a
+    body and an abstract would answer identity questions from one and completeness questions from the
+    other, and the answer would describe no document that exists.
+    """
+    pairs: list[tuple[dict, dict]] = []
+    pending: dict | None = None
+    for e in _observations(events):
+        if e.kind == EventKind.MANIFESTATION_FETCHED:
+            pending = e.payload
+        elif e.kind == EventKind.CONTENT_PROFILE_DERIVED:
+            pairs.append((pending or {}, e.payload))
+            pending = None
+    return pairs
+
+
+def _classify(prof: dict, source_type: str) -> tuple[str, dict]:
+    """ONE document's bytes -> its content class. The whole of the completeness rule, for one blob."""
+    kind, basis = derive_artifact_kind(prof, source_type)
     readable = prof.get('readable_word_count', 0) or prof.get('word_count', 0)
     verdict = 'CORRUPT' if prof.get('glyph_garbage_ratio', 0) > GLYPH_GARBAGE_MAX else 'CLEAN'
     # THE ONE REDUCER. Not a number in this file.
     complete, reasons = judge_completeness(kind, readable, verdict)
-
     cls = _CLASS_OF_KIND.get(kind)
     if cls is None:                       # a finding-bearing kind: THE REGISTRY says if it is whole
         cls = C_FULLTEXT if complete else C_ABSTRACT
     info = {'reason': basis if complete else '; '.join(reasons) or basis,
             'artifact_kind': kind, 'complete': complete, **prof}
+    return cls, info
+
+
+def _best_holding(events: list[Event]) -> tuple[dict, dict, str, dict] | None:
+    """THE BEST DOCUMENT WE HOLD for this unit -> (manifestation, profile, class, info).
+
+    IT USED TO TAKE THE LAST ONE PROFILED, AND THAT WAS A LIVE DEFECT — introduced, of course, in the
+    fix for the defect it is. Once acquisition began retaining EVERY set of bytes instead of deleting
+    all but one, a work commonly held two: the fetched body AND the bibliography's abstract. The
+    abstract was ingested second, so `for e in events: prof = e.payload` ended holding the ABSTRACT'S
+    profile — and the unit's label was derived from it.
+
+    Result, on the real corpus, before this was fixed:
+
+        Damioli (2021)   label = CITATION_ONLY    while the row carried 13,085 words
+        Tolan (2021)     label = ABSTRACT         while the row carried 18,225 words
+
+    A label that asserts less than its content supports is the same disease as one that asserts more:
+    it is a claim about a document nobody is holding. Five rows had it, and every one of them would
+    have been skipped by the miner.
+
+    So the question "what do we hold for this work?" is answered by THE BEST DOCUMENT WE HOLD. A cookie
+    banner sitting beside a journal article does not make the article an abstract; we hold the article.
+    """
+    pairs = _holdings(events)
+    if not pairs:
+        return None
+    st = _source_type_of(events)
+    scored = []
+    for manif, prof in pairs:
+        cls, info = _classify(prof, st)
+        scored.append((_CLASS_RANK.get(cls, 0), prof.get('readable_word_count', 0) or 0,
+                       manif, prof, cls, info))
+    best = max(scored, key=lambda x: (x[0], x[1]))
+    return best[2], best[3], best[4], best[5]
+
+
+def derive_content_profile(events: list[Event]) -> tuple[str, dict]:
+    """FULLTEXT IS EARNED — AGAINST THE PROFILE FOR ITS KIND. It is never a thing a fetcher declares,
+    and it is never a number this module keeps to itself."""
+    best = _best_holding(events)
+    if best is None:
+        return C_CITATION, {'reason': 'no content was ever profiled'}
+    _manif, _prof, cls, info = best
+    n = len(_holdings(events))
+    if n > 1:
+        info = {**info, 'n_documents_held': n,
+                'reason': f'{info["reason"]} (the best of {n} documents held for this work)'}
     return cls, info
 
 
@@ -602,16 +826,15 @@ def derive_semantic_binding(events: list[Event]) -> tuple[str, dict]:
     Sol: "A predecessor working paper and later journal article may be closely related, but they are
     DIFFERENT SOURCES until version equivalence is proven."
     """
-    fetched = None
-    for e in events:
-        if e.kind == EventKind.MANIFESTATION_FETCHED:
-            fetched = e.payload
-    prof = None
-    for e in events:
-        if e.kind == EventKind.CONTENT_PROFILE_DERIVED:
-            prof = e.payload
-    if fetched is None or prof is None:
+    # THE SAME DOCUMENT THE LABEL DESCRIBES. `_best_holding` returns a manifestation TOGETHER WITH ITS
+    # OWN profile — so identity is checked against the header of the very bytes whose completeness was
+    # judged. Reading "the last manifestation" and "the last profile" independently could pair one
+    # document's byline with another document's word count, and answer about a document that does not
+    # exist.
+    best = _best_holding(events)
+    if best is None:
         return UNRESOLVED, {'reason': 'nothing was fetched'}
+    fetched, prof, _cls, _info = best
 
     # The identity window is BOUNDED (see observe_text): a whole-document scan finds every author in
     # the references and "confirms" anything you ask it to.
@@ -743,7 +966,7 @@ class WeightComponents:
 
 def derive_weight_components(events: list[Event]) -> WeightComponents:
     comps, prov = {}, {}
-    for e in events:
+    for e in _observations(events):
         if e.kind != EventKind.WEIGHT_COMPONENTS_DERIVED:
             continue
         for k, v in e.payload.items():
@@ -779,7 +1002,7 @@ def derive_coverage_status(ledger: 'Ledger', cell: str, thin_max: int = THIN_MAX
     an `admissible` flag — no component is allowed to write one, and a reducer that trusted a stored
     verdict would re-open the exact hole this module closes.
     """
-    events = ledger.events(cell)
+    events = _observations(ledger.events(cell))
     route = derive_route_status(events)
     if route.state == 'UNROUTED':
         return UNROUTED, {'reason': 'no route was ever planned for this cell'}
@@ -836,6 +1059,42 @@ def derive_coverage_status(ledger: 'Ledger', cell: str, thin_max: int = THIN_MAX
                                 f'settle', 'n_sources': len(cards), 'n_rejected': len(rejected)}
     return SUPPORTED, {'reason': f'{len(cards)} admissible sources agree', 'n_sources': len(cards),
                        'n_rejected': len(rejected)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# THE AUDITED REDUCER ENTRY POINTS — the ONLY way a derived label may enter the durable log.
+#
+# `record_derivation()` is bolted to this module from the inside (it checks the calling frame), so a
+# downstream reducer like merge_corpus CANNOT write its verdict into the ledger by hand. It calls one
+# of these instead: the derivation runs HERE, over the observations, and the verdict is appended as an
+# AUDIT ARTIFACT that carries `derived_by` — which `_observations()` makes invisible to every reducer,
+# including this one on its next run. A verdict that no reducer reads back cannot become a cache.
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+
+def record_content_profile(ledger: 'Ledger', unit: str) -> tuple[str, dict]:
+    """Derive the content class for `unit` from its observations, and MINUTE it. -> (class, info)"""
+    events = ledger.events(unit)
+    cls, info = derive_content_profile(events)
+    ledger.record_derivation(
+        unit, EventKind.CONTENT_PROFILE_DERIVED, 'derive_content_profile',
+        [e.seq for e in _observations(events)],
+        content_class=cls, artifact_kind=info.get('artifact_kind'),
+        is_complete=bool(info.get('complete')), basis=str(info.get('reason', ''))[:400])
+    return cls, info
+
+
+def record_eligibility(ledger: 'Ledger', unit: str,
+                       journal_articles_only: bool = True) -> tuple[str, dict]:
+    """Derive whether a span from these bytes may be attributed to THIS source, and MINUTE it."""
+    events = ledger.events(unit)
+    elig, info = derive_eligibility(events, journal_articles_only=journal_articles_only)
+    binding, _ = derive_semantic_binding(events)
+    ledger.record_derivation(
+        unit, EventKind.ELIGIBILITY_DECIDED, 'derive_eligibility',
+        [e.seq for e in _observations(events)],
+        eligibility_class=elig, semantic_binding=binding,
+        basis=str(info.get('reason', ''))[:400])
+    return elig, info
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -1049,6 +1308,141 @@ def selftest() -> int:
     check('the completeness rule is provenance.judge_completeness — ONE reducer, not two',
           judge_completeness('judicial_opinion', 105)[0] is True
           and judge_completeness('journal_article', 105)[0] is False)
+
+    # 9b. THE GUARD MUST NOT BE STEPPABLE-OVER BY ADDING A DICT.
+    print('\n=== THE CONCLUSION GUARD RECURSES (it used to inspect only the top level) ===')
+    L = Ledger()
+    try:
+        L.emit('d', EventKind.MANIFESTATION_FETCHED, 'wp_fetch',
+               adapter_observations={'content_status': 'FULLTEXT'})
+        check('a conclusion NESTED one level down is REFUSED', False, 'IT WAS ACCEPTED')
+    except ForbiddenLabel:
+        check('a conclusion NESTED one level down is REFUSED', True)
+    try:
+        L.emit('d', EventKind.RESPONSE_RECEIVED, 'deep_fetch', notes=['ok', 'no free copy exists'])
+        check('a conclusion inside a LIST is REFUSED', False, 'IT WAS ACCEPTED')
+    except ForbiddenLabel:
+        check('a conclusion inside a LIST is REFUSED', True)
+    # ...and a URL that merely CONTAINS a reserved word is still recordable. A guard that refused to
+    # record the address the bytes came from would be a guard that keeps us where we started.
+    try:
+        L.emit('d', EventKind.MANIFESTATION_FETCHED, 'fetch',
+               locator='https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1/?report=fulltext',
+               requested_authors=['Autor', 'Levy', 'Murnane'])
+        check('a LOCATOR containing the word "fulltext" is still recordable (it is a URL, not a claim)',
+              True)
+    except ForbiddenLabel as e:
+        check('a LOCATOR containing the word "fulltext" is still recordable', False, str(e))
+
+    # 9c. RETRIES. A throttle the backoff RESOLVED is not a throttle we GAVE UP ON.
+    print('\n=== 429 -> THROTTLED -> BACKEND_FAILED, AND THE RETRY THAT SUCCEEDED IS NOT A FAILURE ===')
+    L = Ledger()
+    for a in range(1, 4):                                   # one request, three attempts, all 429
+        L.emit('r1', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2', request_id='s2#1', attempt=a)
+        L.emit('r1', EventKind.THROTTLED, 'fetch', adapter='s2', request_id='s2#1', attempt=a,
+               http_status=429)
+    check('retries EXHAUSTED on 429 -> BACKEND_FAILED (a fact about OUR REQUEST RATE)',
+          derive_backend_outcome(L.events('r1'), 's2') == BACKEND_FAILED,
+          derive_backend_outcome(L.events('r1'), 's2'))
+
+    L = Ledger()
+    for a, kind, code in ((1, EventKind.THROTTLED, 429), (2, EventKind.THROTTLED, 429),
+                          (3, EventKind.RESPONSE_RECEIVED, 200)):
+        L.emit('r2', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2', request_id='s2#1', attempt=a)
+        L.emit('r2', kind, 'fetch', adapter='s2', request_id='s2#1', attempt=a, http_status=code)
+    check('429, 429, then 200 -> RESPONDED (the backoff is what backoff is FOR)',
+          derive_backend_outcome(L.events('r2'), 's2') == RESPONDED,
+          derive_backend_outcome(L.events('r2'), 's2'))
+    check('...and BOTH 429s are STILL IN THE LOG — nothing was deleted to get that answer',
+          len(L.events('r2', EventKind.THROTTLED)) == 2)
+
+    # ...and a SECOND request to the same adapter that died still condemns it.
+    L.emit('r2', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2', request_id='s2#2', attempt=1)
+    L.emit('r2', EventKind.THROTTLED, 'fetch', adapter='s2', request_id='s2#2', attempt=1,
+           http_status=429)
+    check('a LATER request to the same adapter that exhausted its retries -> BACKEND_FAILED',
+          derive_backend_outcome(L.events('r2'), 's2') == BACKEND_FAILED)
+
+    # CANDIDATE_IDENTIFIED carries an `adapter` for provenance. It is NOT a request outcome.
+    L = Ledger()
+    L.emit('r3', EventKind.ROUTE_PLANNED, 'router', adapters=['s2'])
+    L.emit('r3', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='s2', request_id='s2#1', attempt=1)
+    L.emit('r3', EventKind.RESPONSE_RECEIVED, 'fetch', adapter='s2', request_id='s2#1', attempt=1,
+           http_status=200)
+    L.emit('r3', EventKind.CANDIDATE_IDENTIFIED, 'fetch', adapter='s2', url='https://x/y.pdf')
+    check('a CANDIDATE_IDENTIFIED carrying an adapter does not make that adapter a HANG',
+          derive_route_status(L.events('r3')).state == 'COMPLETE',
+          derive_route_status(L.events('r3')).state)
+
+    # 9c-ter. A BLOCKED RETRIEVAL IS A FAILED ROUTE. Observed live on Autor (2015), JEP.
+    print('\n=== A 403 FROM THE PUBLISHER IS NOT "THE LITERATURE IS SILENT" ===')
+    L = Ledger()
+    L.emit('b1', EventKind.ROUTE_PLANNED, 'fetch', adapters=['crossref', 'unpaywall'])
+    for a in ('crossref', 'unpaywall'):
+        L.emit('b1', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter=a, request_id=f'{a}#1', attempt=1)
+        L.emit('b1', EventKind.RESPONSE_RECEIVED, 'fetch', adapter=a, request_id=f'{a}#1', attempt=1,
+               http_status=200)
+    # unpaywall told us exactly where the PDF is. The publisher then shut the door.
+    L.emit('b1', EventKind.CANDIDATE_IDENTIFIED, 'fetch', adapter='unpaywall',
+           url='https://www.aeaweb.org/articles?id=10.1257/jep.29.3.3')
+    L.emit('b1', EventKind.BACKEND_ATTEMPTED, 'fetch', adapter='content:www.aeaweb.org',
+           request_id='c#1', attempt=1)
+    L.emit('b1', EventKind.BLOCKED, 'fetch', adapter='content:www.aeaweb.org', request_id='c#1',
+           attempt=1, http_status=403)
+    rb = derive_route_status(L.events('b1'))
+    check('a 403 from the CONTENT HOST degrades the route, though it is not a PLANNED adapter',
+          rb.state == 'COMPLETE_DEGRADED' and 'content:www.aeaweb.org' in rb.failed,
+          f'got {rb.state}, failed={rb.failed}')
+    check('** a blocked retrieval CANNOT support an absence claim **',
+          not rb.supports_absence,
+          'this was LIVE: route=COMPLETE, supports_absence=True, coverage=SEARCHED_NONE — a 403 from '
+          'the publisher printed as "we looked and the literature is silent"')
+    stb, _ = derive_coverage_status(L, 'b1')
+    check('...and coverage reduces to SEARCH_FAILED, never SEARCHED_NONE',
+          stb == SEARCH_FAILED, f'got {stb}')
+
+    # 9c-bis. A WORK THAT HOLDS TWO DOCUMENTS IS LABELLED FOR THE BEST ONE — NOT THE LAST ONE PROFILED.
+    print('\n=== TWO DOCUMENTS, ONE WORK: the label describes THE ONE WE HOLD, not the last ingested ===')
+    L = Ledger()
+    BODY = ('Journal of Economic Perspectives—Volume 33, Number 2—Spring 2019—Pages 3–30. '
+            'Automation and New Tasks. By Daron Acemoglu and Pascual Restrepo. '
+            + 'one more robot per thousand workers reduces employment by 0.2 percentage points. ' * 200)
+    ABS = 'We estimate the effect of robots on employment using a task-based framework. ' * 3
+    for text in (BODY, ABS):                                  # the ABSTRACT is ingested LAST
+        L.emit('m1', EventKind.MANIFESTATION_FETCHED, 'fetch', locator='u',
+               requested_title='Automation and New Tasks',
+               requested_authors=['Acemoglu', 'Restrepo'])
+        L.emit('m1', EventKind.CONTENT_PROFILE_DERIVED, 'observe_text', **observe_text(text))
+    cls_m, info_m = derive_content_profile(L.events('m1'))
+    check('a work holding a 2,000w ARTICLE and a 24w ABSTRACT is FULLTEXT — the abstract was profiled '
+          'LAST, and the old reducer would have called the whole work an ABSTRACT',
+          cls_m == C_FULLTEXT and info_m['artifact_kind'] == 'journal_article',
+          f'got {cls_m} / {info_m.get("artifact_kind")} — this was LIVE: Damioli (2021) read '
+          f'CITATION_ONLY over 13,085 words')
+    check('...and it says how many documents it chose between', info_m.get('n_documents_held') == 2)
+    b_m, _ = derive_semantic_binding(L.events('m1'))
+    check('...and the semantic binding describes THE SAME document the label describes',
+          b_m in (SAME_WORK, VERSION_PUBLISHED), f'got {b_m}')
+
+    # 9d. A REDUCER NEVER READS ANOTHER REDUCER'S VERDICT. The docstring said so; nothing enforced it.
+    print('\n=== A RECORDED VERDICT IS INVISIBLE TO EVERY REDUCER (it was invisible only BY LUCK) ===')
+    L = Ledger()
+    L.emit('u9', EventKind.MANIFESTATION_FETCHED, 'fetch', locator='u',
+           requested_title='Robots and Jobs', requested_authors=['Acemoglu'])
+    L.emit('u9', EventKind.CONTENT_PROFILE_DERIVED, 'observe_text',
+           **observe_text('Robots and Jobs by Acemoglu and Restrepo. ' + 'word ' * 9000))
+    first, _ = record_content_profile(L, 'u9')
+    again, _ = record_content_profile(L, 'u9')          # the audit record is now IN the log...
+    check('recording a derived verdict does NOT change the next derivation (no cache, no drift)',
+          first == again == C_FULLTEXT, f'{first} then {again}')
+    check('...and the verdict IS on the record, as an audit artifact carrying `derived_by`',
+          any(e.payload.get('derived_by') == 'derive_content_profile'
+              for e in L.events('u9', EventKind.CONTENT_PROFILE_DERIVED)))
+    # the killer: a derived record written with an OBSERVATION's kind must not be read as the profile.
+    prof_events = [e for e in L.events('u9', EventKind.CONTENT_PROFILE_DERIVED)]
+    check('a derived record shares the OBSERVATION kind and is STILL not read as the profile',
+          len(prof_events) == 3 and len(_observations(prof_events)) == 1,
+          f'{len(prof_events)} events, {len(_observations(prof_events))} observations')
 
     # 10. THE LEDGER MUST SURVIVE THE PROCESS. It did not reload, so every standalone script started
     #     with an empty history and reduced over nothing.

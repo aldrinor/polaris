@@ -1077,27 +1077,114 @@ def _attribution_for(kind: str, work: Work) -> str:
     return f'{who} ({yr}), UNIDENTIFIED VERSION [may not be cited]'
 
 
+def ensure_work(g: Graph, *, doi: str, title: str, authors: list[str], year, venue: str,
+                source_type: str = '') -> tuple[Work, str, str]:
+    """The Work node, and the expression its METADATA CLAIMS EXISTS. -> (work, claimed_id, claimed_kind)
+
+    The claimed expression is real but WE MAY NOT HOLD ITS BYTES: it gets a node with no manifestation,
+    and that emptiness is the honest record of what we do not have.
+    """
+    wid = 'work:' + (_slug(doi) if doi else _slug(title))
+    row = dict(doi=doi, title=title, venue=venue, type=source_type)
+    work_kind, claimed_kind, claimed_basis = derive_source_type(row)
+    work = Work(id=wid, title=title or '', authors=list(authors or []), year=year,
+                venue=_norm(venue or '').replace('&amp;', '&'), doi=doi or None, kind=work_kind)
+    g.works.setdefault(wid, work)
+    work = g.works[wid]
+
+    claimed_id = ''
+    if claimed_kind:
+        claimed_id = f'{wid}:{claimed_kind}'
+        g.expressions.setdefault(claimed_id, Expression(
+            id=claimed_id, work_id=wid, kind=claimed_kind,
+            kind_basis=f'claimed_by_metadata ({claimed_basis}; bytes NOT verified)',
+            attribution=_attribution_for(claimed_kind, work)))
+    return work, claimed_id, claimed_kind
+
+
+def ingest_bytes(g: Graph, work: Work, text: str, *, text_field: str, fetched_by: str,
+                 locator: str | None, locator_status: str, claimed_id: str, claimed_kind: str,
+                 independent_abstract: str = '') -> str:
+    """THE ONE PLACE BYTES BECOME A TYPED NODE. -> manifestation id.
+
+    `migrate()` (corpus rows) and `provenance_construct.construct()` (the event ledger) BOTH come
+    through here, and they must: two functions that each decide what an expression is would be two
+    answers to "may this span name the journal", and the one that ships is whichever ran last.
+    """
+    wid = work.id
+    prof = profile(text, work, independent_abstract=independent_abstract)
+    ekind = prof['expression_kind']
+    ebasis = prof['expression_kind_basis']
+
+    if prof['artifact_kind'] in ('wrong_work', 'landing_page', 'extraction_failure'):
+        # NOT A RENDERING OF ANY VERSION OF THIS WORK. It gets a QUARANTINE expression, not a version
+        # node: the ORA landing page for Frey & Osborne contains the words "published version
+        # (refereed)", and if we let that furniture name the expression we would have filed a WEB PAGE
+        # as an accepted manuscript of a journal article. The bytes are RETAINED in full (nothing is
+        # ever deleted) and attributable to nobody.
+        eid = f'{wid}:quarantine:{prof["artifact_kind"]}'
+        att = (f'THESE BYTES ARE NOT A USABLE RENDERING OF THIS WORK '
+               f'({prof["artifact_kind"]}) — no attribution is possible')
+        g.expressions[eid] = Expression(
+            id=eid, work_id=wid, kind='unknown', kind_basis=prof['artifact_kind_basis'],
+            attribution=att)
+    elif ekind == 'unknown':
+        eid = f'{wid}:unresolved_version'
+        g.expressions[eid] = Expression(
+            id=eid, work_id=wid, kind='unknown', kind_basis=ebasis,
+            attribution=_attribution_for('unknown', work))
+    else:
+        eid = f'{wid}:{ekind}'
+        g.expressions.setdefault(eid, Expression(
+            id=eid, work_id=wid, kind=ekind, kind_basis=ebasis,
+            attribution=_attribution_for(ekind, work)))
+
+    h = hashlib.sha256(text.encode('utf-8', 'ignore')).hexdigest()
+    mid = f'manif:{h[:12]}'
+    g.manifestations[mid] = Manifestation(
+        id=mid, expression_id=eid, work_id=wid, text=text, content_hash=h,
+        n_words=prof['n_words'], locator=locator, locator_status=locator_status,
+        fetched_by=fetched_by, text_field=text_field, profile=prof)
+
+    # ---- EDGES. Only what the bytes support. ----------------------------------------------------
+    # An edge needs somewhere to point. If the row claimed no published expression, there is no target
+    # -- and inventing one to have something to point AT is how the journal_version node came to exist
+    # for every row in the first place.
+    if claimed_id and eid != claimed_id and not eid.startswith(f'{wid}:quarantine'):
+        existing = {(e.src, e.dst, e.type) for e in g.edges}
+        def _edge(src, dst, typ, status, basis):
+            if (src, dst, typ) not in existing:          # idempotent: construct() runs after EVERY batch
+                g.add_edge(src, dst, typ, status, basis)
+                existing.add((src, dst, typ))
+        if ekind in ('working_paper', 'preprint'):
+            # The strongest thing that is TRUE. Not exact_copy_of. Not even asserted: we have not
+            # compared the two texts, because we do not hold the other one.
+            _edge(eid, claimed_id, 'predecessor_of', 'PROPOSED',
+                  f'same work per bibliography metadata; version equivalence NOT tested '
+                  f'(we do not hold the {claimed_kind} bytes). {ebasis}')
+            _edge(eid, claimed_id, 'reports_same_study', 'PROPOSED',
+                  'same title/authors/DOI row; peer review may still have changed the numbers')
+        elif ekind == 'accepted_manuscript':
+            # PROPOSED, not ASSERTED: the artifact SAYS it is the accepted manuscript. That is a claim
+            # a component makes about itself, which is the one thing we never trust. ASSERTING this
+            # edge requires authentication against the journal version's bytes.
+            _edge(eid, claimed_id, 'accepted_manuscript_of', 'PROPOSED',
+                  f'the artifact self-describes ({ebasis}); NOT authenticated against the '
+                  f'{claimed_kind}, whose bytes we do not hold')
+        elif ekind == 'unknown':
+            _edge(eid, claimed_id, 'reports_same_study', 'PROPOSED',
+                  'the bytes carry no version furniture; they may or may not be the '
+                  f'{claimed_kind} text')
+    return mid
+
+
 def migrate(corpus: list[dict]) -> Graph:
     g = Graph()
     for row in corpus:
-        doi = row.get('doi') or ''
-        wid = 'work:' + (_slug(doi) if doi else _slug(row.get('title', '')))
-        work_kind, claimed_kind, claimed_basis = derive_source_type(row)
-        work = Work(id=wid, title=row.get('title') or '', authors=list(row.get('authors') or []),
-                    year=row.get('year'), venue=_norm(row.get('venue') or '').replace('&amp;', '&'),
-                    doi=doi or None, kind=work_kind)
-        g.works[wid] = work
-
-        # The expression the METADATA claims exists — DERIVED from the row's declared type, not
-        # assumed to be a journal. That expression is real, but WE MAY NOT HOLD ITS BYTES: it gets a
-        # node with no manifestation, and that emptiness is the honest record of what we do not have.
-        claimed_id = ''
-        if claimed_kind:
-            claimed_id = f'{wid}:{claimed_kind}'
-            g.expressions.setdefault(claimed_id, Expression(
-                id=claimed_id, work_id=wid, kind=claimed_kind,
-                kind_basis=f'claimed_by_metadata ({claimed_basis}; bytes NOT verified)',
-                attribution=_attribution_for(claimed_kind, work)))
+        work, claimed_id, claimed_kind = ensure_work(
+            g, doi=row.get('doi') or '', title=row.get('title') or '',
+            authors=list(row.get('authors') or []), year=row.get('year'),
+            venue=row.get('venue') or '', source_type=str(row.get('type') or ''))
 
         # ---- the bytes we hold, if any ----------------------------------------------------------
         for fieldname in ('fulltext', 'abstract'):
@@ -1108,40 +1195,11 @@ def migrate(corpus: list[dict]) -> Graph:
             # fetched — which is exactly what makes it usable as a probe against that body. It is
             # never used to probe itself.
             indep = (row.get('abstract') or '') if fieldname == 'fulltext' else ''
-            prof = profile(text, work, independent_abstract=indep)
 
             # The fetcher's own label is EVIDENCE, NOT TRUTH. `fulltext_source='working_paper'`
             # records WHICH FETCHER RAN, not what the artifact is: it is false on 5 of the 6 rows
             # that carry it. The bytes decide; the label is recorded and contradicted in the open.
             claimed_src = row.get('fulltext_source') or 'publisher_or_oa'
-            ekind = prof['expression_kind']
-            ebasis = prof['expression_kind_basis']
-
-            if prof['artifact_kind'] in ('wrong_work', 'landing_page', 'extraction_failure'):
-                # NOT A RENDERING OF ANY VERSION OF THIS WORK. It gets a QUARANTINE expression, not a
-                # version node: the ORA landing page for Frey & Osborne contains the words "published
-                # version (refereed)", and if we let that furniture name the expression we would have
-                # filed a WEB PAGE as an accepted manuscript of a journal article. The bytes are
-                # RETAINED in full (nothing is ever deleted) and attributable to nobody.
-                eid = f'{wid}:quarantine:{prof["artifact_kind"]}'
-                att = (f'THESE BYTES ARE NOT A USABLE RENDERING OF THIS WORK '
-                       f'({prof["artifact_kind"]}) — no attribution is possible')
-                g.expressions[eid] = Expression(
-                    id=eid, work_id=wid, kind='unknown', kind_basis=prof['artifact_kind_basis'],
-                    attribution=att)
-            elif ekind == 'unknown':
-                eid = f'{wid}:unresolved_version'
-                g.expressions[eid] = Expression(
-                    id=eid, work_id=wid, kind='unknown', kind_basis=ebasis,
-                    attribution=_attribution_for('unknown', work))
-            else:
-                eid = f'{wid}:{ekind}'
-                g.expressions.setdefault(eid, Expression(
-                    id=eid, work_id=wid, kind=ekind, kind_basis=ebasis,
-                    attribution=_attribution_for(ekind, work)))
-
-            h = hashlib.sha256(text.encode('utf-8', 'ignore')).hexdigest()
-            mid = f'manif:{h[:12]}'
 
             # THE LOCATOR. wp_fetch.py NEVER RECORDED THE URL IT FETCHED FROM, so for the rows it
             # touched the only URL on the row is `oa_url` -- left by an EARLIER fetcher and pointing
@@ -1154,35 +1212,9 @@ def migrate(corpus: list[dict]) -> Graph:
                 lstatus = 'CONTRADICTS_CONTENT (oa_url points at the publisher; these bytes were ' \
                           'fetched by wp_fetch, which never recorded its own URL)'
 
-            g.manifestations[mid] = Manifestation(
-                id=mid, expression_id=eid, work_id=wid, text=text, content_hash=h,
-                n_words=prof['n_words'], locator=locator, locator_status=lstatus,
-                fetched_by=claimed_src, text_field=fieldname, profile=prof)
-
-            # ---- EDGES. Only what the bytes support. -------------------------------------------
-            # An edge needs somewhere to point. If the row claimed no published expression, there is
-            # no target -- and inventing one to have something to point AT is how the journal_version
-            # node came to exist for every row in the first place.
-            if claimed_id and eid != claimed_id and not eid.startswith(f'{wid}:quarantine'):
-                if ekind in ('working_paper', 'preprint'):
-                    # The strongest thing that is TRUE. Not exact_copy_of. Not even asserted:
-                    # we have not compared the two texts, because we do not hold the other one.
-                    g.add_edge(eid, claimed_id, 'predecessor_of', 'PROPOSED',
-                               f'same work per bibliography metadata; version equivalence NOT tested '
-                               f'(we do not hold the {claimed_kind} bytes). {ebasis}')
-                    g.add_edge(eid, claimed_id, 'reports_same_study', 'PROPOSED',
-                               'same title/authors/DOI row; peer review may still have changed the numbers')
-                elif ekind == 'accepted_manuscript':
-                    # PROPOSED, not ASSERTED: the artifact SAYS it is the accepted manuscript. That is
-                    # a claim a component makes about itself, which is the one thing we never trust.
-                    # ASSERTING this edge requires authentication against the journal version's bytes.
-                    g.add_edge(eid, claimed_id, 'accepted_manuscript_of', 'PROPOSED',
-                               f'the artifact self-describes ({ebasis}); NOT authenticated against the '
-                               f'{claimed_kind}, whose bytes we do not hold')
-                elif ekind == 'unknown':
-                    g.add_edge(eid, claimed_id, 'reports_same_study', 'PROPOSED',
-                               'the bytes carry no version furniture; they may or may not be the '
-                               f'{claimed_kind} text')
+            ingest_bytes(g, work, text, text_field=fieldname, fetched_by=claimed_src,
+                         locator=locator, locator_status=lstatus, claimed_id=claimed_id,
+                         claimed_kind=claimed_kind, independent_abstract=indep)
     return g
 
 
