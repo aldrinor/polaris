@@ -1,0 +1,311 @@
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+# RECENCY / FRONTIER PROFILE  —  Sol plan 4, item 3.  VERSIONED DATA (LAW VI).
+#
+# Consumed by scripts/recency.py. NOTHING in this file is a code path; EVERYTHING here is a registry
+# row. A new domain (a new drug, a new statute, a new frontier boundary, a new database) is added by
+# EDITING THIS FILE, never by editing recency.py. The tell we keep failing — a hardcoded topic gate,
+# a hand-written regex, a domain insight baked into code — is structurally impossible if the insight
+# lives only here.
+#
+# WHY THIS EXISTS (Sol, verbatim): "'Just search by date' is correct because BACKWARD CITATION
+# EXPANSION SYSTEMATICALLY MISSES RECENT WORK: recent papers have not accumulated references or
+# citations." Our corpus ends in 2023; the generative-AI turn is 2023-2025 and the citation graph
+# cannot reach it, because the edges do not exist yet. The frontier must be searched DIRECTLY, BY DATE.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+schema_version: recency-frontier-1
+
+# Fallback window for a claim date-type that none of the named `bands` below cover (e.g. a clinical
+# trial-completion window, a legal effective-date window). Used only when no band keys on that
+# date-type: [boundary.since, as_of] when a boundary is named, else [as_of - N months, as_of].
+default_frontier_months: 24
+
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+# FRONTIER BOUNDARIES
+# A named epoch a claim's frontier begins at. A RecencyNeed names ONE of these BY KEY (the key comes
+# from the research contract, not from a regex over the question). Add a domain => add a row here.
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+frontier_boundaries:
+  generative_ai_turn:
+    since: "2023-01-01"
+    label: "the generative-AI turn"
+    rationale: >-
+      Work published after this date has not yet accumulated the references or citations a
+      citation-graph crawl follows, so backward expansion cannot see it. Search the window directly.
+  covid_era:
+    since: "2020-01-01"
+    label: "the COVID-19 era"
+    rationale: "A discontinuity after which prior baselines may not hold; recent evidence is required."
+  post_dobbs:
+    since: "2022-06-24"
+    label: "post-Dobbs (US reproductive-rights law)"
+    rationale: "A legal discontinuity: authority decided before this date may no longer state the law."
+  incretin_obesity_pivotal:
+    since: "2021-06-01"
+    label: "post-semaglutide obesity approval"
+    rationale: "A clinical inflection after which the current evidence base is materially different."
+
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+# OVERLAPPING BANDS
+# The frontier is searched as OVERLAPPING windows, coarse -> fine. Overlap is deliberate: a recent
+# paper drowned by relevance ranking in the wide 'since boundary' sweep resurfaces in a tight,
+# date-sorted window. Each band keys on one or more DATE-TYPES (a controlled vocabulary, resolved
+# per-database below). A band runs for a claim only if its date-types intersect the claim's policy.
+#   window.kind: since_boundary   -> [boundary.since, as_of]
+#                relative_months  -> [as_of - months, as_of]
+#                since_last_run   -> [last_run, as_of]     (skipped, with a reason, if no prior run)
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+bands:
+  - key: since_boundary
+    label: "since the frontier boundary"
+    window: {kind: since_boundary}
+    date_types: [published]
+  - key: last_24_months
+    label: "last 24 months"
+    window: {kind: relative_months, months: 24}
+    date_types: [published]
+  - key: last_12_months
+    label: "last 12 months"
+    window: {kind: relative_months, months: 12}
+    date_types: [published, online]
+  - key: ahead_of_print
+    label: "accepted / online-ahead-of-print (not yet in an issue)"
+    window: {kind: relative_months, months: 12}
+    date_types: [accepted, online, posted]
+  - key: newly_indexed_since_last_run
+    label: "newly indexed since the last run"
+    window: {kind: since_last_run}
+    date_types: [indexed]
+
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+# DATABASES + DATE-FIELD REGISTRY
+# publication vs online vs accepted vs posted vs registration vs indexed vs updated vs trial-completion
+# are NOT interchangeable (Crossref exposes them as SEPARATE filters). Each database maps ONLY the
+# date-types it genuinely exposes; a date-type it does not expose is simply ABSENT here, and recency.py
+# will emit that (band x database) query as UNSUPPORTED with a reason rather than silently substitute a
+# different date field. 'citation_sort' is recorded ONLY so the frontier lane can refuse to sort by it.
+#
+# 'style' selects the URL grammar (a driver recency.py knows how to speak). WHICH field/sort/window it
+# uses is the data below — the driver contains no field names and no windows.
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+databases:
+
+  crossref:
+    style: crossref_filter
+    base: "https://api.crossref.org/works"
+    count_path: [message, total-results]       # JSON envelope key for the hit count (probe reads this; no per-source branch in code)
+    rows: 40
+    mailto: true
+    citation_sort: is-referenced-by-count          # FORBIDDEN in the frontier lane
+    date_fields:
+      published: {from: from-pub-date,        until: until-pub-date,        sort: published}
+      online:    {from: from-online-pub-date,  until: until-online-pub-date, sort: published-online}
+      accepted:  {from: from-accepted-date,    until: until-accepted-date,   sort: accepted}
+      posted:    {from: from-posted-date,      until: until-posted-date,     sort: posted}
+      indexed:   {from: from-index-date,       until: until-index-date,      sort: indexed}
+      updated:   {from: from-update-date,      until: until-update-date,     sort: updated}
+
+  openalex:
+    style: openalex_filter
+    base: "https://api.openalex.org/works"
+    count_path: [meta, count]       # JSON envelope key for the hit count (probe reads this; no per-source branch in code)
+    rows: 40
+    mailto: true
+    citation_sort: cited_by_count
+    date_fields:
+      # OpenAlex can FILTER on created/updated but only SORTS by publication_date; when a band keys on
+      # 'indexed'/'updated' the sort token is null and recency.py notes the results are in the API's own
+      # order — still a date order, and NEVER citation order.
+      published: {from: from_publication_date, until: to_publication_date, sort: "publication_date:desc"}
+      indexed:   {from: from_created_date,     until: to_created_date,     sort: null}
+      updated:   {from: from_updated_date,     until: to_updated_date,     sort: null}
+
+  arxiv:
+    style: arxiv_range
+    base: "http://export.arxiv.org/api/query"
+    rows: 40
+    citation_sort: null                            # arXiv has no citation sort; nothing to refuse
+    date_fields:
+      # arXiv is a PREPRINT server: its native date is the posting date. It exposes no issue/online
+      # publication date, so 'published'/'online' are intentionally absent (not aliased to posted).
+      posted:  {field: submittedDate,   sort: submittedDate}
+      updated: {field: lastUpdatedDate, sort: lastUpdatedDate}
+
+  semantic_scholar:
+    style: semanticscholar_bulk
+    base: "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
+    count_path: [total]       # JSON envelope key for the hit count (probe reads this; no per-source branch in code)
+    rows: 100
+    citation_sort: "citationCount:desc"
+    date_fields:
+      # Only the /bulk endpoint sorts by date; the plain /search endpoint sorts by relevance/citation
+      # and must NEVER be used for a frontier band.
+      published: {from_year: publicationDateOrYear, sort: "publicationDate:desc"}
+
+  pubmed:
+    style: pubmed_eutils
+    base: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    count_path: [esearchresult, count]       # JSON envelope key for the hit count (probe reads this; no per-source branch in code)
+    rows: 40
+    citation_sort: null
+    date_fields:
+      published: {datetype: pdat, sort: date}         # publication date
+      indexed:   {datetype: edat, sort: most_recent}  # Entrez date = added to PubMed
+      updated:   {datetype: mdat, sort: date}         # modification date
+    content_filters:
+      corrections_retractions: >-
+        AND (Retraction of Publication[pt] OR Retracted Publication[pt] OR Published Erratum[pt]
+        OR Expression of Concern[pt])
+
+  europepmc:
+    style: europepmc_lucene
+    base: "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+    count_path: [hitCount]       # JSON envelope key for the hit count (probe reads this; no per-source branch in code)
+    rows: 40
+    citation_sort: "CITED desc"
+    date_fields:
+      published: {field: FIRST_PDATE, sort: "P_PDATE_D desc"}
+      indexed:   {field: FIRST_IDATE, sort: "FIRST_IDATE_D desc"}
+    content_filters:
+      corrections_retractions: >-
+        AND (PUB_TYPE:"Retraction of Publication" OR PUB_TYPE:"Retracted Publication"
+        OR PUB_TYPE:"Published Erratum")
+
+  clinicaltrials:
+    style: clinicaltrials_area
+    base: "https://clinicaltrials.gov/api/v2/studies"
+    count_path: [totalCount]       # JSON envelope key for the hit count (probe reads this; no per-source branch in code)
+    rows: 40
+    citation_sort: null
+    date_fields:
+      registration:    {area: StudyFirstPostDate,   sort: "StudyFirstPostDate:desc"}
+      trial_completion: {area: PrimaryCompletionDate, sort: "PrimaryCompletionDate:desc"}
+      results_posted:  {area: ResultsFirstPostDate,  sort: "ResultsFirstPostDate:desc"}
+      updated:         {area: LastUpdatePostDate,    sort: "LastUpdatePostDate:desc"}
+
+  courtlistener:
+    style: courtlistener_filed
+    base: "https://www.courtlistener.com/api/rest/v4/search/"
+    count_path: [count]       # JSON envelope key for the hit count (probe reads this; no per-source branch in code)
+    rows: 40
+    citation_sort: null
+    date_fields:
+      # 'decided' = when the opinion was filed/decided. 'subsequent_treatment' is not a plain date
+      # filter: it is the set of LATER opinions that CITE the target, filtered to those decided after a
+      # date — how the authority has been treated since, which newest commentary can never supply.
+      decided:              {from: filed_after, until: filed_before, sort: "dateFiled desc"}
+      subsequent_treatment: {from: filed_after, until: filed_before, sort: "dateFiled desc", mode: cites}
+
+  govinfo:
+    style: govinfo_currency
+    base: "https://api.govinfo.gov/collections/USCODE"
+    count_path: [count]       # JSON envelope key for the hit count (probe reads this; no per-source branch in code)
+    rows: 40
+    citation_sort: null
+    date_fields:
+      # A statute has no 'publication date' that answers "what does the law say now". The date that
+      # matters is the CURRENCY / effective date of the in-force text. This database returns the
+      # currently-in-force section as of a currency date; it is NOT sorted by newest commentary.
+      effective: {currency: lastModified, sort: "lastModified:desc"}
+
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+# CLAIM RECENCY POLICY  —  RECENCY IS CLAIM-SPECIFIC.
+# Keyed by claim_kind (a controlled vocabulary carried on the claim/contract, NOT sniffed from prose).
+#   lanes            : which of {foundation, frontier} to run.
+#   penalize_age     : does age count against a source? (foundation lane NEVER penalizes age.)
+#   date_types       : the date-types this claim's frontier cares about, in priority order.
+#   content_filters  : extra evidence classes the claim must pull (e.g. corrections/retractions).
+#   boundary_required: must a frontier boundary be named for this claim?
+#   databases        : the databases relevant to this claim's domain.
+#   on_empty         : the sentence a frontier band that ADEQUATELY returned nothing licenses. It is a
+#                      SCOPED ABSENCE about our search window, and it is NOT a claim that the field
+#                      proves a negative. (Only ever emitted when the ledger reduces to SEARCHED_NONE;
+#                      a THROTTLED/BLOCKED band is SEARCH_FAILED and licenses no absence at all.)
+# Add a domain => add a row here. recency.py reads these; it hardcodes none of them.
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+claim_recency_policy:
+
+  # ── FOUNDATION-ONLY: age is not a defect. A 1979 theorem is not stale. No frontier search. ──
+  foundational_theory:
+    lanes: [foundation]
+    penalize_age: false
+    date_types: []
+    boundary_required: false
+    databases: [crossref, openalex, semantic_scholar]
+    note: "Seminal theory. Landmarks are found by citation weight, not by date; age carries no penalty."
+
+  landmark_method:
+    lanes: [foundation]
+    penalize_age: false
+    date_types: []
+    boundary_required: false
+    databases: [crossref, openalex, semantic_scholar]
+    note: "A method paper is authoritative for as long as the method is used."
+
+  long_run_evidence:
+    lanes: [foundation]
+    penalize_age: false
+    date_types: []
+    boundary_required: false
+    databases: [crossref, openalex, semantic_scholar]
+    note: "A long panel's value is its length; the oldest observation is a feature."
+
+  # ── FRONTIER: the current state of the world. ──
+  current_adoption_rate:
+    lanes: [frontier, foundation]
+    penalize_age: true
+    date_types: [published, online, indexed]
+    boundary_required: true
+    databases: [crossref, openalex, arxiv, semantic_scholar]
+    on_empty: >-
+      no recent eligible evidence on this was located in {window}; this bounds the currency of the
+      claim, it does not establish that the phenomenon is absent
+
+  emerging_capability:
+    lanes: [frontier]
+    penalize_age: true
+    date_types: [posted, online, accepted, published, indexed]
+    boundary_required: true
+    databases: [arxiv, crossref, openalex, semantic_scholar]
+    on_empty: >-
+      no eligible evidence for this capability was located in {window}; treat the capability as
+      unestablished for that window rather than disproven
+
+  # ── CLINICAL: latest completed trials + registry updates + corrections/retractions. ──
+  clinical_conclusion:
+    lanes: [frontier, foundation]
+    penalize_age: true
+    date_types: [published, trial_completion, registration, results_posted, updated]
+    content_filters: [corrections_retractions]
+    boundary_required: false
+    databases: [pubmed, europepmc, clinicaltrials, crossref]
+    on_empty: >-
+      no recent completed trials, registry updates, or corrections/retractions on this were located in
+      {window}; a superseding result may simply not exist yet — this is not evidence of no effect
+
+  # ── LEGAL: current EFFECTIVE text + subsequent treatment, NOT merely the newest commentary. ──
+  statute_current_text:
+    lanes: [frontier]
+    penalize_age: true
+    date_types: [effective, subsequent_treatment]
+    boundary_required: false
+    databases: [govinfo, courtlistener]
+    on_empty: >-
+      no amendment to the effective text and no subsequent treatment were located in {window}; the
+      provision appears to stand as written for that window — verify against the official code before relying
+    note: "The NEWEST COMMENTARY is not the current law. Pull the in-force text and how courts have since treated it."
+
+  # ── THIN-EVIDENCE: a recent search returning nothing is a CORRECT, sayable answer. ──
+  thin_evidence_current:
+    lanes: [frontier]
+    penalize_age: true
+    date_types: [published, online, indexed]
+    boundary_required: false
+    databases: [crossref, openalex, pubmed, europepmc]
+    on_empty: >-
+      a direct, date-windowed search of {window} located no eligible recent evidence; the correct
+      conclusion is that the recent literature does not settle this, NOT that the field proves no effect

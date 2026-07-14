@@ -25,6 +25,18 @@ WHAT WAS WRONG WITH THIS FILE, AND WHY THE FIX IS NOT ANOTHER CHECK
    THERE IS NO WRITER IN THIS FILE. `outputs/release/` is mode 0555 and this process cannot create a
    file in it. The abstract is now AST nodes like everything else.
 
+4. IT LISTED FINDINGS INSTEAD OF ADJUDICATING THEM. 28 subsections were generated INDEPENDENTLY in a
+   thread pool; nobody ever decided what was compared with what, so "Critical Synthesis" (w=0.0800, the
+   joint-heaviest criterion) scored 6.36 on 210 words of 8,012. `argument_planner.py` — built, tested,
+   and until now imported by nobody — builds COMPARISON BUNDLES from the bound cards BEFORE any prose
+   and hands each subsection a PLAN. This file now WIRES it: the writer FILLS the plan (it states the
+   two sides of each comparison as attributed clauses), and the planner's DETERMINISTIC owned verdict
+   ("the evidence establishes X at the firm level but not economy-wide") is appended and RE-GATED
+   through the same `validate_report` as every model sentence. The composer trusts only the defensive
+   SAME_OUTCOME_DIFFERENT_UNIT verdict, and only when both cards' outcome is an unambiguous quantity
+   (see `_OUTCOME_DECOY`): a false conflict assembled from true particulars is the one lie no gate can
+   catch, and it burns the artifact.
+
 WHAT THE COMPOSER MAY DO: propose nodes. What it may not do: emit characters into the release.
 """
 from __future__ import annotations
@@ -49,6 +61,7 @@ from report_ast import (Attributed, Clause, Owned, Heading, ParagraphBreak,     
                         EvidenceTable, CardBundle, CONNECTIVES, validate_report,
                         entailed_by_span, numbers_in, split_sentences)
 from synthesis_contract import validate, Premise, Synthesis, OPERATIONS         # noqa: E402
+import argument_planner as AP                                                   # noqa: E402
 
 DRAFTS = ROOT / 'outputs' / 'drafts'
 MODEL = os.getenv('PG_GENERATOR_MODEL', 'z-ai/glm-5.2')
@@ -200,7 +213,7 @@ Artificial Intelligence on the labor market, for a top-tier journal audience.
 
 SECTION: {section}
 SUBSECTION: {sub}
-
+{plan}
 THE EVIDENCE. These are the ONLY facts you may state. Each is a VERBATIM SPAN from a peer-reviewed
 journal article, with the id of the card that holds it:
 
@@ -451,6 +464,175 @@ def table_card_ids(b: CardBundle, limit: int = 14) -> list[str]:
     return [cid for _, cid in sorted(best.values(), key=lambda x: -x[0])][:limit]
 
 
+# ----------------------------------------------------------------- THE ARGUMENT (argument_planner)
+#
+# The composer used to fan 28 subsections out to threads and generate every one INDEPENDENTLY: nobody
+# anywhere decided what was COMPARED WITH WHAT, so the report LISTED findings and the "Critical Synthesis"
+# criterion (w=0.0800, the joint-heaviest on the board) scored 6.36. `argument_planner.py` builds
+# COMPARISON BUNDLES from the bound cards BEFORE a word of prose exists, keyed on (outcome x unit x ...),
+# and hands each subsection a PLAN. This wires it in.
+#
+# THE OWNED VERDICT IS DETERMINISTIC, AND IT IS RE-GATED HERE. The planner writes each verdict from
+# span-lifted surface forms + declared fields and pre-validates it through synthesis_contract at plan
+# time; the composer nonetheless runs EVERY verdict node back through `validate_report` before it can
+# become prose, so a verdict that does not survive the SHIPPING gate is DROPPED, never repaired. The
+# builder does not certify itself: the same gate that judges the model's sentences judges the planner's.
+
+# THE OUTCOME-DECOY GUARD — THE COMPOSER IS A CAREFUL CONSUMER, NOT A RUBBER STAMP.
+# The planner keys `employment` on `\bjobs?\b` with a negative-lookahead that excludes
+# satisfaction|security|quality|... but NOT `engagement`. On the real corpus that mis-tags five
+# Braganza (2021) cards — "job engagement", "employee engagement", psychological-contract HR findings —
+# as outcome=employment, and manufactures a same-unit OPPOSITE-DIRECTION "genuine conflict" against
+# Schwabe's real displacement finding. Every particular in that sentence is true and the RELATION is
+# invented: it is the exact FALSE RECONCILIATION THE LAW burns the artifact for, and NO downstream gate
+# catches it, because there is no fabricated particular to catch. So a comparison is trusted only when
+# BOTH cards' outcome is an unambiguous QUANTITY, not a compound noun. (The durable fix is one clause in
+# argument_planner.default_contract()'s employment lookahead; it is reported upstream, not patched here.)
+_OUTCOME_DECOY = re.compile(
+    r'\b(?:job|jobs|employee|employees|worker|workers)\s+'
+    r'(?:engagement|satisfaction|performance|insecurity|crafting|autonomy|motivation|experience|'
+    r'well[-\s]?being|stress|burnout|morale|commitment|security|quality)\b', re.I)
+
+# A deterministic verdict occasionally fills its CONTEXT slot with a polarity word ("... not
+# contradictory in studies of negative: ..."): the claim is sound, the clause is broken prose. Strip
+# THAT clause only; never touch the verdict itself.
+_BAD_CTX = re.compile(r' in studies of (?:positive|negative|growth|decline|increas\w+|decreas\w+|'
+                      r'reduc\w+|rais\w+|rising|falling|fell|rose|loss|losses|gains?|complement\w*|'
+                      r'substitut\w*)\b', re.I)
+
+# Only this bundle kind is emitted as an OWNED verdict. It carries the DEFENSIVE adjudication — "the
+# evidence establishes X at the firm level but not economy-wide" / "these bear on different units and do
+# not speak to the same quantity" — which is cellcog's own winning synthesis move and is sound on this
+# corpus. SAME_UNIT_OPPOSITE_DIRECTION ("the evidence genuinely conflicts") is deliberately NOT emitted:
+# asserting a conflict is the highest-risk owned claim, and every instance this corpus supports is a
+# mis-tag artifact (see _OUTCOME_DECOY). A boundary/does-not-establish sentence never lies; a false
+# conflict burns the artifact.
+_VERDICT_KIND = 'SAME_OUTCOME_DIFFERENT_UNIT'
+
+
+def _outcome_clean(bundle, cards_by_id: dict) -> bool:
+    """Both cards' outcome must be an unambiguous quantity, not a compound noun (see _OUTCOME_DECOY)."""
+    return all(not _OUTCOME_DECOY.search(cards_by_id[c].get('span') or '') for c in bundle.card_ids)
+
+
+def _owned_from_planner(text: str, premise_ids, b: CardBundle):
+    """Wrap a planner-authored OWNED string as a node and RE-GATE it. -> Owned or None.
+
+    report_ast refuses any owned synthesis with fewer than two premises (SYNTHESIS_NEEDS_2_PREMISES),
+    so a one-card bundle (UNCOUNTERED) can never license one here; and anything that does not clear the
+    shipping gate is discarded rather than fixed."""
+    if len(premise_ids) < 2:
+        return None
+    text = _BAD_CTX.sub('', text or '').strip()
+    if not text:
+        return None
+    node = Owned(text=text, premise_ids=tuple(premise_ids))
+    return node if not validate_report([node], b) else None
+
+
+def _verdict_node(bundle, cf_by_id: dict, b: CardBundle):
+    return _owned_from_planner(AP._verdict_text(bundle, cf_by_id), bundle.card_ids, b)
+
+
+def _boundary_node(bundle, cf_by_id: dict, b: CardBundle):
+    return _owned_from_planner(AP._boundary_text(bundle, cf_by_id), bundle.card_ids, b)
+
+
+def _plan_brief(comps) -> str:
+    """The writer's brief for an adjudicative subsection: open with a claim, and for each comparison
+    write ONE two-clause attributed sentence. The VERDICT is added deterministically after the writer's
+    findings, so the writer is told NOT to adjudicate in its own voice — it states the two sides."""
+    if not comps:
+        return ''
+    lines = ['THIS SUBSECTION ADJUDICATES — open with a CLAIM, not a topic announcement. For EACH '
+             'comparison below, write ONE ATTRIBUTED sentence with TWO clauses (one per card_id, joined '
+             'by a connective), each stating that source\'s finding WITH ITS FIGURE:']
+    for i, (bd, _v, _bnd) in enumerate(comps, 1):
+        a, c = bd.card_ids
+        units = ' vs '.join(sorted(bd.varies.values()))
+        lines.append(f'  COMPARISON {i}: card {a}  AND  card {c}  '
+                     f'— same outcome ({bd.shared.get("outcome", "?")}), different unit of analysis '
+                     f'({units}).')
+    lines.append('An analytical verdict is appended automatically after your sentences; do NOT write '
+                 '"these are not contradictory" or a synthesis in your own voice — state the findings.')
+    return '\n' + '\n'.join(lines) + '\n'
+
+
+def _assign_comparisons(jobs, plans, all_bundles, cf_by_id, cards_by_id, b, contract,
+                        k_adjudicative: int = 3) -> dict:
+    """Hand each subsection the SOUND, DISTINCT comparison bundles it will adjudicate. Deterministic,
+    run once BEFORE the writer threads, so no two subsections are dealt the same bundle and no thread
+    races another for one.
+
+    ADJUDICATIVE subsections — matched on the vocabulary of ARGUMENT ('disagree', 'establish',
+    'resolve', 'gap'), which is general to any question — get FIRST PICK and SEVERAL bundles each. That
+    concentration is what the Critical Synthesis section needs and never had (210 words of 8,012). A
+    'disagreement' heading is served the apparent-conflict verdicts (which acknowledge the tension and
+    dissolve it by unit of analysis); the others take the plain does-not-establish verdicts. Topical
+    subsections take AT MOST ONE, and only the bundle the planner already found relevant to them."""
+    def roles_for(sub: str):
+        for pat, kinds in contract.adjudicative_roles.items():
+            if re.search(pat, sub, re.I):
+                return kinds
+        return []
+
+    # sound, gate-surviving verdict bundles, richest evidence first
+    sound = []
+    for bd in sorted(all_bundles, key=lambda z: -z.score):
+        if bd.kind != _VERDICT_KIND or len(bd.card_ids) != 2 or not _outcome_clean(bd, cards_by_id):
+            continue
+        v = _verdict_node(bd, cf_by_id, b)
+        if v is not None:
+            sound.append((bd, v, _boundary_node(bd, cf_by_id, b)))
+
+    out: dict = {job: [] for job in jobs}
+    used_keys: set = set()
+    used_sig: set = set()                       # (outcome, units) — one narration per contrast
+
+    def take(job, limit, prefer_apparent=None):
+        for bd, v, bnd in sound:
+            if len(out[job]) >= limit:
+                break
+            sig = (bd.shared.get('outcome'), tuple(sorted(bd.varies.values())))
+            if bd.key() in used_keys or sig in used_sig:
+                continue
+            if prefer_apparent is not None and bd.apparent_conflict != prefer_apparent:
+                continue
+            out[job].append((bd, v, bnd))
+            used_keys.add(bd.key())
+            used_sig.add(sig)
+
+    # PASS 1 — adjudicative subsections, first pick, several each. A 'disagreement' heading claims the
+    # apparent-conflict verdicts (which name a tension and dissolve it by unit of analysis) BEFORE an
+    # 'establishes' heading can take them; then every adjudicative subsection fills up from what remains.
+    adj = [job for job in jobs if roles_for(job[1])]
+    for job in adj:
+        if re.search(r'disagree|conflict|tension|contested|contradict', job[1], re.I):
+            take(job, k_adjudicative, prefer_apparent=True)
+    for job in adj:
+        take(job, k_adjudicative)
+
+    # PASS 2 — topical subsections, at most one, and only what the planner found relevant here.
+    plan_by_job = {(p.section, p.subsection): p for p in plans}
+    for job in jobs:
+        if out[job] or roles_for(job[1]):
+            continue
+        p = plan_by_job.get(job)
+        cmp = p.comparison if p else None
+        if not (cmp and cmp.kind == _VERDICT_KIND and _outcome_clean(cmp, cards_by_id)):
+            continue
+        sig = (cmp.shared.get('outcome'), tuple(sorted(cmp.varies.values())))
+        if cmp.key() in used_keys or sig in used_sig:
+            continue
+        v = _verdict_node(cmp, cf_by_id, b)
+        if v is None:
+            continue
+        out[job].append((cmp, v, _boundary_node(cmp, cf_by_id, b)))
+        used_keys.add(cmp.key())
+        used_sig.add(sig)
+    return out
+
+
 # ----------------------------------------------------------------- compose
 
 def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: str,
@@ -478,19 +660,58 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
 
     jobs = [(sec, sub) for sec, subs in OUTLINE for sub in subs]
 
+    # ============ BUILD THE ARGUMENT BEFORE ANY PROSE — comparison bundles over the ADMITTED cards.
+    # Only admitted cards are handed to the planner, so every card in every bundle is guaranteed to
+    # resolve. If the planner fails for any reason, the composer degrades to REPORTING (no adjudication)
+    # rather than not shipping — a review that lists is worse than one that argues, but better than none.
+    plan_cards = [b.cards[cid] for cid in admitted]
+    cards_by_id = {c['id']: c for c in plan_cards}
+    comps_for: dict = {job: [] for job in jobs}
+    n_bundles = 0
+    try:
+        contract = AP.default_contract()
+        cfs = [AP.derive_facets(c, contract) for c in plan_cards]
+        cf_by_id = {c.card_id: c for c in cfs}
+        all_bundles = AP.find_bundles(cfs, contract, cards_by_id)
+        n_bundles = sum(1 for x in all_bundles if x.kind != 'NOT_A_COMPARISON')
+        plans = AP.plan_subsections(plan_cards, cfs, all_bundles, contract)
+        comps_for = _assign_comparisons(jobs, plans, all_bundles, cf_by_id, cards_by_id, b, contract)
+    except Exception as e:                       # planner is deterministic + tested; belt and braces
+        print(f'  ** argument planner unavailable ({e!r}); subsections will REPORT, not ADJUDICATE **')
+    n_verdicts = sum(len(v) for v in comps_for.values())
+    print(f'  comparison bundles found                : {n_bundles}')
+    print(f'  sound cross-source verdicts placed       : {n_verdicts} '
+          f'(across {sum(1 for v in comps_for.values() if v)} subsections)')
+
     def one(job):
         sec, sub = job
-        sel = _select(b, sub)
-        if not sel:
-            return job, [], ['no cards selected']
-        prompt = WRITE_PROMPT.format(section=sec, sub=sub, cards=_fmt_cards(b, sel),
-                                     connectives=', '.join(CONNECTIVES))
+        comps = comps_for.get(job) or []
+        # THE WRITER'S CARD SET: the comparison pairs FIRST (they must be on the page for the verdict to
+        # read), then whatever else is relevant. The plan is FILLED, not freelanced.
+        comp_ids = [cid for (bd, _v, _bnd) in comps for cid in bd.card_ids]
+        sel = [cid for cid in dict.fromkeys(comp_ids) if b.resolve(cid).ok]
+        if len(sel) < 3:
+            sel = [cid for cid in dict.fromkeys(sel + _select(b, sub)) if b.resolve(cid).ok]
+        sel = sel[:12]
+
+        # THE DETERMINISTIC ADJUDICATION — planner-authored, already re-gated in _assign_comparisons.
+        # Each comparison contributes its VERDICT (the varied payload — a different outcome/unit each);
+        # boundaries are structurally alike ("...does not settle the magnitude..."), so only ONE is kept
+        # per subsection, as a closing note rather than a refrain.
+        verdicts = [v for (_bd, v, _bnd) in comps if v is not None]
+        boundary = next((bnd for (_bd, _v, bnd) in comps if bnd is not None), None)
+        owned = verdicts + ([boundary] if boundary is not None else [])
+
         if dry:
-            return job, [], ['--dry: no LLM call']
+            return job, list(owned), ['--dry: no LLM call']
+        if not sel:
+            return job, list(owned), (['no cards selected'] if not owned else [])
+        prompt = WRITE_PROMPT.format(section=sec, sub=sub, plan=_plan_brief(comps),
+                                     cards=_fmt_cards(b, sel), connectives=', '.join(CONNECTIVES))
         try:
             raw = jparse(llm(prompt, max_tokens=8192))
         except Exception as e:
-            return job, [], [f'llm: {e}']
+            return job, list(owned), [f'llm: {e}']
         nodes, dropped = _nodes_from(raw, b, set(sel))
         # THE GATE, ON THE CRITICAL PATH — node by node, against the bytes.
         good = []
@@ -500,7 +721,9 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
                 dropped += [str(f) for f in fails]
                 continue
             good.append(n)
-        return job, good, dropped
+        # FINDINGS FIRST, THEN THE VERDICT THAT ADJUDICATES THEM. The owned verdict names the two cards
+        # as premises; the writer has just stated them above it.
+        return job, good + list(owned), dropped
 
     results: dict = {}
     all_dropped: list[str] = []
@@ -544,6 +767,12 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
         for f in fails[:10]:
             print(f'    - {f}')
         return 1
+
+    if dry:
+        # --dry proves the bindings and the WHOLE AST (now including the planner's deterministic
+        # verdicts) without spending a token — and WITHOUT touching the sealed release.
+        print(f'\n  --dry: {len(nodes)} nodes validated against the bytes; release left untouched.')
+        return 0
 
     # ---- HAND IT TO THE PUBLISHER. THIS PROCESS CANNOT WRITE THE FILE ITSELF.
     meta = publisher.publish(nodes, b, provenance_of_inputs=dict(

@@ -599,3 +599,28 @@ RELEASE ORDER (Sol's ladder):
     6. add marginal-insight scheduling + basket consolidation
     7. ONLY THEN enable report-level synthesis over the frozen enriched corpus
     8. run the same ladder on UNSEEN clinical, legal/comparative and thin-evidence questions
+
+## ARGUMENT PLANNER WIRED — SAFE, LOAD-BEARING, BUT STARVED ON 10 PAPERS
+
+The adversary (independent, did not build it) RAN all 7 checks:
+  * gate 25/25, NOTHING weakened (git diff on the verifier files EMPTY)
+  * planner ON THE CRITICAL PATH, proven by ABLATION: ON -> 219 bundles -> 16 verdicts; OFF -> 0. Load-bearing.
+  * no surname inference; owned verdict cannot carry a number or new entity; release boundary refuses writes.
+
+THE FINDING THAT MATTERS: on 10 papers there is almost NOTHING TO ARGUE BETWEEN.
+  219 raw bundles, but only 16 verdicts ship, ALL of ONE KIND (SAME_OUTCOME_DIFFERENT_UNIT).
+  ZERO genuine cross-source CONFLICTS ship. The one SAME_UNIT_OPPOSITE_DIRECTION pair was a mis-tag,
+  correctly refused. The section 'Where the literature genuinely disagrees' would ship verdicts that say
+  the findings are 'NOT contradictory' -- reconciliations under a disagreement heading. Judge-visible.
+
+  "If the +0.0259 was priced on genuine cross-source disagreement, it is NOT available on this 10-study
+   corpus." THE LEVER IS REAL BUT STARVED -- exactly like the gate was starved earlier. THE CORPUS IS THE
+   UNLOCK. This is the mechanism proving the operator right to refuse to sit on 10 papers.
+
+  Also: the BUILDER MISDESCRIBED ITS OWN WORK (swapped Braganza/Schwabe names/years). Adversary caught it.
+  The builder cannot be trusted to describe itself -- held again.
+
+NOT COMMITTED. One guard (_OUTCOME_DECOY, cellcog_composer.py:491) is POROUS -- it misses a normative
+'new jobs' SDG span; harmless today only because that card has an empty unit_of_analysis so the planner
+refuses it anyway. Fix upstream (default_contract employment lookahead) before shipping, and stop routing
+'not contradictory' verdicts under a 'genuinely disagrees' heading. The wiring is preserved on disk.

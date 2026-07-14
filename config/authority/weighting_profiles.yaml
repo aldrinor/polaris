@@ -1,0 +1,286 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MULTIDIMENSIONAL WEIGHTING REGISTRY — Sol plan 4 item 6.
+# Versioned DATA (LAW VI). Consumed by scripts/weighting.py. ZERO domain insight
+# lives in weighting.py; ALL of it lives here.
+#
+# THE ONE RULE THIS FILE EXISTS TO ENFORCE:
+#   A DOMAIN CHANGE IS A ROW IN THIS FILE, NEVER A LINE OF CODE.
+#   `legal:` below was added without touching weighting.py. Adding `patent:` or
+#   `veterinary:` is the same edit: one `profiles:` row (+ optionally one
+#   `design_quality:` row). If you find yourself editing weighting.py to change
+#   how a FIELD behaves, you are doing it wrong — the tell we keep failing.
+#
+# WHY A VECTOR AND NOT A SCORE:
+#   Our own code comment confesses it — "Crossref sorted by citations returns
+#   ResNet and SMOTE: famous, not relevant." 4,743 citations makes Autor the most
+#   important paper in labour economics; the same count in ML is unremarkable.
+#   So influence is ONE dimension among many, and it is field+age normalized
+#   (OpenAlex citation_normalized_percentile), never raw counts. Each profile row
+#   below re-weights the SAME dimensions; it never invents a new axis in code.
+# ─────────────────────────────────────────────────────────────────────────────
+
+registry_version: wt-1
+
+# ─── THE FOUR HARD GATES (LAW: only these gate; everything else is a weight) ───
+# A gate can EXCLUDE a source from the answer body (multiplier 0) but NEVER
+# deletes it from the graph. Everything not named here is a WEIGHT that demotes,
+# not a switch that drops.
+hard_gates:
+  - explicit_eligibility   # explicit source constraints the QUESTION states ("only journal articles",
+                           #   "English-language", a named jurisdiction). Strictness (only|prefer)
+                           #   is read from the question, not assumed here.
+  - faithfulness           # span-grounding. Enforced upstream by provenance.verify_span; carried here
+                           #   as a flag so a source that failed it cannot be ranked into the body.
+  - chrome                 # the bytes are NOT A DOCUMENT (cookie banner / login wall). This is about
+                           #   the artifact's NATURE, never about a failed fetch of a real work.
+  - off_topic              # CONFIRMED off-topic. Low topical_relevance is a WEIGHT; only a positive,
+                           #   high-confidence off-topic finding gates.
+
+# ─── THE WEIGHTED DIMENSIONS (must sum to 1.0 within each profile) ───
+# explicit_eligibility is NOT here: it is a GATE (multiplier), not an additive
+# weight. The nine below are the vector the blend renormalizes over KNOWN values.
+weighted_dimensions:
+  - topical_relevance
+  - evidentiary_directness
+  - methodological_quality
+  - source_authority
+  - field_year_type_normalized_influence
+  - independence
+  - recency_fit
+  - content_completeness
+  - marginal_coverage_contribution
+
+# THE LAW ENCODED AS A DATA INVARIANT (weighting.self_test asserts it on EVERY
+# profile): "Do not let influence outrank methodological quality or directness."
+#   w[field_year_type_normalized_influence] <= min(w[methodological_quality],
+#                                                   w[evidentiary_directness])
+invariants:
+  influence_never_outranks: [methodological_quality, evidentiary_directness]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DOMAIN PROFILES.  Each row is a domain. THE ROW is the domain change.
+# ─────────────────────────────────────────────────────────────────────────────
+profiles:
+
+  general:
+    # POLARIS is GENERAL by default (mirrors domain_packs/general.yaml). A blank /
+    # unknown domain uses THIS row — never the clinical or legal one.
+    default_recency_horizon_years: 0     # 0 => recency NEUTRAL (old != worthless)
+    weights:
+      topical_relevance: 0.16
+      evidentiary_directness: 0.16
+      methodological_quality: 0.16
+      source_authority: 0.12
+      field_year_type_normalized_influence: 0.10
+      independence: 0.10
+      recency_fit: 0.06
+      content_completeness: 0.08
+      marginal_coverage_contribution: 0.06
+    note: "balanced; influence carries 0.10 and can never exceed directness/method (0.16)."
+
+  economics:
+    # The AI-and-labour corpus. Identification strategy is king: a clean natural
+    # experiment outranks a bigger regression. Working papers are a REAL primary
+    # channel here, so eligibility only gates them when the QUESTION says "only".
+    default_recency_horizon_years: 0
+    weights:
+      evidentiary_directness: 0.18
+      methodological_quality: 0.18
+      topical_relevance: 0.14
+      independence: 0.12
+      source_authority: 0.10
+      field_year_type_normalized_influence: 0.10
+      content_completeness: 0.08
+      marginal_coverage_contribution: 0.06
+      recency_fit: 0.04
+    note: "independence 0.12 — six Acemoglu-Restrepo papers are not six independent units."
+
+  clinical:
+    # Mirrors domain_packs/clinical.yaml priorities: risk-of-bias, design,
+    # directness and endpoint relevance DOMINATE. Citations are optional context.
+    # A highly-cited biased observational paper STAYS biased: method_quality 0.24
+    # times a risk_of_bias=high refinement crushes it, and influence at 0.04
+    # cannot buy it back. A recent trial is NOT penalized for lacking citations,
+    # because influence is UNKNOWN-not-zero and recency is not a gate.
+    default_recency_horizon_years: 0
+    weights:
+      methodological_quality: 0.24
+      evidentiary_directness: 0.22
+      topical_relevance: 0.14
+      source_authority: 0.12
+      recency_fit: 0.08
+      content_completeness: 0.06
+      independence: 0.06
+      marginal_coverage_contribution: 0.04
+      field_year_type_normalized_influence: 0.04
+    note: "risk_of_bias refines design; influence 0.04 cannot outrank method 0.24 or directness 0.22."
+
+  legal:
+    # ADDED AS DATA, ZERO CODE CHANGE. Bindingness, court hierarchy, jurisdictional
+    # fit and current validity dominate; raw citations are optional context, NOT
+    # authority. source_authority reads expression_authority(official_text) refined
+    # by court_level (below); jurisdictional fit is an eligibility GATE; current
+    # validity is recency_fit with a horizon so a superseded precedent decays.
+    default_recency_horizon_years: 25    # "still good law?" — bindingness fades as doctrine moves
+    weights:
+      source_authority: 0.26
+      recency_fit: 0.18
+      topical_relevance: 0.16
+      evidentiary_directness: 0.16
+      independence: 0.08
+      content_completeness: 0.06
+      methodological_quality: 0.04
+      marginal_coverage_contribution: 0.04
+      field_year_type_normalized_influence: 0.02
+    note: "influence 0.02 <= method 0.04; a court opinion's authority is its bindingness, not its cites."
+
+  policy:
+    default_recency_horizon_years: 10
+    weights:
+      source_authority: 0.18
+      evidentiary_directness: 0.16
+      topical_relevance: 0.16
+      methodological_quality: 0.14
+      recency_fit: 0.12
+      independence: 0.08
+      content_completeness: 0.06
+      field_year_type_normalized_influence: 0.06
+      marginal_coverage_contribution: 0.04
+    note: "official impact analyses and current instruments lead; influence 0.06 <= method 0.14."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUB-SIGNAL TABLES — the DATA the per-dimension scorers read. All field-agnostic:
+# a scorer looks up a value by a STRUCTURAL key (a design token, an expression
+# kind, an evidence-act id), never by a topic or a host name.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# methodological_quality: study DESIGN -> quality prior, PER DOMAIN. The clinical
+# hierarchy (RCT / systematic review on top) and the economics hierarchy
+# (quasi-experimental identification on top) are DIFFERENT ROWS, not different
+# code. Keys are the evidence_acts.json `design` enum. `null` => UNKNOWN (excluded
+# from the blend, NEVER scored 0).
+design_quality:
+  default:
+    meta-analysis: 0.92
+    experiment: 0.88
+    quasi-experimental: 0.82
+    review: 0.62
+    observational: 0.60
+    survey: 0.55
+    simulation: 0.50
+    theory: 0.50
+    case-study: 0.42
+    UNKNOWN: null
+  clinical:
+    meta-analysis: 0.98      # systematic review / meta-analysis — top of the clinical hierarchy
+    experiment: 0.95         # randomized controlled trial
+    quasi-experimental: 0.72
+    review: 0.60
+    observational: 0.55      # a highly-cited biased observational paper cannot climb past this
+    survey: 0.45
+    simulation: 0.40
+    theory: 0.35
+    case-study: 0.30
+    UNKNOWN: null
+  economics:
+    quasi-experimental: 0.95 # natural experiment / IV / diff-in-diff — the identification gold standard
+    experiment: 0.90         # field / lab experiment
+    meta-analysis: 0.85
+    theory: 0.62
+    observational: 0.60
+    simulation: 0.58
+    review: 0.55
+    survey: 0.55
+    case-study: 0.42
+    UNKNOWN: null
+
+# risk_of_bias REFINES the design prior (multiplier). Fires only when the row
+# carries a risk_of_bias field; `unknown` leaves the design prior untouched (it
+# does NOT punish a source for a missing appraisal). This is how "a highly-cited
+# biased observational paper stays biased" without any topic in code.
+risk_of_bias_refinement:
+  low: 1.00
+  moderate: 0.85
+  high: 0.60
+  serious: 0.45
+  critical: 0.35
+  unknown: 1.00
+
+# source_authority: STRUCTURAL authority of the EXPRESSION we actually hold —
+# domain-agnostic. A court opinion / statute IS the primary authority; a working
+# paper is not the peer-reviewed article. Mirrors acquisition._VERSION_AUTHORITY
+# ordering but as tunable data in [0,1].
+expression_authority:
+  official_text: 0.95        # judicial opinion / statute / regulation — the primary legal instrument
+  registry_record: 0.85      # trial registry entry — the primary trial record
+  journal_version: 0.80      # peer-reviewed published article
+  proceedings_version: 0.70
+  accepted_manuscript: 0.60
+  working_paper: 0.45
+  preprint: 0.35
+  unknown: 0.30
+
+# authority_refinements: multiplicative REFINEMENTS that fire ONLY when the row
+# carries the named field. court_level encodes court hierarchy / bindingness for
+# legal sources; it is inert on every non-legal row (no court_level field), so it
+# needs no domain guard in code.
+authority_refinements:
+  court_level:               # bindingness by court hierarchy (legal)
+    supreme: 1.00
+    apex: 1.00
+    appellate: 0.82
+    intermediate: 0.82
+    trial: 0.62
+    first_instance: 0.62
+    tribunal: 0.55
+  peer_review_status:        # generic peer-review refinement when stated
+    peer_reviewed: 1.00
+    editorially_reviewed: 0.85
+    not_reviewed: 0.70
+
+# evidentiary_directness: the TYPE of evidence act a source bears -> how directly
+# it answers the question. Keys are evidence_acts.json act ids. A forecast is
+# "evidence OF A CLAIM MADE, never evidence of an effect" (the act registry's own
+# words), so it is less direct than a measured quantity. A doctrinal holding is as
+# direct as a measured estimate — for a legal question it IS the evidence.
+act_directness:
+  quantitative_estimate: 0.95
+  doctrinal_holding_or_rule: 0.95
+  qualitative_empirical_result: 0.75
+  null_or_inconclusive_result: 0.75
+  recommendation_or_guidance: 0.55
+  methodological_limitation: 0.55
+  forecast_or_projection: 0.40
+# endpoint_relevance refines directness: does the act's outcome/endpoint match a
+# dimension the QUESTION asked about? Fires only when both are known.
+endpoint_match_refinement:
+  on_endpoint: 1.00
+  off_endpoint: 0.80
+  unknown: 1.00
+
+# recency_fit: half-life decay knobs (mirror config/authority/recency_profile.yaml).
+# horizon 0 => NEUTRAL (returned by every profile whose default horizon is 0). A
+# positive horizon (legal current-validity, policy) turns on the decay.
+recency:
+  decay_halflife_years: 8.0
+  neutral_score: 1.00
+  floor_score: 0.30           # decay never drives below this: old is not worthless
+
+# content_completeness: the content class we ACTUALLY HOLD -> completeness value.
+# A landing_page / citation-only holding of a REAL journal article is INCOMPLETE
+# (we failed to fetch it) — that is a fetch fact, not a fact about the work, so it
+# demotes completeness, it does not gate the work as chrome.
+content_completeness:
+  FULLTEXT: 1.00
+  ABSTRACT: 0.55
+  CITATION_ONLY: 0.20
+  NOT_DOC: null               # bytes are not a document — completeness UNKNOWN; the CHROME gate looks here
+  UNREADABLE: null
+# artifact kinds whose NATURE is non-document. The CHROME gate fires on these ONLY
+# when we hold nothing better AND the work is not an otherwise-identified scholarly
+# work (so a real article we happen to hold as a landing page is NOT gated).
+chrome_kinds:
+  - landing_page
+  - login_wall
+  - cookie_banner
+  - navigation

@@ -1,0 +1,68 @@
+{
+  "registry_version": "gsv-1",
+  "why_this_file_exists": [
+    "SOL PLAN 4 item 4 (gap_search.py) turns a coverage cell into an EVIDENCE REQUIREMENT and",
+    "generates a DIFFERENT query family per gap type. The PRIMARY query vocabulary always comes from",
+    "the compiled research_contract (core_concepts.aliases, subject_axis values, outcome_dimensions,",
+    "method_designs, required_contrasts, source_policy). THIS FILE holds only the EVIDENCE-SHAPE",
+    "vocabulary -- the words that describe the SHAPE of empirical evidence (a null, a moderator, a",
+    "counter-finding, a synthesis) and the adapter fan-out per gap. That vocabulary is methodology-",
+    "general: a null in a drug trial, a wage study, and a liability analysis all say 'no significant",
+    "effect'. A DOMAIN CHANGE (AI -> Parkinson's -> ADAS liability) edits the CONTRACT, never this file",
+    "and never gap_search.py. If a genre needs its own shape words (legal: 'circuit split', 'overruled'),",
+    "ADD A ROW to evidence_shape.by_genre -- that is a DATA edit, which is the whole point."
+  ],
+  "evidence_shape": {
+    "null_result": [
+      "no significant", "no significant effect", "no statistically significant", "no association",
+      "null result", "null finding", "statistically insignificant", "not significant",
+      "no measurable", "found no evidence", "did not differ", "no detectable", "insignificant effect"
+    ],
+    "moderator": [
+      "moderator", "moderating", "moderated by", "subgroup", "heterogeneity", "heterogeneous effects",
+      "interaction effect", "depends on", "conditional on", "boundary condition", "contingent on",
+      "varies by", "stratified"
+    ],
+    "counterevidence": [
+      "contrary to", "contradicts", "challenges", "in contrast to", "fails to replicate",
+      "does not support", "inconsistent with", "at odds with", "counter to"
+    ],
+    "synthesis_designs": [
+      "systematic review", "meta-analysis", "meta analysis", "scoping review", "evidence synthesis",
+      "umbrella review", "pooled analysis"
+    ],
+    "by_genre": {
+      "_comment": "OPTIONAL genre-specific shape words, merged over the general lists above when the",
+      "_comment2": "contract.genre matches. This is the DATA seam for legal/clinical shape vocabulary.",
+      "case-law analysis": {
+        "counterevidence": ["distinguished", "overruled", "abrogated", "circuit split", "split of authority", "declined to follow"],
+        "moderator": ["as applied", "under the facts of", "limited to its facts", "narrow holding"]
+      }
+    }
+  },
+  "adapters": {
+    "_comment": "Backend fan-out per gap type. These are ADAPTER NAMES the acquisition layer (acquisition.py",
+    "_comment2": "Acquirer.plan_route + the fetchers) already speaks. gap_search EMITS a plan; it does not",
+    "_comment3": "open a socket. discovery/access/etc. differ so a gap never re-issues a copy of the broad query.",
+    "discovery": ["openalex", "semantic_scholar", "crossref"],
+    "access": ["unpaywall", "openalex_locations", "arxiv", "content_host", "core"],
+    "extraction": [],
+    "diversity": ["openalex", "semantic_scholar", "openalex_citations"],
+    "recency": ["openalex_recent", "arxiv", "semantic_scholar"],
+    "contradiction": ["openalex_citations", "semantic_scholar", "crossref"],
+    "evidence": []
+  },
+  "saturation": {
+    "_comment": "OPERATIONAL saturation, not a claim of exhaustive recall. A cell may close as THIN / declare",
+    "_comment2": "a scoped absence only after this many DISTINCT query families over this many adapters have run,",
+    "_comment3": "citation-chasing and version-pursuit were attempted, and duplicates were collapsed.",
+    "min_query_families": 3,
+    "min_adapters": 2,
+    "required_families": ["discovery", "diversity", "recency"]
+  },
+  "limits": {
+    "max_terms_per_query": 8,
+    "max_queries_per_family": 6,
+    "max_concept_aliases": 6
+  }
+}

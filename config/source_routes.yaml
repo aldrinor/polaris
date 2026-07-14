@@ -1,0 +1,577 @@
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+# SOURCE ROUTES — the DECLARATIVE, CAPABILITY-KEYED discovery table (Sol plan 4, item 2).
+#
+# THE STRATEGY THIS ENCODES
+#   The old strategy — "choose the canonical (usually paywalled) work, then chase a free copy of it" —
+#   had a 19% hit rate, because it started from the version we were LEAST likely to be able to read.
+#   This table encodes the inverse: OA-FIRST DISCOVERY, then VERSION PURSUIT. We enumerate what is
+#   openly readable FIRST (DOAJ / PMC / Europe PMC / OpenAlex / CORE / OpenAIRE), we resolve identity
+#   and the full set of locations (Crossref / OpenAlex / Unpaywall — and we NEVER treat their version
+#   label as final), and only then do we pursue the specific citable expression the plan's policy
+#   requires (e.g. the journal Version of Record for a journal-only question).
+#
+# WHY THIS IS DATA AND NOT CODE
+#   The router MUST NOT "know" that economists post to NBER or that clinicians register trials at
+#   ClinicalTrials.gov. That knowledge is a hardcoded topic gate — the exact tell this project keeps
+#   failing on. So it lives HERE, as ONE ROW PER ROUTE, keyed by the EVIDENCE CAPABILITY the route
+#   supplies. Adding a domain that these adapters already serve (a new jurisdiction's courts, a new
+#   preprint server) is a NEW ROW in this file and ZERO lines of Python. scripts/source_router.py is a
+#   generic matcher + set-cover engine over this table; it contains no adapter name and no topic word.
+#
+# HOW A QUESTION REACHES A ROUTE  (all three stages are data-driven; see source_router.py)
+#   1. compile_contract(question)                       -> a research contract (research_contract.py)
+#   2. role_requirements  (this file)  x  contract      -> the REQUIRED evidence roles for this plan
+#   3. SET COVER  required_roles  over  routes[*].evidence_roles -> the routes that FIRE
+#   The admissibility of what a route returns is a SEPARATE axis (source_policy over document_types):
+#   a preprint route may FIRE for discovery/version-pursuit yet yield nothing CITABLE under a
+#   journal-only policy. Firing and citability are never the same decision.
+#
+# EVERY LIVE ATTEMPT GOES THROUGH acquisition.Acquirer, so it lands on the event ledger and the
+# distinct outcomes stay distinct:
+#   FETCHED | NOT_FOUND | ACCESS_DENIED | THROTTLED | TRANSIENT_ERROR | LANDING_PAGE | ABSTRACT_ONLY |
+#   WRONG_WORK | CORRUPT_EXTRACTION.
+# Only NOT_FOUND, across every APPLICABLE route that genuinely answered, supports "we did not locate an
+# accessible copy." A 429 (THROTTLED) never does, and neither does a 403 (ACCESS_DENIED).
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+schema_version: 1
+registry_version: sr-1
+mailto_env: POLARIS_MAILTO          # the polite-pool contact the router threads into query dialects
+fetch_date: "2026-07-14"
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+# THE ROLE VOCABULARY — an EVIDENCE CAPABILITY, not a domain. A route SUPPLIES roles; a plan REQUIRES
+# roles; set cover joins them. The four `discover.*/resolve.*/fetch.*` roles are the OA-first backbone
+# every scholarly plan needs. The `evidence.*` roles are field-scoped and fire only when the plan's own
+# vocabulary calls for them. The dotted `capability.field` form is deliberate: the capability is the
+# noun, the field is what a new domain edits.
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+roles:
+  # -- OA-first backbone (always required for a scholarly artifact) -----------------------------------
+  discover.index:        "Enumerate candidate scholarly works by topic (a bibliographic index)."
+  resolve.identity:      "Resolve a work's identity, dates and version RELATIONS from an identifier. NOT full text."
+  resolve.locations:     "Enumerate the OA copy LOCATIONS/versions of a known work. The version label is a hint, never final."
+  fetch.oa_fulltext:     "Retrieve open-access FULL TEXT (XML/PDF/HTML) that we can actually read and mine."
+  # -- field-scoped evidence kinds (fire on the plan's own evidence vocabulary) -----------------------
+  evidence.peer_reviewed:          "Peer-reviewed journal articles — the citable class under a journal-only / peer-reviewed policy."
+  evidence.working_paper.economics: "Economics/policy working papers as SEPARATE works (peer review changes the numbers)."
+  evidence.preprint.general:       "General/CS/physics/math preprints as separate works."
+  evidence.preprint.biomedical:    "Biomedical/health preprints as separate works."
+  evidence.working_paper.social_legal: "Social-science and legal scholarship / working papers."
+  evidence.trial_registration:     "Prospective clinical-trial registrations and results."
+  evidence.clinical_guideline:     "Clinical practice guidelines and evidence syntheses from guideline bodies."
+  evidence.case_law:               "Primary case law — judicial opinions and their holdings."
+  evidence.statute_regulation:     "Primary statutes, regulations and official legal instruments."
+  evidence.regulatory_guidance:    "Regulator guidance, decisions and official filings."
+  evidence.standard:               "Technical standards and normative specifications."
+  evidence.dataset:                "Research datasets and their DOIs."
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+# ROLE REQUIREMENTS — how the CONTRACT decides which roles the plan needs. Each rule matches DATA
+# tokens against the plan's ROUTING TEXT (question + review_subject + method_designs + unit_levels +
+# core_concept aliases + framing devices + genre + geographies — assembled by source_router.py). The
+# tokens are FIELD-NATIVE vocabulary a real contract in that field prints; the matcher is generic and
+# lives in code, the vocabulary lives here. `default: true` = always required (the OA-first backbone).
+# `any_of` = required if the routing text contains ANY listed token as a whole word/phrase.
+#
+# OVER-FIRING IS SAFE (we look in one more place); UNDER-FIRING is the danger. So triggers are
+# INCLUSIVE. The one hard invariant the demo checks: a clinical plan must NOT acquire the economics
+# working-paper role — so `evidence.working_paper.economics` is triggered ONLY by economics-native
+# terms, none of which a clinical or legal question carries.
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+role_requirements:
+  - role: discover.index
+    default: true
+  - role: resolve.identity
+    default: true
+  - role: resolve.locations
+    default: true
+  - role: fetch.oa_fulltext
+    default: true
+
+  - role: evidence.peer_reviewed
+    # Any literature-review / scholarly-synthesis artifact, or an explicit journal/peer-reviewed policy.
+    any_of: ["literature review", "systematic review", "scholarly", "peer-reviewed", "peer reviewed",
+             "journal article", "journal articles", "meta-analysis", "meta analysis", "review the literature",
+             "academic literature", "state of the art", "research synthesis"]
+
+  - role: evidence.working_paper.economics
+    any_of: ["labor market", "labour market", "labor economics", "wage", "wages", "employment",
+             "unemployment", "gdp", "productivity", "inflation", "monetary policy", "fiscal",
+             "trade", "tariff", "econometric", "difference-in-differences", "instrumental variable",
+             "quasi-experimental", "elasticity", "occupation", "occupations", "firm-level",
+             "labor supply", "labor demand", "economic growth", "nber", "iza"]
+
+  - role: evidence.preprint.general
+    any_of: ["machine learning", "deep learning", "neural network", "neural networks", "algorithm",
+             "algorithms", "transformer", "large language model", "reinforcement learning", "quantum",
+             "astrophysics", "condensed matter", "theorem", "benchmark", "computer vision",
+             "natural language processing", "artificial intelligence", "generative ai", "gpu"]
+
+  - role: evidence.preprint.biomedical
+    any_of: ["clinical", "clinical trial", "randomized", "randomised", "rct", "placebo", "efficacy",
+             "adverse event", "adverse events", "mortality", "morbidity", "cohort", "in vitro",
+             "in vivo", "patients", "patient", "dose", "dosing", "therapy", "therapeutic", "disease",
+             "diagnosis", "biomarker", "hazard ratio", "epidemiolog", "incidence", "prevalence",
+             "comorbidit", "pathophysiolog"]
+
+  - role: evidence.working_paper.social_legal
+    any_of: ["case law", "statute", "statutes", "statutory", "regulation", "regulations", "regulatory",
+             "court", "courts", "judicial", "holding", "liability", "plaintiff", "defendant", "tort",
+             "doctrine", "doctrinal", "jurisdiction", "constitutional", "litigation", "precedent",
+             "damages", "negligence", "governance", "policy analysis"]
+
+  - role: evidence.trial_registration
+    any_of: ["clinical trial", "clinical trials", "randomized controlled", "randomised controlled",
+             "rct", "phase iii", "phase ii", "placebo-controlled", "efficacy", "safety", "adverse event",
+             "endpoint", "intervention", "treatment arm", "patients", "dose-response"]
+
+  - role: evidence.clinical_guideline
+    any_of: ["clinical guideline", "clinical guidelines", "practice guideline", "guidance",
+             "recommendation", "recommendations", "standard of care", "cochrane", "systematic review",
+             "screening", "management of", "diagnosis and treatment"]
+
+  - role: evidence.case_law
+    any_of: ["case law", "case-law", "judicial opinion", "judicial opinions", "court", "courts",
+             "holding", "ruling", "rulings", "precedent", "liability", "plaintiff", "defendant",
+             "tort", "litigation", "appellate", "supreme court", "damages", "negligence"]
+
+  - role: evidence.statute_regulation
+    any_of: ["statute", "statutes", "statutory", "legislation", "regulation", "regulations",
+             "regulatory", "code of federal", "directive", "act of", "bill", "ordinance", "rulemaking",
+             "compliance", "legal framework", "enacted"]
+
+  - role: evidence.regulatory_guidance
+    any_of: ["regulator", "regulatory guidance", "agency guidance", "fda", "ema", "sec filing",
+             "supervisory", "central bank", "prudential", "enforcement action", "consultation paper"]
+
+  - role: evidence.standard
+    any_of: ["technical standard", "iso ", "iec ", "ieee ", "protocol", "specification",
+             "interoperability", "conformance", "reference architecture", "normative"]
+
+  - role: evidence.dataset
+    any_of: ["dataset", "datasets", "microdata", "survey data", "administrative data", "open data",
+             "replication data", "data release"]
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+# JURISDICTION LEXICON — resolves a jurisdiction ADJECTIVE/name in the routing text to an ISO code, so
+# a primary-legal/official route fires only where its coverage applies. If NO jurisdiction is detected,
+# a jurisdiction-scoped route fires for ALL its covered codes (we do not know the forum, so we look
+# broadly — the safe direction). This mirrors config/scope_ontology/source_types.yaml (data, not code).
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+jurisdiction_lexicon:
+  "u.s.": US
+  "us ": US
+  "united states": US
+  american: US
+  federal: US          # in a US-framed legal question "federal statutes" => the US federal forum
+  scotus: US
+  canadian: CA
+  canada: CA
+  british: GB
+  "u.k.": GB
+  "uk ": GB
+  england: GB
+  european: EU
+  "european union": EU
+  "eu ": EU
+  australian: AU
+  australia: AU
+  japanese: JP
+  japan: JP
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+# THE ROUTES — ONE ROW PER ROUTE. Columns (Sol's schema):
+#   adapter_id           stable id; ALSO the acquisition `adapter` name, so every attempt is attributable.
+#   evidence_roles       the capabilities this route SUPPLIES (join key for set cover).
+#   document_types       the expression kinds it yields (provenance EXPRESSION_KINDS) — drives admissibility.
+#   jurisdiction_coverage ISO codes it covers, or [ANY] for field/global routes.
+#   query_dialects       how to query it (informational + used by the light query builder).
+#   identifier_types     identifiers it accepts/resolves.
+#   version_resolvers    the version-pursuit mechanism it OFFERS (empty = it is a target, not a resolver).
+#   rate_policy          politeness for acquisition._space (host + min spacing + key/pool).
+#   coverage_note        what it is and is not.
+#   endpoints            real URL templates for the live probes (may be empty where there is no clean API;
+#                        `discovery_via` then names the resolver route that finds this route's works).
+# ───────────────────────────────────────────────────────────────────────────────────────────────────
+routes:
+
+  # ============================ OA-FIRST BACKBONE: index / identity / locations / fulltext ===========
+
+  - adapter_id: openalex
+    evidence_roles: [discover.index, resolve.identity, resolve.locations, evidence.peer_reviewed]
+    document_types: [journal_version, accepted_manuscript, preprint, working_paper]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [openalex_search, openalex_filter]
+    identifier_types: [doi, openalex_id, pmid, pmcid, mag]
+    version_resolvers: [openalex_locations]   # primary_location + locations[] across host venues
+    rate_policy: {host: api.openalex.org, min_spacing_s: 1.0, needs_key: false, pool: mailto}
+    coverage_note: >-
+      250M+ works with per-work location enumeration and version relations. Its `host_venue`/`version`
+      labels are HINTS to pursue, never a final verdict on which expression we hold.
+    endpoints:
+      search:   "https://api.openalex.org/works?search={query}&per_page={limit}&mailto={mailto}"
+      identity: "https://api.openalex.org/works/doi:{doi}?mailto={mailto}"
+
+  - adapter_id: crossref
+    evidence_roles: [resolve.identity]
+    document_types: [journal_version, proceedings_version, working_paper, preprint]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [crossref_query]
+    identifier_types: [doi]
+    version_resolvers: [crossref_relations, crossref_dates]   # is-preprint-of / is-version-of, published dates
+    rate_policy: {host: api.crossref.org, min_spacing_s: 1.0, needs_key: false, pool: mailto}
+    coverage_note: >-
+      IDENTITY, DATES AND RELATIONS ONLY — never treated as a full-text source. Its relation edges
+      (is-preprint-of, is-version-of) are the backbone of version pursuit from a preprint to the VoR.
+    endpoints:
+      search:   "https://api.crossref.org/works?query={query}&rows={limit}&mailto={mailto}"
+      identity: "https://api.crossref.org/works/{doi}?mailto={mailto}"
+
+  - adapter_id: unpaywall
+    evidence_roles: [resolve.locations]
+    document_types: [journal_version, accepted_manuscript]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [unpaywall_doi]
+    identifier_types: [doi]
+    version_resolvers: [unpaywall_oa_locations]   # best_oa_location + oa_locations[] with host_type + version
+    rate_policy: {host: api.unpaywall.org, min_spacing_s: 1.0, needs_key: false, pool: email}
+    coverage_note: >-
+      Enumerates OA locations for a DOI (repository vs publisher, submitted/accepted/published). We take
+      its `version` as a claim to VERIFY against the fetched bytes (event_ledger.derive_semantic_binding),
+      not as the answer.
+    endpoints:
+      identity: "https://api.unpaywall.org/v2/{doi}?email={mailto}"
+
+  - adapter_id: doaj
+    evidence_roles: [discover.index, evidence.peer_reviewed]
+    document_types: [journal_version]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [doaj_query]
+    identifier_types: [doi, issn]
+    version_resolvers: []
+    rate_policy: {host: doaj.org, min_spacing_s: 1.2, needs_key: false, pool: public}
+    coverage_note: >-
+      Directory of Open Access Journals — 13M+ articles from vetted OA journals. Its entire index is
+      peer-reviewed journal expressions, so it is the strongest single index for a journal-only policy.
+    endpoints:
+      search: "https://doaj.org/api/v2/search/articles/{query}?pageSize={limit}"
+
+  - adapter_id: europe_pmc
+    evidence_roles: [discover.index, fetch.oa_fulltext]
+    document_types: [journal_version, accepted_manuscript, preprint]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [europepmc_query]
+    identifier_types: [doi, pmid, pmcid]
+    version_resolvers: [europepmc_fulltext]
+    rate_policy: {host: www.ebi.ac.uk, min_spacing_s: 1.0, needs_key: false, pool: public}
+    coverage_note: >-
+      Life-sciences + cross-discipline index over PMC with OA full-text XML retrieval. Full text where
+      the licence permits; abstract-only otherwise (which the reducer reports as ABSTRACT_ONLY, not a gap).
+    endpoints:
+      search:   "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={query}&format=json&pageSize={limit}"
+      fulltext: "https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{id}/fullTextXML"
+
+  - adapter_id: pmc
+    evidence_roles: [fetch.oa_fulltext]
+    document_types: [journal_version, accepted_manuscript]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [pmc_id]
+    identifier_types: [pmcid, pmid]
+    version_resolvers: []
+    rate_policy: {host: www.ncbi.nlm.nih.gov, min_spacing_s: 1.2, needs_key: false, pool: public}
+    coverage_note: >-
+      PubMed Central OA full-text article pages by PMCID. A retrieval TARGET — its landing pages are a
+      known LANDING_PAGE trap, which is exactly why completeness is derived from the bytes, not the URL.
+    endpoints:
+      fulltext: "https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+
+  - adapter_id: core
+    evidence_roles: [discover.index, fetch.oa_fulltext, resolve.locations]
+    document_types: [journal_version, accepted_manuscript, preprint, working_paper]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [core_v3_query]
+    identifier_types: [doi, core_id]
+    version_resolvers: [core_fulltext_links]
+    rate_policy: {host: api.core.ac.uk, min_spacing_s: 2.0, needs_key: true, key_env: CORE_API_KEY, pool: keyed}
+    coverage_note: >-
+      Aggregates 200M+ full texts from institutional & subject REPOSITORIES — the channel most likely to
+      hold a readable copy when the publisher blocks us. Needs a free API key (rate_policy.needs_key).
+    endpoints:
+      search: "https://api.core.ac.uk/v3/search/works?q={query}&limit={limit}"
+
+  - adapter_id: openaire
+    evidence_roles: [discover.index, resolve.locations, evidence.dataset]
+    document_types: [journal_version, accepted_manuscript, preprint, working_paper, dataset]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [openaire_query]
+    identifier_types: [doi, openaire_id, handle]
+    version_resolvers: [openaire_instances]
+    rate_policy: {host: api.openaire.eu, min_spacing_s: 1.5, needs_key: false, pool: public}
+    coverage_note: >-
+      Cross-repository graph (publications + datasets + software) with per-record access instances.
+      Strong for European repository copies and for linking a work to its underlying data.
+    endpoints:
+      search: "https://api.openaire.eu/search/publications?keywords={query}&format=json&size={limit}"
+
+  - adapter_id: zenodo
+    evidence_roles: [fetch.oa_fulltext, evidence.dataset, resolve.locations]
+    document_types: [preprint, working_paper, dataset, accepted_manuscript]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [zenodo_query]
+    identifier_types: [doi, zenodo_id]
+    version_resolvers: [zenodo_versions]   # concept-DOI -> version DOIs
+    rate_policy: {host: zenodo.org, min_spacing_s: 1.5, needs_key: false, pool: public}
+    coverage_note: >-
+      CERN OA repository — deposited manuscripts, datasets and software, with explicit version DOIs.
+      A discovery + fetch target, not a peer-review signal.
+    endpoints:
+      search: "https://zenodo.org/api/records?q={query}&size={limit}"
+
+  - adapter_id: hal
+    evidence_roles: [fetch.oa_fulltext, resolve.locations]
+    document_types: [accepted_manuscript, preprint, working_paper, journal_version]
+    jurisdiction_coverage: [ANY, FR]
+    query_dialects: [hal_solr]
+    identifier_types: [doi, hal_id]
+    version_resolvers: [hal_versions]
+    rate_policy: {host: api.archives-ouvertes.fr, min_spacing_s: 1.5, needs_key: false, pool: public}
+    coverage_note: >-
+      French national open archive — strong for European (esp. francophone) accepted manuscripts and
+      working papers that are otherwise paywalled at the publisher.
+    endpoints:
+      search: "https://api.archives-ouvertes.fr/search/?q={query}&rows={limit}&wt=json"
+
+  - adapter_id: datacite
+    evidence_roles: [resolve.identity, evidence.dataset]
+    document_types: [dataset, preprint, working_paper]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [datacite_query]
+    identifier_types: [doi]
+    version_resolvers: [datacite_related_identifiers]   # IsVersionOf / IsSupplementTo edges
+    rate_policy: {host: api.datacite.org, min_spacing_s: 1.5, needs_key: false, pool: public}
+    coverage_note: >-
+      DOI identity + relations for DATASETS and repository deposits (the Crossref of research data).
+      Identity/relations only — never a full-text source.
+    endpoints:
+      search: "https://api.datacite.org/dois?query={query}&page[size]={limit}"
+
+  # ============================ SEPARATE-WORK + PREPRINT DISCOVERY (field-scoped) ====================
+  # These supply a DIFFERENT WORK from the journal Version of Record (peer review changes the numbers —
+  # Acemoglu-Restrepo is 0.37pp in NBER WP 23285 and 0.2pp in the published JPE). They FIRE for
+  # discovery and version pursuit whenever the plan's field vocabulary calls for them; whether their
+  # output is CITABLE is decided separately by the plan's source_policy over document_types.
+
+  - adapter_id: arxiv
+    # NOT a backbone index: arXiv is a PREPRINT server, so it fires only when the plan's field
+    # vocabulary calls for general/CS/physics/math preprints — never as a universal scholarly index
+    # (the field-agnostic indices openalex/doaj/core/openaire/europe_pmc cover discover.index). This is
+    # what keeps a clinical or legal plan from acquiring an AI-preprint channel it never asked for.
+    evidence_roles: [evidence.preprint.general]
+    document_types: [preprint]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [arxiv_query]
+    identifier_types: [arxiv_id, doi]
+    version_resolvers: [arxiv_versions]   # v1/v2...; pair with crossref_relations to reach the VoR
+    rate_policy: {host: export.arxiv.org, min_spacing_s: 3.0, needs_key: false, pool: public}
+    coverage_note: >-
+      CS / physics / math / quant preprints, full-text PDF. A SEPARATE WORK from any later journal
+      version; admissible as a citation only when policy permits a preprint expression.
+    endpoints:
+      search: "http://export.arxiv.org/api/query?search_query=all:{query}&max_results={limit}"
+
+  - adapter_id: medrxiv
+    # Preprint-specific, not a general DOI resolver (that is crossref/openalex/datacite). It fires only
+    # on the biomedical-preprint role; its published-DOI resolver is a version-pursuit capability used
+    # WHEN it fires, declared in version_resolvers — not a reason to fire on every plan.
+    evidence_roles: [evidence.preprint.biomedical]
+    document_types: [preprint]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [biorxiv_detail]
+    identifier_types: [doi]
+    version_resolvers: [biorxiv_published_doi]   # detail record carries the published-DOI link
+    rate_policy: {host: api.biorxiv.org, min_spacing_s: 2.0, needs_key: false, pool: public}
+    coverage_note: >-
+      Health-sciences preprints. Topical discovery runs through openalex/crossref filtered to the
+      medRxiv server (discovery_via); this route resolves a preprint DOI to its published version.
+    discovery_via: [openalex, crossref]
+    endpoints:
+      identity: "https://api.biorxiv.org/details/medrxiv/{doi}"
+
+  - adapter_id: biorxiv
+    evidence_roles: [evidence.preprint.biomedical]
+    document_types: [preprint]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [biorxiv_detail]
+    identifier_types: [doi]
+    version_resolvers: [biorxiv_published_doi]
+    rate_policy: {host: api.biorxiv.org, min_spacing_s: 2.0, needs_key: false, pool: public}
+    coverage_note: "Life-sciences preprints; same pattern as medRxiv (discovery_via openalex/crossref)."
+    discovery_via: [openalex, crossref]
+    endpoints:
+      identity: "https://api.biorxiv.org/details/biorxiv/{doi}"
+
+  - adapter_id: nber
+    evidence_roles: [evidence.working_paper.economics]
+    document_types: [working_paper]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [repec_resolver]
+    identifier_types: [doi, nber_wp_id]
+    version_resolvers: [crossref_relations]   # NBER WP -> published journal DOI via Crossref relations
+    rate_policy: {host: www.nber.org, min_spacing_s: 3.0, needs_key: false, pool: public}
+    coverage_note: >-
+      National Bureau of Economic Research working papers — a PRIMARY economics channel and a SEPARATE
+      work from the journal version. MUST NOT fire for a clinical or legal plan (no economics tokens ->
+      role not required -> route not covered). Topical discovery via RePEc/OpenAlex/Crossref.
+    discovery_via: [openalex, crossref]
+    endpoints:
+      landing: "https://www.nber.org/papers/w{nber_wp_id}"
+
+  - adapter_id: iza
+    evidence_roles: [evidence.working_paper.economics]
+    document_types: [working_paper]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [repec_resolver]
+    identifier_types: [doi, iza_dp_id]
+    version_resolvers: [crossref_relations]
+    rate_policy: {host: www.iza.org, min_spacing_s: 3.0, needs_key: false, pool: public}
+    coverage_note: "IZA Institute of Labor Economics discussion papers. Economics working-paper channel; discovery via RePEc/OpenAlex."
+    discovery_via: [openalex, crossref]
+    endpoints: {}
+
+  - adapter_id: repec
+    # RePEc/IDEAS is the ECONOMICS index, not a general one — so it is gated behind the economics
+    # working-paper role, never the universal discover.index backbone. A clinical plan must not reach
+    # it (the canary in source_router.py checks exactly this).
+    evidence_roles: [evidence.working_paper.economics]
+    document_types: [working_paper, journal_version]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [repec_query]
+    identifier_types: [repec_handle, doi]
+    version_resolvers: [repec_relations]
+    rate_policy: {host: ideas.repec.org, min_spacing_s: 3.0, needs_key: false, pool: public}
+    coverage_note: >-
+      RePEc / IDEAS — the union index over economics working papers (NBER, IZA, CEPR, Fed series) and
+      journals. The economics discovery backbone that keeps this domain a DATA row, not a code branch.
+    endpoints:
+      search: "https://ideas.repec.org/cgi-bin/htsearch?q={query}"
+
+  - adapter_id: ssrn
+    evidence_roles: [evidence.working_paper.social_legal]
+    document_types: [preprint, working_paper]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [crossref_filter]
+    identifier_types: [doi, ssrn_id]
+    version_resolvers: [crossref_relations]
+    rate_policy: {host: papers.ssrn.com, min_spacing_s: 3.0, needs_key: false, pool: public}
+    coverage_note: >-
+      Social Science Research Network — law + economics + policy scholarship (DOI prefix 10.2139).
+      Separate-work discovery via Crossref/OpenAlex; the SSRN site itself is not an open API.
+    discovery_via: [crossref, openalex]
+    endpoints: {}
+
+  # ============================ CLINICAL PRIMARY ====================================================
+
+  - adapter_id: clinicaltrials_gov
+    evidence_roles: [evidence.trial_registration]
+    document_types: [registry_record]
+    jurisdiction_coverage: [ANY, US]
+    query_dialects: [ctgov_v2]
+    identifier_types: [nct_id]
+    version_resolvers: []
+    rate_policy: {host: clinicaltrials.gov, min_spacing_s: 1.5, needs_key: false, pool: public}
+    coverage_note: >-
+      ClinicalTrials.gov v2 API — prospective trial registrations and posted results. A registry record
+      is a COMPLETE artifact at its own length (provenance stub_floor=None), never judged by an article's
+      word count.
+    endpoints:
+      search: "https://clinicaltrials.gov/api/v2/studies?query.term={query}&pageSize={limit}"
+
+  - adapter_id: clinical_guidelines
+    evidence_roles: [evidence.clinical_guideline]
+    document_types: [official_text, registry_record]
+    jurisdiction_coverage: [ANY, GB, US, EU]
+    query_dialects: [site_scoped]
+    identifier_types: [url]
+    version_resolvers: []
+    rate_policy: {host: www.nice.org.uk, min_spacing_s: 2.0, needs_key: false, pool: public}
+    coverage_note: >-
+      Guideline bodies (NICE, WHO, USPSTF, Cochrane). Jurisdiction-scoped official guidance; the exact
+      host set is resolved from config/discovery/jurisdiction_scopes.yaml, not hardcoded here.
+    scope_ref: {file: config/discovery/jurisdiction_scopes.yaml, need: regulatory}
+    endpoints: {}
+
+  # ============================ LEGAL PRIMARY (jurisdiction-scoped) ==================================
+
+  - adapter_id: courtlistener
+    evidence_roles: [evidence.case_law]
+    document_types: [official_text]
+    jurisdiction_coverage: [US]
+    query_dialects: [courtlistener_v4]
+    identifier_types: [us_reporter_cite, courtlistener_id]
+    version_resolvers: []
+    rate_policy: {host: www.courtlistener.com, min_spacing_s: 2.0, needs_key: false, key_env: COURTLISTENER_TOKEN, pool: token_optional}
+    coverage_note: >-
+      Free Law Project — US federal & state judicial opinions (the case-law primary source). A judicial
+      opinion is a finding-bearing document with NO effect size; its evidence is a doctrinal holding.
+    endpoints:
+      search: "https://www.courtlistener.com/api/rest/v4/search/?q={query}&type=o"
+
+  - adapter_id: govinfo
+    evidence_roles: [evidence.statute_regulation, evidence.case_law, evidence.regulatory_guidance]
+    document_types: [official_text]
+    jurisdiction_coverage: [US]
+    query_dialects: [govinfo_search]
+    identifier_types: [us_code_cite, cfr_cite, package_id]
+    version_resolvers: []
+    rate_policy: {host: api.govinfo.gov, min_spacing_s: 2.0, needs_key: true, key_env: GOVINFO_API_KEY, pool: keyed}
+    coverage_note: >-
+      GovInfo (US GPO) — statutes (USC), regulations (CFR/Federal Register), federal court opinions.
+      The authoritative US federal legal text. Needs a free api.data.gov key.
+    endpoints:
+      search: "https://api.govinfo.gov/search?api_key={key}"
+
+  - adapter_id: eurlex
+    evidence_roles: [evidence.statute_regulation, evidence.case_law, evidence.regulatory_guidance]
+    document_types: [official_text]
+    jurisdiction_coverage: [EU]
+    query_dialects: [eurlex_cellar]
+    identifier_types: [celex, ecli]
+    version_resolvers: []
+    rate_policy: {host: eur-lex.europa.eu, min_spacing_s: 2.0, needs_key: false, pool: public}
+    coverage_note: >-
+      EUR-Lex — EU treaties, regulations, directives and CJEU case law by CELEX/ECLI. Fires only for an
+      EU-scoped (or jurisdiction-unspecified) legal plan; a US-only legal plan does NOT reach it.
+    endpoints:
+      search: "https://eur-lex.europa.eu/search.html?text={query}"
+
+  - adapter_id: official_legal_scoped
+    evidence_roles: [evidence.statute_regulation, evidence.case_law, evidence.regulatory_guidance]
+    document_types: [official_text]
+    jurisdiction_coverage: [US, CA, GB, EU, AU, JP]
+    query_dialects: [site_scoped]
+    identifier_types: [url]
+    version_resolvers: []
+    rate_policy: {host: scoped, min_spacing_s: 2.0, needs_key: false, pool: public}
+    coverage_note: >-
+      Catch-all for official statute/court/regulator hosts per jurisdiction (legislation.gov.uk,
+      canlii.org, austlii.edu.au, courts.go.jp, ...). The host set is DATA in
+      config/discovery/jurisdiction_scopes.yaml — adding a jurisdiction is a row THERE, not code here.
+    scope_ref: {file: config/discovery/jurisdiction_scopes.yaml, need: legal}
+    endpoints: {}
+
+  # ============================ STANDARDS / REGULATORY (cross-jurisdiction) ==========================
+
+  - adapter_id: standards_bodies
+    evidence_roles: [evidence.standard]
+    document_types: [official_text]
+    jurisdiction_coverage: [ANY]
+    query_dialects: [site_scoped]
+    identifier_types: [standard_id, url]
+    version_resolvers: []
+    rate_policy: {host: www.iso.org, min_spacing_s: 2.0, needs_key: false, pool: public}
+    coverage_note: >-
+      ISO / IEC / IEEE / ITU / IETF normative specifications. Cross-jurisdiction (INTL) standards bodies
+      resolved from jurisdiction_scopes.yaml INTL block.
+    scope_ref: {file: config/discovery/jurisdiction_scopes.yaml, need: standards}
+    endpoints: {}
