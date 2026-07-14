@@ -100,8 +100,16 @@ SAFE_CAPS = {
     'The', 'This', 'These', 'Those', 'Taken', 'Together', 'Both', 'Neither', 'Either', 'While',
     'Whereas', 'Although', 'Because', 'When', 'Where', 'If', 'In', 'At', 'By', 'For', 'A', 'An',
     'It', 'They', 'Their', 'Its', 'However', 'Yet', 'Still', 'Across', 'Within', 'One', 'Two',
-    'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'AI', 'Artificial',
-    'Intelligence', 'Fourth', 'Industrial', 'Revolution', 'Evidence', 'Studies', 'Research',
+    'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+    # SOL V11 — THE TASK-72 OVERFIT IS DELETED. This set used to hard-list 'AI', 'Artificial',
+    # 'Intelligence', 'Fourth', 'Industrial', 'Revolution' — the exact entities of one benchmark task —
+    # so those NAMES could enter a sentence PREMISE-FREE, allow-listed rather than proven. That is a
+    # domain allow-list wearing a discourse-vocabulary costume: a named entity is an entity whether or
+    # not it is fashionable. Caps-entity handling must be GENERAL — an unknown capitalised token is
+    # UNKNOWN, so it must be earned by a premise (or, in the owned lane, routed to the judge), never
+    # admitted because it happens to name this year's technology. Only genuine discourse/orthography and
+    # the analytic meta-vocabulary below stay; every world-entity name is removed.
+    'Evidence', 'Studies', 'Research',
     'Together', 'Read', 'Seen', 'Firm', 'Worker', 'Task', 'Aggregate', 'Nor', 'That', 'What',
     # ANALYTIC META-VOCABULARY: words that describe the EVIDENCE, not entities in the world.
     # These are the declared-field names ('level', 'horizon', 'method') and the language of
@@ -118,6 +126,67 @@ SAFE_CAPS = {
     'Established', 'Contested', 'Unresolved', 'Emerging', 'Conceptual', 'Analytical', 'Hypothesis',
     'Pattern', 'Synthesis', 'Our', 'We', 'Proposed', 'Argument',
 }
+
+
+# ---- SOL V11 — THE RIDING-FABRICATION GUARD --------------------------------------------------------
+# A recognised verdict phrase in ONE clause used to license the WHOLE sentence, so a fabrication could
+# ride a SECOND clause on the same proof. THIS PASSED before the guard and must not:
+#     'These studies observe different units of analysis, and the intervention eradicates disease.'
+# The first clause matches _CLAIM_PATTERNS and PROVES as a CONTRASTS_LEVEL verdict; the proof checks the
+# unit relation and NOTHING proves the eradication rider. A synthesis is a VERDICT ABOUT THE PREMISES,
+# not a lane to smuggle a first-order finding, so EVERY clause must map to a proof conclusion — a
+# verdict/relation marker, or a premise-STATED causal mechanism — or introduce NO NEW CONTENT (every
+# content token already anchored in a premise or discourse). A clause that predicates a fresh, unanchored
+# token has NO positive proof and is an UNPROVED RIDER -> REJECT. This is a list that may ONLY reject:
+# an unaccounted content word is UNKNOWN, and the contract fails closed on the unknown (admission requires
+# positive proof). The owned lane's semantic judge (report_ast) is the second, independent line; this is
+# the deterministic one, so the moat does not rest on the judge alone.
+_VERDICT_MARKERS = re.compile('|'.join(re.escape(v) for v in VERDICT_VOCAB), re.I)
+# Clause boundaries that introduce an INDEPENDENT proposition. Deliberately NOT a bare ' and '/' or '/
+# comma (those join noun phrases — 'the firm and regional levels', 'creation or reallocation') — only
+# markers that begin a new predication: ', and', '; and', ';', ', but', ':', 'whereas', 'while',
+# ', because', and 'and the <NP>' (the exact shape the eradication rider used).
+_RIDER_SPLIT = re.compile(
+    r',\s+and\s+|;\s*and\s+|;\s+|,\s+but\s+|:\s+|\s+whereas\s+|\s+while\s+|,\s+because\s+|\band\s+the\s+',
+    re.I)
+# Genuine discourse / orthography that may head a clause without being a first-order predicate. Derived
+# from SAFE_CAPS (so it tracks the same allow-list) plus common function words. It exists ONLY to keep a
+# pure connective fragment from being read as a rider; it can admit nothing a premise did not already say.
+_DISCOURSE_WORDS = {w.lower() for w in SAFE_CAPS} | {
+    'these', 'those', 'this', 'that', 'both', 'either', 'neither', 'taken', 'together', 'however',
+    'still', 'therefore', 'thus', 'hence', 'while', 'whereas', 'because', 'since', 'although', 'though',
+    'where', 'when', 'across', 'within', 'among', 'between', 'from', 'into', 'onto', 'than', 'then',
+    'also', 'only', 'more', 'most', 'less', 'least', 'former', 'latter', 'whether', 'which', 'what',
+    'does', 'cannot', 'they', 'their', 'them', 'with', 'without', 'about', 'over', 'under', 'and',
+    'but', 'not', 'are', 'for', 'nor', 'the', 'two', 'one',
+}
+
+
+def _unproved_rider_clause(s: str, prem: list['Premise']) -> str:
+    """Every clause of a synthesis must be a proved verdict or introduce no new content; a clause that
+    predicates a fresh, unanchored token is an UNPROVED RIDER. Returns a refusal reason, or ''."""
+    blob = ' '.join(p.text + ' ' + p.source for p in prem)
+    blob_low = blob.lower()
+    stems = _content_lemmas(blob)
+    stated = {m.lower() for p in prem for m in p.mechanisms}
+    for clause in _RIDER_SPLIT.split(s):
+        low = clause.lower().strip()
+        if not low:
+            continue
+        if _VERDICT_MARKERS.search(low):
+            continue                                            # a proved verdict/relation clause
+        if any(re.search(rx, low) for _, _, rx in _CLAIM_PATTERNS):
+            continue                                            # a recognised verdict pattern
+        if CAUSAL_IMPORT.search(low) and any(m in low for m in stated):
+            continue                                            # the already-licensed causal path
+        for w in re.findall(r'[a-z]{4,}', low):
+            if w in _DISCOURSE_WORDS:
+                continue
+            if w in blob_low or _stem(w) in stems:
+                continue                                        # this token is anchored in a premise
+            return (f'UNPROVED_RIDER_CLAUSE: "{clause.strip()}" asserts "{w}", a predicate no premise '
+                    f'states and no verdict proves — a synthesis may not smuggle a first-order finding')
+    return ''
 
 
 @dataclass
@@ -165,7 +234,11 @@ LEVEL_CUES: dict[str, list[str]] = {
     'task':       ['task'],
     'worker':     ['worker', 'individual', 'employee', 'labor market', 'labour market'],
     'occupation': ['occupation', 'job'],
-    'firm':       ['firm', 'establishment', 'company', 'plant', 'employer', 'business'],
+    # SOL V11: 'plant' removed — it is POLYSEMOUS (factory vs botanical) and would span-support a declared
+    # 'firm' level off a sentence about vegetation. A cue that a verdict axis turns on must be unambiguous;
+    # an ambiguous token is UNKNOWN, so it is dropped (level_span_support then returns '' and the verdict
+    # fails closed) rather than trusted. Cues left here are firm-of-organisation senses only.
+    'firm':       ['firm', 'establishment', 'company', 'employer', 'business'],
     'industry':   ['industry', 'sector'],
     'region':     ['region', 'local', 'commuting zone', 'area', 'city', 'county'],
     'economy':    ['econom', 'aggregate', 'national', 'country', 'macro', 'nationwide'],
@@ -322,6 +395,14 @@ def validate(syn: Synthesis, premises: dict[str, Premise]) -> tuple[bool, str]:
     # 10. must be anchored in the premises it claims to relate
     if len(_content_lemmas(s) & _content_lemmas(blob)) < 2:
         return False, 'not_anchored_in_its_premises'
+
+    # 11. SOL V11 — NO RIDING FABRICATION. Steps 1-10 prove the RELATION the sentence's recognised phrase
+    #     asserts; they never inspect the REST of the sentence. A recognised verdict clause may not license
+    #     an unproved rider ('...observe different units, and the intervention eradicates disease'). Every
+    #     clause must be a proved verdict or introduce no new content, else the sentence smuggles a finding.
+    why_rider = _unproved_rider_clause(s, prem)
+    if why_rider:
+        return False, why_rider
 
     return True, ''
 

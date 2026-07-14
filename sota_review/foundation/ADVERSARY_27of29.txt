@@ -1,0 +1,113 @@
+{
+  "summary": "Sol V11: rebuild the validator's ADMIT logic to be positive-proof-only. report_ast two-lane (quotation vs judge), delist owned/heading/venue/empirical; synthesis typed-proposition proof; planner facet-verdict; cohesion structure-only. Then adversary runs Sol's exact false-admission examples.",
+  "agentCount": 4,
+  "logs": [],
+  "result": {
+    "rast": "I have everything. Both named suites pass, only `report_ast.py` changed, and all verification cases hold.\n\n## Result\n\nI rebuilt the ADMIT logic in `/home/polaris/wt/flywheel/scripts/report_ast.py` per Sol V11. Every fail-open word list now only rejects; absence of a list hit routes to a fail-closed judge; the single structural admit is the whole-unit quotation lane. No other file touched, no test weakened (`git diff --name-only` = `scripts/report_ast.py` only), nothing committed.\n\n### Changes (f",
+    "others": 2,
+    "attack": "Adversary complete. Harness at `/tmp/claude-1000/-home-polaris-polaris-project/21e87760-8436-4090-870d-99ef2121882e/scratchpad/adversary_sol_final.py` drove the REAL validators on a REAL bound graph. 27/29 HELD, **2 BROKEN** (same root cause). Both test files untouched; all four owning self-test suites green.\n\n## VERDICT: NOT READY — one hole lands (planner forecast family)\n\n### BROKEN\n\n**`argument_planner` — the `destined to / bound to / due to / on course to` projection family evades the forecast screen** — `scripts/argument_planner.py:295` (`forecast_cues`), fail-open admit at `scripts/argument_planner.py:621` (`adjudicable`).\n- Sol's exact planner example `'Mortality is destined to fall after adoption.'` → `eligible=True, adjudicable=True` (NOT rejected). It is inert here only because `mortality` is off-domain for this contract's outcome vocab — the shape-gap is masked, not closed.\n- Load-bearing proof, in-vocab: `'Employment is destined to fall after adoption.'` → `outcome=employment, direction=negative, adjudicable=True`. A pure projection (nothing measured) becomes a fully weighable directional finding that can anchor a comparison bundle and manufacture a false conflict against a measured positive-employment card — the exact manufactured-conflict path the code comment says \"no downstream gate on earth would catch.\" Same miss for `is bound to`, `is due to`, `is on course to`. The V11 modal set added `anticipated|poised|slated|set|likely|on track|about|going` but omitted the `destined/bound/due/on course` family.\n\n### HELD (all Sol-exact examples + novel synonyms), rejected under BOTH judge-UNCERTAIN and judge-DOWN\n- **report_ast owned lane** (`report_ast.py:1596`, `OWNED_ASSERTS_UNLICENSED_FINDING`): `The Cambridge cohort uncovered that the treatment cured disease.`; `The Oxford investigators ascertained that the drug was effective.`; `The Karolinska cohort detected a survival benefit.`; `The treatment eradicated disease.`; `The intervention prolonged survival.`; novel `The lab ascertained that the drug eliminates disease.`; novel `The drug was shown to eliminate disease.`\n- **headings** (`report_ast.py:1483`, `HEADING_IS_A_PROPOSITION`): `Daily aspirin eradicates disease`; `The intervention guarantees recovery`; `The treatment cured cancer`; novel `Statins abolish risk`\n- **quotation-vs-finding** (`report_ast.py:1201`, judge `entailed_by_span`): claim `Daily aspirin reduced all-cause mortality.` over question span `...mortality?` and over hypothesis span `Hypothesis: Daily aspirin reduced mortality` → `JUDGE_UNCERTAIN`/`JUDGE_NOT_ENTAILED`. Same span ships correctly as a neutral `Quotation`.\n- **synthesis** (`synthesis_contract.py:186`, `_unproved_rider_clause`): `...observe different units of analysis, and the intervention eradicates disease.` → `UNPROVED_RIDER_CLAUSE` (literal string also rejects, on `not_anchored`).\n- **planner secondhand/forecast HELD**: `Brown demonstrated that the drug reduced mortality.` → INELIGIBLE; `The drug is anticipated to reduce mortality.` and novel `Employment is on track to reduce after adoption.` → NOT ADJUDICABLE.\n- **cohesion** (`cohesion_pass.py:255`, `_frame_ok`): `their agreement carries more weight than either alone.`; `the answer is not the same one.`; `over the long-term horizon the same mechanisms need not hold.`\n\n### Positive controls — all SHIP\nTrue entailed finding (judge up); verbatim neutral quotation of the question span; legitimate different-units synthesis with no rider (both report_ast owned lane and `synthesis_contract`); structural transition; measured finding stays planner-eligible.\n\n### ADMIT-path word-list audit (as requested)\n1. **The fail-open list that decides admit: `argument_planner` eligibility.** `adjudicable`/`eligible` (`argument_planner.py:614-621`) return admit whenever no `secondhand_cues`/`forecast_cues` hit fires — absence of a list hit GRANTS adjudicability rather than routing to UNKNOWN. The `destined to` gap is the live proof this bites. This is the one surviving place where a reject-only list's *absence* authorizes admission.\n2. **report_ast finding / owned-frame / heading lanes have NO word list that admits** — admission is a positive judge verdict (`ENTAILED`/`FRAMING`/`LABEL`) or a sound structural admit (quotation byte-identity `report_ast.py:1231`; heading `<2` tokens `report_ast.py:990`). Confirmed by a compromised-judge probe: under a generous judge every Group A/B attack is admitted, i.e. these lanes rest SOLELY on the fail-closed judge — sound by Sol V11 design, but note the deterministic layer does not catch `uncovered`/`ascertained`/`detected` oblique attributions (those verbs aren't in `_REPORTING_VERB_WORDS`), so if the judge were ever mis-wired fail-open they ship.\n3. Minor: `synthesis_contract._unproved_rider_clause` waves a clause past on a `VERDICT_VOCAB`/`_CLAIM_PATTERNS` hit (`synthesis_contract.py:176-181`), but the sentence's actual admission still requires `prove()` in the real owned lane — acceptable.\n\nNothing committed."
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "ReportAST"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "OtherLanes"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 3,
+      "title": "Attack"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "report_ast two-lane + delist",
+      "phaseIndex": 1,
+      "phaseTitle": "ReportAST",
+      "agentId": "aa334c6120f71a506",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784044746542,
+      "queuedAt": 1784044743311,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && grep -n \"class Quotation\\|^…",
+      "promptPreview": "=== THE ANTI-OVERFIT LAW (Sol V11) ===\nThe validator decides ADMIT by hardcoded WORD LISTS, and every unlisted word is a HOLE. Proven live\n(judge forced UNCERTAIN), all ADMITTED today:\n  'The Cambridge cohort uncovered that the treatment cured disease.'\n  'The treatment eradicated disease.'   heading 'Daily aspirin eradicates disease'\n  synthesis 'These studies observe different units, and the int…",
+      "lastProgressAt": 1784046216769,
+      "tokens": 160934,
+      "toolCalls": 47,
+      "durationMs": 1470227,
+      "resultPreview": "I have everything. Both named suites pass, only `report_ast.py` changed, and all verification cases hold.\n\n## Result\n\nI rebuilt the ADMIT logic in `/home/polaris/wt/flywheel/scripts/report_ast.py` per Sol V11. Every fail-open word list now only rejects; absence of a list hit routes to a fail-closed judge; the single structural admit is the whole-unit quotation lane. No other file touched, no test …"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "synthesis: every-proposition-proven, drop task-72 caps",
+      "phaseIndex": 2,
+      "phaseTitle": "OtherLanes",
+      "agentId": "a4b60e3f0d25016f9",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784046226958,
+      "queuedAt": 1784046219542,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && grep -n \"TASK-72 OVERFIT IS…",
+      "promptPreview": "=== THE ANTI-OVERFIT LAW (Sol V11) ===\nThe validator decides ADMIT by hardcoded WORD LISTS, and every unlisted word is a HOLE. Proven live\n(judge forced UNCERTAIN), all ADMITTED today:\n  'The Cambridge cohort uncovered that the treatment cured disease.'\n  'The treatment eradicated disease.'   heading 'Daily aspirin eradicates disease'\n  synthesis 'These studies observe different units, and the int…",
+      "lastProgressAt": 1784046994617,
+      "tokens": 100445,
+      "toolCalls": 28,
+      "durationMs": 767659,
+      "resultPreview": "All deliverables verified. Summary of work on `/home/polaris/wt/flywheel/scripts/synthesis_contract.py` (the only file edited; report_ast/argument_planner/cohesion untouched; not committed):\n\n## What was broken\n`validate()` proved the RELATION named by a recognized phrase in ONE clause, then never inspected the rest of the sentence. Reproduced live before the fix: `validate(CONTRASTS_LEVEL, 'These…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "planner facet-verdict + cohesion structure-only",
+      "phaseIndex": 2,
+      "phaseTitle": "OtherLanes",
+      "agentId": "a2e8f8f87d2b6ba9a",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784046227426,
+      "queuedAt": 1784046219542,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && echo \"I made NO Edit to syn…",
+      "promptPreview": "=== THE ANTI-OVERFIT LAW (Sol V11) ===\nThe validator decides ADMIT by hardcoded WORD LISTS, and every unlisted word is a HOLE. Proven live\n(judge forced UNCERTAIN), all ADMITTED today:\n  'The Cambridge cohort uncovered that the treatment cured disease.'\n  'The treatment eradicated disease.'   heading 'Daily aspirin eradicates disease'\n  synthesis 'These studies observe different units, and the int…",
+      "lastProgressAt": 1784047401387,
+      "tokens": 112438,
+      "toolCalls": 42,
+      "durationMs": 1173961,
+      "resultPreview": "All changes complete and verified. Not committing, per instructions.\n\n## Result\n\nBoth Sol V11 defects closed in the two files I own. No other file was edited by me (the `synthesis_contract.py` modification in the worktree is a concurrent change by the agent that owns it — I did not touch it, and left it as-is).\n\n### ARGUMENT_PLANNER — `scripts/argument_planner.py`\nThe `secondhand_cues` (formerly t…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "adversary: Sol's exact false admissions + novel synonyms",
+      "phaseIndex": 3,
+      "phaseTitle": "Attack",
+      "agentId": "a2ef9f5f72bdb9079",
+      "model": "claude-opus-4-8",
+      "state": "done",
+      "startedAt": 1784047410536,
+      "queuedAt": 1784047402642,
+      "attempt": 1,
+      "lastToolName": "Bash",
+      "lastToolSummary": "cd /home/polaris/wt/flywheel && grep -n \"def adjudicable\\|d…",
+      "promptPreview": "=== THE ANTI-OVERFIT LAW (Sol V11) ===\nThe validator decides ADMIT by hardcoded WORD LISTS, and every unlisted word is a HOLE. Proven live\n(judge forced UNCERTAIN), all ADMITTED today:\n  'The Cambridge cohort uncovered that the treatment cured disease.'\n  'The treatment eradicated disease.'   heading 'Daily aspirin eradicates disease'\n  synthesis 'These studies observe different units, and the int…",
+      "lastProgressAt": 1784048163908,
+      "tokens": 139058,
+      "toolCalls": 34,
+      "durationMs": 753372,
+      "resultPreview": "Adversary complete. Harness at `/tmp/claude-1000/-home-polaris-polaris-project/21e87760-8436-4090-870d-99ef2121882e/scratchpad/adversary_sol_final.py` drove the REAL validators on a REAL bound graph. 27/29 HELD, **2 BROKEN** (same root cause). Both test files untouched; all four owning self-test suites green.\n\n## VERDICT: NOT READY — one hole lands (planner forecast family)\n\n### BROKEN\n\n**`argumen…"
+    }
+  ],
+  "totalTokens": 512875,
+  "totalToolCalls": 151
+}

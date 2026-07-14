@@ -30,7 +30,8 @@ So the boundary is not a rule this file promises to follow. It is a PROPERTY OF 
 THE FIVE PERMITTED OPERATIONS (and nothing else):
     1. ADD an OWNED transition that expresses ANALYTICAL MOVEMENT between two paragraphs.
     2. ADD an OWNED topic sentence where a paragraph opens cold on a finding.
-    3. REORDER already-admitted paragraph objects WITHIN their subsection.
+    3. REORDER already-admitted paragraph objects WITHIN their subsection. (SOL V11: OFF BY DEFAULT —
+       it can change the antecedent of a cross-paragraph anaphor, so a caller must opt in explicitly.)
     4. DELETE redundant OWNED sentences (the boundary refrain, the duplicated verdict).
     5. Repair grammar in an OWNED sentence — never in a factual clause.
 
@@ -66,6 +67,12 @@ _DIGIT = re.compile(r'\d')
 # Facets, in the order a reader feels the move. Level first: "these are occupations, those are firms"
 # is the single most load-bearing distinction in an evidence review, and it is the one the judge said
 # our report never drew.
+# SOL V11 — REORDER IS OFF BY DEFAULT. Reordering already-admitted paragraphs can change the antecedent
+# of a cross-paragraph anaphor the writer wrote ("this result", "the former"), and those discourse
+# dependencies are NOT represented here. The safe default is to preserve the writer's order; the greedy
+# chain below is retained (and tested) but only runs when a caller opts in with enable_reorder=True.
+ENABLE_REORDER = False
+
 FACETS = ('level', 'method', 'horizon', 'sector')
 _CARD_FIELD = {'level': ('level', 'unit_of_analysis'), 'method': ('method', 'design'),
                'horizon': ('horizon',), 'sector': ('industry',)}
@@ -178,39 +185,75 @@ def movement(prev: Para, cur: Para, b: CardBundle) -> tuple[str, str, str]:
 # The transition is a claim about WHAT KIND OF EVIDENCE is being set against what kind — never a
 # signpost. Two phrasings per facet, chosen by a hash of the paragraph, so that a document with nine
 # level-moves does not contain the same sentence nine times. (A refrain reads worse than a gap.)
+# SOL V11 — A PREMISE-FREE COHESION NODE MAY EXPRESS ONLY DOCUMENT STRUCTURE. The earlier forms tucked
+# a FABRICATED RELATION into the transition: "the two do not answer the same question", "their agreement
+# carries more weight than either alone", "over the {b} horizon the same mechanisms need not hold", "the
+# answer is not the same one". Every one is a claim about COMPARABILITY / AGREEMENT / STRENGTH / LIMITS,
+# and the cohesion pass builds these premise-free (premise_ids=()) with NO relation proof behind them —
+# the exact shape the argument planner exists to refuse, laundered back in through the transition lane.
+# A frame-judge calls them "reviewer framing" and lets them ship, so the gate downstream cannot catch it.
+# THE FIX: the transition may only STATE THE MOVE (what precedes vs. what follows, and the declared facet
+# value each is measured at). Any claim ABOUT the two bodies of evidence needs premise IDs + prove(), and
+# this lane cannot supply them, so it does not make the claim. `_frame_ok` enforces this by construction.
 TEMPLATES: dict[str, tuple[str, ...]] = {
     'level': (
         'The evidence to this point is measured at the {a} level; what follows is measured at the {b} '
-        'level, and the two do not answer the same question.',
-        'Moving from the {a} level to the {b} level changes what the evidence is able to show, and the '
-        'shift is not merely one of scale.',
+        'level.',
+        'The evidence above is drawn at the {a} level; the evidence below is drawn at the {b} level.',
     ),
     'method': (
-        'Where the preceding findings rest on {a} evidence, those that follow rest on {b}, and each '
-        'design buys a different kind of confidence.',
-        'The {a} evidence above and the {b} evidence below are answerable to different threats, so '
-        'their agreement carries more weight than either alone.',
+        'The findings to this point rest on {a} evidence; those that follow rest on {b} evidence.',
+        'The evidence above is {a} evidence; the evidence below is {b} evidence.',
     ),
     'horizon': (
-        'The findings above speak to the {a} horizon; over the {b} horizon the same mechanisms need '
-        'not hold.',
-        'What holds over the {a} horizon is a weaker claim than what holds over the {b} horizon, and '
-        'the literature is not equally strong on both.',
+        'The findings to this point speak to the {a} horizon; those that follow speak to the {b} '
+        'horizon.',
+        'The evidence above spans the {a} horizon; the evidence below spans the {b} horizon.',
     ),
     'sector': (
-        'The same question can be put to {b}, where the constraints on adoption differ from those in '
-        '{a}.',
-        'Whether the pattern seen in {a} recurs in {b} is an empirical question, and the answer is not '
-        'the same one.',
+        'The evidence to this point is drawn from {a}; what follows is drawn from {b}.',
+        'The evidence above concerns {a}; the evidence below concerns {b}.',
     ),
 }
 
 TOPIC: dict[str, tuple[str, ...]] = {
-    'level': ('The record here is drawn at the {b} level.',),
-    'method': ('The evidence here rests on {b} designs, and its limits are theirs.',),
+    'level': ('The evidence here is measured at the {b} level.',),
+    'method': ('The evidence here rests on {b} designs.',),
     'sector': ('The evidence here is drawn from {b}.',),
     'horizon': ('The evidence here speaks to the {b} horizon.',),
 }
+
+
+# ===================================================================== the structural-only firewall
+# A premise-free OWNED node this pass emits is admitted ONLY on POSITIVE structural proof: it must open on
+# a DOCUMENT-STRUCTURE subject (the evidence/findings/record here, what follows, the next section), and it
+# must trip NO relational vocabulary. Absence of a relational hit alone would be a fail-OPEN word list;
+# the structural-subject requirement is the positive proof, and the relational list is the cheap fail-safe
+# on top. Anything that makes a claim about comparability / agreement / strength / limits is DROPPED.
+_STRUCT_SUBJECT = re.compile(
+    r'^\s*(?:the\s+(?:evidence|findings?|record|material|analysis|discussion|literature|'
+    r'next|following|remaining|preceding|section|subsection|paragraph)\b|'
+    r'what\s+(?:follows|precedes)\b)', re.I)
+
+_RELATIONAL = re.compile(
+    r'\b(?:agree\w*|consist\w*|converg\w*|corroborat\w*|reconcil\w*|contradic\w*|conflict\w*|'
+    r'comparab\w*|incomparab\w*|answers?\w*|questions?\b|weigh\w*|weight|confidence|threats?\b|'
+    r'robust\w*|strong\w*|stronger|weaker|outweigh\w*|carr(?:y|ies|ied)|buys?|mechanism\w*|'
+    r'need(?:s)? not|not the same|same one|holds?\b|limit\w*|differ\w*|constraint\w*|recur\w*|'
+    r'empirical|not merely|not equally|able to show|do(?:es)? not|more than either)\b', re.I)
+
+
+def _frame_ok(text: str) -> bool:
+    """POSITIVE structural proof + fail-safe reject. A premise-free cohesion sentence ships ONLY if it is
+    a document-structure frame that asserts no relation about the evidence. The three Sol V11 exemplars
+    ('their agreement carries more weight...', 'the answer is not the same one.', '...the same mechanisms
+    need not hold.') fail BOTH tests and are dropped."""
+    t = (text or '').strip()
+    if not _STRUCT_SUBJECT.match(t):
+        return False
+    if _RELATIONAL.search(t):
+        return False
+    return True
 
 
 def _phrase(bank: dict, facet: str, a: str, bb: str, salt: int) -> str:
@@ -242,8 +285,12 @@ def _norm(s: str) -> str:
     return re.sub(r'[^a-z0-9 ]', '', re.sub(r'\s+', ' ', (s or '').lower())).strip()
 
 
-def _reorder(paras: list, b: CardBundle) -> list:
+def _reorder(paras: list, b: CardBundle, enable: bool = ENABLE_REORDER) -> list:
     """Reorder paragraphs WITHIN a subsection so the analytical movement is monotone rather than random.
+
+    OFF BY DEFAULT (SOL V11): with `enable=False` the writer's order is returned untouched, because a
+    reorder can silently change the antecedent of a cross-paragraph anaphor and this pass does not model
+    discourse dependencies. The greedy chain below runs only when a caller explicitly opts in.
 
     CONSERVATIVE BY CONSTRUCTION:
       * a paragraph holding a planner VERDICT (Owned with premises) is PINNED — it adjudicates the
@@ -259,6 +306,8 @@ def _reorder(paras: list, b: CardBundle) -> list:
         A reorder that does not measurably improve cohesion is not applied, because every reorder
         risks breaking an anaphor the writer wrote.
     """
+    if not enable:
+        return paras                       # SOL V11: safe default is NO reorder
     if len(paras) < 3:
         return paras
     movable = [p for p in paras if not p.has_synthesis and p.facets(b)]
@@ -289,8 +338,11 @@ def _reorder(paras: list, b: CardBundle) -> list:
     return out
 
 
-def apply(nodes: list, b: CardBundle, verbose: bool = False) -> tuple[list, dict]:
-    """-> (new_nodes, report). The ONLY entry point. Attributed nodes pass through UNTOUCHED."""
+def apply(nodes: list, b: CardBundle, verbose: bool = False,
+          enable_reorder: bool = ENABLE_REORDER) -> tuple[list, dict]:
+    """-> (new_nodes, report). The ONLY entry point. Attributed nodes pass through UNTOUCHED.
+
+    `enable_reorder` defaults to OFF (SOL V11): paragraph order is preserved unless a caller opts in."""
     blocks = paragraphs_of(nodes)
     stats = collections.Counter()
     used: set = set()                       # normalised text of every OWNED sentence already emitted
@@ -308,8 +360,8 @@ def apply(nodes: list, b: CardBundle, verbose: bool = False) -> tuple[list, dict
             continue
         _, sub, paras = blk
 
-        # ---- (3) REORDER, within the subsection only.
-        new_order = _reorder(paras, b)
+        # ---- (3) REORDER, within the subsection only (OFF by default -- see _reorder / ENABLE_REORDER).
+        new_order = _reorder(paras, b, enable_reorder)
         if [p.idx for p in new_order] != [p.idx for p in paras]:
             stats['reordered_subsections'] += 1
         paras = new_order
@@ -356,11 +408,17 @@ def apply(nodes: list, b: CardBundle, verbose: bool = False) -> tuple[list, dict
                             add.append(Owned(text=txt, premise_ids=()))
                         break
 
-            # ---- THE SAME GATE THAT JUDGES THE MODEL JUDGES THIS PASS. A sentence this file wrote
-            # that does not survive `validate_report` is DROPPED. It is not repaired, and it is
-            # certainly not exempt: the abstract's author was caught by this lane twice.
             keep = []
             for n in add:
+                # ---- SOL V11 STRUCTURAL FIREWALL. A premise-free cohesion node may express ONLY document
+                # structure. Any sentence asserting a relation about the evidence (comparability,
+                # agreement, strength, limits) is DROPPED here, BEFORE the frame-judge — which would call
+                # it "reviewer framing" and let a proofless relation ship.
+                if not _frame_ok(n.text):
+                    stats['owned_refused_nonstructural'] += 1
+                    continue
+                # ---- THE SAME GATE THAT JUDGES THE MODEL JUDGES THIS PASS. A sentence this file wrote
+                # that does not survive `validate_report` is DROPPED — not repaired, never exempt.
                 if validate_report([n], b):
                     stats['owned_refused_by_gate'] += 1
                     continue
@@ -446,6 +504,34 @@ def _self_test() -> int:
     print(f"  [{'PASS' if c5 else '**FAIL**'}] the pass never CONSTRUCTS an Attributed node or a Clause "
           f'(AST-checked)')
     ok &= c5
+
+    # 6. SOL V11 — THE STRUCTURAL FIREWALL. A premise-free cohesion node may express ONLY document
+    #    structure. These three carry a FABRICATED RELATION (agreement / comparability / mechanism) with
+    #    no premise IDs and no proof, and must be REJECTED by _frame_ok.
+    bad = ['their agreement carries more weight than either alone.',
+           'the answer is not the same one.',
+           'over the long-term horizon the same mechanisms need not hold.']
+    c6 = not any(_frame_ok(s) for s in bad)
+    print(f"  [{'PASS' if c6 else '**FAIL**'}] _frame_ok REJECTS all 3 Sol V11 relation-smuggling sentences")
+    ok &= c6
+
+    # 7. ...while a genuine STRUCTURAL transition SHIPS -- both the exemplar and every sanitized template.
+    good = ['The next section considers safety outcomes.',
+            'The evidence to this point is measured at the worker level; what follows is measured at '
+            'the firm level.',
+            'The findings to this point rest on observational evidence; those that follow rest on '
+            'experimental evidence.',
+            'The evidence here is drawn from manufacturing.']
+    c7 = all(_frame_ok(s) for s in good)
+    print(f"  [{'PASS' if c7 else '**FAIL**'}] a structural transition SHIPS (exemplar + sanitized "
+          f'templates all pass _frame_ok)')
+    ok &= c7
+
+    # 8. REORDER IS OFF BY DEFAULT. ENABLE_REORDER is False and _reorder returns the writer's order.
+    seq = [Para([a1], 'x', 0), Para([a2], 'x', 1), Para([a1], 'x', 2)]
+    c8 = (ENABLE_REORDER is False) and ([p.idx for p in _reorder(seq, b)] == [0, 1, 2])
+    print(f"  [{'PASS' if c8 else '**FAIL**'}] paragraph reorder is OFF by default (ENABLE_REORDER=False)")
+    ok &= c8
 
     print(f'\n{"COHESION PASS: SAFE." if ok else "** COHESION PASS IS UNSAFE **"}  {rep}')
     return 0 if ok else 1

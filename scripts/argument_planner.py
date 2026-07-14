@@ -1552,6 +1552,23 @@ def self_test() -> int:
           pmf.eligible and pmf.adjudicable,
           f'Prediction Machines was excluded as a forecast: {(pmf.not_adjudicable or [""])[0][:60]}')
 
+    # 12c. GENERALITY OF THE OWNERSHIP/MODALITY SCREENS (Sol V11). The screens must key on the SHAPE
+    #      of second-hand attribution and projection, not on this discipline's citation punctuation.
+    #      A named subject reporting a result ("Brown demonstrated that ...") is second-hand even with
+    #      no "(Year)"; "is anticipated to" / "is poised to" are projections the first list never saw.
+    sh2 = mk('sh2', '10.7/t', 'Brown demonstrated that the drug reduced mortality.',
+             'patient', 'observational', 'short-run')
+    sh2f = derive_facets(sh2, ct)
+    check('a NAMED SUBJECT + reporting verb + "that" is second-hand without a "(Year)" (discipline-neutral)',
+          not sh2f.eligible,
+          (sh2f.ineligibility or ['ADMITTED — "Brown demonstrated that" would print under this paper'])[0][:88])
+    for span, cue in (('The drug is anticipated to reduce mortality.', 'is anticipated to'),
+                      ('The treatment is poised to improve survival.', 'is poised to')):
+        fcf2 = derive_facets(mk('fx', '10.8/s', span, 'patient', 'review', 'long-run'), ct)
+        check(f'a projection ("{cue}") is not adjudicable but stays citable',
+              not fcf2.adjudicable and fcf2.eligible,
+              (fcf2.not_adjudicable or ['ADMITTED — a projection would be weighed against a measurement'])[0][:88])
+
     # 13. ...and neither can reach a BUNDLE. (The real corpus built 4 of its 5 "genuine conflicts" on
     #     exactly these before they were excluded.)
     real_c = mk('ok', '10.5/v', 'automation reduces employment across the economy', 'economy',
