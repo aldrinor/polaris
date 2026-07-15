@@ -1,0 +1,19 @@
+# POLARIS Champion 0.4447 — artifact manifest (identity lock)
+# Code lineage: repo aldrinor/polaris, branch bot/outline-agent-box, commit df4118aea28da0b58b2d595eba7c9362563c5772
+# Generated 2026-07-15. Verify with: sha256sum -c MANIFEST.sha256 (paths relative to the code worktree /home/polaris/wt/outline_agent unless noted)
+
+# --- Champion output (in this SECURED folder) ---
+50bdf50ccc7a2a24e412d4b396bbd7c3afc37cca80bc14e31932152452b53ce7  champion_0.4447_report.md
+
+# --- Byte-identical compose artifact (proves the mechanism run == champion) ---
+50bdf50ccc7a2a24e412d4b396bbd7c3afc37cca80bc14e31932152452b53ce7  outputs/step3_control/report.md
+25ae9c14be7b90c985435395bbe2047b2adcbe1365a96ea57bd508283104bdaf  outputs/step3_control/bibliography.json
+
+# --- Reproduction corpus (in code worktree data/; NOT yet git-tracked — see PIPELINE_FULL_BODY.md punch-list) ---
+7cda7a8f7ad1a91c96c1d1c673877fd2ffd6a89415d95db617d0090de35dbe73  data/cp4_corpus_s3gear_329.json
+94684212397010533c45ae66d4b7eacbf5178405c0943c9b12d0c36bc2df409b  data/cp3_s3gear_329basket_snapshot.json
+93db5076995d74e7158a474bd41fc89cf9b933bd3d719e9c4045e2649c2b982c  data/cp2_evidence_pool_snapshot.json
+
+# --- External canonical snapshots (in /workspace/POLARIS; at-risk on worktree detach) ---
+c2aae4b741076deef0fc91d00efc41b4e4d7c2aef4fcf4b382d9bec3e88fcfe7  /workspace/POLARIS/outputs/s2_hamster_i1/cp2_corpus_snapshot.json
+3439753a29a0cb5c16ab287ddddc073c2e6a5b708a9bf133dead04ed3ffa6fc2  /workspace/POLARIS/outputs/paid_drb72_deep/workforce/drb_72_ai_labor/corpus_snapshot.json
