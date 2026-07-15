@@ -1,0 +1,31 @@
+{
+  "schema_version": "intake-contract-v1",
+  "description": "Unified intake contract envelope (design plan section 1). Metadata only: it records what the prompt asked for and enforces nothing. Compiled once at query entry behind PG_INTAKE_CONTRACT_COMPILE (default off).",
+  "field_conventions": {
+    "explicit_field": ["value", "verbatim_span", "origin", "strength", "operator"],
+    "origin": ["user_explicit", "inferred_default", "profile_default", "unspecified"],
+    "strength": ["hard", "soft", "default"],
+    "operator": ["allow_only", "forbid", "require_some", "prefer", "include", "exclude"]
+  },
+  "floor_subblocks": {
+    "user_constraints": "UserConstraints.to_dict() (date window / language / journal-only-dormant)",
+    "scope_constraints": "ScopeConstraints.to_dict() (source-type / jurisdiction facets + named sources)",
+    "instruction_slots": "InstructionSlot.to_dict()[] (comparison / enumeration / topic / structure)"
+  },
+  "normalized_fields": [
+    "date_window", "language", "required_sections",
+    "tone", "audience", "output_language", "format", "length",
+    "specific_instructions", "success_criteria", "assumptions", "warnings"
+  ],
+  "source_rules": {
+    "status": "SCAFFOLD_ONLY",
+    "enforcement_disabled": true,
+    "note": "Populated for disclosure only. NOTHING wires this to filter or mask the citeable corpus. journal-only stays DORMANT per operator veto. Activation requires operator sign-off + a full-benchmark A/B (design plan Phase 3, consult-first)."
+  },
+  "safety": {
+    "faithfulness": "The compiler reads/writes no strict_verify / provenance / faithfulness path. It produces intake metadata only.",
+    "floor_non_droppable": "The deterministic floor always runs; the LLM enrich may add fields but never removes floor detections.",
+    "span_gate": "Every LLM-claimed HARD narrowing field (a date year, a source language) is admitted only if its own verbatim/typed proof appears in the question; failed proof degrades loudly into warnings[].",
+    "degraded_mode": "llm_fn=None or any LLM failure yields a floor-only contract; an all-empty contract behaves like a flags-off run."
+  }
+}

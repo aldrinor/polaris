@@ -353,6 +353,36 @@ async def main() -> int:
              audit["bibliography_entries"], audit["unresolved_markers"],
              "PASS" if faithful else "FAIL")
 
+    # Part 3 (feat/intake-contract): NON-BLOCKING post-write structure/format CHECKER.
+    # Gated on PG_POSTWRITE_STRUCTURE_CHECK (default OFF). It compares the FINISHED
+    # report to a contract built from the PURE regex floor and LOGS an adherence
+    # summary. It changes NOTHING in the report and touches NOTHING in the
+    # faithfulness engine — `faithful` and the exit code below never read it. With
+    # the flag OFF, `adherence` stays None: no new summary key, no sidecar, no log
+    # line => byte-identical to today.
+    from src.polaris_graph.generator.postwrite_structure_check import (  # noqa: PLC0415
+        postwrite_check_enabled as _postwrite_check_enabled,
+    )
+    adherence = None
+    if _postwrite_check_enabled():
+        try:
+            from src.polaris_graph.generator.postwrite_structure_check import (  # noqa: PLC0415
+                build_floor_contract, check_report_against_contract,
+            )
+            _contract = build_floor_contract(rq)
+            adherence = check_report_against_contract(
+                final_report, _contract, biblio,
+                getattr(multi, "total_words", None) or len(final_report.split()),
+            )
+            log.info("[structure-adherence] sections=%s length=%s citation=%s "
+                     "source_rule=%s (enforced=%s)",
+                     adherence["sections"]["status"], adherence["length"]["status"],
+                     adherence["citation_style"]["status"],
+                     adherence["source_rules"]["status"], adherence["enforced"])
+        except Exception as _e:  # noqa: BLE001 — observe-only; never break the run
+            log.warning("[structure-adherence] checker failed (%s) — skipped (non-blocking)", _e)
+            adherence = None
+
     summary = {
         "corpus": corpus_path.name,
         "judged_drb_task": args.rq_drb_task or None,
@@ -386,6 +416,14 @@ async def main() -> int:
         "elapsed_seconds": round(dt, 1),
         "out_dir": str(run_dir),
     }
+    # Part 3 (feat/intake-contract): fold the adherence result in ONLY when the
+    # checker ran (flag on). Flag off => `adherence is None` => no summary key and no
+    # sidecar file, so the compose_summary.json + run_dir are byte-identical to today.
+    if adherence is not None:
+        summary["structure_adherence"] = adherence
+        (run_dir / "contract_adherence.json").write_text(
+            json.dumps(adherence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
     (run_dir / "compose_summary.json").write_text(
         json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     log.info("WROTE %s (%d chars, %d words) + compose_summary.json",

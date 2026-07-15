@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -422,3 +423,72 @@ class SectionBlueprint:
             from src.utils.embedding_service import embed_texts
             self._embed_fn = embed_texts
         return self._embed_fn
+
+
+# ---------------------------------------------------------------------------
+# O2 instruction-slot consumer (feat/intake-contract, 2026-07-15)
+# ---------------------------------------------------------------------------
+
+def _spec_haystack(spec: "SectionSpec") -> str:
+    """The lowercased text a slot entity is matched against (title + description +
+    routing keywords)."""
+    return " ".join([
+        spec.title or "", spec.description or "", spec.search_keywords or "",
+    ]).lower()
+
+
+def bind_instruction_slots(
+    specs: list["SectionSpec"],
+    instruction_slots: "list[dict[str, Any]] | None",
+) -> list["SectionSpec"]:
+    """NEW O2 consumer: bind each extracted instruction slot to the blueprint.
+
+    For every slot, each requested entity is matched (case-insensitive substring)
+    against the section title / description / search_keywords. When ALL of a slot's
+    entities are covered by some section the slot's ``satisfied`` flag is flipped to
+    True. When an entity is NOT covered by any section, the best-matching existing
+    section is marked ``is_thin`` so targeted retrieval/composition develops it —
+    the ``satisfied``/THIN hook the InstructionSlot docstring anticipates.
+
+    This is ADD-ONLY organize behavior (DNA §-1.3): it drops NO evidence and NO
+    source, adds no filter or cap, and never touches the faithfulness engine. It
+    mutates the passed ``specs`` (is_thin) and the passed slot dicts (satisfied)
+    IN PLACE and returns ``specs``.
+
+    Gated on ``instruction_slots`` being non-empty: with None/[] the function
+    returns ``specs`` UNCHANGED so the flag-off path is byte-identical. It also
+    early-returns when there are no specs (nothing to bind — a zero-evidence
+    blueprint stays a placeholder; we never resurrect a section here).
+    """
+    if not instruction_slots or not specs:
+        return specs
+
+    haystacks = [_spec_haystack(s) for s in specs]
+
+    for slot in instruction_slots:
+        if not isinstance(slot, dict):
+            continue
+        entities = [str(e).strip() for e in (slot.get("entities") or []) if str(e).strip()]
+        if not entities:
+            continue
+        all_covered = True
+        for ent in entities:
+            ent_low = ent.lower()
+            covered_idx = [i for i, h in enumerate(haystacks) if ent_low in h]
+            if covered_idx:
+                continue
+            all_covered = False
+            # Entity uncovered: mark the best token-overlap section THIN so retrieval
+            # targets it. Never append/resurrect a section (respects the no-evidence
+            # placeholder rule); if nothing overlaps, leave specs untouched.
+            best_i, best_overlap = -1, 0
+            ent_tokens = set(re.findall(r"[a-z0-9]+", ent_low))
+            for i, h in enumerate(haystacks):
+                overlap = len(ent_tokens & set(re.findall(r"[a-z0-9]+", h)))
+                if overlap > best_overlap:
+                    best_i, best_overlap = i, overlap
+            if best_i >= 0:
+                specs[best_i].is_thin = True
+        slot["satisfied"] = all_covered
+
+    return specs

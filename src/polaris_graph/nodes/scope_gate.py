@@ -179,6 +179,23 @@ class ProtocolDocument:
     # difference vs today). Read by the scope enforcer only; no abort/approval/release gate.
     scope_constraints: dict[str, Any] = field(default_factory=dict)
 
+    # O2 (2026-07-15, feat/intake-contract): explicit-instruction slots extracted
+    # from the research question (comparison / enumeration / topic / structure).
+    # Populated ONLY when PG_EXTRACT_INSTRUCTION_SLOTS=1 (default OFF); empty list
+    # otherwise. to_json_dict() OMITS this key entirely when empty so the OFF path
+    # is byte-identical protocol.json (stricter than the scope_constraints inert-key
+    # precedent). ADDITIVE metadata only: it drops no source and never touches the
+    # faithfulness engine.
+    instruction_slots: list[dict[str, Any]] = field(default_factory=list)
+
+    # Part 1 (2026-07-15, feat/intake-contract): the compiled unified intake
+    # contract (SHADOW only). Optional[dict]=None (NOT default_factory) so
+    # to_json_dict() can pop it when None => the OFF path emits NO new key
+    # (byte-identical). Populated ONLY when PG_INTAKE_CONTRACT_COMPILE=1 (default
+    # OFF). SHADOW: recorded, never consumed for filtering; source_rules enforcement
+    # is disabled (operator sign-off + full-benchmark A/B required per the plan).
+    intake_contract: Optional[dict[str, Any]] = None
+
     # Conflict-of-interest / funding-source filters
     excluded_sponsors: list[str] = field(default_factory=list)
 
@@ -207,6 +224,14 @@ class ProtocolDocument:
         # Convert tuple to dict for stable JSON
         start, end = self.date_range
         data["date_range"] = {"start": start, "end": end}
+        # feat/intake-contract byte-identity: the two NEW additive fields emit NO
+        # protocol.json key on their OFF/empty path, so a flags-off protocol.json is
+        # byte-identical to today (not merely semantically inert). When their flags
+        # are ON and they carry content, the keys appear.
+        if not self.instruction_slots:
+            data.pop("instruction_slots", None)
+        if self.intake_contract is None:
+            data.pop("intake_contract", None)
         return data
 
 
@@ -1058,6 +1083,52 @@ def run_scope_gate(
                     len(_sc.facets), len(_sc.named_include), len(_sc.named_exclude),
                 )
 
+    # O2 (feat/intake-contract): explicit-instruction slots from the research
+    # question. Mirrors the B10/scope sibling blocks: gated on its OWN kill-switch
+    # (PG_EXTRACT_INSTRUCTION_SLOTS, default OFF), deterministic + offline here
+    # (llm_fn=None — no paid/network call at intake). ADDITIVE: records the slots
+    # onto the protocol; it changes NO date_range/languages and drops nothing. OFF
+    # => instruction_slots=[] => no protocol.json key (byte-identical).
+    instruction_slots: list[dict[str, Any]] = []
+    if not scope_rejected:
+        from src.polaris_graph.retrieval.intake_constraint_extractor import (  # noqa: PLC0415
+            extract_instruction_slots,
+            extract_instruction_slots_enabled,
+        )
+        if extract_instruction_slots_enabled():
+            _slots = extract_instruction_slots(research_question)  # llm_fn=None: offline
+            if _slots:
+                instruction_slots = [s.to_dict() for s in _slots]
+                logger.info(
+                    "[scope_gate] O2 instruction-slots extracted: %d required slot(s) [%s]",
+                    len(_slots),
+                    ", ".join(f"{s.kind}:{'/'.join(s.entities)}" for s in _slots),
+                )
+
+    # Part 1 (feat/intake-contract): compile the unified intake contract in SHADOW.
+    # Gated on PG_INTAKE_CONTRACT_COMPILE (default OFF). When OFF the whole block —
+    # including the compiler import and any llm_fn touch — is skipped, so the OFF
+    # path never constructs a contract and protocol.intake_contract stays None
+    # (to_json_dict pops it => byte-identical protocol.json). SHADOW: the compiled
+    # contract is recorded ONLY; it is never consumed to fill date_range/languages
+    # or to drive any filter (source_rules enforcement is disabled — it needs
+    # operator sign-off + a full-benchmark A/B, per the design plan Phase 3). The
+    # floor here is deterministic + offline (llm_fn=None): no paid/network call.
+    intake_contract: Optional[dict[str, Any]] = None
+    if not scope_rejected:
+        from src.polaris_graph.intake.contract_compiler import (  # noqa: PLC0415
+            compile_intake_contract,
+            compile_intake_contract_enabled,
+        )
+        if compile_intake_contract_enabled():
+            _ic = compile_intake_contract(research_question, llm_fn=None)  # offline floor
+            intake_contract = _ic.to_dict()
+            logger.info(
+                "[scope_gate] intake-contract compiled (SHADOW, enforcement disabled): "
+                "empty=%s warnings=%d source=%s",
+                _ic.is_empty(), len(_ic.warnings), _ic.source,
+            )
+
     geography = list(template.get("geography") or [])
     if "geography" in overrides:
         geography = list(overrides["geography"] or [])
@@ -1147,6 +1218,8 @@ def run_scope_gate(
         languages=languages,
         user_constraints=user_constraints,
         scope_constraints=scope_constraints,
+        instruction_slots=instruction_slots,
+        intake_contract=intake_contract,
         excluded_sponsors=excluded_sponsors,
         template_used=template_path_rel,
         user_overrides=overrides,
