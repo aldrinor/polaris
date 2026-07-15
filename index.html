@@ -143,8 +143,8 @@
     <!-- HERO -->
     <header class="hero">
       <p class="kicker">Analysis &middot; Deep Research Benchmark</p>
-      <h1>An open&#8209;weight system leads on citation trust, and trails the frontier on polish.</h1>
-      <p class="lede">On a standard deep&#8209;research benchmark, a self&#8209;hostable open&#8209;weight pipeline matched leading proprietary models on overall quality and produced the highest share of independently verifiable citations among five systems tested. It did not lead on writing quality, where two frontier models scored higher.</p>
+      <h1>An open&#8209;weight research system leads on citation trust &mdash; but not on polish.</h1>
+      <p class="lede">Five deep&#8209;research systems ran the same task. One is open&#8209;weight, and any company can host it on its own servers. It backed its report with more verified citations than any rival. On overall quality, it matched the leading proprietary models. On writing, it did not lead. Two frontier systems scored higher.</p>
 
       <div class="stats">
         <div class="stat">
@@ -170,7 +170,7 @@
     <section>
       <p class="eyebrow">The field</p>
       <h2>Five systems, one task, one scorer.</h2>
-      <p class="narrow">Each system was run through the same harness &mdash; a GPT&#8209;5.5 judge for quality, live&#8209;URL scraping for citation faithfulness. On overall quality the systems clustered within a few points. They diverged sharply on how well their citations held up.</p>
+      <p class="narrow">Every system ran through the same scoring harness. A GPT&#8209;5.5 model judged quality. A separate check scraped each cited page to see whether it backed the claim. On quality, the five finished within a few points of one another. On citations, they split sharply.</p>
       <div class="card">
         <table>
           <thead>
@@ -211,7 +211,7 @@
     <section>
       <p class="eyebrow">Two measures of faithfulness</p>
       <h2>Accuracy and volume rarely travel together.</h2>
-      <p class="narrow">Citation trustworthiness has two components: whether each cited source actually supports its claim, and how many claims are backed at all. In the test, most systems scored well on one and poorly on the other. Only the open&#8209;weight pipeline landed in the top&#8209;right &mdash; high accuracy <em>and</em> high volume.</p>
+      <p class="narrow">A citation can fail two ways. The source may not support the claim. Or the report may cite too little to stand on. Most systems did well on one and poorly on the other. Only the open&#8209;weight pipeline did well on both.</p>
       <div class="chartcard">
         <svg viewBox="0 0 720 470" role="img" aria-label="Scatter plot of citation accuracy versus verified citations">
           <rect x="401" y="30" width="279" height="150" fill="rgba(48,209,88,0.10)" rx="4"/>
@@ -255,22 +255,22 @@
           <text x="565" y="50" text-anchor="end" class="ptlab" style="fill:#fff;font-weight:640">Open-weight pipeline</text>
           <text x="565" y="68" text-anchor="end" class="ptlab" style="fill:#30d158">90.3% &middot; 84 verified</text>
         </svg>
-        <p class="cap">Grok matched the top accuracy (91%) but on only 11 citations &mdash; a figure one citation could move nine points. The open&#8209;weight pipeline&rsquo;s 90.3% rests on 84. A review backed by 84 verified sources differs materially from one backed by 10.</p>
+        <p class="cap">Grok&rsquo;s accuracy was just as high, at 91%. But it rested on only 11 citations. There, a single one would move the figure nine points. The open&#8209;weight pipeline&rsquo;s 90% rests on 84. Eighty&#8209;four checked sources is a sturdier base than 10.</p>
       </div>
     </section>
 
     <!-- COST -->
     <section>
       <p class="eyebrow">Running cost &amp; data footprint</p>
-      <h2>On&#8209;premises, at commodity cost.</h2>
+      <h2>Runs in&#8209;house, at low cost.</h2>
       <div class="costgrid">
         <div class="costcard">
           <div class="big">~2.0M</div>
-          <p style="margin-top:12px">tokens per complete report &mdash; search, distillation, writing, and verification, end to end (~1.9M I/O + 0.12M reasoning).</p>
+          <p style="margin-top:12px">Tokens to produce one full report, start to finish &mdash; search, writing, and verification.</p>
         </div>
         <div class="costcard">
           <div class="big">~$1&ndash;2</div>
-          <p style="margin-top:12px">per report at commodity open&#8209;weight serving rates. Because the model is open&#8209;weight, it can run entirely on&#8209;premises &mdash; <strong>no per&#8209;token API fees, and no query or document leaves the operator&rsquo;s environment.</strong></p>
+          <p style="margin-top:12px">Per report, at going open&#8209;weight rates. The model is open, so it runs on a company&rsquo;s own servers. <strong>No API fees. No data leaves the building.</strong></p>
         </div>
       </div>
     </section>
@@ -279,7 +279,7 @@
     <section>
       <p class="eyebrow">Inside the pipeline</p>
       <h2>From roughly 900 sources to 84 verified citations.</h2>
-      <p class="narrow">The system does not pass search results straight into prose. It grades sources by credibility, removes duplicates, counts how many independent sources corroborate each finding, and discards any citation it cannot verify against a live source.</p>
+      <p class="narrow">The system does not turn raw search results into prose. It grades each source. It drops duplicates. It counts how many independent sources back each finding. Then it discards any citation it cannot verify against a live page.</p>
       <div class="funnel">
         <div class="fstep"><div class="fn">856</div><div class="fl">distinct sources retrieved</div></div>
         <div class="fstep"><div class="fn">997</div><div class="fl">evidence spans, grounded to quotes</div></div>
@@ -293,32 +293,32 @@
       <p class="eyebrow">How it works</p>
       <h2>Ten stages, one principle: verify, then keep.</h2>
       <div class="arch">
-        <div class="astep"><div class="idx">01</div><div><h3>Query planning</h3><p>The question is expanded into a structured search program &mdash; sub&#8209;questions and targeted queries across every facet.</p></div></div>
-        <div class="astep"><div class="idx">02</div><div><h3>Multi&#8209;source retrieval</h3><p>Parallel search across academic literature, the open web, and official statistical agencies.</p></div></div>
-        <div class="astep"><div class="idx">03</div><div><h3>Span&#8209;grounded extraction</h3><p>Evidence is pulled as verbatim quotes with exact source location &mdash; each claim grounded in real text, not paraphrase.</p></div></div>
-        <div class="astep"><div class="idx">04</div><div><h3>Credibility tiering</h3><p>Every source is graded into a 7&#8209;tier hierarchy, driving a source&#8209;eligibility filter toward the strongest evidence.</p></div></div>
-        <div class="astep"><div class="idx">05</div><div><h3>Dedup &amp; corroboration</h3><p>Findings are matched by inference, duplicate&#8209;source groups collapsed, and cross&#8209;source agreement counted per finding.</p></div></div>
-        <div class="astep"><div class="idx">06</div><div><h3>Structured corpus</h3><p>The graded, deduplicated, corroborated evidence becomes the single structured input to writing.</p></div></div>
-        <div class="astep"><div class="idx">07</div><div><h3>Iterative outline agent</h3><p>A self&#8209;correcting reason&#8209;act loop builds the structure, checking coverage against the evidence under a bounded budget.</p></div></div>
-        <div class="astep"><div class="idx">08</div><div><h3>Parallel section writers</h3><p>Multiple writers generate analytical prose in parallel, each grounded in its assigned evidence spans.</p></div></div>
-        <div class="astep key"><div class="idx">09</div><div><h3>Faithfulness verification</h3><p>Every claim is re&#8209;checked against its cited span. Unverifiable claims are <strong>removed &mdash; not softened.</strong> This step drives the 90.3% accuracy.</p></div></div>
-        <div class="astep"><div class="idx">10</div><div><h3>Assembly</h3><p>Sections are stitched, citations deduplicated and renumbered, and the final report rendered with tiered references.</p></div></div>
+        <div class="astep"><div class="idx">01</div><div><h3>Query planning</h3><p>The question is broken into sub&#8209;questions and search queries.</p></div></div>
+        <div class="astep"><div class="idx">02</div><div><h3>Multi&#8209;source retrieval</h3><p>The system searches academic journals, the open web, and official statistics agencies at once.</p></div></div>
+        <div class="astep"><div class="idx">03</div><div><h3>Grounded extraction</h3><p>Evidence is saved as exact quotes, each tagged with its source. Nothing is paraphrased.</p></div></div>
+        <div class="astep"><div class="idx">04</div><div><h3>Credibility tiering</h3><p>Every source is graded on a 7&#8209;tier scale. Weak sources are filtered out.</p></div></div>
+        <div class="astep"><div class="idx">05</div><div><h3>Dedup &amp; corroboration</h3><p>Duplicate findings are merged. The system counts how many sources agree on each one.</p></div></div>
+        <div class="astep"><div class="idx">06</div><div><h3>Structured corpus</h3><p>The graded, deduplicated evidence becomes the single input to writing.</p></div></div>
+        <div class="astep"><div class="idx">07</div><div><h3>Outline agent</h3><p>An agent drafts the outline, checks it against the evidence, and revises. It stops after a set number of passes.</p></div></div>
+        <div class="astep"><div class="idx">08</div><div><h3>Parallel writers</h3><p>Several writers draft sections at once. Each is tied to its own evidence.</p></div></div>
+        <div class="astep key"><div class="idx">09</div><div><h3>Faithfulness check</h3><p>Every claim is checked against its source. Claims that do not hold up are cut, not softened. This drives the 90% accuracy.</p></div></div>
+        <div class="astep"><div class="idx">10</div><div><h3>Assembly</h3><p>Sections are joined, citations renumbered, and the final report rendered with its sources.</p></div></div>
       </div>
-      <p class="mute" style="font-size:15px;margin-top:22px">The underlying model is a leading open&#8209;weight, MIT&#8209;licensed mixture&#8209;of&#8209;experts model &mdash; fully self&#8209;hostable.</p>
+      <p class="mute" style="font-size:15px;margin-top:22px">The model itself is a leading open&#8209;weight, MIT&#8209;licensed system. It runs on your own hardware.</p>
     </section>
 
     <!-- STRENGTHS / LIMITS -->
     <section>
       <p class="eyebrow">Strengths and limits</p>
-      <h2>An edge in verifiability, not fluency.</h2>
+      <h2>Strong on trust, not on style.</h2>
       <div class="cols">
         <div class="pcard">
           <h3>Where it leads</h3>
-          <p>It produced the most verifiable and most heavily&#8209;cited report of the five, runs on open weights, and can be self&#8209;hosted at low marginal cost with no data leaving the operator&rsquo;s environment.</p>
+          <p>It produced the most verified citations of the five. It runs on open weights. A company can host it cheaply, on its own servers.</p>
         </div>
         <div class="pcard">
           <h3>Where it doesn&rsquo;t</h3>
-          <p>It did not lead on writing quality &mdash; two frontier models scored higher on the composite metric. Its advantage lies in citation trust and operational control rather than prose.</p>
+          <p>It did not write the best report. Two frontier models scored higher on quality. Its edge is trust and control, not style.</p>
         </div>
       </div>
     </section>
@@ -459,7 +459,7 @@
     </section>
 
     <p class="foot">
-      <strong>Methodology.</strong> Five deep-research systems were evaluated on DeepResearch&nbsp;Bench (task&nbsp;72, a literature review on AI and the labor market) using the identical scoring harness. Quality (RACE) was judged by GPT&#8209;5.5 against the benchmark&rsquo;s official reference report. Citation faithfulness (FACT) was measured by extracting each cited claim, scraping the live source URL, and validating support with an automated judge; accuracy is the share of resolved citations a source supports, and verified citations is the count of supported citations. Figures reflect a single benchmark task and are not a full 100-task leaderboard ranking.
+      <strong>Methodology.</strong> Five deep-research systems were tested on one task from DeepResearch&nbsp;Bench: a literature review on AI and the labor market. All ran through the same harness. A GPT&#8209;5.5 model scored quality against the benchmark&rsquo;s reference report. For citations, each claim was matched to its source. The live page was scraped, and an automated judge checked whether the page supported the claim. Accuracy is the share of checked citations that held up. Verified citations is the number that held up. The figures cover one task, not a full leaderboard.
     </p>
 
   </div>
