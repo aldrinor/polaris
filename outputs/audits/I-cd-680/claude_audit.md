@@ -1,3 +1,0 @@
-# Claude audit — I-cd-680 (#680)
-
-Real-run resolution for follow-up (#542) + compare (#543), per Codex scope-consult Option B. New `artifact_to_evidence_contract.py` builds a typed EvidenceContract from a real artifact_dir via build_slice_chain; `bundle.py` shared `load_evidence_contract_for_run` (golden fixture OR real run) mirrors the bundle.tar.gz release gates (abort→422, not-is_dir→404, release_allowed=False→422); followup/compare/bundle wired to it. No fabricated source-doc offsets (SourceSpan self-offset; full capability deferred to #710). 48 tests pass. Codex iter-2 APPROVE + MERGE AUTHORIZED (iter-1 2 P1 release-gate + missing-dir both fixed).

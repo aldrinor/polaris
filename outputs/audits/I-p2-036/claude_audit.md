@@ -1,2 +1,0 @@
-# Claude audit — I-p2-036 (#795)
-Real canonical demo bundle from real tirzepatide run replaces placeholder fabricated proof. 8 span-verified claims/4 sections/4 real sources (NEJM/Lancet). §-1.1 numeric-fidelity gate (token-strip + every-number-in-span); 1 claim dropped. All 9 shipped spans INDEPENDENTLY re-verified VERIFIED. Signature honestly absent (option b). Inspector 200 + real proof renders (screenshot-verified). Codex APPROVE iter1; P2s (honest tiers, whitespace) fixed.

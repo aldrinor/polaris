@@ -1,2 +1,0 @@
-# Claude audit — I-p2-028 (#767)
-Braille flying maple-leaf signature (operator-locked design): three.js→offscreen→exact U+2800 bitmask, Canada-red on white, gentle motion, reduced-motion static, aria-hidden, lazy (three out of initial bundle), home+sign-in only. Rendered-verified via standalone harness + sent to operator. Codex brief iter2 (lazy/webgl/braille corrections) + diff iter2 APPROVE (IO-pause + dispose fixes). Stylized ~5-lobe silhouette — recognizable; refinement is an optional operator tweak.

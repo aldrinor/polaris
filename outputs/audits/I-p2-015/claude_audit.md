@@ -1,2 +1,0 @@
-# Claude audit — I-p2-015 (#754)
-Plan-review = run-start surface (unblocks #761). Re-runs full runIntake gate on mount; question immutable; Start gated to in_scope+disambiguation-resolved (+ onStart defense-in-depth re-assert); createRun -> /runs/[id]; ConcurrentRunError handled; intake "Continue to plan" handoff same PR. Brief APPROVE iter2 (3 safety P1s fixed: real gate, no uploads, all unsafe statuses). Diff APPROVE iter1. Screenshot-verified.

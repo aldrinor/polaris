@@ -1,9 +1,0 @@
-PARTIAL
-
-- [LOW] [`_is_visually_empty_text`](</C:/POLARIS/src/polaris_graph/audit_ir/beat_both_scoring.py:207>) is still incomplete for the same `_is_frame_field_populated` boundary. The helper only skips `isspace()` plus `Cf/Cc/Cn/Co/Cs` at [line 220](</C:/POLARIS/src/polaris_graph/audit_ir/beat_both_scoring.py:220>), so invisible `Mn` code points still count as populated. I verified that U+034F `COMBINING GRAPHEME JOINER`, U+FE0F `VARIATION SELECTOR-16`, and U+180B `MONGOLIAN FREE VARIATION SELECTOR ONE` all return not-empty, and a claim with `ci="\u034f"` still scores complete (`claim_frames == 1.0`). The new test at [line 757](</C:/POLARIS/tests/polaris_graph/test_md9_phase2_beat_both.py:757>) covers Cf examples only, so `52/52` passing does not close this remaining same-predicate leak.
-
-- Assumption: standalone CGJ / variation selectors / Mongolian free variation selectors should be treated as non-content because they have no standalone visible rendering. If the intended boundary is narrower than “visually empty,” the helper and docstring should say that explicitly.
-
-- Verified separately: the round-3 whitespace finding is closed. `"   "` and `"\t\n"` are now treated as missing, and `python -m pytest -q tests\polaris_graph\test_md9_phase2_beat_both.py` passed all 52 tests on `56b0a44`.
-
-final-word: same-predicate Unicode-emptiness convergence is not done yet; do not lock the boundary.

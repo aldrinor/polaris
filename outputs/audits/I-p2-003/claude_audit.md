@@ -1,2 +1,0 @@
-# Claude audit — I-p2-003 (#742)
-Design system → white + Canada-red #C8102E. Claude visual audit (screenshot via standalone harness): red renders confident on white. Codex design+diff 3 iters caught real issues: verified-green AA (4.38→fixed), focus-ring /50→/70 repo-wide (5 files), red-on-red destructive collision, @theme export gap → all fixed. APPROVE + MERGE AUTHORIZED. Deferred P2 follow-ups: dark-mode tuning (post-demo), hardcoded-blue component migration.

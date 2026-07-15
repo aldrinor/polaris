@@ -1,2 +1,0 @@
-# Claude audit — I-p2-p0 (#789)
-Inspector/centerpiece 500→200. Ship canonical fixture to web/public/canonical_bundles (prod-readable via process.cwd()/public; Dockerfile COPYs public→/app/public) + graceful try/catch (never 500) + typeof guard (proto-name runIds). Codex iter1 caught gitignored reasoning_trace.jsonl (would break clean Docker) → force-tracked + .gitignore exception; iter2 caught proto-pollution 500 → typeof guard. Verified 200 on canonical/toString/__proto__. Live re-verify post-redeploy.

@@ -1,2 +1,0 @@
-# Claude audit — I-p2-037 (#794)
-Proof-as-hero home: ProofShowcase (server component) leads with a REAL verified claim + exact real source span from the #795 bundle; links to full Proof Replay. Honest: verifier_pass===true gate + resolveSpan-only render (null if unresolved). Codex iter-1 caught the missing verifier_pass gate (could show a failed sentence as verified) → fixed. Screenshot-verified desktop+mobile. Far denser/premium than the prior empty home.

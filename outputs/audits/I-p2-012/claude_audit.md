@@ -1,2 +1,0 @@
-# Claude audit — I-p2-012 (#751)
-KG stylesheet aligned to #742 (no rebuild of claim_graph.tsx). Codex brief 5 iters (caught frame/amber/edge contrast under 3:1 + state-precedence red-must-win) + diff 2 iters (caught cytoscape valign-top label bug) — all real top-tier findings, fixed. Red reserved for selection (scarcity); muted slate types; amber contradiction. Visual verifies in-context at KG page #758.

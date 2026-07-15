@@ -1,2 +1,0 @@
-# Claude audit — I-p2-029 (#768)
-Unified PRIMARY_NAV (was duplicated in both shells) → @/lib/nav single source; added @/lib/roles (5 roles, presentation-only, NOT authorization). Both shells render navForRole(PRIMARY_NAV, DEFAULT_ROLE) = identical 9 items. No visual change (pure refactor + model); build/typecheck green. Codex brief+design+diff APPROVE. P2 follow-up: retire stale nav comments/tests.

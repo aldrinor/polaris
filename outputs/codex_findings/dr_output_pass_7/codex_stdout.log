@@ -1,7 +1,0 @@
-Wrote the final judge audit to:
-
-[findings.md](C:/POLARIS/outputs/codex_findings/dr_output_pass_7/findings.md)
-
-Verdict: `MATERIAL-GAPS-FIX-AND-RESWEEP`.
-
-Key blocker: V16 has real M-27 synthesis gains, but it still contains a fabricated trial/source binding: a SURMOUNT-1 weight-loss sentence is cited to the SURMOUNT-3 Nature Medicine paper. I also flagged the T6 Facebook boxed-warning source and several unverifiable/weak entries.

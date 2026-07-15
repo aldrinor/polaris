@@ -1,5 +1,0 @@
-Completed the final judge audit and wrote findings to [findings.md](C:/POLARIS/outputs/codex_findings/dr_output_pass_8/findings.md).
-
-Verdict: `TOP-TIER-DR-ACHIEVED`
-
-Key result: V17 clears the stop condition: clean eval gate, 13/13 rules passing, 23/24 faithful citation audit, 0 fabricated, 0 embellished, and M-25a hardening appears effective. The only remaining issue is one access-limited PubMed-only entry marked `UNVERIFIABLE`, not a material fabrication.

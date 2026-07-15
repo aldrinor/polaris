@@ -1,2 +1,0 @@
-# Claude audit — I-ui-003 (#542)
-Follow-up answer UI on completed runs. Codex brief APPROVE iter 1 (4 P2 folded). Codex diff APPROVE iter 2 + MERGE AUTHORIZED (iter-1 P1: re-fetch status on run_complete SSE so the panel reveals live). FollowUpAnswer 4-status rendering, rationale-always, provenance chips, 404/validation-422/no-evidence-422 mapping. Smoke: typecheck clean, lint 0 errors, build green. e2e pending #720.

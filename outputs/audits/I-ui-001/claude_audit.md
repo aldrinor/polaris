@@ -1,2 +1,0 @@
-# Claude audit — I-cd-ui-001 (#704)
-Perplexity-style home + cyan-accent tokens. Codex brief APPROVE iter 2 (2 P1 caught at design: primary contrast L0.50, bearer authHeader strip). Codex diff APPROVE iter 1 + MERGE AUTHORIZED (1 P2 zinc-50 fixed). Smoke: typecheck clean, lint 0 errors, npm build succeeds. Preserves home_g1_g8 structure (1 header/nav/main/clinical-link); + hero-search test. Recent-runs strip degrades null on 401/empty (public home, bearer auth).

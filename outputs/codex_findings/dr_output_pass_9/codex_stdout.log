@@ -1,9 +1,0 @@
-Wrote the final-judge audit to:
-
-[findings.md](/C:/POLARIS/outputs/codex_findings/dr_output_pass_9/findings.md)
-
-Verdict: `MATERIAL-GAPS-FIX-AND-RESWEEP`.
-
-Key result: M-28 successfully added and resolved 12/12 T3 regulatory citations, but V18 introduced a regulatory jurisdiction overclaim: it implies FDA boxed-warning/MTC-MEN2 contraindication language is shared by “both agencies,” while EMA SmPC does not match that formal contraindication framing. I counted 33 faithful, 0 fabricated, 2 embellished, 0 unverifiable across the 35-citation audit.
-
-Next fix named in the file: add a regulatory-jurisdiction verifier and rewrite FDA/EMA safety language so FDA boxed warning and contraindications are separated from EMA SmPC contraindications/warnings.
