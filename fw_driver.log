@@ -1,0 +1,113 @@
+=== fw driver start Sun Jul 12 18:11:42 UTC 2026 ===
+The run is in the outline agent's live fold-in fetch phase (which will take a while). Notably this path *does* call `_stamp_and_delete`, so my detector fix is exercised there too. The monitor will notify me when the junk-gate line lands.
+
+Here's where things stand while that completes.
+
+## What I found
+
+I resumed, secured a backup, and then did the line-by-line grounding read of `baseline_routed_outline.json` — which turned up something worse than a quality problem.
+
+**52 failed fetches were being cited as evidence.** Rows titled `"Just a moment..."` whose *body is a ResearchGate/Cloudflare challenge card* ("Security check required… Ray ID… Client IP") were sitting in the corpus as citable T7 sources, grounding report prose. The faithfulness engine cannot catch this: `strict_verify` checks sentence↔span fidelity, and a sentence genuinely *can* be entailed by the text of a challenge card. So chrome passed the only hard gate and still grounded prose on nothing.
+
+Two root causes, both one-liners:
+1. **The detector was blind.** `classify_block_page` caught **0 of 52** — RG's card carries none of the classic Cloudflare wording the rules key on. (A `>=200 char` "Zyte-recovery guard" also shadows the title screen, making it unreachable for these rows.)
+2. **The gate was dead code.** `junk_deletion_gate.partition_rows` — the §-1.3.1 chrome deletion, DEFAULT-ON, 18 passing tests — was **called by nothing in `src/`**, and its predicate only read a stamp that a pre-built corpus never carries.
+
+## An important correction to the brief
+
+The briefed experiment #1 — a firewall on "relevant + English + **peer-reviewed-journal** + quality; **tier** a prior" — is **explicitly banned** by operator-locked `CLAUDE.md` §-1.3.1: off-topic deletion may happen by semantic-judge verdict *"NEVER by tier, lexical guess, or a breadth number,"* and credible on-topic sources "even low-tier / social / non-journal — are NEVER deleted, only weighted." My lexical relevance pass flagged 56% of the corpus but had false positives (it flagged a T1 Acemoglu-class paper). A naive title-based firewall would also have **destroyed 3 real ScienceDirect papers** that share the stale Cloudflare title but have genuinely recovered bodies. I built the authorized part instead — class (a) chrome non-sources — and left weighting alone.
+
+## Result
+
+53 rows deleted (52 challenge cards + 1 unrecoverable), 944 kept, **zero T1/T2/T3 touched**, validated against all 1,023 real rows with **0 false positives** before I wrote production code. Regression: **75 failed / 2269 passed vs 77 / 2266 at the pre-flywheel baseline** — zero new failures.
+
+The **Fable gate returned PASS-WITH-FIX and caught a latent hard-drop I missed**: `partition_rows` also has an off-topic arm (default-ON), and my `fresh_off_subject_ids=None` left its staleness fence un-enforced — so reusing a corpus snapshot under a *different* question would hard-delete credible on-topic sources on a foreign verdict. Inert on this corpus, but a landmine in exactly the path I was wiring. Reproduced it, fixed it, pinned it with a test.
+
+Three commits (`539d1a5`, `887e5f8`, `beb05a4`), backed up.
+
+**One thing needs you:** the GitHub push is blocked — the box has no `gh` CLI, no `~/.git-credentials`, and no SSH key, so I can't authenticate. I made a verified 178MB git bundle at `/home/polaris/backups/flywheel-v1.bundle` (complete history) as a stand-in, but offsite backup needs a credential from you.
+=== exited after 2830s Sun Jul 12 18:58:52 UTC 2026 ===
+=== fw driver start Sun Jul 12 18:59:07 UTC 2026 ===
+Both runs are underway. Let me summarize where Rank4 stands while they work.
+
+**Rank4 is implemented and validated on real data.** The core finding: the §-1.3.1(b) off-topic delete leg has *never fired* on this code path. `is_row_deletable_offtopic` keys on an affirmative `topic_off_subject` stamp, and the only thing that writes that stamp is `classify_topic_relevance` — which runs at retrieval time and is called by nothing on the pre-built-corpus path. The corpus carries 633 `topic_offtopic_demoted` labels but **zero** `topic_off_subject` stamps, so the gate was structurally guaranteed to delete nothing. Meanwhile ~294 alien sources sat in the grounding pool, eligible to be cited.
+
+Why the faithfulness engine can't catch this: strict_verify checks *span fidelity*, not topicality. A sentence grounded in an IMF climate-risk working paper is perfectly faithful and perfectly off-topic.
+
+What I built (all behind `PG_PREBUILT_TOPIC_JUDGE`, default-OFF, byte-identical when unset):
+- Arms the **existing** judge — no new judge, no lexical guessing. Deletion still requires an affirmative semantic verdict.
+- **Fixed the trap that would have made this a silent no-op:** `PG_SCOPE_TOPIC_MAX_TOKENS` defaults to 1200, but the judge model is reasoning-first — it burns the budget on hidden reasoning, truncates before emitting verdicts, and every batch fails open. The judge would run, bill money, and delete nothing. Floor raised to 4000, and it now fails *loud* if zero verdicts come back rather than reporting "corpus is clean."
+- **Blast-radius ceiling** (default 40%) — a well-formed-but-wrong batch response is the one failure the parser can't catch. Trips → delete nothing.
+- **T1/T2 double-confirmation, not exemption.** A blanket high-tier shield would use tier as a relevance proxy and would protect exactly the credible-tier junk here (the climate WPs are T1/T2). Instead, high-tier rows get re-judged alone before deletion — nobody is kept *or* deleted by tier.
+
+The validation that convinced me: **14/14 alien rows caught** (climate science, SEO marketing, pedestrian safety, Quora), **0 false deletes** on seminal tripwires (Acemoglu, Frey & Osborne, "GPTs are GPTs"). It correctly deleted a *T1* climate paper — proof tier isn't shielding junk.
+=== exited after 2750s Sun Jul 12 19:44:57 UTC 2026 ===
+=== fw driver start Sun Jul 12 19:45:12 UTC 2026 ===
+Backup verified. Here's where the flywheel stands.
+
+## What happened
+
+**The off-topic delete gate had never fired.** It keys on an affirmative `topic_off_subject` stamp, and the only thing that writes that stamp runs at retrieval time — which is never called on the pre-built-corpus path. So ~500 alien sources (climate-risk IMF papers, mass-deworming RCTs, medical-transcription career pages, **actual job postings**) sat in the grounding pool, citable in an AI-labour review. The faithfulness engine can't catch this: a sentence grounded on a climate paper is perfectly *faithful* and perfectly *off-topic*.
+
+I armed the judge, and it deleted **507 of 944 rows (53.7%)** — with zero judge-kept rows lost.
+
+## The interesting part
+
+The first armed run refused to delete anything: the judge flagged 53% of the corpus, and a 40% "blast-radius ceiling" tripped. That posed the real question — **is the judge broken, or is the corpus genuinely majority-alien?** The ceiling fires identically on both, so it can't answer. And on a ~50%-alien corpus, *any* ceiling below ~55% refuses forever: the instrument structurally couldn't answer the question it was being asked.
+
+The tempting move was to raise it to 60%. I didn't, because that's tuning your only safety rail until it admits the answer you wanted. Fable (the gate) supplied the right discriminator instead:
+
+> A broken judge does not reproduce **row-level** verdicts across independently shuffled passes. An alien corpus does.
+
+Re-judging in shuffled batch company reproduced **97.2%**, then **97.0%** on an independent run. The verdicts are a property of the row, not the batch. That's now the production rule — deletion requires agreement in both passes, at every tier — and the ceiling was demoted to an outage tripwire.
+
+## Two things I got wrong, corrected
+
+- I reported **100% corroboration** between the fresh judge and an earlier independent one. That was **a bug in my own audit script**: the judge rewrites its labels on the row objects in place, so I was comparing the judge against itself. The honest number is **99.2%**. Fable caught it; I verified the mutation and fixed the instrument.
+- My A/B comparator claimed "723 deleted, 112 high-tier." Also wrong — the control outline holds 1164 rows against a 997-row corpus because the outliner does live gap-fill retrieval. Diffing outlines from different retrievals isn't a deletion count.
+
+Three separate mechanisms independently rescued rows that had been flagged by hand as likely false positives (`ev_1247`, `ev_1270`, `ev_1132`) — including one *I* was worried about, caught by the machinery rather than by me picking it.
+
+## Two things needing you
+
+1. **GitHub push is impossible from this box** — no `gh`, no credentials, no `~/.ssh`. I've kept a verified local bundle (complete history) but offsite backup needs a PAT or deploy key from you. This is the one thing I can't fix myself.
+2. **The depth gap just got sharper.** The report will now be *shorter but truer* — we removed the padding that was inflating it. The honest route back to 10–22k words is fresh on-topic evidence, and I found the lever: the control gap-filled 220 live-retrieved rows while the armed run gap-filled **zero**. A cleaner pool should make retrieval *more* valuable, not less. That's what I'll chase next unless you redirect me.
+=== exited after 4407s Sun Jul 12 20:58:39 UTC 2026 ===
+=== fw driver start Sun Jul 12 20:58:54 UTC 2026 ===
+Committed. Now waiting on the A/B — the monitor will wake me when the composes hit `kept_fraction` or finish.
+
+**Status for the operator:**
+
+**1. GitHub backup — I cannot do this one, and it needs you.** The box has no `gh` CLI, no `~/.git-credentials`, no credential helper, and no `~/.ssh` at all. `git push` fails with `could not read Username for 'https://github.com'`. This is the third session to hit it. I re-cut the verified local bundle (`backups_flywheel-v1.bundle`, 183MB, all refs) so nothing is at risk from a box flap — but **offsite backup needs you to drop in a PAT or deploy key.**
+
+**2. Rank6 was refuted, and the gate caught an error in my own evidence.** I diagnosed the outline agent's "density" gap arm as dead code and was about to fix it. Fable showed my key statistic was an artifact: the accepted-gap log line never records the gap *kind*, so my "zero density gaps ever" was counting **rejected** lines, not accepted ones. The fix I'd have shipped would have been a no-op. That's the second time this gate has saved a wasted change.
+
+**3. The real finding — the depth gap was never about evidence.** The ~4k-word ceiling is hard-coded: the module docstring literally promises *"1500-3000-word reports"*, and the section writer is told *"Target 10-18 sentences"* regardless of how much evidence it holds. Eleven sections × 10–18 sentences ≈ our exact word count. More evidence cannot make the report longer — and this project already measured that pushing more rows in makes it *shorter*, by drowning strict_verify.
+
+**4. But that measurement is confounded, and I'm testing it now.** Every compose measurement in this repo's history was taken on the corpus that was ~50% alien — the writer's menu held job listings, paralegal reading lists and Cloudflare captchas, it wrote sentences from them, and strict_verify correctly killed them. **That is what `kept_fraction=0.35` is.** Rank5 removed precisely those rows, and we have never once composed a report from the clean pool. A matched A/B (identical commit, one env var apart) is running to settle whether compose is a hard architectural ceiling or was simply being fed garbage.
+
+If the clean pool lifts `kept_fraction`, the same fixed prompt yields more verified words for free, and the levers above (`PG_VERIFIED_COMPOSE`'s per-basket fan-out, evidence-scaled sentence targets) become the honest path to closing the 4k→20k gap. If it doesn't, compose is a genuine architectural wall and I'll say so plainly rather than dress it up.
+=== exited after 1584s Sun Jul 12 21:25:18 UTC 2026 ===
+=== fw driver start Sun Jul 12 21:25:33 UTC 2026 ===
+Backup refreshed at the new commit. Here's where things stand while the A/B finishes.
+
+**The flywheel turned, and the answer was not where anyone was looking.**
+
+Fable's gate **refuted my thesis**, and I verified the refutation against source myself. I had argued the ~51%-alien corpus was what `strict_verify` was killing. It isn't: `strict_verify(draft_text, evidence_pool)` never receives the research question, and its judge is `judge(sentence, span)` — *"does the SPAN entail the SENTENCE."* A sentence faithfully written from a **real but alien** source is entailed by its span and is **kept**. Off-topic evidence produces irrelevant prose, never *dropped* prose. It cannot be what `kept_fraction` measures.
+
+What the gate found underneath is bigger, and I confirmed all three claims with my own greps:
+
+**There is no length governor on this code path at all.** `PG_TARGET_TOTAL_WORDS=8000`, the expansion passes, the per-section word cap — every one is consumed only by `agents/synthesizer.py` and `synthesis/section_writer.py`, and `multi_section_generator.py` **imports neither** (grep: 0 hits). Compose calls `generate_multi_section_report` directly. All that word-budget config in `.env` is **dead code**. Report length has been purely emergent this whole time: `sections × rule-#8's sentence target × ~30 words`. The project has been tuning retrieval while its report length was an accident of one prompt line — and rule #8's *"Target 10-18 sentences"*, written as a floor-raiser against the model's natural 6–8, is binding as a **ceiling** exactly where evidence is richest (rich sections already render 16–18, the top of the band).
+
+**Rank7 (`33108d8`)** makes that band a lever: `PG_SECTION_SENTENCE_TARGET` and `PG_SECTION_DISTINCT_SOURCES`, applied at the single selector seam so it can't half-fire across the two templates. Default-unset returns the *same object* — byte-identical, so nothing moves until an arm opts in. My own test caught a defect mid-build: rewriting rule #8 alone left the Mechanism rule still back-referencing *"rule #8 target of 10-18 sentences"*, which would have handed the model **28-36 and 10-18 in the same prompt**. Now rewritten, with a hard assert that no stale band survives.
+
+Rule #9 moves *with* rule #8 deliberately — B11 same-span dedup keeps only one sentence per distinct `(ev_id, start, end)` footprint, so extra sentences that re-word an already-cited span get silently deleted. **The lever is "cite more distinct sources," not "write more sentences."** That distinction is the difference between this working and it being another no-op.
+
+Two things worth flagging to you directly:
+
+- **The experiment you specified (source-eligibility firewall on tier/peer-reviewed/English) would not have worked.** 56 of the junk rows are **T1/T2 — the top credibility tiers**: a gradeless-learning RCT, a mass-deworming study, a Wiley governance journal. A tier-based firewall keeps every one. Relevance, not credibility, is the broken axis. I did not build it.
+- **GitHub push is still blocked** — no PAT, no SSH key, no `gh` on the box. Backups are local bundles (`flywheel-v1-33108d8.bundle`). Paste a token and I'll push immediately.
+
+Next, once the A/B lands: the 3-arm compose test (raised target / raised target + `PG_WRITER_TOPN_EV_PER_SECTION=20` / control). The non-fakeable signal is the `B11 collapsed` counter — if words stay flat while B11 explodes, the ceiling is span diversity, not the prompt, and I'll say so rather than claim a win.
+=== exited after 1257s Sun Jul 12 21:46:30 UTC 2026 ===
+=== fw driver start Sun Jul 12 21:46:45 UTC 2026 ===

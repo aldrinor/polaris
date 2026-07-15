@@ -1,0 +1,17 @@
+import json, numpy as np
+P=json.load(open('/home/polaris/polaris_project/attack/panel_rebuilt.json'))
+mp=np.array([r['med_para'] for r in P],float)
+w =np.array([r['words'] for r in P],float)
+s =np.array([r['sections'] for r in P],float)
+print('=== SUPPORT AT OUR OPERATING POINT (POLARIS artifact: med_para=677, ~8000w, 11 sections, 0 H3) ===')
+for nm,v,ours in [('med_para',mp,677),('words',w,8000),('sections',s,11)]:
+    q=np.percentile(v,[0,5,25,50,75,95,99,100])
+    pct=100*(v<ours).mean()
+    print(f'{nm:<10} min {q[0]:>8.0f} p5 {q[1]:>8.0f} p25 {q[2]:>8.0f} med {q[3]:>8.0f} p75 {q[4]:>8.0f} p95 {q[5]:>8.0f} p99 {q[6]:>8.0f} max {q[7]:>8.0f}  | OURS={ours} -> {pct:.1f}th pct')
+print()
+print(f'articles with med_para > 400w : {(mp>400).sum()} / {len(mp)}')
+print(f'articles with med_para > 300w : {(mp>300).sum()} / {len(mp)}')
+print(f'articles with med_para > 200w : {(mp>200).sum()} / {len(mp)}')
+print(f'articles with med_para >= 677 : {(mp>=677).sum()} / {len(mp)}')
+print(f'articles with sections == 0   : {(s==0).sum()} / {len(s)}')
+print(f'articles with sections <= 11  : {(s<=11).sum()} / {len(s)}  -> ours (11) = {100*(s<11).mean():.0f}th pct')

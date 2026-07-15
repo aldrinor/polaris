@@ -27,8 +27,10 @@ function validateWheelArgs(raw) {
   const missing = []
   for (const k of REQUIRED_KEYS) {
     const v = a[k]
-    // reject absent, non-string, empty, and the literal 'undefined'/'null' that caused the regression
-    if (typeof v !== 'string' || v.trim() === '' || v === 'undefined' || v === 'null') missing.push(k)
+    // reject absent, non-string, empty, and the literal 'undefined'/'null' that caused the
+    // regression. Trim FIRST so whitespace-padded sentinels (' undefined ') don't slip through.
+    const t = typeof v === 'string' ? v.trim() : ''
+    if (t === '' || t === 'undefined' || t === 'null') missing.push(k)
   }
   return { ok: missing.length === 0, missing, args: a }
 }
@@ -40,6 +42,11 @@ if (!_validated.ok) {
   return { signed_off: false, fatal: 'missing wheel args', missing_keys: _validated.missing }
 }
 const W = _validated.args // {wheel, worktree, branch, focus, entrypoint_hint, progress_file}
+
+// Normalize the OPTIONAL entrypoint_hint (not in REQUIRED_KEYS, no default). Without this a
+// payload lacking it renders the literal string 'undefined' into the tester prompt at :184.
+const _h = typeof W.entrypoint_hint === 'string' ? W.entrypoint_hint.trim() : ''
+W.entrypoint_hint = (_h && _h !== 'undefined' && _h !== 'null') ? _h : ''
 
 // Verify the worktree actually exists before spawning agents that would `cd` into it.
 // Guarded so a harness without node:fs degrades to key-validation only rather than throwing.

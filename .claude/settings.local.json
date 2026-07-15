@@ -9,7 +9,25 @@
       "Bash(git -C /home/polaris/wt/tooluse status --porcelain=v1 -uall)",
       "Bash(git -C /home/polaris/wt/tooluse log -3 '--pretty=%h %ad %s' --date=format:%H:%M:%S)",
       "Read(//home/polaris/wt/tooluse/tests/polaris_graph/outline/**)",
-      "Bash(git -C /home/polaris/wt/tooluse ls-files --error-unmatch tests/polaris_graph/outline/test_outline_agent_w3.py)"
+      "Bash(git -C /home/polaris/wt/tooluse ls-files --error-unmatch tests/polaris_graph/outline/test_outline_agent_w3.py)",
+      "Bash(cd /home/polaris/wt/tooluse && wc -l tests/polaris_graph/outline/test_outline_agent_w3.py && cat tests/polaris_graph/outline/test_outline_agent_w3.py)",
+      "Read(//home/polaris/wt/tooluse/**)",
+      "Bash(timeout 600 python -m pytest tests/polaris_graph/outline/test_outline_agent_w3.py -v -p no:randomly)",
+      "Read(//home/polaris/wt/**)",
+      "Bash(git -C /home/polaris/wt/tooluse log --oneline -5)",
+      "Bash(git -C /home/polaris/wt/compose log --oneline -3)",
+      "Bash(nvidia-smi --query-gpu=index,memory.used,memory.total --format=csv)",
+      "Bash(chmod +x deck.sh)",
+      "Bash(bash deck.sh)",
+      "Bash(timeout 600 python -m pytest tests/polaris_graph/outline/test_outline_agent_w3.py -v -p no:cacheprovider)",
+      "Bash(cp src/polaris_graph/outline/outline_agent.py /tmp/oa_backup.py)",
+      "Bash(python -)",
+      "Bash(timeout 300 python -m pytest tests/polaris_graph/outline/test_outline_agent_w3.py -p no:cacheprovider)",
+      "Read(//tmp/**)",
+      "Bash(sed -i 's/        data={\"npv\": MAGIC},/        statistics={\"npv\": MAGIC},/' /tmp/probe_compute_reachability.py)",
+      "Bash(timeout 300 python /tmp/probe_compute_reachability.py)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
     ]
   }
 }
