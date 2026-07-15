@@ -1215,6 +1215,70 @@ class SectionPlan:
     basket_ids: list[str] = field(default_factory=list)
 
 
+def _compute_instruction_slot_coverage(
+    research_question: str,
+    plans: "list[SectionPlan]",
+) -> list[dict[str, Any]]:
+    """O2 WIRE (feat/intake-contract): OBSERVE-ONLY instruction-slot coverage.
+
+    Returns one dict per extracted instruction slot
+    (slot_id/kind/text/entities/satisfied/source) where ``satisfied`` reports
+    whether every requested entity of that slot is covered by some section plan's
+    title/focus. This is a pure ANNOTATION computed off the finalized ``plans``:
+
+      * DEFAULT OFF — when ``PG_EXTRACT_INSTRUCTION_SLOTS`` is off the function
+        returns ``[]`` before touching ``plans`` or importing the helpers, so the
+        caller is byte-identical to HEAD.
+      * ZERO paid calls — ``extract_instruction_slots`` runs regex-primary with
+        ``llm_fn=None`` (no LLM, no network); ``bind_instruction_slots`` is pure.
+      * DROPS NOTHING / MUTATES NO PLAN — each SectionPlan is adapted to a
+        THROWAWAY ``SectionSpec`` (focus -> description) so the shared helper can be
+        reused verbatim; the helper's ``is_thin`` mutation lands on the throwaway
+        specs, never on ``plans``. No ``undersupplied`` flip, no ev_ids/reorder
+        change, and the faithfulness engine is never touched (§-1.3).
+      * FAIL-OPEN — any error degrades to ``[]`` telemetry; never breaks compose.
+    """
+    from src.polaris_graph.retrieval.intake_constraint_extractor import (  # noqa: PLC0415
+        extract_instruction_slots,
+        extract_instruction_slots_enabled,
+    )
+
+    if not extract_instruction_slots_enabled():
+        return []
+
+    try:
+        from src.polaris_graph.retrieval.section_blueprint import (  # noqa: PLC0415
+            SectionSpec,
+            bind_instruction_slots,
+        )
+
+        slots = extract_instruction_slots(research_question, llm_fn=None)
+        slot_dicts = [s.to_dict() for s in slots]
+        # Throwaway specs — bind_instruction_slots' is_thin mutation lands HERE,
+        # NOT on `plans` (which stays untouched).
+        throwaway_specs = [
+            SectionSpec(
+                section_id=p.title,
+                title=p.title,
+                description=p.focus,
+                search_keywords="",
+            )
+            for p in plans
+        ]
+        bind_instruction_slots(throwaway_specs, slot_dicts)
+        if slot_dicts:
+            logger.info(
+                "[multi_section] O2 slot-coverage (observe-only): %s",
+                [(d.get("kind"), d.get("satisfied")) for d in slot_dicts],
+            )
+        return slot_dicts
+    except Exception as exc:  # never let observe-only telemetry break compose
+        logger.warning(
+            "[multi_section] O2 slot-coverage skipped (%s)", str(exc)[:160],
+        )
+        return []
+
+
 @dataclass
 class SectionResult:
     title: str
@@ -1465,6 +1529,15 @@ class MultiSectionResult:
     # report.md). Each item is {"sentence", "tier", "label", "audit_sentence", "tokens"}. Empty when the
     # gate is OFF or the depth layer produced nothing (byte-identical: the builder no-ops on empty).
     synthesized_findings: list[Any] = field(default_factory=list)
+    # O2 WIRE (feat/intake-contract, 2026-07-15): OBSERVE-ONLY instruction-slot coverage
+    # telemetry over the finalized section plans. One dict per extracted instruction slot
+    # (slot_id/kind/text/entities/satisfied/source) where `satisfied` is computed by
+    # bind_instruction_slots against the plan title+focus. Populated ONLY when
+    # PG_EXTRACT_INSTRUCTION_SLOTS is on; default-empty so the flag-OFF path is byte-identical
+    # (MultiSectionResult is never asdict-ed on the OFF artifact path). This is a pure
+    # annotation: it mutates NO SectionPlan, drops no evidence, and never touches the
+    # faithfulness engine (§-1.3).
+    instruction_slot_coverage: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -10025,6 +10098,18 @@ async def generate_multi_section_report(
         outline_ok, outline_fallback_used, retry_attempted,
     )
 
+    # ── O2 WIRE (feat/intake-contract, 2026-07-15) ──────────────────────────────
+    # OBSERVE-ONLY instruction-slot coverage telemetry over the finalized `plans`.
+    # DEFAULT OFF (PG_EXTRACT_INSTRUCTION_SLOTS): the helper returns [] before doing
+    # any work, so `instruction_slot_coverage` stays [], the plans list is untouched,
+    # and MultiSectionResult is byte-identical to HEAD. See
+    # ``_compute_instruction_slot_coverage`` for the additive, faithfulness-neutral
+    # contract (drops nothing, mutates no SectionPlan, no paid/network calls).
+    instruction_slot_coverage = _compute_instruction_slot_coverage(
+        research_question, plans,
+    )
+    # ── end O2 WIRE ─────────────────────────────────────────────────────────────
+
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
 
     # I-deepfix-001 (#1344) Bug B — RETRACTION GROUNDING GATE. A retracted/withdrawn
@@ -12080,4 +12165,7 @@ async def generate_multi_section_report(
         # during planning (empty unless the breadth enrichment ran AND demoted a near-zero
         # single-origin non-journal member). Drives the SWEEP-lane disclosure block; kept-not-dropped.
         cwf_disclosed_sources=list(_cwf_disclosed_sources),
+        # O2 WIRE: observe-only instruction-slot coverage (empty unless
+        # PG_EXTRACT_INSTRUCTION_SLOTS is on => byte-identical OFF path).
+        instruction_slot_coverage=list(instruction_slot_coverage),
     )
