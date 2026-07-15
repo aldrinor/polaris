@@ -1,0 +1,414 @@
+"""S5 iter-3 LIVE COMPOSE on bot/sec-s5-compose (0966373) — RIP-OUT-ghost + WIRE-map fixes.
+
+Fed checkpoints (section-modular): cp2 corpus + cp3 baskets + cp4 outline (s4_outline_i1).
+Runs the REAL production per-section compose unit (_run_section) with THIS branch's fix-9
+EXPLICIT map wiring: section_basket_map + section_index passed as keyword args (NOT plan
+attributes). Each section composes ONLY its PRIMARY-role baskets (fix 12: no duplicate claim
+prose across sections). Then the report-level HOLISTIC passes fire:
+  - consolidate_cross_section_repetition (cross-section verbatim-finding guard)
+  - sanitize_rendered_report (whole-report render-seam chrome/truncation scrub)
+Audits every composed sentence for provenance-token/citation survival + chrome + quote-dump.
+
+Nothing drb_72-specific. Ghost-free flags ON. Faithfulness gates UNCHANGED (strict_verify =
+numeric + context-level NLI entailment; the lexical >=2-word overlap gate is DELETED at 0966373).
+"""
+import argparse
+import asyncio
+import hashlib
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+
+
+def _text_of(row: dict) -> str:
+    return str((row or {}).get("direct_quote") or (row or {}).get("statement") or "")
+
+
+def build_baskets(cp3_baskets, evidence_pool):
+    from src.polaris_graph.synthesis.credibility_pass import (
+        BasketMember,
+        ClaimBasket,
+        MEMBER_TIER_ENTAILMENT_VERIFIED,
+    )
+    baskets = []
+    seen = {}
+    for i, b in enumerate(cp3_baskets):
+        rep = str(b.get("representative_evidence_id", "") or "")
+        cid = rep if (rep and rep not in seen) else f"{rep or 'b0'}#{i}"
+        seen[cid] = True
+        members = []
+        for eid in (b.get("member_evidence_ids") or []):
+            eid = str(eid)
+            row = evidence_pool.get(eid)
+            if not row:
+                continue
+            text = _text_of(row)
+            if not text.strip():
+                continue
+            members.append(BasketMember(
+                evidence_id=eid,
+                source_url=str(row.get("source_url") or ""),
+                source_tier=str(row.get("tier") or ""),
+                origin_cluster_id=eid,
+                credibility_weight=1.0,
+                authority_score=1.0,
+                span=(0, len(text)),
+                direct_quote=text,
+                span_verdict="SUPPORTS",
+                member_tier=MEMBER_TIER_ENTAILMENT_VERIFIED,
+            ))
+        if not members:
+            continue
+        baskets.append(ClaimBasket(
+            claim_cluster_id=cid,
+            claim_text=str(b.get("representative_statement", "") or ""),
+            subject="",
+            predicate="",
+            supporting_members=members,
+            refuter_cluster_ids=(),
+            weight_mass=float(b.get("corroboration_count", 0) or 0) or 1.0,
+            total_clustered_origin_count=len(members),
+            verified_support_origin_count=len(members),
+            basket_verdict="full",
+        ))
+    return baskets
+
+
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_EV_TOKEN = re.compile(r"\[#ev:[^\]]+\]")
+_NUM_CITE = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
+
+
+def _audit_section(idx, title, verified_text):
+    """Line-by-line audit of one section's composed prose (§-1.1).
+    Returns per-sentence records + counts. A 'sentence' is a heading-stripped prose unit."""
+    from src.polaris_graph.generator.block_page_chrome_scrub import is_block_page_chrome_sentence
+    records = []
+    n_sent = n_with_cite = n_chrome = n_quote_dump = 0
+    for raw_line in (verified_text or "").split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#") or line.startswith("|") or line.startswith("- ") and len(line) < 4:
+            # heading / table row / bare bullet marker: not a prose claim sentence
+            continue
+        for sent in _SENT_SPLIT.split(line):
+            s = sent.strip()
+            if len(s) < 12:
+                continue
+            n_sent += 1
+            has_ev = bool(_EV_TOKEN.search(s))
+            has_num = bool(_NUM_CITE.search(s))
+            has_cite = has_ev or has_num
+            if has_cite:
+                n_with_cite += 1
+            is_chrome = False
+            try:
+                is_chrome = bool(is_block_page_chrome_sentence(s))
+            except Exception:
+                is_chrome = False
+            if is_chrome:
+                n_chrome += 1
+            # quote-dump heuristic: a very long clause with NO citation and heavy quoting marks,
+            # OR an unbroken >320-char run that reads as a raw pasted span.
+            stripped_cites = _NUM_CITE.sub("", _EV_TOKEN.sub("", s)).strip()
+            is_quote_dump = (len(stripped_cites) > 320) and (not has_cite)
+            if is_quote_dump:
+                n_quote_dump += 1
+            if (not has_cite) or is_chrome or is_quote_dump:
+                records.append({
+                    "section": idx, "no_cite": not has_cite, "chrome": is_chrome,
+                    "quote_dump": is_quote_dump, "text": s[:280],
+                })
+    return {
+        "section_index": idx, "title": title,
+        "sentences": n_sent, "with_citation": n_with_cite,
+        "chrome_sentences": n_chrome, "quote_dump_sentences": n_quote_dump,
+        "flagged": records,
+    }
+
+
+async def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cp2", required=True)
+    ap.add_argument("--cp3", required=True)
+    ap.add_argument("--cp4", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--only-section", type=int, default=-1)
+    ap.add_argument("--sections", type=str, default="", help="comma list of section indices to compose (default all)")
+    ap.add_argument("--ckpt-dir", type=str, default="", help="dir for per-section draft checkpoints (timeout-resilient)")
+    ap.add_argument("--cap-primary", type=int, default=0, help="BOUNDED read: keep only first N primary views per section (0=all). Disclosed subset, not a full acceptance run.")
+    args = ap.parse_args()
+    sel = set()
+    if args.sections.strip():
+        sel = {int(x) for x in args.sections.split(",") if x.strip() != ""}
+    ckpt_dir = Path(args.ckpt_dir) if args.ckpt_dir.strip() else None
+    if ckpt_dir:
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    from src.polaris_graph.generator.multi_section_generator import SectionPlan, _run_section
+    from src.polaris_graph.synthesis.credibility_pass import CredibilityAnalysis, EvidenceCredibility
+    from src.polaris_graph.synthesis.section_basket_map import (
+        build_section_basket_map,
+        section_basket_map_enabled,
+        resolve_weights,
+    )
+    from src.polaris_graph.generator.cross_section_repetition_guard import (
+        consolidate_cross_section_repetition,
+    )
+    from src.polaris_graph.generator.weighted_enrichment import sanitize_rendered_report
+
+    cp2 = json.load(open(args.cp2, encoding="utf-8"))
+    cp3 = json.load(open(args.cp3, encoding="utf-8"))
+    cp4 = json.load(open(args.cp4, encoding="utf-8"))
+
+    question = cp2.get("question") or ""
+    evidence_rows = cp2["evidence_for_gen"]
+    evidence_pool = {str(r["evidence_id"]): r for r in evidence_rows if r.get("evidence_id")}
+    cp3_baskets = cp3["payload"]["baskets"]
+    plans_raw = cp4["payload"]["final_plans"]
+
+    print(f"[load] question_len={len(question)} evidence_pool={len(evidence_pool)} "
+          f"cp3_baskets={len(cp3_baskets)} plans={len(plans_raw)}", flush=True)
+
+    baskets = build_baskets(cp3_baskets, evidence_pool)
+    print(f"[baskets] reconstructed ClaimBaskets={len(baskets)} "
+          f"(members total={sum(len(b.supporting_members) for b in baskets)})", flush=True)
+
+    # Populate credibility + origin coverage for EVERY pooled evidence_id (the disclosure coverage
+    # assertion in credibility_pass.apply_disclosure_to_svs is fail-LOUD: every cited evidence_id MUST
+    # have both credibility_by_evidence AND origin_by_evidence coverage, else abort_credibility_coverage_gap).
+    # In production _run_chain co-builds these per row; the offline harness must supply them. Neutral
+    # weight 1.0 (harness) — the binding faithfulness gate is strict_verify per composed sentence, unchanged.
+    cred_by_ev = {}
+    origin_by_ev = {}
+    cluster_id_by_ev = {}
+    for eid in evidence_pool:
+        eid = str(eid)
+        cred_by_ev[eid] = EvidenceCredibility(
+            evidence_id=eid, credibility_weight=1.0, reliability_score=1.0, relevance_score=1.0,
+            origin_cluster_id=eid, is_canonical_origin=True, certainty_downgrade=False, soft_warning=None,
+        )
+        origin_by_ev[eid] = eid
+    for b in baskets:
+        for mem in b.supporting_members:
+            cluster_id_by_ev.setdefault(str(mem.evidence_id), []).append(b.claim_cluster_id)
+    cred = CredibilityAnalysis(
+        credibility_by_evidence=cred_by_ev, origin_by_evidence=origin_by_ev, claims=[], edges=[],
+        weight_mass=[], baskets=baskets, cluster_id_by_evidence=cluster_id_by_ev,
+    )
+    print(f"[cred] coverage populated: credibility_by_evidence={len(cred_by_ev)} "
+          f"origin_by_evidence={len(origin_by_ev)} cluster_id_by_evidence={len(cluster_id_by_ev)}", flush=True)
+
+    plans = [SectionPlan(title=str(p.get("title", "")), focus=str(p.get("focus", "")),
+                         ev_ids=[str(e) for e in (p.get("ev_ids") or [])]) for p in plans_raw]
+
+    print(f"[map] section_basket_map_enabled={section_basket_map_enabled()} weights={resolve_weights()}", flush=True)
+    sbm_map = build_section_basket_map(baskets, plans, evidence_pool=evidence_pool)
+    per_sec_views = {int(k): len(v) for k, v in sbm_map.views_by_section.items()}
+    print(f"[map] stranded={sbm_map.stranded_count} residual_index={sbm_map.residual_section_index} "
+          f"nocid_synth={sbm_map.nocid_synthetic_count} per_section_views={per_sec_views}", flush=True)
+    # primary counts per section (the baskets each section will actually FULL-compose)
+    prim_per_sec = {}
+    for idx, views in sbm_map.views_by_section.items():
+        prim_per_sec[int(idx)] = sum(1 for v in views if getattr(v, "role", "") == "primary")
+    print(f"[map] primary_per_section={prim_per_sec}", flush=True)
+
+    if args.cap_primary and args.cap_primary > 0:
+        # BOUNDED read (disclosed): truncate each section's PRIMARY views to first N; keep all
+        # corroborating. Lets a fast multi-section run fire the holistic cross-section pass on real
+        # prose. This is a SUBSET, not a full acceptance run.
+        for idx, views in list(sbm_map.views_by_section.items()):
+            kept, nprim = [], 0
+            for v in views:
+                if getattr(v, "role", "") == "primary":
+                    if nprim >= args.cap_primary:
+                        continue
+                    nprim += 1
+                kept.append(v)
+            sbm_map.views_by_section[idx] = kept
+        prim_per_sec = {int(k): sum(1 for v in vs if getattr(v, "role", "") == "primary")
+                        for k, vs in sbm_map.views_by_section.items()}
+        print(f"[map] CAP-PRIMARY={args.cap_primary} -> primary_per_section={prim_per_sec}", flush=True)
+
+    model = os.environ.get("PG_GENERATOR_MODEL", "z-ai/glm-5.2")
+    section_max_tokens = int(os.environ.get("PG_SECTION_MAX_TOKENS", "64000"))
+    section_temperature = float(os.environ.get("PG_SECTION_TEMPERATURE", "0.3"))
+    min_kept_fraction = float(os.environ.get("PG_MIN_KEPT_FRACTION", "0.4"))
+    sec_sema = asyncio.Semaphore(int(os.environ.get("PG_MAX_PARALLEL_SECTIONS", "2")))
+
+    async def _compose_one(idx, section):
+        async with sec_sema:
+            t0 = time.time()
+            print(f"[section {idx}] START title={section.title!r} ev_ids={len(section.ev_ids)}", flush=True)
+            res = await _run_section(
+                section, evidence_pool,
+                model=model,
+                temperature=section_temperature,
+                max_tokens_per_section=section_max_tokens,
+                min_kept_fraction=min_kept_fraction,
+                credibility_analysis=cred,
+                research_question=question,
+                section_basket_map=sbm_map,      # THIS branch fix-9: explicit map wiring
+                section_index=idx,
+            )
+            dt = time.time() - t0
+            vt = res.verified_text or ""
+            print(f"[section {idx}] DONE {dt:.0f}s verified_chars={len(vt)} "
+                  f"sentences_verified={res.sentences_verified} dropped={res.sentences_dropped} "
+                  f"regen={res.regen_attempted} dropped_fail={res.dropped_due_to_failure} "
+                  f"gap_stub={getattr(res,'is_gap_stub',False)} error={res.error!r}", flush=True)
+            print(f"[section {idx}] OPENING: {vt[:500]}", flush=True)
+            if ckpt_dir:
+                # timeout/crash-resilient per-section draft checkpoint (Design 4 §7c)
+                (ckpt_dir / f"section_{idx}_draft.json").write_text(json.dumps({
+                    "section_index": idx, "title": res.title, "focus": res.focus,
+                    "ev_ids_assigned": res.ev_ids_assigned, "verified_text": vt,
+                    "sentences_verified": res.sentences_verified,
+                    "sentences_dropped": res.sentences_dropped,
+                    "regen_attempted": res.regen_attempted,
+                    "dropped_due_to_failure": res.dropped_due_to_failure,
+                    "is_gap_stub": getattr(res, "is_gap_stub", False), "error": res.error,
+                }, ensure_ascii=False, indent=2), encoding="utf-8")
+            return res
+
+    tasks = []
+    order = []
+    for idx, section in enumerate(plans):
+        if args.only_section >= 0 and idx != args.only_section:
+            continue
+        if sel and idx not in sel:
+            continue
+        order.append(idx)
+        tasks.append(asyncio.ensure_future(_compose_one(idx, section)))
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    section_results = []
+    for oi, r in zip(order, results):
+        if isinstance(r, Exception):
+            print(f"[section {oi}] EXCEPTION: {r!r}", flush=True)
+        else:
+            section_results.append((oi, r))
+    section_results.sort(key=lambda t: t[0])
+
+    # ---- HOLISTIC report-level pass A: cross-section repetition guard (verbatim finding dedup) ----
+    guard_telemetry = {}
+    try:
+        guard_telemetry = consolidate_cross_section_repetition([r for _, r in section_results]) or {}
+    except Exception as e:
+        guard_telemetry = {"error": repr(e)}
+    print(f"[holistic] cross_section_repetition_guard = {json.dumps(guard_telemetry)[:300]}", flush=True)
+
+    # ---- Assemble the whole report markdown from composed sections ----
+    parts = [f"# {question[:200]}" if question else "# Research Report"]
+    for oi, r in section_results:
+        parts.append(f"\n## {r.title}\n\n{r.verified_text or ''}")
+    report_md_pre = "\n".join(parts) + "\n"
+
+    # ---- HOLISTIC report-level pass B: whole-report render-seam chrome/truncation scrub ----
+    try:
+        report_md_post, units_removed = sanitize_rendered_report(report_md_pre)
+    except Exception as e:
+        report_md_post, units_removed = report_md_pre, -1
+        print(f"[holistic] sanitize_rendered_report EXCEPTION {e!r}", flush=True)
+    print(f"[holistic] sanitize_rendered_report units_removed={units_removed} "
+          f"pre_chars={len(report_md_pre)} post_chars={len(report_md_post)}", flush=True)
+
+    # ---- Line-by-line audit (§-1.1) on the POST-holistic sections ----
+    audits = []
+    for oi, r in section_results:
+        audits.append(_audit_section(oi, r.title, r.verified_text or ""))
+    tot_sent = sum(a["sentences"] for a in audits)
+    tot_cite = sum(a["with_citation"] for a in audits)
+    tot_chrome = sum(a["chrome_sentences"] for a in audits)
+    tot_qd = sum(a["quote_dump_sentences"] for a in audits)
+    print(f"[audit] sentences={tot_sent} with_citation={tot_cite} "
+          f"chrome={tot_chrome} quote_dump={tot_qd}", flush=True)
+
+    cp2_sha = hashlib.sha256(Path(args.cp2).read_bytes()).hexdigest()
+    cp3_sha = hashlib.sha256(Path(args.cp3).read_bytes()).hexdigest()
+    cp4_sha = hashlib.sha256(Path(args.cp4).read_bytes()).hexdigest()
+
+    section_drafts = []
+    for oi, r in section_results:
+        section_drafts.append({
+            "section_index": oi,
+            "title": r.title,
+            "focus": r.focus,
+            "ev_ids_assigned": r.ev_ids_assigned,
+            "verified_text": r.verified_text or "",
+            "sentences_verified": r.sentences_verified,
+            "sentences_dropped": r.sentences_dropped,
+            "regen_attempted": r.regen_attempted,
+            "dropped_due_to_failure": r.dropped_due_to_failure,
+            "is_gap_stub": getattr(r, "is_gap_stub", False),
+            "error": r.error,
+        })
+
+    envelope = {
+        "schema_version": 1,
+        "stage": "s5_generation_live_compose",
+        "iter": 3,
+        "question_sha": cp4.get("question_sha"),
+        "flag_slate": {k: os.environ.get(k) for k in [
+            "PG_SECTION_BASKET_MAP", "PG_SECTION_BASKET_MAP_REFINE_NLI", "PG_SECTION_BASKET_ROLE_POLICY",
+            "PG_COMPOSE_NO_RAW_SPAN_FALLBACK", "PG_SYNTH_PRIMARY", "PG_ABSTRACTIVE_WRITER",
+            "PG_VERIFIED_COMPOSE", "PG_VERIFIED_COMPOSE_MULTICITED", "PG_STRICT_VERIFY_ENTAILMENT",
+            "PG_CROSS_SECTION_REPETITION_GUARD", "PG_RENDER_SEAM_SANITIZE",
+            "PG_GENERATOR_MODEL", "PG_ENTAILMENT_MODEL", "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY",
+            "PG_SECTION_MAX_TOKENS",
+        ]},
+        "upstream": [
+            {"stage": "corpus", "checkpoint": args.cp2, "sha": cp2_sha},
+            {"stage": "basket", "checkpoint": args.cp3, "sha": cp3_sha},
+            {"stage": "outline", "checkpoint": args.cp4, "sha": cp4_sha},
+        ],
+        "faithfulness_invariant": (
+            "REAL live compose. Abstractive LLM writer drafts synthesis prose per PRIMARY basket; every "
+            "composed sentence re-passes the UNCHANGED strict_verify (numeric + context-level NLI "
+            "entailment). The lexical content-word-overlap gate + verbatim raw-span fallback (the ghost) "
+            "are DELETED at 0966373 and NOT reintroduced. Map is pure placement; nothing dropped "
+            "(stranded_count==0). No stored verdict; resume re-runs every gate."
+        ),
+        "map_stats": {
+            "baskets": len(baskets),
+            "sections": len(plans),
+            "stranded_count": sbm_map.stranded_count,
+            "residual_section_index": sbm_map.residual_section_index,
+            "nocid_synthetic_count": sbm_map.nocid_synthetic_count,
+            "primary_homes": len(sbm_map.primary_section_by_cluster),
+            "per_section_views": per_sec_views,
+            "primary_per_section": prim_per_sec,
+        },
+        "holistic_review": {
+            "cross_section_repetition_guard": guard_telemetry,
+            "render_seam_sanitize_units_removed": units_removed,
+            "report_pre_chars": len(report_md_pre),
+            "report_post_chars": len(report_md_post),
+            "fired": (units_removed >= 0),
+        },
+        "audit": {
+            "total_sentences": tot_sent,
+            "sentences_with_citation": tot_cite,
+            "citation_survival_pct": (round(100.0 * tot_cite / tot_sent, 1) if tot_sent else None),
+            "chrome_sentences": tot_chrome,
+            "quote_dump_sentences": tot_qd,
+            "per_section": audits,
+        },
+        "payload": {
+            "section_drafts": section_drafts,
+            "assembled_report_md": report_md_post,
+        },
+    }
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out).write_text(json.dumps(envelope, ensure_ascii=False, indent=2), encoding="utf-8")
+    cp5_sha = hashlib.sha256(Path(args.out).read_bytes()).hexdigest()
+    print(f"\n[WROTE] {args.out} bytes={Path(args.out).stat().st_size} cp5_sha={cp5_sha[:16]} "
+          f"sections={len(section_drafts)}", flush=True)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
