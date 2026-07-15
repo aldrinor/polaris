@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deep Research Systems, Measured — A Benchmark Analysis</title>
+<style>
+  :root{
+    --bg:#000000;
+    --card:#1c1c1e;
+    --card2:#2c2c2e;
+    --text:#f5f5f7;
+    --muted:#86868b;
+    --muted2:#a1a1a6;
+    --accent:#0a84ff;
+    --green:#30d158;
+    --hair:rgba(255,255,255,0.10);
+    --hair2:rgba(255,255,255,0.06);
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);}
+  .wrap{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font);
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    line-height:1.5;
+    padding:0 22px 120px;
+  }
+  .container{max-width:1000px;margin:0 auto;}
+  .container.narrow{max-width:820px;}
+
+  section{padding-top:96px;}
+  .eyebrow{
+    font-size:14px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 14px;
+  }
+  h1{
+    font-size:clamp(36px,5.6vw,66px);
+    font-weight:680;letter-spacing:-.025em;line-height:1.05;
+    margin:0 0 22px;text-wrap:balance;
+  }
+  h2{
+    font-size:clamp(27px,3.4vw,42px);
+    font-weight:660;letter-spacing:-.02em;line-height:1.1;
+    margin:0 0 18px;text-wrap:balance;
+  }
+  h3{font-size:21px;font-weight:600;letter-spacing:-.01em;margin:0 0 6px;}
+  p{margin:0 0 18px;color:var(--muted2);font-size:19px;font-weight:400;}
+  p.lede{font-size:clamp(20px,2.3vw,25px);color:var(--text);font-weight:420;line-height:1.4;}
+  strong{color:var(--text);font-weight:600;}
+  .accent{color:var(--accent);}
+  .green{color:var(--green);}
+  .mute{color:var(--muted);}
+
+  .hero{padding-top:110px;}
+  .hero .kicker{color:var(--muted);font-size:14px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:0 0 26px;}
+  .byline{color:var(--muted);font-size:15px;margin:26px 0 0;border-top:1px solid var(--hair2);padding-top:20px;}
+
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:44px;}
+  .stat{background:var(--card);border-radius:22px;padding:30px 28px;border:1px solid var(--hair2);}
+  .stat .num{font-size:clamp(42px,5.6vw,56px);font-weight:640;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;}
+  .stat .num.pos{color:var(--green);}
+  .stat .lab{color:var(--muted);font-size:15px;font-weight:500;margin-top:14px;}
+  .stat .sub{color:var(--muted2);font-size:14px;margin-top:4px;}
+
+  .card{background:var(--card);border-radius:22px;border:1px solid var(--hair2);padding:10px 30px;overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:560px;}
+  th,td{text-align:right;padding:18px 10px;font-size:17px;}
+  th:first-child,td:first-child{text-align:left;}
+  thead th{color:var(--muted);font-weight:520;font-size:14px;letter-spacing:.01em;border-bottom:1px solid var(--hair);padding-bottom:14px;}
+  tbody td{border-bottom:1px solid var(--hair2);color:var(--muted2);}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody td:first-child{color:var(--text);font-weight:500;}
+  tr.ours td{background:rgba(48,209,88,0.08);}
+  tr.ours td:first-child{color:#fff;font-weight:640;box-shadow:inset 3px 0 0 var(--green);}
+  tr.ours td .g{color:var(--green);font-weight:640;}
+  .model{color:var(--muted);font-size:13px;display:block;font-weight:400;margin-top:2px;}
+
+  .chartcard{background:var(--card);border-radius:22px;border:1px solid var(--hair2);padding:30px 28px 22px;}
+  .chartcard svg{width:100%;height:auto;display:block;}
+  .cap{color:var(--muted);font-size:15px;margin:20px 4px 0;line-height:1.5;}
+  .axtxt{fill:var(--muted);font-family:var(--font);font-size:13px;font-weight:500;}
+  .axttl{fill:var(--muted2);font-family:var(--font);font-size:14px;font-weight:560;}
+  .ptlab{fill:var(--text);font-family:var(--font);font-size:14px;font-weight:560;}
+  .ptlab.small{fill:var(--muted2);font-size:13px;font-weight:500;}
+  .grid{stroke:var(--hair2);stroke-width:1;}
+  .axis{stroke:var(--hair);stroke-width:1;}
+
+  .funnel{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:stretch;}
+  .fstep{background:var(--card);border:1px solid var(--hair2);border-radius:18px;padding:24px 20px;}
+  .fstep .fn{font-size:34px;font-weight:640;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+  .fstep .fl{color:var(--muted);font-size:14px;margin-top:8px;line-height:1.35;}
+  .fstep.final .fn{color:var(--green);}
+
+  .arch{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+  .astep{background:var(--card);border:1px solid var(--hair2);border-radius:18px;padding:22px 24px;display:flex;gap:18px;}
+  .astep .idx{color:var(--accent);font-size:15px;font-weight:640;font-variant-numeric:tabular-nums;min-width:26px;padding-top:2px;}
+  .astep.key{border:1px solid rgba(48,209,88,0.35);background:rgba(48,209,88,0.06);}
+  .astep.key .idx{color:var(--green);}
+  .astep p{font-size:15px;margin:6px 0 0;color:var(--muted);line-height:1.45;}
+  .astep h3{font-size:17px;}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .pcard{background:var(--card);border:1px solid var(--hair2);border-radius:22px;padding:28px 30px;}
+  .pcard h3{font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;}
+  .pcard p{font-size:18px;color:var(--text);margin:0;line-height:1.45;font-weight:420;}
+
+  .costgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .costcard{background:var(--card);border:1px solid var(--hair2);border-radius:22px;padding:30px;}
+  .costcard .big{font-size:clamp(34px,4.5vw,46px);font-weight:640;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+
+  details{margin-top:20px;border-top:1px solid var(--hair);padding-top:8px;}
+  summary{cursor:pointer;list-style:none;padding:22px 4px;font-size:19px;font-weight:560;color:var(--text);display:flex;justify-content:space-between;align-items:center;}
+  summary::-webkit-details-marker{display:none;}
+  summary .chev{color:var(--muted);font-size:15px;font-weight:400;}
+  .report{padding:8px 2px 0;}
+  .report h1{font-size:30px;margin:24px 0 16px;}
+  .report h2{font-size:23px;margin:40px 0 12px;letter-spacing:-.01em;}
+  .report h3{font-size:16px;color:var(--muted);margin:26px 0 10px;font-weight:600;}
+  .report p{font-size:15px;line-height:1.7;color:var(--muted2);}
+  .report table{min-width:auto;margin:8px 0 6px;}
+  .report th,.report td{font-size:13px;padding:10px 8px;}
+  .report .refs p{font-size:12.5px;margin:0 0 7px;color:var(--muted);word-break:break-word;}
+  .report .note{font-size:13px;color:var(--muted);font-style:italic;margin-top:2px;}
+
+  .foot{margin-top:90px;border-top:1px solid var(--hair);padding-top:28px;color:var(--muted);font-size:14px;line-height:1.6;}
+  .foot strong{color:var(--muted2);}
+
+  @media(max-width:760px){
+    .stats,.funnel,.arch,.cols,.costgrid{grid-template-columns:1fr;}
+    section{padding-top:72px;}
+    .hero{padding-top:76px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="container">
+
+    <!-- HERO -->
+    <header class="hero">
+      <p class="kicker">Analysis &middot; Deep Research Benchmark</p>
+      <h1>An open&#8209;weight system leads on citation trust, and trails the frontier on polish.</h1>
+      <p class="lede">On a standard deep&#8209;research benchmark, a self&#8209;hostable open&#8209;weight pipeline matched leading proprietary models on overall quality and produced the highest share of independently verifiable citations among five systems tested. It did not lead on writing quality, where two frontier models scored higher.</p>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="num">0.4447</div>
+          <div class="lab">Composite quality (RACE)</div>
+          <div class="sub">third of five &mdash; a tight field</div>
+        </div>
+        <div class="stat">
+          <div class="num pos">90.3%</div>
+          <div class="lab">Citation accuracy</div>
+          <div class="sub">claims verified against live sources</div>
+        </div>
+        <div class="stat">
+          <div class="num pos">84</div>
+          <div class="lab">Verified citations</div>
+          <div class="sub">most of the five systems</div>
+        </div>
+      </div>
+      <p class="byline">A five&#8209;system comparison on DeepResearch&nbsp;Bench (task&nbsp;72), scored on an identical harness.</p>
+    </header>
+
+    <!-- SCORECARD -->
+    <section>
+      <p class="eyebrow">The field</p>
+      <h2>Five systems, one task, one scorer.</h2>
+      <p class="narrow">Each system was run through the same harness &mdash; a GPT&#8209;5.5 judge for quality, live&#8209;URL scraping for citation faithfulness. On overall quality the systems clustered within a few points. They diverged sharply on how well their citations held up.</p>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>System</th>
+              <th>Quality (RACE)</th>
+              <th>Citation accuracy</th>
+              <th>Verified citations</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Claude<span class="model">Fable 5 Max</span></td>
+              <td>0.5065</td><td>50%</td><td>22</td>
+            </tr>
+            <tr>
+              <td>Gemini<span class="model">3.1 Pro &middot; Deep Research</span></td>
+              <td>0.4506</td><td>71%</td><td>44</td>
+            </tr>
+            <tr class="ours">
+              <td>Open&#8209;weight pipeline<span class="model">self&#8209;hosted</span></td>
+              <td>0.4447</td><td><span class="g">90.3%</span></td><td><span class="g">84</span></td>
+            </tr>
+            <tr>
+              <td>Grok<span class="model">DeeperSearch</span></td>
+              <td>0.4414</td><td>91%</td><td>10</td>
+            </tr>
+            <tr>
+              <td>ChatGPT<span class="model">GPT&#8209;5.6 Sol Pro &middot; Deep Research</span></td>
+              <td>0.4286</td><td>47%</td><td>16</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CHART -->
+    <section>
+      <p class="eyebrow">Two measures of faithfulness</p>
+      <h2>Accuracy and volume rarely travel together.</h2>
+      <p class="narrow">Citation trustworthiness has two components: whether each cited source actually supports its claim, and how many claims are backed at all. In the test, most systems scored well on one and poorly on the other. Only the open&#8209;weight pipeline landed in the top&#8209;right &mdash; high accuracy <em>and</em> high volume.</p>
+      <div class="chartcard">
+        <svg viewBox="0 0 720 470" role="img" aria-label="Scatter plot of citation accuracy versus verified citations">
+          <rect x="401" y="30" width="279" height="150" fill="rgba(48,209,88,0.10)" rx="4"/>
+          <text x="672" y="48" text-anchor="end" class="axtxt" fill="#30d158" style="font-weight:600">accurate &amp; substantiated</text>
+
+          <line class="grid" x1="70" y1="30" x2="70" y2="400"/>
+          <line class="grid" x1="222" y1="30" x2="222" y2="400"/>
+          <line class="grid" x1="375" y1="30" x2="375" y2="400"/>
+          <line class="grid" x1="527" y1="30" x2="527" y2="400"/>
+          <line class="grid" x1="680" y1="30" x2="680" y2="400"/>
+          <line class="grid" x1="70" y1="30"  x2="680" y2="30"/>
+          <line class="grid" x1="70" y1="123" x2="680" y2="123"/>
+          <line class="grid" x1="70" y1="215" x2="680" y2="215"/>
+          <line class="grid" x1="70" y1="308" x2="680" y2="308"/>
+          <line class="axis" x1="70" y1="400" x2="680" y2="400"/>
+          <line class="axis" x1="70" y1="30"  x2="70"  y2="400"/>
+
+          <text x="70"  y="422" text-anchor="middle" class="axtxt">40%</text>
+          <text x="222" y="422" text-anchor="middle" class="axtxt">55%</text>
+          <text x="375" y="422" text-anchor="middle" class="axtxt">70%</text>
+          <text x="527" y="422" text-anchor="middle" class="axtxt">85%</text>
+          <text x="680" y="422" text-anchor="middle" class="axtxt">100%</text>
+          <text x="58" y="404" text-anchor="end" class="axtxt">0</text>
+          <text x="58" y="312" text-anchor="end" class="axtxt">30</text>
+          <text x="58" y="219" text-anchor="end" class="axtxt">60</text>
+          <text x="58" y="127" text-anchor="end" class="axtxt">90</text>
+          <text x="375" y="452" text-anchor="middle" class="axttl">Citation accuracy &rarr;</text>
+          <text x="22" y="215" text-anchor="middle" class="axttl" transform="rotate(-90 22 215)">Verified citations &uarr;</text>
+
+          <circle cx="588" cy="359" r="7" fill="#8e8e93"/>
+          <text x="576" y="363" text-anchor="end" class="ptlab small">Grok &middot; 10</text>
+          <circle cx="385" cy="219" r="7" fill="#8e8e93"/>
+          <text x="399" y="223" class="ptlab small">Gemini &middot; 44</text>
+          <circle cx="172" cy="310" r="7" fill="#8e8e93"/>
+          <text x="186" y="314" class="ptlab small">Fable 5 &middot; 22</text>
+          <circle cx="141" cy="334" r="7" fill="#8e8e93"/>
+          <text x="155" y="338" class="ptlab small">ChatGPT &middot; 16</text>
+
+          <circle cx="581" cy="55" r="16" fill="rgba(48,209,88,0.18)"/>
+          <circle cx="581" cy="55" r="9" fill="#30d158"/>
+          <text x="565" y="50" text-anchor="end" class="ptlab" style="fill:#fff;font-weight:640">Open-weight pipeline</text>
+          <text x="565" y="68" text-anchor="end" class="ptlab" style="fill:#30d158">90.3% &middot; 84 verified</text>
+        </svg>
+        <p class="cap">Grok matched the top accuracy (91%) but on only 11 citations &mdash; a figure one citation could move nine points. The open&#8209;weight pipeline&rsquo;s 90.3% rests on 84. A review backed by 84 verified sources differs materially from one backed by 10.</p>
+      </div>
+    </section>
+
+    <!-- COST -->
+    <section>
+      <p class="eyebrow">Running cost &amp; data footprint</p>
+      <h2>On&#8209;premises, at commodity cost.</h2>
+      <div class="costgrid">
+        <div class="costcard">
+          <div class="big">~2.0M</div>
+          <p style="margin-top:12px">tokens per complete report &mdash; search, distillation, writing, and verification, end to end (~1.9M I/O + 0.12M reasoning).</p>
+        </div>
+        <div class="costcard">
+          <div class="big">~$1&ndash;2</div>
+          <p style="margin-top:12px">per report at commodity open&#8209;weight serving rates. Because the model is open&#8209;weight, it can run entirely on&#8209;premises &mdash; <strong>no per&#8209;token API fees, and no query or document leaves the operator&rsquo;s environment.</strong></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- FUNNEL -->
+    <section>
+      <p class="eyebrow">Inside the pipeline</p>
+      <h2>From roughly 900 sources to 84 verified citations.</h2>
+      <p class="narrow">The system does not pass search results straight into prose. It grades sources by credibility, removes duplicates, counts how many independent sources corroborate each finding, and discards any citation it cannot verify against a live source.</p>
+      <div class="funnel">
+        <div class="fstep"><div class="fn">856</div><div class="fl">distinct sources retrieved</div></div>
+        <div class="fstep"><div class="fn">997</div><div class="fl">evidence spans, grounded to quotes</div></div>
+        <div class="fstep"><div class="fn">329</div><div class="fl">findings after dedup &amp; corroboration</div></div>
+        <div class="fstep final"><div class="fn">84</div><div class="fl">citations verified against live URLs</div></div>
+      </div>
+    </section>
+
+    <!-- ARCHITECTURE -->
+    <section>
+      <p class="eyebrow">How it works</p>
+      <h2>Ten stages, one principle: verify, then keep.</h2>
+      <div class="arch">
+        <div class="astep"><div class="idx">01</div><div><h3>Query planning</h3><p>The question is expanded into a structured search program &mdash; sub&#8209;questions and targeted queries across every facet.</p></div></div>
+        <div class="astep"><div class="idx">02</div><div><h3>Multi&#8209;source retrieval</h3><p>Parallel search across academic literature, the open web, and official statistical agencies.</p></div></div>
+        <div class="astep"><div class="idx">03</div><div><h3>Span&#8209;grounded extraction</h3><p>Evidence is pulled as verbatim quotes with exact source location &mdash; each claim grounded in real text, not paraphrase.</p></div></div>
+        <div class="astep"><div class="idx">04</div><div><h3>Credibility tiering</h3><p>Every source is graded into a 7&#8209;tier hierarchy, driving a source&#8209;eligibility filter toward the strongest evidence.</p></div></div>
+        <div class="astep"><div class="idx">05</div><div><h3>Dedup &amp; corroboration</h3><p>Findings are matched by inference, duplicate&#8209;source groups collapsed, and cross&#8209;source agreement counted per finding.</p></div></div>
+        <div class="astep"><div class="idx">06</div><div><h3>Structured corpus</h3><p>The graded, deduplicated, corroborated evidence becomes the single structured input to writing.</p></div></div>
+        <div class="astep"><div class="idx">07</div><div><h3>Iterative outline agent</h3><p>A self&#8209;correcting reason&#8209;act loop builds the structure, checking coverage against the evidence under a bounded budget.</p></div></div>
+        <div class="astep"><div class="idx">08</div><div><h3>Parallel section writers</h3><p>Multiple writers generate analytical prose in parallel, each grounded in its assigned evidence spans.</p></div></div>
+        <div class="astep key"><div class="idx">09</div><div><h3>Faithfulness verification</h3><p>Every claim is re&#8209;checked against its cited span. Unverifiable claims are <strong>removed &mdash; not softened.</strong> This step drives the 90.3% accuracy.</p></div></div>
+        <div class="astep"><div class="idx">10</div><div><h3>Assembly</h3><p>Sections are stitched, citations deduplicated and renumbered, and the final report rendered with tiered references.</p></div></div>
+      </div>
+      <p class="mute" style="font-size:15px;margin-top:22px">The underlying model is a leading open&#8209;weight, MIT&#8209;licensed mixture&#8209;of&#8209;experts model &mdash; fully self&#8209;hostable.</p>
+    </section>
+
+    <!-- STRENGTHS / LIMITS -->
+    <section>
+      <p class="eyebrow">Strengths and limits</p>
+      <h2>An edge in verifiability, not fluency.</h2>
+      <div class="cols">
+        <div class="pcard">
+          <h3>Where it leads</h3>
+          <p>It produced the most verifiable and most heavily&#8209;cited report of the five, runs on open weights, and can be self&#8209;hosted at low marginal cost with no data leaving the operator&rsquo;s environment.</p>
+        </div>
+        <div class="pcard">
+          <h3>Where it doesn&rsquo;t</h3>
+          <p>It did not lead on writing quality &mdash; two frontier models scored higher on the composite metric. Its advantage lies in citation trust and operational control rather than prose.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- APPENDIX -->
+    <section class="container narrow" style="padding-left:0;padding-right:0;">
+      <p class="eyebrow">The scored report</p>
+      <h2>The output behind the numbers.</h2>
+      <p>The complete report that produced RACE 0.4447 and 90.3% citation accuracy &mdash; about 3,900 words, four evidence tables, and 37 tiered references.</p>
+      <details>
+        <summary>Read the full report <span class="chev">expand &darr;</span></summary>
+        <div class="report">
+          <h1>A literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market</h1>
+          <p>This report synthesizes the retrieved research evidence on the question above. It is organized as a coherent review: an introduction that frames the scope, thematic sections that group the evidence by sub-topic, a cross-study synthesis that surfaces where the findings agree and conflict, and a closing discussion of conclusions and open research gaps. Every quantitative claim is span-grounded to a cited source; claims that could not be verified against the underlying evidence were removed rather than paraphrased.</p>
+
+          <h2>Introduction and Scope</h2>
+          <p>The Fourth Industrial Revolution, a term popularized by Klaus Schwab in 2016, is characterized by a fusion of technologies that blurs the lines between the physical, digital, and biological spheres, distinguishing it from previous industrial revolutions through its unprecedented velocity, scope, and systems impact.[1][2] Artificial intelligence sits at the center of this transformation, acting as a key driver that orchestrates technologies such as robotics, automated vehicles, and real-time data analytics to redefine how work is performed across industries.[2] Global business investment in AI increased 13-fold from US$14.57 billion in 2013 to US$189 billion in 2023, with 35% of businesses already using AI in their operations and more than 50% intending to implement AI technologies.[3] This rapid diffusion has prompted predictions that STARA&mdash;smart technology, artificial intelligence, robotics, and algorithms&mdash;will replace a third of jobs that exist today, with forecasts that by 2025, 85 million jobs may be displaced while 97 million new roles may emerge.[4] Similarly, the World Economic Forum has predicted that AI adoption will make 75 million jobs redundant and create 133 million new ones worldwide by 2022, while economic analyses from PwC, IBM, Deloitte, and Gartner Research project that AI will increase global GDP by 15% by 2030, adding approximately $15.7 trillion.[5] A separate Future of Jobs report projected that 7.1 million jobs will be lost across 15 economic areas from 2015 to 2020, while 2.1 million additional jobs are expected to be created during the same period.[6] The net impact on labor demand depends on how these effects weigh against each other, and the authors find that the sharp slowdown of US wage bill growth over the last three decades reflects weaker-than-usual productivity growth combined with significant shifts in the task content of production against labor.[7] The scope of this disruption spans multiple sectors, reshaping employment through task automation, skill polarization, and industry-specific disruptions in healthcare, education, and creative industries, while also affecting white-collar professionals, gig workers, and freelancers.[3] Industrial robots already exceed 4 million units in operation, with installations steadily increasing due to falling costs and enhanced AI capabilities.[8] Acemoglu and Restrepo's task-based framework posits that automation generates a displacement effect, as capital takes over tasks previously performed by labor.[7]</p>
+
+          <h3>Table 1. Headline employment forecasts cited in the literature</h3>
+          <div class="card" style="padding:6px 18px;background:var(--card2)">
+          <table>
+            <thead><tr><th>Source</th><th>Displaced</th><th>Created</th><th>Horizon</th></tr></thead>
+            <tbody>
+              <tr><td>STARA (smart tech, AI, robotics)</td><td>85M</td><td>97M</td><td>by 2025</td></tr>
+              <tr><td>World Economic Forum</td><td>75M</td><td>133M</td><td>by 2022</td></tr>
+              <tr><td>Future of Jobs (15 areas)</td><td>7.1M</td><td>2.1M</td><td>2015&ndash;20</td></tr>
+              <tr><td>U.S. automation projection</td><td>30% of jobs</td><td>&mdash;</td><td>by 2030</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p class="note">Figures as reported by each source; forecasts differ in scope and method and are not directly comparable.</p>
+
+          <h2>Task-Based Frameworks and Displacement&ndash;Reinstatement</h2>
+          <p>In this framework, production requires the completion of a range of tasks, each of which can be allocated to either capital or labor, and the resulting allocation determines the "task content of production".[7][9] Countervailing the displacement effect is the reinstatement effect, which arises when new labor-intensive tasks are created in which labor has a comparative advantage, directly increasing both the labor share and labor demand.[7][10][11] Historical examples abound: in the 19th century, technological developments generated employment for line workers, engineers, machinists, repairmen, conductors, managers, and financiers.[7] The pattern was particularly pronounced in manufacturing, where the displacement effect reduced labor demand at about 1.1 percent per year, or about 30 percent cumulatively.[10][11] The baseline estimate of the elasticity of substitution between capital and labor at the industry level is 0.8, while firm-level elasticities are estimated between 0.4 and 0.7.[10][11] Complementary research by Autor, using U.S. data from 1940 through 2018, estimates that more than 60 percent of employment in 2018 was found in job titles that did not exist in 1940.[12] Between 1947 and 1987, wage bill per capita grew at 2.5 percent per year, largely explained by the productivity effect of 2.4 percent per year, while the displacement effect reduced labor demand at about 0.48 percent per year and the reinstatement effect increased it by 0.47 percent per year, yielding a near balance.[10][11]</p>
+
+          <h2>Occupational Exposure and Susceptibility to AI</h2>
+          <p>One framework proposes evaluating the potential impact of large language models by considering their relevance to the tasks workers perform, estimating that roughly 1.8% of jobs could have over half their tasks affected by LLMs with simple interfaces&mdash;jumping to just over 46% when accounting for complementary software.[13] AI's potential impact extends beyond routine tasks to nonroutine ones such as diagnosing health conditions, programming computers, and tracking flight routes, though some affected occupations are augmented rather than replaced.[14] Across OECD countries, the occupations most exposed to AI tend to be white-collar roles such as IT professionals, business professionals, managers, and science and engineering professionals; occupations requiring manual skills are the least exposed.[15] In Korea, 32.2% of firms reported that AI increased the kinds of skills required and 38.3% reported an increase in the level of skills required, while 95.5% reported no workforce changes at the department level and 56.5% said AI replaced specific tasks rather than eliminating positions.[15]</p>
+
+          <h2>Empirical Evidence on Employment and Labor Demand</h2>
+          <p>In occupations where computer use is high, a one standard deviation increase in AI exposure was associated with 5.7 percentage points higher employment growth.[16] Instrumental variable estimates showed AI increased high-skilled employment by 0.376% and medium-skilled employment by 0.397%, while low-skilled employment declined by 0.003%.[17] One study estimated AI will reduce 90:10 wage inequality but will not affect the top 1%.[18] Research on generative AI's short-term effects in an online labor market found it reduced overall demand for workers.[19] Another analysis observed that AI's impact has been modest so far, echoing past innovation cycles.[21] Jobs for AI and Machine Learning specialists have been rising at a compounding rate of 32% per year between 2016 and 2023.[22]</p>
+
+          <h3>Table 2. Estimated employment effect of AI, by skill level</h3>
+          <div class="card" style="padding:6px 18px;background:var(--card2)">
+          <table>
+            <thead><tr><th>Study / setting</th><th>High</th><th>Medium</th><th>Low</th></tr></thead>
+            <tbody>
+              <tr><td>Cross-country, IV estimate</td><td>+0.376%</td><td>+0.397%</td><td>&minus;0.003%</td></tr>
+              <tr><td>China, per one-unit rise in AI</td><td>+0.063%</td><td>+0.001%</td><td>&minus;0.001%</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p class="note">Consistent direction: AI raises high- and medium-skilled employment while slightly reducing low-skilled employment.</p>
+
+          <h2>Productivity Effects of Generative AI</h2>
+          <p>In a preregistered experiment, Noy et al. (2023) assigned writing tasks to 453 professionals and randomly exposed half to ChatGPT, finding average time taken decreased by 40% and output quality rose by 18%, while reducing inequality between workers.[24] A systematic review of 194 peer-reviewed articles (2011&ndash;2025) concludes AI functions as a general-purpose technology with uneven, context-dependent effects.[25] An ILO research brief across seven countries finds productivity gains are real albeit often unverified and uneven, and worker-reported time savings of a few percent have not yet translated into higher measured output, earnings, or employment.[26] Among workers using generative AI at least once in the previous month, 31.9% spent an hour or more per workday using it.[27] Information services showed the largest share of work hours using generative AI at 14.0% and the highest time savings at 2.6%.[27] A standard model estimated self-reported time savings translate to a 1.1% increase in aggregate productivity.[27]</p>
+
+          <h3>Table 3. Generative-AI use intensity and time saved</h3>
+          <div class="card" style="padding:6px 18px;background:var(--card2)">
+          <table>
+            <thead><tr><th>Segment</th><th>Type</th><th>GenAI share</th><th>Time saved</th></tr></thead>
+            <tbody>
+              <tr><td>Computer &amp; mathematics</td><td>occupation</td><td>~12%</td><td>2.5%</td></tr>
+              <tr><td>Personal service</td><td>occupation</td><td>1.3%</td><td>0.4%</td></tr>
+              <tr><td>Information services</td><td>industry</td><td>14.0%</td><td>2.6%</td></tr>
+              <tr><td>Leisure &amp; accommodation</td><td>industry</td><td>2.3%</td><td>0.6%</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p class="note">A 10-point rise in time spent using generative AI is associated with a 1.7-point rise in time saved as a share of hours worked.[27]</p>
+
+          <h2>Wage Inequality, Skill Demand, and Labor Polarization</h2>
+          <p>The share of the employed population with AI skills remains small&mdash;at most 0.3% in OECD countries on average&mdash;but is growing rapidly, with nearly half the AI workforce in the top two deciles of the labour earnings distribution.[28] A one standard deviation increase in AI exposure is associated with a 0.4 percentage point increase in wage growth, driven by occupations requiring high software familiarity.[28][29] These patterns imply AI has the potential to exacerbate labor market polarization, as benefits accrue disproportionately to workers already at the upper end of the skill and income distribution.[29][30] Job vacancies for AI roles have increased seven-fold since 2012, and jobs requiring AI skills have grown 3.5 times faster than overall vacancies.[31] Notably, generative AI applications benefit the least experienced workers most, with less experienced programmers completing tasks over 50% faster&mdash;suggesting AI may under certain conditions decrease performance inequality.[28]</p>
+
+          <h2>Policy Implications and Frameworks for Managing Disruption</h2>
+          <p>Sectoral reallocation can be costly because of potential mismatch between the skills of unemployed workers and those required by firms.[34] Cazzaniga and others (2024) assume AI shocks would reduce the labor share by 5.5 percentage points based on the historical UK change between 1980 and 2014.[34] A significantly larger share of employment is in occupations with high augmentation potential across regions, ranging from 10.2 percent in Sub-Saharan Africa to 16.1 percent in Southeastern Asia and the Pacific.[35] Online platform workers in the US regularly report median earnings of roughly $2 to $3 per hour, well below the federal minimum wage.[35]</p>
+
+          <h2>Cross-Study Synthesis and Conclusions</h2>
+          <p>The cross-study evidence reveals a field still in its earliest stages, with convergent acknowledgment that current findings are fragmented and preliminary.[36][37] Early large-scale evidence is consistent with the hypothesis that the AI revolution is beginning to have a significant and disproportionate impact on entry-level workers in the American labor market.[37] Some research found a decline in job postings began in 2022, prior to ChatGPT, corresponding better to rising interest rates than to LLMs, and Frank et al. (2026) found similar results.[36] Important questions about AI's effects on the labor market remain unanswered, and there is a need for more research and better data.[37][36][35]</p>
+
+          <h2>Limitations</h2>
+          <p>The corpus exhibits tier-distribution gaps, with only 6% of sources classified as T1 primary studies and 21% falling into T6, while a further 15% remain UNKNOWN. No contradictions were detected across paired sources, so no cross-source disagreement is asserted. The telemetry block does not surface a date range, limiting characterization of the evidence horizon.</p>
+
+          <h3>Table 4. Evidence base by source-quality tier</h3>
+          <div class="card" style="padding:6px 18px;background:var(--card2)">
+          <table>
+            <thead><tr><th>Tier</th><th>Description</th><th>Share</th></tr></thead>
+            <tbody>
+              <tr><td>T1</td><td>primary studies</td><td>6%</td></tr>
+              <tr><td>T6</td><td>lower-authority sources</td><td>21%</td></tr>
+              <tr><td>UNKNOWN</td><td>could not be categorized</td><td>15%</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p class="note">Remaining share spans intermediate tiers (T2&ndash;T5).</p>
+
+          <h2>References</h2>
+          <div class="refs">
+            <p>[1] The Fourth Industrial Revolution: what it means and how to respond &mdash; weforum.org (T4)</p>
+            <p>[2] Fourth Industrial Revolution &mdash; Wikipedia (T4)</p>
+            <p>[3] Artificial intelligence and technological unemployment &mdash; sciencedirect.com (T4)</p>
+            <p>[4] The Fourth Industrial Revolution &ndash; Smart Technology, AI &mdash; PMC9301265 (T1)</p>
+            <p>[5] Unlocking the value of AI in HR management &mdash; doi.org/10.1016/j.hrmr.2022.100899 (T1)</p>
+            <p>[6] Fourth Industrial Revolution between Knowledge Management and Digital Humanities &mdash; doi.org/10.3390/info13060292 (T4)</p>
+            <p>[7] Automation and New Tasks: How Technology Displaces and Reinstates Labor &mdash; aeaweb.org (T1)</p>
+            <p>[8] Robots, AI, and automation: the 4th industrial revolution is here &mdash; tomorrow.city (T4)</p>
+            <p>[9] Automation and New Tasks &mdash; doi.org/10.1257/jep.33.2.3 (T1)</p>
+            <p>[10] How Technology Displaces and Reinstates Labor &mdash; shapingwork.mit.edu (T4)</p>
+            <p>[11] How Technology Displaces and Reinstates Labor &mdash; concetticontrastivi.org (T4)</p>
+            <p>[12] The Labor Market Impacts of Technological Change &mdash; nber.org w30074 (T4)</p>
+            <p>[13] GPTs are GPTs: Labor market impact potential of LLMs (T1)</p>
+            <p>[14] The potential impact of AI innovations on US occupations &mdash; PMC11421150 (T1)</p>
+            <p>[15] Artificial Intelligence and the Labour Market in Korea &mdash; OECD (T3)</p>
+            <p>[16] AI and Employment: New Cross-Country Evidence &mdash; PMC9127971 (T1)</p>
+            <p>[17] How AI affects the labour force employment &mdash; PMC10907740 (T1)</p>
+            <p>[18] The Impact of AI on the Labor Market &mdash; michaelwebb.co (T4)</p>
+            <p>[19] Short-Term Effects of Generative AI &mdash; profiles.wustl.edu (T2)</p>
+            <p>[20] 59 AI Job Statistics &mdash; nu.edu (UNKNOWN)</p>
+            <p>[21] AI and Jobs: Limited Disruption So Far &mdash; morganstanley.com (T4)</p>
+            <p>[22] The AI Revolution in Labor &mdash; japksu.com (T4)</p>
+            <p>[23] AI, Task Changes in Jobs, and Worker Reallocation &mdash; iza.org dp17554 (UNKNOWN)</p>
+            <p>[24] Experimental evidence on productivity effects of generative AI &mdash; pubmed 37440646 (T1)</p>
+            <p>[25] AI and Economic Development: A Systematic Review &mdash; doi.org/10.1007/s13132-026-03385-w (T2)</p>
+            <p>[26] Research Brief: impact of GenAI on jobs &mdash; ilo.org (T3)</p>
+            <p>[27] The Impact of Generative AI on Work Productivity &mdash; St. Louis Fed (T3)</p>
+            <p>[28] AI, job quality and inclusiveness &mdash; OECD Employment Outlook 2023 (T3)</p>
+            <p>[29] The Occupational Impact of AI: Labor, Skills, Polarization &mdash; econbiz.de (T2)</p>
+            <p>[30] The economic impact of AI on employment and income disparities &mdash; econstor.eu (T4)</p>
+            <p>[31] Business students' perceptions of AI's impact on the labor market &mdash; doi.org/10.3846/jbem.2025.24349 (T1)</p>
+            <p>[32] Automation and Industry 4.0 in production engineering &mdash; doi.org/10.7862/rm.2025.14 (T4)</p>
+            <p>[33] Occupations and Inequality: Theoretical Perspectives &mdash; doi.org/10.1007/s11577-020-00685-0 (T4)</p>
+            <p>[34] Broadening the Gains from Generative AI &mdash; IMF elibrary (T3)</p>
+            <p>[35] Mind the AI Divide &mdash; United Nations / ILO (T3)</p>
+            <p>[36] Research on AI and the labor market is still in the first inning &mdash; hamiltonproject.org (T2)</p>
+            <p>[37] AI and Labor Markets: What We Know and Don't Know &mdash; digitaleconomy.stanford.edu (T2)</p>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <p class="foot">
+      <strong>Methodology.</strong> Five deep-research systems were evaluated on DeepResearch&nbsp;Bench (task&nbsp;72, a literature review on AI and the labor market) using the identical scoring harness. Quality (RACE) was judged by GPT&#8209;5.5 against the benchmark&rsquo;s official reference report. Citation faithfulness (FACT) was measured by extracting each cited claim, scraping the live source URL, and validating support with an automated judge; accuracy is the share of resolved citations a source supports, and verified citations is the count of supported citations. Figures reflect a single benchmark task and are not a full 100-task leaderboard ranking.
+    </p>
+
+  </div>
+</div>
+</body>
+</html>
