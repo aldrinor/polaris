@@ -1552,8 +1552,7 @@ _BASKET_DIGEST_LEGEND = (
     "with ev_xxx are SINGLETON sources. Prefer anchoring each section on the on-topic BASKETS FIRST "
     "(assign their member ev_ids to the section), then add relevant singletons; a basket left "
     "unassigned is LOST corroboration. A line tagged [CHROME — failed fetch, do not anchor] is a "
-    "failed fetch, not a source — do NOT anchor on it. A source tagged [w:demoted] is weight-demoted "
-    "for relevance: prefer non-demoted sources when both support the claim."
+    "failed fetch, not a source — do NOT anchor on it."
 )
 
 
@@ -1568,22 +1567,6 @@ def _select_outline_system_prompt(domain: str | None) -> str:
         if str(domain or "").strip().lower() in ("", "clinical")
         else OUTLINE_SYSTEM_PROMPT_GENERIC
     )
-
-
-# Item 1 (every-run wasted-retry fix): the model copies the "1. " list enumerator the requirements
-# block renders ("1. Positive Views...") into the section `title` field. That breaks the EXACT
-# required-title match, fires a ``required_title_mismatch`` reason code, burns a whole extra GLM
-# outline call, and only the fuzzy tier-2 conform rescues it. Stripping a leading numeric enumerator
-# for the required-membership + exact-conform check ONLY (the RAW title is kept on the plan) makes the
-# tier-1 exact match fire — retry_attempted=False, single GLM call.
-_ENUM_PREFIX_RE = re.compile(r"^\s*\d+[.)]\s*")
-
-
-def _strip_enum_prefix(text: str) -> str:
-    """Strip a leading list enumerator ('1. ' / '2) ') for the required-title comparison key ONLY
-    (item 1). The raw title stays on the plan; this only normalizes the key so '1. Positive Views'
-    matches the required 'Positive Views' by EXACT match instead of a wasted retry + fuzzy re-map."""
-    return _ENUM_PREFIX_RE.sub("", text or "").strip()
 
 
 def _parse_outline(
@@ -1687,12 +1670,7 @@ def _parse_outline(
             continue
         title = str(entry.get("title", "")).strip()
         title_lower = title.lower()
-        # item 1a: strip a leading list enumerator ("1. ") for the required-membership check ONLY, so
-        # the model copying the requirements-block number ("1. Positive Views...") still matches the
-        # required "Positive Views..." exactly — no required_title_mismatch, no wasted retry. The RAW
-        # ``title`` is kept on the plan (conform re-maps it to the exact required casing below).
-        _title_lower_deenum = _strip_enum_prefix(title_lower)
-        _is_required = title_lower in required_lower or _title_lower_deenum in required_lower
+        _is_required = title_lower in required_lower
         # O1 (#1344): facet mode accepts ANY non-empty topical title (the fixed 6-title
         # allow-list is the container being removed); legacy mode keeps the allow-list drop.
         # PUSH 1(c): a required title is never dropped by the allow-list.
@@ -1873,16 +1851,8 @@ def _conform_plans_to_required(
     if not required_sections:
         return plans
     by_title: dict[str, SectionPlan] = {}
-    # item 1b: RAW-exact first pass, THEN an enumerator-stripped pass. The raw pass wins, so two
-    # emitted titles differing only by a real numeric prefix ("1. Foo" / "2. Foo") never collide on
-    # the stripped key; the stripped pass only adds a fallback key so an emitted "1. Positive Views"
-    # exact-matches the required "Positive Views" at tier-1 (no fuzzy tier-2 re-map, no wasted retry).
     for p in plans:
         by_title.setdefault(str(p.title).strip().lower(), p)
-    for p in plans:
-        _sk = _strip_enum_prefix(str(p.title).strip().lower())
-        if _sk:
-            by_title.setdefault(_sk, p)
 
     # tier-2 setup: required content words + document frequency (across required titles) -> distinctive
     _req_norm = [str(t).strip() for t in required_sections if str(t).strip()]
@@ -1897,15 +1867,8 @@ def _conform_plans_to_required(
         for p in plans
     ]
     _lower_to_idx: dict[str, int] = {}
-    # item 1b: same raw-first-then-stripped keying as ``by_title`` so the tier-1 exact match and the
-    # ``_consumed`` guard resolve to the SAME emitted plan index (an enumerator-prefixed emitted title
-    # is found by the un-numbered required title without a fuzzy re-map).
     for _i, _p in enumerate(plans):
         _lower_to_idx.setdefault(str(_p.title).strip().lower(), _i)
-    for _i, _p in enumerate(plans):
-        _sk = _strip_enum_prefix(str(_p.title).strip().lower())
-        if _sk:
-            _lower_to_idx.setdefault(_sk, _i)
     _consumed: set[int] = set()  # emitted-plan indices already assigned (exact OR overlap)
 
     conformed: list[SectionPlan] = []
