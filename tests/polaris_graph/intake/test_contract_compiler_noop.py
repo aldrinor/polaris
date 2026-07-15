@@ -85,6 +85,101 @@ def test_floor_is_non_droppable_under_hostile_llm() -> None:
     assert len(c.instruction_slots) >= 1                # floor kept
 
 
+_QH = (
+    "Compare remote work versus office work. Only cite peer-reviewed journals "
+    "published strictly before 2020. Write for executives."
+)
+
+
+def test_floor_hard_field_non_droppable_under_hostile_enrich() -> None:
+    """The GENUINELY dangerous case (not the empty short-circuit): a NON-EMPTY,
+    parsable LLM response that ACTIVELY tries to OVERWRITE an existing HARD floor
+    field with a fabricated value, and to inject a fabricated field whose words are
+    not in the question.
+
+    ``_QH`` establishes a HARD floor date_window (``end_year=2020``, operator
+    ``allow_only`` — 'strictly before 2020'). The hostile LLM returns a contradicting
+    ``date_end_year=2015`` plus a fabricated ``source_language='German'`` the prompt
+    never names. Asserts: (a) the FLOOR value wins — 2020 kept, 2015 rejected, and the
+    HARD strength/operator are preserved; (b) the fabricated language is span-gate
+    rejected with a loud warning; (c) ``_enrich`` was genuinely invoked (source ==
+    'enriched'), i.e. this is the real additive-merge path, NOT the empty short-circuit.
+    """
+    llm = FakeClient(json.dumps({
+        "date_end_year": 2015,                 # contradicts the HARD floor 2020
+        "date_end_year_span": "before 2020",   # even a plausible-looking span
+        "source_language": "German",           # fabricated: never named in the prompt
+    }))
+    c = compile_intake_contract(_QH, llm_fn=llm, force=True)
+
+    # (c) the real merge path ran — NOT the `if d:`-False empty short-circuit.
+    assert llm.calls, "enrich pass should have called the injected llm_fn"
+    assert c.source == "enriched"
+
+    # (a) the FLOOR value wins — the HARD field is non-droppable.
+    assert c.date_window.value["end_year"] == 2020          # 2015 never overwrote it
+    assert c.date_window.strength == "hard"                 # HARD strength preserved
+    assert c.date_window.operator == "allow_only"           # allow_only preserved
+    assert c.date_window.origin == "user_explicit"
+
+    # (b) the fabricated language (words not in the prompt) is span-gate rejected.
+    assert not c.language.is_set()
+    assert c.language.value != "German"
+    assert any("German" in w for w in c.warnings)
+
+
+def test_enrich_admits_query_named_year() -> None:
+    """Span-gate ADMIT branch: the gate is not rejecting unconditionally. When the
+    floor detects NO date window but the prompt literally names a year, the enrich
+    pass admits it (soft, non-narrowing). '2018' is in the prompt but not in a
+    cutoff pattern, so the floor leaves date_window unset — the enrich date branch
+    then runs and admits the query-named year."""
+    q = "Discuss the 2018 policy on remote work for a general audience."
+    # sanity: the floor itself detects no date window here.
+    assert not compile_intake_contract(q, llm_fn=None).date_window.is_set()
+    llm = FakeClient(json.dumps({"date_end_year": 2018}))
+    c = compile_intake_contract(q, llm_fn=llm, force=True)
+    assert c.date_window.is_set()
+    assert c.date_window.value["end_year"] == 2018   # query-named year admitted
+    assert c.date_window.strength == "soft"          # enrich year is non-narrowing
+    assert c.source == "enriched"
+
+
+def test_cache_round_trip_preserves_non_droppable_floor(tmp_path, monkeypatch) -> None:
+    """On-disk cache round-trip: a forced write, then a second (unforced) call hits
+    the cache WITHOUT re-invoking the LLM and reconstructs the SAME non-droppable
+    floor. Changing a version key (model or PROMPT_VERSION) busts the stale entry."""
+    import src.polaris_graph.intake.contract_compiler as cc
+
+    monkeypatch.setattr(cc, "_CACHE_DIR", tmp_path / "intake_contracts")
+    llm = FakeClient(json.dumps({"length": "concise", "length_span": "concise, analytical tone"}))
+
+    # first call forces a cache WRITE
+    c1 = cc.compile_intake_contract(_Q, llm_fn=llm, force=True, model="test-model")
+    assert c1.source == "enriched"
+    assert c1.date_window.value["end_year"] == 2020
+    n_calls = len(llm.calls)
+
+    # second call (no force) HITS the cache — the LLM is NOT invoked again ...
+    c2 = cc.compile_intake_contract(_Q, llm_fn=llm, force=False, model="test-model")
+    assert len(llm.calls) == n_calls, "second call should hit the cache, not re-invoke the LLM"
+    # ... and the non-droppable floor is reconstructed identically.
+    assert c2.date_window.value["end_year"] == 2020
+    assert c2.date_window.strength == "soft"  # 'before 2020' floor is soft (no 'strictly')
+    assert c2.user_constraints.get("journal_only_dormant") is True
+
+    # changing the model version key busts the stale entry => recompiles (LLM called).
+    c3 = cc.compile_intake_contract(_Q, llm_fn=llm, force=False, model="other-model")
+    assert len(llm.calls) == n_calls + 1, "a new model key must bust the cache"
+    assert c3.date_window.value["end_year"] == 2020
+
+    # changing PROMPT_VERSION likewise busts even the SAME model key.
+    monkeypatch.setattr(cc, "PROMPT_VERSION", "ic-test-bust")
+    c4 = cc.compile_intake_contract(_Q, llm_fn=llm, force=False, model="test-model")
+    assert len(llm.calls) == n_calls + 2, "a new PROMPT_VERSION must bust the cache"
+    assert c4.date_window.value["end_year"] == 2020
+
+
 def test_span_gate_rejects_fabricated_hard_year() -> None:
     """The rc-2 recency_from:2015 incident: the LLM claims a cutoff year the question
     never names. Because the floor already carries the real (2020) window, and the
