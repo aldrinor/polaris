@@ -1,0 +1,188 @@
+[
+  {
+    "ev_ids": [
+      "acemoglu_restrepo_automation_tasks",
+      "autor_why_still_jobs",
+      "ev_048",
+      "ev_1271",
+      "ev_1272",
+      "ev_1273",
+      "ev_1274",
+      "ev_1275",
+      "ev_1276",
+      "ev_1277",
+      "ev_1278",
+      "ev_1279",
+      "ev_1280",
+      "ev_1281",
+      "ev_1282",
+      "ev_1283",
+      "ev_1284",
+      "ev_1285",
+      "ev_1286",
+      "ev_1287",
+      "ev_1288",
+      "ev_1289",
+      "ev_1290",
+      "ev_1291",
+      "ev_1292",
+      "ev_1293",
+      "ev_1294",
+      "ev_1295",
+      "ev_1296",
+      "ev_1374",
+      "ev_1375",
+      "ev_1376",
+      "ev_1377"
+    ],
+    "focus": "Orienting the review within the Fourth Industrial Revolution context and establishing the scope of AI's transformative impact on labor markets.",
+    "title": "Introduction and Scope"
+  },
+  {
+    "ev_ids": [
+      "acemoglu_restrepo_automation_tasks",
+      "ev_063",
+      "ev_1316",
+      "ev_1317",
+      "ev_1318",
+      "ev_1319",
+      "ev_1320",
+      "ev_1321",
+      "ev_1322",
+      "ev_1323",
+      "ev_1324",
+      "ev_1325",
+      "ev_1326",
+      "ev_1327",
+      "ev_1328",
+      "ev_1329",
+      "ev_1330",
+      "ev_1331",
+      "ev_1332",
+      "ev_1333",
+      "ev_1334",
+      "ev_1335",
+      "ev_1336",
+      "ev_1337",
+      "ev_1338"
+    ],
+    "focus": "Theoretical models of task automation, displacement, and reinstatement, emphasizing Acemoglu and Restrepo's contributions.",
+    "title": "Task-Based Frameworks and Displacement-Reinstatement"
+  },
+  {
+    "ev_ids": [
+      "eloundou_gpts_are_gpts",
+      "ev_1372",
+      "ev_1373",
+      "ev_975",
+      "frey_osborne_computerisation"
+    ],
+    "focus": "Measures of occupational exposure to AI, from early computerization probabilities to recent large language model vulnerability assessments.",
+    "title": "Occupational Exposure and Susceptibility to AI"
+  },
+  {
+    "ev_ids": [
+      "ev_102",
+      "ev_119",
+      "ev_1192",
+      "ev_1297",
+      "ev_1298",
+      "ev_1299",
+      "ev_1300",
+      "ev_1301",
+      "ev_1302",
+      "ev_1303",
+      "ev_1304",
+      "ev_1305",
+      "ev_1306",
+      "ev_1307",
+      "ev_1308",
+      "ev_1309",
+      "ev_1310",
+      "ev_1311",
+      "ev_1312",
+      "ev_1313",
+      "ev_1314",
+      "ev_1315",
+      "ev_1359",
+      "ev_1360",
+      "ev_1361",
+      "ev_1362",
+      "ev_1363",
+      "ev_1364",
+      "ev_1365",
+      "ev_1366",
+      "ev_1367",
+      "ev_1368",
+      "ev_1369",
+      "ev_1370",
+      "ev_1371"
+    ],
+    "focus": "Studies examining actual employment effects, hiring changes, and labor demand shifts due to AI and generative AI, spanning cross-country and online labor market data.",
+    "title": "Empirical Evidence on Employment and Labor Demand"
+  },
+  {
+    "ev_ids": [
+      "ev_017",
+      "ev_1355",
+      "ev_1356",
+      "ev_1357",
+      "ev_1358",
+      "ev_939"
+    ],
+    "focus": "Experimental and quasi-experimental evidence on individual and firm-level productivity gains from generative AI in writing, coding, and customer service tasks.",
+    "title": "Productivity Effects of Generative AI"
+  },
+  {
+    "ev_ids": [
+      "ev_045",
+      "ev_1106",
+      "ev_1339",
+      "ev_1340",
+      "ev_1341",
+      "ev_1342",
+      "ev_1343",
+      "ev_1344",
+      "ev_1345",
+      "ev_1346",
+      "ev_1347",
+      "ev_1348",
+      "ev_1349",
+      "ev_1350",
+      "ev_1351",
+      "ev_1352",
+      "ev_1353",
+      "ev_1354",
+      "ev_967"
+    ],
+    "focus": "How AI adoption reshapes skill premiums, wage inequality, and job polarization, influencing demand for high-skill versus routine and low-skill workers.",
+    "title": "Wage Inequality, Skill Demand, and Labor Polarization"
+  },
+  {
+    "ev_ids": [
+      "ev_954",
+      "ev_148",
+      "ev_220"
+    ],
+    "focus": "Policy responses including labor regulations, social safety nets, reskilling initiatives, and international strategies to ensure inclusive gains from AI.",
+    "title": "Policy Implications and Frameworks for Managing Disruption"
+  },
+  {
+    "ev_ids": [
+      "ev_128",
+      "ev_048",
+      "ev_189"
+    ],
+    "focus": "A cross-cutting analysis of convergent and conflicting findings across studies, highlighting the early and fragmented state of evidence.",
+    "title": "Cross-Study Synthesis and Contradictions"
+  },
+  {
+    "ev_ids": [
+      "ev_048",
+      "ev_128",
+      "ev_220"
+    ],
+    "focus": "Summary of collectively supported insights and identification of critical unresolved questions, such as long-term general equilibrium effects and impacts on developing economies.",
+    "title": "Conclusions and Research Gaps"
+  }
+]

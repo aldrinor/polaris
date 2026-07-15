@@ -27,6 +27,8 @@
 | `MANIFEST.sha256` | identity lock — sha256 of the report, compose artifact, and reproduction corpus + code commit |
 | `RECIPE.md` | the short reproduce recipe |
 | `.env.template` | required credential names (no values) |
+| `corpus/` | **bundled reproduction corpus** — `cp4` (compose input, 997 ev / 329 clusters), `cp3` (baskets), `cp2` (evidence pool), plus the external canonical `cp2` and raw Stage-A snapshot (the latter holds the 1106-row selector input + source-origin distribution). Self-contained; no dependency on `/workspace/POLARIS`. |
+| `compose_artifact/` | the byte-identical champion compose output — `report.md`, `bibliography.json` (37 refs, marks which came from live search), `compose_summary.json`, outline, methods |
 
 ---
 
@@ -76,9 +78,9 @@ python -m utils.stat --input_path results/fact/polaris_step3_control/validated.j
 
 | Part | Status |
 |---|---|
-| E (cp3→cp4) | ✅ deterministic |
+| E (cp3→cp4) | ✅ deterministic — corpus bundled in `corpus/` |
 | F (compose) | ⚠ reproduces to *distribution* (~0.43–0.45); stochastic + live-web on |
 | G (RACE / FACT-stat) | ✅ given keys / from preserved `validated.jsonl` |
-| A–D (query→cp3) | ❌ snapshot-only (live web, non-deterministic) |
+| A–D (query→cp3) | ❌ snapshot-only (live web, non-deterministic); inputs preserved in `corpus/` but not re-runnable bit-for-bit |
 
 **The exact 0.4447 champion is a preserved OUTPUT, not a reproducible one.** During compose the outline agent fired live web-search (9 SERPER + 10 Semantic-Scholar rounds) and folded in **107 rows that were never dumped**; **23 of the 37 citations came from that live search**, not cp4. The pipeline code runs end-to-end, but that specific report cannot be regenerated bit-for-bit. Full evidence: `citation_verify.md`; full ledger + punch-list: `PIPELINE_FULL_BODY.md`.

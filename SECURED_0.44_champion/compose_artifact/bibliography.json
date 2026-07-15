@@ -1,0 +1,335 @@
+[
+  {
+    "doi": "",
+    "evidence_id": "ev_1271",
+    "num": 1,
+    "pmid": "",
+    "statement": "The Fourth Industrial Revolution: what it means and how to respond",
+    "tier": "T4",
+    "url": "https://www.weforum.org/stories/2016/01/the-fourth-industrial-revolution-what-it-means-and-how-to-respond/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1275",
+    "num": 2,
+    "pmid": "",
+    "statement": "Fourth Industrial Revolution - Wikipedia",
+    "tier": "T4",
+    "url": "https://en.wikipedia.org/wiki/Fourth_Industrial_Revolution"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1374",
+    "num": 3,
+    "pmid": "",
+    "statement": "Artificial intelligence and technological unemployment",
+    "tier": "T4",
+    "url": "https://www.sciencedirect.com/science/article/pii/S2199853125001428"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1276",
+    "num": 4,
+    "pmid": "",
+    "statement": "The Fourth Industrial Revolution \u2013 Smart Technology, Artificial ...",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9301265/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1282",
+    "num": 5,
+    "pmid": "",
+    "statement": "Unlocking the value of artificial intelligence in human resource management through AI capability framework",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/j.hrmr.2022.100899"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1289",
+    "num": 6,
+    "pmid": "",
+    "statement": "Fourth Industrial Revolution between Knowledge Management and Digital Humanities",
+    "tier": "T4",
+    "url": "https://doi.org/10.3390/info13060292"
+  },
+  {
+    "doi": "10.1257/jep.33.2.3",
+    "evidence_id": "acemoglu_restrepo_automation_tasks",
+    "num": 7,
+    "pmid": "",
+    "statement": "Automation and New Tasks: How Technology Displaces and Reinstates Labor",
+    "tier": "T1",
+    "url": "https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.33.2.3"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1273",
+    "num": 8,
+    "pmid": "",
+    "statement": "Robots, AI, and automation: the 4th industrial revolution is here",
+    "tier": "T4",
+    "url": "https://www.tomorrow.city/robots-ai-and-automation-the-4th-industrial-revolution-is-here/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1321",
+    "num": 9,
+    "pmid": "",
+    "statement": "Automation and New Tasks: How Technology Displaces and Reinstates Labor",
+    "tier": "T1",
+    "url": "https://doi.org/10.1257/jep.33.2.3"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1317",
+    "num": 10,
+    "pmid": "",
+    "statement": "How Technology Displaces and Reinstates Labor",
+    "tier": "T4",
+    "url": "https://shapingwork.mit.edu/wp-content/uploads/2023/10/acemoglu-restrepo-2019-automation-and-new-tasks-how-technology-displaces-and-reinstates-labor.pdf"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1318",
+    "num": 11,
+    "pmid": "",
+    "statement": "How Technology Displaces and Reinstates Labor",
+    "tier": "T4",
+    "url": "https://concetticontrastivi.org/wp-content/uploads/2024/06/acemoglu-restrepo-2019-automation-and-new-tasks-how-technology-displaces-and-reinstates-labor.pdf"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1319",
+    "num": 12,
+    "pmid": "",
+    "statement": "The Labor Market Impacts of Technological Change",
+    "tier": "T4",
+    "url": "https://www.nber.org/system/files/working_papers/w30074/revisions/w30074.rev1.pdf"
+  },
+  {
+    "doi": "10.1126/science.adj0998",
+    "evidence_id": "eloundou_gpts_are_gpts",
+    "num": 13,
+    "pmid": "",
+    "statement": "GPTs are GPTs: Labor market impact potential of LLMs",
+    "tier": "T1",
+    "url": ""
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_975",
+    "num": 14,
+    "pmid": "",
+    "statement": "The potential impact of AI innovations on US occupations - PMC - NIH",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11421150/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1372",
+    "num": 15,
+    "pmid": "",
+    "statement": "Artificial Intelligence and the Labour Market in Korea - OECD",
+    "tier": "T3",
+    "url": "https://www.oecd.org/en/publications/artificial-intelligence-and-the-labour-market-in-korea_68ab1a5a-en/full-report/the-impact-of-ai-on-the-labour-market_69793977.html"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_119",
+    "num": 16,
+    "pmid": "",
+    "statement": "Artificial Intelligence and Employment: New Cross-Country Evidence",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9127971/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_102",
+    "num": 17,
+    "pmid": "",
+    "statement": "How artificial intelligence affects the labour force employment ... - PMC",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10907740/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1300",
+    "num": 18,
+    "pmid": "",
+    "statement": "The Impact of Artificial Intelligence on the Labor Market",
+    "tier": "T4",
+    "url": "https://www.michaelwebb.co/webb_ai.pdf"
+  },
+  {
+    "doi": "10.1287/orsc.2023.18441",
+    "evidence_id": "ev_1192",
+    "num": 19,
+    "pmid": "",
+    "statement": "The Short-Term Effects of Generative Artificial Intelligence on ...",
+    "tier": "T2",
+    "url": "https://profiles.wustl.edu/en/publications/the-short-term-effects-of-generative-artificial-intelligence-on-e/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1360",
+    "num": 20,
+    "pmid": "",
+    "statement": "59 AI Job Statistics: Future of U.S. Jobs | National University",
+    "tier": "UNKNOWN",
+    "url": "https://www.nu.edu/blog/ai-job-statistics/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1298",
+    "num": 21,
+    "pmid": "",
+    "statement": "AI and Jobs: Limited Disruption So Far",
+    "tier": "T4",
+    "url": "https://www.morganstanley.com/insights/articles/ai-jobs-modest-impact-historical-precedence"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1299",
+    "num": 22,
+    "pmid": "",
+    "statement": "The AI Revolution in Labor: Navigating Job Transformation ...",
+    "tier": "T4",
+    "url": "https://japksu.com/index.php/esj/article/download/819/129"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1361",
+    "num": 23,
+    "pmid": "",
+    "statement": "[PDF] AI, Task Changes in Jobs, and Worker Reallocation",
+    "tier": "UNKNOWN",
+    "url": "https://docs.iza.org/dp17554.pdf"
+  },
+  {
+    "doi": "10.1126/science.adh2586",
+    "evidence_id": "ev_939",
+    "num": 24,
+    "pmid": "",
+    "statement": "Experimental evidence on the productivity effects of generative ...",
+    "tier": "T1",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/37440646/"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1356",
+    "num": 25,
+    "pmid": "",
+    "statement": "Artificial Intelligence and Economic Development: A Systematic Review of Patterns and Pathways",
+    "tier": "T2",
+    "url": "https://doi.org/10.1007/s13132-026-03385-w"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1355",
+    "num": 26,
+    "pmid": "",
+    "statement": "\u25b6 Research Brief",
+    "tier": "T3",
+    "url": "https://www.ilo.org/sites/default/files/2026-06/Research%20Brief_The%20impact%20of%20GenAi%20on%20jobs%20and%20work%20organization%20a%20review%20of%20empirical%20evidence.pdf"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_017",
+    "num": 27,
+    "pmid": "",
+    "statement": "The Impact of Generative AI on Work Productivity | St. Louis Fed",
+    "tier": "T3",
+    "url": "https://www.stlouisfed.org/on-the-economy/2025/feb/impact-generative-ai-work-productivity"
+  },
+  {
+    "doi": "10.1787/ea0a0fe1-en",
+    "evidence_id": "ev_045",
+    "num": 28,
+    "pmid": "",
+    "statement": "Artificial intelligence, job quality and inclusiveness - OECD",
+    "tier": "T3",
+    "url": "https://www.oecd.org/en/publications/oecd-employment-outlook-2023_08785bba-en/full-report/artificial-intelligence-job-quality-and-inclusiveness_a713d0ad.html"
+  },
+  {
+    "doi": "10.2139/ssrn.3368605",
+    "evidence_id": "ev_967",
+    "num": 29,
+    "pmid": "",
+    "statement": "The Occupational Impact of Artificial Intelligence : Labor, Skills, and ...",
+    "tier": "T2",
+    "url": "https://www.econbiz.de/Record/the-occupational-impact-of-artificial-intelligence-labor-skills-and-polarization-felten-edward/10012849602"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1341",
+    "num": 30,
+    "pmid": "",
+    "statement": "[PDF] The economic impact of AI on employment and income disparities",
+    "tier": "T4",
+    "url": "https://www.econstor.eu/bitstream/10419/265669/1/Sholler-and-MacInnes.pdf"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1346",
+    "num": 31,
+    "pmid": "",
+    "statement": "Exploring business students' perceptions of artificial intelligence's impact on the labor market: a pilot study",
+    "tier": "T1",
+    "url": "https://doi.org/10.3846/jbem.2025.24349"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1354",
+    "num": 32,
+    "pmid": "",
+    "statement": "Automation and Industry 4.0 in production engineering: A comprehensive review",
+    "tier": "T4",
+    "url": "https://doi.org/10.7862/rm.2025.14"
+  },
+  {
+    "doi": "",
+    "evidence_id": "ev_1342",
+    "num": 33,
+    "pmid": "",
+    "statement": "Occupations and Inequality: Theoretical Perspectives and Mechanisms",
+    "tier": "T4",
+    "url": "https://doi.org/10.1007/s11577-020-00685-0"
+  },
+  {
+    "doi": "10.48550/arXiv.2303.10130",
+    "evidence_id": "ev_148",
+    "num": 34,
+    "pmid": "",
+    "statement": "Broadening the Gains from Generative AI in: Staff Discussion Notes ...",
+    "tier": "T3",
+    "url": "https://www.elibrary.imf.org/view/journals/006/2024/002/article-A001-en.xml"
+  },
+  {
+    "doi": "10.54394/XSTK4695",
+    "evidence_id": "ev_220",
+    "num": 35,
+    "pmid": "",
+    "statement": "[PDF] Mind the AI Divide - the United Nations",
+    "tier": "T3",
+    "url": "https://www.ilo.org/sites/default/files/2024-08/Mind%20the%20AI%20Divide_v12%20%281%29.pdf"
+  },
+  {
+    "doi": "10.1257/aer.103.6.2121",
+    "evidence_id": "ev_128",
+    "num": 36,
+    "pmid": "",
+    "statement": "Research on AI and the labor market is still in the first inning",
+    "tier": "T2",
+    "url": "https://www.hamiltonproject.org/publication/post/research-on-ai-and-the-labor-market-is-still-in-the-first-inning/"
+  },
+  {
+    "doi": "10.1126/science.adj0998",
+    "evidence_id": "ev_048",
+    "num": 37,
+    "pmid": "",
+    "statement": "AI and Labor Markets: What We Know and Don't Know",
+    "tier": "T2",
+    "url": "https://digitaleconomy.stanford.edu/news/ai-and-labor-markets-what-we-know-and-dont-know/"
+  }
+]
