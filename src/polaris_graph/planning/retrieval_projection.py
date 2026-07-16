@@ -346,6 +346,7 @@ def _intent_query_texts(qi: QueryIntent) -> list[str]:
 # Scope dimensions whose VALUES are folded into query text as scope terms.
 _SCOPE_TEXT_DIMENSIONS: tuple[str, ...] = (
     "scope.source_types",
+    "scope.source_quality",  # high-quality/peer-reviewed steers the citable menu
     "scope.domains",
     "scope.geographies",
     "scope.prohibited",  # a prohibition is disclosed as a term the caller may filter

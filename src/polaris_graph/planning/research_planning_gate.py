@@ -54,6 +54,7 @@ from src.polaris_graph.planning.candidate_adapter import (
     CandidateConstraint,
     reconcile_candidates,
 )
+from src.polaris_graph.planning.gate_flags import gate_enabled
 from src.polaris_graph.planning.planning_gate_schema import (
     DISCLOSURE_ORIGINS,
     FORCE_HARD,
@@ -63,6 +64,9 @@ from src.polaris_graph.planning.planning_gate_schema import (
     ORIGIN_EXPLICIT,
     ORIGIN_INFERRED,
     ORIGIN_POLICY_DEFAULT,
+    SCOPE_SOURCE_LANGUAGES,
+    SCOPE_SOURCE_QUALITY,
+    SCOPE_SOURCE_TYPES,
     Assumption,
     ContractTerm,
     CoverageRequirement,
@@ -409,6 +413,194 @@ def _conservative_contract(
 
 
 # ---------------------------------------------------------------------------
+# Deterministic source-scope promotion (deterministic-wins-on-overlap)
+# ---------------------------------------------------------------------------
+#
+# THE task-72 fix. The LLM contract compiler is unreliable at retaining the
+# source-scope rule ("high-quality, English-language journal articles"): on a real
+# run it dropped it entirely and mis-filed "English-language" as the OUTPUT
+# language. Meanwhile the deterministic rule-reader / intake extractors (the S0
+# candidate adapter) find it every time, WITH verbatim prompt spans. So — exactly
+# as ``reanchor_contract_spans`` makes the deterministic OFFSET authoritative over
+# the LLM — this makes the deterministic SOURCE SCOPE authoritative over the LLM:
+# span-verified source-type / source-quality / source-language candidates are
+# PROMOTED into the contract's ``scope`` as EXPLICIT HARD terms the compiler can
+# neither drop nor downgrade.
+#
+# No-invention is preserved: a candidate is promoted to force=hard ONLY when it
+# carries a real verbatim prompt span (``quote == prompt[start:end]``). A
+# candidate without a locatable span is skipped (never a fabricated hard gate).
+# A candidate whose S0 force is not ``hard`` is promoted as force=preference
+# (span-backed, explicit origin) — surfaced, never a fabricated gate.
+#
+# Gated behind PG_GATE (default OFF): with the flag OFF this is a no-op and the
+# compiled contract is byte-identical to the pre-fix path.
+
+# Map an S0 candidate dimension onto a canonical SOURCE-scope contract dimension.
+# ``source.scope_facet`` values like ``peer_reviewed_journal`` describe a JOURNAL
+# source with a QUALITY bar, so a facet fires BOTH a source_types=journal_article
+# term and a source_quality=high term (both hard when the facet was hard). This is
+# the "English-language journal articles" → {source_types=[journal_article] hard,
+# source_quality=high hard, source_languages=[English] hard} mapping (design §3).
+def _promote_source_scope(
+    contract: ResearchContract, candidates: list[CandidateConstraint], prompt: str
+) -> ResearchContract:
+    """Promote span-verified deterministic source-scope candidates into the
+    contract's ``scope`` as explicit terms (hard iff the candidate was hard AND
+    span-verified). Deterministic-wins-on-overlap: an existing scope term on the
+    same canonical dimension+value is UPGRADED to explicit-hard rather than
+    duplicated. Mutates + returns the contract. No-op when PG_GATE is OFF."""
+    if not gate_enabled():
+        return contract
+
+    prompt = prompt or ""
+
+    # A source.language candidate the intake path marks force=prefer is
+    # nonetheless HARD when its span sits INSIDE a hard source-scope restriction
+    # (task 72: "only cites high-quality, English-language journal articles" is a
+    # single hard 'only' clause, so the English-language inside it is hard too).
+    # This upgrade fires ONLY off a span-verified hard facet that verbatim
+    # encloses the language span — never a fabricated hard gate.
+    _hard_facet_ranges: list[tuple[int, int]] = []
+    for _c in candidates:
+        if (
+            _c.dimension == "source.scope_facet"
+            and _c.force == FORCE_HARD
+        ):
+            for _sp in _c.spans:
+                if 0 <= _sp.start <= _sp.end <= len(prompt) and _sp.quote == prompt[_sp.start:_sp.end]:
+                    _hard_facet_ranges.append((_sp.start, _sp.end))
+
+    def _language_is_hard(cand: CandidateConstraint) -> bool:
+        for sp in cand.spans:
+            for lo, hi in _hard_facet_ranges:
+                if lo <= sp.start and sp.end <= hi:
+                    return True
+        return False
+
+    def _span_ok(cand: CandidateConstraint) -> bool:
+        return bool(cand.spans) and any(
+            0 <= sp.start <= sp.end <= len(prompt)
+            and sp.quote == prompt[sp.start:sp.end]
+            for sp in cand.spans
+        )
+
+    def _spans(cand: CandidateConstraint) -> list[PromptSpan]:
+        return [
+            PromptSpan(sp.start, sp.end, sp.quote)
+            for sp in cand.spans
+            if 0 <= sp.start <= sp.end <= len(prompt)
+            and sp.quote == prompt[sp.start:sp.end]
+        ]
+
+    # (canonical scope dimension, canonical value, force) tuples to promote,
+    # de-duplicated. A facet expands into a source_types + source_quality pair.
+    def _targets(cand: CandidateConstraint) -> list[tuple[str, str, str]]:
+        dim = cand.dimension
+        val = (cand.value or "").strip()
+        hard = cand.force == FORCE_HARD
+        force = FORCE_HARD if hard else FORCE_PREFER
+        out: list[tuple[str, str, str]] = []
+        if dim == "source.types":
+            if val == "high_quality":
+                out.append((SCOPE_SOURCE_QUALITY, "high", force))
+            elif val:
+                out.append((SCOPE_SOURCE_TYPES, val, force))
+        elif dim == "source.language":
+            if val:
+                lang_force = FORCE_HARD if (hard or _language_is_hard(cand)) else FORCE_PREFER
+                out.append((SCOPE_SOURCE_LANGUAGES, val, lang_force))
+        elif dim == "source.scope_facet":
+            # an ontology source-type facet: journal + a quality bar.
+            low = val.lower()
+            if "journal" in low or "peer" in low:
+                out.append((SCOPE_SOURCE_TYPES, "journal_article", force))
+            if "peer" in low or "quality" in low or "high" in low:
+                out.append((SCOPE_SOURCE_QUALITY, "high", force))
+        return out
+
+    # index existing scope terms by (dimension, casefolded value) for overlap.
+    def _key(dim: str, value: Any) -> tuple[str, str]:
+        return (dim, str(value or "").strip().casefold())
+
+    existing: dict[tuple[str, str], ContractTerm] = {}
+    for t in contract.scope:
+        existing[_key(t.dimension, t.value)] = t
+
+    promoted: dict[tuple[str, str], tuple[str, list[PromptSpan]]] = {}
+    for cand in candidates:
+        if not _span_ok(cand):
+            continue
+        spans = _spans(cand)
+        for dim, value, force in _targets(cand):
+            key = _key(dim, value)
+            prev = promoted.get(key)
+            # hard wins over prefer on overlap; union the spans.
+            if prev is None:
+                promoted[key] = (force, list(spans))
+            else:
+                prev_force, prev_spans = prev
+                new_force = FORCE_HARD if FORCE_HARD in (prev_force, force) else FORCE_PREFER
+                seen = {(s.start, s.end) for s in prev_spans}
+                merged = list(prev_spans) + [
+                    s for s in spans if (s.start, s.end) not in seen
+                ]
+                promoted[key] = (new_force, merged)
+
+    idx = 0
+    for (dim, _vfold), (force, spans) in promoted.items():
+        idx += 1
+        # recover the canonical (non-folded) value from the key's source targets.
+        # We stored the folded value in the key; re-derive the display value from
+        # the first span-owning candidate target that produced this key.
+        value = _display_value_for(candidates, prompt, dim, _vfold)
+        key = (dim, _vfold)
+        term = existing.get(key)
+        if term is not None:
+            # overlap: UPGRADE the LLM's term to explicit + (hard if we say hard).
+            term.origin = ORIGIN_EXPLICIT
+            if force == FORCE_HARD:
+                term.force = FORCE_HARD
+            if not term.spans:
+                term.spans = spans
+            term.rationale = (
+                (term.rationale + " | ") if term.rationale else ""
+            ) + "deterministic source-scope: upheld as span-verified explicit"
+        else:
+            contract.scope.append(ContractTerm(
+                term_id=f"scope.det_source_{idx}",
+                dimension=dim,
+                value=value,
+                origin=ORIGIN_EXPLICIT,
+                force=force,
+                spans=spans,
+                enforcement_stages=["retrieval"],
+                rationale="deterministic source-scope promoted from the rule-reader "
+                          "(span-verified; the LLM compiler may not drop it)",
+            ))
+    return contract
+
+
+def _display_value_for(
+    candidates: list[CandidateConstraint], prompt: str, dim: str, vfold: str
+) -> Any:
+    """Recover the canonical display value for a promoted (dim, folded-value)."""
+    # Canonical values the promoter emits are already normalized tokens; the fold
+    # is only for the overlap key, so map back to the un-folded canonical token.
+    _canon = {
+        (SCOPE_SOURCE_TYPES, "journal_article"): "journal_article",
+        (SCOPE_SOURCE_QUALITY, "high"): "high",
+    }
+    if (dim, vfold) in _canon:
+        return _canon[(dim, vfold)]
+    # source_languages keeps the candidate's own value (e.g. "en"); find it.
+    for cand in candidates:
+        if cand.dimension == "source.language" and (cand.value or "").strip().casefold() == vfold:
+            return cand.value
+    return vfold
+
+
+# ---------------------------------------------------------------------------
 # Autonomous disclosure sweep (least-restrictive + every inferred term recorded)
 # ---------------------------------------------------------------------------
 
@@ -617,6 +809,15 @@ async def run_research_planning_gate(
     contract, contract_errors, degraded = await _compile_contract(
         client, prompt, candidates, mode=mode
     )
+
+    # --- 2b. deterministic source-scope promotion (the task-72 fix) ---
+    # The LLM compiler cannot be trusted to retain the source-scope rule; the
+    # deterministic rule-reader finds it every time with verbatim spans. Promote
+    # those span-verified source-type/quality/language candidates into the
+    # contract as EXPLICIT HARD terms so the LLM can neither drop nor misfile
+    # them. No-op (byte-identical) when PG_GATE is OFF.
+    contract = _promote_source_scope(contract, candidates, prompt)
+    contract_errors = validate_contract(contract, prompt)
 
     # --- 3. mode split (the ONLY node the two modes differ at) ---
     if mode == "autonomous":

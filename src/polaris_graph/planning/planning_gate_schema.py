@@ -105,6 +105,21 @@ STAGES: frozenset[str] = frozenset({
     "audit",
 })
 
+# ---------------------------------------------------------------------------
+# Canonical SOURCE-scope dimensions (distinct from deliverable.output_language)
+# ---------------------------------------------------------------------------
+# The gate schema holds ``scope`` as a flat ``ContractTerm`` list keyed by a
+# free-string ``dimension``; these are the three canonical SOURCE-scope slots the
+# deterministic promoter writes and the retrieval projection reads. They describe
+# the SOURCES a citation must come from — NOT the deliverable's output language.
+# ``scope.source_languages`` is the language a *cited source* must be in ("cite
+# English-language journal articles"); ``deliverable.output_language`` is the
+# language the *report* is written in. Conflating them is the task-72 bug, so the
+# two live in different groups (scope vs deliverable) with different dimensions.
+SCOPE_SOURCE_TYPES = "scope.source_types"          # e.g. journal_article
+SCOPE_SOURCE_QUALITY = "scope.source_quality"      # e.g. high (high-quality/peer-reviewed)
+SCOPE_SOURCE_LANGUAGES = "scope.source_languages"  # SOURCE language, e.g. en / English
+
 SCHEMA_VERSION = "planning-gate/1.0"
 
 

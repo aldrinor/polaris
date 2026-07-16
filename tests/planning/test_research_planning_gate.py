@@ -42,6 +42,18 @@ from src.polaris_graph.planning.research_planning_gate import (
     run_research_planning_gate,
 )
 
+@pytest.fixture(autouse=True)
+def _pg_gate_off_by_default(monkeypatch):
+    """Default the deterministic-promotion switch OFF for every test here.
+
+    ``PG_GATE`` is the master gate flag; another module's e2e harness threads it
+    into the PROCESS env (scripts/run_gate_e2e), which — depending on collection
+    order — could leak into these unit tests. Pinning it OFF keeps the OFF-path
+    stub tests deterministic; the promotion tests re-enable it explicitly via
+    their own ``monkeypatch.setenv``."""
+    monkeypatch.delenv("PG_GATE", raising=False)
+
+
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
@@ -214,6 +226,124 @@ def test_task72_journal_and_english_are_explicit_hard_with_spans():
     assert len(intents) == 4
     assert all(qi.source_type == "journal_article" for qi in intents)
     assert all(qi.language == "en" for qi in intents)
+
+
+# ---------------------------------------------------------------------------
+# (a′) THE BUG FIX (drb_72): when the LLM compiler DROPS the source scope (the
+# real-run failure — no journal / no source_types / "English" misfiled as OUTPUT
+# language), the deterministic source-scope promoter (PG_GATE ON) restores
+# journal-only + high-quality + English SOURCE-language as EXPLICIT HARD scope
+# terms — the LLM must not be able to drop or downgrade them.
+# ---------------------------------------------------------------------------
+
+class _DroppingCompilerClient:
+    """Reproduces the proven task-72 bug: the contract compiler returns a
+    contract with NO source scope and mis-files English as the OUTPUT language.
+    Deterministic promotion must repair it (no-invention: only span-backed)."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def generate(self, prompt, system="", max_tokens=4096, temperature=0.0, **_):
+        self.calls.append(system[:40])
+        if system.startswith("You are the POLARIS Research Contract"):
+            return _Resp(json.dumps({"contract": {
+                "objective": [{
+                    "term_id": "objective.question",
+                    "dimension": "objective.question",
+                    "value": "AI restructuring of the labor market",
+                    "origin": "inferred", "force": "open",
+                }],
+                # the bug: "English-language sources" misread as OUTPUT language.
+                "deliverable": [{
+                    "term_id": "deliverable.output_language",
+                    "dimension": "deliverable.output_language",
+                    "value": "English", "origin": "inferred", "force": "open",
+                }],
+                "assumptions": [{
+                    "assumption_id": "a1",
+                    "statement": "assumed output language English",
+                    "affected_term_ids": ["deliverable.output_language"],
+                    "origin": "inferred",
+                }],
+            }}))
+        return _Resp(json.dumps({"plan": {
+            "threads": [{"thread_id": "t1", "question": "AI labor market",
+                         "mandatory": True}],
+            "query_intents": [{"intent_id": "qi1", "thread_id": "t1",
+                               "concepts": ["AI labor market"], "mandatory": True}],
+        }}))
+
+
+def test_task72_deterministic_source_scope_survives_a_dropping_compiler(monkeypatch):
+    from src.polaris_graph.instruction.constraint_extractor import Constraints
+    from src.polaris_graph.planning.retrieval_projection import from_artifact
+
+    monkeypatch.setenv("PG_GATE", "1")  # the promoter is gated ON
+    # the rule-reader result the S0 adapter reconciles (task-72 ground truth).
+    rr = Constraints(source_types=["journal_article", "high_quality"],
+                     languages=["en"])
+    client = _DroppingCompilerClient()
+    result = asyncio.run(run_research_planning_gate(
+        TASK_72_PROMPT, mode="autonomous", client=client, rule_reader=rr,
+    ))
+    contract = result.contract
+    by_dim = {t.dimension: t for t in contract.scope}
+
+    # journal source_type is present AS A HARD term (the bug: it was dropped).
+    src = by_dim["scope.source_types"]
+    assert src.value == "journal_article"
+    assert src.force == FORCE_HARD, "journal-only must be a hard SOURCE term"
+    assert src.origin == ORIGIN_EXPLICIT
+    assert src.spans and src.spans[0].matches_prompt(TASK_72_PROMPT)
+
+    # high-quality is a hard source-quality term (was dropped entirely).
+    qual = by_dim["scope.source_quality"]
+    assert qual.value == "high"
+    assert qual.force == FORCE_HARD
+    assert qual.origin == ORIGIN_EXPLICIT
+
+    # English is a hard SOURCE language — NOT the deliverable output_language.
+    lang = by_dim["scope.source_languages"]
+    assert lang.value == "en"
+    assert lang.force == FORCE_HARD, "English is a hard SOURCE-language rule"
+    assert lang.origin == ORIGIN_EXPLICIT
+    assert lang.spans and lang.spans[0].matches_prompt(TASK_72_PROMPT)
+
+    # the 'journal' signal is present in the pinned contract JSON.
+    dumped = json.dumps(contract.to_dict(), ensure_ascii=False)
+    assert "journal" in dumped.lower()
+    assert "scope.source_types" in dumped
+
+    # not degraded, and the contract validates clean (no invented hard terms).
+    assert contract.compiler_degraded is False
+    assert validate_contract(contract, TASK_72_PROMPT) == []
+
+    # the retrieval projection routes scholarly backends + hard-gates the menu.
+    proj = from_artifact(result.artifact)
+    scope = proj.to_scope_terms()
+    assert "journal_article" in scope["hard"]
+    assert "high" in scope["hard"]
+    assert "en" in scope["languages"]
+    assert "primary_literature" in proj.evidence_needs, "GO-FIND-journals routing"
+
+
+def test_task72_promotion_is_noop_when_pg_gate_off(monkeypatch):
+    # With PG_GATE OFF the promoter is inert: a dropping compiler yields NO source
+    # scope (byte-identical to the pre-fix path). Guards the default-OFF guardrail.
+    from src.polaris_graph.instruction.constraint_extractor import Constraints
+
+    monkeypatch.delenv("PG_GATE", raising=False)
+    rr = Constraints(source_types=["journal_article", "high_quality"],
+                     languages=["en"])
+    client = _DroppingCompilerClient()
+    result = asyncio.run(run_research_planning_gate(
+        TASK_72_PROMPT, mode="autonomous", client=client, rule_reader=rr,
+    ))
+    dims = {t.dimension for t in result.contract.scope}
+    assert "scope.source_types" not in dims
+    assert "scope.source_quality" not in dims
+    assert "scope.source_languages" not in dims
 
 
 # ---------------------------------------------------------------------------
