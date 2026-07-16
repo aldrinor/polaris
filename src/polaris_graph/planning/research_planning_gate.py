@@ -84,10 +84,34 @@ logger = logging.getLogger("polaris_graph.research_planning_gate")
 # via env so it tracks the lock rather than pinning a slug that could drift.
 _DEFAULT_POLICY_MODEL = "z-ai/glm-5.2"
 
-# Raise the inadequate 2,000-token plan_research cap (design §4): compound
-# contracts need real headroom. Bounded by the provider max at the client.
-_CONTRACT_MAX_TOKENS = 8192
-_PLAN_MAX_TOKENS = 8192
+# I-gate-089 / FX-01 (drb_72 live probe): the policy model (z-ai/glm-5.2) is
+# REASONING-FIRST — it is in openrouter_client._ALWAYS_REASON_MODELS, so a
+# generate() call runs its reasoning prelude at effort=high on the SAME
+# overall max_tokens budget and only floors that budget to PG_GLM5_MIN_MAX_TOKENS
+# (4096). On a compound prompt (task 72) the reasoning prelude ate the whole
+# 8192 budget: candidate content reached 14022 then 16546 chars and STILL hit
+# finish_reason='length' (always_reason_promotion truncation), so the compile
+# retried and fell to the conservative fallback. Sol's design (§4) says the
+# ~2000-token cap is inadequate and to use the PROVIDER-RESOLVED MAXIMUM for a
+# reasoning-first model. Mirror the champion's reasoning-first budget convention
+# (multi_section_generator / analyst_synthesis): give the compile a real content
+# ceiling AND bound the reasoning POOL so a fixed content slice always survives.
+# The client further clamps DOWN to the provider completion cap (B10 resolver),
+# so this can never over-request. Env-tunable; the fail-soft conservative-contract
+# fallback stays the backstop when the compile still fails.
+_CONTRACT_MAX_TOKENS = int(
+    os.getenv("PG_PLANNING_GATE_MAX_TOKENS", "32768")
+)
+_PLAN_MAX_TOKENS = int(
+    os.getenv("PG_PLANNING_GATE_MAX_TOKENS", "32768")
+)
+# Bound the reasoning-first pool so the model always reaches the closing JSON:
+# reserve the remainder of the budget for content. glm-5.2 branch-1 honors a
+# caller-passed reasoning.max_tokens (openrouter_client ~line 1958), so this
+# guarantees content headroom = max_tokens - this pool. Env-tunable (LAW VI).
+_PLANNING_GATE_REASONING_MAX_TOKENS = int(
+    os.getenv("PG_PLANNING_GATE_REASONING_MAX_TOKENS", "16384")
+)
 
 
 def _resolve_model() -> str:
@@ -469,11 +493,19 @@ def _material_questions(contract: ResearchContract, limit: int = 3) -> list[dict
 async def _call(
     client: Any, system: str, user: str, max_tokens: int
 ) -> str:
+    # I-gate-089/FX-01: bound the reasoning-first pool so a fixed content slice
+    # (max_tokens - pool) always survives — otherwise glm-5.2's effort=high
+    # reasoning prelude eats the whole budget and content truncates at
+    # finish_reason='length'. Cap the pool at half the budget so content never
+    # loses; glm-5.2's branch-1 honors reasoning.max_tokens. Passed positionally-
+    # safe as a kwarg so the OFF/stub paths (which ignore **kwargs) stay identical.
+    _reasoning_pool = min(_PLANNING_GATE_REASONING_MAX_TOKENS, max(max_tokens // 2, 1))
     response = await client.generate(
         prompt=user,
         system=system,
         max_tokens=max_tokens,
         temperature=0.0,
+        reasoning_max_tokens=_reasoning_pool,
     )
     return getattr(response, "content", None) or ""
 

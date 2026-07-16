@@ -495,3 +495,106 @@ def test_plan_validator_flags_truncatable_mandatory_lane():
     })
     codes = {e.code for e in validate_plan(plan, contract)}
     assert "mandatory_lane_truncatable" in codes
+
+
+# ---------------------------------------------------------------------------
+# I-gate-089 / FX-01: the reasoning-first compile budget must be adequate
+# (the drb_72 live-probe truncation: glm-5.2 hit finish_reason='length' at 8192).
+# ---------------------------------------------------------------------------
+
+class _RecordingClient:
+    """Stub that records the max_tokens / reasoning_max_tokens the gate passes,
+    and returns valid canned JSON so the compile succeeds (no fallback)."""
+
+    def __init__(self, contract_json: dict, plan_json: dict) -> None:
+        self._contract = json.dumps(contract_json)
+        self._plan = json.dumps(plan_json)
+        self.calls: list[dict] = []
+
+    async def generate(
+        self, prompt, system="", max_tokens=4096, temperature=0.0,
+        reasoning_max_tokens=None, **_,
+    ):
+        self.calls.append(
+            {"max_tokens": max_tokens, "reasoning_max_tokens": reasoning_max_tokens}
+        )
+        if system.startswith("You are the POLARIS Research Contract"):
+            return _Resp(self._contract)
+        return _Resp(self._plan)
+
+
+def test_compile_budget_is_adequate_for_reasoning_first_model():
+    """The compile/plan calls must request a budget large enough that a
+    reasoning-first model (glm-5.2: reasoning prelude + content) does not
+    truncate at finish_reason='length' — the exact drb_72 probe crash. The
+    old 8192 was inadequate; assert the caller budget is at least the champion
+    reasoning-first floor AND that the reasoning pool leaves real content room."""
+    from src.polaris_graph.planning import research_planning_gate as rpg
+
+    client = _RecordingClient(_task72_contract_json(), _task72_plan_json())
+    result = asyncio.run(run_research_planning_gate(
+        TASK_72_PROMPT, mode="autonomous", client=client,
+    ))
+
+    # The canned JSON is valid, so the compile SUCCEEDED — no conservative fallback,
+    # no truncation-driven degrade. (The probe crash forced the fallback.)
+    assert result.contract.compiler_degraded is False
+    assert result.needs_input is False
+
+    # At least one contract-compile call and one plan-compile call were made.
+    assert len(client.calls) >= 2
+
+    # The champion's reasoning-first floor (openrouter_client
+    # PG_REASONING_FIRST_MIN_MAX_TOKENS default) is 32768; the compile budget must
+    # be at least that so glm-5.2's ~5k reasoning tokens + content fit without
+    # finish_reason='length'. The old inadequate cap was 8192.
+    _MIN_ADEQUATE = 32768
+    for call in client.calls:
+        assert call["max_tokens"] >= _MIN_ADEQUATE, call
+        # The reasoning pool must be BOUNDED and leave a real content slice
+        # (content headroom = max_tokens - pool). It must never consume the
+        # whole budget (that is the starvation the probe hit).
+        pool = call["reasoning_max_tokens"]
+        assert pool is not None, call
+        assert 0 < pool <= call["max_tokens"] // 2, call
+        content_headroom = call["max_tokens"] - pool
+        assert content_headroom >= _MIN_ADEQUATE // 2, call
+
+    # Sanity: the module constants themselves are the adequate values.
+    assert rpg._CONTRACT_MAX_TOKENS >= _MIN_ADEQUATE
+    assert rpg._PLAN_MAX_TOKENS >= _MIN_ADEQUATE
+
+
+# ---------------------------------------------------------------------------
+# BUG B (drb_72 unregistered-slug crash): the e2e harness must resolve task 72
+# to the REGISTERED lineage slug so run_gate_b's forced official-question bind
+# does not fail-loud-raise on the bare 'drb_72' slug.
+# ---------------------------------------------------------------------------
+
+def test_e2e_harness_resolves_task72_to_registered_official_slug():
+    from scripts.dr_benchmark.gate0_lineage import (
+        DRB_SLUGS_WITHOUT_CANONICAL_GOLD,
+        SLUG_TO_IDX,
+        assert_drb_slug_registered,
+    )
+    from scripts.run_gate_e2e import _query_dict_for_task, _registered_slug_for_task
+
+    # The bare 'drb_72' was UNREGISTERED (the ValueError the probe hit).
+    assert "drb_72" not in SLUG_TO_IDX
+    assert "drb_72" not in DRB_SLUGS_WITHOUT_CANONICAL_GOLD
+
+    # The harness now resolves task 72 to its registered slug -> canonical DRB-II idx 56
+    # (the id<->idx offset: task 72 -> idx 56, NOT 72 — the official GenAI-labor question).
+    slug = _registered_slug_for_task("72")
+    assert slug == "drb_72_ai_labor"
+    assert SLUG_TO_IDX[slug] == 56
+
+    # The lineage guard (mirrored by run_gate_b's fail-loud check) now PASSES for this slug —
+    # so run_gate_b_query no longer raises the "UNREGISTERED in gate0_lineage" ValueError.
+    assert_drb_slug_registered(slug)  # must NOT raise
+
+    # The query dict the sweep consumes carries the registered slug (+ the verbatim prompt).
+    task = {"id": "72", "prompt": TASK_72_PROMPT, "language": "en"}
+    q = _query_dict_for_task(task)
+    assert q["slug"] == "drb_72_ai_labor"
+    assert q["question"] == TASK_72_PROMPT

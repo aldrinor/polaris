@@ -134,6 +134,35 @@ _TASK_DOMAIN = {
 }
 
 
+def _registered_slug_for_task(tid: str) -> str:
+    """Resolve the DRB task id to the slug registered in gate0_lineage.
+
+    ``run_gate_b_query`` FORCES ``PG_BENCHMARK_OFFICIAL_QUESTION=1`` and then binds
+    ``q["slug"]`` to the CANONICAL DRB-II gold question by idx (the drb_72 wrong-question
+    fix). A bare ``drb_<id>`` slug (e.g. ``drb_72``) is UNREGISTERED — neither in
+    SLUG_TO_IDX nor DRB_SLUGS_WITHOUT_CANONICAL_GOLD — so it fail-loud-raises there. Task 72's
+    registered slug is ``drb_72_ai_labor`` -> canonical idx 56 (the id<->idx offset is real:
+    task72 -> idx 56, NOT 72). Use the lineage registry itself as the source of truth so the
+    harness launches the slug the binding recognizes and the report is scored against the
+    OFFICIAL DRB task-72 question. Registered benchmark ids resolve to their full slug; a
+    no-gold id keeps its registered slug (documented no-op bind); any other id keeps the bare
+    ``drb_<id>`` (non-benchmark => launched prompt kept). Import is lazy so this script's
+    no-import-side-effect posture is unchanged.
+    """
+    import re  # noqa: PLC0415
+
+    from scripts.dr_benchmark.gate0_lineage import (  # noqa: PLC0415
+        DRB_SLUGS_WITHOUT_CANONICAL_GOLD as _NO_GOLD,
+        SLUG_TO_IDX as _SLUG_TO_IDX,
+    )
+
+    for _slug in (*_SLUG_TO_IDX.keys(), *_NO_GOLD):
+        _m = re.match(r"^drb_(\d+)_", _slug)
+        if _m and _m.group(1) == str(tid):
+            return _slug
+    return f"drb_{tid}"
+
+
 # ---------------------------------------------------------------------------
 # DRB task loading
 # ---------------------------------------------------------------------------
@@ -157,7 +186,11 @@ def _query_dict_for_task(task: dict) -> dict:
     """
     tid = str(task["id"])
     return {
-        "slug": f"drb_{tid}",
+        # Registered lineage slug (drb_72 -> drb_72_ai_labor) so run_gate_b_query's forced
+        # official-question binding resolves the CANONICAL DRB-II idx (task 72 -> idx 56) instead
+        # of fail-loud-raising on the UNREGISTERED bare slug. The report is scored against the
+        # OFFICIAL DRB task-72 question, never a silent wrong prompt.
+        "slug": _registered_slug_for_task(tid),
         "domain": _TASK_DOMAIN.get(tid, "general"),
         "question": task["prompt"],
         "amplified": [],
