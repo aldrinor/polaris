@@ -39,7 +39,9 @@ import src.polaris_graph.generator.multi_section_generator as msg
 from src.polaris_graph.generator.multi_section_generator import (
     SectionPlan,
     _apply_source_eligibility_gate,
+    _compile_compose_contract,
     _contract_enforce_presentation_enabled,
+    _contract_enforce_structure_enabled,
     _contract_presentation_guidance_deep,
     _source_eligibility_gate_enabled,
     _run_section,
@@ -359,3 +361,129 @@ def test_deep_renderer_differs_from_shallow():
     assert shallow != deep
     assert "- Tone: formal" in shallow  # shallow is a bare label
     assert "formal register" in deep    # deep is an imperative directive
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAFETY RULE 4 — ADDITIVE / DEFAULT-OFF no-op proof. The compile gate was broadened
+# from structure-only to (structure OR presentation OR source-rules). The byte-identical
+# guarantee is that with ALL THREE new-lane flags OFF the compose path compiles NO contract
+# (None) — so the injection seam, the writer append, and the source-gate are all no-ops.
+# The pre-existing structure test only cleared ONE flag; this pins all three.
+# ─────────────────────────────────────────────────────────────────────────────
+_ALL_ENFORCE_FLAGS = (
+    "PG_CONTRACT_ENFORCE_STRUCTURE",
+    _PRES_FLAG,
+    _SR_FLAG,
+)
+_Q = "Compare the efficacy of remote work versus office work and enumerate the tradeoffs."
+
+
+def test_compile_returns_none_when_all_three_lane_flags_off(monkeypatch):
+    for f in _ALL_ENFORCE_FLAGS:
+        monkeypatch.delenv(f, raising=False)
+    # Sanity: every lane reader reports OFF...
+    assert _contract_enforce_structure_enabled() is False
+    assert _contract_enforce_presentation_enabled() is False
+    assert _source_eligibility_gate_enabled() is False
+    # ...therefore NO contract is compiled on the compose path => byte-identical no-op.
+    assert _compile_compose_contract(_Q) is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LANE INDEPENDENCE — each new flag alone must trigger the compile gate, so LANE A and
+# LANE B can run WITHOUT the structure flag. Floor-only compile (llm_fn=None) => offline,
+# no network, no paid, no LLM (same offline path the structure suite exercises).
+# ─────────────────────────────────────────────────────────────────────────────
+def test_source_rules_flag_alone_triggers_compile(monkeypatch):
+    for f in _ALL_ENFORCE_FLAGS:
+        monkeypatch.delenv(f, raising=False)
+    monkeypatch.setenv(_SR_FLAG, "1")  # ONLY LANE A on; structure + presentation OFF
+    assert _compile_compose_contract(_Q) is not None
+
+
+def test_presentation_flag_alone_triggers_compile(monkeypatch):
+    for f in _ALL_ENFORCE_FLAGS:
+        monkeypatch.delenv(f, raising=False)
+    monkeypatch.setenv(_PRES_FLAG, "1")  # ONLY LANE B on; structure + source-rules OFF
+    assert _compile_compose_contract(_Q) is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAFETY RULE 3 (STRICTNESS — the anti-over-filter guarantee). A source class may be
+# HARD-REMOVED from the writer menu ONLY when the rule strength is "hard". A NON-hard
+# (soft) exclusive operator must NEVER hard-remove a row — at most it soft-demotes. This
+# guards directly against over-filtering the citeable menu.
+# ─────────────────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("operator", ["allow_only", "forbid", "exclude"])
+def test_soft_strength_exclusive_operator_never_hard_removes(monkeypatch, operator):
+    _fake_classifier(monkeypatch)
+    monkeypatch.setenv(_SR_FLAG, "1")
+    monkeypatch.setenv(_FLOOR_FLAG, "0")  # valve OUT of the way: isolate the strictness rule
+    facet = "peer_reviewed_journal" if operator == "allow_only" else "news"
+    soft_rule = SourceRule(
+        facet_id=facet, operator=operator, strength="soft", verbatim_span="soft scope",
+    )
+    ev = [_row("n1", "news"), _row("j1", "journal"), _row("n2", "news")]
+    out = _apply_source_eligibility_gate(ev, _contract_with_rules(soft_rule), {})
+    # NOTHING removed — a soft exclusive rule can only reorder, never starve the menu.
+    assert sorted(r["id"] for r in out) == ["j1", "n1", "n2"]
+    assert len(out) == 3
+
+
+def test_soft_forbid_demotes_carrying_rows_to_tail(monkeypatch):
+    # A soft forbid/exclude still DOWN-RANKS (stable-sorts the carrying rows to the tail),
+    # it just never removes them — the soft half of the strictness rule.
+    _fake_classifier(monkeypatch)
+    monkeypatch.setenv(_SR_FLAG, "1")
+    monkeypatch.setenv(_FLOOR_FLAG, "0")
+    soft_forbid = SourceRule(
+        facet_id="news", operator="forbid", strength="soft", verbatim_span="prefer not news",
+    )
+    ev = [_row("n1", "news"), _row("j1", "journal"), _row("n2", "news")]
+    out = _apply_source_eligibility_gate(ev, _contract_with_rules(soft_forbid), {})
+    ids = [r["id"] for r in out]
+    assert ids[0] == "j1"                 # qualifying row leads
+    assert set(ids[1:]) == {"n1", "n2"}   # news demoted, still citable (not removed)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FAIL-OPEN (firewall) — when the classifier RAISES, no row may be proven ineligible, so a
+# HARD rule must NOT hard-drop anything (fail-open), and compose must not break. This pins
+# the per-row try/except that treats an unclassifiable row as unresolved.
+# ─────────────────────────────────────────────────────────────────────────────
+def test_classifier_exception_fails_open_never_hard_drops(monkeypatch):
+    def boom(source, ontology=None):
+        raise RuntimeError("classifier exploded")
+
+    monkeypatch.setattr(
+        "src.polaris_graph.retrieval.scope_facet_classifier.classify_source_facets", boom
+    )
+    monkeypatch.setenv(_SR_FLAG, "1")
+    monkeypatch.setenv(_FLOOR_FLAG, "0")  # valve out of the way => isolate fail-open
+    ev = [_row("j1", "journal"), _row("n1", "news"), _row("j2", "journal")]
+    out = _apply_source_eligibility_gate(ev, _contract_with_rules(_HARD_JOURNAL_ONLY), {})
+    # Every row survives: an unclassifiable (exception) row cannot be PROVEN ineligible =>
+    # demoted at worst, never hard-removed. The gate also did not raise.
+    assert sorted(r["id"] for r in out) == ["j1", "j2", "n1"]
+    assert len(out) == 3
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RECALL VALVE is OPERATOR-AGNOSTIC — it softens ANY hard-block that would starve the menu,
+# not only allow_only. Here a HARD forbid that would drop the menu below the floor softens
+# to demote+disclose (nothing removed).
+# ─────────────────────────────────────────────────────────────────────────────
+def test_recall_valve_softens_hard_forbid_below_floor(monkeypatch):
+    _fake_classifier(monkeypatch)
+    monkeypatch.setenv(_SR_FLAG, "1")
+    monkeypatch.setenv(_FLOOR_FLAG, "3")
+    forbid_news = SourceRule(
+        facet_id="news", operator="forbid", strength="hard", verbatim_span="do not use news",
+    )
+    # 1 journal + 3 news: hard-forbidding news would leave kept(1) < floor(3) => SOFTEN.
+    ev = [_row("n1", "news"), _row("j1", "journal"), _row("n2", "news"), _row("n3", "news")]
+    out = _apply_source_eligibility_gate(ev, _contract_with_rules(forbid_news), {})
+    ids = [r["id"] for r in out]
+    assert len(out) == 4                       # nothing removed — valve softened
+    assert ids[0] == "j1"                       # qualifying row leads
+    assert set(ids[1:]) == {"n1", "n2", "n3"}   # forbidden rows demoted, still citable
