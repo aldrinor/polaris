@@ -174,6 +174,44 @@ def _max_turns() -> int:
     return _env_int("PG_OUTLINE_AGENT_MAX_TURNS", PG_OUTLINE_AGENT_MAX_TURNS_DEFAULT)
 
 
+# ---------------------------------------------------------------------------
+# FORCE-CONVERGE / in-corpus-lean fix (2026-07-15) — richer in-scope corpus support.
+# ---------------------------------------------------------------------------
+# WHY: fed a corpus of SPECIFIC empirical findings (our curated, faithfulness-checked,
+# in-scope cards), the gap-detector keeps naming BROAD FRAMING gaps our empirical cards can
+# never "satisfy", so ``finish_outline`` BOUNCES every turn and ``search_more_evidence``
+# chases the OPEN WEB indefinitely (which pulls off-topic/unreliable content — the exact
+# non-convergence dead-end). Two env-gated, faithfulness-neutral levers below:
+#   (1) PG_MAX_REACT_TURNS — a hard React-turn cap: once reached, STOP searching and WRITE on
+#       the evidence we already have (residual framing gaps our in-scope corpus genuinely
+#       cannot fill must NOT block writing). DEFAULT 0 => DISABLED (falls back to _max_turns(),
+#       so the champion's OWN-corpus 0.4447 path — which converges naturally in ~9 turns and
+#       NEVER sets this — is byte-for-byte unchanged).
+#   (2) PG_OUTLINE_WEB_SEARCH — when off, the live web-search tool (search_more_evidence /
+#       SERPER) is NOT registered, so the loop leans ENTIRELY on our authoritative in-scope
+#       corpus instead of chasing the open web. DEFAULT on (champion path unchanged).
+# strict_verify / span-grounding / the prose pipeline are untouched by both.
+PG_OUTLINE_FORCE_FINISH_TURNS_DEFAULT = 0  # 0 => disabled (use _max_turns())
+
+
+def _force_finish_turns() -> int:
+    """Hard React-turn cap after which the loop force-finishes (writes on current evidence).
+
+    0/unset => disabled: fall back to _max_turns() so behavior is identical to before (the
+    champion own-corpus path). A positive value below _max_turns() force-converges early."""
+    v = _env_int("PG_MAX_REACT_TURNS", PG_OUTLINE_FORCE_FINISH_TURNS_DEFAULT)
+    return v if v > 0 else _max_turns()
+
+
+def _web_search_enabled() -> bool:
+    """Whether the live web-search tool (search_more_evidence) is offered to the loop.
+
+    Default ON (champion path). Set PG_OUTLINE_WEB_SEARCH=0 to lean entirely on the in-scope
+    corpus (no open-web fetches) — the loop then satisfies coverage from the cards it already
+    holds and force-converges on residual framing gaps it cannot fill from the corpus."""
+    return _env_flag("PG_OUTLINE_WEB_SEARCH", default_on=True)
+
+
 def _wall_seconds() -> int:
     return _env_int("PG_OUTLINE_AGENT_WALL_SECONDS", PG_OUTLINE_AGENT_WALL_SECONDS_DEFAULT)
 
@@ -1035,20 +1073,25 @@ class OutlineAgent:
             parameters={"basket_id": "the basket id to inspect"},
             execute=_exec_inspect_basket, tags=["retrieval"], core=True,
         ))
-        registry.register(ToolDefinition(
-            name="search_more_evidence",
-            description=(
-                "Fetch MORE real evidence for a section/aspect that is thin or missing "
-                "coverage. Derives a scoped query, runs live retrieval, screens junk/off-topic, "
-                "and folds surviving rows into the evidence pool."
-            ),
-            requires_data=False, requires_llm=True,
-            parameters={
-                "section": "the section title this gap belongs to",
-                "aspect": "the specific missing aspect / sub-topic to search for",
-            },
-            execute=_exec_search_more_evidence, tags=["retrieval"], core=True,
-        ))
+        # Live web search is registered ONLY when enabled (default on). When off
+        # (PG_OUTLINE_WEB_SEARCH=0) the loop leans entirely on the in-scope corpus it already
+        # holds — the decide menu never offers open-web retrieval, so it cannot loop chasing
+        # framing gaps our empirical corpus won't satisfy.
+        if _web_search_enabled():
+            registry.register(ToolDefinition(
+                name="search_more_evidence",
+                description=(
+                    "Fetch MORE real evidence for a section/aspect that is thin or missing "
+                    "coverage. Derives a scoped query, runs live retrieval, screens junk/off-topic, "
+                    "and folds surviving rows into the evidence pool."
+                ),
+                requires_data=False, requires_llm=True,
+                parameters={
+                    "section": "the section title this gap belongs to",
+                    "aspect": "the specific missing aspect / sub-topic to search for",
+                },
+                execute=_exec_search_more_evidence, tags=["retrieval"], core=True,
+            ))
         registry.register(ToolDefinition(
             name="update_outline",
             description=(
@@ -1264,11 +1307,13 @@ class OutlineAgent:
                 decision.action,
             )
             pending = self.workspace.gap_ledger.next_pending()
-            if pending is not None:
+            if pending is not None and "search_more_evidence" in available:
                 decision.action = "search_more_evidence"
                 decision.action_input = {"section": pending.section, "aspect": pending.aspect}
                 decision.reasoning = f"Fallback: pending gap {pending.key()}"
             else:
+                # No pending gap, or web search is disabled (lean-on-corpus mode): there is no
+                # retrieval path to close the gap, so finish on the in-scope evidence we hold.
                 decision.action = _FINISH_ACTION
         return decision
 
@@ -1907,8 +1952,20 @@ class OutlineAgent:
         await self._run_checklist(trigger="seed")
         ws.checkpoint(event="seed_checklist")
 
+        force_cap = _force_finish_turns()  # hard React-turn cap (default == max_turns => no-op)
         while ws.turn < self.max_turns and ws.elapsed_seconds() < self.wall_seconds:
             ws.turn += 1
+            # FORCE-CONVERGE backstop: once the React-turn budget cap is reached, STOP searching
+            # and WRITE on the evidence we already hold. Residual (framing) gaps our in-scope
+            # corpus genuinely cannot fill must NOT block writing the sections. No-op on the
+            # champion own-corpus path (force_cap defaults to max_turns; it converges at ~9).
+            if ws.turn > force_cap:
+                ws.disclose(
+                    f"finish_outline FORCE-ACCEPTED: React-turn cap {force_cap} reached at turn "
+                    f"{ws.turn} — writing on current in-scope evidence (residual gaps unfilled)"
+                )
+                ws.turn -= 1  # this turn did no work; keep the count honest
+                break
             try:
                 decision = await self._decide()
             except Exception as exc:  # noqa: BLE001 — a decide failure ends the loop, not the run
@@ -1919,7 +1976,14 @@ class OutlineAgent:
             if decision.action == _FINISH_ACTION:
                 deficiencies = await self._run_checklist(trigger=f"finish_attempt_turn_{ws.turn}")
                 pending = ws.gap_ledger.pending_count
-                budget_remains = ws.turn < self.max_turns and ws.elapsed_seconds() < self.wall_seconds
+                # A finish attempt AT/BEYOND the cap is force-accepted regardless of remaining
+                # gaps — the point of the cap is to converge on the evidence we HAVE.
+                force_finish = ws.turn >= force_cap
+                budget_remains = (
+                    ws.turn < self.max_turns
+                    and ws.elapsed_seconds() < self.wall_seconds
+                    and not force_finish
+                )
                 if (deficiencies or pending) and budget_remains:
                     ws.disclose(
                         f"finish_outline BOUNCED at turn {ws.turn}: "
@@ -1929,7 +1993,8 @@ class OutlineAgent:
                     continue
                 ws.disclose(
                     f"finish_outline ACCEPTED at turn {ws.turn}: "
-                    f"pending={pending}, budget_remains={budget_remains}"
+                    f"pending={pending}, budget_remains={budget_remains}, "
+                    f"force_finish={force_finish}"
                 )
                 break
 

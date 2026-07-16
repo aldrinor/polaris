@@ -99,6 +99,43 @@ def _tier_fractions(evidence: list[dict]) -> dict[str, float]:
 _CITE_RE = re.compile(r"\[CITE:(ev_[0-9a-fA-F]+|[a-z0-9_]+)\]")
 
 
+# STEP 4 Pillar-4 mechanical polish (targets 3+4): the References list leaks two
+# render artifacts the reader should never see -- (a) an empty URL renders as a
+# dangling "-- " with nothing after it, and (b) the pipeline-internal tier tag
+# "(tier T4)" is appended to every entry. Both are RENDER-ONLY and touch ONLY the
+# References block string. Default-OFF via PG_REFERENCE_POLISH => the OFF path is
+# byte-identical to today's `[N] stmt -- url (tier T)` line. Faithfulness is not
+# touched (no marker, statement, or entry is added or dropped -- an entry with no
+# URL still renders, just without the trailing "-- ").
+_REFERENCE_POLISH_OFF_TOKENS = frozenset({"", "0", "false", "off", "no"})
+
+
+def _reference_polish_enabled() -> bool:
+    """True iff PG_REFERENCE_POLISH is set to an on token (default OFF)."""
+    return (
+        os.environ.get("PG_REFERENCE_POLISH", "").strip().lower()
+        not in _REFERENCE_POLISH_OFF_TOKENS
+    )
+
+
+def _render_reference_line(b: dict) -> str:
+    """Render ONE `[N] statement -- url (tier T)` bibliography line.
+
+    OFF path (default): byte-identical to the legacy inline f-string. ON path
+    (PG_REFERENCE_POLISH): drop the trailing " (tier T)" leakage and omit the
+    " -- url" tail entirely when the URL is empty (no dangling em-dash)."""
+    num = b.get("num")
+    stmt = str(b.get("statement", ""))[:200]
+    url = b.get("url", "")
+    tier = b.get("tier", "")
+    if not _reference_polish_enabled():
+        return f"[{num}] {stmt} — {url} (tier {tier})\n"
+    line = f"[{num}] {stmt}"
+    if str(url).strip():
+        line += f" — {url}"
+    return line + "\n"
+
+
 def _audit_citations(report_text: str, biblio: list[dict]) -> dict:
     """Independent faithfulness tripwire on the FINAL assembled report.
 
@@ -245,10 +282,67 @@ async def main() -> int:
         log.warning("[credibility] could not load psl_gov_suffixes (%s); credibility pass will "
                     "degrade to None and PG_ROUTE_ALL_BASKETS will be inert", _e)
 
+    # STEP 5 (instruction-following compiler) — construct the deliverable/scope specs from the
+    # already-built, standalone instruction modules and thread them through the EXISTING generator
+    # seams (deliverable_spec / scope_spec, both default None => OFF => byte-identical). ALSO apply
+    # the source-eligibility gate to the CITABLE evidence menu ONLY: ineligible rows are withheld
+    # from what the writer may cite, but the FULL pool is retained for retrieval telemetry / gap
+    # detection (we log the withheld count; nothing is deleted from the corpus on disk). Every new
+    # behavior is gated by the default-OFF PG_IF_COMPILER flag; when OFF, _deliverable_spec /
+    # _scope_spec stay None, `evidence` is the untouched corpus list, and the two new kwargs pass
+    # None -> the call is byte-identical to today. The frozen faithfulness engine is untouched:
+    # scope_spec is an advisory prompt hint, and the eligibility gate only reorders/withholds the
+    # citable menu (strict_verify / 4-role D8 / span-grounding remain the only binding gates).
+    _deliverable_spec = None
+    _scope_spec = None
+    _citable_evidence = evidence
+    if os.getenv("PG_IF_COMPILER", "0").strip().lower() in ("1", "true", "yes", "on"):
+        from src.polaris_graph.instruction.constraint_extractor import (  # noqa: PLC0415
+            extract_constraints_async,
+        )
+        from src.polaris_graph.instruction.source_eligibility import (  # noqa: PLC0415
+            filter_eligible,
+        )
+        # 1) Deliverable/scope specs derived from the task prompt's extracted constraints.
+        #    The constraint extractor is a live LLM pass; it is itself gated by its own
+        #    PG_CONSTRAINT_EXTRACT_LIVE flag. Fail-open: if the live gate is off or the call
+        #    raises, we fall back to EMPTY required_sections (the OFF conform short-circuit) so
+        #    the compiler still delivers the source-eligibility gate + advisory scope hint.
+        _required_coverage: list[str] = []
+        _constraint_source_types: list[str] = []
+        try:
+            _constraints = await extract_constraints_async(rq)
+            _required_coverage = list(_constraints.get("required_coverage") or [])
+            _constraint_source_types = list(_constraints.get("source_types") or [])
+            log.info("[if-compiler] constraints: required_coverage=%d source_types=%s "
+                     "format=%s length=%s tone=%s",
+                     len(_required_coverage), _constraint_source_types or "(none)",
+                     _constraints.get("format"), _constraints.get("length"),
+                     _constraints.get("tone"))
+        except Exception as _e:  # noqa: BLE001
+            log.warning("[if-compiler] constraint extraction unavailable (%s); proceeding with "
+                        "empty required_sections (outline stays generator-driven)", _e)
+        _deliverable_spec = {"required_sections": _required_coverage}
+        # source_types: prefer the prompt-extracted kinds; else declare the policy the
+        # eligibility gate enforces ('peer_reviewed' journal articles) so the advisory scope
+        # hint and the hard menu gate agree.
+        _scope_spec = {
+            "source_types": _constraint_source_types or ["peer_reviewed", "journal_article"],
+        }
+        # 2) Source-eligibility firewall on the CITABLE menu only. filter_eligible returns
+        #    (eligible, rejected) in original order without mutating either list; the rejected
+        #    rows remain in `evidence` (telemetry/gap detection) but are removed from what the
+        #    generator receives as the citable pool.
+        _elig, _rej = filter_eligible(evidence)
+        _citable_evidence = _elig
+        log.info("[if-compiler] source-eligibility gate: citable=%d withheld=%d (of %d) — "
+                 "withheld rows retained for telemetry only, NOT cited",
+                 len(_elig), len(_rej), len(evidence))
+
     t0 = time.time()
     multi = await generate_multi_section_report(
         research_question=rq,
-        evidence=evidence,
+        evidence=_citable_evidence,
         finding_clusters=clusters,
         same_work_groups=swg,
         section_temperature=0.3,
@@ -259,6 +353,8 @@ async def main() -> int:
         tier_fractions=dist,
         domain=domain,
         credibility_pass_gov_suffixes=_gov_suffixes,
+        deliverable_spec=_deliverable_spec,
+        scope_spec=_scope_spec,
     )
     dt = time.time() - t0
     kept = [s for s in multi.sections if not s.dropped_due_to_failure]
@@ -309,8 +405,7 @@ async def main() -> int:
     biblio = getattr(multi, "bibliography", []) or []
     biblio_section = "\n\n## References\n"
     for b in biblio:
-        biblio_section += (f"[{b.get('num')}] {str(b.get('statement',''))[:200]} — "
-                           f"{b.get('url','')} (tier {b.get('tier','')})\n")
+        biblio_section += _render_reference_line(b)
 
     final_report = (f"# {title}\n\n{intro}\n\n{sections_concat}{biblio_section}")
     (run_dir / "report.md").write_text(final_report, encoding="utf-8")
