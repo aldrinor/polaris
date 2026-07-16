@@ -1,49 +1,40 @@
-"""Phase A — the FAILING control-path test (P0-A: contract not wired to retrieval).
+"""Phase C — the control-path test (P0-A: contract IS wired to retrieval).
 
-This test documents the BEHAVIORAL BAR the gate rebuild must clear. It is
-EXPECTED TO FAIL on the current branch and is therefore marked ``xfail`` with
-``reason='P0-A: contract not wired to retrieval; fixed in Phase C'`` so the
-suite stays green while the assertion body remains real.
+This test pins the BEHAVIORAL BAR the gate rebuild had to clear. It FAILED on the
+pre-Phase-C branch (the seam shipped an empty-contract champion adapter) and now
+PASSES: Phase C switched ``run_honest_sweep_r3.py:run_one_query``'s FS retrieval
+seam to build its projection from the pinned ``PlanningGateArtifact`` via
+``retrieval_projection.from_artifact`` (merged additively with the champion
+plan's sub-queries for breadth, so the CONTRACT drives scope).
 
 It asserts, against the REAL retrieval seam (no network, no LLM), two things:
 
-1. ARTIFACT IDENTITY REACHES RETRIEVAL. When ``PG_GATE=1``, the projection that
-   the FS retrieval seam in ``scripts/run_honest_sweep_r3.py:run_one_query``
-   consults must be compiled from the pinned ``PlanningGateArtifact`` via
-   ``retrieval_projection.from_artifact(gate_artifact)`` — i.e. it must carry the
-   artifact's pinned ``contract_sha256``. Today the seam calls
-   ``retrieval_projection.from_champion_plan(_research_plan, ...)``, which builds
-   a ``_ChampionPlanProjection`` over an EMPTY ``ResearchContract()`` (see
-   ``retrieval_projection.py:_ChampionPlanProjection.__init__`` →
-   ``contract=ResearchContract()``). The pinned contract's hash therefore NEVER
-   reaches retrieval — it is a shadow artifact (sol P0, verdict P0-A).
+1. ARTIFACT IDENTITY REACHES RETRIEVAL. When ``PG_GATE=1``, the projection the FS
+   retrieval seam consults is compiled from the pinned ``PlanningGateArtifact``
+   via ``retrieval_projection.from_artifact(gate_artifact)`` — it carries the
+   artifact's pinned ``contract_sha256``. The pre-Phase-C seam called
+   ``retrieval_projection.from_champion_plan(_research_plan, ...)``, which built a
+   ``_ChampionPlanProjection`` over an EMPTY ``ResearchContract()`` (its hash
+   never reached retrieval — a shadow artifact). That adapter is now only the
+   artifact-missing fallback and is NOT wired at the seam.
 
 2. TWO CONTRACTS → TWO ELIGIBLE SOURCE SETS. Two DIFFERENT contracts over the
    SAME candidate/corpus fixture — one allowing all sources, one hard-limiting to
-   journal articles from 2024 onward — must produce DIFFERENT eligible/citable
-   source sets. Today the seam projects BOTH contracts through the empty-contract
-   champion adapter, whose hard-scope predicate set is ``[]`` for BOTH, so the
-   eligible set is IDENTICAL (the whole corpus) regardless of the contract. The
-   gate does not gate.
-
-The negative half of each assertion (that ``from_artifact`` DOES carry the hash
-and DOES diverge) is exercised inline so the test also pins the FIX target: the
-same real functions, once the seam is switched to ``from_artifact`` in Phase C,
-make these assertions pass with no test edit.
+   journal articles from 2024 onward — produce DIFFERENT eligible/citable source
+   sets, because each is projected through ``from_artifact`` and its hard-scope
+   terms reach the eligibility predicate. The gate gates.
 
 Everything is OFFLINE and deterministic: no ``run_one_query`` drive, no network,
 no LLM. We bind to the real seam two ways — (a) a source-level trace of the
-gate-on FS seam in ``run_honest_sweep_r3.py`` proving it wires
-``from_champion_plan`` and NOT ``from_artifact``, and (b) the real projection
-functions (``from_artifact`` / ``from_champion_plan``) over real schema fixtures,
-proving the behavioral consequence.
+gate-on FS seam in ``run_honest_sweep_r3.py`` proving it wires ``from_artifact``
+and NOT ``from_champion_plan``, and (b) the real projection functions
+(``from_artifact_with_champion_breadth`` / ``from_champion_plan``) over real
+schema fixtures, proving the behavioral consequence.
 """
 
 from __future__ import annotations
 
 import pathlib
-
-import pytest
 
 from src.polaris_graph.planning import retrieval_projection as rp
 from src.polaris_graph.planning.planning_gate_schema import (
@@ -52,8 +43,6 @@ from src.polaris_graph.planning.planning_gate_schema import (
     contract_from_dict,
     plan_from_dict,
 )
-
-_XFAIL_REASON = "P0-A: contract not wired to retrieval; fixed in Phase C"
 
 # The live gate-on FS retrieval seam. The test traces THIS exact block so the
 # behavioral bar is anchored to the real control path, not a paraphrase.
@@ -194,55 +183,69 @@ def _eligible_source_ids(projection) -> frozenset[str]:
 # Assertion 1 — the pinned contract_hash reaches the retrieval seam.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(reason=_XFAIL_REASON, strict=True)
 def test_pinned_contract_reaches_retrieval_via_from_artifact():
-    """The projection consulted by the gate-on FS seam must be
+    """The projection consulted by the gate-on FS seam is
     ``from_artifact(gate_artifact)`` (carrying the pinned ``contract_sha256``),
     NOT ``from_champion_plan`` (an empty ``ResearchContract()``).
 
-    FAILS today because ``run_honest_sweep_r3.py:run_one_query`` wires
-    ``from_champion_plan`` at the FS seam and never passes the artifact.
+    PASSES after Phase C: ``run_honest_sweep_r3.py:run_one_query`` builds the FS
+    projection from the pinned artifact (via
+    ``from_artifact_with_champion_breadth``) so the pinned contract hash reaches
+    retrieval; the champion adapter (empty contract) is only the artifact-missing
+    fallback and is NOT wired at the seam.
     """
     artifact = _pinned_artifact(_restrictive_contract())
     pinned_hash = artifact.contract_sha256
     assert pinned_hash, "sanity: the pinned artifact must have a real contract hash"
 
     # (a) SOURCE-LEVEL TRACE of the REAL seam. The gate-on FS retrieval block
-    #     must build its projection from the pinned ARTIFACT (from_artifact), not
+    #     builds its projection from the pinned ARTIFACT (from_artifact), NOT
     #     from the champion plan (from_champion_plan → empty ResearchContract()).
     src = _SWEEP_PATH.read_text(encoding="utf-8")
     i = src.index(_SEAM_START_MARK)
     j = src.index(_SEAM_END_MARK, i)
     seam = src[i:j]
     assert "from_artifact" in seam, (
-        "the gate-on FS retrieval seam does NOT build its projection from the "
-        "pinned artifact via retrieval_projection.from_artifact — it currently "
-        "calls from_champion_plan, shipping an empty ResearchContract() (P0-A: "
-        "the pinned contract_hash never reaches retrieval)."
+        "the gate-on FS retrieval seam must build its projection from the pinned "
+        "artifact via retrieval_projection.from_artifact (P0-A: the pinned "
+        "contract_hash must reach retrieval)."
     )
     assert "from_champion_plan" not in seam, (
-        "the gate-on FS retrieval seam still wires from_champion_plan (empty "
-        "contract). The pinned contract is a shadow artifact."
+        "the gate-on FS retrieval seam must NOT wire from_champion_plan (empty "
+        "contract) — that ships a shadow artifact whose scope never gates."
     )
 
-    # (b) BEHAVIORAL: the projection the seam SHOULD build carries the pinned
-    #     hash; the one it ACTUALLY builds does not.
-    projection_that_should_ship = rp.from_artifact(artifact)
-    assert projection_that_should_ship.contract.to_dict() == artifact.contract.to_dict()
+    # (b) BEHAVIORAL: the projection the seam ACTUALLY builds (from_artifact,
+    #     merged with champion breadth) carries the pinned contract hash; the
+    #     champion adapter it REPLACED does not.
     from src.polaris_graph.planning.planning_gate_schema import sha256_of
-    assert sha256_of(projection_that_should_ship.contract.to_dict()) == pinned_hash
 
-    # The champion-plan adapter that the seam ACTUALLY uses drops the contract.
     class _ChampionPlanStub:
         sub_queries = ["AI labor market impact"]
         frame = None
 
-    shipped = rp.from_champion_plan(_ChampionPlanStub())
+    # The real seam projection: from_artifact + champion breadth. Its contract is
+    # the pinned contract (breadth is additive query text; it never touches scope).
+    shipped = rp.from_artifact_with_champion_breadth(artifact, _ChampionPlanStub())
+    assert shipped.contract.to_dict() == artifact.contract.to_dict()
     shipped_hash = sha256_of(shipped.contract.to_dict())
     assert shipped_hash == pinned_hash, (
-        "the projection actually shipped by the seam carries an EMPTY contract "
-        f"(hash {shipped_hash[:12]}), NOT the pinned contract (hash "
-        f"{pinned_hash[:12]}). The gate artifact never reaches retrieval."
+        "the projection shipped by the seam must carry the PINNED contract (hash "
+        f"{pinned_hash[:12]}), not an empty one (hash {shipped_hash[:12]}). The "
+        "gate artifact must reach retrieval."
+    )
+    # And the champion breadth is preserved (the champion sub-query survives,
+    # scope-anchored) — breadth kept, contract drives scope.
+    amplified = shipped.to_amplified_queries(base_question=PROMPT)
+    assert any("AI labor market impact" in a for a in amplified)
+
+    # The REPLACED champion adapter (the pre-Phase-C fallback) carries an EMPTY
+    # contract — this is exactly why the seam no longer wires it.
+    fallback = rp.from_champion_plan(_ChampionPlanStub())
+    fallback_hash = sha256_of(fallback.contract.to_dict())
+    assert fallback_hash != pinned_hash, (
+        "sanity: the champion adapter drops the contract (empty ResearchContract) "
+        "— the seam correctly no longer ships it."
     )
 
 
@@ -250,44 +253,45 @@ def test_pinned_contract_reaches_retrieval_via_from_artifact():
 # Assertion 2 — two contracts → two eligible source sets.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(reason=_XFAIL_REASON, strict=True)
 def test_two_contracts_produce_different_eligible_source_sets():
-    """Two DIFFERENT contracts over the SAME candidate corpus must yield
-    DIFFERENT eligible/citable source sets.
+    """Two DIFFERENT contracts over the SAME candidate corpus yield DIFFERENT
+    eligible/citable source sets.
 
-    FAILS today because the seam projects BOTH contracts through the
-    empty-contract champion adapter (``from_champion_plan``), whose hard-scope
-    set is ``[]`` for BOTH — so the eligible set is the WHOLE corpus in both
-    cases. Changing the contract does not change the citable menu.
+    PASSES after Phase C: the seam projects each contract through
+    ``from_artifact`` (the projection source it now wires — see the source-trace
+    in :func:`test_pinned_contract_reaches_retrieval_via_from_artifact`), whose
+    hard-scope set carries the CONTRACT's terms. The restrictive contract's hard
+    ``journal article`` + ``2024`` limit reaches retrieval and gates the citable
+    menu; the permissive one does not.
     """
     permissive_art = _pinned_artifact(_permissive_contract())
     restrictive_art = _pinned_artifact(_restrictive_contract())
 
-    # The projections the seam ACTUALLY ships today: both via the champion
-    # adapter (the seam ignores the artifact entirely). We model the seam's
-    # own behavior — an empty contract for BOTH — to prove the divergence the
-    # gate promises does NOT occur on the wired path.
+    # Champion breadth is threaded ADDITIVELY (spec item 1) — model the exact
+    # projection the seam ships: from_artifact + champion sub-queries. The champion
+    # breadth is query TEXT only; it never touches the hard scope the eligibility
+    # predicate reads, so the two contracts still diverge.
     class _ChampionPlanStub:
         sub_queries = ["AI labor market impact"]
         frame = None
 
-    seam_permissive = rp.from_champion_plan(_ChampionPlanStub())
-    seam_restrictive = rp.from_champion_plan(_ChampionPlanStub())
+    seam_permissive = rp.from_artifact_with_champion_breadth(
+        permissive_art, _ChampionPlanStub())
+    seam_restrictive = rp.from_artifact_with_champion_breadth(
+        restrictive_art, _ChampionPlanStub())
 
     eligible_permissive = _eligible_source_ids(seam_permissive)
     eligible_restrictive = _eligible_source_ids(seam_restrictive)
 
     assert eligible_permissive != eligible_restrictive, (
-        "the SAME corpus yields the SAME eligible set under BOTH contracts "
-        f"({sorted(eligible_permissive)}) because the wired seam ships an empty "
-        "contract for both (from_champion_plan). The hard journal+2024 limit "
-        "never reaches retrieval — the gate does not gate the citable menu."
+        "the SAME corpus must yield DIFFERENT eligible sets under two different "
+        f"contracts. permissive={sorted(eligible_permissive)} "
+        f"restrictive={sorted(eligible_restrictive)}. The hard journal+2024 limit "
+        "must reach retrieval and gate the citable menu."
     )
 
-    # The FIX target (from_artifact), pinned inline so this passes untouched once
-    # Phase C switches the seam: the restrictive contract admits ONLY the 2024+
-    # journal, the permissive one admits the whole corpus.
-    fixed_permissive = _eligible_source_ids(rp.from_artifact(permissive_art))
-    fixed_restrictive = _eligible_source_ids(rp.from_artifact(restrictive_art))
-    assert fixed_permissive == frozenset(sid for sid, _, _ in CANDIDATE_CORPUS)
-    assert fixed_restrictive == frozenset({"s_journal_2025"})
+    # The exact eligible sets: the restrictive contract admits ONLY the 2024+
+    # journal; the permissive one admits the whole corpus. (Champion breadth does
+    # not change eligibility — it is additive discovery query text.)
+    assert eligible_permissive == frozenset(sid for sid, _, _ in CANDIDATE_CORPUS)
+    assert eligible_restrictive == frozenset({"s_journal_2025"})

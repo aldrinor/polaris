@@ -1306,6 +1306,73 @@ class PlanningGateArtifact:
         return self
 
 
+def artifact_from_dict(d: Any) -> "PlanningGateArtifact":
+    """Reconstruct a :class:`PlanningGateArtifact` from its ``to_dict`` envelope.
+
+    The inverse of :meth:`PlanningGateArtifact.to_dict`. Reuses the tolerant
+    :func:`contract_from_dict` / :func:`plan_from_dict` deserializers for the two
+    heavy sub-objects; the light envelope fields are read defensively (a missing
+    field falls back to its dataclass default). The persisted SHAs are honored
+    verbatim (NOT recomputed) so a loaded artifact's ``contract_sha256`` is
+    exactly the value that was pinned — the identity a downstream stage checks.
+
+    This is a pure deserializer: no network, no LLM, no mutation of ``d``. It is
+    additive to the schema (no existing code path calls it) so wiring it into a
+    loader changes nothing on any path that does not read a pinned artifact.
+    """
+    if not isinstance(d, dict):
+        d = {}
+    contract = contract_from_dict(d.get("contract") or {})
+    plan = plan_from_dict(d.get("plan") or {})
+
+    clar: list[ClarificationQuestion] = []
+    for q in d.get("clarification_questions") or []:
+        if not isinstance(q, dict):
+            continue
+        clar.append(ClarificationQuestion(
+            question_id=_as_opt_str(q.get("question_id")) or "",
+            prompt=_as_opt_str(q.get("prompt")) or "",
+            choices=_as_str_list(q.get("choices")),
+            affected_term_ids=_as_str_list(q.get("affected_term_ids")),
+            why_it_matters=_as_opt_str(q.get("why_it_matters")) or "",
+            answer=_as_opt_str(q.get("answer")),
+        ))
+
+    revs: list[ArtifactRevision] = []
+    for r in d.get("revisions") or []:
+        if not isinstance(r, dict):
+            continue
+        revs.append(ArtifactRevision(
+            revision=_as_opt_int(r.get("revision")) or 0,
+            parent_sha256=_as_opt_str(r.get("parent_sha256")),
+            patch=[p for p in (r.get("patch") or []) if isinstance(p, dict)],
+            actor=_as_opt_str(r.get("actor")) or "compiler",
+            reason=_as_opt_str(r.get("reason")) or "",
+        ))
+
+    ledger = [dict(c) for c in (d.get("clause_ledger") or []) if isinstance(c, dict)]
+
+    return PlanningGateArtifact(
+        run_id=_as_opt_str(d.get("run_id")) or "",
+        mode=_as_opt_str(d.get("mode")) or "autonomous",
+        state=_as_opt_str(d.get("state")) or "pinned",
+        original_prompt=_as_opt_str(d.get("original_prompt")) or "",
+        contract=contract,
+        plan=plan,
+        artifact_version=_as_opt_str(d.get("artifact_version")) or SCHEMA_VERSION,
+        created_at=_as_opt_str(d.get("created_at")) or "",
+        normalized_prompt_language=_as_opt_str(d.get("normalized_prompt_language")),
+        clarification_questions=clar,
+        revisions=revs,
+        approval_actor=_as_opt_str(d.get("approval_actor")),
+        approval_policy_version=_as_opt_str(d.get("approval_policy_version")),
+        contract_sha256=_as_opt_str(d.get("contract_sha256")) or "",
+        plan_sha256=_as_opt_str(d.get("plan_sha256")) or "",
+        artifact_sha256=_as_opt_str(d.get("artifact_sha256")) or "",
+        clause_ledger=ledger,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Canonical serialization + hashing (mirrors research_planner discipline)
 # ---------------------------------------------------------------------------

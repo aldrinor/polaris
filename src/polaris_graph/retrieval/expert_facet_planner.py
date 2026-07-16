@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
 
 # (prompt) -> text. The already-picked FS-Researcher / intent-frame policy model, injected by the
 # caller (async client wrapped to sync) so this module never imports a live client at load time.
@@ -252,7 +252,7 @@ def _deterministic_floor_facets(question: str) -> list[str]:
     return facets
 
 
-def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
+def plan_expert_facets(question: str, llm: LlmFn, *, retrieval_policy: Any = None) -> list[Facet]:
     """Build the facet tree for ``question`` and expand each facet into angle queries.
 
     ONE bounded LLM call elicits the facet tree across the taxonomy dimensions (sub-topics, actors /
@@ -260,6 +260,14 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
     multiplied deterministically at $0. When the LLM reply is unusable, the deterministic split of
     the question is used as the facet floor. Returns an ordered list of ``Facet`` (each with >=1
     scope-anchored angle query). Pure control flow over the injected ``llm`` — no network here.
+
+    ``retrieval_policy`` (spec item 3): the typed
+    :class:`~planning.retrieval_projection.RetrievalPolicy`. ``None`` (default /
+    PG_GATE OFF) => byte-identical. When present, each facet angle query is
+    scope-anchored with the policy's HARD ``allowed_source_kinds`` +
+    ``languages`` so the contract's source-type/language survive into the facet
+    frontier (never as a filter — additive query text; exclusions stay negative
+    and are NEVER appended here).
     """
     cap = _max_facets()
     n_angles = _angles_per_facet()
@@ -318,22 +326,54 @@ def plan_expert_facets(question: str, llm: LlmFn) -> list[Facet]:
     facets: list[Facet] = []
     for name in facet_names:
         queries = _facet_angle_queries(name, anchor, n_angles, debate_active)
+        if retrieval_policy is not None:
+            queries = _policy_scope_anchor(queries, retrieval_policy)
         if queries:
             facets.append(Facet(name=name, queries=queries))
     return facets
 
 
-def facet_seed_queries(question: str, llm: LlmFn) -> list[str]:
+def _policy_scope_anchor(queries: list[str], retrieval_policy: Any) -> list[str]:
+    """ADD the policy's HARD source-type + language anchors into each facet angle
+    query so the contract's scope survives into the facet frontier. Additive query
+    TEXT only — never a filter, and exclusions are NEVER appended (they stay
+    negative predicates). A policy without hard anchors returns the queries as-is
+    (byte-identical)."""
+    kinds = list(getattr(retrieval_policy, "allowed_source_kinds", []) or [])
+    langs = [l for l in (getattr(retrieval_policy, "languages", []) or [])
+             if str(l).strip().lower() not in ("en", "english")]
+    suffix = " ".join([*kinds, *langs]).strip()
+    if not suffix:
+        return queries
+    out: list[str] = []
+    seen: set[str] = set()
+    for q in queries:
+        qs = (q or "").strip()
+        if not qs:
+            continue
+        anchored = qs if suffix.lower() in qs.lower() else f"{qs} {suffix}"
+        key = anchored.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(anchored)
+    return out
+
+
+def facet_seed_queries(question: str, llm: LlmFn, *, retrieval_policy: Any = None) -> list[str]:
     """Flatten the facet tree into the ordered, de-duplicated seed-query frontier.
 
     This is what the FS-Researcher planner consumes when the R1 flag is ON: a widened list of
     on-topic, angle-differentiated, scope-anchored queries. The FS-Researcher ``_max_queries`` cap
     (a compute-safety bound) still applies downstream, so this may return more than are ultimately
     issued — that is intentional headroom, never a forced count.
+
+    ``retrieval_policy`` (None => byte-identical) is forwarded to
+    :func:`plan_expert_facets` so the contract's hard source-type/language anchor
+    the flattened frontier.
     """
     out: list[str] = []
     seen: set[str] = set()
-    for facet in plan_expert_facets(question, llm):
+    for facet in plan_expert_facets(question, llm, retrieval_policy=retrieval_policy):
         for q in facet.queries:
             key = q.lower()
             if key in seen:

@@ -541,6 +541,7 @@ def _plan_expert_facet_queries(
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
     retrieval_plan: Any = None,
+    retrieval_policy: Any = None,
 ) -> tuple[list[str], list[Any]]:
     """R1+R2 (I-deepfix-001, #1344) facet-driven frontier: seed queries from the expert-facet tree,
     issue them directly, then (when R2 is enabled) run the facet-completeness expansion loop over the
@@ -580,7 +581,13 @@ def _plan_expert_facet_queries(
     if _wall_passed():
         return queries, results
 
-    # R1: build the facet tree (one bounded LLM call) and its scope-anchored angle queries.
+    # R1: build the facet tree (one bounded LLM call) and its angle queries. The
+    # contract's SCOPE is carried into the frontier by the projection's amplified
+    # queries (`_projection_amplified_queries`, prepended below) — NOT by rewriting
+    # facet query text — so the champion facet frontier stays a byte-identical
+    # subset and the superset invariant holds. `retrieval_policy` therefore drives
+    # the NEGATIVE-predicate / backend-filter view (exclusions, date interval,
+    # quality), never the positive facet query text.
     facets = _efp.plan_expert_facets(question, llm)
     # I-deepfix-001 Wave-3a (#1344): expert-facet-planner ACTIVATION fire marker. Emitted ONLY when
     # PG_EXPERT_FACET_PLANNER is ON (this whole facet path is reached only under the flag; the guard keeps
@@ -890,9 +897,20 @@ def plan_fs_researcher_queries(
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
     retrieval_plan: Any = None,
+    retrieval_policy: Any = None,
 ) -> tuple[list[str], list[Any]]:
     """Run the FS-Researcher TOC/todo-queue + 6-item-checklist loop; return
     (queries_issued, per_query_results).
+
+    ``retrieval_policy`` (spec item 3): the typed, hash-stamped
+    :class:`~planning.retrieval_projection.RetrievalPolicy` compiled from the
+    pinned contract (allowed/excluded source kinds, date interval, languages,
+    named in/exclusions, quality profile ref, per-predicate force). ``None``
+    (default / PG_GATE OFF) => byte-identical champion behavior. When present it
+    is the DECLARATIVE predicate set the backend-native filter + post-fetch
+    citable-eligibility verdict read — NEVER folded into positive query text
+    (exclusions stay negative). Derived from ``retrieval_plan`` when the caller
+    passes only the projection.
 
     index.md TOC: deconstruct the question into sub-topics (a todo queue). Each round: for every
     todo, derive ONE query and retrieve via the production `per_query_retrieve`; then a fixed 6-item
@@ -912,6 +930,15 @@ def plan_fs_researcher_queries(
     max_queries = max_queries or _max_queries()
     max_rounds = max_rounds or _max_rounds()
     retrieve_kwargs = dict(retrieve_kwargs or {})
+
+    # Derive the typed policy from the projection when the caller passed only the
+    # projection (retrieval_plan). None-default => champion path untouched. This is
+    # the negative-predicate/backend-filter view; it never changes query text.
+    if retrieval_policy is None and retrieval_plan is not None:
+        try:
+            retrieval_policy = retrieval_plan.to_retrieval_policy()
+        except Exception:  # noqa: BLE001 — a projection without a policy stays None
+            retrieval_policy = None
 
     queries: list[str] = []
     results: list[Any] = []
@@ -936,6 +963,7 @@ def plan_fs_researcher_queries(
             max_queries=max_queries, retrieve_kwargs=retrieve_kwargs,
             retrieval_deadline_monotonic=retrieval_deadline_monotonic,
             retrieval_plan=retrieval_plan,
+            retrieval_policy=retrieval_policy,
         )
 
     # S2 (planning gate): PREPEND the gate projection's scope-anchored amplified

@@ -129,6 +129,256 @@ def source_type_to_need(source_type: Any) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# contract source-kind VALUE -> ontology facet_id (the bridge's vocabulary reuse)
+# ---------------------------------------------------------------------------
+
+
+def _load_scope_ontology_safe() -> dict[str, Any]:
+    """Load the scope facet ontology, or ``{}`` on any fault (fail-open: the bridge
+    then emits opaque facet ids and the enforcer masks nothing)."""
+    try:
+        from src.polaris_graph.retrieval.scope_facet_classifier import (  # noqa: PLC0415
+            load_scope_ontology,
+        )
+        return load_scope_ontology() or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _resolve_facet_id(value: Any, ontology: dict[str, Any]) -> tuple[str, str]:
+    """Map a contract source-kind VALUE (e.g. ``"journal article"``) to an ontology
+    ``(facet_id, dimension)`` via the SAME synonym table the deterministic scope
+    extractor uses (LAW VI — no new vocabulary). A value matching no facet synonym
+    is returned as an OPAQUE id (``opaque:<value>``, dimension ``source_type``) so it
+    is NEVER dropped — it simply classifies no source (fail-open), staying disclosed.
+    """
+    v = _norm(value)
+    if not v:
+        return "", "source_type"
+    best: tuple[str, str, int] = ("", "source_type", -1)
+    for facet in (ontology.get("facets") or []):
+        if not isinstance(facet, dict):
+            continue
+        fid = str(facet.get("id") or "")
+        dim = str(facet.get("dimension") or "source_type")
+        if not fid:
+            continue
+        for syn in (facet.get("synonyms") or []):
+            synl = str(syn).strip().lower()
+            if not synl:
+                continue
+            # longest matching synonym wins (most specific) — substring both ways to
+            # tolerate plurals ("journal articles" == "journal article").
+            if synl in v or v in synl:
+                if len(synl) > best[2]:
+                    best = (fid, dim, len(synl))
+    if best[0]:
+        return best[0], best[1]
+    return f"opaque:{v}", "source_type"
+
+
+# ---------------------------------------------------------------------------
+# Typed retrieval POLICY (spec item 2) — the enforcement-facing compiled view
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RetrievalPolicy:
+    """A typed, hash-stamped policy compiled from the pinned contract + plan.
+
+    This is the enforcement-facing companion to :class:`RetrievalProjection`
+    (which owns query TEXT + routing). ``RetrievalPolicy`` is the DECLARATIVE
+    predicate set a caller executes as backend filters, prefetch ranking, and a
+    post-fetch citable-eligibility verdict — ALWAYS upstream of the frozen
+    verifier (it changes which rows are ELIGIBLE to cite, never HOW a claim is
+    verified). It is pure data: no network, no LLM, no I/O.
+
+    Fields:
+      * ``allowed_source_kinds`` — hard ``scope.source_types`` values. A candidate
+        whose kind matches NONE (when non-empty) is out of the citable menu.
+      * ``excluded_source_kinds`` — NEGATIVE predicate (``scope.prohibited`` etc.).
+        A candidate whose kind matches ANY is masked. NEVER positive query text.
+      * ``date_from`` / ``date_to`` — inclusive publication-date interval (ISO
+        ``YYYY-MM-DD`` or ``YYYY``), routed server-side to OpenAlex
+        ``from/to_publication_date`` where a backend supports it.
+      * ``languages`` — hard ``scope.source_languages`` codes/names.
+      * ``named_inclusions`` / ``named_exclusions`` — specific named sources/domains
+        to pin in / mask out.
+      * ``quality_profile`` — a REF to a domain-neutral quality profile (e.g.
+        "high") selected over already-fetched metadata; never a query word.
+      * ``predicate_force`` — per-predicate ``{predicate_key: "hard"|"soft"}`` so a
+        caller knows which are gating vs ranking-only.
+      * ``contract_hash`` — the pinned ``contract_sha256`` this policy was compiled
+        from, so retrieval/audit can assert hash identity with the compiler.
+    """
+
+    allowed_source_kinds: list[str] = field(default_factory=list)
+    excluded_source_kinds: list[str] = field(default_factory=list)
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    languages: list[str] = field(default_factory=list)
+    named_inclusions: list[str] = field(default_factory=list)
+    named_exclusions: list[str] = field(default_factory=list)
+    quality_profile: Optional[str] = None
+    predicate_force: dict[str, str] = field(default_factory=dict)
+    contract_hash: str = ""
+
+    def is_empty(self) -> bool:
+        """True when the policy carries no executable predicate (the permissive /
+        empty-contract case) — a caller then applies NO filter (byte-identical)."""
+        return not (
+            self.allowed_source_kinds
+            or self.excluded_source_kinds
+            or self.date_from
+            or self.date_to
+            or self.languages
+            or self.named_inclusions
+            or self.named_exclusions
+            or self.quality_profile
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "allowed_source_kinds": list(self.allowed_source_kinds),
+            "excluded_source_kinds": list(self.excluded_source_kinds),
+            "date_from": self.date_from,
+            "date_to": self.date_to,
+            "languages": list(self.languages),
+            "named_inclusions": list(self.named_inclusions),
+            "named_exclusions": list(self.named_exclusions),
+            "quality_profile": self.quality_profile,
+            "predicate_force": dict(self.predicate_force),
+            "contract_hash": self.contract_hash,
+        }
+
+    # -- the contract -> protocol BRIDGE (spec item 1) ------------------------
+
+    def to_scope_protocol(
+        self, *, ontology: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        """Compile this policy into the LEGACY ``protocol`` shape the FROZEN
+        ``constraint_enforcement.build_scope_enforcement`` reads.
+
+        This is the single wire (Sol §4 "Enforcement") that makes the EXISTING
+        weight-demote / mask / named-pin / hard-timeline enforcer act on the GATE's
+        pinned terms instead of the parallel legacy regex extraction. It emits:
+
+          * ``scope_constraints`` = ``{facets:[{facet_id, dimension, op, strictness,
+            trigger_span}], named_include:[...], named_exclude:[...]}`` — the exact
+            ``ScopeConstraints.to_dict()`` shape. ``allowed_source_kinds`` ->
+            ``op=prefer`` facets; ``excluded_source_kinds`` -> ``op=exclude`` facets;
+            ``named_inclusions``/``named_exclusions`` -> the named lists. Strictness
+            is ``hard`` iff the policy marks that predicate hard, else ``weight``.
+          * ``date_range`` = ``{"start","end"}`` from ``date_from``/``date_to``.
+          * ``user_constraints`` = ``{timeline_strictness}`` (``hard`` iff the date
+            predicate is hard — the wire that fires the enforcer's hard-timeline
+            mask), plus ``language`` when a hard language predicate is present.
+
+        Source-kind VALUES are resolved to ontology ``facet_id``s via the SAME
+        synonym table the deterministic scope extractor uses (no new vocabulary,
+        LAW VI). A value that resolves to no facet is emitted as an OPAQUE facet id
+        (``opaque:<value>``) so it is NEVER silently dropped — it simply matches no
+        source in ``classify_source_facets`` (fail-open demote), but it stays
+        disclosed. Pure + deterministic; an empty policy compiles an empty protocol.
+        """
+        facets: list[dict[str, Any]] = []
+        seen_facets: set[tuple[str, str]] = set()
+
+        def _facet(facet_id: str, dimension: str, op: str, hard: bool) -> None:
+            key = (facet_id, op)
+            if not facet_id or key in seen_facets:
+                return
+            seen_facets.add(key)
+            facets.append({
+                "facet_id": facet_id,
+                "dimension": dimension,
+                "op": op,
+                "strictness": "hard" if hard else "weight",
+                "trigger_span": "",
+            })
+
+        ont = ontology if ontology is not None else _load_scope_ontology_safe()
+        allowed_hard = str(
+            (self.predicate_force or {}).get("allowed_source_kinds", "soft")
+        ).lower() == "hard"
+        excluded_hard = str(
+            (self.predicate_force or {}).get("excluded_source_kinds", "soft")
+        ).lower() == "hard"
+
+        for kind in self.allowed_source_kinds:
+            fid, dim = _resolve_facet_id(kind, ont)
+            _facet(fid, dim, "prefer", allowed_hard)
+        for kind in self.excluded_source_kinds:
+            fid, dim = _resolve_facet_id(kind, ont)
+            _facet(fid, dim, "exclude", excluded_hard)
+
+        # named in/exclusions -> the enforcer's named_include/named_exclude lists
+        # (label + identity; named-exclude is always hard per the enforcer).
+        named_include = [
+            {"label": str(n).strip(), "op": "include", "strictness": "weight",
+             "identity": {}}
+            for n in self.named_inclusions if str(n).strip()
+        ]
+        named_exclude = [
+            {"label": str(n).strip(), "op": "exclude", "strictness": "hard",
+             "identity": {}}
+            for n in self.named_exclusions if str(n).strip()
+        ]
+
+        # timeline: date_range + hard-strictness wire (fires the frozen mask).
+        date_hard = str(
+            (self.predicate_force or {}).get("date", "soft")
+        ).lower() == "hard"
+        lang_hard = str(
+            (self.predicate_force or {}).get("languages", "soft")
+        ).lower() == "hard"
+
+        user_constraints: dict[str, Any] = {
+            "timeline_strictness": "hard" if (date_hard and (self.date_from or self.date_to))
+            else "weight",
+        }
+        if self.date_from:
+            user_constraints["date_start_iso"] = self.date_from
+        if self.date_to:
+            user_constraints["date_end_iso"] = self.date_to
+        if lang_hard and self.languages:
+            user_constraints["language"] = self.languages[0]
+
+        return {
+            "scope_constraints": {
+                "facets": facets,
+                "named_include": named_include,
+                "named_exclude": named_exclude,
+            },
+            "date_range": {
+                "start": self.date_from,
+                "end": self.date_to,
+            },
+            "user_constraints": user_constraints,
+        }
+
+
+def _year_to_iso_from(value: Any) -> Optional[str]:
+    """Coerce a scope.date value (``"2024"`` / ``"2024-03"`` / ``"from 2024"``)
+    into an inclusive ISO ``from`` date (``YYYY-01-01`` for a bare year). Returns
+    ``None`` when no 4-digit year is present — a caller then applies no date
+    filter (fail-open)."""
+    import re as _re
+    s = str(value or "").strip()
+    m = _re.search(r"(19|20)\d{2}", s)
+    if not m:
+        return None
+    year = m.group(0)
+    # a bare year -> Jan 1 of that year (inclusive "from YEAR onward").
+    tail = s[m.end():].lstrip("-/ ")
+    mo = _re.match(r"(\d{1,2})", tail)
+    if mo:
+        month = max(1, min(12, int(mo.group(1))))
+        return f"{year}-{month:02d}-01"
+    return f"{year}-01-01"
+
+
+# ---------------------------------------------------------------------------
 # The projection
 # ---------------------------------------------------------------------------
 
@@ -157,8 +407,21 @@ class RetrievalProjection:
     hard_scope_terms: list[str] = field(default_factory=list)
     # Soft/preference scope-term values — ranking hints only, never a gate.
     soft_scope_terms: list[str] = field(default_factory=list)
+    # EXCLUSIONS (scope.prohibited): NEGATIVE predicates. These are values the
+    # user forbade ("no blogs", "exclude press releases"). They are NEVER folded
+    # into positive query text (the pre-Phase-C bug: a prohibition became a
+    # positive query suffix, steering discovery TOWARD the excluded kind). They
+    # are surfaced ONLY as a negative eligibility predicate a caller applies
+    # against a candidate's metadata (post-fetch, upstream of the frozen verifier).
+    excluded_scope_terms: list[str] = field(default_factory=list)
     # Hard source-language codes/names (e.g. "en"); drive native-language lanes.
     hard_languages: list[str] = field(default_factory=list)
+    # Champion-plan breadth: sub-queries ADDED to the amplified frontier so the
+    # contract-driven projection keeps the champion planner's discovery breadth
+    # (spec item 1: "merged additively with the champion plan's sub_queries so we
+    # keep breadth but the CONTRACT drives scope"). Purely ADDITIVE — never a
+    # filter; each is scope-anchored like a mandatory intent's text.
+    extra_amplified_queries: list[str] = field(default_factory=list)
 
     # -- amplified query text (the FS frontier seed) --------------------------
 
@@ -196,6 +459,18 @@ class RetrievalProjection:
                     _add(f"{text} {scope_suffix}")
                 else:
                     _add(text)
+
+        # champion-plan breadth: ADD the champion planner's sub-queries, each
+        # scope-anchored so the CONTRACT's hard scope still shapes discovery while
+        # the champion's breadth is preserved (spec item 1). Purely additive.
+        for text in self.extra_amplified_queries:
+            text = (text or "").strip()
+            if not text:
+                continue
+            if scope_suffix and scope_suffix.lower() not in text.lower():
+                _add(f"{text} {scope_suffix}")
+            else:
+                _add(text)
 
         # per-entity sub-queries (sub-entity discovery), anchored on the base
         # question so a bare entity does not drift into its broad field.
@@ -239,6 +514,7 @@ class RetrievalProjection:
         return {
             "hard": list(self.hard_scope_terms),
             "soft": list(self.soft_scope_terms),
+            "excluded": list(self.excluded_scope_terms),
             "languages": list(self.hard_languages),
             "evidence_needs": list(self.evidence_needs),
         }
@@ -310,6 +586,99 @@ class RetrievalProjection:
             + len(self.evidence_needs)
         )
 
+    # -- typed retrieval policy (spec item 2) ---------------------------------
+
+    def to_retrieval_policy(self) -> RetrievalPolicy:
+        """Compile the typed, hash-stamped :class:`RetrievalPolicy`.
+
+        Walks the SAME pinned contract the projection was built from and reads its
+        scope terms into declarative predicates: allowed/excluded source kinds, a
+        publication-date interval, languages, named in/exclusions, a quality
+        profile ref, and per-predicate hard/soft force. Stamps the contract's
+        canonical ``contract_sha256`` as ``contract_hash`` so retrieval + audit can
+        assert hash identity with the compiler. Pure + deterministic; an empty
+        contract compiles an empty policy (``is_empty()`` -> caller applies no
+        filter, byte-identical).
+        """
+        from src.polaris_graph.planning.planning_gate_schema import sha256_of
+
+        allowed: list[str] = []
+        excluded: list[str] = list(self.excluded_scope_terms)
+        languages: list[str] = list(self.hard_languages)
+        named_incl: list[str] = []
+        named_excl: list[str] = []
+        quality_profile: Optional[str] = None
+        date_from: Optional[str] = None
+        date_to: Optional[str] = None
+        force: dict[str, str] = {}
+
+        def _add(lst: list[str], v: Any) -> None:
+            s = str(v or "").strip()
+            if s and s.lower() not in {x.lower() for x in lst}:
+                lst.append(s)
+
+        for term in self.contract.scope:
+            dim = _norm(term.dimension)
+            val = term.value
+            if val in (None, "", [], {}):
+                continue
+            vals = val if isinstance(val, (list, tuple)) else [val]
+            is_hard = term.force == FORCE_HARD
+
+            if dim == "scope.source_types":
+                for v in vals:
+                    _add(allowed, v)
+                force.setdefault("allowed_source_kinds", "hard" if is_hard else "soft")
+            elif dim in _EXCLUSION_DIMENSIONS:
+                # already captured in excluded_scope_terms; record force.
+                force.setdefault("excluded_source_kinds", "hard" if is_hard else "soft")
+            elif dim in ("scope.date", "scope.dates", "scope.published_after",
+                         "scope.recency"):
+                iso = _year_to_iso_from(vals[0])
+                if iso and (date_from is None or iso > date_from):
+                    date_from = iso
+                force.setdefault("date", "hard" if is_hard else "soft")
+            elif dim in ("scope.published_before", "scope.date_to"):
+                iso = _year_to_iso_from(vals[0])
+                if iso:
+                    date_to = iso
+            elif dim in _LANGUAGE_DIMENSIONS:
+                if is_hard:
+                    for v in vals:
+                        _add(languages, v)
+                    force.setdefault("languages", "hard")
+            elif dim == "scope.source_quality":
+                quality_profile = str(vals[0]).strip() or None
+                force.setdefault("quality_profile", "hard" if is_hard else "soft")
+            elif dim in ("scope.named_sources", "scope.include_sources",
+                         "scope.inclusions"):
+                for v in vals:
+                    _add(named_incl, v)
+                force.setdefault("named_inclusions", "hard" if is_hard else "soft")
+            elif dim in ("scope.excluded_sources", "scope.exclude_sources"):
+                for v in vals:
+                    _add(named_excl, v)
+                force.setdefault("named_exclusions", "hard" if is_hard else "soft")
+
+        contract_hash = ""
+        try:
+            contract_hash = sha256_of(self.contract.to_dict())
+        except Exception:  # noqa: BLE001 — hash is best-effort provenance, never fatal
+            contract_hash = ""
+
+        return RetrievalPolicy(
+            allowed_source_kinds=allowed,
+            excluded_source_kinds=excluded,
+            date_from=date_from,
+            date_to=date_to,
+            languages=languages,
+            named_inclusions=named_incl,
+            named_exclusions=named_excl,
+            quality_profile=quality_profile,
+            predicate_force=force,
+            contract_hash=contract_hash,
+        )
+
 
 def _safe_need(n: Any) -> bool:
     from src.polaris_graph.planning.research_planner import EVIDENCE_NEEDS  # noqa: PLC0415
@@ -349,7 +718,18 @@ _SCOPE_TEXT_DIMENSIONS: tuple[str, ...] = (
     "scope.source_quality",  # high-quality/peer-reviewed steers the citable menu
     "scope.domains",
     "scope.geographies",
-    "scope.prohibited",  # a prohibition is disclosed as a term the caller may filter
+    # NOTE: ``scope.prohibited`` is DELIBERATELY absent. A prohibition is a
+    # NEGATIVE predicate — it must NEVER be folded into positive query text (the
+    # pre-Phase-C bug where "no blogs" became a "blogs" query suffix). It is
+    # routed to ``excluded_scope_terms`` and surfaced as a negative eligibility
+    # predicate instead. See ``_EXCLUSION_DIMENSIONS``.
+)
+# Scope dimensions whose VALUES are NEGATIVE predicates (exclusions). Never query
+# text; only a masking eligibility predicate a caller applies to candidate metadata.
+_EXCLUSION_DIMENSIONS: tuple[str, ...] = (
+    "scope.prohibited",
+    "scope.excluded_source_types",
+    "scope.exclusions",
 )
 _LANGUAGE_DIMENSIONS: tuple[str, ...] = (
     "scope.source_languages",
@@ -376,6 +756,7 @@ def from_contract_and_plan(
     hard_scope_terms: list[str] = []
     soft_scope_terms: list[str] = []
     hard_languages: list[str] = []
+    excluded_scope_terms: list[str] = []
 
     def _dedup_add(lst: list[str], val: Any) -> None:
         s = str(val or "").strip()
@@ -390,6 +771,14 @@ def from_contract_and_plan(
         if val in (None, "", [], {}):
             continue
         vals = val if isinstance(val, (list, tuple)) else [val]
+
+        # EXCLUSIONS FIRST: a prohibition is a NEGATIVE predicate. Route its values
+        # to the excluded bucket and CONTINUE — it must NEVER reach the positive
+        # query-text fold below (the pre-Phase-C "no blogs" -> "blogs" bug).
+        if dim in _EXCLUSION_DIMENSIONS:
+            for v in vals:
+                _dedup_add(excluded_scope_terms, v)
+            continue
 
         if dim in _LANGUAGE_DIMENSIONS:
             if term.force == FORCE_HARD:
@@ -437,6 +826,7 @@ def from_contract_and_plan(
         hard_scope_terms=hard_scope_terms,
         soft_scope_terms=soft_scope_terms,
         hard_languages=hard_languages,
+        excluded_scope_terms=excluded_scope_terms,
     )
 
 
@@ -447,6 +837,55 @@ def from_artifact(artifact: PlanningGateArtifact) -> RetrievalProjection:
         artifact.plan,
         original_prompt=artifact.original_prompt,
     )
+
+
+def from_artifact_with_champion_breadth(
+    artifact: PlanningGateArtifact,
+    research_plan: Any = None,
+    *,
+    original_prompt: str = "",
+) -> RetrievalProjection:
+    """The live FS seam projection: the CONTRACT drives scope, the champion plan
+    ADDS breadth.
+
+    Compiles ``from_artifact(artifact)`` (so the pinned contract's hard scope
+    terms, evidence-need routing, entities and languages are authoritative), then
+    ADDITIVELY folds the champion ``research_plan``'s ``sub_queries`` into the
+    amplified frontier and its ``frame`` routing tokens (entities / evidence needs
+    / jurisdictions / comparators) into the projection — never dropping a lane.
+
+    Spec item 1: ``from_champion_plan`` shipped an EMPTY contract (scope never
+    reached retrieval); this keeps the champion's breadth but lets the CONTRACT
+    own scope. ``research_plan=None`` degrades to a plain :func:`from_artifact`.
+    """
+    proj = from_artifact(artifact)
+    if research_plan is None:
+        if original_prompt and not proj.original_prompt:
+            proj.original_prompt = original_prompt
+        return proj
+
+    def _dedup_extend(lst: list[str], vals: Any) -> None:
+        seen = {x.lower() for x in lst}
+        for v in vals or []:
+            s = str(v or "").strip()
+            if s and s.lower() not in seen:
+                seen.add(s.lower())
+                lst.append(s)
+
+    proj.extra_amplified_queries = list(
+        getattr(research_plan, "sub_queries", []) or []
+    )
+
+    frame = getattr(research_plan, "frame", None)
+    if frame is not None:
+        _dedup_extend(proj.entities, getattr(frame, "entities", []))
+        _dedup_extend(proj.comparators, getattr(frame, "comparators", []))
+        _dedup_extend(proj.jurisdictions, getattr(frame, "jurisdictions", []))
+        _dedup_extend(proj.evidence_needs, getattr(frame, "evidence_needs", []))
+
+    if original_prompt and not proj.original_prompt:
+        proj.original_prompt = original_prompt
+    return proj
 
 
 # ---------------------------------------------------------------------------

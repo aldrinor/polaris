@@ -1606,6 +1606,18 @@ def _resolve_pubdate_from_html_enabled() -> bool:
     return os.getenv("PG_RESOLVE_PUBDATE_FROM_HTML", "0").strip().lower() in _ON_TOKENS
 
 
+def _pg_gate_row_metadata_enabled() -> bool:
+    """Phase C: tracks PG_GATE (default OFF; read at CALL time, LAW VI). OFF => the
+    additive venue / is_peer_reviewed row keys are NEVER written and the evidence
+    row is byte-identical to champion. These keys feed ONLY the deterministic
+    quality-eligibility scorer at the citable-menu seam (upstream of strict_verify)."""
+    try:
+        from src.polaris_graph.planning.gate_flags import gate_enabled  # noqa: PLC0415
+        return bool(gate_enabled())
+    except Exception:  # noqa: BLE001 — a flag-import fault is byte-identical OFF
+        return False
+
+
 def _match_validate_incr(key: str) -> None:
     """Thread-safe increment of one match-validate counter (checked / rejected / failopen)."""
     with _MATCH_VALIDATE_LOCK:
@@ -5421,6 +5433,7 @@ def run_live_retrieval(
     anchor_seed: bool = True,
     progress_cb: Any = None,
     retrieval_deadline_monotonic: Optional[float] = None,
+    retrieval_policy: Any = None,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -5677,6 +5690,26 @@ def run_live_retrieval(
     _oa_date_from, _oa_date_to = (
         _openalex_date_window(research_question) if _oa_date_filter_on else (None, None)
     )
+    # spec item 3: the pinned CONTRACT's publication-date interval (via the typed
+    # RetrievalPolicy) is AUTHORITATIVE over the question-text regex window and
+    # routes server-side to OpenAlex from/to_publication_date. None (default /
+    # PG_GATE OFF) => byte-identical (the regex window / no window stands). The
+    # policy's ISO date_from/date_to override the extracted window so the
+    # contract, not a phrasing heuristic, scopes the dated lane; the lane fires
+    # even when the question text states no window but the contract does.
+    if _oa_date_filter_on and retrieval_policy is not None:
+        _pol_from = getattr(retrieval_policy, "date_from", None)
+        _pol_to = getattr(retrieval_policy, "date_to", None)
+        if _pol_from:
+            _oa_date_from = _pol_from
+        if _pol_to:
+            _oa_date_to = _pol_to
+        if _pol_from or _pol_to:
+            logger.info(
+                "[activation] openalex_date_filter: contract window "
+                "from=%s to=%s (RetrievalPolicy authoritative over question regex)",
+                _oa_date_from, _oa_date_to,
+            )
     if _oa_date_filter_on and not (_oa_date_from or _oa_date_to):
         # I-deepfix-001 Wave-3 (#1344): eligible-yet-idle disclosure (Fable P1). The flag is ON but the
         # question states no publication window, so the additive dated lane never fires this call.
@@ -7693,6 +7726,23 @@ def run_live_retrieval(
                 # _row_is_retracted.
                 if _row_is_retracted(oa, tier_result):
                     _row["is_retracted"] = True
+                # Phase C (PG_GATE): carry the OpenAlex venue + peer-review flag onto
+                # the groundable row so the DETERMINISTIC quality-eligibility scorer
+                # (quality_eligibility.score_source_quality) can distinguish a
+                # peer-reviewed journal from a journal-SHAPED-but-not-peer-reviewed
+                # venue at the citable-menu seam. These land ONLY on ClassificationSignals
+                # / CorpusSource today (:7138/:7145), NOT on the row — this additive copy
+                # surfaces them. Set ONLY under PG_GATE and only when OpenAlex actually
+                # returned the field, so the OFF row (and any non-OpenAlex row) is
+                # byte-identical. Pure placement/quality metadata — never enters a
+                # verified claim, never relaxes strict_verify / NLI / 4-role (§-1.3).
+                if _pg_gate_row_metadata_enabled():
+                    if isinstance(oa, dict):
+                        if oa.get("is_peer_reviewed") is not None:
+                            _row["is_peer_reviewed"] = bool(oa.get("is_peer_reviewed"))
+                        _oa_venue = oa.get("openalex_venue") or ""
+                        if _oa_venue:
+                            _row["openalex_venue"] = _oa_venue
                 # I-deepfix-001 B14 (#1358): carry the title<->body identity flags so
                 # the generator/dedup can avoid reasoning about a mis-stitched source
                 # under two identities. Keys ABSENT when the gate is OFF => the OFF

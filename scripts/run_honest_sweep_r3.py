@@ -8813,6 +8813,154 @@ def _load_postgen_reuse_reentry(*, run_dir, log):
     return True, _reentry
 
 
+def _gate_load_or_compile_artifact(prompt, run_dir, *, run_id, log):
+    """Acquire the pinned :class:`PlanningGateArtifact` for the S2 retrieval seam.
+
+    Priority (all OFFLINE-safe, no live retrieval):
+      1. a pre-pinned ``<run_dir>/planning_gate_artifact.json`` (the canonical
+         location ``run_gate_e2e`` writes; the monitored-live-job path) — loaded
+         verbatim so its pinned ``contract_sha256`` is honored, NOT recomputed;
+      2. else compile it via ``research_planning_gate.run_research_planning_gate``
+         (mode="autonomous", the small policy compiler LLM — fast, spend-bounded)
+         and pin it to that same path.
+
+    Returns the ``PlanningGateArtifact`` or ``None`` on any failure (fail-open:
+    the seam then keeps the champion path, byte-identical). This is called ONLY
+    under ``PG_GATE`` — with the flag unset it never runs.
+    """
+    from src.polaris_graph.planning.planning_gate_schema import artifact_from_dict
+
+    art_path = run_dir / "planning_gate_artifact.json"
+
+    # (1) a pre-pinned artifact — the canonical run_gate_e2e location.
+    if art_path.exists():
+        try:
+            artifact = artifact_from_dict(json.loads(art_path.read_text(encoding="utf-8")))
+            log(f"[planning_gate] S2 loaded pinned artifact "
+                f"contract_sha256={(artifact.contract_sha256 or '')[:12]} "
+                f"(hard_terms={len(artifact.contract.hard_terms())})")
+            return artifact
+        except Exception as _exc:  # noqa: BLE001 — fail-open to compile / champion
+            log(f"[planning_gate] S2 pinned artifact unreadable, will compile: {_exc}")
+
+    # (2) compile + pin. Autonomous mode NEVER blocks (no input channel here).
+    try:
+        import asyncio as _asyncio
+        from src.polaris_graph.planning.research_planning_gate import (
+            run_research_planning_gate,
+        )
+
+        def _compile():
+            return _asyncio.run(
+                run_research_planning_gate(prompt, mode="autonomous", run_id=run_id)
+            )
+
+        import concurrent.futures as _futures
+        with _futures.ThreadPoolExecutor(max_workers=1) as _pool:
+            gate = _pool.submit(_compile).result()
+        artifact = gate.artifact
+        try:
+            art_path.write_text(
+                json.dumps(artifact.to_dict(), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:  # noqa: BLE001 — pinning is best-effort; the artifact still steers
+            pass
+        log(f"[planning_gate] S2 compiled + pinned artifact "
+            f"contract_sha256={(artifact.contract_sha256 or '')[:12]} "
+            f"(hard_terms={len(artifact.contract.hard_terms())})")
+        return artifact
+    except Exception as _exc:  # noqa: BLE001 — fail-open to champion path
+        log(f"[planning_gate] S2 artifact compile unavailable, champion path: {_exc}")
+        return None
+
+
+def _reconcile_gate_protocol(legacy, gate, *, log):
+    """MONOTONICALLY fold the gate policy's ``to_scope_protocol()`` output into the
+    legacy scope-gate protocol (Phase C bridge, spec item 1).
+
+    The deterministic gate contract is AUTHORITATIVE: a gate facet/named/timeline
+    FILLS an empty legacy slot, and a HARD gate strictness UPGRADES a weaker legacy
+    ``weight`` — but a legacy HARD term is NEVER weakened by the gate (union +
+    strictness-max). This is the single wire that makes the frozen
+    ``build_scope_enforcement`` act on the GATE's pinned terms without a second,
+    parallel truth source. Pure dict work; any shape fault returns the legacy
+    protocol unchanged (fail-open — the enforcer then reads the legacy extraction)."""
+    try:
+        out = dict(legacy or {})
+        g_sc = (gate or {}).get("scope_constraints") or {}
+        l_sc = dict(out.get("scope_constraints") or {})
+
+        # facets: union by (facet_id, op); strictness = max(hard > weight).
+        _rank = {"hard": 1, "weight": 0}
+        merged: "dict[tuple, dict]" = {}
+        for f in list(l_sc.get("facets") or []) + list(g_sc.get("facets") or []):
+            if not isinstance(f, dict):
+                continue
+            key = (str(f.get("facet_id")), str(f.get("op")))
+            prev = merged.get(key)
+            if prev is None:
+                merged[key] = dict(f)
+            else:
+                if _rank.get(str(f.get("strictness")), 0) > _rank.get(str(prev.get("strictness")), 0):
+                    prev["strictness"] = f.get("strictness")
+                if not prev.get("trigger_span") and f.get("trigger_span"):
+                    prev["trigger_span"] = f.get("trigger_span")
+        l_sc["facets"] = list(merged.values())
+        # named lists: union (a gate named-source only ADDS).
+        for _nk in ("named_include", "named_exclude"):
+            _seen = {json.dumps(x, sort_keys=True, default=str)
+                     for x in (l_sc.get(_nk) or []) if isinstance(x, dict)}
+            _out_n = list(l_sc.get(_nk) or [])
+            for x in (g_sc.get(_nk) or []):
+                if isinstance(x, dict) and json.dumps(x, sort_keys=True, default=str) not in _seen:
+                    _out_n.append(x)
+            l_sc[_nk] = _out_n
+        out["scope_constraints"] = l_sc
+
+        # date_range: FILL an empty legacy bound from the gate (never overwrite a set one).
+        g_dr = (gate or {}).get("date_range") or {}
+        l_dr = dict(out.get("date_range") or {})
+        for _bk in ("start", "end"):
+            if not l_dr.get(_bk) and g_dr.get(_bk):
+                l_dr[_bk] = g_dr.get(_bk)
+        if l_dr:
+            out["date_range"] = l_dr
+
+        # user_constraints: timeline_strictness UPGRADES to hard; FILL date/lang slots.
+        g_uc = (gate or {}).get("user_constraints") or {}
+        l_uc = dict(out.get("user_constraints") or {})
+        if _rank.get(str(g_uc.get("timeline_strictness")), 0) > _rank.get(str(l_uc.get("timeline_strictness")), 0):
+            l_uc["timeline_strictness"] = g_uc.get("timeline_strictness")
+        for _uk in ("date_start_iso", "date_end_iso", "language"):
+            if not l_uc.get(_uk) and g_uc.get(_uk):
+                l_uc[_uk] = g_uc.get(_uk)
+        out["user_constraints"] = l_uc
+
+        _nf = len(l_sc.get("facets") or [])
+        log(f"[planning_gate] scope-protocol bridge: reconciled gate contract into "
+            f"protocol (facets={_nf}, timeline_strictness={l_uc.get('timeline_strictness','weight')})")
+        return out
+    except Exception as _exc:  # noqa: BLE001 — fail-open: legacy protocol unchanged
+        log(f"[planning_gate] scope-protocol reconcile fault, legacy kept: {_exc}")
+        return legacy
+
+
+def _champion_fs_projection(research_plan, clean_question):
+    """Fail-open projection when no pinned artifact is available: the champion
+    plan's sub-queries as a breadth-only projection (EMPTY contract scope).
+
+    This is the pre-Phase-C behavior, retained ONLY as the artifact-missing
+    fallback so the FS frontier still receives the champion sub-queries the FS
+    branch would otherwise discard. It carries NO contract scope — the seam
+    prefers the from_artifact projection whenever an artifact exists.
+    """
+    from src.polaris_graph.planning.retrieval_projection import (
+        from_champion_plan as _champion_projection,
+    )
+    return _champion_projection(research_plan, original_prompt=clean_question)
+
+
 async def run_one_query(
     q: dict,
     out_root: Path,
@@ -10435,11 +10583,17 @@ async def run_one_query(
                 if _fs_researcher_enabled():
                     # S2 (planning gate, PG_GATE default-OFF): thread the RETRIEVAL
                     # PROJECTION into FS so the gate's pre-retrieval lanes reach the
-                    # frontier BEFORE any fetch — the no-starvation core. This fixes
-                    # the documented seam bug: the FS branch passed ONLY
-                    # `_clean_question` and DISCARDED `_research_plan.sub_queries`.
-                    # When PG_GATE is OFF (default) `_gate_retrieval_plan` stays None
-                    # and this call is byte-identical to the champion FS branch.
+                    # frontier BEFORE any fetch — the no-starvation core. Phase C
+                    # closes P0-A: the projection is built from the pinned
+                    # PlanningGateArtifact via retrieval_projection.from_artifact so
+                    # the CONTRACT's hard scope (source types / dates / languages /
+                    # named in/exclusions) drives retrieval — NOT an empty
+                    # ResearchContract. The champion plan's sub_queries are merged
+                    # ADDITIVELY (via from_artifact_with_champion_breadth) so we keep
+                    # discovery breadth while the contract owns scope. Any failure
+                    # falls open to the champion projection. When PG_GATE is OFF
+                    # (default) `_gate_retrieval_plan` stays None and this call is
+                    # byte-identical to the champion FS branch.
                     _gate_retrieval_plan = None
                     try:
                         from src.polaris_graph.planning.gate_flags import (
@@ -10447,17 +10601,35 @@ async def run_one_query(
                         )
                         if _pg_gate_enabled() and _use_research_planner and _research_plan is not None:
                             from src.polaris_graph.planning.retrieval_projection import (
-                                from_champion_plan as _from_champion_plan,
+                                from_artifact_with_champion_breadth as _from_artifact_breadth,
                             )
-                            _gate_retrieval_plan = _from_champion_plan(
-                                _research_plan, original_prompt=_clean_question
+                            _gate_artifact = _gate_load_or_compile_artifact(
+                                _clean_question, run_dir, run_id=run_id, log=_log
                             )
-                            if _gate_retrieval_plan is not None:
-                                _log(
-                                    f"[planning_gate] S2 retrieval projection ON: "
-                                    f"seeding FS with {len(_research_plan.sub_queries)} "
-                                    f"gate sub-queries + frame routing (no source dropped)"
+                            if _gate_artifact is not None:
+                                _gate_retrieval_plan = _from_artifact_breadth(
+                                    _gate_artifact,
+                                    _research_plan,
+                                    original_prompt=_clean_question,
                                 )
+                                _log(
+                                    f"[planning_gate] S2 retrieval projection ON "
+                                    f"(from_artifact): contract_sha256="
+                                    f"{(_gate_artifact.contract_sha256 or '')[:12]} "
+                                    f"drives scope; seeding FS with "
+                                    f"{len(_research_plan.sub_queries)} champion "
+                                    f"sub-queries for breadth (no source dropped)"
+                                )
+                            else:
+                                # fail-open: no artifact -> champion breadth only.
+                                _gate_retrieval_plan = _champion_fs_projection(
+                                    _research_plan, _clean_question
+                                )
+                                if _gate_retrieval_plan is not None:
+                                    _log(
+                                        "[planning_gate] S2 no artifact; champion "
+                                        "projection (breadth only, empty scope)"
+                                    )
                     except Exception as _pg_exc:  # noqa: BLE001 — additive: any failure -> champion path
                         _log(f"[planning_gate] S2 projection unavailable, champion FS path: {_pg_exc}")
                         _gate_retrieval_plan = None
@@ -14039,6 +14211,35 @@ async def run_one_query(
         # excluded rows are KEPT in the pool + disclosure (§-1.3 — NOT deleted). Gated
         # PG_SCOPE_CONSTRAINT_ENFORCE inside build_scope_enforcement => empty plan => no-op =>
         # byte-identical. The faithfulness engine (strict_verify / NLI / 4-role D8) is untouched.
+        # Phase C spec item 1 — the contract -> protocol BRIDGE. Under PG_GATE, the
+        # frozen scope enforcer must act on the GATE's pinned terms, not the parallel
+        # legacy regex extraction. We compile the pinned artifact -> RetrievalPolicy ->
+        # to_scope_protocol() (the exact ScopeConstraints/date_range/user_constraints
+        # shape build_scope_enforcement reads) and RECONCILE it into `protocol`: a
+        # gate facet/timeline FILLS an empty legacy slot and a HARD gate strictness
+        # UPGRADES a weaker legacy one (monotonic — the deterministic contract is
+        # authoritative, never weakened). We also stash the policy + a gate-scope
+        # receipt sink for the quality/topicality eligibility pass below. When PG_GATE
+        # is OFF this whole block no-ops and `protocol` is byte-identical.
+        _gate_policy = None
+        _gate_scope_receipts: "list[Any]" = []
+        try:
+            from src.polaris_graph.planning.gate_flags import (  # noqa: PLC0415
+                gate_enabled as _pg_gate_enabled_sel,
+            )
+            if _pg_gate_enabled_sel():
+                _gate_art_sel = _gate_load_or_compile_artifact(
+                    _clean_question, run_dir, run_id=run_id, log=_log
+                )
+                if _gate_art_sel is not None:
+                    from src.polaris_graph.planning.retrieval_projection import (  # noqa: PLC0415
+                        from_artifact as _from_artifact_sel,
+                    )
+                    _gate_policy = _from_artifact_sel(_gate_art_sel).to_retrieval_policy()
+                    _gate_proto = _gate_policy.to_scope_protocol()
+                    protocol = _reconcile_gate_protocol(protocol, _gate_proto, log=_log)
+        except Exception as _br_exc:  # noqa: BLE001 — bridge fault => legacy protocol unchanged
+            _log(f"[planning_gate] scope-protocol bridge unavailable, legacy protocol kept: {_br_exc}")
         try:
             from src.polaris_graph.retrieval.constraint_enforcement import (  # noqa: PLC0415
                 build_scope_enforcement as _build_scope_enforcement_sel,
@@ -14122,6 +14323,92 @@ async def run_one_query(
                     _log(f"[scope_grounding] disclosure write skipped: {_sdx}")
         except Exception as _scope_sel_exc:  # noqa: BLE001 - fail-open: scope never aborts
             _log(f"[scope_grounding] I-scope-001 enforcement skipped ({_scope_sel_exc})")
+
+        # Phase C spec items 2+3+4 — the CITABLE-ELIGIBILITY hard-mask for QUALITY +
+        # TOPICALITY. Applied at the SAME `evidence_for_gen` billed-set seam as the
+        # scope mask above (structurally UPSTREAM of strict_verify: masking this one
+        # list removes rows from the citable menu BEFORE the verifier enumerates the
+        # pool — it never changes HOW a claim is verified). A HARD "only high-quality"
+        # source_quality predicate removes FAIL/UNKNOWN rows (fail-closed on unknown,
+        # never silently relaxed); a HARD topicality floor quarantines confirmed
+        # off-topic bodies scored against the CLEAN objective. Rows are KEPT in corpus
+        # + disclosure (§-1.3), withheld only from grounding — mirroring the scope
+        # mask. Per-source receipts are written to eligibility_receipts.json so a later
+        # contract_compliance.audit_contract(scope_receipts=...) can mark a hard term
+        # SATISFIED only with pass-receipts. Reached ONLY under PG_GATE with a compiled
+        # gate policy; OFF (or empty policy) => no-op => byte-identical.
+        if _gate_policy is not None:
+            try:
+                from src.polaris_graph.retrieval.quality_eligibility import (  # noqa: PLC0415
+                    build_quality_eligibility as _build_quality_elig,
+                    build_topicality_eligibility as _build_topicality_elig,
+                )
+
+                def _elig_url(_r: "Any") -> str:
+                    if isinstance(_r, dict):
+                        return str(_r.get("source_url") or _r.get("url") or "")
+                    return str(getattr(_r, "source_url", "") or getattr(_r, "url", "") or "")
+
+                _elig_excluded: "set[str]" = set()
+                _elig_records: "list[Any]" = []
+
+                # (a) QUALITY eligibility (item 2).
+                _q_plan = _build_quality_elig(_gate_policy, evidence_for_gen)
+                _gate_scope_receipts.extend(r.to_dict() for r in _q_plan.receipts)
+                _elig_excluded |= set(_q_plan.eligibility_excluded_ids)
+                _elig_records.extend(_q_plan.excluded_records)
+
+                # (b) TOPICALITY eligibility (item 3) — score the fetched body vs the
+                #     CLEAN objective + the plan's sub-queries, reusing B1's scorer.
+                _topic_hard = os.getenv("PG_TOPICALITY_ELIGIBILITY", "0").strip().lower() in ("1", "true", "yes", "on")
+                if _topic_hard:
+                    from src.polaris_graph.retrieval.evidence_selector import (  # noqa: PLC0415
+                        _semantic_relevance_scores as _sem_scorer,
+                        parse_relevance_floor as _parse_floor,
+                    )
+                    _t_floor = _parse_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+                    _thread_qs = list(getattr(_research_plan, "sub_queries", []) or [])
+                    _t_plan = _build_topicality_elig(
+                        evidence_for_gen,
+                        objective=_clean_question,
+                        thread_queries=_thread_qs,
+                        floor=_t_floor,
+                        scorer=_sem_scorer,
+                        contract_hash=str(getattr(_gate_policy, "contract_hash", "") or ""),
+                        is_hard=True,
+                    )
+                    _gate_scope_receipts.extend(r.to_dict() for r in _t_plan.receipts)
+                    _elig_excluded |= set(_t_plan.eligibility_excluded_ids)
+                    _elig_records.extend(_t_plan.excluded_records)
+
+                if _elig_excluded:
+                    _kept_elig = [_r for _r in evidence_for_gen if _elig_url(_r) not in _elig_excluded]
+                    _masked_e = len(evidence_for_gen) - len(_kept_elig)
+                    if _masked_e > 0:
+                        _log(
+                            f"[quality_eligibility] Phase C: masked {_masked_e} source(s) from the "
+                            f"billed citable menu ({len(evidence_for_gen)} -> {len(_kept_elig)}) at "
+                            "the contract's HARD quality/topicality predicate — KEPT in corpus + "
+                            "disclosure (§-1.3), withheld only from grounding. strict_verify untouched."
+                        )
+                        evidence_for_gen = _kept_elig
+
+                # Durable receipts + disclosure (consumed by audit_contract later).
+                if _gate_scope_receipts or _elig_records:
+                    try:
+                        (run_dir / "eligibility_receipts.json").write_text(
+                            json.dumps(
+                                {"contract_hash": str(getattr(_gate_policy, "contract_hash", "") or ""),
+                                 "receipts": _gate_scope_receipts,
+                                 "excluded_records": _elig_records},
+                                indent=2, sort_keys=True, default=str,
+                            ) + "\n",
+                            encoding="utf-8",
+                        )
+                    except Exception as _rx:  # noqa: BLE001 - telemetry best-effort
+                        _log(f"[quality_eligibility] receipts write skipped: {_rx}")
+            except Exception as _elig_exc:  # noqa: BLE001 - fail-open: eligibility never aborts
+                _log(f"[quality_eligibility] Phase C eligibility skipped ({_elig_exc})")
 
         # I-meta-005 Phase 3 (#987): THE SINGLE BINDING MONEY GATE (on-mode).
         # `evidence_for_gen` is now FULLY constructed — selection (:2568) +

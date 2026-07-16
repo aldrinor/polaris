@@ -148,6 +148,7 @@ def audit_contract(
     coverage_judge: Optional[Callable[[str, str], bool]] = None,
     retrieval_scope_status: str = "not_evaluated_prebuilt_corpus",
     contract_sha256: str = "",
+    scope_receipts: Optional[list[Any]] = None,
 ) -> ComplianceAudit:
     """Audit a produced report against its pinned contract. DISCLOSURE-ONLY.
 
@@ -175,6 +176,15 @@ def audit_contract(
         ``"not_evaluated_prebuilt_corpus"`` (the default) so the audit never
         claims a retrieval-scope requirement was enforced when discovery never ran
         under the contract.
+    scope_receipts:
+        OPTIONAL per-(source, hard term, stage) eligibility receipts (duck-typed:
+        ``term_id`` / ``verdict`` in {"pass","fail","unknown"}). When present, a hard
+        retrieval-scope term is SATISFIED only if its executable stage RAN and every
+        citable source subject to it carries a ``pass`` receipt; a single ``fail``
+        is FAILED; any ``unknown`` (or no receipt for the term) stays UNKNOWN — a
+        caller-supplied status string can NEVER promote UNKNOWN (Sol §4). This is
+        the wire that makes quality / topicality / date / source-type auditable
+        instead of decorative — it reads receipts, never re-verifies a claim.
 
     Returns
     -------
@@ -219,7 +229,10 @@ def audit_contract(
     #    are UNKNOWN (discovery never ran under the contract) — disclosed, never
     #    claimed satisfied.
     audit.findings.extend(
-        _audit_retrieval_scope(contract, audit.retrieval_scope_status)
+        _audit_retrieval_scope(
+            contract, audit.retrieval_scope_status,
+            receipts=scope_receipts,
+        )
     )
     # 7) Semantic topic coverage (COMPOSE/OUTLINE-owned): deterministic keyword
     #    presence is a HINT; the authoritative call is the injected judge. No
@@ -528,12 +541,60 @@ def _audit_citations_present(
     return findings
 
 
+def _receipt_verdict_for_term(
+    term_id: str, receipts: Optional[list[Any]]
+) -> tuple[Optional[str], str]:
+    """Fold this term's per-source eligibility receipts into ONE audit verdict.
+
+    Returns ``(status, detail)`` where ``status`` is:
+      * ``SATISFIED`` — the stage RAN and EVERY citable source subject to the term
+        passed (>=1 pass, 0 fail, 0 unknown);
+      * ``FAILED`` — at least one source FAILED the hard predicate;
+      * ``UNKNOWN`` — the stage ran but a source's verdict was unknown (fail-closed:
+        never fabricated as satisfied);
+      * ``None`` — NO receipt for this term (the caller keeps the prebuilt-corpus
+        UNKNOWN so a caller-supplied status string can never promote it).
+    """
+    if not receipts:
+        return None, ""
+    mine = [r for r in receipts
+            if str(_receipt_get(r, "term_id")).strip() == term_id]
+    if not mine:
+        return None, ""
+    verdicts = [str(_receipt_get(r, "verdict")).strip().lower() for r in mine]
+    n_pass = verdicts.count("pass")
+    n_fail = verdicts.count("fail")
+    n_unknown = verdicts.count("unknown")
+    if n_fail:
+        return FAILED, (f"{n_fail} source(s) FAILED the hard predicate "
+                        f"(pass={n_pass}, unknown={n_unknown}) — receipt-backed")
+    if n_unknown:
+        return UNKNOWN, (f"{n_unknown} source(s) UNKNOWN under the hard predicate "
+                         f"(pass={n_pass}) — fail-closed, not claimed satisfied")
+    if n_pass:
+        return SATISFIED, (f"all {n_pass} citable source(s) PASSED the hard "
+                           "predicate — receipt-backed")
+    return None, ""
+
+
+def _receipt_get(r: Any, key: str) -> Any:
+    if isinstance(r, dict):
+        return r.get(key, "")
+    return getattr(r, key, "")
+
+
 def _audit_retrieval_scope(
-    contract: Any, retrieval_scope_status: str
+    contract: Any,
+    retrieval_scope_status: str,
+    *,
+    receipts: Optional[list[Any]] = None,
 ) -> list[ComplianceFinding]:
-    """Hard SCOPE terms (source type / language / date / jurisdiction). On a
-    prebuilt corpus discovery never ran under the contract, so these are UNKNOWN
-    (disclosed, never claimed satisfied). RETRIEVAL-owned."""
+    """Hard SCOPE terms (source type / language / date / jurisdiction / quality /
+    topicality). When per-source eligibility RECEIPTS are supplied, a term is
+    SATISFIED only if its stage ran and every citable source passed; a fail is
+    FAILED; an unknown stays UNKNOWN (fail-closed). Without receipts (prebuilt
+    corpus) discovery never ran under the contract, so the term is disclosed
+    UNKNOWN — never claimed satisfied. RETRIEVAL-owned."""
     findings: list[ComplianceFinding] = []
     scope = getattr(contract, "scope", None)
     if not isinstance(scope, (list, tuple)):
@@ -545,12 +606,27 @@ def _audit_retrieval_scope(
         if val in (None, "", [], {}):
             continue
         dim = _norm(getattr(t, "dimension", "")) or "scope"
-        # This audit runs on a prebuilt corpus (no discovery under the contract),
-        # so a retrieval-scope requirement is DISCLOSED as UNKNOWN — never claimed
-        # satisfied. A live-retrieval caller with real scope telemetry would route
-        # this dimension itself; here it is always disclosure-only.
+        tid = _norm(getattr(t, "term_id", "")) or dim
+        # Prefer a receipt-backed verdict (the executable stage RAN under this
+        # contract); fall back to the disclosure-only UNKNOWN when no receipt
+        # covers the term. A caller-supplied status string can NEVER promote UNKNOWN.
+        r_status, r_detail = _receipt_verdict_for_term(tid, receipts)
+        if r_status is None:
+            # also try the bare dimension id (bridge stages key by dimension).
+            r_status, r_detail = _receipt_verdict_for_term(dim, receipts)
+        if r_status is not None:
+            findings.append(ComplianceFinding(
+                term_id=tid,
+                dimension=dim,
+                status=r_status,
+                owning_stage=_STAGE_RETRIEVAL,
+                method="receipt",
+                detail=(f"hard scope {dim}={_term_value_text(t)!r}: {r_detail}"),
+                force="hard",
+            ))
+            continue
         findings.append(ComplianceFinding(
-            term_id=_norm(getattr(t, "term_id", "")) or dim,
+            term_id=tid,
             dimension=dim,
             status=UNKNOWN,
             owning_stage=_STAGE_RETRIEVAL,
