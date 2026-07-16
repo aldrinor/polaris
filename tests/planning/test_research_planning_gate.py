@@ -276,10 +276,15 @@ class _DroppingCompilerClient:
 
 
 def test_task72_deterministic_source_scope_survives_a_dropping_compiler(monkeypatch):
+    """THE INVERSION (rebuilt): the LLM compiler DROPS the source scope (real-run
+    failure); the deterministic-authoritative monotonic merge reinstates
+    journal-only + English SOURCE-language as EXPLICIT HARD scope. Quality has NO
+    deterministic extractor, so ``high`` is NOT invented as hard — the no-invention
+    guarantee (the old promoter's false-positive is gone)."""
     from src.polaris_graph.instruction.constraint_extractor import Constraints
     from src.polaris_graph.planning.retrieval_projection import from_artifact
 
-    monkeypatch.setenv("PG_GATE", "1")  # the promoter is gated ON
+    monkeypatch.setenv("PG_GATE", "1")  # the deterministic authority is gated ON
     # the rule-reader result the S0 adapter reconciles (task-72 ground truth).
     rr = Constraints(source_types=["journal_article", "high_quality"],
                      languages=["en"])
@@ -290,20 +295,27 @@ def test_task72_deterministic_source_scope_survives_a_dropping_compiler(monkeypa
     contract = result.contract
     by_dim = {t.dimension: t for t in contract.scope}
 
-    # journal source_type is present AS A HARD term (the bug: it was dropped).
+    # journal source_type is present AS A HARD term (the bug: it was dropped). Its
+    # canonical value is the ontology facet_id (peer_reviewed_journal), the alias
+    # the rule-reader "journal_article" reconciles onto (RECON-2 §3).
     src = by_dim["scope.source_types"]
-    assert src.value == "journal_article"
+    assert src.value == "peer_reviewed_journal"
     assert src.force == FORCE_HARD, "journal-only must be a hard SOURCE term"
     assert src.origin == ORIGIN_EXPLICIT
     assert src.spans and src.spans[0].matches_prompt(TASK_72_PROMPT)
+    # generic-IR: it is a source/kind IN constraint.
+    assert src.subject == "source" and src.attribute == "kind"
+    assert src.operator == "IN"
 
-    # high-quality is a hard source-quality term (was dropped entirely).
-    qual = by_dim["scope.source_quality"]
-    assert qual.value == "high"
-    assert qual.force == FORCE_HARD
-    assert qual.origin == ORIGIN_EXPLICIT
+    # NO invented quality gate: quality has no deterministic extractor, so a hard
+    # `high` is NEVER fabricated (the old promoter's false-positive is deleted).
+    qual = by_dim.get("scope.source_quality")
+    assert qual is None or qual.force != FORCE_HARD, (
+        "quality must never be invented as a hard gate (no deterministic signal)"
+    )
 
-    # English is a hard SOURCE language — NOT the deliverable output_language.
+    # English is a hard SOURCE language — NOT the deliverable output_language —
+    # inheriting the enclosing hard 'only ... journal articles' clause.
     lang = by_dim["scope.source_languages"]
     assert lang.value == "en"
     assert lang.force == FORCE_HARD, "English is a hard SOURCE-language rule"
@@ -318,19 +330,20 @@ def test_task72_deterministic_source_scope_survives_a_dropping_compiler(monkeypa
     # not degraded, and the contract validates clean (no invented hard terms).
     assert contract.compiler_degraded is False
     assert validate_contract(contract, TASK_72_PROMPT) == []
+    assert result.enforcement_state == "pinned_executable"
 
     # the retrieval projection routes scholarly backends + hard-gates the menu.
     proj = from_artifact(result.artifact)
     scope = proj.to_scope_terms()
-    assert "journal_article" in scope["hard"]
-    assert "high" in scope["hard"]
+    assert "peer_reviewed_journal" in scope["hard"]
     assert "en" in scope["languages"]
     assert "primary_literature" in proj.evidence_needs, "GO-FIND-journals routing"
 
 
 def test_task72_promotion_is_noop_when_pg_gate_off(monkeypatch):
-    # With PG_GATE OFF the promoter is inert: a dropping compiler yields NO source
-    # scope (byte-identical to the pre-fix path). Guards the default-OFF guardrail.
+    # With PG_GATE OFF the deterministic authority is inert: a dropping compiler
+    # yields NO source scope (byte-identical to the pre-inversion path). Guards the
+    # default-OFF guardrail.
     from src.polaris_graph.instruction.constraint_extractor import Constraints
 
     monkeypatch.delenv("PG_GATE", raising=False)
@@ -882,3 +895,184 @@ def test_e2e_harness_resolves_task72_to_registered_official_slug():
     q = _query_dict_for_task(task)
     assert q["slug"] == "drb_72_ai_labor"
     assert q["question"] == TASK_72_PROMPT
+
+
+# ===========================================================================
+# INVERSION REBUILD (Phase B) — generic IR, span-loss fix, monotonic merge,
+# lossless fallback, honest enum handling, bare-quote spans, validators.
+# ===========================================================================
+
+from src.polaris_graph.planning.planning_gate_schema import (  # noqa: E402
+    NORM_OPAQUE,
+    OP_GTE,
+    OP_IN,
+    OP_NOT_IN,
+    PromptSpan as _SchemaSpan,
+    validate_monotonicity,
+)
+from src.polaris_graph.planning.candidate_adapter import (  # noqa: E402
+    candidate_term_id,
+    reconcile_candidates,
+)
+from src.polaris_graph.instruction.constraint_extractor import Constraints  # noqa: E402
+
+
+# --- (1) generic IR: additive fields round-trip; legacy term is byte-identical ---
+
+def test_generic_ir_fields_are_additive_and_optional():
+    # A term with none of the generic-IR fields serializes to the LEGACY shape
+    # (no new keys) — the byte-identity guardrail for the OFF path.
+    legacy = ContractTerm(term_id="t", dimension="scope.source_types", value="x",
+                          origin=ORIGIN_EXPLICIT, force=FORCE_PREFER,
+                          spans=[PromptSpan(0, 1, "x")])
+    d = legacy.to_dict()
+    for k in ("subject", "attribute", "operator", "value_set", "boolean_group",
+              "stage_owner", "capability_id", "normalization_status"):
+        assert k not in d, f"legacy term must not emit generic-IR key {k!r}"
+
+    # A term WITH generic-IR fields round-trips them.
+    rich = ContractTerm(term_id="t2", dimension="scope.source_types", value="news_media",
+                       origin=ORIGIN_EXPLICIT, force=FORCE_HARD, spans=[PromptSpan(0, 1, "x")],
+                       subject="source", attribute="kind", operator=OP_IN,
+                       value_set=["news_media"], stage_owner="eligibility",
+                       normalization_status="exact")
+    back = ContractTerm.from_dict(rich.to_dict())
+    assert back.subject == "source" and back.attribute == "kind"
+    assert back.operator == OP_IN and back.value_set == ["news_media"]
+    assert back.stage_owner == "eligibility" and back.normalization_status == "exact"
+
+
+# --- (2) generic registry: date→GTE, exclusion→NOT_IN, unknown kind→opaque ---
+
+def test_registry_maps_date_exclusion_and_opaque_kind_generically():
+    p = ("Write a report. Only use news articles and company press releases from "
+         "2024 onward. No blogs.")
+    cands = reconcile_candidates(p, rule_reader=Constraints(
+        source_types=["news"], exclusions=["blogs"]))
+    by = {(c.dimension, str(c.value)): c for c in cands}
+
+    # date is a GTE recency term with an ISO value.
+    date = next(c for c in cands if c.dimension == "date.recency")
+    assert date.operator == OP_GTE
+    assert str(date.value).startswith("2024")
+
+    # exclusion is a NOT_IN term, hard.
+    exc = next(c for c in cands if c.dimension == "content.exclusion")
+    assert exc.operator == OP_NOT_IN and exc.force == FORCE_HARD
+
+    # a kind not in the ontology ("news" bare token) stays a FIRST-CLASS OPAQUE
+    # value — never dropped.
+    opaque = [c for c in cands if c.normalization_status == NORM_OPAQUE]
+    assert opaque, "an unmapped kind must be preserved as opaque, never dropped"
+
+
+# --- (3) span-loss fix: journal-only regex + rule-reader source-type carry spans ---
+
+def test_span_loss_fixed_journal_only_and_rule_reader_source_type():
+    p = "Write a review. Only cite peer-reviewed journal articles."
+    # intake journal-only regex now carries a real span (was spans=[]).
+    cands = reconcile_candidates(p)
+    st = [c for c in cands if c.dimension == "source.types"]
+    assert st, "expected a source-type candidate"
+    assert any(c.spans for c in st), "journal-only must now carry a verbatim span"
+    for c in st:
+        for s in c.spans:
+            assert p[s.start:s.end] == s.quote
+
+    # rule-reader canonical token 'journal_article' recovers a span via its
+    # surface form 'journal article' in the prompt.
+    cands2 = reconcile_candidates(p, rule_reader=Constraints(source_types=["journal_article"]))
+    st2 = [c for c in cands2 if c.dimension == "source.types"]
+    assert any(c.spans for c in st2)
+
+
+# --- (4) monotonic merge: LLM cannot drop a deterministic explicit candidate ---
+
+def test_monotonicity_validator_flags_a_dropped_candidate():
+    # a contract missing a deterministic candidate id fails monotonicity.
+    contract = contract_from_dict({"objective": [], "scope": []})
+    errs = validate_monotonicity(contract, {"det.source.kind.peer_reviewed_journal"})
+    assert any(e.code == "candidate_dropped" for e in errs)
+
+    # once the term is present, it passes.
+    contract2 = contract_from_dict({"scope": [{
+        "term_id": "det.source.kind.peer_reviewed_journal",
+        "dimension": "scope.source_types", "value": "peer_reviewed_journal",
+        "origin": "explicit", "force": "hard",
+        "spans": [{"start": 0, "end": 1, "quote": "x"}],
+    }]})
+    assert validate_monotonicity(
+        contract2, {"det.source.kind.peer_reviewed_journal"}) == []
+
+
+# --- (5) bare-quote spans + honest bad-enum surfacing ---
+
+def test_promptspan_accepts_a_bare_quote_string():
+    # the model may emit a bare quote string; offsets are placeholders (-1) until
+    # re-anchored. This deletes the "span must be an object" failure class.
+    sp = _SchemaSpan.from_dict("journal articles")
+    assert sp.quote == "journal articles"
+    assert sp.start == -1 and sp.end == -1
+    # after re-anchoring against a prompt that contains it, it matches.
+    from src.polaris_graph.planning.planning_gate_schema import _reanchor_span
+    prompt = "please cite journal articles only"
+    fixed = _reanchor_span(sp, prompt)
+    assert prompt[fixed.start:fixed.end] == "journal articles"
+
+
+def test_bad_force_enum_is_surfaced_not_silently_downgraded():
+    # an out-of-vocab force is NO LONGER silently coerced to open; it is surfaced.
+    t = ContractTerm.from_dict({"term_id": "t", "dimension": "scope.x",
+                               "value": "v", "origin": "explicit", "force": "definitely"})
+    assert t.force == "definitely"  # kept verbatim, not silently defaulted
+    contract = ResearchContract(scope=[t])
+    errs = validate_contract(contract, "")
+    assert any(e.code == "bad_force" for e in errs)
+
+
+def test_mandatory_synonym_maps_to_hard_never_open():
+    # 'mandatory' really means hard — it must never silently become open.
+    t = ContractTerm.from_dict({"term_id": "t", "dimension": "scope.x", "value": "v",
+                               "origin": "explicit", "force": "mandatory",
+                               "spans": [{"start": 0, "end": 1, "quote": "v"}]})
+    assert t.force == FORCE_HARD
+
+
+# --- (6) lossless fallback (PG_GATE ON): every explicit constraint survives ---
+
+def test_lossless_fallback_preserves_deterministic_constraints(monkeypatch):
+    monkeypatch.setenv("PG_GATE", "1")
+
+    class _BadClient:
+        async def generate(self, prompt, system="", **_):
+            return _Resp("not json {{{")
+
+    rr = Constraints(source_types=["journal_article"], languages=["en"])
+    result = asyncio.run(run_research_planning_gate(
+        TASK_72_PROMPT, mode="autonomous", client=_BadClient(), rule_reader=rr,
+    ))
+    # degraded (LLM failed) BUT the deterministic source scope SURVIVED.
+    assert result.contract.compiler_degraded is True
+    dims = {t.dimension: t for t in result.contract.scope}
+    assert "scope.source_types" in dims, "explicit source scope must survive the fallback"
+    assert dims["scope.source_types"].force == FORCE_HARD
+    assert result.enforcement_state == "degraded_lossless"
+    assert validate_contract(result.contract, TASK_72_PROMPT) == []
+
+
+def test_lossless_fallback_no_category_leakage(monkeypatch):
+    # a deliverable/format candidate must NOT leak into scope in the fallback.
+    monkeypatch.setenv("PG_GATE", "1")
+
+    class _BadClient:
+        async def generate(self, prompt, system="", **_):
+            return _Resp("nope")
+
+    rr = Constraints(format="literature_review", tone="academic")
+    result = asyncio.run(run_research_planning_gate(
+        "Write a lit review, keep it academic.", mode="autonomous",
+        client=_BadClient(), rule_reader=rr,
+    ))
+    scope_dims = {t.dimension for t in result.contract.scope}
+    assert not any(d.startswith("deliverable") or d.startswith("rhetoric")
+                  for d in scope_dims), "deliverable/rhetoric must not leak into scope"

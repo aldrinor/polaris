@@ -106,6 +106,55 @@ STAGES: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# Generic constraint-IR vocabularies (Phase B — the schema-loss fix)
+# ---------------------------------------------------------------------------
+# A term carries, IN ADDITION to the back-compat ``dimension``/``value`` pair, a
+# generic (subject, attribute, operator, value_set) shape so "only news and press
+# releases from 2024 onward" is expressible without a per-type Python branch:
+#   {subject: source, attribute: kind, operator: IN,  value_set: [news, press]}
+#   {subject: source, attribute: published_at, operator: GTE, value: 2024-01-01}
+# Existing dimension/value stay authoritative for the legacy projection; the new
+# fields are OPTIONAL and default empty, so an old term round-trips byte-identically
+# (``to_dict`` only emits a new key when it is non-default — see ContractTerm).
+
+# The generic relation a term asserts over its value / value_set.
+OP_IN = "IN"            # membership: attribute ∈ value_set   (allowed-kind set)
+OP_NOT_IN = "NOT_IN"    # exclusion:  attribute ∉ value_set   ("no blogs")
+OP_EQ = "EQ"            # equality:   attribute == value
+OP_GTE = "GTE"          # lower bound: attribute >= value      (from 2024 onward)
+OP_LTE = "LTE"          # upper bound: attribute <= value      (before 2020)
+OP_BETWEEN = "BETWEEN"  # interval:   value <= attribute <= value2 (value == "lo..hi")
+OP_REQUIRE = "REQUIRE"  # obligation: attribute must be covered/present
+OP_PREFER = "PREFER"    # soft optimize: attribute preferred, never gates
+
+OPERATORS: frozenset[str] = frozenset({
+    OP_IN, OP_NOT_IN, OP_EQ, OP_GTE, OP_LTE, OP_BETWEEN, OP_REQUIRE, OP_PREFER,
+})
+
+# Which stage OWNS a term's enforcement. A retrieval/ranking/eligibility term
+# shapes the citable source set; compose/render terms shape the deliverable. This
+# is the "no category leakage" axis (a deliverable.format term must NOT land in
+# retrieval scope). ``stage_owner`` is a single owning stage; ``enforcement_stages``
+# stays a free list for the legacy audit path.
+STAGE_OWNERS: frozenset[str] = frozenset({
+    "retrieval", "ranking", "eligibility", "compose", "render",
+})
+
+# How well the term's value is normalized. ``exact`` = a registry mapped the raw
+# phrase to a canonical value/operator. ``proposed`` = the LLM suggested a
+# normalization not yet registry-confirmed. ``opaque`` = the phrase is a
+# first-class constraint we preserve verbatim but cannot (yet) normalize/enforce.
+# An opaque HARD term is lossless-preserved and surfaced as blocked_unsupported —
+# never silently dropped.
+NORM_EXACT = "exact"
+NORM_PROPOSED = "proposed"
+NORM_OPAQUE = "opaque"
+
+NORMALIZATION_STATUSES: frozenset[str] = frozenset({
+    NORM_EXACT, NORM_PROPOSED, NORM_OPAQUE,
+})
+
+# ---------------------------------------------------------------------------
 # Canonical SOURCE-scope dimensions (distinct from deliverable.output_language)
 # ---------------------------------------------------------------------------
 # The gate schema holds ``scope`` as a flat ``ContractTerm`` list keyed by a
@@ -184,13 +233,37 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return bool(value)
 
 
+# A small, honest synonym table: maps a phrasing to its canonical enum WITHOUT
+# inventing meaning. ``must``/``required`` really do mean hard; ``soft``/``prefer``
+# really do mean preference; ``user``/``user_edit`` are affirmative-user origins.
+# NOTE: no entry weakens a stated force (e.g. ``mandatory`` maps to hard, never to
+# open) — the old silent hard→open default was the weakening bug (RECON §D).
+_ENUM_SYNONYMS: dict[str, str] = {
+    "soft": FORCE_PREFER,
+    "prefer": FORCE_PREFER,
+    "preferred": FORCE_PREFER,
+    "required": FORCE_HARD,
+    "require": FORCE_HARD,
+    "must": FORCE_HARD,
+    "mandatory": FORCE_HARD,
+    "none": FORCE_OPEN,
+    "unspecified": FORCE_OPEN,
+    "user": ORIGIN_USER_ANSWER,
+    "user_answer": ORIGIN_USER_ANSWER,
+    "user_edit": ORIGIN_USER_EDIT,
+    "default": ORIGIN_POLICY_DEFAULT,
+}
+
+
 def _norm_enum(value: Any, allowed: frozenset[str], default: str) -> str:
     """Normalize a scalar to a member of ``allowed`` or fall back to ``default``.
 
-    Fail-soft: an out-of-vocab value does not raise here; it is coerced to the
-    conservative default so parsing always yields a well-formed object. (An
-    out-of-vocab *force*/*origin* that got silently defaulted is still catchable
-    downstream because the raw value is not retained as authoritative.)
+    Fail-soft on ABSENCE only: a missing value takes ``default``. A present value
+    is canonicalized via the honest synonym table but is NEVER silently coerced to
+    ``default`` when it is out-of-vocab — an out-of-vocab present value is returned
+    verbatim (lowercased) so :func:`validate_contract` can SURFACE it as a
+    ``bad_origin``/``bad_force`` error instead of hiding the malformed output
+    behind a conservative default (RECON §D; spec deliverable 5).
     """
     s = _as_opt_str(value)
     if s is None:
@@ -198,18 +271,27 @@ def _norm_enum(value: Any, allowed: frozenset[str], default: str) -> str:
     low = s.strip().lower()
     if low in allowed:
         return low
-    # tolerate a couple of common synonyms without inventing meaning
-    synonyms = {
-        "soft": FORCE_PREFER,
-        "prefer": FORCE_PREFER,
-        "required": FORCE_HARD,
-        "must": FORCE_HARD,
-        "none": FORCE_OPEN,
-        "unspecified": FORCE_OPEN,
-        "user": ORIGIN_USER_ANSWER,
-        "default": ORIGIN_POLICY_DEFAULT,
-    }
-    mapped = synonyms.get(low)
+    mapped = _ENUM_SYNONYMS.get(low)
+    if mapped in allowed:
+        return mapped
+    # Out-of-vocab present value: keep it verbatim so the validator surfaces it.
+    return low
+
+
+def _norm_enum_soft(value: Any, allowed: frozenset[str], default: str) -> str:
+    """Absence- AND out-of-vocab-tolerant normalization (coerces to ``default``).
+
+    Used for structural enums (coverage kind, query purpose) where an unknown
+    value is a harmless mislabel, not a load-bearing authority claim. The
+    force/origin path uses the strict :func:`_norm_enum` so bad values surface.
+    """
+    s = _as_opt_str(value)
+    if s is None:
+        return default
+    low = s.strip().lower()
+    if low in allowed:
+        return low
+    mapped = _ENUM_SYNONYMS.get(low)
     if mapped in allowed:
         return mapped
     return default
@@ -242,24 +324,52 @@ class PromptSpan:
 
     @classmethod
     def from_dict(cls, d: Any) -> "PromptSpan":
+        """Parse a span. Accepts EITHER the full ``{start,end,quote}`` object OR a
+        bare quote-string.
+
+        Per the inversion spec (deliverable 5): the model is NEVER asked for
+        character offsets — deterministic code owns them via
+        :func:`reanchor_contract_spans`. So a bare string ``"journal articles"`` is
+        a valid span with placeholder offsets ``(-1,-1)``; re-anchoring derives the
+        real offsets from the verbatim quote. Placeholder offsets fail
+        ``matches_prompt`` until re-anchored, and a quote absent from the prompt
+        stays a failing span (no fabricated support). This deletes the whole
+        "span must be an object" failure class (RECON §C).
+        """
+        if isinstance(d, str):
+            return cls(start=-1, end=-1, quote=d)
         if not isinstance(d, dict):
-            raise SchemaError(f"span must be an object, got {type(d).__name__}")
+            raise SchemaError(f"span must be an object or a quote string, got {type(d).__name__}")
+        quote = str(d.get("quote", ""))
+        # Offsets are advisory; a non-int / missing offset becomes the -1
+        # placeholder that re-anchoring corrects from the quote (never a raise).
         try:
             start = int(d.get("start"))
+        except (TypeError, ValueError):
+            start = -1
+        try:
             end = int(d.get("end"))
-        except (TypeError, ValueError) as exc:
-            raise SchemaError(f"span start/end must be ints: {d!r}") from exc
-        quote = str(d.get("quote", ""))
+        except (TypeError, ValueError):
+            end = -1
         return cls(start=start, end=end, quote=quote)
 
 
 def _spans_from(value: Any) -> list[PromptSpan]:
+    """Parse a spans list PER ITEM: one malformed span is skipped (logged by the
+    caller via the resulting empty/short list), never propagated as an exception
+    that nukes the whole term/contract (RECON §C; spec deliverable 5).
+    """
     if not value:
         return []
     items = value if isinstance(value, (list, tuple)) else [value]
     out: list[PromptSpan] = []
     for it in items:
-        out.append(PromptSpan.from_dict(it))
+        try:
+            sp = PromptSpan.from_dict(it)
+        except SchemaError:
+            continue  # skip this one span; keep the rest
+        if sp.quote:  # a span with no quote carries no support — drop it
+            out.append(sp)
     return out
 
 
@@ -287,12 +397,28 @@ class ContractTerm:
     policy_id: Optional[str] = None
     enforcement_stages: list[str] = field(default_factory=list)
     editable: bool = True
+    # --- generic constraint-IR fields (Phase B; all OPTIONAL / default-empty) ---
+    # These make a term's semantics machine-checkable and enforceable without a
+    # per-type branch. They are ADDITIVE: an old term with none of them set emits
+    # exactly the legacy dict (``to_dict`` skips a field at its default), so an
+    # existing artifact hashes byte-identically. See module header.
+    subject: str = ""                    # e.g. source, evidence, output, section
+    attribute: str = ""                  # e.g. kind, published_at, language, quality
+    operator: str = ""                   # one of OPERATORS ("" == unset / legacy)
+    value_set: list[Any] = field(default_factory=list)  # for IN / NOT_IN
+    boolean_group: str = ""              # coordination group id (AND/OR members share it)
+    stage_owner: str = ""                # one of STAGE_OWNERS ("" == unset / legacy)
+    capability_id: str = ""              # the registered executable enforcer (Phase D)
+    normalization_status: str = ""       # exact | proposed | opaque ("" == unset / legacy)
 
     def is_hard(self) -> bool:
         return self.force == FORCE_HARD
 
+    def is_opaque(self) -> bool:
+        return self.normalization_status == NORM_OPAQUE
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "term_id": self.term_id,
             "dimension": self.dimension,
             "value": self.value,
@@ -305,6 +431,26 @@ class ContractTerm:
             "enforcement_stages": list(self.enforcement_stages),
             "editable": self.editable,
         }
+        # Emit each generic-IR field ONLY when it is set (non-default), so a term
+        # that never used the generic axes serializes to the legacy shape and
+        # hashes byte-identically. This preserves the OFF-path guardrail.
+        if self.subject:
+            out["subject"] = self.subject
+        if self.attribute:
+            out["attribute"] = self.attribute
+        if self.operator:
+            out["operator"] = self.operator
+        if self.value_set:
+            out["value_set"] = list(self.value_set)
+        if self.boolean_group:
+            out["boolean_group"] = self.boolean_group
+        if self.stage_owner:
+            out["stage_owner"] = self.stage_owner
+        if self.capability_id:
+            out["capability_id"] = self.capability_id
+        if self.normalization_status:
+            out["normalization_status"] = self.normalization_status
+        return out
 
     @classmethod
     def from_dict(cls, d: Any) -> "ContractTerm":
@@ -319,6 +465,10 @@ class ContractTerm:
         stages = [
             s for s in _as_str_list(d.get("enforcement_stages")) if s in STAGES
         ]
+        # Generic-IR fields: read them if present. An out-of-vocab operator /
+        # stage_owner / normalization_status is NOT silently coerced to a default
+        # (that would hide a malformed proposal); it is kept verbatim so
+        # ``validate_contract`` can surface it as a bad-enum error.
         return cls(
             term_id=term_id,
             dimension=dimension,
@@ -331,6 +481,14 @@ class ContractTerm:
             policy_id=_as_opt_str(d.get("policy_id")),
             enforcement_stages=stages,
             editable=_as_bool(d.get("editable"), default=True),
+            subject=_as_opt_str(d.get("subject")) or "",
+            attribute=_as_opt_str(d.get("attribute")) or "",
+            operator=_as_opt_str(d.get("operator")) or "",
+            value_set=list(d.get("value_set")) if isinstance(d.get("value_set"), (list, tuple)) else [],
+            boolean_group=_as_opt_str(d.get("boolean_group")) or "",
+            stage_owner=_as_opt_str(d.get("stage_owner")) or "",
+            capability_id=_as_opt_str(d.get("capability_id")) or "",
+            normalization_status=_as_opt_str(d.get("normalization_status")) or "",
         )
 
 
@@ -374,7 +532,7 @@ class CoverageRequirement:
     def from_dict(cls, d: Any, *, required: bool = True) -> "CoverageRequirement":
         if not isinstance(d, dict):
             raise SchemaError("coverage requirement must be an object")
-        kind = _norm_enum(d.get("kind"), COVERAGE_KINDS, "topic")
+        kind = _norm_enum_soft(d.get("kind"), COVERAGE_KINDS, "topic")
         stmt = d.get("statement")
         statement = (
             ContractTerm.from_dict(stmt)
@@ -488,7 +646,7 @@ class Assumption:
             assumption_id=_as_opt_str(d.get("assumption_id")) or "",
             statement=_as_opt_str(d.get("statement")) or "",
             affected_term_ids=_as_str_list(d.get("affected_term_ids")),
-            origin=_norm_enum(d.get("origin"), DISCLOSURE_ORIGINS, ORIGIN_INFERRED),
+            origin=_norm_enum_soft(d.get("origin"), DISCLOSURE_ORIGINS, ORIGIN_INFERRED),
             consequence=_as_opt_str(d.get("consequence")) or "",
             reversible=_as_bool(d.get("reversible"), default=True),
         )
@@ -846,7 +1004,7 @@ class QueryIntent:
         return cls(
             intent_id=_as_opt_str(d.get("intent_id")) or "",
             thread_id=_as_opt_str(d.get("thread_id")) or "",
-            purpose=_norm_enum(d.get("purpose"), QUERY_PURPOSES, "discovery"),
+            purpose=_norm_enum_soft(d.get("purpose"), QUERY_PURPOSES, "discovery"),
             concepts=_as_str_list(d.get("concepts")),
             required_terms=_as_str_list(d.get("required_terms")),
             alternate_phrasings=_as_str_list(d.get("alternate_phrasings")),
@@ -1289,6 +1447,38 @@ def validate_contract(contract: ResearchContract, prompt: str) -> list[Validatio
                 errors.append(ValidationError(
                     "bad_stage", f"unknown enforcement stage {st!r}", term_id=tid))
 
+        # -- generic-IR enum + operator/value schema (Phase B) --
+        if term.operator and term.operator not in OPERATORS:
+            errors.append(ValidationError(
+                "bad_operator", f"unknown operator {term.operator!r}", term_id=tid))
+        if term.stage_owner and term.stage_owner not in STAGE_OWNERS:
+            errors.append(ValidationError(
+                "bad_stage_owner",
+                f"unknown stage_owner {term.stage_owner!r}", term_id=tid))
+        if (
+            term.normalization_status
+            and term.normalization_status not in NORMALIZATION_STATUSES
+        ):
+            errors.append(ValidationError(
+                "bad_normalization_status",
+                f"unknown normalization_status {term.normalization_status!r}",
+                term_id=tid))
+        # IN / NOT_IN require a non-empty value_set; the scalar operators require a
+        # value. A hard set/bound with an empty payload can never be enforced.
+        if term.operator in (OP_IN, OP_NOT_IN) and not term.value_set:
+            errors.append(ValidationError(
+                "operator_value_mismatch",
+                f"term {tid!r} operator={term.operator} requires a non-empty value_set",
+                term_id=tid))
+        if (
+            term.operator in (OP_GTE, OP_LTE, OP_EQ, OP_BETWEEN)
+            and term.value in (None, "", [], {})
+        ):
+            errors.append(ValidationError(
+                "operator_value_mismatch",
+                f"term {tid!r} operator={term.operator} requires a value",
+                term_id=tid))
+
         # THE no-invention invariant: hard requires an authoritative origin.
         if term.is_hard() and term.origin not in HARD_ELIGIBLE_ORIGINS:
             errors.append(ValidationError(
@@ -1315,6 +1505,19 @@ def validate_contract(contract: ResearchContract, prompt: str) -> list[Validatio
                         span=sp.to_dict(),
                     ))
 
+        # No unanchored EXPLICIT-origin hard term: an origin==explicit hard term
+        # MUST carry at least one prompt span (the span checks above already fire
+        # for the missing/mismatched span; this makes the "hard needs an anchor"
+        # rule explicit for the non-explicit hard-eligible origins too — a
+        # user_answer/user_edit hard term is allowed WITHOUT a span, but an
+        # explicit hard term without a span is a no-invention violation).
+        if term.is_hard() and term.origin == ORIGIN_EXPLICIT and not term.spans:
+            errors.append(ValidationError(
+                "hard_explicit_unanchored",
+                f"hard explicit term {tid!r} has no prompt span to anchor it",
+                term_id=tid,
+            ))
+
         # inferred/policy_default with a real value must be disclosed.
         if (
             term.origin in DISCLOSURE_ORIGINS
@@ -1330,6 +1533,45 @@ def validate_contract(contract: ResearchContract, prompt: str) -> list[Validatio
             ))
 
     return errors
+
+
+def validate_monotonicity(
+    contract: ResearchContract, candidate_ids: "set[str] | frozenset[str]"
+) -> list[ValidationError]:
+    """MONOTONICITY invariant (Phase B core): every deterministic explicit
+    candidate SURVIVED into the contract.
+
+    ``candidate_ids`` is the set of stable candidate term_ids the deterministic
+    core authored (see ``candidate_adapter.candidate_term_id``). If any one is
+    absent from ``contract.all_terms()``, the LLM (or a merge bug) dropped a
+    stated constraint — the exact inversion defect. This NEVER mutates; the
+    compiler runs it after the monotonic merge and treats a violation as fatal
+    (the deterministic term is then force-reinstated, and this is a belt).
+    """
+    present = {t.term_id for t in contract.all_terms() if t.term_id}
+    errors: list[ValidationError] = []
+    for cid in sorted(candidate_ids):
+        if cid and cid not in present:
+            errors.append(ValidationError(
+                "candidate_dropped",
+                f"deterministic explicit candidate {cid!r} did not survive into "
+                f"the contract (monotonic-lossless authority violated)",
+                term_id=cid,
+            ))
+    return errors
+
+
+def validate_capabilities(contract: ResearchContract) -> list[ValidationError]:
+    """Phase D STUB: every hard term should name a registered executable
+    capability (``capability_id``) before it can be pinned as executable.
+
+    NOT enforced here (Phase D wires the capability registry + receipts). This
+    returns [] today; the compiler calls it so the seam exists and the honest
+    ``blocked_unsupported`` state can be derived once capabilities are registered.
+    TODO(Phase D): resolve capability_id against a registry and require a
+    pass-receipt path; a hard term with no capability → blocked_unsupported.
+    """
+    return []  # TODO(Phase D): capability-binding enforcement
 
 
 def validate_plan(

@@ -72,14 +72,18 @@ def test_task72_intake_only_has_language_and_journal_facet_with_spans():
     assert lang.force == FORCE_PREFER
     assert lang.spans and "English-language" in lang.spans[0].quote
 
-    # The journal-only scope facet is detected HARD (the prompt says "only").
-    facets = _by_dim(cands, "source.scope_facet")
-    assert facets, "expected a journal scope facet"
+    # The journal-only scope facet is detected HARD (the prompt says "only"). The
+    # rebuilt adapter canonicalizes the facet onto the unified source.types
+    # dimension (its ontology facet_id is the canonical value) — RECON-2 §3/§4.
+    facets = _by_dim(cands, "source.types")
+    assert facets, "expected a journal source-type candidate"
     jf = facets[0]
     assert jf.value == "peer_reviewed_journal"
     assert jf.force == FORCE_HARD          # 'only' is an explicit exclusivity token
     assert jf.origin == ORIGIN_DETERMINISTIC
     assert jf.spans and "only" in jf.spans[0].quote.lower()
+    # generic-IR annotations are stamped from the registry.
+    assert jf.subject == "source" and jf.attribute == "kind" and jf.operator == "IN"
 
 
 def test_intake_only_never_touches_network_and_is_deterministic():

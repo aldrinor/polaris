@@ -52,6 +52,7 @@ from typing import Any, Optional
 
 from src.polaris_graph.planning.candidate_adapter import (
     CandidateConstraint,
+    candidate_term_id,
     reconcile_candidates,
 )
 from src.polaris_graph.planning.gate_flags import gate_enabled
@@ -61,12 +62,10 @@ from src.polaris_graph.planning.planning_gate_schema import (
     FORCE_OPEN,
     FORCE_PREFER,
     HARD_ELIGIBLE_ORIGINS,
+    NORM_EXACT,
     ORIGIN_EXPLICIT,
     ORIGIN_INFERRED,
-    ORIGIN_POLICY_DEFAULT,
     SCOPE_SOURCE_LANGUAGES,
-    SCOPE_SOURCE_QUALITY,
-    SCOPE_SOURCE_TYPES,
     Assumption,
     ContractTerm,
     CoverageRequirement,
@@ -79,9 +78,23 @@ from src.polaris_graph.planning.planning_gate_schema import (
     plan_from_dict,
     reanchor_contract_spans,
     sha256_of,
+    validate_capabilities,
     validate_contract,
+    validate_monotonicity,
     validate_plan,
 )
+
+# Honest gate states (spec deliverable 6). These describe the ENFORCEABILITY of
+# the pinned contract, distinct from the interactive/autonomous ``GATE_STATES``:
+#   pinned_executable  — every hard term is span-verified + (Phase D) has a
+#                        capability; ready to enforce.
+#   degraded_lossless  — LLM ENRICHMENT was thin/failed, but EVERY deterministic
+#                        explicit constraint survived (nothing vanished).
+#   blocked_unsupported— a hard term is opaque / has no executable path; preserved
+#                        + disclosed, never claimed compliant (Phase D completes).
+GATE_ENFORCEMENT_PINNED = "pinned_executable"
+GATE_ENFORCEMENT_DEGRADED = "degraded_lossless"
+GATE_ENFORCEMENT_BLOCKED = "blocked_unsupported"
 
 logger = logging.getLogger("polaris_graph.research_planning_gate")
 
@@ -147,9 +160,10 @@ _CONTRACT_SYSTEM_PROMPT = (
     "1. Account for every imperative, question, entity, comparison dimension, "
     "scope phrase, source rule, exclusion, format request, and rhetorical "
     "instruction in the request.\n"
-    "2. A term marked origin=\"explicit\" MUST include exact character spans "
-    "copied verbatim from the request (quote must equal request[start:end]). Do "
-    "not mark implications or world knowledge as explicit.\n"
+    "2. A term marked origin=\"explicit\" MUST include the exact VERBATIM QUOTE it "
+    "is based on (copy the phrase from the request; DO NOT compute character "
+    "offsets — the system re-derives them from your quote). Do not mark "
+    "implications or world knowledge as explicit.\n"
     "3. NEVER invent a restriction. If date, geography, jurisdiction, source "
     "type, source language, length, audience, or format is unspecified, "
     "represent it as open/null.\n"
@@ -179,8 +193,9 @@ _CONTRACT_SYSTEM_PROMPT = (
     "content_terms[], deliverable[], coverage[], sections[], ambiguities[], "
     "assumptions[], conflicts[], complexity. Each term is "
     "{term_id, dimension, value, origin, force, confidence, spans[], rationale, "
-    "enforcement_stages[]}. origin in [explicit, user_answer, inferred, "
-    "policy_default]; force in [hard, preference, open]."
+    "enforcement_stages[]}. spans[] may be verbatim QUOTE STRINGS (offsets are "
+    "derived for you) or {start,end,quote} objects. origin in [explicit, "
+    "user_answer, inferred, policy_default]; force in [hard, preference, open]."
 )
 
 _PLAN_SYSTEM_PROMPT = (
@@ -238,12 +253,16 @@ class GateResult:
         questions: Optional[list[dict[str, Any]]] = None,
         contract_errors: Optional[list[ValidationError]] = None,
         plan_errors: Optional[list[ValidationError]] = None,
+        enforcement_state: str = "",
     ) -> None:
         self.artifact = artifact
         self.needs_input = needs_input
         self.questions = questions or []
         self.contract_errors = contract_errors or []
         self.plan_errors = plan_errors or []
+        # Honest enforcement state (deliverable 6): pinned_executable /
+        # degraded_lossless / blocked_unsupported. "" when the gate is OFF.
+        self.enforcement_state = enforcement_state
 
     @property
     def contract(self) -> ResearchContract:
@@ -321,8 +340,13 @@ def _contract_user_prompt(
     return (
         f"CURRENT UTC DATE (context only, NOT a user constraint): {today}\n"
         f"MODE: {mode}\n\n"
-        f"DETERMINISTIC CANDIDATES (high-recall, with exact spans; the pinned "
-        f"contract is yours to decide — represent or reject each):\n"
+        f"DETERMINISTIC CANDIDATES (AUTHORITATIVE — already extracted by "
+        f"deterministic code with verbatim spans). You MUST represent EVERY "
+        f"span-verified candidate; you may NOT drop, weaken, or re-file one. Your "
+        f"job is ADDITIVE: classify any UNSEEN phrasing the extractor missed, "
+        f"decompose the objective into coverage/threads, and enrich — referencing "
+        f"the candidate values. The deterministic layer owns explicit constraints; "
+        f"it overrides you on overlap:\n"
         f"{_candidates_block(candidates)}\n\n"
         f"EXACT USER REQUEST:\n\"\"\"\n{prompt}\n\"\"\"\n\n"
         f"Return the JSON object now (contract + clause_coverage)."
@@ -344,14 +368,22 @@ def _plan_user_prompt(contract: ResearchContract) -> str:
 def _conservative_contract(
     prompt: str, candidates: list[CandidateConstraint]
 ) -> ResearchContract:
-    """A span-verified conservative contract: raw prompt as the objective, ONLY
-    span-supported explicit rules kept (as hard iff the candidate was hard AND has
-    a real span), everything else open. ``compiler_degraded=true``.
+    """The LOSSLESS fallback core when the LLM output is unusable twice.
 
-    This is the fallback when the LLM output is unusable twice — it can never
-    invent, because it only promotes candidates that already carry a verbatim
-    prompt span, and it downgrades any hard candidate without a span to prefer.
+    When PG_GATE is ON this is the registry-driven lossless core
+    (:func:`_lossless_fallback_contract`): EVERY deterministic explicit constraint
+    survives with its canonical dimension and correct stage owner (no category
+    leakage), and an unmappable kind is kept as a first-class OPAQUE term — so
+    "degraded" means ENRICHMENT is thin, NEVER that a stated constraint vanished.
+
+    When PG_GATE is OFF this is the legacy conservative fallback (byte-identical to
+    the pre-inversion path): raw prompt as the objective, span-verified candidates
+    kept, everything else open. It can never invent (only span-backed candidates
+    become explicit/hard).
     """
+    if gate_enabled():
+        return _lossless_fallback_contract(prompt, candidates)
+
     objective = [ContractTerm(
         term_id="objective.question",
         dimension="objective.question",
@@ -412,192 +444,330 @@ def _conservative_contract(
     )
 
 
-# ---------------------------------------------------------------------------
-# Deterministic source-scope promotion (deterministic-wins-on-overlap)
-# ---------------------------------------------------------------------------
-#
-# THE task-72 fix. The LLM contract compiler is unreliable at retaining the
-# source-scope rule ("high-quality, English-language journal articles"): on a real
-# run it dropped it entirely and mis-filed "English-language" as the OUTPUT
-# language. Meanwhile the deterministic rule-reader / intake extractors (the S0
-# candidate adapter) find it every time, WITH verbatim prompt spans. So — exactly
-# as ``reanchor_contract_spans`` makes the deterministic OFFSET authoritative over
-# the LLM — this makes the deterministic SOURCE SCOPE authoritative over the LLM:
-# span-verified source-type / source-quality / source-language candidates are
-# PROMOTED into the contract's ``scope`` as EXPLICIT HARD terms the compiler can
-# neither drop nor downgrade.
-#
-# No-invention is preserved: a candidate is promoted to force=hard ONLY when it
-# carries a real verbatim prompt span (``quote == prompt[start:end]``). A
-# candidate without a locatable span is skipped (never a fabricated hard gate).
-# A candidate whose S0 force is not ``hard`` is promoted as force=preference
-# (span-backed, explicit origin) — surfaced, never a fabricated gate.
-#
-# Gated behind PG_GATE (default OFF): with the flag OFF this is a no-op and the
-# compiled contract is byte-identical to the pre-fix path.
-
-# Map an S0 candidate dimension onto a canonical SOURCE-scope contract dimension.
-# ``source.scope_facet`` values like ``peer_reviewed_journal`` describe a JOURNAL
-# source with a QUALITY bar, so a facet fires BOTH a source_types=journal_article
-# term and a source_quality=high term (both hard when the facet was hard). This is
-# the "English-language journal articles" → {source_types=[journal_article] hard,
-# source_quality=high hard, source_languages=[English] hard} mapping (design §3).
-def _promote_source_scope(
-    contract: ResearchContract, candidates: list[CandidateConstraint], prompt: str
+def _lossless_fallback_contract(
+    prompt: str, candidates: list[CandidateConstraint]
 ) -> ResearchContract:
-    """Promote span-verified deterministic source-scope candidates into the
-    contract's ``scope`` as explicit terms (hard iff the candidate was hard AND
-    span-verified). Deterministic-wins-on-overlap: an existing scope term on the
-    same canonical dimension+value is UPGRADED to explicit-hard rather than
-    duplicated. Mutates + returns the contract. No-op when PG_GATE is OFF."""
+    """The LOSSLESS fallback (PG_GATE ON): the deterministic-authoritative core
+    run as the WHOLE contract when the LLM failed.
+
+    Every span-verified deterministic explicit source/date/exclusion constraint is
+    authored (via the registry, canonical dimension, correct force), and every
+    content-coverage candidate becomes a coverage requirement. Deliverable/format/
+    length/tone candidates land in the DELIVERABLE group — NEVER scope (no category
+    leakage). An unmappable kind is preserved as a first-class OPAQUE term. Marked
+    ``compiler_degraded=true``: enrichment is thin, but NO explicit constraint
+    vanished.
+    """
+    objective = [ContractTerm(
+        term_id="objective.question",
+        dimension="objective.question",
+        value=prompt.strip(),
+        origin=ORIGIN_EXPLICIT if prompt.strip() else ORIGIN_INFERRED,
+        force=FORCE_OPEN,
+        spans=[PromptSpan(0, len(prompt), prompt)] if prompt.strip() else [],
+        rationale="lossless fallback: raw request retained as the objective",
+    )]
+
+    # authoritative source/date/exclusion terms + content-coverage terms.
+    scope, content = _author_deterministic_terms(candidates, prompt)
+    coverage: list[CoverageRequirement] = [
+        CoverageRequirement(
+            requirement_id=t.term_id, kind="topic", statement=t, required=True,
+        )
+        for t in content
+    ]
+
+    # deliverable / rhetoric candidates: file by stage owner, NEVER in scope.
+    deliverable: list[ContractTerm] = []
+    n = 0
+    for cand in candidates:
+        if cand.dimension not in (
+            "deliverable.format", "deliverable.length", "rhetoric.tone",
+        ):
+            continue
+        span_ok = _cand_span_ok(cand, prompt)
+        if not (cand.value or "").strip():
+            continue
+        n += 1
+        deliverable.append(ContractTerm(
+            term_id=f"deliverable.cand_{n}",
+            dimension=cand.canonical_dimension(),
+            value=cand.value,
+            origin=ORIGIN_EXPLICIT if span_ok else ORIGIN_INFERRED,
+            force=FORCE_PREFER,   # deliverable shape is a preference, never a gate
+            spans=_cand_spans(cand, prompt),
+            subject=cand.subject,
+            attribute=cand.attribute,
+            stage_owner=cand.stage_owner,
+            normalization_status=cand.normalization_status or NORM_EXACT,
+            rationale="lossless fallback: deliverable shape preserved (render-owned)",
+        ))
+
+    return ResearchContract(
+        objective=objective,
+        scope=scope,
+        deliverable=deliverable,
+        coverage=coverage,
+        complexity="degraded",
+        compiler_degraded=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# DETERMINISTIC-AUTHORITATIVE CORE + MONOTONIC MERGE (Phase B — the inversion)
+# ---------------------------------------------------------------------------
+#
+# This REPLACES the deleted ``_promote_source_scope`` task-shaped whitelist. The
+# authority is INVERTED: deterministic code (the S0 candidate adapter + the
+# candidate→canonical registry) AUTHORS the explicit-constraint contract; the LLM
+# is additive-only and MERGED monotonically (it may add/enrich, never delete,
+# downgrade, or re-dimension a deterministic explicit term).
+#
+# No per-type branching: every source/date/exclusion/coverage family is driven by
+# ``candidate_adapter.CANDIDATE_REGISTRY`` (the row supplies canonical dimension +
+# subject/attribute/operator/stage_owner). An unknown kind stays a first-class
+# OPAQUE term — preserved, never dropped.
+#
+# Gated behind PG_GATE (default OFF): with the flag OFF this whole core is a no-op
+# and the compiled contract is byte-identical to the pre-inversion path (the LLM
+# compile alone), preserving the OFF guardrail.
+
+# The candidate dimensions whose terms are EXPLICIT authority (a real user rule
+# with a verbatim span) — as opposed to advisory coverage the LLM may reshape.
+# A span-verified candidate on any of these is authored as an explicit contract
+# term the LLM merge can neither drop nor downgrade.
+_AUTHORITATIVE_DIMENSIONS: frozenset[str] = frozenset({
+    "source.types", "source.quality", "source.language", "source.scope_facet",
+    "source.jurisdiction", "source.named", "date.recency", "content.exclusion",
+})
+
+
+def _cand_span_ok(cand: CandidateConstraint, prompt: str) -> bool:
+    """A candidate carries at least one verbatim-quote-verified span."""
+    return bool(cand.spans) and any(
+        0 <= sp.start <= sp.end <= len(prompt) and sp.quote == prompt[sp.start:sp.end]
+        for sp in cand.spans
+    )
+
+
+def _cand_spans(cand: CandidateConstraint, prompt: str) -> list[PromptSpan]:
+    return [
+        PromptSpan(sp.start, sp.end, sp.quote)
+        for sp in cand.spans
+        if 0 <= sp.start <= sp.end <= len(prompt) and sp.quote == prompt[sp.start:sp.end]
+    ]
+
+
+def _hard_facet_ranges(candidates: list[CandidateConstraint], prompt: str) -> list[tuple[int, int]]:
+    """Verbatim spans of hard source-KIND scope clauses. A soft source.language
+    whose span sits INSIDE one of these (e.g. "only cites ... English-language
+    journal articles") inherits the enclosing "only" hardness — never a
+    fabricated hard gate (the range must itself be a span-verified hard facet)."""
+    ranges: list[tuple[int, int]] = []
+    for c in candidates:
+        if c.dimension in ("source.scope_facet", "source.types") and c.force == FORCE_HARD:
+            ranges.extend((sp.start, sp.end) for sp in _cand_spans(c, prompt))
+    return ranges
+
+
+def _term_from_candidate(
+    cand: CandidateConstraint, prompt: str, idx: int,
+    *, hard_ranges: list[tuple[int, int]],
+) -> Optional[ContractTerm]:
+    """Author ONE explicit contract term from a span-verified deterministic
+    candidate, via the registry (generic — no per-type branch). Returns None when
+    the candidate has no verbatim span (never a fabricated explicit/hard term).
+
+    Force: the candidate's own observed force, EXCEPT a soft source.language whose
+    span is enclosed by a hard source-kind clause, which inherits hard. Origin is
+    always ``explicit`` (a span-verified user rule). ``normalization_status``
+    carries through: an opaque candidate becomes an opaque (but preserved) term.
+    """
+    spans = _cand_spans(cand, prompt)
+    if not spans:
+        return None
+    row = None
+    from src.polaris_graph.planning.candidate_adapter import _registry_row  # noqa: PLC0415
+    row = _registry_row(cand.dimension)
+    canonical_dim = row.canonical if row else cand.dimension
+    value = (cand.value or "").strip()
+    if not value:
+        return None
+
+    force = FORCE_HARD if cand.force == FORCE_HARD else FORCE_PREFER
+    # language-inside-a-hard-only-clause inheritance (the sole cross-term rule; it
+    # never invents — it only propagates an already-hard enclosing span).
+    if canonical_dim == SCOPE_SOURCE_LANGUAGES and force != FORCE_HARD:
+        for sp in spans:
+            if any(lo <= sp.start and sp.end <= hi for lo, hi in hard_ranges):
+                force = FORCE_HARD
+                break
+
+    norm = cand.normalization_status or NORM_EXACT
+    # An OPAQUE hard term is preserved but cannot be claimed enforceable — it is
+    # surfaced (the artifact's enforcement state becomes blocked_unsupported).
+    operator = cand.operator or ""
+    value_set = [value] if operator in ("IN", "NOT_IN") else []
+    return ContractTerm(
+        term_id=candidate_term_id(cand),
+        dimension=canonical_dim,
+        value=value,
+        origin=ORIGIN_EXPLICIT,
+        force=force,
+        spans=spans,
+        subject=cand.subject or (row.subject if row else "source"),
+        attribute=cand.attribute or (row.attribute if row else ""),
+        operator=operator,
+        value_set=value_set,
+        stage_owner=cand.stage_owner or (row.stage_owner if row else ""),
+        normalization_status=norm,
+        enforcement_stages=["retrieval"],
+        rationale="deterministic-authoritative: span-verified explicit constraint "
+                  "(the LLM merge may enrich but never drop/downgrade it)",
+    )
+
+
+def _author_deterministic_terms(
+    candidates: list[CandidateConstraint], prompt: str,
+) -> tuple[list[ContractTerm], list[ContractTerm]]:
+    """Author the deterministic explicit contract terms from candidates.
+
+    Returns ``(scope_terms, coverage_content_terms)`` — scope/source/date/
+    exclusion terms vs content-coverage terms — so the caller files each in the
+    right group with NO category leakage. De-duplicates by canonical term_id
+    (hard wins over prefer; spans unioned).
+    """
+    hard_ranges = _hard_facet_ranges(candidates, prompt)
+    by_id: dict[str, ContractTerm] = {}
+    for i, cand in enumerate(candidates):
+        if cand.dimension not in _AUTHORITATIVE_DIMENSIONS:
+            continue
+        term = _term_from_candidate(cand, prompt, i, hard_ranges=hard_ranges)
+        if term is None:
+            continue
+        prev = by_id.get(term.term_id)
+        if prev is None:
+            by_id[term.term_id] = term
+        else:
+            # merge duplicates: hard wins; union spans.
+            if term.force == FORCE_HARD:
+                prev.force = FORCE_HARD
+            seen = {(s.start, s.end) for s in prev.spans}
+            prev.spans.extend(s for s in term.spans if (s.start, s.end) not in seen)
+
+    scope: list[ContractTerm] = []
+    content: list[ContractTerm] = []
+    for term in by_id.values():
+        if term.dimension.startswith("content"):
+            content.append(term)
+        else:
+            scope.append(term)
+    return scope, content
+
+
+def _merge_deterministic_authority(
+    contract: ResearchContract,
+    candidates: list[CandidateConstraint],
+    prompt: str,
+) -> ResearchContract:
+    """MONOTONIC MERGE: reinstate every deterministic explicit term as authority.
+
+    The LLM contract is treated as ADDITIVE. For each deterministic explicit term:
+      * if the LLM already carries a term on the SAME canonical (dimension,value),
+        that term is UPGRADED to explicit + the deterministic force (hard wins),
+        and given the deterministic spans if it lacked them — the LLM enriched it,
+        the deterministic core owns its force/origin;
+      * otherwise the deterministic term is APPENDED to the correct group.
+    The LLM may have ADDED its own terms; those are left untouched. It can never
+    delete/downgrade/re-dimension a deterministic term — that is the inversion.
+    Mutates + returns the contract. No-op when PG_GATE is OFF (OFF byte-identical).
+    """
     if not gate_enabled():
         return contract
 
     prompt = prompt or ""
+    det_scope, det_content = _author_deterministic_terms(candidates, prompt)
 
-    # A source.language candidate the intake path marks force=prefer is
-    # nonetheless HARD when its span sits INSIDE a hard source-scope restriction
-    # (task 72: "only cites high-quality, English-language journal articles" is a
-    # single hard 'only' clause, so the English-language inside it is hard too).
-    # This upgrade fires ONLY off a span-verified hard facet that verbatim
-    # encloses the language span — never a fabricated hard gate.
-    _hard_facet_ranges: list[tuple[int, int]] = []
-    for _c in candidates:
-        if (
-            _c.dimension == "source.scope_facet"
-            and _c.force == FORCE_HARD
-        ):
-            for _sp in _c.spans:
-                if 0 <= _sp.start <= _sp.end <= len(prompt) and _sp.quote == prompt[_sp.start:_sp.end]:
-                    _hard_facet_ranges.append((_sp.start, _sp.end))
-
-    def _language_is_hard(cand: CandidateConstraint) -> bool:
-        for sp in cand.spans:
-            for lo, hi in _hard_facet_ranges:
-                if lo <= sp.start and sp.end <= hi:
-                    return True
-        return False
-
-    def _span_ok(cand: CandidateConstraint) -> bool:
-        return bool(cand.spans) and any(
-            0 <= sp.start <= sp.end <= len(prompt)
-            and sp.quote == prompt[sp.start:sp.end]
-            for sp in cand.spans
-        )
-
-    def _spans(cand: CandidateConstraint) -> list[PromptSpan]:
-        return [
-            PromptSpan(sp.start, sp.end, sp.quote)
-            for sp in cand.spans
-            if 0 <= sp.start <= sp.end <= len(prompt)
-            and sp.quote == prompt[sp.start:sp.end]
-        ]
-
-    # (canonical scope dimension, canonical value, force) tuples to promote,
-    # de-duplicated. A facet expands into a source_types + source_quality pair.
-    def _targets(cand: CandidateConstraint) -> list[tuple[str, str, str]]:
-        dim = cand.dimension
-        val = (cand.value or "").strip()
-        hard = cand.force == FORCE_HARD
-        force = FORCE_HARD if hard else FORCE_PREFER
-        out: list[tuple[str, str, str]] = []
-        if dim == "source.types":
-            if val == "high_quality":
-                out.append((SCOPE_SOURCE_QUALITY, "high", force))
-            elif val:
-                out.append((SCOPE_SOURCE_TYPES, val, force))
-        elif dim == "source.language":
-            if val:
-                lang_force = FORCE_HARD if (hard or _language_is_hard(cand)) else FORCE_PREFER
-                out.append((SCOPE_SOURCE_LANGUAGES, val, lang_force))
-        elif dim == "source.scope_facet":
-            # an ontology source-type facet: journal + a quality bar.
-            low = val.lower()
-            if "journal" in low or "peer" in low:
-                out.append((SCOPE_SOURCE_TYPES, "journal_article", force))
-            if "peer" in low or "quality" in low or "high" in low:
-                out.append((SCOPE_SOURCE_QUALITY, "high", force))
-        return out
-
-    # index existing scope terms by (dimension, casefolded value) for overlap.
     def _key(dim: str, value: Any) -> tuple[str, str]:
         return (dim, str(value or "").strip().casefold())
 
+    # index existing scope terms for overlap upgrade.
     existing: dict[tuple[str, str], ContractTerm] = {}
     for t in contract.scope:
         existing[_key(t.dimension, t.value)] = t
 
-    promoted: dict[tuple[str, str], tuple[str, list[PromptSpan]]] = {}
-    for cand in candidates:
-        if not _span_ok(cand):
-            continue
-        spans = _spans(cand)
-        for dim, value, force in _targets(cand):
-            key = _key(dim, value)
-            prev = promoted.get(key)
-            # hard wins over prefer on overlap; union the spans.
-            if prev is None:
-                promoted[key] = (force, list(spans))
-            else:
-                prev_force, prev_spans = prev
-                new_force = FORCE_HARD if FORCE_HARD in (prev_force, force) else FORCE_PREFER
-                seen = {(s.start, s.end) for s in prev_spans}
-                merged = list(prev_spans) + [
-                    s for s in spans if (s.start, s.end) not in seen
-                ]
-                promoted[key] = (new_force, merged)
-
-    idx = 0
-    for (dim, _vfold), (force, spans) in promoted.items():
-        idx += 1
-        # recover the canonical (non-folded) value from the key's source targets.
-        # We stored the folded value in the key; re-derive the display value from
-        # the first span-owning candidate target that produced this key.
-        value = _display_value_for(candidates, prompt, dim, _vfold)
-        key = (dim, _vfold)
-        term = existing.get(key)
-        if term is not None:
-            # overlap: UPGRADE the LLM's term to explicit + (hard if we say hard).
-            term.origin = ORIGIN_EXPLICIT
-            if force == FORCE_HARD:
-                term.force = FORCE_HARD
-            if not term.spans:
-                term.spans = spans
-            term.rationale = (
-                (term.rationale + " | ") if term.rationale else ""
-            ) + "deterministic source-scope: upheld as span-verified explicit"
+    for det in det_scope:
+        key = _key(det.dimension, det.value)
+        llm_term = existing.get(key)
+        if llm_term is not None:
+            # LLM enriched an overlapping term: deterministic owns force/origin/span.
+            llm_term.origin = ORIGIN_EXPLICIT
+            if det.force == FORCE_HARD:
+                llm_term.force = FORCE_HARD
+            elif llm_term.force != FORCE_HARD:
+                llm_term.force = det.force
+            if not llm_term.spans:
+                llm_term.spans = list(det.spans)
+            # carry the generic-IR annotations the LLM couldn't be trusted to set.
+            llm_term.subject = llm_term.subject or det.subject
+            llm_term.attribute = llm_term.attribute or det.attribute
+            llm_term.operator = llm_term.operator or det.operator
+            llm_term.value_set = llm_term.value_set or det.value_set
+            llm_term.stage_owner = llm_term.stage_owner or det.stage_owner
+            llm_term.normalization_status = det.normalization_status
+            llm_term.rationale = (
+                (llm_term.rationale + " | ") if llm_term.rationale else ""
+            ) + "deterministic authority upheld (monotonic merge)"
         else:
-            contract.scope.append(ContractTerm(
-                term_id=f"scope.det_source_{idx}",
-                dimension=dim,
-                value=value,
-                origin=ORIGIN_EXPLICIT,
-                force=force,
-                spans=spans,
-                enforcement_stages=["retrieval"],
-                rationale="deterministic source-scope promoted from the rule-reader "
-                          "(span-verified; the LLM compiler may not drop it)",
+            contract.scope.append(det)
+            existing[key] = det
+
+    # content-coverage terms: reinstate as required coverage requirements if the
+    # LLM dropped them (exclusions in particular must never be lost).
+    existing_cov_vals = {
+        str(cr.statement.value or "").strip().casefold() for cr in contract.coverage
+    }
+    for det in det_content:
+        v = str(det.value or "").strip().casefold()
+        if v and v not in existing_cov_vals:
+            contract.coverage.append(CoverageRequirement(
+                requirement_id=det.term_id,
+                kind="topic",
+                statement=det,
+                required=True,
             ))
+            existing_cov_vals.add(v)
+
     return contract
 
 
-def _display_value_for(
-    candidates: list[CandidateConstraint], prompt: str, dim: str, vfold: str
-) -> Any:
-    """Recover the canonical display value for a promoted (dim, folded-value)."""
-    # Canonical values the promoter emits are already normalized tokens; the fold
-    # is only for the overlap key, so map back to the un-folded canonical token.
-    _canon = {
-        (SCOPE_SOURCE_TYPES, "journal_article"): "journal_article",
-        (SCOPE_SOURCE_QUALITY, "high"): "high",
-    }
-    if (dim, vfold) in _canon:
-        return _canon[(dim, vfold)]
-    # source_languages keeps the candidate's own value (e.g. "en"); find it.
+def _deterministic_candidate_ids(
+    candidates: list[CandidateConstraint], prompt: str,
+) -> set[str]:
+    """The stable term_ids of every span-verified deterministic explicit
+    candidate — the set ``validate_monotonicity`` requires survived the merge."""
+    ids: set[str] = set()
     for cand in candidates:
-        if cand.dimension == "source.language" and (cand.value or "").strip().casefold() == vfold:
-            return cand.value
-    return vfold
+        if cand.dimension in _AUTHORITATIVE_DIMENSIONS and _cand_span_ok(cand, prompt):
+            if (cand.value or "").strip():
+                ids.add(candidate_term_id(cand))
+    return ids
+
+
+def _enforcement_state(contract: ResearchContract) -> str:
+    """Derive the honest enforcement state (spec deliverable 6). A hard OPAQUE
+    term (or a hard term with no executable path) → blocked_unsupported; a
+    degraded compile → degraded_lossless; else pinned_executable."""
+    for term in contract.hard_terms():
+        if term.is_opaque():
+            return GATE_ENFORCEMENT_BLOCKED
+    # Phase D seam: a hard term with no registered capability is blocked. The stub
+    # returns [] today (capability registry lands in Phase D), so this is inert.
+    if validate_capabilities(contract):
+        return GATE_ENFORCEMENT_BLOCKED
+    if contract.compiler_degraded:
+        return GATE_ENFORCEMENT_DEGRADED
+    return GATE_ENFORCEMENT_PINNED
 
 
 # ---------------------------------------------------------------------------
@@ -810,14 +980,22 @@ async def run_research_planning_gate(
         client, prompt, candidates, mode=mode
     )
 
-    # --- 2b. deterministic source-scope promotion (the task-72 fix) ---
-    # The LLM compiler cannot be trusted to retain the source-scope rule; the
-    # deterministic rule-reader finds it every time with verbatim spans. Promote
-    # those span-verified source-type/quality/language candidates into the
-    # contract as EXPLICIT HARD terms so the LLM can neither drop nor misfile
-    # them. No-op (byte-identical) when PG_GATE is OFF.
-    contract = _promote_source_scope(contract, candidates, prompt)
+    # --- 2b. DETERMINISTIC-AUTHORITATIVE MONOTONIC MERGE (the inversion) ---
+    # The LLM contract is ADDITIVE ONLY. Deterministic code (candidate adapter +
+    # registry) authored the explicit constraints; here they are reinstated as
+    # authority — the LLM can neither drop, downgrade, nor re-dimension them. This
+    # subsumes the deleted task-shaped ``_promote_source_scope``. No-op
+    # (byte-identical to the pure-LLM compile) when PG_GATE is OFF.
+    contract = _merge_deterministic_authority(contract, candidates, prompt)
     contract_errors = validate_contract(contract, prompt)
+    # MONOTONICITY invariant: every span-verified deterministic explicit candidate
+    # must have survived the merge. A violation means a merge bug dropped a stated
+    # constraint — surfaced as a validation error (belt: the merge already
+    # reinstates them, so this should be empty when the gate is ON).
+    if gate_enabled():
+        contract_errors = contract_errors + validate_monotonicity(
+            contract, _deterministic_candidate_ids(candidates, prompt)
+        )
 
     # --- 3. mode split (the ONLY node the two modes differ at) ---
     if mode == "autonomous":
@@ -858,9 +1036,17 @@ async def run_research_planning_gate(
             affected_term_ids=q["affected_term_ids"],
             why_it_matters=q["why_it_matters"],
         ))
-    artifact.recompute_hashes()
     if degraded:
         artifact.contract.compiler_degraded = True
+    # Honest enforcement state (deliverable 6): pinned_executable /
+    # degraded_lossless / blocked_unsupported. Derived from the FINAL contract
+    # (after the disclosure sweep) so an opaque hard term surfaces as blocked.
+    # Only meaningful when the deterministic authority is ON; OFF path leaves it
+    # empty (the enforcement state is a property of the inversion, not champion).
+    enforcement_state = (
+        _enforcement_state(artifact.contract) if gate_enabled() else ""
+    )
+    artifact.recompute_hashes()
 
     return GateResult(
         artifact=artifact,
@@ -868,6 +1054,7 @@ async def run_research_planning_gate(
         questions=questions,
         contract_errors=contract_errors,
         plan_errors=plan_errors,
+        enforcement_state=enforcement_state,
     )
 
 
