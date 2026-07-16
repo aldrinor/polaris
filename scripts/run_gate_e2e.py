@@ -31,12 +31,15 @@ harness stitches the two SANCTIONED entry points together for ONE DRB task:
      mode="autonomous")`` compiles + pins the artifact and writes ``planning_gate_artifact.json``.
      (In LIVE mode the gate's own small policy model fires under ``PG_PLANNING_GATE_LIVE=1``.)
 
-  2. FRESH E2E stage — with ``PG_GATE=1`` the harness calls the sanctioned single-task fresh
-     entry ``dr_benchmark.run_gate_b.run_gate_b_query(q, out_root)`` (which reaches
-     ``run_honest_sweep_r3.run_one_query`` — the S2 gate hook at
-     run_honest_sweep_r3.py:10436-10468 threads the RetrievalProjection into FS-Researcher so
-     the gate's scope lanes reach the frontier BEFORE any fetch). That entry runs fresh
-     retrieval -> outline FEED -> compose -> render and writes ``report.md``.
+  2. FRESH E2E stage — with ``PG_GATE=1`` the harness calls the DIRECT single-task fresh entry
+     ``run_honest_sweep_r3.run_one_query(q, out_root)`` — the S2 gate hook at
+     run_honest_sweep_r3.py:10435-10468 threads the RetrievalProjection into FS-Researcher so
+     the gate's scope lanes reach the frontier BEFORE any fetch. run_one_query keys everything
+     on ``q["question"]`` = the VERBATIM DRB-v1 task-72 prompt (query.jsonl id 72), runs fresh
+     retrieval -> outline FEED -> compose -> render, and writes ``report.md``.
+     NOT ``run_gate_b_query`` — that path FORCES ``PG_BENCHMARK_OFFICIAL_QUESTION=1`` and reads
+     the ABSENT ``third_party/DeepResearch-Bench-II/tasks_and_rubrics.jsonl`` (DRB-II lineage),
+     which fail-loud-raises before retrieval. run_one_query has NO DRB-II coupling.
 
   3. AUDIT stage — ``planning.contract_compliance.audit_contract`` runs alongside (never
      touching) the frozen faithfulness verifier and writes ``contract_compliance.json``.
@@ -56,7 +59,7 @@ retrieval or compose. It:
     seeding, real validation, real autonomous disclosure, real hashing; NO network),
   * compiles the REAL ``RetrievalProjection`` from the pinned artifact and proves its scope
     lanes / amplified queries are populated (the no-starvation wiring),
-  * ASSEMBLES (but does NOT execute) the exact ``run_gate_b_query`` call — env slate + query
+  * ASSEMBLES (but does NOT execute) the exact ``run_one_query`` call — env slate + query
     dict — and records it in the telemetry,
   * runs ``audit_contract`` against a tiny stub report to prove the audit wiring,
 for the requested task set (default {4,30,61,72,76,90}). It NEVER composes (that is >10 min
@@ -135,19 +138,17 @@ _TASK_DOMAIN = {
 
 
 def _registered_slug_for_task(tid: str) -> str:
-    """Resolve the DRB task id to the slug registered in gate0_lineage.
+    """Resolve the DRB task id to a stable, human-readable run-dir slug.
 
-    ``run_gate_b_query`` FORCES ``PG_BENCHMARK_OFFICIAL_QUESTION=1`` and then binds
-    ``q["slug"]`` to the CANONICAL DRB-II gold question by idx (the drb_72 wrong-question
-    fix). A bare ``drb_<id>`` slug (e.g. ``drb_72``) is UNREGISTERED — neither in
-    SLUG_TO_IDX nor DRB_SLUGS_WITHOUT_CANONICAL_GOLD — so it fail-loud-raises there. Task 72's
-    registered slug is ``drb_72_ai_labor`` -> canonical idx 56 (the id<->idx offset is real:
-    task72 -> idx 56, NOT 72). Use the lineage registry itself as the source of truth so the
-    harness launches the slug the binding recognizes and the report is scored against the
-    OFFICIAL DRB task-72 question. Registered benchmark ids resolve to their full slug; a
-    no-gold id keeps its registered slug (documented no-op bind); any other id keeps the bare
-    ``drb_<id>`` (non-benchmark => launched prompt kept). Import is lazy so this script's
-    no-import-side-effect posture is unchanged.
+    Since the fresh entry is now ``run_one_query`` DIRECT (NOT ``run_gate_b_query``), the slug
+    NO LONGER drives any DRB-II canonical-question binding — run_one_query keys everything on
+    ``q["question"]`` (the verbatim DRB-v1 prompt) and uses ``q["slug"]`` ONLY to shape
+    ``out_root/<domain>/<slug>/``. We still reuse the gate0_lineage registry purely as a source
+    of a descriptive name (task 72 -> ``drb_72_ai_labor``) so the run dir is legible and stable
+    across runs; a task with no registered slug falls back to the bare ``drb_<id>``. Importing
+    the registry constants does NOT read the (absent) DRB-II tasks_and_rubrics.jsonl — that
+    read lived only inside run_gate_b_query's forced canonical binding, which we no longer hit.
+    Import is lazy so this script's no-import-side-effect posture is unchanged.
     """
     import re  # noqa: PLC0415
 
@@ -177,19 +178,19 @@ def _load_drb_task(task_id: str) -> dict:
 
 
 def _query_dict_for_task(task: dict) -> dict:
-    """Build the ``q`` dict the fresh sweep entry (``run_gate_b_query``) consumes.
+    """Build the ``q`` dict the fresh sweep entry (``run_one_query``) consumes.
 
-    The sweep keys retrieval/generation/title on ``q["question"]`` (the verbatim DRB
-    prompt). ``slug``/``domain`` only shape the run dir. ``amplified`` is left empty so the
-    gate's RetrievalProjection (threaded via PG_GATE=1 at run_one_query:10436) supplies the
-    scope lanes — NOT a hand-written amplified list (that would bypass the no-starvation proof).
+    run_one_query keys retrieval/generation/title on ``q["question"]`` — set here to the
+    VERBATIM DRB-v1 task prompt (query.jsonl ``prompt``). ``slug``/``domain`` only shape the
+    run dir. ``amplified`` is left empty so the gate's RetrievalProjection (threaded via
+    PG_GATE=1 at the S2 hook, run_honest_sweep_r3.py:10435-10468) supplies the scope lanes —
+    NOT a hand-written amplified list (that would bypass the no-starvation proof).
     """
     tid = str(task["id"])
     return {
-        # Registered lineage slug (drb_72 -> drb_72_ai_labor) so run_gate_b_query's forced
-        # official-question binding resolves the CANONICAL DRB-II idx (task 72 -> idx 56) instead
-        # of fail-loud-raising on the UNREGISTERED bare slug. The report is scored against the
-        # OFFICIAL DRB task-72 question, never a silent wrong prompt.
+        # Descriptive, stable run-dir slug (drb_72 -> drb_72_ai_labor). Cosmetic only now:
+        # run_one_query does NO lineage lookup on the slug, so there is no forced official-
+        # question rebind and no DRB-II gold-file read. q["question"] below is the sole prompt.
         "slug": _registered_slug_for_task(tid),
         "domain": _TASK_DOMAIN.get(tid, "general"),
         "question": task["prompt"],
@@ -278,12 +279,14 @@ def _run_audit(artifact: Any, report_text: str, *, retrieval_scope_status: str) 
 # ---------------------------------------------------------------------------
 
 def _fresh_e2e_env_slate(*, gate_on: bool, mode: str) -> dict:
-    """The env the fresh e2e stage sets before calling run_gate_b_query.
+    """The env the fresh e2e stage sets before calling run_one_query.
 
     PG_GATE gates ONLY whether the gate's RetrievalProjection is CONSULTED at the FS seam
     (gate_flags.gate_enabled). PG_USE_RESEARCH_PLANNER=1 makes run_one_query build the
-    _research_plan the S2 hook projects. run_gate_b applies the full-capability breadth slate
-    itself; we set only the gate switches here.
+    _research_plan the S2 hook projects — BOTH are required for the projection to thread (see
+    run_honest_sweep_r3.py:10448 `_pg_gate_enabled() and _use_research_planner and
+    _research_plan is not None`). The full-capability retrieval breadth slate (PG_SWEEP_*) is
+    supplied by the real-run env in the module docstring; we set only the gate switches here.
     """
     slate = {
         "PG_GATE": "1" if gate_on else "0",
@@ -296,27 +299,47 @@ def _fresh_e2e_env_slate(*, gate_on: bool, mode: str) -> dict:
 def _assembled_pipeline_call(q: dict, out_root: Path, *, gate_on: bool, mode: str) -> dict:
     """The exact fresh-e2e call the live run executes. In dry mode this is only RECORDED."""
     return {
-        "entrypoint": "scripts.dr_benchmark.run_gate_b:run_gate_b_query",
-        "reaches": "scripts.run_honest_sweep_r3:run_one_query (S2 gate hook @ :10436-10468)",
+        "entrypoint": "scripts.run_honest_sweep_r3:run_one_query",
+        "reaches": "S2 gate hook @ run_honest_sweep_r3.py:10435-10468 (DIRECT — no DRB-II lineage)",
+        "verbatim_prompt": "DRB-v1 query.jsonl id 72 (q['question'], no PG_BENCHMARK_OFFICIAL_QUESTION rebind)",
         "env_slate": _fresh_e2e_env_slate(gate_on=gate_on, mode=mode),
         "query_dict": {
             "slug": q["slug"], "domain": q["domain"],
             "question_head": q["question"][:80], "amplified_count": len(q.get("amplified", [])),
         },
         "out_root": str(out_root),
-        "produces": ["report.md", "protocol.json", "corpus_snapshot.json", "manifest.json"],
+        "produces": ["report.md", "protocol.json", "manifest.json"],
         "retrieval_scope_status": "fresh_gate_scoped" if gate_on else "fresh_no_gate",
     }
 
 
 def _run_fresh_e2e(q: dict, out_root: Path, *, gate_on: bool, mode: str) -> Path:
-    """EXECUTE the fresh e2e (LIVE ONLY). Sets the gate env slate, calls run_gate_b_query,
-    returns the run dir that holds report.md. NEVER called in dry mode."""
+    """EXECUTE the fresh e2e (LIVE ONLY). Sets the gate env slate, calls run_one_query
+    DIRECTLY, returns the run dir that holds report.md. NEVER called in dry mode.
+
+    WHY run_one_query (NOT run_gate_b_query): run_gate_b_query FORCES
+    ``PG_BENCHMARK_OFFICIAL_QUESTION=1`` and rebinds ``q["question"]`` to the DeepResearch-
+    Bench-II canonical gold question by reading ``third_party/DeepResearch-Bench-II/
+    tasks_and_rubrics.jsonl`` via gate0_lineage — a file this repo does NOT ship (we score
+    against DRB v1, task 72). That path fail-loud-raises GateZeroLineageError before any
+    retrieval. ``run_one_query`` is the DIRECT home of the S2 gate hook
+    (run_honest_sweep_r3.py:10435-10468) and keys ALL of retrieval/generation/title on
+    ``q["question"]`` — the VERBATIM DRB-v1 task-72 prompt supplied in ``q`` — with NO
+    DRB-II coupling (the only gate0_lineage import inside run_one_query is guarded by
+    ``resume=True``, which we never set). With ``PG_GATE=1`` + ``PG_USE_RESEARCH_PLANNER=1``
+    threaded by ``_fresh_e2e_env_slate`` below, run_one_query builds ``_research_plan`` and
+    the S2 hook projects the RetrievalProjection into FS-Researcher (the no-starvation path);
+    with PG_GATE=0 the hook stays byte-identical to champion. run_one_query writes
+    ``report.md`` (+ manifest.json/protocol.json) to ``out_root/<domain>/<slug>/``.
+
+    Retrieval breadth (PG_SWEEP_* — 12/12/40) is applied by the real-run env, NOT here; this
+    helper threads ONLY the gate switches so the byte-identical control (--no-gate) holds.
+    """
     slate = _fresh_e2e_env_slate(gate_on=gate_on, mode=mode)
     for k, v in slate.items():
         os.environ[k] = v
-    from scripts.dr_benchmark.run_gate_b import run_gate_b_query
-    asyncio.run(run_gate_b_query(q, out_root))
+    from scripts.run_honest_sweep_r3 import run_one_query
+    asyncio.run(run_one_query(q, out_root))
     return out_root / q["domain"] / q["slug"]
 
 
