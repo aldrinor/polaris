@@ -3918,6 +3918,7 @@ async def _call_section(
     cross_trial_block: Any = None,
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",
+    voice_advisory_text: str = "",  # S4 compose voice: prose-only tone/audience/pov; "" => byte-identical
     distillate: Any | None = None,
     research_question: str = "",
 ) -> tuple[str, int, int, dict[str, Any]]:
@@ -3985,9 +3986,17 @@ async def _call_section(
                 for p in cross_trial_block.get_for_section(section.title)
                 if getattr(p, "summary", "")
             ]
+        # S4 compose voice: fold the prose-only voice guidance into the REDUCE
+        # writer's advisory (same framing-only channel). "" => byte-identical.
+        _reduce_advisory = advisory_text
+        if voice_advisory_text:
+            _reduce_advisory = (
+                f"{advisory_text}\n\n{voice_advisory_text}".strip()
+                if advisory_text else voice_advisory_text
+            )
         reduce_prompt = render_reduce_user(
             distillate,
-            advisory_text=advisory_text,
+            advisory_text=_reduce_advisory,
             cross_trial_summaries=_cross_trial_summaries,
             research_question=research_question,
         )
@@ -4055,6 +4064,12 @@ async def _call_section(
     # routing/archetypes/verification. OFF / empty -> system unchanged.
     if use_field_agnostic_prompt and advisory_text:
         system = f"{system}\n\n{advisory_text}"
+    # S4 compose voice (design §5 compose row): append the prose-only tone/audience/
+    # pov guidance to the section system prompt. Domain-independent (unlike the
+    # domain advisory above) so it reaches clinical / blank / facet paths alike.
+    # "" (the default; no compose_projection) => system unchanged => byte-identical.
+    if voice_advisory_text:
+        system = f"{system}\n\n{voice_advisory_text}"
 
     # I-gen-005 Pattern A (#904): for reasoning-first models (V4 Pro),
     # append a per-evidence allow-list of NUMBERS, TRIAL NAMES, DRUG
@@ -5868,6 +5883,7 @@ async def _run_section(
     cross_trial_block: Any = None,  # CrossTrialSynthesisBlock | None
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
+    voice_advisory_text: str = "",  # S4 compose voice: prose-only tone/audience/pov; "" => byte-identical
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
     research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
     quantified_models: "dict[tuple[str, str], Any] | None" = None,  # MOAT: agentic verified-compute registry; None => byte-identical
@@ -6282,6 +6298,7 @@ async def _run_section(
             cross_trial_block=cross_trial_block,
             use_field_agnostic_prompt=use_field_agnostic_prompt,
             advisory_text=advisory_text,
+            voice_advisory_text=voice_advisory_text,
             distillate=distillate,
             research_question=research_question,
         )
@@ -6461,6 +6478,7 @@ async def _run_section(
             cross_trial_block=cross_trial_block,
             use_field_agnostic_prompt=use_field_agnostic_prompt,
             advisory_text=advisory_text,
+            voice_advisory_text=voice_advisory_text,
             research_question=research_question,
         )
         total_in_tok += in_tok2
@@ -9609,6 +9627,15 @@ async def generate_multi_section_report(
     # requirements block, lets required titles govern validation, and conforms the plan set.
     deliverable_spec: Any = None,
     scope_spec: Any = None,
+    # S4 compose projection (consolidated design §5 compose row): the contract's
+    # VOICE (tone / audience / point-of-view / hedging) as a prose-only advisory
+    # appended to the section writer's system prompt at the SAME seam as the domain
+    # ``advisory_text``. PROSE GUIDANCE ONLY — it changes HOW verified content reads,
+    # never routing / evidence / verification / length gating. None (the default) =>
+    # ``advisory_text`` is unchanged => every section prompt byte-identical to HEAD.
+    # Accepts a ``ComposeRenderProjection`` (``.voice_advisory()``) or any object
+    # exposing that method; a shapeless value fails open to "" (inert append).
+    compose_projection: Any = None,
     model: Optional[str] = None,
     outline_temperature: float = 0.2,
     section_temperature: float = 0.3,
@@ -9792,6 +9819,23 @@ async def generate_multi_section_report(
         if (research_plan is not None and _p6_frame is not None)
         else ""
     )
+
+    # S4 compose projection (design §5 compose row): compile the contract's VOICE
+    # (tone/audience/pov/hedging) into a PROSE-ONLY advisory string, threaded to
+    # the section writer as its own append (domain-independent, so it reaches the
+    # clinical / blank / facet paths alike). compose_projection is None (default)
+    # => "" => the append is inert => every section prompt byte-identical to HEAD.
+    # The voice states no fact, cites no source, and cannot drop a sentence or
+    # touch strict_verify — it only guides HOW verified content is phrased.
+    _voice_advisory_text = ""
+    if compose_projection is not None:
+        try:
+            from src.polaris_graph.planning.compose_render_projection import (  # noqa: PLC0415
+                compose_voice_advisory,
+            )
+            _voice_advisory_text = compose_voice_advisory(compose_projection)
+        except Exception:  # noqa: BLE001 — fail-open: never break compose over voice
+            _voice_advisory_text = ""
 
     # Stage 1: outline
     # I-meta-005 Phase 1 (#985): TRUE dual path at the OUTLINE seam only — the
@@ -10870,6 +10914,9 @@ async def generate_multi_section_report(
                 # I-meta-005 Phase 6 (#990): domain advisory writing-guidance,
                 # resolved once above (closure-captured; "" OFF -> no append).
                 advisory_text=advisory_text,
+                # S4 compose voice: prose-only tone/audience/pov (closure-captured;
+                # "" when no compose_projection => no append => byte-identical).
+                voice_advisory_text=_voice_advisory_text,
                 # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
                 credibility_analysis=credibility_analysis,
                 # I-arch-004 F21 (#1255): thread the real research_question

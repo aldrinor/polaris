@@ -10433,9 +10433,38 @@ async def run_one_query(
                     )
 
                 if _fs_researcher_enabled():
+                    # S2 (planning gate, PG_GATE default-OFF): thread the RETRIEVAL
+                    # PROJECTION into FS so the gate's pre-retrieval lanes reach the
+                    # frontier BEFORE any fetch — the no-starvation core. This fixes
+                    # the documented seam bug: the FS branch passed ONLY
+                    # `_clean_question` and DISCARDED `_research_plan.sub_queries`.
+                    # When PG_GATE is OFF (default) `_gate_retrieval_plan` stays None
+                    # and this call is byte-identical to the champion FS branch.
+                    _gate_retrieval_plan = None
+                    try:
+                        from src.polaris_graph.planning.gate_flags import (
+                            gate_enabled as _pg_gate_enabled,
+                        )
+                        if _pg_gate_enabled() and _use_research_planner and _research_plan is not None:
+                            from src.polaris_graph.planning.retrieval_projection import (
+                                from_champion_plan as _from_champion_plan,
+                            )
+                            _gate_retrieval_plan = _from_champion_plan(
+                                _research_plan, original_prompt=_clean_question
+                            )
+                            if _gate_retrieval_plan is not None:
+                                _log(
+                                    f"[planning_gate] S2 retrieval projection ON: "
+                                    f"seeding FS with {len(_research_plan.sub_queries)} "
+                                    f"gate sub-queries + frame routing (no source dropped)"
+                                )
+                    except Exception as _pg_exc:  # noqa: BLE001 — additive: any failure -> champion path
+                        _log(f"[planning_gate] S2 projection unavailable, champion FS path: {_pg_exc}")
+                        _gate_retrieval_plan = None
                     retrieval, _iter_queries = _run_fs_researcher_retrieval(
                         _clean_question, _iter_llm, _iter_per_query_retrieve, _IterLRR,  # I-deepfix-001 B3 P1-B: clean query seed
                         retrieval_deadline_monotonic=_question_retrieval_deadline,  # I-deepfix-001 WALL-03 (#1344): SHARED per-question wall gates the adaptive GLM rounds
+                        retrieval_plan=_gate_retrieval_plan,  # S2 planning-gate projection (None unless PG_GATE=1)
                     )
                     _log(
                         f"[fs_researcher] #1296 FS-Researcher (arXiv 2602.01566) recency-completion "

@@ -540,6 +540,7 @@ def _plan_expert_facet_queries(
     max_queries: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    retrieval_plan: Any = None,
 ) -> tuple[list[str], list[Any]]:
     """R1+R2 (I-deepfix-001, #1344) facet-driven frontier: seed queries from the expert-facet tree,
     issue them directly, then (when R2 is enabled) run the facet-completeness expansion loop over the
@@ -600,6 +601,25 @@ def _plan_expert_facet_queries(
     _r2_on = _fc.facet_completeness_enabled()
     _seed_angle_limit = _seed_angles_per_facet() if _r2_on else None
     seed_queries = _breadth_first_seeds(facets, _seed_angle_limit)
+
+    # S2 (planning gate): PREPEND the gate projection's scope-anchored amplified
+    # queries to the facet frontier and RAISE the budget by the net-new gate slice
+    # — exactly like the sub_entity / landmark widen lanes — so a gate lane
+    # (journal-only / English / a mandatory topic) is issued from the FIRST query
+    # and NEVER swaps out a baseline facet query. This is the no-starvation core:
+    # the gate's scope reaches the seed frontier BEFORE any fetch, additively. []
+    # (default / OFF / no projection) => byte-identical facet frontier.
+    _gate_qs = _projection_amplified_queries(retrieval_plan, question)
+    if _gate_qs:
+        _seed_keys = {(q or "").strip().lower() for q in seed_queries}
+        _new_gate = [q for q in _gate_qs if (q or "").strip().lower() not in _seed_keys]
+        if _new_gate:
+            # gate lanes lead; budget rises by the net-new slice (never displaces).
+            seed_queries = list(_new_gate) + list(seed_queries)
+            max_queries = max_queries + len(_new_gate)
+        logger.info(
+            "[activation] planning_gate_projection: amplified_queries=%d", len(_new_gate)
+        )
 
     # R5 (I-deepfix-001, #1344): multilingual / cross-lingual frontier. On a
     # non-English (e.g. zh) DRB-II task the English facet queries never reach the
@@ -843,6 +863,23 @@ def _plan_expert_facet_queries(
     return queries, results
 
 
+def _projection_amplified_queries(retrieval_plan: Any, question: str) -> list[str]:
+    """The gate projection's scope-anchored amplified queries (S2), or [] when
+    there is no projection. Fail-open: any error yields [] so the FS frontier
+    is exactly the champion frontier (the OFF path is byte-identical even if the
+    projection is malformed). This is ADDITIVE — it only ever ADDS queries."""
+    if retrieval_plan is None:
+        return []
+    try:
+        return list(retrieval_plan.to_amplified_queries(base_question=question))
+    except Exception:  # noqa: BLE001 — additive lane: any failure adds ZERO queries
+        logger.warning(
+            "[activation] planning_gate_projection: unavailable_failopen (added 0)",
+            exc_info=True,
+        )
+        return []
+
+
 def plan_fs_researcher_queries(
     question: str,
     llm: LlmFn,
@@ -852,6 +889,7 @@ def plan_fs_researcher_queries(
     max_rounds: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    retrieval_plan: Any = None,
 ) -> tuple[list[str], list[Any]]:
     """Run the FS-Researcher TOC/todo-queue + 6-item-checklist loop; return
     (queries_issued, per_query_results).
@@ -897,7 +935,14 @@ def plan_fs_researcher_queries(
             question, llm, per_query_retrieve,
             max_queries=max_queries, retrieve_kwargs=retrieve_kwargs,
             retrieval_deadline_monotonic=retrieval_deadline_monotonic,
+            retrieval_plan=retrieval_plan,
         )
+
+    # S2 (planning gate): PREPEND the gate projection's scope-anchored amplified
+    # queries as the FIRST todos so the legacy TOC frontier carries the gate's
+    # journal-only / English / mandatory-topic lanes from the first query. []
+    # (default / OFF) => the todo queue is exactly the champion TOC.
+    _gate_todos = _projection_amplified_queries(retrieval_plan, question)
 
     # index.md TOC: deconstruct the question into sub-topics (the todo queue).
     # I-deepfix-001 (#1344): keep every sub-topic scoped to the topic so it does not generalise
@@ -917,6 +962,9 @@ def plan_fs_researcher_queries(
     # I-qgen-001 (#1373): screen the TOC reply for validator/status prose BEFORE it
     # becomes the todo queue — a status line must never become a sub-topic.
     todos = _screen_status_lines(_lines(llm(_toc_prompt), cap=10), question) or [question]
+    # S2: gate lanes lead the todo queue (additive — never drops a champion todo).
+    if _gate_todos:
+        todos = _gate_todos + [t for t in todos if t not in _gate_todos]
 
     for _ in range(max_rounds):
         if len(queries) >= max_queries or not todos:
@@ -1124,6 +1172,7 @@ def run_fs_researcher_retrieval(
     max_rounds: int | None = None,
     retrieve_kwargs: dict | None = None,
     retrieval_deadline_monotonic: "float | None" = None,
+    retrieval_plan: Any = None,
 ) -> tuple[Any, list[str]]:
     """The production entry point: run the FS-Researcher loop over `per_query_retrieve` and return
     (merged LiveRetrievalResult, queries_issued). Faithful to the bake-off winner — each query goes
@@ -1131,10 +1180,18 @@ def run_fs_researcher_retrieval(
 
     I-deepfix-001 WALL-03 (#1344): ``retrieval_deadline_monotonic`` is the SHARED per-question
     retrieval wall threaded from the spine; the adaptive GLM rounds stop firing once it passes
-    (``None`` = default = byte-identical)."""
+    (``None`` = default = byte-identical).
+
+    S2 (planning gate): ``retrieval_plan`` is an optional
+    ``planning.retrieval_projection.RetrievalProjection``. When set (PG_GATE ON),
+    its mandatory-intent + entity + scope-anchored amplified queries are PREPENDED
+    to the FS frontier so the gate's scope (journal-only / English / each mandatory
+    topic) shapes discovery from the FIRST query — never a post-fetch filter.
+    ``None`` (default) => byte-identical champion behaviour."""
     queries, results = plan_fs_researcher_queries(
         question, llm, per_query_retrieve,
         max_queries=max_queries, max_rounds=max_rounds, retrieve_kwargs=retrieve_kwargs,
         retrieval_deadline_monotonic=retrieval_deadline_monotonic,
+        retrieval_plan=retrieval_plan,
     )
     return merge_retrieval_results(results, result_factory), queries

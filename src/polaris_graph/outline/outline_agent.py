@@ -518,6 +518,28 @@ class OutlineWorkspace:
     # unhomeable (checklist- or agent-initiated), it is banked here (normalized) and vetoed —
     # cheaply, before any real fetch — for the rest of the run, regardless of aspect rewording.
     unhomeable_sections: set = field(default_factory=set)
+    # S3 FEED (Research Planning Gate ↔ outline agent seam). All default to the
+    # inert/empty value so a workspace built without a gate artifact (every
+    # champion caller today) is BYTE-IDENTICAL: no scope threaded into the gap
+    # search, no term-ledger validation on update_outline, no seeded gaps.
+    #
+    # ``gate_research_frame`` / ``gate_gap_protocol``: THE BUG FIX. The gate's
+    # retrieval scope (the SAME ``research_frame`` + anchor ``protocol`` used by
+    # initial retrieval), threaded into ``_tool_search_more_evidence``'s
+    # ``run_live_retrieval`` call so the outline-stage gap search stays IN SCOPE
+    # instead of running unscoped (both designers found this bug). None => the
+    # champion ``run_live_retrieval`` defaults (research_frame=None/protocol=None).
+    gate_research_frame: Any = None
+    gate_gap_protocol: Optional[dict[str, Any]] = None
+    # ``contract_hash``: the pinned artifact's contract SHA (provenance only — the
+    # resolved outline records which gate seed it refined). "" => no gate.
+    contract_hash: str = ""
+    # ``term_ledger``: {binding_term_owners, locked_titles, ordered_titles,
+    # binding_term_ids}. When non-empty, ``_tool_update_outline`` rejects a
+    # revision that drops an explicit title lock or the LAST owner of a binding
+    # term (build via ``outline_gate_feed.build_term_ledger``). Empty => no ledger
+    # validation (champion behavior).
+    term_ledger: dict[str, Any] = field(default_factory=dict)
     _checkpoint_seq: int = 0
 
     def next_ev_offset(self) -> int:
@@ -753,6 +775,15 @@ async def _tool_search_more_evidence(
         # the function's own docstring). The gap query MUST be passed via ``amplified_queries``;
         # ``research_question`` stays the WORKSPACE question (scope-validator anchor text) so a
         # scoped sub-query is validated against the real topic, not against itself.
+        # S3 BUG FIX (both designers): thread the gate's retrieval SCOPE into the
+        # outline-stage gap search. Before this, ``research_frame`` / ``protocol``
+        # were silently dropped here, so a gap search run under a hard journal /
+        # English / jurisdiction contract went out UNSCOPED and could dilute a
+        # correctly-scoped first pass. When the workspace carries no gate scope
+        # (every champion caller — both stay None/None), this is byte-identical to
+        # the champion ``run_live_retrieval`` defaults. A HARD-scope frame is never
+        # a post-fetch filter here: it ROUTES the SAME backends/anchor the initial
+        # retrieval used, so the gap query keeps that scope from its first fetch.
         raw_result = await asyncio.to_thread(
             run_live_retrieval,
             research_question=workspace.research_question,
@@ -760,6 +791,8 @@ async def _tool_search_more_evidence(
             domain=domain,
             anchor_seed=False,
             retrieval_deadline_monotonic=retrieval_deadline_monotonic,
+            research_frame=workspace.gate_research_frame,
+            protocol=workspace.gate_gap_protocol,
         )
     except Exception as exc:  # noqa: BLE001 — a single retrieval round must not crash the loop
         return ToolResult(
@@ -918,11 +951,55 @@ async def _tool_update_outline(
     # required_sections-governed outline (e.g. the DRB-72 4-section canonical structure) could
     # silently grow a 5th section via an agent-issued `add` op, breaking the caller's exact-N-in-
     # order structural contract that `_call_outline` already conformed the seed to.
+    # Snapshot the pre-op section titles so the S3 term-ledger guard can compare
+    # them against the post-op set (below). Cheap; only used when a ledger exists.
+    _titles_before = [str(_plan_field(p, "title", "")) for p in workspace.outline_draft]
+
     apply_result = apply_revision_ops(
         workspace.outline_draft, parse_result,
         required_titles=(workspace.required_titles or None),
         min_sections=(workspace.min_sections or 0),
     )
+
+    # ── S3 term-ledger guard: reject a revision that drops an EXPLICIT title lock
+    # or the LAST owner of a binding term (design §6). This is a SECOND, coverage-
+    # aware guard on top of ``apply_revision_ops``'s ``required_titles`` structural
+    # lock: the required-titles lock protects an exact-N-in-order structure, while
+    # the term ledger protects an explicit heading / a binding requirement's last
+    # home even when no full structure lock is present. When the workspace carries
+    # no ledger (every champion caller — ``term_ledger`` empty) this is a no-op and
+    # byte-identical. On a violation the WHOLE op set is refused (the seed stands),
+    # disclosed, never silently applied — the loop may retry a compliant revision.
+    if workspace.term_ledger:
+        try:
+            from src.polaris_graph.outline.outline_gate_feed import (  # noqa: PLC0415
+                validate_revision_against_ledger,
+            )
+            _titles_after = [str(d.get("title", "")) for d in apply_result.new_plans]
+            _violations = validate_revision_against_ledger(
+                workspace.term_ledger,
+                titles_before=_titles_before,
+                titles_after=_titles_after,
+            )
+        except Exception as _led_exc:  # noqa: BLE001 — guard is additive, never fatal
+            _violations = []
+            logger.warning(
+                "[outline_agent] S3 ledger guard skipped (fail-open): %s", _led_exc,
+            )
+        if _violations:
+            workspace.disclose(
+                "update_outline REFUSED: revision would violate the pinned contract "
+                f"term ledger ({'; '.join(_violations)}) — keeping the prior outline"
+            )
+            return ToolResult(
+                success=False, tool_name="update_outline",
+                markdown=(
+                    "No ops applied — the revision would drop an explicit title lock "
+                    "or the last owner of a binding contract term: "
+                    + "; ".join(_violations)
+                ),
+                error="contract_term_ledger_violation",
+            )
     # Iter-2 fix (found via offline smoke test): ``apply_revision_ops`` ALWAYS returns
     # ``list[dict]`` (``outline_revise`` is dict-native; it is not currently wired into
     # production composition at all — grep confirms its only callers before this module were
@@ -2229,13 +2306,30 @@ async def run_outline_agent_or_legacy(
     scope_spec: Any = None,
     same_work_groups: Any = None,
     checkpoint_dir: Optional[str] = None,
+    # S3 FEED (Research Planning Gate ↔ outline seam). All default None => the
+    # gate is inert and this function is BYTE-IDENTICAL to the champion: the seed
+    # is built by the legacy ``_call_outline`` and no gate scope / ledger / seeded
+    # gaps are threaded. When a pinned artifact is supplied, ``gate_contract`` +
+    # ``gate_projection`` + ``gate_coverage_matrix`` FEED the loop (scope the gap
+    # search, pre-load coverage obligations as PENDING gaps, protect binding
+    # locks) — WITHOUT replacing the evidence-aware outline agent (design §6).
+    gate_contract: Any = None,
+    gate_projection: Any = None,
+    gate_coverage_matrix: Any = None,
+    seed_outline: Any = None,
 ) -> tuple[Any, bool, int, int]:
     """Seam entry point. OFF (``PG_OUTLINE_AGENT`` unset/0) => calls ``_call_outline`` exactly
     as before and returns its result untouched (byte-identical legacy path — this function does
     NOT even import the agent-loop machinery on the OFF path beyond this module's top-level
-    imports, which are cheap/side-effect-free). ON => seeds via the SAME ``_call_outline`` call
-    (using the CODE model per §9.1.8 lock), then runs the ``OutlineAgent`` loop over the seeded
-    plans, and returns an updated result of the SAME shape the caller already expects."""
+    imports, which are cheap/side-effect-free). ON => builds the seed (via the SAME ``_call_outline``
+    call using the CODE model per §9.1.8 lock, unless a ``seed_outline`` is supplied), then
+    delegates to :func:`refine_outline_from_seed` which runs the ``OutlineAgent`` loop over the
+    seeded plans and returns an updated result of the SAME shape the caller already expects.
+
+    This is now a thin adapter over :func:`refine_outline_from_seed` (design §6:
+    ``seed = supplied_seed or legacy_call_outline(...)``). The legacy path and every
+    existing caller signature are preserved; the four ``gate_*`` / ``seed_outline``
+    kwargs are all None-default so the OFF and no-gate paths are unchanged."""
     from src.polaris_graph.generator.multi_section_generator import _call_outline  # noqa: PLC0415
 
     if not outline_agent_enabled():
@@ -2246,16 +2340,84 @@ async def run_outline_agent_or_legacy(
             same_work_groups=same_work_groups,
         )
 
-    seed_model = outliner_code_model()
-    parse_result, retry_attempted, in_tok, out_tok = await _call_outline(
-        research_question, evidence, seed_model, outline_temperature, outline_max_tokens,
-        domain=domain, finding_clusters=finding_clusters,
-        deliverable_spec=deliverable_spec, scope_spec=scope_spec,
-        same_work_groups=same_work_groups,
-    )
-    if not parse_result.plans:
+    # seed = supplied_seed or legacy_call_outline(...)  (design §6). A supplied
+    # ``seed_outline`` (the gate's ``OutlineSeed`` list, already translated to
+    # SectionPlans) skips the legacy call; otherwise the legacy adapter builds the
+    # seed exactly as the champion does.
+    if seed_outline is not None:
+        parse_result, retry_attempted, in_tok, out_tok = seed_outline, False, 0, 0
+    else:
+        seed_model = outliner_code_model()
+        parse_result, retry_attempted, in_tok, out_tok = await _call_outline(
+            research_question, evidence, seed_model, outline_temperature, outline_max_tokens,
+            domain=domain, finding_clusters=finding_clusters,
+            deliverable_spec=deliverable_spec, scope_spec=scope_spec,
+            same_work_groups=same_work_groups,
+        )
+    if not getattr(parse_result, "plans", None):
         logger.info("[outline_agent] seed produced zero plans — skipping agent loop (fail-open)")
         return parse_result, retry_attempted, in_tok, out_tok
+
+    return await refine_outline_from_seed(
+        research_question=research_question,
+        evidence=evidence,
+        seed_parse_result=parse_result,
+        retry_attempted=retry_attempted,
+        in_tok=in_tok,
+        out_tok=out_tok,
+        domain=domain,
+        finding_clusters=finding_clusters,
+        deliverable_spec=deliverable_spec,
+        scope_spec=scope_spec,
+        same_work_groups=same_work_groups,
+        checkpoint_dir=checkpoint_dir,
+        contract=gate_contract,
+        retrieval_projection=gate_projection,
+        coverage_matrix=gate_coverage_matrix,
+    )
+
+
+async def refine_outline_from_seed(
+    *,
+    research_question: str,
+    evidence: list[dict[str, Any]],
+    seed_parse_result: Any,
+    retry_attempted: bool = False,
+    in_tok: int = 0,
+    out_tok: int = 0,
+    domain: str = "",
+    finding_clusters: Any = None,
+    deliverable_spec: Any = None,
+    scope_spec: Any = None,
+    same_work_groups: Any = None,
+    checkpoint_dir: Optional[str] = None,
+    contract: Any = None,
+    retrieval_projection: Any = None,
+    coverage_matrix: Any = None,
+) -> tuple[Any, bool, int, int]:
+    """The post-retrieval evidence-aware outline REFINER (design §6 FEED seam).
+
+    Takes an already-built SEED (``seed_parse_result``, an ``OutlineParseResult``
+    whose ``.plans`` are ``SectionPlan``s — from the legacy ``_call_outline`` or a
+    supplied gate ``OutlineSeed`` list) and runs the ``OutlineAgent`` loop over it.
+
+    When a pinned gate ``contract`` / ``retrieval_projection`` / ``coverage_matrix``
+    is supplied it FEEDS (never replaces) the loop:
+
+      * ``retrieval_projection`` -> the gate's ``(research_frame, protocol)`` scope,
+        threaded into the workspace so ``_tool_search_more_evidence`` runs the gap
+        search IN SCOPE (THE bug fix — both designers).
+      * ``contract`` -> its REQUIRED coverage obligations are pre-loaded as PENDING
+        gaps (``coverage_gap_seeds``), so the deep-think loop CLOSES contract gaps.
+        Required topics are coverage obligations, NOT automatically headings.
+      * ``contract`` + ``coverage_matrix`` -> a term ledger (``build_term_ledger``)
+        so ``update_outline`` rejects dropping an explicit lock or the last owner of
+        a binding term.
+
+    All three default None => byte-identical to the champion (no scope, no seeded
+    gaps, no ledger). The gate NEVER post-filters the banked corpus here — it only
+    ADDS gap obligations and ROUTES the (additive) gap search."""
+    parse_result = seed_parse_result
 
     ev_store = {
         str(row.get("evidence_id")): row for row in evidence
@@ -2356,6 +2518,72 @@ async def run_outline_agent_or_legacy(
             "[outline_agent] thematic-coverage floor armed: seed=%d sections; the loop may not "
             "net-collapse below this via merge (RACE-FLOOR fix)", _section_floor,
         )
+
+    # ── S3 FEED: thread the gate contract/projection/coverage-matrix into the
+    # workspace (design §6). Every branch is guarded on the gate object being
+    # supplied, so a no-gate call (contract=projection=matrix=None — every
+    # champion caller) leaves the workspace fields at their inert defaults and is
+    # BYTE-IDENTICAL. Fail-open: any FEED error is disclosed and skipped; the loop
+    # still runs on the seed.
+    if contract is not None or retrieval_projection is not None:
+        try:
+            from src.polaris_graph.outline.outline_gate_feed import (  # noqa: PLC0415
+                build_term_ledger,
+                coverage_gap_seeds,
+                gate_scope_for_gap_search,
+            )
+            # (1) THE BUG FIX: the gate's retrieval scope for the gap search.
+            if retrieval_projection is not None:
+                frame, protocol = gate_scope_for_gap_search(
+                    retrieval_projection, base_question=research_question,
+                )
+                workspace.gate_research_frame = frame
+                workspace.gate_gap_protocol = protocol
+                if frame is not None or protocol is not None:
+                    logger.info(
+                        "[outline_agent] S3 FEED: gap search SCOPED to gate frame "
+                        "(evidence_needs=%s) — no longer unscoped",
+                        list(getattr(frame, "evidence_needs", []) or []),
+                    )
+            # (2) contract hash (provenance) + (3) term ledger (lock protection).
+            if contract is not None:
+                workspace.contract_hash = str(
+                    getattr(contract, "contract_sha256", "")
+                    or (
+                        contract.get("contract_sha256", "")
+                        if isinstance(contract, dict) else ""
+                    )
+                )
+                workspace.term_ledger = build_term_ledger(
+                    contract, coverage_matrix=coverage_matrix,
+                )
+                # (4) coverage obligations -> PENDING gaps (NOT headings).
+                seeds = coverage_gap_seeds(contract)
+                for s in seeds:
+                    workspace.gap_ledger.add(
+                        section=s.get("section") or "(unassigned)",
+                        aspect=s.get("aspect", ""),
+                        needed_kind="coverage",
+                        source="gate_contract",
+                    )
+                if seeds:
+                    workspace.disclose(
+                        f"S3 FEED: pre-loaded {len(seeds)} required-coverage "
+                        "obligation(s) as PENDING gaps (coverage obligations, NOT "
+                        "headings)"
+                    )
+                _lt = workspace.term_ledger.get("locked_titles") or []
+                _bo = workspace.term_ledger.get("binding_term_owners") or {}
+                if _lt or _bo:
+                    logger.info(
+                        "[outline_agent] S3 FEED: term ledger armed — %d locked "
+                        "title(s), %d binding-term owner set(s)", len(_lt), len(_bo),
+                    )
+        except Exception as _feed_exc:  # noqa: BLE001 — FEED is additive, never fatal
+            logger.warning(
+                "[outline_agent] S3 FEED skipped (fail-open): %s", _feed_exc,
+            )
+
     agent = OutlineAgent(workspace, domain=domain or None)
     # W2 P0 fix (Fable-authoritative, 2026-07-11): this call used to be BARE. On the dense
     # full-corpus real run a single glm-5.2 ``ReasoningFirstTruncationError`` (reasoning

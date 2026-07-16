@@ -121,6 +121,52 @@ def _audit_citations(report_text: str, biblio: list[dict]) -> dict:
     }
 
 
+def _order_sections_by_required(verified: list, required_titles: list[str]) -> list:
+    """Reorder VERIFIED sections so those matching the required titles come first,
+    in the required order; all others keep their original relative order after.
+
+    Matching is case-insensitive containment (a required title matched against a
+    produced heading). ORDER-ONLY: every input section is present in the output
+    exactly once — nothing is dropped or fabricated. A required title with no
+    matching verified section is simply skipped (disclosure is the audit's job)."""
+    want = [(t or "").strip().lower() for t in required_titles if (t or "").strip()]
+    used: set[int] = set()
+    ordered: list = []
+    for w in want:
+        for i, sr in enumerate(verified):
+            if i in used:
+                continue
+            tl = (sr.title or "").strip().lower()
+            if tl == w or w in tl or tl in w:
+                ordered.append(sr)
+                used.add(i)
+                break
+    for i, sr in enumerate(verified):
+        if i not in used:
+            ordered.append(sr)
+    return ordered
+
+
+def _dedup_biblio_by_work(biblio: list[dict]) -> list[dict]:
+    """Collapse bibliography rows that resolve to the same underlying WORK.
+
+    Key is the normalized URL when present, else the normalized statement text.
+    The FIRST row for each work is kept (preserving its assigned number); later
+    duplicates are removed. This drops only DUPLICATE reference lines — never a
+    distinct source — and does not touch in-prose [N] markers."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for b in biblio:
+        url = str(b.get("url", "") or "").strip().lower().rstrip("/")
+        key = url or str(b.get("statement", "") or "").strip().lower()[:160]
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(b)
+    return out
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--corpus", required=True)
@@ -133,6 +179,15 @@ async def main() -> int:
     ap.add_argument("--title", default=None,
                     help="report title for the judged report.md; default DERIVES it from the RQ "
                          "(general — no title is hardcoded to any task)")
+    # S4 render projection (default-OFF): when a pinned planning_gate_artifact.json is
+    # supplied, thread its deliverable/scope/compose projections into composition and
+    # run the disclosure-only contract-compliance audit alongside the (untouched)
+    # citation audit. Omitted (the default) => byte-identical to today's champion.
+    ap.add_argument("--gate-artifact", default=None,
+                    help="OPTIONAL path to a pinned planning_gate_artifact.json. When given, its "
+                         "contract projections steer contract-aware assembly (required sections/"
+                         "order, references dedup) and the compose voice, and audit_contract runs. "
+                         "Absent => byte-identical champion behavior (no gate).")
     args = ap.parse_args()
 
     if not os.getenv("OPENROUTER_API_KEY"):
@@ -245,6 +300,49 @@ async def main() -> int:
         log.warning("[credibility] could not load psl_gov_suffixes (%s); credibility pass will "
                     "degrade to None and PG_ROUTE_ALL_BASKETS will be inert", _e)
 
+    # S4 render/compose projections (default-OFF): load a pinned gate artifact when
+    # supplied and compile its deliverable/scope/compose views. Absent => every
+    # projection is None => byte-identical champion composition + assembly.
+    _gate_contract = None
+    _deliverable_spec = None
+    _scope_spec = None
+    _compose_projection = None
+    _render_plan: dict = {}
+    _contract_sha = ""
+    if args.gate_artifact:
+        try:
+            from src.polaris_graph.planning.planning_gate_schema import (  # noqa: PLC0415
+                contract_from_dict,
+            )
+            from src.polaris_graph.planning.compose_render_projection import (  # noqa: PLC0415
+                from_contract as _crp_from_contract,
+            )
+            _art = json.loads(Path(args.gate_artifact).read_text())
+            _gate_contract = contract_from_dict(_art.get("contract") or {})
+            _contract_sha = str(_art.get("contract_sha256") or "")
+            _crp = _crp_from_contract(_gate_contract)
+            _compose_projection = _crp  # exposes .voice_advisory()
+            _render_plan = _crp.render_plan()
+            # deliverable_spec surfaced to the outliner as required-section titles/order
+            # (the S4 ORCH-2 seam already in _call_outline). scope_spec passthrough.
+            _deliverable_spec = {
+                "required_sections": _render_plan.get("required_titles", []),
+                "document_type": _render_plan.get("document_type", ""),
+            }
+            _scope_spec = {}
+            log.info("[gate] loaded artifact=%s contract_sha=%s required_sections=%d "
+                     "doc_type=%r voice=%s",
+                     args.gate_artifact, _contract_sha[:12],
+                     len(_render_plan.get("required_titles", [])),
+                     _render_plan.get("document_type", ""), _crp.has_voice())
+        except Exception as _e:  # noqa: BLE001 — fail-open: no gate => champion path
+            log.warning("[gate] could not load --gate-artifact %s (%s); running "
+                        "byte-identical champion path (no projections)",
+                        args.gate_artifact, _e)
+            _gate_contract = None
+            _deliverable_spec = _scope_spec = _compose_projection = None
+            _render_plan = {}
+
     t0 = time.time()
     multi = await generate_multi_section_report(
         research_question=rq,
@@ -259,6 +357,10 @@ async def main() -> int:
         tier_fractions=dist,
         domain=domain,
         credibility_pass_gov_suffixes=_gov_suffixes,
+        # S4: None (default, no --gate-artifact) => byte-identical to HEAD.
+        deliverable_spec=_deliverable_spec,
+        scope_spec=_scope_spec,
+        compose_projection=_compose_projection,
     )
     dt = time.time() - t0
     kept = [s for s in multi.sections if not s.dropped_due_to_failure]
@@ -297,18 +399,34 @@ async def main() -> int:
         "gaps. Every quantitative claim is span-grounded to a cited source; claims that could not "
         "be verified against the underlying evidence were removed rather than paraphrased."
     )
-    bodies: list[str] = []
-    for sr in multi.sections:
-        if sr.dropped_due_to_failure or not sr.verified_text:
-            continue
-        bodies.append(f"## {sr.title}\n\n{sr.verified_text}")
+    # Verified section bodies (VERIFIED text only — never dropped/edited here).
+    _verified = [
+        sr for sr in multi.sections
+        if not sr.dropped_due_to_failure and sr.verified_text
+    ]
+    # S4 contract-aware order: when the render plan names required section titles
+    # in order, place matching verified sections FIRST in that order; every other
+    # verified section keeps its original relative order AFTER them. This ORDERS
+    # verified content — it never drops or fabricates a section. Absent render
+    # plan => original order => byte-identical.
+    _required_titles = list(_render_plan.get("required_titles", [])) if _render_plan else []
+    if _required_titles:
+        _verified = _order_sections_by_required(_verified, _required_titles)
+    bodies: list[str] = [f"## {sr.title}\n\n{sr.verified_text}" for sr in _verified]
     sections_concat = "\n\n".join(bodies)
     if getattr(multi, "limitations_text", ""):
         sections_concat += f"\n\n## Limitations\n\n{multi.limitations_text}"
 
     biblio = getattr(multi, "bibliography", []) or []
+    # S4 references dedup by WORK: when the render plan requests it (default True
+    # in a loaded contract), collapse bibliography rows that resolve to the same
+    # underlying work (same url, else same statement). The FIRST row's number is
+    # kept; this only removes DUPLICATE reference lines, never a distinct source,
+    # and does not renumber in-prose markers. No gate artifact => biblio unchanged.
+    _dedup_by_work = bool(_render_plan.get("references_dedup_by_work")) if _render_plan else False
+    biblio_render = _dedup_biblio_by_work(biblio) if _dedup_by_work else biblio
     biblio_section = "\n\n## References\n"
-    for b in biblio:
+    for b in biblio_render:
         biblio_section += (f"[{b.get('num')}] {str(b.get('statement',''))[:200]} — "
                            f"{b.get('url','')} (tier {b.get('tier','')})\n")
 
@@ -353,6 +471,41 @@ async def main() -> int:
              audit["bibliography_entries"], audit["unresolved_markers"],
              "PASS" if faithful else "FAIL")
 
+    # S4 contract-compliance audit — DISCLOSURE-ONLY, ALONGSIDE (never in place of)
+    # the citation audit above (which is untouched). It reads the finished report +
+    # outline + biblio and reports term-level SATISFIED/FAILED/UNSATISFIABLE/UNKNOWN
+    # per contract term with its owning stage. It NEVER drops/edits content and NEVER
+    # touches strict_verify. retrieval_scope_status is recorded as
+    # 'not_evaluated_prebuilt_corpus' because this driver runs on a PREBUILT corpus —
+    # discovery never ran under the contract, so no scope requirement is claimed
+    # satisfied. No --gate-artifact => no contract => an empty audit (fail-open).
+    compliance = None
+    if _gate_contract is not None:
+        try:
+            from src.polaris_graph.planning.contract_compliance import (  # noqa: PLC0415
+                audit_contract,
+            )
+            outline_titles = [s.title for s in multi.sections
+                              if not s.dropped_due_to_failure and s.verified_text]
+            _ca = audit_contract(
+                _gate_contract,
+                final_report,
+                outline=outline_titles,
+                biblio=biblio,
+                retrieval_scope_status="not_evaluated_prebuilt_corpus",
+                contract_sha256=_contract_sha,
+            )
+            compliance = _ca.to_dict()
+            (run_dir / "contract_compliance.json").write_text(
+                json.dumps(compliance, indent=2) + "\n", encoding="utf-8")
+            log.info("[compliance] counts=%s retrieval_scope_status=%s -> "
+                     "contract_compliance.json",
+                     compliance.get("counts"), compliance.get("retrieval_scope_status"))
+        except Exception as _e:  # noqa: BLE001 — disclosure-only, never fails the run
+            log.warning("[compliance] audit_contract failed (%s); skipping disclosure "
+                        "(faithfulness + citation audit unaffected)", _e)
+            compliance = None
+
     summary = {
         "corpus": corpus_path.name,
         "judged_drb_task": args.rq_drb_task or None,
@@ -375,6 +528,11 @@ async def main() -> int:
         "report_words": len(final_report.split()),
         "faithfulness_audit": audit,
         "faithfulness_pass": faithful,
+        # S4 disclosure: retrieval scope was NOT evaluated (prebuilt corpus). The
+        # contract-compliance audit (when a gate artifact was supplied) is a
+        # SIDECAR disclosure — it never gates the run's return code.
+        "retrieval_scope_status": "not_evaluated_prebuilt_corpus",
+        "contract_compliance": compliance,
         "cp4_used": cp4_used,
         "degraded_to_seed": degraded_to_seed,
         "degrade_reason": degrade_reason[:200],
