@@ -1,0 +1,12 @@
+# feat/intake-contract — query-type PROFILE: how_to / procedural. DEFAULTS ONLY
+# (see literature_review.yaml for the full defaults-only contract).
+priority: 80
+tone: "clear, instructional, pragmatic"
+audience: "a practitioner following the steps"
+format: "step-by-step procedural guide"
+length: "focused"
+typical_sections:
+  - "Prerequisites"
+  - "Step-by-Step Procedure"
+  - "Common Pitfalls"
+  - "Verification"

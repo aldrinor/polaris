@@ -1,0 +1,14 @@
+# feat/intake-contract — query-type PROFILE: clinical. DEFAULTS ONLY (see
+# literature_review.yaml for the full defaults-only contract). Highest priority so
+# a clinical framing wins presentation defaults when it stacks with other types.
+priority: 100
+tone: "precise, cautious, clinically neutral"
+audience: "clinicians and evidence-literate practitioners"
+format: "evidence synthesis with explicit strength-of-evidence framing"
+length: "comprehensive"
+typical_sections:
+  - "Background and Clinical Question"
+  - "Evidence Summary"
+  - "Safety and Adverse Effects"
+  - "Strength of Evidence and Limitations"
+  - "Clinical Bottom Line"

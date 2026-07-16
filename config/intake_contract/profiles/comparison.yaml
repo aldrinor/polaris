@@ -1,0 +1,12 @@
+# feat/intake-contract — query-type PROFILE: comparison. DEFAULTS ONLY (see
+# literature_review.yaml for the full defaults-only contract).
+priority: 90
+tone: "balanced, evaluative, evidence-weighing"
+audience: "a decision-maker weighing options"
+format: "structured comparison across shared dimensions"
+length: "focused"
+typical_sections:
+  - "Overview of the Options"
+  - "Comparison Across Key Dimensions"
+  - "Trade-offs and Contradicting Evidence"
+  - "Bottom Line"

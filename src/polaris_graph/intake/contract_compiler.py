@@ -73,6 +73,20 @@ def compile_intake_contract_enabled() -> bool:
     return os.getenv(_ENV_FLAG, "0").strip().lower() not in _OFF_VALUES
 
 
+_QUERY_TYPE_PROFILES_FLAG = "PG_CONTRACT_QUERY_TYPE_PROFILES"
+
+
+def query_type_profiles_enabled() -> bool:
+    """Kill-switch for the QUERY-TYPE PROFILES lane. DEFAULT OFF. When off the
+    classifier never runs, the profile module is never imported, and no field is
+    written => the contract is byte-identical to today (proven by a no-op test).
+
+    Profiles are DECLARATIVE DEFAULTS ONLY: they populate champion-missing
+    presentation fields the floor/enrich/prompt left unset; they change no
+    enforcement lane and touch no narrowing/scope/citation field."""
+    return os.getenv(_QUERY_TYPE_PROFILES_FLAG, "0").strip().lower() not in _OFF_VALUES
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # span-gate helpers (mirror research_contract.py per-constraint entailment)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -314,6 +328,164 @@ def _enrich(contract: IntakeContract, question: str, d: dict[str, Any]) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# query-type classification + defaults-only profiles (flag-gated)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Cheap, deterministic cue lists. Substring match on the normalized question.
+_LITERATURE_REVIEW_CUES = (
+    "literature review", "systematic review", "state of the art", "state-of-the-art",
+    "survey of the research", "meta-analysis", "meta analysis",
+    "what does the research", "what does the evidence", "what does the literature",
+    "scholarly", "studies on", "body of research", "review the literature",
+)
+_MARKET_INDUSTRY_CUES = (
+    "market size", "market share", "industry landscape", "competitive landscape",
+    "vendors", "tam", "cagr", "forecast", "commercial", "labor market",
+    "labour market", "workforce", "market for",
+)
+_HOW_TO_CUES = (
+    "how to", "how do i", "how can i", "step by step", "step-by-step", "guide to",
+    "tutorial", "implement", "set up", "configure", "best practices for",
+)
+_COMPARISON_CUES = (" vs ", " versus ", "compare", "comparison", "difference between")
+
+
+def _classify_query_type(
+    question: str, contract: IntakeContract
+) -> list[str]:
+    """Classify ``question`` into an ORDERED list of query types (most-specific
+    first), degrading to ``['general']``. DETERMINISTIC — no LLM, no spend, never
+    raises. The 'general' base layer is ALWAYS appended last so it supplies base
+    defaults for any field a more-specific profile leaves unset.
+
+    Signals reuse work the floor already did: clinical from the deterministic
+    domain_signal backbone; comparison from a floor instruction_slot of kind
+    'comparison' (else cue fallback). Output order fixes the stack precedence used
+    by _apply_profiles (first writer of a field wins)."""
+    try:
+        qn = _norm(question)
+        matched: list[str] = []
+
+        # clinical — deterministic domain signal (never LLM-set). Feed the question
+        # as a single evidence row so the shared clinical text recognizer runs.
+        try:
+            from src.polaris_graph.domain.domain_signal import is_clinical_domain
+            if is_clinical_domain(None, [{"text": question}]):
+                matched.append("clinical")
+        except Exception:  # noqa: BLE001 — signal is best-effort, never fatal
+            pass
+
+        # comparison — prefer the floor's own instruction_slot detection.
+        slot_kinds = {
+            str(s.get("kind") or "").strip().lower()
+            for s in (contract.required_sections or [])
+        }
+        if "comparison" in slot_kinds or any(c in qn for c in _COMPARISON_CUES):
+            matched.append("comparison")
+
+        if any(c in qn for c in _HOW_TO_CUES):
+            matched.append("how_to")
+        if any(c in qn for c in _LITERATURE_REVIEW_CUES):
+            matched.append("literature_review")
+        if any(c in qn for c in _MARKET_INDUSTRY_CUES):
+            matched.append("market_industry")
+
+        # de-dup preserving first-seen order, then append the base 'general' layer.
+        ordered: list[str] = []
+        for t in matched:
+            if t not in ordered:
+                ordered.append(t)
+        ordered.append("general")
+        return ordered
+    except Exception:  # noqa: BLE001 — classification never breaks the compile
+        return ["general"]
+
+
+def _apply_profiles(contract: IntakeContract, types: list[str]) -> None:
+    """Apply the matched query-type profiles as DEFAULTS ONLY, in place.
+
+    Guarantees (the whole defaults-only contract):
+      * a profile writes a presentation field ONLY when getattr(contract,f).is_set()
+        is False — an explicit prompt value, a floor value, or an enrich value that
+        already occupies the slot ALWAYS wins;
+      * stacked profiles are applied in PRIORITY order (higher = more specific =
+        first) and the FIRST writer of a field wins, so a lower-priority profile can
+        never overwrite a field a higher-priority profile just set;
+      * every injected field carries origin='profile_default', strength='default';
+      * typical_sections are APPENDED to required_sections ONLY when the floor list
+        is EMPTY (floor-derived structure always wins), tagged profile_default with
+        ev-less satisfied=False so the downstream writer renders an honest gap stub;
+      * profiles NEVER touch date_window / language / source_rules / scope / user
+        constraints / instruction_slots (no narrowing, no citation influence)."""
+    from src.polaris_graph.intake.contract_profiles import (  # noqa: PLC0415
+        PROFILE_PRESENTATION_FIELDS,
+        load_profiles,
+    )
+
+    table = load_profiles()
+    # Order the matched types by profile priority (desc); ties keep classify order.
+    specs: list[tuple[str, dict[str, Any]]] = [
+        (t, table[t]) for t in types if t in table
+    ]
+    specs.sort(key=lambda kv: kv[1].get("priority", 0), reverse=True)
+
+    filled_by: dict[str, str] = {}  # field -> the type that filled it (this pass)
+    telemetry: list[dict[str, Any]] = []
+
+    for tname, spec in specs:
+        filled_here: list[str] = []
+        for f in PROFILE_PRESENTATION_FIELDS:
+            val = spec.get(f)
+            if not isinstance(val, str) or not val.strip():
+                continue
+            if getattr(contract, f).is_set():
+                continue                    # explicit/floor/enrich value wins
+            if f in filled_by:
+                continue                    # higher-priority profile already won it
+            setattr(contract, f, ContractField(
+                value=val.strip(), verbatim_span="",
+                origin="profile_default", strength="default"))
+            filled_by[f] = tname
+            filled_here.append(f)
+        telemetry.append({
+            "type": tname,
+            "priority": int(spec.get("priority", 0)),
+            "filled": filled_here,
+        })
+
+    # typical_sections: append ONLY when the floor produced no required_sections.
+    if not contract.required_sections:
+        # highest-priority matched profile that declares sections supplies them.
+        for _tname, spec in specs:
+            secs = spec.get("typical_sections") or []
+            if secs:
+                for name in secs:
+                    contract.required_sections.append({
+                        "kind": "topic", "entities": [], "text": str(name),
+                        "satisfied": False, "origin": "profile_default",
+                    })
+                break
+
+    if telemetry:
+        contract.query_types = telemetry
+
+
+def _maybe_apply_query_type_profiles(
+    contract: IntakeContract, question: str
+) -> None:
+    """Flag-gated tail hook: when PG_CONTRACT_QUERY_TYPE_PROFILES is ON, classify
+    and layer defaults-only profiles OVER the finished (floor [+ enrich]) contract.
+    Flag OFF => no classify, no profile import, no field write => byte-identical.
+    Never raises (a profile failure must never break the compile)."""
+    if not query_type_profiles_enabled():
+        return
+    try:
+        _apply_profiles(contract, _classify_query_type(question, contract))
+    except Exception as exc:  # noqa: BLE001 — profiles are additive, never fatal
+        logger.warning("[intake_contract] query-type profiles skipped (%s)", str(exc)[:160])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # public entry
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -339,6 +511,7 @@ def compile_intake_contract(
     if not do_llm:
         c = _floor_contract(question, ontology=ontology)
         c.source = "floor"
+        _maybe_apply_query_type_profiles(c, question)
         return c
 
     model_name = model or os.getenv("PG_GENERATOR_MODEL", "z-ai/glm-5.2")
@@ -352,7 +525,9 @@ def compile_intake_contract(
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             logger.info("[intake_contract] cache hit %s", cache_path.name)
-            return _from_cache(cached, question, ontology=ontology)
+            contract = _from_cache(cached, question, ontology=ontology)
+            _maybe_apply_query_type_profiles(contract, question)
+            return contract
         except Exception as exc:  # noqa: BLE001 — a corrupt cache recompiles
             logger.warning("[intake_contract] cache read failed (%s) — recompiling", exc)
 
@@ -379,6 +554,9 @@ def compile_intake_contract(
         except Exception as exc:  # noqa: BLE001
             logger.warning("[intake_contract] cache write failed (%s)", exc)
 
+    # Profiles run LAST — AFTER floor + enrich + cache write — so profile defaults
+    # never bake into the cache and always fill only still-unset fields.
+    _maybe_apply_query_type_profiles(contract, question)
     return contract
 
 

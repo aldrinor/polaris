@@ -1472,6 +1472,60 @@ def _contract_enforce_presentation_enabled() -> bool:
     )
 
 
+def _intake_contract_llm_enabled() -> bool:
+    """LLM-FIRST COMPILE kill-switch (PG_INTAKE_CONTRACT_LLM). DEFAULT OFF.
+
+    When OFF the compose-path contract is compiled floor-only (``llm_fn=None``) —
+    byte-identical to today, no client constructed, no network. When ON, a small
+    llm_fn adapter over the champion OpenRouter client (glm-5.2) is injected so the
+    compiler's span-gated ENRICH pass can ADD champion-missing fields. The
+    non-droppable floor and the HARD verbatim-span gate are unchanged: the LLM may
+    only add/enrich, never overwrite a floor value."""
+    return (
+        os.getenv("PG_INTAKE_CONTRACT_LLM", "0").strip().lower()
+        not in _CONTRACT_ENFORCE_OFF_VALUES
+    )
+
+
+def _run_contract_async_in_isolated_thread(async_callable, *args, **kwargs):
+    """Run a coroutine to completion from inside the already-running compose event
+    loop. Mirrors audit_ir.scope_classifier_llm._run_async_in_isolated_thread:
+    copies the parent contextvars (so _RUN_COST_CTX cost accrues and
+    PG_MAX_COST_PER_RUN still caps the call) and runs the coroutine in a dedicated
+    worker thread with its OWN loop — avoiding the 'asyncio.run from a running loop'
+    RuntimeError."""
+    import concurrent.futures  # noqa: PLC0415
+
+    parent_ctx = contextvars.copy_context()
+
+    def _worker():
+        def _run_under_ctx():
+            return asyncio.run(async_callable(*args, **kwargs))
+        return parent_ctx.run(_run_under_ctx)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_worker).result()
+
+
+def _build_contract_llm_fn(model: str):
+    """Build the SYNC ``Callable[[str], str]`` the compiler expects, over the async
+    OpenRouterClient. Lazy-imports the client (no httpx pull-in until used); the
+    compiler itself makes NO client of its own (safety boundary). temperature=0.0
+    for determinism (mirrors OpenRouterScopeAffinityLLM). This is a PAID call at
+    runtime, fired only when PG_INTAKE_CONTRACT_LLM is ON; in tests it is mocked."""
+    from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
+
+    client = OpenRouterClient(model=model)
+
+    def _llm_fn(prompt: str) -> str:
+        async def _go() -> str:
+            resp = await client.generate(prompt=prompt, system="", temperature=0.0)
+            return resp.content
+        return _run_contract_async_in_isolated_thread(_go)
+
+    return _llm_fn
+
+
 def _compile_compose_contract(research_question: str) -> "Any | None":
     """Compile the intake contract on the compose path — FLAG-GATED, FLOOR-ONLY.
 
@@ -1493,10 +1547,25 @@ def _compile_compose_contract(research_question: str) -> "Any | None":
         from src.polaris_graph.intake.contract_compiler import (  # noqa: PLC0415
             compile_intake_contract,
         )
-        contract = compile_intake_contract(research_question or "", llm_fn=None)
+        # LLM-FIRST COMPILE (PG_INTAKE_CONTRACT_LLM, default OFF): inject the glm-5.2
+        # adapter so the compiler's span-gated enrich pass runs. OFF => llm_fn=None =>
+        # floor-only, byte-identical, NO client constructed, NO network.
+        llm_fn = None
+        if _intake_contract_llm_enabled():
+            try:
+                model = os.getenv("PG_GENERATOR_MODEL", "z-ai/glm-5.2")
+                llm_fn = _build_contract_llm_fn(model)
+            except Exception as exc:  # fail-open to floor-only, never fatal
+                logger.warning(
+                    "[multi_section] CONTRACT-ENFORCE: LLM adapter unavailable "
+                    "(%s) — floor-only", str(exc)[:160],
+                )
+                llm_fn = None
+        contract = compile_intake_contract(research_question or "", llm_fn=llm_fn)
         logger.info(
-            "[multi_section] CONTRACT-ENFORCE: compiled floor-only intake contract "
-            "(required_sections=%d, empty=%s)",
+            "[multi_section] CONTRACT-ENFORCE: compiled intake contract "
+            "(llm_first=%s, source=%s, required_sections=%d, empty=%s)",
+            llm_fn is not None, getattr(contract, "source", "?"),
             len(getattr(contract, "required_sections", None) or []),
             contract.is_empty(),
         )

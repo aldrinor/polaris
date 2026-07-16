@@ -1,0 +1,17 @@
+# feat/intake-contract — query-type PROFILE: literature_review.
+# DEFAULTS ONLY. Every value here is admitted with origin='profile_default',
+# strength='default' (the weakest tier) and is written ONLY into a contract field
+# the floor/enrich/prompt left UNSET. An explicit prompt directive or a floor value
+# always pre-empts these via the is_set() gate in _apply_profiles. Profiles never
+# touch date_window / language / source_rules / scope / instruction_slots.
+priority: 70
+tone: "scholarly, analytical, measured"
+audience: "researchers and domain experts"
+format: "narrative synthesis organized by theme"
+length: "comprehensive"
+typical_sections:
+  - "Introduction and Scope"
+  - "Thematic Findings"
+  - "Cross-Study Synthesis and Contradictions"
+  - "Research Gaps"
+  - "Conclusions"

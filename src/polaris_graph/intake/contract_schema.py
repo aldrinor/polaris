@@ -124,6 +124,13 @@ class IntakeContract:
     specific_instructions: list[dict[str, Any]] = field(default_factory=list)
     success_criteria: list[dict[str, Any]] = field(default_factory=list)
 
+    # --- query-type classification telemetry (ADDITIVE, disclosure only) ---
+    # Populated ONLY when PG_CONTRACT_QUERY_TYPE_PROFILES is ON: the ordered list of
+    # matched query types + which presentation field each stacked profile filled.
+    # DELIBERATELY EXCLUDED from is_empty() so recording a classification can never
+    # flip an otherwise-inert contract out of the graceful-degradation state.
+    query_types: list[dict[str, Any]] = field(default_factory=list)
+
     # --- meta ---
     assumptions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -167,6 +174,7 @@ class IntakeContract:
             "length": self.length.to_dict(),
             "specific_instructions": [dict(s) for s in self.specific_instructions],
             "success_criteria": [dict(s) for s in self.success_criteria],
+            "query_types": [dict(q) for q in self.query_types],
             "assumptions": list(self.assumptions),
             "warnings": list(self.warnings),
             "source": self.source,

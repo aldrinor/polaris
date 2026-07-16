@@ -1,0 +1,12 @@
+# feat/intake-contract — query-type PROFILE: market_industry. DEFAULTS ONLY (see
+# literature_review.yaml for the full defaults-only contract).
+priority: 60
+tone: "objective, commercially aware, data-driven"
+audience: "business and strategy stakeholders"
+format: "market analysis organized by segment and driver"
+length: "comprehensive"
+typical_sections:
+  - "Market Overview"
+  - "Key Segments and Players"
+  - "Drivers and Headwinds"
+  - "Outlook"

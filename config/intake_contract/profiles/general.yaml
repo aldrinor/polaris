@@ -1,0 +1,12 @@
+# feat/intake-contract — query-type PROFILE: general. The base default layer that
+# always stacks LAST (lowest priority) and only fills fields no more-specific
+# profile, the floor, enrich, or the explicit prompt already set. DEFAULTS ONLY.
+priority: 0
+tone: "clear, neutral, informative"
+audience: "an informed general reader"
+format: "narrative organized by theme"
+length: "balanced"
+typical_sections:
+  - "Overview"
+  - "Key Findings"
+  - "Conclusions"
