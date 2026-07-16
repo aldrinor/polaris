@@ -1279,6 +1279,182 @@ def _compute_instruction_slot_coverage(
         return []
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTRACT ENFORCE (feat/intake-contract) — structure + presentation lane.
+# NEW flag PG_CONTRACT_ENFORCE_STRUCTURE, DEFAULT OFF. When off every helper
+# below is a no-op (compile returns None => injection returns `plans` unchanged =>
+# presentation_guidance stays "" => byte-identical to HEAD). ADDITIVE ONLY: the
+# injection APPENDS missing required sections as EMPTY undersupplied candidates and
+# never drops/reorders an existing plan. FAITHFULNESS FIREWALL: an injected
+# candidate carries ev_ids=[] so _run_section renders the honest no-evidence gap
+# stub (never invented prose); presentation guidance is a downstream style-only
+# prompt append that strict_verify still gates per sentence. This lane reads NO
+# strict_verify / provenance / faithfulness path and NEVER touches contract.source_rules.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CONTRACT_ENFORCE_ENV_FLAG = "PG_CONTRACT_ENFORCE_STRUCTURE"
+# Mirror the repo flag-parsing idiom (contract_compiler._OFF_VALUES).
+_CONTRACT_ENFORCE_OFF_VALUES = frozenset({"0", "false", "no", "off", "disabled", ""})
+
+
+def _contract_enforce_structure_enabled() -> bool:
+    """Kill-switch for the structure/presentation enforcement lane. DEFAULT OFF."""
+    return (
+        os.getenv(_CONTRACT_ENFORCE_ENV_FLAG, "0").strip().lower()
+        not in _CONTRACT_ENFORCE_OFF_VALUES
+    )
+
+
+def _compile_compose_contract(research_question: str) -> "Any | None":
+    """Compile the intake contract on the compose path — FLAG-GATED, FLOOR-ONLY.
+
+    Returns None when the flag is OFF (no import, no work => byte-identical) or on
+    any error (fail-open). ``llm_fn=None`` runs the three deterministic offline
+    extractors only — NO paid/LLM/network call (safety rule 4)."""
+    if not _contract_enforce_structure_enabled():
+        return None
+    try:
+        from src.polaris_graph.intake.contract_compiler import (  # noqa: PLC0415
+            compile_intake_contract,
+        )
+        contract = compile_intake_contract(research_question or "", llm_fn=None)
+        logger.info(
+            "[multi_section] CONTRACT-ENFORCE: compiled floor-only intake contract "
+            "(required_sections=%d, empty=%s)",
+            len(getattr(contract, "required_sections", None) or []),
+            contract.is_empty(),
+        )
+        return contract
+    except Exception as exc:  # fail-open — enforcement is best-effort, never fatal
+        logger.warning(
+            "[multi_section] CONTRACT-ENFORCE compile skipped (%s)", str(exc)[:160],
+        )
+        return None
+
+
+def _derive_required_section_title(rs: "dict[str, Any]") -> str:
+    """Deterministically derive a clean section TITLE from a contract
+    required_sections dict ({kind, entities, text, satisfied}). No LLM. Returns ''
+    when nothing usable (caller then appends nothing)."""
+    if not isinstance(rs, dict):
+        return ""
+    entities = [str(e).strip() for e in (rs.get("entities") or []) if str(e).strip()]
+    kind = str(rs.get("kind") or "").strip().lower()
+    text = str(rs.get("text") or "").strip()
+    if kind == "comparison" and len(entities) >= 2:
+        return " vs ".join(entities[:3])
+    if entities:
+        return ", ".join(entities[:3])
+    if text:
+        clause = re.split(r"[.;:\n]", text, maxsplit=1)[0].strip()
+        return clause[:80].strip()
+    return ""
+
+
+def _required_section_covered(title: str, plans: "list[SectionPlan]") -> bool:
+    """True when an existing plan already covers ``title`` — exact
+    (enumerator-tolerant) title match, or >=50% distinctive-content-word overlap
+    against a plan's title+focus. Reuses the S4 conform overlap primitive; NEVER a
+    faithfulness gate. An empty/stopword-only title is treated as covered (so a noisy
+    slot never spuriously appends a duplicate)."""
+    tw = _conform_content_words(title)
+    if not tw:
+        return True
+    tl = title.strip().lower()
+    for p in plans:
+        if str(getattr(p, "title", "")).strip().lower() == tl:
+            return True
+        pw = _conform_content_words(
+            f"{getattr(p, 'title', '')} {getattr(p, 'focus', '')}"
+        )
+        if pw and len(tw & pw) / len(tw) >= 0.5:
+            return True
+    return False
+
+
+def _inject_required_sections(
+    plans: "list[SectionPlan]",
+    contract: "Any | None",
+    partial_mode: bool,
+) -> "list[SectionPlan]":
+    """ADDITIVELY shape ``plans`` with the contract's required_sections.
+
+    For each required section NOT already covered by an existing plan, APPEND one
+    EMPTY ``undersupplied=True`` SectionPlan candidate (ev_ids=[] — the
+    evidence-grounded writer fills it, or _run_section renders the honest
+    no-evidence gap stub; strict_verify makes fabrication impossible). Covered slots
+    flip ``satisfied=True`` (annotation only). NEVER drops or reorders an existing
+    plan (ADDITIVE ONLY). No-op (returns ``plans`` unchanged) when the contract is
+    None (flag off), empty, has no required_sections, or ``partial_mode`` is on."""
+    if contract is None or partial_mode:
+        return plans
+    try:
+        if contract.is_empty():
+            return plans
+        required = list(getattr(contract, "required_sections", None) or [])
+        if not required:
+            return plans
+        out = list(plans)
+        appended: list[str] = []
+        for rs in required:
+            title = _derive_required_section_title(rs)
+            if not title:
+                continue
+            if _required_section_covered(title, out):
+                if isinstance(rs, dict):
+                    rs["satisfied"] = True  # annotation only — no plan change
+                continue
+            out.append(SectionPlan(
+                title=title, focus=title, ev_ids=[], undersupplied=True,
+            ))
+            appended.append(title)
+            if isinstance(rs, dict):
+                rs["satisfied"] = False
+        if appended:
+            logger.info(
+                "[multi_section] CONTRACT-ENFORCE: appended %d required-section "
+                "candidate(s) %s (empty ev_ids + undersupplied -> evidence-grounded "
+                "writer fills, else honest no-evidence gap stub; never fabricated)",
+                len(appended), appended,
+            )
+        return out
+    except Exception as exc:  # fail-open — never break compose over enforcement
+        logger.warning(
+            "[multi_section] CONTRACT-ENFORCE injection skipped (%s)", str(exc)[:160],
+        )
+        return plans
+
+
+def _contract_presentation_guidance(contract: "Any | None") -> str:
+    """Render the contract's presentation ContractFields (format/length/tone/
+    audience/output-language) into a NON-BINDING style/length/format guidance block
+    for the section WRITER. Returns "" when the contract is None or carries no set
+    presentation field (=> no prompt append => byte-identical). This guidance sits
+    DOWNSTREAM of strict_verify: it can only shape STYLE/LENGTH/FORMAT — it can never
+    introduce an unsupported claim."""
+    if contract is None:
+        return ""
+    parts: list[str] = []
+    for label, attr in (
+        ("Format", "format"), ("Length", "length"), ("Tone", "tone"),
+        ("Audience", "audience"), ("Output language", "output_language"),
+    ):
+        fld = getattr(contract, attr, None)
+        try:
+            if fld is not None and fld.is_set() and str(fld.value).strip():
+                parts.append(f"- {label}: {str(fld.value).strip()}")
+        except Exception:  # a malformed field never breaks the writer
+            continue
+    if not parts:
+        return ""
+    return (
+        "PRESENTATION GUIDANCE (style / length / format only — NON-BINDING). Shape "
+        "the prose accordingly, but NEVER add a claim, number, or citation that is "
+        "not already grounded in the provided evidence; unsupported sentences are "
+        "dropped by verification regardless:\n" + "\n".join(parts)
+    )
+
+
 @dataclass
 class SectionResult:
     title: str
@@ -3991,6 +4167,7 @@ async def _call_section(
     cross_trial_block: Any = None,
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",
+    presentation_guidance: str = "",  # feat/intake-contract: NON-BINDING style/length/format append; "" => byte-identical
     distillate: Any | None = None,
     research_question: str = "",
 ) -> tuple[str, int, int, dict[str, Any]]:
@@ -4128,6 +4305,13 @@ async def _call_section(
     # routing/archetypes/verification. OFF / empty -> system unchanged.
     if use_field_agnostic_prompt and advisory_text:
         system = f"{system}\n\n{advisory_text}"
+    # feat/intake-contract: append the contract's NON-BINDING presentation guidance
+    # (style/length/format) to the writer's system prompt. Downstream of strict_verify
+    # (every emitted sentence is still span-gated against the full pool), so this can
+    # only shape STYLE/LENGTH/FORMAT — it can NEVER introduce an unsupported claim.
+    # "" (flag off) => system unchanged => byte-identical.
+    if presentation_guidance:
+        system = f"{system}\n\n{presentation_guidance}"
 
     # I-gen-005 Pattern A (#904): for reasoning-first models (V4 Pro),
     # append a per-evidence allow-list of NUMBERS, TRIAL NAMES, DRUG
@@ -5941,6 +6125,7 @@ async def _run_section(
     cross_trial_block: Any = None,  # CrossTrialSynthesisBlock | None
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
+    presentation_guidance: str = "",  # feat/intake-contract: NON-BINDING style/length/format append; "" => byte-identical
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
     research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
     quantified_models: "dict[tuple[str, str], Any] | None" = None,  # MOAT: agentic verified-compute registry; None => byte-identical
@@ -6355,6 +6540,7 @@ async def _run_section(
             cross_trial_block=cross_trial_block,
             use_field_agnostic_prompt=use_field_agnostic_prompt,
             advisory_text=advisory_text,
+            presentation_guidance=presentation_guidance,
             distillate=distillate,
             research_question=research_question,
         )
@@ -6534,6 +6720,7 @@ async def _run_section(
             cross_trial_block=cross_trial_block,
             use_field_agnostic_prompt=use_field_agnostic_prompt,
             advisory_text=advisory_text,
+            presentation_guidance=presentation_guidance,
             research_question=research_question,
         )
         total_in_tok += in_tok2
@@ -9866,6 +10053,16 @@ async def generate_multi_section_report(
         else ""
     )
 
+    # ── CONTRACT ENFORCE (feat/intake-contract, 2026-07-16) ─────────────────────
+    # Compile the intake contract on THIS compose path (compile_intake_contract
+    # otherwise runs only in nodes/scope_gate.py). FLAG-GATED (PG_CONTRACT_ENFORCE_
+    # STRUCTURE, DEFAULT OFF) + FLOOR-ONLY (llm_fn=None => no paid/LLM/network).
+    # Flag OFF => `_compose_contract` is None and `_presentation_guidance` is "" =>
+    # the injection seam below and the writer append are no-ops => byte-identical.
+    _compose_contract = _compile_compose_contract(research_question)
+    _presentation_guidance = _contract_presentation_guidance(_compose_contract)
+    # ── end CONTRACT ENFORCE compile ────────────────────────────────────────────
+
     # Stage 1: outline
     # I-meta-005 Phase 1 (#985): TRUE dual path at the OUTLINE seam only — the
     # rest of the body (section generation, M-44/M-47, assembly) is shared and
@@ -10109,6 +10306,16 @@ async def generate_multi_section_report(
         research_question, plans,
     )
     # ── end O2 WIRE ─────────────────────────────────────────────────────────────
+
+    # ── CONTRACT ENFORCE (feat/intake-contract) additive required-section inject ──
+    # ADDITIVELY append any contract.required_sections not already covered by an
+    # emitted plan as EMPTY undersupplied candidates (never drop/reorder). No-op
+    # when `_compose_contract` is None (flag off) / empty / partial_mode => plans
+    # unchanged => byte-identical. Faithfulness firewall: an appended candidate has
+    # ev_ids=[] so _run_section renders the honest no-evidence gap stub, and every
+    # emitted sentence is still strict_verify-gated (see helper docstrings).
+    plans = _inject_required_sections(plans, _compose_contract, partial_mode)
+    # ── end CONTRACT ENFORCE inject ─────────────────────────────────────────────
 
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
 
@@ -10955,6 +11162,10 @@ async def generate_multi_section_report(
                 # I-meta-005 Phase 6 (#990): domain advisory writing-guidance,
                 # resolved once above (closure-captured; "" OFF -> no append).
                 advisory_text=advisory_text,
+                # feat/intake-contract: contract presentation guidance (style/length/
+                # format), resolved once at the top of the body (closure-captured;
+                # "" when the flag is OFF -> no writer append -> byte-identical).
+                presentation_guidance=_presentation_guidance,
                 # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
                 credibility_analysis=credibility_analysis,
                 # I-arch-004 F21 (#1255): thread the real research_question
