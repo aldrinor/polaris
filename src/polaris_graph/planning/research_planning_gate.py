@@ -55,6 +55,12 @@ from src.polaris_graph.planning.candidate_adapter import (
     candidate_term_id,
     reconcile_candidates,
 )
+from src.polaris_graph.planning.clause_ledger import (
+    ledger_candidates,
+    opaque_terms_for_uncovered,
+    segment_clauses,
+    validate_completeness,
+)
 from src.polaris_graph.planning.gate_flags import gate_enabled
 from src.polaris_graph.planning.planning_gate_schema import (
     DISCLOSURE_ORIGINS,
@@ -975,6 +981,24 @@ async def run_research_planning_gate(
     except Exception:  # noqa: BLE001 — candidates are advisory; fail-open to none
         candidates = []
 
+    # --- 1b. LOSSLESS CLAUSE LEDGER (Phase B — the generality gap) ---
+    # Segment the prompt into stable deontic-classified clauses and run the
+    # deterministic ledger parsers (quality / exclusion / coordination / date-
+    # hardness-inheritance) that catch the constraints the champion intake
+    # extractor structurally misses. The augmenting candidates are folded into
+    # the candidate list so the existing deterministic-authoritative merge authors
+    # them. Fully behind PG_GATE: OFF → no clauses, no ledger candidates, and the
+    # candidate list + contract are byte-identical to the pre-ledger path.
+    clauses: list[Any] = []
+    if gate_enabled():
+        try:
+            clauses = segment_clauses(prompt)
+            candidates = candidates + ledger_candidates(
+                prompt, clauses, ontology=ontology
+            )
+        except Exception:  # noqa: BLE001 — ledger is additive; fail-open to none
+            clauses = []
+
     # --- 2. contract compile (+ one correction retry, then fallback) ---
     contract, contract_errors, degraded = await _compile_contract(
         client, prompt, candidates, mode=mode
@@ -987,21 +1011,46 @@ async def run_research_planning_gate(
     # subsumes the deleted task-shaped ``_promote_source_scope``. No-op
     # (byte-identical to the pure-LLM compile) when PG_GATE is OFF.
     contract = _merge_deterministic_authority(contract, candidates, prompt)
+    # --- 2c. LOSSLESS OPAQUE PRESERVATION (the key invariant) ---
+    # Every deontic-marked constraint clause that no candidate span covered becomes
+    # a first-class OPAQUE ContractTerm (preserved verbatim, force from its deontic
+    # cue, origin=explicit, normalization_status=opaque → blocked_unsupported). This
+    # is what makes the gate lossless REGARDLESS of whether a deterministic
+    # extractor exists — the recon's press-release / blog / bare-quality misses can
+    # no longer vanish. No-op when PG_GATE is OFF (clauses is empty).
+    if gate_enabled() and clauses:
+        for opaque_term in opaque_terms_for_uncovered(prompt, clauses, contract):
+            contract.scope.append(opaque_term)
     contract_errors = validate_contract(contract, prompt)
-    # MONOTONICITY invariant: every span-verified deterministic explicit candidate
-    # must have survived the merge. A violation means a merge bug dropped a stated
-    # constraint — surfaced as a validation error (belt: the merge already
-    # reinstates them, so this should be empty when the gate is ON).
+    # MONOTONICITY + COMPLETENESS invariants (the lossless gate). Computed into a
+    # separate list so the autonomous re-validation below (which recomputes the
+    # base ``validate_contract`` after the disclosure sweep) cannot silently drop
+    # them — the load-bearing autonomous mode must still surface a dropped
+    # candidate / an undispositioned deontic constraint clause.
+    #   * MONOTONICITY: every span-verified deterministic explicit candidate
+    #     survived the merge (belt — the merge already reinstates them).
+    #   * COMPLETENESS: every deontic-marked constraint clause has a corresponding
+    #     term (normalized OR opaque). Keys off the PROMPT (the ledger), not the
+    #     extractor output — the check candidate-only monotonicity structurally
+    #     cannot make. The opaque-preservation sweep above backfills uncovered
+    #     clauses, so this is the residual belt.
+    ledger_invariant_errors: list[ValidationError] = []
     if gate_enabled():
-        contract_errors = contract_errors + validate_monotonicity(
+        ledger_invariant_errors = validate_monotonicity(
             contract, _deterministic_candidate_ids(candidates, prompt)
         )
+        if clauses:
+            ledger_invariant_errors = ledger_invariant_errors + validate_completeness(
+                clauses, contract
+            )
+    contract_errors = contract_errors + ledger_invariant_errors
 
     # --- 3. mode split (the ONLY node the two modes differ at) ---
     if mode == "autonomous":
         contract = _autonomous_disclose(contract)
-        # re-validate after disclosure (should be clean; record if not)
-        contract_errors = validate_contract(contract, prompt)
+        # re-validate after disclosure (should be clean; record if not). Re-append
+        # the ledger invariants so the autonomous path cannot lose them.
+        contract_errors = validate_contract(contract, prompt) + ledger_invariant_errors
         fatal = any(c.fatal for c in contract.conflicts)
         state = "unsatisfiable" if fatal else "auto_pinned"
         questions: list[dict[str, Any]] = []
@@ -1038,6 +1087,11 @@ async def run_research_planning_gate(
         ))
     if degraded:
         artifact.contract.compiler_degraded = True
+    # Persist the deterministic clause ledger on the artifact (Phase B). Only
+    # populated when PG_GATE is ON; the OFF path leaves it empty so the artifact
+    # hash stays byte-identical to champion.
+    if gate_enabled() and clauses:
+        artifact.clause_ledger = [c.to_dict() for c in clauses]
     # Honest enforcement state (deliverable 6): pinned_executable /
     # degraded_lossless / blocked_unsupported. Derived from the FINAL contract
     # (after the disclosure sweep) so an opaque hard term surfaces as blocked.

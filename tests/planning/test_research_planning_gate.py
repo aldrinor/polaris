@@ -278,9 +278,15 @@ class _DroppingCompilerClient:
 def test_task72_deterministic_source_scope_survives_a_dropping_compiler(monkeypatch):
     """THE INVERSION (rebuilt): the LLM compiler DROPS the source scope (real-run
     failure); the deterministic-authoritative monotonic merge reinstates
-    journal-only + English SOURCE-language as EXPLICIT HARD scope. Quality has NO
-    deterministic extractor, so ``high`` is NOT invented as hard — the no-invention
-    guarantee (the old promoter's false-positive is gone)."""
+    journal-only + English SOURCE-language as EXPLICIT HARD scope.
+
+    Quality: the CLAUSE LEDGER (Phase B — the generality gap) adds a deterministic
+    quality parser, so the VERBATIM "high-quality" phrase under the enclosing
+    "only" scope now yields a HARD, SPAN-BACKED ``source_quality=high`` term. This
+    is NOT the old promoter's INVENTED quality (which fabricated ``high`` from a
+    bare "journal"/"peer" facet with no quality text): here the phrase
+    "high-quality" is literally in the prompt and hardness is inherited from the
+    real "only" restriction scope — span-verified, never fabricated."""
     from src.polaris_graph.instruction.constraint_extractor import Constraints
     from src.polaris_graph.planning.retrieval_projection import from_artifact
 
@@ -307,11 +313,19 @@ def test_task72_deterministic_source_scope_survives_a_dropping_compiler(monkeypa
     assert src.subject == "source" and src.attribute == "kind"
     assert src.operator == "IN"
 
-    # NO invented quality gate: quality has no deterministic extractor, so a hard
-    # `high` is NEVER fabricated (the old promoter's false-positive is deleted).
+    # QUALITY (ledger): "high-quality" is a real prompt phrase under the "only"
+    # restriction scope, so the clause-ledger quality parser authors a HARD,
+    # SPAN-BACKED source_quality=high term. This is lossless preservation of a
+    # stated constraint, NOT the old promoter's invented quality: the term MUST
+    # carry a verbatim span (the no-invention guarantee — a hard term always has a
+    # real anchor).
     qual = by_dim.get("scope.source_quality")
-    assert qual is None or qual.force != FORCE_HARD, (
-        "quality must never be invented as a hard gate (no deterministic signal)"
+    assert qual is not None, "the 'high-quality' phrase must yield a quality term"
+    assert qual.value == "high"
+    assert qual.force == FORCE_HARD, "high-quality under 'only' is a hard rule"
+    assert qual.origin == ORIGIN_EXPLICIT
+    assert qual.spans and qual.spans[0].matches_prompt(TASK_72_PROMPT), (
+        "a hard quality term must be anchored to the verbatim 'high-quality' span"
     )
 
     # English is a hard SOURCE language — NOT the deliverable output_language —
@@ -357,6 +371,105 @@ def test_task72_promotion_is_noop_when_pg_gate_off(monkeypatch):
     assert "scope.source_types" not in dims
     assert "scope.source_quality" not in dims
     assert "scope.source_languages" not in dims
+
+
+# ---------------------------------------------------------------------------
+# CLAUSE LEDGER — end-to-end losslessness through the whole gate (Phase B)
+# ---------------------------------------------------------------------------
+
+class _EmptyContractClient:
+    """The worst case: the LLM drops EVERYTHING (returns a bare objective). The
+    deterministic clause ledger + merge must reinstate every stated constraint."""
+
+    async def generate(self, prompt, system="", max_tokens=4096, temperature=0.0, **_):
+        if system.startswith("You are the POLARIS Research Contract"):
+            return _Resp(json.dumps({"contract": {"objective": [{
+                "term_id": "objective.question",
+                "dimension": "objective.question",
+                "value": "x", "origin": "inferred", "force": "open",
+            }]}, "clause_coverage": []}))
+        return _Resp(json.dumps({"plan": {"threads": [], "query_intents": [],
+                                          "budget": {}}}))
+
+
+_LEDGER_PROMPT = (
+    "Analyze the market. Only use news and company press releases from 2024 "
+    "onward. Do not cite blogs. Use only high-quality sources."
+)
+
+
+def test_ledger_reinstates_every_constraint_when_llm_drops_them(monkeypatch):
+    """The recon's exact generality gap: a bare quality adjective, a coordinated
+    unknown-kind set, an unknown-kind exclusion, and a date bound the champion
+    extractor misses — all survive the LLM dropping them, deterministically."""
+    monkeypatch.setenv("PG_GATE", "1")
+    result = asyncio.run(run_research_planning_gate(
+        _LEDGER_PROMPT, mode="autonomous", client=_EmptyContractClient(),
+    ))
+    scope = {t.dimension: t for t in result.contract.scope}
+
+    # (a) quality: "high-quality" under "only" → hard, span-backed.
+    q = scope["scope.source_quality"]
+    assert q.value == "high" and q.force == FORCE_HARD
+    assert q.spans[0].matches_prompt(_LEDGER_PROMPT)
+
+    # (b) date: "from 2024 onward" under "only" → GTE, hard.
+    d = scope["scope.date"]
+    assert d.value == "2024-01-01" and d.force == FORCE_HARD
+    assert d.operator == "GTE"
+
+    # (c) coordination: news + company press releases as a hard IN set.
+    kinds = {t.value for t in result.contract.scope if t.dimension == "scope.source_types"}
+    assert {"news", "company press releases"} <= kinds
+    for t in result.contract.scope:
+        if t.dimension == "scope.source_types":
+            assert t.force == FORCE_HARD and t.operator == "IN"
+
+    # (d) exclusion: "blogs" (unknown kind) preserved as NOT_IN — never positive.
+    excl = [t for t in result.contract.all_terms()
+            if t.dimension == "content.exclusion"]
+    assert any(t.value == "blogs" and t.operator == "NOT_IN" for t in excl)
+
+    # the ledger is persisted; every deontic clause is dispositioned.
+    assert result.artifact.clause_ledger, "the ledger must be persisted on the artifact"
+    deontic = [c for c in result.artifact.clause_ledger if c.get("deontic")]
+    assert len(deontic) >= 3
+
+
+def test_ledger_preserves_unnormalizable_clause_as_opaque_blocked(monkeypatch):
+    """A deontic clause NO deterministic parser can normalize becomes a first-class
+    OPAQUE hard term → enforcement_state blocked_unsupported. Never silence."""
+    monkeypatch.setenv("PG_GATE", "1")
+    prompt = (
+        "Summarize telecom trends. You must consult industry white papers "
+        "issued by regional network operators."
+    )
+    result = asyncio.run(run_research_planning_gate(
+        prompt, mode="autonomous", client=_EmptyContractClient(),
+    ))
+    opaque = [t for t in result.contract.all_terms() if t.is_opaque()]
+    assert opaque, "an un-normalizable obligation must be preserved as opaque"
+    t = opaque[0]
+    assert t.origin == ORIGIN_EXPLICIT and t.force == FORCE_HARD
+    assert t.spans[0].matches_prompt(prompt)
+    # the honest enforcement state: a hard opaque term is blocked, never claimed.
+    assert result.enforcement_state == "blocked_unsupported"
+    # the contract still validates (opaque is a first-class, valid status).
+    assert validate_contract(result.contract, prompt) == []
+
+
+def test_ledger_is_inert_when_pg_gate_off(monkeypatch):
+    """OFF guardrail: with PG_GATE OFF the ledger never runs — no clause_ledger on
+    the artifact, no ledger-derived scope terms, empty enforcement state (the
+    artifact is byte-identical to the pre-ledger champion path)."""
+    monkeypatch.delenv("PG_GATE", raising=False)
+    result = asyncio.run(run_research_planning_gate(
+        _LEDGER_PROMPT, mode="autonomous", client=_EmptyContractClient(),
+    ))
+    assert result.artifact.clause_ledger == []
+    assert "clause_ledger" not in result.artifact.to_dict()
+    assert result.enforcement_state == ""
+    assert result.contract.scope == [], "no ledger candidates authored when OFF"
 
 
 # ---------------------------------------------------------------------------

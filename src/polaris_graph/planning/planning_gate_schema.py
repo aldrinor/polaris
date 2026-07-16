@@ -1265,9 +1265,14 @@ class PlanningGateArtifact:
     contract_sha256: str = ""
     plan_sha256: str = ""
     artifact_sha256: str = ""
+    # The deterministic clause ledger (Phase B — the lossless generality gap).
+    # A list of clause dicts (see clause_ledger.Clause.to_dict). OPTIONAL /
+    # default-empty: emitted into ``to_dict`` ONLY when non-empty, so an artifact
+    # that never ran the ledger (PG_GATE OFF) hashes byte-identically.
+    clause_ledger: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "artifact_version": self.artifact_version,
             "run_id": self.run_id,
             "created_at": self.created_at,
@@ -1285,6 +1290,11 @@ class PlanningGateArtifact:
             "plan_sha256": self.plan_sha256,
             "artifact_sha256": self.artifact_sha256,
         }
+        # Emit the ledger ONLY when present (non-default) so the OFF path stays
+        # byte-identical: an artifact with no ledger serializes to the legacy shape.
+        if self.clause_ledger:
+            out["clause_ledger"] = [dict(c) for c in self.clause_ledger]
+        return out
 
     def recompute_hashes(self) -> "PlanningGateArtifact":
         """Fill in the three SHAs from the canonical bytes (idempotent)."""
