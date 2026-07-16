@@ -566,6 +566,160 @@ def test_compile_budget_is_adequate_for_reasoning_first_model():
 
 
 # ---------------------------------------------------------------------------
+# FX-02 (drb_72 live probe): the contract compiler is an LLM — it copies the
+# verbatim quote correctly but DRIFTS on character offsets, so an otherwise
+# valid full-strength contract tripped 8 fatal `span_quote_mismatch` errors and
+# fell to the compiler_degraded=True conservative fallback (coverage=0). The
+# compiler now re-anchors each span from its quote before validating, so the
+# quote (which the model gets right) is authoritative and the offset (which it
+# gets wrong) is re-derived. No-invention is preserved: a quote NOT present in
+# the prompt is never re-anchored and still fails validation.
+# ---------------------------------------------------------------------------
+
+def _drifted_span(prompt: str, phrase: str, drift: int) -> dict:
+    """A span whose quote is verbatim-correct but whose offsets are shifted by
+    ``drift`` — exactly the LLM failure mode observed on the drb_72 live probe."""
+    idx = prompt.find(phrase)
+    assert idx != -1, f"phrase {phrase!r} not in prompt"
+    return {"start": idx + drift, "end": idx + len(phrase) + drift, "quote": phrase}
+
+
+def _task72_contract_json_with_drifted_offsets() -> dict:
+    """The task-72 contract as the live LLM actually emits it: correct quotes,
+    WRONG offsets (drift of a few chars each). Pre-fix this produced 8 fatal
+    span_quote_mismatch errors and forced the degraded fallback."""
+    return {
+        "contract": {
+            "objective": [{
+                "term_id": "objective.question",
+                "dimension": "objective.question",
+                "value": "restructuring impact of AI on the labor market",
+                "origin": "explicit", "force": "open",
+                "spans": [_drifted_span(TASK_72_PROMPT, "literature review", -2)],
+            }],
+            "scope": [
+                {
+                    "term_id": "scope.language",
+                    "dimension": "scope.source_languages",
+                    "value": "en", "origin": "explicit", "force": "hard",
+                    "spans": [_drifted_span(TASK_72_PROMPT, "English-language", 3)],
+                },
+                {
+                    "term_id": "scope.source_types",
+                    "dimension": "scope.source_types",
+                    "value": "journal_article", "origin": "explicit", "force": "hard",
+                    "spans": [_drifted_span(TASK_72_PROMPT, "journal articles", -4)],
+                },
+            ],
+            "deliverable": [{
+                "term_id": "deliverable.kind",
+                "dimension": "deliverable.kind",
+                "value": "literature_review", "origin": "explicit", "force": "hard",
+                "spans": [_drifted_span(TASK_72_PROMPT, "literature review", -2)],
+            }],
+            "coverage": [
+                {"requirement_id": "cov1", "kind": "topic",
+                 "statement": {"term_id": "cov1", "dimension": "content.coverage",
+                               "value": "AI restructuring of labor market",
+                               "origin": "inferred", "force": "open"}},
+                {"requirement_id": "cov2", "kind": "topic",
+                 "statement": {"term_id": "cov2", "dimension": "content.coverage",
+                               "value": "employment effects", "origin": "inferred",
+                               "force": "open"}},
+            ],
+            "assumptions": [
+                {"assumption_id": "a1", "statement": "decomposed labor-market impact",
+                 "affected_term_ids": ["cov1", "cov2"], "origin": "inferred"},
+            ],
+        },
+        "clause_coverage": [],
+    }
+
+
+def test_offset_drift_is_reanchored_not_degraded_on_task72():
+    """FX-02: a contract with correct quotes but drifted offsets must compile
+    FULL-STRENGTH (compiler_degraded=False, coverage>0) — the offsets are
+    re-derived from the quotes rather than tripping span_quote_mismatch and
+    forcing the conservative fallback (the drb_72 probe's half-strength path)."""
+    client = _StubClient(
+        _task72_contract_json_with_drifted_offsets(), _task72_plan_json()
+    )
+    result = asyncio.run(run_research_planning_gate(
+        TASK_72_PROMPT, mode="autonomous", client=client,
+    ))
+    contract = result.contract
+
+    # THE core acceptance: full-strength, not the degraded fallback.
+    assert result.state == "auto_pinned"
+    assert contract.compiler_degraded is False
+    assert len(contract.coverage) > 0
+    assert result.needs_input is False
+
+    # The re-anchored spans now quote-match, so the contract is error-free and
+    # the journal-only + English hard terms survived as EXPLICIT (no-invention:
+    # still origin=explicit, still force=hard, still a verbatim span).
+    assert validate_contract(contract, TASK_72_PROMPT) == []
+    by_dim = {t.dimension: t for t in contract.all_terms()}
+    lang = by_dim["scope.source_languages"]
+    src = by_dim["scope.source_types"]
+    assert lang.origin == ORIGIN_EXPLICIT and lang.force == FORCE_HARD
+    assert src.origin == ORIGIN_EXPLICIT and src.force == FORCE_HARD
+    assert lang.spans[0].matches_prompt(TASK_72_PROMPT)
+    assert src.spans[0].matches_prompt(TASK_72_PROMPT)
+    # at least one explicit hard term (journal-only) is present.
+    explicit_hard = [
+        t for t in contract.hard_terms() if t.origin == ORIGIN_EXPLICIT
+    ]
+    assert explicit_hard
+
+
+def test_reanchor_never_invents_support_for_a_fabricated_quote():
+    """No-invention guard: re-anchoring corrects offsets ONLY when the quote is
+    genuinely in the prompt. A quote absent from the prompt is left untouched and
+    still fails validation, so a hard term can never be fabricated by drift."""
+    from src.polaris_graph.planning.planning_gate_schema import (
+        reanchor_contract_spans,
+    )
+
+    contract = contract_from_dict({
+        "scope": [{
+            "term_id": "scope.fake",
+            "dimension": "scope.source_types",
+            "value": "peer_reviewed_only",
+            "origin": "explicit", "force": "hard",
+            # a quote the user NEVER wrote — pure fabrication.
+            "spans": [{"start": 0, "end": 18, "quote": "peer-reviewed only"}],
+        }],
+    })
+    reanchor_contract_spans(contract, TASK_72_PROMPT)
+    # the fabricated quote is not in the prompt, so it is NOT re-anchored and the
+    # span still mismatches -> the hard term is rejected (no invention).
+    codes = {e.code for e in validate_contract(contract, TASK_72_PROMPT)}
+    assert "span_quote_mismatch" in codes
+
+
+def test_reanchor_unit_corrects_offsets_from_quote():
+    """Unit: reanchor_contract_spans re-derives offsets from the verbatim quote."""
+    from src.polaris_graph.planning.planning_gate_schema import (
+        reanchor_contract_spans,
+    )
+
+    contract = contract_from_dict({
+        "scope": [{
+            "term_id": "scope.lang", "dimension": "scope.source_languages",
+            "value": "en", "origin": "explicit", "force": "hard",
+            "spans": [_drifted_span(TASK_72_PROMPT, "English-language", 5)],
+        }],
+    })
+    # pre-reanchor the offset is wrong.
+    assert not contract.scope[0].spans[0].matches_prompt(TASK_72_PROMPT)
+    reanchor_contract_spans(contract, TASK_72_PROMPT)
+    sp = contract.scope[0].spans[0]
+    assert sp.matches_prompt(TASK_72_PROMPT)
+    assert TASK_72_PROMPT[sp.start:sp.end] == "English-language"
+
+
+# ---------------------------------------------------------------------------
 # BUG B (drb_72 unregistered-slug crash): the e2e harness must resolve task 72
 # to the REGISTERED lineage slug so run_gate_b's forced official-question bind
 # does not fail-loud-raise on the bare 'drb_72' slug.

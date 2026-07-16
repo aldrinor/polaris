@@ -129,12 +129,36 @@ _QUERY_JSONL = _REPO / "third_party/deep_research_bench/data/prompt_data/query.j
 # The six S5 e2e tasks (design §8 S5 / §7 representative slate).
 _S5_TASK_IDS = ("4", "30", "61", "72", "76", "90")
 
-# Human-readable domain slugs per task (only used to shape the run dir + the query dict the
-# sweep consumes; the sweep keys everything on q["question"] = the verbatim DRB prompt).
+# DRB task id -> the scope-gate domain run_one_query's run_scope_gate ACCEPTS. This is NOT a
+# cosmetic slug: run_one_query passes q["domain"] straight into run_scope_gate
+# (run_honest_sweep_r3.py:9498) which REJECTS any value outside scope_gate.SUPPORTED_DOMAINS
+# ({ai_sovereignty,canada_us,clinical,custom,due_diligence,policy,tech,workforce}) and, on
+# reject, aborts BEFORE retrieval with manifest.status=abort_scope_rejected. The prior table
+# used free-text labels (finance/social_science/fisheries/labor/health/legal) that are NOT in
+# SUPPORTED_DOMAINS — the live probe's domain='labor' is exactly why task 72 aborted at the
+# scope gate. The AUTHORITATIVE source for these bindings is the champion's own SWEEP_QUERIES
+# table (run_honest_sweep_r3.py ~L7713-7846): each DRB-EN benchmark entry pins slug->domain so
+# the frozen per_query_report_contract in config/scope_templates/<domain>.yaml resolves at
+# runtime (drb_72_ai_labor -> "workforce"; drb_76_gut_microbiota_crc -> "clinical";
+# drb_90_adas_liability -> "policy"). We REUSE those verbatim. Tasks 4/30/61 have NO champion
+# SWEEP_QUERIES binding (they are not in the DRB-EN slate the champion ships), so they take the
+# documented DEFAULT below — scope_gate.DEFAULT_DOMAIN = "custom", the canonical free-form,
+# tier-permissive template that run_scope_gate accepts for any domain-less caller (never
+# clinical, never abort). Task 72 -> "workforce" is the load-bearing champion binding.
 _TASK_DOMAIN = {
-    "4": "finance", "30": "social_science", "61": "fisheries",
-    "72": "labor", "76": "health", "90": "legal",
+    # Champion SWEEP_QUERIES bindings (run_honest_sweep_r3.py) — verbatim, load-bearing:
+    "72": "workforce",   # drb_72_ai_labor  (SWEEP_workforce_drb_72_ai_labor champion run_id)
+    "76": "clinical",    # drb_76_gut_microbiota_crc
+    "90": "policy",      # drb_90_adas_liability
+    # No champion SWEEP_QUERIES binding -> documented default (scope_gate.DEFAULT_DOMAIN):
+    "4": "custom",       # gold-price trend analysis (zh) — no DRB-EN slate entry
+    "30": "custom",      # global-south civilizational exchange (zh) — no DRB-EN slate entry
+    "61": "custom",      # chub-mackerel price dynamics (en) — no DRB-EN slate entry
 }
+
+# The documented fallback for any task id not in _TASK_DOMAIN — the scope-gate's own default
+# (src/polaris_graph/nodes/scope_gate.py DEFAULT_DOMAIN), an ACCEPTED member of SUPPORTED_DOMAINS.
+_DEFAULT_DOMAIN = "custom"
 
 
 def _registered_slug_for_task(tid: str) -> str:
@@ -187,12 +211,24 @@ def _query_dict_for_task(task: dict) -> dict:
     NOT a hand-written amplified list (that would bypass the no-starvation proof).
     """
     tid = str(task["id"])
+    domain = _TASK_DOMAIN.get(tid, _DEFAULT_DOMAIN)
+    # FAIL-LOUD at assembly: a domain outside SUPPORTED_DOMAINS makes run_scope_gate abort
+    # BEFORE retrieval (manifest.status=abort_scope_rejected) — the exact live-probe failure
+    # (domain='labor'). Catch it here at zero cost instead of after the live gate compile.
+    from src.polaris_graph.nodes.scope_gate import SUPPORTED_DOMAINS  # noqa: PLC0415
+    if domain not in SUPPORTED_DOMAINS:
+        raise SystemExit(
+            f"BLOCKED: task {tid} maps to domain {domain!r} which is NOT in scope_gate."
+            f"SUPPORTED_DOMAINS ({sorted(SUPPORTED_DOMAINS)}); run_scope_gate would abort "
+            f"pre-retrieval. Fix _TASK_DOMAIN in scripts/run_gate_e2e.py."
+        )
     return {
         # Descriptive, stable run-dir slug (drb_72 -> drb_72_ai_labor). Cosmetic only now:
         # run_one_query does NO lineage lookup on the slug, so there is no forced official-
         # question rebind and no DRB-II gold-file read. q["question"] below is the sole prompt.
         "slug": _registered_slug_for_task(tid),
-        "domain": _TASK_DOMAIN.get(tid, "general"),
+        # MUST be a scope_gate.SUPPORTED_DOMAINS member or run_scope_gate aborts pre-retrieval.
+        "domain": domain,
         "question": task["prompt"],
         "amplified": [],
         "language": task.get("language", "en"),
@@ -313,9 +349,31 @@ def _assembled_pipeline_call(q: dict, out_root: Path, *, gate_on: bool, mode: st
     }
 
 
-def _run_fresh_e2e(q: dict, out_root: Path, *, gate_on: bool, mode: str) -> Path:
-    """EXECUTE the fresh e2e (LIVE ONLY). Sets the gate env slate, calls run_one_query
-    DIRECTLY, returns the run dir that holds report.md. NEVER called in dry mode.
+# Terminal statuses run_one_query returns when it ABORTED before producing a scoreable report.
+# run_one_query writes a STUB report.md on scope-reject (run_honest_sweep_r3.py:9651) so a bare
+# report_path.exists() check reads a hard abort as success — the false-OK bug. Any status with
+# these prefixes is a FAILURE; the stub is not a scoreable report. (Kept as prefixes so new
+# abort_*/fail_*/error_* statuses added downstream are caught without editing this list.)
+_ABORT_STATUS_PREFIXES = ("abort", "fail", "error", "cancel")
+
+
+def _is_abort_status(status: str | None) -> bool:
+    """True iff run_one_query's terminal status denotes a non-scoreable abort/failure."""
+    s = (status or "").strip().lower()
+    return any(s.startswith(p) for p in _ABORT_STATUS_PREFIXES)
+
+
+def _run_fresh_e2e(
+    q: dict, out_root: Path, *, gate_on: bool, mode: str, runner: Any = None,
+) -> tuple[Path, dict]:
+    """EXECUTE the fresh e2e. Sets the gate env slate, calls run_one_query DIRECTLY, returns
+    the run dir that holds report.md.
+
+    ``runner`` is the coroutine function invoked as ``runner(q, out_root)``. It defaults to the
+    REAL ``scripts.run_honest_sweep_r3.run_one_query`` (the live path). The --dry-e2e mode and
+    the offline integration test inject a NETWORK-MOCKED stub with the SAME (q, out_root) ->
+    summary-dict interface, so the FULL harness path is exercised offline against run_one_query's
+    real contract: same env slate, same q-dict, same report.md discovery, same abort detection.
 
     WHY run_one_query (NOT run_gate_b_query): run_gate_b_query FORCES
     ``PG_BENCHMARK_OFFICIAL_QUESTION=1`` and rebinds ``q["question"]`` to the DeepResearch-
@@ -338,9 +396,15 @@ def _run_fresh_e2e(q: dict, out_root: Path, *, gate_on: bool, mode: str) -> Path
     slate = _fresh_e2e_env_slate(gate_on=gate_on, mode=mode)
     for k, v in slate.items():
         os.environ[k] = v
-    from scripts.run_honest_sweep_r3 import run_one_query
-    asyncio.run(run_one_query(q, out_root))
-    return out_root / q["domain"] / q["slug"]
+    if runner is None:
+        from scripts.run_honest_sweep_r3 import run_one_query as runner
+    # Capture run_one_query's summary — its ``status`` is the authoritative abort/success
+    # signal. A scope reject (or any abort) returns status=abort_* AFTER writing a stub
+    # report.md, so we can NOT infer success from report.md alone (that was the false-OK bug).
+    summary = asyncio.run(runner(q, out_root))
+    if not isinstance(summary, dict):
+        summary = {"status": "error_no_summary", "error": "run_one_query returned non-dict"}
+    return out_root / q["domain"] / q["slug"], summary
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +434,66 @@ def _fact_command(run_dir: Path, task_id: str) -> list[str]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Network-mocked run_one_query stub (the --dry-e2e / integration-test runner)
+# ---------------------------------------------------------------------------
+
+def make_mock_run_one_query(
+    *, expected_question: str, status: str = "released_with_disclosed_gaps",
+    write_report: bool = True, assertions: bool = True,
+):
+    """Build a NETWORK-MOCKED stand-in for ``run_honest_sweep_r3.run_one_query``.
+
+    The returned coroutine has run_one_query's REAL interface — ``async (q, out_root) -> summary
+    dict`` — but does ZERO network / LLM / retrieval / compose. It:
+
+      * ASSERTS (when ``assertions``) that the harness handed it an ACCEPTED scope-gate domain
+        (in SUPPORTED_DOMAINS — the fix-(2) canary), the VERBATIM task question (byte-match vs
+        ``expected_question`` — proves no prompt drift / no DRB-II rebind), and that the gate env
+        slate threaded (PG_GATE + PG_USE_RESEARCH_PLANNER present in os.environ — proves the S2
+        projection would fire), replicating the exact preconditions the real run_one_query needs;
+      * writes a realistic ``report.md`` to ``out_root/<domain>/<slug>/`` (the real run's output
+        location) UNLESS ``write_report`` is False (used to prove the fail-loud "no report" path);
+      * returns a summary dict shaped like run_one_query's real return (status/slug/domain/
+        question/run_dir/error) with the requested terminal ``status`` — a non-abort status for
+        the success case, or an ``abort_*`` status to prove fail-loud fires on the abort STUB.
+    """
+    async def _mock_run_one_query(q: dict, out_root: Path) -> dict:
+        if assertions:
+            from src.polaris_graph.nodes.scope_gate import SUPPORTED_DOMAINS
+            assert q["domain"] in SUPPORTED_DOMAINS, (
+                f"WIRING MISMATCH: run_one_query got domain {q['domain']!r} NOT in "
+                f"SUPPORTED_DOMAINS — run_scope_gate would abort pre-retrieval."
+            )
+            assert q["question"] == expected_question, (
+                "WIRING MISMATCH: run_one_query got a NON-VERBATIM question (prompt drift / "
+                "unexpected rebind)."
+            )
+            assert os.environ.get("PG_GATE") in ("0", "1"), (
+                "WIRING MISMATCH: PG_GATE not threaded into the run_one_query env."
+            )
+            assert "PG_USE_RESEARCH_PLANNER" in os.environ, (
+                "WIRING MISMATCH: PG_USE_RESEARCH_PLANNER not threaded — the S2 projection "
+                "would never fire (run_honest_sweep_r3.py:10448 requires it)."
+            )
+        run_dir = out_root / q["domain"] / q["slug"]
+        run_dir.mkdir(parents=True, exist_ok=True)
+        if write_report:
+            # A realistic non-trivial report the RACE/FACT stages can consume (sections + a
+            # citation), NOT the abort stub. The bytes are synthetic; the WIRING is real.
+            (run_dir / "report.md").write_text(
+                f"# {q['question'][:60]}\n\n## Introduction\n\nMocked offline report body for "
+                f"the dry-e2e wiring proof.\n\n## Findings\n\nFinding one [1].\n\n"
+                f"## References\n\n[1] Example Source. (2025).\n",
+                encoding="utf-8")
+        return {
+            "slug": q["slug"], "domain": q["domain"], "question": q["question"],
+            "run_id": f"MOCK_{q['domain']}_{q['slug']}", "status": status,
+            "run_dir": str(run_dir), "error": "" if not _is_abort_status(status) else status,
+        }
+    return _mock_run_one_query
+
+
 def _run_cmd(cmd: list[str]) -> dict:
     t0 = time.time()
     try:
@@ -388,14 +512,30 @@ def _run_cmd(cmd: list[str]) -> dict:
 def _process_task(
     task_id: str, *, out_root: Path, mode: str, gate_on: bool, dry: bool,
     draws: int, score_race: bool, score_fact: bool,
+    dry_e2e: bool = False, e2e_runner: Any = None,
 ) -> dict:
+    """Orchestrate one DRB task.
+
+    Three modes:
+      * dry (default)   — gate+wiring assembly only, NO run_one_query call (spend-free smoke).
+      * dry_e2e         — drive the FULL live harness path (gate offline stub + _run_fresh_e2e)
+                          but with ``e2e_runner`` = a NETWORK-MOCKED run_one_query stub. Proves
+                          the whole wiring offline; NO network, NO spend. The gate also runs on
+                          the offline compiler stub (live=False) so no OPENROUTER call fires.
+      * live            — the real fresh e2e (network + spend).
+    """
     task = _load_drb_task(task_id)
     prompt = task["prompt"]
     q = _query_dict_for_task(task)
+    # dry_e2e drives the live branch (executes run_one_query via the injected runner).
+    take_live_branch = (not dry) or dry_e2e
+    # The gate fires its real OpenRouter policy model ONLY on a true live run; dry AND dry_e2e
+    # both use the offline compiler stub so the test/mode is fully spend-free.
+    gate_live = (not dry) and (not dry_e2e)
     per_task: dict[str, Any] = {
         "task_id": task_id, "language": task.get("language"),
         "prompt_head": prompt[:70].replace("\n", " "),
-        "mode": mode, "gate_on": gate_on, "dry": dry, "draws": []}
+        "mode": mode, "gate_on": gate_on, "dry": dry, "dry_e2e": dry_e2e, "draws": []}
 
     for draw in range(1, draws + 1):
         run_id = f"gate_e2e_{task_id}_d{draw}_{uuid.uuid4().hex[:6]}"
@@ -405,7 +545,7 @@ def _process_task(
 
         # --- STAGE 1: GATE ---
         t0 = time.time()
-        gate = _run_gate(prompt, mode=mode, live=(not dry), run_id=run_id)
+        gate = _run_gate(prompt, mode=mode, live=gate_live, run_id=run_id)
         artifact = gate.artifact
         (run_dir / "planning_gate_artifact.json").write_text(
             json.dumps(artifact.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -430,7 +570,7 @@ def _process_task(
         assembled = _assembled_pipeline_call(q, out_root, gate_on=gate_on, mode=mode)
         d["stages"]["fresh_e2e_call"] = assembled
 
-        if dry:
+        if not take_live_branch:
             # Prove the audit wiring against a stub report (no compose). The REAL audit runs
             # on the fresh report.md in the live path below.
             stub_report = f"# {prompt[:50]}\n\n## Introduction\n\nStub.\n\n## References\n"
@@ -472,14 +612,31 @@ def _process_task(
         else:
             # --- LIVE: execute the fresh e2e, then audit + score the REAL report.md ---
             t1 = time.time()
-            sweep_run_dir = _run_fresh_e2e(q, out_root, gate_on=gate_on, mode=mode)
+            sweep_run_dir, sweep_summary = _run_fresh_e2e(
+                q, out_root, gate_on=gate_on, mode=mode, runner=e2e_runner)
             report_path = sweep_run_dir / "report.md"
+            sweep_status = sweep_summary.get("status")
+            aborted = _is_abort_status(sweep_status)
             d["stages"]["fresh_e2e"] = {
                 "elapsed_s": round(time.time() - t1, 1),
                 "sweep_run_dir": str(sweep_run_dir),
                 "report_exists": report_path.exists(),
+                "sweep_status": sweep_status,
+                "sweep_error": sweep_summary.get("error") or "",
+                "aborted": aborted,
             }
-            if report_path.exists():
+            # FAIL-LOUD: a run that ABORTED (scope reject, safety refusal, no-sources,
+            # corpus-inadequate, budget, ...) or produced NO report.md is NOT a scoreable
+            # report — even though the abort path writes a STUB report.md. Do NOT audit/score
+            # a stub; set d["error"] so per-draw ok is False and main() exits non-zero.
+            if aborted:
+                d["error"] = (
+                    f"fresh e2e ABORTED: status={sweep_status!r} "
+                    f"{sweep_summary.get('error') or ''}".strip()
+                )
+            elif not report_path.exists():
+                d["error"] = "fresh e2e produced no report.md (no abort status either)"
+            else:
                 report_text = report_path.read_text(encoding="utf-8")
                 # co-locate the judged report + artifact + audit in the harness run dir
                 (run_dir / "report.md").write_text(report_text, encoding="utf-8")
@@ -496,8 +653,7 @@ def _process_task(
                 if score_fact:
                     d["stages"]["fact"] = _run_cmd(_fact_command(sweep_run_dir, task_id))
                 _ = biblio_path  # referenced for provenance; audit already parses report refs
-            else:
-                d["error"] = "fresh e2e produced no report.md"
+                d["live_ok"] = True
 
         (run_dir / "gate_e2e_telemetry.json").write_text(
             json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -527,6 +683,11 @@ def main() -> int:
     dry_grp.add_argument("--live", dest="dry", action="store_false",
                          help="EXECUTE the real fresh e2e (>10 min, costs money). "
                               "Requires PG_PLANNING_GATE_LIVE=1 + OPENROUTER_API_KEY.")
+    ap.add_argument("--dry-e2e", action="store_true", default=False,
+                    help="OFFLINE full-path proof: drive the ENTIRE live harness path "
+                         "(gate offline stub -> _run_fresh_e2e -> run_one_query) with the "
+                         "network MOCKED (built-in stub). No spend, no OPENROUTER, in-workflow "
+                         "safe. Proves the wiring the next LIVE run depends on.")
     ap.add_argument("--no-gate", dest="gate_on", action="store_false", default=True,
                     help="champion baseline: PG_GATE=0 (byte-identical control).")
     ap.add_argument("--score-race", action="store_true", help="run RACE on each live report.")
@@ -537,7 +698,12 @@ def main() -> int:
     out_root = (_REPO / args.out_root) if not Path(args.out_root).is_absolute() else Path(args.out_root)
     out_root.mkdir(parents=True, exist_ok=True)
 
-    if not args.dry:
+    # --dry-e2e drives the LIVE branch with a mocked runner: NO real live run, so it needs
+    # NEITHER OPENROUTER nor PG_PLANNING_GATE_LIVE. Only a true --live run is guarded.
+    real_live = (not args.dry) and (not args.dry_e2e)
+    # assembly_only = the default spend-free smoke (gate+wiring, no run_one_query at all).
+    assembly_only = args.dry and (not args.dry_e2e)
+    if real_live:
         if os.getenv("PG_PLANNING_GATE_LIVE", "0").strip().lower() not in ("1", "true", "yes", "on"):
             print("BLOCKED: --live requires PG_PLANNING_GATE_LIVE=1 (the gate's policy model).",
                   file=sys.stderr)
@@ -548,36 +714,69 @@ def main() -> int:
 
     summary: dict[str, Any] = {
         "harness": "run_gate_e2e", "mode": args.mode, "dry": args.dry,
+        "dry_e2e": args.dry_e2e,
         "gate_on": args.gate_on, "draws": args.draws, "out_root": str(out_root),
         "score_race": args.score_race, "score_fact": args.score_fact, "tasks": []}
 
     all_ok = True
+    _label = "DRY" if assembly_only else ("DRY-E2E(mocked)" if args.dry_e2e else "LIVE")
     for tid in task_ids:
         print(f"[gate-e2e] task {tid}  mode={args.mode}  "
-              f"{'DRY' if args.dry else 'LIVE'}  gate={'ON' if args.gate_on else 'OFF'}  "
+              f"{_label}  gate={'ON' if args.gate_on else 'OFF'}  "
               f"draws={args.draws}")
+        # In --dry-e2e, build a network-mocked run_one_query keyed on THIS task's verbatim
+        # prompt so the stub asserts a byte-exact question match (no drift).
+        _e2e_runner = None
+        if args.dry_e2e:
+            _task = _load_drb_task(tid)
+            _e2e_runner = make_mock_run_one_query(expected_question=_task["prompt"])
         res = _process_task(
             tid, out_root=out_root, mode=args.mode, gate_on=args.gate_on,
-            dry=args.dry, draws=args.draws,
+            dry=assembly_only, dry_e2e=args.dry_e2e, e2e_runner=_e2e_runner,
+            draws=args.draws,
             score_race=args.score_race, score_fact=args.score_fact)
         summary["tasks"].append(res)
         for d in res["draws"]:
             g = d["stages"]["gate"]
             rw = d["stages"]["retrieval_wiring"]
-            ok = d.get("assembled_ok", not d.get("error"))
-            all_ok = all_ok and bool(ok)
+            # ASSEMBLY-ONLY: assembled_ok is authoritative. LIVE / DRY-E2E: the draw is OK only
+            # if it produced a SCOREABLE report — d["live_ok"] is set True ONLY after a non-abort
+            # report.md was audited (never on the abort stub). Any d["error"] (abort / missing
+            # report) => NOT OK. This is the fix for the false "[gate-e2e] ALL OK" on an abort.
+            if assembly_only:
+                ok = bool(d.get("assembled_ok"))
+            else:
+                ok = bool(d.get("live_ok")) and not d.get("error")
+            all_ok = all_ok and ok
+            tail = f"assembled_ok={ok}" if assembly_only else (
+                f"live_ok={ok} status="
+                f"{d.get('stages', {}).get('fresh_e2e', {}).get('sweep_status')!r}"
+                + (f" ERROR={d['error']}" if d.get("error") else ""))
             print(f"  draw{d['draw']}: gate={g['state']} "
                   f"terms={g['n_terms']} hard={g['n_hard']} cov={g['n_coverage']} "
                   f"amp_q={rw['amplified_query_count']} scope_lanes={len(rw['scope_lane_keys'])} "
-                  f"assembled_ok={ok}")
+                  f"{tail}")
 
     summary["all_ok"] = all_ok
     summary_path = out_root / "gate_e2e_summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[gate-e2e] summary -> {summary_path}")
-    print(f"[gate-e2e] {'ALL OK' if all_ok else 'FAIL'} "
-          f"({len(task_ids)} tasks x {args.draws} draws, {'dry' if args.dry else 'live'})")
-    return 0 if all_ok else 1
+    if not all_ok:
+        # FAIL-LOUD: enumerate every draw that did NOT produce a scoreable report so a live
+        # abort can NEVER be reported as success. This prints to stderr and returns non-zero.
+        for res in summary["tasks"]:
+            for d in res.get("draws", []):
+                if d.get("error"):
+                    print(f"[gate-e2e][FAIL] task {res['task_id']} draw{d['draw']}: "
+                          f"{d['error']}", file=sys.stderr)
+        print(f"[gate-e2e] FAIL ({len(task_ids)} tasks x {args.draws} draws, "
+              f"{_label}) — at least one draw produced NO scoreable "
+              f"report (abort / missing report.md). This run is NOT scoreable.",
+              file=sys.stderr)
+        return 1
+    print(f"[gate-e2e] ALL OK "
+          f"({len(task_ids)} tasks x {args.draws} draws, {_label})")
+    return 0
 
 
 if __name__ == "__main__":

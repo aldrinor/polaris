@@ -1143,6 +1143,67 @@ def sha256_of(obj: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Span re-anchoring — the quote is authoritative, the offset is not
+# ---------------------------------------------------------------------------
+#
+# The contract compiler is an LLM. Empirically it copies the verbatim `quote`
+# for an explicit span correctly, but it CANNOT reliably count characters over a
+# multi-hundred-char prompt: its `start`/`end` drift by a few positions, so
+# `prompt[start:end] != quote` and the validator raises `span_quote_mismatch` on
+# otherwise-correct explicit terms (drb_72: 8 of 8 fatal span errors were pure
+# offset drift on quotes that appear verbatim in the prompt).
+#
+# This mirrors the S0 candidate adapter's own established discipline
+# (`candidate_adapter._locate_span`): the trigger PHRASE is the source of truth
+# and the offset is RE-DERIVED by locating that phrase verbatim in the prompt —
+# an offset is never trusted from an upstream that can't count. Re-anchoring is
+# a mechanical, no-invention operation: a span is corrected ONLY when its exact
+# `quote` still occurs verbatim in the prompt. A `quote` that is NOT present in
+# the prompt (a fabricated/paraphrased span) is left UNTOUCHED, so it stays a
+# fatal `span_quote_mismatch` and a hard term built on it is still rejected — the
+# no-invention rule (hard ⇒ origin==explicit ⇒ real verbatim span) is preserved.
+
+def _reanchor_span(span: PromptSpan, prompt: str) -> PromptSpan:
+    """Return a span whose offsets locate ``span.quote`` verbatim in ``prompt``.
+
+    If the span already matches (``prompt[start:end] == quote``) it is returned
+    unchanged. Otherwise, if ``quote`` occurs verbatim in the prompt (exact, then
+    case-insensitive with the ACTUAL prompt substring kept as the quote so
+    quote-equality holds), the offsets are corrected to that occurrence. If the
+    quote cannot be located at all, the span is returned unchanged (it will fail
+    validation — a fabricated span is never silently accepted).
+    """
+    if not prompt or not span.quote:
+        return span
+    if span.matches_prompt(prompt):
+        return span
+    idx = prompt.find(span.quote)
+    if idx != -1:
+        return PromptSpan(idx, idx + len(span.quote), span.quote)
+    low = prompt.lower().find(span.quote.lower())
+    if low != -1:
+        actual = prompt[low:low + len(span.quote)]
+        return PromptSpan(low, low + len(actual), actual)
+    return span
+
+
+def reanchor_contract_spans(contract: ResearchContract, prompt: str) -> ResearchContract:
+    """Re-derive every term's span offsets from its verbatim quote (in place).
+
+    Called by the compiler after parsing and BEFORE validation so the LLM's
+    unreliable character offsets never trip ``span_quote_mismatch`` on a quote
+    that is genuinely present in the prompt. A quote absent from the prompt is
+    left as-is and still fails validation — this only corrects arithmetic, it
+    never invents support for a term. Returns the same contract for chaining.
+    """
+    prompt = prompt or ""
+    for term in contract.all_terms():
+        if term.spans:
+            term.spans = [_reanchor_span(sp, prompt) for sp in term.spans]
+    return contract
+
+
+# ---------------------------------------------------------------------------
 # Deterministic validators — the mechanical no-invention gate
 # ---------------------------------------------------------------------------
 

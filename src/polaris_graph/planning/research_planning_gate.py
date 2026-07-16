@@ -73,6 +73,7 @@ from src.polaris_graph.planning.planning_gate_schema import (
     ValidationError,
     contract_from_dict,
     plan_from_dict,
+    reanchor_contract_spans,
     sha256_of,
     validate_contract,
     validate_plan,
@@ -690,6 +691,11 @@ async def _compile_contract(
         raw = await _call(client, _CONTRACT_SYSTEM_PROMPT, user, _CONTRACT_MAX_TOKENS)
         data = _loads(raw)
         contract = contract_from_dict(data.get("contract", data))
+        # The LLM copies the verbatim quote correctly but drifts on character
+        # offsets; re-derive each span from its quote (no-invention: a quote not
+        # present in the prompt is left to fail validation). Mirrors the S0
+        # candidate adapter's _locate_span discipline.
+        reanchor_contract_spans(contract, prompt)
         errors = validate_contract(contract, prompt)
         if not _fatal_errors(errors, mode=mode):
             # No mode-fatal violation. Any remaining errors are repairable (an
@@ -714,6 +720,7 @@ async def _compile_contract(
         raw2 = await _call(client, _CONTRACT_SYSTEM_PROMPT, retry_user, _CONTRACT_MAX_TOKENS)
         data2 = _loads(raw2)
         contract2 = contract_from_dict(data2.get("contract", data2))
+        reanchor_contract_spans(contract2, prompt)
         errors2 = validate_contract(contract2, prompt)
         if not _fatal_errors(errors2, mode=mode):
             return contract2, errors2, False
