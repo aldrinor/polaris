@@ -561,6 +561,163 @@ def _apply_writer_menu_cap(
     return ev_subset[:cap]
 
 
+# ── LANE A (feat/intake-contract): SOURCE-ELIGIBILITY GATE ───────────────────────────────────────
+# THE LEVER: filter the per-section WRITER CITEABLE MENU (``ev_subset``) by the compiled contract's
+# ``source_rules`` BEFORE the writer runs. A HARD, exclusively-scoped rule (allow_only/forbid/exclude
+# at strength "hard" — the span-gated hard strength emitted only when the query literally scoped the
+# source class exclusively, e.g. "only journal articles") REMOVES non-qualifying rows from the menu.
+# Every other rule (soft, or include/prefer) SOFT-DEMOTES: it stable-sorts the non-qualifying rows to
+# the TAIL of the menu (down-ranked, STILL fully citable). Default-OFF via PG_CONTRACT_ENFORCE_SOURCE_RULES.
+#
+# FIREWALL (why this is provably SAFE — menu-only, pre-write, faithfulness untouched):
+#   * MENU-ONLY: mutates ONLY the local ``ev_subset`` list (returns a NEW list, never mutates its
+#     input), exactly like _apply_writer_menu_cap. It does NOT touch ``section.ev_ids`` (bibliography +
+#     credibility disclosure are built from that — a blocked row STAYS a disclosed record) and does NOT
+#     touch ``evidence_pool`` (the strict_verify pool).
+#   * PRE-WRITE: runs strictly BEFORE the first writer call, so no already-cited claim can be orphaned —
+#     the writer is simply never OFFERED the blocked row and therefore cannot cite it.
+#   * VERIFICATION UNWEAKENED: strict_verify / _rewrite_draft_with_spans gate every emitted sentence
+#     against the FULL ``evidence_pool`` (NOT ``ev_subset``), so a blocked (or demoted) row remains fully
+#     available to GROUND any sentence — a blocked source can still verify prose. The frozen faithfulness
+#     engine is neither read nor modified.
+#   * RECALL VALVE: if hard-blocking would drop the section's citeable menu below
+#     PG_CONTRACT_SOURCE_GATE_MIN_MENU (default 3), DO NOT hard-remove for that section — SOFTEN to
+#     demote+disclose (keep the would-be-blocked rows, stable-sorted to the tail, LOUD disclosure) so the
+#     section is never starved into a state that tempts unsupported text.
+#   * FAIL-OPEN: classify_source_facets returns (set(),"unresolved") on a row with no url/doi/genre
+#     signal; a row that cannot be positively proven INELIGIBLE is SOFT-demoted, never hard-dropped (a
+#     misclassified journal is down-ranked, not starved).
+# SCOPE: this gates the ABSTRACTIVE ``ev_subset`` writer menu (+ the section distiller that reads it).
+# The verified-compose (_vc_baskets) and FIX-K span-dump menus are built from ``section.ev_ids`` on
+# their own surfaces and are OUT OF SCOPE for this lane (documented — not silently uncovered).
+def _source_eligibility_gate_enabled() -> bool:
+    """Kill-switch for the LANE A source-eligibility gate. DEFAULT OFF. When ON it OVERRIDES the
+    schema-level ``enforcement_disabled`` dormancy marker (that marker meant 'no wiring exists yet')."""
+    return (
+        os.getenv("PG_CONTRACT_ENFORCE_SOURCE_RULES", "0").strip().lower()
+        not in _CONTRACT_ENFORCE_OFF_VALUES
+    )
+
+
+def _source_gate_min_menu() -> int:
+    """RECALL-VALVE floor: the minimum citeable-menu size below which hard-blocking SOFTENS to
+    demote+disclose. ``PG_CONTRACT_SOURCE_GATE_MIN_MENU`` read at call time (monkeypatch-testable);
+    non-integer / negative => the default 3."""
+    try:
+        v = int(os.getenv("PG_CONTRACT_SOURCE_GATE_MIN_MENU", "3").strip())
+    except (TypeError, ValueError):
+        return 3
+    return v if v >= 0 else 3
+
+
+def _apply_source_eligibility_gate(
+    ev_subset: list,
+    contract: "Any | None",
+    ontology: "dict[str, Any] | None",
+    *,
+    section_title: str = "",
+) -> list:
+    """Filter the WRITER citeable menu (``ev_subset``) by ``contract.source_rules``. Returns a NEW list
+    (never mutates the input). Flag OFF / contract None / no source_rules / empty menu => the SAME object
+    unchanged (byte-identical). HARD exclusive rule => remove non-qualifying rows; SOFT/prefer/include =>
+    stable-demote non-qualifying rows to the tail. Recall valve softens hard-removal below the min-menu
+    floor. See the FIREWALL block above."""
+    if not _source_eligibility_gate_enabled() or contract is None:
+        return ev_subset
+    rules = list(getattr(contract, "source_rules", None) or [])
+    if not rules or not ev_subset:
+        return ev_subset
+    try:
+        from src.polaris_graph.retrieval.scope_facet_classifier import (  # noqa: PLC0415
+            classify_source_facets,
+            load_scope_ontology,
+        )
+    except Exception:  # fail-open — classifier import must never break compose
+        return ev_subset
+    ont = ontology if ontology is not None else load_scope_ontology()
+
+    def _op(r: "Any") -> str:
+        return str(getattr(r, "operator", "") or "").strip().lower()
+
+    def _strength(r: "Any") -> str:
+        return str(getattr(r, "strength", "") or "").strip().lower()
+
+    def _facet(r: "Any") -> str:
+        return str(getattr(r, "facet_id", "") or "").strip()
+
+    hard_allow_only = [r for r in rules if _strength(r) == "hard" and _op(r) == "allow_only" and _facet(r)]
+    hard_forbid = [r for r in rules if _strength(r) == "hard" and _op(r) in ("forbid", "exclude") and _facet(r)]
+    # Everything else is soft/preference (include/prefer/exclude-soft/require_some).
+    soft_rules = [r for r in rules if r not in hard_allow_only and r not in hard_forbid and _facet(r)]
+
+    n = len(ev_subset)
+    facets_by_idx: list[set] = []
+    for row in ev_subset:
+        try:
+            fset, _basis = classify_source_facets(row, ont)
+        except Exception:  # fail-open — an unclassifiable row is treated as unresolved
+            fset = set()
+        facets_by_idx.append(set(fset) if fset else set())
+
+    hard_block = [False] * n
+    demote = [False] * n
+    for i, fset in enumerate(facets_by_idx):
+        resolved = bool(fset)
+        for r in hard_allow_only:
+            if _facet(r) not in fset:
+                # allow_only: must carry the facet. FAIL-OPEN: an unresolved row cannot be proven
+                # ineligible => soft-demote, never hard-drop.
+                if resolved:
+                    hard_block[i] = True
+                else:
+                    demote[i] = True
+        for r in hard_forbid:
+            if _facet(r) in fset:
+                hard_block[i] = True
+        for r in soft_rules:
+            op = _op(r)
+            fid = _facet(r)
+            if op in ("prefer", "include"):
+                if fid not in fset:
+                    demote[i] = True
+            elif op in ("exclude", "forbid"):
+                if fid in fset:
+                    demote[i] = True
+            # require_some is a FLOOR, not an exclusion => neither block nor demote.
+
+    kept_after_hard = [i for i in range(n) if not hard_block[i]]
+    floor = _source_gate_min_menu()
+    n_blocked = n - len(kept_after_hard)
+    if n_blocked > 0 and len(kept_after_hard) < floor:
+        # RECALL VALVE: hard-blocking would starve this section — soften every hard-block to a demote.
+        for i in range(n):
+            if hard_block[i]:
+                hard_block[i] = False
+                demote[i] = True
+        logger.info(
+            "[multi_section] %s SOURCE-GATE RECALL VALVE: hard-block would drop the citeable menu to "
+            "%d (< floor %d); SOFTENED %d would-be-blocked row(s) to demote+disclose (kept citable, "
+            "stable-sorted to the tail) — section never starved",
+            section_title, len(kept_after_hard), floor, n_blocked,
+        )
+
+    head = [ev_subset[i] for i in range(n) if not hard_block[i] and not demote[i]]
+    tail = [ev_subset[i] for i in range(n) if not hard_block[i] and demote[i]]
+    n_removed = sum(1 for b in hard_block if b)
+    if n_removed == 0 and not tail:
+        return ev_subset  # no rule bit => unchanged menu
+    if n_removed or tail:
+        logger.info(
+            "[multi_section] %s SOURCE-GATE: citeable writer menu %d -> %d row(s) "
+            "(%d HARD-removed from the WRITER PROMPT ONLY; %d SOFT-demoted to the tail). "
+            "Blocked/demoted rows STAY in evidence_pool + section.ev_ids (bibliography + "
+            "credibility disclosure) and remain fully available to strict_verify — faithfulness "
+            "engine untouched",
+            section_title, n, len(head) + len(tail), n_removed, len(tail),
+        )
+    return head + tail
+
+
 # I-arch-002 (#1246) P-W4gen: per-section serialized CHARACTER budget that REPLACES the
 # PG_MAX_EV_PER_SECTION row cap under the redesign flag. Read at CALL time. Default is a
 # generous slice of the 1M-context generator's window (~120K chars ≈ a large fraction of
@@ -1298,9 +1455,19 @@ _CONTRACT_ENFORCE_OFF_VALUES = frozenset({"0", "false", "no", "off", "disabled",
 
 
 def _contract_enforce_structure_enabled() -> bool:
-    """Kill-switch for the structure/presentation enforcement lane. DEFAULT OFF."""
+    """Kill-switch for the structure enforcement lane. DEFAULT OFF."""
     return (
         os.getenv(_CONTRACT_ENFORCE_ENV_FLAG, "0").strip().lower()
+        not in _CONTRACT_ENFORCE_OFF_VALUES
+    )
+
+
+def _contract_enforce_presentation_enabled() -> bool:
+    """LANE B kill-switch: when ON, the section writer receives the DEEP (imperative, reader-facing)
+    presentation guidance instead of the shallow bullet list. Style-only, downstream of strict_verify.
+    DEFAULT OFF."""
+    return (
+        os.getenv("PG_CONTRACT_ENFORCE_PRESENTATION", "0").strip().lower()
         not in _CONTRACT_ENFORCE_OFF_VALUES
     )
 
@@ -1310,8 +1477,17 @@ def _compile_compose_contract(research_question: str) -> "Any | None":
 
     Returns None when the flag is OFF (no import, no work => byte-identical) or on
     any error (fail-open). ``llm_fn=None`` runs the three deterministic offline
-    extractors only — NO paid/LLM/network call (safety rule 4)."""
-    if not _contract_enforce_structure_enabled():
+    extractors only — NO paid/LLM/network call (safety rule 4).
+
+    The compile gate fires when ANY of the three enforcement lanes is enabled — structure
+    (required-section injection), LANE B presentation (deep style guidance), or LANE A source
+    rules (the citeable-menu gate) — so each lane can run independently. ALL three flags OFF =>
+    returns None => byte-identical."""
+    if not (
+        _contract_enforce_structure_enabled()
+        or _contract_enforce_presentation_enabled()
+        or _source_eligibility_gate_enabled()
+    ):
         return None
     try:
         from src.polaris_graph.intake.contract_compiler import (  # noqa: PLC0415
@@ -1452,6 +1628,50 @@ def _contract_presentation_guidance(contract: "Any | None") -> str:
         "the prose accordingly, but NEVER add a claim, number, or citation that is "
         "not already grounded in the provided evidence; unsupported sentences are "
         "dropped by verification regardless:\n" + "\n".join(parts)
+    )
+
+
+def _contract_presentation_guidance_deep(contract: "Any | None") -> str:
+    """LANE B: render the contract's presentation ContractFields into DEEPER, imperative,
+    reader-facing STYLE directives (vs the shallow bullet labels). NON-BINDING and STYLE-ONLY: it sits
+    DOWNSTREAM of strict_verify (appended to the writer system prompt), so it can only shape
+    tone/length/format/audience/narration-language — it can NEVER introduce an unsupported claim,
+    number, or citation. Returns "" when the contract is None or no presentation field is set (=> no
+    prompt append => byte-identical). All five fields stay UNIFORMLY non-binding regardless of a field's
+    strength — none of them narrow the answer (presentation, not scope)."""
+    if contract is None:
+        return ""
+    directives: list[str] = []
+    for attr, render in (
+        ("tone", lambda v: f"Write in a {v} register throughout."),
+        ("audience", lambda v: (
+            f"Assume the reader is {v}; calibrate terminology, defined jargon, and depth of "
+            "explanation to them."
+        )),
+        ("length", lambda v: (
+            f"Aim for a {v} treatment — prioritize the most load-bearing evidence; do NOT pad."
+        )),
+        ("format", lambda v: (
+            f"Prefer a {v} presentation where the grounded evidence supports it."
+        )),
+        ("output_language", lambda v: (
+            f"Compose the NARRATION in {v}; leave quoted evidence, citations, entity names, and "
+            "numeric spans exactly as sourced (do NOT translate them)."
+        )),
+    ):
+        fld = getattr(contract, attr, None)
+        try:
+            if fld is not None and fld.is_set() and str(fld.value).strip():
+                directives.append("- " + render(str(fld.value).strip()))
+        except Exception:  # a malformed field never breaks the writer
+            continue
+    if not directives:
+        return ""
+    return (
+        "PRESENTATION GUIDANCE (style / length / format only — NON-BINDING). Follow these "
+        "reader-facing style directives, but NEVER add a claim, number, or citation that is not "
+        "already grounded in the provided evidence; unsupported sentences are dropped by "
+        "verification regardless:\n" + "\n".join(directives)
     )
 
 
@@ -6126,6 +6346,8 @@ async def _run_section(
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
     presentation_guidance: str = "",  # feat/intake-contract: NON-BINDING style/length/format append; "" => byte-identical
+    source_gate_contract: "Any | None" = None,  # LANE A: compiled contract for the source-eligibility gate; None => byte-identical
+    source_gate_ontology: "Any | None" = None,  # LANE A: preloaded scope ontology for the gate; None => lazy-load inside the gate
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
     research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
     quantified_models: "dict[tuple[str, str], Any] | None" = None,  # MOAT: agentic verified-compute registry; None => byte-identical
@@ -6153,6 +6375,17 @@ async def _run_section(
         evidence_pool[ev_id] for ev_id in section.ev_ids
         if ev_id in evidence_pool
     ]
+    # LANE A (feat/intake-contract): SOURCE-ELIGIBILITY GATE. Filter the WRITER citeable menu
+    # (``ev_subset``) by the compiled contract's source_rules — HARD exclusive rule removes non-qualifying
+    # rows from the WRITER PROMPT ONLY; soft/prefer/include down-ranks to the tail (still citable); recall
+    # valve softens hard-removal below the min-menu floor. MENU-ONLY + PRE-WRITE: ``section.ev_ids``
+    # (bibliography + disclosure), ``evidence_pool`` (the strict_verify pool), and the faithfulness engine
+    # are ALL untouched — every emitted sentence is still gated against the FULL pool below, so a blocked
+    # row can still GROUND prose. Default-OFF (PG_CONTRACT_ENFORCE_SOURCE_RULES) / contract None => the
+    # SAME object returned => byte-identical. See _apply_source_eligibility_gate.
+    ev_subset = _apply_source_eligibility_gate(
+        ev_subset, source_gate_contract, source_gate_ontology, section_title=section.title,
+    )
     # RACE-FLOOR lever 2: FOCUS the WRITER's prompt menu to the top-N highest-ranked rows so a
     # route_all/facet-route-crammed section (52-103 rows) composes deep step3-like prose instead of
     # a 65%-dropped shallow spread. WRITER-menu ONLY: ``section.ev_ids`` (bibliography + disclosure),
@@ -10060,7 +10293,29 @@ async def generate_multi_section_report(
     # Flag OFF => `_compose_contract` is None and `_presentation_guidance` is "" =>
     # the injection seam below and the writer append are no-ops => byte-identical.
     _compose_contract = _compile_compose_contract(research_question)
-    _presentation_guidance = _contract_presentation_guidance(_compose_contract)
+    # LANE B (PG_CONTRACT_ENFORCE_PRESENTATION, DEFAULT OFF): the DEEP imperative renderer when the
+    # presentation flag is ON, else the existing shallow bullet renderer VERBATIM. Both flags OFF =>
+    # _compose_contract is None => renderer returns "" => the writer append is a no-op => byte-identical.
+    _presentation_guidance = (
+        _contract_presentation_guidance_deep(_compose_contract)
+        if _contract_enforce_presentation_enabled()
+        else _contract_presentation_guidance(_compose_contract)
+    )
+    # LANE A (PG_CONTRACT_ENFORCE_SOURCE_RULES, DEFAULT OFF): preload the scope ontology ONCE for the
+    # per-section source-eligibility gate (offline yaml.safe_load, no network). None when the flag is OFF
+    # or the contract is absent => the gate is a no-op => byte-identical.
+    _compose_source_gate_ontology = None
+    if _compose_contract is not None and _source_eligibility_gate_enabled():
+        try:
+            from src.polaris_graph.retrieval.scope_facet_classifier import (  # noqa: PLC0415
+                load_scope_ontology,
+            )
+            _compose_source_gate_ontology = load_scope_ontology()
+        except Exception as _exc:  # fail-open — the gate lazy-loads if this is None
+            logger.warning(
+                "[multi_section] SOURCE-GATE ontology preload skipped (%s)", str(_exc)[:160],
+            )
+            _compose_source_gate_ontology = None
     # ── end CONTRACT ENFORCE compile ────────────────────────────────────────────
 
     # Stage 1: outline
@@ -11166,6 +11421,11 @@ async def generate_multi_section_report(
                 # format), resolved once at the top of the body (closure-captured;
                 # "" when the flag is OFF -> no writer append -> byte-identical).
                 presentation_guidance=_presentation_guidance,
+                # LANE A (feat/intake-contract): closure-captured compiled contract + preloaded scope
+                # ontology for the per-section source-eligibility gate. None when the flag is OFF /
+                # contract absent => the gate is a no-op => byte-identical.
+                source_gate_contract=_compose_contract,
+                source_gate_ontology=_compose_source_gate_ontology,
                 # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
                 credibility_analysis=credibility_analysis,
                 # I-arch-004 F21 (#1255): thread the real research_question
