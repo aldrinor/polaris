@@ -1,0 +1,3328 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5e0d-8830-7bc2-b0de-5d13f0d46005
+--------
+user
+# I-ux-001c sub-PR 5 — Plan Review v6 chrome (GH #889)
+
+## Phase: BRIEF REVIEW (not diff review)
+
+You are reviewing the SPEC for an upcoming diff. Repo on `bot/I-ux-001c-sub-pr-5-plan-review` currently equals `polaris` HEAD. Per CLAUDE.md §3.0: brief → brief APPROVE → diff → diff APPROVE → audit. This is step 2.
+
+## §0 cap directive (CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Scope (mirror of sub-PR 4 pattern — visual-only marketing-auth chrome)
+
+Rebuild `/plan` page header chrome to v6 marketing-auth lock. Sub-PR 5 of approximately 7 for I-ux-001c.
+
+Current `/plan` (362 LOC, single file `web/app/plan/page.tsx`, per I-p2-015 #754) is the run-start surface (intake → source_review → plan → run). On mount it re-runs the FULL `runIntake` gate; "Start research run" is enabled only for in_scope + disambiguation-resolved questions; `createRun` POSTs to the backend on submit. ALL this logic preserved verbatim.
+
+v6 changes (header chrome only, lines ~219-238 of current page.tsx):
+
+- Brand-red eyebrow ("PLAN · POLARIS CLINICAL RESEARCH") replacing the bare "← Edit question" link as the page's leading visual
+- "← Edit question" link MOVED into the eyebrow row (right side)
+- Display H1 ("Confirm the plan before the run.") replacing the small "Review the plan"
+- Tightened subtitle locked verbatim: "Re-checked end-to-end — POLARIS will only start the run when the question, scope, and template are all clear."
+
+PRESERVED contracts:
+- `data-testid="plan-page"` (existing test selector)
+- `data-testid="plan-blocked"`, `data-testid="plan-concurrent"`, `data-testid="plan-start-run"`
+- `runIntake` + `runDisambiguation` + `createRun` + ConcurrentRunError handling — all preserved verbatim
+- `/intake` back-link deep-link preserved
+- AppShell chrome preserved (NOT chromeless)
+- All PLAN_STEPS content + Vetted-question card + Start-run button — preserved verbatim
+
+## Operator-locked constraints (carried forward, sub-PR 4 final)
+
+Brand-red `#c8102e` has THREE authorized usage paths, all preserved:
+1. Brand identity (NEW eyebrow + existing Start-run CTA via Button variant=default + decorative)
+2. Evidence-role T1 semantic (TIER_DOT in source_review/plan if used) — not applicable to /plan in this PR
+3. Interactive affordance (text-primary on existing links + retry buttons)
+
+Honest sovereignty wording preserved (Canadian-hosted; LLM via OpenRouter-US disclosed at /transparency).
+
+## File plan (surgical, single page + 1 NEW test)
+
+REBUILD
+1. `web/app/plan/page.tsx` — header chrome only (lines ~219-238 region):
+   - Add brand-red eyebrow + display H1 + tightened subtitle
+   - Move "← Edit question" link into eyebrow row
+   - Rest of the page (vetted-question card, plan steps, Start-run flow, error/concurrent/blocked states) PRESERVED VERBATIM
+
+NEW
+2. `web/tests/e2e/plan_v6.spec.ts` — 2 Playwright cases:
+   - Eyebrow + H1 + subtitle render with v6 copy
+   - Edit-question link still navigates to /intake (preserves back-link)
+   Mocks the runIntake endpoint via page.route so the auth-gated re-check doesn't race.
+
+## Files I have ALSO checked
+
+- web/components/app_shell.tsx — `/plan` in authed routes; no change
+- web/components/app_shell_gate.tsx — `/plan` NOT chromeless
+- web/lib/api.ts — runIntake, runDisambiguation, createRun, ConcurrentRunError all preserved
+- web/app/runs/[runId]/page.tsx — receives router.push from /plan on createRun success; no change
+- web/app/intake/components/intake_form.tsx — links to /source_review not /plan; no change
+- web/app/source_review/page.tsx — links to /plan via Continue CTA; no change
+
+## Brief-review check requests (`specific_check_responses`)
+
+- `scope_visual_only`: PASS / FAIL — header chrome only; runIntake/createRun/error states preserved verbatim
+- `existing_testids_preserved`: PASS / FAIL — plan-page, plan-blocked, plan-concurrent, plan-start-run preserved
+- `appshell_chrome_preserved`: PASS / FAIL — /plan stays in AppShell
+- `back_link_preserved`: PASS / FAIL — /intake back-link preserved (moved to eyebrow row, same href)
+- `file_plan_surgical`: PASS / FAIL — single page rebuild + 1 test file
+
+## Output schema (BIND)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+specific_check_responses:
+  scope_visual_only: PASS | FAIL_with_detail
+  existing_testids_preserved: PASS | FAIL_with_detail
+  appshell_chrome_preserved: PASS | FAIL_with_detail
+  back_link_preserved: PASS | FAIL_with_detail
+  file_plan_surgical: PASS | FAIL_with_detail
+```
+
+codex
+I’ll check the current `/plan` implementation and the shell/test patterns so the brief review is grounded in the repo state rather than just the prose.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"data-testid=\\\"plan-|Edit question|Review the plan|runIntake|createRun|ConcurrentRunError|AppShell|chromeless|/plan\" web/app/plan/page.tsx web/components/app_shell.tsx web/components/app_shell_gate.tsx web/lib/api.ts web/tests/e2e -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short --branch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path CLAUDE.md -TotalCount 260' in C:\POLARIS
+2026-05-25T07:33:39.419381Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.4 seconds
+Output:
+
+ exited 1 in 1400ms:
+ succeeded in 1816ms:
+## bot/I-ux-001c-sub-pr-5-plan-review...origin/bot/I-ux-001c-sub-pr-5-plan-review
+?? .codex/I-ux-001b/
+?? .codex/I-ux-001c-2/
+?? .codex/I-ux-001c-3/
+?? .codex/I-ux-001c/
+?? .codex/I-ux-001d/
+?? live/
+?? web/p2shots/
+?? web/playwright-source-review-next.err.log
+?? web/playwright-source-review-next.out.log
+?? web/scripts/screenshot_home_v6.mjs
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+
+ succeeded in 2202ms:
+# POLARIS PROJECT - Operational Directives
+
+CRITICAL: This file (CLAUDE.md) MUST be read in its entirety at the start of EVERY session and immediately following ANY restart. Failure to adhere to these directives constitutes a critical operational failure. See §3 for the mandatory startup protocol.
+
+Document Class: Operational, Binding, Project-Specific
+Scope: All POLARIS development, research pipeline implementation, and maintenance tasks.
+
+---
+
+## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+
+**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
+
+### §-1.1 Line-by-line audit standard (clinical-safety-critical)
+
+Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
+
+1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
+2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
+3. **Citation-by-citation** — verify each citation is appropriate for the claim.
+4. **Apply industrial benchmarks** appropriate to the domain:
+   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
+   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+   - Methodology: appropriate risk-of-bias tool for the study type.
+5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
+
+**STRICTLY BANNED:**
+- Word counts / citation counts / unique-source counts as quality signals
+- Pattern presence ("does the report mention 'tirzepatide'?")
+- Sample-based audits ("we audited 5 of 50 claims")
+- String-presence PASS/FAIL checks (e.g., gate tables)
+- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
+
+**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
+
+**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+
+### §-1.2 Standard debug workflow (no §3.0 bypass)
+
+Every task / bug / issue follows this exact sequence — no shortcuts:
+
+1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
+3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+
+**Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
+
+**Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+
+---
+
+## §0. Core Identity and Operational Mode
+
+**0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+
+**0.2 Primary Directive:** Implement the Active Project Definition (APD) as defined in §1.1.
+- **Rigor:** Execute without omission, ad-hoc simplification, or corner-cutting. Do not be sloppy. Do not simplify. Do not silently degrade functionality or quality.
+- **Exploration:** During exploratory phases where the APD is intentionally broad, the directive is to clarify intent, deliver high-value iterations, and rigorously document findings and the evolution of the scope (LAW I).
+
+**0.3 Operational Mode (Mandatory Extended Thinking):** You must always engage extended thinking capabilities for planning. Every task requires this rigorous process:
+1. **Analyze:** Deconstruct the request and synthesize the current APD (§1.1).
+2. **Research:** Proactively search online for the latest best practices, libraries, and solutions (LAW III).
+3. **Plan:** Formulate a detailed, step-by-step execution plan, considering edge cases and alternatives.
+4. **Execute:** Implement the plan rigorously, ensuring synchronization (LAW I).
+5. **Verify:** Validate the output against requirements and log the evidence (LAW II).
+6. **Record:** Update all mandatory documentation and state files (§2).
+
+The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log (§2.2).
+
+---
+
+## §1. The LAWS (Non-Negotiable Directives)
+
+These LAWS supersede all other instructions.
+
+### LAW I — Active Definition and Synchronization
+You must adhere strictly to the Active Project Definition (APD) and ensure its components are coherent.
+
+**1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan §9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+1. Current Session Instructions: Explicit requests and clarifications made during the active session.
+2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
+3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
+4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+6. Recent `logs/session_log.md` (The History).
+7. `architecture.md` (The Baseline).
+8. `docs/task_acceptance_matrix.yaml` (HISTORICAL — Plan-v13-era pre-Issue tracking; matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
+
+**1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization must occur before execution proceeds and must be logged (§2.2).
+
+**1.3 Adherence:** No requirement derived from the synchronized APD may be altered, simplified, or omitted without following the protocols in §6.
+
+### LAW II — No Fake Working (Evidence Required)
+- **Forbidden:** Placeholders, mocked data (outside tests/fixtures/), silent downgrades, "demo-only" hacks.
+- **Evidence:** Claims of completion require verifiable proof logged in the session log: created files, sizes/counts, checksums, and successful test outputs or key findings.
+- **Data & Execution Integrity:**
+  - Real Data Only: Use ONLY real data from verified sources. NO synthetic data, NO np.random/faker outside tests/fixtures/.
+  - Fail Loudly: If data is unavailable, FAIL LOUDLY; never return empty/default values silently.
+  - No Silent Fallbacks: Never silently downgrade capabilities, disable functions, or suppress errors.
+  - Stop on Blockers: If a tool/dependency is missing, STOP, report the blocker, and await resolution.
+  - Definition of Fixed: Do not mark an issue "fixed" unless you have a reproducible failing test that now passes AND artifacts demonstrating the fix.
+
+### LAW III — Proactive Information Seeking
+Do not rely on stale internalized knowledge. You must proactively search the internet for the latest official documentation, best practices, and solutions for every library, API, and function used.
+Log all consulted resources in `logs/session_log.md`.
+
+### LAW IV — Persistence of State (Never Forget)
+The session must be resumable without loss of context.
+Every significant action, decision, or finding must update the durable state files (§2).
+
+### LAW V — Absolute Code and File Hygiene
+Adhere strictly to the standards defined in §4 (Naming Conventions, Modularity, and Structure). The repository must remain clean and tidy at all times.
+
+### LAW VI — Zero Hard-Coding
+All parameters (endpoints, credentials, thresholds, file paths, batch sizes) must come from configuration files, CLI arguments, or environment variables.
+Fixed values for testing must reside exclusively in `tests/fixtures/`.
+
+### LAW VII — CLI Isolation (POLARIS-Specific)
+Phases are standalone CLI scripts. They communicate ONLY through JSON files.
+- Phase N reads ONLY from `outputs/P{N-1}/{vector_id}.json`
+- Phase N writes ONLY to `outputs/P{N}/{vector_id}.json`
+- Phase N NEVER imports code from other phases
+- Shared utilities go in `src/utils/` or `src/schemas/`
+
+---
+
+## §2. Persisted State and Mandatory Documentation
+
+The following files are the authoritative record of the project state. They must be updated continuously with every change, no matter how small.
+
+### 2.1 Authoritative Files (updated 2026-05-05 per polaris-restart Plan §9.5)
+- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+- `state/polaris_restart/issue_breakdown.md`: **The Scope (issue-driven).** 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria.
+- `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt conditions, mechanical gates.
+- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+- `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential schedule.
+- `logs/session_log.md`: A chronological, append-only audit trail.
+- `docs/task_acceptance_matrix.yaml`: **HISTORICAL** (Plan-v13-era pre-Issue tracking). Matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR. Do not write new entries here; use `state/active_issue.json` for current issue state.
+- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
+- `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
+- `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of each.
+- `state/restart_instructions.md`: Precise instructions on how to resume the session from the last executed task.
+- `state/progress_ledger.jsonl`: Machine-readable append-only execution log for pipeline state.
+- `state/last_pointer.json`: Resume point after crash/restart.
+- `state/orchestrator_status.json`: Current autoloop heartbeat (current_task, iter, phase).
+
+### 2.2 Session Log Format (MANDATORY)
+Every action must be appended to `logs/session_log.md` using this structure:
+
+```
+[YYYY-MM-DD HH:MM:SS]
+- ACTION: <Brief description of the action taken>
+- RATIONALE: <Summary of the extended thinking process (§0.3)>
+- DOCS/RESEARCH: <Links to official documentation or resources consulted (LAW III)>
+- SYNC: <Description of documentation synchronized due to APD changes (LAW I, §1.2). "N/A" otherwise.>
+- AFFECTED_FILES: <List of files read/written/modified>
+- EVIDENCE/FINDINGS: <Verifiable output: file sizes, checksums, test results, or key findings (LAW II)>
+- STATUS: <Honest assessment of what works, what is incomplete, and any new bugs>
+- NEXT_STEP: <The single, clear next action to be taken>
+```
+
+---
+
+## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+
+**Every unit of work is a GitHub Issue assigned in sequence per `state/polaris_restart/issue_breakdown.md`.** Cannot start Issue N+1 until Issue N is `completed` per TaskCreate state.
+
+**Per-Issue mandatory artifacts** (CI will reject PR without these once PR-D installs the gate workflow; pre-PR-D, this is enforced by Codex review at PR time):
+- `.codex/<issue_id>/brief.md` (Claude-authored, Codex-approved)
+- `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+- `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+- `outputs/audits/<issue_id>/claude_audit.md` (Claude's architect review)
+
+**Forbidden patterns:**
+- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+- PR opened without all 5 artifacts above
+- Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+- "While we're at it" polish in same PR
+- STATUS block / recap text between PR merge and next branch creation (per §8.2)
+
+**Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+- canonical pin SHA mismatch
+- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+- issue jump attempt
+- PR opened with missing artifact triple
+- Codex unavailable >1h
+- 2-cycle repeated root cause
+- 200-LOC PR cap exceeded
+- 3+ PRs queued for user in 24h (reviewer fatigue)
+
+**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` and `.codex/<issue_id>/codex_diff.patch` (Claude commits the diff, Codex reviews it).
+- **Codex:** reviews. Two separate Codex calls per Issue: APPROVE on brief (acceptance criteria correctness) + APPROVE on diff (code correctness against brief). Codex is the only gate.
+- **User:** spec owner + merge gate. Reads `git log` in the morning as the after-the-fact human-at-merge surface (B1 pure auto-merge).
+- Claude has NO `gh pr merge --admin` authority. CI required check `polaris/codex-required` parses Codex's verdict file and gates merge.
+
+---
+
+## §3. Mandatory Session Protocol (Startup/Restart)
+
+This protocol MUST be executed automatically at the start of every session and after any restart or crash.
+
+### 3.1 Startup Protocol (The 12 Steps — Plan v13 §J integration)
+
+**CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+
+0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+
+1. **Read CLAUDE.md:** This file completely.
+2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+   - `state/polaris_restart/plan.md` (restart plan, Codex APPROVE iter 4)
+   - `state/polaris_restart/issue_breakdown.md` (134 issues, Codex APPROVE iter 4 — APD Scope source for issue-driven workflow)
+   - `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
+   - `docs/carney_delivery_plan_v6_2.md` (mission)
+   - `architecture.md` (current-state baseline)
+   - `docs/blockers.md` (10 user-side decisions)
+   - `docs/agent_architecture.md`
+   - `docs/substrate_audit_2026-05-01.md`
+   - `.codex/codex_red_team_checklist.md`
+   - `.codex/REVIEW_BRIEF_FORMAT.md`
+   - `.codex/AUDIT_CYCLE_PROTOCOL.md`
+   - **DO NOT trust memory pointers.** Memory entries are TL;DRs of canonical, not canonical itself. Re-read the actual file every session-resume.
+   - **Plan-v13 task_acceptance_matrix.yaml is HISTORICAL** for the issue-driven workflow. Pre-Issue context (Phase 0 task tracking, etc.) may still reference it; matrix-decommission is a post-Cleanup-PR-8 follow-up PR per cleanup_audit.md.
+3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > **`state/active_issue.json`** (the in-progress issue) > `state/polaris_restart/issue_breakdown.md` (Scope) > `state/polaris_restart/plan.md` (Restart Plan) > `docs/carney_delivery_plan_v6_2.md` (long-term Mission) > `logs/session_log.md` (History) > `architecture.md` (Baseline) > `docs/task_acceptance_matrix.yaml` (HISTORICAL Phase-0 pre-Issue tracker only).
+4. **Verify Environment:** Check env vars and config files. Run `python scripts/preflight.py`.
+5. **Review Bug Log:** `logs/bug_log.md`.
+6. **Review File Directory:** `docs/file_directory.md`.
+7. **Read Restart Instructions:** `state/restart_instructions.md`.
+8. **Check Progress Ledger:** `state/progress_ledger.jsonl` and `state/last_pointer.json`.
+9. **Check orchestrator status:** `state/orchestrator_status.json` if present.
+10. **Execute Recovery:** If restart_instructions has instructions, execute them.
+11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
+12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
+
+**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
+
+### 3.2 Enforcement
+If any required file is missing, unreadable, or if the APD cannot be synthesized, STOP. Create an entry in `logs/bug_log.md` and alert the user. Do not proceed until resolved.
+
+---
+
+## §4. Code Standards and Hygiene
+
+### 4.1 Naming Conventions (Strict Adherence)
+- **snake_case ONLY:** All file names, folder names, function names, and variable names must use snake_case.
+- **Forbidden:** camelCase, kebab-case. PascalCase is permitted ONLY for Class names.
+- **No ALL CAPS:** Do not use ALL CAPS (except for module-level constants, e.g., MAX_RETRIES).
+- **Descriptive, Not Adjectival:** Names must be descriptive. Avoid subjective adjectives (e.g., temp_fix.py), abbreviations, or version numbers (e.g., process_v2.py).
+
+### 4.2 Modularity and Structure
+- **One Responsibility Principle:** Keep the repository clean and tidy. Strive for high modularity.
+- **Avoid Bloat:** Do not create files or folders with numerous unrelated utility functions.
+
+### 4.3 Import/Export Management
+
+codex
+The first search didn’t return matches, so I’m narrowing it to the actual file paths and current page content. The branch is clean for tracked files but has unrelated untracked artifacts; I’ll ignore those for this review.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web | rg "(''^|/)(page'"\\.tsx|app_shell|api\\.ts|plan.*spec|source_review|intake_form)\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/plan/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/app_shell_gate.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/components/app_shell.tsx' in C:\POLARIS
+2026-05-25T07:33:50.388335Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+
+ exited 1 in 1339ms:
+ succeeded in 1718ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+// Chromeless routes own their full viewport (no app header/nav):
+//  - `/`        : home owns its own header + main.
+//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+//                 nav is auth-gated anyway, so it must not show pre-login.
+const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+
+// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+// full-screen view that renders its OWN header (with "Back to Inspector") +
+// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+// header + G6 nested main).
+// I-p2-020 (#759): the audit/export drill-down (/runs/<id>/audit) follows the
+// same focused full-screen pattern (own header + <main>).
+const CHROMELESS_PATTERNS = [
+  /^\/runs\/[^/]+\/graph$/,
+  /^\/runs\/[^/]+\/audit$/,
+];
+
+function isChromeless(pathname: string): boolean {
+  return (
+    CHROMELESS_ROUTES.has(pathname) ||
+    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+  );
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  if (isChromeless(pathname)) {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+ succeeded in 2071ms:
+// I-p2-015 (#754): Plan review — the run-start surface (relocated off the
+// dashboard so #761 can become monitoring-only). "Confirm + start": the
+// question is DISPLAY-ONLY here (single source of preflight truth = intake);
+// editing routes back to /intake. On mount it re-runs the FULL intake gate
+// (runIntake — the clinical + PICO classifier, NOT the lenient /scope/check) so
+// direct navigation to /plan?q=… is gated identically. "Start research run" is
+// enabled ONLY for an in_scope, disambiguation-resolved question. Question-only
+// run-start (no uploads here — document grounding keeps its /upload home until a
+// follow-up wires it into this flow).
+"use client";
+
+import {
+  ArrowLeft,
+  BadgeCheck,
+  FileSearch,
+  Layers,
+  ShieldCheck,
+} from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+
+import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+import { ErrorState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import {
+  ConcurrentRunError,
+  createRun,
+  runDisambiguation,
+  runIntake,
+  type DisambiguationCluster,
+  type IntakeScopeDecision,
+  type TemplateId,
+} from "@/lib/api";
+
+const TEMPLATE_IDS: readonly TemplateId[] = [
+  "clinical",
+  "policy",
+  "tech",
+  "ai_sovereignty",
+  "canada_us",
+  "due_diligence",
+  "custom",
+  "workforce",
+];
+
+function asTemplate(value: string | null): TemplateId {
+  return value && (TEMPLATE_IDS as readonly string[]).includes(value)
+    ? (value as TemplateId)
+    : "clinical";
+}
+
+const PLAN_STEPS = [
+  {
+    icon: FileSearch,
+    title: "Retrieve primary sources",
+    body: "POLARIS searches via logged Canadian egress and snapshots each source it draws from.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Corpus-adequacy + approval gate",
+    body: "The source set must meet per-tier adequacy and pass the approval gate before any brief is generated.",
+  },
+  {
+    icon: Layers,
+    title: "Generate, then verify every claim",
+    body: "Each sentence is generated section by section, then span-verified against its primary source by an independent evaluator family.",
+  },
+  {
+    icon: BadgeCheck,
+    title: "Produce an auditable bundle",
+    body: "You get a brief where every claim links to the exact source passage behind it.",
+  },
+] as const;
+
+type State =
+  | { kind: "loading" }
+  | { kind: "ready"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+function PlanContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const question = (searchParams.get("q") ?? "").trim();
+  const template = asTemplate(searchParams.get("template"));
+
+  const [state, setState] = useState<State>({ kind: "loading" });
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [disambigResolved, setDisambigResolved] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [concurrent, setConcurrent] = useState<{
+    runId: string;
+    message: string;
+  } | null>(null);
+
+  // On mount: re-run the FULL intake gate over the (immutable) question. This
+  // is the same clinical + PICO classifier intake uses, so /plan is safe even
+  // when reached by direct URL.
+  //
+  // I-p2-038 (#805): no synchronous setState in the effect body (react-hooks/
+  // set-state-in-effect). The no-question case is a render-time concern, not an
+  // async side effect — the render guard below short-circuits on `!question`,
+  // so the effect just skips the intake fetch when there's nothing to check.
+  useEffect(() => {
+    if (!question) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await runIntake(question);
+        if (cancelled) return;
+        setState({ kind: "ready", decision: result.decision });
+        if (
+          result.decision.needs_disambiguation &&
+          result.decision.candidate_snippets &&
+          result.decision.candidate_snippets.length > 0
+        ) {
+          const dis = await runDisambiguation(
+            result.decision.candidate_snippets,
+          );
+          if (cancelled) return;
+          if (dis.is_ambiguous && dis.clusters.length > 1) {
+            setDisambigClusters(dis.clusters);
+            setDisambigOpen(true);
+          } else {
+            setDisambigResolved(true); // nothing to disambiguate
+          }
+        } else {
+          setDisambigResolved(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setState({
+          kind: "error",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Could not check this question.",
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [question]);
+
+  // I-p2-038 (#805): the no-question state is now purely render-derived from
+  // the (immutable) `question` searchParam — no effect sets a "no-question"
+  // error anymore.
+  if (!question) {
+    return (
+      <section
+        data-testid="plan-page"
+        className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-16 text-center"
+      >
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+          Nothing to plan yet
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Start from a research question and POLARIS will lay out the plan
+          before running it.
+        </p>
+        <div>
+          <Button
+            nativeButton={false}
+            render={<Link href="/intake">Ask a question</Link>}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  const decision = state.kind === "ready" ? state.decision : null;
+  const inScope = decision?.status === "in_scope";
+  const canStart = inScope && disambigResolved && !starting;
+
+  async function onStart() {
+    // Defense-in-depth (Codex diff P2): re-assert the gate at call time, not
+    // only via the disabled button — a run must never start unless the question
+    // is in_scope + disambiguation-resolved.
+    if (!inScope || !disambigResolved || starting) return;
+    setStartError(null);
+    setConcurrent(null);
+    setStarting(true);
+    try {
+      const run = await createRun({ template, question, document_ids: [] });
+      router.push(`/runs/${run.run_id}`);
+    } catch (err) {
+      if (err instanceof ConcurrentRunError) {
+        setConcurrent({ runId: err.activeRunId, message: err.message });
+        setStarting(false);
+        return;
+      }
+      setStartError(
+        err instanceof Error ? err.message : "Could not start the run.",
+      );
+      setStarting(false);
+    }
+  }
+
+  function notInScopeMessage(d: IntakeScopeDecision): string {
+    switch (d.status) {
+      case "out_of_scope":
+        return "This question is outside POLARIS's clinical research scope.";
+      case "refused":
+        return "POLARIS declined this question (refusal-bait or unsafe request).";
+      case "ambiguous_needs_clarification":
+        return "This question needs clarification before it can be researched.";
+      default:
+        return "This question can't be started as written.";
+    }
+  }
+
+  return (
+    <section
+      data-testid="plan-page"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10"
+    >
+      <div className="flex flex-col gap-1">
+        <Link
+          href="/intake"
+          className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1 text-xs"
+        >
+          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+          Edit question
+        </Link>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Review the plan
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Confirm what POLARIS will research before the run starts.
+        </p>
+      </div>
+
+      {/* The vetted question (display-only) */}
+      <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-5">
+        <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+          Your question
+        </span>
+        <p className="text-foreground text-lg leading-relaxed font-medium">
+          {question}
+        </p>
+        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+          <span className="border-border rounded-full border px-2 py-0.5">
+            Template: <span className="text-foreground">{template}</span>
+          </span>
+          {state.kind === "loading" ? (
+            <span>Checking scope…</span>
+          ) : decision?.scope_class ? (
+            <span className="border-border rounded-full border px-2 py-0.5">
+              Scope:{" "}
+              <span className="text-foreground">{decision.scope_class}</span>
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* What POLARIS will do */}
+      <div className="flex flex-col gap-4">
+        <h2 className="text-foreground text-sm font-semibold">
+          What POLARIS will do
+        </h2>
+        <ol className="grid gap-4 sm:grid-cols-2">
+          {PLAN_STEPS.map((step, i) => (
+            <li
+              key={step.title}
+              className="border-border bg-card shadow-card flex flex-col gap-1.5 rounded-xl border p-4"
+            >
+              <div className="text-muted-foreground flex items-center gap-2">
+                <step.icon aria-hidden className="h-4 w-4 shrink-0" />
+                <span className="text-foreground text-sm font-medium">
+                  {i + 1}. {step.title}
+                </span>
+              </div>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                {step.body}
+              </p>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* Not-in-scope guard */}
+      {decision && !inScope ? (
+        <div
+          role="alert"
+          data-testid="plan-blocked"
+          className="border-refusal/30 bg-refusal/10 flex flex-col gap-1 rounded-lg border p-4"
+        >
+          <p className="text-foreground text-sm font-medium">
+            Can&apos;t start this run
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {notInScopeMessage(decision)} Edit the question to continue.
+          </p>
+        </div>
+      ) : null}
+
+      {startError ? (
+        <ErrorState title="Couldn't start the run" message={startError} />
+      ) : null}
+
+      {concurrent ? (
+        <div
+          role="alert"
+          data-testid="plan-concurrent"
+          className="border-contradiction/30 bg-contradiction/10 flex flex-col gap-1 rounded-lg border p-4"
+        >
+          <p className="text-foreground text-sm font-medium">
+            A run is already in progress
+          </p>
+          <p className="text-muted-foreground text-xs">{concurrent.message}</p>
+          <Link
+            href={`/runs/${concurrent.runId}`}
+            className="text-primary text-xs underline-offset-2 hover:underline"
+          >
+            View the active run →
+          </Link>
+        </div>
+      ) : null}
+
+      {/* Start */}
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          data-testid="plan-start-run"
+          className="h-11 px-7"
+          disabled={!canStart}
+          onClick={onStart}
+        >
+          {starting ? "Starting…" : "Start research run"}
+        </Button>
+        <Button
+          variant="ghost"
+          nativeButton={false}
+          render={<Link href="/intake">Cancel</Link>}
+        />
+      </div>
+
+      <DisambiguationModal
+        open={disambigOpen}
+        clusters={disambigClusters}
+        onSelectCluster={() => {
+          setDisambigResolved(true);
+          setDisambigOpen(false);
+        }}
+        onCancel={() => setDisambigOpen(false)}
+      />
+    </section>
+  );
+}
+
+export default function PlanPage() {
+  return (
+    <Suspense fallback={null}>
+      <PlanContent />
+    </Suspense>
+  );
+}
+
+ succeeded in 2439ms:
+import Link from "next/link";
+
+import { AuthButton } from "@/components/auth_button";
+import { PrimaryNav } from "@/components/primary_nav";
+import { SiteFooter } from "@/components/site_footer";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-p2-023 (#762): sovereign mark — HONEST. Dropped the false
+              present-tense "no external AI vendor": production LLM inference
+              currently routes via OpenRouter (US, transitional, disclosed in
+              /transparency) until the sovereign Canadian GPU cluster lands. The
+              VM IS hosted in OVH Québec, so "Canadian-hosted" is true today. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+          >
+            ⬡ Canadian-hosted
+          </span>
+          {/* I-p2-038 (#821): auth affordance was MISSING on every non-home
+              route. ml-auto on the sovereign mark above is dropped to sm: only,
+              so on mobile (mark hidden) this button still right-aligns. */}
+          <div className="ml-auto sm:ml-0">
+            <AuthButton />
+          </div>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+      <SiteFooter />
+    </>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web/tests/e2e' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "function runIntake|export async function runIntake|/intake|scope|createRun|ConcurrentRunError|apiFetch" web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"page\\.route|runIntake|/plan|plan-page|plan-start-run|Start research run|mock\" web/tests/e2e web/test* -S" in C:\POLARIS
+ succeeded in 1388ms:
+72:  | "abort_scope_rejected"
+121: * Thrown by createRun when POST /runs is rejected by the 1-concurrent-session
+124:export class ConcurrentRunError extends Error {
+129:    this.name = "ConcurrentRunError";
+135:export async function createRun(
+157:      throw new ConcurrentRunError(
+187:// I-ui-003 (#542): report-scoped follow-up. Mirrors FollowUpAnswer in
+192:  | "out_of_scope"
+338:  | "out_of_template_scope";
+387:  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+405:  out_of_scope_examples: string[];
+534:    "scope_decision",
+555:// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+559:  | "in_scope"
+561:  | "out_of_scope"
+569:  | "out_of_scope";
+581:  scope_class: IntakeScopeClass | null;
+640:export async function runIntake(
+643:  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+667:  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+722:  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+967:  scope_class?: string | null,
+972:    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+1530:  scope_decision: string;
+
+ succeeded in 1678ms:
+web/tests/e2e\audit_live_multitab.spec.ts
+web/tests/e2e\comparison_table_chart.spec.ts
+web/tests/e2e\audit_live_adversarial.spec.ts
+web/tests/e2e\audit_live.spec.ts
+web/tests/e2e\audit_bundle.spec.ts
+web/tests/e2e\command_palette_suggest.spec.ts
+web/tests/e2e\accessibility.spec.ts
+web/tests/e2e\command_palette_adversarial.spec.ts
+web/tests/e2e\contract_editor.spec.ts
+web/tests/e2e\contracts_g1_g8.spec.ts
+web/tests/e2e\command_palette.spec.ts
+web/tests/e2e\cross_browser_smoke.spec.ts
+web/tests/e2e\cross_session_surface.spec.ts
+web/tests/e2e\bundle_preview.spec.ts
+web/tests/e2e\benchmark.spec.ts
+web/tests/e2e\benchmark_g1_g8.spec.ts
+web/tests/e2e\chart_click_through.spec.ts
+web/tests/e2e\cited_recall_badge.spec.ts
+web/tests/e2e\dashboard_g1_g8.spec.ts
+web/tests/e2e\demo_journey.spec.ts
+web/tests/e2e\demo_walkthrough.spec.ts
+web/tests/e2e\disambiguation_modal.spec.ts
+web/tests/e2e\evidence_tooltip.spec.ts
+web/tests/e2e\evidence_tooltip_edges.spec.ts
+web/tests/e2e\evidence_tooltip_mobile.spec.ts
+web/tests/e2e\evidence_tooltip_perf.spec.ts
+web/tests/e2e\f1_a11y.spec.ts
+web/tests/e2e\_nav_auth.ts
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F9-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F9-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F9-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F9-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F8-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F8-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F8-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F8-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F7-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F7-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F7-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F7-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F6-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F6-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F6-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F6-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F5-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F5-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F5-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F5-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F4-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F4-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F4-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F4-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F3-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F3-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F3-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F3-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F2-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F2-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F2-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F2-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F15-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F15-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F15-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F15-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F14-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F14-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F14-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F14-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F13-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F13-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F13-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F13-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F12-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F12-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F12-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F12-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F11-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F11-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F11-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F11-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F10-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F10-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F10-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F10-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F1-tablet-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F1-mobile-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F1-laptop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts-snapshots\F1-desktop-chromium-win32.png
+web/tests/e2e\visual_60_baselines.spec.ts
+web/tests/e2e\visual.spec.ts
+web/tests/e2e\vega_lite_chart.spec.ts
+web/tests/e2e\upload_parse_status.spec.ts
+web/tests/e2e\upload_g1_g8.spec.ts
+web/tests/e2e\upload_evidence_toggle.spec.ts
+web/tests/e2e\upload_dropzone.spec.ts
+web/tests/e2e\upload_doc_preview.spec.ts
+web/tests/e2e\two_run_picker.spec.ts
+web/tests/e2e\timeline_chart.spec.ts
+web/tests/e2e\sse_client.spec.ts
+web/tests/e2e\split_screen.spec.ts
+web/tests/e2e\sign_in.spec.ts
+web/tests/e2e\sentence_inspector_synthesis.spec.ts
+web/tests/e2e\sentence_inspector_surfaces.spec.ts
+web/tests/e2e\sentence_inspector_source.spec.ts
+web/tests/e2e\sentence_inspector_retracted_stale.spec.ts
+web/tests/e2e\sentence_inspector_multispan.spec.ts
+web/tests/e2e\sentence_inspector_latency.spec.ts
+web/tests/e2e\sentence_inspector_evaluator_flag.spec.ts
+web/tests/e2e\sentence_inspector_evaluator_edge.spec.ts
+web/tests/e2e\sentence_inspector_contradiction.spec.ts
+web/tests/e2e\sentence_inspector_ai_agent.spec.ts
+web/tests/e2e\sentence_inspector_agreement.spec.ts
+web/tests/e2e\sentence_inspector_adversarial.spec.ts
+web/tests/e2e\sentence_inspector.spec.ts
+web/tests/e2e\sentence_hover.spec.ts
+web/tests/e2e\runs_runid_g1_g8.spec.ts
+web/tests/e2e\retrieval.spec.ts
+web/tests/e2e\pin_retraction_handled.spec.ts
+web/tests/e2e\pin_replay_g1_g8.spec.ts
+web/tests/e2e\pin_replay_diff.spec.ts
+web/tests/e2e\pin_replay.spec.ts
+web/tests/e2e\pin_regression_alert.spec.ts
+web/tests/e2e\perf_core_web_vitals.spec.ts
+web/tests/e2e\performance.spec.ts
+web/tests/e2e\p2c_005_mobile.spec.ts
+web/tests/e2e\p2c_001_chain.spec.ts
+web/tests/e2e\multi_source_panel.spec.ts
+web/tests/e2e\memory_page_controls.spec.ts
+web/tests/e2e\memory_g1_g8.spec.ts
+web/tests/e2e\intake_g1_g8.spec.ts
+web/tests/e2e\intake_edge.spec.ts
+web/tests/e2e\intake_disambiguation_negative.spec.ts
+web/tests/e2e\intake_disambiguation.spec.ts
+web/tests/e2e\intake.spec.ts
+web/tests/e2e\inspector_route.spec.ts
+web/tests/e2e\inspector_offline_fallback.spec.ts
+web/tests/e2e\home_g1_g8.spec.ts
+web/tests/e2e\graph_page_smoke.spec.ts
+web/tests/e2e\generation.spec.ts
+web/tests/e2e\frame_coverage_panel.spec.ts
+web/tests/e2e\frame_coverage_adversarial.spec.ts
+web/tests/e2e\forest_plot_chart.spec.ts
+web/tests/e2e\follow_up_append.spec.ts
+web/tests/e2e\f2_walkthrough.spec.ts
+web/tests/e2e\f1_multi_tab.spec.ts
+
+2026-05-25T07:33:59.847921Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2 seconds
+Output:
+web/tests/e2e\accessibility.spec.ts:56:  // monitoring-only) to /plan (I-p2-015 #754). The plan page re-runs the full
+web/tests/e2e\accessibility.spec.ts:59:  test("/plan scope-rejection surface is WCAG-AA clean", async ({ page }) => {
+web/tests/e2e\accessibility.spec.ts:61:      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+web/tests/e2e\accessibility.spec.ts:244:// run-start workflow, which was relocated to /intake → /plan and is no longer a
+web/tests/e2e\audit_live.spec.ts:5:test("each of 6 event-type panels renders within 1s of mock SSE emit", async ({
+web/tests/e2e\audit_live.spec.ts:11:  await page.route("**/mock/sse", async (route) => {
+web/tests/e2e\audit_live.spec.ts:20:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_adversarial.spec.ts:7:  await page.route("**/mock/sse", async (route) => {
+web/tests/e2e\audit_live_adversarial.spec.ts:29:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_adversarial.spec.ts:43:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_adversarial.spec.ts:60:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_adversarial.spec.ts:81:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_multitab.spec.ts:13:    await route_setup.route("**/mock/sse", async (route) => {
+web/tests/e2e\audit_live_multitab.spec.ts:25:  const url = "/audit_live?url=/mock/sse&run_id=test-run-mt";
+web/tests/e2e\bundle_preview.spec.ts:59:  await page.route(`**${path}`, async (route) => {
+web/tests/e2e\cross_browser_smoke.spec.ts:31:    await page.route("**/api/audit/stream**", (route) => {
+web/tests/e2e\cross_session_surface.spec.ts:26:  await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web/tests/e2e\f2_walkthrough.spec.ts:24:  await page.route("**/api/intake", async (r) =>
+web/tests/e2e\f2_walkthrough.spec.ts:38:  await page.route("**/api/disambiguation", async (r) =>
+web/tests/e2e\f2_walkthrough.spec.ts:111:    await page.route("**/api/disambiguation", (r) => {
+web/tests/e2e\f2_walkthrough.spec.ts:150:    await page.route("**/api/intake", (r) => {
+web/tests/e2e\f2_walkthrough.spec.ts:212:  await page.route("**/api/intake", (r) => {
+web/tests/e2e\graph_page_smoke.spec.ts:14:    await page.route("**/api/runs/*/graph", (route) => {
+web/tests/e2e\graph_page_smoke.spec.ts:60:    await page.route("**/api/runs/no_such_run/graph", (route) =>
+web/tests/e2e\intake_disambiguation.spec.ts:6:  await page.route("**/api/intake", async (route) => {
+web/tests/e2e\intake_disambiguation.spec.ts:33:  await page.route("**/api/disambiguation", async (route) => {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:23:  await page.route("**/api/intake", async (route) => {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:36:  await page.route("**/api/disambiguation", async (route) => {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:58:  await page.route("**/api/intake", async (route) => {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:78:  await page.route("**/api/disambiguation", async (route) => {
+web/tests/e2e\intake_edge.spec.ts:7:  await page.route("**/api/intake", async (route) => {
+web/tests/e2e\memory_page_controls.spec.ts:23:async function mock(page: Page) {
+web/tests/e2e\memory_page_controls.spec.ts:25:  await page.route("**/workspaces/ws_demo/memory/*", async (route) => {
+web/tests/e2e\memory_page_controls.spec.ts:34:  await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web/tests/e2e\memory_page_controls.spec.ts:68:  await mock(page);
+web/tests/e2e\sse_client.spec.ts:5:  await page.route("**/mock/sse", async (route) => {
+web/tests/e2e\sse_client.spec.ts:15:  await page.goto("/sse?url=/mock/sse");
+web/tests/e2e\sse_client.spec.ts:27:  await page.route("**/mock/sse-fail", async (route) => {
+web/tests/e2e\sse_client.spec.ts:31:  await page.goto("/sse?url=/mock/sse-fail&max=3");
+web/tests/e2e\upload_doc_preview.spec.ts:8:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_doc_preview.spec.ts:26:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web/tests/e2e\upload_dropzone.spec.ts:3:async function mockUploadEndpoint(page: import("@playwright/test").Page) {
+web/tests/e2e\upload_dropzone.spec.ts:5:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_dropzone.spec.ts:53:  const getCalls = await mockUploadEndpoint(page);
+web/tests/e2e\upload_dropzone.spec.ts:61:  const getCalls = await mockUploadEndpoint(page);
+web/tests/e2e\upload_dropzone.spec.ts:73:  const getCalls = await mockUploadEndpoint(page);
+web/tests/e2e\upload_evidence_toggle.spec.ts:10:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_parse_status.spec.ts:27:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_parse_status.spec.ts:43:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web/tests/e2e\visual_60_baselines.spec.ts:22:  mock_memory?: boolean;
+web/tests/e2e\visual_60_baselines.spec.ts:23:  mock_benchmark?: boolean;
+web/tests/e2e\visual_60_baselines.spec.ts:86:    mock_memory: true,
+web/tests/e2e\visual_60_baselines.spec.ts:92:    mock_benchmark: true,
+web/tests/e2e\visual_60_baselines.spec.ts:103:      if (p.mock_memory) {
+web/tests/e2e\visual_60_baselines.spec.ts:104:        await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web/tests/e2e\visual_60_baselines.spec.ts:112:      if (p.mock_benchmark) {
+web/tests/e2e\visual_60_baselines.spec.ts:113:        await page.route("**/api/benchmark/**", async (route) => {
+rg: web/test*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 2013ms:
+web/tests/e2e\accessibility.spec.ts:56:  // monitoring-only) to /plan (I-p2-015 #754). The plan page re-runs the full
+web/tests/e2e\accessibility.spec.ts:59:  test("/plan scope-rejection surface is WCAG-AA clean", async ({ page }) => {
+web/tests/e2e\accessibility.spec.ts:61:      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+web/tests/e2e\accessibility.spec.ts:244:// run-start workflow, which was relocated to /intake → /plan and is no longer a
+web/tests/e2e\audit_live.spec.ts:5:test("each of 6 event-type panels renders within 1s of mock SSE emit", async ({
+web/tests/e2e\audit_live.spec.ts:11:  await page.route("**/mock/sse", async (route) => {
+web/tests/e2e\audit_live.spec.ts:20:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_adversarial.spec.ts:7:  await page.route("**/mock/sse", async (route) => {
+web/tests/e2e\audit_live_adversarial.spec.ts:29:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_adversarial.spec.ts:43:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_adversarial.spec.ts:60:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_adversarial.spec.ts:81:  await page.goto("/audit_live?url=/mock/sse");
+web/tests/e2e\audit_live_multitab.spec.ts:13:    await route_setup.route("**/mock/sse", async (route) => {
+web/tests/e2e\audit_live_multitab.spec.ts:25:  const url = "/audit_live?url=/mock/sse&run_id=test-run-mt";
+web/tests/e2e\bundle_preview.spec.ts:59:  await page.route(`**${path}`, async (route) => {
+web/tests/e2e\cross_browser_smoke.spec.ts:31:    await page.route("**/api/audit/stream**", (route) => {
+web/tests/e2e\cross_session_surface.spec.ts:26:  await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web/tests/e2e\f2_walkthrough.spec.ts:24:  await page.route("**/api/intake", async (r) =>
+web/tests/e2e\f2_walkthrough.spec.ts:38:  await page.route("**/api/disambiguation", async (r) =>
+web/tests/e2e\f2_walkthrough.spec.ts:111:    await page.route("**/api/disambiguation", (r) => {
+web/tests/e2e\f2_walkthrough.spec.ts:150:    await page.route("**/api/intake", (r) => {
+web/tests/e2e\f2_walkthrough.spec.ts:212:  await page.route("**/api/intake", (r) => {
+web/tests/e2e\graph_page_smoke.spec.ts:14:    await page.route("**/api/runs/*/graph", (route) => {
+web/tests/e2e\graph_page_smoke.spec.ts:60:    await page.route("**/api/runs/no_such_run/graph", (route) =>
+web/tests/e2e\intake_disambiguation.spec.ts:6:  await page.route("**/api/intake", async (route) => {
+web/tests/e2e\intake_disambiguation.spec.ts:33:  await page.route("**/api/disambiguation", async (route) => {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:23:  await page.route("**/api/intake", async (route) => {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:36:  await page.route("**/api/disambiguation", async (route) => {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:58:  await page.route("**/api/intake", async (route) => {
+web/tests/e2e\intake_disambiguation_negative.spec.ts:78:  await page.route("**/api/disambiguation", async (route) => {
+web/tests/e2e\intake_edge.spec.ts:7:  await page.route("**/api/intake", async (route) => {
+web/tests/e2e\memory_page_controls.spec.ts:23:async function mock(page: Page) {
+web/tests/e2e\memory_page_controls.spec.ts:25:  await page.route("**/workspaces/ws_demo/memory/*", async (route) => {
+web/tests/e2e\memory_page_controls.spec.ts:34:  await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web/tests/e2e\memory_page_controls.spec.ts:68:  await mock(page);
+web/tests/e2e\sse_client.spec.ts:5:  await page.route("**/mock/sse", async (route) => {
+web/tests/e2e\sse_client.spec.ts:15:  await page.goto("/sse?url=/mock/sse");
+web/tests/e2e\sse_client.spec.ts:27:  await page.route("**/mock/sse-fail", async (route) => {
+web/tests/e2e\sse_client.spec.ts:31:  await page.goto("/sse?url=/mock/sse-fail&max=3");
+web/tests/e2e\upload_doc_preview.spec.ts:8:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_doc_preview.spec.ts:26:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web/tests/e2e\upload_dropzone.spec.ts:3:async function mockUploadEndpoint(page: import("@playwright/test").Page) {
+web/tests/e2e\upload_dropzone.spec.ts:5:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_dropzone.spec.ts:53:  const getCalls = await mockUploadEndpoint(page);
+web/tests/e2e\upload_dropzone.spec.ts:61:  const getCalls = await mockUploadEndpoint(page);
+web/tests/e2e\upload_dropzone.spec.ts:73:  const getCalls = await mockUploadEndpoint(page);
+web/tests/e2e\upload_evidence_toggle.spec.ts:10:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_parse_status.spec.ts:27:  await page.route("**/upload", async (route) => {
+web/tests/e2e\upload_parse_status.spec.ts:43:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web/tests/e2e\visual_60_baselines.spec.ts:22:  mock_memory?: boolean;
+web/tests/e2e\visual_60_baselines.spec.ts:23:  mock_benchmark?: boolean;
+web/tests/e2e\visual_60_baselines.spec.ts:86:    mock_memory: true,
+web/tests/e2e\visual_60_baselines.spec.ts:92:    mock_benchmark: true,
+web/tests/e2e\visual_60_baselines.spec.ts:103:      if (p.mock_memory) {
+web/tests/e2e\visual_60_baselines.spec.ts:104:        await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web/tests/e2e\visual_60_baselines.spec.ts:112:      if (p.mock_benchmark) {
+web/tests/e2e\visual_60_baselines.spec.ts:113:        await page.route("**/api/benchmark/**", async (route) => {
+rg: web/test*: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+codex
+The current page confirms the risky behavior is outside the proposed edit area: the gate, disambiguation modal, run creation, blocked/concurrent states, and test IDs are all in the same component after the header block. I’m checking the API shape and existing Playwright mocks next, because the new test plan depends on that endpoint matching exactly.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -Skip 630 -First 55' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/lib/api.ts | Select-Object -Skip 112 -First 80' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/f2_walkthrough.spec.ts | Select-Object -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/intake_edge.spec.ts | Select-Object -First 45' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/tests/e2e/accessibility.spec.ts | Select-Object -Skip 50 -First 55' in C:\POLARIS
+ succeeded in 1394ms:
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+/**
+ * Thrown by createRun when POST /runs is rejected by the 1-concurrent-session
+ * constraint (I-rdy-013): a research run is already queued or in progress.
+ */
+export class ConcurrentRunError extends Error {
+  readonly activeRunId: string;
+  readonly activeStatus: string;
+  constructor(message: string, activeRunId: string, activeStatus: string) {
+    super(message);
+    this.name = "ConcurrentRunError";
+    this.activeRunId = activeRunId;
+    this.activeStatus = activeStatus;
+  }
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 409) {
+    // Read the body exactly once, then unwrap FastAPI's { detail: {...} }
+    // envelope. The 1-concurrent-session reject carries a structured detail;
+    // any other 409 falls through to a generic ApiError.
+    const body = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    const detail = (body?.detail ?? body) as {
+      code?: string;
+      message?: string;
+      active_run_id?: string;
+      active_status?: string;
+    } | null;
+    if (detail && detail.code === "concurrent_run_active") {
+      throw new ConcurrentRunError(
+        detail.message ?? "A research run is already in progress.",
+        detail.active_run_id ?? "",
+        detail.active_status ?? "in_progress",
+      );
+    }
+    const error = new Error("POLARIS backend returned 409") as ApiError;
+    error.status = 409;
+    error.body = body;
+    throw error;
+  }
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-rdy-011 (#507): request cancellation of a run. A queued run cancels
+// instantly; an in-progress run aborts cooperatively at the next pipeline
+// stage boundary. Already-terminal runs are an idempotent no-op.
+export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-ui-003 (#542): report-scoped follow-up. Mirrors FollowUpAnswer in
+// src/polaris_v6/followup/schema.py. POST /runs/{id}/followup is real-run
+// wired (#680): 422 for aborted/release-blocked, 404 for unknown id.
+export type FollowUpStatus =
+  | "answered"
+  | "out_of_scope"
+
+ succeeded in 1776ms:
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+
+ succeeded in 2117ms:
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { expect, test, type Page } from "@playwright/test";
+
+type Row = { d: string; e: string; v: "PASS" | "FAIL"; obs: string };
+const transcript: Row[] = [];
+const TRANSCRIPT_PATH = path.resolve(
+  __dirname,
+  "../../../outputs/audits/I-f2-008/walkthrough_transcript.md",
+);
+
+const baseDecision = {
+  status: "in_scope",
+  scope_class: "clinical_efficacy",
+  ambiguity_axes: [],
+  clarifications_needed: [],
+  provenance: {},
+  decision_id: "wt",
+  decided_at_utc: new Date().toISOString(),
+  latency_ms: 1,
+};
+
+async function intakeMock(page: Page, dec: object) {
+  await page.route("**/api/intake", async (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: false,
+        decision: { ...baseDecision, ...dec },
+        server_time_utc: new Date().toISOString(),
+      }),
+    }),
+  );
+}
+
+async function disambigMock(page: Page, n: number, isAmb = true) {
+  await page.route("**/api/disambiguation", async (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_ambiguous: isAmb,
+        num_clusters: n,
+        clusters: Array.from({ length: n }, (_, i) => ({
+          cluster_id: i,
+          label: `label_${i}`,
+          sample_snippets: [`s${i}`],
+        })),
+        server_time_utc: new Date().toISOString(),
+      }),
+    }),
+  );
+}
+
+async function record(d: string, e: string, fn: () => Promise<void>) {
+  try {
+    await fn();
+    transcript.push({ d, e, v: "PASS", obs: "ok" });
+  } catch (err) {
+    transcript.push({
+      d,
+      e,
+      v: "FAIL",
+      obs: err instanceof Error ? err.message.slice(0, 60) : String(err),
+    });
+    throw err;
+  }
+}
+
+test.skip(
+  ({ browserName }) => browserName !== "chromium",
+  "f2 walkthrough is chromium-only",
+);
+
+test("F2 walkthrough — 22 scenarios", async ({ page }) => {
+  const candidates = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ text: `s${i}`, embedding: [i, 0] }));
+  const submit = async (q: string) => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-question-input").fill(q);
+    await page.getByTestId("intake-submit").click();
+  };
+
+  for (const { q, n } of [
+    { q: "BPEI", n: 3 },
+    { q: "MS treatment options", n: 2 },
+    { q: "PR campaign metrics", n: 5 },
+  ]) {
+    await intakeMock(page, {
+
+ succeeded in 2503ms:
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    await expectNoA11yViolations(page);
+  });
+
+  // I-p2-022 (#761): run-start + scope-check moved off the dashboard (now
+  // monitoring-only) to /plan (I-p2-015 #754). The plan page re-runs the full
+  // intake gate on mount; an out-of-scope question renders the "Can't start
+  // this run" blocked alert. a11y-check that surface.
+  test("/plan scope-rejection surface is WCAG-AA clean", async ({ page }) => {
+    await page.goto(
+      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+      { waitUntil: "networkidle" },
+    );
+    // Wait for the gate to resolve + the "Can't start this run" blocked alert
+    // to render, so axe actually covers the scope-rejection surface (Codex P2).
+    await expect(page.getByTestId("plan-blocked")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expectNoA11yViolations(page);
+  });
+});
+
+// I-cd-013b (GH#669): replaces 3 legacy /inspector/golden_* AuditIR a11y
+// describes with axe assertions against the new signed-bundle Inspector.
+// New route consumes v1.0 BundleManifest fixtures; the 3 tabs we now cover
+// (Report, Reasoning, Hash chain) are the SHAPE-RELEVANT ones — the legacy
+// "Charts" + "Contradictions" tabs don't exist in the rebuild and have no
+// migration target. The CTA surface for unknown runIds (axe-clean check)
+// preserves the legacy "destructive error banner" test intent.
+test.describe("WCAG-AA — Inspector (signed-bundle, post-I-cd-013a)", () => {
+  test("v1-canonical-success Report tab (default) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await expectNoA11yViolations(page);
+  });
+
+  test("v1-canonical-success Reasoning tab is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("tab", { name: /^reasoning$/i }).click();
+    await expectNoA11yViolations(page);
+  });
+
+  test("v1-canonical-success Hash chain tab is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/v1-canonical-success", {
+      waitUntil: "networkidle",
+    });
+
+ succeeded in 2868ms:
+import { expect, test } from "@playwright/test";
+
+test("French question → English-only message; intake API not called", async ({
+  page,
+}) => {
+  let intakeCalls = 0;
+  await page.route("**/api/intake", async (route) => {
+    intakeCalls++;
+    await route.fulfill({ status: 500, body: "should-not-be-called" });
+  });
+
+  await page.goto("/intake");
+  await page
+    .getByTestId("intake-question-input")
+    .fill(
+      "Quels sont les effets secondaires de la metformine chez les adultes?",
+    );
+  await page.getByTestId("intake-submit").click();
+
+  await expect(page.getByTestId("intake-error")).toBeVisible();
+  await expect(page.getByTestId("intake-error")).toContainText(
+    "POLARIS currently supports English",
+  );
+  expect(intakeCalls).toBe(0);
+});
+
+test("PDF drop on /intake → banner appears, then dismisses", async ({
+  page,
+}) => {
+  await page.goto("/intake");
+  await expect(page.getByTestId("pdf-drop-ready")).toHaveAttribute(
+    "data-ready",
+    "1",
+  );
+
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([], "test.pdf", { type: "application/pdf" }));
+    window.dispatchEvent(
+      new DragEvent("drop", {
+        dataTransfer: dt,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "SOURCE REVIEW|POLARIS CLINICAL RESEARCH|Edit question|Confirm|Continue|source_review|v6" web/app/source_review/page.tsx web/tests/e2e -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/source_review/page.tsx | Select-Object -Skip 170 -First 95' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files web/tests/e2e | rg "source|review|plan"' in C:\POLARIS
+ succeeded in 1328ms:
+web/app/source_review/page.tsx:3:// Sits between Intake and Plan in the flow (intake → source_review → plan →
+web/app/source_review/page.tsx:8:// LAW II — data source: `listTemplates()` → GET /api/v6/templates, served from
+web/app/source_review/page.tsx:9:// the authoritative config/v6_templates/*.json (real T1/T2/T3 source domains +
+web/app/source_review/page.tsx:160:          ← Edit question
+web/app/source_review/page.tsx:264:              Continue to plan review →
+web/tests/e2e\audit_bundle.spec.ts:6: * Drives /generation against the live polaris_v6 app. After the chain
+web/tests/e2e\bundle_preview.spec.ts:46:  polaris_version: "v6.2.0-test",
+web/tests/e2e\generation.spec.ts:6: * Drives the /generation page against the live polaris_v6 FastAPI app
+web/tests/e2e\pin_replay.spec.ts:5:// after the rebuild fetches from `/api/v6/runs/{run_id}/pins`.
+web/tests/e2e\retrieval.spec.ts:6: * Drives the /retrieval page against the live polaris_v6 FastAPI app
+web/tests/e2e\sign_in.spec.ts:8://     PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+
+ succeeded in 1668ms:
+      {question && (
+        <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-4">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+            Your question
+          </span>
+          <p className="text-foreground text-base">{question}</p>
+          <span className="text-muted-foreground text-xs">
+            Template:{" "}
+            <span className="text-foreground font-medium">{templateId}</span>
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <ErrorState
+          title="Couldn't load the source set"
+          message={error}
+          onRetry={() => {
+            setError(null);
+            setTemplate(null);
+            setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
+
+      {!template && !error && (
+        <LoadingState label="Loading the source set…" rows={5} />
+      )}
+
+      {template && (
+        <>
+          <div className="flex flex-col gap-3">
+            <h2 className="text-foreground text-sm font-semibold">
+              Source tiers POLARIS will search
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {TIERS.map((tier) => (
+                <TierCard
+                  key={tier}
+                  tier={tier}
+                  domains={template.source_tiers[tier] ?? []}
+                  minRequired={template.min_sources_per_tier[tier] ?? 0}
+                />
+              ))}
+            </div>
+          </div>
+
+          {template.frame_manifest.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h2 className="text-foreground text-sm font-semibold">
+                What the brief will cover
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {template.frame_manifest.map((frame) => (
+                  <span
+                    key={frame.frame_id}
+                    className="border-border text-muted-foreground rounded-full border px-2.5 py-1 text-xs"
+                  >
+                    {frame.frame_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* HONEST framing — the page shows the curated source DEFINITION + the
+              adequacy bar, NOT a retrieved corpus. Retrieval happens in the run.
+              I-p2-026 (#765): bg-card (white), not bg-muted/40 — muted-foreground
+              text on the muted tint failed WCAG 2.2 AA contrast (axe serious). */}
+          <div className="border-border bg-card shadow-card flex flex-col gap-1 rounded-xl border p-4">
+            <span className="text-foreground text-xs font-semibold">
+              How sources are gathered
+            </span>
+            <p className="text-muted-foreground text-xs">
+              These are the curated source domains and per-tier minimums for the{" "}
+              <span className="text-foreground font-medium">
+                {template.template_name}
+              </span>{" "}
+              template. POLARIS retrieves the actual corpus during the run and{" "}
+              <span className="text-foreground">
+                aborts at the adequacy gate
+              </span>{" "}
+              if any tier falls below its minimum — so scope is enforced, not
+              assumed.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              nativeButton={false}
+              render={<Link href={planHref} />}
+              disabled={!question}
+            >
+              Continue to plan review →
+            </Button>
+
+ succeeded in 1987ms:
+web/tests/e2e\bundle_preview.spec.ts
+web/tests/e2e\multi_source_panel.spec.ts
+web/tests/e2e\sentence_inspector_source.spec.ts
+web/tests/e2e\upload_doc_preview.spec.ts
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git log --oneline -8' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path web/app/source_review/page.tsx | Select-Object -Skip 130 -First 45' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git branch --all --list "*sub-pr-4*" "*source*review*"' in C:\POLARIS
+ succeeded in 1261ms:
+          setError(
+            `No source-set definition found for the "${templateId}" template.`,
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError(
+            "We couldn't load the source set right now. Please retry shortly.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId, reloadKey]);
+
+  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+
+  return (
+    <section
+      data-testid="source-review-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <Link
+          href={`/intake?q=${encodeURIComponent(question)}`}
+          className="text-muted-foreground hover:text-foreground text-xs"
+        >
+          ← Edit question
+        </Link>
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Review the source set
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          What POLARIS will search for this question — and the per-tier adequacy
+          bar the corpus must clear before a single claim is written.
+        </p>
+      </div>
+
+      {question && (
+        <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-4">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+            Your question
+          </span>
+
+ succeeded in 1564ms:
+24631630 I-ux-001c sub-PR 5 brief iter-1: Plan Review v6 chrome
+2025907a I-ux-001c sub-PR 5: handover update (sub-PR 4 #888 shipped; sub-PR 5 starts)
+0e126f6f I-p2-061 (#869): WCAG 2.2 AA — axe-measured 15→0 across all routes (#870)
+31f78447 I-p2-060 (#867): Offline Inspector — crafted drop zone + tokenized error (#868)
+7b1bcb09 I-p2-059 (#865): Audit & export — elevation + responsive compliance tables (#866)
+e6a1706c I-p2-058 (#863): Knowledge graph — semantic grammar + focal spotlight + navigator rail (frontier/lively) (#864)
+be1a312c I-p2-057 (#861): Run progress — verified-green done-checks + elevation + pipeline-verdict honesty (#862)
+dffec387 I-p2-056 (#859): Plan review — card elevation + single-accent step icons (#860)
+
+ succeeded in 1909ms:
+  bot/I-p2-031-source-review
+  bot/I-p2-055-source-review-s-audit
+  bot/I-ux-001c-sub-pr-4-source-review
+  remotes/origin/bot/I-p2-031-source-review
+  remotes/origin/bot/I-p2-055-source-review-s-audit
+  remotes/origin/bot/I-ux-001c-sub-pr-4-source-review
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show origin/bot/I-ux-001c-sub-pr-4-source-review:web/app/source_review/page.tsx | Select-Object -Skip 145 -First 45' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --name-only --oneline origin/bot/I-ux-001c-sub-pr-4-source-review -- web/tests/e2e web/app/source_review/page.tsx | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show origin/bot/I-ux-001c-sub-pr-4-source-review:web/tests/e2e/source_review_v6.spec.ts' in C:\POLARIS
+ succeeded in 1200ms:
+  }, [templateId, reloadKey]);
+
+  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+
+  return (
+    <section
+      data-testid="source-review-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      {/* I-ux-001c sub-PR 4 (#887): v6 marketing-auth chrome. Brand-red
+          eyebrow + display H1 + tightened subtitle. Edit-question link
+          moved to the eyebrow row (right side) so it remains accessible
+          but doesn't lead the page. Rest of the page (TierCards, error
+          state, loading state, retry, no-question fallback link, Continue
+          CTA) preserved verbatim per brief iter-3 APPROVE. */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <span
+            data-testid="source-review-eyebrow"
+            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+          >
+            SOURCES · POLARIS CLINICAL RESEARCH
+          </span>
+          <Link
+            data-testid="source-review-edit-question-link"
+            href={`/intake?q=${encodeURIComponent(question)}`}
+            className="text-muted-foreground hover:text-foreground text-xs"
+          >
+            ← Edit question
+          </Link>
+        </div>
+        <h1
+          data-testid="source-review-h1"
+          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+        >
+          Review the sources POLARIS will check.
+        </h1>
+        <p
+          data-testid="source-review-subtitle"
+          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
+        >
+          What POLARIS will check for this question — and the per-tier evidence
+          bar the corpus must clear before any claim is written.
+        </p>
+      </div>
+
+ succeeded in 1624ms:
+ succeeded in 1934ms:
+// I-ux-001c sub-PR 4 (GH #887): e2e Playwright for the v6 /source_review
+// chrome rebuild.
+//
+// Asserts the spec from `.codex/I-ux-001c-4/brief.md` iter-3 APPROVE:
+//   - Brand-red eyebrow + display H1 + tightened subtitle render
+//   - Edit-question link sits in the eyebrow row and still navigates to
+//     /intake?q=<encoded> (preserves back-link behavior)
+//
+// Per the iter-2 P2 fix: mocks GET /api/v6/templates so the auth-gated
+// listTemplates fetch doesn't race with header-link assertions.
+import { expect, test } from "@playwright/test";
+
+const SOURCE_REVIEW_PATH =
+  "/source_review?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F&template=clinical";
+
+// Minimal valid TemplateContent shape so listTemplates resolves without
+// the auth-gated backend call. Mirrors the shape from
+// config/v6_templates/clinical.json (id + per-tier source-domain lists +
+// min_sources_per_tier). The exact contents don't matter for chrome
+// assertions; they just need to render without errors.
+const FAKE_TEMPLATE = {
+  id: "clinical",
+  display_name: "Clinical drug audit",
+  source_set: {
+    T1: { domains: ["nejm.org", "thelancet.com"], min_sources_per_tier: 2 },
+    T2: { domains: ["cochranelibrary.com"], min_sources_per_tier: 1 },
+    T3: { domains: ["uptodate.com"], min_sources_per_tier: 0 },
+  },
+};
+
+test.describe("I-ux-001c · Source Review v6 chrome", () => {
+  test.beforeEach(async ({ page }) => {
+    // Mock the templates endpoint so the page renders without hitting
+    // the real auth-gated backend.
+    await page.route("**/api/v6/templates**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ templates: [FAKE_TEMPLATE] }),
+      });
+    });
+  });
+
+  test("eyebrow + H1 + subtitle render with v6 copy", async ({ page }) => {
+    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("source-review-page")).toBeVisible();
+    await expect(page.getByTestId("source-review-eyebrow")).toContainText(
+      /SOURCES.*POLARIS CLINICAL RESEARCH/i,
+    );
+    await expect(page.getByTestId("source-review-h1")).toContainText(
+      "Review the sources POLARIS will check",
+    );
+    await expect(page.getByTestId("source-review-subtitle")).toContainText(
+      /per-tier evidence bar the corpus must clear before any claim is written/i,
+    );
+  });
+
+  test("Edit-question link still navigates to /intake?q=<encoded>", async ({
+    page,
+  }) => {
+    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
+    const link = page.getByTestId("source-review-edit-question-link");
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute(
+      "href",
+      "/intake?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F",
+    );
+  });
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files .codex | rg "I-ux-001c|brief"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .codex/I-ux-001c-5/brief.md -ErrorAction SilentlyContinue' in C:\POLARIS
+ succeeded in 1043ms:
+# I-ux-001c sub-PR 5 — Plan Review v6 chrome (GH #889)
+
+## Phase: BRIEF REVIEW (not diff review)
+
+You are reviewing the SPEC for an upcoming diff. Repo on `bot/I-ux-001c-sub-pr-5-plan-review` currently equals `polaris` HEAD. Per CLAUDE.md §3.0: brief → brief APPROVE → diff → diff APPROVE → audit. This is step 2.
+
+## §0 cap directive (CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Scope (mirror of sub-PR 4 pattern — visual-only marketing-auth chrome)
+
+Rebuild `/plan` page header chrome to v6 marketing-auth lock. Sub-PR 5 of approximately 7 for I-ux-001c.
+
+Current `/plan` (362 LOC, single file `web/app/plan/page.tsx`, per I-p2-015 #754) is the run-start surface (intake → source_review → plan → run). On mount it re-runs the FULL `runIntake` gate; "Start research run" is enabled only for in_scope + disambiguation-resolved questions; `createRun` POSTs to the backend on submit. ALL this logic preserved verbatim.
+
+v6 changes (header chrome only, lines ~219-238 of current page.tsx):
+
+- Brand-red eyebrow ("PLAN · POLARIS CLINICAL RESEARCH") replacing the bare "← Edit question" link as the page's leading visual
+- "← Edit question" link MOVED into the eyebrow row (right side)
+- Display H1 ("Confirm the plan before the run.") replacing the small "Review the plan"
+- Tightened subtitle locked verbatim: "Re-checked end-to-end — POLARIS will only start the run when the question, scope, and template are all clear."
+
+PRESERVED contracts:
+- `data-testid="plan-page"` (existing test selector)
+- `data-testid="plan-blocked"`, `data-testid="plan-concurrent"`, `data-testid="plan-start-run"`
+- `runIntake` + `runDisambiguation` + `createRun` + ConcurrentRunError handling — all preserved verbatim
+- `/intake` back-link deep-link preserved
+- AppShell chrome preserved (NOT chromeless)
+- All PLAN_STEPS content + Vetted-question card + Start-run button — preserved verbatim
+
+## Operator-locked constraints (carried forward, sub-PR 4 final)
+
+Brand-red `#c8102e` has THREE authorized usage paths, all preserved:
+1. Brand identity (NEW eyebrow + existing Start-run CTA via Button variant=default + decorative)
+2. Evidence-role T1 semantic (TIER_DOT in source_review/plan if used) — not applicable to /plan in this PR
+3. Interactive affordance (text-primary on existing links + retry buttons)
+
+Honest sovereignty wording preserved (Canadian-hosted; LLM via OpenRouter-US disclosed at /transparency).
+
+## File plan (surgical, single page + 1 NEW test)
+
+REBUILD
+1. `web/app/plan/page.tsx` — header chrome only (lines ~219-238 region):
+   - Add brand-red eyebrow + display H1 + tightened subtitle
+   - Move "← Edit question" link into eyebrow row
+   - Rest of the page (vetted-question card, plan steps, Start-run flow, error/concurrent/blocked states) PRESERVED VERBATIM
+
+NEW
+2. `web/tests/e2e/plan_v6.spec.ts` — 2 Playwright cases:
+   - Eyebrow + H1 + subtitle render with v6 copy
+   - Edit-question link still navigates to /intake (preserves back-link)
+   Mocks the runIntake endpoint via page.route so the auth-gated re-check doesn't race.
+
+## Files I have ALSO checked
+
+- web/components/app_shell.tsx — `/plan` in authed routes; no change
+- web/components/app_shell_gate.tsx — `/plan` NOT chromeless
+- web/lib/api.ts — runIntake, runDisambiguation, createRun, ConcurrentRunError all preserved
+- web/app/runs/[runId]/page.tsx — receives router.push from /plan on createRun success; no change
+- web/app/intake/components/intake_form.tsx — links to /source_review not /plan; no change
+- web/app/source_review/page.tsx — links to /plan via Continue CTA; no change
+
+## Brief-review check requests (`specific_check_responses`)
+
+- `scope_visual_only`: PASS / FAIL — header chrome only; runIntake/createRun/error states preserved verbatim
+- `existing_testids_preserved`: PASS / FAIL — plan-page, plan-blocked, plan-concurrent, plan-start-run preserved
+- `appshell_chrome_preserved`: PASS / FAIL — /plan stays in AppShell
+- `back_link_preserved`: PASS / FAIL — /intake back-link preserved (moved to eyebrow row, same href)
+- `file_plan_surgical`: PASS / FAIL — single page rebuild + 1 test file
+
+## Output schema (BIND)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+specific_check_responses:
+  scope_visual_only: PASS | FAIL_with_detail
+  existing_testids_preserved: PASS | FAIL_with_detail
+  appshell_chrome_preserved: PASS | FAIL_with_detail
+  back_link_preserved: PASS | FAIL_with_detail
+  file_plan_surgical: PASS | FAIL_with_detail
+```
+
+ succeeded in 1420ms:
+.codex\I-bug-097\diff_review_brief.md
+.codex\I-bug-097\codex_brief_verdict.txt
+.codex\I-bug-097\brief.md
+.codex\I-bug-094\diff_review_brief.md
+.codex\I-bug-094\codex_brief_verdict.txt
+.codex\I-bug-094\brief.md
+.codex\I-bug-098\diff_review_brief.md
+.codex\I-bug-098\codex_brief_verdict.txt
+.codex\I-bug-098\brief.md
+.codex\I-bug-100\brief.md
+.codex\I-arch-001c\codex_diff_brief.md
+.codex\I-arch-001c\codex_brief_verdict.txt
+.codex\I-arch-001c\brief.md
+.codex\GH405\codex_diff_brief_iter_1.md
+.codex\GH405\codex_brief_iter_2.md
+.codex\GH405\codex_brief_iter_1.md
+.codex\I-anti-003\diff_review_brief.md
+.codex\I-anti-003\codex_brief_verdict.txt
+.codex\I-anti-003\brief.md
+.codex\I-bench-001\diff_review_brief.md
+.codex\I-bench-001\codex_brief_verdict.txt
+.codex\I-bench-001\brief.md
+.codex\I-bug-107\diff_review_iter3_brief.md
+.codex\I-bug-107\diff_review_iter2_brief.md
+.codex\I-bug-107\diff_review_brief.md
+.codex\I-bug-107\codex_brief_verdict.txt
+.codex\I-bug-107\brief.md
+.codex\I-bug-100\diff_review_iter2_brief.md
+.codex\I-bug-100\diff_review_brief.md
+.codex\I-bug-100\codex_brief_verdict.txt
+.codex\I-bug-100\brief_iter3.md
+.codex\I-bug-100\brief_iter2.md
+.codex\I-bug-092\diff_review_brief.md
+.codex\I-bug-092\codex_brief_verdict.txt
+.codex\I-bug-092\brief.md
+.codex\I-bug-099\diff_review_brief.md
+.codex\I-bug-099\codex_brief_verdict.txt
+.codex\I-bug-099\brief_iter2.md
+.codex\I-bug-099\brief.md
+.codex\GH400\codex_dr_eval_review_brief_inline.md
+.codex\GH400\codex_dr_eval_review_brief.md
+.codex\GH400\codex_dr_eval_research_brief.md
+.codex\I-anti-002\diff_review_brief.md
+.codex\I-anti-002\codex_brief_verdict.txt
+.codex\I-anti-002\brief.md
+.codex\I-bug-103\diff_review_brief.md
+.codex\I-bug-103\codex_brief_verdict.txt
+.codex\I-bug-103\brief.md
+.codex\I-bug-106\diff_review_brief.md
+.codex\I-bug-106\codex_brief_verdict.txt
+.codex\I-bug-106\brief.md
+.codex\I-bug-091\diff_review_brief.md
+.codex\I-bug-091\codex_brief_verdict.txt
+.codex\I-bug-091\brief.md
+.codex\I-arch-001b\codex_diff_brief.md
+.codex\I-arch-001b\codex_brief_verdict.txt
+.codex\I-arch-001b\brief_iter_5.md
+.codex\I-arch-001b\brief_iter_4.md
+.codex\I-arch-001b\brief_iter_3.md
+.codex\I-arch-001b\brief_iter_2.md
+.codex\I-arch-001b\brief.md
+.codex\I-audit-001\diff_review_brief_iter_2.md
+.codex\I-audit-001\diff_review_brief.md
+.codex\I-audit-001\codex_brief_verdict.txt
+.codex\I-audit-001\brief.md
+.codex\I-cd-005\diff_brief.md
+.codex\I-cd-005\codex_brief_verdict.txt
+.codex\I-cd-005\brief.md
+.codex\I-bug-101\diff_review_brief.md
+.codex\I-bug-101\codex_brief_verdict.txt
+.codex\I-bug-101\brief.md
+.codex\I-bug-090\diff_review_brief.md
+.codex\I-bug-090\codex_brief_verdict.txt
+.codex\I-bug-090\brief.md
+.codex\I-bug-105\diff_review_brief.md
+.codex\I-bug-105\codex_brief_verdict.txt
+.codex\I-bug-105\brief.md
+.codex\I-anti-001\diff_review_brief.md
+.codex\I-anti-001\codex_brief_verdict.txt
+.codex\I-anti-001\brief.md
+.codex\I-bug-089\diff_review_brief_iter_2.md
+.codex\I-bug-089\diff_review_brief.md
+.codex\I-bug-089\codex_brief_verdict.txt
+.codex\I-bug-089\brief_iter_4.md
+.codex\I-bug-089\brief_iter_3.md
+.codex\I-bug-089\brief_iter_2.md
+.codex\I-bug-089\brief.md
+.codex\I-bug-096\diff_review_brief.md
+.codex\I-bug-096\codex_brief_verdict.txt
+.codex\I-bug-096\brief.md
+.codex\I-bug-102\diff_review_brief.md
+.codex\I-bug-102\codex_brief_verdict.txt
+.codex\I-bug-102\brief.md
+.codex\I-beat-002\polaris_audit_brief_v4_inline.md
+.codex\I-beat-002\polaris_audit_brief_v3_minimal.md
+.codex\I-beat-002\polaris_audit_brief_v2.md
+.codex\I-beat-002\polaris_audit_brief.md
+.codex\I-cd-004\diff_brief.md
+.codex\I-cd-004\codex_brief_verdict.txt
+.codex\I-cd-004\brief.md
+.codex\I-bug-095\diff_review_brief.md
+.codex\I-bug-095\codex_brief_verdict.txt
+.codex\I-bug-095\brief.md
+.codex\I-cd-037\diff_brief.md
+.codex\I-cd-037\codex_brief_verdict.txt
+.codex\I-cd-037\brief.md
+.codex\I-bug-104\codex_brief_verdict.txt
+.codex\I-bug-104\brief.md
+.codex\I-bug-104\diff_review_brief.md
+.codex\I-cd-036\diff_brief.md
+.codex\I-cd-036\codex_brief_verdict.txt
+.codex\I-cd-036\brief.md
+.codex\I-arch-001a\codex_diff_brief_iter_3.md
+.codex\I-arch-001a\codex_diff_brief_iter_2.md
+.codex\I-arch-001a\codex_diff_brief.md
+.codex\I-arch-001a\codex_brief_verdict.txt
+.codex\I-arch-001a\brief_iter_3.md
+.codex\I-arch-001a\brief_iter_2.md
+.codex\I-arch-001a\brief.md
+.codex\I-cd-013\diff_brief.md
+.codex\I-cd-013\codex_brief_verdict.txt
+.codex\I-cd-013\brief.md
+.codex\I-bug-088\diff_review_brief_iter_2.md
+.codex\I-bug-088\diff_review_brief.md
+.codex\I-bug-088\codex_brief_verdict.txt
+.codex\I-bug-088\brief.md
+.codex\I-cd-021\diff_brief.md
+.codex\I-cd-021\codex_brief_verdict.txt
+.codex\I-cd-021\brief_iter2_output.txt
+.codex\I-cd-021\brief_iter1_output.txt
+.codex\I-cd-021\brief.md
+.codex\v30_user_wishlist_brief.md
+.codex\v30_sweep_integration_audit_pass5_brief.md
+.codex\v30_sweep_integration_audit_pass4_brief.md
+.codex\v30_sweep_integration_audit_pass3_brief.md
+.codex\v30_sweep_integration_audit_pass2_brief.md
+.codex\v30_sweep_integration_audit_brief.md
+.codex\v30_real_user_wishlist_research_brief.md
+.codex\v30_phase2_to_production_plan_brief.md
+.codex\v30_phase2_strategic_review_brief.md
+.codex\v30_phase2_run9_audit_brief.md
+.codex\v30_phase2_run7_audit_brief.md
+.codex\v30_phase2_run2_audit_brief.md
+.codex\v30_phase2_run14_substance_density_audit_brief.md
+.codex\v30_phase2_run14_audit_brief.md
+.codex\v30_phase2_run12_audit_brief.md
+.codex\v30_phase2_run11_audit_brief.md
+.codex\v30_phase2_run10_audit_brief.md
+.codex\v30_phase2_plan_review_pass4_brief.md
+.codex\v30_phase2_plan_review_pass3_brief.md
+.codex\v30_phase2_plan_review_pass2_brief.md
+.codex\v30_phase2_plan_review_brief.md
+.codex\v30_m66_fix_plan_v3_review_brief.md
+.codex\v30_m66_fix_plan_v2_review_brief.md
+.codex\v30_m66_fix_plan_review_brief.md
+.codex\v30_joint_analysis_review_brief.md
+.codex\v30_fix_plan_review_pass1_brief.md
+.codex\v30_final_plan_review_brief.md
+.codex\v30_final_plan_pass4_brief.md
+.codex\v30_final_plan_pass3_brief.md
+.codex\v29_true_root_cause_brief.md
+.codex\v29_fix_plan_review_pass1_brief.md
+.codex\v29_deep_content_audit_brief.md
+.codex\v28_strategic_path_to_highest_quality_brief.md
+.codex\v28_fix_plan_review_pass2_brief.md
+.codex\v28_fix_plan_review_pass1_brief.md
+.codex\v28_deep_content_audit_brief.md
+.codex\v27_deep_content_audit_brief.md
+.codex\v23_regression_diagnosis_brief.md
+.codex\v23_evidence_bottleneck_brief.md
+.codex\v17_vs_tier1_deep_comparison_brief.md
+.codex\I-cd-035\diff_brief.md
+.codex\I-cd-035\codex_brief_verdict.txt
+.codex\I-cd-035\brief.md
+.codex\I-cd-012\diff_brief.md
+.codex\I-cd-012\codex_brief_verdict.txt
+.codex\I-cd-012\brief.md
+.codex\I-bug-087\diff_review_brief.md
+.codex\I-bug-087\codex_brief_verdict.txt
+.codex\I-bug-087\brief.md
+.codex\I-arch-001f\codex_diff_brief_iter_2.md
+.codex\I-arch-001f\codex_diff_brief_iter_1.md
+.codex\I-arch-001f\codex_brief_verdict.txt
+.codex\I-arch-001f\brief_iter_3.md
+.codex\I-arch-001f\brief_iter_2.md
+.codex\I-arch-001f\brief.md
+.codex\I-anti-004\diff_review_brief.md
+.codex\I-anti-004\codex_brief_verdict.txt
+.codex\I-anti-004\brief.md
+.codex\I-cd-010\diff_brief.md
+.codex\I-cd-010\codex_brief_verdict.txt
+.codex\I-cd-010\brief.md
+.codex\I-cd-034\diff_brief.md
+.codex\I-cd-034\codex_brief_verdict.txt
+.codex\I-cd-034\brief.md
+.codex\I-bug-086\diff_review_brief.md
+.codex\I-bug-086\codex_brief_verdict.txt
+.codex\I-bug-086\brief.md
+.codex\I-arch-001e\codex_diff_brief_iter_2.md
+.codex\I-arch-001e\codex_diff_brief_iter_1.md
+.codex\I-arch-001e\codex_brief_verdict.txt
+.codex\I-arch-001e\brief_iter_2.md
+.codex\I-arch-001e\brief.md
+.codex\I-cd-020\diff_brief.md
+.codex\I-cd-020\codex_brief_verdict.txt
+.codex\I-cd-020\brief_iter2_output.txt
+.codex\I-cd-020\brief_iter1_output.txt
+.codex\I-cd-020\brief.md
+.codex\I-cd-033\diff_brief.md
+.codex\I-cd-033\codex_brief_verdict.txt
+.codex\I-cd-033\brief.md
+.codex\I-arch-001d\codex_diff_brief_iter_3.md
+.codex\I-arch-001d\codex_diff_brief_iter_2.md
+.codex\I-arch-001d\codex_diff_brief.md
+.codex\I-arch-001d\codex_brief_verdict.txt
+.codex\I-arch-001d\brief_iter_4.md
+.codex\I-arch-001d\brief_iter_3.md
+.codex\I-arch-001d\brief_iter_2.md
+.codex\I-arch-001d\brief.md
+.codex\I-bakeoff-A-001\diff_review_iter2_brief.md
+.codex\I-bakeoff-A-001\diff_review_brief.md
+.codex\I-bakeoff-A-001\codex_brief_verdict.txt
+.codex\I-bakeoff-A-001\brief.md
+.codex\I-cd-032\diff_brief.md
+.codex\I-cd-032\codex_brief_verdict.txt
+.codex\I-cd-032\brief.md
+.codex\I-bug-084\diff_review_brief.md
+.codex\I-bug-084\codex_brief_verdict.txt
+.codex\I-bug-084\brief.md
+.codex\I-bench-002\diff_review_brief.md
+.codex\I-bench-002\codex_brief_verdict.txt
+.codex\I-bench-002\brief.md
+.codex\I-bug-079\codex_brief_audit_iter1.txt
+.codex\I-bug-079\brief.md
+.codex\I-bug-079\codex_brief_audit_iter3.txt
+.codex\I-bug-079\codex_brief_audit_iter2.txt
+.codex\I-bug-079\codex_brief_verdict.txt
+.codex\I-bug-082\diff_review_brief.md
+.codex\I-bug-082\codex_brief_verdict.txt
+.codex\I-bug-082\brief.md
+.codex\I-cd-015\diff_brief.md
+.codex\I-cd-015\codex_brief_verdict.txt
+.codex\I-cd-015\brief.md
+.codex\I-bug-079\diff_review_brief.md
+.codex\I-cd-018\diff_brief.md
+.codex\I-cd-018\codex_brief_verdict.txt
+.codex\I-cd-018\brief_iter1_output.txt
+.codex\I-cd-018\brief.md
+.codex\I-cd-031\diff_brief.md
+.codex\I-cd-031\codex_brief_verdict.txt
+.codex\I-cd-031\brief.md
+.codex\I-bug-114\diff_brief.md
+.codex\I-bug-114\codex_brief_verdict.txt
+.codex\I-bug-114\brief.md
+.codex\I-bug-771\mdpi_reconcile_brief.md
+.codex\I-bug-771\diff_review_brief.md
+.codex\I-bug-771\decision_brief.md
+.codex\I-bug-771\codex_brief_verdict.txt
+.codex\I-bug-771\brief.md
+.codex\I-carney-001\codex_brief_v2_verdict_iter_5.txt
+.codex\I-carney-001\codex_brief_v2_verdict_iter_4.txt
+.codex\I-carney-001\codex_brief_v2_verdict_iter_3.txt
+.codex\I-carney-001\codex_brief_v2_verdict_iter_2.txt
+.codex\I-carney-001\codex_brief_v2_verdict_iter_1.txt
+.codex\I-carney-001\codex_brief_v2_iter5_force_approve.txt
+.codex\I-carney-001\brief_v2_iter_5.md
+.codex\I-carney-001\brief_v2_iter_4.md
+.codex\I-carney-001\brief_v2_iter_3.md
+.codex\I-carney-001\brief_v2_iter_2.md
+.codex\I-carney-001\brief_v2_iter_1.md
+.codex\I-carney-001\brief_iter_5.md
+.codex\I-carney-001\brief_iter_4.md
+.codex\I-carney-001\brief_iter_3.md
+.codex\I-carney-001\brief_iter_2.md
+.codex\I-carney-001\brief.md
+.codex\I-cd-030\diff_brief.md
+.codex\I-cd-030\codex_brief_verdict.txt
+.codex\I-cd-030\brief.md
+.codex\I-bug-112\codex_diff_brief_iter_1.md
+.codex\I-bug-112\codex_brief_verdict.txt
+.codex\I-bug-112\brief.md
+.codex\I-cd-014\diff_brief.md
+.codex\I-cd-014\codex_brief_verdict.txt
+.codex\I-cd-014\brief.md
+.codex\I-cd-017\diff_brief.md
+.codex\I-cd-017\codex_brief_verdict.txt
+.codex\I-cd-017\brief_iter3_output.txt
+.codex\I-cd-017\brief_iter2_output.txt
+.codex\I-cd-017\brief_iter1_output.txt
+.codex\I-cd-017\brief.md
+.codex\I-cd-029\diff_brief.md
+.codex\I-cd-029\codex_brief_verdict.txt
+.codex\I-cd-029\brief.md
+.codex\I-bug-116\diff_brief.md
+.codex\I-bug-116\codex_brief_verdict.txt
+.codex\I-bug-116\brief.md
+.codex\I-beat-001\codex_brief_verdict.txt
+.codex\I-beat-001\brief.md
+.codex\I-beat-001\diff_brief.md
+.codex\I-bug-776\decision_brief.md
+.codex\I-bug-776\codex_brief_verdict.txt
+.codex\I-bug-776\brief.md
+.codex\I-bug-776\layer4_decision_brief.md
+.codex\I-bug-776\diff_review_brief_layer4.md
+.codex\I-bug-776\diff_review_brief.md
+.codex\I-bug-115\diff_brief.md
+.codex\I-bug-115\codex_brief_verdict.txt
+.codex\I-bug-115\brief.md
+.codex\I-cd-028\diff_brief.md
+.codex\I-cd-028\codex_brief_verdict.txt
+.codex\I-cd-028\brief.md
+.codex\I-bug-775\diff_review_brief.md
+.codex\I-bug-775\decision_brief.md
+.codex\I-bug-775\codex_brief_verdict.txt
+.codex\I-bug-775\brief.md
+.codex\I-cd-013b\diff_brief.md
+.codex\I-cd-013b\codex_brief_verdict.txt
+.codex\I-cd-013b\brief.md
+.codex\I-cd-016\brief.md
+.codex\I-carney-008\codex_diff_brief_iter_5.md
+.codex\I-carney-008\codex_diff_brief_iter_4.md
+.codex\I-carney-008\codex_diff_brief_iter_3.md
+.codex\I-carney-008\codex_diff_brief_iter_2.md
+.codex\I-carney-008\codex_diff_brief_iter_1.md
+.codex\I-carney-008\codex_brief_verdict.txt
+.codex\I-carney-008\brief.md
+.codex\I-cd-003\diff_brief.md
+.codex\I-cd-003\codex_brief_verdict.txt
+.codex\I-cd-003\brief.md
+.codex\I-carney-004\codex_diff_brief_iter_2.md
+.codex\I-carney-004\codex_diff_brief_iter_1.md
+.codex\I-carney-004\codex_brief_verdict.txt
+.codex\I-carney-004\brief.md
+.codex\I-cd-027\diff_brief.md
+.codex\I-cd-027\codex_brief_verdict.txt
+.codex\I-cd-027\brief.md
+.codex\I-carney-003\codex_diff_brief_iter_3.md
+.codex\I-carney-003\codex_diff_brief_iter_2.md
+.codex\I-carney-003\codex_diff_brief_iter_1.md
+.codex\I-carney-003\codex_brief_verdict.txt
+.codex\I-carney-003\brief_iter_2.md
+.codex\I-carney-003\brief.md
+.codex\I-cd-016\scope_consult_brief.md
+.codex\I-cd-016\diff_brief.md
+.codex\I-cd-016\codex_brief_verdict.txt
+.codex\I-cd-002-followup\diff_brief.md
+.codex\I-cd-002-followup\codex_brief_verdict.txt
+.codex\I-cd-002-followup\brief.md
+.codex\I-carney-007\codex_diff_brief_iter_3.md
+.codex\I-carney-007\codex_diff_brief_iter_2.md
+.codex\I-carney-007\codex_diff_brief_iter_1.md
+.codex\I-carney-007\codex_brief_verdict.txt
+.codex\I-carney-007\carney_demo_signoff_brief.md
+.codex\I-carney-007\brief.md
+.codex\I-carney-prep-7day\codex_consultation_brief.md
+.codex\I-cd-026\diff_brief.md
+.codex\I-cd-026\codex_brief_verdict.txt
+.codex\I-cd-026\brief.md
+.codex\I-carney-002\codex_diff_brief_iter_3.md
+.codex\I-carney-002\codex_diff_brief_iter_2.md
+.codex\I-carney-002\codex_diff_brief_iter_1.md
+.codex\I-carney-002\codex_brief_verdict.txt
+.codex\I-carney-002\brief.md
+.codex\I-carney-005\brief_iter_3.md
+.codex\I-carney-005\brief_iter_2.md
+.codex\I-carney-005\brief.md
+.codex\I-carney-005\brief_iter_4.md
+.codex\I-carney-005\brief_iter_5.md
+.codex\I-bug-111\diff_review_iter2_brief.md
+.codex\I-bug-111\diff_review_brief.md
+.codex\I-bug-111\codex_brief_verdict.txt
+.codex\I-bug-111\brief.md
+.codex\I-carney-005\codex_diff_brief_iter_3.md
+.codex\I-carney-005\codex_diff_brief_iter_2.md
+.codex\I-carney-005\codex_diff_brief_iter_1.md
+.codex\I-carney-005\codex_brief_verdict.txt
+.codex\I-cd-002\brief.md
+.codex\shippable_plan_v4_review_brief.md
+.codex\shippable_plan_v3_review_brief.md
+.codex\shippable_plan_review_brief.md
+.codex\I-cd-002\diff_brief.md
+.codex\I-cd-002\codex_brief_verdict.txt
+.codex\I-carney-010\codex_diff_brief_iter_2.md
+.codex\I-carney-010\codex_diff_brief_iter_1.md
+.codex\I-carney-010\codex_brief_verdict.txt
+.codex\I-carney-010\brief.md
+.codex\I-cd-001\codex_brief_verdict.txt
+.codex\I-cd-001\brief.md
+.codex\I-cd-001\diff_brief.md
+.codex\I-cd-024\codex_brief_verdict.txt
+.codex\I-cd-024\brief.md
+.codex\I-f1-005\diff_review_brief.md
+.codex\I-f1-005\codex_brief_verdict.txt
+.codex\I-f1-005\brief.md
+.codex\I-cd-024\diff_brief.md
+.codex\I-cd-025\brief.md
+.codex\I-cd-006\diff_brief.md
+.codex\I-cd-006\codex_brief_verdict.txt
+.codex\I-cd-006\brief.md
+.codex\I-cd-025\diff_brief.md
+.codex\I-cd-025\codex_brief_verdict.txt
+.codex\I-cd-008\diff_brief.md
+.codex\I-cd-008\codex_brief_verdict.txt
+.codex\I-cd-008\brief.md
+.codex\I-cd-009\codex_brief_verdict.txt
+.codex\I-cd-009\brief.md
+.codex\I-cd-009\diff_brief.md
+.codex\I-cd-022\diff_brief.md
+.codex\I-cd-022\codex_brief_verdict.txt
+.codex\I-cd-022\brief_iter2_output.txt
+.codex\I-cd-022\brief_iter1_output.txt
+.codex\I-cd-022\brief.md
+.codex\I-cd-007\codex_brief_verdict.txt
+.codex\I-cd-007\brief.md
+.codex\I-cd-007\diff_brief.md
+.codex\I-cd-023\brief.md
+.codex\I-bug-110\diff_review_brief.md
+.codex\I-bug-110\codex_brief_verdict.txt
+.codex\I-bug-110\brief.md
+.codex\I-cd-023\diff_brief.md
+.codex\I-cd-023\codex_brief_verdict.txt
+.codex\I-cd-023\brief_iter1_output.txt
+.codex\I-f1-004\diff_review_brief.md
+.codex\I-f1-004\codex_brief_verdict.txt
+.codex\I-f1-004\brief.md
+.codex\I-cd-705\codex_brief_verdict.txt
+.codex\I-cd-705\brief.md
+.codex\I-cj-002\diff_review_brief.md
+.codex\I-cj-002\codex_brief_verdict.txt
+.codex\I-cj-002\brief.md
+.codex\I-cj-006\brief.md
+.codex\I-cj-006\diff_review_brief.md
+.codex\I-cj-006\codex_brief_verdict.txt
+.codex\I-cd-005-followup\diff_brief.md
+.codex\I-cd-005-followup\codex_brief_verdict.txt
+.codex\I-cd-005-followup\brief.md
+.codex\I-ci-001\diff_brief.md
+.codex\I-ci-001\codex_brief_verdict.txt
+.codex\I-ci-001\brief.md
+.codex\I-f1-003\diff_review_brief.md
+.codex\I-f1-003\codex_brief_verdict.txt
+.codex\I-f1-003\brief.md
+.codex\I-bug-109\diff_review_brief.md
+.codex\I-bug-109\codex_brief_verdict.txt
+.codex\I-bug-109\brief.md
+.codex\I-cj-001\diff_review_brief.md
+.codex\I-cj-001\codex_brief_verdict.txt
+.codex\I-cj-001\brief.md
+.codex\I-doc-001\diff_review_iter2_brief.md
+.codex\I-doc-001\diff_review_brief.md
+.codex\I-doc-001\codex_brief_verdict.txt
+.codex\I-doc-001\codex_brief_stderr_iter_1.txt
+.codex\I-doc-001\brief.md
+.codex\I-cd-682\diff_brief.md
+.codex\I-cd-682\codex_brief_verdict.txt
+.codex\I-cd-682\brief.md
+.codex\I-cj-008\diff_review_brief.md
+.codex\I-cj-008\codex_brief_verdict.txt
+.codex\I-cj-008\brief.md
+.codex\I-cj-005\diff_review_brief.md
+.codex\I-cj-005\codex_brief_verdict.txt
+.codex\I-cj-005\brief.md
+.codex\I-cd-680\codex_brief_verdict.txt
+.codex\I-cd-680\brief_iter2.md
+.codex\I-cd-680\brief.md
+.codex\I-cd-706\brief.md
+.codex\I-cd-706\codex_brief_verdict.txt
+.codex\I-cj-003\brief.md
+.codex\I-cj-003\codex_brief_verdict.txt
+.codex\I-f1-002\diff_review_brief.md
+.codex\I-f1-002\codex_brief_verdict.txt
+.codex\I-cj-003\diff_review_brief.md
+.codex\I-f1-002\brief.md
+.codex\I-bug-108\diff_review_brief.md
+.codex\I-bug-108\codex_brief_verdict.txt
+.codex\I-bug-108\brief.md
+.codex\I-ecg-003\diff_review_brief.md
+.codex\I-cj-004\diff_review_brief.md
+.codex\I-cj-004\codex_brief_verdict.txt
+.codex\I-ecg-003\codex_brief_verdict.txt
+.codex\I-cj-004\brief.md
+.codex\I-ecg-003\brief.md
+.codex\I-cj-007\codex_brief_verdict.txt
+.codex\I-cj-007\brief.md
+.codex\I-cj-007\diff_review_brief.md
+.codex\reprioritization_2026_05_20\brief_iter2.md
+.codex\reprioritization_2026_05_20\brief.md
+.codex\pr_e_open_issues_review_brief.md
+.codex\I-decompose-001\diff_review_brief.md
+.codex\I-decompose-001\codex_brief_verdict.txt
+.codex\I-decompose-001\brief.md
+.codex\I-ecg-001\diff_review_brief.md
+.codex\I-ecg-001\codex_brief_verdict.txt
+.codex\I-ecg-001\brief.md
+.codex\I-f1-001\diff_review_brief.md
+.codex\I-f1-001\codex_brief_verdict.txt
+.codex\I-f1-001\brief.md
+.codex\I-ecg-004\diff_review_brief.md
+.codex\I-ecg-004\codex_brief_verdict.txt
+.codex\I-ecg-004\brief.md
+.codex\I-ecg-002\codex_brief_verdict.txt
+.codex\I-ecg-002\brief.md
+.codex\I-ecg-002\diff_review_brief.md
+.codex\I-eval-002\codex_batch_2_brief.md
+.codex\I-eval-002\codex_batch_1_brief.md
+.codex\I-eval-002\codex_batch_4_brief.md
+.codex\I-eval-002\codex_batch_3_brief.md
+.codex\I-eval-002\codex_batch_brief_template.md
+.codex\I-eval-002\codex_q5_tier1_brief.md
+.codex\I-eval-003\codex_diff_brief.md
+.codex\I-eval-003\codex_brief_verdict.txt
+.codex\I-eval-003\brief.md
+.codex\I-eval-003\codex_q1_batch_1_brief.md
+.codex\I-eval-003\codex_q1_batch_2_brief.md
+.codex\I-doc-002\diff_review_brief.md
+.codex\I-doc-002\codex_brief_verdict.txt
+.codex\I-doc-002\brief.md
+.codex\m63_code_audit_pass2_brief.md
+.codex\m63_code_audit_brief.md
+.codex\m62_code_audit_brief.md
+.codex\m61_code_audit_pass2_brief.md
+.codex\m61_code_audit_brief.md
+.codex\m60_code_audit_pass4_brief.md
+.codex\m60_code_audit_pass3_brief.md
+.codex\m60_code_audit_pass2_brief.md
+.codex\m60_code_audit_brief.md
+.codex\m59_code_audit_brief.md
+.codex\m58_code_audit_pass6_brief.md
+.codex\m58_code_audit_pass5_brief.md
+.codex\m58_code_audit_pass4_brief.md
+.codex\m58_code_audit_pass3_brief.md
+.codex\m58_code_audit_pass2_brief.md
+.codex\m58_code_audit_brief.md
+.codex\m57_code_audit_brief.md
+.codex\m56_code_audit_pass2_brief.md
+.codex\m56_code_audit_brief.md
+.codex\m55_code_audit_brief.md
+.codex\m54_code_audit_brief_v2.md
+.codex\m54_code_audit_brief.md
+.codex\m52_m53_code_audit_brief.md
+.codex\m51_code_audit_brief.md
+.codex\m50_code_audit_pass2_brief.md
+.codex\m50_code_audit_brief.md
+.codex\m48_code_audit_pass2_brief.md
+.codex\m48_code_audit_brief.md
+.codex\m47_code_audit_pass2_brief.md
+.codex\m47_code_audit_brief.md
+.codex\m46_code_audit_brief.md
+.codex\m45_code_audit_pass2_brief.md
+.codex\m45_code_audit_brief.md
+.codex\m44_code_audit_pass3_brief.md
+.codex\m44_code_audit_pass2_brief.md
+.codex\m44_code_audit_brief.md
+.codex\m43_code_audit_pass2_brief.md
+.codex\m43_code_audit_brief.md
+.codex\m42_fix_plan_review_pass3_brief.md
+.codex\m42_fix_plan_review_pass2_brief.md
+.codex\m42e_code_audit_pass3_brief.md
+.codex\m42e_code_audit_pass2_brief.md
+.codex\m42e_code_audit_brief.md
+.codex\m42d_code_audit_pass2_brief.md
+.codex\m42d_code_audit_brief.md
+.codex\m42c_code_audit_brief.md
+.codex\m42ab_code_audit_pass2_brief.md
+.codex\m42ab_code_audit_brief.md
+.codex\m41_bundle_code_audit_pass2_brief.md
+.codex\m41_bundle_code_audit_brief.md
+.codex\m40_code_audit_pass2_brief.md
+.codex\m40_code_audit_brief.md
+.codex\m38_code_audit_brief.md
+.codex\m37_code_audit_brief.md
+.codex\m36_code_audit_brief.md
+.codex\m35_code_audit_pass2_brief.md
+.codex\m35_code_audit_brief.md
+.codex\m34_verdict_only_brief.md
+.codex\m34_code_audit_brief.md
+.codex\m33_code_audit_pass2_brief.md
+.codex\m33_code_audit_brief.md
+.codex\m32_code_audit_brief.md
+.codex\m31_code_audit_brief.md
+.codex\m30_code_audit_pass5_brief.md
+.codex\m30_code_audit_pass4_brief.md
+.codex\m30_code_audit_pass3_brief.md
+.codex\m30_code_audit_pass2_brief.md
+.codex\m30_code_audit_brief.md
+.codex\m29_code_audit_brief.md
+.codex\m28_code_audit_pass3_brief.md
+.codex\m28_code_audit_pass2_brief.md
+.codex\m28_code_audit_brief.md
+.codex\I-f15-005\diff_review_brief.md
+.codex\I-f15-005\codex_brief_verdict.txt
+.codex\I-f15-005\brief.md
+.codex\I-f14-002\diff_review_brief.md
+.codex\I-f14-002\codex_brief_verdict.txt
+.codex\I-f14-002\brief.md
+.codex\I-eval-003\codex_q4_batch_8_brief.md
+.codex\I-eval-003\codex_q4_batch_7_brief.md
+.codex\I-eval-003\codex_q4_batch_6_brief.md
+.codex\I-eval-003\codex_q4_batch_5_brief.md
+.codex\I-eval-003\codex_q4_batch_4_brief.md
+.codex\I-eval-003\codex_q4_batch_3_brief.md
+.codex\I-eval-003\codex_q4_batch_2_brief.md
+.codex\I-eval-003\codex_q4_batch_1_brief.md
+.codex\I-eval-003\codex_q3_batch_9_brief.md
+.codex\I-eval-003\codex_q3_batch_8_brief.md
+.codex\I-eval-003\codex_q3_batch_7_brief.md
+.codex\I-eval-003\codex_q3_batch_6_brief.md
+.codex\I-eval-003\codex_q3_batch_5_brief.md
+.codex\I-eval-003\codex_q3_batch_4_brief.md
+.codex\I-eval-003\codex_q3_batch_3_brief.md
+.codex\I-eval-003\codex_q3_batch_2_brief.md
+.codex\I-eval-003\codex_q3_batch_1_brief.md
+.codex\I-eval-003\codex_q2_batch_7_brief.md
+.codex\I-eval-003\codex_q2_batch_6_brief.md
+.codex\I-eval-003\codex_q2_batch_5_brief.md
+.codex\I-eval-003\codex_q2_batch_4_brief.md
+.codex\I-eval-003\codex_q2_batch_3_brief.md
+.codex\I-eval-003\codex_q2_batch_2_brief.md
+.codex\I-eval-003\codex_q2_batch_1_brief.md
+.codex\I-eval-003\codex_q1_batch_5_brief.md
+.codex\I-eval-003\codex_q1_batch_4_brief.md
+.codex\I-eval-003\codex_q1_batch_3_brief.md
+.codex\I-f15-004\diff_review_brief.md
+.codex\I-f15-004\codex_brief_verdict.txt
+.codex\I-f15-004\brief.md
+.codex\I-f12-002\diff_review_brief.md
+.codex\I-f12-002\codex_brief_verdict.txt
+.codex\I-f12-002\brief.md
+.codex\I-f14-001\diff_review_brief.md
+.codex\I-f14-001\codex_brief_verdict.txt
+.codex\I-f14-001\brief.md
+.codex\I-f10-007\diff_review_brief.md
+.codex\I-f10-007\codex_brief_verdict.txt
+.codex\I-f10-007\brief.md
+.codex\I-f14-005\diff_review_brief.md
+.codex\I-f14-005\codex_brief_verdict.txt
+.codex\I-f14-005\brief.md
+.codex\I-f13-001\diff_review_brief.md
+.codex\I-f13-001\codex_brief_verdict.txt
+.codex\I-f13-001\brief.md
+.codex\I-f12-001\diff_review_brief.md
+.codex\I-f12-001\codex_brief_verdict.txt
+.codex\I-f12-001\brief.md
+.codex\I-f13-004\diff_review_brief.md
+.codex\I-f13-004\codex_brief_verdict.txt
+.codex\I-f13-004\brief.md
+.codex\I-f15-003\diff_review_brief.md
+.codex\I-f15-003\codex_brief_verdict.txt
+.codex\I-f15-003\brief.md
+.codex\I-f14-004\diff_review_brief.md
+.codex\I-f14-004\codex_brief_verdict.txt
+.codex\I-f14-004\brief.md
+.codex\I-ux-001c-5\brief.md
+.codex\I-f10-006\diff_review_brief.md
+.codex\I-f10-006\codex_brief_verdict.txt
+.codex\I-f10-006\brief.md
+.codex\I-f12-003\diff_review_brief.md
+.codex\I-f12-003\codex_brief_verdict.txt
+.codex\I-f12-003\brief.md
+.codex\I-f12-004\brief.md
+.codex\I-f12-004\codex_brief_verdict.txt
+.codex\I-f11-002\diff_review_brief.md
+.codex\I-f11-002\codex_brief_verdict.txt
+.codex\I-f11-002\brief.md
+.codex\I-f12-004\diff_review_brief.md
+.codex\I-f13-003\codex_brief_verdict.txt
+.codex\I-f13-003\brief.md
+.codex\I-f11-005\diff_review_brief.md
+.codex\I-f13-003\diff_review_brief.md
+.codex\I-f11-005\codex_brief_verdict.txt
+.codex\I-f11-005\brief.md
+.codex\I-f15-002\diff_review_brief.md
+.codex\I-f15-002\codex_brief_verdict.txt
+.codex\I-f15-002\brief.md
+.codex\I-f14-003\diff_review_brief.md
+.codex\I-f14-003\codex_brief_verdict.txt
+.codex\I-f14-003\brief.md
+.codex\I-f10-005\diff_review_brief.md
+.codex\I-f10-005\codex_brief_verdict.txt
+.codex\I-f10-005\brief.md
+.codex\I-f4-005\diff_review_brief.md
+.codex\I-f4-005\codex_brief_verdict.txt
+.codex\I-f4-005\brief.md
+.codex\I-f11-004\diff_review_brief.md
+.codex\I-f11-004\codex_brief_verdict.txt
+.codex\I-f11-004\brief.md
+.codex\I-f15-001\diff_review_brief.md
+.codex\I-f15-001\codex_brief_verdict.txt
+.codex\I-f15-001\codex_brief_audit_iter1.txt
+.codex\I-f15-001\brief.md
+.codex\I-f13-002\diff_review_brief.md
+.codex\I-f13-002\codex_brief_verdict.txt
+.codex\I-f13-002\brief.md
+.codex\I-f11-001\diff_review_brief.md
+.codex\I-f11-001\codex_brief_verdict.txt
+.codex\I-f11-001\brief.md
+.codex\I-f3-007\diff_review_brief.md
+.codex\I-f3-007\codex_brief_verdict.txt
+.codex\I-f3-007\codex_brief_audit_iter4.txt
+.codex\I-f3-007\codex_brief_audit_iter3.txt
+.codex\I-f3-007\codex_brief_audit_iter2.txt
+.codex\I-f3-007\codex_brief_audit_iter1.txt
+.codex\I-f3-007\brief.md
+.codex\I-f5-004\diff_review_brief.md
+.codex\I-f5-004\codex_brief_verdict.txt
+.codex\I-f5-004\brief.md
+.codex\I-f5-008\diff_review_brief.md
+.codex\I-f5-008\codex_brief_verdict.txt
+.codex\I-f5-008\brief.md
+.codex\I-modref-004\diff_brief.md
+.codex\I-modref-004\codex_brief_verdict.txt
+.codex\I-modref-004\brief.md
+.codex\I-ux-001c-3\codex_diff_audit.txt
+.codex\I-ux-001c-3\codex_brief_verdict.txt
+.codex\I-f11-003\diff_review_brief.md
+.codex\I-f11-003\codex_brief_verdict.txt
+.codex\I-f11-003\brief.md
+.codex\I-f4-004\diff_review_brief.md
+.codex\I-f4-004\codex_brief_verdict.txt
+.codex\I-f4-004\brief.md
+.codex\I-f10-004\diff_review_brief.md
+.codex\I-f10-004\codex_brief_verdict.txt
+.codex\I-f10-004\brief.md
+.codex\I-f5-003\diff_review_brief.md
+.codex\I-f5-003\codex_brief_verdict.txt
+.codex\I-f5-003\brief.md
+.codex\I-f10-008\diff_review_brief.md
+.codex\I-f10-008\codex_brief_verdict.txt
+.codex\I-f10-008\brief.md
+.codex\I-f3-006\diff_review_brief.md
+.codex\I-f3-006\codex_brief_verdict.txt
+.codex\I-f3-006\codex_brief_audit_iter1.txt
+.codex\I-f3-006\brief.md
+.codex\I-f3-004\diff_review_brief.md
+.codex\I-f3-004\codex_brief_verdict.txt
+.codex\I-f3-004\codex_brief_audit_iter2.txt
+.codex\I-f3-004\codex_brief_audit_iter1.txt
+.codex\I-f3-004\brief.md
+.codex\I-f5-007\diff_review_brief.md
+.codex\I-f5-007\codex_brief_verdict.txt
+.codex\I-f5-007\brief.md
+.codex\I-ux-001c-2\visual_audit_input_iter1.md
+.codex\I-f8-004\diff_review_brief.md
+.codex\I-f8-004\codex_brief_verdict.txt
+.codex\I-f8-004\brief.md
+.codex\I-f4-003\diff_review_brief.md
+.codex\I-f4-003\codex_brief_verdict.txt
+.codex\I-f4-003\brief.md
+.codex\I-f2-005\diff_review_brief.md
+.codex\I-f2-005\codex_brief_verdict.txt
+.codex\I-f2-005\codex_brief_audit_iter2.txt
+.codex\I-f2-005\codex_brief_audit_iter1.txt
+.codex\I-f2-005\brief.md
+.codex\I-f5-002\diff_review_brief.md
+.codex\I-f5-002\codex_brief_verdict.txt
+.codex\I-f5-002\brief.md
+.codex\I-modref-002\diff_brief.md
+.codex\I-f10-003\diff_review_brief.md
+.codex\I-modref-002\codex_brief_verdict.txt
+.codex\I-f10-003\codex_brief_verdict.txt
+.codex\I-modref-002\brief.md
+.codex\I-f10-003\brief.md
+.codex\I-f3-005\diff_review_brief.md
+.codex\I-f3-005\codex_brief_verdict.txt
+.codex\I-f3-005\codex_brief_audit_iter2.txt
+.codex\I-f3-005\codex_brief_audit_iter1.txt
+.codex\I-f3-005\brief.md
+.codex\I-f4-002\brief.md
+.codex\I-f4-002\diff_review_brief.md
+.codex\I-f4-002\codex_brief_verdict.txt
+.codex\I-f5-006\codex_brief_verdict.txt
+.codex\I-f5-006\brief.md
+.codex\I-ux-001c\pr_body.md
+.codex\I-ux-001c\codex_diff_audit.err.txt
+.codex\I-f5-006\diff_review_brief.md
+.codex\I-f2-004\diff_review_brief.md
+.codex\I-f2-004\codex_brief_verdict.txt
+.codex\I-f2-004\codex_brief_audit_iter3.txt
+.codex\I-f2-004\codex_brief_audit_iter2.txt
+.codex\I-f2-004\codex_brief_audit_iter1.txt
+.codex\I-f2-004\brief.md
+.codex\I-f3-003\diff_review_brief.md
+.codex\I-f2-002\diff_review_brief.md
+.codex\I-f3-003\codex_brief_verdict.txt
+.codex\I-f3-003\codex_brief_audit_iter1.txt
+.codex\I-f3-003\brief.md
+.codex\I-f2-002\codex_brief_verdict.txt
+.codex\I-f2-002\brief.md
+.codex\I-f5-001\diff_review_brief.md
+.codex\I-f5-001\codex_brief_verdict.txt
+.codex\I-f5-001\brief.md
+.codex\I-f8-003\diff_review_brief.md
+.codex\I-f8-003\codex_brief_verdict.txt
+.codex\I-f8-003\brief.md
+.codex\I-f5-005\diff_review_brief.md
+.codex\I-f5-005\codex_brief_verdict.txt
+.codex\I-f5-005\brief.md
+.codex\I-f10-002\diff_review_brief.md
+.codex\I-f10-002\codex_brief_verdict.txt
+.codex\I-f10-002\brief.md
+.codex\I-f4-001\diff_review_brief.md
+.codex\I-f4-001\codex_brief_verdict.txt
+.codex\I-f4-001\brief.md
+.codex\I-f2-003\diff_review_brief.md
+.codex\I-f2-003\codex_brief_verdict.txt
+.codex\I-f2-003\codex_brief_audit_iter3.txt
+.codex\I-f2-003\codex_brief_audit_iter2.txt
+.codex\I-f2-003\codex_brief_audit_iter1.txt
+.codex\I-f2-003\brief.md
+.codex\I-f6-004\diff_review_brief.md
+.codex\I-f6-004\codex_brief_verdict.txt
+.codex\I-f6-004\brief.md
+.codex\I-f5-011\diff_review_brief.md
+.codex\I-f5-011\codex_brief_verdict.txt
+.codex\I-f5-011\brief.md
+.codex\I-lint-001\diff_brief.md
+.codex\I-lint-001\codex_brief_verdict.txt
+.codex\I-lint-001\brief.md
+.codex\I-f2-001\diff_review_brief.md
+.codex\I-f2-001\codex_brief_verdict.txt
+.codex\I-f2-001\brief.md
+.codex\I-f3-002\diff_review_brief.md
+.codex\I-f3-002\codex_brief_verdict.txt
+.codex\I-f3-002\codex_brief_audit_iter3.txt
+.codex\I-f3-002\codex_brief_audit_iter2.txt
+.codex\I-f3-002\codex_brief_audit_iter1.txt
+.codex\I-f3-002\brief.md
+.codex\I-f5-009\diff_review_brief.md
+.codex\I-f5-009\codex_brief_verdict.txt
+.codex\I-f5-009\brief.md
+.codex\I-f2-007\diff_review_brief.md
+.codex\I-f2-007\codex_brief_verdict.txt
+.codex\I-f2-007\codex_brief_audit_iter2.txt
+.codex\I-f2-007\codex_brief_audit_iter1.txt
+.codex\I-f2-007\brief.md
+.codex\I-f10-001\diff_review_brief.md
+.codex\I-f10-001\codex_brief_verdict.txt
+.codex\I-f10-001\brief.md
+.codex\I-f8-002\diff_review_brief.md
+.codex\I-f8-002\codex_brief_verdict.txt
+.codex\I-f8-002\brief.md
+.codex\I-f5-010\diff_review_brief.md
+.codex\I-f5-010\codex_brief_verdict.txt
+.codex\I-f5-010\brief.md
+.codex\I-f6-003\brief.md
+.codex\I-f3-010\diff_review_brief.md
+.codex\I-f3-010\codex_brief_verdict.txt
+.codex\I-f3-010\codex_brief_audit_iter3.txt
+.codex\I-f3-010\codex_brief_audit_iter2.txt
+.codex\I-f3-010\codex_brief_audit_iter1.txt
+.codex\I-f3-010\brief.md
+.codex\I-f6-003\diff_review_brief.md
+.codex\I-f6-003\codex_brief_verdict.txt
+.codex\I-f6-001\diff_review_brief.md
+.codex\I-f6-001\codex_brief_verdict.txt
+.codex\I-f6-001\brief.md
+.codex\I-f15-006\diff_review_brief.md
+.codex\I-f15-006\codex_brief_verdict.txt
+.codex\I-f15-006\brief.md
+.codex\I-f2-006\diff_review_brief.md
+.codex\I-f3-001\diff_review_brief.md
+.codex\I-f2-006\codex_brief_verdict.txt
+.codex\I-f2-006\codex_brief_audit_iter2.txt
+.codex\I-f3-001\codex_brief_verdict.txt
+.codex\I-f2-006\codex_brief_audit_iter1.txt
+.codex\I-f3-001\codex_brief_audit_iter3.txt
+.codex\I-f2-006\brief.md
+.codex\I-f3-001\codex_brief_audit_iter2.txt
+.codex\I-f3-001\codex_brief_audit_iter1.txt
+.codex\I-f3-001\brief.md
+.codex\I-hygiene-001\diff_brief.md
+.codex\I-hygiene-001\codex_brief_verdict.txt
+.codex\I-hygiene-001\brief.md
+.codex\I-ui-010\codex_brief_verdict.txt
+.codex\I-ui-010\brief_review_iter2.txt
+.codex\I-ui-010\brief_review_iter1.txt
+.codex\I-ui-010\brief.md
+.codex\I-f3-009\diff_review_brief.md
+.codex\I-f7-002\diff_review_brief.md
+.codex\I-f3-009\codex_brief_verdict.txt
+.codex\I-f7-002\codex_brief_verdict.txt
+.codex\I-f3-009\codex_brief_audit_iter1.txt
+.codex\I-f7-002\brief.md
+.codex\I-f3-009\brief.md
+.codex\I-f6-005\codex_brief_verdict.txt
+.codex\I-f6-005\brief.md
+.codex\I-f6-005\diff_review_brief.md
+.codex\I-f6-002\codex_brief_verdict.txt
+.codex\I-f6-002\brief.md
+.codex\I-f6-002\diff_review_brief.md
+.codex\I-f8-001\brief.md
+.codex\I-f8-001\diff_review_brief.md
+.codex\I-f8-001\codex_brief_verdict.txt
+.codex\I-f2-008\diff_review_brief.md
+.codex\I-f2-008\codex_brief_verdict.txt
+.codex\I-f2-008\codex_brief_audit_iter2.txt
+.codex\I-f2-008\codex_brief_audit_iter1.txt
+.codex\I-f2-008\brief.md
+.codex\I-f3-008\diff_review_brief.md
+.codex\I-f3-008\codex_brief_verdict.txt
+.codex\I-f3-008\codex_brief_audit_iter2.txt
+.codex\I-f3-008\codex_brief_audit_iter1.txt
+.codex\I-f3-008\brief.md
+.codex\I-f1-006\diff_review_brief.md
+.codex\I-f1-006\codex_brief_verdict.txt
+.codex\I-f1-006\brief.md
+.codex\I-f7-001\codex_brief_verdict.txt
+.codex\I-f7-001\brief.md
+.codex\I-f7-001\diff_review_brief.md
+.codex\I-ui-005\codex_brief_verdict.txt
+.codex\I-ui-005\brief.md
+.codex\I-f7-004\diff_review_brief.md
+.codex\I-f7-004\codex_brief_verdict.txt
+.codex\I-f7-004\brief.md
+.codex\I-gen-001\codex_brief_iter_1.md
+.codex\I-f7-003\brief.md
+.codex\I-gen-561\diff_brief.md
+.codex\I-gen-561\codex_brief_verdict.txt
+.codex\I-gen-561\brief.md
+.codex\I-f7-003\diff_review_brief.md
+.codex\I-f7-003\codex_brief_verdict.txt
+.codex\I-gen-001\codex_diff_brief_iter_2.md
+.codex\I-gen-001\codex_diff_brief_iter_1.md
+.codex\I-f8-005\diff_review_brief.md
+.codex\I-f8-006\diff_review_brief.md
+.codex\I-f8-006\codex_brief_verdict.txt
+.codex\I-f8-005\codex_brief_verdict.txt
+.codex\I-f8-005\brief.md
+.codex\I-f8-006\brief.md
+.codex\I-f9-002\diff_review_brief.md
+.codex\I-f9-002\codex_brief_verdict.txt
+.codex\I-f9-002\brief.md
+.codex\I-f9-001\diff_review_brief.md
+.codex\I-f9-001\codex_brief_verdict.txt
+.codex\I-f9-001\brief.md
+.codex\I-ui-004\codex_brief_verdict.txt
+.codex\I-ui-004\brief_review_iter1.txt
+.codex\I-ui-004\brief.md
+.codex\I-gen-002-phase3\codex_diff_brief_iter_5.md
+.codex\I-f9-003\diff_review_brief.md
+.codex\I-f9-003\codex_brief_verdict.txt
+.codex\I-f9-003\brief.md
+.codex\I-gen-002\diff_brief_post_brief_review.md
+.codex\I-gen-002\codex_path_quality_brief.md
+.codex\I-gen-002\codex_brief_verdict.txt
+.codex\I-gen-002\brief.md
+.codex\I-p2-021\codex_brief_verdict.txt
+.codex\I-p2-021\brief.md
+.codex\I-p2-057\codex_brief_verdict.txt
+.codex\I-p2-057\codex_brief_verdict.err.txt
+.codex\I-p2-057\brief.md
+.codex\I-gen-002-phase2\codex_diff_brief_iter_3.md
+.codex\I-gen-002-phase2\codex_diff_brief_iter_2.md
+.codex\I-gen-002-phase2\codex_diff_brief_iter_1.md
+.codex\I-p2-005\codex_brief_verdict.txt
+.codex\I-p2-005\brief_review_iter1.txt
+.codex\I-p2-005\brief.md
+.codex\I-ui-003\codex_brief_verdict.txt
+.codex\I-ui-003\brief_review_iter1.txt
+.codex\I-ui-003\brief.md
+.codex\I-gen-003\sequencing_consult_brief.md
+.codex\I-gen-003\codex_diff_brief_iter_2.md
+.codex\I-gen-003\codex_diff_brief_iter_1.md
+.codex\I-gen-003\codex_brief_verdict.txt
+.codex\I-gen-003\brief.md
+.codex\I-gen-004\diff_brief.md
+.codex\I-gen-004\codex_brief_verdict.txt
+.codex\I-gen-004\brief.md
+.codex\I-rdy-018\diff_brief.md
+.codex\I-rdy-018\codex_brief_verdict.txt
+.codex\I-rdy-018\brief.md
+.codex\I-rdy-001\diff_brief.md
+.codex\I-rdy-001\codex_brief_verdict.txt
+.codex\I-rdy-001\brief_iter2.md
+.codex\I-rdy-001\brief.md
+.codex\I-rdy-010\diff_brief.md
+.codex\I-rdy-010\codex_brief_verdict.txt
+.codex\I-rdy-010\brief.md
+.codex\I-p2-020\codex_brief_verdict.txt
+.codex\I-p2-020\brief.md
+.codex\I-p2-056\codex_brief_verdict.txt
+.codex\I-p2-056\codex_brief_verdict.err.txt
+.codex\I-p2-056\brief.md
+.codex\I-snowball-005\codex_diff_brief.md
+.codex\I-snowball-005\codex_brief_verdict.txt
+.codex\I-snowball-005\brief_iter_2.md
+.codex\I-snowball-005\brief.md
+.codex\I-ui-002\codex_brief_verdict.txt
+.codex\I-ui-002\brief_review_iter5.txt
+.codex\I-ui-002\brief_review_iter4.txt
+.codex\I-ui-002\brief_review_iter3.txt
+.codex\I-ui-002\brief_review_iter2.txt
+.codex\I-ui-002\brief_review_iter1.txt
+.codex\I-ui-002\brief.md
+.codex\I-p2-004\codex_brief_verdict.txt
+.codex\I-p2-004\brief_review_iter3.txt
+.codex\I-p2-004\brief_review_iter2.txt
+.codex\I-p2-004\brief_review_iter1.txt
+.codex\I-p2-004\brief.md
+.codex\I-rdy-547\diff_brief.md
+.codex\I-rdy-547\codex_brief_verdict.txt
+.codex\I-rdy-547\brief.md
+.codex\I-rdy-017\diff_brief.md
+.codex\I-rdy-017\codex_brief_verdict.txt
+.codex\I-rdy-017\brief.md
+.codex\I-rdy-558\diff_brief.md
+.codex\I-rdy-558\codex_brief_verdict.txt
+.codex\I-rdy-558\brief.md
+.codex\I-rdy-009\diff_brief.md
+.codex\I-rdy-009\codex_brief_verdict.txt
+.codex\I-rdy-009\brief.md
+.codex\I-p2-019\codex_brief_verdict.txt
+.codex\I-p2-019\brief.md
+.codex\I-p2-055\codex_brief_verdict.txt
+.codex\I-p2-055\codex_brief_verdict.err.txt
+.codex\I-p2-055\brief.md
+.codex\I-policy-001\diff_review_brief.md
+.codex\I-policy-001\codex_brief_verdict.txt
+.codex\I-policy-001\brief.md
+.codex\I-tpl-006\diff_review_iter2_brief.md
+.codex\I-tpl-006\diff_review_brief.md
+.codex\I-tpl-006\codex_brief_verdict.txt
+.codex\I-tpl-006\brief.md
+.codex\I-ui-001\codex_brief_verdict.txt
+.codex\I-ui-001\brief.md
+.codex\I-snowball-004\codex_diff_brief_iter_2.md
+.codex\I-snowball-004\codex_diff_brief.md
+.codex\I-snowball-004\codex_brief_verdict.txt
+.codex\I-snowball-004\brief_iter_2.md
+.codex\I-snowball-004\brief.md
+.codex\I-p2-018\codex_brief_verdict.txt
+.codex\I-p2-018\brief.md
+.codex\I-rdy-016\diff_brief.md
+.codex\I-rdy-016\codex_brief_verdict.txt
+.codex\I-rdy-016\brief.md
+.codex\I-rdy-019\diff_brief.md
+.codex\I-rdy-019\codex_brief_verdict.txt
+.codex\I-rdy-019\brief.md
+.codex\I-rdy-549\brief.md
+.codex\I-tpl-008\diff_review_brief.md
+.codex\I-tpl-008\codex_brief_verdict.txt
+.codex\I-tpl-008\brief.md
+.codex\I-p2-054\codex_brief_verdict.txt
+.codex\I-p2-054\codex_brief_verdict.err.txt
+.codex\I-p2-054\brief.md
+.codex\I-rdy-549\diff_brief.md
+.codex\I-rdy-549\codex_brief_verdict.txt
+.codex\I-rdy-008\diff_brief.md
+.codex\I-rdy-008\codex_brief_verdict.txt
+.codex\I-rdy-008\brief.md
+.codex\I-pip-001\codex_brief_verdict.txt
+.codex\I-pip-001\brief.md
+.codex\I-tests-001\diff_review_iter2_brief.md
+.codex\I-tests-001\diff_review_brief.md
+.codex\I-tests-001\codex_brief_verdict.txt
+.codex\I-tests-001\brief.md
+.codex\I-p2-017\codex_brief_verdict.txt
+.codex\I-p2-017\brief.md
+.codex\I-tpl-007\diff_review_brief.md
+.codex\I-tpl-007\codex_brief_verdict.txt
+.codex\I-tpl-007\brief.md
+.codex\carney_delivery_plan_FINAL_review_brief.md
+.codex\autoloop_v2_protocol_review_brief.md
+.codex\I-p2-003\codex_brief_verdict.txt
+.codex\I-p2-003\brief_review_iter2.txt
+.codex\I-p2-003\brief_review_iter1.txt
+.codex\I-p2-003\brief.md
+.codex\I-p2-053\codex_brief_verdict.txt
+.codex\I-p2-053\codex_brief_verdict.err.txt
+.codex\I-p2-053\brief.md
+.codex\I-rdy-015\diff_brief.md
+.codex\I-rdy-015\codex_brief_verdict.txt
+.codex\I-rdy-015\brief.md
+.codex\I-sec-001\diff_brief.md
+.codex\I-sec-001\codex_brief_verdict.txt
+.codex\I-sec-001\brief.md
+.codex\I-snowball-003\codex_brief_verdict.txt
+.codex\I-snowball-003\brief_iter_2.md
+.codex\I-snowball-003\brief.md
+.codex\I-snowball-002\brief.md
+.codex\I-snowball-003\codex_diff_brief.md
+.codex\I-rdy-007\diff_brief.md
+.codex\I-rdy-007\codex_brief_verdict.txt
+.codex\I-rdy-007\brief.md
+.codex\I-p2-016\codex_brief_verdict.txt
+.codex\I-p2-016\brief.md
+.codex\I-phase0-005\diff_review_brief_iter3.md
+.codex\I-phase0-005\diff_review_brief_iter2.md
+.codex\I-phase0-005\diff_review_brief.md
+.codex\I-phase0-005\codex_brief_verdict.txt
+.codex\I-phase0-005\brief.md
+.codex\I-snowball-002\codex_diff_brief_iter_3.md
+.codex\I-snowball-002\codex_diff_brief_iter_2.md
+.codex\I-snowball-002\codex_diff_brief.md
+.codex\I-snowball-002\codex_brief_verdict.txt
+.codex\I-snowball-002\brief_iter_5.md
+.codex\I-snowball-002\brief_iter_4.md
+.codex\I-snowball-002\brief_iter_3.md
+.codex\I-snowball-002\brief_iter_2.md
+.codex\I-p2-002\codex_brief_verdict.txt
+.codex\I-p2-002\brief_review_iter2.txt
+.codex\I-p2-002\brief_review_iter1.txt
+.codex\I-p2-002\brief.md
+.codex\I-sov-001\codex_diff_brief_iter_1.md
+.codex\I-sov-001\codex_brief_verdict.txt
+.codex\I-sov-001\brief.md
+.codex\I-p2-052\codex_brief_verdict.txt
+.codex\I-p2-052\codex_brief_verdict.err.txt
+.codex\I-p2-052\brief.md
+.codex\I-snowball-006\codex_diff_brief.md
+.codex\I-snowball-006\codex_brief_verdict.txt
+.codex\I-snowball-006\brief_iter_2.md
+.codex\I-snowball-006\brief.md
+.codex\I-p2-010\codex_brief_verdict.txt
+.codex\I-p2-010\brief_review_iter2.txt
+.codex\I-p2-010\brief_review_iter1.txt
+.codex\I-p2-010\brief.md
+.codex\I-rdy-013\diff_brief.md
+.codex\I-rdy-013\codex_brief_verdict.txt
+.codex\I-rdy-013\brief.md
+.codex\I-p2-015\codex_brief_verdict.txt
+.codex\I-p2-015\brief_review_iter2.txt
+.codex\I-p2-015\brief_review_iter1.txt
+.codex\I-p2-015\brief.md
+.codex\I-rdy-005\diff_brief.md
+.codex\I-rdy-005\codex_brief_verdict.txt
+.codex\I-rdy-005\brief.md
+.codex\I-naming-005\diff_brief.md
+.codex\I-naming-005\codex_brief_verdict.txt
+.codex\I-naming-005\brief.md
+.codex\I-p2c-005\diff_review_brief.md
+.codex\I-p2c-005\codex_brief_verdict.txt
+.codex\I-p2c-005\brief.md
+.codex\I-naming-002\diff_brief.md
+.codex\I-naming-002\codex_brief_verdict.txt
+.codex\I-naming-002\brief.md
+.codex\I-modref-005\diff_brief.md
+.codex\I-modref-005\codex_brief_verdict.txt
+.codex\I-modref-005\brief.md
+.codex\I-p2-051\codex_brief_verdict.txt
+.codex\I-p2-051\codex_brief_verdict.err.txt
+.codex\I-p2-051\brief.md
+.codex\I-rdy-012\diff_brief.md
+.codex\I-rdy-012\codex_brief_verdict.txt
+.codex\I-rdy-012\brief.md
+.codex\I-p2-009\codex_brief_verdict.txt
+.codex\I-p2-009\brief_review_iter2.txt
+.codex\I-p2-009\brief_review_iter1.txt
+.codex\I-p2-009\brief.md
+.codex\I-p2-014\codex_brief_verdict.txt
+.codex\I-p2-014\brief.md
+.codex\I-naming-008\diff_brief.md
+.codex\I-naming-008\codex_brief_verdict.txt
+.codex\I-naming-008\brief.md
+.codex\I-rdy-004\codex_brief_verdict.txt
+.codex\I-rdy-004\brief.md
+.codex\I-naming-010\diff_brief.md
+.codex\I-naming-010\codex_brief_verdict.txt
+.codex\I-naming-010\brief.md
+.codex\I-naming-003\diff_brief.md
+.codex\I-naming-003\codex_brief_verdict.txt
+.codex\I-naming-003\brief.md
+.codex\I-naming-001\codex_brief_verdict.txt
+.codex\I-naming-001\brief.md
+.codex\I-naming-001\codex_diff_brief_iter_2.md
+.codex\I-naming-001\codex_diff_brief.md
+.codex\I-naming-004\codex_brief_verdict.txt
+.codex\I-naming-004\brief.md
+.codex\I-p2-050\codex_brief_verdict.txt
+.codex\I-p2-050\codex_brief_verdict.err.txt
+.codex\I-p2-050\brief.md
+.codex\I-naming-001\diff_brief.md
+.codex\I-naming-001\codex_plan_brief_iter_3.md
+.codex\I-naming-001\codex_plan_brief_iter_2.md
+.codex\I-naming-001\codex_plan_brief.md
+.codex\I-p2c-004\diff_review_brief.md
+.codex\I-p2c-004\codex_brief_verdict.txt
+.codex\I-p2c-004\brief.md
+.codex\I-rdy-011\diff_brief.md
+.codex\I-rdy-011\codex_brief_verdict.txt
+.codex\I-rdy-011\brief.md
+.codex\I-naming-004\diff_brief.md
+.codex\I-p2-013\codex_brief_verdict.txt
+.codex\I-p2-013\brief.md
+.codex\I-p2-008\codex_brief_verdict.txt
+.codex\I-p2-008\brief_review_iter1.txt
+.codex\I-p2-008\brief.md
+.codex\I-naming-009\diff_brief.md
+.codex\I-naming-009\codex_brief_verdict.txt
+.codex\I-naming-009\brief.md
+.codex\I-naming-006\diff_brief.md
+.codex\I-naming-006\codex_brief_verdict.txt
+.codex\I-naming-006\brief.md
+.codex\I-rdy-002\diff_brief.md
+.codex\I-rdy-002\codex_brief_verdict.txt
+.codex\I-rdy-002\brief_iter4.md
+.codex\I-rdy-002\brief_iter3.md
+.codex\I-rdy-002\brief_iter2.md
+.codex\I-rdy-002\brief.md
+.codex\I-naming-007\brief.md
+.codex\I-p2-049\codex_brief_verdict.txt
+.codex\I-p2-049\codex_brief_verdict.err.txt
+.codex\I-p2-049\brief.md
+.codex\I-naming-007\diff_brief.md
+.codex\I-naming-007\codex_brief_verdict.txt
+.codex\I-p2-037\codex_brief_verdict.txt
+.codex\I-p2-037\brief.md
+.codex\I-p2-006\codex_brief_verdict.txt
+.codex\I-p2-006\brief_review_iter1.txt
+.codex\I-p2-006\brief.md
+.codex\I-p2c-003\diff_review_brief.md
+.codex\I-p2c-003\codex_brief_verdict.txt
+.codex\I-p2c-003\brief.md
+.codex\I-p2-007\codex_brief_verdict.txt
+.codex\I-p2-007\brief_review_iter2.txt
+.codex\I-p2-007\brief_review_iter1.txt
+.codex\I-p2-007\brief.md
+.codex\I-p2-026\codex_brief_verdict.txt
+.codex\I-p2-026\brief.md
+.codex\I-p2-030\codex_brief_verdict.txt
+.codex\I-p2-030\brief_review_iter2.txt
+.codex\I-p2-030\brief_review_iter1.txt
+.codex\I-p2-030\brief.md
+.codex\I-p2-011\codex_brief_verdict.txt
+.codex\I-p2-011\brief_review_iter2.txt
+.codex\I-p2-011\brief_review_iter1.txt
+.codex\I-p2-011\brief.md
+.codex\I-p2-012\brief_review_iter3.txt
+.codex\I-p2-012\brief_review_iter2.txt
+.codex\I-p2-012\brief_review_iter1.txt
+.codex\I-p2-012\brief.md
+.codex\I-p2-012\brief_review_iter5.txt
+.codex\I-p2-012\brief_review_iter4.txt
+.codex\I-p2-012\codex_brief_verdict.txt
+.codex\I-p2-048\codex_brief_verdict.txt
+.codex\I-p2-048\codex_brief_verdict.err.txt
+.codex\I-p2-048\brief.md
+.codex\I-p2-036\codex_brief_verdict.txt
+.codex\I-p2-036\brief.md
+.codex\I-p2-022\codex_brief_verdict.txt
+.codex\I-p2-022\brief.md
+.codex\I-p2-023\codex_brief_verdict.txt
+.codex\I-p2-028\codex_brief_verdict.txt
+.codex\I-p2-023\brief_review_iter2.txt
+.codex\I-p2-028\brief_review_iter2.txt
+.codex\I-p2-023\brief_review_iter1.txt
+.codex\I-p2-028\brief_review_iter1.txt
+.codex\I-p2-023\brief.md
+.codex\I-p2-028\brief.md
+.codex\I-p2-032\codex_brief_verdict.txt
+.codex\I-p2-032\brief.md
+.codex\I-p2-031\codex_brief_verdict.txt
+.codex\I-p2-031\brief.md
+.codex\I-p2-033\brief.md
+.codex\I-p2-029\codex_brief_verdict.txt
+.codex\I-p2-029\brief_review_iter1.txt
+.codex\I-p2-029\brief.md
+.codex\I-p2c-002\diff_review_brief.md
+.codex\I-p2c-002\codex_brief_verdict.txt
+.codex\I-p2c-002\brief.md
+.codex\I-p2-033\codex_brief_verdict.txt
+.codex\I-p2-044\codex_brief_verdict.txt
+.codex\I-p2-044\codex_brief_verdict.err.txt
+.codex\I-p2-044\brief.md
+.codex\I-p2-047\codex_brief_verdict.txt
+.codex\I-p2-047\codex_brief_verdict.err.txt
+.codex\I-p2-047\brief.md
+.codex\I-p2-042\codex_brief_verdict.txt
+.codex\I-p2-042\codex_brief_verdict.err.txt
+.codex\I-p2-042\brief.md
+.codex\I-p2-034\codex_brief_verdict.txt
+.codex\I-p2-034\brief.md
+.codex\I-p2c-001\diff_review_brief.md
+.codex\I-p2c-001\codex_brief_verdict.txt
+.codex\I-p2c-001\brief.md
+.codex\I-p2-046\codex_brief_verdict.txt
+.codex\I-p2-046\codex_brief_verdict.err.txt
+.codex\I-p2-046\brief.md
+.codex\I-p2-041\codex_brief_verdict.txt
+.codex\I-p2-041\codex_brief_verdict.err.txt
+.codex\I-p2-041\brief.md
+.codex\I-p2-040\brief.md
+.codex\I-p2-039\codex_brief_verdict.txt
+.codex\I-p2-039\codex_brief_verdict.err.txt
+.codex\I-p2-039\brief.md
+.codex\I-p2-059\codex_brief_verdict.txt
+.codex\I-p2-059\codex_brief_verdict.err.txt
+.codex\I-p2-059\brief.md
+.codex\I-p2-043\codex_brief_verdict.txt
+.codex\I-p2-043\codex_brief_stderr.txt
+.codex\I-p2-043\brief.md
+.codex\I-p2-040\codex_brief_verdict.err.txt
+.codex\I-p2-045\codex_brief_verdict.err.txt
+.codex\I-p2-045\brief.md
+.codex\I-p2-045\codex_brief_verdict.txt
+.codex\I-p2-040\codex_brief_verdict.txt
+.codex\I-p2-038\codex_brief_verdict.err.txt
+.codex\I-p2-038\brief.md
+.codex\I-p2-038\codex_brief_verdict.txt
+.codex\I-p2-038\diff_review_brief.md
+.codex\I-p2-038\ui_direction_decision_brief.md
+.codex\I-p2-058\brief.md
+.codex\I-p2-058\codex_brief_verdict.txt
+.codex\I-p2-058\codex_brief_verdict.err.txt
+.codex\I-p2-061\codex_brief_verdict.txt
+.codex\I-p2-061\codex_brief_verdict.err.txt
+.codex\I-p2-061\brief.md
+.codex\I-p2-060\codex_brief_verdict.txt
+.codex\I-p2-060\codex_brief_verdict.err.txt
+.codex\I-p2-060\brief.md
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+specific_check_responses:
+  scope_visual_only: PASS
+  existing_testids_preserved: PASS
+  appshell_chrome_preserved: PASS
+  back_link_preserved: PASS
+  file_plan_surgical: PASS
+```
+tokens used
+80,515
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+specific_check_responses:
+  scope_visual_only: PASS
+  existing_testids_preserved: PASS
+  appshell_chrome_preserved: PASS
+  back_link_preserved: PASS
+  file_plan_surgical: PASS
+```
