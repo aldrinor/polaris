@@ -74,13 +74,18 @@ def protocol_requires_journal_only(protocol: Optional[Mapping[str, Any]]) -> boo
 
 
 def journal_only_active(protocol: Optional[Mapping[str, Any]]) -> bool:
-    """journal_only is active iff the flag is ON AND the protocol declares it.
+    """RETIRED (GATE_GENERALIZE_FIX45_PLAN §5/§7 U11): the journal-only fail-closed
+    corpus filter is the C2-violating "hard-mask-a-frozen-corpus" pattern all three
+    reviewers condemned. It is REPLACED by the adequacy + acquisition-receipt-gated
+    ``build_source_kind_eligibility`` path (quality_eligibility.py §3.5).
 
-    Both conditions are required so that (a) the protocol field alone never
-    changes behaviour without the operator-gated flag, and (b) the flag alone
-    never affects a non-journal-restricted protocol. Default-OFF byte-identical.
-    """
-    return journal_only_flag_enabled() and protocol_requires_journal_only(protocol)
+    Hard-returns ``False`` so EVERY call-site (the ~10 in run_honest_sweep_r3.py) is a
+    structural NO-OP — no journal-only masking, no ``JournalOnlyAbort``, no frozen-corpus
+    starvation can ever fire. The module's helpers below (``filter_to_citeable`` /
+    ``assert_no_leak`` / ``prune_contract_plans``) are ALSO neutralized to identity/empty
+    passthroughs so a direct call cannot mask either. Kept as inert shells only so the
+    imports at the load-bearing structural call-sites still resolve (LAW VI)."""
+    return False
 
 
 # ── URL canonicalization ────────────────────────────────────────────────────
@@ -288,18 +293,14 @@ class FilterResult:
 def filter_to_citeable(rows: Iterable[Any], sidecar: Mapping[str, Any]) -> FilterResult:
     """Partition evidence rows OR CorpusSource objects into citeable / excluded.
 
-    Works on both ``evidence_row`` dicts (``source_url``/``tier`` keys) and
-    ``CorpusSource`` dataclasses (``.url``/``.tier``). Excluded rows are recorded
-    with their URL + reason for the audit log; they are NEVER passed downstream.
+    RETIRED (U11): a fail-closed corpus filter cannot be made C2-safe by generalizing
+    the kind (§7.8). NEUTRALIZED to an IDENTITY passthrough — every row is citeable, none
+    excluded — so no call-site can mask a frozen corpus. The adequacy + acquisition-receipt
+    gated ``build_source_kind_eligibility`` (quality_eligibility.py) is the C2-safe replacement.
     """
     out = FilterResult()
     for row in rows:
-        url = _row_url(row)
-        ok, reason = is_citeable_journal(url, _row_tier(row), sidecar)
-        if ok:
-            out.citeable.append(row)
-        else:
-            out.excluded.append({"url": url, "reason": reason})
+        out.citeable.append(row)  # RETIRED: identity passthrough (no journal-only drop)
     return out
 
 
@@ -375,34 +376,15 @@ def prune_contract_plans(
     cleanly. The caller uses ``kept_entity_ids`` to strip plan slots / ev_ids /
     frame-row + entity maps / primary anchors down to citeable entities, then
     recomputes section focus from the survivors.
+
+    RETIRED (U11): NEUTRALIZED to KEEP-ALL — every contract entity_id is kept, nothing is
+    dropped, no required_conflicts are raised — so the journal-only contract-plan pruning can
+    never starve a frozen corpus or abort with ``error_journal_only_contract_conflict``. The
+    C2-safe source-kind eligibility path (quality_eligibility.py) replaces its function.
     """
     res = ContractPruneResult()
-
-    def _slot_required(slot_id: str) -> bool:
-        if not slot_id or not rendering_slots:
-            return False
-        slot = rendering_slots.get(slot_id)
-        if isinstance(slot, Mapping):
-            return bool(slot.get("required"))
-        return bool(getattr(slot, "required", False))
-
-    def _entity_slot_id(entity: Any) -> str:
-        # The REAL binding direction (Codex diff-gate P1): each entity names its
-        # rendering slot via `rendering_slot`; the slot (in `rendering_slots`)
-        # carries `required`. (Slots do NOT carry entity_id.) Fall back to a
-        # legacy entity_id-on-slot shape only if `rendering_slot` is absent.
-        if isinstance(entity, Mapping):
-            return str(entity.get("rendering_slot") or "")
-        return str(getattr(entity, "rendering_slot", "") or "")
-
-    for ent_id, entity in entities_by_id.items():
-        ok, reason = _entity_is_citeable_journal(entity)
-        if ok:
-            res.kept_entity_ids.add(ent_id)
-        else:
-            res.dropped_entity_ids.add(ent_id)
-            if _slot_required(_entity_slot_id(entity)):
-                res.required_conflicts.append(f"{ent_id}:{reason}")
+    for ent_id in entities_by_id:  # RETIRED: keep-all, no journal-only entity pruning
+        res.kept_entity_ids.add(ent_id)
     return res
 
 
@@ -514,16 +496,12 @@ def assert_no_leak(rows: Iterable[Any], sidecar: Mapping[str, Any]) -> list[dict
     at the immediate pre-generator point (after contract + upload prepend) as the
     structural backstop. Rows already verified by contract entity-pruning
     (``v30_frame_row``) are exempt.
+
+    RETIRED (U11): NEUTRALIZED to ALWAYS-CLEAN (returns ``[]``) so the journal-only leak
+    backstop can never raise ``JournalOnlyLeakError`` / abort a frozen corpus. The C2-safe
+    source-kind eligibility path (quality_eligibility.py) replaces its legitimate function.
     """
-    leaks: list[dict[str, str]] = []
-    for row in rows:
-        if _is_verified_contract_row(row):
-            continue
-        url = _row_url(row)
-        ok, reason = is_citeable_journal(url, _row_tier(row), sidecar)
-        if not ok:
-            leaks.append({"url": url, "reason": reason})
-    return leaks
+    return []  # RETIRED: no journal-only leak assertion (always clean)
 
 
 # Default journal_only adequacy floor (overridable via the protocol's

@@ -1,13 +1,14 @@
-"""FIX 4 (report shape — ship a literature review, not an audit dump) unit tests.
+"""FIX 4 (report shape — ARCHETYPE-driven, not an audit dump) unit tests.
 
 All OFFLINE — no network, no LLM, no live retrieval, no frozen-file edit. Each test exercises a
 render-assembly reshape the consolidated plan mandates (POSITION ONLY — nothing deleted; every kept
 finding sentence stays byte-identical strict_verify output):
 
-  (a) build_intro_and_scope_md: a CLAIM-FREE, CITATION-FREE ``## Introduction and Scope`` framing
-      paragraph from the contract objective (no findings, no ``[N]``).
-  (b) reshape_report_body_litreview: thematic sections precede the Key-Findings recap; the Methods /
-      disclosure machinery is split into a trailing appendix; NOTHING is dropped.
+  (a) build_framing_md: a CLAIM-FREE, CITATION-FREE ``## {framing_title}`` framing paragraph from the
+      contract objective (no findings, no ``[N]``); the ``review`` default emits ``## Introduction and
+      Scope``, byte-identical to the landed build.
+  (b) order_report_blocks: for the ``review`` default the thematic sections precede the Key-Findings
+      recap; the Methods / disclosure machinery is split into a trailing appendix; NOTHING is dropped.
   (c) key_findings bullet-integrity invariant: every bullet opens with ``**`` and has a matched
       closing ``**``; a chopped bullet is re-emitted whole. The render-seam Key-Findings screen is
       whole-unit (drop whole chrome bullet, keep a real bullet byte-intact — never a mid-``**`` chop).
@@ -33,9 +34,12 @@ from src.polaris_graph.generator.key_findings import (  # noqa: E402
     _reemit_key_findings_bullet,
     build_key_findings,
 )
+from src.polaris_graph.generator.report_skeleton import ARCHETYPES  # noqa: E402
 from src.polaris_graph.generator.weighted_enrichment import (  # noqa: E402
     sanitize_rendered_report,
 )
+
+_REVIEW = ARCHETYPES["review"]
 
 
 @dataclass
@@ -48,11 +52,11 @@ class _Section:
 
 
 # ---------------------------------------------------------------------------
-# (a) FIX 4(a): claim-free, citation-free Introduction and Scope
+# (a) FIX 4(a): claim-free, citation-free framing (review => Introduction and Scope)
 # ---------------------------------------------------------------------------
 
 def test_intro_is_claim_free_and_citation_free():
-    intro = rh.build_intro_and_scope_md(
+    intro = rh.build_framing_md(
         "the restructuring impact of AI on the labor market"
     )
     # the framing prose leads (directly under the H1 the caller emits) then the labelled subsection
@@ -67,12 +71,12 @@ def test_intro_is_claim_free_and_citation_free():
 
 
 def test_intro_empty_objective_yields_no_heading():
-    assert rh.build_intro_and_scope_md("") == ""
-    assert rh.build_intro_and_scope_md("   ") == ""
+    assert rh.build_framing_md("") == ""
+    assert rh.build_framing_md("   ") == ""
 
 
 # ---------------------------------------------------------------------------
-# (b) FIX 4(b): literature-review body order + machinery appendix (POSITION ONLY)
+# (b) FIX 4(b): review body order + machinery appendix (POSITION ONLY)
 # ---------------------------------------------------------------------------
 
 def _components():
@@ -88,7 +92,7 @@ def _components():
 
 
 def test_reshape_thematic_precedes_key_findings():
-    scored_body, appendix = rh.reshape_report_body_litreview(**_components())
+    scored_body, appendix = rh.order_report_blocks(_REVIEW, **_components())
     # thematic sections (and their Limitations) come BEFORE the Key-Findings recap
     assert scored_body.index("### Theme A") < scored_body.index("## Key Findings")
     assert scored_body.index("### Limitations") < scored_body.index("## Key Findings")
@@ -99,7 +103,7 @@ def test_reshape_thematic_precedes_key_findings():
 
 def test_reshape_machinery_moves_to_appendix_nothing_dropped():
     comps = _components()
-    scored_body, appendix = rh.reshape_report_body_litreview(**comps)
+    scored_body, appendix = rh.order_report_blocks(_REVIEW, **comps)
     # Methods / disclosure machinery is OUT of the scored body ...
     assert "## Methods" not in scored_body
     assert "Promotion-eligibility disclosure" not in scored_body
@@ -108,18 +112,37 @@ def test_reshape_machinery_moves_to_appendix_nothing_dropped():
     assert "## Methods" in appendix
     assert "Promotion-eligibility disclosure" in appendix
     assert "Dropped-source disclosure" in appendix
-    # POSITION ONLY: every input block survives across body + appendix combined.
+    # POSITION ONLY: every input block survives EXACTLY ONCE across body + appendix combined.
     combined = scored_body + appendix
     for block in comps.values():
-        assert block.strip() in combined
+        assert combined.count(block) == 1
+
+
+def test_memo_archetype_leads_with_key_findings():
+    # a memo (BLUF) leads with Key Findings and emits NO framing section
+    memo = ARCHETYPES["memo"]
+    assert rh.build_framing_md("some question", memo) == ""
+    scored_body, _appendix = rh.order_report_blocks(memo, **_components())
+    assert scored_body.index("## Key Findings") < scored_body.index("### Theme A")
+
+
+def test_methods_stays_in_body_when_required_section():
+    comps = _components()
+    scored_body, appendix = rh.order_report_blocks(
+        _REVIEW, **comps, methods_is_machinery=False
+    )
+    assert "## Methods" in scored_body
+    assert "## Methods" not in appendix
+    # still count-invariant
+    assert (scored_body + appendix).count(comps["methods_md"]) == 1
 
 
 def test_reshape_off_switch_is_legacy_order(monkeypatch):
     # the kill-switch flips the shape off (byte-identical machinery-first order is the caller's path)
-    monkeypatch.setenv("PG_REPORT_LITREVIEW_SHAPE", "0")
-    assert rh.litreview_shape_enabled() is False
-    monkeypatch.setenv("PG_REPORT_LITREVIEW_SHAPE", "1")
-    assert rh.litreview_shape_enabled() is True
+    monkeypatch.setenv("PG_REPORT_SHAPE", "0")
+    assert rh.report_shape_enabled() is False
+    monkeypatch.setenv("PG_REPORT_SHAPE", "1")
+    assert rh.report_shape_enabled() is True
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +192,22 @@ def test_key_findings_preamble_is_one_sentence_with_appendix_pointer():
     assert "appendix" in preamble.lower()
 
 
+def test_relabel_key_findings_header_chrome_only():
+    # a memo relabels the Key-Findings HEADER to "## Bottom Line"; the preamble + bullets are unchanged
+    kf = (
+        "## Key Findings\n\n"
+        "_Each finding is verbatim text carried up from a cited body span._\n\n"
+        "- **Theme.** A finding [1].\n\n"
+    )
+    memo = ARCHETYPES["memo"]
+    relabeled = rh._relabel_key_findings_header(kf, memo)
+    assert relabeled.startswith("## Bottom Line\n")
+    # bullets byte-identical (the header line is the ONLY change)
+    assert relabeled[len("## Bottom Line\n"):] == kf[len("## Key Findings\n"):]
+    # review is a no-op (keeps ## Key Findings verbatim)
+    assert rh._relabel_key_findings_header(kf, _REVIEW) == kf
+
+
 def test_render_seam_key_findings_whole_unit_keeps_real_bullet_intact():
     # a real finding bullet with a chrome-looking title must NOT be mid-chopped — kept byte-intact
     report = (
@@ -202,13 +241,37 @@ def test_render_seam_key_findings_whole_unit_drops_chrome_bullet_whole(monkeypat
 
 
 # ---------------------------------------------------------------------------
+# (U6) D8 banner relocation — insert after the H1 title block (shape-ON)
+# ---------------------------------------------------------------------------
+
+def test_banner_inserted_after_h1_not_before():
+    report = "# Research report: X\n\n## Key Findings\n\n- **A.** B [1].\n"
+    banner = "> STRONGEST VERIFIER (four-role D8) DID NOT RUN for this run.\n\n"
+    out = rh._insert_banner_after_h1(report, banner)
+    # report still opens on the H1 title, not on the blockquote
+    assert out.startswith("# Research report: X")
+    # banner appears AFTER the H1 and BEFORE the first body header, byte-identical
+    assert banner.strip() in out
+    assert out.index("# Research report") < out.index("STRONGEST VERIFIER")
+    assert out.index("STRONGEST VERIFIER") < out.index("## Key Findings")
+
+
+def test_banner_prepends_when_no_h1_present():
+    report = "## Key Findings\n\n- **A.** B [1].\n"
+    banner = "> STRONGEST VERIFIER (four-role D8) DID NOT RUN.\n\n"
+    out = rh._insert_banner_after_h1(report, banner)
+    # fail-safe: with no H1 the banner still ships (prepend) — a disclosure is never dropped
+    assert out.startswith(banner)
+
+
+# ---------------------------------------------------------------------------
 # Cross-cutting invariants on a full assembled report
 # ---------------------------------------------------------------------------
 
 def _assemble_full_report():
     comps = _components()
-    intro = rh.build_intro_and_scope_md("the impact of AI on labor")
-    scored_body, appendix = rh.reshape_report_body_litreview(**comps)
+    intro = rh.build_framing_md("the impact of AI on labor")
+    scored_body, appendix = rh.order_report_blocks(_REVIEW, **comps)
     title = "# Research report: the impact of AI on labor\n\n"
     body = rh.assemble_report_md(title + intro, "", scored_body, "", dedup_enabled=True)
     reliability = "Reliability header counts.\n"

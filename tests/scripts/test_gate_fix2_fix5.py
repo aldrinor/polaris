@@ -99,9 +99,43 @@ def _verdict(row: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def test_fix5b_doi_row_passes_before_unknown() -> None:
-    # No tier, no peer-review flag -> would be UNKNOWN(fail-closed); a DOI rescues it.
+    # CLASSIFIER-CONFIRMED T1: a bare content-shell DOI (no journal genre, no metadata) is
+    # NOT sufficient for T1 — it classifies to a non-journal genre and stays UNKNOWN (not
+    # FAIL). A DOI feeds the classifier as an input; it is never a standalone credential.
     row = {"source_url": "https://example.org/x", "doi": "10.1234/abcd"}
+    assert _verdict(row) == UNKNOWN
+
+
+def test_fix5b_journal_registrant_doi_passes() -> None:
+    # A peer-reviewed journal REGISTRANT DOI (Elsevier) classifies to JOURNAL_ARTICLE ->
+    # PASS(T1) via the classifier-confirmed second-chance.
+    row = {"source_url": "https://example.org/x", "doi": "10.1016/j.x.2020.01.001"}
     assert _verdict(row) == PASS
+
+
+def test_fix5b_preprint_dataset_dois_stay_unknown() -> None:
+    # Preprint / dataset / working-paper DOIs classify to a NON-journal genre -> NOT T1,
+    # NOT FAIL -> they fall through to UNKNOWN (the operator's classifier-confirmed contract).
+    for doi in (
+        "10.48550/arXiv.2301.00001",   # arXiv preprint
+        "10.1101/2023.01.01.000001",   # bioRxiv preprint
+        "10.2139/ssrn.1234567",        # SSRN working paper
+        "10.5281/zenodo.1234567",      # Zenodo dataset
+        "10.3386/w12345",              # NBER working paper
+    ):
+        row = {"source_url": "https://example.org/x", "doi": doi}
+        assert _verdict(row) == UNKNOWN, f"{doi} must stay UNKNOWN, not T1"
+
+
+def test_fix5b_journal_registrant_dois_pass() -> None:
+    # A spread of peer-reviewed journal registrants classify to JOURNAL_ARTICLE -> PASS(T1).
+    for doi in (
+        "10.1016/j.x.2020.01.001",   # Elsevier
+        "10.1257/aer.20201234",      # AEA
+        "10.1177/1234567890",        # SAGE
+    ):
+        row = {"source_url": "https://example.org/x", "doi": doi}
+        assert _verdict(row) == PASS, f"{doi} must PASS as a confirmed journal article"
 
 
 def test_fix5b_journal_genre_row_passes_before_unknown() -> None:
@@ -145,7 +179,9 @@ def test_fix5b_not_peer_reviewed_row_still_fails() -> None:
 def test_fix5b_quality_plan_emits_receipts() -> None:
     # build_quality_eligibility must author one receipt per candidate + honor the second-chance.
     rows = [
-        {"source_url": "https://a.example", "doi": "10.1/a"},        # PASS (DOI)
+        # PASS via classifier-confirmed T1 (a peer-reviewed journal REGISTRANT DOI, not a
+        # bare DOI — a bare DOI is no longer sufficient for T1).
+        {"source_url": "https://a.example", "doi": "10.1016/j.x.2020.01.001"},
         {"source_url": "https://b.example", "is_retracted": True},   # FAIL (retracted)
         {"source_url": "https://c.example"},                          # UNKNOWN (bare)
     ]

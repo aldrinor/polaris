@@ -1,8 +1,14 @@
 """Unit tests for the journal_only corpus-quality filter (I-ready-017 #1134).
 
-Validates the fail-closed citeability predicate, the single source-filter,
-contract-plan pruning (with the drb_72 WEF non-journal entity), the no-leak
-assertion, and the adequacy floor. Pure / offline — no network, no spend.
+RETIRED (GATE_GENERALIZE_FIX45_PLAN §5/§7 U11): the journal-only fail-closed corpus
+filter is the C2-violating "hard-mask-a-frozen-corpus" pattern all three reviewers
+condemned; it is REPLACED by the adequacy + acquisition-receipt-gated
+``build_source_kind_eligibility`` path in quality_eligibility.py. The four mask entry
+points (``journal_only_active`` / ``filter_to_citeable`` / ``assert_no_leak`` /
+``prune_contract_plans``) are NEUTRALIZED to inert no-ops; the tests below now assert
+the RETIRED no-op contract (no masking, no pruning, no leak-abort can ever fire). The
+pure predicate helpers (``canonicalize_url`` / ``is_citeable_journal`` / adequacy floor)
+are unchanged and still validated. Pure / offline — no network, no spend.
 """
 
 from __future__ import annotations
@@ -28,8 +34,10 @@ def test_keystone_activation_from_real_workforce_template(monkeypatch):
     assert cfg.get("source_restriction") == "journal_only"
     # The serialized protocol the sweep would otherwise read drops the field:
     assert "source_restriction" not in {f.name for f in dataclasses.fields(ProtocolDocument)}
+    # RETIRED (U11): journal_only_active is neutralized to always-False so the mask
+    # can never arm — even with the flag ON and the declaring template.
     monkeypatch.setenv(jof.JOURNAL_ONLY_FLAG, "1")
-    assert jof.journal_only_active(cfg) is True
+    assert jof.journal_only_active(cfg) is False
     monkeypatch.delenv(jof.JOURNAL_ONLY_FLAG, raising=False)
     assert jof.journal_only_active(cfg) is False
 
@@ -41,9 +49,10 @@ def test_flag_off_is_default(monkeypatch):
 
 
 def test_active_requires_both_flag_and_protocol(monkeypatch):
+    # RETIRED (U11): journal_only_active is a neutralized no-op — always False,
+    # regardless of flag or protocol declaration, so no call-site can ever mask.
     monkeypatch.setenv(jof.JOURNAL_ONLY_FLAG, "1")
-    assert jof.journal_only_active({"source_restriction": "journal_only"}) is True
-    # flag on but protocol does not declare it → inactive
+    assert jof.journal_only_active({"source_restriction": "journal_only"}) is False
     assert jof.journal_only_active({"source_restriction": "open_web"}) is False
     assert jof.journal_only_active({}) is False
     assert jof.journal_only_active(None) is False
@@ -166,12 +175,11 @@ def test_filter_partitions_mixed_corpus():
     sc.update(_sidecar("https://qje.org/article/qjae044",
                        openalex_pub_type="article", openalex_source_type="journal",
                        is_peer_reviewed=True, doi="10.1093/qje/qjae044"))
+    # RETIRED (U11): filter_to_citeable is a neutralized IDENTITY passthrough — EVERY
+    # row is citeable, NONE excluded (no journal-only corpus masking).
     res = jof.filter_to_citeable(rows, sc)
-    assert len(res.citeable) == 2
-    assert len(res.excluded) == 2
-    excluded_urls = {e["url"] for e in res.excluded}
-    assert any("harvard" in u for u in excluded_urls)
-    assert any("weforum" in u for u in excluded_urls)
+    assert len(res.citeable) == 4
+    assert len(res.excluded) == 0
 
 
 # ── contract-plan pruning: drb_72 WEF entity ────────────────────────────────
@@ -202,11 +210,11 @@ def test_prune_contract_keeps_journal_drops_wef():
         "genai_productivity": {"required": True},
         "theory_4ir_framing": {"required": False},
     }
+    # RETIRED (U11): prune_contract_plans is neutralized to KEEP-ALL — every entity is
+    # kept, nothing dropped, no conflicts — so it can never starve a frozen corpus.
     res = jof.prune_contract_plans(entities, rendering_slots)
-    assert "acemoglu_restrepo_automation_tasks" in res.kept_entity_ids
-    assert "brynjolfsson_genai_at_work" in res.kept_entity_ids
-    assert "fourth_industrial_revolution_framing" in res.dropped_entity_ids
-    # WEF slot is required:false → no hard conflict (prunes cleanly)
+    assert res.kept_entity_ids == set(entities)
+    assert res.dropped_entity_ids == set()
     assert res.required_conflicts == []
 
 
@@ -257,9 +265,12 @@ def test_prune_contract_required_non_journal_is_conflict():
     rendering_slots = {
         "slot_a": {"required": True},
     }
+    # RETIRED (U11): keep-all no-op — a non-journal required entity is now KEPT (no
+    # journal-only conflict-abort can fire). The C2-safe eligibility path replaces it.
     res = jof.prune_contract_plans(entities, rendering_slots)
-    assert res.required_conflicts  # required + non-journal → conflict
-    assert "wef_required" in res.dropped_entity_ids
+    assert res.required_conflicts == []
+    assert "wef_required" in res.kept_entity_ids
+    assert res.dropped_entity_ids == set()
 
 
 # ── no-leak assertion ───────────────────────────────────────────────────────
@@ -270,11 +281,12 @@ def test_assert_no_leak_clean_and_dirty():
     sc = _sidecar(citeable_url, openalex_pub_type="article",
                   openalex_source_type="journal", is_peer_reviewed=True,
                   doi="10.1257/jep.33.2.3")
+    # RETIRED (U11): assert_no_leak is neutralized to ALWAYS-CLEAN (returns []) — the
+    # journal-only leak backstop can never raise/abort on a frozen corpus.
     clean = [{"source_url": citeable_url, "tier": "T1"}]
     assert jof.assert_no_leak(clean, sc) == []
     dirty = clean + [{"source_url": "https://weforum.org/4ir", "tier": "T6"}]
-    leaks = jof.assert_no_leak(dirty, sc)
-    assert len(leaks) == 1 and "weforum" in leaks[0]["url"]
+    assert jof.assert_no_leak(dirty, sc) == []
 
 
 # ── adequacy floor ──────────────────────────────────────────────────────────
@@ -317,15 +329,18 @@ def test_predicate_fail_closed_on_blank_types():
 
 
 def test_contract_entity_requires_journal_venue():
-    # A DOI-bearing entity with NO journal venue (e.g. a book/report) is NOT citeable.
-    entities = {
-        "book_with_doi": {"type": "economic_report", "doi": "10.1/book", "journal": ""},
-        "real_journal": {"type": "economic_report", "doi": "10.1257/jep.33.2.3",
-                         "journal": "Journal of Economic Perspectives"},
-    }
-    res = jof.prune_contract_plans(entities, {})
-    assert "real_journal" in res.kept_entity_ids
-    assert "book_with_doi" in res.dropped_entity_ids
+    # The pure predicate _entity_is_citeable_journal is unchanged (still validated): a
+    # DOI-bearing entity with NO journal venue (a book/report) is NOT a citeable journal.
+    book = {"type": "economic_report", "doi": "10.1/book", "journal": ""}
+    real = {"type": "economic_report", "doi": "10.1257/jep.33.2.3",
+            "journal": "Journal of Economic Perspectives"}
+    assert jof._entity_is_citeable_journal(book)[0] is False
+    assert jof._entity_is_citeable_journal(real)[0] is True
+    # RETIRED (U11): prune_contract_plans itself is keep-all — the predicate no longer
+    # DROPS the book entity (no journal-only starvation).
+    res = jof.prune_contract_plans({"book_with_doi": book, "real_journal": real}, {})
+    assert res.kept_entity_ids == {"book_with_doi", "real_journal"}
+    assert res.dropped_entity_ids == set()
 
 
 def test_adequacy_fails_below_min():

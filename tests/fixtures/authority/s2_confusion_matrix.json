@@ -1,7 +1,7 @@
 {
   "n": 40,
-  "matches": 36,
-  "agreement": 0.9,
+  "matches": 35,
+  "agreement": 0.875,
   "min_agreement_floor": 0.9,
   "gate_a_on_bar": 0.95,
   "gate_a_note": "offline floor measured with EMPTY structural junk inputs (no raw JSON-LD / vendor token in the frozen corpus). The FREE one-time shadow re-fetch (raw HTML JSON-LD + OpenAlex /sources) is the documented path to >=0.95 before ON.",
@@ -14,6 +14,7 @@
     "T5->UNKNOWN": 1,
     "T6->T6": 1,
     "T6->UNKNOWN": 1,
-    "T7->T7": 7
+    "T7->T7": 6,
+    "T7->UNKNOWN": 1
   }
 }

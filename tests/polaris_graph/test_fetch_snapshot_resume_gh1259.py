@@ -259,8 +259,10 @@ def test_journal_only_fetch_resume_round_trips_not_dropped(tmp_path):
         journal_metadata_sidecar=merged_sidecar,
     )
 
-    # --- BASELINE (proves the bug WAS real): reconstruct WITHOUT restoring the sidecar →
-    # the journal_only filter sees an empty sidecar and drops every row as no_journal_metadata.
+    # --- RETIRED (GATE_GENERALIZE_FIX45_PLAN §5/§7 U11): filter_to_citeable is now a
+    # neutralized IDENTITY passthrough — it NEVER drops a row, even without a sidecar. The
+    # old no_journal_metadata mask (the C2-violating frozen-corpus filter) can no longer fire,
+    # so the corpus survives resume unconditionally (the strongest form of the P1 fix).
     payload = fs.load_fetch_snapshot(tmp_path)
     recon_no_sidecar = reconstruct_retrieval(payload)
     assert getattr(recon_no_sidecar, "journal_metadata_sidecar", None) in (None, {}), (
@@ -270,11 +272,8 @@ def test_journal_only_fetch_resume_round_trips_not_dropped(tmp_path):
         getattr(recon_no_sidecar, "journal_metadata_sidecar", None), None, None, None
     ])
     dropped = jof.filter_to_citeable(recon_no_sidecar.evidence_rows, empty_merge)
-    assert dropped.citeable == [] and len(dropped.excluded) == len(rows), (
-        "baseline: without the persisted sidecar EVERY row must drop (this is the bug we fix)"
-    )
-    assert all(e["reason"] == "no_journal_metadata" for e in dropped.excluded), (
-        f"baseline drop reason must be no_journal_metadata; got {dropped.excluded!r}"
+    assert len(dropped.citeable) == len(rows) and dropped.excluded == [], (
+        "RETIRED: the neutralized filter keeps EVERY row even without a sidecar (no mask)"
     )
 
     # --- FIX: restore the persisted sidecar onto the reconstructed retrieval EXACTLY as the

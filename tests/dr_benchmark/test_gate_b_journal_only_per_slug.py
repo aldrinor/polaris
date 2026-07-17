@@ -81,14 +81,14 @@ def test_flag_deterministically_cleared_no_loop_leak():
     assert journal_only_active(load_scope_template("workforce")) is False
 
 
-def test_mechanism_still_activatable_for_a_future_slug(monkeypatch):
-    """The dormant mechanism is NOT dead code: a future operator-approved journal-only question is
-    re-enabled by appending its slug. Monkeypatch the set to prove apply still sets the flag ON, and
-    journal_only_active fires against the workforce protocol (which still declares
-    source_restriction: journal_only). This guards the re-enable seam without making any question
-    journal-only by default."""
+def test_mechanism_retired_never_masks_even_when_activated(monkeypatch):
+    """RETIRED (GATE_GENERALIZE_FIX45_PLAN §5/§7 U11): the journal-only mask is retired.
+    Even if a future slug re-arms the legacy per-slug flag seam, journal_only_active is
+    neutralized to always-False so NO masking can fire — the C2-safe adequacy + acquisition-
+    receipt-gated build_source_kind_eligibility path (quality_eligibility.py) replaces it."""
     monkeypatch.setattr(run_gate_b, "JOURNAL_ONLY_BENCHMARK_SLUGS", frozenset({_DRB_72}))
     set_on = run_gate_b.apply_journal_only_for_slug(_DRB_72)
     assert set_on is True
     assert os.environ.get(JOURNAL_ONLY_FLAG) == "1"
-    assert journal_only_active(load_scope_template("workforce")) is True
+    # The legacy flag seam still toggles, but the mask is RETIRED: active is always False.
+    assert journal_only_active(load_scope_template("workforce")) is False

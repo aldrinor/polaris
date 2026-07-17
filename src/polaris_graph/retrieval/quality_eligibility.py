@@ -34,7 +34,7 @@ reached under ``PG_GATE`` at the citable-menu seam.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
@@ -178,24 +178,24 @@ def _predatory_host(url: str) -> bool:
 def _has_doi_or_journal_credential(row: Any, url: str) -> tuple[bool, str]:
     """FIX 5(b): POSITIVE-evidence second-chance signal for an otherwise-UNKNOWN row.
 
-    True iff the row carries a DOI (a registered scholarly identifier) OR the deterministic
-    document-genre classifier resolves it to a peer-reviewed journal/review article. Reuses the
-    SAME predicate the scope-facet classifier already trusts
-    (``is_peer_reviewed_journal_article(classify_document_type(...)[0])``) — single source of
+    True iff the deterministic document-genre CLASSIFIER resolves the row to a
+    peer-reviewed journal/review article
+    (``is_peer_reviewed_journal_article(classify_document_type(...)[0]) == True``).
+    A bare DOI is NOT sufficient on its own: the DOI is an INPUT to the classifier
+    (it helps genre resolution) but a positive T1-scholarly verdict comes ONLY from the
+    classifier's peer-reviewed-journal judgement. Preprint (arXiv 10.48550), dataset
+    (Zenodo 10.5281), working-paper (NBER 10.3386, SSRN 10.2139), and bare/content-shell
+    DOIs classify to a NON-journal genre and therefore return ``(False, ...)`` here.
+
+    Reuses the SAME predicate the scope-facet classifier already trusts — single source of
     truth, no duplicate journal logic. Pure / offline / fail-open: any classifier fault yields
     ``(False, ...)`` so a scoring error never RESCUES a row (it can only leave it UNKNOWN).
 
     This is consulted ONLY after every FAIL path has already returned, so it can never
     re-admit a retracted / predatory / non-peer-reviewed / low-tier source."""
-    # 1) DOI: a registered scholarly identifier (row field or a doi.org URL).
-    try:
-        from src.polaris_graph.retrieval.document_type_classifier import _doi_candidate
-        doi = _doi_candidate(str(_row_get(row, "doi", "") or ""), (url or "").lower())
-        if (doi or "").strip().lower().startswith("10."):
-            return True, f"DOI present ({doi})"
-    except Exception:  # noqa: BLE001 — fail-open: no rescue on error
-        pass
-    # 2) genre: the same peer-reviewed-journal predicate the scope classifier trusts.
+    # genre: the peer-reviewed-journal predicate the scope classifier trusts. The DOI feeds
+    # the classifier as one input; it is NOT a standalone credential (a bare/preprint/dataset
+    # DOI resolves to a non-journal genre -> not-T1 -> the row stays UNKNOWN).
     try:
         from src.polaris_graph.retrieval.document_type_classifier import (
             classify_document_type,
@@ -217,7 +217,186 @@ def _has_doi_or_journal_credential(row: Any, url: str) -> tuple[bool, str]:
     return False, ""
 
 
-def score_source_quality(row: Any) -> tuple[str, float, str]:
+# ---------------------------------------------------------------------------
+# GENERALIZED Fix 5(b): signal -> (tier, kind) REGISTRY (journal => PASS is ONE
+# T1 instance, not the mechanism). Consulted where the journal "4.5 second-chance"
+# used to sit — AFTER every FAIL return, BEFORE the UNKNOWN fail-closed. The table
+# is DATA (kind tokens), never control-flow literals: the SHAPE (signal->tier->∈allowed)
+# is the deliverable; adding a kind later must be a row here, not a branch.
+#
+#   T1 = authoritative-universal (validated peer-reviewed scholarly OR official
+#        gov / primary / statute / authenticated filing) -> PASS UNCONDITIONALLY
+#        for any contract. "journal => PASS" is the T1-scholarly row, nothing more.
+#   T2 = reputable newswire / authenticated IR / established analyst (author+method)
+#        -> PASS iff its kind ∈ allowed_kinds and ∉ excluded_kinds.
+#   T3 = issuer-primary (press release / corporate) -> PASS iff kind ∈ allowed and ∉ excluded.
+#   unrated / no positive signal -> return None; the existing UNKNOWN path is unchanged.
+#
+# DOI-ALONE IS NOT T1: the T1-scholarly predicate REUSES ``_has_doi_or_journal_credential``,
+# which is CLASSIFIER-CONFIRMED — it returns True only when the genre classifier resolves the
+# row to a peer-reviewed journal/review article (article/review + journal source-type or a
+# known peer-reviewed registrant/host). A bare, preprint (arXiv), dataset (Zenodo),
+# working-paper (NBER/SSRN), predatory, or content-shell DOI classifies to a non-journal
+# genre and does NOT PASS — the DOI is only an INPUT to the classifier, never a credential.
+_TIER_T1 = "T1"
+_TIER_T2 = "T2"
+_TIER_T3 = "T3"
+
+# Official government / primary-authority hosts (universal T1, DOI-independent). A
+# conservative host-suffix set — a match is a strong POSITIVE authority signal.
+_GOV_PRIMARY_HOST_SUFFIXES: tuple[str, ...] = (
+    ".gov", ".gov.uk", ".gouv.fr", ".gc.ca", ".gov.au", ".govt.nz", ".gov.in",
+    ".europa.eu", ".un.org", ".who.int", ".imf.org", ".worldbank.org", ".oecd.org",
+    ".ecb.europa.eu", ".federalreserve.gov", ".bls.gov", ".census.gov",
+)
+
+
+def _host_of(url: str) -> str:
+    try:
+        return (urlparse((url or "").lower()).netloc or "").lower()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _official_gov_host(url: str) -> bool:
+    """True iff the URL host is an official government / primary-authority domain.
+
+    Universal T1 (like peer-reviewed scholarly): authority is authority for ANY
+    contract. Deterministic host-suffix match only — never an LLM, never a guess."""
+    host = _host_of(url)
+    if not host:
+        return False
+    return any(host == suf.lstrip(".") or host.endswith(suf) for suf in _GOV_PRIMARY_HOST_SUFFIXES)
+
+
+def _positive_signal_tier(row: Any, url: str) -> "tuple[str, str] | None":
+    """Map a row's POSITIVE credentials to ``(tier, kind)`` or ``None``.
+
+    First match wins with a recorded basis (the caller stringifies the kind). Pure /
+    offline / fail-open: any fault yields ``None`` (never a rescue on error). This is
+    consulted ONLY after every FAIL return, so it can never re-admit a retracted /
+    predatory / non-peer-reviewed / low-tier source (INV-3 evidence-positive only).
+
+    Over-engineering guard (§3.2): ≤4 predicates over already-fetched fields, no
+    credibility ontology. T2/T3 host predicates (reputable newsroom / issuer-primary)
+    are a labelled TODO — the SHAPE ships now; a new kind is a row, not a branch.
+    """
+    # T1-scholarly: the SAME predicate the scope classifier already trusts, CLASSIFIER-
+    # CONFIRMED. NOT "DOI alone" — a bare/preprint/dataset DOI classifies to a non-journal
+    # genre and does NOT earn T1 (it stays UNKNOWN); only a positive peer-reviewed-journal
+    # verdict promotes (M8).
+    try:
+        ok, _basis = _has_doi_or_journal_credential(row, url)
+    except Exception:  # noqa: BLE001 — fail-open: a fault never rescues a row
+        ok = False
+    if ok:
+        return (_TIER_T1, "peer_reviewed_journal")
+    # T1-government / primary authority (DOI-independent, universal).
+    if _official_gov_host(url):
+        return (_TIER_T1, "government")
+    # TODO(v2, data-not-branch): T2 reputable-newsroom (author+method) -> ("T2","news")
+    # and T3 issuer-primary -> ("T3","press_release"/"corporate"), gated on kind∈allowed.
+    # Deferred per §3.2 until the host predicates are cheaply available from the
+    # existing facet/tier classifier — adding each is ONE row here, never a new branch.
+    return None
+
+
+# ---------------------------------------------------------------------------
+# GENERALIZED Fix 5(d): row -> normalized source-KIND token (for kind-match
+# ordering + adequacy). REUSES the existing document-genre classifier — DATA, not
+# a new ontology. Maps a ``DocumentType`` genre to the free-text kind vocabulary
+# the contract's ``allowed_source_kinds`` uses ("journal" / "news" / "government"
+# / "press release" / ...). Pure / offline / fail-open (UNKNOWN on any fault).
+# ---------------------------------------------------------------------------
+
+# DocumentType.value -> canonical kind token. Extend as DATA; never a control literal.
+_DOCTYPE_TO_KIND: dict[str, str] = {
+    "JOURNAL_ARTICLE": "journal",
+    "REVIEW_ARTICLE": "journal",
+    "PREPRINT": "preprint",
+    "CONFERENCE_PAPER": "conference",
+    "WORKING_PAPER": "working_paper",
+    "BOOK": "book",
+    "REPORT": "report",
+    "NEWS": "news",
+    "PRESS_RELEASE": "press_release",
+    "BLOG_COMMENTARY": "blog",
+    "ENCYCLOPEDIA": "encyclopedia",
+    "DATASET": "dataset",
+    "UGC": "ugc",
+    "PREDATORY_OA_JOURNAL": "predatory",
+    "UNKNOWN": "",
+}
+
+# Normalize a free-text allowed/excluded kind token (contract vocabulary) to the
+# canonical set above so "peer-reviewed journals" and "journal articles" both match
+# the "journal" genre. DATA table; the anti-hardcode grep excludes this module's
+# registries. Keys are substrings tested against the lowercased contract token.
+_KIND_SYNONYM_SUBSTR: tuple[tuple[str, str], ...] = (
+    ("journal", "journal"), ("peer", "journal"), ("scholarly", "journal"),
+    ("academic", "journal"), ("news", "news"), ("wire", "news"),
+    ("press release", "press_release"), ("press-release", "press_release"),
+    ("gov", "government"), ("government", "government"), ("official", "government"),
+    ("statute", "government"), ("regulat", "government"),
+    ("blog", "blog"), ("report", "report"), ("white paper", "report"),
+    ("whitepaper", "report"), ("book", "book"), ("preprint", "preprint"),
+    ("dataset", "dataset"), ("conference", "conference"), ("proceeding", "conference"),
+)
+
+
+def normalize_kind_token(token: str) -> str:
+    """Canonicalize a free-text contract source-kind token to the genre vocabulary."""
+    t = str(token or "").strip().lower()
+    if not t:
+        return ""
+    for sub, canon in _KIND_SYNONYM_SUBSTR:
+        if sub in t:
+            return canon
+    return t  # unknown token passes through verbatim (still matchable exactly)
+
+
+def normalize_kinds(tokens: "Any") -> frozenset[str]:
+    """Canonicalize an iterable of contract kind tokens (empty => empty frozenset)."""
+    out: set[str] = set()
+    for tok in (tokens or []):
+        canon = normalize_kind_token(str(tok))
+        if canon:
+            out.add(canon)
+    return frozenset(out)
+
+
+def classified_kind(row: Any) -> str:
+    """Map a fetched row to its canonical source-KIND token (or "" when unknown).
+
+    REUSES ``classify_document_type`` (the existing genre classifier) — no new
+    ontology. Fail-open: any classifier fault yields "" (an UNKNOWN kind never
+    counts toward adequacy and never wins a kind-match). Adequacy counts the KIND
+    of a row, NEVER a DOI/journal shortcut."""
+    try:
+        from src.polaris_graph.retrieval.document_type_classifier import (
+            classify_document_type,
+        )
+        url = _row_url(row)
+        dt, _basis = classify_document_type(
+            openalex_publication_type=str(_row_get(row, "openalex_publication_type", "") or ""),
+            openalex_source_type=str(_row_get(row, "openalex_source_type", "") or ""),
+            openalex_is_peer_reviewed=_row_get(row, "openalex_is_peer_reviewed", None),
+            source_class=str(_row_get(row, "source_class", "") or ""),
+            url=url,
+            title=str(_row_get(row, "title", "") or ""),
+            doi=str(_row_get(row, "doi", "") or ""),
+        )
+        return _DOCTYPE_TO_KIND.get(getattr(dt, "value", ""), "")
+    except Exception:  # noqa: BLE001 — fail-open: an UNKNOWN kind never counts
+        return ""
+
+
+def score_source_quality(
+    row: Any,
+    *,
+    allowed_kinds: frozenset[str] = frozenset(),
+    excluded_kinds: frozenset[str] = frozenset(),
+) -> tuple[str, float, str]:
     """Deterministic, domain-neutral quality verdict for one fetched row.
 
     Returns ``(verdict, weight, basis)``:
@@ -231,6 +410,11 @@ def score_source_quality(row: Any) -> tuple[str, float, str]:
     "journal-shaped" is NOT peer-reviewed: an ``is_peer_reviewed`` flag that is
     explicitly False (fetched, not merely absent) is a FAIL even if the venue looks
     journal-like. A retraction is always a FAIL. Absent metadata is UNKNOWN.
+
+    ``allowed_kinds`` / ``excluded_kinds`` (both default EMPTY => byte-identical to
+    every existing caller) carry the contract's normalized source-kind policy so the
+    GENERALIZED signal->tier resolver can PASS a T2/T3 credential iff its kind is
+    contract-allowed (a T1 credential PASSes unconditionally). NO LLM here.
     """
     # 1) retraction — always disqualifying, highest precedence.
     if bool(_row_get(row, "is_retracted", False)):
@@ -257,17 +441,24 @@ def score_source_quality(row: Any) -> tuple[str, float, str]:
     if tier in _LOW_QUALITY_TIERS:
         return FAIL, 0.3, f"tier={tier} (low-quality band: industry/news/blog/stub)"
 
-    # 4.5) FIX 5(b): DETERMINISTIC SECOND-CHANCE before the UNKNOWN fail-closed.
-    # EVERY FAIL path (retraction / predatory host / is_peer_reviewed=False / low tier) has
-    # already returned above, and so has every positive PASS — so a row reaching here has NO
-    # negative evidence. If it carries a DOI, or the SAME genre predicate the scope classifier
-    # already trusts resolves it to a peer-reviewed journal article, that is POSITIVE evidence of
-    # high quality — PASS rather than fail-close it out of the menu (the 41%-UNKNOWN over-mask).
-    # EVIDENCE-POSITIVE ONLY: this can NEVER re-admit a FAIL row (they returned above); it only
-    # rescues UNKNOWN rows that carry an independent positive credential.
-    _doi_pass, _doi_basis = _has_doi_or_journal_credential(row, url)
-    if _doi_pass:
-        return PASS, 1.0, f"deterministic second-chance: {_doi_basis} (evidence-positive)"
+    # 4.5) GENERALIZED Fix 5(b): DETERMINISTIC signal->(tier,kind) RESOLVER before the
+    # UNKNOWN fail-closed. EVERY FAIL path (retraction / predatory host / is_peer_reviewed=False /
+    # low tier) has already returned above, and so has every positive PASS — so a row reaching
+    # here has NO negative evidence. If a positive credential resolves to a tier, that is POSITIVE
+    # evidence of quality — PASS rather than fail-close it out (the 41%-UNKNOWN over-mask).
+    # EVIDENCE-POSITIVE ONLY (INV-3): this block contains ONLY ``return PASS``; it can NEVER
+    # re-admit a FAIL row (they returned above), only rescue UNKNOWN rows with a positive signal.
+    #   T1 (authoritative-universal: peer-reviewed scholarly OR gov/primary) -> PASS for ANY contract.
+    #   T2/T3 -> PASS iff the credential's kind ∈ allowed_kinds and ∉ excluded_kinds (contract wants it).
+    # "journal => PASS" is JUST the T1-scholarly row. DOI-alone is NOT T1 (the predicate rejects preprints).
+    _sig = _positive_signal_tier(row, url)
+    if _sig is not None:
+        _sig_tier, _sig_kind = _sig
+        if _sig_tier == _TIER_T1:
+            return PASS, 1.0, f"signal->tier resolver: {_sig_tier} kind={_sig_kind} (authoritative-universal, evidence-positive)"
+        if _sig_kind in allowed_kinds and _sig_kind not in excluded_kinds:
+            return PASS, 1.0, f"signal->tier resolver: {_sig_tier} kind={_sig_kind} ∈ allowed (contract wants this kind, evidence-positive)"
+        # T2/T3 whose kind is not contract-allowed falls through to the existing UNKNOWN path.
 
     # 5) content-shell degradation is a quality-of-content negative but NOT a hard
     #    quality FAIL on its own — it is UNKNOWN (fail-closed under hard) with a demote.
@@ -313,11 +504,19 @@ def build_quality_eligibility(
     is_hard = str(force).strip().lower() == "hard"
     contract_hash = str(getattr(policy, "contract_hash", "") or "")
 
+    # GENERALIZED Fix 5(b): thread the contract's normalized source-kind policy so the
+    # signal->tier resolver can PASS a contract-allowed T2/T3 credential (T1 is unconditional).
+    # Empty (no source-kind clause) => byte-identical to the pre-generalization behavior.
+    _allowed_kinds = normalize_kinds(getattr(policy, "allowed_source_kinds", None))
+    _excluded_kinds = normalize_kinds(getattr(policy, "excluded_source_kinds", None))
+
     for row in list(evidence_rows or []):
         url = _row_url(row)
         if not url:
             continue
-        verdict, weight, basis = score_source_quality(row)
+        verdict, weight, basis = score_source_quality(
+            row, allowed_kinds=_allowed_kinds, excluded_kinds=_excluded_kinds,
+        )
         plan.receipts.append(SourceReceipt(
             contract_hash=contract_hash,
             term_id=quality_term_id,
@@ -341,6 +540,188 @@ def build_quality_eligibility(
     return plan
 
 
+# ---------------------------------------------------------------------------
+# GENERALIZED Fix 5 — source-KIND eligibility + corpus adequacy + acquisition
+# receipt (§3.5). Replaces the RETIRED ``journal_only_filter.py`` hard mask: a hard
+# kind restriction NEVER masks a frozen corpus — it arms a real nonmatching-mask
+# ONLY behind corpus-adequacy AND a matching acquisition receipt; otherwise it
+# degrades to a visible PREFERENCE (reorder) plus a disclosure line. This is the
+# C2-safe replacement for the fail-closed corpus filter.
+# ---------------------------------------------------------------------------
+
+# Default in-scope-KIND adequacy floor (distinct usable in-scope rows). A hard kind
+# restriction may arm a mask only when the corpus is provably adequate at/above this.
+DEFAULT_SOURCE_KIND_MIN_ADEQUATE = 25
+
+
+def corpus_kind_adequacy(
+    rows: "list[Any] | None",
+    allowed_kinds: frozenset[str],
+    *,
+    min_rows: int = DEFAULT_SOURCE_KIND_MIN_ADEQUATE,
+) -> tuple[bool, int]:
+    """Count DISTINCT usable in-scope-KIND rows and test the adequacy floor.
+
+    Adequacy counts the KIND of a row (``classified_kind``), NEVER a DOI/journal
+    shortcut (§3 3/3). A row counts iff its kind ∈ ``allowed_kinds`` AND it does not
+    score a quality FAIL (a predatory/retracted in-scope row is not usable evidence).
+    Returns ``(adequate, n)`` where ``adequate = n >= min_rows``. Empty allowed => not
+    adequate at 0 (the caller never arms a mask without an allowed set)."""
+    if not allowed_kinds:
+        return (False, 0)
+    seen: set[str] = set()
+    for r in list(rows or []):
+        if classified_kind(r) not in allowed_kinds:
+            continue
+        if score_source_quality(r, allowed_kinds=allowed_kinds)[0] == FAIL:
+            continue
+        url = _row_url(r)
+        if url:
+            seen.add(url)
+    n = len(seen)
+    return (n >= min_rows, n)
+
+
+def _acquisition_receipt_matches(policy: Any, acquisition_receipt: "Any") -> bool:
+    """True iff the corpus was fetched UNDER this contract's kind lanes (Codex receipt).
+
+    The strongest available C2 guard against the 997->131 frozen-corpus replay: a
+    hard kind mask arms only when the acquisition receipt's ``contract_hash`` matches
+    the policy's ``contract_hash``. A frozen/replayed unscoped corpus (no receipt, or
+    a mismatched hash) therefore NEVER arms the mask — it degrades to prefer+disclose.
+    Lightweight: a single hash equality on the already-stamped receipt."""
+    want = str(getattr(policy, "contract_hash", "") or "").strip()
+    if not want:
+        return False
+    got = ""
+    if isinstance(acquisition_receipt, Mapping):
+        got = str(acquisition_receipt.get("contract_hash") or "").strip()
+    else:
+        got = str(getattr(acquisition_receipt, "contract_hash", "") or "").strip()
+    return bool(got) and got == want
+
+
+@dataclass
+class SourceKindPlan:
+    """Outcome of source-KIND eligibility over one billed candidate set.
+
+    ``armed`` True iff a HARD nonmatching-mask fired (adequate AND receipt-matched):
+    ``eligibility_excluded_ids`` then masks out-of-scope-kind rows from the citable
+    menu. When NOT armed, ``eligibility_excluded_ids`` is EMPTY and the caller applies
+    only the kind-match REORDER (prefer) plus ``disclosure`` (the degrade line)."""
+
+    armed: bool = False
+    eligibility_excluded_ids: set[str] = field(default_factory=set)
+    receipts: list[SourceReceipt] = field(default_factory=list)
+    excluded_records: list[dict[str, Any]] = field(default_factory=list)
+    disclosure: str = ""
+    in_scope_count: int = 0
+
+
+def build_source_kind_eligibility(
+    policy: Any,
+    rows: "list[Any] | None",
+    acquisition_receipt: "Any" = None,
+    *,
+    min_rows: int = DEFAULT_SOURCE_KIND_MIN_ADEQUATE,
+    hard_enabled: bool = False,
+    source_kind_term_id: str = "scope.source_types",
+) -> SourceKindPlan:
+    """Source-KIND eligibility (C2-safe replacement for the retired journal-only mask).
+
+    ORDER OF PRECEDENCE (§3.5):
+      1. EXCLUSIONS ALWAYS WIN FIRST — every excluded-kind row is masked, monotonically;
+         a PASS/weight can NEVER re-include an excluded kind. Exclusions are never
+         adequacy-checked and never receipt-gated.
+      2. HARD allowed_source_kinds arms a nonmatching-mask ONLY when ALL of:
+         ``hard_enabled`` (PG_SOURCE_RESTRICTION_HARD) AND the term force is hard AND
+         the corpus is adequate (``corpus_kind_adequacy`` >= ``min_rows``) AND the
+         acquisition receipt matches. Otherwise it DOWNGRADES to prefer (no exclusion)
+         and records an Assumption + SourceReceipt basis + a disclosure line.
+      3. Empty allowed AND empty excluded => EMPTY plan (byte-identical no-op).
+
+    Counts in-scope-KIND rows, never DOI/journal rows. All upstream of the frozen verifier."""
+    plan = SourceKindPlan()
+    allowed = normalize_kinds(getattr(policy, "allowed_source_kinds", None))
+    excluded = normalize_kinds(getattr(policy, "excluded_source_kinds", None))
+    contract_hash = str(getattr(policy, "contract_hash", "") or "")
+    row_list = list(rows or [])
+    if not allowed and not excluded:
+        return plan  # no source-kind clause -> byte-identical no-op
+
+    # (1) EXCLUSIONS ALWAYS WIN — monotonic union, never re-included, never gated.
+    for r in row_list:
+        url = _row_url(r)
+        if not url:
+            continue
+        k = classified_kind(r)
+        if k and k in excluded:
+            plan.eligibility_excluded_ids.add(url)
+            plan.excluded_records.append({
+                "source_id": url, "stage": STAGE_QUALITY,
+                "verdict": FAIL, "basis": f"source-kind exclusion: kind={k} ∈ excluded (always wins)",
+                "force": "hard",
+            })
+            plan.receipts.append(SourceReceipt(
+                contract_hash=contract_hash, term_id="scope.excluded_source_kinds",
+                source_id=url, stage=STAGE_QUALITY, verdict=FAIL,
+                basis=f"excluded source-kind {k} masked (exclusion always wins)",
+            ))
+
+    if not allowed:
+        return plan  # exclusion-only contract: mask done, no allow-mask to arm
+
+    # (2) HARD allowed-kind nonmatching-mask — arms ONLY behind adequacy + receipt.
+    force = (getattr(policy, "predicate_force", {}) or {}).get("allowed_source_kinds", "soft")
+    term_is_hard = str(force).strip().lower() == "hard"
+    adequate, n = corpus_kind_adequacy(row_list, allowed, min_rows=min_rows)
+    plan.in_scope_count = n
+    receipt_ok = _acquisition_receipt_matches(policy, acquisition_receipt)
+    arm_hard = bool(hard_enabled and term_is_hard and adequate and receipt_ok)
+
+    if arm_hard:
+        plan.armed = True
+        for r in row_list:
+            url = _row_url(r)
+            if not url or url in plan.eligibility_excluded_ids:
+                continue
+            k = classified_kind(r)
+            if k not in allowed:
+                plan.eligibility_excluded_ids.add(url)
+                plan.excluded_records.append({
+                    "source_id": url, "stage": STAGE_QUALITY,
+                    "verdict": FAIL, "basis": f"hard source-kind mask: kind={k or 'UNKNOWN'} ∉ allowed {sorted(allowed)}",
+                    "force": "hard",
+                })
+                plan.receipts.append(SourceReceipt(
+                    contract_hash=contract_hash, term_id=source_kind_term_id,
+                    source_id=url, stage=STAGE_QUALITY, verdict=FAIL,
+                    basis=f"out-of-scope kind {k or 'UNKNOWN'} masked (adequate n={n}, receipt-matched)",
+                ))
+    else:
+        # DEGRADE to prefer + disclosure (C2: never mask a frozen/under-scoped corpus).
+        _why = []
+        if not hard_enabled:
+            _why.append("PG_SOURCE_RESTRICTION_HARD off")
+        if not term_is_hard:
+            _why.append("term force is soft")
+        if not adequate:
+            _why.append(f"only {n} in-scope sources (< {min_rows} adequacy floor)")
+        if not receipt_ok:
+            _why.append("no matching acquisition receipt")
+        plan.disclosure = (
+            f"Scope note: the prompt restricts sources to {sorted(allowed)}; "
+            f"{'; '.join(_why)} — in-scope sources were prioritized rather than "
+            f"exclusively enforced."
+        )
+        plan.receipts.append(SourceReceipt(
+            contract_hash=contract_hash, term_id=source_kind_term_id,
+            source_id="", stage=STAGE_QUALITY, verdict=UNKNOWN,
+            basis=f"hard source-kind restriction DEGRADED to prefer: {'; '.join(_why)} (n={n})",
+        ))
+    return plan
+
+
 def build_topicality_eligibility(
     evidence_rows: "list[Any] | None",
     *,
@@ -352,6 +733,7 @@ def build_topicality_eligibility(
     topicality_term_id: str = "topicality",
     is_hard: bool = True,
     hard_floor: "float | None" = None,
+    soft_floor: "float | None" = None,
 ) -> EligibilityPlan:
     """Post-fetch topical eligibility against the CLEAN objective + owning thread.
 
@@ -369,15 +751,24 @@ def build_topicality_eligibility(
     dropped — it is SOFT-demoted (a weight, receipt verdict ``FAIL`` but no exclusion), so
     the 0.15–0.30 band that was the ACTUAL over-mask stays in the citable menu, ranked down.
     ``hard_floor=None`` (default) is byte-identical to the single-floor behavior.
+    ``soft_floor`` (generalized alias, default ``None``) supplies the same quarantine
+    boundary when ``hard_floor`` is not given; ``hard_floor`` wins if both are set, and
+    ``soft_floor=None`` with ``hard_floor=None`` is byte-identical to the single floor.
 
     ``objective`` is the clean research objective (contract objective / clean
     question), NOT the instruction-laden prompt. ``thread_queries`` are the owning
     thread's sub-queries (the per-subquery max clears a focused facet).
     """
+    # GENERALIZED Fix 5(c): the quarantine boundary may be supplied as ``hard_floor``
+    # (legacy) OR ``soft_floor`` (generalized alias — the boundary at/above which a
+    # below-``floor`` row is SOFT-DEMOTED rather than quarantined, even under a hard
+    # predicate). ``hard_floor`` wins if both are set; ``soft_floor=None`` AND
+    # ``hard_floor=None`` (defaults) => single-floor path (byte-identical).
+    _qfloor = hard_floor if hard_floor is not None else soft_floor
     # Two-tier arms ONLY under a hard predicate with a valid quarantine floor strictly
     # below the pass floor; anything else collapses to the single-floor path (byte-identical).
     _two_tier = (
-        is_hard and hard_floor is not None and 0.0 <= float(hard_floor) < float(floor)
+        is_hard and _qfloor is not None and 0.0 <= float(_qfloor) < float(floor)
     )
     plan = EligibilityPlan()
     rows = list(evidence_rows or [])
@@ -408,13 +799,13 @@ def build_topicality_eligibility(
         score = float(score_map.get(idx, 0.0))
         if score < floor:
             verdict = FAIL
-            # FIX 5(c): under two-tier, only score < hard_floor is CONFIRMED off-topic and
-            # HARD-quarantined; the hard_floor <= score < floor BAND is on-topic-adjacent and
+            # FIX 5(c): under two-tier, only score < _qfloor is CONFIRMED off-topic and
+            # HARD-quarantined; the _qfloor <= score < floor BAND is on-topic-adjacent and
             # SOFT-demoted (kept in the menu, ranked down) even on a hard predicate.
-            _quarantine = is_hard and (not _two_tier or score < float(hard_floor))
+            _quarantine = is_hard and (not _two_tier or score < float(_qfloor))
             if _two_tier and not _quarantine:
                 basis = (f"topicality cosine {score:.3f} in soft band "
-                         f"[{float(hard_floor):.3f}, {floor:.3f}) (on-topic-adjacent; demoted)")
+                         f"[{float(_qfloor):.3f}, {floor:.3f}) (on-topic-adjacent; demoted)")
             else:
                 basis = f"topicality cosine {score:.3f} < floor {floor:.3f} (confirmed off-topic)"
             if _quarantine:
