@@ -14381,6 +14381,94 @@ async def run_one_query(
                     _elig_excluded |= set(_t_plan.eligibility_excluded_ids)
                     _elig_records.extend(_t_plan.excluded_records)
 
+                # (c) OPAQUE-CLAUSE eligibility (Kimi §2/§5) — the post-fetch,
+                #     receipt-emitting JUDGE keyed to the clause ledger. Makes the
+                #     un-ontologised HARD clauses parked in
+                #     RetrievalPolicy.opaque_eligibility ('only news + company press
+                #     releases', 'high-quality journal articles', 'industry white
+                #     papers') actually BITE without an ontology facet: a schema-
+                #     constrained LLM READS each fetched source against each verbatim
+                #     clause -> pass/fail/unknown + receipt. Deterministic named-host
+                #     predicates fire first (no LLM). A hard FAIL removes the source
+                #     from the citable menu (KEPT in corpus + disclosure); UNKNOWN is
+                #     fail-OPEN (an opaque clause the judge cannot decide never
+                #     silently quarantines). SAME _elig_excluded/_elig_records/
+                #     _gate_scope_receipts sink as quality+topicality — the union mask
+                #     at :14384 applies it. UPSTREAM of strict_verify (provenance
+                #     untouched). Behind PG_OPAQUE_ELIGIBILITY (default OFF) AND a
+                #     non-empty opaque_eligibility list => OFF is byte-identical.
+                _opaque_on = os.getenv("PG_OPAQUE_ELIGIBILITY", "0").strip().lower() in ("1", "true", "yes", "on")
+                if _opaque_on and (getattr(_gate_policy, "opaque_eligibility", None) or []):
+                    from src.polaris_graph.planning.eligibility_judge import (  # noqa: PLC0415
+                        build_opaque_eligibility as _build_opaque_elig,
+                    )
+
+                    def _opaque_llm_judge(_meta: "dict[str, Any]", _clauses: "list[str]") -> str:
+                        # Production judge call. Build/smoke/eval NEVER reach this
+                        # path (a fake llm is injected in the eval harness; the eval
+                        # runs OFFLINE on the fixture corpus). One bounded, schema-
+                        # constrained call per source over ALL its pending clauses.
+                        # Driven on a SEPARATE thread with its own loop (run_one_query
+                        # is async / the sweep loop is already running), and the
+                        # worker's _RUN_COST_CTX spend delta is written back to the
+                        # parent run so PG_MAX_COST_PER_RUN stays honest — mirrors the
+                        # _planner_llm closure at :9965.
+                        import asyncio as _oa
+                        import concurrent.futures as _ofut
+                        import contextvars as _octx
+                        from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+                            OpenRouterClient as _OJClient,
+                            PG_GENERATOR_MODEL as _OJ_MODEL,
+                            _RUN_COST_CTX as _OJ_COST,
+                        )
+                        from src.polaris_graph.planning.eligibility_judge import (  # noqa: PLC0415
+                            _build_judge_prompt as _oj_prompt,
+                        )
+
+                        _prompt = _oj_prompt(_meta, list(_clauses))
+                        _before = _OJ_COST.get()
+                        _after_holder: "list[float]" = [_before]
+
+                        async def _oj_run() -> str:
+                            _c = _OJClient(model=_OJ_MODEL)
+                            try:
+                                _resp = await _c.generate(
+                                    prompt=_prompt,
+                                    system="You are a strict, schema-constrained source-eligibility judge. Output ONLY the JSON object.",
+                                    max_tokens=4000,
+                                    temperature=0.0,
+                                    response_format={"type": "json_object"},
+                                    reasoning_max_tokens=2000,
+                                )
+                                return (_resp.content or "").strip()
+                            finally:
+                                _after_holder[0] = _OJ_COST.get()
+                                if hasattr(_c, "close"):
+                                    try:
+                                        await _c.close()
+                                    except Exception:  # noqa: BLE001
+                                        pass
+
+                        _pctx = _octx.copy_context()
+
+                        def _oj_worker() -> str:
+                            return _pctx.run(lambda: _oa.run(_oj_run()))
+
+                        try:
+                            with _ofut.ThreadPoolExecutor(max_workers=1) as _op:
+                                return _op.submit(_oj_worker).result()
+                        finally:
+                            _delta = _after_holder[0] - _before
+                            if _delta > 0:
+                                _OJ_COST.set(_before + _delta)
+
+                    _o_plan = _build_opaque_elig(
+                        _gate_policy, evidence_for_gen, llm=_opaque_llm_judge,
+                    )
+                    _gate_scope_receipts.extend(r.to_dict() for r in _o_plan.receipts)
+                    _elig_excluded |= set(_o_plan.eligibility_excluded_ids)
+                    _elig_records.extend(_o_plan.excluded_records)
+
                 if _elig_excluded:
                     _kept_elig = [_r for _r in evidence_for_gen if _elig_url(_r) not in _elig_excluded]
                     _masked_e = len(evidence_for_gen) - len(_kept_elig)
@@ -14388,7 +14476,7 @@ async def run_one_query(
                         _log(
                             f"[quality_eligibility] Phase C: masked {_masked_e} source(s) from the "
                             f"billed citable menu ({len(evidence_for_gen)} -> {len(_kept_elig)}) at "
-                            "the contract's HARD quality/topicality predicate — KEPT in corpus + "
+                            "the contract's HARD quality/topicality/opaque predicate — KEPT in corpus + "
                             "disclosure (§-1.3), withheld only from grounding. strict_verify untouched."
                         )
                         evidence_for_gen = _kept_elig
