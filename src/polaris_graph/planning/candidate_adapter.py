@@ -121,10 +121,15 @@ CANDIDATE_REGISTRY: dict[str, _RegistryRow] = {
     "source.language":    _RegistryRow("scope.source_languages", "source", "language",     _OP_IN,      "eligibility"),
     "source.scope_facet": _RegistryRow("scope.source_types",     "source", "kind",         _OP_IN,      "eligibility"),
     "source.jurisdiction":_RegistryRow("scope.jurisdiction",     "source", "jurisdiction", _OP_IN,      "retrieval"),
-    "source.named":       _RegistryRow("scope.named_source",     "source", "identity",     _OP_IN,      "retrieval"),
+    "source.named":       _RegistryRow("scope.named_sources",    "source", "identity",     _OP_IN,      "retrieval"),
+    "source.named_exclude": _RegistryRow("scope.excluded_sources", "source", "identity",   _OP_NOT_IN,  "retrieval"),
     "date.recency":       _RegistryRow("scope.date",             "source", "published_at", _OP_GTE,     "retrieval"),
-    # content-side → planning / compose obligations & exclusions
-    "content.exclusion":  _RegistryRow("content.exclusion",      "source", "kind",         _OP_NOT_IN,  "eligibility"),
+    # F1: a source EXCLUSION is a NEGATIVE SCOPE predicate ("no blogs" / "do not
+    # cite blogs"), NOT a content-coverage requirement. Its canonical is a scope
+    # dimension so ``_author_deterministic_terms`` files it in ``contract.scope``
+    # (not coverage) and ``retrieval_projection`` routes it to
+    # ``RetrievalPolicy.excluded_source_kinds`` + an ``op=exclude`` facet.
+    "content.exclusion":  _RegistryRow("scope.excluded_source_kinds", "source", "kind",    _OP_NOT_IN,  "eligibility"),
     "content.coverage":   _RegistryRow("content.coverage",       "topic",  "coverage",     _OP_REQUIRE, "compose"),
     "content.comparison": _RegistryRow("content.comparison",     "topic",  "comparison",   _OP_REQUIRE, "compose"),
     "deliverable.structure": _RegistryRow("deliverable.structure", "output", "structure",  _OP_REQUIRE, "render"),
@@ -540,9 +545,13 @@ def _from_scope_constraints(
 
     for named in list(sc.named_include) + list(sc.named_exclude):
         # A named-exclude is always hard (identity-enforced downstream); a
-        # named-include is a boost (prefer).
+        # named-include is a boost (prefer). F1: a named EXCLUDE ("don't use
+        # Reuters") is a NEGATIVE named predicate (``source.named_exclude`` →
+        # ``scope.excluded_sources``), NOT a content-coverage requirement — routing
+        # it through ``content.exclusion`` used to invert it into a required
+        # coverage lane that made the gate GO FIND the forbidden source.
         force = FORCE_HARD if named.strictness == "hard" else FORCE_PREFER
-        dim = "source.named" if named.op != "exclude" else "content.exclusion"
+        dim = "source.named" if named.op != "exclude" else "source.named_exclude"
         out.append(_stamp_ir(CandidateConstraint(
             dimension=dim,
             value=named.label,

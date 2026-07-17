@@ -425,10 +425,16 @@ def test_ledger_reinstates_every_constraint_when_llm_drops_them(monkeypatch):
         if t.dimension == "scope.source_types":
             assert t.force == FORCE_HARD and t.operator == "IN"
 
-    # (d) exclusion: "blogs" (unknown kind) preserved as NOT_IN — never positive.
-    excl = [t for t in result.contract.all_terms()
-            if t.dimension == "content.exclusion"]
+    # (d) exclusion: "blogs" (unknown kind) preserved as a NEGATIVE SCOPE predicate
+    # (F1: scope.excluded_source_kinds NOT_IN — never a content-coverage requirement,
+    # never positive query text). It must live in scope, not coverage.
+    excl = [t for t in result.contract.scope
+            if t.dimension == "scope.excluded_source_kinds"]
     assert any(t.value == "blogs" and t.operator == "NOT_IN" for t in excl)
+    # and it must NOT have been reinstated as a required coverage requirement.
+    assert not any(
+        "blog" in str(cr.statement.value or "").lower() for cr in result.contract.coverage
+    ), "an exclusion must never become a required CoverageRequirement (F1)"
 
     # the ledger is persisted; every deontic clause is dispositioned.
     assert result.artifact.clause_ledger, "the ledger must be persisted on the artifact"

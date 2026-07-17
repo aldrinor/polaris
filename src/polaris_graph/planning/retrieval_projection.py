@@ -220,6 +220,10 @@ class RetrievalPolicy:
     named_inclusions: list[str] = field(default_factory=list)
     named_exclusions: list[str] = field(default_factory=list)
     quality_profile: Optional[str] = None
+    # OPAQUE eligibility predicates (F2): hard un-normalized deontic clauses
+    # preserved verbatim as post-fetch eligibility judgements (a source is judged
+    # against each). NEVER a query string; NEVER a positive facet.
+    opaque_eligibility: list[str] = field(default_factory=list)
     predicate_force: dict[str, str] = field(default_factory=dict)
     contract_hash: str = ""
 
@@ -235,6 +239,7 @@ class RetrievalPolicy:
             or self.named_inclusions
             or self.named_exclusions
             or self.quality_profile
+            or self.opaque_eligibility
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -247,6 +252,7 @@ class RetrievalPolicy:
             "named_inclusions": list(self.named_inclusions),
             "named_exclusions": list(self.named_exclusions),
             "quality_profile": self.quality_profile,
+            "opaque_eligibility": list(self.opaque_eligibility),
             "predicate_force": dict(self.predicate_force),
             "contract_hash": self.contract_hash,
         }
@@ -333,6 +339,10 @@ class RetrievalPolicy:
             (self.predicate_force or {}).get("languages", "soft")
         ).lower() == "hard"
 
+        quality_hard = str(
+            (self.predicate_force or {}).get("quality_profile", "soft")
+        ).lower() == "hard"
+
         user_constraints: dict[str, Any] = {
             "timeline_strictness": "hard" if (date_hard and (self.date_from or self.date_to))
             else "weight",
@@ -341,8 +351,24 @@ class RetrievalPolicy:
             user_constraints["date_start_iso"] = self.date_from
         if self.date_to:
             user_constraints["date_end_iso"] = self.date_to
+        # F6: emit ALL hard languages (not just languages[0]) so a multi-language
+        # source rule reaches the enforcer intact. ``language`` keeps the legacy
+        # scalar (first) for back-compat; ``languages`` carries the full list.
         if lang_hard and self.languages:
             user_constraints["language"] = self.languages[0]
+            user_constraints["languages"] = list(self.languages)
+            user_constraints["language_strictness"] = "hard"
+        # F6: emit the quality_profile so it is no longer decorative — the enforcer
+        # (or the post-fetch eligibility stage) reads a domain-neutral quality ref
+        # + its strictness. It is NEVER a query word (LAW VI); it selects a profile
+        # over already-fetched metadata.
+        if self.quality_profile:
+            user_constraints["quality_profile"] = self.quality_profile
+            user_constraints["quality_strictness"] = "hard" if quality_hard else "weight"
+        # F2: opaque eligibility clauses are surfaced (disclosed) as post-fetch
+        # eligibility predicates — never a facet, never query text.
+        if self.opaque_eligibility:
+            user_constraints["opaque_eligibility"] = list(self.opaque_eligibility)
 
         return {
             "scope_constraints": {
@@ -414,6 +440,17 @@ class RetrievalProjection:
     # are surfaced ONLY as a negative eligibility predicate a caller applies
     # against a candidate's metadata (post-fetch, upstream of the frozen verifier).
     excluded_scope_terms: list[str] = field(default_factory=list)
+    # NEGATIVE named-source predicates ("don't use Reuters"): NEVER query text,
+    # surfaced only as named exclusions the eligibility stage masks on.
+    named_exclusions: list[str] = field(default_factory=list)
+    # Named-source INCLUSIONS ("Use Reuters and AP"): a retrieval boost, surfaced
+    # as named inclusions — never a hard mask on their own.
+    named_inclusions: list[str] = field(default_factory=list)
+    # OPAQUE eligibility terms (F2): a hard, un-normalized deontic clause preserved
+    # verbatim as a POST-FETCH eligibility predicate (a source is judged against
+    # it later). It is NEVER folded into positive query text — doing so re-steers
+    # discovery toward the very thing an exclusion forbids (the pre-Phase-C bug).
+    opaque_eligibility_terms: list[str] = field(default_factory=list)
     # Hard source-language codes/names (e.g. "en"); drive native-language lanes.
     hard_languages: list[str] = field(default_factory=list)
     # Champion-plan breadth: sub-queries ADDED to the amplified frontier so the
@@ -603,10 +640,16 @@ class RetrievalProjection:
         from src.polaris_graph.planning.planning_gate_schema import sha256_of
 
         allowed: list[str] = []
+        # Seed the NEGATIVE + named + opaque predicate sets from the projection
+        # buckets already computed by ``from_contract_and_plan`` (one routing truth:
+        # exclusions/named/opaque were classified there, never re-derived from a
+        # drifting dimension-name list — F6). The contract walk below only fills the
+        # positive/date/language/quality predicates + per-predicate force.
         excluded: list[str] = list(self.excluded_scope_terms)
         languages: list[str] = list(self.hard_languages)
-        named_incl: list[str] = []
-        named_excl: list[str] = []
+        named_incl: list[str] = list(self.named_inclusions)
+        named_excl: list[str] = list(self.named_exclusions)
+        opaque: list[str] = list(self.opaque_eligibility_terms)
         quality_profile: Optional[str] = None
         date_from: Optional[str] = None
         date_to: Optional[str] = None
@@ -630,8 +673,16 @@ class RetrievalProjection:
                     _add(allowed, v)
                 force.setdefault("allowed_source_kinds", "hard" if is_hard else "soft")
             elif dim in _EXCLUSION_DIMENSIONS:
-                # already captured in excluded_scope_terms; record force.
+                # values already captured in excluded_scope_terms; record force.
                 force.setdefault("excluded_source_kinds", "hard" if is_hard else "soft")
+            elif dim in _NAMED_EXCLUSION_DIMENSIONS:
+                # values already captured in named_excl; record force. A named
+                # exclusion is always hard downstream (identity-enforced).
+                force.setdefault("named_exclusions", "hard")
+            elif dim in _OPAQUE_DIMENSIONS:
+                # F2: opaque terms are a hard eligibility predicate to be JUDGED
+                # later — never a query string / positive facet. Record force only.
+                force.setdefault("opaque_eligibility", "hard" if is_hard else "soft")
             elif dim in ("scope.date", "scope.dates", "scope.published_after",
                          "scope.recency"):
                 iso = _year_to_iso_from(vals[0])
@@ -655,10 +706,6 @@ class RetrievalProjection:
                 for v in vals:
                     _add(named_incl, v)
                 force.setdefault("named_inclusions", "hard" if is_hard else "soft")
-            elif dim in ("scope.excluded_sources", "scope.exclude_sources"):
-                for v in vals:
-                    _add(named_excl, v)
-                force.setdefault("named_exclusions", "hard" if is_hard else "soft")
 
         contract_hash = ""
         try:
@@ -675,6 +722,7 @@ class RetrievalProjection:
             named_inclusions=named_incl,
             named_exclusions=named_excl,
             quality_profile=quality_profile,
+            opaque_eligibility=opaque,
             predicate_force=force,
             contract_hash=contract_hash,
         )
@@ -726,10 +774,25 @@ _SCOPE_TEXT_DIMENSIONS: tuple[str, ...] = (
 )
 # Scope dimensions whose VALUES are NEGATIVE predicates (exclusions). Never query
 # text; only a masking eligibility predicate a caller applies to candidate metadata.
+# ``scope.excluded_source_kinds`` is the canonical F1 target ("no blogs" / "do not
+# cite blogs"); the legacy aliases are kept so an older persisted contract routes.
 _EXCLUSION_DIMENSIONS: tuple[str, ...] = (
+    "scope.excluded_source_kinds",
     "scope.prohibited",
     "scope.excluded_source_types",
     "scope.exclusions",
+)
+# NEGATIVE named-source predicates ("don't use Reuters") — routed to
+# ``RetrievalPolicy.named_exclusions`` + an ``op=exclude`` named entry, never query text.
+_NAMED_EXCLUSION_DIMENSIONS: tuple[str, ...] = (
+    "scope.excluded_sources",
+    "scope.exclude_sources",
+)
+# OPAQUE dimensions: a hard OPAQUE clause is a first-class eligibility predicate
+# (judged post-fetch against each source), NEVER positive query text. (F2.)
+_OPAQUE_DIMENSIONS: tuple[str, ...] = (
+    "scope.opaque",
+    "content.opaque",
 )
 _LANGUAGE_DIMENSIONS: tuple[str, ...] = (
     "scope.source_languages",
@@ -757,6 +820,9 @@ def from_contract_and_plan(
     soft_scope_terms: list[str] = []
     hard_languages: list[str] = []
     excluded_scope_terms: list[str] = []
+    named_exclusions: list[str] = []
+    named_inclusions: list[str] = []
+    opaque_eligibility_terms: list[str] = []
 
     def _dedup_add(lst: list[str], val: Any) -> None:
         s = str(val or "").strip()
@@ -778,6 +844,36 @@ def from_contract_and_plan(
         if dim in _EXCLUSION_DIMENSIONS:
             for v in vals:
                 _dedup_add(excluded_scope_terms, v)
+            continue
+
+        # NEGATIVE NAMED predicates ("don't use Reuters"): a named exclusion, never
+        # query text. CONTINUE so it cannot fold into hard_scope_terms below.
+        if dim in _NAMED_EXCLUSION_DIMENSIONS:
+            for v in vals:
+                _dedup_add(named_exclusions, v)
+            continue
+
+        # NAMED INCLUSIONS ("Use Reuters and AP"): a retrieval boost, surfaced as a
+        # named inclusion. Kept out of hard_scope_terms — a named source is a source
+        # IDENTITY predicate, not a generic scope adjective folded into query text.
+        if dim in ("scope.named_sources", "scope.include_sources", "scope.inclusions"):
+            for v in vals:
+                _dedup_add(named_inclusions, v)
+            continue
+
+        # OPAQUE (F2): a hard un-normalized deontic clause. It is a POST-FETCH
+        # eligibility predicate, NEVER positive query text. CONTINUE so the raw
+        # clause text can never land in hard_scope_terms and be suffixed onto every
+        # query (which would steer discovery toward what an exclusion forbids). An
+        # opaque term whose operator is NOT_IN (an exclude-cue clause) routes to the
+        # NEGATIVE bucket so it masks rather than merely being judged.
+        if dim in _OPAQUE_DIMENSIONS:
+            op = _norm(getattr(term, "operator", ""))
+            for v in vals:
+                if op == "not_in":
+                    _dedup_add(excluded_scope_terms, v)
+                else:
+                    _dedup_add(opaque_eligibility_terms, v)
             continue
 
         if dim in _LANGUAGE_DIMENSIONS:
@@ -827,6 +923,9 @@ def from_contract_and_plan(
         soft_scope_terms=soft_scope_terms,
         hard_languages=hard_languages,
         excluded_scope_terms=excluded_scope_terms,
+        named_exclusions=named_exclusions,
+        named_inclusions=named_inclusions,
+        opaque_eligibility_terms=opaque_eligibility_terms,
     )
 
 

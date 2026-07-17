@@ -126,10 +126,69 @@ _CUE_PREFER = (
 )
 
 # Date lower-bound: "from 2024 onward(s)", "since 2024", "after 2024".
+# The lead word is CAPTURED (group "lead") so ``parse_date_bound`` can apply
+# STRICT ("after 2024" → GTE 2025-01-01) vs INCLUSIVE ("from/since 2024" → GTE
+# 2024-01-01) semantics (F7) — treating them identically inverted "after".
 _DATE_FROM_RE = re.compile(
-    r"\b(?:from|since|after)\s+(\d{4})(?:\s+onwards?)?\b", re.I
+    r"\b(?P<lead>from|since|after)\s+(\d{4})(?:\s+onwards?)?\b", re.I
 )
 _DATE_ONWARD_RE = re.compile(r"\b(\d{4})\s+onwards?\b", re.I)
+
+
+# F3: WORD-BOUNDARY cue finder. The old ``str.find`` was an unanchored substring
+# match, so "commonly" matched the restrict cue "only", "avoidance" matched the
+# exclude cue "avoid", "information" matched "for", etc. — fabricating hard
+# constraints out of ordinary prose. We compile ONE alternation per cue family with
+# ``\b`` boundaries so a cue fires only as a whole word/phrase. Cues that end in a
+# space (the weak "no "/"without " leads) keep their trailing space in the source
+# tuple but are matched with a boundary + following space, so "nothing" != "no ".
+def _compile_boundary_re(cues: tuple[str, ...]) -> "re.Pattern[str]":
+    parts = []
+    for c in cues:
+        stripped = c.strip()
+        if not stripped:
+            continue
+        esc = re.escape(stripped)
+        # a cue that is a phrase ("do not cite") anchors on the first + last word.
+        parts.append(esc)
+    # longest-first so "do not cite" wins over a shorter overlapping alternative.
+    parts.sort(key=len, reverse=True)
+    return re.compile(r"\b(?:" + "|".join(parts) + r")\b", re.I)
+
+
+_RE_RESTRICT = _compile_boundary_re(_CUE_RESTRICT)
+_RE_EXCLUDE = _compile_boundary_re(_CUE_EXCLUDE)
+_RE_OBLIGE = _compile_boundary_re(_CUE_OBLIGE)
+_RE_QUALITY = _compile_boundary_re(_CUE_QUALITY)
+_RE_PREFER = _compile_boundary_re(_CUE_PREFER)
+# weak "no"/"without" as whole words (boundary before, whitespace after captured
+# separately so the source-noun guard still reads the following phrase).
+_RE_WEAK_EXCLUDE = re.compile(r"\b(no|without)\s+", re.I)
+
+
+def _is_world_statement(clause_text: str) -> bool:
+    """True when the clause DESCRIBES the world rather than INSTRUCTS the system.
+
+    A declarative like "X is commonly used since 2018" or "companies must disclose
+    Y under CSRD" (as reported fact) is NOT an instruction to the retriever; firing
+    a hard constraint off it fabricates a rule (F3). Heuristic + conservative: only
+    an OBLIGE/RESTRICT/QUALITY/DATE family cue is second-guessed (an explicit
+    prohibition — "do not cite blogs" — is always an instruction and never guarded).
+    A clause is world-descriptive when a copular/reporting frame ("is/are/was/were/
+    has been/tends to be … <cue>") precedes the cue with no imperative lead.
+    """
+    return bool(_WORLD_FRAME_RE.search(clause_text))
+
+
+# "X is/are/was/were/has been/tends to be commonly/only/…": a copular frame that
+# marks the following adverb/verb as a description of the world, not an order.
+_WORLD_FRAME_RE = re.compile(
+    r"\b(?:is|are|was|were|be|been|being|tends?\s+to\s+be|remains?|"
+    r"becomes?|seems?|appears?)\s+(?:\w+\s+){0,2}?"
+    r"(?:commonly|widely|typically|generally|often|usually|frequently|"
+    r"primarily|mostly|mainly|only|solely|exclusively)\b",
+    re.I,
+)
 
 
 # A cue → (force, kind) table so a clause records WHY it is a constraint and how
@@ -143,53 +202,62 @@ def _deontic_hit(clause_text: str) -> "Optional[DeonticCue]":
     a restriction cue also scopes the clause (else soft). This mirrors the
     candidate layer's "force is observed, never invented" rule at the clause
     level. The returned ``cue`` is the verbatim matched phrase (a real span).
+
+    F3 GUARDS: cues are matched on WORD BOUNDARIES (so "commonly" != "only",
+    "avoidance" != "avoid"); and a QUESTION or a WORLD-DESCRIBING clause ("What
+    must companies disclose", "X is commonly used since 2018") does NOT fire a
+    RESTRICT/OBLIGE/QUALITY/DATE constraint — those are research OBJECTIVES /
+    reported facts, not instructions to the retriever. An explicit PROHIBITION
+    ("do not cite blogs", "exclude X") is always an instruction and never guarded.
     """
-    low = clause_text.lower()
+    stripped = clause_text.strip()
+    is_question = stripped.endswith("?")
+    is_world = _is_world_statement(clause_text)
+    # a clause that is a question or a world-statement may still carry an explicit
+    # prohibition (rare) but must NOT be read as a restrict/oblige/quality/date rule.
+    guard_soft = is_question or is_world
 
-    def _find(cues: tuple[str, ...]) -> Optional[str]:
-        best: Optional[str] = None
-        best_at = len(low) + 1
-        for c in cues:
-            at = low.find(c)
-            if at != -1 and at < best_at:
-                best, best_at = c, at
-        return best
+    def _find(rx: "re.Pattern[str]") -> Optional[str]:
+        m = rx.search(clause_text)
+        return m.group(0) if m else None
 
-    restrict = _find(_CUE_RESTRICT)
-    exclude = _find(_CUE_EXCLUDE)
-    weak_exclude = _find(_EXCLUDE_LEAD_WEAK)
-    oblige = _find(_CUE_OBLIGE)
-    quality = _find(_CUE_QUALITY)
-    prefer = _find(_CUE_PREFER)
-    date_hit = _DATE_FROM_RE.search(clause_text) or _DATE_ONWARD_RE.search(clause_text)
+    exclude = _find(_RE_EXCLUDE)
+    weak_m = _RE_WEAK_EXCLUDE.search(clause_text)
+    restrict = None if guard_soft else _find(_RE_RESTRICT)
+    oblige = None if guard_soft else _find(_RE_OBLIGE)
+    quality = None if guard_soft else _find(_RE_QUALITY)
+    prefer = None if guard_soft else _find(_RE_PREFER)
+    date_hit = None if guard_soft else (
+        _DATE_FROM_RE.search(clause_text) or _DATE_ONWARD_RE.search(clause_text)
+    )
 
     # A WEAK "no X"/"without X" is a hard exclusion ONLY when X is a source noun
     # (so "no blogs" fires but "no clear consensus" does not — no fabricated rule).
-    if weak_exclude and not exclude:
-        at = low.find(weak_exclude)
-        noun = clause_text[at + len(weak_exclude):].strip().strip("\"'")
+    if weak_m and not exclude:
+        noun = clause_text[weak_m.end():].strip().strip("\"'")
         if _is_source_noun(noun.split(",")[0].split(".")[0]):
-            return DeonticCue(cue=_verbatim(clause_text, weak_exclude),
+            weak_cue = clause_text[weak_m.start():weak_m.end()]
+            return DeonticCue(cue=weak_cue.rstrip() + " ",
                               family="exclude", force=FORCE_HARD, attribute="kind")
 
     # Prohibition (a "do not"/"exclude"/"avoid X" is unambiguously a hard exclusion).
     if exclude:
-        return DeonticCue(cue=_verbatim(clause_text, exclude), family="exclude",
+        return DeonticCue(cue=exclude, family="exclude",
                           force=FORCE_HARD, attribute="kind")
     if restrict:
-        return DeonticCue(cue=_verbatim(clause_text, restrict), family="restrict",
+        return DeonticCue(cue=restrict, family="restrict",
                           force=FORCE_HARD, attribute="kind")
     if oblige:
-        return DeonticCue(cue=_verbatim(clause_text, oblige), family="oblige",
+        return DeonticCue(cue=oblige, family="oblige",
                           force=FORCE_HARD, attribute="coverage")
     if date_hit:
         return DeonticCue(cue=date_hit.group(0), family="date",
                           force=FORCE_PREFER, attribute="published_at")
     if quality:
-        return DeonticCue(cue=_verbatim(clause_text, quality), family="quality",
+        return DeonticCue(cue=quality, family="quality",
                           force=FORCE_PREFER, attribute="quality")
     if prefer:
-        return DeonticCue(cue=_verbatim(clause_text, prefer), family="prefer",
+        return DeonticCue(cue=prefer, family="prefer",
                           force=FORCE_PREFER, attribute="")
     return None
 
@@ -224,7 +292,59 @@ class DeonticCue:
 # from their hardness scope. Coordination is a WITHIN-clause parser, not a segment
 # boundary. Offsets are kept exact by splitting over the ORIGINAL text and carrying
 # (start, end) — never re-joining/normalizing.
-_SEGMENT_RE = re.compile(r"[.;\n]+")
+#
+# F4: a bare ``[.;\n]+`` split fragmented abbreviations ("U.S." → "U" | "S."),
+# "e.g."/"i.e.", decimals ("3.5") and version numbers ("v2.1") — detaching a
+# restriction scope from the noun it scopes. Segmentation now splits on ``;`` /
+# newline unconditionally, but on ``.`` ONLY at a real SENTENCE boundary:
+# ``_is_sentence_boundary`` rejects a dot that is part of an abbreviation, a
+# single-letter acronym run (U.S.A.), a decimal/version number, or an ellipsis.
+_SEGMENT_HARD_RE = re.compile(r"[;\n]+")
+_DOT_RE = re.compile(r"\.")
+
+# Known lowercase abbreviations whose trailing dot is NOT a sentence end.
+_ABBREVIATIONS: frozenset[str] = frozenset({
+    "e.g", "i.e", "etc", "vs", "cf", "al", "no", "mr", "mrs", "ms", "dr",
+    "prof", "inc", "ltd", "corp", "co", "jr", "sr", "st", "ave", "dept",
+    "fig", "eq", "ch", "sec", "vol", "pp", "ed", "eds", "approx", "est",
+})
+
+
+def _is_sentence_boundary(text: str, dot_at: int) -> bool:
+    """True when the ``.`` at ``dot_at`` ends a sentence (a real segment boundary).
+
+    Rejects: a decimal / version dot (digit on either side), an ellipsis, a
+    single-letter acronym dot ("U.S." — a capital letter immediately before the
+    dot with another dotted letter around it), and a known abbreviation. Requires a
+    following whitespace (or end-of-string) so "www.site" and "file.txt" never split.
+    """
+    n = len(text)
+    # must be followed by whitespace or end-of-string to be a boundary at all.
+    j = dot_at + 1
+    if j < n and not text[j].isspace():
+        return False
+    # ellipsis: part of a run of dots.
+    if (dot_at > 0 and text[dot_at - 1] == ".") or (j < n and text[j] == "."):
+        return False
+    # decimal / version: digit immediately before OR after the dot.
+    if dot_at > 0 and text[dot_at - 1].isdigit():
+        return False
+    # single-letter acronym: exactly one letter before the dot preceded by a
+    # non-letter (start, space, or another "X.") — e.g. the dots in "U.S.".
+    k = dot_at - 1
+    if k >= 0 and text[k].isalpha():
+        # walk back the current token to the preceding whitespace/dot.
+        t = k
+        while t >= 0 and (text[t].isalnum() or text[t] == "."):
+            t -= 1
+        token = text[t + 1:dot_at]
+        # a token like "U", "S", or "U.S" (acronym) → not a boundary.
+        letters = token.replace(".", "")
+        if len(letters) <= 1 or all(c.isupper() for c in letters) and "." in token:
+            return False
+        if token.lower() in _ABBREVIATIONS:
+            return False
+    return True
 
 
 @dataclass
@@ -277,13 +397,24 @@ def segment_clauses(prompt: str) -> list[Clause]:
     """
     prompt = prompt or ""
     clauses: list[Clause] = []
-    pos = 0
+    # Collect boundary spans: every ``;``/newline run, plus every ``.`` that
+    # ``_is_sentence_boundary`` accepts (abbreviation/decimal/acronym dots skipped).
+    boundaries: list[tuple[int, int]] = []
+    for m in _SEGMENT_HARD_RE.finditer(prompt):
+        boundaries.append((m.start(), m.end()))
+    for m in _DOT_RE.finditer(prompt):
+        if _is_sentence_boundary(prompt, m.start()):
+            boundaries.append((m.start(), m.end()))
+    boundaries.sort()
+
     raw_segments: list[tuple[int, int]] = []
-    for m in _SEGMENT_RE.finditer(prompt):
-        seg_start, seg_end = pos, m.start()
-        if seg_end > seg_start:
-            raw_segments.append((seg_start, seg_end))
-        pos = m.end()
+    pos = 0
+    for (b_start, b_end) in boundaries:
+        if b_start < pos:  # inside an already-consumed run
+            continue
+        if b_start > pos:
+            raw_segments.append((pos, b_start))
+        pos = b_end
     if pos < len(prompt):
         raw_segments.append((pos, len(prompt)))
 
@@ -424,8 +555,23 @@ _SOURCE_NOUN_TOKENS = (
     "op-ed", "op-eds", "opinion piece", "opinion pieces", "tabloid", "tabloids",
     "sources", "source", "media", "outlets", "outlet", "websites", "website",
 )
-# Stop the excluded noun-phrase at a clause boundary / conjunction.
-_EXCL_TAIL_RE = re.compile(r"[.,;:]|\b(?:and|or|but|from|when|where|which|that)\b", re.I)
+# Stop the excluded noun-PHRASE at a clause boundary. F5: ``and``/``or``/comma are
+# NOT boundaries here — they COORDINATE members ("no blogs or forums") that must
+# ALL be captured. The phrase is stopped only by punctuation or a SUBORDINATING
+# word (from/when/where/which/that/because/since/but), then split into members.
+_EXCL_TAIL_RE = re.compile(r"[.;:]|\b(?:but|from|when|where|which|that|because|since)\b", re.I)
+# Split a captured exclusion phrase into coordinated members ("blogs, forums or
+# tabloids" → [blogs, forums, tabloids]).
+_EXCL_MEMBER_SPLIT_RE = re.compile(r"\s*,\s*|\s+\band\b\s+|\s+\bor\b\s+", re.I)
+# F3: match the STRONG exclusion cue on WORD BOUNDARIES so "avoid" fires but
+# "avoidance" does not, "exclude" but not "excludes"... (the trailing \b lets the
+# alternation end mid-inflection only on a real word end).
+_STRONG_EXCLUDE_RE = re.compile(
+    r"\b(?:" + "|".join(
+        re.escape(c) for c in sorted(_EXCLUDE_LEAD_STRONG, key=len, reverse=True)
+    ) + r")\b",
+    re.I,
+)
 
 
 def _is_source_noun(noun: str) -> bool:
@@ -446,46 +592,77 @@ def parse_exclusions(prompt: str) -> list[CandidateConstraint]:
     STRONG cues fire on any noun; WEAK cues ("no"/"without") fire only on a
     plausible source-kind noun, so ordinary prose ("no clear consensus") never
     fabricates an exclusion.
+
+    F3: cues match on WORD BOUNDARIES ("avoid" but not "avoidance").
+    F5: a COORDINATED exclusion ("no blogs or forums") emits ONE candidate per
+    member — the phrase is split on and/or/comma so no member is silently dropped.
     """
     out: list[CandidateConstraint] = []
-    low = prompt.lower()
     seen_vals: set[str] = set()
-    # (cue, is_weak); longest strong cues first so "do not cite" wins over prefixes.
-    leads = [(c, False) for c in sorted(_EXCLUDE_LEAD_STRONG, key=len, reverse=True)]
-    leads += [(c, True) for c in _EXCLUDE_LEAD_WEAK]
-    for lead, is_weak in leads:
-        start = 0
-        while True:
-            at = low.find(lead, start)
-            if at == -1:
-                break
-            start = at + len(lead)
-            cue_end = at + len(lead)
-            rest = prompt[cue_end:]
-            # skip whitespace so the located noun offset is exact.
-            ws = len(rest) - len(rest.lstrip())
-            noun_at = cue_end + ws
+    # (cue_match, is_weak); STRONG cues are word-boundary regex matches, WEAK cues
+    # ("no "/"without ") match a leading whole word + following source noun.
+    lead_hits: list[tuple[int, int, bool]] = []  # (cue_start, noun_start, is_weak)
+    for m in _STRONG_EXCLUDE_RE.finditer(prompt):
+        rest = prompt[m.end():]
+        ws = len(rest) - len(rest.lstrip())
+        lead_hits.append((m.start(), m.end() + ws, False))
+    for m in _RE_WEAK_EXCLUDE.finditer(prompt):
+        lead_hits.append((m.start(), m.end(), True))
+    # process left-to-right, longest-reach first is not needed (regex boundaries
+    # already disambiguate); de-dup by excluded value below.
+    for cue_start, noun_at, is_weak in sorted(lead_hits):
             rest = prompt[noun_at:]
             m = _EXCL_TAIL_RE.search(rest)
-            noun = (rest[:m.start()] if m else rest).strip().strip("\"'")
-            if not noun or len(noun) > 60:
+            phrase = (rest[:m.start()] if m else rest).strip().strip("\"'")
+            if not phrase or len(phrase) > 80:
                 continue
-            # a WEAK cue only excludes a plausible source kind (never prose).
-            if is_weak and not _is_source_noun(noun):
+            # F5: split the phrase into coordinated members; each is an excluded kind.
+            # Track each member's exact offset WITHIN the prompt so its span is exact
+            # even for the 2nd+ coordinated member ("no blogs or FORUMS").
+            raw_members = [
+                p.strip().strip("\"'")
+                for p in _EXCL_MEMBER_SPLIT_RE.split(phrase)
+                if p and p.strip()
+            ]
+            if not raw_members:
                 continue
-            val = noun.rstrip("s").lower() if noun.lower().endswith("s") else noun.lower()
-            if val in seen_vals:
-                continue
-            seen_vals.add(val)
-            noun_end = noun_at + len(noun)
-            out.append(_stamp_ir(CandidateConstraint(
-                dimension="content.exclusion",
-                value=noun.lower(),
-                force=FORCE_HARD,
-                origin="deterministic",
-                spans=[CandSpan(at, noun_end, prompt[at:noun_end])],
-                detail={"source": "clause_ledger.exclusion", "cue": lead.strip()},
-            )))
+            for mi, noun in enumerate(raw_members):
+                if not noun or len(noun) > 60:
+                    continue
+                # a WEAK cue only excludes plausible source kinds (never prose). All
+                # coordinated members must qualify — "no clear consensus or doubt"
+                # excludes nothing; "no blogs or forums" excludes both.
+                if is_weak and not _is_source_noun(noun):
+                    continue
+                val = noun.rstrip("s").lower() if noun.lower().endswith("s") else noun.lower()
+                if val in seen_vals:
+                    continue
+                seen_vals.add(val)
+                # locate this member's exact end offset in the prompt (anchored).
+                noun_off = prompt.find(noun, noun_at)
+                noun_end = (noun_off + len(noun)) if noun_off != -1 else (noun_at + len(noun))
+                # span: the FIRST member's span covers the CUE through the noun (the
+                # verbatim "Do not cite blogs" prohibition); a 2nd+ coordinated member
+                # spans just its own noun (the cue already anchored the first).
+                if mi == 0:
+                    span = CandSpan(cue_start, noun_end, prompt[cue_start:noun_end])
+                elif noun_off != -1:
+                    span = CandSpan(noun_off, noun_end, prompt[noun_off:noun_end])
+                else:
+                    ms = _span(prompt, noun)
+                    span = ms[0] if ms else CandSpan(cue_start, noun_end, prompt[cue_start:noun_end])
+                out.append(_stamp_ir(CandidateConstraint(
+                    dimension="content.exclusion",
+                    value=noun.lower(),
+                    force=FORCE_HARD,
+                    origin="deterministic",
+                    spans=[span],
+                    detail={
+                        "source": "clause_ledger.exclusion",
+                        "cue": prompt[cue_start:noun_at].strip(),
+                        "coordinated_phrase": phrase,
+                    },
+                )))
     return out
 
 
@@ -605,19 +782,36 @@ def parse_date_bound(prompt: str, *, hard_scopes: list[tuple[int, int]]) -> list
     # run it first; _DATE_ONWARD_RE only fills a bare "2024 onwards" with no lead.
     for rx in (_DATE_FROM_RE, _DATE_ONWARD_RE):
         for m in rx.finditer(prompt):
-            year = m.group(1)
+            # _DATE_FROM_RE captures (lead, year); _DATE_ONWARD_RE captures (year).
+            if rx is _DATE_FROM_RE:
+                lead = (m.group("lead") or "").lower()
+                year = m.group(2)
+            else:
+                lead = ""  # "2024 onwards" — inclusive.
+                year = m.group(1)
             if year in seen_years:
                 continue
             seen_years.add(year)
+            # F7: "after YYYY" is STRICT → GTE (YYYY+1)-01-01. "from/since YYYY" and
+            # "YYYY onward" are INCLUSIVE → GTE YYYY-01-01. Treating them the same
+            # silently shifted "after 2024" to include all of 2024.
+            if lead == "after":
+                iso_year = f"{int(year) + 1:04d}"
+            else:
+                iso_year = year
             at, end = m.start(), m.end()
             hard = any(lo <= at and end <= hi for lo, hi in hard_scopes)
             cand = _stamp_ir(CandidateConstraint(
                 dimension="date.recency",
-                value=f"{year}-01-01",
+                value=f"{iso_year}-01-01",
                 force=FORCE_HARD if hard else FORCE_PREFER,
                 origin="deterministic",
                 spans=[CandSpan(at, end, prompt[at:end])],
-                detail={"source": "clause_ledger.date_bound", "year": year},
+                detail={
+                    "source": "clause_ledger.date_bound",
+                    "year": year, "lead": lead or "onward",
+                    "bound_iso": f"{iso_year}-01-01",
+                },
             ))
             cand.operator = OP_GTE
             out.append(cand)

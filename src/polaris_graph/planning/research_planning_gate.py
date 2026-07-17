@@ -544,7 +544,8 @@ def _lossless_fallback_contract(
 # term the LLM merge can neither drop nor downgrade.
 _AUTHORITATIVE_DIMENSIONS: frozenset[str] = frozenset({
     "source.types", "source.quality", "source.language", "source.scope_facet",
-    "source.jurisdiction", "source.named", "date.recency", "content.exclusion",
+    "source.jurisdiction", "source.named", "source.named_exclude", "date.recency",
+    "content.exclusion",
 })
 
 
@@ -694,8 +695,18 @@ def _merge_deterministic_authority(
     prompt = prompt or ""
     det_scope, det_content = _author_deterministic_terms(candidates, prompt)
 
+    def _norm_val(value: Any) -> str:
+        # F7: normalize a value so an LLM alias ("news articles") and the
+        # deterministic facet ("news_article") dedupe instead of double-surviving:
+        # casefold, collapse any run of non-alphanumerics to one underscore, drop a
+        # trailing plural. "News Articles" / "news_article" / "news-articles" all →
+        # "news_article".
+        import re as _re
+        s = _re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().casefold()).strip("_")
+        return _re.sub(r"s$", "", s)
+
     def _key(dim: str, value: Any) -> tuple[str, str]:
-        return (dim, str(value or "").strip().casefold())
+        return (dim, _norm_val(value))
 
     # index existing scope terms for overlap upgrade.
     existing: dict[tuple[str, str], ContractTerm] = {}
@@ -729,12 +740,14 @@ def _merge_deterministic_authority(
             existing[key] = det
 
     # content-coverage terms: reinstate as required coverage requirements if the
-    # LLM dropped them (exclusions in particular must never be lost).
+    # LLM dropped them. NOTE: source EXCLUSIONS are NOT here — F1 routes them to
+    # ``scope.excluded_source_kinds`` (a negative scope predicate handled in the
+    # scope branch above), never a required CoverageRequirement.
     existing_cov_vals = {
-        str(cr.statement.value or "").strip().casefold() for cr in contract.coverage
+        _norm_val(cr.statement.value) for cr in contract.coverage
     }
     for det in det_content:
-        v = str(det.value or "").strip().casefold()
+        v = _norm_val(det.value)
         if v and v not in existing_cov_vals:
             contract.coverage.append(CoverageRequirement(
                 requirement_id=det.term_id,
@@ -1100,6 +1113,34 @@ async def run_research_planning_gate(
     enforcement_state = (
         _enforcement_state(artifact.contract) if gate_enabled() else ""
     )
+    # F7: give ``blocked_unsupported`` a reader. It is no longer cosmetic — when a
+    # hard OPAQUE term makes the artifact unenforceable, LOG the offending terms and
+    # record a disclosed Assumption so the state reaches an operator (not silent).
+    if enforcement_state == GATE_ENFORCEMENT_BLOCKED:
+        blocked = [
+            t for t in artifact.contract.hard_terms() if t.is_opaque()
+        ]
+        blocked_ids = [t.term_id for t in blocked]
+        logger.warning(
+            "planning gate enforcement=blocked_unsupported: %d hard opaque "
+            "term(s) preserved but not executable: %s",
+            len(blocked), blocked_ids,
+        )
+        if blocked:
+            from src.polaris_graph.planning.planning_gate_schema import (  # noqa: PLC0415
+                Assumption,
+            )
+            artifact.contract.assumptions.append(Assumption(
+                assumption_id="enforcement.blocked_unsupported",
+                statement=(
+                    "One or more hard constraints were preserved verbatim but "
+                    "could not be normalized into an executable predicate; they are "
+                    "disclosed as blocked_unsupported (never silently dropped)."
+                ),
+                affected_term_ids=blocked_ids,
+                consequence="the constraint is surfaced as blocked, not enforced "
+                            "under false confidence (lossless-honest)",
+            ))
     artifact.recompute_hashes()
 
     return GateResult(

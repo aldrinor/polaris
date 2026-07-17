@@ -168,6 +168,17 @@ NORMALIZATION_STATUSES: frozenset[str] = frozenset({
 SCOPE_SOURCE_TYPES = "scope.source_types"          # e.g. journal_article
 SCOPE_SOURCE_QUALITY = "scope.source_quality"      # e.g. high (high-quality/peer-reviewed)
 SCOPE_SOURCE_LANGUAGES = "scope.source_languages"  # SOURCE language, e.g. en / English
+# NEGATIVE source predicate: a source kind the user forbade ("no blogs", "do not
+# cite blogs", "don't use Reuters"). A scope-level exclusion — it must be routed to
+# ``RetrievalPolicy.excluded_source_kinds`` and emitted as an ``op=exclude`` facet,
+# NEVER as a required CoverageRequirement and NEVER as positive query text. (F1.)
+SCOPE_EXCLUDED_SOURCE_KINDS = "scope.excluded_source_kinds"
+# OPAQUE constraint dimensions: a deontic-marked clause the deterministic parsers
+# could not normalize. ``scope.opaque`` (source-side) is a first-class eligibility
+# predicate judged post-fetch; it must NEVER be folded into positive query text.
+# ``content.opaque`` (topic obligation) is a compose-side note. (F2.)
+SCOPE_OPAQUE = "scope.opaque"
+CONTENT_OPAQUE = "content.opaque"
 
 SCHEMA_VERSION = "planning-gate/1.0"
 
