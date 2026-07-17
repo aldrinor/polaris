@@ -4531,6 +4531,19 @@ def _decompose_comparative_atoms(sentence: str) -> list[str] | None:
     return atoms
 
 
+_REQUIRE_NUMBER_MATCH_ENV = "PG_REQUIRE_NUMBER_MATCH"
+
+
+def _require_number_match_enabled() -> bool:
+    """A/B faithfulness kill-switch (default ON = byte-identical). When
+    ``PG_REQUIRE_NUMBER_MATCH=0`` (or "", false/no/off) the compose numeric-match /
+    percent-in-span drop is disabled at the call site — the frozen verifier is untouched;
+    only the ``require_number_match`` argument it receives changes."""
+    return os.getenv(_REQUIRE_NUMBER_MATCH_ENV, "1").strip().lower() not in (
+        "0", "", "false", "no", "off",
+    )
+
+
 def _recover_comparative_synthesis(
     dropped_sentences: list[Any],
     evidence_pool: dict[str, Any],
@@ -4568,7 +4581,8 @@ def _recover_comparative_synthesis(
         all_atoms_pass = True
         for atom_text in atoms:
             atom_v = verify_sentence_provenance(
-                atom_text, evidence_pool, require_number_match=True,
+                atom_text, evidence_pool,
+                require_number_match=_require_number_match_enabled(),
             )
             if not getattr(atom_v, "is_verified", False):
                 all_atoms_pass = False
