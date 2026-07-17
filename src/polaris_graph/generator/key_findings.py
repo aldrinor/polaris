@@ -874,6 +874,31 @@ def humanize_section_title(title: str) -> str:
     return t
 
 
+def _bullet_marker_integrity_ok(bullet: str) -> bool:
+    """FIX 4(c): a Key-Findings bullet is well-formed iff — after the ``- `` list marker — it OPENS
+    with ``**`` (the bold section-title label) AND carries a matched CLOSING ``**`` (an EVEN count of
+    ``**`` runs). A bullet whose leading ``**`` was chopped at the render seam (the ``Job Displacement
+    by AI Technologies.** …`` defect) opens on bare prose / a dangling ``**`` and fails here. PURE."""
+    core = bullet.lstrip()
+    if core.startswith("- "):
+        core = core[2:].lstrip()
+    if not core.startswith("**"):
+        return False
+    # A matched pair of bold delimiters => an EVEN number of ``**`` runs (open + close).
+    return core.count("**") % 2 == 0
+
+
+def _reemit_key_findings_bullet(title: str, sentence: str) -> str:
+    """FIX 4(c): rebuild ONE Key-Findings bullet from its stored ``title`` + carried ``sentence`` —
+    both already-verbatim upstream (``title`` = humanized section title; ``sentence`` = the strict_verify
+    -PASSED span). NEVER composes new text: it re-wraps the EXACT same label + sentence in the canonical
+    ``- **{title}.** {sentence}`` form so a bullet whose opening ``**`` was chopped is re-emitted WHOLE,
+    never shipped mangled. When there is no title, the sentence still ships as a clean ``- {sentence}``
+    bullet (no bold label to mismatch). PURE."""
+    label = f"**{title}.** " if title else ""
+    return f"- {label}{sentence}"
+
+
 def build_key_findings(
     sections: list[Any],
     *,
@@ -889,7 +914,10 @@ def build_key_findings(
     ``_MAX_BULLETS``. ``None`` (every existing caller) => byte-identical document order."""
     if not key_findings_enabled():
         return ""
-    candidates: list[tuple[float, str]] = []
+    # FIX 4(c): carry the STORED (title, sentence) alongside the rendered bullet so a bullet whose
+    # opening ``**`` was chopped at the render seam can be re-emitted WHOLE from the same verbatim
+    # upstream text — never shipped mangled. (weight, rendered_bullet, title, sentence).
+    candidates: list[tuple[float, str, str, str]] = []
     for sr in sections or []:
         if getattr(sr, "dropped_due_to_failure", False):
             continue
@@ -921,24 +949,32 @@ def build_key_findings(
             # I-wire-011 (#1325) fix 2: cap each adjacent citation-marker RUN to the most-relevant
             # few (document order). Render-only; the body + bibliography keep every reference.
             sentence = cap_citation_marker_runs(sentence, _marker_cap)
-            label = f"**{title}.** " if title else ""
-            candidates.append((weight, f"- {label}{sentence}"))
+            candidates.append(
+                (weight, _reemit_key_findings_bullet(title, sentence), title, sentence)
+            )
     if sentence_relevance is not None:
         # STABLE descending-weight order: ties keep document order; off-topic sinks past _MAX_BULLETS.
         candidates = sorted(candidates, key=lambda c: -c[0])
-    bullets = [bullet for _, bullet in candidates][:_MAX_BULLETS]
+    # FIX 4(c): BULLET-INTEGRITY INVARIANT — every emitted bullet must open with ``**`` and carry a
+    # matched closing ``**``. A failing bullet is re-emitted from its STORED title + carried sentence
+    # (both verbatim upstream), never shipped chopped. At build time the canonical form always passes;
+    # the guard is a belt against a future edit and pairs with the render-seam whole-unit constraint.
+    bullets: list[str] = []
+    for _w, _rendered, _title, _sentence in candidates[:_MAX_BULLETS]:
+        if _bullet_marker_integrity_ok(_rendered):
+            bullets.append(_rendered)
+        else:
+            bullets.append(_reemit_key_findings_bullet(_title, _sentence))
     if not bullets:
         return ""
-    # I-beatboth-011 §3.2 (#1289): HONEST self-cert label (was the over-claiming absolute
-    # "span-verified statement" — a verbatim self-quote tautologically passes strict_verify, so the
-    # absolute phrasing implied a guarantee the engine does not make). State the REAL guarantee.
-    # LABEL honesty only — the faithfulness engine is UNTOUCHED.
+    # I-beatboth-011 §3.2 (#1289): HONEST self-cert label. FIX 4(d): the hedge preamble is shrunk to
+    # ONE sentence + an appendix pointer (the full strict_verify / single-origin / not-peer-reviewed
+    # caveats now live in the trailing audit appendix), so the report leads on findings not on a
+    # multi-line disclaimer. LABEL honesty only — the faithfulness engine is UNTOUCHED.
     header = (
         "## Key Findings\n\n"
-        "_Each finding below is verbatim text carried up from a cited body span; it passes strict_verify "
-        "(span bounds + numeric match + ≥2 content-word grounding) but is single-origin unless marked "
-        "corroborated, and span-grounding is NOT a peer-reviewed or on-topic guarantee. Citations are "
-        "the body's._\n\n"
+        "_Each finding is verbatim text carried up from a cited body span (strict_verify-passed); "
+        "see the appendix for corroboration status and verification caveats._\n\n"
     )
     return header + "\n".join(bullets) + "\n\n"
 

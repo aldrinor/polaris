@@ -147,6 +147,7 @@ _PREDATORY_HOST_PATTERNS: tuple[str, ...] = (
     "omicsonline.org",
     "omicsgroup.org",
     "hindawi-",        # spoofed-hindawi mills (real hindawi.com is NOT matched)
+    "abacademies.org",  # Allied Business Academies (widely-flagged predatory-adjacent mill)
 )
 
 # Values a hard source_quality term takes that mean "peer-reviewed / high-quality".
@@ -172,6 +173,48 @@ def _predatory_host(url: str) -> bool:
         if pat in u or pat in host:
             return True
     return False
+
+
+def _has_doi_or_journal_credential(row: Any, url: str) -> tuple[bool, str]:
+    """FIX 5(b): POSITIVE-evidence second-chance signal for an otherwise-UNKNOWN row.
+
+    True iff the row carries a DOI (a registered scholarly identifier) OR the deterministic
+    document-genre classifier resolves it to a peer-reviewed journal/review article. Reuses the
+    SAME predicate the scope-facet classifier already trusts
+    (``is_peer_reviewed_journal_article(classify_document_type(...)[0])``) — single source of
+    truth, no duplicate journal logic. Pure / offline / fail-open: any classifier fault yields
+    ``(False, ...)`` so a scoring error never RESCUES a row (it can only leave it UNKNOWN).
+
+    This is consulted ONLY after every FAIL path has already returned, so it can never
+    re-admit a retracted / predatory / non-peer-reviewed / low-tier source."""
+    # 1) DOI: a registered scholarly identifier (row field or a doi.org URL).
+    try:
+        from src.polaris_graph.retrieval.document_type_classifier import _doi_candidate
+        doi = _doi_candidate(str(_row_get(row, "doi", "") or ""), (url or "").lower())
+        if (doi or "").strip().lower().startswith("10."):
+            return True, f"DOI present ({doi})"
+    except Exception:  # noqa: BLE001 — fail-open: no rescue on error
+        pass
+    # 2) genre: the same peer-reviewed-journal predicate the scope classifier trusts.
+    try:
+        from src.polaris_graph.retrieval.document_type_classifier import (
+            classify_document_type,
+            is_peer_reviewed_journal_article,
+        )
+        dt, _basis = classify_document_type(
+            openalex_publication_type=str(_row_get(row, "openalex_publication_type", "") or ""),
+            openalex_source_type=str(_row_get(row, "openalex_source_type", "") or ""),
+            openalex_is_peer_reviewed=_row_get(row, "openalex_is_peer_reviewed", None),
+            source_class=str(_row_get(row, "source_class", "") or ""),
+            url=url,
+            title=str(_row_get(row, "title", "") or ""),
+            doi=str(_row_get(row, "doi", "") or ""),
+        )
+        if is_peer_reviewed_journal_article(dt):
+            return True, f"peer-reviewed journal article ({dt.value})"
+    except Exception:  # noqa: BLE001 — fail-open: no rescue on error
+        pass
+    return False, ""
 
 
 def score_source_quality(row: Any) -> tuple[str, float, str]:
@@ -213,6 +256,18 @@ def score_source_quality(row: Any) -> tuple[str, float, str]:
         return PASS, 1.0, f"tier={tier} (high-quality band; peer_reviewed flag absent)"
     if tier in _LOW_QUALITY_TIERS:
         return FAIL, 0.3, f"tier={tier} (low-quality band: industry/news/blog/stub)"
+
+    # 4.5) FIX 5(b): DETERMINISTIC SECOND-CHANCE before the UNKNOWN fail-closed.
+    # EVERY FAIL path (retraction / predatory host / is_peer_reviewed=False / low tier) has
+    # already returned above, and so has every positive PASS — so a row reaching here has NO
+    # negative evidence. If it carries a DOI, or the SAME genre predicate the scope classifier
+    # already trusts resolves it to a peer-reviewed journal article, that is POSITIVE evidence of
+    # high quality — PASS rather than fail-close it out of the menu (the 41%-UNKNOWN over-mask).
+    # EVIDENCE-POSITIVE ONLY: this can NEVER re-admit a FAIL row (they returned above); it only
+    # rescues UNKNOWN rows that carry an independent positive credential.
+    _doi_pass, _doi_basis = _has_doi_or_journal_credential(row, url)
+    if _doi_pass:
+        return PASS, 1.0, f"deterministic second-chance: {_doi_basis} (evidence-positive)"
 
     # 5) content-shell degradation is a quality-of-content negative but NOT a hard
     #    quality FAIL on its own — it is UNKNOWN (fail-closed under hard) with a demote.
@@ -296,6 +351,7 @@ def build_topicality_eligibility(
     contract_hash: str = "",
     topicality_term_id: str = "topicality",
     is_hard: bool = True,
+    hard_floor: "float | None" = None,
 ) -> EligibilityPlan:
     """Post-fetch topical eligibility against the CLEAN objective + owning thread.
 
@@ -307,10 +363,22 @@ def build_topicality_eligibility(
     (embedder unavailable) is UNKNOWN — fail-OPEN for topicality (we never quarantine
     a source we could not score; topicality is not a stated user prohibition).
 
+    FIX 5(c) — TWO-TIER topicality (only when ``is_hard`` AND ``hard_floor`` is set and
+    ``0 <= hard_floor < floor``): confirmed junk (score < ``hard_floor``) HARD-quarantines
+    as before, but the on-topic-ADJACENT band (``hard_floor <= score < floor``) is NOT
+    dropped — it is SOFT-demoted (a weight, receipt verdict ``FAIL`` but no exclusion), so
+    the 0.15–0.30 band that was the ACTUAL over-mask stays in the citable menu, ranked down.
+    ``hard_floor=None`` (default) is byte-identical to the single-floor behavior.
+
     ``objective`` is the clean research objective (contract objective / clean
     question), NOT the instruction-laden prompt. ``thread_queries`` are the owning
     thread's sub-queries (the per-subquery max clears a focused facet).
     """
+    # Two-tier arms ONLY under a hard predicate with a valid quarantine floor strictly
+    # below the pass floor; anything else collapses to the single-floor path (byte-identical).
+    _two_tier = (
+        is_hard and hard_floor is not None and 0.0 <= float(hard_floor) < float(floor)
+    )
     plan = EligibilityPlan()
     rows = list(evidence_rows or [])
     if not rows or not (objective or "").strip():
@@ -340,8 +408,16 @@ def build_topicality_eligibility(
         score = float(score_map.get(idx, 0.0))
         if score < floor:
             verdict = FAIL
-            basis = f"topicality cosine {score:.3f} < floor {floor:.3f} (confirmed off-topic)"
-            if is_hard:
+            # FIX 5(c): under two-tier, only score < hard_floor is CONFIRMED off-topic and
+            # HARD-quarantined; the hard_floor <= score < floor BAND is on-topic-adjacent and
+            # SOFT-demoted (kept in the menu, ranked down) even on a hard predicate.
+            _quarantine = is_hard and (not _two_tier or score < float(hard_floor))
+            if _two_tier and not _quarantine:
+                basis = (f"topicality cosine {score:.3f} in soft band "
+                         f"[{float(hard_floor):.3f}, {floor:.3f}) (on-topic-adjacent; demoted)")
+            else:
+                basis = f"topicality cosine {score:.3f} < floor {floor:.3f} (confirmed off-topic)"
+            if _quarantine:
                 plan.eligibility_excluded_ids.add(url)
                 plan.excluded_records.append({
                     "source_id": url, "stage": STAGE_TOPICALITY,

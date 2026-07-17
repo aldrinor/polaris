@@ -329,6 +329,28 @@ def _fresh_e2e_env_slate(*, gate_on: bool, mode: str) -> dict:
         "PG_USE_RESEARCH_PLANNER": "1" if gate_on else "0",
         "PG_GATE_MODE": mode,
     }
+    # FIX 5(a): resolve UNKNOWN credibility tiers on a GATE-ON live run so the quality mask
+    # reads REAL tiers (not a 41%-UNKNOWN corpus that would over-mask once armed). The W5
+    # credibility-LLM-tiering winner is read from PG_CREDIBILITY_LLM_TIERING in live_retriever;
+    # default it ON under the gate, but HONOR an explicit operator override (so it can be turned
+    # off for a cost-bounded smoke). The no-gate control leaves it byte-identical (never set here).
+    if gate_on:
+        slate["PG_CREDIBILITY_LLM_TIERING"] = os.environ.get(
+            "PG_CREDIBILITY_LLM_TIERING", "1"
+        )
+    # FIX 3(a): arm the four-role D8 seam on a GATE-ON run so the STRONGEST verifier actually
+    # adjudicates this run. Without PG_FOUR_ROLE_MODE=1 run_one_query takes the legacy
+    # single-evaluator path -> release_disclosure.adjudicated=False -> the frozen
+    # build_d8_unadjudicated_banner (provenance_generator.py:3212) prepends the "UNVERIFIED-by-D8"
+    # banner to report.md. Arming the mode makes D8 bind (adjudicated=True) so the banner returns
+    # "" at the FROZEN builder itself — the ONLY legitimate removal (never PG_REPORT_D8_BANNER=0,
+    # never editing the builder). (a) and (b) MUST land together: this flag WITHOUT an injected
+    # four_role_transport trips the fail-closed guard (run_honest_sweep_r3.py:18668, "release
+    # HELD") for the REAL runner. _run_fresh_e2e injects that transport in the SAME gate-on branch;
+    # the --dry-e2e mock (make_mock_run_one_query) REPLACES run_one_query so the guard never reads
+    # this flag on the offline path. The no-gate control never sets it (byte-identical to champion).
+    if gate_on:
+        slate["PG_FOUR_ROLE_MODE"] = "1"
     return slate
 
 
@@ -396,15 +418,72 @@ def _run_fresh_e2e(
     slate = _fresh_e2e_env_slate(gate_on=gate_on, mode=mode)
     for k, v in slate.items():
         os.environ[k] = v
+    # FIX 3(b): the four-role D8 transport + input builder — the PAIR that lands WITH FIX 3(a)'s
+    # PG_FOUR_ROLE_MODE=1. run_one_query already accepts these params (run_honest_sweep_r3.py:8997
+    # `four_role_transport` / `four_role_input_builder`); the seam activates ONLY when BOTH the env
+    # flag is on AND a transport is INJECTED. We mirror scripts/dr_benchmark/run_gate_b.py's
+    # build_gate_b_transport (transport-mode default "openrouter" per PG_FOUR_ROLE_TRANSPORT — a
+    # US benchmark router, no self-hosted stack) + make_gate_b_input_builder. Importing run_gate_b
+    # opens NO client and touches NO socket (its module docstring: the transport is built INSIDE
+    # build_gate_b_transport, never at import), so this lazy import preserves the harness's
+    # no-network-at-import invariant. ONLY the REAL runner gets the transport: when ``runner`` is
+    # injected (the --dry-e2e mock, signature ``(q, out_root)``) we pass NOTHING extra — the mock
+    # REPLACES run_one_query and never consults the seam. Gated on gate_on so the --no-gate control
+    # calls runner(q, out_root) exactly as before (byte-identical to champion).
+    #
+    # RERANKER NOTE: the W5 content-relevance reranker is revived NOT by any code change here but
+    # by running with PG_WINNER_FIRING_GATE UNSET (default ON, run_honest_sweep_r3.py:12855) on a
+    # FREE GPU so Qwen3-Reranker-0.6B loads instead of OOM'ing on a contended card — an operator
+    # runtime condition, orthogonal to this D8 wiring.
+    four_role_kwargs: dict = {}
     if runner is None:
         from scripts.run_honest_sweep_r3 import run_one_query as runner
+        if gate_on:
+            from scripts.dr_benchmark.run_gate_b import (
+                build_gate_b_transport,
+                make_gate_b_input_builder,
+            )
+            four_role_kwargs = {
+                "four_role_transport": build_gate_b_transport(),
+                "four_role_input_builder": make_gate_b_input_builder(),
+            }
     # Capture run_one_query's summary — its ``status`` is the authoritative abort/success
     # signal. A scope reject (or any abort) returns status=abort_* AFTER writing a stub
     # report.md, so we can NOT infer success from report.md alone (that was the false-OK bug).
-    summary = asyncio.run(runner(q, out_root))
+    summary = asyncio.run(runner(q, out_root, **four_role_kwargs))
     if not isinstance(summary, dict):
         summary = {"status": "error_no_summary", "error": "run_one_query returned non-dict"}
     return out_root / q["domain"] / q["slug"], summary
+
+
+def _assert_pinned_contract_identity(sweep_dir: Path, expected_sha: str) -> str:
+    """FIX 2(b): FAIL-LOUD identity guard for the KEYSTONE hand-off.
+
+    After the fresh e2e runs, read back the pinned ``planning_gate_artifact.json`` from the
+    TASK-LEVEL sweep dir (the one ``run_one_query`` actually reads) and assert its
+    ``contract_sha256`` still equals the gate's pinned sha ``expected_sha``. A mismatch means
+    the contract that steered the run was NOT the one the gate pinned — a silently-swapped /
+    recompiled contract (the exact keystone bug). Returns an ERROR STRING on any failure
+    (missing/unreadable file, absent sha, or mismatch) so the caller sets ``d['error']`` and
+    the run is never scored silently; returns ``""`` when the identity holds.
+
+    This is pure post-run verification of a JSON artifact — no pipeline/verifier contact."""
+    art_path = sweep_dir / "planning_gate_artifact.json"
+    if not art_path.exists():
+        return ("CONTRACT IDENTITY GUARD: pinned planning_gate_artifact.json absent at the "
+                f"sweep dir {sweep_dir} after the run — the seam recompiled or never read it.")
+    try:
+        loaded = json.loads(art_path.read_text(encoding="utf-8"))
+    except Exception as _e:  # noqa: BLE001
+        return f"CONTRACT IDENTITY GUARD: sweep artifact unreadable ({_e})."
+    got_sha = (loaded.get("contract_sha256") or "") if isinstance(loaded, dict) else ""
+    if not expected_sha:
+        return "CONTRACT IDENTITY GUARD: gate pinned an EMPTY contract_sha256 (nothing to steer)."
+    if got_sha != expected_sha:
+        return ("CONTRACT IDENTITY GUARD: sweep contract_sha256 "
+                f"{got_sha[:16]!r} != pinned {expected_sha[:16]!r} — a swapped/recompiled "
+                "contract steered the run; refusing to score.")
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -611,9 +690,32 @@ def _process_task(
                 and assembled["query_dict"]["question_head"])
         else:
             # --- LIVE: execute the fresh e2e, then audit + score the REAL report.md ---
+            # FIX 2(a): KEYSTONE hand-off. run_one_query reads the pin from the TASK-LEVEL
+            # sweep dir (out_root/domain/slug), NOT this draw{N} dir. The gate wrote the pin
+            # to run_dir=draw{N} above (:550), so the seam found nothing at the task level and
+            # RECOMPILED a degenerate contract — the bug that steered a full run for a day.
+            # Write the SAME pinned artifact to the task-level dir the sweep actually reads,
+            # overwriting per-draw (draws share the sweep dir). Pure planning-input wiring,
+            # upstream of everything; strict_verify/provenance untouched. GATED on gate_on so
+            # the --no-gate control writes nothing here and stays byte-identical to champion.
+            sweep_dir = out_root / q["domain"] / q["slug"]
+            _pinned_sha = getattr(artifact, "contract_sha256", "") or ""
+            if gate_on:
+                sweep_dir.mkdir(parents=True, exist_ok=True)
+                (sweep_dir / "planning_gate_artifact.json").write_text(
+                    json.dumps(artifact.to_dict(), ensure_ascii=False, indent=2),
+                    encoding="utf-8")
             t1 = time.time()
             sweep_run_dir, sweep_summary = _run_fresh_e2e(
                 q, out_root, gate_on=gate_on, mode=mode, runner=e2e_runner)
+            # FIX 2(b): FAIL-LOUD identity guard. Only meaningful when the gate is ON (the pin
+            # is the contract that must steer the run). Read the pin back from the sweep dir and
+            # assert its contract_sha256 matches the gate's pinned sha; a mismatch means a
+            # silently-swapped/recompiled contract — never score such a run.
+            if gate_on:
+                _guard_err = _assert_pinned_contract_identity(sweep_dir, _pinned_sha)
+                if _guard_err:
+                    d["error"] = _guard_err
             report_path = sweep_run_dir / "report.md"
             sweep_status = sweep_summary.get("status")
             aborted = _is_abort_status(sweep_status)
@@ -629,7 +731,11 @@ def _process_task(
             # corpus-inadequate, budget, ...) or produced NO report.md is NOT a scoreable
             # report — even though the abort path writes a STUB report.md. Do NOT audit/score
             # a stub; set d["error"] so per-draw ok is False and main() exits non-zero.
-            if aborted:
+            if d.get("error"):
+                # FIX 2(b): the identity guard already tripped — a swapped/recompiled contract
+                # steered this run; do NOT audit/score it (keep the pre-existing guard error).
+                pass
+            elif aborted:
                 d["error"] = (
                     f"fresh e2e ABORTED: status={sweep_status!r} "
                     f"{sweep_summary.get('error') or ''}".strip()

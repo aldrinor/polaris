@@ -227,3 +227,53 @@ def test_main_exit_nonzero_on_missing_report(monkeypatch, tmp_path, capsys):
     assert rc == 1
     assert "ALL OK" not in cap.out
     assert "no report.md" in cap.err.lower() or "no scoreable" in cap.err.lower()
+
+
+# ---------------------------------------------------------------------------
+# FIX 3: remove the D8 banner by making D8 ADJUDICATE (never by hiding it).
+#   (a) the GATE-ON env slate arms PG_FOUR_ROLE_MODE=1 so the strongest verifier binds;
+#       the --no-gate control never sets it (byte-identical to champion).
+#   (b) when the seam adjudicates (adjudicated=True) the FROZEN banner builder returns ""
+#       so the report.md prepend is EMPTY — the only legitimate removal. adjudicated=False
+#       (legacy / seam INERT) still prepends the honest "UNVERIFIED-by-D8" banner.
+# ---------------------------------------------------------------------------
+
+def test_fix3a_env_slate_arms_four_role_mode_on_gate_on():
+    """GATE-ON: the slate sets PG_FOUR_ROLE_MODE=1 so run_one_query takes the 4-role D8 path
+    (adjudicated=True) instead of the legacy single-evaluator path (adjudicated=False -> banner)."""
+    slate = h._fresh_e2e_env_slate(gate_on=True, mode="autonomous")
+    assert slate.get("PG_FOUR_ROLE_MODE") == "1"
+
+
+def test_fix3a_env_slate_no_four_role_mode_on_no_gate():
+    """--no-gate control stays byte-identical to champion: PG_FOUR_ROLE_MODE is NEVER set, so
+    the fail-closed seam guard (run_honest_sweep_r3.py:18668) cannot fire on the control path."""
+    slate = h._fresh_e2e_env_slate(gate_on=False, mode="autonomous")
+    assert "PG_FOUR_ROLE_MODE" not in slate
+
+
+def test_fix3b_banner_prepend_is_empty_when_adjudicated_true():
+    """FIX 3 core: with D8 armed the run serializes release_disclosure.adjudicated=True, the
+    FROZEN build_d8_unadjudicated_banner returns "", and the report.md prepend seam
+    (run_honest_sweep_r3.py:20864-20874) guards on `if _d8_banner:` -> NOTHING is prepended.
+    We replicate that exact seam guard against the REAL frozen builder."""
+    from src.polaris_graph.generator.provenance_generator import (
+        build_d8_unadjudicated_banner,
+    )
+    original = "# A literature review on AI and labor\n\n## Introduction\n\nBody.\n"
+
+    # D8 adjudicated -> builder is silent -> prepend is EMPTY -> report bytes unchanged.
+    banner = build_d8_unadjudicated_banner({"adjudicated": True})
+    assert banner == ""
+    prepended = (banner + original) if banner else original  # mirrors the `if _d8_banner:` seam
+    assert prepended == original
+    assert "STRONGEST VERIFIER (four-role D8) DID NOT RUN" not in prepended
+
+    # Paired negative: an UNARMED / legacy run (adjudicated=False) still gets the honest banner
+    # prepended — proving the ONLY way to remove it is to make D8 actually adjudicate, never to
+    # hide it (no PG_REPORT_D8_BANNER=0, no builder edit).
+    legacy_banner = build_d8_unadjudicated_banner({"adjudicated": False})
+    assert legacy_banner != ""
+    legacy_prepended = (legacy_banner + original) if legacy_banner else original
+    assert legacy_prepended.startswith(legacy_banner)
+    assert "STRONGEST VERIFIER (four-role D8) DID NOT RUN" in legacy_prepended

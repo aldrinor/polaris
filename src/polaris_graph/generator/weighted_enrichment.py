@@ -4440,6 +4440,50 @@ def _is_corroboration_section_title(title: str) -> bool:
     return title.strip().lower().lstrip("# ").strip().startswith(_CORROBORATION_SECTION_PREFIX)
 
 
+# FIX 4(c): the Key-Findings block gets WHOLE-UNIT render-seam granularity. Each bullet is a
+# ``- **{title}.** {verbatim strict_verify-passed sentence}`` unit; the default per-``[N]`` sub-unit
+# chrome drop can chop the opening ``**`` (leaving the ``Job Displacement …** …`` mangled bullet).
+# Inside this block a bullet is judged as ONE unit: kept byte-intact, or dropped whole — never
+# partially chopped in a way that breaks the ``**`` marker pairing. LAW VI kill-switch
+# ``PG_KEY_FINDINGS_WHOLE_UNIT=0`` => the block falls back to the per-line screen (pre-fix behaviour).
+_KEY_FINDINGS_WHOLE_UNIT_ENV = "PG_KEY_FINDINGS_WHOLE_UNIT"
+_KEY_FINDINGS_SECTION_PREFIX = "key findings"
+
+
+def key_findings_whole_unit_enabled() -> bool:
+    """True iff the default-ON FIX 4(c) Key-Findings whole-unit render-seam constraint is active."""
+    return os.environ.get(_KEY_FINDINGS_WHOLE_UNIT_ENV, "1").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
+
+
+def _is_key_findings_section_title(title: str) -> bool:
+    """True iff a header title names the ``## Key Findings`` block (FIX 4(c) scope)."""
+    return title.strip().lower().lstrip("# ").strip().startswith(_KEY_FINDINGS_SECTION_PREFIX)
+
+
+def _bullet_marker_pairing_ok(text: str) -> bool:
+    """True iff ``text`` (a rendered KF bullet) keeps a MATCHED ``**`` pairing — an even count of
+    ``**`` runs. A chopped opening ``**`` leaves an odd count. PURE."""
+    return text.count("**") % 2 == 0
+
+
+def _sanitize_key_findings_bullet(
+    line: str, known_words: "set[str] | frozenset[str] | None"
+) -> "tuple[str, int]":
+    """FIX 4(c): screen ONE Key-Findings bullet at WHOLE-UNIT granularity. The bullet's prose core
+    (list + ``**bold**`` markers stripped) is chrome-tested as a single unit: if chrome, the whole
+    bullet is dropped (returns ``("", 1)``); otherwise the bullet is kept BYTE-INTACT. A blank /
+    non-bullet line inside the block passes through untouched. Never returns a partially-chopped
+    bullet, so the opening ``**`` label can never be severed from its close. PURE."""
+    if not line.strip() or not line.lstrip().startswith(("-", "*")):
+        return line, 0
+    core = _unit_core_for_screen(line)
+    if core and is_render_chrome_or_unrenderable(core, known_words=known_words):
+        return "", 1  # whole chrome bullet dropped (never a mid-unit chop)
+    return line, 0  # real finding kept byte-intact
+
+
 def _sanitize_corroboration_header(
     line: str, known_words: "set[str] | frozenset[str] | None"
 ) -> "tuple[str, int]":
@@ -4695,6 +4739,11 @@ def sanitize_rendered_report(
     # Findings" enrichment section, split the glued single-paragraph body into one bullet per finding.
     in_enrichment = False
     cwf_split = cwf_split_findings_enabled()
+    # FIX 4(c): tracked separately — inside ``## Key Findings`` each bullet is screened at WHOLE-UNIT
+    # granularity (kept intact or dropped whole) so the per-``[N]`` sub-unit chop can never sever the
+    # opening ``**`` label from its close (the ``Job Displacement …** …`` mangled bullet defect).
+    in_key_findings = False
+    kf_whole_unit = key_findings_whole_unit_enabled()
     for line in report_md.split("\n"):
         header = _SECTION_HEADER_RE.match(line)
         if header:
@@ -4702,6 +4751,7 @@ def sanitize_rendered_report(
             in_scaffolding = _is_scaffolding_section_title(title)
             in_corroboration = _is_corroboration_section_title(title)
             in_enrichment = _is_enrichment_section_title(title)
+            in_key_findings = _is_key_findings_section_title(title)
             # Screen a glued-chrome header by its TITLE (post-``#`` strip), but never a clean /
             # scaffolding header — dropping a real header would orphan its body. Gated by
             # ``render_chrome_screen_enabled()`` so this header path honours the same
@@ -4725,6 +4775,16 @@ def sanitize_rendered_report(
             continue
         if in_scaffolding or not line.strip():
             out_lines.append(line)
+            continue
+        if in_key_findings and kf_whole_unit:
+            # FIX 4(c): WHOLE-UNIT screen — a chrome bullet is dropped whole; a real finding bullet is
+            # kept BYTE-INTACT (its verbatim strict_verify-passed sentence + ``**`` label preserved),
+            # so the render seam can never chop the opening ``**`` and ship a mangled bullet. The
+            # italic preamble line (no ``-``/``*`` marker) passes through untouched.
+            clean_line, dropped = _sanitize_key_findings_bullet(line, known_words)
+            removed += dropped
+            if clean_line.strip() or not dropped:
+                out_lines.append(clean_line)
             continue
         if in_enrichment and cwf_split:
             # H2: de-blob the enrichment section — split the glued ``sentence.[N] sentence.[N] ...``

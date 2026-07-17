@@ -6371,6 +6371,86 @@ def compose_report_with_reliability(final_report: str, reliability_md: str) -> s
     )
 
 
+# ── FIX 4 (report shape — literature review, not an audit dump) ───────────────────────────────────
+# The audit run scored the report as machinery-first: Key Findings + Methods preceded any thematic
+# section, so the statement decomposer opened on audit counts, not a claim, and Instruction-Following
+# read a report that looked like a receipts dump. FIX 4 reshapes ONLY the render-assembly order:
+#
+#   Title -> Introduction and Scope -> thematic ### sections -> Analytical synthesis -> Bibliography
+#   -> ## Appendix (methods / disclosures — not scored as report claims)
+#
+# POSITION ONLY: every block is MOVED, nothing is deleted; the disclosure text still ships in
+# report.md (and the manifest). Per CLAUDE.md §-1.3 placement/repetition is a QUALITY concern, not a
+# faithfulness one (precedent: the T5 audit-machinery appendix + render-only dedup). Every kept
+# finding sentence stays byte-identical strict_verify output — this reorders blocks, it never
+# re-composes a verified sentence. LAW VI kill-switch PG_REPORT_LITREVIEW_SHAPE (default ON); OFF =>
+# byte-identical to the pre-fix machinery-first order.
+_LITREVIEW_SHAPE_ENV = "PG_REPORT_LITREVIEW_SHAPE"
+
+
+def litreview_shape_enabled() -> bool:
+    """FIX 4 kill-switch. Default ON; OFF => the legacy machinery-first body order (byte-identical)."""
+    return os.environ.get(_LITREVIEW_SHAPE_ENV, "1").strip().lower() not in (
+        "", "0", "false", "no", "off",
+    )
+
+
+def build_intro_and_scope_md(objective: str) -> str:
+    """FIX 4(a): a short CLAIM-FREE, CITATION-FREE ``## Introduction and Scope`` framing paragraph
+    derived from the contract OBJECTIVE (the research question). It asserts NO finding and carries NO
+    ``[N]`` citation — it is pure framing, the same class as the champion's shipped intro — so it can
+    never reach the faithfulness gate as an unverified claim. Returns ``""`` for an empty objective
+    (no empty heading). PURE (no I/O).
+
+    The framing paragraph is emitted DIRECTLY UNDER the H1 (its own ``## Introduction and Scope``
+    subheading follows the prose) so the H1 title is never orphan-dropped by ``dedup_identical_
+    paragraphs`` (which drops a header whose next non-blank block is another header). This keeps the
+    report opening on ``# `` while still labelling the framing section."""
+    obj = (objective or "").strip().rstrip(".")
+    if not obj:
+        return ""
+    return (
+        f"This report reviews the available evidence on {obj}. It synthesizes the findings that "
+        "survived span-level verification, organized by theme; each cited claim is carried verbatim "
+        "from a source span. Methods, source-hygiene disclosures, and the reliability audit are "
+        "collected in the appendix at the end.\n\n"
+        "## Introduction and Scope\n\n"
+        f"Scope: this review is bounded to the question of {obj}. It reports only claims that passed "
+        "span-level verification; unverified or off-topic material is excluded from the findings and "
+        "disclosed in the appendix.\n\n"
+    )
+
+
+def reshape_report_body_litreview(
+    *,
+    key_findings_md: str,
+    sections_concat: str,
+    depth_layer_md: str,
+    methods_md: str,
+    biblio_section_md: str,
+    cwf_disclosed_md: str,
+    drop_disclosure_md: str,
+) -> "tuple[str, str]":
+    """FIX 4(b): reshape the report BODY into the literature-review order and split the audit
+    MACHINERY out into a trailing appendix. Returns ``(scored_body, machinery_appendix)``.
+
+    ``scored_body`` order:  thematic ### sections (incl. ``### Limitations``)  ->  ``## Analytical
+    synthesis`` (depth layer)  ->  ``## Key Findings`` (verbatim verified recap)  ->  ``## Bibliography``.
+
+    ``machinery_appendix``:  ``## Methods`` + the CWF promotion-eligibility disclosure + the full-drop
+    disclosure — the audit/disclosure text, appended (by the caller) under the single typed
+    ``## Appendix`` boundary alongside the reliability header.
+
+    POSITION ONLY: every input block is placed exactly once; NOTHING is dropped or edited. The Key
+    Findings block moves BELOW the thematic sections (so the report no longer opens on machinery) but
+    stays a first-class verbatim-findings surface, not appendix material. PURE (no I/O)."""
+    scored_body = (
+        sections_concat + depth_layer_md + key_findings_md + biblio_section_md
+    )
+    machinery_appendix = methods_md + cwf_disclosed_md + drop_disclosure_md
+    return scored_body, machinery_appendix
+
+
 def render_summary_table_into_artifact(
     report_body_md: str,
     *,
@@ -8844,6 +8924,14 @@ def _gate_load_or_compile_artifact(prompt, run_dir, *, run_id, log):
             log(f"[planning_gate] S2 pinned artifact unreadable, will compile: {_exc}")
 
     # (2) compile + pin. Autonomous mode NEVER blocks (no input channel here).
+    # FIX 2(c): reaching this branch means the PINNED artifact the upstream entrypoint
+    # wrote (run_gate_e2e / monitored-live-job) was ABSENT at the task-level run_dir the
+    # seam reads — the exact KEYSTONE class of bug (a silently-swapped, recompiled contract
+    # that steered a full run for a day). Fail-LOUD: WARNING log + a durable manifest stamp
+    # (via _FEATURE_TELEMETRY_CTX -> _attach_tool_utilization stamps EVERY manifest path).
+    # This runs ONLY under PG_GATE (the whole helper is behind _pg_gate_enabled()), so the
+    # PG_GATE-OFF path is byte-identical (this code is never reached there).
+    _stamp_gate_recompiled_at_seam(log)
     try:
         import asyncio as _asyncio
         from src.polaris_graph.planning.research_planning_gate import (
@@ -8873,6 +8961,31 @@ def _gate_load_or_compile_artifact(prompt, run_dir, *, run_id, log):
     except Exception as _exc:  # noqa: BLE001 — fail-open to champion path
         log(f"[planning_gate] S2 artifact compile unavailable, champion path: {_exc}")
         return None
+
+
+def _stamp_gate_recompiled_at_seam(log) -> None:
+    """FIX 2(c): record that the S2 seam had to RECOMPILE the gate contract because the
+    pinned artifact was absent at the task-level run_dir.
+
+    Emits a WARNING-level line and stamps ``manifest['gate_contract_recompiled_at_seam']=True``
+    on EVERY manifest write path by merging into the per-Task ``_FEATURE_TELEMETRY_CTX``
+    (the same channel ``_attach_tool_utilization`` drains before every manifest.json write).
+    Best-effort + fail-open: a telemetry fault must never abort the run. Called ONLY from the
+    recompile branch (behind PG_GATE), so the OFF path is byte-identical."""
+    try:
+        log("[planning_gate] WARNING: RECOMPILED AT SEAM (pinned artifact absent) — the "
+            "upstream-pinned contract did NOT reach the sweep run_dir; the seam recompiled a "
+            "fresh contract. This may silently swap the contract that steers the run.")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        _feat = _FEATURE_TELEMETRY_CTX.get()
+        if _feat is None:
+            _feat = {}
+            _FEATURE_TELEMETRY_CTX.set(_feat)
+        _feat["gate_contract_recompiled_at_seam"] = True
+    except Exception:  # noqa: BLE001 — telemetry must not abort the run
+        pass
 
 
 def _reconcile_gate_protocol(legacy, gate, *, log):
@@ -14367,6 +14480,14 @@ async def run_one_query(
                         parse_relevance_floor as _parse_floor,
                     )
                     _t_floor = _parse_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+                    # FIX 5(c): TWO-TIER topicality. PG_TOPICALITY_HARD_FLOOR (default 0.15)
+                    # is the CONFIRMED-junk quarantine floor: score < hard_floor hard-drops;
+                    # hard_floor <= score < _t_floor is the on-topic-adjacent band that stays
+                    # in the menu (SOFT-demoted). Only arms when 0 <= hard_floor < _t_floor.
+                    try:
+                        _t_hard_floor = float(os.getenv("PG_TOPICALITY_HARD_FLOOR", "0.15"))
+                    except (TypeError, ValueError):
+                        _t_hard_floor = 0.15
                     _thread_qs = list(getattr(_research_plan, "sub_queries", []) or [])
                     _t_plan = _build_topicality_elig(
                         evidence_for_gen,
@@ -14376,6 +14497,7 @@ async def run_one_query(
                         scorer=_sem_scorer,
                         contract_hash=str(getattr(_gate_policy, "contract_hash", "") or ""),
                         is_hard=True,
+                        hard_floor=_t_hard_floor,
                     )
                     _gate_scope_receipts.extend(r.to_dict() for r in _t_plan.receipts)
                     _elig_excluded |= set(_t_plan.eligibility_excluded_ids)
@@ -14480,6 +14602,45 @@ async def run_one_query(
                             "disclosure (§-1.3), withheld only from grounding. strict_verify untouched."
                         )
                         evidence_for_gen = _kept_elig
+
+                # (d) FIX 5(d): journal-only = visible PREFERENCE via SELECTION ORDERING,
+                #     not starvation. When the contract PREFERS peer-reviewed journals
+                #     (allowed_source_kinds carries it) but did NOT hard-restrict, STABLY
+                #     reorder the selected menu so journal/DOI rows lead — the bibliography
+                #     share rises and the S4 audit scores a real journal share, while NOTHING
+                #     is dropped (pure permutation, every row still citable). Fail-open.
+                try:
+                    _jo_pref = any(
+                        "journal" in str(_k).lower()
+                        for _k in (getattr(_gate_policy, "allowed_source_kinds", None) or [])
+                    )
+                    if _jo_pref and evidence_for_gen:
+                        from src.polaris_graph.retrieval.quality_eligibility import (  # noqa: PLC0415
+                            _has_doi_or_journal_credential as _jo_credential,
+                        )
+
+                        def _is_journal_lead(_r: "Any") -> bool:
+                            try:
+                                _u = _elig_url(_r)
+                                return bool(_jo_credential(_r, _u)[0])
+                            except Exception:  # noqa: BLE001
+                                return False
+
+                        # stable partition: journal/DOI rows first, original order preserved
+                        # within each group (Python sort is stable; nothing added/removed).
+                        _n_before = len(evidence_for_gen)
+                        evidence_for_gen = sorted(
+                            evidence_for_gen, key=lambda _r: 0 if _is_journal_lead(_r) else 1
+                        )
+                        _n_lead = sum(1 for _r in evidence_for_gen if _is_journal_lead(_r))
+                        assert len(evidence_for_gen) == _n_before, "journal-first reorder changed count"
+                        _log(
+                            f"[quality_eligibility] FIX 5(d): journal-preference selection ordering "
+                            f"— {_n_lead}/{_n_before} journal/DOI row(s) moved to the front of the "
+                            "citable menu (pure permutation; nothing dropped)."
+                        )
+                except Exception as _jo_ord_exc:  # noqa: BLE001 - ordering is best-effort
+                    _log(f"[quality_eligibility] journal-preference ordering skipped: {_jo_ord_exc}")
 
                 # Durable receipts + disclosure (consumed by audit_contract later).
                 if _gate_scope_receipts or _elig_records:
@@ -17290,10 +17451,38 @@ async def run_one_query(
                 )
             except Exception as _cwf_exc:  # noqa: BLE001 — additive disclosure; never abort the report
                 _log(f"[cwf-disclosed-block] skipped (fail-open): {_cwf_exc}")
-        _assembled_body = (
-            _key_findings + sections_concat + _depth_layer + methods
-            + biblio_section + _cwf_disclosed_md + _drop_disclosure_md
-        )
+        # FIX 4(a)+(b): reshape the render assembly into a literature-review shape. POSITION ONLY —
+        # every block below is MOVED, none deleted: the report now opens on the H1 title + a claim-
+        # free ``## Introduction and Scope`` framing paragraph, the thematic sections precede the
+        # Key-Findings recap, and the Methods / disclosure MACHINERY moves into the trailing typed
+        # appendix (composed with the reliability header at the report.md write). Every kept finding
+        # sentence stays byte-identical strict_verify output — this reorders blocks, it never re-
+        # composes a verified sentence. Default-ON kill-switch PG_REPORT_LITREVIEW_SHAPE; OFF => the
+        # legacy machinery-first order (byte-identical).
+        _litreview_machinery_appendix = ""
+        if litreview_shape_enabled():
+            # Strip any injected-instruction appendix from the objective BEFORE it reaches the intro —
+            # the SAME sanitizer the H1 title uses, so an injected instruction can never surface as
+            # framing text (defense-in-depth; the intro is claim-free framing, not a scored claim).
+            _intro_md = build_intro_and_scope_md(
+                _strip_injected_instruction_appendix(_clean_question)
+            )
+            if _intro_md:
+                _assembled_title = _assembled_title + _intro_md
+            _assembled_body, _litreview_machinery_appendix = reshape_report_body_litreview(
+                key_findings_md=_key_findings,
+                sections_concat=sections_concat,
+                depth_layer_md=_depth_layer,
+                methods_md=methods,
+                biblio_section_md=biblio_section,
+                cwf_disclosed_md=_cwf_disclosed_md,
+                drop_disclosure_md=_drop_disclosure_md,
+            )
+        else:
+            _assembled_body = (
+                _key_findings + sections_concat + _depth_layer + methods
+                + biblio_section + _cwf_disclosed_md + _drop_disclosure_md
+            )
         try:
             final_report = assemble_report_md(
                 _assembled_title,
@@ -17686,6 +17875,18 @@ async def run_one_query(
             )
         except Exception as _mh_exc:  # noqa: BLE001 — Methods line is additive; never abort report
             _log(f"[junk-deletion-gate] Methods line skipped (fail-open): {_mh_exc}")
+        # FIX 4(b): fold the reshaped MACHINERY appendix (Methods + CWF promotion-eligibility +
+        # full-drop disclosure — moved out of the scored body above) INTO the reliability/audit
+        # appendix so it lands under the SINGLE typed ``## Appendix`` boundary compose_report_with_
+        # reliability emits, ahead of the reliability header. POSITION ONLY (nothing deleted); the
+        # disclosure still ships in report.md + the manifest. No-op when the litreview shape is OFF
+        # (``_litreview_machinery_appendix`` stays "" => byte-identical).
+        if _litreview_machinery_appendix.strip():
+            _reliability_md = (
+                _litreview_machinery_appendix.rstrip() + "\n\n" + (_reliability_md or "").lstrip()
+                if (_reliability_md or "").strip()
+                else _litreview_machinery_appendix
+            )
         (run_dir / "report.md").write_text(
             compose_report_with_reliability(_report_artifact_body, _reliability_md), encoding="utf-8"
         )

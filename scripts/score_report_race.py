@@ -69,6 +69,16 @@ def main() -> int:
     print(f"[race] target={args.model_name}.jsonl  article_chars={len(report_text)}  "
           f"prompt_task={args.task_id} lang={lang}")
 
+    # FIX 1: purge stale cleaned cache. deepresearch_bench_race.py scores
+    # cleaned_data/{model}.jsonl; --force only bypasses the eval-results cache, never the
+    # clean cache. clean_article.py dedups by task-id, so an aborted stub under this id would
+    # permanently shadow the real report. The wrapper writes exactly one raw record, so
+    # purging the whole per-model cleaned file is exact.
+    cleaned = DRB / "data/test_data/cleaned_data" / f"{args.model_name}.jsonl"
+    if cleaned.exists():
+        cleaned.unlink()
+        print(f"[race] purged stale cleaned cache {cleaned.name} (forces re-clean)")
+
     out_dir = DRB / f"results/race/{args.model_name}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -87,6 +97,36 @@ def main() -> int:
     ]
     print("[race] running:", " ".join(cmd))
     r = subprocess.run(cmd, cwd=str(DRB), env=env)
+
+    # FIX 1 (2b): scored-artifact assertion. The cleaned file is what RACE actually scores.
+    # Assert it holds exactly one record for THIS task with an article long enough to be the
+    # real report (not an aborted stub or the {"id","error"} failure-record poisoning vector
+    # that clean_article.py leaves and _load_processed_ids counts as processed).
+    if not cleaned.exists():
+        print("BLOCKED: cleaned/raw divergence", file=sys.stderr)
+        print(f"[race] cleaned file {cleaned} not produced by harness", file=sys.stderr)
+        return 3
+    cleaned_records = [
+        json.loads(cl) for cl in cleaned.read_text(encoding="utf-8").splitlines() if cl.strip()
+    ]
+    if len(cleaned_records) != 1:
+        print("BLOCKED: cleaned/raw divergence", file=sys.stderr)
+        print(f"[race] expected exactly 1 cleaned record, found {len(cleaned_records)}",
+              file=sys.stderr)
+        return 3
+    rec = cleaned_records[0]
+    if str(rec.get("id")) != str(task["id"]):
+        print("BLOCKED: cleaned/raw divergence", file=sys.stderr)
+        print(f"[race] cleaned record id={rec.get('id')!r} != task id={task['id']!r}",
+              file=sys.stderr)
+        return 3
+    cleaned_article = rec.get("article", "")
+    if len(cleaned_article) < 0.5 * len(report_text):
+        print("BLOCKED: cleaned/raw divergence", file=sys.stderr)
+        print(f"[race] cleaned article_chars={len(cleaned_article)} < 0.5 * "
+              f"report_chars={len(report_text)} (aborted stub / error record?)", file=sys.stderr)
+        return 3
+
     res_file = out_dir / "race_result.txt"
     if res_file.exists():
         print("\n===== RACE RESULT =====")

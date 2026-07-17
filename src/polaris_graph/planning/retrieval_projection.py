@@ -53,8 +53,21 @@ Nothing here is wired ON by default. ``fs_researcher_query_gen`` /
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+
+def _journal_only_hard_restriction_enabled() -> bool:
+    """FIX 5(d): a HARD journal-only STARVATION mask (``prefer`` + ``hard`` strictness ->
+    ``constraint_enforcement`` drops EVERY non-journal row from grounding) is armed ONLY when
+    ``PG_SOURCE_RESTRICTION_JOURNAL_ONLY`` is explicitly ON. Default OFF: a hard
+    ``allowed_source_kinds`` term is projected as a visible PREFERENCE (demote-not-drop), never
+    a corpus-starving mask. The genuine hard restriction is additionally gated behind a
+    runtime corpus-adequacy pre-check at the seam."""
+    return os.getenv("PG_SOURCE_RESTRICTION_JOURNAL_ONLY", "0").strip().lower() in (
+        "1", "true", "on", "yes", "enabled",
+    )
 
 from src.polaris_graph.planning.planning_gate_schema import (
     FORCE_HARD,
@@ -311,9 +324,17 @@ class RetrievalPolicy:
             (self.predicate_force or {}).get("excluded_source_kinds", "soft")
         ).lower() == "hard"
 
+        # FIX 5(d): journal-only = visible PREFERENCE + measured compliance, NOT starvation.
+        # ``allowed_source_kinds`` already projects as ``op=prefer``; its strictness decides
+        # whether ``constraint_enforcement`` HARD-EXCLUDES non-matching rows (prefer+hard, the
+        # 997->131 starvation) or merely DEMOTES them (prefer+weight, order-not-drop). A HARD
+        # contract term now degrades to a demoting preference by default; the corpus-starving
+        # hard restriction arms ONLY under the explicit PG_SOURCE_RESTRICTION_JOURNAL_ONLY flag
+        # (itself additionally gated behind a runtime corpus-adequacy pre-check at the seam).
+        allowed_prefer_hard = allowed_hard and _journal_only_hard_restriction_enabled()
         for kind in self.allowed_source_kinds:
             fid, dim = _resolve_facet_id(kind, ont)
-            _facet(fid, dim, "prefer", allowed_hard)
+            _facet(fid, dim, "prefer", allowed_prefer_hard)
         for kind in self.excluded_source_kinds:
             fid, dim = _resolve_facet_id(kind, ont)
             _facet(fid, dim, "exclude", excluded_hard)
