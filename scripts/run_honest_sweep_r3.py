@@ -2117,6 +2117,86 @@ def _largest_remainder_percents(tier_fractions: "dict[str, float]") -> "dict[str
     return floors
 
 
+def _deliverable_spec_from(compose_proj: "Any") -> "dict[str, Any] | None":
+    """Thin ADAPTER: the outline seam's ``deliverable_spec`` view of a compiled
+    ``ComposeRenderProjection`` (S4 compose injection).
+
+    HARD channel -> ``required_sections`` is EXACTLY ``proj.required_titles`` (only
+    exact-title-locked, origin-in-HARD_ELIGIBLE_ORIGINS titles; a kind-derived title
+    NEVER lands here — that would be a force leak). SOFT channel -> ``kind_guidance``
+    carries the deliverable-kind framing as a preference line for
+    ``build_requirements_block`` (leaving the domain system prompt + default allow-list
+    intact). ``audience``/``tone`` ride the existing advisory lines. Returns ``None``
+    when the projection is empty/None => the generator's outline seam is byte-identical.
+    """
+    if compose_proj is None:
+        return None
+    try:
+        required = [str(t).strip() for t in (getattr(compose_proj, "required_titles", []) or []) if str(t).strip()]
+        audience = str(getattr(compose_proj, "audience", "") or "").strip()
+        tone = str(getattr(compose_proj, "tone", "") or "").strip()
+        length_note = str(getattr(compose_proj, "length_note", "") or "").strip()
+        # SOFT kind guidance: the doc-type framing directive (preference only). Empty
+        # unless a doc_type resolves. This is guidance, never a required-title lock.
+        kind_guidance = ""
+        _dfn = getattr(compose_proj, "doc_type_directive", None)
+        if callable(_dfn):
+            kind_guidance = str(_dfn() or "").strip()
+    except Exception:  # noqa: BLE001 — fail-open: a spec fault => None => byte-identical outline
+        return None
+    if not (required or audience or tone or length_note or kind_guidance):
+        return None
+    spec: "dict[str, Any]" = {}
+    if required:
+        spec["required_sections"] = required
+    if audience:
+        spec["audience"] = audience
+    if tone:
+        spec["tone"] = tone
+    if length_note:
+        spec["length_target"] = length_note
+    if kind_guidance:
+        spec["kind_guidance"] = kind_guidance
+    return spec or None
+
+
+def _scope_spec_from(shape_contract: "Any") -> "dict[str, Any] | None":
+    """Thin ADAPTER: the outline seam's ``scope_spec`` view of the pinned contract's
+    ALREADY-PARSED scope terms (S4 compose injection). ADVISORY ONLY — it emits the
+    same "weight-demoted / prefer in-scope" outline lines ``build_requirements_block``
+    already renders; it changes NO retrieval/eligibility behavior (those are enforced
+    upstream from the same terms). Returns ``None`` when nothing routable => the outline
+    seam is byte-identical. Lossless read of the contract's canonical scope dimensions.
+    """
+    if shape_contract is None:
+        return None
+    scope_terms = getattr(shape_contract, "scope", None) or []
+    # canonical scope dimension -> build_requirements_block key (data map, not control flow).
+    _dim_to_key = {
+        "scope.date": "date_window",
+        "scope.jurisdiction": "geography",
+        "scope.source_types": "source_types",
+        "scope.source_languages": "language",
+        "scope.named_sources": "authors",
+    }
+    out: "dict[str, list[str]]" = {}
+    try:
+        for term in scope_terms:
+            dim = str(getattr(term, "dimension", "") or "").strip().lower()
+            key = _dim_to_key.get(dim)
+            if not key:
+                continue
+            val = getattr(term, "value", None)
+            vals = val if isinstance(val, (list, tuple)) else [val]
+            for v in vals:
+                sv = str(v or "").strip()
+                if sv:
+                    out.setdefault(key, []).append(sv)
+    except Exception:  # noqa: BLE001 — fail-open: a scope-read fault => None => byte-identical
+        return None
+    return out or None
+
+
 def _tier_mix_disclosure_summary(tier_fractions: "dict[str, float]") -> str:
     """#1242: the SINGLE source of truth for the per-tier mix percentage string rendered in
     the report (e.g. ``T1=12%, T2=1%, ...``). The run's Methods "Actual distribution" line AND
@@ -15836,6 +15916,27 @@ async def run_one_query(
                 _hb, "generation_in_progress", generation_heartbeat_tick_seconds(),
             )
         )
+        # S4 COMPOSE-CONTRACT INJECTION: compile the pinned contract's compose+render
+        # view ONCE (doc-type framing + voice + exact-locked section titles). Fail-open
+        # + fully inert when the contract is None/shapeless (gate OFF => `_shape_contract`
+        # is None => empty projection => every downstream spec is None => byte-identical).
+        # The projection shapes STRUCTURE/VOICE/SCOPE via UPSTREAM prompt steering only:
+        # no claim/citation is injected and strict_verify is untouched.
+        _compose_proj = None
+        _deliverable_spec = None
+        _scope_spec = None
+        try:
+            from src.polaris_graph.planning.compose_render_projection import (  # noqa: PLC0415
+                from_contract as _compose_from_contract,
+            )
+            _compose_proj = _compose_from_contract(_shape_contract)
+            _deliverable_spec = _deliverable_spec_from(_compose_proj)
+            _scope_spec = _scope_spec_from(_shape_contract)
+        except Exception as _compose_exc:  # noqa: BLE001 — fail-open: no projection => byte-identical
+            _log(f"[compose_inject] projection unavailable, champion generation prompt kept: {_compose_exc}")
+            _compose_proj = None
+            _deliverable_spec = None
+            _scope_spec = None
         try:
             if _reuse_postgen_active:
                 # ITEM 5: SKIP the Stage-2 section-draft LLM calls + the advisory credibility
@@ -16004,6 +16105,15 @@ async def run_one_query(
             # the legacy research_plan / _call_outline selection. Empty / flag-OFF =>
             # byte-identical legacy sectioning. STRUCTURE-ONLY: no STORM text in verified_text.
             storm_outline=_storm_outline,
+            # S4 COMPOSE-CONTRACT INJECTION: the compiled compose+render projection
+            # (doc-type framing + voice preamble on the section system prompt; per-
+            # section role keyed by title) and the outline-seam specs (HARD required
+            # titles + SOFT kind guidance; advisory scope). All None when the contract
+            # is silent => byte-identical champion generation prompt. UPSTREAM steering
+            # only — no claim/citation injected, strict_verify contract untouched.
+            compose_projection=_compose_proj,
+            deliverable_spec=_deliverable_spec,
+            scope_spec=_scope_spec,
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)

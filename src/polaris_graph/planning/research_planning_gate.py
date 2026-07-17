@@ -61,6 +61,13 @@ from src.polaris_graph.planning.clause_ledger import (
     segment_clauses,
     validate_completeness,
 )
+from src.polaris_graph.planning.compose_render_projection import (
+    _AUDIENCE_DIMS,
+    _DOCTYPE_DIMS,
+    _HEDGING_DIMS,
+    _POV_DIMS,
+    _TONE_DIMS,
+)
 from src.polaris_graph.planning.gate_flags import gate_enabled
 from src.polaris_graph.planning.planning_gate_schema import (
     DISCLOSURE_ORIGINS,
@@ -79,6 +86,7 @@ from src.polaris_graph.planning.planning_gate_schema import (
     PromptSpan,
     ResearchContract,
     ResearchExecutionPlan,
+    SectionRequirement,
     ValidationError,
     contract_from_dict,
     plan_from_dict,
@@ -483,13 +491,16 @@ def _lossless_fallback_contract(
         for t in content
     ]
 
-    # deliverable / rhetoric candidates: file by stage owner, NEVER in scope.
+    # deliverable / rhetoric / doc-type / voice candidates: file by stage owner,
+    # NEVER in scope. Admit on the CANONICAL dimension against the single reconciled
+    # admit set (format/length + doc-type + voice dims the compose projection reads),
+    # so a document_type / kind / tone / audience / pov / hedging preference is
+    # carried through to ``ComposeRenderProjection.from_contract`` instead of dropped.
+    # Every admitted term stays FORCE_PREFER (a deliverable shape is never a gate).
     deliverable: list[ContractTerm] = []
     n = 0
     for cand in candidates:
-        if cand.dimension not in (
-            "deliverable.format", "deliverable.length", "rhetoric.tone",
-        ):
+        if cand.canonical_dimension() not in _DELIVERABLE_ADMIT_DIMS:
             continue
         span_ok = _cand_span_ok(cand, prompt)
         if not (cand.value or "").strip():
@@ -509,11 +520,54 @@ def _lossless_fallback_contract(
             rationale="lossless fallback: deliverable shape preserved (render-owned)",
         ))
 
+    # EXPLICIT, user-named section titles -> SectionRequirement objects (lossless).
+    # Only candidates whose CANONICAL dimension names a section become sections; a
+    # required *topic* (content.coverage) is NEVER a heading. exact_title_lock is
+    # honored ONLY when the title term's origin is in HARD_ELIGIBLE_ORIGINS — we route
+    # through ``SectionRequirement.from_dict`` so its downgrade rule (no inferred lock)
+    # is the single source of truth and the constructor cannot bypass it. Sections are
+    # NEVER manufactured from the kind (kind->role are soft outline preferences, not
+    # locks). Verbatim title/origin/span/encounter-order preserved.
+    sections: list[SectionRequirement] = []
+    s = 0
+    for cand in candidates:
+        if cand.canonical_dimension() != "deliverable.section":
+            continue
+        title_val = (cand.value or "").strip()
+        if not title_val:
+            continue
+        span_ok = _cand_span_ok(cand, prompt)
+        s += 1
+        title_origin = ORIGIN_EXPLICIT if span_ok else ORIGIN_INFERRED
+        title_term = ContractTerm(
+            term_id=f"deliverable.section_{s}",
+            dimension="deliverable.section",
+            value=title_val,
+            origin=title_origin,
+            force=FORCE_HARD if span_ok else FORCE_PREFER,
+            spans=_cand_spans(cand, prompt),
+            subject=cand.subject,
+            attribute=cand.attribute,
+            stage_owner=cand.stage_owner,
+            normalization_status=cand.normalization_status or NORM_EXACT,
+            rationale="lossless fallback: explicit user-named section preserved",
+        )
+        # from_dict re-applies the downgrade rule (exact_title_lock only for a
+        # HARD_ELIGIBLE_ORIGINS title); a claimed lock on an inferred title is dropped.
+        sections.append(SectionRequirement.from_dict({
+            "section_id": f"deliverable.section_{s}",
+            "title": title_term.to_dict(),
+            "order": cand.detail.get("order") if isinstance(cand.detail, dict) else None,
+            "required": True,
+            "exact_title_lock": span_ok,
+        }))
+
     return ResearchContract(
         objective=objective,
         scope=scope,
         deliverable=deliverable,
         coverage=coverage,
+        sections=sections,
         complexity="degraded",
         compiler_degraded=True,
     )
@@ -547,6 +601,20 @@ _AUTHORITATIVE_DIMENSIONS: frozenset[str] = frozenset({
     "source.jurisdiction", "source.named", "source.named_exclude", "date.recency",
     "content.exclusion",
 })
+
+# The DELIVERABLE/compose dimensions the lossless-fallback constructor admits into
+# ``contract.deliverable`` — SINGLE SOURCE reconciled with what the compose projection
+# reads (``compose_render_projection._DOCTYPE_DIMS`` + the voice dims) plus format/length.
+# Imported (not copied) so admit + projection can never silently diverge. These are
+# FORCE_PREFER preferences filed by stage owner, NEVER scope (no retrieval leak) and NEVER
+# added to ``_AUTHORITATIVE_DIMENSIONS`` (a deliverable preference there would leak across
+# STAGE_OWNERS). Matched on ``cand.canonical_dimension()`` so a document_type/kind/tone
+# variant is admitted after canonicalization (raw ``rhetoric.tone`` canonicalizes to
+# ``rhetoric.tone`` which is in ``_TONE_DIMS``; ``deliverable.structure`` -> ``_DOCTYPE_DIMS``).
+_DELIVERABLE_ADMIT_DIMS: frozenset[str] = frozenset(
+    {"deliverable.format", "deliverable.length"}
+    | _DOCTYPE_DIMS | _TONE_DIMS | _AUDIENCE_DIMS | _POV_DIMS | _HEDGING_DIMS
+)
 
 
 def _cand_span_ok(cand: CandidateConstraint, prompt: str) -> bool:

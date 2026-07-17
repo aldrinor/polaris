@@ -171,6 +171,60 @@ class ComposeRenderProjection:
         used to select the render skeleton. ``""`` => champion default skeleton."""
         return self.doc_type
 
+    def doc_type_directive(self) -> str:
+        """The per-archetype doc-type FRAMING directive (a prose-only preamble for
+        the section writer's system prompt). ``""`` when no ``doc_type`` resolves
+        => inert => byte-identical.
+
+        The framing prose is DATA in ``report_skeleton.COMPOSE_DIRECTIVES`` keyed by
+        the resolved archetype (via ``KIND_SYNONYMS``); an unmapped kind falls back
+        to the default archetype's directive (disclosed upstream). DIRECTIVE ONLY:
+        it states no fact, cites no source, carries no digit / ``ev_`` id, asks for
+        no heading. Fail-open: any import/lookup fault => ``""``."""
+        if not self.doc_type:
+            return ""
+        try:
+            from src.polaris_graph.generator.report_skeleton import (  # noqa: PLC0415
+                compose_doc_type_directive,
+            )
+            return _norm(compose_doc_type_directive(self.doc_type))
+        except Exception:  # noqa: BLE001 — fail-open: never break compose over framing
+            return ""
+
+    def compose_advisory(self) -> str:
+        """The full ADDITIVE compose preamble for the section system prompt: the
+        doc-type framing directive followed by the voice advisory (either may be
+        empty). ``""`` when the contract names neither => inert => byte-identical.
+
+        This is the once-per-report string the generator appends at the compose
+        seam. The PER-SECTION role (``section_role_advisory``) is a separate,
+        later append keyed by the section title. DIRECTIVE ONLY (no fact / digit /
+        ``ev_`` id / heading)."""
+        parts = [p for p in (self.doc_type_directive(), self.voice_advisory()) if p]
+        return "\n\n".join(parts)
+
+    def section_role_advisory(self, section_title: Any) -> str:
+        """The per-section ROLE directive for ``section_title`` within this
+        deliverable (``""`` when no doc_type resolves or the title is empty).
+
+        The role framing is DATA in ``report_skeleton`` keyed by the resolved
+        archetype; this states the section's job in the plan in a single directive
+        line so the writer knows how this section serves the deliverable's shape.
+        DIRECTIVE ONLY (no fact / digit / ``ev_`` id / heading). Fail-open => ``""``.
+        Kept minimal: the shared doc-type framing already carries structure; this
+        adds only a short per-section orientation, so a report with no per-section
+        role table returns ``""`` and stays byte-identical."""
+        title = _norm(section_title)
+        if not self.doc_type or not title:
+            return ""
+        try:
+            from src.polaris_graph.generator.report_skeleton import (  # noqa: PLC0415
+                compose_section_role,
+            )
+            return _norm(compose_section_role(self.doc_type, title))
+        except Exception:  # noqa: BLE001 — fail-open: never break compose over a role line
+            return ""
+
     def has_voice(self) -> bool:
         return bool(self.tone or self.audience or self.point_of_view or self.hedging)
 

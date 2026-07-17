@@ -923,6 +923,12 @@ def build_requirements_block(
     tone = str(_spec_get(deliverable, "tone", "") or "").strip()
     reference_style = str(_spec_get(deliverable, "reference_style", "") or "").strip()
     length_target = str(_spec_get(deliverable, "length_target", "") or "").strip()
+    # S4 compose: the SOFT kind-derived structure guidance (a deliverable-kind
+    # framing line). This is a PREFERENCE, not a required-title lock — it rides the
+    # requirements block as guidance only, leaving the domain system prompt + the
+    # default allow-list intact (feeding inferred/kind-derived titles into
+    # ``required_sections`` would be a force leak). Empty => no line.
+    kind_guidance = str(_spec_get(deliverable, "kind_guidance", "") or "").strip()
 
     lines: list[str] = []
     if required_sections:
@@ -955,6 +961,16 @@ def build_requirements_block(
     if length_target:
         lines.append(
             f"Length ask (planning context, NEVER a truncation gate): {length_target}."
+        )
+    # S4 compose SOFT channel: kind-derived structure PREFERENCE. Only emit when the
+    # user did NOT lock an exact section set (required_sections wins outright — a
+    # kind preference must never override or dilute an explicit locked structure).
+    # This is guidance the planner MAY follow, never a required-title lock.
+    if kind_guidance and not required_sections:
+        lines.append(
+            f"Preferred structure (deliverable-kind guidance, not a required lock): "
+            f"{kind_guidance} Choose section titles that best fit the evidence; treat "
+            "this only as a shaping preference."
         )
 
     # explicit scope constraints (already parsed upstream; stated one line each)

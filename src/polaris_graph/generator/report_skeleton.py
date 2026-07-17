@@ -95,8 +95,119 @@ KIND_SYNONYMS: dict[str, str] = {
 DEFAULT_ARCHETYPE = "review"  # least-wrong universal shape; disclosed when assumed
 
 
+# ---------------------------------------------------------------------------
+# COMPOSE DIRECTIVES (DATA, not control flow) — the per-archetype doc-type
+# framing the section writer's system prompt reads as an ADDITIVE preamble.
+# ---------------------------------------------------------------------------
+# Keyed by the SAME archetype key as ``ARCHETYPES`` (resolved via
+# ``KIND_SYNONYMS``). Each string is DIRECTIVE-ONLY prose: it frames HOW the
+# deliverable reads (structure/voice/scope emphasis), states NO fact, cites NO
+# source, carries NO digit and NO ``ev_`` id, and asks for NO heading. It is a
+# SUFFIX on the frozen section system prompt — never a gate, never a truncation.
+# An unmapped kind resolves to ``DEFAULT_ARCHETYPE`` (disclosed by the caller);
+# the raw kind is preserved verbatim in the projection. NO per-kind literal
+# lives in control flow — only in this table (the anti-hardcode grep enforces it).
+COMPOSE_DIRECTIVES: dict[str, str] = {
+    "review": (
+        "This is a literature review. Organize the verified findings by theme and "
+        "synthesize across sources; foreground scope and how the evidence base fits "
+        "together, not a chronology of individual studies."
+    ),
+    "systematic_review": (
+        "This is a systematic review. Present the review question, then the evidence "
+        "synthesis by theme, then the limitations of the evidence base; be methodical "
+        "and explicit about coverage and gaps without asserting any procedure the "
+        "evidence does not support."
+    ),
+    "memo": (
+        "This is a decision memo. Lead bottom-line-first: state the upshot for the "
+        "decision up front, then the options and their tradeoffs, in a direct, "
+        "decision-oriented voice."
+    ),
+    "brief": (
+        "This is a brief. Open with an executive summary and keep the prose concise "
+        "and implication-focused for a time-constrained reader."
+    ),
+    "comparison": (
+        "This is a comparison. Set out the scope and comparison criteria, then treat "
+        "each option symmetrically across the same dimensions so the contrast is even-"
+        "handed."
+    ),
+    "explainer": (
+        "This is an explainer. Give an overview first, then build up the concepts and "
+        "mechanisms in an accessible, explanatory voice for a non-expert reader."
+    ),
+}
+
+
 def _norm(s: Any) -> str:
     return str(s or "").strip().lower()
+
+
+def resolve_archetype_key(kind_value: Any) -> "tuple[str, bool, str]":
+    """Resolve a raw ``deliverable.kind`` VALUE string onto an archetype KEY.
+
+    Returns ``(key, assumed, opaque_kind)`` mirroring :func:`resolve_archetype`
+    but reading a bare kind string instead of a contract (so a projection that
+    already carries ``doc_type`` need not reconstruct a contract). ``assumed`` is
+    ``True`` when the default key was used (empty or unmapped kind); ``opaque_kind``
+    is the verbatim unmapped kind (``""`` otherwise). PURE. Same longest-synonym-
+    wins matching as :func:`resolve_archetype` — no new vocabulary, no per-kind
+    branch."""
+    raw = str(kind_value or "").strip()
+    v = _norm(raw)
+    if not v:
+        return DEFAULT_ARCHETYPE, True, ""
+    best_key = ""
+    best_len = -1
+    for syn, key in KIND_SYNONYMS.items():
+        synl = syn.strip().lower()
+        if not synl:
+            continue
+        if synl in v or v in synl:
+            if len(synl) > best_len:
+                best_key = key
+                best_len = len(synl)
+    if best_key and best_key in ARCHETYPES:
+        return best_key, False, ""
+    return DEFAULT_ARCHETYPE, True, raw
+
+
+def compose_doc_type_directive(kind_value: Any) -> str:
+    """The per-archetype doc-type framing directive for a raw ``deliverable.kind``
+    VALUE (``""`` when the kind is empty).
+
+    Resolves ``kind_value`` -> archetype key (via :func:`resolve_archetype_key`)
+    and returns the matching :data:`COMPOSE_DIRECTIVES` string. An EMPTY kind
+    yields ``""`` (inert => byte-identical). An UNMAPPED kind falls back to the
+    default archetype's directive (the caller discloses the assumption). DIRECTIVE
+    ONLY: no fact, no digit, no ``ev_`` id, no heading. PURE."""
+    if not str(kind_value or "").strip():
+        return ""
+    key, _assumed, _opaque = resolve_archetype_key(kind_value)
+    return COMPOSE_DIRECTIVES.get(key, COMPOSE_DIRECTIVES[DEFAULT_ARCHETYPE])
+
+
+def compose_section_role(kind_value: Any, section_title: Any) -> str:
+    """A short per-section ORIENTATION directive: how ``section_title`` serves a
+    deliverable of the resolved kind. ``""`` when the kind or title is empty.
+
+    Generic + DATA-driven: it names the archetype (from :data:`ARCHETYPES`, keyed
+    by the resolved key) and the section, with NO per-kind literal in control flow
+    and NO per-section role table to maintain. It states the section's job in the
+    deliverable's shape in one line so the writer orients this section — DIRECTIVE
+    ONLY (no fact, no digit, no ``ev_`` id, no heading). PURE. Kept to a single
+    line: every extra sentence is prompt-hash + verbosity surface."""
+    kind = str(kind_value or "").strip()
+    title = str(section_title or "").strip()
+    if not kind or not title:
+        return ""
+    key, _assumed, _opaque = resolve_archetype_key(kind_value)
+    arch = ARCHETYPES.get(key, ARCHETYPES[DEFAULT_ARCHETYPE])
+    return (
+        f'Compose the "{title}" section so it does its job within this {arch.key} '
+        "deliverable's overall shape, consistent with the framing above."
+    )
 
 
 def _first_deliverable_kind_value(contract: Any) -> str:

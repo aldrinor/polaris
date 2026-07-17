@@ -18,11 +18,17 @@ roles:
     # PG_GENERATOR_PROVIDER_FANOUT (default OFF), applied in openrouter_client where the generator provider
     # block is built: flag OFF => these pins are used (byte-identical); flag ON => the pins are dropped and
     # allow_fallbacks stays the OPENROUTER_ALLOW_FALLBACKS default (true) so OpenRouter spreads the burst.
-    order: [friendli, novita, z-ai, phala]
+    # gate-inversion A/B latency fix (2026-07-16, operator-authorized): live /endpoints re-probe of z-ai/glm-5.2.
+    # DROPPED z-ai (3898ms slow tail) and phala (status=-2 BROKEN) from the generator lead. friendli leads
+    # (578ms/90tps/1M-cap/99.7%up); baseten (1421ms fp8 256k-cap 99.9%up) + novita (1913ms fp8 131072) back it.
+    # fireworks KEPT OUT of the generator lead (historical 429 on the heavy compose burst) though it is healthy
+    # for the mirror. fp4 hosts AVOIDED (quality). token_limit_resolver clamps max_tokens per provider (no 400).
+    order: [friendli, baseten, novita]
     # I-beatboth-008 #1285 ignore: providers that DO NOT serve glm-5.2 or are flaky on it. deepinfra/fireworks/
     # cloudflare/atlas-cloud flaky or 429; baidu/gmicloud/wandb/siliconflow/streamlake serve only deepseek-v4-pro
     # or glm-5.1 (not glm-5.2) -> would 404 every generator call under allow_fallbacks:false.
-    ignore: [deepinfra, fireworks, cloudflare, atlas-cloud, baidu, gmicloud, wandb, siliconflow, streamlake]
+    # gate-inversion: z-ai + phala added to ignore (slow/broken); fp4 hosts stay out.
+    ignore: [deepinfra, fireworks, cloudflare, atlas-cloud, baidu, gmicloud, wandb, siliconflow, streamlake, z-ai, phala, parasail, inceptron, decart, wafer, venice, akashml, digitalocean, io-net, alibaba, morph, chutes, together, ambient]
   mirror:
     model: z-ai/glm-5.2  # I-beatboth-008 #1285 (operator-signed 2026-06-20): mirror upgrade 5.1->5.2 (MIT, 1M ctx, ~4x faster: 2.7s Z.AI vs 11.7s on the 5.1 chain)
     # I-ready-018 FIX-GLM (#1100): Parasail DEMOTED out of the Mirror chain. In the drb_72 paid run
@@ -58,8 +64,15 @@ roles:
     # I-beatboth-008 #1285 (2026-06-20): mirror chain reordered z-ai-lead -> friendli-lead. Live glm-5.2 probe:
     # Friendli 3.3s 1M-cap = fastest+stablest+max-cap; Novita 6.7s; Z.AI 9.8s; Phala 22.3s (slow tail). Same
     # providers, friendli-first to match the generator lead. Chain-MIN max_completion_tokens stays 131072 (novita/z-ai).
-    order: [friendli, novita, z-ai, phala]
-    ignore: [chutes, baseten, together, ambient, parasail, siliconflow, deepinfra, fireworks, atlas-cloud, baidu, gmicloud]
+    # gate-inversion A/B latency fix (2026-07-16, operator-authorized): live /endpoints health re-probe of
+    # z-ai/glm-5.2 (28 eps, 26 healthy@uptime>=98%). MEASURED p50 latency/tput: friendli 578ms/90tps 1M-cap;
+    # fireworks 1091ms/87tps ("fast" quant); baseten 1421ms/73tps fp8 256k-cap 99.9%up; novita 1913ms/34tps fp8
+    # 131072. DROPPED z-ai (3898ms = slow tail) and phala (status=-2 BROKEN) from the lead — they were the
+    # verify-tail wedge. fp4 hosts (wandb/parasail/inceptron/decart/deepinfra) AVOIDED to protect quality per
+    # operator. Chain is fp8/bf16 only; token_limit_resolver clamps max_tokens DOWN to each provider's real cap
+    # (no 400) so a sub-131072 cap host cannot regress the request. allow_fallbacks:false unchanged.
+    order: [friendli, fireworks, baseten, novita]
+    ignore: [chutes, together, ambient, parasail, siliconflow, deepinfra, atlas-cloud, baidu, gmicloud, z-ai, phala, wandb, decart, inceptron, streamlake, cloudflare, wafer, venice, akashml, digitalocean, io-net, alibaba, morph]
     notes: "I-beatboth-008 2026-06-20: glm-5.2 mirror upgrade; baidu+gmicloud DROPPED (do not serve glm-5.2), friendli+phala added (1M-cap status=0); z-ai-led, chain-MIN max_tokens 131072. Prior I-arch-011 2026-06-18 glm-5.1: AtlasCloud demoted (~38s/call); z-ai/baidu/novita/gmicloud fp8 chain."
   sentinel:
     model: minimax/minimax-m2

@@ -5884,6 +5884,7 @@ async def _run_section(
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
     voice_advisory_text: str = "",  # S4 compose voice: prose-only tone/audience/pov; "" => byte-identical
+    compose_projection: Any = None,  # S4 compose: per-section ROLE source; None => no role append => byte-identical
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
     research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
     quantified_models: "dict[tuple[str, str], Any] | None" = None,  # MOAT: agentic verified-compute registry; None => byte-identical
@@ -5906,6 +5907,25 @@ async def _run_section(
     generates 1-2 connective inferences (dose-response, comparator
     progression, safety class) per body section.
     """
+    # S4 compose: append this section's ROLE directive (keyed by section.title)
+    # after the once-per-report doc-type/voice preamble. compose_projection None
+    # (default) OR a projection with no doc_type => the role is "" => no append =>
+    # the ``voice_advisory_text`` forwarded to _call_section is byte-identical.
+    # DIRECTIVE-ONLY (no fact / digit / ev_ id / heading — enforced in the projection).
+    if compose_projection is not None:
+        try:
+            _role_fn = getattr(compose_projection, "section_role_advisory", None)
+            _section_role = (
+                str(_role_fn(getattr(section, "title", "")) or "").strip()
+                if callable(_role_fn) else ""
+            )
+        except Exception:  # noqa: BLE001 — fail-open: never break compose over a role line
+            _section_role = ""
+        if _section_role:
+            voice_advisory_text = (
+                f"{voice_advisory_text}\n\n{_section_role}".strip()
+                if voice_advisory_text else _section_role
+            )
     # Build evidence subset
     ev_subset = [
         evidence_pool[ev_id] for ev_id in section.ev_ids
@@ -9827,13 +9847,22 @@ async def generate_multi_section_report(
     # => "" => the append is inert => every section prompt byte-identical to HEAD.
     # The voice states no fact, cites no source, and cannot drop a sentence or
     # touch strict_verify — it only guides HOW verified content is phrased.
+    # The once-per-report preamble = doc-type FRAMING (deliverable-kind shape) +
+    # VOICE (tone/audience/pov/hedging). ``compose_advisory()`` returns both (either
+    # may be empty); a projection with neither returns "" => the append is inert =>
+    # every section prompt byte-identical to HEAD. Fall back to the legacy voice-only
+    # entrypoint for a duck-typed projection that predates ``compose_advisory``.
     _voice_advisory_text = ""
     if compose_projection is not None:
         try:
-            from src.polaris_graph.planning.compose_render_projection import (  # noqa: PLC0415
-                compose_voice_advisory,
-            )
-            _voice_advisory_text = compose_voice_advisory(compose_projection)
+            _adv_fn = getattr(compose_projection, "compose_advisory", None)
+            if callable(_adv_fn):
+                _voice_advisory_text = str(_adv_fn() or "").strip()
+            else:
+                from src.polaris_graph.planning.compose_render_projection import (  # noqa: PLC0415
+                    compose_voice_advisory,
+                )
+                _voice_advisory_text = compose_voice_advisory(compose_projection)
         except Exception:  # noqa: BLE001 — fail-open: never break compose over voice
             _voice_advisory_text = ""
 
@@ -10917,6 +10946,10 @@ async def generate_multi_section_report(
                 # S4 compose voice: prose-only tone/audience/pov (closure-captured;
                 # "" when no compose_projection => no append => byte-identical).
                 voice_advisory_text=_voice_advisory_text,
+                # S4 compose: the projection itself, so _run_section can append this
+                # section's ROLE directive keyed by its title. None => no role append
+                # => byte-identical (closure-captured from the report kwarg).
+                compose_projection=compose_projection,
                 # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
                 credibility_analysis=credibility_analysis,
                 # I-arch-004 F21 (#1255): thread the real research_question
