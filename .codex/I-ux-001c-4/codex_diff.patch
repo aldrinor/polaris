@@ -1,0 +1,133 @@
+diff --git a/web/app/source_review/page.tsx b/web/app/source_review/page.tsx
+index 4ee2cfda..f10380f4 100644
+--- a/web/app/source_review/page.tsx
++++ b/web/app/source_review/page.tsx
+@@ -152,19 +152,40 @@ function SourceReviewContent() {
+       data-testid="source-review-page"
+       className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+     >
+-      <div className="flex flex-col gap-2">
+-        <Link
+-          href={`/intake?q=${encodeURIComponent(question)}`}
+-          className="text-muted-foreground hover:text-foreground text-xs"
++      {/* I-ux-001c sub-PR 4 (#887): v6 marketing-auth chrome. Brand-red
++          eyebrow + display H1 + tightened subtitle. Edit-question link
++          moved to the eyebrow row (right side) so it remains accessible
++          but doesn't lead the page. Rest of the page (TierCards, error
++          state, loading state, retry, no-question fallback link, Continue
++          CTA) preserved verbatim per brief iter-3 APPROVE. */}
++      <div className="flex flex-col gap-3">
++        <div className="flex items-center justify-between gap-3">
++          <span
++            data-testid="source-review-eyebrow"
++            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
++          >
++            SOURCES · POLARIS CLINICAL RESEARCH
++          </span>
++          <Link
++            data-testid="source-review-edit-question-link"
++            href={`/intake?q=${encodeURIComponent(question)}`}
++            className="text-muted-foreground hover:text-foreground text-xs"
++          >
++            ← Edit question
++          </Link>
++        </div>
++        <h1
++          data-testid="source-review-h1"
++          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+         >
+-          ← Edit question
+-        </Link>
+-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+-          Review the source set
++          Review the sources POLARIS will check.
+         </h1>
+-        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-          What POLARIS will search for this question — and the per-tier adequacy
+-          bar the corpus must clear before a single claim is written.
++        <p
++          data-testid="source-review-subtitle"
++          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
++        >
++          What POLARIS will check for this question — and the per-tier evidence
++          bar the corpus must clear before any claim is written.
+         </p>
+       </div>
+ 
+diff --git a/web/tests/e2e/source_review_v6.spec.ts b/web/tests/e2e/source_review_v6.spec.ts
+new file mode 100644
+index 00000000..6d280fcc
+--- /dev/null
++++ b/web/tests/e2e/source_review_v6.spec.ts
+@@ -0,0 +1,69 @@
++// I-ux-001c sub-PR 4 (GH #887): e2e Playwright for the v6 /source_review
++// chrome rebuild.
++//
++// Asserts the spec from `.codex/I-ux-001c-4/brief.md` iter-3 APPROVE:
++//   - Brand-red eyebrow + display H1 + tightened subtitle render
++//   - Edit-question link sits in the eyebrow row and still navigates to
++//     /intake?q=<encoded> (preserves back-link behavior)
++//
++// Per the iter-2 P2 fix: mocks GET /api/v6/templates so the auth-gated
++// listTemplates fetch doesn't race with header-link assertions.
++import { expect, test } from "@playwright/test";
++
++const SOURCE_REVIEW_PATH =
++  "/source_review?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F&template=clinical";
++
++// Minimal valid TemplateContent shape so listTemplates resolves without
++// the auth-gated backend call. Mirrors the shape from
++// config/v6_templates/clinical.json (id + per-tier source-domain lists +
++// min_sources_per_tier). The exact contents don't matter for chrome
++// assertions; they just need to render without errors.
++const FAKE_TEMPLATE = {
++  id: "clinical",
++  display_name: "Clinical drug audit",
++  source_set: {
++    T1: { domains: ["nejm.org", "thelancet.com"], min_sources_per_tier: 2 },
++    T2: { domains: ["cochranelibrary.com"], min_sources_per_tier: 1 },
++    T3: { domains: ["uptodate.com"], min_sources_per_tier: 0 },
++  },
++};
++
++test.describe("I-ux-001c · Source Review v6 chrome", () => {
++  test.beforeEach(async ({ page }) => {
++    // Mock the templates endpoint so the page renders without hitting
++    // the real auth-gated backend.
++    await page.route("**/api/v6/templates**", async (route) => {
++      await route.fulfill({
++        status: 200,
++        contentType: "application/json",
++        body: JSON.stringify({ templates: [FAKE_TEMPLATE] }),
++      });
++    });
++  });
++
++  test("eyebrow + H1 + subtitle render with v6 copy", async ({ page }) => {
++    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
++    await expect(page.getByTestId("source-review-page")).toBeVisible();
++    await expect(page.getByTestId("source-review-eyebrow")).toContainText(
++      /SOURCES.*POLARIS CLINICAL RESEARCH/i,
++    );
++    await expect(page.getByTestId("source-review-h1")).toContainText(
++      "Review the sources POLARIS will check",
++    );
++    await expect(page.getByTestId("source-review-subtitle")).toContainText(
++      /per-tier evidence bar the corpus must clear before any claim is written/i,
++    );
++  });
++
++  test("Edit-question link still navigates to /intake?q=<encoded>", async ({
++    page,
++  }) => {
++    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
++    const link = page.getByTestId("source-review-edit-question-link");
++    await expect(link).toBeVisible();
++    await expect(link).toHaveAttribute(
++      "href",
++      "/intake?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F",
++    );
++  });
++});
+
+# canonical-diff-sha256: 20cff8a2d49be45e03f0e0ffc884a1aee235fd833be3f6466d35cb1167c6c0b9

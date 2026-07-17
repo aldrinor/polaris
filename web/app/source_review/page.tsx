@@ -152,19 +152,40 @@ function SourceReviewContent() {
       data-testid="source-review-page"
       className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
     >
-      <div className="flex flex-col gap-2">
-        <Link
-          href={`/intake?q=${encodeURIComponent(question)}`}
-          className="text-muted-foreground hover:text-foreground text-xs"
+      {/* I-ux-001c sub-PR 4 (#887): v6 marketing-auth chrome. Brand-red
+          eyebrow + display H1 + tightened subtitle. Edit-question link
+          moved to the eyebrow row (right side) so it remains accessible
+          but doesn't lead the page. Rest of the page (TierCards, error
+          state, loading state, retry, no-question fallback link, Continue
+          CTA) preserved verbatim per brief iter-3 APPROVE. */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <span
+            data-testid="source-review-eyebrow"
+            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+          >
+            SOURCES · POLARIS CLINICAL RESEARCH
+          </span>
+          <Link
+            data-testid="source-review-edit-question-link"
+            href={`/intake?q=${encodeURIComponent(question)}`}
+            className="text-muted-foreground hover:text-foreground text-xs"
+          >
+            ← Edit question
+          </Link>
+        </div>
+        <h1
+          data-testid="source-review-h1"
+          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
         >
-          ← Edit question
-        </Link>
-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
-          Review the source set
+          Review the sources POLARIS will check.
         </h1>
-        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
-          What POLARIS will search for this question — and the per-tier adequacy
-          bar the corpus must clear before a single claim is written.
+        <p
+          data-testid="source-review-subtitle"
+          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
+        >
+          What POLARIS will check for this question — and the per-tier evidence
+          bar the corpus must clear before any claim is written.
         </p>
       </div>
 

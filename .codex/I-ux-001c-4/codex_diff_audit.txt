@@ -1,0 +1,3608 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5e04-8580-7d33-a2c7-2bb71c8296d1
+--------
+user
+# Codex diff review — I-ux-001c sub-PR 4 (Source Review v6 chrome)
+
+## §0 cap directive (CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Phase
+
+Diff review. Brief APPROVED iter-3 (`.codex/I-ux-001c-4/codex_brief_verdict.txt`).
+
+## Diff under review
+
+`.codex/I-ux-001c-4/codex_diff.patch` — single-file rebuild of `web/app/source_review/page.tsx` header chrome + 1 NEW test file.
+
+## Approved brief acceptance criteria (must verify)
+
+1. Brand-red eyebrow "SOURCES · POLARIS CLINICAL RESEARCH" (text-primary)
+2. Display H1 "Review the sources POLARIS will check." (locked copy)
+3. Tightened subtitle (locked verbatim per iter-2 P2: "What POLARIS will check for this question — and the per-tier evidence bar the corpus must clear before any claim is written.")
+4. Edit-question link moved into eyebrow row (right side) preserving `/intake?q=<encoded>` deep-link
+5. `data-testid="source-review-page"` selector preserved
+6. ALL substantive logic UNCHANGED: listTemplates, asTemplateId, TIERS, TIER_DOT, TIER_LABEL, prettyDomain, error state, loading state, retry path, no-question fallback link, Continue CTA, /plan handoff
+7. NEW `web/tests/e2e/source_review_v6.spec.ts` — 2 cases with mocked `/api/v6/templates`
+8. typecheck PASS, lint PASS
+
+## Specific checks (`specific_check_responses`)
+
+- `visual_only_rebuild`: PASS / FAIL — only header chrome lines changed; TierCards/error/loading/retry/no-question/Continue sections bit-identical to HEAD
+- `brand_red_paths_preserved`: PASS / FAIL — brand-red usage in three authorized paths (eyebrow + T1 evidence semantic + text-primary affordances) all preserved
+- `existing_testids_preserved`: PASS / FAIL — `source-review-page` testid + `/intake?q=` + `/plan?q=&template=` deep-links preserved
+- `playwright_test_mocks_api`: PASS / FAIL — new test mocks `**/api/v6/templates` so the auth-gated fetch doesn't race with header-link assertions
+- `subtitle_copy_locked`: PASS / FAIL — subtitle text matches the iter-2 P2 lock verbatim
+
+## Output schema (BIND)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+specific_check_responses:
+  visual_only_rebuild: PASS | FAIL_with_detail
+  brand_red_paths_preserved: PASS | FAIL_with_detail
+  existing_testids_preserved: PASS | FAIL_with_detail
+  playwright_test_mocks_api: PASS | FAIL_with_detail
+  subtitle_copy_locked: PASS | FAIL_with_detail
+```
+
+## Context
+
+- Brief (APPROVE iter-3): `.codex/I-ux-001c-4/brief.md`
+- Diff: `.codex/I-ux-001c-4/codex_diff.patch`
+- Branch: `bot/I-ux-001c-sub-pr-4-source-review`
+
+codex
+I’ll review the supplied patch against the locked criteria first, then run the relevant checks so the verdict reflects both the diff and the current workspace state.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-ux-001c-4/brief.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-ux-001c-4/codex_diff.patch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short --branch' in C:\POLARIS
+ succeeded in 1216ms:
+## bot/I-ux-001c-sub-pr-4-source-review...origin/bot/I-ux-001c-sub-pr-4-source-review
+?? .codex/I-ux-001b/
+?? .codex/I-ux-001c-2/
+?? .codex/I-ux-001c-3/
+?? .codex/I-ux-001c/
+?? .codex/I-ux-001d/
+?? live/
+?? web/p2shots/
+?? web/scripts/screenshot_home_v6.mjs
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+
+ succeeded in 1515ms:
+# I-ux-001c sub-PR 4 — Source Review v6 (GH #887)
+
+## Phase: BRIEF REVIEW (not diff review)
+
+You are reviewing the SPEC for an upcoming diff. Repo on `bot/I-ux-001c-sub-pr-4-source-review` currently equals `polaris` HEAD — no implementation yet. Per CLAUDE.md §3.0 5-artifact triple: brief → brief APPROVE → diff → diff APPROVE → audit. This is step 2.
+
+## §0 cap directive (CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Scope (visual-only marketing-auth chrome evolution)
+
+Rebuild `/source_review` page chrome to the I-ux-001d v6 design lock. Sub-PR 4 of approximately 7 for I-ux-001c.
+
+The current `/source_review` (288 LOC, single file `web/app/source_review/page.tsx`, shipped by I-p2-031 #770) has the right authoritative source-set logic (listTemplates → GET /api/v6/templates from real config/v6_templates/*.json, per-tier adequacy via min_sources_per_tier, TierCards). v6 changes are visual-only:
+
+- Brand-red eyebrow ("SOURCES · POLARIS CLINICAL RESEARCH") replacing the bare "← Edit question" link as the page's leading visual
+- Display-weight H1 ("Review the sources POLARIS will check.") replacing the small "Review the source set"
+- Tightened subtitle (one sentence)
+- "← Edit question" link MOVED into the eyebrow row (right side) so it remains accessible but doesn't lead the page
+- TierCards visual treatment unchanged (already clean v6 styling per I-p2-031)
+- Continue-to-plan CTA preserved
+- All substantive logic UNCHANGED: listTemplates, asTemplateId, TIERS, TIER_DOT, TIER_LABEL, prettyDomain, error state, loading state, retry path
+
+PRESERVED contracts:
+- `data-testid="source-review-page"` (existing test selector)
+- `/plan?q=<encoded>&template=<id>` deep-link (Continue button)
+- `/intake?q=<encoded>` deep-link (Edit question)
+- AppShell chrome (NOT chromeless; like /intake)
+
+## Operator-locked constraints
+
+- Brand red `#c8102e` ONLY at the brand-red eyebrow + Continue CTA
+- Honest sovereignty wording (Canadian-hosted, built toward sovereign deployment) — same posture as v6 home + intake
+- No fabricated metrics: the page currently says "the actual sources are retrieved + adequacy-checked during the run" — preserved verbatim (LAW II honest-fail)
+
+## File plan (surgical)
+
+REBUILD
+1. `web/app/source_review/page.tsx` — header chrome only:
+   - Brand-red eyebrow + display H1 + tightened subtitle (the visual rebuild surface)
+   - "← Edit question" link moved into eyebrow row (right side)
+   - Rest of the page (TierCards section, Continue CTA, loading + error states, all useState/useEffect logic) PRESERVED VERBATIM
+
+NEW
+2. NEW `web/tests/e2e/source_review_v6.spec.ts` — 2 cases:
+   - Eyebrow + H1 + subtitle render with v6 copy
+   - Edit-question link still navigates to `/intake?q=<encoded>` (preserves the back-link behavior)
+
+NO CHANGES needed to:
+- web/lib/api.ts (listTemplates contract unchanged)
+- config/v6_templates/*.json (real source set unchanged)
+- Any other source_review-related tests if present
+
+## Files I have ALSO checked
+
+- web/components/app_shell.tsx — `/source_review` is in the authed routes set; no change
+- web/components/app_shell_gate.tsx — `/source_review` is NOT chromeless
+- web/lib/api.ts — listTemplates returns TemplateContent; unchanged
+- web/app/intake/components/intake_form.tsx — links to /source_review?q=...; unchanged (matches sub-PR 3 preserved-behavior contract)
+- web/app/plan/page.tsx — receives /plan?q=...&template=... from this page; unchanged
+
+## Lessons applied from sub-PR 3 iter-3
+
+- Visual-only scope from the start (no auto-domain chip or synthetic metrics that violate LAW II)
+- No backend changes
+- Preserve scope_decision_view + downstream handoff
+- Existing testids preserved; existing tests pass unchanged
+
+## Brief-review check requests (`specific_check_responses`)
+
+- `scope_visual_only`: PASS / FAIL — spec keeps changes to header chrome only; no source-set logic, no fabricated metrics, no contract changes
+- `existing_test_compat`: PASS / FAIL — `data-testid="source-review-page"` selector preserved; `/intake?q=<encoded>` back-link preserved; `/plan?q=<encoded>&template=<id>` forward-link preserved
+- `appshell_chrome_preserved`: PASS / FAIL — `/source_review` continues to render inside AppShell (NOT chromeless)
+- `file_plan_surgical`: PASS / FAIL — single file rebuild + 1 new test file; no orphan files; no "while we're at it" scope creep
+
+## Output schema (BIND)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+specific_check_responses:
+  scope_visual_only: PASS | FAIL_with_detail
+  existing_test_compat: PASS | FAIL_with_detail
+  appshell_chrome_preserved: PASS | FAIL_with_detail
+  file_plan_surgical: PASS | FAIL_with_detail
+```
+
+---
+
+## Iter-2 amendments (post-Codex iter-1)
+
+### P1 fix: T1 brand-red is an authorized semantic exemption
+
+Codex iter-1 caught a real spec conflict. The fix:
+
+**Brand-red `#c8102e` lock has TWO authorized usage paths** (clarified):
+1. Brand identity (eyebrow + Continue CTA) — sub-PR 4's new visual surface
+2. Evidence-role semantic (TIER_DOT["T1"] → bg-tier-1 → --tier-1 = #c8102e) — operator design lock 2026-05-21 per I-p2-003 #742 ("Operator design lock: + evidence-role tokens (tiers + proof). Red-only is RUBRIC banned; brand-red as ONE evidence role tier is operator-locked.")
+
+T1 dot stays brand red as the high-est-evidence-tier semantic. Sub-PR 4 PRESERVES TIER_DOT verbatim. No conflict.
+
+### P2 fix: e2e test mocks /api/v6/templates
+
+The new `web/tests/e2e/source_review_v6.spec.ts` MUST mock `**/api/v6/templates` via `page.route()` to avoid the auth-gated fetch racing with header-link assertions. Pattern: returns a minimal valid TemplateContent for the clinical template, matching the existing `web/tests/e2e/axe_smoke.spec.ts` mock if present (or following the standard Playwright route-mocking idiom).
+
+### P2 fix: exact subtitle copy locked
+
+Subtitle (locked verbatim):
+> "What POLARIS will check for this question — and the per-tier evidence bar the corpus must clear before any claim is written."
+
+(Tightened from the current "What POLARIS will search for this question — and the per-tier adequacy bar the corpus must clear before a single claim is written." — same meaning, more direct.)
+
+---
+
+## Iter-3 amendment (post-Codex iter-2)
+
+### P1 (final) fix: brand-red has THREE authorized usage paths, not two
+
+Codex iter-2 caught additional existing brand-red usages: the no-question fallback link in `source_review/page.tsx` uses `text-primary`, and the `ErrorState` retry button in `web/components/states/state_kit.tsx` uses `text-primary`. Both are correct uses per the operator's design lock — brand-red as the standard interactive-link color is a design-system convention, not a violation.
+
+**Brand-red `#c8102e` has THREE authorized usage paths** (final):
+1. **Brand identity** (eyebrow + Continue CTA + decorative brand marks)
+2. **Evidence-role semantic** (TIER_DOT["T1"] = bg-tier-1 = --tier-1 = #c8102e), operator-locked per I-p2-003 #742
+3. **Interactive affordance** (text-primary on links + retry/back actions), standard token usage across the design system
+
+Sub-PR 4 PRESERVES all three usage paths. The brief's "only at the new primary CTA + eyebrow" framing in §"Operator-locked constraints" is corrected here: brand-red is also retained on existing text-primary affordances. No semantic conflict.
+
+### Scope reconfirmation
+
+Sub-PR 4 surface area unchanged:
+- Header chrome rebuild (eyebrow + display H1 + tightened subtitle)
+- Edit-question link MOVED into eyebrow row (right side)
+- Everything else PRESERVED VERBATIM (TierCards, error state, loading state, retry button, no-question fallback link, Continue CTA — including their existing text-primary uses)
+
+
+ succeeded in 1868ms:
+diff --git a/web/app/source_review/page.tsx b/web/app/source_review/page.tsx
+index 4ee2cfda..f10380f4 100644
+--- a/web/app/source_review/page.tsx
++++ b/web/app/source_review/page.tsx
+@@ -152,19 +152,40 @@ function SourceReviewContent() {
+       data-testid="source-review-page"
+       className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+     >
+-      <div className="flex flex-col gap-2">
+-        <Link
+-          href={`/intake?q=${encodeURIComponent(question)}`}
+-          className="text-muted-foreground hover:text-foreground text-xs"
++      {/* I-ux-001c sub-PR 4 (#887): v6 marketing-auth chrome. Brand-red
++          eyebrow + display H1 + tightened subtitle. Edit-question link
++          moved to the eyebrow row (right side) so it remains accessible
++          but doesn't lead the page. Rest of the page (TierCards, error
++          state, loading state, retry, no-question fallback link, Continue
++          CTA) preserved verbatim per brief iter-3 APPROVE. */}
++      <div className="flex flex-col gap-3">
++        <div className="flex items-center justify-between gap-3">
++          <span
++            data-testid="source-review-eyebrow"
++            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
++          >
++            SOURCES · POLARIS CLINICAL RESEARCH
++          </span>
++          <Link
++            data-testid="source-review-edit-question-link"
++            href={`/intake?q=${encodeURIComponent(question)}`}
++            className="text-muted-foreground hover:text-foreground text-xs"
++          >
++            ← Edit question
++          </Link>
++        </div>
++        <h1
++          data-testid="source-review-h1"
++          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+         >
+-          ← Edit question
+-        </Link>
+-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+-          Review the source set
++          Review the sources POLARIS will check.
+         </h1>
+-        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-          What POLARIS will search for this question — and the per-tier adequacy
+-          bar the corpus must clear before a single claim is written.
++        <p
++          data-testid="source-review-subtitle"
++          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
++        >
++          What POLARIS will check for this question — and the per-tier evidence
++          bar the corpus must clear before any claim is written.
+         </p>
+       </div>
+ 
+diff --git a/web/tests/e2e/source_review_v6.spec.ts b/web/tests/e2e/source_review_v6.spec.ts
+new file mode 100644
+index 00000000..6d280fcc
+--- /dev/null
++++ b/web/tests/e2e/source_review_v6.spec.ts
+@@ -0,0 +1,69 @@
++// I-ux-001c sub-PR 4 (GH #887): e2e Playwright for the v6 /source_review
++// chrome rebuild.
++//
++// Asserts the spec from `.codex/I-ux-001c-4/brief.md` iter-3 APPROVE:
++//   - Brand-red eyebrow + display H1 + tightened subtitle render
++//   - Edit-question link sits in the eyebrow row and still navigates to
++//     /intake?q=<encoded> (preserves back-link behavior)
++//
++// Per the iter-2 P2 fix: mocks GET /api/v6/templates so the auth-gated
++// listTemplates fetch doesn't race with header-link assertions.
++import { expect, test } from "@playwright/test";
++
++const SOURCE_REVIEW_PATH =
++  "/source_review?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F&template=clinical";
++
++// Minimal valid TemplateContent shape so listTemplates resolves without
++// the auth-gated backend call. Mirrors the shape from
++// config/v6_templates/clinical.json (id + per-tier source-domain lists +
++// min_sources_per_tier). The exact contents don't matter for chrome
++// assertions; they just need to render without errors.
++const FAKE_TEMPLATE = {
++  id: "clinical",
++  display_name: "Clinical drug audit",
++  source_set: {
++    T1: { domains: ["nejm.org", "thelancet.com"], min_sources_per_tier: 2 },
++    T2: { domains: ["cochranelibrary.com"], min_sources_per_tier: 1 },
++    T3: { domains: ["uptodate.com"], min_sources_per_tier: 0 },
++  },
++};
++
++test.describe("I-ux-001c · Source Review v6 chrome", () => {
++  test.beforeEach(async ({ page }) => {
++    // Mock the templates endpoint so the page renders without hitting
++    // the real auth-gated backend.
++    await page.route("**/api/v6/templates**", async (route) => {
++      await route.fulfill({
++        status: 200,
++        contentType: "application/json",
++        body: JSON.stringify({ templates: [FAKE_TEMPLATE] }),
++      });
++    });
++  });
++
++  test("eyebrow + H1 + subtitle render with v6 copy", async ({ page }) => {
++    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
++    await expect(page.getByTestId("source-review-page")).toBeVisible();
++    await expect(page.getByTestId("source-review-eyebrow")).toContainText(
++      /SOURCES.*POLARIS CLINICAL RESEARCH/i,
++    );
++    await expect(page.getByTestId("source-review-h1")).toContainText(
++      "Review the sources POLARIS will check",
++    );
++    await expect(page.getByTestId("source-review-subtitle")).toContainText(
++      /per-tier evidence bar the corpus must clear before any claim is written/i,
++    );
++  });
++
++  test("Edit-question link still navigates to /intake?q=<encoded>", async ({
++    page,
++  }) => {
++    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
++    const link = page.getByTestId("source-review-edit-question-link");
++    await expect(link).toBeVisible();
++    await expect(link).toHaveAttribute(
++      "href",
++      "/intake?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F",
++    );
++  });
++});
+
+# canonical-diff-sha256: 20cff8a2d49be45e03f0e0ffc884a1aee235fd833be3f6466d35cb1167c6c0b9
+
+
+codex
+The patch is narrow on paper: one header block in `source_review/page.tsx` plus one Playwright spec. I’m checking the committed file too, so the review is against the actual branch state rather than only the generated patch text.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/app/source_review/page.tsx' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/tests/e2e/source_review_v6.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git ls-files web/app/source_review/page.tsx web/tests/e2e/source_review_v6.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- web/app/source_review/page.tsx web/tests/e2e/source_review_v6.spec.ts' in C:\POLARIS
+ succeeded in 1384ms:
+// I-p2-031 (#770) — Source Review / Source-Set Health.
+//
+// Sits between Intake and Plan in the flow (intake → source_review → plan →
+// run). Its job: surface, BEFORE the run, the curated source set POLARIS will
+// search for the chosen template + the per-tier adequacy bar the corpus must
+// clear — so scope can't be buried (Codex iter-1 P1-3 on the UX standard).
+//
+// LAW II — data source: `listTemplates()` → GET /api/v6/templates, served from
+// the authoritative config/v6_templates/*.json (real T1/T2/T3 source domains +
+// min_sources_per_tier). The endpoint is live (auth-gated; runs authenticated
+// in-browser). This page does NOT fabricate a retrieved corpus or a "readiness
+// %": the ACTUAL sources are retrieved + adequacy-checked during the run, and
+// the page says so plainly. No pre-run retrieval preview is invoked (runRetrieval
+// is not wired into the user flow).
+"use client";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+
+import { ErrorState, LoadingState } from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { listTemplates, type TemplateContent } from "@/lib/api";
+
+const TEMPLATE_IDS = [
+  "clinical",
+  "policy",
+  "tech",
+  "ai_sovereignty",
+  "canada_us",
+  "due_diligence",
+  "custom",
+  "workforce",
+] as const;
+
+function asTemplateId(value: string | null): string {
+  return value && (TEMPLATE_IDS as readonly string[]).includes(value)
+    ? value
+    : "clinical";
+}
+
+const TIERS = ["T1", "T2", "T3"] as const;
+type Tier = (typeof TIERS)[number];
+
+const TIER_DOT: Record<Tier, string> = {
+  T1: "bg-tier-1",
+  T2: "bg-tier-2",
+  T3: "bg-tier-3",
+};
+
+const TIER_LABEL: Record<Tier, string> = {
+  T1: "Tier 1 — primary / regulatory",
+  T2: "Tier 2 — peer-reviewed / guidelines",
+  T3: "Tier 3 — reputable secondary",
+};
+
+function prettyDomain(url: string): string {
+  return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function TierCard({
+  tier,
+  domains,
+  minRequired,
+}: {
+  tier: Tier;
+  domains: string[];
+  minRequired: number;
+}) {
+  return (
+    <div className="border-border bg-card shadow-card flex flex-col gap-3 rounded-xl border p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className={`${TIER_DOT[tier]} inline-block h-2.5 w-2.5 rounded-full`}
+          />
+          <span className="text-foreground text-sm font-semibold">
+            {TIER_LABEL[tier]}
+          </span>
+        </div>
+        <span
+          className={
+            minRequired > 0
+              ? "border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
+              : "text-muted-foreground text-[10px] font-medium tracking-wide uppercase"
+          }
+        >
+          {minRequired > 0 ? `min ${minRequired} required` : "no minimum"}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {domains.map((d) => (
+          <li
+            key={d}
+            className="text-muted-foreground font-mono text-xs break-all"
+          >
+            {prettyDomain(d)}
+          </li>
+        ))}
+        {domains.length === 0 && (
+          <li className="text-muted-foreground text-xs">
+            No curated domains for this tier.
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function SourceReviewContent() {
+  const searchParams = useSearchParams();
+  const question = (searchParams.get("q") ?? "").trim();
+  const templateId = asTemplateId(searchParams.get("template"));
+
+  const [template, setTemplate] = useState<TemplateContent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Bump to re-run the fetch effect (the ErrorState retry); the reset lives in
+  // the handler, not the effect, so no synchronous setState-in-effect.
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((templates) => {
+        if (cancelled) return;
+        const match = templates.find((t) => t.template_id === templateId);
+        if (match) {
+          setTemplate(match);
+        } else {
+          setError(
+            `No source-set definition found for the "${templateId}" template.`,
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError(
+            "We couldn't load the source set right now. Please retry shortly.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId, reloadKey]);
+
+  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+
+  return (
+    <section
+      data-testid="source-review-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      {/* I-ux-001c sub-PR 4 (#887): v6 marketing-auth chrome. Brand-red
+          eyebrow + display H1 + tightened subtitle. Edit-question link
+          moved to the eyebrow row (right side) so it remains accessible
+          but doesn't lead the page. Rest of the page (TierCards, error
+          state, loading state, retry, no-question fallback link, Continue
+          CTA) preserved verbatim per brief iter-3 APPROVE. */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <span
+            data-testid="source-review-eyebrow"
+            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+          >
+            SOURCES · POLARIS CLINICAL RESEARCH
+          </span>
+          <Link
+            data-testid="source-review-edit-question-link"
+            href={`/intake?q=${encodeURIComponent(question)}`}
+            className="text-muted-foreground hover:text-foreground text-xs"
+          >
+            ← Edit question
+          </Link>
+        </div>
+        <h1
+          data-testid="source-review-h1"
+          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+        >
+          Review the sources POLARIS will check.
+        </h1>
+        <p
+          data-testid="source-review-subtitle"
+          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
+        >
+          What POLARIS will check for this question — and the per-tier evidence
+          bar the corpus must clear before any claim is written.
+        </p>
+      </div>
+
+      {question && (
+        <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-4">
+          <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+            Your question
+          </span>
+          <p className="text-foreground text-base">{question}</p>
+          <span className="text-muted-foreground text-xs">
+            Template:{" "}
+            <span className="text-foreground font-medium">{templateId}</span>
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <ErrorState
+          title="Couldn't load the source set"
+          message={error}
+          onRetry={() => {
+            setError(null);
+            setTemplate(null);
+            setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
+
+      {!template && !error && (
+        <LoadingState label="Loading the source set…" rows={5} />
+      )}
+
+      {template && (
+        <>
+          <div className="flex flex-col gap-3">
+            <h2 className="text-foreground text-sm font-semibold">
+              Source tiers POLARIS will search
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {TIERS.map((tier) => (
+                <TierCard
+                  key={tier}
+                  tier={tier}
+                  domains={template.source_tiers[tier] ?? []}
+                  minRequired={template.min_sources_per_tier[tier] ?? 0}
+                />
+              ))}
+            </div>
+          </div>
+
+          {template.frame_manifest.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h2 className="text-foreground text-sm font-semibold">
+                What the brief will cover
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {template.frame_manifest.map((frame) => (
+                  <span
+                    key={frame.frame_id}
+                    className="border-border text-muted-foreground rounded-full border px-2.5 py-1 text-xs"
+                  >
+                    {frame.frame_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* HONEST framing — the page shows the curated source DEFINITION + the
+              adequacy bar, NOT a retrieved corpus. Retrieval happens in the run.
+              I-p2-026 (#765): bg-card (white), not bg-muted/40 — muted-foreground
+              text on the muted tint failed WCAG 2.2 AA contrast (axe serious). */}
+          <div className="border-border bg-card shadow-card flex flex-col gap-1 rounded-xl border p-4">
+            <span className="text-foreground text-xs font-semibold">
+              How sources are gathered
+            </span>
+            <p className="text-muted-foreground text-xs">
+              These are the curated source domains and per-tier minimums for the{" "}
+              <span className="text-foreground font-medium">
+                {template.template_name}
+              </span>{" "}
+              template. POLARIS retrieves the actual corpus during the run and{" "}
+              <span className="text-foreground">
+                aborts at the adequacy gate
+              </span>{" "}
+              if any tier falls below its minimum — so scope is enforced, not
+              assumed.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              nativeButton={false}
+              render={<Link href={planHref} />}
+              disabled={!question}
+            >
+              Continue to plan review →
+            </Button>
+            {!question && (
+              <span className="text-muted-foreground text-xs">
+                Start from a question on{" "}
+                <Link className="text-primary underline" href="/intake">
+                  Intake
+                </Link>
+                .
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+export default function SourceReviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <SourceReviewContent />
+    </Suspense>
+  );
+}
+
+
+ succeeded in 1827ms:
+// I-ux-001c sub-PR 4 (GH #887): e2e Playwright for the v6 /source_review
+// chrome rebuild.
+//
+// Asserts the spec from `.codex/I-ux-001c-4/brief.md` iter-3 APPROVE:
+//   - Brand-red eyebrow + display H1 + tightened subtitle render
+//   - Edit-question link sits in the eyebrow row and still navigates to
+//     /intake?q=<encoded> (preserves back-link behavior)
+//
+// Per the iter-2 P2 fix: mocks GET /api/v6/templates so the auth-gated
+// listTemplates fetch doesn't race with header-link assertions.
+import { expect, test } from "@playwright/test";
+
+const SOURCE_REVIEW_PATH =
+  "/source_review?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F&template=clinical";
+
+// Minimal valid TemplateContent shape so listTemplates resolves without
+// the auth-gated backend call. Mirrors the shape from
+// config/v6_templates/clinical.json (id + per-tier source-domain lists +
+// min_sources_per_tier). The exact contents don't matter for chrome
+// assertions; they just need to render without errors.
+const FAKE_TEMPLATE = {
+  id: "clinical",
+  display_name: "Clinical drug audit",
+  source_set: {
+    T1: { domains: ["nejm.org", "thelancet.com"], min_sources_per_tier: 2 },
+    T2: { domains: ["cochranelibrary.com"], min_sources_per_tier: 1 },
+    T3: { domains: ["uptodate.com"], min_sources_per_tier: 0 },
+  },
+};
+
+test.describe("I-ux-001c · Source Review v6 chrome", () => {
+  test.beforeEach(async ({ page }) => {
+    // Mock the templates endpoint so the page renders without hitting
+    // the real auth-gated backend.
+    await page.route("**/api/v6/templates**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ templates: [FAKE_TEMPLATE] }),
+      });
+    });
+  });
+
+  test("eyebrow + H1 + subtitle render with v6 copy", async ({ page }) => {
+    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("source-review-page")).toBeVisible();
+    await expect(page.getByTestId("source-review-eyebrow")).toContainText(
+      /SOURCES.*POLARIS CLINICAL RESEARCH/i,
+    );
+    await expect(page.getByTestId("source-review-h1")).toContainText(
+      "Review the sources POLARIS will check",
+    );
+    await expect(page.getByTestId("source-review-subtitle")).toContainText(
+      /per-tier evidence bar the corpus must clear before any claim is written/i,
+    );
+  });
+
+  test("Edit-question link still navigates to /intake?q=<encoded>", async ({
+    page,
+  }) => {
+    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
+    const link = page.getByTestId("source-review-edit-question-link");
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute(
+      "href",
+      "/intake?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F",
+    );
+  });
+});
+
+
+ succeeded in 2177ms:
+ succeeded in 2531ms:
+web/app/source_review/page.tsx
+web/tests/e2e/source_review_v6.spec.ts
+
+codex
+One thing needs verification: the mocked template shape in the new test does not match the fields consumed directly in `page.tsx`, unless `listTemplates()` normalizes it. I’m reading that API helper now before deciding whether this is a test-only blocker.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/lib/api.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/tests/e2e/axe_smoke.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "listTemplates|TemplateContent|source_tiers|min_sources_per_tier|/api/v6/templates" web config -S' in C:\POLARIS
+ succeeded in 1064ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
+  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
+  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
+  // successful run from an aborted one — pipeline_status is required to render
+  // a completed run honestly (an aborted run must NOT show as success).
+  pipeline_status?: string | null;
+  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  // page show a cancel as in-flight before an in-progress run transitions.
+  cancel_requested?: boolean;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+/**
+ * Thrown by createRun when POST /runs is rejected by the 1-concurrent-session
+ * constraint (I-rdy-013): a research run is already queued or in progress.
+ */
+export class ConcurrentRunError extends Error {
+  readonly activeRunId: string;
+  readonly activeStatus: string;
+  constructor(message: string, activeRunId: string, activeStatus: string) {
+    super(message);
+    this.name = "ConcurrentRunError";
+    this.activeRunId = activeRunId;
+    this.activeStatus = activeStatus;
+  }
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 409) {
+    // Read the body exactly once, then unwrap FastAPI's { detail: {...} }
+    // envelope. The 1-concurrent-session reject carries a structured detail;
+    // any other 409 falls through to a generic ApiError.
+    const body = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    const detail = (body?.detail ?? body) as {
+      code?: string;
+      message?: string;
+      active_run_id?: string;
+      active_status?: string;
+    } | null;
+    if (detail && detail.code === "concurrent_run_active") {
+      throw new ConcurrentRunError(
+        detail.message ?? "A research run is already in progress.",
+        detail.active_run_id ?? "",
+        detail.active_status ?? "in_progress",
+      );
+    }
+    const error = new Error("POLARIS backend returned 409") as ApiError;
+    error.status = 409;
+    error.body = body;
+    throw error;
+  }
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-rdy-011 (#507): request cancellation of a run. A queued run cancels
+// instantly; an in-progress run aborts cooperatively at the next pipeline
+// stage boundary. Already-terminal runs are an idempotent no-op.
+export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-ui-003 (#542): report-scoped follow-up. Mirrors FollowUpAnswer in
+// src/polaris_v6/followup/schema.py. POST /runs/{id}/followup is real-run
+// wired (#680): 422 for aborted/release-blocked, 404 for unknown id.
+export type FollowUpStatus =
+  | "answered"
+  | "out_of_scope"
+  | "needs_new_run"
+  | "evidence_insufficient";
+
+export interface FollowUpAnswer {
+  parent_run_id: string;
+  question: string;
+  status: FollowUpStatus;
+  answer_text: string | null;
+  used_evidence_ids: string[];
+  provenance_tokens: string[];
+  rationale: string;
+}
+
+export async function askFollowup(
+  runId: string,
+  question: string,
+): Promise<FollowUpAnswer> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/followup`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question }),
+    },
+  );
+  return asJsonOrThrow<FollowUpAnswer>(response);
+}
+
+// I-ui-004 (#543): two-run compare. Mirrors ReportComparison in
+// src/polaris_v6/compare/differ.py. GET /runs/{l}/compare/{r}: 400 if same
+// run, 422 abort/release-blocked, 404 unknown (real-run wired #680).
+export interface ReportComparison {
+  left_run_id: string;
+  right_run_id: string;
+  same_template: boolean;
+  same_question: boolean;
+  shared_evidence_ids: string[];
+  only_left_evidence_ids: string[];
+  only_right_evidence_ids: string[];
+  shared_evidence_pct: number;
+  frame_coverage_overlap: string[];
+  only_left_frames: string[];
+  only_right_frames: string[];
+  left_contradictions: number;
+  right_contradictions: number;
+  pipeline_status_match: boolean;
+  family_segregation_both_pass: boolean;
+}
+
+export async function listCompletedRuns(
+  limit = 20,
+): Promise<RunStatusResponse[]> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs?status=completed&limit=${limit}`,
+  );
+  return asJsonOrThrow<RunStatusResponse[]>(response);
+}
+
+export async function compareRuns(
+  left: string,
+  right: string,
+): Promise<ReportComparison> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(left)}/compare/${encodeURIComponent(right)}`,
+  );
+  return asJsonOrThrow<ReportComparison>(response);
+}
+
+// I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
+// Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
+export interface PinSnapshot {
+  run_id: string;
+  pin_date: string;
+  query: string;
+  verdict: "success" | "abort_no_verified_sections";
+  section_count_kept: number;
+  section_count_dropped: number;
+  verified_sentence_count: number;
+  pass_rate: number;
+  retracted_source_ids?: string[] | null;
+}
+
+export async function fetchPinList(runId: string): Promise<PinSnapshot[]> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins`,
+  );
+  return asJsonOrThrow<PinSnapshot[]>(response);
+}
+
+export async function fetchPin(
+  runId: string,
+  date: string,
+): Promise<PinSnapshot> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins/${encodeURIComponent(date)}`,
+  );
+  return asJsonOrThrow<PinSnapshot>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await authFetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await authFetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(streamUrl(runId));
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    // I-ui-002 (#707): evidence_id drives the retrieval source feed +
+    // sources-read counter; it was previously emitted by the backend but
+    // never listened for here, so those SSE events were silently dropped.
+    "evidence_id",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+  evaluator_disagreement?: EvaluatorDisagreement | null;
+}
+
+export interface EvaluatorDisagreement {
+  generator_reading: string;
+  evaluator_reading: string;
+  cited_sources: string[];
+  evaluator_model: string;
+}
+
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
+    | "copyrighted_span_in_bundle"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+    super(body.message);
+    this.name = "AuditBundleError";
+    this.code = body.code;
+    this.report_id = body.report_id;
+  }
+}
+
+/**
+ * Build + download a GPG-signed audit bundle for the given research chain.
+ *
+ * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
+ * with a structured error body, throws AuditBundleError with the .code
+ * field set so callers can show specific UX (e.g. "GPG signer not
+ * configured" vs "report verdict not success").
+ */
+export async function downloadAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<Blob> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Audit bundle request failed: HTTP ${response.status}`);
+  }
+  return await response.blob();
+}
+
+export interface BundlePreviewByContentType {
+  count: number;
+  bytes: number;
+}
+
+export interface BundlePreviewResponse {
+  preview_bundle_id: string;
+  generator_model: string;
+  polaris_version: string;
+  file_count: number;
+  total_bytes: number;
+  content_type_breakdown: Record<string, BundlePreviewByContentType>;
+}
+
+export async function previewAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<BundlePreviewResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Bundle preview request failed: HTTP ${response.status}`);
+  }
+  return (await response.json()) as BundlePreviewResponse;
+}
+
+export interface AuditBundleHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  signing_backend: string;
+}
+
+export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/health`);
+  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 005 — BEAT-BOTH benchmark
+// Mirrors src/polaris_graph/api/benchmark_route.py +
+// src/polaris_graph/benchmark/beat_both_scorer.py.
+// ---------------------------------------------------------------------------
+
+export type BenchmarkDimension =
+  | "sourcing_tier_mix"
+  | "numeric_grounding"
+  | "provenance_density"
+  | "refusal_correctness"
+  | "coverage_completeness"
+  | "latency"
+  | "auditability";
+
+export interface BenchmarkSystemScores {
+  system: string;
+  by_dimension: Record<BenchmarkDimension, number | null>;
+  evidence: Record<BenchmarkDimension, string[]>;
+}
+
+export interface BenchmarkQuestionScores {
+  question_id: string;
+  question_text: string;
+  is_refusal_bait: boolean;
+  polaris: BenchmarkSystemScores;
+  chatgpt: BenchmarkSystemScores;
+  gemini: BenchmarkSystemScores;
+}
+
+export interface BenchmarkAggregateScoreboard {
+  polaris_mean: Record<BenchmarkDimension, number | null>;
+  chatgpt_mean: Record<BenchmarkDimension, number | null>;
+  gemini_mean: Record<BenchmarkDimension, number | null>;
+  n_questions: number;
+}
+
+export interface BenchmarkScoreboard {
+  benchmark_id: string;
+  ran_at_utc: string;
+  per_question: BenchmarkQuestionScores[];
+  aggregate: BenchmarkAggregateScoreboard;
+  polaris_wins: number;
+  external_wins: number;
+  ties: number;
+}
+
+export interface BenchmarkHealthResponse {
+  status: "ok";
+  slice: string;
+  results_root: string | null;
+  available_benchmarks: string[];
+}
+
+export const BENCHMARK_DIMENSION_LABELS: Record<BenchmarkDimension, string> = {
+  sourcing_tier_mix: "Sourcing tier mix",
+  numeric_grounding: "Numeric grounding",
+  provenance_density: "Provenance density",
+  refusal_correctness: "Refusal correctness",
+  coverage_completeness: "Coverage completeness",
+  latency: "Latency",
+  auditability: "Auditability",
+};
+
+export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+  "sourcing_tier_mix",
+  "numeric_grounding",
+  "provenance_density",
+  "refusal_correctness",
+  "coverage_completeness",
+  "latency",
+  "auditability",
+];
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
+export type MemoryKind =
+  | "user_preference"
+  | "domain_assumption"
+  | "prior_run_summary"
+  | "rejected_source"
+  | "preferred_source";
+
+export interface MemoryEntry {
+  entry_id: string;
+  workspace_id: string;
+  kind: MemoryKind;
+  content: string;
+  created_at: string;
+  last_used_at?: string | null;
+  use_count: number;
+  derived_from_run_ids: string[];
+}
+
+const _ws = (ws: string) =>
+  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+
+export async function listMemory(ws: string): Promise<MemoryEntry[]> {
+  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+}
+
+export async function rememberMemory(
+  ws: string,
+  payload: {
+    kind: MemoryKind;
+    content: string;
+    derived_from_run_ids?: string[];
+  },
+): Promise<MemoryEntry> {
+  return asJsonOrThrow<MemoryEntry>(
+    await authFetch(_ws(ws), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function forgetMemory(
+  ws: string,
+  entry_id: string,
+): Promise<void> {
+  const r = await authFetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 404)
+    throw new Error(`forget memory failed: HTTP ${r.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// F-snowball graph (I-snowball-002 backend + I-snowball-003a frontend).
+// Cytoscape-format graph payload mirroring src/polaris_graph/api/graph_route.py.
+// ---------------------------------------------------------------------------
+
+export type GraphNodeType = "sentence" | "source" | "section" | "frame";
+export type GraphEdgeType = "cites" | "contradicts" | "section_member";
+export type GraphTier = "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7";
+export type GraphFrameStatus = "pass" | "partial" | "fail";
+
+export interface GraphNodeData {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  tier?: GraphTier;
+  sentence_text?: string;
+  source_url?: string;
+  section_title?: string;
+  frame_status?: GraphFrameStatus;
+  classes?: string;
+}
+
+export interface GraphPosition {
+  x: number;
+  y: number;
+}
+
+export interface GraphNode {
+  data: GraphNodeData;
+  position?: GraphPosition | null;
+}
+
+export interface GraphEdgeData {
+  id: string;
+  source: string;
+  target: string;
+  edge_type: GraphEdgeType;
+}
+
+export interface GraphEdge {
+  data: GraphEdgeData;
+}
+
+export interface GraphDiagnostics {
+  bibliography_count: number;
+  fallback_source_count: number;
+  missing_reference_occurrence_count: number;
+  referenced_unknown_evidence_ids: string[];
+}
+
+export interface GraphPayload {
+  elements: { nodes: GraphNode[]; edges: GraphEdge[] };
+  run_id: string;
+  elements_hash: string;
+  diagnostics: GraphDiagnostics;
+  schema_version: "1.0";
+}
+
+export async function getRunGraph(runId: string): Promise<GraphPayload> {
+  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(
+      `getRunGraph(${runId}) HTTP ${res.status}: ${body}`,
+    ) as ApiError;
+    err.status = res.status;
+    throw err;
+  }
+  return res.json() as Promise<GraphPayload>;
+}
+
+// ---------------------------------------------------------------------------
+// I-rdy-008 (#504) slice 2 — live-run AuditIR client.
+// Mirrors the to_json_dict() projection of the AuditIR dataclass tree in
+// src/polaris_graph/audit_ir/loader.py. The canonical faithful shape for the
+// rich UI surfaces (Option A, Codex arch-decision consult): raw T1-T7 tiers,
+// range-keyed evidence-span tokens, no EvidenceContract coercion. The UI
+// migration off getBundle()/EvidenceContract is slice 3.
+// ---------------------------------------------------------------------------
+
+export interface AuditIrEvidenceSpanToken {
+  evidence_id: string;
+  start: number;
+  end: number;
+}
+
+export interface AuditIrBibliographyEntry {
+  num: number;
+  evidence_id: string;
+  statement: string;
+  tier: string;
+  url: string;
+}
+
+export interface AuditIrSentence {
+  claim_id: string;
+  section: string;
+  text: string;
+  tokens: AuditIrEvidenceSpanToken[];
+  is_verified: boolean;
+  failure_reasons: string[];
+}
+
+export interface AuditIrSection {
+  title: string;
+  kept_count: number;
+  dropped_count: number;
+  total_in: number;
+  dropped_due_to_failure: number;
+  sentences: AuditIrSentence[];
+}
+
+export interface AuditIrVerifiedReport {
+  sections: AuditIrSection[];
+  sentences_verified: number;
+  sentences_dropped: number;
+  drop_reason_counts: Record<string, number>;
+}
+
+export interface AuditIrContradictionClaim {
+  evidence_id: string;
+  subject: string;
+  predicate: string;
+  arm: string;
+  dose: string;
+  value: number;
+  unit: string;
+  source_tier: string;
+  source_url: string;
+  context_snippet: string;
+  endpoint_phrase: string;
+}
+
+export interface AuditIrContradictionCluster {
+  cluster_id: number;
+  subject: string;
+  predicate: string;
+  severity: string;
+  absolute_difference: number;
+  relative_difference: number;
+  recommended_action: string;
+  claims: AuditIrContradictionClaim[];
+}
+
+export interface AuditIrRetrievalAttempt {
+  attempt_index: number;
+  source: string;
+  url: string;
+  outcome: string;
+  http_status: number | null;
+}
+
+export interface AuditIrFrameCoverageEntry {
+  entity_id: string;
+  entity_type: string;
+  section: string;
+  slot_id: string;
+  subsection_title: string;
+  status: string;
+  doi: string | null;
+  pmid: string | null;
+  failure_reason: string | null;
+  available_artifacts: string[];
+  required_fields: string[];
+  min_fields_for_completion: number;
+  provenance_class: string;
+  human_completion_eligible: boolean;
+  human_curated_provenance: string | null;
+  is_pipeline_fault: boolean;
+  retrieval_attempt_log: AuditIrRetrievalAttempt[];
+}
+
+export interface AuditIrFrameCoverageReport {
+  pass_count: number;
+  partial_count: number;
+  frame_gap_count: number;
+  pipeline_fault_count: number;
+  total_entities: number;
+  total_slots: number;
+  research_question: string;
+  schema_version: string;
+  semantics_warning: string | null;
+  entries: AuditIrFrameCoverageEntry[];
+}
+
+export interface AuditIrTierMix {
+  fractions: Record<string, number>;
+  corpus_count: number;
+  approved: boolean;
+  material_deviation: boolean;
+}
+
+export interface AuditIrEvaluatorGate {
+  gate_class: string;
+  release_allowed: boolean;
+  reasons: string[];
+  rule_blockers: string[];
+  judge_critical_axes: string[];
+  judge_parse_ok: boolean;
+}
+
+export interface AuditIrRetrievalStats {
+  pre_filter: number;
+  fetched: number;
+  failed: number;
+  by_provider: Record<string, number>;
+  queries: string[];
+}
+
+export interface AuditIrManifest {
+  run_id: string;
+  slug: string;
+  status: string;
+  question: string;
+  protocol_sha256: string;
+  cost_usd: number;
+  budget_cap_usd: number;
+  word_count: number;
+  sentences_verified: number;
+  sentences_dropped: number;
+  contradictions_found: number;
+  completeness_percent: number;
+  evaluator_gate: AuditIrEvaluatorGate;
+  release_allowed: boolean;
+  v30_enabled: boolean;
+  v30_warnings: string[];
+  retrieval_stats: AuditIrRetrievalStats | null;
+}
+
+export interface AuditIrRuleCheck {
+  item_id: string;
+  name: string;
+  passed: boolean;
+  details: string;
+}
+
+export interface AuditIrModelProvenance {
+  generator_family: string;
+  generator_model: string;
+  evaluator_family: string;
+  evaluator_model: string;
+  judge_model: string;
+  judge_parse_ok: boolean;
+  judge_input_tokens: number;
+  judge_output_tokens: number;
+  contradictions_disclosed: number;
+  contradictions_missing: string[];
+  rule_checks: AuditIrRuleCheck[];
+}
+
+export interface AuditIrTierExpectation {
+  tier: string;
+  min_fraction: number;
+  max_fraction: number;
+  rationale: string;
+}
+
+export interface AuditIrProtocolMetadata {
+  research_question: string;
+  created_at_iso: string;
+  created_at_unix: number;
+  scope_decision: string;
+  expected_tier_distribution: AuditIrTierExpectation[];
+}
+
+export interface AuditIrAdequacyGate {
+  decision: string;
+  findings_ok: number;
+  findings_total: number;
+  critical_count: number;
+}
+
+export interface AuditIrCorpusApprovalGate {
+  approved: boolean;
+  decision_at_iso: string;
+  user_note: string;
+  approved_count: number;
+  rejected_count: number;
+}
+
+/** The full faithful AuditIR for one completed run — the canonical shape. */
+export interface AuditIrRun {
+  ir_schema_version: string;
+  run_id: string;
+  artifact_dir: string;
+  report_md: string;
+  manifest: AuditIrManifest;
+  bibliography: AuditIrBibliographyEntry[];
+  contradictions: AuditIrContradictionCluster[];
+  frame_coverage: AuditIrFrameCoverageReport;
+  tier_mix: AuditIrTierMix;
+  verified_report: AuditIrVerifiedReport;
+  model_provenance: AuditIrModelProvenance | null;
+  protocol: AuditIrProtocolMetadata | null;
+  adequacy: AuditIrAdequacyGate | null;
+  corpus_approval: AuditIrCorpusApprovalGate | null;
+}
+
+/**
+ * Fetch the faithful AuditIR for a completed run from the v6 live-inspector
+ * route (I-rdy-008 slice 1, `GET /api/inspector/runs/{run_id}`). Throws an
+ * ApiError on 404 (unknown run), 409 (not completed), or 422 (abort/error run
+ * or unloadable artifact_dir).
+ */
+export async function getAuditRun(runId: string): Promise<AuditIrRun> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}`,
+  );
+  return asJsonOrThrow<AuditIrRun>(response);
+}
+
+/**
+ * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+ * The exact `body[start:end]` slice from `evidence_pool.json` (the auditable
+ * source text behind a claim). `tier` is the raw T1-T7/UNKNOWN string — not
+ * coerced. A single `evidence_id` may appear in multiple spans (ranges).
+ */
+export interface AuditIrEvidenceSpan {
+  evidence_id: string;
+  span_start: number;
+  span_end: number;
+  span_text: string;
+  tier: string;
+  source_url: string;
+  claim_ids: string[];
+}
+
+/** The verified evidence spans for one completed run. */
+export interface AuditIrEvidenceResponse {
+  run_id: string;
+  spans: AuditIrEvidenceSpan[];
+}
+
+/**
+ * Fetch the verified evidence spans for a completed run from the v6
+ * live-inspector route (I-rdy-008 slice 7a,
+ * `GET /api/inspector/runs/{run_id}/evidence`). Throws an ApiError on 404
+ * (unknown run), 409 (not completed), or 422 (abort/error run, unloadable
+ * artifact, or no evidence_pool.json — the route fails loud, never degrading
+ * to a bibliography statement).
+ */
+export async function getInspectorEvidence(
+  runId: string,
+): Promise<AuditIrEvidenceResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}/evidence`,
+  );
+  return asJsonOrThrow<AuditIrEvidenceResponse>(response);
+}
+
+
+2026-05-25T07:24:09.788193Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.4 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw web/tests/e2e/axe_smoke.spec.ts[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\web\tests\e2e\axe_smoke.spec.ts' because it does not exist.[0m
+
+ exited 1 in 1435ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw web/tests/e2e/axe_smoke.spec.ts[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\web\tests\e2e\axe_smoke.spec.ts' because it does not exist.[0m
+
+ succeeded in 1728ms:
+config\v6_templates\canada_us.json:6:  "source_tiers": {
+config\v6_templates\canada_us.json:27:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\ai_sovereignty.json:6:  "source_tiers": {
+config\v6_templates\ai_sovereignty.json:27:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\due_diligence.json:6:  "source_tiers": {
+config\v6_templates\due_diligence.json:25:  "min_sources_per_tier": { "T1": 2, "T2": 2, "T3": 0 },
+config\v6_templates\tech.json:6:  "source_tiers": {
+config\v6_templates\tech.json:25:  "min_sources_per_tier": { "T1": 3, "T2": 1, "T3": 0 },
+config\v6_templates\policy.json:6:  "source_tiers": {
+config\v6_templates\policy.json:26:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\workforce.json:6:  "source_tiers": {
+config\v6_templates\workforce.json:27:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+config\v6_templates\custom.json:6:  "source_tiers": {
+config\v6_templates\custom.json:17:  "min_sources_per_tier": { "T1": 0, "T2": 0, "T3": 0 },
+config\v6_templates\clinical.json:6:  "source_tiers": {
+config\v6_templates\clinical.json:25:  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+web\app\source_review\page.tsx:8:// LAW II — data source: `listTemplates()` → GET /api/v6/templates, served from
+web\app\source_review\page.tsx:10:// min_sources_per_tier). The endpoint is live (auth-gated; runs authenticated
+web\app\source_review\page.tsx:23:import { listTemplates, type TemplateContent } from "@/lib/api";
+web\app\source_review\page.tsx:116:  const [template, setTemplate] = useState<TemplateContent | null>(null);
+web\app\source_review\page.tsx:124:    listTemplates()
+web\app\source_review\page.tsx:232:                  domains={template.source_tiers[tier] ?? []}
+web\app\source_review\page.tsx:233:                  minRequired={template.min_sources_per_tier[tier] ?? 0}
+web\lib\api.ts:346:  intended_source_tiers: ("T1" | "T2" | "T3")[];
+web\lib\api.ts:395:export interface TemplateContent {
+web\lib\api.ts:400:  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+web\lib\api.ts:401:  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+web\lib\api.ts:408:export async function listTemplates(): Promise<TemplateContent[]> {
+web\lib\api.ts:410:  return asJsonOrThrow<TemplateContent[]>(response);
+web\tests\a11y\wcag_axe_scan.mjs:61:    routes: [{ glob: "**/api/v6/templates", body: templatesFixture }],
+web\tests\e2e\source_review_v6.spec.ts:9:// Per the iter-2 P2 fix: mocks GET /api/v6/templates so the auth-gated
+web\tests\e2e\source_review_v6.spec.ts:10:// listTemplates fetch doesn't race with header-link assertions.
+web\tests\e2e\source_review_v6.spec.ts:16:// Minimal valid TemplateContent shape so listTemplates resolves without
+web\tests\e2e\source_review_v6.spec.ts:19:// min_sources_per_tier). The exact contents don't matter for chrome
+web\tests\e2e\source_review_v6.spec.ts:25:    T1: { domains: ["nejm.org", "thelancet.com"], min_sources_per_tier: 2 },
+web\tests\e2e\source_review_v6.spec.ts:26:    T2: { domains: ["cochranelibrary.com"], min_sources_per_tier: 1 },
+web\tests\e2e\source_review_v6.spec.ts:27:    T3: { domains: ["uptodate.com"], min_sources_per_tier: 0 },
+web\tests\e2e\source_review_v6.spec.ts:35:    await page.route("**/api/v6/templates**", async (route) => {
+
+codex
+The implementation still preserves the page logic, but the new Playwright fixture is shaped like neither `TemplateContent[]` nor the current `/api/v6/templates` client contract. I’m going to run the requested checks anyway, then classify that against the diff-review bar.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git branch -vv' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw config/v6_templates/clinical.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/package.json' in C:\POLARIS
+2026-05-25T07:24:30.302334Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw package.json[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\package.json' because it does not exist.[0m
+
+ exited 1 in 1332ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw package.json[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\package.json' because it does not exist.[0m
+
+ succeeded in 1776ms:
+  PL                                           d638446a PL: Patches C+D — bibliography-layer SOTA adoption (FDA/EMA setid + OpenAlex)
+  bot/I-anti-001                               9d4a12be [origin/bot/I-anti-001] I-anti-001: align canonical-diff-sha256 to CI
+  bot/I-anti-002                               91998562 [origin/bot/I-anti-002] I-anti-002: align canonical-diff-sha256 to CI
+  bot/I-anti-003                               ab0b5965 [origin/bot/I-anti-003] I-anti-003: CI gate at <5% mean stance-delta on 20 paired prompts
+  bot/I-anti-004                               6de4253c [origin/bot/I-anti-004] I-anti-004: Nightly anti-sycophancy eval as Dramatiq actor
+  bot/I-arch-001a-run-store-schema             0a502d00 [origin/bot/I-arch-001a-run-store-schema] I-arch-001a: Codex diff APPROVE iter 3 + claude_audit + canonical diff
+  bot/I-arch-001b-v30-contract-synthesizer     52b63b68 [origin/bot/I-arch-001b-v30-contract-synthesizer] I-arch-001b: Codex brief APPROVE iter 5 + diff APPROVE iter 1 artifacts
+  bot/I-arch-001c-scope-domain-mapping         cac58104 [origin/bot/I-arch-001c-scope-domain-mapping] I-arch-001c: Codex brief APPROVE iter 1 + diff APPROVE iter 1 artifacts
+  bot/I-arch-001d-slice-chain-bridge           8ec3c6e6 [origin/bot/I-arch-001d-slice-chain-bridge] I-arch-001d: Codex brief APPROVE iter 4 + diff APPROVE iter 3 artifacts
+  bot/I-arch-001e-sse-redis-streams            670d07d6 [origin/bot/I-arch-001e-sse-redis-streams] I-arch-001e — SSE Redis Streams + Last-Event-ID + terminal events
+  bot/I-arch-001f-e2e-pinned-fixture           639493f3 [origin/bot/I-arch-001f-e2e-pinned-fixture] I-arch-001f — e2e capstone test pinning POST → stream → resume → bundle
+  bot/I-bakeoff-A-001                          b968a013 [origin/bot/I-bakeoff-A-001] I-bakeoff-A-001: trailer (#365) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-beat-001                               c2eee661 [origin/bot/I-beat-001] I-beat-001 (#400): final codex_diff.patch after trajectory commit
+  bot/I-beat-001-q1-competitor-dr              bfbabd8b [origin/bot/I-beat-001-q1-competitor-dr] I-beat-001 Q1: first measured BEAT-BOTH datapoint
+  bot/I-beat-002-iter12                        9eec26d8 I-beat-002 iter12: cross-reviews 41-45 — 5/5 AGREE, POLARIS-Q5 at 93.3%
+  bot/I-beat-002-iter13                        48ffa670 I-beat-002 iter13: cross-reviews 46-50 — extend audit to all 5 Carney questions
+  bot/I-beat-002-iter14                        c25e8c04 I-beat-002 iter14: cross-reviews 51-55 — POLARIS 80% Codex-verified across 35 Carney claims, 0 fabrications
+  bot/I-bench-001                              0ffb80ac [origin/bot/I-bench-001] I-bench-001: align canonical-diff-sha256 to CI
+  bot/I-bench-002                              c60146f3 [origin/bot/I-bench-002] I-bench-002: trailer (#195) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-084                                d7026ecb [origin/bot/I-bug-084] I-bug-084: align canonical-diff-sha256 to CI
+  bot/I-bug-086-deepseek-v4-pro                a347847a [origin/bot/I-bug-086-deepseek-v4-pro] I-bug-086: Default generator → DeepSeek V4 Pro on OpenRouter
+  bot/I-bug-087-gemma-4-31b-evaluator          7d0f390d [origin/bot/I-bug-087-gemma-4-31b-evaluator] I-bug-087: Default evaluator → Gemma 4 31B (Apache 2.0, dense, 256K ctx)
+  bot/I-bug-088-reasoning-first-normalize      1813272d [origin/bot/I-bug-088-reasoning-first-normalize] I-bug-088: add # prefix to canonical-diff-sha256 trailer (CI gate format)
+  bot/I-bug-089-token-budget-aware             d1cee8cb [origin/bot/I-bug-089-token-budget-aware] I-bug-089: add codex_diff.patch + diff review artifacts (CI gate triple)
+  bot/I-bug-090-reasoning-first-section-tokens 2b4ffd96 [origin/bot/I-bug-090-reasoning-first-section-tokens] I-bug-090: floor max_tokens to 6000 for reasoning-first models
+  bot/I-bug-091-revert-generator-v32-exp       ae2cb5eb [origin/bot/I-bug-091-revert-generator-v32-exp] I-bug-091: revert generator default V4 Pro -> V3.2-Exp
+  bot/I-bug-099                                87880b8b [origin/bot/I-bug-099] I-bug-099: codex review artifacts (#353)
+  bot/I-bug-100                                b24127a8 [origin/bot/I-bug-100] I-bug-100: canonical-diff-sha256 trailer for CI gate (#354)
+  bot/I-bug-101                                bd0c9983 [origin/bot/I-bug-101] I-bug-101: trailer (#355) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-102                                55265b97 [origin/bot/I-bug-102] I-bug-102: trailer (#356) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-103                                fdc9ba52 [origin/bot/I-bug-103] I-bug-103: canonical-diff-sha256 trailer (#357)
+  bot/I-bug-104                                14e9bfb1 [origin/bot/I-bug-104] I-bug-104: canonical-diff-sha256 trailer (#358)
+  bot/I-bug-106                                668f2be1 [origin/bot/I-bug-106] I-bug-106: canonical-diff-sha256 trailer (#359)
+  bot/I-bug-107                                61cf6492 [origin/bot/I-bug-107] I-bug-107: canonical-diff-sha256 trailer (#360)
+  bot/I-bug-109                                86d20b94 [origin/bot/I-bug-109] I-bug-109: trailer (#361) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-110                                8bf2633a [origin/bot/I-bug-110] I-bug-110: canonical-diff-sha256 trailer (#362)
+  bot/I-bug-111                                1437b25f [origin/bot/I-bug-111] I-bug-111: canonical-diff-sha256 trailer (#363) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-bug-114-retrieval-timeout              3d3029d5 [origin/bot/I-bug-114-retrieval-timeout] I-bug-114: Codex review artifacts (brief APPROVE iter3, diff APPROVE iter1)
+  bot/I-bug-115-corpus-assembly-timeout        385a86fe [origin/bot/I-bug-115-corpus-assembly-timeout] I-bug-115 (#554): Codex-gated artifacts — brief + diff APPROVE
+  bot/I-bug-116-env-float-finite               d34a4240 [origin/bot/I-bug-116-env-float-finite] I-bug-116 (#556): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-bug-770-synthesis-citation             e0c01281 I-bug-771 (#812): Codex decision (C+D — authoritative floor + content fix + MDPI ceiling + no-stub-laundering) — decision brief + verdict
+  bot/I-carney-002-aws-canada-central          4ebc4059 [origin/bot/I-carney-002-aws-canada-central] I-carney-002 — AWS Canada Central (ca-central-1) infrastructure
+  bot/I-carney-003-sovereignty-transparency    17d63588 [origin/bot/I-carney-003-sovereignty-transparency] I-carney-003 — Sovereignty + transparency endpoint + egress controls
+  bot/I-carney-004-auth-secrets                62f883d0 [origin/bot/I-carney-004-auth-secrets] I-carney-004 — Static_accounts auth + GPG demo signing + AWS Secrets Manager
+  bot/I-carney-005-deploy-substrate            b88cf3d9 [origin/bot/I-carney-005-deploy-substrate] I-carney-005 — Carney v6 deploy substrate (Dockerfile, compose, GPG, broker init)
+  bot/I-carney-007-demo-runbook-signoff        3c2f7a26 [origin/bot/I-carney-007-demo-runbook-signoff] I-carney-007 — Carney demo runbook + transparency + fallback + Codex sign-off
+  bot/I-cd-001-clean-docker-build              8b16b12b [origin/bot/I-cd-001-clean-docker-build] I-cd-001 (#623): add canonical-diff-sha256 trailer to codex_diff.patch
+  bot/I-cd-002                                 b49e1906 [origin/bot/I-cd-002] I-cd-002 (#606): final codex_diff.patch (canonical-diff-sha256 3e3f36f69d80)
+  bot/I-cd-002-followup                        4d7a2841 [origin/bot/I-cd-002-followup] I-cd-002-followup (#606): final codex_diff.patch (a3cfb36da659)
+  bot/I-cd-003                                 943f35e7 [origin/bot/I-cd-003] I-cd-003 (#622): final codex_diff.patch (0728cb69cd9a)
+  bot/I-cd-004                                 a0332750 [origin/bot/I-cd-004] I-cd-004 (#607): regenerate codex_diff.patch after prettier fixup
+  bot/I-cd-005                                 17da990c [origin/bot/I-cd-005] I-cd-005 (#637): final codex_diff.patch (dac083644f28)
+  bot/I-cd-005-followup                        2cb3ea7a [origin/bot/I-cd-005-followup] I-cd-005-followup: final codex_diff.patch (c918d0cb4023)
+  bot/I-cd-006                                 bd0f51cf [origin/bot/I-cd-006] I-cd-006 (#638): final codex_diff.patch (a69a5c55c0e9)
+  bot/I-cd-007                                 dd315f0c [origin/bot/I-cd-007] I-cd-007 (#639): final codex_diff.patch (0e525a6ca880)
+  bot/I-cd-008                                 af5e7819 [origin/bot/I-cd-008] I-cd-008 (#640): final codex_diff.patch (3626ef27bde9)
+  bot/I-cd-680-evidencecontract-real-runs      9f8229e1 [origin/bot/I-cd-680-evidencecontract-real-runs: behind 3] I-cd-680 (GH#680): pin Codex artifacts (APPROVE iter 2 + MERGE AUTHORIZED)
+  bot/I-cd-705-runs-list-endpoint              3fc1923a [origin/bot/I-cd-705-runs-list-endpoint: behind 3] I-cd-705 (GH#705): pin Codex artifacts (APPROVE iter 1 + MERGE AUTHORIZED)
+  bot/I-cd-ui-001-frontier-design-overhaul     93b98970 [origin/bot/I-cd-ui-001-frontier-design-overhaul] I-cd-ui-001 (GH#704): frontier-research-tool home redesign (Perplexity-style)
+  bot/I-cj-001                                 a6b19a08 [origin/bot/I-cj-001] I-cj-001: Crown Jewel binding test — two-family evaluator segregation
+  bot/I-cj-002                                 cc5f1061 [origin/bot/I-cj-002] I-cj-002: Crown Jewel binding test — provenance token format
+  bot/I-cj-003                                 e419e445 [origin/bot/I-cj-003] I-cj-003: Crown Jewel binding test — strict-verify per-sentence gate
+  bot/I-cj-004                                 2eb7c640 [origin/bot/I-cj-004] I-cj-004: Crown Jewel binding test — zero-verified abort verdict
+  bot/I-cj-005                                 ee42833a [origin/bot/I-cj-005] I-cj-005: Crown Jewel binding test — corpus approval rubber-stamp resistance
+  bot/I-cj-006                                 56596835 [origin/bot/I-cj-006] I-cj-006: Crown Jewel binding test — budget cap holds without usage.cost
+  bot/I-cj-007                                 c029d31d [origin/bot/I-cj-007] I-cj-007: Crown Jewel binding test — delimiter sanitization (terminal CJ)
+  bot/I-decompose-001                          9e89b0e0 [origin/bot/I-decompose-001] I-decompose-001: trailer (#366) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-doc-001                                440da8d6 [origin/bot/I-doc-001] I-doc-001: regenerate codex_diff.patch + canonical-diff-sha256 trailer (#376)
+  bot/I-doc-002-blocked-tracker                32ca4266 [origin/bot/I-doc-002-blocked-tracker] I-doc-002: trailer (#396) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-eval-002-tier1-pilot-q5                70e7f57d I-eval-002 Tier-1 pilot Q5: Codex batched pass + reconciliation (24V/4P)
+  bot/I-eval-003-tier1-extension               b0ada6ce [origin/bot/I-eval-003-tier1-extension] I-eval-003: 5-artifact triple + diff audit for CI gate
+  bot/I-eval-004-q1-beat-both-real             24cccdb8 [origin/bot/I-eval-004-q1-beat-both-real] I-eval-004 Q1: real §-1.1 BEAT-BOTH measured (Gemini 8.6% vs POLARIS 96.8%)
+  bot/I-f10-001                                7fd475c5 [origin/bot/I-f10-001] I-f10-001: 5-artifact triple (brief APPROVE iter 4, diff APPROVE iter 1)
+  bot/I-f10-002                                c1d8293a [origin/bot/I-f10-002] I-f10-002: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f10-003                                52b3f563 [origin/bot/I-f10-003] I-f10-003: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f10-004                                865d594c [origin/bot/I-f10-004] I-f10-004: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f10-005                                6deb2126 [origin/bot/I-f10-005] I-f10-005: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f10-006                                bde18862 [origin/bot/I-f10-006: ahead 1] I-f10-007: Sandboxed Python execution hardened — AST allowlist + reflection guard + socket monkey-patch + 26 sovereignty tests
+  bot/I-f10-007                                b3e85c08 [origin/bot/I-f10-007] I-f10-007: 5-artifact triple (brief force-APPROVE iter 5 cap, diff iter-3 fixes applied)
+  bot/I-f10-008                                7050cc25 [origin/bot/I-f10-008] I-f10-008: 5-artifact triple (brief APPROVE iter 2, diff APPROVE iter 1)
+  bot/I-f11-001                                b64407f1 [origin/bot/I-f11-001] I-f11-001: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f11-002                                ef4f1f07 [origin/bot/I-f11-002] I-f11-002: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f11-003                                6f993515 [origin/bot/I-f11-003] I-f11-003: update canonical-diff-sha256 trailer to CI-canonical hash
+  bot/I-f11-004                                8a31b86c [origin/bot/I-f11-004] I-f11-004: update canonical-diff-sha256 to CI-canonical hash
+  bot/I-f11-005                                5cc4d6f9 [origin/bot/I-f11-005] I-f11-005: update canonical-diff-sha256 to CI-canonical hash
+  bot/I-f12-001                                b5efa9c4 [origin/bot/I-f12-001] I-f12-001: align canonical-diff-sha256 to CI computation
+  bot/I-f12-002                                48163cb4 [origin/bot/I-f12-002] I-f12-002: align canonical-diff-sha256 to CI computation
+  bot/I-f12-003                                99710f1d [origin/bot/I-f12-003] I-f12-003: align canonical-diff-sha256 to CI computation
+  bot/I-f12-004                                ed9014a5 [origin/bot/I-f12-004] I-f12-004: align canonical-diff-sha256 to CI
+  bot/I-f13-001                                0c14bb19 [origin/bot/I-f13-001] I-f13-001: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f13-002                                71603b24 [origin/bot/I-f13-002] I-f13-002: 5-artifact triple (brief APPROVE iter 1, diff APPROVE iter 1)
+  bot/I-f13-003                                9567ca20 [origin/bot/I-f13-003] I-f13-003: 5-artifact triple (brief APPROVE iter 2, diff APPROVE iter 1)
+  bot/I-f13-004                                ecb668e2 [origin/bot/I-f13-004] I-f13-004: codex review artifacts (brief APPROVE iter 2 + diff APPROVE iter 1)
+  bot/I-f14-001                                cd2bd77c [origin/bot/I-f14-001] I-f14-001: codex review artifacts (brief APPROVE iter 3 + diff APPROVE iter 1)
+  bot/I-f14-002-api                            f87ca473 [origin/bot/I-f14-002-api] I-f14-002: rename codex artifacts dir from I-f14-002-api to I-f14-002 to match CI parsed issue id
+  bot/I-f14-002-page                           b78a0bec [origin/bot/I-f14-002-page] I-f14-002: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f14-003                                ab1a573f [origin/bot/I-f14-003] I-f14-003: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f14-004                                b9103194 [origin/bot/I-f14-004] I-f14-004: codex review artifacts (brief APPROVE iter 2 + diff APPROVE iter 1)
+  bot/I-f14-005                                57e4f2a0 [origin/bot/I-f14-005] I-f14-005: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-f5-003                                 f7f7f551 [origin/bot/I-f5-003] I-f5-003: Inspector renders source URL + tier + span + retrieval trace
+  bot/I-f5-004                                 95337c70 [origin/bot/I-f5-004] I-f5-004: Inspector two-family evaluator agreement signal
+  bot/I-f5-005                                 9c0a0d28 [origin/bot/I-f5-005] I-f5-005: Inspector multi-span grouping by source
+  bot/I-f5-006                                 842fc1ea [origin/bot/I-f5-006] I-f5-006: Inspector synthesis-claim badge
+  bot/I-f5-007                                 818778c9 [origin/bot/I-f5-007] I-f5-007: Inspector retracted + stale (>2y) badges
+  bot/I-f5-008                                 91a321be [origin/bot/I-f5-008] I-f5-008: F5 latency stress at 50/100/200/500 + CLAUDE.md §8.3.10
+  bot/I-f5-009                                 85a9f9af [origin/bot/I-f5-009] I-f5-009: assertion_surface field + 6-surface gating UI
+  bot/I-f5-010                                 c30786c8 [origin/bot/I-f5-010] I-f5-010: F5 adversarial paywalled/multi-span/T1-conflict heuristic
+  bot/I-f5-011                                 5a5b9c89 [origin/bot/I-f5-011] I-f5-011: F5 AI agent test (10 random sentences, <1s, evidence present)
+  bot/I-f6-001                                 38dbedec [origin/bot/I-f6-001] I-f6-001: EvidenceTooltip publishedDate + debounced harness
+  bot/I-f6-002                                 3ec97d0c [origin/bot/I-f6-002] I-f6-002: EvidenceTooltip side prop + edge-position viewport tests
+  bot/I-f6-005                                 47bcfb76 [origin/bot/I-f6-005] I-f6-005: 5-artifact triple (brief APPROVE iter 5, diff APPROVE iter 1)
+  bot/I-f7-001                                 7711f3dd [origin/bot/I-f7-001] I-f7-001: top-of-report frame coverage panel (schema + UI surface)
+  bot/I-f7-002                                 f2fe07f3 [origin/bot/I-f7-002] I-f7-002: gap reason taxonomy frozen as 9-value Literal + reason_detail
+  bot/I-f7-003                                 6c2cdcae [origin/bot/I-f7-003] I-f7-003: gap rows clickable → unblock-action Sheet + copy-to-clipboard
+  bot/I-f7-004                                 d7452942 [origin/bot/I-f7-004] I-f7-004: F7 adversarial coverage harness (0/15, 15/15, 1/15)
+  bot/I-f8-001                                 5765f823 [origin/bot/I-f8-001] I-f8-001: ContradictionSignal schema + inline ⚠ badge
+  bot/I-f8-002                                 b8f06f54 [origin/bot/I-f8-002] I-f8-002: ContradictionSide schema + ContradictionPane Sheet
+  bot/I-f8-003                                 cc9fbc35 [origin/bot/I-f8-003] I-f8-003: ContradictionKind discriminator + self-contradiction case
+  bot/I-f8-004                                 af0635af [origin/bot/I-f8-004] I-f8-004: ContradictionCategory enum + regulatory/categorical/temporal/jurisdictional
+  bot/I-f8-005                                 fcaea035 [origin/bot/I-f8-005] I-f8-005: ContradictionEvidenceType + per-side badge (trial/guideline/...)
+  bot/I-f8-006                                 3629c3a0 [origin/bot/I-f8-006] I-f8-006: Jurisdiction enum + per-side jurisdiction badge (closes F8)
+  bot/I-f9-001                                 8611ac62 [origin/bot/I-f9-001] I-f9-001: row-inline evaluator-flag badge when evaluator_agrees=false
+  bot/I-f9-002                                 2a9daa8f [origin/bot/I-f9-002] I-f9-002: EvaluatorDisagreement schema + EvaluatorPane (gen-vs-eval readings)
+  bot/I-f9-003                                 560bec19 [origin/bot/I-f9-003] I-f9-003: F9 edge harness (no/all disagreements; closes F9)
+  bot/I-gen-001-pbo-framing                    e084ff33 I-gen-001 GH#422 — section prompt rule 13: policy-scope disambiguation
+  bot/I-gen-002-fact-dedup                     2efd9692 I-gen-002 GH#423 — fact_dedup module + tests (Phase 1 of Path A)
+  bot/I-gen-002-manifest-telemetry             d234f85e I-gen-002 followup — persist fact_dedup_telemetry in manifest.json
+  bot/I-gen-002-phase2-wirein                  753e2eff I-gen-002 GH#423 Phase 2 — wire fact_dedup into multi_section orchestrator
+  bot/I-gen-002-phase3-overlap                 afd370e1 [origin/bot/I-gen-002-phase3-overlap] I-gen-002: 5-artifact triple for CI gate
+  bot/I-gen-004-reasoning-trace                df087fa8 [origin/bot/I-gen-004-reasoning-trace] I-gen-004 (#496): regenerate canonical-diff-sha256 at final HEAD
+  bot/I-gen-561                                3beb96fe [origin/bot/I-gen-561] I-gen-561 (#561): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-hygiene-001                            047c296f [origin/bot/I-hygiene-001] I-hygiene-001 (#432): final codex_diff.patch after trajectory commit
+  bot/I-hygiene-001-root-folder-cleanup        fe1b2f4f [origin/bot/I-hygiene-001-root-folder-cleanup] I-hygiene-001 — revert .github/workflows/* patch (OAuth lacks workflow scope)
+  bot/I-lint-001                               93c4d521 [origin/bot/I-lint-001] I-lint-001 (#520): final codex_diff.patch after trajectory commit
+  bot/I-modref-002-models-yaml-doc             f967cfa8 [origin/bot/I-modref-002-models-yaml-doc] I-modref-002 (#528): regenerate canonical-diff-sha256 at final HEAD
+  bot/I-modref-004-judge-rename                ca1e86d6 [origin/bot/I-modref-004-judge-rename] I-modref-004 (#530): regenerate codex_diff.patch after diff-review commit
+  bot/I-modref-005-de-qwen-doc-prose           c5bddfa3 [origin/bot/I-modref-005-de-qwen-doc-prose] I-modref-005 (#564): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-naming-002                             c37ce925 [origin/bot/I-naming-002] I-naming-002 (#436): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-naming-003                             db102dd5 [origin/bot/I-naming-003] I-naming-003 (#437): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-naming-004                             7818661f [origin/bot/I-naming-004] I-naming-004 (#438): final codex_diff.patch after docstring fix
+  bot/I-naming-005                             9d83fd83 [origin/bot/I-naming-005] I-naming-005 (#439): final codex_diff.patch after trajectory commit
+  bot/I-naming-006                             d6258be2 [origin/bot/I-naming-006] I-naming-006 (#440): final codex_diff.patch after trajectory commit
+  bot/I-naming-007                             cc88d5d7 [origin/bot/I-naming-007] I-naming-007 (#441): final codex_diff.patch after trajectory commit
+  bot/I-naming-008                             87d86a9d [origin/bot/I-naming-008] I-naming-008 (#442): final codex_diff.patch after trajectory commit
+  bot/I-naming-009                             52b23fd7 [origin/bot/I-naming-009] I-naming-009 (#443): final codex_diff.patch after trajectory commit
+  bot/I-naming-010                             be9f9e72 [origin/bot/I-naming-010] I-naming-010 (#444): final codex_diff.patch after trajectory commit
+  bot/I-p2-017-wire-proof-replay               b734d450 [origin/bot/I-p2-017-wire-proof-replay] I-p2-017 (#756): Codex APPROVE artifacts (DESIGN+DIFF, iter 1)
+  bot/I-p2-019-kg-page                         b9a1e5bf [origin/bot/I-p2-019-kg-page] I-p2-019 (#758): Codex APPROVE artifacts (combined design+diff, iter 2)
+  bot/I-p2-020-audit-export                    effe5f5c [origin/bot/I-p2-020-audit-export] I-p2-020 (#759): Codex APPROVE artifacts (DESIGN+DIFF, iter 4)
+  bot/I-p2-026-wcag-axe                        d3ea12e7 [origin/bot/I-p2-026-wcag-axe] I-p2-026 (#765): Codex APPROVE artifacts (DIFF, iter 2)
+  bot/I-p2-031-source-review                   483a18f5 [origin/bot/I-p2-031-source-review] I-p2-031 (#770): Codex APPROVE artifacts (DESIGN+DIFF, iter 1)
+  bot/I-p2-038-lint-lane-fix                   bcbd351d [origin/bot/I-p2-038-lint-lane-fix] I-p2-038 (#805): refresh Codex artifacts — iter 2 APPROVE (lint + format)
+  bot/I-p2-038-visual-overhaul                 fe298244 [origin/bot/I-p2-038-visual-overhaul] I-p2-038 (#821): Codex review artifacts (APPROVE iter-2, MERGE AUTHORIZED) + claude audit
+  bot/I-p2-051-dashboard-s-audit               8862d76a [origin/bot/I-p2-051-dashboard-s-audit] I-p2-051 (#849): review artifacts — brief/visual/diff APPROVE + claude audit
+  bot/I-p2-052-benchmark-s-audit               82c24145 [origin/bot/I-p2-052-benchmark-s-audit] I-p2-052 (#851): review artifacts — brief/visual/diff APPROVE + claude audit
+  bot/I-p2-053-memory-s-audit                  8c1be848 [origin/bot/I-p2-053-memory-s-audit] I-p2-053 (#853): re-cut canonical diff to include the docs tracker change + diff iter-3 APPROVE
+  bot/I-p2-054-compare-s-audit                 7a8ac64a [origin/bot/I-p2-054-compare-s-audit] I-p2-054 (#855): review artifacts — brief/visual/diff APPROVE + claude audit
+  bot/I-p2-055-source-review-s-audit           362e0907 [origin/bot/I-p2-055-source-review-s-audit] I-p2-055 (#857): review artifacts — brief/visual/diff APPROVE + claude audit
+  bot/I-p2-056-plan-s-audit                    2a968cda [origin/bot/I-p2-056-plan-s-audit] I-p2-056 (#859): review artifacts — brief/visual/diff APPROVE + claude audit
+  bot/I-p2-057-run-progress-s-audit            a632772c [origin/bot/I-p2-057-run-progress-s-audit] I-p2-057 (#861): review artifacts — brief/visual/diff APPROVE + claude audit
+  bot/I-p2-058-graph-s-audit                   047584d5 [origin/bot/I-p2-058-graph-s-audit] I-p2-058 (#863): review artifacts — brief/visual(iter-3)/diff APPROVE + claude audit
+  bot/I-p2-059-audit-export-s-audit            f811529f [origin/bot/I-p2-059-audit-export-s-audit] I-p2-059 (#865): review artifacts — brief/visual/diff APPROVE + claude audit
+  bot/I-p2-060-offline-inspector-s-audit       7c9b0241 [origin/bot/I-p2-060-offline-inspector-s-audit] I-p2-060 (#867): review artifacts — brief/visual/diff APPROVE + claude audit
+  bot/I-p2-061-wcag-aa-fixes                   18967df7 [origin/bot/I-p2-061-wcag-aa-fixes] I-p2-061 (#869): review artifacts — brief/visual/diff APPROVE + axe 15→0 audit
+  bot/I-p2c-001                                92fb7095 [origin/bot/I-p2c-001] I-p2c-001: codex review artifacts (brief APPROVE iter 3 + diff APPROVE iter 1)
+  bot/I-p2c-002                                56fd225e [origin/bot/I-p2c-002] I-p2c-002: codex review artifacts (brief APPROVE iter 5 + diff APPROVE iter 2)
+  bot/I-p2c-003                                c62eeb17 [origin/bot/I-p2c-003] I-p2c-003: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-p2c-004                                c8098821 [origin/bot/I-p2c-004] I-p2c-004: codex review artifacts (brief APPROVE iter 5 + diff APPROVE iter 1)
+  bot/I-p2c-005                                6b9a6bae [origin/bot/I-p2c-005] I-p2c-005: codex review artifacts (brief APPROVE iter 1 + diff APPROVE iter 1)
+  bot/I-pin-001-canonical-pin-reconciliation   1b7e3e3c [origin/bot/I-pin-001-canonical-pin-reconciliation] I-pin-001: Codex review artifacts — brief + diff APPROVE iter 1 (#524)
+  bot/I-rdy-001-locked-scope                   8eb8daf8 [origin/bot/I-rdy-001-locked-scope] I-rdy-002 + I-rdy-003: Phase 1 gap verification + pin verified statuses (#498, #499)
+  bot/I-rdy-006-model-config-align             83798a55 [origin/bot/I-rdy-006-model-config-align] I-rdy-006: Codex diff review APPROVE iter-1 + audit artifacts
+  bot/I-rdy-007                                08612a0b [origin/bot/I-rdy-007] I-rdy-007 (#503): final codex_diff.patch after trajectory commit
+  bot/I-rdy-007-live-run-artifact-contract     8c48062e [origin/bot/I-rdy-007-live-run-artifact-contract] I-rdy-007: Codex diff review APPROVE iter-2 + audit artifacts
+  bot/I-rdy-008                                55f45988 [origin/bot/I-rdy-008] I-rdy-008 (#504) slice 1: final codex_diff.patch after trajectory commit
+  bot/I-rdy-008-live-run-rich-ui               70280a44 [origin/bot/I-rdy-008-live-run-rich-ui] I-rdy-008: Codex diff review APPROVE iter-1 + audit artifacts
+  bot/I-rdy-008-slice2                         7885a252 [origin/bot/I-rdy-008-slice2] I-rdy-008 (#504) slice 2: final codex_diff.patch after trajectory commit
+  bot/I-rdy-008-slice3                         efe18c2b [origin/bot/I-rdy-008-slice3] I-rdy-008 (#504) slice 3: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice4                         661fe465 [origin/bot/I-rdy-008-slice4] I-rdy-008 (#504) slice 4: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice5                         143d0668 [origin/bot/I-rdy-008-slice5] I-rdy-008 (#504) slice 5: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice6                         1c8f708e [origin/bot/I-rdy-008-slice6] I-rdy-008 (#504) slice 6: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice7a                        8f13c92d [origin/bot/I-rdy-008-slice7a] I-rdy-008 (#504) slice 7a: regenerate codex_diff.patch after diff-review trailer
+  bot/I-rdy-008-slice7b                        30420eb7 [origin/bot/I-rdy-008-slice7b] I-rdy-008 (#504) slice 7b: refresh canonical-diff-sha256 after diff-review commit
+  bot/I-rdy-008-slice7c                        d9ff87e5 [origin/bot/I-rdy-008-slice7c] I-rdy-008 (#504) slice 7c: refresh canonical-diff-sha256 after diff-review commit
+  bot/I-rdy-008-slice8                         76cd7f1c [origin/bot/I-rdy-008-slice8] I-rdy-008 (#504) slice 8: refresh canonical-diff-sha256 after diff-review commit
+  bot/I-rdy-009                                09f4601b [origin/bot/I-rdy-009] I-rdy-009 (#505): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-009-ambiguity-wiring               af2b3da6 [origin/bot/I-rdy-009-ambiguity-wiring] I-rdy-009 (#505): Codex artifacts — brief APPROVE iter-5, diff APPROVE iter-2
+  bot/I-rdy-010                                e4f2dbb4 [origin/bot/I-rdy-010] I-rdy-010 (#506): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-010-document-grounding             ce939417 [origin/bot/I-rdy-010-document-grounding] I-rdy-010 (#506): Codex artifacts — brief APPROVE iter-1, diff APPROVE iter-1
+  bot/I-rdy-011                                a67c6503 [origin/bot/I-rdy-011] I-rdy-011 (#507): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-011-cancellation-resume            6e4ab2b6 [origin/bot/I-rdy-011-cancellation-resume] I-rdy-011 (#507): Codex artifacts — brief APPROVE iter-1, diff APPROVE iter-3
+  bot/I-rdy-012                                eafc1dc9 [origin/bot/I-rdy-012] I-rdy-012 (#508): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-012-durable-workspace-memory       d9ed6c9f [origin/bot/I-rdy-012-durable-workspace-memory] I-rdy-012 (#508): Codex artifacts — brief APPROVE iter-1, diff APPROVE iter-1
+  bot/I-rdy-013                                e32f8123 [origin/bot/I-rdy-013] I-rdy-013 (#509): final canonical diff patch (post diff-review APPROVE)
+  bot/I-rdy-013-concurrent-session-limit       413ded06 [origin/bot/I-rdy-013-concurrent-session-limit] I-rdy-013: Codex review artifacts (brief iter3 APPROVE, diff iter2 APPROVE)
+  bot/I-rdy-014-demo-journey-nav               f37c626c [origin/bot/I-rdy-014-demo-journey-nav] I-rdy-014: Codex review artifacts (brief iter4 APPROVE, diff iter1 APPROVE)
+  bot/I-rdy-015-caddy-tls                      ae60c44d [origin/bot/I-rdy-015-caddy-tls] I-rdy-015: Codex review artifacts (brief iter2 APPROVE, diff iter1 APPROVE)
+  bot/I-rdy-016-state-backup                   210832a2 [origin/bot/I-rdy-016-state-backup] I-rdy-016: Codex review artifacts (brief iter2 APPROVE, diff iter1 APPROVE)
+  bot/I-rdy-017-bundle-verification            f7de1b7a [origin/bot/I-rdy-017-bundle-verification] I-rdy-017: Codex review artifacts (brief iter2 APPROVE, diff iter2 APPROVE)
+  bot/I-rdy-547                                7788e7ea [origin/bot/I-rdy-547] I-rdy-547 (#547): final codex_diff.patch after trajectory commit
+  bot/I-rdy-549                                fc326a8b [origin/bot/I-rdy-549] I-rdy-549 (#549): final codex_diff.patch after trajectory commit
+  bot/I-rdy-558-test-matrix                    45f73d35 [origin/bot/I-rdy-558-test-matrix] I-rdy-019-followup (#558): re-cut artifact dir I-rdy-019-followup -> I-rdy-558
+  bot/I-sec-001-codex-transcript-scrub         22025a29 [origin/bot/I-sec-001-codex-transcript-scrub] I-sec-001 (#535): codex_diff_audit APPROVE + final codex_diff.patch
+  bot/I-snowball-002-graph-endpoint            e9cb7ff7 [origin/bot/I-snowball-002-graph-endpoint: ahead 3] Merge branch 'polaris' of https://github.com/aldrinor/polaris into bot/I-snowball-002-graph-endpoint
+  bot/I-snowball-003-claim-graph-mvp           06b77d16 [origin/bot/I-snowball-003-claim-graph-mvp] I-snowball-003 — rename artifacts dir + branch (drop -003a suffix; CI regex schema)
+  bot/I-snowball-004-graph-interaction-a11y    befa128a [origin/bot/I-snowball-004-graph-interaction-a11y] I-snowball-004 — Codex diff APPROVE iter 2 artifacts
+  bot/I-snowball-005-bfs-expand-snowball       02038f81 [origin/bot/I-snowball-005-bfs-expand-snowball] I-snowball-005 — Codex diff APPROVE iter 1 artifacts
+  bot/I-snowball-006-export-and-tests          d7fa315b [origin/bot/I-snowball-006-export-and-tests] I-snowball-006 — Codex diff APPROVE iter 1 artifacts
+  bot/I-tests-001                              a0100294 [origin/bot/I-tests-001] I-tests-001: trailer (#364) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-tpl-006                                c5cd0ae4 [origin/bot/I-tpl-006] I-tpl-006: trailer (#196) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-tpl-007                                daccd732 [origin/bot/I-tpl-007] I-tpl-007: trailer (#197) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-tpl-008                                0bfa759b [origin/bot/I-tpl-008] I-tpl-008: trailer (#198) Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  bot/I-tpl-009-corpus-threshold               d7a97479 I-tpl-009 GH#405 — corpus-threshold calibration for emerging-policy domains
+  bot/I-ui-014-proof-replay                    fe4e6ae1 [origin/bot/I-ui-014-proof-replay] I-ui-014 (#734): Proof Replay — click verified sentence -> exact source span
+  bot/I-ux-001-operating-model                 cf8cb488 [origin/bot/I-ux-001-operating-model] I-ux-001 (#872): strip trailing whitespace from final verdict line so codex-required regex anchor passes
+  bot/I-ux-001a-prereq-0-signed-bundle         d5fdf77f [origin/bot/I-ux-001a-prereq-0-signed-bundle] I-ux-001a (#874): add canonical claude_audit.md for codex-required gate
+  bot/I-ux-001b-foundation                     73332944 [origin/bot/I-ux-001b-foundation] I-ux-001b: restart_instructions handover → I-ux-001c hero implementation
+  bot/I-ux-001c-hero-implementation            d8c90d6b [origin/bot/I-ux-001c-hero-implementation] I-ux-001c (#878): 5-artifact triple canonical filenames locked (both gates APPROVE)
+  bot/I-ux-001c-sub-pr-2-home                  ead68a2c [origin/bot/I-ux-001c-sub-pr-2-home] I-ux-001c sub-PR 2: post-visual-polish diff re-review APPROVE (iter-4)
+  bot/I-ux-001c-sub-pr-3-intake                bc419a76 [origin/bot/I-ux-001c-sub-pr-3-intake] I-ux-001c sub-PR 3: descope AutoDomainChip to follow-up (visual ship clean)
+* bot/I-ux-001c-sub-pr-4-source-review         d398e957 [origin/bot/I-ux-001c-sub-pr-4-source-review] I-ux-001c sub-PR 4: diff review input iter-1
+  bot/I-ux-001d-extend-prototype-audit         05844ca3 [origin/bot/I-ux-001d-extend-prototype-audit] I-ux-001d ✅ FULLY SIGNED OFF — all 5 tracks Codex APPROVED, handover updated for I-ux-001c
+  bot/canonical-pin-reconcile-20260512         5c5a7917 [origin/bot/canonical-pin-reconcile-20260512] chore: reconcile canonical pin SHA for carney_delivery_plan_v6_2.md
+  bot/i-p2-038-app-shell-footer-auth           539401ef [origin/bot/i-p2-038-app-shell-footer-auth: ahead 1, behind 2] I-p2-038 (#821): global app-shell pass — shared footer + auth-aware Sign in/out (#824)
+  bot/pip-ci-workingdir-fix                    6dab1af6 fix(ci): pip dry-run runs from repo root, not web/ (unblocks all merges)
+  bot/setup-neutralize-precommit-hooks         1dab833f [origin/bot/setup-neutralize-precommit-hooks] SEC: neutralize .claude/hooks/precommit_codex_verdict.py (Plan v13 deprecated)
+  bot/setup-stop-hook-fix                      f75c5220 [origin/bot/setup-stop-hook-fix] SEC: stop_hook_v3 — schema fix + stop_hook_active + deprecate canonical_pin check
+  bot/setup-stop-hook-neutralize               6f1a5371 [origin/bot/setup-stop-hook-neutralize] SEC: stop_hook_v3 — fully neutralize Plan v13 enforcement (replaced by new cage)
+  bot/setup-verifier-script                    761a0d64 [origin/bot/setup-verifier-script] SEC: scripts/verify_cage.py — cage state verifier (Slice 0)
+  bot/slice-001-ambiguity-detector             76802f81 [origin/bot/slice-001-ambiguity-detector] slice 001 PR 5/8: ambiguity_detector_clinical (PICO axes) + 17 tests
+  bot/slice-001-architecture-proposal          16dc3cef [origin/bot/slice-001-architecture-proposal] SEC: slice 001 architecture proposal v1 (DRAFT for user review)
+  bot/slice-001-classifier-llm-fallback        be07c0b4 [origin/bot/slice-001-classifier-llm-fallback] slice 001 PR 4/8: clinical_classifier LLM fallback + 18 tests + classify() orchestrator
+  bot/slice-001-classifier-regex               10459493 [origin/bot/slice-001-classifier-regex] slice 001 PR 3/8: clinical_classifier regex layer + pattern YAML + 30 tests
+  bot/slice-001-golden-test-integration        1e67bd58 [origin/bot/slice-001-golden-test-integration] slice 001 PR 8/8: golden test integration + scope_class None alignment (5/5 PASS)
+  bot/slice-001-intake-http-route              d33707e6 [origin/bot/slice-001-intake-http-route] slice 001 PR 7a/8: FastAPI HTTP route exposing process_intake (POST /api/intake)
+  bot/slice-001-intake-orchestrator            03a1d9e2 [origin/bot/slice-001-intake-orchestrator] slice 001 PR 6/8: intake orchestrator + 13 end-to-end tests (ALL 5 GOLDENS PASS)
+  bot/slice-001-question-normalizer            3f84b51f [origin/bot/slice-001-question-normalizer] SEC: stop_hook_v3 — fully neutralize Plan v13 enforcement (replaced by new cage) (#8)
+  bot/slice-001-question-normalizer-v2         00084dde [origin/bot/slice-001-question-normalizer-v2] slice 001 PR 1/8: question_normalizer (intake) + 26 tests
+  bot/slice-001-scope-decision-schema          85893d36 [origin/bot/slice-001-scope-decision-schema] slice 001 PR 2/8: scope_decision schema + 25 tests
+  main                                         089da907 [origin/main] Initial commit
+  master                                       9d2bbe3c v3 pre-rewrite baseline: Sprint 1 fixes, architecture research, implementation plan
+  polaris                                      0e126f6f [origin/polaris] I-p2-061 (#869): WCAG 2.2 AA — axe-measured 15→0 across all routes (#870)
+  polaris-clean                                c2c7e4e5 [origin/polaris-clean] SEC: protection-drift workflow + morning handoff doc (Slice 0 cage)
+  task/0_5_stub_substrate/iter_3               43d76fbb task 0_5_stub_substrate: iter 3 APPROVE
+  task/0_6_hardware_decision_doc/iter_2        22b16704 task 0_6_hardware_decision_doc: iter 2 APPROVE
+  task/0_8_evaluator_doc/iter_2                8839abab task 0_8_evaluator_doc: iter 2 APPROVE
+  task/2a_7_prep_briefing_pack/iter_1          9bf7907a canonical reconciliation: blockers #3 #5 #8 → phase-staged (API-first)
+  v3-rewrite                                   0c0e7cb9 Fix broken table regex + prompt echo scrub on ACTUAL TEST_080 data
+  v4-simplify                                  05bffb55 v4-simplify: Pre-wiki checkpoint — 3 citation fixes, G-Eval, prompt fragments
+  verify/all3-combined                         8c5c1846 Merge branch 'bot/I-bug-776-primary-trial-anchors' into verify/all3-combined
+  verify/i812-i815-combined                    8ffc3940 Merge branch 'bot/I-bug-771-tier-classifier' into verify/i812-i815-combined
+
+ succeeded in 1909ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@types/three": "^0.184.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "cytoscape-fcose": "^2.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "pako": "^2.1.0",
+    "react": "19.2.4",
+    "react-cytoscapejs": "^2.0.0",
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.0",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tar-stream": "^3.2.0",
+    "three": "^0.184.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/cytoscape": "^3.21.9",
+    "@types/cytoscape-fcose": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20",
+    "@types/pako": "^2.0.4",
+    "@types/react": "^19",
+    "@types/react-cytoscapejs": "^1.2.6",
+    "@types/react-dom": "^19",
+    "@types/tar-stream": "^3.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+ succeeded in 2319ms:
+{
+  "template_id": "clinical",
+  "template_name": "Clinical drug audit",
+  "summary": "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical-trial registries.",
+  "primary_domains": ["Health Canada", "FDA", "EMA", "ClinicalTrials.gov", "PubMed"],
+  "source_tiers": {
+    "T1": [
+      "https://www.canada.ca/en/health-canada.html",
+      "https://www.fda.gov/drugs",
+      "https://www.ema.europa.eu",
+      "https://clinicaltrials.gov",
+      "https://pubmed.ncbi.nlm.nih.gov"
+    ],
+    "T2": [
+      "https://www.cochranelibrary.com",
+      "https://www.bmj.com",
+      "https://jamanetwork.com",
+      "https://www.thelancet.com"
+    ],
+    "T3": [
+      "https://www.medscape.com",
+      "https://www.statnews.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "efficacy", "frame_name": "Efficacy outcomes (primary endpoints)" },
+    { "frame_id": "safety", "frame_name": "Safety / adverse events" },
+    { "frame_id": "labelling", "frame_name": "Regulatory labelling deltas" },
+    { "frame_id": "post_market", "frame_name": "Post-market surveillance signals" },
+    { "frame_id": "subgroup", "frame_name": "Subgroup analyses + heterogeneity" }
+  ],
+  "refusal_patterns": [
+    "clinical_treatment_recommendation",
+    "individual_drug_dose_advice",
+    "off_label_endorsement"
+  ],
+  "sample_questions": [
+    "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    "How did the FDA labelling for atorvastatin change between 2020 and 2025?",
+    "What are the post-market safety signals for SGLT2 inhibitors in elderly patients?",
+    "What does Cochrane say about HRT and breast cancer risk in postmenopausal women?"
+  ],
+  "out_of_scope_examples": [
+    "Should I take ozempic for my diabetes?",
+    "What dose of atorvastatin should my mother take?"
+  ]
+}
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat origin/polaris...HEAD -- web/app/source_review/page.tsx web/tests/e2e/source_review_v6.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff origin/polaris...HEAD -- web/tests/e2e/source_review_v6.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff origin/polaris...HEAD -- web/app/source_review/page.tsx' in C:\POLARIS
+ succeeded in 2000ms:
+diff --git a/web/app/source_review/page.tsx b/web/app/source_review/page.tsx
+index 4ee2cfda..f10380f4 100644
+--- a/web/app/source_review/page.tsx
++++ b/web/app/source_review/page.tsx
+@@ -152,19 +152,40 @@ function SourceReviewContent() {
+       data-testid="source-review-page"
+       className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+     >
+-      <div className="flex flex-col gap-2">
+-        <Link
+-          href={`/intake?q=${encodeURIComponent(question)}`}
+-          className="text-muted-foreground hover:text-foreground text-xs"
++      {/* I-ux-001c sub-PR 4 (#887): v6 marketing-auth chrome. Brand-red
++          eyebrow + display H1 + tightened subtitle. Edit-question link
++          moved to the eyebrow row (right side) so it remains accessible
++          but doesn't lead the page. Rest of the page (TierCards, error
++          state, loading state, retry, no-question fallback link, Continue
++          CTA) preserved verbatim per brief iter-3 APPROVE. */}
++      <div className="flex flex-col gap-3">
++        <div className="flex items-center justify-between gap-3">
++          <span
++            data-testid="source-review-eyebrow"
++            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
++          >
++            SOURCES · POLARIS CLINICAL RESEARCH
++          </span>
++          <Link
++            data-testid="source-review-edit-question-link"
++            href={`/intake?q=${encodeURIComponent(question)}`}
++            className="text-muted-foreground hover:text-foreground text-xs"
++          >
++            ← Edit question
++          </Link>
++        </div>
++        <h1
++          data-testid="source-review-h1"
++          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+         >
+-          ← Edit question
+-        </Link>
+-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+-          Review the source set
++          Review the sources POLARIS will check.
+         </h1>
+-        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+-          What POLARIS will search for this question — and the per-tier adequacy
+-          bar the corpus must clear before a single claim is written.
++        <p
++          data-testid="source-review-subtitle"
++          className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
++        >
++          What POLARIS will check for this question — and the per-tier evidence
++          bar the corpus must clear before any claim is written.
+         </p>
+       </div>
+ 
+
+ succeeded in 2411ms:
+ web/app/source_review/page.tsx         | 43 +++++++++++++++------
+ web/tests/e2e/source_review_v6.spec.ts | 69 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 101 insertions(+), 11 deletions(-)
+
+ succeeded in 2708ms:
+diff --git a/web/tests/e2e/source_review_v6.spec.ts b/web/tests/e2e/source_review_v6.spec.ts
+new file mode 100644
+index 00000000..6d280fcc
+--- /dev/null
++++ b/web/tests/e2e/source_review_v6.spec.ts
+@@ -0,0 +1,69 @@
++// I-ux-001c sub-PR 4 (GH #887): e2e Playwright for the v6 /source_review
++// chrome rebuild.
++//
++// Asserts the spec from `.codex/I-ux-001c-4/brief.md` iter-3 APPROVE:
++//   - Brand-red eyebrow + display H1 + tightened subtitle render
++//   - Edit-question link sits in the eyebrow row and still navigates to
++//     /intake?q=<encoded> (preserves back-link behavior)
++//
++// Per the iter-2 P2 fix: mocks GET /api/v6/templates so the auth-gated
++// listTemplates fetch doesn't race with header-link assertions.
++import { expect, test } from "@playwright/test";
++
++const SOURCE_REVIEW_PATH =
++  "/source_review?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F&template=clinical";
++
++// Minimal valid TemplateContent shape so listTemplates resolves without
++// the auth-gated backend call. Mirrors the shape from
++// config/v6_templates/clinical.json (id + per-tier source-domain lists +
++// min_sources_per_tier). The exact contents don't matter for chrome
++// assertions; they just need to render without errors.
++const FAKE_TEMPLATE = {
++  id: "clinical",
++  display_name: "Clinical drug audit",
++  source_set: {
++    T1: { domains: ["nejm.org", "thelancet.com"], min_sources_per_tier: 2 },
++    T2: { domains: ["cochranelibrary.com"], min_sources_per_tier: 1 },
++    T3: { domains: ["uptodate.com"], min_sources_per_tier: 0 },
++  },
++};
++
++test.describe("I-ux-001c · Source Review v6 chrome", () => {
++  test.beforeEach(async ({ page }) => {
++    // Mock the templates endpoint so the page renders without hitting
++    // the real auth-gated backend.
++    await page.route("**/api/v6/templates**", async (route) => {
++      await route.fulfill({
++        status: 200,
++        contentType: "application/json",
++        body: JSON.stringify({ templates: [FAKE_TEMPLATE] }),
++      });
++    });
++  });
++
++  test("eyebrow + H1 + subtitle render with v6 copy", async ({ page }) => {
++    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
++    await expect(page.getByTestId("source-review-page")).toBeVisible();
++    await expect(page.getByTestId("source-review-eyebrow")).toContainText(
++      /SOURCES.*POLARIS CLINICAL RESEARCH/i,
++    );
++    await expect(page.getByTestId("source-review-h1")).toContainText(
++      "Review the sources POLARIS will check",
++    );
++    await expect(page.getByTestId("source-review-subtitle")).toContainText(
++      /per-tier evidence bar the corpus must clear before any claim is written/i,
++    );
++  });
++
++  test("Edit-question link still navigates to /intake?q=<encoded>", async ({
++    page,
++  }) => {
++    await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
++    const link = page.getByTestId("source-review-edit-question-link");
++    await expect(link).toBeVisible();
++    await expect(link).toHaveAttribute(
++      "href",
++      "/intake?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F",
++    );
++  });
++});
+
+codex
+The actual branch diff matches the submitted patch: only the intended header block changed, and the new spec is the only added file. I’m running typecheck and lint now; if they pass, the only remaining judgment is whether the test fixture mismatch rises above P2.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/playwright.config.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run typecheck' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npm run lint' in C:\POLARIS\web
+ succeeded in 1266ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  // I-cd-013b (GH#669): inspector_route.spec.ts visual baselines are
+  // `test.fixme()` (deferred until baselines captured by --update-snapshots
+  // run); non-visual cases run on all platforms. Linux ignore only
+  // applies to visual.spec.ts.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+
+ succeeded in 6071ms:
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+
+ succeeded in 12159ms:
+
+> web@0.1.0 lint
+> eslint
+
+
+C:\POLARIS\web\lib\inspector_bundle_client_loader.ts
+  130:21  warning  '_status' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\POLARIS\web\tests\e2e\frame_coverage_panel.spec.ts
+  44:27  warning  '_text' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 2 problems (0 errors, 2 warnings)
+
+
+codex
+Typecheck passed. ESLint also exited 0; it reports two pre-existing warnings outside this patch. I’m going to run the new spec against a temporary local Next server to verify the route mock behavior instead of inferring it from the code.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$ErrorActionPreference = '"'Stop'
+"'$port = 3764
+$logOut = Join-Path $PWD '"'playwright-source-review-next.out.log'
+"'$logErr = Join-Path $PWD '"'playwright-source-review-next.err.log'
+Remove-Item -LiteralPath "'$logOut,$logErr -ErrorAction SilentlyContinue
+$proc = Start-Process -FilePath '"'npm.cmd' -ArgumentList @('run','dev','--','--port',\""'$port") -WorkingDirectory $PWD -WindowStyle Hidden -RedirectStandardOutput $logOut -RedirectStandardError $logErr -PassThru
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 90; $i++) {
+    try {
+      $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/source_review?q=probe&template=clinical" -UseBasicParsing -TimeoutSec 2
+      if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+        $ready = $true
+        break
+      }
+    } catch {
+      Start-Sleep -Seconds 1
+    }
+  }
+  if (-not $ready) {
+    Write-Host '"'Next dev server did not become ready.'
+    Write-Host 'STDOUT:'
+    Get-Content -LiteralPath "'$logOut -ErrorAction SilentlyContinue
+    Write-Host '"'STDERR:'
+    Get-Content -LiteralPath "'$logErr -ErrorAction SilentlyContinue
+    exit 1
+  }
+  $env:SCREENSHOT_BASE_URL = "http://127.0.0.1:$port"
+  npx playwright test tests/e2e/source_review_v6.spec.ts --project=chromium
+  exit $LASTEXITCODE
+} finally {
+  if ($proc -and -not $proc.HasExited) {
+    Stop-Process -Id $proc.Id -Force
+  }
+}' in C:\POLARIS\web
+2026-05-25T07:29:24.046605Z ERROR codex_core::tools::router: error=Exit code: 124
+Wall time: 240.6 seconds
+Output:
+command timed out after 240632 milliseconds
+
+ exited 124 in 240632ms:
+codex
+The targeted Playwright run hit the 240s command timeout before returning output. I’m checking for and cleaning up any temporary Next process, then I’ll inspect the captured logs to see whether this was a server startup issue or the test hanging.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Process | Where-Object { $_.ProcessName -match '"'node|npm' } | Select-Object Id,ProcessName,Path,StartTime" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/playwright-source-review-next.out.log' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw web/playwright-source-review-next.err.log' in C:\POLARIS
+ succeeded in 1236ms:
+
+[32;1m   Id[0m[32;1m ProcessName[0m[32;1m Path                                                                [0m[32;1m StartTime[0m
+[32;1m   --[0m [32;1m-----------[0m [32;1m----                                                                [0m [32;1m---------[0m
+ 9472 node                                                                             
+ 9812 node                                                                             2026-05-24 1:35:41 AM
+10976 node                                                                             2026-05-24 12:41:20 AM
+28264 node                                                                             
+31468 node                                                                             
+37276 node        C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe 2026-05-23 5:08:01 AM
+39328 node                                                                             
+41464 node                                                                             
+44212 node                                                                             2026-05-25 12:05:35 AM
+46984 node                                                                             
+48600 node                                                                             
+48756 node                                                                             2026-05-24 11:09:16 PM
+50540 node                                                                             
+50912 node                                                                             2026-05-25 12:23:35 AM
+
+
+ succeeded in 1454ms:
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:420:11)
+    at spawn (node:child_process:787:9)
+    at fork (node:child_process:174:10)
+    at C:\POLARIS\web\node_modules\next\dist\cli\next-dev.js:253:45
+    at new Promise (<anonymous>)
+    at startServer (C:\POLARIS\web\node_modules\next\dist\cli\next-dev.js:221:16)
+    at runDevServer (C:\POLARIS\web\node_modules\next\dist\cli\next-dev.js:355:23)
+    at Module.nextDev (C:\POLARIS\web\node_modules\next\dist\cli\next-dev.js:363:11) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+
+ succeeded in 1769ms:
+
+> web@0.1.0 dev
+> next dev --port 3764
+
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-NetTCPConnection -LocalPort 3764 -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,State,OwningProcess' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force web/test-results -ErrorAction SilentlyContinue | Select-Object Name,LastWriteTime,Length' in C:\POLARIS
+2026-05-25T07:29:43.174902Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.7 seconds
+Output:
+
+ exited 1 in 1654ms:
+2026-05-25T07:29:44.442055Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.9 seconds
+Output:
+
+ exited 1 in 2927ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"text-primary|bg-tier-1|source-review-page|intake\\?q|plan\\?q|SOURCES|Review the sources|What POLARIS will check\" web/app/source_review/page.tsx web/tests/e2e/source_review_v6.spec.ts web/components/states/state_kit.tsx web/app/globals.css web -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web/tests/e2e/source_review_v6.spec.ts | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web/lib/api.ts | ForEach-Object { $i++; if ($i -ge 390 -and $i -le 412) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web/app/source_review/page.tsx | ForEach-Object { $i++; if ($i -ge 140 -and $i -le 285) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 1195ms:
+web/components/states/state_kit.tsx:97:          className="text-primary focus-visible:ring-ring/70 self-start rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web/tests/e2e/source_review_v6.spec.ts:7://     /intake?q=<encoded> (preserves back-link behavior)
+web/tests/e2e/source_review_v6.spec.ts:46:    await expect(page.getByTestId("source-review-page")).toBeVisible();
+web/tests/e2e/source_review_v6.spec.ts:48:      /SOURCES.*POLARIS CLINICAL RESEARCH/i,
+web/tests/e2e/source_review_v6.spec.ts:51:      "Review the sources POLARIS will check",
+web/tests/e2e/source_review_v6.spec.ts:58:  test("Edit-question link still navigates to /intake?q=<encoded>", async ({
+web/tests/e2e/source_review_v6.spec.ts:66:      "/intake?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F",
+web/app/source_review/page.tsx:46:  T1: "bg-tier-1",
+web/app/source_review/page.tsx:148:  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+web/app/source_review/page.tsx:152:      data-testid="source-review-page"
+web/app/source_review/page.tsx:165:            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+web/app/source_review/page.tsx:167:            SOURCES · POLARIS CLINICAL RESEARCH
+web/app/source_review/page.tsx:171:            href={`/intake?q=${encodeURIComponent(question)}`}
+web/app/source_review/page.tsx:181:          Review the sources POLARIS will check.
+web/app/source_review/page.tsx:187:          What POLARIS will check for this question — and the per-tier evidence
+web/app/source_review/page.tsx:290:                <Link className="text-primary underline" href="/intake">
+web\components\citation\citation_chip.tsx:23:  if (t === "T1" || t === "1") return "bg-tier-1"; // primary evidence (red)
+web\app\components\recent_runs_strip.tsx:80:              <span className="text-primary text-[10px] font-semibold tracking-widest uppercase">
+web\app\components\proof_showcase.tsx:157:          className="text-primary focus-visible:ring-ring/70 inline-flex items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\app\upload\page.tsx:63:                <step.icon aria-hidden className="text-primary h-4 w-4" />
+web\app\upload\page.tsx:76:          className="text-primary focus-visible:ring-ring/70 inline-flex w-fit items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\tests\a11y\wcag_axe_scan.mjs:60:    expect: "[data-testid=source-review-page]",
+web\app\upload\components\upload_drop_zone.tsx:191:              ? "bg-primary/15 text-primary"
+web\tests\e2e\accessibility.spec.ts:61:      "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+web\lib\signed_bundle.ts:84:  content_source: string; // see reasoning_trace.py CONTENT_SOURCES
+web\components\ui\button.tsx:11:        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+web\components\ui\button.tsx:20:        link: "text-primary underline-offset-4 hover:underline",
+web\scripts\capture_screenshots.mjs:38:    path: "/plan?q=Should%20I%20take%20ozempic%20for%20my%20diabetes",
+web\scripts\capture_screenshots.mjs:44:    path: "/plan?q=What%20is%20the%20efficacy%20of%20tirzepatide%20for%20type%202%20diabetes",
+web\components\states\state_kit.tsx:97:          className="text-primary focus-visible:ring-ring/70 self-start rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\components\sovereignty\sovereignty_panel.tsx:53:          className="text-primary mt-0.5 h-4 w-4 shrink-0"
+web\app\source_review\page.tsx:46:  T1: "bg-tier-1",
+web\app\source_review\page.tsx:148:  const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+web\app\source_review\page.tsx:152:      data-testid="source-review-page"
+web\app\source_review\page.tsx:165:            className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+web\app\source_review\page.tsx:167:            SOURCES · POLARIS CLINICAL RESEARCH
+web\app\source_review\page.tsx:171:            href={`/intake?q=${encodeURIComponent(question)}`}
+web\app\source_review\page.tsx:181:          Review the sources POLARIS will check.
+web\app\source_review\page.tsx:187:          What POLARIS will check for this question — and the per-tier evidence
+web\app\source_review\page.tsx:290:                <Link className="text-primary underline" href="/intake">
+web\components\source\source_card.tsx:27:  if (t === "T1" || t === "1") return "bg-tier-1";
+web\components\source\source_card.tsx:79:            className="text-foreground hover:text-primary focus-visible:ring-ring/70 inline-flex items-start gap-1 font-medium underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+web\app\benchmark\components\benchmark_board.tsx:248:                  <th className="text-primary py-2 pl-4 text-right font-semibold">
+web\app\benchmark\components\benchmark_board.tsx:344:                              ? "text-primary font-semibold"
+web\app\sign-in\page.tsx:131:                  className="text-primary mt-0.5 h-5 w-5 shrink-0"
+web\app\plan\page.tsx:6:// direct navigation to /plan?q=… is gated identically. "Start research run" is
+web\app\plan\page.tsx:318:            className="text-primary text-xs underline-offset-2 hover:underline"
+web\app\page.tsx:183:                  className="text-primary h-5 w-5 shrink-0"
+web\app\dashboard\page.tsx:165:                      <span className="text-primary font-medium tracking-wide uppercase">
+web\app\intake\page.tsx:76:              <step.icon aria-hidden className="text-primary h-4 w-4" />
+web\app\inspector\offline\page.tsx:124:                  className={`h-7 w-7 ${dragOver ? "text-primary" : "text-muted-foreground"}`}
+web\app\intake\components\intake_form.tsx:46:  // I-cd-ui-001 (#704): prefill from the home hero search (/intake?q=...).
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:203:                className="text-muted-foreground hover:text-primary size-7 shrink-0"
+web\app\generation\components\two_run_picker.tsx:77:        className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground inline-flex items-center rounded-md px-4 py-2 text-sm font-medium disabled:cursor-not-allowed"
+web\app\runs\[runId]\components\followup_panel.tsx:113:      <span className="text-primary text-[10px] font-semibold tracking-widest uppercase">
+web\app\runs\[runId]\components\followup_panel.tsx:129:          <a className="text-primary underline" href="/intake">
+web\tests\e2e\home_g1_g8.spec.ts:39:test("I-cd-ui-001: home hero search submits to /intake?q=", async ({
+web\tests\e2e\home_g1_g8.spec.ts:46:  // input name=q. Submitting routes to /intake?q=<question>.
+web\tests\e2e\source_review_v6.spec.ts:7://     /intake?q=<encoded> (preserves back-link behavior)
+web\tests\e2e\source_review_v6.spec.ts:46:    await expect(page.getByTestId("source-review-page")).toBeVisible();
+web\tests\e2e\source_review_v6.spec.ts:48:      /SOURCES.*POLARIS CLINICAL RESEARCH/i,
+web\tests\e2e\source_review_v6.spec.ts:51:      "Review the sources POLARIS will check",
+web\tests\e2e\source_review_v6.spec.ts:58:  test("Edit-question link still navigates to /intake?q=<encoded>", async ({
+web\tests\e2e\source_review_v6.spec.ts:66:      "/intake?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F",
+
+ succeeded in 1580ms:
+   1: // I-ux-001c sub-PR 4 (GH #887): e2e Playwright for the v6 /source_review
+   2: // chrome rebuild.
+   3: //
+   4: // Asserts the spec from `.codex/I-ux-001c-4/brief.md` iter-3 APPROVE:
+   5: //   - Brand-red eyebrow + display H1 + tightened subtitle render
+   6: //   - Edit-question link sits in the eyebrow row and still navigates to
+   7: //     /intake?q=<encoded> (preserves back-link behavior)
+   8: //
+   9: // Per the iter-2 P2 fix: mocks GET /api/v6/templates so the auth-gated
+  10: // listTemplates fetch doesn't race with header-link assertions.
+  11: import { expect, test } from "@playwright/test";
+  12: 
+  13: const SOURCE_REVIEW_PATH =
+  14:   "/source_review?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F&template=clinical";
+  15: 
+  16: // Minimal valid TemplateContent shape so listTemplates resolves without
+  17: // the auth-gated backend call. Mirrors the shape from
+  18: // config/v6_templates/clinical.json (id + per-tier source-domain lists +
+  19: // min_sources_per_tier). The exact contents don't matter for chrome
+  20: // assertions; they just need to render without errors.
+  21: const FAKE_TEMPLATE = {
+  22:   id: "clinical",
+  23:   display_name: "Clinical drug audit",
+  24:   source_set: {
+  25:     T1: { domains: ["nejm.org", "thelancet.com"], min_sources_per_tier: 2 },
+  26:     T2: { domains: ["cochranelibrary.com"], min_sources_per_tier: 1 },
+  27:     T3: { domains: ["uptodate.com"], min_sources_per_tier: 0 },
+  28:   },
+  29: };
+  30: 
+  31: test.describe("I-ux-001c · Source Review v6 chrome", () => {
+  32:   test.beforeEach(async ({ page }) => {
+  33:     // Mock the templates endpoint so the page renders without hitting
+  34:     // the real auth-gated backend.
+  35:     await page.route("**/api/v6/templates**", async (route) => {
+  36:       await route.fulfill({
+  37:         status: 200,
+  38:         contentType: "application/json",
+  39:         body: JSON.stringify({ templates: [FAKE_TEMPLATE] }),
+  40:       });
+  41:     });
+  42:   });
+  43: 
+  44:   test("eyebrow + H1 + subtitle render with v6 copy", async ({ page }) => {
+  45:     await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
+  46:     await expect(page.getByTestId("source-review-page")).toBeVisible();
+  47:     await expect(page.getByTestId("source-review-eyebrow")).toContainText(
+  48:       /SOURCES.*POLARIS CLINICAL RESEARCH/i,
+  49:     );
+  50:     await expect(page.getByTestId("source-review-h1")).toContainText(
+  51:       "Review the sources POLARIS will check",
+  52:     );
+  53:     await expect(page.getByTestId("source-review-subtitle")).toContainText(
+  54:       /per-tier evidence bar the corpus must clear before any claim is written/i,
+  55:     );
+  56:   });
+  57: 
+  58:   test("Edit-question link still navigates to /intake?q=<encoded>", async ({
+  59:     page,
+  60:   }) => {
+  61:     await page.goto(SOURCE_REVIEW_PATH, { waitUntil: "domcontentloaded" });
+  62:     const link = page.getByTestId("source-review-edit-question-link");
+  63:     await expect(link).toBeVisible();
+  64:     await expect(link).toHaveAttribute(
+  65:       "href",
+  66:       "/intake?q=Does%20aspirin%20reduce%20headaches%20in%20adults%3F",
+  67:     );
+  68:   });
+  69: });
+
+ succeeded in 1866ms:
+ 140:           );
+ 141:         }
+ 142:       });
+ 143:     return () => {
+ 144:       cancelled = true;
+ 145:     };
+ 146:   }, [templateId, reloadKey]);
+ 147: 
+ 148:   const planHref = `/plan?q=${encodeURIComponent(question)}&template=${encodeURIComponent(templateId)}`;
+ 149: 
+ 150:   return (
+ 151:     <section
+ 152:       data-testid="source-review-page"
+ 153:       className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+ 154:     >
+ 155:       {/* I-ux-001c sub-PR 4 (#887): v6 marketing-auth chrome. Brand-red
+ 156:           eyebrow + display H1 + tightened subtitle. Edit-question link
+ 157:           moved to the eyebrow row (right side) so it remains accessible
+ 158:           but doesn't lead the page. Rest of the page (TierCards, error
+ 159:           state, loading state, retry, no-question fallback link, Continue
+ 160:           CTA) preserved verbatim per brief iter-3 APPROVE. */}
+ 161:       <div className="flex flex-col gap-3">
+ 162:         <div className="flex items-center justify-between gap-3">
+ 163:           <span
+ 164:             data-testid="source-review-eyebrow"
+ 165:             className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+ 166:           >
+ 167:             SOURCES · POLARIS CLINICAL RESEARCH
+ 168:           </span>
+ 169:           <Link
+ 170:             data-testid="source-review-edit-question-link"
+ 171:             href={`/intake?q=${encodeURIComponent(question)}`}
+ 172:             className="text-muted-foreground hover:text-foreground text-xs"
+ 173:           >
+ 174:             ← Edit question
+ 175:           </Link>
+ 176:         </div>
+ 177:         <h1
+ 178:           data-testid="source-review-h1"
+ 179:           className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
+ 180:         >
+ 181:           Review the sources POLARIS will check.
+ 182:         </h1>
+ 183:         <p
+ 184:           data-testid="source-review-subtitle"
+ 185:           className="text-muted-foreground max-w-2xl text-sm leading-relaxed sm:text-base"
+ 186:         >
+ 187:           What POLARIS will check for this question — and the per-tier evidence
+ 188:           bar the corpus must clear before any claim is written.
+ 189:         </p>
+ 190:       </div>
+ 191: 
+ 192:       {question && (
+ 193:         <div className="border-border bg-card shadow-card flex flex-col gap-2 rounded-xl border p-4">
+ 194:           <span className="text-muted-foreground text-[10px] font-medium tracking-widest uppercase">
+ 195:             Your question
+ 196:           </span>
+ 197:           <p className="text-foreground text-base">{question}</p>
+ 198:           <span className="text-muted-foreground text-xs">
+ 199:             Template:{" "}
+ 200:             <span className="text-foreground font-medium">{templateId}</span>
+ 201:           </span>
+ 202:         </div>
+ 203:       )}
+ 204: 
+ 205:       {error && (
+ 206:         <ErrorState
+ 207:           title="Couldn't load the source set"
+ 208:           message={error}
+ 209:           onRetry={() => {
+ 210:             setError(null);
+ 211:             setTemplate(null);
+ 212:             setReloadKey((k) => k + 1);
+ 213:           }}
+ 214:         />
+ 215:       )}
+ 216: 
+ 217:       {!template && !error && (
+ 218:         <LoadingState label="Loading the source set…" rows={5} />
+ 219:       )}
+ 220: 
+ 221:       {template && (
+ 222:         <>
+ 223:           <div className="flex flex-col gap-3">
+ 224:             <h2 className="text-foreground text-sm font-semibold">
+ 225:               Source tiers POLARIS will search
+ 226:             </h2>
+ 227:             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+ 228:               {TIERS.map((tier) => (
+ 229:                 <TierCard
+ 230:                   key={tier}
+ 231:                   tier={tier}
+ 232:                   domains={template.source_tiers[tier] ?? []}
+ 233:                   minRequired={template.min_sources_per_tier[tier] ?? 0}
+ 234:                 />
+ 235:               ))}
+ 236:             </div>
+ 237:           </div>
+ 238: 
+ 239:           {template.frame_manifest.length > 0 && (
+ 240:             <div className="flex flex-col gap-3">
+ 241:               <h2 className="text-foreground text-sm font-semibold">
+ 242:                 What the brief will cover
+ 243:               </h2>
+ 244:               <div className="flex flex-wrap gap-2">
+ 245:                 {template.frame_manifest.map((frame) => (
+ 246:                   <span
+ 247:                     key={frame.frame_id}
+ 248:                     className="border-border text-muted-foreground rounded-full border px-2.5 py-1 text-xs"
+ 249:                   >
+ 250:                     {frame.frame_name}
+ 251:                   </span>
+ 252:                 ))}
+ 253:               </div>
+ 254:             </div>
+ 255:           )}
+ 256: 
+ 257:           {/* HONEST framing — the page shows the curated source DEFINITION + the
+ 258:               adequacy bar, NOT a retrieved corpus. Retrieval happens in the run.
+ 259:               I-p2-026 (#765): bg-card (white), not bg-muted/40 — muted-foreground
+ 260:               text on the muted tint failed WCAG 2.2 AA contrast (axe serious). */}
+ 261:           <div className="border-border bg-card shadow-card flex flex-col gap-1 rounded-xl border p-4">
+ 262:             <span className="text-foreground text-xs font-semibold">
+ 263:               How sources are gathered
+ 264:             </span>
+ 265:             <p className="text-muted-foreground text-xs">
+ 266:               These are the curated source domains and per-tier minimums for the{" "}
+ 267:               <span className="text-foreground font-medium">
+ 268:                 {template.template_name}
+ 269:               </span>{" "}
+ 270:               template. POLARIS retrieves the actual corpus during the run and{" "}
+ 271:               <span className="text-foreground">
+ 272:                 aborts at the adequacy gate
+ 273:               </span>{" "}
+ 274:               if any tier falls below its minimum — so scope is enforced, not
+ 275:               assumed.
+ 276:             </p>
+ 277:           </div>
+ 278: 
+ 279:           <div className="flex items-center gap-3">
+ 280:             <Button
+ 281:               nativeButton={false}
+ 282:               render={<Link href={planHref} />}
+ 283:               disabled={!question}
+ 284:             >
+ 285:               Continue to plan review →
+
+ succeeded in 2260ms:
+ 390:     body: JSON.stringify({ template, question }),
+ 391:   });
+ 392:   return asJsonOrThrow<ScopeDecision>(response);
+ 393: }
+ 394: 
+ 395: export interface TemplateContent {
+ 396:   template_id: string;
+ 397:   template_name: string;
+ 398:   summary: string;
+ 399:   primary_domains: string[];
+ 400:   source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+ 401:   min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+ 402:   frame_manifest: { frame_id: string; frame_name: string }[];
+ 403:   refusal_patterns: string[];
+ 404:   sample_questions: string[];
+ 405:   out_of_scope_examples: string[];
+ 406: }
+ 407: 
+ 408: export async function listTemplates(): Promise<TemplateContent[]> {
+ 409:   const response = await authFetch(`${BACKEND_URL}/templates`);
+ 410:   return asJsonOrThrow<TemplateContent[]>(response);
+ 411: }
+ 412: 
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web/app/source_review/page.tsx | ForEach-Object { $i++; if ($i -ge 286 -and $i -le 305) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 954ms:
+ 286:             </Button>
+ 287:             {!question && (
+ 288:               <span className="text-muted-foreground text-xs">
+ 289:                 Start from a question on{" "}
+ 290:                 <Link className="text-primary underline" href="/intake">
+ 291:                   Intake
+ 292:                 </Link>
+ 293:                 .
+ 294:               </span>
+ 295:             )}
+ 296:           </div>
+ 297:         </>
+ 298:       )}
+ 299:     </section>
+ 300:   );
+ 301: }
+ 302: 
+ 303: export default function SourceReviewPage() {
+ 304:   return (
+ 305:     <Suspense fallback={null}>
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/source_review_v6.spec.ts:21: fixture is not a valid TemplateContent[] response: listTemplates() expects a raw array with template_id/source_tiers/min_sources_per_tier/frame_manifest fields, but the test returns { templates: [{ id, display_name, source_set }] }. This does not block the chrome assertions, but it makes the mock contract-inaccurate."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+specific_check_responses:
+  visual_only_rebuild: PASS
+  brand_red_paths_preserved: PASS
+  existing_testids_preserved: PASS
+  playwright_test_mocks_api: PASS
+  subtitle_copy_locked: PASS
+```
+
+Typecheck passed. Lint passed with 0 errors and 2 pre-existing warnings outside this patch. Targeted Playwright execution could not be completed because `next dev` failed locally with `spawn EPERM`; no test failure was observed.
+tokens used
+58,496
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "web/tests/e2e/source_review_v6.spec.ts:21: fixture is not a valid TemplateContent[] response: listTemplates() expects a raw array with template_id/source_tiers/min_sources_per_tier/frame_manifest fields, but the test returns { templates: [{ id, display_name, source_set }] }. This does not block the chrome assertions, but it makes the mock contract-inaccurate."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+specific_check_responses:
+  visual_only_rebuild: PASS
+  brand_red_paths_preserved: PASS
+  existing_testids_preserved: PASS
+  playwright_test_mocks_api: PASS
+  subtitle_copy_locked: PASS
+```
+
+Typecheck passed. Lint passed with 0 errors and 2 pre-existing warnings outside this patch. Targeted Playwright execution could not be completed because `next dev` failed locally with `spawn EPERM`; no test failure was observed.
