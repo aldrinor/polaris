@@ -1,0 +1,12 @@
+[init] log file: smoke.log
+[init] Gemini client initialized
+  - model: google/gemini-2.5-pro
+  - API URL: https://openrouter.ai/api/v1/chat/completions
+  - request ID: drbii
+[info] found 1 valid pairs, start parallel processing (chunk_size=50)...
+[run] processing idx=56, file=idx-56.md, chunk_size=50
+[info] idx=56 text file read: length=264618
+[info] idx=56 text too long (264618), truncating to 150000
+[info] idx=56 has 70 rubric items, split into 2 batches
+[info] idx=56 processing batch 1/2 (50 items)
+[info] idx=56 processing batch 2/2 (20 items)

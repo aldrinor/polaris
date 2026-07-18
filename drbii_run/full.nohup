@@ -1,0 +1,53 @@
+[init] log file: full.log
+[init] Gemini client initialized
+  - model: google/gemini-2.5-pro
+  - API URL: https://openrouter.ai/api/v1/chat/completions
+  - request ID: drbii
+[info] found 5 valid pairs, start parallel processing (chunk_size=50)...
+[run] processing idx=56, file=idx-56.md, chunk_size=50
+[run] processing idx=56, file=idx-56.md, chunk_size=50
+[run] processing idx=56, file=idx-56.md, chunk_size=50
+[run] processing idx=56, file=idx-56.md, chunk_size=50
+[info] idx=56 text file read: length=334584
+[run] processing idx=56, file=idx-56.md, chunk_size=50
+[info] idx=56 text too long (334584), truncating to 150000
+[info] idx=56 text file read: length=150070
+[info] idx=56 text file read: length=25213
+[info] idx=56 text file read: length=264618[info] idx=56 text file read: length=551403
+
+[info] idx=56 has 70 rubric items, split into 2 batches
+[info] idx=56 text too long (150070), truncating to 150000
+[info] idx=56 text too long (551403), truncating to 150000
+[info] idx=56 processing batch 1/2 (50 items)
+[info] idx=56 text too long (264618), truncating to 150000
+[info] idx=56 has 70 rubric items, split into 2 batches
+[info] idx=56 has 70 rubric items, split into 2 batches
+[info] idx=56 has 70 rubric items, split into 2 batches
+[info] idx=56 processing batch 1/2 (50 items)
+[info] idx=56 processing batch 1/2 (50 items)
+[info] idx=56 has 70 rubric items, split into 2 batches
+[info] idx=56 processing batch 1/2 (50 items)
+[info] idx=56 processing batch 1/2 (50 items)
+[warn] failed to parse fenced JSON: Expecting value: line 281 column 22 (char 25804); trying full text...
+[warn] failed to parse JSON from full text: Expecting value: line 1 column 1 (char 0)
+[warn] batch attempt 1/4 JSON parse failed
+[info] idx=56 processing batch 2/2 (20 items)
+[warn] failed to parse fenced JSON: Expecting value: line 203 column 22 (char 19460); trying full text...
+[warn] failed to parse JSON from full text: Expecting value: line 1 column 1 (char 0)
+[warn] batch attempt 1/4 JSON parse failed
+[info] idx=56 processing batch 2/2 (20 items)
+[info] idx=56 processing batch 2/2 (20 items)
+[warn] failed to parse fenced JSON: Expecting value: line 167 column 22 (char 15427); trying full text...
+[warn] failed to parse JSON from full text: Expecting value: line 1 column 1 (char 0)
+[warn] batch attempt 2/4 JSON parse failed
+[ok] idx=56 finished, total tokens=191988 (input=171001, output=20987, thoughts=12429)
+[ok] idx=56 finished, total tokens=40512 (input=17057, output=23455, thoughts=15015)
+[info] idx=56 processing batch 2/2 (20 items)
+[info] idx=56 processing batch 2/2 (20 items)
+[ok] idx=56 finished, total tokens=94358 (input=75873, output=18485, thoughts=10169)
+[ok] idx=56 finished, total tokens=104169 (input=78045, output=26124, thoughts=17599)
+[warn] batch attempt 1/4 returned empty text
+[warn] batch attempt 2/4 returned empty text
+[ok] idx=56 finished, total tokens=207662 (input=184397, output=23265, thoughts=15110)
+[info] appending results to full_out.jsonl...
+[done] processing completed, results appended to full_out.jsonl
