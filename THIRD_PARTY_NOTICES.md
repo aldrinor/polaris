@@ -42,8 +42,9 @@ Verify: `git ls-files third_party` → only `DeepResearch-Bench-II/uv.lock` is t
 ### 2.2 DeepResearch-Bench-II
 - **Path:** `third_party/DeepResearch-Bench-II/` — the only tracked content is **`uv.lock`**.
 - **Provenance:** the lockfile was **generated locally** — it declares an *editable root project*
-  `deepresearch-bench-2` (`source = { editable = "." }`) and pins **9 ordinary PyPI dependencies**
-  (certifi, charset-normalizer, idna, lxml, python-docx, …). All dependency `source` entries resolve to
+  `deepresearch-bench-2` (`source = { editable = "." }`) and pins **8 ordinary PyPI dependencies**
+  (certifi, charset-normalizer, idna, lxml, python-docx, …) — 9 `[[package]]` records total, the ninth
+  being the editable root project itself. All dependency `source` entries resolve to
   the PyPI registry; there are **no git/URL sources and no vendored third-party source code** — the
   file is a build artifact, not copied upstream code.
 - **Licensing:** the transitive PyPI dependencies' licenses fall under the scheduled dependency SBOM
