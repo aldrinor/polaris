@@ -45,3 +45,11 @@
 {"type":"started","key":"v2:ed45471838602690697e4714b078b1e8b47e98a22871b26da4ca0e71f97bb532","agentId":"a084e294762734185"}
 {"type":"result","key":"v2:21f5954e89a186728d287425bbc84602eb89cd8a0ff895259740be63aef110bd","agentId":"af71d78b08cc54c76","result":"shard 21: cached"}
 {"type":"result","key":"v2:2105dd06d275ac7b7931c87e6d54aa957347a080c31d7aeebed1a3c1e3ffebb9","agentId":"a655eead45e78c1f8","result":"shard 22: cached"}
+{"type":"result","key":"v2:0aa239cd56d9211fddc30482d6504b7d45edfc6796ce79f60dd12bc42214048c","agentId":"ad811dad3161d78f4","result":"shard 20: 8 renames, 0 kept across 1 files"}
+{"type":"result","key":"v2:ed45471838602690697e4714b078b1e8b47e98a22871b26da4ca0e71f97bb532","agentId":"a084e294762734185","result":"The file is now clean: 22 files covered, 1 RENAME (visual_final.py), 21 clean.\n\nshard 24: 1 renames, 21 kept across 22 files"}
+{"type":"result","key":"v2:362351653afe419e5815b599716dd8d9875ae4a68b30c40be9e832ad175f5290","agentId":"a68217295c5abb67d","result":"All rows have 6 tab-separated fields. 12 renames, 3 kept, 16 files clean-marked as NONE (some files grouped as clean where all names in them were fine). Counting distinct files: 21 total files audited.\n\nshard 23: 12 renames, 3 kept across 21 files"}
+{"type":"started","key":"v2:c5bf5e542ad1f3469370d302eec848a9c63c570542d05d795df00c27d600c79c","agentId":"a63735ad40b1513eb"}
+{"type":"started","key":"v2:358a032755e1c260acfff46e5fc15dfaa0029d425d98f49fe29570c4d5efc2d1","agentId":"a533801cc94aa7c0e"}
+{"type":"started","key":"v2:35da37eed136995c092041ab8b8ed3b79a2d90cbeac6a7b0beb16490a48885bb","agentId":"a22799a27d71a1615"}
+{"type":"started","key":"v2:afc16cf08b70659b4dc9ed05d70157ceac5b750f2fc1f18a9fa56091cc5a658d","agentId":"a84ae641369212d4b"}
+{"type":"started","key":"v2:0648b1d900cfe752e2d7b1d9cad5edee89c584502e0ef1efbdc4a5a8e92bb3c8","agentId":"a1cee3672a642b089"}
