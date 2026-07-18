@@ -447,6 +447,12 @@ def _run_fresh_e2e(
                 "four_role_transport": build_gate_b_transport(),
                 "four_role_input_builder": make_gate_b_input_builder(),
             }
+        # A/B-experiment RESUME: env-gated (default OFF => byte-identical, resume never set).
+        # PG_E2E_RESUME=1 re-enters run_one_query at the post-selection corpus_snapshot
+        # (run_honest_sweep_r3.py:7191), skipping retrieval; verify/D8/assemble still re-run.
+        # ONLY the real runner (never the --dry-e2e mock, which has signature (q, out_root)).
+        if os.getenv("PG_E2E_RESUME", "").strip().lower() in ("1", "true", "yes", "on"):
+            four_role_kwargs["resume"] = True
     # Capture run_one_query's summary — its ``status`` is the authoritative abort/success
     # signal. A scope reject (or any abort) returns status=abort_* AFTER writing a stub
     # report.md, so we can NOT infer success from report.md alone (that was the false-OK bug).
