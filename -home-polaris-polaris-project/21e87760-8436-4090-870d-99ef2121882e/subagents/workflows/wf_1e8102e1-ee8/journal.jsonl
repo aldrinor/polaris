@@ -123,3 +123,14 @@
 {"type":"started","key":"v2:9d2485816db43234f97d98bb5af1d39be2d38c642b7b85f6920cc6a2eb6c7936","agentId":"a6c939ff21a9c7c82"}
 {"type":"started","key":"v2:34ca7940748eb8a4ed898babd9c346669f8a30b2c7dd786660e5998bbf6577db","agentId":"aac6e8a1dd580554d"}
 {"type":"started","key":"v2:abbbc9d1ca64d4b3d0fe972a69e710c7d290c0893fbd5c70c23e03521001f929","agentId":"a920de9624754230c"}
+{"type":"result","key":"v2:9d2485816db43234f97d98bb5af1d39be2d38c642b7b85f6920cc6a2eb6c7936","agentId":"a6c939ff21a9c7c82","result":"shard 62: 0 renames, 0 kept across 12 files"}
+{"type":"result","key":"v2:d2d1b3ff4a3f56c4cf2ccd6bcb474141c67f3aaa453ec3bd8e833b62712c864b","agentId":"a497407f23a87c3e4","result":"shard 60: 0 renames, 0 kept across 13 files"}
+{"type":"result","key":"v2:abbbc9d1ca64d4b3d0fe972a69e710c7d290c0893fbd5c70c23e03521001f929","agentId":"a920de9624754230c","result":"shard 64: 6 renames, 1 kept across 10 files"}
+{"type":"result","key":"v2:eb780e661b0f6362a6e69a65b0930cdf44d3fc0f080d9c12ca48adcecb574184","agentId":"ae4347dfb175f0826","result":"shard 61: 0 renames, 0 kept across 13 files"}
+{"type":"result","key":"v2:34ca7940748eb8a4ed898babd9c346669f8a30b2c7dd786660e5998bbf6577db","agentId":"aac6e8a1dd580554d","result":"shard 63: 4 renames, 1 kept across 16 files"}
+{"type":"started","key":"v2:ba729e1647c2f1e25421b6fe9c82faa8b9089ff5fd28265c52e0d29811e6fa49","agentId":"a9db0c22147bc4aee"}
+{"type":"started","key":"v2:dcdd64b39efcf2e89dbb3d89f5fd51ee9a970aa9815289d8dfbc52130e0d6a39","agentId":"a6dfe43dc9ef024a0"}
+{"type":"started","key":"v2:6f9377dd2bee6e3ff1182a57da19d0870e6304e83fd16369e0fd0c702fed5682","agentId":"afef55c164ae80415"}
+{"type":"started","key":"v2:183cab2abd28312b25a11822e3f158a41414d0b81e90057423b2b89d080b1290","agentId":"ab165ca6fabf732aa"}
+{"type":"started","key":"v2:c36a64a0a4b48932f7879e26c2d014bac9f87752282ec4586ba7dc4f45f08dcb","agentId":"aff50ea301a0c57fe"}
+{"type":"result","key":"v2:c36a64a0a4b48932f7879e26c2d014bac9f87752282ec4586ba7dc4f45f08dcb","agentId":"aff50ea301a0c57fe","result":"shard 69: 0 renames, 0 kept across 1 files"}
