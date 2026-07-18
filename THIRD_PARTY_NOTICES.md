@@ -1,51 +1,50 @@
 # Third-Party Notices & Provenance
 
-This document records the external components **of consequence**, their provenance and license, and
-the boundary between **our own code** and **externally-authored code**. It is written so a reviewer can
-*verify* each claim with the commands given, rather than take it on trust. A complete machine-generated
-dependency inventory (SBOM) with per-package licenses is a scheduled deliverable (code-review-readiness
-plan, **S6**); this document is not that inventory.
+This document records the external components **of consequence** and their provenance, and the boundary
+between our own code and externally-authored code. It states only what is currently substantiated; open
+items are marked as scheduled under the code-review-readiness plan (**S6 — reproducible build / SBOM +
+third-party audit**). It is not a complete dependency inventory.
 
-## 1. The runtime (`src/polaris_graph`) — clean-room, verifiable
+## 1. Provenance of the runtime (`src/polaris_graph`)
 
-To the project owner's knowledge, the production pipeline in `src/polaris_graph` is originally
-authored. Two components take *algorithmic inspiration* from published research and are
-reimplementations from the papers (citations in docstrings), **not code copies**:
+To the project owner's knowledge, the pipeline in `src/polaris_graph` is originally authored. Two
+components take *algorithmic inspiration* from published research and are reimplementations from the
+papers (citations in docstrings):
 
-- **STORM** (perspective-driven interview/outline) — inspired by Shao et al., *"Assisting in Writing
-  Wikipedia-like Articles From Scratch with Large Language Models"* (Stanford, 2024).
-- **FS-Researcher** (adaptive query generation) — inspired by the corresponding paper.
+- **STORM** — Shao et al., *"Assisting in Writing Wikipedia-like Articles From Scratch with LLMs"*
+  (Stanford, 2024).
+- **FS-Researcher** — the corresponding paper.
 
-**Verify (no copied upstream code):**
+**Evidence (not proof):** a scan for upstream license headers / SPDX identifiers in `src/polaris_graph`
+returns none —
 ```
-grep -rIl -e "SPDX-License-Identifier" -e "Copyright (c)" src/polaris_graph   # expect: no upstream headers
-grep -rl "third_party" src/polaris_graph                                       # expect: no runtime imports of third_party
+grep -rIl -e "SPDX-License-Identifier" -e "Copyright (c)" src/polaris_graph
+grep -rl "third_party" src/polaris_graph      # runtime does not import the benchmark trees
 ```
-The strings "STORM"/"FS-Researcher" appear as *conceptual* references; renaming those internal
-identifiers is tracked separately and does not change provenance.
+Absence of headers is evidence against verbatim file-copying; it is **not** a proof of independent
+authorship. A formal third-party code-provenance audit is a **scheduled deliverable (S6)**.
 
 ## 2. `third_party/` — external benchmarks (fetched, NOT vendored)
 
-Used only for **scoring/evaluation**; **not imported by the runtime**; **not redistributed** by this
-repository. Verify: `git ls-files third_party` (only `DeepResearch-Bench-II/uv.lock` is tracked;
-`third_party/deep_research_bench/` is git-ignored — see `.gitignore`).
+Used only for scoring; not imported by the runtime; not redistributed by this repository.
+Verify: `git ls-files third_party` → only `DeepResearch-Bench-II/uv.lock` is tracked;
+`third_party/deep_research_bench/` is git-ignored (see `.gitignore`).
 
 ### 2.1 DeepResearch-Bench (the RACE scorer)
-- **Path:** `third_party/deep_research_bench/` — **git-ignored; fetched locally, not committed.**
-- **Upstream:** https://github.com/Ayanami0730/deep_research_bench · **Paper:** arXiv:2506.11763.
+- **Path:** `third_party/deep_research_bench/` — git-ignored; fetched locally as a git clone.
+- **Upstream:** `https://github.com/Ayanami0730/deep_research_bench.git`
+- **Exact fetched revision:** **`469cce54ea7f6a63c163d3d9fec879cf289ec484`** · **Paper:** arXiv:2506.11763.
 - **What we use:** `deepresearch_bench_race.py` (the RACE metric), as an external tool.
-- **License:** the upstream **`LICENSE` file is Apache-2.0**, while the upstream **README badge
-  advertises "MIT"** — an inconsistency *in the upstream project*, which we note but do not resolve on
-  their behalf. We use the component under its shipped `LICENSE` (Apache-2.0) and preserve its
-  `LICENSE`/`README`/attribution in the fetched copy.
-- **Exact fetched revision:** **not yet pinned** in this repo. The retrieval date and commit SHA should
-  be recorded when the fetch is made reproducible; pinning it is a follow-up under **S6**.
+- **License:** the upstream **`LICENSE` file is Apache-2.0**; the upstream **README badge advertises
+  "MIT"** — an inconsistency *in the upstream project*, noted but not ours to resolve. We use the
+  component under its shipped `LICENSE` (Apache-2.0) and preserve its attribution in the fetched copy.
 
 ### 2.2 DeepResearch-Bench-II
-- **Path:** `third_party/DeepResearch-Bench-II/` — **only `uv.lock` is present/tracked; no source, no
-  README, no LICENSE is vendored here.** Its upstream identity and license are **to be confirmed**
-  before it is relied upon or redistributed (follow-up, S6). Nothing under this path is imported by the
-  runtime.
+- **Path:** `third_party/DeepResearch-Bench-II/` — the only tracked content is **`uv.lock`, a Python
+  dependency lockfile of ordinary PyPI packages** (certifi, charset-normalizer, …). **No upstream
+  project source, README, or LICENSE is vendored here, so there is nothing to attribute.** If a
+  DeepResearch-Bench-II benchmark is later actually vendored, its upstream/revision/license will be
+  recorded (S6).
 
 ## 3. Python dependencies
 
