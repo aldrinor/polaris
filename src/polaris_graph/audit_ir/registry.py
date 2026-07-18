@@ -186,10 +186,11 @@ def _runs() -> tuple[RunSummary, ...]:
             if not _RUNS_BUILT:
                 try:
                     _RUNS_CACHE = _build_runs()
-                except Exception as exc:  # noqa: BLE001 — cache & re-raise (fail-once)
+                except BaseException as exc:  # noqa: BLE001 — cache & re-raise; never leave a half-built None state
                     _RUNS_ERROR = exc
-                finally:
                     _RUNS_BUILT = True
+                    raise
+                _RUNS_BUILT = True  # only marked built AFTER success (or a cached failure above)
     if _RUNS_ERROR is not None:
         raise _RUNS_ERROR
     return _RUNS_CACHE  # type: ignore[return-value]
@@ -202,9 +203,10 @@ def list_available_runs() -> list[RunSummary]:
 
 def find_run_by_slug(slug: str) -> RunSummary | None:
     """Find a run by slug. Slugs are guaranteed unique within the registry."""
+    runs = _runs()  # always initialize (validate) first — even for a falsy slug
     if not slug:
         return None
-    for run in _runs():
+    for run in runs:
         if run.slug == slug:
             return run
     return None
@@ -212,9 +214,10 @@ def find_run_by_slug(slug: str) -> RunSummary | None:
 
 def find_run_by_id(run_id: str) -> RunSummary | None:
     """Find a run by its canonical unique run_id."""
+    runs = _runs()  # always initialize (validate) first — even for a falsy id
     if not run_id:
         return None
-    for run in _runs():
+    for run in runs:
         if run.run_id == run_id:
             return run
     return None
