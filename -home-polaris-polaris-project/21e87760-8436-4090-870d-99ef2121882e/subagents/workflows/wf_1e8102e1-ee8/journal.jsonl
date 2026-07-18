@@ -117,3 +117,9 @@
 {"type":"result","key":"v2:f7681b01c38c6e154049ca09c71f322fb3abb452277a956241e730f063b27deb","agentId":"a920ec28f76a1496a","result":"shard 57: 0 renames, 0 kept across 1 files"}
 {"type":"result","key":"v2:9797f8ac53e39eaed5a28c1d83afc0452bbc2ac67e29866029663e57f1537f60","agentId":"aacfd810b60ea2d09","result":"shard 58: 27 renames, 2 kept across 1 files"}
 {"type":"result","key":"v2:474befd7f85a5b78713328d13a5ddc31734bd4eb15866073dd940d60079bd773","agentId":"ab6960e4502a7a238","result":"shard 59: 0 renames, 0 kept across 16 files."}
+{"type":"result","key":"v2:8fe6d6bf7f21d7ba8cc6ef7aee2aa292d54e6154b666c1ef7fb68621b95d6121","agentId":"a730e450f57a2e510","result":"shard 55: 0 renames, 1 kept across 7 files"}
+{"type":"started","key":"v2:d2d1b3ff4a3f56c4cf2ccd6bcb474141c67f3aaa453ec3bd8e833b62712c864b","agentId":"a497407f23a87c3e4"}
+{"type":"started","key":"v2:eb780e661b0f6362a6e69a65b0930cdf44d3fc0f080d9c12ca48adcecb574184","agentId":"ae4347dfb175f0826"}
+{"type":"started","key":"v2:9d2485816db43234f97d98bb5af1d39be2d38c642b7b85f6920cc6a2eb6c7936","agentId":"a6c939ff21a9c7c82"}
+{"type":"started","key":"v2:34ca7940748eb8a4ed898babd9c346669f8a30b2c7dd786660e5998bbf6577db","agentId":"aac6e8a1dd580554d"}
+{"type":"started","key":"v2:abbbc9d1ca64d4b3d0fe972a69e710c7d290c0893fbd5c70c23e03521001f929","agentId":"a920de9624754230c"}
