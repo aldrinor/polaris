@@ -1,0 +1,810 @@
+21:19:11 compose INFO RQ OVERRIDE: composing to DRB task 72 verbatim prompt (corpus RQ kept as provenance only). task_rq[:90]='Please write a literature review on the restructuring impact of Artificial Intelligence (A'
+21:19:11 compose INFO corpus=cp4_corpus_s3gear_329.corrected.json  evidence=997  clusters=329  same_work_groups=55  domain=workforce
+21:19:11 compose INFO PG_OUTLINE_AGENT=1  out_dir=/home/polaris/wt/fw_ctrl/outputs/rank6_ctrl_compose
+21:19:14 compose INFO tier fractions: {'T1': 0.055, 'T2': 0.084, 'T3': 0.187, 'T4': 0.208, 'T5': 0.025, 'T6': 0.21, 'T7': 0.086, 'UNKNOWN': 0.145}
+21:19:14 compose INFO [gen] agent_model=z-ai/glm-5.2 code_model=deepseek/deepseek-v4-pro generator=z-ai/glm-5.2
+21:19:14 compose INFO [credibility] threaded psl_gov_suffixes=23 (priors-only basket build enabled)
+21:19:14 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=deepseek/deepseek-v4-pro, budget=$50.00
+21:19:15 polaris.providers.llm INFO [llm_provider] Concurrency semaphore (re)initialized: max=5 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+21:20:45 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 5201 chunks, content=3991 bytes (3971 chars), reasoning=15605 bytes (15605 chars), done=True, has_usage=True
+21:20:45 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 24566 in/5200 out/4285 reasoning tokens, 90.2s, $0.0408 cumulative
+21:20:45 src.polaris_graph.generator.outline_digest WARNING outline_digest: same-work false-merge REFUSAL fired (doi_guard_hits=0 title_guard_hits=1) — TWO OR MORE distinct cp3 works share one DOI/title, so the fold declined to merge them (only unclaimed members folded). Expected ZERO on the real corpus; a non-zero count means a key-level union-find remap may be warranted.
+21:20:45 polaris_graph INFO [outline_agent] thematic-coverage floor armed: seed=9 sections; the loop may not net-collapse below this via merge (RACE-FLOOR fix)
+21:20:45 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:21:11 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1756 chunks, content=185 bytes (185 chars), reasoning=8038 bytes (8028 chars), done=True, has_usage=True
+21:21:11 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 1377 in/1756 out/2039 reasoning tokens, 26.1s, $0.0097 cumulative
+21:21:11 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (8028 chars) for generate()
+21:21:11 polaris_graph INFO [outline_agent] checklist[seed] named 1 gap(s): Introduction and Scope of AI-Labor Restructuring Evidence::framing AI as a key driver of the Fourth Industrial Revolution
+21:21:11 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:21:13 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 202 chunks, content=626 bytes (626 chars), reasoning=336 bytes (336 chars), done=True, has_usage=True
+21:21:13 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 1965 in/202 out/85 reasoning tokens, 2.3s, $0.0036 cumulative
+21:21:13 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:21:19 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 495 chunks, content=126 bytes (126 chars), reasoning=2298 bytes (2298 chars), done=True, has_usage=True
+21:21:19 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 154 in/495 out/583 reasoning tokens, 5.9s, $0.0024 cumulative
+21:21:19 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (2298 chars) for generate()
+21:21:19 polaris_graph.live_retriever INFO [live_retriever] SERPER q='Artificial Intelligence Fourth Industrial Revolution labor market restructuring '
+21:21:22 polaris_graph.live_retriever INFO [live_retriever] S2 q='artificial intelligence fourth industrial revolution labor market restructuring'
+21:21:24 polaris_graph.live_retriever WARNING [live_retriever] openalex_search failed for 'Artificial Intelligence Fourth Industrial Revolution labor m' (fail-open): HTTP 429 from https://api.openalex.org/works
+21:21:24 polaris_graph.live_retriever INFO [live_retriever] 11 unique candidates from search
+21:21:24 src.utils.embedding_service INFO Initializing embedding service with all-MiniLM-L6-v2
+21:21:29 sentence_transformers.base.model INFO No device provided, using cuda:0
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+21:21:34 huggingface_hub.utils._http WARNING Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+21:21:34 sentence_transformers.base.model INFO Loading SentenceTransformer model from sentence-transformers/all-MiniLM-L6-v2.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 7786.27it/s]
+21:21:35 src.utils.embedding_service INFO Embedding service initialized: all-MiniLM-L6-v2 (384 dimensions)
+21:21:35 polaris_graph.live_retriever INFO [live_retriever] relevance_gate: threshold=0.30 scored=11 above_floor=11 demoted_below_floor=0 (fetched_to_fill=0, tail=0) fetched=11 unfetched_relevant_tail=0 (fetch_cap=200 scorer=semantic_v2, demote-not-drop)
+21:21:35 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://www.chicagobooth.edu/review/ai-is-going-disrupt-labo
+21:21:35 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://www.bls.gov/bls/congressional-reports/assessing-the-
+21:21:35 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://budgetlab.yale.edu/research/evaluating-impact-ai-lab
+21:21:35 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf
+21:21:36 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.hbs.edu/ris/download.aspx?name=25-039.pdf (timeout=30s)
+21:21:36 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st (timeout=30s)
+21:21:36 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.chicagobooth.edu/review/ai-is-going-disrupt-labor-market-it-doesnt-h (timeout=30s)
+21:21:36 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.bls.gov/bls/congressional-reports/assessing-the-impact-of-new-techno (timeout=30s)
+21:21:36 src.tools.access_bypass INFO [ACCESS] FIX-GAP4: PDF text extracted for https://www.iedconline.org/clientuploads/EDRP%20Logos/AI_Imp (19128 chars)
+21:21:36 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:36 trafilatura.core ERROR empty HTML tree: None
+21:21:36 trafilatura.core WARNING discarding data: None
+21:21:37 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:37 trafilatura.core ERROR empty HTML tree: None
+21:21:37 trafilatura.core WARNING discarding data: None
+21:21:37 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.iedconline.org/clientuploads/EDRP%20Logos/AI_Impact_on_Labor_Markets (method=pdf_extract chars=18677)
+21:21:37 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://news.harvard.edu/gazette/story/2025/02/is-ai-already
+21:21:37 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://news.harvard.edu/gazette/story/2025/02/is-ai-already-shaking-up-labor-ma (timeout=30s)
+21:21:37 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: FIX-EPIPE browser init exception for https://www.chicagobooth.edu/review/ai-is-going-disrupt-labo: Error: BrowserType.launch: Executable doesn't exist at /home/polaris/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome
+??????????????????????????????????????????????????????????????
+? Looks like Playw
+21:21:37 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: FIX-EPIPE browser init exception for https://www.bls.gov/bls/congressional-reports/assessing-the-: Error: BrowserType.launch: Executable doesn't exist at /home/polaris/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome
+??????????????????????????????????????????????????????????????
+? Looks like Playw
+21:21:37 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: FIX-EPIPE browser init exception for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf: Error: BrowserType.launch: Executable doesn't exist at /home/polaris/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome
+??????????????????????????????????????????????????????????????
+? Looks like Playw
+21:21:37 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: FIX-EPIPE browser init exception for https://budgetlab.yale.edu/research/evaluating-impact-ai-lab: Error: BrowserType.launch: Executable doesn't exist at /home/polaris/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome
+??????????????????????????????????????????????????????????????
+? Looks like Playw
+21:21:37 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://news.harvard.edu/gazette/story/2025/02/is-ai-already (8471 chars)
+21:21:37 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: FIX-EPIPE browser init exception for https://news.harvard.edu/gazette/story/2025/02/is-ai-already: Error: BrowserType.launch: Executable doesn't exist at /home/polaris/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome
+??????????????????????????????????????????????????????????????
+? Looks like Playw
+21:21:37 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://www.frontiersin.org/journals/artificial-intelligence
+21:21:37 src.tools.access_bypass INFO [polaris graph] CRAWL4AI: Fetching https://www.frontiersin.org/journals/artificial-intelligence/articles/10.3389/fr (timeout=30s)
+21:21:38 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: FIX-EPIPE browser init exception for https://www.frontiersin.org/journals/artificial-intelligence: Error: BrowserType.launch: Executable doesn't exist at /home/polaris/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome
+??????????????????????????????????????????????????????????????
+? Looks like Playw
+21:21:38 src.tools.access_bypass WARNING [polaris graph] CRAWL4AI: FIX-EPIPE circuit breaker OPENED after 6 consecutive failures (gen 1, cooldown 60s) — a HALF-OPEN probe will retry ONE browser fetch after the cooldown
+21:21:38 trafilatura.downloads ERROR not a 200 response: 403 for URL https://www.bls.gov/bls/congressional-reports/assessing-the-impact-of-new-technologies-on-the-labor-market.htm
+21:21:38 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://budgetlab.yale.edu/research/evaluating-impact-ai-lab (25830 chars)
+21:21:38 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://news.harvard.edu/gazette/story/2025/02/is-ai-already (7701 chars)
+21:21:38 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://news.harvard.edu/gazette/story/2025/02/is-ai-already (8470 chars, score=0.375, 2 candidates, scores={'jina_reader': 0.375, 'trafilatura': 0.339})
+21:21:38 trafilatura.downloads ERROR not a 200 response: 403 for URL https://www.hbs.edu/ris/download.aspx?name=25-039.pdf
+21:21:38 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:38 trafilatura.core ERROR empty HTML tree: None
+21:21:38 trafilatura.core WARNING discarding data: None
+21:21:38 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:38 trafilatura.core ERROR empty HTML tree: None
+21:21:38 trafilatura.core WARNING discarding data: None
+21:21:38 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://news.harvard.edu/gazette/story/2025/02/is-ai-already-shaking-up-labor-ma (method=jina_reader chars=8217)
+21:21:38 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://www.nature.com/articles/s41599-024-02647-9
+21:21:38 urllib3.poolmanager INFO Redirecting https://www.nature.com/articles/s41599-024-02647-9 -> https://idp.nature.com/authorize?response_type=cookie&client_id=grover&redirect_uri=https%3A%2F%2Fwww.nature.com%2Farticles%2Fs41599-024-02647-9
+21:21:38 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.chicagobooth.edu/review/ai-is-going-disrupt-labo (9185 chars)
+21:21:39 urllib3.poolmanager INFO Redirecting https://idp.nature.com/authorize?response_type=cookie&client_id=grover&redirect_uri=https%3A%2F%2Fwww.nature.com%2Farticles%2Fs41599-024-02647-9 -> https://idp.nature.com/transit?redirect_uri=https%3A%2F%2Fwww.nature.com%2Farticles%2Fs41599-024-02647-9&code=4305ca30-20a0-43ba-9f9b-e27cb3db0e31
+21:21:39 trafilatura.downloads ERROR download error: https://www.nature.com/articles/s41599-024-02647-9 HTTPSConnectionPool(host='idp.nature.com', port=443): Max retries exceeded with url: https://idp.nature.com/transit?redirect_uri=https%3A%2F%2Fwww.nature.com%2Farticles%2Fs41599-024-02647-9&code=4305ca30-20a0-43ba-9f9b-e27cb3db0e31 (Caused by ResponseError('too many redirects'))
+21:21:39 src.tools.access_bypass INFO [ACCESS] Trafilatura succeeded for https://www.frontiersin.org/journals/artificial-intelligence (82390 chars)
+21:21:39 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf (72785 chars)
+21:21:39 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.hbs.edu/ris/download.aspx?name=25-039.pdf (72784 chars, score=1.000, 1 candidates, scores={'jina_reader': 1.0})
+21:21:39 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:39 trafilatura.core ERROR empty HTML tree: None
+21:21:39 trafilatura.core WARNING discarding data: None
+21:21:39 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:39 trafilatura.core ERROR empty HTML tree: None
+21:21:39 trafilatura.core WARNING discarding data: None
+21:21:39 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.hbs.edu/ris/download.aspx?name=25-039.pdf (method=jina_reader chars=70463)
+21:21:40 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.bls.gov/bls/congressional-reports/assessing-the- (288862 chars)
+21:21:40 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.bls.gov/bls/congressional-reports/assessing-the- (288861 chars, score=0.980, 1 candidates, scores={'jina_reader': 0.98})
+21:21:40 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:40 trafilatura.core ERROR empty HTML tree: None
+21:21:40 trafilatura.core WARNING discarding data: None
+21:21:41 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://budgetlab.yale.edu/research/evaluating-impact-ai-lab (25420 chars)
+21:21:41 src.tools.access_bypass INFO [ACCESS] M-23c: trafilatura won quality-scored fetch for https://budgetlab.yale.edu/research/evaluating-impact-ai-lab (25830 chars, score=0.713, 2 candidates, scores={'trafilatura': 0.713, 'jina_reader': 0.707})
+21:21:41 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:41 trafilatura.core ERROR empty HTML tree: None
+21:21:41 trafilatura.core WARNING discarding data: None
+21:21:41 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:41 trafilatura.core ERROR empty HTML tree: None
+21:21:41 trafilatura.core WARNING discarding data: None
+21:21:41 src.tools.access_bypass INFO [ACCESS] PL: ScienceDirect PII S21998531250 -> DOI: 10.1016/j.joitmc.2025.100607
+21:21:41 src.tools.access_bypass INFO [ACCESS] PL: Resolved https://www.sciencedirect.com/science/article/pii/ -> https://doi.org/10.1016/j.joitmc.2025.100607
+21:21:41 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:41 trafilatura.core ERROR empty HTML tree: None
+21:21:41 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.bls.gov/bls/congressional-reports/assessing-the-impact-of-new-techno (method=jina_reader chars=286271)
+21:21:41 trafilatura.core WARNING discarding data: None
+21:21:41 src.tools.access_bypass INFO [ACCESS] PMC-BioC full text for PMC10907740 (78257 chars)
+21:21:41 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://budgetlab.yale.edu/research/evaluating-impact-ai-labor-market-current-st (method=trafilatura chars=25830)
+21:21:41 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:41 trafilatura.core ERROR empty HTML tree: None
+21:21:41 trafilatura.core WARNING discarding data: None
+21:21:41 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:41 trafilatura.core ERROR empty HTML tree: None
+21:21:41 trafilatura.core WARNING discarding data: None
+21:21:41 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://pmc.ncbi.nlm.nih.gov/articles/PMC10907740/ (method=pmc_bioc chars=49707)
+21:21:41 src.tools.access_bypass INFO [ACCESS] M-23a: Unpaywall publisher landing without PDF/PMC for 10.1016/j.joitmc.2025.100607 — keeping original URL (no landing swap)
+21:21:41 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://doi.org/10.1016/j.joitmc.2025.100607
+21:21:42 src.tools.access_bypass INFO [ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Trafilatura for https://doi.org/10.1109/EEE-AM66675.2025.11473616
+21:21:42 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.nature.com/articles/s41599-024-02647-9 (102291 chars)
+21:21:42 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.nature.com/articles/s41599-024-02647-9 (102290 chars, score=1.000, 1 candidates, scores={'jina_reader': 1.0})
+21:21:42 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:42 trafilatura.core ERROR empty HTML tree: None
+21:21:42 trafilatura.core WARNING discarding data: None
+21:21:42 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:42 trafilatura.core ERROR empty HTML tree: None
+21:21:42 trafilatura.core WARNING discarding data: None
+21:21:42 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.nature.com/articles/s41599-024-02647-9 (method=jina_reader chars=97671)
+21:21:42 urllib3.poolmanager INFO Redirecting https://doi.org/10.1109/EEE-AM66675.2025.11473616 -> https://ieeexplore.ieee.org/document/11473616/
+21:21:42 urllib3.poolmanager INFO Redirecting https://doi.org/10.1016/j.joitmc.2025.100607 -> https://linkinghub.elsevier.com/retrieve/pii/S2199853125001428
+21:21:42 urllib3.connectionpool WARNING Connection pool is full, discarding connection: doi.org. Connection pool size: 1
+21:21:43 trafilatura.core WARNING discarding data: None
+21:21:45 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.frontiersin.org/journals/artificial-intelligence (119681 chars)
+21:21:45 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.frontiersin.org/journals/artificial-intelligence (119680 chars, score=1.000, 2 candidates, scores={'jina_reader': 1.0, 'trafilatura': 0.954})
+21:21:45 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:45 trafilatura.core ERROR empty HTML tree: None
+21:21:45 trafilatura.core WARNING discarding data: None
+21:21:45 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:45 trafilatura.core ERROR empty HTML tree: None
+21:21:45 trafilatura.core WARNING discarding data: None
+21:21:45 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.frontiersin.org/journals/artificial-intelligence/articles/10.3389/fr (method=jina_reader chars=100604)
+21:21:46 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://www.chicagobooth.edu/review/ai-is-going-disrupt-labo (41855 chars)
+21:21:46 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://www.chicagobooth.edu/review/ai-is-going-disrupt-labo (41854 chars, score=0.655, 2 candidates, scores={'jina_reader': 0.655, 'trafilatura': 0.184})
+21:21:46 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:46 trafilatura.core ERROR empty HTML tree: None
+21:21:46 trafilatura.core WARNING discarding data: None
+21:21:46 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:46 trafilatura.core ERROR empty HTML tree: None
+21:21:46 trafilatura.core WARNING discarding data: None
+21:21:46 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.chicagobooth.edu/review/ai-is-going-disrupt-labor-market-it-doesnt-h (method=jina_reader chars=41484)
+21:21:48 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://doi.org/10.1109/EEE-AM66675.2025.11473616 (3500 chars)
+21:21:48 src.tools.access_bypass INFO [ACCESS] M-23c: jina_reader won quality-scored fetch for https://doi.org/10.1109/EEE-AM66675.2025.11473616 (3499 chars, score=0.315, 1 candidates, scores={'jina_reader': 0.315})
+21:21:48 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:48 trafilatura.core ERROR empty HTML tree: None
+21:21:48 trafilatura.core WARNING discarding data: None
+21:21:48 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:21:48 trafilatura.core ERROR empty HTML tree: None
+21:21:48 trafilatura.core WARNING discarding data: None
+21:21:48 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://doi.org/10.1109/EEE-AM66675.2025.11473616 (method=jina_reader chars=3020)
+21:21:49 src.tools.access_bypass INFO [ACCESS] Jina Reader succeeded for https://doi.org/10.1016/j.joitmc.2025.100607 (671 chars)
+21:21:49 src.tools.access_bypass INFO [ACCESS] M-23d: Short content (670 chars) with HTTP-error signal (returned\s+error\s+\d{3}) — treating as failed fetch
+21:21:49 src.tools.access_bypass INFO [ACCESS] Trying direct fetch for https://doi.org/10.1016/j.joitmc.2025.100607
+21:21:49 src.tools.access_bypass INFO [ACCESS] Direct access blocked for https://doi.org/10.1016/j.joitmc.2025.100607, trying alternatives
+21:21:49 src.tools.access_bypass INFO [ACCESS] Trying Archive.org for https://doi.org/10.1016/j.joitmc.2025.100607
+21:21:51 src.tools.access_bypass INFO [ACCESS] I-fetch-004: Trying Zyte paid fallback for https://doi.org/10.1016/j.joitmc.2025.100607
+21:21:52 trafilatura.core WARNING discarding data: None
+21:22:08 src.tools.access_bypass INFO [ACCESS] Zyte succeeded for https://doi.org/10.1016/j.joitmc.2025.100607 (105802 chars, mode=browserHtml, escalated=True, attempts=1, successes=1)
+21:22:08 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:22:08 trafilatura.core ERROR empty HTML tree: None
+21:22:08 trafilatura.core WARNING discarding data: None
+21:22:08 trafilatura.utils ERROR parsed tree length: 0, wrong data type or not valid HTML
+21:22:08 trafilatura.core ERROR empty HTML tree: None
+21:22:08 trafilatura.core WARNING discarding data: None
+21:22:08 polaris_graph.live_retriever INFO [live_retriever] fetch_ok https://www.sciencedirect.com/science/article/pii/S2199853125001428 (method=zyte chars=50016)
+21:22:08 polaris_graph.live_retriever INFO [live_retriever] M-INT-1 parallel_fetch: 11 success, 0 errored, 0 timeout (max_workers=8, per_task_timeout=120s)
+21:22:08 polaris_graph.live_retriever INFO [activation] fetch_yield_gate: rate=1.000 attempts=11 < floor=50 -> skip
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 7546.95it/s]
+21:22:14 src.polaris_graph.llm.openrouter_client WARNING [polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+21:22:17 polaris_graph.content_relevance_judge INFO [content_relevance] scored=11 relevant=10 demoted=1 escalated=1 device=cuda band=[0.05,0.70] (demote keeps weight=0.25; NO drop)
+21:22:17 polaris_graph.live_retriever INFO [live_retriever] W2 content-relevance: scored=11 relevant=10 demoted=1 escalated=1 device=cuda (DEMOTE keeps low weight, NO drop)
+21:22:17 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 1/11 https://www.sciencedirect.com/science/article/pii/S219985312
+21:22:17 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 2/11 https://www.iedconline.org/clientuploads/EDRP%20Logos/AI_Imp
+21:22:17 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 3/11 https://www.chicagobooth.edu/review/ai-is-going-disrupt-labo
+21:22:17 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 4/11 https://www.bls.gov/bls/congressional-reports/assessing-the-
+21:22:18 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 5/11 https://pmc.ncbi.nlm.nih.gov/articles/PMC10907740/
+21:22:18 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 6/11 https://budgetlab.yale.edu/research/evaluating-impact-ai-lab
+21:22:18 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 7/11 https://www.hbs.edu/ris/download.aspx?name=25-039.pdf
+21:22:18 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 8/11 https://www.frontiersin.org/journals/artificial-intelligence
+21:22:18 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 9/11 https://news.harvard.edu/gazette/story/2025/02/is-ai-already
+21:22:18 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 10/11 https://www.nature.com/articles/s41599-024-02647-9
+21:22:19 polaris_graph.live_retriever INFO [live_retriever] post-fetch candidate 11/11 https://doi.org/10.1109/EEE-AM66675.2025.11473616
+21:22:19 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:22:19 polaris.providers.llm INFO [llm_provider] Concurrency semaphore (re)initialized: max=5 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+21:22:25 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 493 chunks, content=37 bytes (37 chars), reasoning=2374 bytes (2372 chars), done=True, has_usage=True
+21:22:25 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 1019 in/493 out/600 reasoning tokens, 6.1s, $0.0036 cumulative
+21:22:25 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (2372 chars) for generate()
+21:22:25 src.polaris_graph.retrieval.topic_relevance_gate INFO [scope] topic_gate DEMOTED(kept, disclosed) 1 off-topic source(s): Digital Transformation In Vietnam's Industrial Sector: Current Situation And Prospects For Enhancing Competitiveness And
+21:22:25 polaris_graph INFO [outline_agent] search_more_evidence['framing AI as a key driver of the Fourth Industrial Revoluti'] query='Artificial Intelligence Fourth Industrial Revolution labor market restructuring disruption across industries literature review' fetched 11 of 11, url-dup dropped 6, kept 5, deleted 0 (chrome=0, off-topic=0) in 59.5s
+21:22:25 polaris_graph INFO [outline_agent] update_outline: Applied 1 op(s); recompose=['Introduction and Scope of AI-Labor Restructuring Evidence']; kept=8; rejected=0; deferred=0; gap_queries routed to ledger: 0
+21:22:25 polaris_graph INFO [outline_agent] auto-assign: routed 5 new ev_id(s) to section 'Introduction and Scope of AI-Labor Restructuring Evidence' (P0-2 fix — search fold-in now mutates the outline instead of orphaning rows)
+21:22:25 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:22:25 polaris.providers.llm INFO [llm_provider] Concurrency semaphore (re)initialized: max=5 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+21:22:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1575 chunks, content=4 bytes (4 chars), reasoning=7275 bytes (7265 chars), done=True, has_usage=True
+21:22:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 1377 in/1575 out/1842 reasoning tokens, 24.3s, $0.0089 cumulative
+21:22:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (7265 chars) for generate()
+21:22:49 polaris_graph INFO [outline_agent] checklist[after_fold] ran: NONE (no grounded deficiencies)
+21:22:49 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:22:58 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 495 chunks, content=619 bytes (619 chars), reasoning=1630 bytes (1624 chars), done=True, has_usage=True
+21:22:58 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 2157 in/495 out/414 reasoning tokens, 8.3s, $0.0052 cumulative
+21:22:58 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:23:05 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 331 chunks, content=666 bytes (664 chars), reasoning=918 bytes (918 chars), done=True, has_usage=True
+21:23:05 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 2445 in/331 out/231 reasoning tokens, 7.6s, $0.0049 cumulative
+21:23:05 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:23:12 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 516 chunks, content=501 bytes (501 chars), reasoning=1971 bytes (1971 chars), done=True, has_usage=True
+21:23:12 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 2699 in/516 out/500 reasoning tokens, 6.6s, $0.0060 cumulative
+21:23:12 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:23:15 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 229 chunks, content=479 bytes (479 chars), reasoning=584 bytes (584 chars), done=True, has_usage=True
+21:23:15 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 2855 in/229 out/147 reasoning tokens, 3.3s, $0.0050 cumulative
+21:23:15 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:23:23 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 407 chunks, content=613 bytes (611 chars), reasoning=1335 bytes (1335 chars), done=True, has_usage=True
+21:23:23 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 3109 in/407 out/338 reasoning tokens, 8.2s, $0.0061 cumulative
+21:23:23 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:23:29 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 454 chunks, content=451 bytes (451 chars), reasoning=1525 bytes (1525 chars), done=True, has_usage=True
+21:23:29 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 3273 in/454 out/386 reasoning tokens, 5.9s, $0.0066 cumulative
+21:23:29 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:23:40 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 694 chunks, content=815 bytes (815 chars), reasoning=2372 bytes (2372 chars), done=True, has_usage=True
+21:23:40 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 3447 in/695 out/601 reasoning tokens, 10.8s, $0.0079 cumulative
+21:23:40 src.polaris_graph.llm.openrouter_client INFO [polaris graph] FIX-SCHEMA-4: Extracted JSON from prose content for ReactDecision (410 chars from 815 char content)
+21:23:40 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:23:56 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 868 chunks, content=455 bytes (455 chars), reasoning=3235 bytes (3235 chars), done=True, has_usage=True
+21:23:56 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 3574 in/868 out/820 reasoning tokens, 16.2s, $0.0082 cumulative
+21:23:56 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:24:01 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 377 chunks, content=445 bytes (445 chars), reasoning=1274 bytes (1274 chars), done=True, has_usage=True
+21:24:01 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 3768 in/377 out/323 reasoning tokens, 5.3s, $0.0069 cumulative
+21:24:01 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:24:11 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 810 chunks, content=994 bytes (994 chars), reasoning=2796 bytes (2796 chars), done=True, has_usage=True
+21:24:11 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 3918 in/811 out/706 reasoning tokens, 9.5s, $0.0084 cumulative
+21:24:11 src.polaris_graph.llm.openrouter_client INFO [polaris graph] FIX-SCHEMA-4: Extracted JSON from prose content for ReactDecision (469 chars from 994 char content)
+21:24:11 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:24:18 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 409 chunks, content=485 bytes (485 chars), reasoning=1239 bytes (1239 chars), done=True, has_usage=True
+21:24:18 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 4060 in/409 out/314 reasoning tokens, 7.4s, $0.0068 cumulative
+21:24:18 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:24:26 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 596 chunks, content=440 bytes (440 chars), reasoning=2121 bytes (2121 chars), done=True, has_usage=True
+21:24:26 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 4315 in/596 out/536 reasoning tokens, 7.9s, $0.0080 cumulative
+21:24:26 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:24:34 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 544 chunks, content=563 bytes (563 chars), reasoning=1678 bytes (1678 chars), done=True, has_usage=True
+21:24:34 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 4462 in/544 out/426 reasoning tokens, 7.7s, $0.0080 cumulative
+21:24:34 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:24:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 548 chunks, content=447 bytes (447 chars), reasoning=1784 bytes (1768 chars), done=True, has_usage=True
+21:24:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 4604 in/548 out/453 reasoning tokens, 9.6s, $0.0082 cumulative
+21:24:44 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:24:56 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 838 chunks, content=812 bytes (812 chars), reasoning=2949 bytes (2949 chars), done=True, has_usage=True
+21:24:56 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 4748 in/838 out/748 reasoning tokens, 12.5s, $0.0097 cumulative
+21:24:56 src.polaris_graph.llm.openrouter_client INFO [polaris graph] FIX-SCHEMA-4: Extracted JSON from prose content for ReactDecision (481 chars from 812 char content)
+21:24:56 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:25:04 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 568 chunks, content=480 bytes (480 chars), reasoning=1822 bytes (1822 chars), done=True, has_usage=True
+21:25:04 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 4893 in/568 out/460 reasoning tokens, 8.1s, $0.0087 cumulative
+21:25:04 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:25:23 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1026 chunks, content=521 bytes (519 chars), reasoning=3925 bytes (3925 chars), done=True, has_usage=True
+21:25:23 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 5055 in/1026 out/992 reasoning tokens, 18.7s, $0.0109 cumulative
+21:25:23 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:25:30 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 402 chunks, content=609 bytes (609 chars), reasoning=1227 bytes (1227 chars), done=True, has_usage=True
+21:25:30 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 5209 in/402 out/311 reasoning tokens, 7.0s, $0.0084 cumulative
+21:25:30 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:26:20 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 3506 chunks, content=2090 bytes (2090 chars), reasoning=12560 bytes (12494 chars), done=True, has_usage=True
+21:26:20 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 5349 in/3506 out/3190 reasoning tokens, 50.3s, $0.0223 cumulative
+21:26:20 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:26:28 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 752 chunks, content=456 bytes (456 chars), reasoning=2610 bytes (2610 chars), done=True, has_usage=True
+21:26:28 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 5382 in/752 out/660 reasoning tokens, 8.1s, $0.0102 cumulative
+21:26:28 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:26:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 809 chunks, content=483 bytes (483 chars), reasoning=2897 bytes (2897 chars), done=True, has_usage=True
+21:26:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 5516 in/809 out/732 reasoning tokens, 13.0s, $0.0106 cumulative
+21:26:41 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:26:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 201 chunks, content=348 bytes (348 chars), reasoning=577 bytes (577 chars), done=True, has_usage=True
+21:26:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 5649 in/201 out/146 reasoning tokens, 3.1s, $0.0081 cumulative
+21:26:44 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:26:57 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1120 chunks, content=479 bytes (479 chars), reasoning=3908 bytes (3876 chars), done=True, has_usage=True
+21:26:57 src.polaris_graph.llm.openrouter_client INFO [polaris graph] structured:ReactDecision completed: 5786 in/1120 out/998 reasoning tokens, 12.8s, $0.0130 cumulative
+21:26:57 polaris_graph.multi_section INFO [multi_section] outline: 9 sections: ['Introduction and Scope of AI-Labor Restructuring Evidence', 'Task-Based Frameworks: Automation, Reinstatement, and Polarization', 'Occupational Exposure to AI: Measurement and Susceptibility', 'Productivity and Displacement from Generative AI', 'Structural Impacts on Employment, Wages, and Skill Demand', 'Sectoral and Geographic Heterogeneity in Restructuring', 'Policy Frameworks for Inclusive AI Transitions', 'Cross-Study Synthesis: Convergences and Contradictions', 'Conclusions and Open Research Gaps'] (ok=True fallback=False retry=False)
+21:26:57 polaris_graph.multi_section WARNING [multi_section] JUNK-GATE (§-1.3.1a): deleted 53 chrome non-source(s) / confirmed-off-topic row(s) from the grounding pool (disclosed, not silent): [('ev_072', 'content_integrity_junk:chrome'), ('ev_984', 'content_integrity_junk:chrome'), ('ev_065', 'content_integrity_junk:chrome'), ('ev_1251', 'content_integrity_junk:chrome'), ('ev_903', 'content_integrity_junk:chrome'), ('ev_130', 'content_integrity_junk:chrome'), ('ev_885', 'content_integrity_junk:chrome'), ('ev_895', 'content_integrity_junk:chrome'), ('ev_084', 'content_integrity_junk:chrome'), ('ev_049', 'content_integrity_junk:chrome'), ('ev_003', 'content_integrity_junk:chrome'), ('ev_956', 'content_integrity_junk:chrome')]
+21:27:28 src.utils.content_deduplicator INFO [content_dedup] deduped 947 -> 875 findings
+21:27:28 polaris_graph.content_dedup_consolidate INFO [content_dedup_consolidate] W9: 949 rows (947 eligible) -> 49 body-syndication basket(s), 121 rows grouped, 0 dropped (KEEP-ALL, sim>=0.85)
+21:27:28 src.polaris_graph.synthesis.credibility_pass WARNING [credibility-pass] no production credibility judge wired (judge=None); running priors-only and LABELING all 949 source(s) credibility_unscored (disclosed gap) — the report ships with the gap, never aborts (operator-locked 'nothing shall hold the report').
+21:28:35 src.polaris_graph.llm.openrouter_client WARNING [polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+21:28:35 src.polaris_graph.llm.openrouter_client WARNING [polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+21:28:35 src.polaris_graph.llm.openrouter_client WARNING [polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+21:29:37 src.polaris_graph.llm.entailment_judge WARNING entailment judge error (attempt 1/3): empty or non-str judge content — retrying after 0.5s.
+21:35:38 src.polaris_graph.llm.entailment_judge WARNING entailment judge retryable fault (attempt 1/3): total_deadline_exceeded_150s — retrying after 0.5s.
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_0024eb190cf59126: SUPPORTS member held out of corroboration: chrome span (eid=ev_729)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_0382528e81fd02be: SUPPORTS member held out of corroboration: chrome span (eid=ev_338)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_043eae113bddc3af: SUPPORTS member held out of corroboration: chrome span (eid=ev_833)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_05ce0bd54b58f0dc: SUPPORTS member held out of corroboration: chrome span (eid=ev_192)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_069c835f77dde161: SUPPORTS member held out of corroboration: chrome span (eid=ev_692)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_07df2927dfb9bb04: SUPPORTS member held out of corroboration: chrome span (eid=ev_750)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_09b4131116d9ba69: SUPPORTS member held out of corroboration: chrome span (eid=ev_1060)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_0a041306122547ea: SUPPORTS member held out of corroboration: chrome span (eid=ev_367)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_0b46a0c7cc5fe08f: SUPPORTS member held out of corroboration: chrome span (eid=ev_991)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_0ba70a201793319c: SUPPORTS member held out of corroboration: chrome span (eid=ev_1018)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_0dd6ec9ce0e5dd2c: SUPPORTS member held out of corroboration: chrome span (eid=ev_361)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_0e5dc164e3a4ee0d: SUPPORTS member held out of corroboration: chrome span (eid=ev_596)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_0ebe79eb94ea4a89: SUPPORTS member held out of corroboration: chrome span (eid=ev_326)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_108d71d3ac1f4377: SUPPORTS member held out of corroboration: chrome span (eid=ev_352)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_10a71118a9b2d797: SUPPORTS member held out of corroboration: chrome span (eid=ev_1173)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1326355fb653c136: SUPPORTS member held out of corroboration: chrome span (eid=ev_581)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_133e279b9156519c: SUPPORTS member held out of corroboration: chrome span (eid=ev_974)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1501a8478c5cef45: SUPPORTS member held out of corroboration: chrome span (eid=ev_841)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_168122684e5c19ef: SUPPORTS member held out of corroboration: chrome span (eid=ev_1141)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_171b6bb554268b90: SUPPORTS member held out of corroboration: chrome span (eid=ev_860)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1798e5bebea70f31: SUPPORTS member held out of corroboration: chrome span (eid=ev_1206)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1863711cac768442: SUPPORTS member held out of corroboration: chrome span (eid=ev_925)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1951d5405b326984: SUPPORTS member held out of corroboration: chrome span (eid=ev_1186)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1a20d962642dbe7f: SUPPORTS member held out of corroboration: chrome span (eid=ev_839)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1bf3d40aa53868b1: SUPPORTS member held out of corroboration: chrome span (eid=ev_997)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1cdcf35ac5be4703: SUPPORTS member held out of corroboration: chrome span (eid=ev_728)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1d7ddab9e0f806bd: SUPPORTS member held out of corroboration: chrome span (eid=ev_271)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1dab9bc9f18af215: SUPPORTS member held out of corroboration: chrome span (eid=ev_455)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1dc31e58d7973324: SUPPORTS member held out of corroboration: chrome span (eid=ev_909)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1dd77edf6562e7e7: SUPPORTS member held out of corroboration: chrome span (eid=ev_045)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1e00fc8f00d9b20f: SUPPORTS member held out of corroboration: chrome span (eid=ev_267)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1eb972d325d8f7c5: SUPPORTS member held out of corroboration: chrome span (eid=ev_191)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_1f513af737fdec90: SUPPORTS member held out of corroboration: chrome span (eid=ev_062)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2342608098f2600c: SUPPORTS member held out of corroboration: chrome span (eid=ev_593)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2446fde40c257667: SUPPORTS member held out of corroboration: chrome span (eid=ev_748)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2703d94089939b20: SUPPORTS member held out of corroboration: chrome span (eid=ev_532)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_28ebf9c5a762f129: SUPPORTS member held out of corroboration: chrome span (eid=ev_304)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2aa99856e9a9d20e: SUPPORTS member held out of corroboration: chrome span (eid=ev_067)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2b4aded6117adc58: SUPPORTS member held out of corroboration: chrome span (eid=ev_375)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2c1c0d525c43d1cb: SUPPORTS member held out of corroboration: chrome span (eid=ev_123)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2cff22f169d47e9c: SUPPORTS member held out of corroboration: chrome span (eid=ev_740)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2d053264856e6dfb: SUPPORTS member held out of corroboration: chrome span (eid=ev_521)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2e87dd3a1576e59a: SUPPORTS member held out of corroboration: chrome span (eid=ev_436)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_2ed6366590898251: SUPPORTS member held out of corroboration: chrome span (eid=ev_1108)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_30297a93d9dbd0fa: SUPPORTS member held out of corroboration: chrome span (eid=ev_287)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_30d718e52b4baba4: SUPPORTS member held out of corroboration: chrome span (eid=ev_625)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3112c5c0794db3a0: SUPPORTS member held out of corroboration: chrome span (eid=ev_763)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3175074165fdb2a4: SUPPORTS member held out of corroboration: chrome span (eid=ev_907)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_34f71db88d246fef: SUPPORTS member held out of corroboration: chrome span (eid=ev_385)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_35688f8f22b29358: SUPPORTS member held out of corroboration: chrome span (eid=ev_476)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_363f9eb2f633f86e: SUPPORTS member held out of corroboration: chrome span (eid=ev_520)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_366d14d58572b45c: SUPPORTS member held out of corroboration: chrome span (eid=ev_901)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_36e2b66be6433e05: SUPPORTS member held out of corroboration: chrome span (eid=ev_1268)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3810d992595b2bcd: SUPPORTS member held out of corroboration: chrome span (eid=ev_206)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3858bd434f2aaf63: SUPPORTS member held out of corroboration: chrome span (eid=ev_865)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3986a2b9be76c152: SUPPORTS member held out of corroboration: chrome span (eid=ev_1041)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_39ed0ba80e6a8b2e: SUPPORTS member held out of corroboration: chrome span (eid=ev_976)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3db586ee25199f99: SUPPORTS member held out of corroboration: chrome span (eid=ev_544)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3ea454ea5a27f113: SUPPORTS member held out of corroboration: chrome span (eid=ev_1203)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3f901b91f49775aa: SUPPORTS member held out of corroboration: chrome span (eid=ev_219)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3f934586e85d9349: SUPPORTS member held out of corroboration: chrome span (eid=ev_896)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_3fc71956e1512900: SUPPORTS member held out of corroboration: chrome span (eid=ev_634)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_409a7af2cf20672f: SUPPORTS member held out of corroboration: chrome span (eid=ev_768)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_417022caf20ce6df: SUPPORTS member held out of corroboration: chrome span (eid=ev_340)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_421ec4322561bcc2: SUPPORTS member held out of corroboration: chrome span (eid=ev_992)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_42483924806a8b10: SUPPORTS member held out of corroboration: chrome span (eid=ev_738)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_4349f4d3696602c8: SUPPORTS member held out of corroboration: chrome span (eid=ev_1131)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_43aa50fe9f6cff69: SUPPORTS member held out of corroboration: chrome span (eid=ev_878)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_43ba87d10e201c29: SUPPORTS member held out of corroboration: chrome span (eid=ev_273)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_4744b020c3f71cd8: SUPPORTS member held out of corroboration: chrome span (eid=ev_665)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_47aab9ec1f2bc421: SUPPORTS member held out of corroboration: chrome span (eid=ev_572)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_487bfad31d1ac3ea: SUPPORTS member held out of corroboration: chrome span (eid=ev_1247)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_498a84f18befb280: SUPPORTS member held out of corroboration: chrome span (eid=ev_169)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_4a8532ed2b4cd687: SUPPORTS member held out of corroboration: chrome span (eid=ev_269)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_4b236f6d21005c99: SUPPORTS member held out of corroboration: chrome span (eid=ev_102)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_4bafaa43e2059bec: SUPPORTS member held out of corroboration: chrome span (eid=ev_595)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5180e335918746b6: SUPPORTS member held out of corroboration: chrome span (eid=ev_369)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_525f8f2d80d7463e: SUPPORTS member held out of corroboration: chrome span (eid=ev_687)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5316fa8d83a562c9: SUPPORTS member held out of corroboration: chrome span (eid=ev_1275)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_546f3f1da67535ce: SUPPORTS member held out of corroboration: chrome span (eid=ev_1262)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5570a224c14c8766: SUPPORTS member held out of corroboration: chrome span (eid=ev_1258)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_562106822a088b86: SUPPORTS member held out of corroboration: chrome span (eid=ev_1201)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5634057d2bbcf886: SUPPORTS member held out of corroboration: chrome span (eid=ev_441)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5787166db7002ce4: SUPPORTS member held out of corroboration: chrome span (eid=ev_771)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_57a91d58599f1e9a: SUPPORTS member held out of corroboration: chrome span (eid=ev_459)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_59c054385ad760d2: SUPPORTS member held out of corroboration: chrome span (eid=ev_1264)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5aa13d7ef4cb13b1: SUPPORTS member held out of corroboration: chrome span (eid=ev_606)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5aba8a210ca4dccb: SUPPORTS member held out of corroboration: chrome span (eid=ev_518)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5b2a79e0cf3e1966: SUPPORTS member held out of corroboration: chrome span (eid=ev_236)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5b87418162b3a24e: SUPPORTS member held out of corroboration: chrome span (eid=ev_696)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5c55106fd852c346: SUPPORTS member held out of corroboration: chrome span (eid=ev_873)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5da85b1773c676cf: SUPPORTS member held out of corroboration: chrome span (eid=ev_1083)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5ece7715ddfb2501: SUPPORTS member held out of corroboration: chrome span (eid=ev_368)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5f32b102b9a353d4: SUPPORTS member held out of corroboration: chrome span (eid=ev_356)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5f44257ba4765585: SUPPORTS member held out of corroboration: chrome span (eid=ev_812)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5f6034a6b628fbd3: SUPPORTS member held out of corroboration: chrome span (eid=ev_906)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_5fb793c24e3affd8: SUPPORTS member held out of corroboration: chrome span (eid=ev_613)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_607b2b0e34564e4b: SUPPORTS member held out of corroboration: chrome span (eid=ev_643)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_610de70d1cd5be2a: SUPPORTS member held out of corroboration: chrome span (eid=ev_881)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6288de199c85fdb8: SUPPORTS member held out of corroboration: chrome span (eid=ev_955)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_638bb4b3dc8c9f22: SUPPORTS member held out of corroboration: chrome span (eid=ev_1135)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_641a67ec139a0d50: SUPPORTS member held out of corroboration: chrome span (eid=ev_392)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_641c5ce1eb0819d4: SUPPORTS member held out of corroboration: chrome span (eid=ev_562)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_65554a20002e292f: SUPPORTS member held out of corroboration: chrome span (eid=ev_640)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6581401efd8cf7cd: SUPPORTS member held out of corroboration: chrome span (eid=ev_449)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_66990c59ac5b4ba9: SUPPORTS member held out of corroboration: chrome span (eid=ev_272)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_678edf132858cac1: SUPPORTS member held out of corroboration: chrome span (eid=ev_922)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_689c2c57ac13524b: SUPPORTS member held out of corroboration: chrome span (eid=ev_492)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6934e8c14d80c944: SUPPORTS member held out of corroboration: chrome span (eid=ev_393)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_69bf903427c05447: SUPPORTS member held out of corroboration: chrome span (eid=ev_1140)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6a1f02f7efb307e8: SUPPORTS member held out of corroboration: chrome span (eid=ev_329)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6b97548ac2ee855c: SUPPORTS member held out of corroboration: chrome span (eid=ev_1054)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6c791b5f06cca4ec: SUPPORTS member held out of corroboration: chrome span (eid=ev_355)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6cbffe93faf8ec58: SUPPORTS member held out of corroboration: chrome span (eid=ev_291)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6cde4575999bf2a0: SUPPORTS member held out of corroboration: chrome span (eid=ev_171)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6d7a43348b8947fc: SUPPORTS member held out of corroboration: chrome span (eid=ev_725)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_6e485f30bc779ca3: SUPPORTS member held out of corroboration: chrome span (eid=ev_1069)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_744c6f574b8a66e1: SUPPORTS member held out of corroboration: chrome span (eid=ev_978)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_756e891d84becd98: SUPPORTS member held out of corroboration: chrome span (eid=ev_599)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_757c4d44aeab76fe: SUPPORTS member held out of corroboration: chrome span (eid=ev_882)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7a7e8cfeae1ee8aa: SUPPORTS member held out of corroboration: chrome span (eid=ev_851)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7ae128a785645ef4: SUPPORTS member held out of corroboration: chrome span (eid=ev_043)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7b813edffb3ee95d: SUPPORTS member held out of corroboration: chrome span (eid=ev_395)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7b9e9dd7bafb9972: SUPPORTS member held out of corroboration: chrome span (eid=ev_682)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7bcc5929037027e0: SUPPORTS member held out of corroboration: chrome span (eid=ev_343)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7bf2c02775a75a30: SUPPORTS member held out of corroboration: chrome span (eid=ev_246)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7c82f591cbc5d8ab: SUPPORTS member held out of corroboration: chrome span (eid=ev_961)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7d50ecbac831143f: SUPPORTS member held out of corroboration: chrome span (eid=ev_776)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7df927356a77309e: SUPPORTS member held out of corroboration: chrome span (eid=ev_063)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7f4c41200eaaab9c: SUPPORTS member held out of corroboration: chrome span (eid=ev_041)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_7fbfc0057e0c26d2: SUPPORTS member held out of corroboration: chrome span (eid=ev_199)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_8128416ae48cf3a5: SUPPORTS member held out of corroboration: chrome span (eid=ev_1266)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_816f37123465c918: SUPPORTS member held out of corroboration: chrome span (eid=ev_031)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_81b0804178011485: SUPPORTS member held out of corroboration: chrome span (eid=ev_612)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_81ffec015fd1ac46: SUPPORTS member held out of corroboration: chrome span (eid=ev_723)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_844e6e1deea480c7: SUPPORTS member held out of corroboration: chrome span (eid=ev_027)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_86016f65352a4dda: SUPPORTS member held out of corroboration: chrome span (eid=ev_1211)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_867c1fb67e378c32: SUPPORTS member held out of corroboration: chrome span (eid=ev_286)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_882718bec02993d6: SUPPORTS member held out of corroboration: chrome span (eid=ev_1005)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_8891ed5bf3a5ebc1: SUPPORTS member held out of corroboration: chrome span (eid=ev_563)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_88e755c1372e7023: SUPPORTS member held out of corroboration: chrome span (eid=ev_415)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_8cd06a3199c2d839: SUPPORTS member held out of corroboration: chrome span (eid=ev_796)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_8d4ff7be2b94adc8: SUPPORTS member held out of corroboration: chrome span (eid=ev_403)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9043b04bdd6b13b2: SUPPORTS member held out of corroboration: chrome span (eid=ev_321)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9174076566fd6f5f: SUPPORTS member held out of corroboration: chrome span (eid=ev_319)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9178f4069c941871: SUPPORTS member held out of corroboration: chrome span (eid=ev_276)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9183fe61d8433c51: SUPPORTS member held out of corroboration: chrome span (eid=ev_275)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_94314132cc4a0a77: SUPPORTS member held out of corroboration: chrome span (eid=ev_939)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_94bc0012a497babf: SUPPORTS member held out of corroboration: chrome span (eid=ev_293)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9527ca34a732df57: SUPPORTS member held out of corroboration: chrome span (eid=ev_1259)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9622c15085fc2123: SUPPORTS member held out of corroboration: chrome span (eid=ev_1120)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_962d01305a322541: SUPPORTS member held out of corroboration: chrome span (eid=ev_999)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_98086a33eabb77eb: SUPPORTS member held out of corroboration: chrome span (eid=ev_1076)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9a60b2b511553280: SUPPORTS member held out of corroboration: chrome span (eid=ev_1242)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9b4298ed9f8e52df: SUPPORTS member held out of corroboration: chrome span (eid=ev_296)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9be071deaf8141f9: SUPPORTS member held out of corroboration: chrome span (eid=ev_082)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_9f0c3d40b0520531: SUPPORTS member held out of corroboration: chrome span (eid=ev_1224)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_a2072b53bb2035d5: SUPPORTS member held out of corroboration: chrome span (eid=ev_248)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_a28221ae023f0c14: SUPPORTS member held out of corroboration: chrome span (eid=ev_001)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_a9b61882d47063e9: SUPPORTS member held out of corroboration: chrome span (eid=ev_432)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ab989ede04a21ac7: SUPPORTS member held out of corroboration: chrome span (eid=ev_336)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_abf9fb2658655ccf: SUPPORTS member held out of corroboration: chrome span (eid=ev_174)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ac89f8f5ace36bab: SUPPORTS member held out of corroboration: chrome span (eid=ev_411)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_acf7e80aa6149d9c: SUPPORTS member held out of corroboration: chrome span (eid=ev_847)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ad4189c869343932: SUPPORTS member held out of corroboration: chrome span (eid=ev_282)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ae75f8e9fc70b2d7: SUPPORTS member held out of corroboration: chrome span (eid=ev_981)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ae7fc05a80c3f619: SUPPORTS member held out of corroboration: chrome span (eid=ev_489)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_afa120e1d4b1410c: SUPPORTS member held out of corroboration: chrome span (eid=ev_473)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_b306a4bf960a1cfe: SUPPORTS member held out of corroboration: chrome span (eid=ev_647)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_b32726ce55e5e7a7: SUPPORTS member held out of corroboration: chrome span (eid=ev_244)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_b3ce921ab0946f00: SUPPORTS member held out of corroboration: chrome span (eid=ev_685)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_b6b7d82a1420bc98: SUPPORTS member held out of corroboration: chrome span (eid=ev_635)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_b93647041a3a2851: SUPPORTS member held out of corroboration: chrome span (eid=ev_622)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_bbbfe6bbf545683c: SUPPORTS member held out of corroboration: chrome span (eid=ev_937)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_bbc6f36cab92bbe5: SUPPORTS member held out of corroboration: chrome span (eid=ev_394)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_bc7cb833f791dc5c: SUPPORTS member held out of corroboration: chrome span (eid=ev_684)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_bc92d31b160ca093: SUPPORTS member held out of corroboration: chrome span (eid=ev_344)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_bd48b7be1598a5e5: SUPPORTS member held out of corroboration: chrome span (eid=ev_1153)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_be99c96b2179ebff: SUPPORTS member held out of corroboration: chrome span (eid=ev_531)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_beaf185248f8cc22: SUPPORTS member held out of corroboration: chrome span (eid=ev_224)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_bef054a3ae79985d: SUPPORTS member held out of corroboration: chrome span (eid=ev_461)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_c18ab50d39d4087f: SUPPORTS member held out of corroboration: chrome span (eid=ev_533)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_c48a7f688b935ce1: SUPPORTS member held out of corroboration: chrome span (eid=ev_843)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_c55999e2a0092894: SUPPORTS member held out of corroboration: chrome span (eid=ev_1044)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_c59fec33c6308ab1: SUPPORTS member held out of corroboration: chrome span (eid=ev_1199)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_c7da383e5349737e: SUPPORTS member held out of corroboration: chrome span (eid=ev_507)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_c8de509da91dcfc9: SUPPORTS member held out of corroboration: chrome span (eid=ev_950)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ca4bc8cd2e95fd33: SUPPORTS member held out of corroboration: chrome span (eid=ev_144)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ca740d6fc2028206: SUPPORTS member held out of corroboration: chrome span (eid=ev_255)
+21:35:43 src.polaris_graph.generator.weighted_enrichment INFO [activation] chart_alt_chrome: fired=1 (chart-alt-text gate ON)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_cc3af903d8e7fa5c: SUPPORTS member held out of corroboration: chrome span (eid=ev_1006)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ccf6275442604eb0: SUPPORTS member held out of corroboration: chrome span (eid=ev_597)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ce26d298e9a8980f: SUPPORTS member held out of corroboration: chrome span (eid=ev_646)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d14391d07bad9e34: SUPPORTS member held out of corroboration: chrome span (eid=ev_309)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d28f7b2516705215: SUPPORTS member held out of corroboration: chrome span (eid=ev_1144)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d399c8aa8a72f89e: SUPPORTS member held out of corroboration: chrome span (eid=ev_938)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d3a73de8845e225f: SUPPORTS member held out of corroboration: chrome span (eid=ev_294)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d594fb8e646463a8: SUPPORTS member held out of corroboration: chrome span (eid=ev_627)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d5e4ebcf0b46e004: SUPPORTS member held out of corroboration: chrome span (eid=ev_652)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d5e87f8255192565: SUPPORTS member held out of corroboration: chrome span (eid=ev_494)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d6315b2515734a5c: SUPPORTS member held out of corroboration: chrome span (eid=ev_490)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d6414fb893619e4e: SUPPORTS member held out of corroboration: chrome span (eid=ev_830)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d7203a250ef7f216: SUPPORTS member held out of corroboration: chrome span (eid=ev_1269)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d7fb35ec26b5455c: SUPPORTS member held out of corroboration: chrome span (eid=ev_020)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_d8c60698edff7db5: SUPPORTS member held out of corroboration: chrome span (eid=ev_150)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_dabd7436364aa54a: SUPPORTS member held out of corroboration: chrome span (eid=ev_1176)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_db70f6b006fddb8f: SUPPORTS member held out of corroboration: chrome span (eid=ev_772)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_dcbaa6fcc8b0399b: SUPPORTS member held out of corroboration: chrome span (eid=ev_677)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_dd2bc43e1af62ba5: SUPPORTS member held out of corroboration: chrome span (eid=ev_702)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_de99cc23cdacb3f0: SUPPORTS member held out of corroboration: chrome span (eid=ev_242)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_dfc89551597ff4b8: SUPPORTS member held out of corroboration: chrome span (eid=ev_809)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_dffd2dfdc874e5af: SUPPORTS member held out of corroboration: chrome span (eid=ev_686)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_e26c276fb7cd1212: SUPPORTS member held out of corroboration: chrome span (eid=ev_711)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_e2b5830a9eaf9964: SUPPORTS member held out of corroboration: chrome span (eid=ev_512)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_e2ebe9654aa4971d: SUPPORTS member held out of corroboration: chrome span (eid=ev_548)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_e57780dcb4c54720: SUPPORTS member held out of corroboration: chrome span (eid=ev_347)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_e637fbea04704ebe: SUPPORTS member held out of corroboration: chrome span (eid=ev_046)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_e843f3c02a573ef2: SUPPORTS member held out of corroboration: chrome span (eid=ev_668)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ea5de6446d9ed752: SUPPORTS member held out of corroboration: chrome span (eid=ev_274)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ebf8f49eab65c3ad: SUPPORTS member held out of corroboration: chrome span (eid=ev_736)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ed0ec844b15ca089: SUPPORTS member held out of corroboration: chrome span (eid=ev_934)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_eefa573e8ec8599a: SUPPORTS member held out of corroboration: chrome span (eid=ev_499)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ef5109b7e18ba16e: SUPPORTS member held out of corroboration: chrome span (eid=ev_496)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_ef67287c69158c85: SUPPORTS member held out of corroboration: chrome span (eid=ev_218)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_efe25e12b27c982c: SUPPORTS member held out of corroboration: chrome span (eid=ev_400)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f3769956a2b1a23e: SUPPORTS member held out of corroboration: chrome span (eid=ev_637)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f53fd772b57a19a0: SUPPORTS member held out of corroboration: chrome span (eid=ev_406)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f5cddba55d42a3d6: SUPPORTS member held out of corroboration: chrome span (eid=ev_1124)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f6e11c712c6b9ef4: SUPPORTS member held out of corroboration: chrome span (eid=ev_477)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f6f15d245402fe1b: SUPPORTS member held out of corroboration: chrome span (eid=ev_195)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f8281e0f8ffd9efb: SUPPORTS member held out of corroboration: chrome span (eid=ev_417)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f8993793f54cf4f0: SUPPORTS member held out of corroboration: chrome span (eid=ev_478)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f89dcd9184b3cde3: SUPPORTS member held out of corroboration: chrome span (eid=ev_1070)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f8cb2cdee6701b3a: SUPPORTS member held out of corroboration: chrome span (eid=ev_1191)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f8edc9bd8fef420a: SUPPORTS member held out of corroboration: chrome span (eid=ev_871)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_f9aa185e9df12672: SUPPORTS member held out of corroboration: chrome span (eid=ev_1049)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_fbcb9634fb799085: SUPPORTS member held out of corroboration: chrome span (eid=ev_857)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_fbd9eabd1189a0d3: SUPPORTS member held out of corroboration: chrome span (eid=ev_1091)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_fd588177efbd551c: SUPPORTS member held out of corroboration: chrome span (eid=ev_117)
+21:35:43 src.polaris_graph.synthesis.credibility_pass INFO [credibility-pass] basket clm_fe3b49432a594d3d: SUPPORTS member held out of corroboration: chrome span (eid=ev_561)
+21:35:43 src.polaris_graph.synthesis.credibility_pass WARNING [credibility-pass] F3-3b judge-availability: entailment verification UNAVAILABLE for 0/949 basket member(s) (0.0%) this run — those members are disclosed verification-unavailable and NOT counted as corroboration origins (never silently softened). Set PG_CORROBORATION_JUDGE_UNAVAILABLE_MAX_FRAC to a fraction to HARD-FAIL on a judge-outage storm.
+21:35:43 polaris_graph.multi_section INFO [multi_section] I-arch-007 breadth: enrichment DISABLED (PG_BREADTH_ENRICHMENT_ENABLED is off) — byte-identical legacy render
+21:35:43 src.polaris_graph.generator.verified_compose INFO [verified_compose] F1 route-all-baskets: routed 911 orphan basket(s) + 0 unassigned singleton(s) to sections; DELETED 0 judge-confirmed off-topic item(s) (0 member rows) before routing (§-1.3.1 fail-open, disclosed); residual section=yes
+21:35:44 polaris_graph.cross_trial_synthesis INFO [m72] only 0 trial frames with extracted fields — skipping cross-trial synthesis
+21:35:47 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:35:52 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:35:55 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:36:24 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1795 chunks, content=4978 bytes (4974 chars), reasoning=2484 bytes (2484 chars), done=True, has_usage=True
+21:36:24 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 110820 in/1795 out/629 reasoning tokens, 28.3s, $0.1630 cumulative
+21:36:24 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (2484 chars) for generate()
+21:36:24 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=33
+21:36:30 polaris_graph.multi_section INFO [multi_section] WS-3 no-token repair: rebound 1 untokened sentence(s) to a verified basket clause BEFORE strict_verify (drb_72 no_provenance_token leak)
+21:36:30 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1422 chunks, content=4622 bytes (4614 chars), reasoning=1753 bytes (1753 chars), done=True, has_usage=True
+21:36:30 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 132732 in/1422 out/447 reasoning tokens, 43.6s, $0.1921 cumulative
+21:36:30 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1753 chars) for generate()
+21:36:31 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=22
+21:36:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 2120 chunks, content=5727 bytes (5715 chars), reasoning=3742 bytes (3742 chars), done=True, has_usage=True
+21:36:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 246539 in/2120 out/952 reasoning tokens, 52.0s, $0.3545 cumulative
+21:36:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (3742 chars) for generate()
+21:36:44 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=48
+21:38:19 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:38:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 96 chunks, content=260 bytes (260 chars), reasoning=231 bytes (229 chars), done=True, has_usage=True
+21:38:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 735 in/96 out/58 reasoning tokens, 2.8s, $0.0015 cumulative
+21:38:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (229 chars) for generate()
+21:38:34 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:38:36 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:38:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 294 chunks, content=444 bytes (444 chars), reasoning=735 bytes (735 chars), done=True, has_usage=True
+21:38:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 789 in/294 out/185 reasoning tokens, 7.0s, $0.0024 cumulative
+21:38:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (735 chars) for generate()
+21:38:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 325 chunks, content=323 bytes (323 chars), reasoning=1580 bytes (1580 chars), done=True, has_usage=True
+21:38:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 741 in/325 out/398 reasoning tokens, 7.6s, $0.0025 cumulative
+21:38:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1580 chars) for generate()
+21:38:45 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:38:45 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:38:48 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:38:50 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 114 chunks, content=206 bytes (204 chars), reasoning=299 bytes (297 chars), done=True, has_usage=True
+21:38:50 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 769 in/114 out/76 reasoning tokens, 5.2s, $0.0016 cumulative
+21:38:50 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (297 chars) for generate()
+21:38:52 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:38:58 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 380 chunks, content=223 bytes (223 chars), reasoning=1612 bytes (1612 chars), done=True, has_usage=True
+21:38:58 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 751 in/380 out/406 reasoning tokens, 9.5s, $0.0027 cumulative
+21:38:58 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1612 chars) for generate()
+21:38:59 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 121 chunks, content=391 bytes (391 chars), reasoning=209 bytes (209 chars), done=True, has_usage=True
+21:38:59 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 741 in/121 out/53 reasoning tokens, 6.3s, $0.0016 cumulative
+21:38:59 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (209 chars) for generate()
+21:39:00 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 765 chunks, content=162 bytes (162 chars), reasoning=3293 bytes (3293 chars), done=True, has_usage=True
+21:39:00 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 760 in/765 out/832 reasoning tokens, 14.5s, $0.0044 cumulative
+21:39:00 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (3293 chars) for generate()
+21:39:04 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:39:05 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:39:10 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 153 chunks, content=315 bytes (313 chars), reasoning=481 bytes (481 chars), done=True, has_usage=True
+21:39:10 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 733 in/153 out/121 reasoning tokens, 5.8s, $0.0013 cumulative
+21:39:10 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (481 chars) for generate()
+21:39:12 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:39:13 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 287 chunks, content=336 bytes (336 chars), reasoning=1059 bytes (1059 chars), done=True, has_usage=True
+21:39:13 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 903 in/287 out/267 reasoning tokens, 7.2s, $0.0025 cumulative
+21:39:13 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1059 chars) for generate()
+21:39:14 polaris_graph.multi_section INFO [multi_section] Introduction and Scope of AI-Labor Restructuring Evidence repair_loop: attempts=4 successes=3 (rate=0.75) null_drops=0 token_set_violations=0 re_verify_fail=1 api_fail=0
+21:39:19 polaris_graph.multi_section INFO [multi_section] render-chrome prose screen dropped 2 chrome unit(s)
+21:39:21 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:39:21 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 243 chunks, content=377 bytes (377 chars), reasoning=702 bytes (702 chars), done=True, has_usage=True
+21:39:21 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 984 in/243 out/176 reasoning tokens, 8.3s, $0.0020 cumulative
+21:39:21 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (702 chars) for generate()
+21:39:33 polaris_graph.multi_section INFO [multi_section] Occupational Exposure to AI: Measurement and Susceptibility repair_loop: attempts=2 successes=1 (rate=0.50) null_drops=0 token_set_violations=0 re_verify_fail=1 api_fail=0
+21:39:35 polaris_graph.multi_section INFO [multi_section] render-chrome prose screen dropped 1 chrome unit(s)
+21:39:37 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:39:42 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1384 chunks, content=4723 bytes (4715 chars), reasoning=1141 bytes (1141 chars), done=True, has_usage=True
+21:39:42 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 62391 in/1384 out/290 reasoning tokens, 21.1s, $0.0934 cumulative
+21:39:42 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1141 chars) for generate()
+21:39:42 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=17
+21:39:48 polaris_graph.multi_section INFO [multi_section] WS-3 no-token repair: rebound 2 untokened sentence(s) to a verified basket clause BEFORE strict_verify (drb_72 no_provenance_token leak)
+21:39:51 polaris_graph.multi_section INFO [multi_section] Task-Based Frameworks: Automation, Reinstatement, and Polarization repair_loop: attempts=4 successes=3 (rate=0.75) null_drops=0 token_set_violations=0 re_verify_fail=1 api_fail=0
+21:39:54 polaris_graph.multi_section INFO [multi_section] render-chrome prose screen dropped 2 chrome unit(s)
+21:39:55 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:40:03 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1627 chunks, content=4041 bytes (4033 chars), reasoning=2920 bytes (2918 chars), done=True, has_usage=True
+21:40:03 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 59345 in/1627 out/739 reasoning tokens, 26.1s, $0.0902 cumulative
+21:40:03 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (2918 chars) for generate()
+21:40:03 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=15
+21:40:51 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 4264 chunks, content=4026 bytes (4026 chars), reasoning=11235 bytes (11221 chars), done=True, has_usage=True
+21:40:51 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 47964 in/4264 out/2844 reasoning tokens, 56.5s, $0.0859 cumulative
+21:40:51 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (11221 chars) for generate()
+21:40:51 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=8
+21:41:47 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:42:09 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1211 chunks, content=4507 bytes (4493 chars), reasoning=1319 bytes (1319 chars), done=True, has_usage=True
+21:42:09 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 40179 in/1211 out/334 reasoning tokens, 22.5s, $0.0616 cumulative
+21:42:09 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1319 chars) for generate()
+21:42:09 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=31
+21:42:15 polaris_graph.multi_section INFO [multi_section] WS-3 no-token repair: rebound 1 untokened sentence(s) to a verified basket clause BEFORE strict_verify (drb_72 no_provenance_token leak)
+21:42:15 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:42:18 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 166 chunks, content=291 bytes (291 chars), reasoning=498 bytes (498 chars), done=True, has_usage=True
+21:42:18 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 955 in/166 out/125 reasoning tokens, 2.1s, $0.0021 cumulative
+21:42:18 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (498 chars) for generate()
+21:42:22 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:42:28 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 526 chunks, content=239 bytes (239 chars), reasoning=1514 bytes (1514 chars), done=True, has_usage=True
+21:42:28 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 1001 in/526 out/382 reasoning tokens, 5.5s, $0.0033 cumulative
+21:42:28 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1514 chars) for generate()
+21:42:30 polaris_graph.multi_section INFO [multi_section] Productivity and Displacement from Generative AI repair_loop: attempts=2 successes=2 (rate=1.00) null_drops=0 token_set_violations=0 re_verify_fail=0 api_fail=0
+21:42:30 polaris_graph.multi_section INFO [multi_section] B11 same-span dedup: collapsed 1 degenerate same-span restatement(s) in section 'Productivity and Displacement from Generative AI' (14 -> 13 kept)
+21:42:30 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:42:55 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1590 chunks, content=4219 bytes (4219 chars), reasoning=3280 bytes (3279 chars), done=True, has_usage=True
+21:42:55 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 13076 in/1590 out/829 reasoning tokens, 24.3s, $0.0253 cumulative
+21:42:55 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (3279 chars) for generate()
+21:42:55 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=17
+21:42:57 polaris_graph.multi_section INFO [multi_section] WS-3 no-token repair: rebound 1 untokened sentence(s) to a verified basket clause BEFORE strict_verify (drb_72 no_provenance_token leak)
+21:43:45 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:43:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 280 chunks, content=149 bytes (149 chars), reasoning=1397 bytes (1397 chars), done=True, has_usage=True
+21:43:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 710 in/280 out/351 reasoning tokens, 4.8s, $0.0018 cumulative
+21:43:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1397 chars) for generate()
+21:44:04 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:44:06 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 144 chunks, content=143 bytes (143 chars), reasoning=451 bytes (451 chars), done=True, has_usage=True
+21:44:06 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 720 in/144 out/113 reasoning tokens, 2.0s, $0.0012 cumulative
+21:44:06 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (451 chars) for generate()
+21:44:07 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:44:09 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 148 chunks, content=9 bytes (9 chars), reasoning=694 bytes (694 chars), done=True, has_usage=True
+21:44:09 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 755 in/148 out/174 reasoning tokens, 2.1s, $0.0017 cumulative
+21:44:09 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (694 chars) for generate()
+21:44:09 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:44:13 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 334 chunks, content=108 bytes (108 chars), reasoning=1385 bytes (1385 chars), done=True, has_usage=True
+21:44:13 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 857 in/334 out/349 reasoning tokens, 4.2s, $0.0022 cumulative
+21:44:13 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1385 chars) for generate()
+21:44:19 polaris_graph.multi_section INFO [multi_section] Sectoral and Geographic Heterogeneity in Restructuring repair_loop: attempts=4 successes=3 (rate=0.75) null_drops=1 token_set_violations=0 re_verify_fail=0 api_fail=0
+21:44:19 polaris_graph.multi_section INFO [multi_section] render-chrome prose screen dropped 1 chrome unit(s)
+21:44:20 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:44:43 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1403 chunks, content=4022 bytes (4008 chars), reasoning=2263 bytes (2263 chars), done=True, has_usage=True
+21:44:43 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 47964 in/1403 out/573 reasoning tokens, 23.2s, $0.0733 cumulative
+21:44:43 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (2263 chars) for generate()
+21:44:43 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=18
+21:45:03 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:45:08 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 421 chunks, content=180 bytes (180 chars), reasoning=1878 bytes (1878 chars), done=True, has_usage=True
+21:45:08 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 751 in/421 out/474 reasoning tokens, 4.9s, $0.0025 cumulative
+21:45:08 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1878 chars) for generate()
+21:45:14 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:45:17 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 182 chunks, content=378 bytes (378 chars), reasoning=558 bytes (558 chars), done=True, has_usage=True
+21:45:17 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 728 in/182 out/140 reasoning tokens, 3.0s, $0.0014 cumulative
+21:45:17 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (558 chars) for generate()
+21:45:24 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:45:26 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 129 chunks, content=276 bytes (276 chars), reasoning=371 bytes (371 chars), done=True, has_usage=True
+21:45:26 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 719 in/129 out/93 reasoning tokens, 1.9s, $0.0011 cumulative
+21:45:26 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (371 chars) for generate()
+21:45:35 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:45:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 389 chunks, content=177 bytes (177 chars), reasoning=1358 bytes (1358 chars), done=True, has_usage=True
+21:45:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 758 in/389 out/343 reasoning tokens, 6.3s, $0.0023 cumulative
+21:45:41 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1358 chars) for generate()
+21:45:50 polaris_graph.multi_section INFO [multi_section] Policy Frameworks for Inclusive AI Transitions repair_loop: attempts=4 successes=3 (rate=0.75) null_drops=0 token_set_violations=0 re_verify_fail=1 api_fail=0
+21:45:50 polaris_graph.multi_section INFO [multi_section] render-chrome prose screen dropped 1 chrome unit(s)
+21:45:51 polaris_graph.provenance_generator WARNING [provenance_generator] Redacted 1 prompt-injection pattern(s) from evidence ev_764
+21:46:01 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:47:13 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:47:14 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 117 chunks, content=232 bytes (232 chars), reasoning=352 bytes (352 chars), done=True, has_usage=True
+21:47:14 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 696 in/117 out/89 reasoning tokens, 1.4s, $0.0011 cumulative
+21:47:14 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (352 chars) for generate()
+21:47:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 1824 chunks, content=3937 bytes (3931 chars), reasoning=3933 bytes (3933 chars), done=True, has_usage=True
+21:47:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 478017 in/1824 out/991 reasoning tokens, 80.5s, $0.6772 cumulative
+21:47:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (3933 chars) for generate()
+21:47:22 src.polaris_graph.generator.verified_compose INFO [activation] debate_con_basket_consolidation: consolidated=21
+21:47:29 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:47:35 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 502 chunks, content=439 bytes (439 chars), reasoning=2144 bytes (2144 chars), done=True, has_usage=True
+21:47:35 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 786 in/502 out/541 reasoning tokens, 5.5s, $0.0029 cumulative
+21:47:35 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (2144 chars) for generate()
+21:47:42 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:47:42 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:47:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 187 chunks, content=214 bytes (214 chars), reasoning=770 bytes (770 chars), done=True, has_usage=True
+21:47:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 711 in/187 out/194 reasoning tokens, 2.3s, $0.0014 cumulative
+21:47:44 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (770 chars) for generate()
+21:47:46 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:47:47 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 153 chunks, content=132 bytes (132 chars), reasoning=492 bytes (492 chars), done=True, has_usage=True
+21:47:47 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 781 in/153 out/124 reasoning tokens, 1.8s, $0.0013 cumulative
+21:47:47 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (492 chars) for generate()
+21:47:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 585 chunks, content=261 bytes (261 chars), reasoning=2557 bytes (2557 chars), done=True, has_usage=True
+21:47:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 905 in/585 out/646 reasoning tokens, 7.2s, $0.0034 cumulative
+21:47:49 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (2557 chars) for generate()
+21:47:49 src.polaris_graph.llm.openrouter_client WARNING [polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+21:47:54 src.polaris_graph.generator.sentence_repair INFO [sentence_repair] B17 confirmed-pruned 1 non-supporting marker(s) (orig=('[#ev:ev_094:0-800]', '[#ev:ev_164:600-1400]'), repaired=('[#ev:ev_164:600-1400]',))
+21:47:54 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:48:00 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 249 chunks, content=308 bytes (308 chars), reasoning=936 bytes (936 chars), done=True, has_usage=True
+21:48:00 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 781 in/249 out/237 reasoning tokens, 6.3s, $0.0022 cumulative
+21:48:00 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (936 chars) for generate()
+21:48:07 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:48:08 polaris_graph.multi_section INFO [multi_section] Cross-Study Synthesis: Convergences and Contradictions repair_loop: attempts=3 successes=0 (rate=0.00) null_drops=0 token_set_violations=0 re_verify_fail=3 api_fail=0
+21:48:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 646 chunks, content=181 bytes (181 chars), reasoning=2970 bytes (2970 chars), done=True, has_usage=True
+21:48:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 963 in/646 out/748 reasoning tokens, 15.9s, $0.0038 cumulative
+21:48:22 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (2970 chars) for generate()
+21:48:22 src.polaris_graph.llm.openrouter_client WARNING [polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+21:48:29 src.polaris_graph.generator.sentence_repair INFO [sentence_repair] B17 confirmed-pruned 1 non-supporting marker(s) (orig=('[#ev:ev_048:1000-1800]', '[#ev:ev_128:300-1100]'), repaired=('[#ev:ev_128:300-1100]',))
+21:48:40 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:48:42 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 168 chunks, content=173 bytes (173 chars), reasoning=787 bytes (787 chars), done=True, has_usage=True
+21:48:42 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 789 in/168 out/199 reasoning tokens, 2.2s, $0.0018 cumulative
+21:48:42 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (787 chars) for generate()
+21:48:44 polaris_graph.multi_section INFO [multi_section] Conclusions and Open Research Gaps repair_loop: attempts=5 successes=5 (rate=1.00) null_drops=0 token_set_violations=0 re_verify_fail=0 api_fail=0
+21:50:34 polaris_graph.multi_section INFO [multi_section] render-chrome prose screen dropped 1 chrome unit(s)
+21:50:34 polaris_graph.fact_dedup INFO [fact_dedup] 3 duplicate-fact groups detected, 4 redundant sentences to rewrite
+21:50:34 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:50:45 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 541 chunks, content=566 bytes (566 chars), reasoning=1821 bytes (1813 chars), done=True, has_usage=True
+21:50:45 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 744 in/541 out/461 reasoning tokens, 11.0s, $0.0034 cumulative
+21:50:45 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (1813 chars) for generate()
+21:50:45 polaris_graph.fact_dedup INFO [fact_dedup] applied=4, dropped=0
+21:51:01 polaris_graph.multi_section INFO [multi_section] GH#423 fact_dedup: groups=3 redundants=4 rewrites_proposed=4 rewrites_kept=0 rewrites_dropped_by_strict_verify=4 redundants_dropped_by_llm_fallback=0
+21:51:01 src.polaris_graph.llm.openrouter_client INFO OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+21:51:16 src.polaris_graph.llm.openrouter_client INFO [polaris graph] SSE metrics: 968 chunks, content=647 bytes (647 chars), reasoning=3897 bytes (3897 chars), done=True, has_usage=True
+21:51:16 src.polaris_graph.llm.openrouter_client INFO [polaris graph] generate completed: 438 in/968 out/982 reasoning tokens, 15.7s, $0.0049 cumulative
+21:51:16 src.polaris_graph.llm.openrouter_client INFO [polaris graph] POOL-1: Reasoning logged (3897 chars) for generate()
+21:51:16 src.polaris_graph.generator.analyst_synthesis WARNING [analyst_synthesis] EMITTER fail-CLOSED: layer ON but D3 PROMOTE gate is OFF — refusing UNGATED synthesis (verified core only). Set PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED=1 to ship it.
+21:51:16 polaris_graph.multi_section INFO [multi_section] M-42b: no primary-trial direct_quotes available for LLM fallback; table suppressed
+21:51:16 compose INFO [gen] elapsed=1922.2s  outline=10 sections  kept=10  words=2324  verified=81  dropped=75  in_tok=1286303 out_tok=32912
+21:51:16 compose INFO    [OK ] Introduction and Scope of AI-Labor Restruc verified=9 dropped=5 regen=False
+21:51:16 compose INFO    [OK ] Task-Based Frameworks: Automation, Reinsta verified=9 dropped=8 regen=False
+21:51:16 compose INFO    [OK ] Occupational Exposure to AI: Measurement a verified=6 dropped=8 regen=False
+21:51:16 compose INFO    [OK ] Productivity and Displacement from Generat verified=12 dropped=7 regen=False
+21:51:16 compose INFO    [OK ] Structural Impacts on Employment, Wages, a verified=6 dropped=9 regen=False
+21:51:16 compose INFO    [OK ] Sectoral and Geographic Heterogeneity in R verified=11 dropped=6 regen=False
+21:51:16 compose INFO    [OK ] Policy Frameworks for Inclusive AI Transit verified=10 dropped=6 regen=False
+21:51:16 compose INFO    [OK ] Cross-Study Synthesis: Convergences and Co verified=6 dropped=7 regen=False
+21:51:16 compose INFO    [OK ] Conclusions and Open Research Gaps         verified=8 dropped=7 regen=False
+21:51:16 compose INFO    [OK ] Additional Corroborated Findings           verified=4 dropped=12 regen=False
+21:51:16 compose INFO [agentic] cp4_used=agentic degraded_to_seed=False turns=24 degrade_reason='' -> AGENTIC
+21:51:16 compose INFO [faithfulness] leaked_[CITE:ev]=0  bib_markers_in_prose=45  bib_entries=63  unresolved_markers=[] -> PASS
+21:51:16 compose INFO WROTE /home/polaris/wt/fw_ctrl/outputs/rank6_ctrl_compose/report.md (28071 chars, 3408 words) + compose_summary.json
+{
+  "corpus": "cp4_corpus_s3gear_329.corrected.json",
+  "judged_drb_task": "72",
+  "composed_to_rq": "Please write a literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market. Focus on how AI, as a key driver of the Fourth",
+  "corpus_rq": "I am researching the impact of Generative AI on the future labor market, please help me complete a research report. The report needs to be based on academic res",
+  "report_title": "A literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market",
+  "section_headings": [
+    "Introduction and Scope of AI-Labor Restructuring Evidence",
+    "Task-Based Frameworks: Automation, Reinstatement, and Polarization",
+    "Occupational Exposure to AI: Measurement and Susceptibility",
+    "Productivity and Displacement from Generative AI",
+    "Structural Impacts on Employment, Wages, and Skill Demand",
+    "Sectoral and Geographic Heterogeneity in Restructuring",
+    "Policy Frameworks for Inclusive AI Transitions",
+    "Cross-Study Synthesis: Convergences and Contradictions",
+    "Conclusions and Open Research Gaps",
+    "Additional Corroborated Findings"
+  ],
+  "evidence_rows": 1002,
+  "baskets": 329,
+  "same_work_groups": 55,
+  "outline_sections": 10,
+  "kept_sections": 10,
+  "dropped_sections": 0,
+  "total_words": 2324,
+  "total_sentences_verified": 81,
+  "total_sentences_dropped": 75,
+  "junk_deleted_rows": 53,
+  "bibliography_entries": 63,
+  "report_chars": 28071,
+  "report_words": 3408,
+  "faithfulness_audit": {
+    "leaked_cite_ev_tokens": 0,
+    "leaked_cite_samples": [],
+    "distinct_bib_markers_in_prose": 45,
+    "bibliography_entries": 63,
+    "unresolved_markers": []
+  },
+  "faithfulness_pass": true,
+  "cp4_used": "agentic",
+  "degraded_to_seed": false,
+  "degrade_reason": "",
+  "outline_agent_turns": 24,
+  "moat_quantified_models": 0,
+  "agent_model": "z-ai/glm-5.2",
+  "code_model": "deepseek/deepseek-v4-pro",
+  "generator_model": "z-ai/glm-5.2",
+  "elapsed_seconds": 1922.2,
+  "out_dir": "/home/polaris/wt/fw_ctrl/outputs/rank6_ctrl_compose"
+}
