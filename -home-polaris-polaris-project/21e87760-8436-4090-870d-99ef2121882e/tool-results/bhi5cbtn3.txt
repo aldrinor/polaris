@@ -1,0 +1,1929 @@
+__pycache__
+_blobs
+_known_dois.json
+_preprint_stamp_probe.py
+_run.log
+_wait_openalex.log
+_wait_openalex.py
+campaign_ledger.jsonl
+direct_oa_queue.json
+frontier_2023_2025.json
+frontier_2023_2025_FINAL.json
+frontier_2023_2025_records.json
+frontier_harvest.py
+harvest.err
+harvest.out
+harvest2.err
+harvest2.out
+merge_runs.py
+oa_cell_discovery.json
+oa_route_discovery.py
+run1_frontier.json
+run1_records.json
+=== ENV KEYS ===
+COREPACK_ENABLE_AUTO_PIN=<set>
+=== secrets files ===
+.env
+.env.example
+# POLARIS Framework Environment Configuration
+# API Keys and Environment Variables
+
+# =<set>
+# OPENROUTER API - UNIVERSAL LLM GATEWAY (Track B v2 Architecture)
+# =<set>
+# OpenAI-compatible API with 400+ models. Switch models by changing one string.
+# Unified reasoning parameter for clean CoT separation across ALL models.
+# Documentation: https://openrouter.ai/docs/api/reference/overview
+OPENROUTER_API_KEY=<set>
+OPENROUTER_BASE_URL=<set>
+OPENROUTER_DEFAULT_MODEL=<set>
+# When PG_LOOPBACK_MODE=<set>
+# intercepted by LoopbackLLMClient (writes prompt to loopback/pending/, blocks
+# until response appears in loopback/responses/). Zero OpenRouter cost.
+PG_LOOPBACK_MODE=<set>
+OPENROUTER_BUDGET_USD=<set>
+# Provider order: empty =<set>
+OPENROUTER_PROVIDER_ORDER=<set>
+OPENROUTER_ALLOW_FALLBACKS=<set>
+# FIX-052A: Only route to providers that support response_format/json_object
+OPENROUTER_REQUIRE_PARAMETERS=<set>
+# FIX-C1: Per-million-token pricing (Qwen 3.5 Plus via OpenRouter)
+OPENROUTER_INPUT_COST_PER_M=<set>
+OPENROUTER_OUTPUT_COST_PER_M=<set>
+
+# =<set>
+# POLARIS GRAPH — Clean pipeline config (maxed out for SOTA deep research)
+# =<set>
+PG_QUERIES_PER_VECTOR=<set>
+PG_WEB_RESULTS_PER_QUERY=<set>
+PG_ACADEMIC_RESULTS_PER_QUERY=<set>
+PG_WEB_CONCURRENCY=<set>
+PG_ACADEMIC_CONCURRENCY=<set>
+# FIX-G: Raised from 200 to 300 — with ~50% fetch success, yields ~150 fetched sources
+PG_MAX_SOURCES_TO_ANALYZE=<set>
+PG_MAX_ACADEMIC_PAGES=<set>
+PG_MIN_EVIDENCE_COUNT=<set>
+PG_MIN_FAITHFULNESS=<set>
+PG_MAX_ITERATIONS=<set>
+# FIX-057: Increased from 150 to 180 — accommodates FIX-053/054/055 safety timeouts.
+# FIX-FORENSIC-1 (2026-04-12): Raised 150 → 240 based on PG_TEST_090 trace audit.
+# Historical runs: PG_TEST_039=<set>
+# PG_TEST_035=<set>
+# on normal runs. Hard stop remains at 2x.
+# PG_TEST_091: natural completion at 481min, mislabeled `timeout_synthesized` because
+# the 480min hard stop fired 0.149s after synthesize finished. Raised to 540min
+# (12% headroom over observed natural runtime) so warning only fires for truly-slow
+# runs. Hard stop =<set>
+PG_MAX_EXECUTION_MINUTES=<set>
+PG_HARD_STOP_MULTIPLIER=<set>
+# Browser depth presets (minutes) — must be sufficient for complete pipeline runs
+PG_QUICK_MINUTES=<set>
+PG_STANDARD_MINUTES=<set>
+PG_DEEP_MINUTES=<set>
+PG_MAX_SECTIONS=<set>
+PG_MAX_WORDS_PER_SECTION=<set>
+# GEMINI-ARCH: MIN_TOTAL_WORDS=<set>
+PG_MIN_TOTAL_WORDS=<set>
+PG_TARGET_TOTAL_WORDS=<set>
+PG_TARGET_WORDS_PER_SECTION=<set>
+# FIX-056: Cap outline sections based on evidence count (BUG-091)
+PG_MAX_OUTLINE_SECTIONS=<set>
+# FIX-D: Structural gates kept as soft metrics only (logged, not enforced)
+PG_MIN_CITATIONS=<set>
+# FIX-D: Lowered from 20 to 8 — 20 was unrealistic for niche topics
+PG_MIN_UNIQUE_SOURCES=<set>
+# FIX-D: Substance-based gate — every section must cite >=<set>
+PG_MIN_CITATIONS_PER_SECTION=<set>
+# FIX-D: Substance-based gate — at least 40% of verified evidence cited
+PG_MIN_EVIDENCE_UTILIZATION=<set>
+
+# FIX-E: Global evidence assignment (two-pass synthesis)
+PG_GLOBAL_EVIDENCE_ASSIGNMENT=<set>
+
+# SOTA Upgrade: Query amplification (Change 2)
+PG_AMPLIFICATION_ENABLED=<set>
+PG_AMPLIFICATION_VARIANTS=<set>
+PG_QUERIES_PER_PERSPECTIVE=<set>
+
+# SOTA Upgrade: Academic search caps (Change 4)
+PG_ACADEMIC_QUERY_CAP=<set>
+PG_MAX_TOTAL_ACADEMIC=<set>
+
+# SOTA Upgrade: Content pipeline (Change 3)
+PG_MAX_CONTENT_LENGTH=<set>
+# FIX-B: Raised from 10K to 25K — sees ~60% of each source (was 25%)
+PG_CONTENT_PER_SOURCE=<set>
+PG_MIN_CONTENT_LENGTH=<set>
+PG_ANALYSIS_CONCURRENCY=<set>
+# DUR-2: Analysis batch 2 (was 1). Conservative step — batch=<set>
+# Prompt already handles multi-source. Saves ~8 min.
+PG_ANALYSIS_BATCH_SIZE=<set>
+# W1.1 (S3 diagnosis): 120→900s. GLM-5.1 p99=<set>
+# with margin. Lower concurrency (30→8) prevents provider queue saturation.
+PG_ANALYSIS_BATCH_TIMEOUT=<set>
+# FIX-G: Reduced from 30 to 5 — Crawl4AI uses Playwright (headless Chromium).
+# 10+ concurrent browsers =<set>
+PG_FETCH_CONCURRENCY=<set>
+
+# SOTA Upgrade: Verification/synthesis concurrency (Change 4)
+PG_VERIFY_BATCH_SIZE=<set>
+PG_VERIFY_CONCURRENCY=<set>
+PG_VERIFY_GATHER_TIMEOUT=<set>
+PG_VERIFY_BATCH_TIMEOUT=<set>
+PG_VERIFY_PER_CALL_TIMEOUT=<set>
+PG_REDUNDANCY_JACCARD_THRESHOLD=<set>
+PG_REDUNDANCY_EMBEDDING_THRESHOLD=<set>
+PG_SECTION_WRITE_CONCURRENCY=<set>
+# FIX-058G: Per-section write timeout (prevents hung LLM call during synthesis)
+PG_SECTION_WRITE_TIMEOUT=<set>
+# FIX-058E: PG_SYNTHESIS_MIN_RELEVANCE removed (SF-27 gate deleted, subsumed by FIX-QM4)
+PG_SYNTHESIS_RELEVANCE_GATE=<set>
+PG_MIN_EVIDENCE_PER_SECTION=<set>
+PG_SECTION_WRITER_MAX_TOKENS=<set>
+# FIX-C5: Token budget for continuation/correction/expansion calls (secondary)
+# GEMINI-ARCH: Increased from 4096 to 8192 for Qwen3.5-Plus 65K output
+PG_SECTION_CONTINUATION_MAX_TOKENS=<set>
+# FIX-QM12: Separate max_tokens for synthesis structured calls (ClusterPlan,
+# ReportOutline, GapAnalysis). Reasoning uses ~6000 tokens; 8192 truncates JSON.
+PG_SYNTHESIS_STRUCTURED_MAX_TOKENS=<set>
+
+# FIX-2: Compact outline prompt (cap evidence per cluster in outline)
+PG_OUTLINE_EVIDENCE_PER_CLUSTER=<set>
+
+# Map-reduce clustering (SOTA pattern for large evidence sets)
+PG_CLUSTER_BATCH_SIZE=<set>
+PG_CLUSTER_MAX_THEMES_BEFORE_MERGE=<set>
+PG_CLUSTER_BATCH_TIMEOUT=<set>
+PG_CLUSTER_CONCURRENCY=<set>
+
+# FIX-RC5: Evidence caps to prevent unbounded growth across iterations
+PG_MAX_EVIDENCE_FOR_VERIFY=<set>
+PG_MAX_EVIDENCE_FOR_SYNTHESIS=<set>
+
+# FIX-LOOP: Faithfulness guard to break positive feedback iteration loop
+PG_FAITH_ITERATE_THRESHOLD=<set>
+PG_FAITH_MIN_EVIDENCE_FOR_SKIP=<set>
+
+# Parallelism concurrency controls
+PG_REVISION_CONCURRENCY=<set>
+PG_STORM_CONCURRENCY=<set>
+
+# SOTA Upgrade: Evidence deduplication (Change 5)
+PG_EVIDENCE_DEDUP_ENABLED=<set>
+PG_EVIDENCE_DEDUP_THRESHOLD=<set>
+PG_MIN_CLAIM_CONFIDENCE=<set>
+PG_OUTPUT_DIR=<set>
+
+# =<set>
+# V3 HYBRID: 8 Root Cause Fixes (env-var gated, all default OFF)
+# =<set>
+# Sprint 1: RC-2 Analytical Prompt + RC-3 Question-Driven Planning
+PG_V3_ANALYTICAL_PROMPT=<set>
+PG_V3_QUESTION_PLANNING=<set>
+# Sprint 2-4: OFF until Sprint 1 validated
+PG_V3_EVIDENCE_CARDS=<set>
+PG_V3_COMPARISON_TABLES=<set>
+PG_V3_SURFACE_ANALYSIS=<set>
+PG_V3_DEPTH_GATE=<set>
+PG_V3_CONTENT_QUALITY_GATE=<set>
+PG_V3_SOURCE_DIVERSITY=<set>
+
+# =<set>
+# V3 COMPLETE FIX — Search delegation, charts, NLI, STORM (2026-03-17)
+# =<set>
+# Fix 2: Enable structured data extraction (analyzer._extract_structured_data)
+PG_STRUCTURED_DATA_EXTRACTION=<set>
+# Fix 3: Enable chart generation (tools/data_analyzer.py matplotlib charts)
+PG_CHART_GENERATION_ENABLED=<set>
+# Fix 4: Enable NLI verification (agents/nli_verifier.py MiniCheck on CUDA)
+PG_NLI_ENABLED=<set>
+# Fix 5: Enable STORM interviews (agents/storm_interviews.py)
+PG_STORM_ENABLED=<set>
+# Evidence deepening loop: citation chasing + mechanism search (Session 55)
+PG_EVIDENCE_DEEPENER=<set>
+# Fix 1: V3 search scaling
+PG_V3_MAX_QUERIES=<set>
+PG_V3_WEB_RESULTS_PER_QUERY=<set>
+PG_V3_CONTENT_PER_SOURCE=<set>
+# Fix 6: Minimum sections for v3 outline
+PG_V3_MIN_SECTIONS=<set>
+
+# Phase 2 SOTA Fixes (FIX-300 through FIX-307)
+PG_COST_LEDGER_PATH=<set>
+PG_CITATION_CHASE_ENABLED=<set>
+PG_CITATION_CHASE_MAX=<set>
+PG_STRICT_VERIFICATION=<set>
+
+# Phase 3 Architectural SOTA (IMP-1, IMP-3)
+# FIX-CAP1/FIX-B: Aligned with PG_CONTENT_PER_SOURCE=<set>
+PG_VERIFIER_CONTENT_CAP=<set>
+PG_CITATION_CHASE_MIN_RELEVANCE=<set>
+
+# Phase 4: Quality Gate + Observability + Markdown Fetch (FIX-310, OBS-1, FETCH-1)
+PG_SYNTHESIS_MAX_EXPANSION_PASSES=<set>
+# DUR-5: Skip expansion if already above this word count (saves ~10 min)
+PG_SKIP_EXPANSION_WORD_THRESHOLD=<set>
+PG_TRACING_ENABLED=<set>
+
+# PL: Wiki-based synthesis (Karpathy LLM Wiki pattern)
+# Set to 1 to replace synthesize_report() with wiki builder + composer
+PG_WIKI_ENABLED=<set>
+# 5-lens analytical scaffold (from v3 react_agent) — targets depth + completeness
+PG_WIKI_5LENS=<set>
+# Phase 2: Deep crawl (L1 DOI follow + L2 S2 citation chase)
+PG_DEEP_CRAWL_ENABLED=<set>
+PG_CRAWL_CONCURRENCY=<set>
+PG_CRAWL_BUDGET_MINUTES=<set>
+PG_CRAWL_MAX_SOURCES=<set>
+PG_PREFER_MARKDOWN=<set>
+# FIX-QG1: Citation frequency cap per source (PG_TEST_023: [1] cited 18x)
+PG_MAX_CITATION_FREQUENCY=<set>
+
+# Adaptive search rounds (Serper STORM/Gemini-style)
+# Splits queries into rounds with LLM refinement between rounds
+PG_ADAPTIVE_SEARCH_ENABLED=<set>
+PG_SEARCH_ROUNDS=<set>
+PG_INITIAL_QUERY_PCT=<set>
+PG_REFINEMENT_QUERIES=<set>
+PG_REFINER_MAX_TOKENS=<set>
+
+# Agentic search loop (Gemini-style deep research)
+# Replaces static batch search with continuous agent loop:
+# seed 9 queries -> search -> read -> reason about gaps -> follow-up queries -> repeat
+PG_AGENTIC_SEARCH_ENABLED=<set>
+PG_AGENTIC_MAX_ROUNDS=<set>
+PG_AGENTIC_MAX_QUERIES=<set>
+PG_AGENTIC_MAX_TIME_SECONDS=<set>
+PG_AGENTIC_SEED_QUERIES=<set>
+PG_AGENTIC_QUERIES_PER_ROUND=<set>
+PG_AGENTIC_WEB_PER_ROUND=<set>
+PG_AGENTIC_ACADEMIC_PER_ROUND=<set>
+PG_AGENTIC_EXA_PER_ROUND=<set>
+PG_AGENTIC_CONVERGENCE_URL_OVERLAP=<set>
+PG_AGENTIC_CONVERGENCE_THEME_SATURATION=<set>
+PG_AGENTIC_CONVERGENCE_WINDOW=<set>
+PG_AGENTIC_MIN_ROUNDS=<set>
+PG_AGENTIC_REFINER_MAX_TOKENS=<set>
+
+# Agentic search Phase 2: Content-aware search (read pages during search loop)
+# Interleaves search+read per round like Gemini 3 Pro DR / ChatGPT 5.2 Pro DR
+PG_AGENTIC_CONTENT_READING_ENABLED=<set>
+PG_AGENTIC_PAGES_PER_ROUND=<set>
+PG_AGENTIC_FETCH_TIMEOUT=<set>
+PG_AGENTIC_PAGE_CONTENT_CAP=<set>
+PG_AGENTIC_SUMMARY_MAX_TOKENS=<set>
+PG_AGENTIC_MAX_NOTEBOOK_ENTRIES=<set>
+PG_AGENTIC_KNOWLEDGE_SATURATION_PAGES=<set>
+PG_AGENTIC_MIN_NEW_NOTES_PER_ROUND=<set>
+PG_AGENTIC_CONTENT_PERSPECTIVE_WEIGHT=<set>
+PG_AGENTIC_ANALYSIS_TIMEOUT_SECONDS=<set>
+# FIX-054: Planner timeout increased (BUG-089: 3/3 timeouts at 120s)
+PG_PLANNER_TIMEOUT=<set>
+
+# FIX-SCHEMA-5: Per-LLM-call timeouts (reduced from 180/300)
+PG_LLM_TIMEOUT_SECONDS=<set>
+PG_LLM_LONG_TIMEOUT_SECONDS=<set>
+
+# =<set>
+# SOTA QUALITY SPRINT — Beat Gemini 3 Pro & ChatGPT 5.2 Pro (2026-02-13)
+# =<set>
+
+# Source Quality Controls (FIX-B1/B2/B3/B4)
+PG_SOURCE_AUTHORITY_ENABLED=<set>
+PG_OFFTOPIC_THRESHOLD=<set>
+PG_MIN_PEER_REVIEWED_PCT=<set>
+# FIX-RISK-FILTER: lower off-topic floor for evidence marked risk/adverse/contraindication
+# when the query asks about risks/adverse/safety. Prevents embedding-cosine bias from
+# dropping risk-axis vocabulary that diverges from benefit-term queries.
+PG_OFFTOPIC_RISK_FLOOR=<set>
+# FIX-RISK-QUORUM: minimum risk-axis evidence pieces per risk-titled section.
+PG_RISK_QUORUM_MIN=<set>
+
+# Jina Reader — primary fetch tier (FIX-D1)
+# Free tier: 20 req/min, renders JS, returns markdown
+PG_JINA_ENABLED=<set>
+PG_JINA_CONCURRENCY=<set>
+PG_JINA_MAX_RETRIES=<set>
+# RC-9/FIX-G: Circuit breaker — skip provider after N consecutive failures
+# Raised threshold from 5→8 to tolerate more transient failures before opening
+PG_CIRCUIT_BREAKER_THRESHOLD=<set>
+# Raised cooldown from 60→120s to allow more recovery time
+PG_CIRCUIT_BREAKER_COOLDOWN=<set>
+JINA_API_KEY=<set>
+
+# Firecrawl — secondary fetch tier (FIX-D2)
+# 96% web coverage, handles anti-bot + JS rendering
+# Free plan: 500 credits/month, 10 req/min
+# FIX-043D: Firecrawl credits exhausted (100% HTTP 402 in T042). Disable until renewed.
+PG_FIRECRAWL_ENABLED=<set>
+FIRECRAWL_API_KEY=<set>
+FIRECRAWL_MIN_INTERVAL_SECONDS=<set>
+FIRECRAWL_MONTHLY_QUOTA=<set>
+FIRECRAWL_WARN_THRESHOLD_PCT=<set>
+
+# Exa neural search (FIX-A5 overhaul)
+# Sub-200ms, 94.9% SimpleQA accuracy, finds semantic matches keyword search misses
+PG_EXA_ENABLED=<set>
+EXA_API_KEY=<set>
+PG_EXA_QUERIES_PER_VECTOR=<set>
+PG_EXA_RESULTS_PER_QUERY=<set>
+PG_EXA_SEARCH_TYPE=<set>
+PG_EXA_CATEGORY=<set>
+PG_EXA_EXCLUDE_DOMAINS=<set>
+PG_EXA_HIGHLIGHTS_SENTENCES=<set>
+PG_EXA_HIGHLIGHTS_PER_URL=<set>
+PG_EXA_BUDGET_USD=<set>
+PG_EXA_COST_PER_SEARCH=<set>
+PG_EXA_COST_PER_CONTENT=<set>
+
+# =<set>
+# AREA-3: STORM Multi-Perspective Interviews (Stanford arXiv:2402.14207)
+# =<set>
+PG_STORM_ENABLED=<set>
+# DUR-1: STORM 5x3 (was 8x4). STORM paper validated N=<set>
+PG_STORM_PERSPECTIVES_COUNT=<set>
+PG_STORM_ROUNDS_PER_PERSPECTIVE=<set>
+PG_STORM_MAX_TIME_SECONDS=<set>
+# FIX-058F: Per-interview timeout (prevents hung interview from blocking pipeline)
+PG_STORM_INTERVIEW_TIMEOUT=<set>
+PG_STORM_QUESTIONS_MAX_TOKENS=<set>
+PG_STORM_ANSWER_MAX_TOKENS=<set>
+# FIX-043M: Increased from 8192 — T042 STORM outline truncated after 511.5s, only 1 section recovered
+# I-beatboth-006 (#1283) Fix B: 16384 was HALF the in-code default + below the §9.1.8 reasoning-first
+# floor, so a reasoning-first generator (GLM-5.2/V4-Pro burns ~17-18k on reasoning) could truncate the
+# outline JSON -> silent fall to the one-section-per-perspective fallback. Raised to the PROVEN
+# provider-safe reference PG_SECTION_MAX_TOKENS (64000), which the sections render at on the SAME live
+# generator chain (the resolver clamp still reconciles DOWN to the served model's real cap). Never starve.
+PG_STORM_OUTLINE_MAX_TOKENS=<set>
+PG_STORM_PERSONA_MAX_TOKENS=<set>
+PG_STORM_SEARCH_QUERIES_PER_QUESTION=<set>
+PG_STORM_WEB_RESULTS_PER_QUERY=<set>
+
+# =<set>
+# AREA-8: Budget & Checkpoint Configuration
+# =<set>
+# FIX-FORENSIC-3 (2026-04-12): Raised 8.0 → 10.0 based on historical run costs.
+# PG_TEST_036 hit $4.95 on a 251-min run. PG_TEST_091 full was $5.32.
+# PG_TEST_092 partial was $3.64 (died at 402). Wave 3 may force extra
+# iterations via W3.1/W3.2.
+# Tier 3.5 (full uncap, conservative iteration cap):
+# raised to $40 to match relaxed evidence/iteration caps below. With
+# PG_MAX_ITERATIONS=<set>
+# cost is $25-40. $40 budget guard keeps headroom.
+PG_BUDGET_GUARD_USD=<set>
+PG_CHECKPOINT_ENABLED=<set>
+PG_CHECKPOINT_LIST_LIMIT=<set>
+
+# A2: Pipeline Traceback and Rewind
+# interrupt_before: comma-separated node names where checkpoint snapshots are created BEFORE the node runs
+# interrupt_after: comma-separated node names where checkpoint snapshots are created AFTER the node runs
+# When PG_AUTO_RESUME=<set>
+PG_INTERRUPT_BEFORE=<set>
+PG_INTERRUPT_AFTER=<set>
+PG_AUTO_RESUME=<set>
+PG_MAX_AUTO_RESUMES=<set>
+PG_REWIND_MAX_MINUTES=<set>
+
+# A5: Smart Art Generation (Mermaid.js content diagrams in reports)
+PG_SMART_ART_ENABLED=<set>
+PG_MAX_SMART_ART=<set>
+
+# GEMINI-CLASS FEATURES (Session 40-41)
+# Cluster viability reasoning — model decides if cluster warrants full section
+PG_CLUSTER_VIABILITY_ENABLED=<set>
+# Structured data extraction — extract numeric/comparison data from evidence
+PG_STRUCTURED_DATA_EXTRACTION=<set>
+# Chart generation — Matplotlib charts from structured data via Python subprocess
+PG_CHART_GENERATION_ENABLED=<set>
+# Key Findings enforcement — inject Key Findings via separate LLM call if missing
+PG_KEY_FINDINGS_ENFORCEMENT=<set>
+# Strict JSON schema enforcement (Qwen3.5-Plus supports it, Kimi K2.5 didn't)
+PG_STRICT_JSON_SCHEMA=<set>
+
+# FIX-E2E-1: Structured data extraction caps (prevent runaway node execution)
+# Previous E2E: 378 calls + 309 retries =<set>
+PG_STRUCTURED_DATA_MAX_SOURCES=<set>
+PG_STRUCTURED_DATA_TOTAL_TIMEOUT=<set>
+
+# FIX-E2E-2: MoST evidence cap (prevent O(n²) pairwise embedding computation)
+# Previous E2E: 1000+ evidence → 80+ min CPU burn in MoST bond analyses
+PG_MOST_MAX_EVIDENCE=<set>
+# FIX-E2E-3: MoST async operation timeout (Phase R + Phase E)
+PG_MOST_TOTAL_TIMEOUT=<set>
+
+# =<set>
+# PG_TEST_035 FORENSIC FIXES (FIX-CAP1 through FIX-V10 + ARCH-1 through ARCH-4)
+# =<set>
+
+# FIX-V7: Consecutive timeout cap for verification retry loop (saves 2h+)
+PG_VERIFY_RETRY_CAP=<set>
+
+# FIX-V8: Citation poverty detection — minimum citations per 500 words
+PG_MIN_CITATIONS_PER_500W=<set>
+
+# FIX-V9: Adaptive off-topic threshold (lowers threshold when median sim is low)
+PG_OFFTOPIC_ADAPTIVE=<set>
+
+# FIX-STUB: Minimum useful content length for content-based verification
+# Sources below this are verified as quote_only (avoids 0% faith on paywalls)
+PG_MIN_USEFUL_CONTENT=<set>
+
+# FIX-PRE-V: Pre-verification relevance gate (skip low-relevance evidence)
+PG_VERIFY_RELEVANCE_GATE=<set>
+
+# ARCH-1: NLI verification (RTX 4070 GPU, 8.6GB VRAM)
+# flan-t5-large: 75.0% accuracy via minicheck library (Windows-compatible, no vllm needed)
+# Bespoke-MiniCheck-7B: 77.4% accuracy but requires vllm (Linux-only)
+# =<set>
+# v2 CRAG Pipeline (Round 1-7 fixes, local embedding retrieval, $0 evidence scoring)
+# =<set>
+# Set to 1 to use v2 CRAG pipeline, 0 to fallback to v1 LLM analyzer
+PG_V2_ENABLED=<set>
+
+# v2 DISABLED: flan-t5-large has 512-token hard limit, incompatible with 1024-token
+# CRAG chunks. Silently truncates input → false NOT_SUPPORTED verdicts. Use LLM-only
+# verification until a local model with >=<set>
+# NLI enabled at line 157; removed duplicate PG_NLI_ENABLED=<set>
+# WS-1: MiniCheck activation (EMNLP 2024: matches GPT-4 at 400x lower cost)
+# Requires: pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main"
+# Valid model names: flan-t5-large, roberta-large, deberta-v3-large,
+# Bespoke-MiniCheck-7B (needs 16GB VRAM), Granite-Guardian-3.3-8B
+PG_NLI_MODEL=<set>
+# NLI-2: Increased from 16 — flan-t5-large at 0.8B fits batch=<set>
+PG_NLI_BATCH_SIZE=<set>
+# Wave 5: Lower dispute threshold → more claims get LLM second opinion
+PG_NLI_DISPUTE_THRESHOLD=<set>
+# Wave 5: Expanded context window (3K chars) for better evidence capture
+PG_NLI_CONTEXT_WINDOW=<set>
+# FIX-059-B: Minimum NLI probability for faithfulness. Claims with NLI score
+# below this threshold are NOT faithful even if LLM says SUPPORTED.
+PG_FAITHFULNESS_NLI_THRESHOLD=<set>
+# FIX-3: NLI faithfulness floor. When NLI model returns < 15% faithful (too
+# strict for niche domains like chemistry), fall back to LLM-only verification.
+PG_NLI_FAITHFULNESS_FLOOR=<set>
+
+# D5-FIX: Domain-adaptive NLI threshold. When avg NLI < floor, route to LLM.
+PG_NLI_DOMAIN_ADAPTIVE=<set>
+PG_NLI_DOMAIN_FLOOR=<set>
+
+# D3-FIX: Structural numerical data enforcement in write prompts
+PG_MANDATORY_NUMBERS_ENABLED=<set>
+
+# D4-FIX: Perspective coverage enforcement in write prompts
+PG_PERSPECTIVE_COVERAGE_ENABLED=<set>
+
+# Wave 2: Evidence presentation reform
+PG_EVIDENCE_PER_CLUSTER=<set>
+PG_MAX_GAP_EVIDENCE=<set>
+
+# ARCH-3: Dedicated citation agent (disabled by default — enable for re-citation pass)
+PG_CITATION_AGENT_ENABLED=<set>
+PG_CITATION_AGENT_MAX_TOKENS=<set>
+
+# ARCH-4: Balanced prompting (Gemini 3 pattern: verify AND disprove)
+PG_BALANCED_PROMPTING=<set>
+
+# ARCH-2: Verify subgraph (disabled — future use when LangGraph subgraph matures)
+PG_VERIFY_SUBGRAPH_ENABLED=<set>
+PG_VERIFY_SUBGRAPH_BATCH=<set>
+
+# ARCH-5: Post-synthesis NLI audit (replaces LettuceDetect)
+# Uses MiniCheck NLI (already loaded for evidence verification) — no extra model
+PG_HALLUCINATION_DETECT_ENABLED=<set>
+# FIX-5: 0.40 let s01 (27%) and s02 (30%) ship with interpretive overlays
+# intact. 0.25 catches them. Abstract is now audited too (FIX-3).
+PG_HALLUCINATION_REWRITE_THRESHOLD=<set>
+# NLI probability threshold for "supported" (claim vs evidence context)
+PG_POST_SYNTH_NLI_THRESHOLD=<set>
+# Max claims per section to verify (performance cap)
+PG_POST_SYNTH_MAX_CLAIMS=<set>
+# Max evidence context chars per section for NLI scoring
+PG_POST_SYNTH_CONTEXT_CHARS=<set>
+# FIX-4: Per-evidence quote-centered window size. The section-level premise
+# is built by concatenating windows; capped by PG_POST_SYNTH_CONTEXT_CHARS.
+PG_POST_SYNTH_PER_EV_CONTEXT=<set>
+# FIX-B11: Enable hallucination audit pass in pipeline
+PG_HALLUCINATION_AUDIT_ENABLED=<set>
+
+# FIX-S2-4: Source-level topic gate (embedding similarity)
+PG_SOURCE_TOPIC_GATE=<set>
+
+# FIX-CITE-DIV: Citation diversity controls
+# FIX-059-G: Lowered per-source caps to prevent citation concentration
+# on low-authority sources (ExploreMAT blog had 9 citations, VSEP commercial 8)
+PG_MAX_CITATIONS_PER_SOURCE=<set>
+PG_MAX_SOURCE_PCT_PER_SECTION=<set>
+PG_MAX_GLOBAL_CITATION_FREQ=<set>
+
+# NRC-5: Post-extraction claim validation
+# FIX-043C: Reduced from 20 — fewer items per source =<set>
+PG_MAX_EVIDENCE_PER_CLAIM=<set>
+# EXT-2: Pydantic field_validator cap on atomic_facts per source
+PG_MAX_FACTS_PER_SOURCE=<set>
+
+# NRC-6: Blog/commercial source penalty
+PG_BLOG_SOURCE_PENALTY=<set>
+
+# FIX-043G: Tier recalibration — T042 had 77.4% BRONZE, only 3% GOLD.
+# Lowered thresholds to better distribute the tier pyramid.
+PG_GOLD_CONFIDENCE_THRESHOLD=<set>
+PG_GOLD_RELEVANCE_THRESHOLD=<set>
+PG_SILVER_CONFIDENCE_THRESHOLD=<set>
+PG_SILVER_RELEVANCE_THRESHOLD=<set>
+
+# FIX-QG3: Evidence budget cap
+PG_MAX_EVIDENCE_TO_EXTRACT=<set>
+
+# FIX-SNIPPET-RERANK: Pre-fetch snippet reranking
+PG_SNIPPET_RERANK_ENABLED=<set>
+PG_SNIPPET_DROP_PCT=<set>
+
+# Crawl4AI — free JS-capable web crawling (replaces Firecrawl)
+# Playwright-based, generates LLM-ready markdown, no API key needed
+# GitHub: https://github.com/unclecode/crawl4ai (58K stars)
+PG_CRAWL4AI_ENABLED=<set>
+PG_CRAWL4AI_TIMEOUT=<set>
+
+# Trafilatura — CPU-bound content extraction via run_in_executor (non-blocking)
+PG_TRAFILATURA_ENABLED=<set>
+
+# Source confidence ratings (Open PageRank API)
+# Disabled until OPEN_PAGERANK_API_KEY is set — without API key, all scores are 0.0
+OPEN_PAGERANK_API_KEY=<set>
+PG_SOURCE_CONFIDENCE_ENABLED=<set>
+
+# Cross-reference scoring (embedding-based)
+PG_CROSS_REF_ENABLED=<set>
+PG_CROSS_REF_MIN_SOURCES=<set>
+PG_CROSS_REF_SIM_THRESHOLD=<set>
+
+# FIX-045H: Multi-evidence corroboration
+PG_CORROBORATION_ENABLED=<set>
+PG_CORROBORATION_MAX_PER_CLAIM=<set>
+PG_CORROBORATION_JACCARD_THRESHOLD=<set>
+# FIX-047-K5: Claim-level similarity threshold for corroboration
+PG_CORROBORATION_SIM_THRESHOLD=<set>
+
+# FIX-047-K7: Quote substance thresholds for tier assignment
+PG_MIN_SUBSTANCE_FOR_GOLD=<set>
+PG_MIN_SUBSTANCE_FOR_SILVER=<set>
+
+# FIX-047-K10: Hedging enforcement (max hedging words per paragraph)
+PG_HEDGING_MAX_PER_PARAGRAPH=<set>
+
+# FIX-047-K11: OpenAlex academic search
+PG_OPENALEX_ENABLED=<set>
+PG_OPENALEX_EMAIL=<set>
+PG_OPENALEX_MAX_PER_QUERY=<set>
+
+# FIX-048-K13: Per-URL semantic dedup (SemHash) + count cap fallback
+PG_MAX_EVIDENCE_PER_URL=<set>
+PG_SEMHASH_DEDUP_ENABLED=<set>
+PG_SEMHASH_SIMILARITY_THRESHOLD=<set>
+
+# FIX-048-K14: NLI-based contradiction detection (CrossEncoder)
+PG_CONTRADICTION_ENABLED=<set>
+PG_CONTRADICTION_SIM_THRESHOLD=<set>
+PG_CONTRADICTION_NLI_THRESHOLD=<set>
+
+# FIX-048-K1: Cross-source verification (independent NLI)
+PG_CROSS_SOURCE_ENABLED=<set>
+PG_CROSS_SOURCE_MIN_SIM=<set>
+# D6 (post-PG_TEST_092 audit 2026-04-14): lowered 0.5 -> 0.35.
+# Originally tried 0.3 but simulation showed it rubber-stamps ALL claims
+# (PG_TEST_092 cross_source_score min was 0.333). 0.35 preserves rejection
+# signal for genuinely-uncorroborated claims while unblocking the cluster
+# at 0.333-0.4 that 0.5 was silently downgrading.
+PG_CROSS_SOURCE_MIN_NLI=<set>
+PG_CROSS_SOURCE_MAX_SOURCES=<set>
+# BUG-092: Cap cross-source NLI pairs to prevent O(n^2) scaling (top-N by relevance)
+PG_MAX_CROSS_SOURCE_PAIRS=<set>
+# BUG-092: Triangulation / corroboration / contradiction O(n^2) scaling caps
+PG_MAX_TRIANGULATE_EVIDENCE=<set>
+PG_MAX_CONTRADICTION_PAIRS=<set>
+PG_MAX_CORROBORATION_EVIDENCE=<set>
+
+# FIX-051: Cross-source weight for Signal 5 blending (0.0-1.0)
+PG_NLI_CROSS_SOURCE_WEIGHT=<set>
+
+# FIX-048-K2: Multi-signal tier scoring
+PG_TIER_GOLD_THRESHOLD=<set>
+# FIX-057: Lowered from 0.40 to 0.35 — compensates for FIX-049/050/051 feeding
+# real signal values (lower than old 0.5 defaults), preventing evidence starvation.
+PG_TIER_SILVER_THRESHOLD=<set>
+# FIX-049: Tier signal weights (LAW VI — previously read from env with defaults but not declared)
+PG_TIER_W_RELEVANCE=<set>
+PG_TIER_W_AUTHORITY=<set>
+PG_TIER_W_DENSITY=<set>
+PG_TIER_W_FRESHNESS=<set>
+PG_TIER_W_GROUNDING=<set>
+# FIX-058D: Default factual grounding score for unverified evidence (was 0.5 =<set>
+PG_TIER_SIGNAL5_DEFAULT=<set>
+
+# Optional SOTA capabilities (disabled by default)
+PG_CLARIFICATION_ENABLED=<set>
+PG_DUAL_PERSPECTIVE_ENABLED=<set>
+PG_CODE_VERIFY_ENABLED=<set>
+PG_PARALLEL_PATHS=<set>
+
+# =<set>
+# AREA-2: Paywall Domain Blocklist (for fetch, not search)
+# =<set>
+PG_PAYWALL_DOMAINS=<set>
+PG_MIN_CONTENT_LENGTH_ACADEMIC=<set>
+
+# =<set>
+# AREA-4: Per-Section Evidence Filtering
+# =<set>
+# GEMINI-ARCH: Increased from 50 to 100 for Qwen3.5-Plus 1M context
+PG_SECTION_EVIDENCE_TOP_K=<set>
+# FIX-060-D: Low-confidence threshold for gap search targeting.
+# After FIX-060-A basis-aware caps, content-basis claims max at 0.50.
+PG_LOW_CONFIDENCE_THRESHOLD=<set>
+
+# =<set>
+# FIREWORKS KIMI K2.5 1T - PRIMARY LLM (2026-01-31)
+# =<set>
+# KIMI K2.5 1T via Fireworks AI - Extended reasoning with thinking mode
+# Model ID: accounts/fireworks/models/kimi-k2-5-instruct
+# Context: 256K tokens (native)
+# Pricing: $0.60/1M input, $3.00/1M output (Fireworks)
+# Features: Thinking mode (extended reasoning), OpenAI-compatible API
+# Documentation: https://docs.fireworks.ai/models/kimi-k2-5
+# Modes:
+#   - thinking=<set>
+#   - thinking=<set>
+
+FIREWORKS_API_KEY=<set>
+FIREWORKS_BASE_URL=<set>
+FIREWORKS_MODEL=<set>
+FIREWORKS_MAX_TOKENS=<set>
+FIREWORKS_TIMEOUT=<set>
+
+# =<set>
+# GEMINI 3 PRO - FALLBACK LLM (2026-01-22)
+# =<set>
+# Upgraded to Gemini 3 Pro for advanced reasoning and 1M token context
+# Model ID: gemini-3-pro (GA)
+# Fallback: gemini-2.5-flash (for cost optimization)
+# Context: 1M tokens
+# Pricing: $2.00/$12.00 per 1M tokens (up to 200K), $4.00/$18.00 beyond
+# Features: Dynamic thinking, Google Search, Code Execution, URL Context
+# Documentation: https://ai.google.dev/gemini-api/docs/gemini-3
+# API Pricing: https://ai.google.dev/pricing
+
+GEMINI_API_KEY=<set>
+GEMINI_BASE_URL=<set>
+GEMINI_MODEL=<set>
+GEMINI_FALLBACK_MODEL=<set>
+GEMINI_MAX_TOKENS=<set>
+GEMINI_TIMEOUT=<set>
+GEMINI_BUDGET_USD=<set>
+GEMINI_BUDGET_SPENT=<set>
+
+# Legacy Kimi K2 Configuration (DISABLED - Migrated to Gemini 2.5 Flash)
+# MOONSHOT_API_KEY=<set>
+# MOONSHOT_BASE_URL=<set>
+# MOONSHOT_MODEL=<set>
+# MOONSHOT_MAX_TOKENS=<set>
+# MOONSHOT_TIMEOUT=<set>
+
+# Legacy OpenAI/GPT-5 Configuration (REMOVED - Deployment uses Gemini 2.5 Flash only)
+# OPENAI_API_KEY=<set>
+
+# Google Search Configuration - REMOVED (2025-11-19)
+# Google CSE has been completely replaced with Serper.dev API
+# Cost savings: 94% ($5.00 vs $0.30 per 1000 queries)
+# Performance: 3x faster (300 queries/sec vs 1/sec)
+# All search functionality migrated to Serper (general + scholar endpoints)
+# GOOGLE_API_KEY=<set>
+# GOOGLE_CSE_ID=<set>
+# GOOGLE_SEARCH_ENGINE_ID=<set>
+GOOGLE_CSE_ENABLED=<set>
+
+# =<set>
+# SERPER.DEV API CONFIGURATION (2025-11-13)
+# =<set>
+# Serper.dev: 94% cost savings vs Google CSE ($0.30 vs $5 per 1000 queries)
+# Speed: 3x faster (1-2s vs 3-6s per query), supports up to 300 queries/second
+# Free tier: 2,500 queries/month
+# Endpoints: /search (Google Search), /scholar (Google Scholar)
+# Documentation: https://serper.dev/docs
+
+SERPER_API_KEY=<set>
+SERPER_ENABLED=<set>
+SERPER_DAILY_BUDGET=<set>
+
+# =<set>
+# REMOVED APIs FOR DEPLOYMENT (2026-01-17)
+# =<set>
+# - ANTHROPIC_API_KEY=<set>
+# - TAVILY_API_KEY=<set>
+# - SERPAPI_API_KEY=<set>
+# - OXYLABS credentials=<set>
+
+# NCBI E-utilities API Key (for PMC/PubMed access)
+# Registered with Google account: aldrin.or@c-polarbiotech.com
+NCBI_API_KEY=<set>
+NCBI_EMAIL=<set>
+NCBI_TOOL=<set>
+
+# =<set>
+# SEMANTIC SCHOLAR API CONFIGURATION (2025-12-03)
+# =<set>
+# Rate limit: 1 request per second (cumulative across all endpoints)
+# Documentation: https://api.semanticscholar.org/api-docs
+SEMANTIC_SCHOLAR_API_KEY=<set>
+SEMANTIC_SCHOLAR_RATE_LIMIT=<set>
+
+# Ladder Proxy Configuration (for paywall bypass)
+LADDER_PROXY_URL=<set>
+
+# GPU/CUDA Configuration (We have GPU)
+CUDA_VISIBLE_DEVICES=<set>
+PYTORCH_CUDA_ALLOC_CONF=<set>
+
+# FIX-TORCH: Disable torch.compile globally (ModernBERT + Windows incompatible)
+# TORCHDYNAMO_DISABLE is the correct PyTorch env var (TORCH_COMPILE_DISABLE alone is insufficient)
+TORCH_COMPILE_DISABLE=<set>
+TORCHDYNAMO_DISABLE=<set>
+
+# ChromaDB Configuration (Enhanced with Graceful Fallback)
+CHROMA_PERSIST_DIRECTORY=<set>
+CHROMA_HOST=<set>
+CHROMA_PORT=<set>
+CHROMA_SSL=<set>
+CHROMA_PREFER_SERVER=<set>
+CHROMA_TIMEOUT=<set>
+CHROMA_RETRY_ATTEMPTS=<set>
+CHROMA_RETRY_DELAY=<set>
+CHROMA_ALLOW_RESET=<set>
+CHROMA_TELEMETRY=<set>
+# BUG-TEL-01 FIX: ChromaDB internal telemetry has signature mismatch bug
+# These environment variables MUST be set before chromadb is imported
+ANONYMIZED_TELEMETRY=<set>
+CHROMA_ANONYMIZED_TELEMETRY=<set>
+
+# Logging Configuration
+LOG_LEVEL=<set>
+PYTHONUNBUFFERED=<set>
+PYTHONUTF8=<set>
+
+# SOTA Embedding Model Configuration (2025)
+# BUG-094 FIX: Aligned to match phase-specific configs (P4/P5/P6/P7 all use all-MiniLM-L6-v2)
+# Previous: text-embedding-3-large (3072 dims) caused dimension mismatch in VWM
+# Current: all-MiniLM-L6-v2 (384 dims) for consistent hybrid BM25+semantic retrieval
+EMBEDDING_MODEL=<set>
+EMBEDDING_DIMENSIONS=<set>
+SENTENCE_TRANSFORMER_MODEL=<set>
+
+# Legacy Embedding Model (2021) - Deprecated
+# EMBEDDING_MODEL_LEGACY=<set>
+# EMBEDDING_DIMENSIONS_LEGACY=<set>
+
+# Directory Configuration
+CHECKPOINT_DIR=<set>
+OUTPUT_DIR=<set>
+DATA_DIR=<set>
+
+# =<set>
+# POLARIS ADVANCED FEATURES CONFIGURATION (SOTA QUALITY RESTORATION)
+# =<set>
+
+# CRITICAL FIXES FOR SOTA QUALITY (Previously disabled features)
+
+# Phase 2: Query Generation - SOTA Settings (W2.1 SOTA compliance)
+P2_TOP_QUERIES_LIMIT=<set>
+P2_MEMORY_DEDUP_THRESHOLD=<set>
+P2_P1_ALIGNMENT_THRESHOLD=<set>
+
+# Phase 2: Query Rebalancing - Week 4 Enhancement (2025-10-31)
+# BUG-037B FIX (2025-11-12): DISABLED for validation
+# ISSUE: Rebalancer destroys bucket distribution (academic 12.5% instead of 70%)
+# ROOT CAUSE: Classifies academic (narrow) vs government (broad), removes academic disproportionately
+# CONFLICT: Bucket goal (70% academic/narrow) incompatible with broad/narrow goal (60% broad)
+# SOLUTION: Disable for validation, then implement bucket-stratified rebalancing
+P2_ENABLE_QUERY_REBALANCING=<set>
+P2_BROAD_QUERY_RATIO=<set>
+P2_NARROW_QUERY_RATIO=<set>
+P2_REBALANCE_TOLERANCE=<set>
+
+# BUG-157 FIX: Simple Query Mode - Generate direct, focused queries
+# Problem: Complex queries with OR/AND chains overwhelm search engines, causing them to ignore key terms
+# Solution: Prepend 10-15 simple, direct queries that focus on core concepts
+# Example: "biofilm formation" "household water filter" instead of complex 500-char queries
+P2_SIMPLE_QUERY_MODE=<set>
+
+# Phase 3: Search Execution - SOTA QUALITY FIXES (W2.1 SOTA compliance)
+P3_DISABLE_GEOGRAPHIC_FILTER=<set>
+P3_DISABLE_TOPICAL_FILTER=<set>
+P3_GEO_THRESHOLD=<set>
+P3_TOPICAL_THRESHOLD=<set>
+P3_TOPICAL_THRESHOLD_HEALTHCARE=<set>
+P3_QUALITY_GATE_COUNT=<set>
+P3_MAX_QUERIES=<set>
+P3_TOP_K_PER_QUERY=<set>
+P3_OPTIMIZE_PARALLEL=<set>
+P3_MAX_CONCURRENCY=<set>
+P3_ENABLE_QUALITY_GATE=<set>
+P3_QUALITY_THRESHOLD=<set>
+P3_ENABLE_QUERY_PROCESSING=<set>
+P3_TARGET_RESULTS=<set>
+P3_MIN_SOURCE_DIVERSITY=<set>
+
+# =<set>
+# BUG-093 FIX: GENERALIZED SEMANTIC FILTERING (2025-11-25)
+# =<set>
+# Scalable semantic similarity filter that works for ALL 175 vectors x 400 applications
+# Uses the vector's OWN research question as semantic anchor (no hardcoding)
+# Replaces keyword matching with embedding-based cosine similarity
+
+# Enable/Disable semantic filter (default enabled)
+P3_DISABLE_SEMANTIC_FILTER=<set>
+
+# Similarity threshold (0.0-1.0) - content must have this similarity to vector question
+# LOWER =<set>
+# Recommended: 0.30-0.40 for balanced precision/recall
+SEMANTIC_FILTER_THRESHOLD=<set>
+
+# Stage-specific thresholds (override default for specific stages)
+# Stage 1: Contamination Problem - needs high precision (pathogens, contamination)
+SEMANTIC_THRESHOLD_STAGE1=<set>
+# Stage 2: Cost Quantification - broader (economic impact, cost data)
+SEMANTIC_THRESHOLD_STAGE2=<set>
+# Stage 3: Solution Landscape - balanced (existing solutions, technologies)
+SEMANTIC_THRESHOLD_STAGE3=<set>
+# Stage 4: Technology Gap - precise (gap analysis, unmet needs)
+SEMANTIC_THRESHOLD_STAGE4=<set>
+# Stage 5: Value Proposition - precise (competitive advantage)
+SEMANTIC_THRESHOLD_STAGE5=<set>
+# Stage 6: Market Size - broader (market data, TAM/SAM)
+SEMANTIC_THRESHOLD_STAGE6=<set>
+# Stage 7: Competitive Intelligence - balanced (competitor analysis)
+SEMANTIC_THRESHOLD_STAGE7=<set>
+# Stage 8: Regulatory - precise (FDA, EPA, regulations)
+SEMANTIC_THRESHOLD_STAGE8=<set>
+
+# Phase 4: VWM Indexing - SOTA Embeddings
+P4_OPTIMIZE_PARALLEL=<set>
+P4_MAX_CONCURRENCY=<set>
+P4_EMBED_BATCH_SIZE=<set>
+P4_PREFER_ST=<set>
+P4_EMBED_MODEL=<set>
+
+# =<set>
+# BUG-125 FIX: Phase 4 Geographic Filtering (2025-11-27)
+# =<set>
+# Prevents cross-regional content contamination in Phase 4 relevance filtering
+# Example: NORTH_AMERICA vector should reject content about Brazil, India, etc.
+#
+# Configuration:
+# - enabled: Enable/disable geographic filtering
+# - strictness: Filtering strictness level
+#   - strict: Automatic rejection (-1.0) if ANY excluded region mentioned
+#   - medium: Penalty per excluded region (-0.5 per mention) [RECOMMENDED]
+#   - lenient: Light penalty per excluded region (-0.2 per mention)
+#
+# GLOBAL vectors: No filtering applied (allow_all: true in config)
+# Regional vectors: Filter based on config/settings/geographic_regions.yaml
+
+P4_GEOGRAPHIC_FILTER_ENABLED=<set>
+P4_GEOGRAPHIC_STRICTNESS=<set>
+
+# BUG-153 FIX: Geographic Query Enhancement for Phase 2
+# Adds geographic terms to queries at generation time to improve search relevance
+# Based on NICE OECD methodology (https://pmc.ncbi.nlm.nih.gov/articles/PMC8270368/)
+P2_GEOGRAPHIC_ENHANCEMENT_ENABLED=<set>
+P2_GEOGRAPHIC_ENHANCEMENT_RATE=<set>
+
+# =<set>
+# WEEK 4 ENHANCEMENT: Phase 4 Hybrid BM25+Semantic Filtering (2025-10-30)
+# =<set>
+
+# HYBRID SCORING CONFIGURATION
+# Enables combination of lexical (BM25) and semantic (dense embeddings) relevance
+P4_HYBRID_ENABLED=<set>
+P4_BM25_WEIGHT=<set>
+P4_SEMANTIC_WEIGHT=<set>
+# Note: BM25_WEIGHT + SEMANTIC_WEIGHT must equal 1.0 (auto-normalized if not)
+
+# BM25 PARAMETERS (Okapi BM25 algorithm)
+P4_BM25_K1=<set>
+P4_BM25_B=<set>
+
+# CROSS-ENCODER RERANKING (Optional - more expensive but higher precision)
+P4_RERANK_ENABLED=<set>
+P4_RERANK_MODEL=<set>
+P4_RERANK_TOP_K=<set>
+
+# EMBEDDING MODEL (must match Phase 6 for consistency)
+# P4_EMBED_MODEL already defined above (all-MiniLM-L6-v2)
+
+# Phase 6: Dual RAG - CRITICAL EMBEDDING CONSISTENCY
+P6_EMBED_MODEL=<set>
+P6_GPT5_TIMEOUT=<set>
+P6_GPT5_MAX_TOKENS=<set>
+P6_GPT5_REASONING=<set>
+P6_GPT5_VERBOSITY=<set>
+
+# Phase 5: NLI Integrity - PERFORMANCE OPTIMIZED (BUG-037C PERF FIX)
+P5_FAST_MODE=<set>
+P5_AUTO_FAST_THRESHOLD=<set>
+P5_MAX_PAIRS=<set>
+P5_PARALLEL_WORKERS=<set>
+P5_BATCH_SIZE=<set>
+P5_FORCE_ADVANCED_NLI=<set>
+
+# Phase 5: Adaptive Chunking Configuration (Week 4 Enhancement - 2025-10-30)
+# Content-type aware chunking for optimal retrieval performance
+P5_CHUNK_SIZE_ACADEMIC=<set>
+P5_CHUNK_SIZE_TECHNICAL=<set>
+P5_CHUNK_SIZE_NEWS=<set>
+P5_CHUNK_SIZE_DEFAULT=<set>
+P5_CHUNK_OVERLAP=<set>
+
+# Phase 6: Dual RAG - ENABLE LLM AND ADVANCED FEATURES (SOTA W2.1 compliance)
+P6_DISABLE_GPT5=<set>
+P6_MAX_CLAIMS=<set>
+P6_MIN_RELEVANCE=<set>
+P6_TOPK_PER_QUERY=<set>
+P6_TOTAL_EVIDENCE_CAP=<set>
+P6_CLUSTER_SIM=<set>
+P6_MASK_THRESHOLD=<set>
+P6_EVIDENCE_MAX_LENGTH=<set>
+P6_MIN_EVIDENCE_CHUNKS=<set>
+P6_MIN_UNIQUE_SOURCES=<set>
+
+# =<set>
+# TASK 10: Phase 7 Hybrid Retrieval Optimization (2025-11-03)
+# Target: Achieve >=<set>
+# =<set>
+
+# Phase 7: Dual RAG Hybrid Retrieval Weights
+# Combines BM25 (lexical/keyword) + Semantic (embedding-based) retrieval
+# Weights must sum to 1.0 (auto-normalized if not)
+P7_BM25_WEIGHT=<set>
+P7_SEMANTIC_WEIGHT=<set>
+
+# Test configurations for optimization:
+#   - Baseline (60/40): P7_SEMANTIC_WEIGHT=<set>
+#   - BM25-heavy (20/80): Better for regulatory/legal content with exact terms
+#   - Semantic-heavy (70/30): Better for technical/scientific conceptual content
+#   - Balanced (50/50): Equal weighting for mixed content
+
+# Phase 7: Adversarial QA - Enhanced Settings
+P7_DEFENSE_THRESHOLD=<set>
+P7_MAX_ATTACKS_PER_CLAIM=<set>
+
+# =<set>
+# BUG-156 FIX: Phase 7 Topic Relevance Filtering (2025-12-02)
+# =<set>
+# Ensures claims are semantically relevant to the research question
+# Applies to ALL 175 vectors and 400+ applications across all domains
+# Prevents off-topic claims from passing to final synthesis
+#
+# Configuration:
+# - P7_MIN_TOPIC_RELEVANCE: Minimum semantic similarity between claim and research question
+#   - 0.6: Recommended default - ensures claims are substantially related to question
+#   - Lower values (0.4-0.5): More permissive, higher recall
+#   - Higher values (0.7-0.8): More strict, higher precision
+#
+# - P7_MIN_VECTOR_RELEVANCE: Minimum similarity to vector embedding (contextual filter)
+#   - 0.5: Recommended default - ensures claims align with broader research context
+#   - Works in conjunction with topic relevance for comprehensive filtering
+
+P7_MIN_TOPIC_RELEVANCE=<set>
+P7_MIN_VECTOR_RELEVANCE=<set>
+
+# BUG-165 FIX: P7 Claim Topic Filter Threshold (2025-12-03)
+# Lowered from default 0.65 to 0.35 to capture water-quality-related claims
+# that don't explicitly mention "household water filter"
+P7_CLAIM_TOPIC_MIN_SCORE=<set>
+
+# Phase 8: Gating Logic - SOTA Quality Standards
+P8_PASS_THR=<set>
+P8_HOLD_THR=<set>
+P8_MIN_INTEGRITY=<set>
+P8_MIN_DEFENSE=<set>
+P8_MIN_RETRIEVAL=<set>
+P8_MIN_CLAIMS=<set>
+P8_W_NLI=<set>
+P8_W_QA=<set>
+P8_W_RET=<set>
+P8_W_EVD=<set>
+
+# Phase 9: Knowledge Integration - SOTA Standards
+P9_ACCEPT_THR=<set>
+P9_TENTATIVE_THR=<set>
+P9_DEFENDED_THR=<set>
+P9_W_P6=<set>
+P9_W_P7=<set>
+P9_DOMAIN_MIN_MATCH_RATIO=<set>
+
+# Phase 9: Gating Logic - URGENT-HIGH CALIBRATION (2025-10-31)
+# Realistic thresholds for early-stage vectors (Stage 1 contamination problem identification)
+P9_PASS_THR=<set>
+P9_HOLD_THR=<set>
+P9_MIN_INTEGRITY=<set>
+P9_MIN_DEFENSE=<set>
+P9_MIN_RETRIEVAL=<set>
+P9_MIN_CLAIMS=<set>
+P9_W_NLI=<set>
+P9_W_QA=<set>
+P9_W_RET=<set>
+P9_W_EVD=<set>
+
+
+# ADVANCED FEATURE ENABLES (Previously unused systems)
+# BUG-008 FIX: Disable multi-agent mode temporarily - multi-agent path doesn't track tokens
+ENABLE_MULTI_AGENT_PLANNING=<set>
+ENABLE_RAG_FUSION=<set>
+ENABLE_SOTA_VALIDATION=<set>
+ENABLE_KNOWLEDGE_GRAPHS=<set>
+ENABLE_OBSERVABILITY=<set>
+
+# Multi-Agent Planning Configuration
+P1_CONSENSUS_THRESHOLD=<set>
+P1_MAX_ITERATIONS=<set>
+
+# RAG Fusion Configuration
+P6_FUSION_PERSPECTIVES=<set>
+P6_SELF_RAG_THRESHOLD=<set>
+
+# SOTA Validation Configuration
+SOTA_ROBUSTQA_TARGET=<set>
+SOTA_HALLUCINATION_TARGET=<set>
+SOTA_VALIDATION_FREQUENCY=<set>
+
+# GPU Optimization
+TORCH_USE_CUDA_DSA=<set>
+PYTORCH_CUDA_ALLOC_CONF=<set>
+
+# =<set>
+# CONTENT QUALITY FIXES (BUG-012, BUG-013, BUG-014) - Added 2025-10-19
+# =<set>
+
+# BUG-012 FIX: Phase 3 Content Validation
+# Minimum content length in characters to accept a fetched page
+# Pages with less content are marked as "failed_empty_content"
+P3_MIN_CONTENT_LENGTH=<set>
+
+# BUG-013 FIX: Phase 6 Metadata Filtering
+# Enable detection and filtering of metadata-only claims
+# Filters claims that are >50% metadata (emails, PMIDs, affiliations)
+P6_ENABLE_METADATA_FILTER=<set>
+
+# BUG-014 FIX: Phase 12 Worthless Finding Filtering
+# Enable filtering of findings that LLM identifies as non-contributory
+# Requires >=<set>
+P12_ENABLE_WORTHLESS_FILTER=<set>
+
+# BUG-034 FIX (2025-11-21): Re-enable query simplification to strip incompatible operators for academic engines
+# The simplify_query_for_engine() function properly handles operator stripping for CrossRef/PubMed/Semantic Scholar
+P3_DISABLE_QUERY_SIMPLIFICATION=<set>
+
+# =<set>
+# WEEK 3.5 QUALITY THRESHOLD CALIBRATION (2025-10-30)
+# Root Cause Analysis: Phase 7 over-filtering removed 85% of claims (20→3)
+# =<set>
+
+# URGENT FIX #1: Source Diversity Threshold
+# BUG-111 FIX (2025-11-26): Restored to 10+ for SOTA compliance
+# P7 now enforces minimum source diversity with two-phase selection:
+# - Phase 1: Prioritize NEW sources until 10+ reached
+# - Phase 2: Standard MMR selection
+# This ensures SOTA requirement of 30+ diverse sources in final output
+# NOTE: P6_MIN_UNIQUE_SOURCES=<set>
+P6_MIN_SOURCE_DIVERSITY=<set>
+P13_MIN_SOURCE_DIVERSITY=<set>
+
+# URGENT FIX #2: Grounding Score Thresholds
+# Enable grounding verification but use relaxed thresholds
+P6_ENABLE_GROUNDING_VERIFICATION=<set>
+# Weak grounding threshold: 0.5 → 0.3 (allow moderate quality evidence)
+# Moderate grounding threshold: 0.7 → 0.5 (reduce penalty on borderline claims)
+
+# BUG-NEW-002 FIX: Phase 7 Geographic/Topical Filtering Too Aggressive for Healthcare Applications
+# Geographic filtering confidence threshold (lowered from 0.4 to 0.2 for healthcare apps)
+# Specialized medical terminology may score lower on geographic matching
+P7_GEOGRAPHIC_MIN_CONFIDENCE=<set>
+
+# BUG-NEW-002 FIX: Topical filtering confidence threshold (lowered from 0.25 to 0.15 for healthcare apps)
+# Hospital HVAC contamination research uses indirect terminology (IAQ, ventilation, infection control)
+# Target: 70-90% claim acceptance rate (not 0%, not 100%)
+P7_TOPICAL_MIN_CONFIDENCE=<set>
+
+# MEDIUM FIX: Quality Gate Thresholds for Stage 1
+# Current: Stage 1 threshold lowered from 0.80 → 0.65 (BUG-NEW-005 fix)
+# Keep current 0.65 but monitor for further adjustment
+P6_ENABLE_QUALITY_GATES=<set>
+
+# MEDIUM FIX: Evidence Quantity Threshold
+# Current: Default likely 200 chunks (from log warnings)
+# NEW: Lower to 150 to reduce cascade penalties from Phase 3 limitations
+P6_EVIDENCE_QUANTITY_THRESHOLD=<set>
+
+
+# =<set>
+# WEEK 4 ENHANCEMENT: Phase 6 Multi-Model Voting for NLI Integrity (2025-10-30)
+# Replaces single NLI model with 3-model ensemble to reduce model bias
+# =<set>
+
+# Enable multi-model voting ensemble (default: true)
+# When enabled, uses 3 NLI models with majority voting for contradiction detection
+# When disabled, falls back to single model (cross-encoder/nli-deberta-v3-base)
+P6_ENABLE_VOTING=<set>
+
+# Voting threshold for contradiction detection (default: 0.67)
+# Requires this fraction of models to agree for final decision
+# 0.67 =<set>
+P6_VOTING_THRESHOLD=<set>
+
+# Comma-separated list of NLI models for voting ensemble (default: 3 models)
+# Models are loaded once and inference runs in parallel
+# Recommended: Use models with different architectures (DeBERTa, BART, RoBERTa)
+P6_VOTING_MODELS=<set>
+
+
+# =<set>
+# TASK 5: Phase 2 Iterative Refinement (SOTA Section 5.3) - 2025-11-02
+# Reduces off-topic drift from 40% to <15% via knowledge gap detection
+# =<set>
+P2_ENABLE_ITERATIVE_REFINEMENT=<set>
+P2_ITERATIVE_MAX_ITERATIONS=<set>
+P2_ITERATIVE_CONVERGENCE_THRESHOLD=<set>
+P4_MIN_DOCS_WITH_CHUNKS=<set>
+P4_MIN_CHUNKS=<set>
+P4_MIN_SUCCESS_RATE=<set>
+
+# =<set>
+# PHASE 8 CONCURRENT PROCESSING (BUG-069 FIX - 2025-11-18)
+# =<set>
+# Max concurrent claims for Phase 8 adversarial QA generation
+# Higher values =<set>
+# Default: 5 (proven safe, ~20 hours for 24 claims)
+# Production: Can increase to 10+ with sufficient API quota
+P8_MAX_CONCURRENT_CLAIMS=<set>
+
+# =<set>
+# BUG-123 FIX: Phase 13 Honest Failure Mode Detection (2025-11-27)
+# =<set>
+# Pre-synthesis filtering to prevent market sources answering scientific questions
+# Post-synthesis detection of findings that admit they cannot answer the question
+# Quality gate to ensure minimum number of actually answerable findings
+
+# Enable pre-synthesis claim filtering (rejects market sources for scientific questions)
+P13_ENABLE_PREFILTER=<set>
+
+# Minimum answerability score threshold (0.0-1.0) - currently binary (pass/fail)
+P13_MINIMUM_ANSWERABILITY=<set>
+
+# Enable post-synthesis failure phrase detection
+P13_ENABLE_FAILURE_FILTER=<set>
+
+# Number of failure phrases required to reject a finding (default: 2)
+# Higher =<set>
+# Lower =<set>
+P13_FAILURE_THRESHOLD=<set>
+
+# Minimum number of answerable findings required for quality gate
+# If below this threshold, warning is added to report about corpus limitations
+P13_MINIMUM_ANSWERABLE_FINDINGS=<set>
+
+# =<set>
+# BUG-129 FIX: Phase 13 Source Credibility Minimum Threshold (2025-11-27)
+# =<set>
+# Filters out sources with credibility_score < MIN_CREDIBILITY from final output
+# This prevents zero-credibility sources from appearing in research reports
+#
+# Configuration:
+# - enabled: Credibility filtering is always enabled (non-disableable for data quality)
+# - threshold: Sources with credibility_score < this value are filtered out
+#   - 0.0: No filtering (accept all sources)
+#   - 0.1: Default - filters only sources with credibility_score=<set>
+#   - 0.3: Strict - filters low-credibility sources
+#   - 0.5: Very strict - filters below 0.5 (only high-credibility sources)
+#
+# Safety mechanism: If filtering would remove ALL sources, threshold resets to 0.0 (pass-through)
+
+POLARIS_MIN_CREDIBILITY=<set>
+
+# =<set>
+# BUG-156 FIX: Phase 10 Topic Relevance & Semantic Similarity Gates (2025-12-02)
+# =<set>
+# FIX-2: Enforces minimum topic relevance from P7 claims (prevents off-topic claims)
+# FIX-4: Replaces lexical domain matching with semantic similarity to original question
+#
+# Configuration:
+# - P10_MIN_TOPIC_RELEVANCE: Minimum topic relevance from P7 claims (0.0-1.0)
+#   - 0.6: Default - requires claims to be substantially related to research question
+#   - Lower values (0.4-0.5): More permissive, higher recall
+#   - Higher values (0.7-0.8): More strict, higher precision
+#
+# - P10_MIN_SEMANTIC_SIMILARITY: Minimum semantic similarity to original question (0.0-1.0)
+#   - 0.5: Default - requires moderate semantic alignment with research question
+#   - Uses sentence-transformers (all-MiniLM-L6-v2) for embedding-based similarity
+#   - Replaces broken lexical domain matching (8% word overlap was insufficient)
+#
+# Generalization:
+# - Works for ALL 175 vectors (no hardcoding)
+# - Uses each vector's OWN research question from VectorLibrary or P0 output
+# - Semantic embeddings work across all domains and applications
+
+P10_MIN_TOPIC_RELEVANCE=<set>
+P10_MIN_SEMANTIC_SIMILARITY=<set>
+
+# =<set>
+# BUG-156 FIX: Phase 13 Question-Narrative Relevance Gate (2025-12-02)
+# =<set>
+# Enforces minimum relevance between vector question and generated narrative
+# If relevance < threshold, P13 REJECTS output instead of just warning
+#
+# Configuration:
+# - threshold: Minimum semantic similarity score required (0.0-1.0)
+#   - 0.6: Default - requires moderate relevance (recommended)
+#   - 0.5: Lenient - allows broader interpretations
+#   - 0.7: Strict - requires high topical alignment
+#
+# How it works:
+# - Calculates semantic similarity between vector question and narrative content
+# - Uses keyword overlap, question type analysis, and domain relevance
+# - If score < threshold: Returns failure response with diagnostic metadata
+# - If score >=<set>
+#
+# Generalization:
+# - Works for ALL 175 vectors (no hardcoding)
+# - Uses each vector's OWN research question as reference
+# - Configurable via environment variable (no code changes needed)
+
+P13_MIN_QUESTION_RELEVANCE=<set>
+
+
+# BUG-208 FIX: Increase RAG evidence cap from default 200
+RAG_MAX_CHUNKS=<set>
+UNPAYWALL_EMAIL=<set>
+
+# =<set>
+# FIX 106: CONTEXT UNLEASHED - Citation Density Restoration (2026-02-02)
+# =<set>
+# Gemini Deep Audit identified that semantic routing (FIX 65) starves the
+# synthesizer of evidence - only 6/100 pieces pass the 0.2 threshold.
+#
+# KIMI K2.5 has 128k context. 100 evidence pieces ≈ 30k-40k tokens.
+# There is NO technical reason to filter evidence.
+#
+# This fix bypasses semantic routing and passes ALL GOLD/SILVER evidence
+# to maximize citation density. FIX 105A Atomic Verification will catch
+# any hallucinations, so we can be aggressive in the synthesis phase.
+#
+# Expected Impact: Citations +200% (from 32 to ~90-100)
+# Faithfulness Impact: Neutral (FIX 105A verification catches issues)
+
+POLARIS_CONTEXT_UNLEASHED=<set>
+POLARIS_UNLEASHED_MAX_EVIDENCE=<set>
+
+# =<set>
+# FIX 107: CITATION ENRICHMENT (2026-02-02)
+# =<set>
+# Post-verification citation injection to boost citation density to SOTA levels.
+# The enrichment pass runs AFTER the auditor verifies faithfulness >=<set>
+#
+# ROOT CAUSE (from Gemini Deep Audit):
+# FIX 105A's atomic verification creates inverse correlation:
+# - Higher faithfulness → Fewer citations survive
+# - RUN8: 85.2% faithfulness but only 32 citations (vs SOTA 120-150)
+#
+# SOLUTION:
+# - Phase A (107A): Post-verification enrichment adds citations without modifying text
+# - Phase B (107B): Bypass atomic verification for enrichment-added citations
+# - Phase C (107C): Algorithmic Citation Protocol in synthesizer prompts
+#
+# Expected Impact: Citations +200% (from 32 to ~100)
+# Faithfulness Impact: Maintained at >=<set>
+
+POLARIS_ENRICHMENT_ENABLED=<set>
+POLARIS_TARGET_CITATIONS=<set>
+POLARIS_MAX_NEW_CITATIONS=<set>
+POLARIS_ENRICHMENT_MIN_FAITHFULNESS=<set>
+
+# =<set>
+# FIX 108: COMPREHENSIVE QUALITY FIX (2026-02-03)
+# =<set>
+# Addresses competitive gaps identified in RUN13 audit vs Gemini 3 Pro DR and ChatGPT 5.2 DR.
+#
+# Current Gaps (RUN13):
+# - Citation Precision: 0.28 vs 0.385 (ChatGPT) -> Target 0.45+
+# - Factual Accuracy: 70% vs 95.83% (ChatGPT) -> Target 90%+
+# - Evidence Reuse: 4.08x avg -> Target 2.0x
+#
+# FIX 108A: Raised similarity threshold from 0.55 to 0.70 (industry standard)
+POLARIS_ENRICHMENT_SIMILARITY=<set>
+
+# FIX 108E: Raised soft verify threshold from 0.25 to 0.40 (aligns with soft-pass)
+POLARIS_SOFT_VERIFY_THRESHOLD=<set>
+
+# FIX 115: Lowered support threshold from 0.45 to 0.35 for semantic matching
+# RUN15 showed 0.45 is too strict for semantic matching between compound claims
+# and atomic evidence. We now rely on dual-track verification for quality.
+# Previous: FIX 108D raised from 0.30 to 0.45
+POLARIS_SUPPORT_THRESHOLD=<set>
+
+# FIX 108B: Global citation deduplication (limits evidence reuse)
+POLARIS_MAX_EVIDENCE_REUSE=<set>
+
+# FIX 108G: Raised enrichment faith threshold from 0.60 to 0.70
+POLARIS_ENRICHMENT_FAITH_THRESHOLD=<set>
+
+# =<set>
+# FIX 109: DUAL-TRACK VERIFICATION (2026-02-03)
+# =<set>
+# Architectural change to match competitor verification approach.
+#
+# PROBLEM: Atomic verification creates probability ceiling:
+# - 5 claims at 85% each: 0.85^5 =<set>
+# - Competitors use sentence-level (no decomposition) =<set>
+# - This is why ChatGPT 5.2 achieves 95.83% factual accuracy
+#
+# SOLUTION: Run BOTH verification tracks in parallel:
+# - Track 1 (Sentence): Verify whole sentence → higher pass rate (competitor parity)
+# - Track 2 (Atomic): Decompose → verify each → accuracy metrics
+#
+# COMBINATION:
+# - Use sentence-level verdict for pass/fail (competitor parity)
+# - Report atomic results in reasoning (accuracy tracking)
+# - Flag "weak" passes where sentence passes but atomic <40%
+#
+# Expected Impact: Faithfulness 80% → 90%+ (matching ChatGPT 5.2)
+
+POLARIS_DUAL_VERIFICATION=<set>
+POLARIS_SENTENCE_THRESHOLD=<set>
+
+# =<set>
+# FIX 110: KIMI K2.5 THINKING MODE VERIFICATION (2026-02-04)
+# =<set>
+# Closes the final 5% faithfulness gap by escalating borderline MiniCheck
+# results to KIMI K2.5's chain-of-thought verification.
+#
+# ROOT CAUSE (from RUN14 analysis):
+# - MiniCheck has ~85% accuracy ceiling (RoBERTa-large limitation)
+# - Many valid claims fail verification due to MiniCheck false negatives
+# - FIX 109 solved the atomic Boolean-AND problem, but MiniCheck accuracy
+#   is now the bottleneck (71.1% faithfulness in RUN14)
+#
+# SOLUTION: TIERED ESCALATION
+# - Tier 1 (MiniCheck): Fast, cheap, 85% accuracy
+#   - confidence >=<set>
+#   - confidence <=<set>
+#   - 0.25 < confidence < 0.75 → ESCALATE to Tier 2
+#
+# - Tier 2 (KIMI K2.5 Thinking Mode): Slower, 95%+ accuracy
+#   - Chain-of-thought verification prompt (FIX 110A)
+#   - Reasoning-based confidence calibration (FIX 110D)
+#   - Only ~30% of claims escalate (borderline confidence)
+#
+# COST: ~$0.09 per report (30 escalations × $0.003 per verification)
+# IMPACT: Faithfulness 71% → 90%+ (SOTA parity)
+
+POLARIS_THINKING_ESCALATION=<set>
+POLARIS_MINICHECK_HIGH_CONF=<set>
+POLARIS_MINICHECK_LOW_CONF=<set>
+POLARIS_THINKING_MAX_TOKENS=<set>
+
+# =<set>
+# FIX 107H/I + 105A-SOFT: GEMINI 3 PRO AUDIT FIXES (2026-02-03)
+# =<set>
+# Gemini 3 Pro Deep Thinking audit identified three critical issues in RUN10:
+#
+# 1. "Zombie Section Paradox" (FIX 107H - Lazarus):
+#    - Even if enrichment adds citations, sections still carry CRITICAL_FAILURE status
+#    - Compiler deletes sections based on status, not content quality
+#    - FIX: Quarantine (with disclaimer) instead of amputate
+#
+# 2. "Frozen Window Hallucination" (FIX 107I - Smart Window):
+#    - All sections receive identical evidence (same 19835 chars in logs)
+#    - Section 5 (Cost) gets "Effectiveness" evidence, must hallucinate
+#    - FIX: Per-section semantic re-ranking of evidence
+#
+# 3. "Atomic Ceiling" (FIX 105A-SOFT - Soft Pass):
+#    - Boolean AND on 5 claims: 0.85^5 =<set>
+#    - Complex sentences mathematically guaranteed to fail
+#    - FIX: Weighted average (>60% atoms pass =<set>
+#
+# Expected Impact: Sections 9/9 preserved, citations 100+, faithfulness 75%+
+
+POLARIS_LAZARUS_MODE=<set>
+POLARIS_SMART_WINDOW=<set>
+POLARIS_SOFT_PASS=<set>
+POLARIS_SOFT_PASS_THRESHOLD=<set>
+
+# =<set>
+# FIX 117: CITE-FIRST ARCHITECTURE (2026-02-04)
+# =<set>
+# Architectural redesign to achieve 90%+ faithfulness (SOTA parity).
+#
+# ROOT CAUSE ANALYSIS:
+# - POLARIS uses "write-then-cite" (synthesize → find citations post-hoc)
+# - SOTA systems use "cite-first" (identify evidence → write grounded claims)
+# - This architectural difference creates a ~75% faithfulness ceiling
+#
+# SOLUTION: Invert synthesis order (Path B - Architectural Redesign)
+# - Phase 1: Generate atomic claims from query
+# - Phase 2: For each claim, retrieve supporting evidence
+# - Phase 3: Verify evidence supports claim BEFORE writing
+# - Phase 4: Write sentence grounded in verified evidence
+# - Phase 5: Compose sentences into narrative
+#
+# COMPONENTS:
+# - CitefirstSynthesizer: New synthesizer with cite-first generation
+# - ClaimDecomposer: Decomposes queries into atomic, verifiable claims
+# - InlineVerifier: MiniCheck wrapper for verification during synthesis
+# - Per-claim retrieval: Retrieves evidence specifically for each claim
+#
+# Expected Impact: Faithfulness 75% → 90%+ (true SOTA parity)
+# Reference: Plan file - noble-launching-hippo.md
+
+# Enable/disable cite-first synthesis (feature flag for gradual rollout)
+# 0 =<set>
+# 1 =<set>
+POLARIS_CITEFIRST_ENABLED=<set>
+
+# Claim verification threshold for inline verification
+# Lower =<set>
+# Recommended: 0.40 for balanced precision/recall
+POLARIS_CLAIM_VERIFY_THRESHOLD=<set>
+
+# Maximum claims to generate per query
+# Higher =<set>
+# SOTA FIX: Increased from 50 to 150 for SOTA parity (competitors generate 200-500)
+POLARIS_MAX_CLAIMS_PER_QUERY=<set>
+
+# Enable per-claim retrieval (retrieve new evidence for each claim)
+# 0 =<set>
+# 1 =<set>
+POLARIS_PERCLAIM_RETRIEVAL=<set>
+
+# Per-claim retrieval max results
+# How many additional evidence pieces to retrieve per claim
+# SOTA FIX: Increased from 5 to 15 for SOTA parity (competitors use 10-20)
+POLARIS_PERCLAIM_MAX_RESULTS=<set>
+
+# Semantic similarity threshold for evidence retrieval
+# FIX-152B: Raised from 0.15 to 0.40 to prevent off-topic evidence matches
+POLARIS_SEMANTIC_THRESHOLD=<set>
+
+# MiniCheck model for inline verification
+# Options: roberta-large (recommended), flan-t5-large
+# roberta-large: 512 token limit, faster
+# flan-t5-large: No token limit, slower but handles longer evidence
+POLARIS_MINICHECK_MODEL=<set>
+
+# Use GPU for MiniCheck inference (if available)
+# 0 =<set>
+POLARIS_USE_GPU=<set>
+
+# Ungroundable claim handling strategy
+# skip =<set>
+# hedge =<set>
+# flag =<set>
+POLARIS_UNGROUNDABLE_STRATEGY=<set>
+
+# FIX 117 Phase 3.3: Convergence-based stopping
+# Instead of fixed 5 iterations, detect when faithfulness stops improving
+POLARIS_CONVERGENCE_THRESHOLD=<set>
+POLARIS_TARGET_FAITHFULNESS=<set>
+
+# FIX 117 Phase 4.2: Adaptive thresholds by claim complexity
+# Simple claims (1 atomic fact) use lower threshold
+# Complex claims (multiple facts) use higher threshold
+POLARIS_ADAPTIVE_THRESHOLDS=<set>
+
+# FIX-161: Cluster-synthesize architecture
+# 0 =<set>
+# 1 =<set>
+POLARIS_CLUSTER_SYNTHESIS=<set>
+
+# FIX-184C: Keep paragraphs with [CITE:] tokens in sanitizer (0=<set>
+POLARIS_SANITIZE_KEEP_CITED_PARAS=<set>
+
+# FIX-184E: Cross-section transition sentences
+# FIX-249: Was disabled — template transitions created D1/D9 penalties
+# FIX-269: Re-enabled with safe static academic phrases (no CoT risk)
+POLARIS_COHERENCE_TRANSITIONS=<set>
+
+# FIX-184F: Embedding cosine threshold for cross-section dedup (higher=<set>
+# FIX-274: Lowered from 0.90 to 0.85 to catch paraphrased duplicates (EPA repeats)
+POLARIS_CROSS_SECTION_DEDUP_THRESHOLD=<set>
+
+# =<set>
+# FIX-220/221/222 SOTA Sprint Feature Flags (2026-02-10)
+# =<set>
+
+# FIX-221A: Topic-anchored query simplification (1=<set>
+POLARIS_QUERY_TOPIC_ANCHOR=<set>
+
+# FIX-221B: Minimum keyword matches for relevance filter (raised from 1 to 2)
+POLARIS_MIN_KEYWORD_MATCHES=<set>
+
+# FIX-211: LLM-based CoT post-filter (1=<set>
+POLARIS_LLM_COT_FILTER=<set>
+
+# FIX-283: Section-level CoT post-filter (1=<set>
+# Applies LLM classifier to each section prose BEFORE report assembly
+POLARIS_SECTION_COT_FILTER=<set>
+
+# FIX-210: Pre-synthesis evidence relevance gates
+POLARIS_MIN_MEDIAN_RELEVANCE=<set>
+POLARIS_MIN_HIGH_RELEVANCE_PCT=<set>
+POLARIS_MIN_CLUSTER_RELEVANCE=<set>
+# FIX-251: Raised from 0.7 to reduce false positives on domain-specific vocabulary
+POLARIS_JACCARD_DUP_THRESHOLD=<set>
+
+# FIX-252: Disabled — FIX-229 optimization skips FIX-211 when KimiClient succeeds,
+# but KimiClient success !=<set>
+POLARIS_COT_SCRUBBER_LITE=<set>
+
+# =<set>
+# FIX-260: MISSING ENV VARS (previously hardcoded defaults in code)
+# =<set>
+# All variables below were referenced in production code but not in .env,
+# falling back to hardcoded defaults. Explicit definition ensures LAW VI compliance.
+
+# --- Audit System ---
+# FIX-255: Default faithfulness when pipeline doesn't compute it (0.0 =<set>
+POLARIS_DEFAULT_FAITHFULNESS=<set>
+
+# --- Cite-First Synthesizer (citefirst_synthesizer.py) ---
+# Claim verification high-confidence threshold
+POLARIS_CLAIM_HIGH_THRESHOLD=<set>
+# Minimum evidence pieces required per claim
+POLARIS_MIN_EVIDENCE_PER_CLAIM=<set>
+# Maximum ratio of ungroundable claims before synthesis fails
+POLARIS_MAX_UNGROUNDABLE_RATIO=<set>
+# Maximum hedged claims included in final report (FIX-150A)
+POLARIS_MAX_HEDGED_REPORT=<set>
+# Max tokens for synthesis LLM calls
+POLARIS_SYNTHESIS_MAX_TOKENS=<set>
+# Minimum words per report section
+POLARIS_MIN_SECTION_WORDS=<set>
+# Sentence deduplication Jaccard threshold (0.85 =<set>
+POLARIS_SENTENCE_DEDUP_THRESHOLD=<set>
+# Diversity penalty for evidence selection (MMR lambda)
+POLARIS_DIVERSITY_PENALTY=<set>
+# Token budgets for LLM sub-calls
+POLARIS_TOKENS_CLUSTER_LLM=<set>
+POLARIS_TOKENS_SECTION_PROSE=<set>
+POLARIS_TOKENS_CLAIM_GENERATION=<set>
+# Section sizing
+POLARIS_SENTENCES_PER_SECTION=<set>
+POLARIS_MIN_SENTENCES_PER_SECTION=<set>
+# Evidence summary count for synthesis context
+POLARIS_EVIDENCE_SUMMARY_COUNT=<set>
+
+# --- Search Agent (search_agent.py) ---
+# API concurrency limits (respect rate limits)
+POLARIS_SEMANTIC_SCHOLAR_CONCURRENCY=<set>
+POLARIS_PUBMED_CONCURRENCY=<set>
+POLARIS_ARXIV_CONCURRENCY=<set>
+POLARIS_WEB_SEARCH_CONCURRENCY=<set>
+
+# --- Pipeline Configuration (graph.py) ---
+# Minimum evidence per perspective for balance
+POLARIS_MIN_PER_PERSPECTIVE=<set>
+# Total evidence cap across all perspectives
+POLARIS_EVIDENCE_TOTAL_CAP=<set>
+# Maximum CrossRef enrichment citations
+POLARIS_MAX_CROSSREF_ENRICHMENT=<set>
+
+# --- Quality Gate (output_quality_gate.py) ---
+# Maximum CoT instances allowed before OQG rejection
+POLARIS_OQG_MAX_COT=<set>
+# Maximum marker instances (e.g. [DRAFT], [TODO]) allowed
+POLARIS_OQG_MAX_MARKERS=<set>
+# Maximum duplicate sentence ratio (0.15 =<set>
+POLARIS_OQG_MAX_DUPL_RATIO=<set>
+# Maximum PDF noise instances (artifact text from PDF extraction)
+POLARIS_OQG_MAX_PDF_NOISE=<set>
+# OQG deduplication Jaccard threshold
+POLARIS_OQG_DEDUP_THRESHOLD=<set>
+
+# --- Quality Scoring (quality_scoring.py) ---
+# Weights for quality score computation (must sum to 1.0)
+POLARIS_QUALITY_W_RELEVANCE=<set>
+POLARIS_QUALITY_W_SOURCE=<set>
+
+# --- Inline Verifier (inline_verifier.py) ---
+# Default MiniCheck verification threshold
+POLARIS_VERIFY_THRESHOLD=<set>
+
+# --- CoT Cleaning (cot_scrubber.py, cot_post_filter.py) ---
+# Enable structural heuristic in CoT scrubber
+POLARIS_COT_STRUCTURAL_HEURISTIC=<set>
+# Batch size for CoT LLM post-filter
+POLARIS_COT_FILTER_BATCH_SIZE=<set>
+
+# --- LLM Factory (factory.py) ---
+# LLM backend selection: auto, fireworks, gemini
+POLARIS_LLM_BACKEND=<set>
+
+# --- Academic Fetcher ---
+# Email for academic API requests (PubMed, Unpaywall)
+POLARIS_EMAIL=<set>
+# Email for CrossRef API requests
+CROSSREF_EMAIL=<set>
+
+# --- Planner Agent ---
+# Skip query validation (0=<set>
+POLARIS_SKIP_QUERY_VALIDATION=<set>
+
+# --- Synthesizer Agent ---
+# Revision flood mode (1=<set>
+POLARIS_REVISION_FLOOD_MODE=<set>
+
+# --- Auditor Agent ---
+# Enable LLM fallback in auditor (1=<set>
+POLARIS_LLM_FALLBACK=<set>
+
+# --- Citation Enricher ---
+# Skip enrichment if section already has >=<set>
+POLARIS_ENRICHMENT_SKIP_THRESHOLD=<set>
+
+# --- Benchmarks ---
+# Strict faithfulness threshold for benchmarking
+POLARIS_STRICT_THRESHOLD=<set>
+# Required pass ratio for atomic verification in strict auditor
+POLARIS_ATOMIC_PASS_RATIO=<set>
+
+# =<set>
+# SOTA GAP CLOSURE: Real FactScore via LLM Atomic Decomposition (2026-02-13)
+# =<set>
+# BUG-069 FIX: Replace heuristic word-pattern counting with real LLM atomic
+# decomposition per Min et al. 2023. When enabled, AtomicDecomposer decomposes
+# sentences into atomic facts and MiniCheck verifies each atom individually.
+# 0 =<set>
+# 1 =<set>
+POLARIS_REAL_FACTSCORE=<set>
+
+# =<set>
+# QUALITY MAXIMIZATION PHASE 2 (2026-02-14)
+# =<set>
+# 12 fixes targeting RAGAS audit gaps (faithfulness, relevancy, GOLD rate)
+
+# FIX-I1: Windows embedding cache path (prevents [Errno 22] Invalid argument)
+PG_ST_CACHE_PATH=<set>
+
+# FIX-G1: Default domain authority for unknown domains (raised from 0.3 to 0.5)
+# Makes GOLD tier reachable for non-curated domains
+PG_DEFAULT_DOMAIN_AUTHORITY=<set>
+
+# FIX-043D: Maximum hedging words (may, might, could, potentially, possibly, perhaps)
+# FIX-047F: Raised from 55 to 90 — T045 one-by-one audit confirmed 93% appropriate
+PG_MAX_HEDGING_WORDS=<set>
+
+# FIX-S1: Section revision pass (1=<set>
+# Rewrites each section for quality after initial write
+PG_SECTION_REVISION_ENABLED=<set>
+
+# =<set>
+# FIX-047L/M: Citation Backfill + Domain Capping
+# =<set>
+PG_FAITHLENS_MODEL=<set>
+PG_BACKFILL_MIN_SIMILARITY=<set>
+PG_MAX_BACKFILL_CITATIONS=<set>
+PG_MAX_DOMAIN_CITATION_PCT=<set>
+PG_MIN_DISTINCT_DOMAINS=<set>
+
+# =<set>
+# MoST: Molecular Structure of Thought (arXiv 2601.06002)
+# =<set>
+PG_MOST_ENABLED=<set>
+PG_REFLECTION_CONCURRENCY=<set>
+PG_REFLECTION_MAX_CONTEXT=<set>
+PG_EXPLORE_SIMILARITY_THRESHOLD=<set>
+PG_EXPLORE_MAX_NEW_PER_SECTION=<set>
+
+# =<set>
+# Memory System Activation
+# =<set>
+PG_EVIDENCE_HIERARCHY_READ_ENABLED=<set>
+PG_EVIDENCE_HIERARCHY_WRITE_ENABLED=<set>
+PG_SESSION_FEEDBACK_ENABLED=<set>
+PG_CROSS_VECTOR_LTM_ENABLED=<set>
+# Live E2E audit: lower thresholds so Quick Scan promotes evidence to LTM
+PG_LTM_MIN_QUALITY=<set>
+PG_LTM_MIN_FAITHFULNESS=<set>
+
+# =<set>
+# FIX-059-D: Evidence Extraction Quality
+# =<set>
+PG_MIN_QUOTE_WORDS=<set>
+
+# =<set>
+# TIER-3: Context-Window Rewrite
+# =<set>
+# Stage 1: Source content deduplication (SQLite store, dedup from evidence dicts)
+PG_SOURCE_CONTENT_STORE_ENABLED=<set>
+# Stage 2: Embedding-based evidence routing (deterministic, zero LLM cost)
+PG_EMBEDDING_ROUTING=<set>
+PG_CROSS_SECTION_SIMILARITY_DELTA=<set>
+PG_EMBEDDING_ROUTING_MIN_SIMILARITY=<set>
+# Stage 3: Token-budget-aware prompt construction (0=<set>
+PG_SECTION_TOKEN_BUDGET=<set>
+PG_EVIDENCE_FORMAT_TOP_FULL=<set>
+PG_EVIDENCE_CANDIDATE_POOL=<set>
+PG_EVIDENCE_L0_MAX_CHARS=<set>
+PG_EVIDENCE_L1_MAX_CHARS=<set>
+# Stage 6: Token accounting & observability
+PG_TOKEN_ACCOUNTING_ENABLED=<set>
+PG_TOKEN_ACCOUNTING_WARN_THRESHOLD=<set>
+
+# =<set>
+PG_LIVE_SERVER_PORT=<set>
+PG_LIVE_TRACE_DIR=<set>
+PG_LIVE_ANOMALY_LOG=<set>
+PG_MONITOR_COST_WARN=<set>
+PG_MONITOR_COST_CRIT=<set>
+PG_MONITOR_BATCH_TIMEOUT_MS=<set>
+PG_MONITOR_NODE_TIMEOUT_MULT=<set>
+
+# Source Briefing (NotebookLM-style auto-generated introduction)
+PG_BRIEF_CHARS_PER_SOURCE=<set>
+# PG_BRIEF_MODEL=<set>
+
+# =<set>
+# DEPLOYMENT & INFRASTRUCTURE (Phase 1A+2A)
+# =<set>
+# Deployment mode: "cloud" (use OpenRouter+Serper+Exa) or "sovereign" (use vLLM+SearxNG)
+POLARIS_DEPLOYMENT_MODE=<set>
+# Version string for health check and PDF export audit certificate
+POLARIS_VERSION=<set>
+# CORS origins (comma-separated, "*" for dev)
+POLARIS_CORS_ORIGINS=<set>
+
+# =<set>
+# AUTHENTICATION & RBAC (Phase 2B)
+# =<set>
+# G1: Sovereign Mode indicator in dashboard header
+PG_SOVEREIGN_MODE=<set>
+# G2: RBAC role-based access control
+PG_RBAC_ENABLED=<set>
+# Set to 1 to enable auth middleware (default: disabled for demo)
+POLARIS_AUTH_ENABLED=<set>
+# JWT signing secret (CHANGE THIS in production)
+POLARIS_AUTH_SECRET=<set>
+# Token expiry in seconds (default: 24 hours)
+POLARIS_AUTH_TOKEN_EXPIRY=<set>
+# Maximum concurrent research sessions per user
+POLARIS_MAX_CONCURRENT_RESEARCH=<set>
+# Path to user store JSON file
+POLARIS_USER_STORE_PATH=<set>
+
+# =<set>
+# PROVIDER ABSTRACTION (Phase 2A Sovereign)
+# =<set>
+# LLM provider: openrouter (cloud), vllm (sovereign GPU), ollama (sovereign CPU)
+POLARIS_LLM_PROVIDER=<set>
+# Search provider: cloud (Serper+Exa+S2), searxng (self-hosted), internal (corpus)
+POLARIS_SEARCH_PROVIDER=<set>
+# vLLM endpoint (used when POLARIS_LLM_PROVIDER=<set>
+POLARIS_VLLM_BASE_URL=<set>
+POLARIS_VLLM_MODEL=<set>
+# SearxNG endpoint (used when POLARIS_SEARCH_PROVIDER=<set>
+POLARIS_SEARXNG_URL=<set>
+# Ollama endpoint (used when POLARIS_LLM_PROVIDER=<set>
+POLARIS_OLLAMA_BASE_URL=<set>
+POLARIS_OLLAMA_MODEL=<set>
+
+# =<set>
+# CLOUD STORAGE OAUTH2 (Google Drive, OneDrive, Dropbox)
+# =<set>
+# Leave CLIENT_ID empty to hide a provider from the UI.
+# Get credentials from:
+#   Google: https://console.cloud.google.com/apis/credentials
+#   Microsoft: https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps
+#   Dropbox: https://www.dropbox.com/developers/apps
+GOOGLE_DRIVE_CLIENT_ID=<set>
+GOOGLE_DRIVE_CLIENT_SECRET=<set>
+ONEDRIVE_CLIENT_ID=<set>
+ONEDRIVE_CLIENT_SECRET=<set>
+DROPBOX_CLIENT_ID=<set>
+DROPBOX_CLIENT_SECRET=<set>
+POLARIS_CLOUD_TOKEN_PATH=<set>
+
+# =<set>
+# SOTA QUALITY UPGRADE (WS-1 through WS-5, 2026-03-22)
+# =<set>
+# WS-3: Discourse-based integration detection (replaces keyword co-occurrence)
+# Requires 2+ distinct discourse relation types per paragraph (not just keyword count)
+PG_DISCOURSE_INTEGRATION=<set>
+# WS-5: CiteFix citation correction (ACL 2025 Industry)
+# 80% of "hallucinations" are incorrect citations. 3 strategies: keyword/semantic/number
+PG_CITEFIX_ENABLED=<set>
+PG_CITEFIX_KEYWORD_MIN=<set>
+PG_CITEFIX_SEMANTIC_THRESHOLD=<set>
+
+# Generate-Then-Attribute (Session 52)
+PG_GENERATE_THEN_ATTRIBUTE=<set>
+PG_ATTRIBUTION_THRESHOLD=<set>
+PG_ATTRIBUTION_MAX_PER_SENTENCE=<set>
+PG_ATTRIBUTION_KEYWORD_MIN=<set>
+
+# Hybrid Evidence Passages (Session 52 — STORM/Attribute-First pattern)
+# Enable with PG_HYBRID_EVIDENCE=<set>
+PG_HYBRID_EVIDENCE=<set>
+
+# Smoke test timeouts (Qwen via OpenRouter needs longer)
+PG_REACT_TIMEOUT_SECONDS=<set>
+PG_WRITE_TIMEOUT=<set>
+# FIX-CITE-3: Hard evidence dedup - each evidence piece assigned to exactly one section (GraphRAG pattern)
+PG_HARD_EVIDENCE_DEDUP=<set>
+# FIX-CITE-3/GAP-LLM: Enable reasoning for section writing (deeper analytical output)
+PG_SECTION_REASONING=<set>
+# QUERY-GATE: Hard-exclude non-academic sources when query requests clinical evidence
+PG_ACADEMIC_ONLY_GATE=<set>
+# GRADE-PASS: Assign standardized certainty ratings to evidence
+PG_GRADE_STANDARDIZATION=<set>
+PG_POLISH_PASS=<set>
+
+# =<set>
+# CLAW CODE ADOPTION PHASES (Session 52+)
+# =<set>
+# Phase 2A: Evidence-driven outline (cluster summarization → outline from evidence)
+PG_PHASE_2A_ENABLED=<set>
+# Phase 2B: Focused re-extraction per section (subtopic questions → deep extraction)
+PG_PHASE_2B_ENABLED=<set>
+# Phase 3A: Outline critique agent (adversarial structural review)
+PG_PHASE_3A_ENABLED=<set>
+# Phase 3B: Sequential section writing (concurrency=<set>
+# Controlled by PG_SECTION_WRITE_CONCURRENCY=<set>
+# Phase 4: Post-write adversarial review (per-section fact-checking)
+PG_PHASE_4_ENABLED=<set>
+# Phase 5: Modular prompt fragments (section-type-specific instructions)
+PG_PHASE_5_ENABLED=<set>
+
+# V30 Report Contract Architecture (Phase 1 live-run).
+# Opt-in gate for run_honest_sweep_r3.py V30 integration.
+PG_V30_ENABLED=<set>
+# Contact email for Unpaywall API (per Unpaywall ToS). Reuses
+# UNPAYWALL_EMAIL from the existing retrieval stack.
+PG_UNPAYWALL_EMAIL=<set>
+
+# Vast.ai API key for sovereign GPU rental queries (added 2026-04-30)
+VAST_API_KEY=<set>
+
+# Slice 4 demo GPG signing key (generated 2026-05-04, RSA-4096)
+# STALE — keyring ~/.gnupg-polaris did not exist. Superseded below by the
+# G5 fallback-laptop-drill key (bootstrap_gpg_demo_key.sh, 2026-05-13).
+# POLARIS_GPG_KEY_ID=<set>
+POLARIS_BENCHMARK_RESULTS_DIR=<set>
+
+# G5 fallback-laptop drill (2026-05-13) — local docker-compose.v6 stack.
+# Demo bundle-signing key from scripts/bootstrap_gpg_demo_key.sh; local
+# static_accounts + JWT secret for the LOCAL drill only (NOT the deploy).
+POLARIS_GPG_KEY_ID=<set>
+POLARIS_GPG_HOMEDIR=<set>
+POLARIS_ETC_DIR=<set>
+POLARIS_STATIC_ACCOUNTS_PATH=<set>
+POLARIS_JWT_SECRET=<set>
+
+# OVH Canada API — polaris-ovh-30d token (created 2026-05-14, 30-day validity)
+OVH_ENDPOINT=<set>
+OVH_APPLICATION_KEY=<set>
+OVH_APPLICATION_SECRET=<set>
+OVH_CONSUMER_KEY=<set>
+
+# Vexxhost Montréal — sovereign Canadian cloud (added 2026-05-15)
+VEXXHOST_USERNAME=<set>
+VEXXHOST_PASSWORD=<set>
+VEXXHOST_AUTH_URL=<set>
+
+# Carney demo domain (GoDaddy-registered) — added 2026-05-19
+POLARIS_DOMAIN=<set>
+CORE_API_KEY=<set>
+PG_MAX_COST_PER_RUN=<set>
+
+ZYTE_API_KEY=<set>
+
+# I-beatboth-008 (#1285, operator-approved 2026-06-20): all-GLM-5.2 model reconcile.
+# Operator directive: model as .env variable, NOT hardcoded in the slate.
+PG_GENERATOR_MODEL=<set>
+PG_MIRROR_MODEL=<set>
+PG_ENTAILMENT_MODEL=<set>
+PG_EVALUATOR_MODEL=<set>
+PG_CREDIBILITY_JUDGE_MODEL=<set>
+PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=<set>
+PG_FOUR_ROLE_REASONING_EFFORT=<set>
+
+# P6 crash fix (2026-06-21): the all-GLM-5.2 P6 fresh run (PID 61722) died at
+# ~03:56 with a native Windows access-violation (segfault) after 107 docling
+# std::bad_alloc events in the PDF-OCR preprocess stage. Forensic: docling won
+# 0 fetches (jina_reader 193 / crawl4ai 97 / trafilatura 8 won every PDF), and
+# its bad_allocs ACCUMULATED 03:51->03:56 (docling does not free memory between
+# parses), so the FIX-DOCLING-OOM-V2 page/byte guard (40pg/5MB) was insufficient
+# under the bumped fetch parallelism — small PDFs (pages 15/19/20/33) still OOM'd
+# in aggregate and took the whole interpreter down via SIGSEGV.
+# Setting bytes-cap=<set>
+# PyMuPDF. FAITHFULNESS-NEUTRAL: docling contributed 0 verified sources, so this
+# removes the RAM killer + the leak without dropping any evidence. The LLM/D8/
+# section parallelism stays MAX (network-bound); only the local in-process OCR
+# path is disabled (RAM-bound, per CLAUDE.md §8.4).
+PG_MAX_DOCLING_PDF_BYTES=<set>

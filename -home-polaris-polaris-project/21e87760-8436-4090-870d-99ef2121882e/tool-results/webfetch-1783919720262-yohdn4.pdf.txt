@@ -1,0 +1,2126 @@
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline
+Structure for Open-Ended Deep Research
+Zhuofan Shi *‡1 Ming Ma *‡2 Zekun Yao ‡3 Fangkai Yang† 1 Jue Zhang † 1 Dongge Han 1 Victor R¨uhle 1
+Qingwei Lin 1 Saravan Rajmohan 1 Dongmei Zhang 1
+Abstract
+Open-Ended Deep Research (OEDR) pushes
+LLM agents beyond short-form QA toward long-
+horizon workflows that iteratively search, con-
+nect, and synthesize evidence into structured re-
+ports. However, existing OEDR agents largely
+follow either linear “search-then-generate” accu-
+mulation or outline-centric planning. The for-
+mer suffers from lost-in-the-middle failures as ev-
+idence grows, while the latter relies on the LLM
+to implicitly infer knowledge gaps from the out-
+line alone, providing weak supervision for iden-
+tifying missing relations and triggering targeted
+exploration. We present DualGraph memory, an
+architecture that separateswhatthe agent knows
+fromhowit writes. DualGraph maintains two
+co-evolving graphs: an Outline Graph (OG), and
+a Knowledge Graph (KG), a semantic memory
+that stores fine-grained knowledge units, includ-
+ing core entities, concepts, and their relations. By
+analyzing the KG topology together with struc-
+tural signals from the OG, DualGraph generates
+targeted search queries, enabling more efficient
+and comprehensive iterative knowledge-driven ex-
+ploration and refinement. Across four established
+OEDR benchmarks, DualGraph consistently out-
+performs state-of-the-art baselines in report depth,
+breadth, and factual grounding; for example, it
+reaches a 53.08 RACE score on DeepResearch
+Bench with GPT-5. Moreover, ablation studies
+confirm the central role of the dual-graph design.
+*Equal contribution †Corresponding authors. ‡Work
+done during an internship at Microsoft. 1Microsoft 2Institute
+of Neuroscience, Center for Excellence in Brain Science
+and Intelligence Technology, Chinese Academy of Sci-
+ences 3School of Computer Science and Engineering,
+South China University of Technology. Correspondence
+to: Fangkai Yang <fangkaiyang@microsoft.com>, Jue Zhang
+<juezhang@microsoft.com>.
+Preprint. June 23, 2026.
+1. Introduction
+The rapid evolution of Large Language Models (LLMs)
+has expanded their real-world applications beyond short-
+form question answering toward Open-Ended Deep Re-
+search (OEDR) (Zhang et al., 2025; Li et al., 2026b), which
+typically requires agents to navigate vast, heterogeneous
+information spaces to synthesize comprehensive reports on
+complex topics. Recent benchmarks, such as DeepResearch
+Bench (Du et al., 2025), DeepResearch Bench II (Li et al.,
+2026a), DeepResearchGym (Coelho et al., 2025), and Deep-
+Consult (youdotcom-oss, 2025), underscore the difficulty of
+OEDR tasks, revealing that even frontier models struggle to
+systematically explore information spaces, identify missing
+or under-researched knowledge and relations, and maintain
+factual grounding over long-horizon research workflows.
+Current approaches to OEDR predominantly fall into two
+paradigms. The first, linear accumulation (Han et al., 2025;
+LangChain; Felovic), employs a “search-then-generate”
+strategy (Li et al., 2025b; Jin et al., 2025) that aggregates
+documents into a long context window for single-pass syn-
+thesis. Although simple, this approach often suffers from
+“lost-in-the-middle” phenomena (Wang et al., 2024) as the
+volume of evidence grows (Qiao et al., 2025). The second,
+more sophisticated paradigm involves outline-centric agents,
+exemplified by systems like STORM (Shao et al., 2024),
+WebWeaver (Li et al., 2026b), and DeepScholar (Patel et al.,
+2025). These systems generate a hierarchical outline-like
+memory to guide iterative search and evidence collection
+for structuring the final report. While outlining improves
+structural coherence, it is often treated as a proxy for the
+agent’s epistemic state, forcing the LLM to infer missing
+knowledge from sparse section headers, and it could fail
+to trigger the in-depth and cross-section searches for com-
+pleteness, and does not explicitly identify which concepts or
+relations remain unexplored. Moreover, shared knowledge
+is easily duplicated or scattered across multiple outline sec-
+tions, making it difficult to maintain a single source of truth
+for contradiction detection, global updates, and reasoning
+across various sections. For example, a technical concept
+like “attention mechanism” may be foundational to both
+the background and methodology sections. This motivates
+1
+arXiv:2602.13830v2  [cs.IR]  22 Jun 2026
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+What are the investment 
+philosophies of Yongping 
+Duan, Warren Buffett, and 
+Charlie Munger? 
+User Query
+1. Duan’s philosophy
+2.1 Focus on opportunity cost
+4.1 Common principles
+4.2 Divergences
+4. Comparative analysis
+3.1 Focus on opportunity cost
+Shared Outline Graph (after 1st search)
+3. Munger’s philosophy
+2. Buffett’s philosophy
+2.1 Focus on opportunity cost
+4.1 Common principles
+4.2 Divergences
+4. Comparative analysis
+3.1 Focus on opportunity cost
+Outline Graph
+3. Munger’s philosophy
+2. Buffett’s philosophy
+1.1 Simplicity / “Do Not Do” list 
+1.2 Risk control
+1. Duan’s philosophy
+Search Query
+“Yongping Duan ‘Do Not Do’ list circle 
+of competence”
+“Yongping Duan risk management 
+cash reserves avoid speculation”
+2.1 Focus on opportunity cost
+4.1 Common principles
+4.2 Divergences
+4. Comparative analysis
+3.1 Focus on opportunity cost
+Outline Graph
+3. Munger’s philosophy
+2. Buffett’s philosophy
+1.1 Focus on opportunity cost
+1. Duan’s philosophy
+Search Query
+“Does Yongping Duan use opportunity 
+cost as an investment filter?”
+4.1.1 Opportunity cost as 
+a shared decision filter
+Knowledge Graph
+opportunity
+cost
+Buffett
+focus
+on ?
+Munger
+Duanfocus
+on
+DualGraph (Ours) Outline-Centric
+Figure 1.Motivating example contrasting DualGraph (left) and
+outline-centric (right) approaches. Starting from the shared outline
+graph, the outline-centric baseline continues to elaborateDuan’s
+philosophygenerally, fails to explore whetherDuanemphasizesop-
+portunity cost, resulting in an incomplete comparison. In contrast,
+DualGraph exposes the missingDuan–opportunity costrelation in
+the Knowledge Graph and triggers a targeted in-depth query for a
+more comprehensive analysis.
+another representation of underlying knowledge beyond the
+outline representation that can be referenced across outline
+sections while remaining uniquely stored.
+To address these bottlenecks, we introduceDualGraph, a
+dual-graph memory architecture that separates knowledge
+exploration from outline structure. As illustrated in Fig-
+ure 1, our system maintains two co-evolving structures: (a)
+The Outline Graph (OG): A hierarchical tree representing
+the sparse presentation layer (sections and subsections),
+optimized for narrative flow and readability, representing
+howthe deep research agent writes the final report. (b)
+The Knowledge Graph (KG): A semantic graph serving as
+the dense and unified representation of knowledge, storing
+atomic knowledge units (core entities, concepts) uniquely,
+preventing duplication even if referenced by multiple outline
+sections. It representswhatthe agent knows.
+Crucially, the KG is not only a memory structure, but also
+an explicit epistemic state that enables the agent to reason
+about knowledge coverage, gaps, disconnected claims, and
+missing relations by topological analysis. Together, the
+OG and KG form a joint exploration controller: the KG
+reveals missing or underexplored relations, while the OG
+provides structural context to prioritize and guide search,
+jointly generating targeted queries to resolve these gaps.
+Importantly, the OG and KG are co-evolved over iterative
+research rounds, with new evidence continuously reshaping
+both the report structure and the underlying epistemic state.
+Empirically, we find that DualGraph leads to substantially
+more effective exploration and grounding across diverse re-
+search domains. On DeepResearch Bench (Du et al., 2025),
+DeepResearch Bench II (Li et al., 2026a), DeepResearch-
+Gym (Coelho et al., 2025), and DeepConsult (youdotcom-
+oss, 2025), DualGraph consistently outperforms state-of-the-
+art baselines in terms of report depth, breadth, and factual
+grounding, i.e., reaching 53.08 RACE on DeepResearch
+Bench with GPT-5, 41.48 Total on DeepResearch Bench
+II, and achieving 94.31 average on DeepResearchGym and
+6.42 on DeepConsult with GPT-4.1, while converging in
+fewer research iterations. Ablation studies further show that
+the explicit use of KG to guide search leads to more efficient
+exploration and higher-quality research results, confirming
+that DualGraph is critical for effective long-horizon deep
+research. Our contributions are as follows:
+• We propose the DualGraph memory framework, which
+separates knowledge representation from report struc-
+ture, enabling agents to maintain a semantic knowledge
+graph distinct from the report outline.
+• We introduce a graph-driven exploration mechanism,
+where search queries are derived from knowledge
+graph topology (e.g., missing links, under-supported
+nodes), allowing agents to systematically identify
+knowledge gaps and guide exploration.
+• We demonstrate via experiments on four OEDR bench-
+marks that DualGraph leads to improved exploration
+in deep research iterations and the final reports quality.
+2. Related Works
+2.1. Open-Ended Deep Research Agent
+A large line of web research agents (Huang et al., 2025)
+targets complex but relatively short question answering:
+they interleave search and navigation with reasoning and
+return a bounded answer, often optimized around QA-
+style benchmarks (Team et al., 2025; Zhang et al., 2026;
+Qiao et al., 2025; Li et al., 2025a; Tao et al., 2026; Li
+et al., 2025c; Wu et al., 2025). These systems empha-
+size finding the right evidence and producing a correct
+answer, rather than constructing a coherent multi-section
+report (Wei et al., 2025). In contrast, open-ended deep
+research (OEDR) asks for analyst-style, long-form, citation-
+2
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+rich reports, evaluated by report quality and citation ac-
+curacy on benchmarks such as DeepResearch Bench (Du
+et al., 2025), DeepResearchGym (Coelho et al., 2025), and
+DeepConsult (youdotcom-oss, 2025). Recent proprietary
+products show strong OEDR capability (e.g., OpenAI Deep
+Research (OpenAI, 2025), Gemini Deep Research (Google,
+2025), and Claude Research (Anthropic, 2025)). Mean-
+while, open-source efforts span two paradigms: (i) “search-
+then-generate” pipelines (Han et al., 2025; LangChain;
+Felovic; Team et al., 2025) that gather many documents
+and draft a report in one pass, but this static structure can
+harm coherence and factual grounding (Li et al., 2026b).
+(ii) outline-centric systems (Shao et al., 2024) that draft an
+outline or framework and iteratively refine it with retrieved
+content before final report generation (Xiong et al., 2025;
+Li et al., 2026b). In contrast, our dual-graph approach co-
+evolves an outline graph and a knowledge graph, making it
+easy to identify knowledge gaps, missing bridges, and con-
+tradictions, and to turn them into targeted follow-up search
+queries.
+2.2. Graph-Based Memory for Deep Research
+Long-horizon agents depend on memory mechanisms
+to store, organize, and retrieve knowledge across ex-
+tended trajectories, such as MemGPT (Packer et al., 2023),
+Mem0 (Chhikara et al., 2025), and A-MEM (Xu et al., 2025).
+In parallel, graph-augmented retrieval (e.g., GraphRAG-
+style methods (Edge et al., 2024; Jimenez Gutierrez et al.,
+2024; Zhu et al., 2025)) uses graphs to improve query-
+focused synthesis over corpora. However, much of this
+memory work is motivated by multi-session conversation,
+personalization, or general long-context limits. For OEDR,
+what’s often missing is a memory design tailored to iterative
+knowledge acquisition, i.e., memory that does not merely
+“store evidence”, but actively helps the agent decide what is
+missing, and what connections should be investigated next.
+Even in strong OEDR systems (Li et al., 2026b), memory
+is often a passive evidence store rather than an active repre-
+sentation that shapes exploration. Our dual-graph approach
+instead uses a knowledge-graph–centric memory to encode
+knowledge units and relations, so gap signals, e.g., weak
+support, missing links, contradictions, can directly drive
+follow-up queries and outline updates, making exploration
+knowledge-driven rather than outline-driven. Appendix A.4
+further discusses the distinction from graph-based retrieval
+agents.
+3. Methodology
+3.1. Preliminary
+Outline Graph (OG).OG captures the evolving report or-
+ganization as a hierarchical tree of sections and subsections,
+where each node contains a brief semantic description (see
+Figure 1 for examples). Unlike static planning, OG is itera-
+tively refined as new evidence is retrieved, allowing sections
+to be expanded, restructured, or re-scoped. Each section
+node is associated with a set of grounded citations Ci (evi-
+dence IDs) that link OG directly to entries in the evidence
+bank, where the collected evidence is stored.
+Knowledge Graph (KG).We maintain a global, iteration-
+accumulated representation of knowledge as an edge-
+grounded graph KG= (V, E). The node set V includes
+(i)Core-Entitynodes for primary subjects in the user query
+(e.g.,Duan,Buffett,Munger) as well as newly explored sub-
+jects, and (ii)Conceptnodes for salient principles, attributes,
+or themes discussed across sources (e.g.,opportunity cost).
+Each edge e= (u, v, r;{Ci})∈E links nodes u and v with
+a relation r (directed when appropriate) and is grounded by a
+set of evidence IDs Ci that point to the supporting evidence
+units in the evidence bank. This design stores shared knowl-
+edge once and makes it easier to reason about coverage and
+missing relations for downstream exploration.
+OEDR Workflow.Open-Ended Deep Research (OEDR)
+takes a user query and produces a structured long-form re-
+port grounded in external evidence. We follow an iterative
+retrieval-and-writing workflow. Given the query, the agent
+first generates an initial OG (without citations), and uses
+this OG to propose a first round of search queries, which
+are issued to a search engine to retrieve relevant documents.
+The retrieved content is processed into an evidence bank of
+citable evidence units with unique IDs. After this initializa-
+tion round, outline-centric methods update the OG using the
+collected evidence and generate the next-round queries from
+the updated OG alone. In contrast, DualGraph additionally
+constructs a KG from the evidence and co-updates both
+OG and KG, and subsequent search queries are inferred by
+jointly leveraging OG for structural context and KG for rea-
+soning about coverage and missing relations. After several
+iterations, the agent writes the report in a section-by-section
+manner by retrieving the cited evidence units from the evi-
+dence bank and synthesizing each section from them.
+3.2. Overview of DualGraph
+Figure 2 provides an overview of DualGraph. 1 Given a
+user query, the agent initializes an OGw/ocitations using
+internal knowledge, derives an initial set of search queries,
+and issues them to a search engine. Then the retrieved
+documents are processed into an evidence bank of citable
+evidence units. 2 Using this initial evidence, the agent up-
+dates the OG by refining the outline and attaching grounded
+citations (evidence IDs). In parallel, 3 it extracts atomic
+knowledge units and relations from the evidence to con-
+struct an initial KG or update KG in later iterations. 4
+DualGraph then performs a KG-driven gap discovery, iden-
+tifying weakly supported or missing relations to form search
+3
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+User Query
+LLM
+Search Results
+Search Queries
+LLM
+Evidence Bank
+1. Section
+2.1 Subsection
+2. Section
+Outline Graph (w/o citation)
+1. Section
+2.1 Subsection
+2. Section [1]
+Outline Graph
+2.2 Subsection [2] 
+3. Section [3,4]
+Knowledge Graph
+[1]
+[2,3]
+[?]
+?
+Explore
+[?]
+Enrich
+Knowledge Graph
+[1]
+[2,3]
+1
+2
+3
+4
+LLM
+Search Chain
+5
+Final Report
+Termination
+Evaluation
+6
+Figure 2.Overview of our DualGraph framework. 1 shows the OG initialization, 2 - 5 shows the co-evolving iteration of KG and OG,
+and 6 shows the report finalization after the iteration termination.
+chains forenrichmentandexploration. 5 These search
+chains, together with the OG’s structural context, are con-
+verted into the next-round search queries. The newly re-
+trieved evidence is used to co-update both OG and KG,
+repeating the iteration until an early-termination criterion
+is met or a maximum number of rounds is reached. 6 Du-
+alGraph writes the report section by section following the
+finalized OG, retrieving only the evidence units referenced
+by each section’s citations from the evidence bank. Algo-
+rithmic details are given in Appendix B.3, and Appendix H
+provides a qualitative case trajectory illustrating the iterative
+workflow. Similar to the OEDR workflow in Section 3.1,
+1 initializes the OG following traditional outline-centric
+methods. In the following sections, we detail the KG–OG
+co-evolving iterations ( 2 – 5 ) and the section-wise report
+finalization stage ( 6 ).
+3.3. Co-Evolution of Outline and Knowledge Graph
+Unlike outline-centric methods, DualGraph maintains both
+an OG and a KG throughout the OEDR workflow. OG cap-
+tures the evolving report organization (i.e., how the agent
+structures and writes the report), while KG maintains the
+underlying knowledge state (i.e., what the agent has learned
+so far and how facts are connected). KG-driven search
+chain generation explicitly identifies missing or weakly sup-
+ported relations that should be explored or enriched. The
+OG provides complementary structural context to broaden
+coverage in the KG-driven search chains. The resulting
+search queries retrieve new evidence, which is then used
+to jointly update both KG and OG, forming a closed-loop
+co-evolution process.
+2 Outline Graph Update and Citation Maintenance.
+Given new search results, we extract a concise evidence unit
+from each result using an LLM. Rather than summarizing
+the entire webpage, we condition extraction on the origi-
+nating search query to retain only query-relevant evidence
+(see the pipeline in Appendix B.1). The newly acquired
+evidence is then used to revise the current OG in two ways.
+First, the agent updates the outline structure by adding new
+sections/subsections, revising existing ones, and removing
+redundant items, since newly discovered evidence may intro-
+duce missing aspects or correct unsupported outline content.
+Second, the agent grounds OG sections with citation sets Ci
+by attaching evidence IDs that support each section.
+Crucially, DualGraph enforces citation persistence during
+this process. When sections are restructured, expanded, or
+modified, their existing citations are preserved and consis-
+tently propagated. This constraint keeps outline evolution
+synchronized with accumulated evidence, preventing cita-
+tion loss and maintaining traceability across iterations.
+3 Knowledge Graph Update and Citation Maintenance.
+On the knowledge side, DualGraph expands and refines
+KG by incorporating newly extracted evidence from search
+results. Given a batch of extracted evidence units, KG
+is updated in four steps. (1) Knowledge node and relation
+extraction: conditioned on the root user query and the issued
+search queries, we use an LLM to extract entities, concepts,
+and relations, and insert the corresponding nodes and edges
+into KG (see the prompt in Appendix I.5). The citations are
+associated with the newly added or updated edges in KG.
+(2) Semantic merging and canonicalization: semantically
+equivalent or highly overlapping nodes are merged into a
+4
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+canonical node, with edges and evidence IDs redirected
+accordingly. (3) Semantic clustering: nodes are grouped
+into semantically coherent clusters based on embedding
+similarity and annotated with cluster IDs to provide higher-
+level semantic context. (4) Community detection: to capture
+topological groupings beyond embedding similarity, we
+apply Leiden community detection (Traag et al., 2019; Edge
+et al., 2024) to partition the KG into densely connected
+communities, where nodes are assigned community IDs that
+reflect the evolving topology.
+4 KG-Driven Knowledge Gap Discovery.At each itera-
+tion, DualGraph analyzes the current KG to propose targeted
+search queries. Specifically, it inspects the KG’s semantic
+and topological structure together with evidence coverage,
+and constructs a set of search chains that serve as interme-
+diate cues for search query generation. Each search chain
+serves as a structured candidate for query generation and
+falls into one of two categories; the LLM then filters and
+selects appropriate chains (see Appendix C).
+Evidence Enrichment (Enrich).For relations already present
+in the KG, DualGraph selects edges with weak evidence
+support as enrichment targets. Candidates are ranked using
+both node-level importance (e.g., whether the edge involves
+core entities) and expected structural impact (e.g., edges that
+connect different communities are prioritized), so the agent
+can strengthen evidence support for critical relations with
+minimal additional retrieval (see Appendix C.1 for details).
+This enrichment improves traceability and reduces the risk
+of weak grounding during report writing.
+Knowledge Discovery (Explore).For relations that are not
+yet explicitly established in the current KG but are poten-
+tially important for completing the overall research land-
+scape, DualGraph constructs exploratory chains to drive
+knowledge gap discovery. It combines multiple comple-
+mentary and graph-internal signals to identify promising
+relations (see Appendix C.2 for details), including: (1) se-
+mantic similarity for candidate links between core entities
+and concept nodes; (2) community-level global gap statis-
+tics, where a stochastic block model (SBM) (Abbe, 2018)
+is used to estimate the prior probability and uncertainty of
+cross-community links; (3) cross-community bridging and
+structural-hole cues (Burt, 2004) to uncover connections
+that may facilitate cross-topic knowledge integration. By
+jointly considering these signals, these signals balance high-
+confidence completion with high-value exploration, helping
+the agent systematically reduce structural gaps in the KG.
+5 Search Query Generation.Given the OG and the search
+chains derived from the updated KG, we use an LLM to
+generate concrete search queries (see the prompt in Ap-
+pendix I.3). In addition, we generate supplementary queries
+from the updated OG. Although many OG sections may
+still lack grounded citations, they capture planned aspects
+that remain under-explored and are therefore valuable for
+retrieval. Since KG-driven search chains are largely related
+to already grounded nodes and relations (extracted from
+existing evidence), they can miss parts of the query space
+that have not yet been incorporated into KG. We therefore
+provide both the KG-derived search chains and the updated
+OG to LLM to produce a merged set of queries with broader
+coverage.
+3.4. Report Generation
+Self-Termination with OG.The co-evolving loop contin-
+ues until a termination evaluator judges that further retrieval
+is unlikely to add meaningful information. Following (Li
+et al., 2026b), it scores the current OG along several dimen-
+sions (see the Appendix B.2):instruction following(how
+well the outline matches the user request),depth(level of
+detail and analysis),breadth(coverage of distinct relevant
+aspects),balance(fairness and objectivity),support(quality
+of the evidence plan and citations), andinsightfulness(use-
+fulness and non-obvious takeaways). The iteration stops
+when all scores exceed predefined thresholds, avoiding re-
+dundant searching.
+6 Report Writing.Once self-terminated, the writer gen-
+erates the report section by section. For each OG section,
+the system uses its grounded citation set Ci to retrieve the
+corresponding evidence units from the evidence bank, and
+synthesizes the section content.
+4. Experiments
+4.1. Experimental Setup
+Benchmarks.To comprehensively assess the capabilities
+of Deep Research systems in addressing OEDR problems,
+we adopt four publicly available benchmark datasets. More
+details are provided in Appendix A.
+DeepResearch Bench(Du et al., 2025) contains 100 highly
+challenging research tasks designed at the PhD level. These
+tasks are curated by subject-matter experts and span 22
+diverse domains, including science and technology, finance
+and business, software engineering, and art and design.
+DeepResearch Bench II(Li et al., 2026a) improves upon
+the original benchmark in two key aspects: (1) it replaces
+the FACT metric with InfoRecall for evaluating informa-
+tion retrieval capability, providing a more direct measure of
+evidence coverage; and (2) it adopts fine-grained, fully veri-
+fiable rubrics that do not rely on the judge model’s internal
+domain knowledge, ensuring more objective evaluation.
+DeepConsult(youdotcom-oss, 2025) focuses on in-depth
+research scenarios in business and consulting contexts. It
+consists of domain-specific queries covering a broad spec-
+trum of topics such as market analysis, financial modeling,
+5
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+strategic planning, and emerging technological trends.
+DeepResearchGym(Coelho et al., 2025) is employed to
+evaluate system performance on realistic and complex
+information-seeking tasks. It includes 100 queries sam-
+pled from the Researchy Questions dataset (Rosset et al.,
+2024), which comprises approximately 96,000 real-world
+research questions collected from diverse sources.
+Metrics.For each benchmark, we follow the official eval-
+uation protocols and employ the recommended LLMs as
+judges (Liu et al., 2024) to evaluate system performance. A
+human evaluation study validating the reliability of LLM-
+as-a-Judge is provided in Appendix G.
+DeepResearch Bench.This benchmark evaluates system
+outputs using two complementary metric groups that target
+different dimensions of research quality: (1)RACE (Report
+Quality)measures the overall quality of the generated report
+by comparing it against a reference report along four aspects:
+comprehensiveness (Comp.), depth and insight (Insight), ad-
+herence to instructions (Inst.), and readability (Read.). The
+final RACE score is computed as a weighted aggregation of
+these components. (2)FACT (Web Retrieval)focuses on the
+effectiveness and reliability of the information retrieval pro-
+cess, including citation accuracy (C.acc.) and the average
+number of effective citations per task (Eff.c.).
+DeepResearch Bench II.This benchmark evaluates reports
+along three dimensions: InfoRecall (whether the report accu-
+rately and comprehensively retrieves relevant facts and evi-
+dence), Analysis (whether the report forms higher-level con-
+clusions from retrieved evidence), and Presentation (overall
+writing quality).
+DeepConsult.Evaluation on DeepConsult is conducted
+through pairwise comparisons against the reports generated
+byopenai-deepsearch(OpenAI, 2025) baseline. Model
+performance is primarily quantified using win, tie, and loss
+rates, which are further complemented by a reported average
+quality score.
+DeepResearchGym.For DeepResearchGym, an LLM judge
+assesses each generated report across multiple qualitative
+dimensions, including clarity, insightfulness, depth, balance,
+breadth, and evidential support. An overall average quality
+score is computed based on these evaluations.
+Baselines.We assess the performance of DualGraph by
+comparing it with a diverse set of representative Deep Re-
+search systems. Following common practice, the methods
+are grouped into open-source and proprietary systems.
+Open-Source Systems.For open-source baselines, we
+considerLangChain-DeepResearch (LangChain) as
+a modular orchestration framework for deep research
+pipelines, as well as recent open-weight LLMs from the
+Qwen (QwenLM, 2026) and Tongyi (Team et al., 2025) fam-
+ilies that support multi-step reasoning and tool-augmented
+research workflows. We also include WebShaper (Tao et al.,
+2026), which formalizes information-seeking tasks via set-
+theoretic knowledge projections to synthesize high-quality
+training data for web-based agents, and WebWeaver (Li
+et al., 2026b), an outline-centric deep research that itera-
+tively refines a dynamic outline while acquiring evidence.
+Proprietary Systems.We evaluate our method against
+several state-of-the-art commercial Deep Research
+systems, including Claude-research (Anthropic,
+2025), OpenAI DeepResearch (OpenAI, 2025), and
+Gemini-2.5-pro-deepresearch(Google, 2025).
+Implementation Details.We conduct experiments us-
+ing two backend LLMs to ensure robustness across differ-
+ent model configurations, namelygpt-4.1-20250414
+andgpt-5-chat-20250807. Web search is performed
+via the Bing Search API v7 (Microsoft, 2026), and
+URL visiting and page parsing are handled using the
+Crawl4AI (UncleCode, 2024). We set the maximum num-
+ber of optimization rounds to MAX ITER=5. More imple-
+mentation details are provided in Appendix B.
+4.2. Main Results
+Results on DeepResearch Bench.To align the LLM
+judge versions, we obtain the reports of proprietary sys-
+tems from DeepResearch Bench and re-evaluate them using
+the same judge model. As shown in Table 1, DualGraph
+is consistently strong across backbones and competitive
+with leading proprietary systems: (1) With GPT-5, Dual-
+Graph achieves the best overall RACE of 53.08, compa-
+rable to Gemini-2.5-Pro-DeepResearch at 52.54. (2) Scal-
+ing the backbone from GPT-4.1 to GPT-5 yields consistent
+gains: RACE increases from 51.50 to 53.08 (+1.58) for
+DualGraph, and from 49.18 to 51.17 (+1.99) for the w/o
+KG variant. (3) Adding KG improves report quality be-
+yond overall: with GPT-5 it raises comprehensiveness from
+51.69 to 53.78 (+2.09) and Insight from 51.79 to 54.30
+(+2.51), while instruction-following or readability change
+modestly, suggesting KG mainly helps surface missing as-
+pects and deepen analysis rather than formatting. (4) KG
+also substantially increases evidence coverage: with GPT-5,
+effective citations rises from 66.06 to 79.65 (+13.59), indi-
+cating more effective incorporation of supporting evidence
+via gap-driven exploration.
+Introducing KG slightly reduces citation accuracy (C.acc.)
+but substantially increases effective citations (Eff. C.). Con-
+cretely, with GPT-5, C.acc. drops from 61.15 to 57.55
+(−3.60) while Eff. C. rises from 66.06 to 79.65 (+13.59);
+with GPT-4.1, C.acc. decreases from 59.96 to 56.23 (−3.73)
+but Eff. C. increases from 62.96 to 76.33 (+13.37). We
+6
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+Table 1.DeepResearch Bench results across RACE and FACT.
+Higher is better. Missing results are denoted by “–”. Abbrevi-
+ations: DR = DeepResearch; Res. = Research; RA = Research
+Assistant; KG = Knowledge Graph; Comp. = Comprehensiveness;
+Inst. = Instruction-following; Read. = Readability; Eff.c. = Effec-
+tive citations; C.acc. = Citation accuracy. Note that LangChain-
+DeepResearch / Qwen-Agent / Tongyi-DeepResearch / Web-
+Weaver results are using GPT-4.1 as the backbone LLM unless oth-
+erwise specified. WebShaper uses the Alibaba-NLP/WebShaper-
+32B model.
+Agent Systems RACE FACT
+Overall Comp. Insight Inst. Read. C. acc. Eff. c.
+Claude-3.5 (Search) 34.32 33.43 32.37 36.98 36.34 93.80 8.96Claude-3.7 (Search) 41.56 41.42 39.99 43.80 42.02 87.32 24.51Doubao-DR 46.62 47.67 45.21 48.16 45.07 51.87 35.12Gemini-2.5-Pro (DR)52.54 52.65 53.20 51.82 51.83 72.11 53.38GPT-4.1 43.08 42.85 41.96 44.62 43.77 85.75 3.84GPT-4.1-mini 34.21 33.36 30.52 38.18 37.64 82.63 4.08Grok (Deep Search) 41.01 40.55 38.82 43.56 42.83 68.47 7.28Kimi (Res.) 46.50 47.06 45.67 47.53 45.47 20.80 2.30NVIDIA AIQ (RA) 42.48 42.01 41.81 43.80 43.01 46.01 4.41OpenAI-DR 46.68 47.27 45.55 48.00 45.93 73.18 31.70Perplexity (Res.) 42.44 42.36 40.85 44.41 43.11 76.03 21.69Sonar 37.29 36.26 34.51 40.46 40.61 69.59 8.11Sonar-Pro 40.31 39.76 38.35 42.68 42.02 76.64 13.06Sonar-Reason 40.53 39.73 38.87 42.79 42.26 51.19 11.60Sonar-Reason-Pro 40.74 40.00 39.06 43.14 42.30 37.31 6.72
+LangChain-DR 42.92 41.95 44.63 43.75 43.08 59.83 61.29Qwen-Agent 40.95 39.19 43.65 42.88 41.27 52.23 8.39Tongyi-DR 40.62 38.63 43.92 42.58 41.03 – –WebWeaver 45.20 45.53 44.08 46.39 45.36 40.50 48.59WebShaper 40.28 39.58 38.21 42.71 42.42 39.23 4.43
+DualGraph w/o KG
+(GPT-4.1) 49.18 50.13 48.41 50.06 47.35 59.96 62.96
+DualGraph w/o KG
+(GPT-5) 51.17 51.69 51.79 51.16 48.75 61.15 66.06
+DualGraph
+(GPT-4.1) 51.50 52.07 52.00 51.41 49.30 56.23 76.33
+DualGraph (GPT-5)53.08 53.78 54.30 52.48 49.81 57.55 79.65
+attribute this C.acc. pattern primarily to the per-citation
+evaluation protocol of FACT: C.acc checks whether each
+citationindependentlysupports its claim, which systemati-
+cally underestimates accuracy when a claim is synthesized
+from multiple sources (see Appendix A.2 for a detailed
+analysis and joint-evaluation experiment confirming this).
+Results on DeepResearchGym and DeepConsult.Ta-
+ble 2 further demonstrates the versatility and robustness of
+DualGraph across diverse research scenarios. OnDeepRe-
+searchGym, DualGraph (GPT-4.1) achieves the best overall
+performance among all open-source systems and the major-
+ity of proprietary systems, reaching an Avg. score of 94.31.
+It exhibits near-saturated performance on coverage-related
+criteria (e.g., Depth and Breadth), while also maintaining
+strong results on evidence- and insight-oriented dimensions.
+Compared with the w/o-KG variant, introducing the iter-
+atively constructed KG leads to consistent improvements
+across all reported metrics.
+On theDeepConsultbenchmark, DualGraph (GPT-4.1) fur-
+ther demonstrates strong practical effectiveness, achieving a
+win rate of 64.42% and outperforming its w/o-KG counter-
+part. These results indicate that explicit knowledge structur-
+ing helps the agent maintain comprehensive coverage and
+produce better-supported, higher-quality syntheses.
+Results on DeepResearch Bench II.As shown in Table 3,
+DualGraph achieves a Total score of 41.48. Moreover, Dual-
+Graph consistently outperforms DualGraph w/o KG across
+all metrics, particularly on InfoRecall (34.21 vs. 32.18) and
+Analysis (52.45 vs. 50.73), confirming that the KG compo-
+nent strengthens both information retrieval and analytical
+reasoning. This improvement on InfoRecall supports our
+analysis in Appendix A.2: the more targeted InfoRecall met-
+ric reveals that KG-driven exploration genuinely enhances
+the breadth and relevance of retrieved information.
+4.3. Ablation Study
+Analysis of iteration rounds.On the DeepResearch
+Bench, we report the number of refinement iterations until
+termination. Table 4 indicates that DualGraph terminates
+in fewer refinement rounds than its counterpart without the
+knowledge graph (KG). Specifically, DualGraph achieves a
+lower mean termination iteration (3.23 vs. 3.88) and a sub-
+stantially higher fraction of early stops within two rounds,
+suggesting faster convergence. These results imply that KG
+grounding improves the efficiency of the iterative search
+process by guiding exploration toward more promising re-
+visions, thereby reducing redundant planning steps and the
+overall number of refinement cycles required to reach a
+satisfactory solution.
+Outline quality across optimization rounds.On the
+DeepResearch Bench, to more directly quantify the con-
+tribution of the KG during iterative planning, we examine
+intermediate outlines produced over five optimization iter-
+ations. Following the same LLM-as-a-judge protocol, we
+score each outline along four axes which are directly rele-
+vant to the knowledge quality and coverage:Insightfulness,
+Depth,Breadth, andSupport, where higher scores indicate
+better quality. As shown in Figure 4, both variants gen-
+erally improve with additional iterations, confirming the
+general effectiveness of iterative refinement. Notably, the
+KG-enabled variant exhibits consistently steeper gains and
+reaches higher final performance across all dimensions. The
+largest margin appears inSupport: KG guidance rapidly
+increases evidence- and citation-grounded content (reaching
+the mid-60s by Iter 3–4), whereas the outline-only baseline
+improves more slowly and remains in the low-to-mid 50s
+even by Iter 5. Persistent advantages are also observed in
+BreadthandDepth, where the KG variant approaches near-
+saturated breadth (approximately 99 by Iter 5) and stronger
+depth (approximately 90), while the baseline lags by several
+points. These trends suggest that KG guidance helps the
+planner surface missing relations and diversify subtopics ear-
+lier in the optimization trajectory, accelerating convergence
+to a high-quality research blueprint.
+7
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+Table 2.Performance on DeepConsult (win rate and average score) and DeepResearchGym (including Avg.). Higher is better. Column
+meanings: Cla. = Clarity; Bal. = Balance; Brea. = Breadth; Sup. = Support; Ins. = Insightfulness. Notes: LangChain-DeepResearch
+/ Qwen-Agent / Tongyi-DeepResearch / WebWeaver results use GPT-4.1. WebShaper uses the Alibaba-NLP/WebShaper-32B model.
+Results marked with * are taken from Li et al. (2026b).
+Agent Systems DeepResearchGym DeepConsult
+Cla. Depth Bal. Brea. Sup. Ins. Avg. Win Tie Lose Avg. Score
+Claude-Research* 86.67 96.88 84.41 96.56 26.77 90.22 80.25 25.00 38.89 36.11 4.60
+OpenAI-DeepResearch* 84.90 98.10 89.80 97.40 88.40 89.00 91.27 0.00 100.00 0.00 5.00
+Doubao-Research* 68.85 93.12 83.96 93.33 84.38 83.12 84.46 29.95 40.35 29.70 5.42
+Gemini-2.5-Pro-DeepResearch* 90.71 99.90 93.37 99.69 95.00 97.45 96.02 61.27 31.13 7.60 6.70
+LangChain-DeepResearch 85.20 93.30 90.50 96.90 85.90 85.90 89.62 14.46 44.60 40.90 4.26
+Qwen-Agent 64.70 82.40 82.70 81.00 64.70 60.40 72.65 4.41 4.41 91.17 1.99
+Tongyi-DeepResearch 77.50 72.70 83.10 86.40 16.80 62.50 66.50 13.48 10.54 75.98 2.63
+WebShaper 80.10 85.90 81.80 86.40 71.00 75.80 80.17 15.93 19.61 64.46 3.71
+WebWeaver 77.20 99.30 88.70 99.30 89.70 90.80 90.84 50.77 22.70 26.53 5.65
+DualGraph w/o KG (GPT-4.1) 87.11 99.95 92.16 99.95 89.66 93.24 93.68 57.61 28.26 14.13 6.24
+DualGraph (GPT-4.1) 88.14 99.99 92.37 99.98 91.86 93.52 94.31 64.42 23.08 12.50 6.42
+DualGraph (GPT-5) 90.73 99.98 93.80 99.96 97.20 97.48 96.52 67.27 16.24 16.49 6.84
+Table 3.Performance comparison on DeepResearch Bench II.
+Higher is better.
+Agent System Total InfoRecall Analysis Presentation
+Gemini2.5-Pro-DR 45.89 38.66 59.08 92.10
+Perplexity-Research 39.60 33.06 49.62 83.09
+Grok-DeepSearch 38.85 32.08 47.93 90.51
+WebWeaver 36.57 29.58 46.81 86.57
+WebShaper 27.88 21.80 28.68 87.05
+DualGraph w/o KG (GPT-4.1) 39.50 32.18 50.73 90.27
+DualGraph (GPT-4.1)41.48 34.21 52.45 90.65
+Table 4.Distribution of termination iterations across methods on
+DeepResearch Bench. Lower Avg. Iter indicates faster conver-
+gence.
+Method Iter 1 Iter 2 Iter 3 Iter 4 Iter 5 Avg. Iter
+DualGraph 1% 34% 25% 21% 19% 3.23
+DualGraph w/o KG 2% 11% 25% 21% 41% 3.88
+We further substantiate this finding by directly using an
+LLM as a judge to compare the quality of intermediate
+outlines produced by the two methods on DeepResearch
+Bench. Specifically, we conduct pairwise win-rate evalua-
+tions between KG-enhanced and OG-only outlines across
+iterations, as shown in Figure 5. The KG-enhanced outlines
+win 53.3% of cases at Iter 1, rising to 63.0% (Iter 2) and
+73.3% (Iter 3), and continuing to improve to 75.1% (Iter 4)
+and 76.2% (Iter 5). The sharp gains around Iter 2–3 align
+with the plateauing behavior in the score curves, suggesting
+that KG guidance reaches high-quality outlines in fewer it-
+erations and thereby motivates an early-stopping strategy to
+reduce computation cost without sacrificing outline quality.
+Fine-grained ablation study.On the DeepResearch
+Bench, to isolate the contribution of each component, we
+compare DualGraph against five variants with OG-based
+self-termination disabled for all: (1)w/o KGremoves
+the entire KG; (2)w/o Enrichdisables enrichment search
+chains; (3)w/o Exploredisables exploratory search chains;
+(4)only EntityRelationjust tracking entity-relation gaps;
+(5)by LightRAGreplaces our KG construction with Ligh-
+tRAG (Guo et al., 2025)’s retrieval-oriented implementation.
+As shown in Figure 3, DualGraph consistently outperforms
+all variants across iterations on both outline quality (left)
+and cumulative search query and evidence quality (right);
+more details see Appendix A.3. Removing either Enrich or
+Explore chains leads to degradation, confirming both chain
+types are indispensable. The only EntityRelation variant
+also underperforms, confirming that topological signals be-
+yond raw entity-relation gaps (community structure, SBM,
+structural holes) are essential. The LightRAG variant per-
+forms significantly worse, suggesting that retrieval-oriented
+KG construction (producing overly fine-grained triplets) is
+not suited for gap detection.
+5. Discussion and Limitations
+A primary limitation of DualGraph is the additional compu-
+tation and token overhead introduced by explicitly construct-
+ing and maintaining the KG during iterative research. Com-
+pared to the outline-only variant (DualGraph w/o KG), KG
+updates require extra LLM calls for knowledge extraction,
+relation refinement, and graph consolidation. However, our
+cost analysis in Appendix E indicates that this overhead is
+modest relative to the dominant Web Search/Crawl pipeline
+(LLM-based page reading and summarization), which ac-
+counts for the majority of end-to-end tokens. In particular,
+8
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000014/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000015/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000016/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000017/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000018
+/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000044/uni00000057/uni0000004c/uni00000052/uni00000051
+/uni0000001a/uni00000015
+/uni0000001a/uni00000017
+/uni0000001a/uni00000019
+/uni0000001a/uni0000001b
+/uni0000001b/uni00000013
+/uni0000001b/uni00000015
+/uni0000001b/uni00000017
+/uni0000001b/uni00000019
+/uni0000001b/uni0000001b
+/uni0000001c/uni00000013/uni00000036/uni00000046/uni00000052/uni00000055/uni00000048
+/uni0000001a/uni00000019/uni00000011/uni0000001a
+/uni0000001b/uni00000014/uni00000011/uni00000019
+/uni0000001b/uni00000018/uni00000011/uni00000019
+/uni0000001b/uni0000001a/uni00000011/uni00000019
+/uni0000001b/uni0000001b/uni00000011/uni00000019
+/uni0000001a/uni00000018/uni00000011/uni00000015
+/uni0000001a/uni0000001b/uni00000011/uni0000001c
+/uni0000001b/uni00000014/uni00000011/uni00000014
+/uni0000001b/uni00000015/uni00000011/uni0000001c
+/uni0000001b/uni00000017/uni00000011/uni00000016
+/uni0000001a/uni00000018/uni00000011/uni00000016
+/uni0000001a/uni0000001c/uni00000011/uni00000019
+/uni0000001b/uni00000015/uni00000011/uni00000017
+/uni0000001b/uni00000017/uni00000011/uni00000019
+/uni0000001b/uni00000018/uni00000011/uni00000019
+/uni0000001a/uni00000018/uni00000011/uni0000001c
+/uni0000001b/uni00000013/uni00000011/uni0000001b
+/uni0000001b/uni00000016/uni00000011/uni0000001b
+/uni0000001b/uni00000018/uni00000011/uni00000018
+/uni0000001b/uni00000019/uni00000011/uni0000001b
+/uni0000001a/uni00000018/uni00000011/uni00000017
+/uni0000001a/uni0000001c/uni00000011/uni00000015
+/uni0000001b/uni00000014/uni00000011/uni0000001a
+/uni0000001b/uni00000016/uni00000011/uni0000001a
+/uni0000001b/uni00000017/uni00000011/uni0000001b
+/uni0000001a/uni00000018/uni00000011/uni0000001a
+/uni0000001a/uni0000001b/uni00000011/uni0000001b
+/uni0000001b/uni00000014/uni00000011/uni00000016
+/uni0000001b/uni00000016/uni00000011/uni00000015
+/uni0000001b/uni00000017/uni00000011/uni00000018
+/uni00000032/uni00000058/uni00000057/uni0000004f/uni0000004c/uni00000051/uni00000048/uni00000003/uni00000034/uni00000058/uni00000044/uni0000004f/uni0000004c/uni00000057/uni0000005c/uni00000003/uni00000053/uni00000048/uni00000055/uni00000003/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000044/uni00000057/uni0000004c/uni00000052/uni00000051
+/uni00000027/uni00000058/uni00000044/uni0000004f/uni0000002a/uni00000055/uni00000044/uni00000053/uni0000004b/uni00000003/uni0000000b/uni00000032/uni00000058/uni00000055/uni00000056/uni0000000c/uni0000005a/uni00000012/uni00000052/uni00000003/uni0000002e/uni0000002a/uni0000005a/uni00000012/uni00000052/uni00000003/uni00000028/uni00000051/uni00000055/uni0000004c/uni00000046/uni0000004b/uni0000005a/uni00000012/uni00000052/uni00000003/uni00000028/uni0000005b/uni00000053/uni0000004f/uni00000052/uni00000055/uni00000048/uni00000052/uni00000051/uni0000004f/uni0000005c/uni00000003/uni00000028/uni00000051/uni00000057/uni0000004c/uni00000057/uni0000005c/uni00000035/uni00000048/uni0000004f/uni00000044/uni00000057/uni0000004c/uni00000052/uni00000051/uni00000045/uni0000005c/uni00000003/uni0000002f/uni0000004c/uni0000004a/uni0000004b/uni00000057/uni00000035/uni00000024/uni0000002a
+/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000014/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000015/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000016/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000017/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000003/uni00000018
+/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000044/uni00000057/uni0000004c/uni00000052/uni00000051
+/uni00000019/uni00000013
+/uni00000019/uni00000015
+/uni00000019/uni00000017
+/uni00000019/uni00000019
+/uni00000019/uni0000001b
+/uni0000001a/uni00000013
+/uni0000001a/uni00000015
+/uni0000001a/uni00000017
+/uni0000001a/uni00000019/uni00000036/uni00000046/uni00000052/uni00000055/uni00000048/uni00000019/uni00000019/uni00000011/uni00000013
+/uni00000019/uni0000001c/uni00000011/uni0000001c
+/uni0000001a/uni00000015/uni00000011/uni00000019
+/uni0000001a/uni00000016/uni00000011/uni00000017
+/uni0000001a/uni00000017/uni00000011/uni00000017
+/uni00000019/uni00000015/uni00000011/uni00000017
+/uni00000019/uni00000018/uni00000011/uni00000013
+/uni00000019/uni0000001a/uni00000011/uni0000001b
+/uni00000019/uni0000001c/uni00000011/uni00000018/uni0000001a/uni00000013/uni00000011/uni00000013
+/uni00000019/uni00000017/uni00000011/uni00000013
+/uni00000019/uni0000001a/uni00000011/uni00000017
+/uni0000001a/uni00000013/uni00000011/uni00000017
+/uni0000001a/uni00000014/uni00000011/uni00000016/uni0000001a/uni00000014/uni00000011/uni0000001a
+/uni00000019/uni00000017/uni00000011/uni0000001b
+/uni00000019/uni0000001b/uni00000011/uni00000016
+/uni0000001a/uni00000014/uni00000011/uni00000015
+/uni0000001a/uni00000015/uni00000011/uni00000016
+/uni0000001a/uni00000016/uni00000011/uni00000014
+/uni00000019/uni00000016/uni00000011/uni00000019
+/uni00000019/uni0000001a/uni00000011/uni00000013
+/uni00000019/uni0000001c/uni00000011/uni00000019
+/uni0000001a/uni00000013/uni00000011/uni0000001c/uni0000001a/uni00000014/uni00000011/uni00000016
+/uni00000019/uni00000017/uni00000011/uni00000016
+/uni00000019/uni00000019/uni00000011/uni00000014
+/uni00000019/uni0000001b/uni00000011/uni00000019
+/uni0000001a/uni00000013/uni00000011/uni00000015/uni0000001a/uni00000013/uni00000011/uni0000001b
+/uni00000026/uni00000058/uni00000050/uni00000058/uni0000004f/uni00000044/uni00000057/uni0000004c/uni00000059/uni00000048/uni00000003/uni00000036/uni00000048/uni00000044/uni00000055/uni00000046/uni0000004b/uni00000003/uni00000034/uni00000058/uni00000048/uni00000055/uni0000005c/uni00000003/uni00000009/uni00000003/uni00000028/uni00000059/uni0000004c/uni00000047/uni00000048/uni00000051/uni00000046/uni00000048/uni00000003/uni00000034/uni00000058/uni00000044/uni0000004f/uni0000004c/uni00000057/uni0000005c/uni00000003/uni00000053/uni00000048/uni00000055/uni00000003/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000044/uni00000057/uni0000004c/uni00000052/uni00000051
+/uni00000027/uni00000058/uni00000044/uni0000004f/uni0000002a/uni00000055/uni00000044/uni00000053/uni0000004b/uni00000003/uni0000000b/uni00000032/uni00000058/uni00000055/uni00000056/uni0000000c/uni0000005a/uni00000012/uni00000052/uni00000003/uni0000002e/uni0000002a/uni0000005a/uni00000012/uni00000052/uni00000003/uni00000028/uni00000051/uni00000055/uni0000004c/uni00000046/uni0000004b/uni0000005a/uni00000012/uni00000052/uni00000003/uni00000028/uni0000005b/uni00000053/uni0000004f/uni00000052/uni00000055/uni00000048/uni00000052/uni00000051/uni0000004f/uni0000005c/uni00000003/uni00000028/uni00000051/uni00000057/uni0000004c/uni00000057/uni0000005c/uni00000035/uni00000048/uni0000004f/uni00000044/uni00000057/uni0000004c/uni00000052/uni00000051/uni00000045/uni0000005c/uni00000003/uni0000002f/uni0000004c/uni0000004a/uni0000004b/uni00000057/uni00000035/uni00000024/uni0000002a
+Figure 3.Comparison of DualGraph variants across iterations. Early stopping is disabled for all variants to ensure fair comparison. Left:
+Outline quality. Right: Search query and evidence quality.
+Figure 4.LLM-as-a-judge scores of intermediate outlines gener-
+ated by DualGraph and DualGraph w/o KG across optimization
+iterations on DeepResearch Bench.
+the additional tokens attributable to KG maintenance are
+a small fraction of the total budget, and the early-stopping
+mechanism further mitigates the impact by reducing unnec-
+essary refinement rounds.
+Additionally, the quality of the constructed KG depends on
+the underlying LLM’s ability to accurately abstract entities
+and relations from retrieved evidence. Imperfect or biased
+extractions may propagate into subsequent planning steps
+and influence exploration trajectories. However, our empiri-
+cal analysis in Appendix F shows that the anomaly rate is
+low (2.4%), and only 0.12% of all triplets are both anoma-
+lous and used before self-correction, thanks to the iterative
+merge-and-update mechanism built into DualGraph. Finally,
+our work focuses on text-centric deep research benchmarks,
+and the effectiveness of DualGraph design in multimodal
+research settings remains to be explored.
+6. Conclusion
+In this work, we introduced DualGraph, a Dual-Graph mem-
+ory architecture for open-ended deep research that sepa-
+rates knowledge representation from report structure, by
+Figure 5.LLM-as-a-judge comparison of intermediate outlines
+generated by DualGraph and DualGraph w/o KG across optimiza-
+tion iterations on DeepResearch Bench.
+maintaining a Knowledge Graph and jointly evolving it
+with a structured Outline Graph. Empirically, we showed
+that DualGraph leads to more systematic exploration and
+better-grounded research outputs across multiple challeng-
+ing benchmarks. Ablation studies further show that our use
+of KG to guide the search leads to more efficient exploration
+and higher-quality research reports. More broadly, our re-
+sults suggest that treating memory not as a passive storage
+but as an active guide for planning is a promising avenue
+for long-horizon reasoning agents.
+Impact Statement
+This work aims to advance machine learning methods for
+improving long-horizon reasoning and structured decision-
+making in LLM agents. By enabling more systematic and
+efficient use of memory, the proposed approach has the
+potential to improve the reliability and usability of AI agents
+in productivity-oriented applications, as well as supporting
+knowledge discovery, scientific analysis, and other research-
+intensive tasks, which may yield positive societal benefits.
+We do not anticipate any immediate or unique societal harms
+beyond those commonly associated with LLM deployment.
+9
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+References
+Abbe, E. Community detection and stochastic block mod-
+els: recent developments.Journal of Machine Learning
+Research, 18(177):1–86, 2018.
+Anthropic. Meet claude. Web page, 2025. URL https:
+//www.anthropic.com/claude. Accessed: 2026-
+01-28.
+Anthropic. How we built our multi-
+agent research system. https://
+www.anthropic.com/engineering/
+multi-agent-research-system , June 2025.
+Published: 2025-06-13. Accessed: 2025-12-29.
+Burt, R. S. Structural holes and good ideas.American
+journal of sociology, 110(2):349–399, 2004.
+Chhikara, P., Khant, D., Aryan, S., Singh, T., and Yadav, D.
+Mem0: Building production-ready ai agents with scalable
+long-term memory.arXiv preprint arXiv:2504.19413,
+2025.
+Coelho, J., Ning, J., He, J., Mao, K., Paladugu, A., Setlur,
+P., Jin, J., Callan, J., Magalh ˜aes, J., Martins, B., et al.
+Deepresearchgym: A free, transparent, and reproducible
+evaluation sandbox for deep research.arXiv preprint
+arXiv:2505.19253, 2025.
+Du, M., Xu, B., Zhu, C., Wang, X., and Mao, Z. Deep-
+research bench: A comprehensive benchmark for deep
+research agents.arXiv preprint arXiv:2506.11763, 2025.
+Edge, D., Trinh, H., Cheng, N., Bradley, J., Chao, A.,
+Mody, A., Truitt, S., Metropolitansky, D., Ness, R. O.,
+and Larson, J. From local to global: A graph rag ap-
+proach to query-focused summarization.arXiv preprint
+arXiv:2404.16130, 2024.
+Felovic, A. gpt-researcher. https://github.com/
+assafelovic/gpt-researcher. GitHub reposi-
+tory. Accessed: 2025-12-29.
+Google. Gemini deep research — your personal research
+assistant. https://gemini.google/overview/
+deep-research/, 2025. Accessed: 2025-12-29.
+Guo, Z., Xia, L., Yu, Y ., Ao, T., and Huang, C. Ligh-
+tRAG: Simple and fast retrieval-augmented genera-
+tion. In Christodoulopoulos, C., Chakraborty, T.,
+Rose, C., and Peng, V . (eds.),Findings of the Asso-
+ciation for Computational Linguistics: EMNLP 2025,
+pp. 10746–10761, Suzhou, China, November 2025. As-
+sociation for Computational Linguistics. ISBN 979-8-
+89176-335-7. doi: 10.18653/v1/2025.findings-emnlp.
+568. URL https://aclanthology.org/2025.
+findings-emnlp.568/.
+Han, R., Chen, Y ., CuiZhu, Z., Miculicich, L., Sun, G.,
+Bi, Y ., Wen, W., Wan, H., Wen, C., Ma ˆıtre, S., et al.
+Deep researcher with test-time diffusion.arXiv preprint
+arXiv:2507.16075, 2025.
+Huang, Y ., Chen, Y ., Zhang, H., Li, K., Zhou, H., Fang, M.,
+Yang, L., Li, X., Shang, L., Xu, S., et al. Deep research
+agents: A systematic examination and roadmap.arXiv
+preprint arXiv:2506.18096, 2025.
+Jimenez Gutierrez, B., Shu, Y ., Gu, Y ., Yasunaga, M., and
+Su, Y . Hipporag: Neurobiologically inspired long-term
+memory for large language models.Advances in Neural
+Information Processing Systems, 37:59532–59569, 2024.
+Jin, B., Zeng, H., Yue, Z., Yoon, J., Arik, S., Wang, D.,
+Zamani, H., and Han, J. Search-r1: Training llms to
+reason and leverage search engines with reinforcement
+learning.arXiv preprint arXiv:2503.09516, 2025.
+LangChain. open deep research. https://github.
+com/langchain-ai/open_deep_research.
+GitHub repository. Accessed: 2025-12-29.
+Li, K., Zhang, Z., Yin, H., Zhang, L., Ou, L., Wu, J., Yin, W.,
+Li, B., Tao, Z., Wang, X., et al. Websailor: Navigating
+super-human reasoning for web agent.arXiv preprint
+arXiv:2507.02592, 2025a.
+Li, R., Du, M., Xu, B., Zhu, C., Wang, X., and Mao,
+Z. Deepresearch bench ii: Diagnosing deep research
+agents via rubrics from expert report.arXiv preprint
+arXiv:2601.08536, 2026a.
+Li, X., Dong, G., Jin, J., Zhang, Y ., Zhou, Y ., Zhu, Y ., Zhang,
+P., and Dou, Z. Search-o1: Agentic search-enhanced
+large reasoning models.arXiv preprint arXiv:2501.05366,
+2025b.
+Li, X., Jin, J., Dong, G., Qian, H., Wu, Y ., Wen, J.-R.,
+Zhu, Y ., and Dou, Z. Webthinker: Empowering large
+reasoning models with deep research capability.arXiv
+preprint arXiv:2504.21776, 2025c.
+Li, Z., Guan, X., Zhang, B., Huang, S., Zhou, H., Lai,
+S., Yan, M., Jiang, Y ., Xie, P., Huang, F., Zhang, J.,
+and Zhou, J. Webweaver: Structuring web-scale evi-
+dence with dynamic outlines for open-ended deep re-
+search. InThe Fourteenth International Conference
+on Learning Representations, 2026b. URL https:
+//openreview.net/forum?id=MtNCJjlrKt.
+Liu, Y ., Yang, T., Huang, S., Zhang, Z., Huang, H., Wei,
+F., Deng, W., Sun, F., and Zhang, Q. Calibrating llm-
+based evaluator. InProceedings of the 2024 joint interna-
+tional conference on computational linguistics, language
+resources and evaluation (lrec-coling 2024), pp. 2638–
+2656, 2024.
+10
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+Luo, H., E, H., Chen, G., Lin, Q., Guo, Y ., Xu, F., Kuang,
+Z., Song, M., Wu, X., Zhu, Y ., and Tuan, L. A. Graph-
+r1: Towards agentic graphrag framework via end-to-end
+reinforcement learning, 2025. URL https://arxiv.
+org/abs/2507.21892.
+Microsoft. Grounding with bing. Web page,
+2026. URL https://www.microsoft.com/
+en-us/bing/apis. Accessed: 2026-01-29.
+OpenAI. Introducing deep research. https://openai.
+com/index/introducing-deep-research/,
+February 2025. Published: 2025-02-02. Accessed:
+2025-12-29.
+Packer, C., Fang, V ., Patil, S., Lin, K., Wooders, S., and
+Gonzalez, J. Memgpt: Towards llms as operating systems.
+arXiv preprint arXiv:2310.08560, 2023.
+Patel, L., Arabzadeh, N., Gupta, H., Sundar, A., Stoica, I.,
+Zaharia, M., and Guestrin, C. Deepscholar-bench: A
+live benchmark and automated evaluation for generative
+research synthesis.arXiv preprint arXiv:2508.20033,
+2025.
+Qiao, Z., Chen, G., Chen, X., Yu, D., Yin, W., Wang,
+X., Zhang, Z., Li, B., Yin, H., Li, K., et al. Webre-
+searcher: Unleashing unbounded reasoning capability in
+long-horizon agents.arXiv preprint arXiv:2509.13309,
+2025.
+QwenLM. Qwen-agent: Agent framework and applications
+built upon qwen. GitHub repository, 2026. URLhttps:
+//github.com/QwenLM/Qwen-Agent. Accessed:
+2026-01-28.
+Rosset, C., Chung, H.-L., Qin, G., Chau, E. C., Feng,
+Z., Awadallah, A., Neville, J., and Rao, N. Researchy
+questions: A dataset of multi-perspective, decomposi-
+tional questions for llm web agents.arXiv preprint
+arXiv:2402.17896, 2024.
+Shao, Y ., Jiang, Y ., Kanell, T., Xu, P., Khattab, O., and Lam,
+M. Assisting in writing Wikipedia-like articles from
+scratch with large language models. In Duh, K., Gomez,
+H., and Bethard, S. (eds.),Proceedings of the 2024 Con-
+ference of the North American Chapter of the Associa-
+tion for Computational Linguistics: Human Language
+Technologies (Volume 1: Long Papers), pp. 6252–6278,
+Mexico City, Mexico, June 2024. Association for Compu-
+tational Linguistics. doi: 10.18653/v1/2024.naacl-long.
+347. URL https://aclanthology.org/2024.
+naacl-long.347/.
+Tao, Z., Wu, J., Yin, W., Wu, P., Zhang, J., Li, B., SHEN,
+H., Li, K., Zhang, L., Wang, X., Zhang, W., Jiang, Y .,
+Xie, P., Huang, F., and Zhou, J. Webshaper: Agentically
+data synthesizing via information-seeking formalization.
+InThe Fourteenth International Conference on Learning
+Representations, 2026. URL https://openreview.
+net/forum?id=hld4TzJsnD.
+Team, T. D., Li, B., Zhang, B., Zhang, D., Huang, F., Li, G.,
+Chen, G., Yin, H., Wu, J., Zhou, J., et al. Tongyi deepre-
+search technical report.arXiv preprint arXiv:2510.24701,
+2025.
+Traag, V . A., Waltman, L., and Van Eck, N. J. From lou-
+vain to leiden: guaranteeing well-connected communities.
+Scientific reports, 9(1):1–12, 2019.
+UncleCode. Crawl4ai: Open-source llm friendly
+web crawler & scraper. https://github.com/
+unclecode/crawl4ai, 2024.
+Wang, M., Chen, L., Cheng, F., Liao, S., Zhang, X., Wu,
+B., Yu, H., Xu, N., Zhang, L., Luo, R., Li, Y ., Yang,
+M., Huang, F., and Li, Y . Leave no document behind:
+Benchmarking long-context LLMs with extended multi-
+doc QA. In Al-Onaizan, Y ., Bansal, M., and Chen, Y .-N.
+(eds.),Proceedings of the 2024 Conference on Empiri-
+cal Methods in Natural Language Processing, pp. 5627–
+5646, Miami, Florida, USA, November 2024. Association
+for Computational Linguistics. doi: 10.18653/v1/2024.
+emnlp-main.322. URL https://aclanthology.
+org/2024.emnlp-main.322/.
+Wei, J., Sun, Z., Papay, S., McKinney, S., Han, J., Fulford,
+I., Chung, H. W., Passos, A. T., Fedus, W., and Glaese,
+A. Browsecomp: A simple yet challenging benchmark
+for browsing agents.arXiv preprint arXiv:2504.12516,
+2025.
+Wu, J., Li, B., Fang, R., Yin, W., Zhang, L., Tao, Z., Zhang,
+D., Xi, Z., Fu, G., Jiang, Y ., et al. Webdancer: Towards
+autonomous information seeking agency.arXiv preprint
+arXiv:2505.22648, 2025.
+Xiong, R., Chen, Y ., Khizbullin, D., Zhuge, M., and Schmid-
+huber, J. Beyond outlining: Heterogeneous recursive
+planning for adaptive long-form writing with language
+models.arXiv preprint arXiv:2503.08275, 2025.
+Xu, W., Liang, Z., Mei, K., Gao, H., Tan, J., and Zhang, Y .
+A-mem: Agentic memory for llm agents.arXiv preprint
+arXiv:2502.12110, 2025.
+Yang, C., Wu, X., Lin, X., Xu, C., Jiang, X., Sun, Y ., Li, J.,
+Xiong, H., and Guo, J. Graphsearch: An agentic deep
+searching workflow for graph retrieval-augmented gen-
+eration, 2025a. URL https://arxiv.org/abs/
+2509.22009.
+11
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+Yang, Y ., Tang, J., Xia, L., Zou, X., Liang, Y ., and Huang,
+C. GraphAgent: Agentic graph language assistant. In
+Christodoulopoulos, C., Chakraborty, T., Rose, C., and
+Peng, V . (eds.),Proceedings of the 2025 Conference
+on Empirical Methods in Natural Language Process-
+ing, pp. 26349–26368, Suzhou, China, November 2025b.
+Association for Computational Linguistics. ISBN 979-
+8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.
+1339. URL https://aclanthology.org/2025.
+emnlp-main.1339/.
+youdotcom-oss. DeepConsult: A Deep Research
+Benchmark for Consulting / Business Queries.
+https://github.com/youdotcom-oss/
+ydc-deep-research-evals , 2025. GitHub
+repository. Accessed: 2025-12-29.
+Zhang, W., Li, X., Zhang, Y ., Jia, P., Wang, Y ., Guo, H., Liu,
+Y ., and Zhao, X. Deep research: A survey of autonomous
+research agents.arXiv preprint arXiv:2508.12752, 2025.
+Zhang, W., Zeng, L., Xiao, Y ., Li, Y ., Cui, C., Zhao, Y .,
+Hu, R., Liu, Y ., Zhou, Y ., and An, B. Agentorches-
+tra: Orchestrating multi-agent intelligence with the tool-
+environment-agent(tea) protocol, 2026. URL https:
+//arxiv.org/abs/2506.12508.
+Zhu, X., Xie, Y ., Liu, Y ., Li, Y ., and Hu, W. Knowl-
+edge graph-guided retrieval augmented generation. In
+Chiruzzo, L., Ritter, A., and Wang, L. (eds.),Proceedings
+of the 2025 Conference of the Nations of the Americas
+Chapter of the Association for Computational Linguis-
+tics: Human Language Technologies (Volume 1: Long Pa-
+pers), pp. 8912–8924, Albuquerque, New Mexico, April
+2025. Association for Computational Linguistics. ISBN
+979-8-89176-189-6. doi: 10.18653/v1/2025.naacl-long.
+449. URL https://aclanthology.org/2025.
+naacl-long.449/.
+12
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+A. Eval Details
+A.1. Controlling the Effect of the Initial Outline and Initial Search
+We observe that the initial outline can substantially influence the subsequent iterative trajectory and, ultimately, the final
+report quality. To ensure a fair ablation comparison, for the same root query we enforce that all ablation variants share
+exactly the same initialization at Iter= 0, including the outline, the set of search queries, and the corresponding retrieved
+search results. This control eliminates confounding factors introduced by different starting plans, so that performance
+differences can be attributed to the ablated components rather than initialization effects.
+A.2. About the FACT Metric in DeepResearch Bench
+A low FACT Eff.c score for some baselines primarily reflects design choices rather than insufficient capability. Many
+systems intentionally prioritize source quality and non-redundancy over maximizing the number of citations: during retrieval
+and filtering, they may discard duplicated, weakly relevant, or low-credibility materials (e.g., Baidu Baijiahao posts that often
+reproduce content from higher-quality platforms such as Zhihu). Including such duplicated/low-quality sources can inflate
+FACT by increasing citation count or coverage, but it may contribute little to the report’s actual informativeness or reliability.
+In addition, several baselines follow a ReAct-style paradigm in which the amount of retrieved evidence is largely determined
+by the base model: it stops searching once it deems the accumulated evidence sufficient, without an explicit externally
+enforced stopping rule. Consequently, a low FACT Eff.c does not necessarily imply poor overall quality; rather, it more
+directly indicates a weaker emphasis on citation intensity and redundancy. For example, Claude-3.5-Sonnet-with-Search
+often produces reports with only a small number of citations; if a report contains 8 citations in total, Eff.c is inherently
+upper-bounded by 8 and cannot exceed this limit. Therefore, FACT should not be treated as a standalone indicator of report
+quality, especially when higher scores may partly arise from redundant or low-value citations.
+We also note that C.acc evaluates each citation independently, checking whether it alone can support the corresponding claim.
+This per-citation protocol is reasonable when claims are grounded in a single source, but may systematically underestimate
+accuracy when a claim is synthesized from multiple citations, as no single citation fully covers the joint conclusion. To
+examine whether this evaluation protocol accounts for the observed C.acc difference, we randomly sampled 20 cases and
+conducted a joint evaluation where all citations for a given claim are assessed together. Under this setting, DualGraph and
+the w/o KG variant achieve nearly identical accuracy (90.51% vs. 90.41%), suggesting that the C.acc difference largely
+stems from the per-citation evaluation protocol rather than lower citation quality. The recently released DeepResearch Bench
+II (Li et al., 2026a) addresses this limitation by replacing FACT with InfoRecall, a metric that directly measures whether the
+report accurately and comprehensively retrieves relevant facts and evidence. As shown in Table 3, DualGraph improves
+over the w/o KG variant on InfoRecall (34.21 vs. 32.18), further supporting that KG-driven exploration enhances evidence
+coverage without compromising accuracy.
+A.3. Details for Fine-grained Ablation
+To conduct a more fine-grained ablation, we decompose the system beyond the presence or absence of the KG and further
+examine specific KG-driven mechanisms, such as different types of search chains and the way the knowledge graph is
+constructed. Accordingly, we move beyond evaluating only the final report and instead assess the intermediate products
+produced during the iterative process: the evolving outline and the accumulated search queries with retrieved evidence. This
+is necessary because the ablated components primarily affect the iterative process, rather than only the final writing stage.
+In this fine-grained ablation study, we disable the OG-based self-termination mechanism and force all methods to run until
+Iter= 5. This provides a complete and comparable trajectory for all variants, preventing differences in stopping time from
+confounding the analysis. It also allows us to consistently evaluate the intermediate products produced throughout the full
+iterative process.
+For outline quality, we follow the same LLM-as-a-judge protocol described in Paragraph 4.3, scoring intermediate outlines
+along the dimensions directly related to planning quality and evidence grounding. For search quality, we evaluate the
+accumulated retrieval products produced up to each iteration. Specifically, at iteration t, the judge is given all search
+queries and retrieved evidence summaries accumulated from iteration 0 through iteration t, rather than only the newly
+generated queries and evidence in the current iteration. We ask the judge model to assess their combined quality under
+the DeepResearch Bench rubrics, focusing oncomprehensivenessandinsight: whether the accumulated queries target
+information needed for a high-quality final report, and whether the retrieved evidence is relevant, informative, and useful
+13
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+for satisfying the corresponding rubric. The resulting score therefore reflects the overall quality of the accumulated search
+trajectory, rather than the isolated quality of a single iteration.
+A.4. Comparison with Graph-based Retrieval Agents
+Recent graph-based retrieval and agent systems, such as LightRAG (Guo et al., 2025), Graph-R1 (Luo et al., 2025),
+GraphSearch (Yang et al., 2025a), and GraphAgent (Yang et al., 2025b), also use graph structures, but their role differs from
+the KG in DualGraph. LightRAG, Graph-R1, and GraphSearch primarily treat the graph as a retrieval index over a closed
+or preprocessed document corpus, where the graph stores existing knowledge and is queried to retrieve facts or passages
+for answering a given question. GraphAgent similarly operates over a fixed document graph as a reasoning substrate for
+downstream classification, summarization, or generation tasks.
+In contrast, DualGraph targets open-ended long-form research without an available corpus in advance. The KG starts empty
+and is constructed incrementally from evidence retrieved during the iterative web research process. It is not used as a direct
+retrieval backend. Instead, DualGraph analyzes the evolving KG topology, including weakly supported edges, missing
+relations, community structure, and structural holes, to identify what knowledge is still missing and to generate follow-up
+search directions. This makes the KG a planning and gap-detection mechanism rather than a conventional graph retrieval
+index.
+This difference also limits direct substitution of existing graph-retrieval pipelines. For this reason, our controlled comparison
+uses the LightRAG variant by replacing only the KG construction module while keeping the rest of DualGraph unchanged.
+As shown in Figure 3, this retrieval-oriented KG construction performs worse than the full design, supporting the need for a
+gap-detection-oriented KG in OEDR.
+B. Implementation Details
+Judging models.Following the official benchmark guidelines, we adopt gpt-4.1-20250414 as the judging model for
+DeepResearch Bench and DeepConsult, andgpt-4.1-mini-20250414for DeepResearchGym.
+B.1. Search and Evidence Acquisition Pipeline
+The system maintains a global URL deduplication set to avoid repeated crawling across different queries and iterations. We
+adopt the below filtering pipeline for web retrieval and evidence acquisition:
+Web Search.For each search query, we retrieve the top-Ncandidate webpages from Bing.
+First-Stage Filtering (URL-level).An LLM selects a subset of the candidate URLs based on their titles, snippets, and
+relevance to the query.
+URL Visit.The selected URLs are visited and their webpage contents are parsed.
+Second-Stage Filtering (Evidence-level).An LLM extracts structured evidence from the webpage content and determines
+whether it is useful. Only webpages judged as useful are retained as valid evidence. For each retained page, we preserve
+both salient content spans from the original webpage and a concise summary.
+14
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+B.2. Early Stopping Judgment Criteria
+Instruction Following.Evaluate how well the outline follows the user’s instructions
+for an outline. This includes adherence to the specified topic and scope, intended
+audience, purpose, constraints, required sections, level of detail, tone, and any
+formatting or length requirements. The evaluation should also check outline-specific
+expectations such as a clear hierarchical structure (e.g., H1/H2/H3 or bullet
+levels), logical ordering, consistent granularity across sections, correct numbering
+if requested, and inclusion of all required components (e.g., executive summary,
+background, methodology, analysis, recommendations, references, appendices). Penalize
+missing required elements, inclusion of prohibited items, incorrect scope or level of
+detail, or deviation from the requested format.
+Depth.Assess the comprehensiveness and analytical depth of the outline. High-depth
+outlines move beyond broad headings to include specific subpoints, key arguments,
+mechanisms or causal drivers, assumptions and uncertainties, methods to be used,
+metrics, and success criteria. They indicate sequencing and logic (what builds on
+what), note dependencies and open questions, and identify where evidence, examples, and
+visuals will be integrated. Shallow outlines list generic topics without meaningful
+substructure, rationale, or analytical scaffolding.
+Balance.Evaluate the fairness and objectivity of the outline. Strong outlines plan
+for multiple perspectives and counterarguments, allocate space fairly to competing
+views, and use neutral, non-leading language in headings and notes. Where issues
+are controversial or multi-faceted, the outline should explicitly include sections
+for trade-offs, limitations, and counter-evidence. Poor outlines display bias, give
+disproportionate space to one side without justification, or omit salient opposing
+views.
+Breadth.Evaluate how many distinct and relevant subtopics, perspectives, or contexts
+the outline covers, while staying focused on the brief. Excellent outlines include
+appropriate dimensions such as historical context, legal or regulatory considerations,
+economic or market factors, technical or operational aspects, ethical implications,
+social or cultural impacts, geographic or comparative analysis, stakeholder
+perspectives, risks and limitations, and implementation pathways. Coverage should be
+wide-ranging yet purposeful; simply presenting two sides of a debate is insufficient,
+and irrelevant tangents should be avoided.
+Support.Evaluate the outline’s evidentiary scaffolding and sourcing plan. Providing
+source URLs somewhere in the outline (for example, in a references section or via
+inline citations) is the minimum requirement; if no section provides source URLs, the
+score must be zero. Factual accuracy is necessary but not sufficient. Higher-quality
+outlines explicitly attribute planned factual claims to verifiable sources (such
+as peer-reviewed articles, government databases, or reputable news organizations)
+with traceable citations including author or outlet, date, and URL. Quantitative
+points specify concrete datasets or reports, time frames, and comparative benchmarks.
+Qualitative points identify concrete examples or case studies, clearly linked to the
+argument, with sources. Sources should be credible and balanced; cherry-picking or
+omission of clearly relevant counter-evidence is penalized. Original synthesis should
+build on cited material, not replace it.
+Insightfulness.Assess how insightful and practically useful the outline is.
+Excellent outlines go beyond common templates by offering original structure or
+framing, highlighting non-obvious but relevant connections, and sequencing sections to
+surface key insights efficiently. Recommendations and proposed analyses are concrete
+and actionable, clearly indicating what will be done, where it will appear, and how
+outcomes will be measured. Strong outlines call out specific real-world examples or
+comparator cases (who did what, when, what outcomes were observed, and how they were
+measured) and propose suitable exhibits such as tables, charts, or frameworks with a
+clear analytical purpose. Vague, generic, or purely aspirational notes cannot score
+highly.
+B.3. Algorithms for DualGraph
+Function Definitions.Algorithm 1 use the following subroutines. We describe each function’s purpose, inputs/outputs,
+and key implementation details to ensure reproducibility.
+• CREATEOUTLINE (q0)→OG 0. Initializes an outline graph (tree-structured report plan) from the root query q0 using
+15
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+Algorithm 1Iterative Workflow of DualGraph
+Input:q 0,TOutput:R
+Defs:OG: Outline Graph;KG: Knowledge Graph;Q: query set;D: retrieved evidence
+OG0 ←CREATEOUTLINE(q 0)
+Q0 ←GENFROMOG(OG 0)
+D0 ←SEARCH(Q 0);KG 0 ←BUILDKG(D 0)
+fort= 0toT−1do
+QKG
+t ←GENFROMKG(KG t,OG t)
+ift >0then
+QOG
+t ←GENFROMOG(OG t)
+end if
+Qt+1 ←DEDUP(Q KG
+t ∪ QOG
+t )
+Dt+1 ←SEARCH(Q t+1)
+KGt+1 ←UPDATEKG(KG t,D t+1)
+OGt+1 ←UPDATEOG(OG t,KG t+1,D t+1)
+ifEARLYSTOP(OG t+1)then
+break
+end if
+end for
+D ←ST
+t=0 Dt
+R ←WRITEREPORT(OGfinal,D)
+an LLM (Prompt: CREATE OUTLINE in Appendix I.1). The output is a numbered hierarchical outline with no
+citations at initialization.
+• GENFROMOG (OGt)→ QOG
+t . Generates search queries from the current outline by targeting under-supported parts of
+OGt (i.e., nodes/lines without<citation>id *</citation> markers) and avoiding redundancy with previously
+executed (and pending) queries (Prompt:GENERATE SEARCH QUERIES in Appendix I.2). The output is a set of
+web-search-friendly queries.
+• SEARCH (Qt)→ Dt. Executes web retrieval and evidence acquisition for a query set Qt following the pipeline in
+Appendix B.1: (i) Bing top- N URL retrieval per query; (ii) URL-level LLM filtering based on title/snippet; (iii)
+crawling and parsing; (iv) evidence-level LLM extraction conditioned on the originating query, retaining only useful
+pages. The system maintains a global URL de-duplication set across all iterations. The output Dt is an evidence bank
+of citable evidence units with unique IDs.
+• BUILDKG (D0)→KG 0. Constructs an initial knowledge graph from the initial evidence bank. We use an LLM to
+extract (i) core-entity nodes, (ii) concept nodes, and (iii) directed relational edges grounded by evidence IDs (Prompt:
+EXTRACT KNOWLEDGE NODESin Appendix I.5). Each extracted edge stores its supporting evidence IDs.
+• UPDATEKG (KGt,D t+1)→KG t+1. Updates the knowledge graph with newly acquired evidence. Concretely, it
+performs: (1) LLM-based node/edge extraction and grounding with evidence IDs (Prompt: EXTRACT KNOWLEDGE
+NODES); (2) semantic canonicalization by merging near-duplicate concept nodes and redirecting incident edges (Prompt:
+MERGE KNOWLEDGE NODES in Appendix I.6); (3) semantic clustering of nodes using embedding similarity; (4)
+community detection on the evolving KG using the Leiden algorithm. Evidence attachment is edge-centric: when a
+relation is re-observed, we union its evidence-ID set.
+• GENFROMKG(KG t,OG t)→ QKG
+t . Performs KG-driven gap discovery and converts it into concrete search queries.
+First, it constructs a set of candidatesearch chainsfrom KGt using the enrichment and exploration procedures in
+Appendix C (weakly supported existing edges for ENRICH; hypothesized missing relations for EXPLORE). Then, given
+the root query, current outline, current KG, and candidate chains, an LLM selects up to a fixed budget of chains and
+generates aligned search queries (Prompt: KG CHAIN SELECTION & QUERY GENERATION in Appendix I.3).
+The output is a set of search queries specialized to fill KG gaps while respecting the report context fromOG t.
+• DEDUP (QKG
+t ∪ QOG
+t )→ Qt+1. Deduplicates and normalizes candidate queries by removing exact duplicates and
+near-duplicates (e.g., trivial paraphrases) to avoid redundant retrieval within and across iterations.
+16
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+• UPDATEOG (OGt,KG t+1,D t+1)→OG t+1 for DualGraph, and UPDATEOG (OGt,D t)→OG t+1 for DualGraph
+w/o KG. Revises the outline structure and maintains citation grounding after each retrieval round. The update may
+add/remove/re-scope sections, and attaches evidence IDs to supported nodes/lines. We enforcecitation persistence:
+when a section is edited, split, merged, or moved, its existing citation IDs are preserved and propagated to the most
+semantically corresponding descendant/parent nodes to prevent citation loss across iterations. In DualGraph, KG
+context can also be provided to the LLM to encourage globally consistent outline edits.
+• EARLYSTOP (OGt+1)→ {true,false}. Determines whether iterative exploration should terminate by scoring
+the current outline along instruction following, depth, breadth, balance, support, and insightfulness (criteria in
+Appendix B.2). Termination triggers when all dimension scores exceed preset thresholds, preventing redundant
+searching.
+• WRITEREPORT (OGfinal,D)→ R. Generates the final report section-by-section following OGfinal. For each outline
+node/section si, we retrieve only the evidence units whose IDs appear in its citation set Ci and synthesize the section
+with an LLM (Prompt:WRITE SECTION BY OUTLINEin Appendix I.4), citing only the provided evidence IDs.
+C. Search Chain Construction and Filtering
+DualGraph constructsSearchChainsfrom the Knowledge Graph (KG) to drive subsequent search queries. The goal of this
+process is to provideprioritized exploration cuesfor retrieval: on the one hand, to enrich existing relations with insufficient
+evidence coverage (Enrich); on the other hand, to explore high-value or high-confidence missing relations (Explore).
+Quota AllocationGiven a total budget of N SearchChains, we allocate ⌊N/4⌋ chains to the Enrich category. The
+remaining three Explore types are each assigned M=⌊N/4⌋ chains. Any unused slots caused by insufficient candidates in
+one category are filled by remaining candidates from other categories according to a predefined priority order.
+C.1. Enrichment Search Chain (Existing Edges)
+Theenrichment search chaintargets relations that already exist in the KG but are weakly supported by evidence. Given the
+current KG(V, E), we first construct an enrichment candidate pool by filtering edges with low evidence coverage:
+poolenrich ={e∈E|evidence count(e)≤enrich evidence threshold}.(1)
+We then rank candidate edges by a composite score that favors (i) edges involving core entities and (ii) edges with higher
+cross-community exposure, while down-weighting edges that already have more evidence.
+(1) Cross-community exposure.We define a node-level bridging score
+bridging score(v) = cross neighbors(v)
+max(deg(v),1) ,(2)
+and compute the cross-community exposure of an edge(u, v)as
+cross community(u, v) =1
+2
+ 
+bridging score(u) + bridgingscore(v)
+
+.(3)
+(2) Core-entity importance.To prioritize relations that are central to the user query, we use
+node importance(u, v) =
+
+
+
+1.0if bothuandvare core entities,
+0.5if exactly one ofu, vis a core entity,
+0.0if neitherunorvis a core entity.
+(4)
+(3) Composite enrichment score.The final enrichment score is
+Scoreenrich(u, v) =1 + nodeimportance(u, v) + crosscommunity(u, v)
+1 + evidencecount(u, v) .(5)
+Ranking.We adopt a two-stage strategy to ensure edges with no evidence are handled first:
+17
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+1. rank all candidates withevidence count(u, v) = 0before any others;
+2. rank remaining candidates byScore enrich(u, v)in descending order.
+C.2. Exploratory Search Chain (Missing Edges)
+Theexploratory search chaintargets potentially important relations that arenot yet presentin the current KG. To balance
+high-confidence completion and high-value exploration, we generate missing-edge candidates using three complementary
+signals.
+Type I: CoreEntity–Concept candidates.We enumerate all unconnected core entity–concept pairs and treat them as
+candidates if(c, k)/∈E:
+pool(1)
+explore ={(c, k)|c∈ C, k∈ K,(c, k)/∈E}.(6)
+Candidates are ranked by semantic similarity sim(c, k)in descending order, and the Top-M pairs are selected as exploratory
+chains.
+Type II: SBM-based cross-community candidates.We use a Stochastic Block Model (SBM) to propose missing edges
+across communities. For communities(c i, cj), the inter-block probability is estimated with Laplace smoothing:
+B[ci][cj] = actual edges(ci, cj) +α
+possible pairs(ci, cj) + 2α, α= 0.1,(7)
+where
+possible pairs(ci, cj) =
+(
+ninj, c i ̸=c j,
+ni(ni−1)
+2 , c i =c j. (8)
+We enumerate all node pairs (i, j)with comm(i)̸= comm(j) and (i, j)/∈Eas the Type-II pool. Within the Type-II quota,
+we select candidates by combining:
+•Probability-ranked half:p ij =B[comm(i)][comm(j)],
+pij =B[comm(i)][comm(j)],(9)
+selecting the Top-⌊M/2⌋edges by descendingp ij.
+•Uncertainty-ranked half:entropy of the Bernoulli parameter,
+H(p ij) =−pij log2 pij −(1−p ij) log2(1−p ij),(10)
+selecting the Top-⌊M/2⌋edges by descendingH(p ij).
+(When the quota is odd, flooring is applied and remaining slots are filled by priority.)
+Type III: Structural-hole candidates.To uncover missing relations that may connect distinct knowledge communities,
+we exploit structural-hole signals. We define intra-community degree as
+degin(v) =|{u∈neighbors(v)|comm(u) =comm(v)}|.(11)
+Within each community, we select representative nodes:
+•Bridge nodes:among nodes with cross neighbors(v)>0, select the Top-3 by bridging score(v);
+•Hub nodes:select the Top-2 bydeg in(v), excluding Bridge nodes;
+•Representative node (Rep):select the node with the highestdeg in(v).
+For any distinct community pair (c1, c2), we pair Bridge/Hub nodes from c1 with the Rep node from c2; if the corresponding
+edge does not exist, it is added as a Type-III exploratory candidate.
+18
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+D. Formal Analysis of Search Space, Coverage, and Convergence
+Deep research systems must decide what to search next at each iteration. Let Qt denote the candidate query space at
+iterationt. Without structural constraints,Q t is freely generated by the LLM and can be arbitrarily large.
+Search space under KG constraints.DualGraph decomposesQ t into two bounded subsets:
+• Enrich space: Qenrich
+t ⊆ {e∈Et |evidence-count(e)≤τ enrich}, i.e., existing but under-evidenced edges in the KG.
+Its upper bound is |Et| (current edge count), and after ranking by the composite enrichment score Scoreenrich(u, v) =
+1+node-importance(u,v)+cross-community(u,v)
+1+evidence-count(u,v) , only the top-⌊NKG/4⌋ candidates are selected. This subset addresses “known
+but under-evidenced” gaps—strengthening existing relations.
+• Explore space: Qexplore
+t ⊆(V t ×V t)\E t, i.e., node pairs not yet connected in the KG. Although theoreticallyO(|Vt|2),
+triple filtering retains only top- ⌊NKG/4⌋ candidates per type: Type I (semantic similarity) addresses “should exist
+but undiscovered” links; Type II (SBM cross-community probability/entropy) addresses “implicit cross-topic links”;
+Type III (structural hole signals) addresses “gaps between topic islands”.
+Thus, the total number of KG-driven search chains per iteration is strictly bounded by NKG, and the total search chain count
+isN=N OG +N KG.
+Monotonic coverage growth and search space shrinkage.Critically, each iteration covers new ground without redun-
+dantly re-exploring previously resolved gaps:
+• For Enrich, once an edge accumulates sufficient evidence ( evidence-count(e)> τ enrich), it exits the candidate set
+permanently.
+• For Explore, once a node pair is investigated, the KG update either adds it to Et+1 or reprioritizes it under the new
+topology, preventing redundant queries.
+Since newly retrieved evidence simultaneously updates the KG and OG, the set of resolved knowledge gaps is monotonically
+non-decreasing across iterations. The effective residual search space therefore tends to shrink over time, transforming
+exploration from “guessing what’s missing” to “graph topology indicating what’s missing.”
+Convergence.The bounded per-iteration search budget and non-repetitive gap resolution keep the selected search chains
+finite and reduce redundant exploration, encouraging convergence in practice. Greedy selection of highest-scoring gaps
+further concentrates gains in early iterations.
+E. Cost Analysis
+To quantify the cost of KG maintenance, we compare DualGraph with open-source baselines on a 20-case subset of
+DeepResearch Bench. Table 5 reports the token usage and average runtime for each method.
+Table 5.Token usage and runtime comparison on a 20-case subset of DeepResearch Bench.
+Method Input (K) Output (K) Total (K) Avg. Time (min)
+DualGraph 2,301 189 2,490 36.75
+DualGraph w/o KG 1,661 137 1,798 30.68
+WebWeaver 1,404 132 1,536 28.80
+Langchain-DR 833 64 897 13.40
+Tongyi-DR 335 15 350 7.10
+Qwen-Agent 425 21 446 9.70
+From Table 5, we acknowledge that DualGraph incurs additional computational cost compared to other open-source methods.
+However, this cost enables our system’s multiple modules to generate better search queries, perform more comprehensive
+exploration, and collect more complete information sources. This design emphasizes understanding query directions, which
+19
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+Table 6.Per-module token and runtime breakdown of DualGraph and DualGraph w/o KG.
+Module DualGraph Tokens (K) DualGraph Time (min) w/o KG Tokens (K) w/o KG Time (min)
+Generate Queries 48 0.43 26 0.27
+Judge Terminal 76 1.01 79 1.39
+Maintain Outline 127 2.08 96 1.97
+Maintain KG 224 3.48 — —
+WebSearch/Crawl 1,674 26.08 1,308 23.46
+Write Paper 341 3.67 289 3.59
+Total 2,490 36.75 1,798 30.68
+is the core driver of our system’s superior performance. Moreover, as shown in Table 1, DualGraph achieves the highest
+RACE among these open-source methods, indicating that the additional cost is associated with meaningful performance
+gains.
+From Table 6, KG maintenance accounts for only9%of total tokens, while more comprehensive web search and crawling
+dominates at 67%, which is an unavoidable cost for high-quality deep research. This shows that DualGraph’s overhead is
+primarily driven by more comprehensive exploration, not by the KG component itself. In the report generation domain, the
+primary goal is to deliver high-quality, trustworthy, and verifiable reports; our current design prioritizes this high standard.
+F. KG Extraction Reliability
+We acknowledge that LLM-based extraction of graph entities and relations inevitably introduces errors. We analyzed
+all 6,014 entity-relation triplets extracted at Iter 1 across 100 cases in DeepResearch Bench: only 2.4% are anomalous,
+consistent with recent studies showing high accuracy of LLMs on structured information extraction tasks. Table 7 provides
+the detailed breakdown.
+Table 7.Anomaly analysis of KG triplet extraction at Iter 1 across 100 cases (6,014 triplets total).
+Category % of All Edges Definition
+Loosely Relevant 1.48% The extracted relation is related but not directly stated in
+the evidence
+Hallucination 0.65% The triplet has no grounding in the evidence
+Semantic Bias 0.27% The relation direction or meaning is subtly distorted
+Total 2.40%
+Only 0.12% (7 triplets) of all triplets are both anomalously extractedandused to drive search queries before correction. The
+remaining anomalous extractions are effectively mitigated by DualGraph’s built-in self-correction mechanism:
+1. AlthoughLoosely Relevantextractions are not directly supported in the current iteration, they serve two purposes:
+helping generate new search queries and, in many cases, being later validated by newly retrieved evidence confirming
+the triplet is factually correct.
+2. DualGraph performs merge or update operations on the KG at each iteration (see Methodology, step 3 ), which
+self-corrects errors includingHallucinationandSemantic Bias. If newly retrieved evidence contradicts an existing
+relation, the system automatically corrects or deletes the erroneous edge. For example, in Case 79, the initial extraction
+was “(Misrepresentation of LGBTQ+ in MENA media)-[exacerbates]->(Legal barriers for transgender people)”, which
+reverses the true causality (Semantic Bias). After retrieving new evidence, the system automatically corrected the
+relation to “-[results from]->”.
+G. Human Evaluation of LLM-as-a-Judge Reliability
+To validate the reliability of LLM-based evaluation, we conducted a fine-grained human evaluation study. We randomly
+sampled 5 evaluation cases each from OpenAI Deep Research and DualGraph on DeepResearch Bench, yielding 10
+20
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+cases covering 254 rubric criteria. Each case includes the evaluated report, the reference benchmark report, and the
+LLM judge’s per-criterion analysis and scores across four dimensions. Five human annotators with research experience
+independently reviewed each rubric criterion. After reading both reports (anonymized), annotators were instructed to mark
+each LLM-assigned score and its corresponding reasoning as “reasonable” or “unreasonable”.
+The annotation results are summarized as follows:
+1. Theall-annotators-agree rate, defined as the proportion of criteria where all five annotators unanimously endorsed
+the LLM’s score and reasoning, is88.6%(225/254).
+2. Theper-judgment agreement rate, defined as the fraction of individual human judgments (each annotator × each
+criterion) rated as reasonable, is97.5%(1,238/1,270).
+3.Inter-annotator agreementis high, with Gwet’s AC1 at0.95.
+Together, these results provide strong evidence that the LLM-as-a-Judge protocol used in our evaluation produces reliable
+and consistent assessments.
+H. Case Trajectory
+CASETRAJECTORY INDUALGRAPH.
+Root Question
+What are the investment philosophies of Duan Yongping, Warren Buffett, and Charlie Munger?
+Step 1 (Iter 0) - Init OG
+[OG]
+Comparative Analysis of Investment Philosophies: Duan Yongping, Warren Buffett, and Charlie Munger
+1. Introduction
+1.1 Purpose and Scope
+1.2 Overview of Subject Investors
+1.3 Structure of the Report
+2. Duan Yongping’s Investment Philosophy
+2.1 Background and Influences
+2.2 Core Principles
+2.2.1 Value Investing Approach
+a. Focus on intrinsic value and margin of safety
+b. Importance of long-term holding
+2.2.2 Emphasis on Simplicity and Patience
+a. Avoiding complex investments
+b. Waiting for clear opportunities
+2.2.3 Risk Management Strategies
+a. Selective investment decisions
+b. Use of cash reserves
+2.3 Notable Investments and Strategies
+2.4 Impact on Chinese Investment Community
+[OMITTED]
+Step 2 (Iter 0) - GenFromOG
+[SQ]
+SQ1: influence of Duan Yongping’s investment philosophy on Chinese retail investors
+SQ2: Duan Yongping’s approach to risk management in volatile markets
+SQ3: examples of Duan Yongping’s notable investments and their outcomes
+SQ4: how Warren Buffett calculates intrinsic value in practice
+[OMITTED]
+Step 3 (Iter 0) - Search
+[Evidence]
+Evidence1: title: The Investment Philosophy of Duan Yongping • Honwhy’s website url: https://honwhy.wang/duanyongping/ content: **Summary**: The webpage
+outlines Duan Yongping’s investment philosophy and notes that his principles have inspired a generation of entrepreneurs and investors in China. This directly
+addresses the influence of his philosophy on Chinese retail investors, emphasizing the spread of his values of simplicity, patience, and rational decision-making.
+**Original content**: A journey into the mind of China’s legendary value investor - Duan Yongping, whose principles of simplicity, patience, and clarity inspired a
+generation of entrepreneurs and investors. Duan Yongping’s philosophy emphasizes rationality, patience, and focus - a Chinese reflection of Buffett’s wisdom with his
+own Eastern restraint and practicality.
+[other evidence items retrieved; omitted for clarity]
+Step 4 (Iter 0) - BuildKG
+21
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+[KG]
+Step 5 (Iter 1) - GenFromKG
+[SQ]
+SQ1: How has Duan Yongping adapted value investing principles for emerging markets like China?
+SQ2: How does Warren Buffett tailor his investment philosophy when applying value investing principles to emerging markets?
+SQ3: How does Charlie Munger approach the adaptation of investment principles to emerging markets?
+[OMITTED]
+Step 6 (Iter 1) - Search
+[Evidence]
+Evidence1: title: Interview with Duan Yongping: 50 Key Points on Investment, Culture, and ... url: https://www.gate.com/crypto-wiki/article/interview-with-duan-
+yongping-50-key-points-on-investment-culture-and-education-20260108 content: **Summary**: The webpage provides direct insights into Duan Yongping’s risk
+management approach by emphasizing deep understanding of business models, cash flow analysis, and long-term patience over speculation. He manages investment
+risk by focusing on market maturity, preferring established companies with proven models and avoiding hype-driven emerging sectors. His philosophy centers on
+rational, informed decision-making and vigilance toward market cycles-principles that align with leveraging latecomer advantage and market maturity to reduce
+risk. **Original content**: Duan Yongping emphasized that investment is conceptually simple but challenging to execute in practice. According to his philosophy,
+successful investing requires a deep understanding of a company’s business model and the ability to project future cash flows accurately. This approach aligns with
+value investing principles popularized by Warren Buffett, with whom Duan has maintained a long-standing relationship.
+[other evidence items retrieved; omitted for clarity]
+Step 7 (Iter 1) - UpdatedKG
+Step 8 (Iter 1) - UpdatedOG
+[OG]
+Comparative Analysis of Investment Philosophies: Duan Yongping, Warren Buffett, and Charlie Munger
+1.Introduction
+1.1 Purpose and Scope
+1.2 Overview of Subject Investors
+1.3 Structure of the Report
+2.Duan Yongping’s Investment Philosophy
+2.1 Background and Influences
+2.2 Core Principles
+2.2.1 Value Investing and Intrinsic Value
+a. Investing is buying a company, not just a stock; focus on business fundamentals and future
+cash flows <citation>id 29, id 30, id 31, id 32, id 33, id 34</citation>,→
+b. Margin of safety is rooted in deep understanding rather than simply buying cheap
+<citation>id 32, id 34</citation>,→
+c. Focusing on undervalued opportunities and qualitative discounted cash flow estimation
+<citation>id 34</citation>,→
+2.2.2 Simplicity and Clarity
+a. Maintain a "Do Not Do" list and operate strictly within one's circle of competence
+<citation>id 28, id 29, id 30, id 34</citation>,→
+b. Avoid complex, speculative, or poorly understood investments <citation>id 28, id 29, id 30,
+id 31, id 34</citation>,→
+c. Require business model clarity and transparency; invest only in understandable enterprises
+<citation>id 29, id 30, id 33, id 34</citation>,→
+2.2.3 Emotional Discipline and Patience
+a. Importance of rational, disciplined analysis over emotional reactions to market volatility
+<citation>id 30, id 33</citation>,→
+b. Prioritizing long-term holding and compounding returns over short-term market movements
+<citation>id 29, id 30, id 31, id 32, id 33, id 34</citation>,→
+2.2.4 Risk Management and Trust
+a. Adapting value investing to emerging markets: due diligence, trustworthiness, strict "Don't
+Do List" for risk mitigation <citation>id 26, id 28, id 34</citation>,→
+b. Only invest in trustworthy ventures and avoid those with misaligned values <citation>id 26,
+id 33</citation>,→
+c. Preserving capital by avoiding speculation and high-risk/immature markets <citation>id 26,
+id 31, id 34</citation>,→
+2.2.5 Value Alignment and Foundational Philosophy
+a. Invest in companies with clear, steadfast core philosophies and value alignment
+<citation>id 29, id 33</citation>,→
+b. Company culture and values fundamentally drive business sustainability <citation>id 29,
+id 34</citation>,→
+2.2.6 Opportunity Cost as a Decision Filter
+a. Evaluate choices against the best available alternative; reject "okay" opportunities when a
+better one exists <citation>id 35</citation>,→
+b. Treat opportunity cost as an implicit "Do Not Do" rule in capital allocation
+<citation>id 36</citation>,→
+[OMITTED]
+Step 9 (Iter 2) - GenFromKG
+SQ1: Impact of Duan Yongping’s ”Do Not Do” list on portfolio risk and return in emerging markets How Duan Yongping incorporates qualitative discounted cash
+flow estimation in investment decisions in Chinese companies
+22
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+SQ2: Historical evolution of the teacher-student relationship between Warren Buffett and Benjamin Graham and its effect on Buffett’s investment style
+[OMITTED]
+Step 10 (Iter 2) - GenFromOG
+SQ1: How does Charlie Munger adapt investment principles for emerging markets, and what evidence supports this? What strategies does Warren Buffett use to apply
+his investment principles in emerging markets, and how does this differ from his U.S.-centric approach?
+SQ2: Is there evidence of Duan Yongping utilizing a multidisciplinary approach to investing, and how does it compare to Charlie Munger’s method?
+SQ3: What were the key factors and influences behind Warren Buffett’s shift from ’cigar-butt’ investing to quality investing?
+[OMITTED]
+Step 11 (Iter 2) - Search
+[Evidence]
+Evidence1: title: The Way is Simple: Analysis of Duan Yongping’s Investment Wisdom url: https://en.shuziqushi.com/new224704.html content: **Summary**: The
+page is useful because it explains that Duan Yongping defines simplicity in investing as focusing on the fundamentals, avoiding speculation and leverage, investing
+only in businesses he truly understands, and maintaining patience through long-term, steady accumulation. He uses metaphors such as ’farming’ versus ’hunting’ to
+highlight the importance of a calm, rational, and simple approach, avoiding shortcuts and emotional decisions. His philosophy is about sticking to what one should be
+doing, playing the long game, and not being distracted by market noise or quick wins. **Original content**: In early 2025, Duan Yongping, a well-known investor
+and entrepreneur, went back to his alma mater, Zhejiang University, and shared some thoughts: Honestly, I want to make quick money, who doesnt? But its crucial to
+realize that it just doesnt happen. You still need to stick to what you should be doing. This came from his book Bao: Duan Yongpings Investment Questions and
+Answers, published in May 2025.
+[other evidence items retrieved; omitted for clarity]
+Step 11 (Iter 2) - UpdatedKG
+Step 12 (Iter 2) - UpdatedOG
+[OG]
+Comparative Analysis of Investment Philosophies: Duan Yongping, Warren Buffett, and Charlie Munger
+1. Introduction
+1.1 Purpose and Scope
+1.2 Overview of Subject Investors
+1.3 Structure of the Report
+2. Duan Yongping’s Investment Philosophy
+2.1 Background and Influences
+2.1.1 Intellectual Lineage and Relationship to Buffett and Munger <citation>id 60</citation>
+a. Duan as Buffett’s student and firm practitioner of value investing
+b. Philosophical continuity and adaptation to Chinese context
+2.2 Core Principles
+2.2.1 Value Investing and Intrinsic Value
+a. Investing is buying a company, not just a stock; focus on business fundamentals and
+future cash flows <citation>id 29, id 30, id 31, id 32, id 33, id 34, id 50, id 51, id 56,
+id 59</citation>
+,→
+,→
+b. Margin of safety is rooted in deep understanding rather than simply buying cheap
+<citation>id 32, id 34, id 52, id 53, id 54</citation>,→
+c. Focusing on undervalued opportunities and qualitative discounted cash flow estimation
+<citation>id 34, id 54, id 56</citation>,→
+d. Preference for conservative, gross estimates and qualitative judgment over mathematical
+precision <citation>id 56</citation>,→
+2.2.2 Simplicity and Clarity
+a. Maintain a "Do Not Do" list and operate strictly within one's circle of competence
+<citation>id 28, id 29, id 30, id 34, id 50</citation>,→
+b. Avoid complex, speculative, or poorly understood investments; caution toward emerging
+technologies <citation>id 28, id 29, id 30, id 31, id 34, id 50, id 72</citation>,→
+c. Require business model clarity and transparency; invest only in understandable
+enterprises <citation>id 29, id 30, id 33, id 34, id 50</citation>,→
+2.2.3 Emotional Discipline and Patience
+a. Importance of rational, disciplined analysis over emotional reactions to market
+volatility; avoidance of FOMO <citation>id 30, id 33, id 50, id 58</citation>,→
+b. Prioritizing long-term holding and compounding returns over short-term market movements
+<citation>id 29, id 30, id 31, id 32, id 33, id 34, id 50, id 51, id 58</citation>,→
+2.2.4 Risk Management and Trust
+a. Adapting value investing to emerging markets: due diligence, trustworthiness, strict
+"Don't Do List" for risk mitigation <citation>id 26, id 28, id 34, id 50, id 51</citation>,→
+b. Only invest in trustworthy ventures and avoid those with misaligned values
+<citation>id 26, id 33, id 50, id 51</citation>,→
+c. Preserving capital by avoiding speculation, leverage, and high-risk/immature markets;
+maintain cash reserves for unknowns <citation>id 26, id 31, id 34, id 50, id 51, id 52,
+id 53, id 75</citation>
+,→
+,→
+2.2.5 Value Alignment and Foundational Philosophy
+a. Invest in companies with clear, steadfast core philosophies and value alignment
+<citation>id 29, id 33, id 50</citation>,→
+b. Company culture and values fundamentally drive business sustainability <citation>id 29,
+id 34, id 50, id 57, id 59</citation>,→
+c. Consumer orientation as the essence of good corporate culture <citation>id 57</citation>
+2.2.6 Opportunity Cost as a Decision Filter
+23
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+a. Evaluate choices against the best available alternative; reject "okay" opportunities when
+a better one exists <citation>id_35, id 50</citation>,→
+b. Treat opportunity cost as an implicit "Do Not Do" rule in capital allocation
+<citation>id_36, id 50</citation>,→
+[OMITTED]
+Step 13 - WriteReport
+[Final Report]
+I. Prompt Template
+I.1. Create Outline
+PROMPTTEMPLATE: CREATEOUTLINE
+- You are an expert research assistant specializing in building and iteratively refining recursive outlines
+for deep-dive reports.,→
+- Your task is to **create** a detailed outline that includes sections, subsections, and key points to be
+covered in each part of the research paper.,→
+- Refer to Section`Input Format and Interpretation`below to understand the input format.
+- Refer to Section`Guidance of Creating a New Outline`below for detailed instructions on how to create the
+outline.,→
+- Refer to Section`Output Requirement and Format Rules`below for the required output format.
+# Input Format and Interpretation
+- The user will provides ONLY a root query (a single research question or topic).
+- Example Input for Create Request:
+```
+What are the mechanisms, biomarkers, and therapeutic strategies for early-stage Parkinson's Disease?
+```
+# Guidance of Creating a New Outline
+- Derive a logical structure from the root query.
+- Choose a clear report title.
+- Build sections that cover background, key dimensions, evidence, implications, etc.
+- Do not include citation IDs unless the user explicitly provides supporting evidence.
+- Prioritize logical flow, research utility, and traceability to evidence.
+- Avoid overly deep nesting; use deeper levels only when necessary for precision.
+- The outline should be readable as a standalone roadmap of the final report.
+# Output Requirement and Format Rules
+- Your output must always be a clean, human-readable plain-text outline that can directly serve as the table
+of contents for the final report.,→
+- The **first line** must be the final report’s title (concise and descriptive).
+- Starting from the **second line**, list every section and subsection **one per line**, using strictly
+decimal hierarchical numbering for titles only:,→
+- Top-level sections: 1., 2., 3., ...
+- Second level: 1.1, 1.2, 2.1, ...
+- Third level: 1.1.1, 1.1.2, 1.2.1, ...
+- Do not use Level 4 titles (e.g., 1.1.1.1 or a. as a heading).
+- Optionally, immediately after a Level 3 section line (x.x.x), you may include content summary items that
+elaborate what the section will cover.,→
+- These are not headings: they are supporting content points.
+- Format them as: a., b., c., d., ..., one per line, without indentation.
+- Including these items is optional: if a Level 3 section is self-explanatory or covers a single idea,
+omit the a./b. lines entirely.,→
+- **Do NOT use any indentation**. Hierarchy is conveyed solely by the numbering and line order.
+- **Do NOT include any extra text**-no explanations, no markdown, no blank lines.
+- Citations (if any) appear inline as: <citation>id_X, id_Y</citation> at the end of the relevant line. For
+example: 1. Hoehn and Yahr Scale Classifications <citation>id_2, id_6, id_9...</citation>,→
+I.2. Generate Search Queries
+PROMPTTEMPLATE: GENERATESEARCHQUERIES
+- You are an expert research assistant specializing in identifying knowledge gaps in a report outline and
+generating precise, search engine friendly queries to fill them.,→
+- Your task is to analyze the provided outline, detect sections that lack citation markers (i.e., no
+<citation>id_...</citation>), and based on their content and context-formulate $QUERY_NUM new,
+high-value search queries that would help retrieve relevant evidence to support those under-researched
+parts.
+,→
+,→
+,→
+- Refer to Section`Input Format and Interpretation`below to understand the input format.
+- Refer to Section`Guidance`below for detailed instructions on how to generate effective search queries.
+- Refer to Section`The Output Format`below for the required output format.
+# Input Format and Interpretation
+24
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+- The input you receive in each call (via the user prompt) will contain the following components:
+- Current Outline: A plain-text hierarchical outline of the report, where:
+- The first line is the report title
+- Subsequent lines represent sections/subsections using standard numbering (e.g., I, 1., a., etc.)
+- Some lines may include inline citation markers like <citation>id_5</citation>; lines without such
+markers are considered not yet supported by evidence and are primary candidates for query generation,→
+- Historical Search Queries (executed): A list (or block) of all search queries that have already been
+executed during this research process. These must be avoided or meaningfully differentiated to prevent
+redundant searches.
+,→
+,→
+- Pending Search Queries (planned, NOT executed yet) (optional): A list of search queries that have been
+generated and are scheduled to be executed soon, but have NOT been executed yet. You should not describe
+them as already searched, but you must still avoid duplicating them; instead, generate complementary
+queries that fill other gaps.
+,→
+,→
+,→
+# Guidance
+- Prioritize outline lines that:
+- Make factual, causal, statistical, or comparative claims
+- Reference specific concepts, policies, effects, or populations
+- Appear in deeper subsections (e.g., under "Mechanisms" or "Case Studies")-these often need targeted
+evidence,→
+- Ignore purely structural or navigational lines (e.g., "Introduction", "Conclusion", "Literature Review")
+unless they contain substantive uncited claims.,→
+- When multiple uncited lines relate to the same theme, synthesize them into a single, comprehensive query
+rather than duplicating.,→
+- Favor queries that combine concept + domain + outcome/measure (e.g., "impact of urban green space on
+adolescent cortisol levels 2020-2025") over broad topic queries.,→
+- Use recent years (e.g., "since 2020") or specific regions (e.g., "in Southeast Asia") only if the outline
+implies recency or locality.,→
+- If historical queries already cover a topic broadly, drill down: e.g., shift from "green space mental
+health" to "green space access and ADHD symptom reduction in urban teens".,→
+- Each query should:
+- Target a concrete, unresolved question or claim in an uncited outline line
+- Include relevant context (e.g., population, timeframe, mechanism, geography) when implied by the outline
+- Avoid vague terms like "overview", "introduction", or "information about"
+- Do not include:
+- Numbering (e.g., "1. ...")
+- Quotation marks, JSON, markdown, or any formatting
+- Explanations, headers, or extra text
+- Queries must be novel relative to the historical executed search queries, and also non-overlapping with
+pending (planned) queries. If pending queries already target a theme, generate adjacent or deeper
+queries that complement them (e.g., narrower mechanism, different population, specific metrics, recent
+years).
+,→
+,→
+,→
+# The Output Format
+- Output exactly $QUERY_NUM search queries, each on its own line.
+- Use natural, concise, and specific English phrases optimized for web search engines (e.g., Google,
+Semantic Scholar).,→
+I.3. KG Chain Selection & Query Generation
+PROMPTTEMPLATE: KG CHAINSELECTION& QUERYGENERATION
+- You are an expert research strategist specializing in knowledge graph refinement.
+- Your task is to analyze the candidate explore/enrich chains from an iterative DeepResearch process, select
+up to $CHAIN_NUM chains that should be pursued next, and generate aligned search queries to strengthen
+the knowledge graph with evidence.
+,→
+,→
+- Refer to Section`Input Format and Interpretation`below to understand the input format.
+- Refer to Section`Guidance`below for detailed instructions on how to select chains and write queries.
+- Refer to Section`The Output Format`below for the required output format.
+# Input Format and Interpretation
+- The input you receive (via the user prompt) contains:
+- Root Query: the core research question/topic.
+- Current Outline: a plain-text hierarchical outline; lines may include evidence markers like
+<citation>id_5</citation>. Lines without markers are under-supported.,→
+- Knowledge Graph: current entities/concepts/relations; missing or weak relations indicate gaps.
+- Search Query Language: the language to use for queries (e.g., en, zh).
+- Candidate Explore Chains: a list of candidate chains; each chain includes:
+- chain id
+- type: enrich or explore
+- relation pattern (Entity→Relation→Concept)
+- Chain types:
+1) type = enrich: the relation exists in the KG but needs stronger/clearer evidence.
+2) type = explore: the relation is hypothesized and not yet present/verified in the KG.
+# Guidance
+- Select chains by prioritizing:
+1) Relevance: resolving it directly advances the Root Query.
+2) Gap severity: it fills a critical missing/weak relation in the KG.
+25
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+3) Leverage: it reduces ambiguity across multiple outline sections or enables multiple downstream
+inferences.,→
+4) Comparative insight (when applicable): it supports meaningful differentiation or alignment among key
+entities.,→
+- Prefer chains that address core definitional/causal relationships, mechanisms, criteria, trade-offs, or
+decision rules; de-prioritize peripheral facts.,→
+- For each selected chain, generate one search query that:
+- is search-engine friendly and specific
+- explicitly names key entities/concepts (no vague pronouns)
+- expresses the relationship to verify (support/oppose/define/cause/measure/compare)
+- matches the requested Search Query Language
+- If the outline has high-priority evidence gaps not covered by any chain:
+- select fewer than $CHAIN_NUM chains
+- use remaining query slots to create additional outline-driven queries
+- keep total search queries <= $CHAIN_NUM
+# The Output Format
+- Output exactly one line: a valid JSON object with two keys:
+- "chains": an array of selected chain ids (length <= $CHAIN_NUM)
+- "search queries": an array of search queries (same order as "chains"; may append outline-driven queries
+after chain-based queries; total length <= $CHAIN_NUM),→
+- Do not include any other text, explanations, markdown, comments, or trailing commas.
+I.4. Write Section by Outline
+PROMPTTEMPLATE: WRITESECTION BYOUTLINE
+- You are an expert academic writer specializing in synthesizing provided research evidence into a
+publication-ready report section.,→
+- Your task is to write ONE self-contained Markdown section that strictly follows the provided "Current
+Section Outline" (headings and numbering), integrates all required content points, and cites ONLY the
+provided evidence.
+,→
+,→
+- Output ONLY the Markdown for this section (no preamble, no meta-commentary, no references).
+# Input Format and Interpretation
+- The user input will include:
+- Root Query: the core research question (context only).
+- Report Title: the final report title (context only; do NOT print it).
+- Previous Sections (optional): earlier Markdown text for continuity (do NOT repeat it).
+- Current Section Outline: the exact outline snippet you must write now.
+- Numbered lines (e.g., 2., 2.1, 2.1.1) are headings you MUST reproduce exactly.
+- Lettered lines (a., b., c., ...) are NOT headings; they are required content points for the
+immediately preceding numbered heading.,→
+- Supporting Evidence: evidence nodes with numeric IDs; these are the ONLY sources you may cite.
+# Writing Rules (Strict)
+- Headings:
+- Convert outline numbering to Markdown headings:
+-`1.`->`## 1. ...`
+-`1.1`->`### 1.1 ...`
+-`1.1.1`->`#### 1.1.1 ...`
+- Preserve the exact wording and numbering of EVERY numbered heading from the outline.
+- Do NOT add, remove, merge, rename, or renumber headings.
+- Do NOT create any Level-4+ headings beyond`####`(no`#####`).
+- Lettered items (a./b./c./d.) must NEVER become headings (e.g., never write`#### 3.2.d`).
+- Content integration:
+- Fully address every lettered requirement (a./b./c./...) in the correct location under the immediately
+preceding numbered heading.,→
+- You may use paragraphs, bullet lists, or tables to present structured comparisons, but keep the prose
+concise and academic.,→
+- Maintain continuity with "Previous Sections" by avoiding repeated explanations; only restate minimal
+context when needed for readability.,→
+- If the outline requests items you cannot support with the provided evidence, write them cautiously as
+analysis/synthesis without introducing new factual claims, and do not cite.,→
+- Evidence and citation:
+- Cite when a sentence is supported by the provided evidence.
+- Citation format: use square brackets with numeric IDs only, e.g., [3] or [2,7].
+- Place citations at the end of the supported sentence (before the period).
+- Do NOT put citations in headings.
+- Do NOT cite anything not present in the Supporting Evidence; do NOT fabricate sources or IDs.
+- If multiple IDs support the same claim, list them in ascending order in one bracket, e.g., [2,7,9].
+- Keep claim-to-citation scope tight: do not bundle unrelated claims into one sentence with one citation.
+# Output Requirements
+- Output ONLY the Markdown content for the current section.
+- Include all headings present in "Current Section Outline" and corresponding body text.
+- Do NOT output the report title, any extra sections, or a references/bibliography.
+26
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+I.5. Extract Knowledge Nodes
+PROMPTTEMPLATE: EXTRACTKNOWLEDGENODES
+- You are a knowledge synthesis expert. Your task is to construct a structured Knowledge Graph from the
+provided textual evidence.,→
+- Extract knowledge relationships from the textual evidences (EN#) and map each evidence statement (EN#) to
+the relevant knowledge edges.,→
+- Refer to Section`Input Format and Interpretation`below to understand the input format.
+- Refer to Section`Guidelines for Knowledge Edge Extraction`below for detailed instructions on how to
+extract knowledge edges.,→
+- Refer to Section`Output Requirement and Format Rules`below for the required output format.
+# Input Format and Interpretation
+- The input consists of:
+- Root Query: topic of this deep research report.
+- Search Query: the search query used to obtain the target evidence.
+- Numbered evidence statements: EN1: ..., EN2: ..., etc.
+- Each EN# is a self-contained piece of textual evidence (sentence or short paragraph).
+- Current Knowledge Graph (optional):
+- If not provided, this is the initial extraction step.
+- If provided, it includes existing nodes/edges from previous turns; you must reuse them and avoid
+duplication.,→
+# Guidelines for Knowledge Edge Extraction
+1) Knowledge Node Definition (two types)
+- Core Entity Nodes:
+- Primary subjects of the Root Query; they emerge from context (not pre-defined).
+- They should be concrete entities (e.g., people, companies, organizations), not abstract topics.
+- NEVER create derivative nodes for a core entity (e.g., do not create "Ping An's Growth Strategy" if
+"Ping An" exists).,→
+- Concept Nodes:
+- Other concepts/attributes/entities related to the core entities.
+- MUST connect (directly or indirectly) to at least one Core Entity node.
+2) Knowledge Edge Definition
+- Each edge is a directed relationship between two nodes.
+- Each edge must be directly supported by at least one EN#.
+- Use concise, natural-language relation names (e.g., "advocates", "rejects", "defines", "has attribute",
+"prioritizes").,→
+- Avoid overly generic relations like "related to" unless unavoidable.
+3) Edge-Centric Extraction Rule
+- Decide the EDGES first; nodes exist only to support meaningful edges.
+- Prioritize edges where at least one endpoint is a Core Entity node.
+- ALWAYS reuse existing nodes from the Current Knowledge Graph if they capture≥80% of the meaning.
+- Create a new Concept Node ONLY if:
+(a) no existing node captures the conceptual essence, and
+(b) the concept is relevant to answering the Root Query.
+4) New Node Output Rules
+- Output ONLY newly created Concept Nodes required by your extracted edges.
+- Assign new node IDs sequentially from (max existing node id + 1), format: nnumber.
+- Do not create more than 3 new Concept Nodes per turn unless absolutely necessary.
+5) New Edge Output Rules
+- Output ALL extracted edges (they may connect to reused nodes and/or new nodes).
+- Assign edge IDs sequentially from (max existing edge id + 1), format: enumber.
+6) Evidence-to-Edge Mapping
+- For each EN#, list ALL edge IDs that EN# directly supports.
+7) Prioritization and Node Proliferation Control
+- Extract only the most salient edges that advance the Root Query.
+- Prefer high-level, distinctive claims (definitions, principles, stances, causal mechanisms) over minor
+details.,→
+- If an EN# contains multiple ideas, keep the most representative one unless others are essential.
+- Do NOT create Concept Nodes for:
+- specific examples,
+- implementation tactics,
+- temporal/contextual modifiers.
+Instead, abstract them into broader reusable concepts (principles/mechanisms/categories).
+8) Abstraction Over Literalness
+- A Concept Node should be generalizable beyond the single evidence instance.
+- If it cannot apply in other contexts, it is likely too specific; abstract further.
+# Output Requirement and Format Rules
+- Output STRICTLY one valid JSON object and NOTHING else.
+- JSON schema:
+27
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+"new_nodes": [
+"id": "nnumber", "node_name": "string", "is_core_entity": true/false
+],
+"new_edges": [
+"id": "enumber", "source_id": "nnumber", "target_id": "nnumber", "relation_name": "string"
+],
+"evidences_map":
+"EN1": ["enumber", "..."],
+"EN2": ["enumber", "..."]
+I.6. Merge Knowledge Nodes
+PROMPTTEMPLATE: MERGEKNOWLEDGENODES
+- You are a knowledge synthesis expert specializing in semantic concept consolidation and entity
+deduplication.,→
+- Your task is to identify semantically equivalent or near-equivalent CONCEPT NODES (is_core_entity=false)
+in a Knowledge Graph and propose merge groups to reduce redundancy and improve semantic coherence.,→
+- This is NOT topic discovery or unsupervised clustering; it is controlled concept normalization for graph
+consolidation.,→
+- Refer to Section`Input Format`to understand the input structure.
+- Refer to Section`Concept Merging Guidelines`for detailed rules.
+- Refer to Section`Output Format`for the required response structure.
+# Input Format
+- The input consists of:
+- Root Query: topic of the deep research report.
+- Current Knowledge Graph: existing graph with nodes and edges in this exact format:
+"knowledge_nodes": [
+"node_id": "n1", "knowledge": "Node content", "is_core_entity": true/false,
+...
+],
+"knowledge_edges": [
+"edge_id": "e1", "representation": "Source Node - relation -> Target Node",
+...
+]
+# Concept Merging Guidelines
+1) Semantic Equivalence Threshold
+- Merge concept nodes that share≥85% semantic meaning AND refer to the same underlying concept in the Root
+Query context.,→
+- This is semantic equivalence, not topical relatedness or surface lexical similarity.
+- Example: "Virtue Ethics" + "Ethics of Character Excellence" -> merge.
+- Example: "Rational Inquiry" + "Empirical Observation" -> do NOT merge.
+2) Core Entity Protection Rule
+- NEVER merge nodes where is_core_entity=true.
+- Only concept nodes (is_core_entity=false) are eligible.
+3) Representative (Canonical) Concept Naming
+- For each merge group, output one representative concept name capturing the shared meaning.
+- Prefer semantic precision over brevity.
+- If one original node name already captures >90% of the combined meaning, reuse it unchanged.
+4) Merge Group Quality Control
+- Output ONLY merge groups with 2+ nodes (no singletons).
+- Avoid over-merging: do NOT group nodes that are merely related or adjacent concepts.
+- Maximum cluster size: 5 nodes (split if larger to maintain cohesion).
+5) Justification Requirements
+- Each merge group must include a concise, domain-specific justification (<50 words).
+- Justify via conceptual meaning in context, not just similar wording.
+# Output Format
+- Output STRICTLY one valid JSON object and NOTHING else:
+28
+A Tale of Two Graphs: Separating Knowledge Exploration from Outline Structure for Open-Ended Deep Research
+"clusters": [
+"cluster_id": "c1",
+"representative_concept": "New merged concept name",
+"source_node_ids": ["n4","n5"],
+"similarity_justification": "Concise explanation (<50 words)"
+]
+- Critical rules:
+- cluster_id format: "cnumber" starting from c1.
+- source_node_ids must be strings like ["n4","n5",...].
+- Include only clusters with 2+ nodes.
+- Sort clusters by the first node ID numerically.
+29

@@ -1,0 +1,3 @@
+- [Codex 5.6 token cost cliff](codex-5-6-token-cost-rule.md) — keep codex input <272K tokens or the whole request is billed 2x/1.5x
+- [Investigate then consult](investigate-then-consult.md) — no rough judgments; deeply investigate any finding, then consult the user before acting
+- [Research Planning Gate](research-planning-gate.md) — deep-research gate initiative; branch gate-s0-s5; two absolute rules (faithfulness frozen, scope-at-retrieval)

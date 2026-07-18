@@ -1,0 +1,529 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 3700651..b2fc66f 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -6371,57 +6371,65 @@ def compose_report_with_reliability(final_report: str, reliability_md: str) -> s
+     )
+ 
+ 
+-# ── FIX 4 (report shape — literature review, not an audit dump) ───────────────────────────────────
++# ── FIX 4 (report shape — ARCHETYPE-driven, not an audit dump) ────────────────────────────────────
+ # The audit run scored the report as machinery-first: Key Findings + Methods preceded any thematic
+ # section, so the statement decomposer opened on audit counts, not a claim, and Instruction-Following
+-# read a report that looked like a receipts dump. FIX 4 reshapes ONLY the render-assembly order:
++# read a report that looked like a receipts dump. FIX 4 reshapes ONLY the render-assembly order, by
++# the report ARCHETYPE resolved from the contract's deliverable.kind (report_skeleton.py). For the
++# default ``review`` archetype:
+ #
+-#   Title -> Introduction and Scope -> thematic ### sections -> Analytical synthesis -> Bibliography
++#   Title -> {framing heading} -> thematic ### sections -> Analytical synthesis -> Bibliography
+ #   -> ## Appendix (methods / disclosures — not scored as report claims)
+ #
++# Other archetypes vary the Key-Findings POSITION (memo/brief LEAD with it) and the framing heading.
++#
+ # POSITION ONLY: every block is MOVED, nothing is deleted; the disclosure text still ships in
+ # report.md (and the manifest). Per CLAUDE.md §-1.3 placement/repetition is a QUALITY concern, not a
+ # faithfulness one (precedent: the T5 audit-machinery appendix + render-only dedup). Every kept
+ # finding sentence stays byte-identical strict_verify output — this reorders blocks, it never
+-# re-composes a verified sentence. LAW VI kill-switch PG_REPORT_LITREVIEW_SHAPE (default ON); OFF =>
++# re-composes a verified sentence. LAW VI kill-switch PG_REPORT_SHAPE (default ON); OFF =>
+ # byte-identical to the pre-fix machinery-first order.
+-_LITREVIEW_SHAPE_ENV = "PG_REPORT_LITREVIEW_SHAPE"
++#
++# GENERALIZE Fix 4 (GATE_GENERALIZE_FIX45_PLAN §2): the shape is no longer the journal-literal
++# "litreview" order. It is now driven by the closed ARCHETYPE registry (report_skeleton.py) keyed off
++# the contract's deliverable.kind — review (default) / systematic_review / memo / brief / comparison /
++# explainer. The Key-Findings POSITION varies by archetype (memo/brief lead with it, BLUF) and the
++# framing HEADING is archetype-driven; the ``review`` default reproduces the landed d44ee36 order
++# byte-for-byte. Env renamed PG_REPORT_LITREVIEW_SHAPE -> PG_REPORT_SHAPE (default still ON).
++_REPORT_SHAPE_ENV = "PG_REPORT_SHAPE"
+ 
+ 
+-def litreview_shape_enabled() -> bool:
++def report_shape_enabled() -> bool:
+     """FIX 4 kill-switch. Default ON; OFF => the legacy machinery-first body order (byte-identical)."""
+-    return os.environ.get(_LITREVIEW_SHAPE_ENV, "1").strip().lower() not in (
++    return os.environ.get(_REPORT_SHAPE_ENV, "1").strip().lower() not in (
+         "", "0", "false", "no", "off",
+     )
+ 
+ 
+-def build_intro_and_scope_md(objective: str) -> str:
+-    """FIX 4(a): a short CLAIM-FREE, CITATION-FREE ``## Introduction and Scope`` framing paragraph
+-    derived from the contract OBJECTIVE (the research question). It asserts NO finding and carries NO
+-    ``[N]`` citation — it is pure framing, the same class as the champion's shipped intro — so it can
+-    never reach the faithfulness gate as an unverified claim. Returns ``""`` for an empty objective
+-    (no empty heading). PURE (no I/O).
++# FIX 4(a)/(b) — GENERALIZED (GATE_GENERALIZE_FIX45_PLAN §2). The claim-free framing paragraph and
++# the block-ordering are now the pure ARCHETYPE-driven functions in report_skeleton.py. These two
++# names are kept as thin BACK-COMPAT delegates onto the module so nothing that still imports them
++# breaks; the real logic (closed archetype table, KF-position-by-archetype, methods-in-body carve-out)
++# lives in the pure module (no I/O, no LLM, no provenance import). The ``review`` default reproduces
++# the landed d44ee36 order + intro byte-for-byte.
+ 
+-    The framing paragraph is emitted DIRECTLY UNDER the H1 (its own ``## Introduction and Scope``
+-    subheading follows the prose) so the H1 title is never orphan-dropped by ``dedup_identical_
+-    paragraphs`` (which drops a header whose next non-blank block is another header). This keeps the
+-    report opening on ``# `` while still labelling the framing section."""
+-    obj = (objective or "").strip().rstrip(".")
+-    if not obj:
+-        return ""
+-    return (
+-        f"This report reviews the available evidence on {obj}. It synthesizes the findings that "
+-        "survived span-level verification, organized by theme; each cited claim is carried verbatim "
+-        "from a source span. Methods, source-hygiene disclosures, and the reliability audit are "
+-        "collected in the appendix at the end.\n\n"
+-        "## Introduction and Scope\n\n"
+-        f"Scope: this review is bounded to the question of {obj}. It reports only claims that passed "
+-        "span-level verification; unverified or off-topic material is excluded from the findings and "
+-        "disclosed in the appendix.\n\n"
++
++def build_framing_md(objective: str, archetype: "Any" = None) -> str:
++    """Delegate to report_skeleton.build_framing_md. ``archetype=None`` => the default ``review``
++    shape (== the landed ``## Introduction and Scope`` framing, byte-identical). Claim-free,
++    citation-free; ``""`` for an empty objective or an empty framing title (a BLUF memo)."""
++    from src.polaris_graph.generator.report_skeleton import (  # noqa: PLC0415
++        ARCHETYPES,
++        DEFAULT_ARCHETYPE,
++        build_framing_md as _build_framing_md,
+     )
++    if archetype is None:
++        archetype = ARCHETYPES[DEFAULT_ARCHETYPE]
++    return _build_framing_md(objective, archetype)
+ 
+ 
+-def reshape_report_body_litreview(
++def order_report_blocks(
++    archetype: "Any",
+     *,
+     key_findings_md: str,
+     sections_concat: str,
+@@ -6430,25 +6438,70 @@ def reshape_report_body_litreview(
+     biblio_section_md: str,
+     cwf_disclosed_md: str,
+     drop_disclosure_md: str,
++    methods_is_machinery: bool = True,
+ ) -> "tuple[str, str]":
+-    """FIX 4(b): reshape the report BODY into the literature-review order and split the audit
+-    MACHINERY out into a trailing appendix. Returns ``(scored_body, machinery_appendix)``.
+-
+-    ``scored_body`` order:  thematic ### sections (incl. ``### Limitations``)  ->  ``## Analytical
+-    synthesis`` (depth layer)  ->  ``## Key Findings`` (verbatim verified recap)  ->  ``## Bibliography``.
++    """Delegate to report_skeleton.order_report_blocks. Returns ``(scored_body, machinery_appendix)``
++    as an archetype-driven PERMUTATION of the existing render blocks (KF position by archetype;
++    methods stays in the scored body when it is a required contract section). POSITION ONLY —
++    count-invariant, nothing dropped."""
++    from src.polaris_graph.generator.report_skeleton import (  # noqa: PLC0415
++        order_report_blocks as _order_report_blocks,
++    )
++    return _order_report_blocks(
++        archetype,
++        key_findings_md=key_findings_md,
++        sections_concat=sections_concat,
++        depth_layer_md=depth_layer_md,
++        methods_md=methods_md,
++        biblio_section_md=biblio_section_md,
++        cwf_disclosed_md=cwf_disclosed_md,
++        drop_disclosure_md=drop_disclosure_md,
++        methods_is_machinery=methods_is_machinery,
++    )
+ 
+-    ``machinery_appendix``:  ``## Methods`` + the CWF promotion-eligibility disclosure + the full-drop
+-    disclosure — the audit/disclosure text, appended (by the caller) under the single typed
+-    ``## Appendix`` boundary alongside the reliability header.
+ 
+-    POSITION ONLY: every input block is placed exactly once; NOTHING is dropped or edited. The Key
+-    Findings block moves BELOW the thematic sections (so the report no longer opens on machinery) but
+-    stays a first-class verbatim-findings surface, not appendix material. PURE (no I/O)."""
+-    scored_body = (
+-        sections_concat + depth_layer_md + key_findings_md + biblio_section_md
+-    )
+-    machinery_appendix = methods_md + cwf_disclosed_md + drop_disclosure_md
+-    return scored_body, machinery_appendix
++def _insert_banner_after_h1(report_md: str, banner: str) -> str:
++    """FIX 4 (U6): insert the D8-unadjudicated ``banner`` AFTER the report's H1 title block so the
++    report opens on the ``# `` title, not on a disclosure blockquote. The banner STRING is placed
++    VERBATIM (byte-identical — no builder edit). "After the H1 title block" = immediately after the
++    first line that starts with ``# `` and its trailing blank line(s). Falls back to a PREPEND when
++    no H1 is present (the banner must still ship — a disclosure is never silently dropped). PURE."""
++    if not report_md:
++        return banner + report_md
++    lines = report_md.split("\n")
++    h1_idx = None
++    for i, ln in enumerate(lines):
++        if ln.startswith("# ") and not ln.startswith("## "):
++            h1_idx = i
++            break
++    if h1_idx is None:
++        return banner + report_md  # no H1 => fail-safe prepend (banner still ships)
++    # Advance past the H1 line and any immediately-following blank lines so the banner sits in the
++    # gap between the title and the first body block.
++    insert_at = h1_idx + 1
++    while insert_at < len(lines) and lines[insert_at].strip() == "":
++        insert_at += 1
++    head = "\n".join(lines[:insert_at])
++    tail = "\n".join(lines[insert_at:])
++    # Keep a blank line between the title block and the banner, and preserve the banner's own bytes.
++    return head + "\n\n" + banner + tail
++
++
++def _relabel_key_findings_header(key_findings_md: str, archetype: "Any") -> str:
++    """FIX 4 item 5: swap the Key-Findings HEADER label to the archetype's ``kf_title`` — CHROME
++    ONLY. Rewrites at most the single leading ``## Key Findings`` header LINE to ``## {kf_title}``
++    (e.g. a memo => ``## Bottom Line``); the one-sentence preamble and every finding BULLET are left
++    byte-identical. A no-op (returns the input unchanged) when the block is empty, the archetype's
++    kf_title is the canonical ``Key Findings``, or the canonical header is not the first line. PURE."""
++    if not key_findings_md:
++        return key_findings_md
++    title = (getattr(archetype, "kf_title", "") or "").strip()
++    if not title or title == "Key Findings":
++        return key_findings_md
++    _canonical = "## Key Findings\n"
++    if key_findings_md.startswith(_canonical):
++        return f"## {title}\n" + key_findings_md[len(_canonical):]
++    return key_findings_md
+ 
+ 
+ def render_summary_table_into_artifact(
+@@ -14335,6 +14388,17 @@ async def run_one_query(
+         # receipt sink for the quality/topicality eligibility pass below. When PG_GATE
+         # is OFF this whole block no-ops and `protocol` is byte-identical.
+         _gate_policy = None
++        # GENERALIZE Fix 4: capture the pinned ResearchContract so the render-assembly seam can
++        # resolve the report ARCHETYPE (deliverable.kind) + the methods-in-body carve-out
++        # (contract.sections). None (no gate / no contract) => the default ``review`` archetype
++        # (== the landed d44ee36 shape), disclosed as an assumption. Contract-presence is the
++        # second guard behind the PG_REPORT_SHAPE flag (double-guarded per the plan).
++        _shape_contract = None
++        # GENERALIZE Fix 5 §3.5: the source-KIND eligibility DEGRADE disclosure line (empty
++        # unless a hard allowed_source_kinds restriction degrades to prefer+disclose — which is
++        # always the case on a frozen/replayed corpus with no matching acquisition receipt). Rides
++        # into the machinery appendix via ``_drop_disclosure_md`` below; empty => byte-identical.
++        _source_kind_disclosure_md = ""
+         _gate_scope_receipts: "list[Any]" = []
+         try:
+             from src.polaris_graph.planning.gate_flags import (  # noqa: PLC0415
+@@ -14345,6 +14409,7 @@ async def run_one_query(
+                     _clean_question, run_dir, run_id=run_id, log=_log
+                 )
+                 if _gate_art_sel is not None:
++                    _shape_contract = getattr(_gate_art_sel, "contract", None)
+                     from src.polaris_graph.planning.retrieval_projection import (  # noqa: PLC0415
+                         from_artifact as _from_artifact_sel,
+                     )
+@@ -14591,6 +14656,58 @@ async def run_one_query(
+                     _elig_excluded |= set(_o_plan.eligibility_excluded_ids)
+                     _elig_records.extend(_o_plan.excluded_records)
+ 
++                # (c-bis) SOURCE-KIND eligibility (GENERALIZE Fix 5 §3.5, U11) — the C2-safe
++                #     replacement for the RETIRED journal_only_filter hard mask. TWO effects:
++                #       (i)  EXCLUSIONS ALWAYS WIN — every ``excluded_source_kinds`` row is masked
++                #            from the citable menu unconditionally (never adequacy/receipt-gated,
++                #            never re-included); this is INV-2 (an excluded-kind row never cites even
++                #            if it is a T1 quality PASS), applied at the SAME menu seam.
++                #       (ii) HARD ``allowed_source_kinds`` arms a nonmatching-mask ONLY behind
++                #            PG_SOURCE_RESTRICTION_HARD AND a HARD term force AND corpus-adequacy
++                #            AND a matching acquisition receipt (contract_hash). A frozen/replayed
++                #            unscoped corpus (no receipt) NEVER arms it — it DEGRADES to the visible
++                #            kind PREFERENCE reorder below (d) + one disclosure line in the machinery
++                #            appendix. This is the strongest C2 guard against the 997->131 replay.
++                #     Empty allowed AND empty excluded => byte-identical no-op. Upstream of
++                #     strict_verify; evidence-positive-only (never re-admits a FAIL). Fail-open.
++                try:
++                    from src.polaris_graph.retrieval.quality_eligibility import (  # noqa: PLC0415
++                        build_source_kind_eligibility as _build_kind_elig,
++                    )
++                    from src.polaris_graph.planning.retrieval_projection import (  # noqa: PLC0415
++                        _source_restriction_hard_enabled as _kind_hard_enabled,
++                    )
++                    # No live acquisition receipt is stamped on a frozen/replayed corpus, so the
++                    # hard allowed-kind mask degrades to prefer+disclose (the C2-safe default). A
++                    # future retrieval-side receipt with a matching contract_hash arms the mask
++                    # without any code change here.
++                    _kind_receipt = locals().get("_acquisition_receipt")
++                    _k_plan = _build_kind_elig(
++                        _gate_policy, evidence_for_gen,
++                        _kind_receipt,
++                        hard_enabled=_kind_hard_enabled(),
++                    )
++                    _gate_scope_receipts.extend(r.to_dict() for r in _k_plan.receipts)
++                    _elig_excluded |= set(_k_plan.eligibility_excluded_ids)
++                    _elig_records.extend(_k_plan.excluded_records)
++                    if _k_plan.armed:
++                        _log(
++                            "[quality_eligibility] §3.5: HARD source-kind mask ARMED "
++                            f"(adequate n={_k_plan.in_scope_count}, receipt-matched) — "
++                            f"{len(_k_plan.eligibility_excluded_ids)} out-of-scope-kind row(s) "
++                            "withheld from grounding (KEPT in corpus + disclosure)."
++                        )
++                    elif _k_plan.disclosure:
++                        # DEGRADED: capture the one disclosure line for the machinery appendix.
++                        _source_kind_disclosure_md = (
++                            "\n\n## Source-kind scope note (audit appendix — not scored as a report claim)\n\n"
++                            + _k_plan.disclosure
++                            + "\n"
++                        )
++                        _log(f"[quality_eligibility] §3.5: {_k_plan.disclosure}")
++                except Exception as _kind_elig_exc:  # noqa: BLE001 - fail-open: never abort
++                    _log(f"[quality_eligibility] §3.5 source-kind eligibility skipped: {_kind_elig_exc}")
++
+                 if _elig_excluded:
+                     _kept_elig = [_r for _r in evidence_for_gen if _elig_url(_r) not in _elig_excluded]
+                     _masked_e = len(evidence_for_gen) - len(_kept_elig)
+@@ -14603,44 +14720,47 @@ async def run_one_query(
+                         )
+                         evidence_for_gen = _kept_elig
+ 
+-                # (d) FIX 5(d): journal-only = visible PREFERENCE via SELECTION ORDERING,
+-                #     not starvation. When the contract PREFERS peer-reviewed journals
+-                #     (allowed_source_kinds carries it) but did NOT hard-restrict, STABLY
+-                #     reorder the selected menu so journal/DOI rows lead — the bibliography
+-                #     share rises and the S4 audit scores a real journal share, while NOTHING
+-                #     is dropped (pure permutation, every row still citable). Fail-open.
++                # (d) GENERALIZED Fix 5(d): allowed-source-KIND = visible PREFERENCE via
++                #     SELECTION ORDERING, not starvation. When the contract PREFERS a set of
++                #     source kinds (allowed_source_kinds) but did NOT hard-restrict, STABLY
++                #     reorder the selected menu so in-scope-KIND rows lead — the bibliography
++                #     in-scope share rises and the S4 audit scores a real in-scope-kind share,
++                #     while NOTHING is dropped (pure permutation, every row still citable).
++                #     Kind-agnostic: keyed on the row's classified KIND ∈ allowed (NOT "journal"
++                #     literal). Empty allowed => every row False => stable no-op (byte-identical).
++                #     Fail-open.
+                 try:
+-                    _jo_pref = any(
+-                        "journal" in str(_k).lower()
+-                        for _k in (getattr(_gate_policy, "allowed_source_kinds", None) or [])
++                    from src.polaris_graph.retrieval.quality_eligibility import (  # noqa: PLC0415
++                        classified_kind as _kind_of,
++                        normalize_kinds as _norm_kinds,
+                     )
+-                    if _jo_pref and evidence_for_gen:
+-                        from src.polaris_graph.retrieval.quality_eligibility import (  # noqa: PLC0415
+-                            _has_doi_or_journal_credential as _jo_credential,
+-                        )
+ 
+-                        def _is_journal_lead(_r: "Any") -> bool:
++                    _allowed_kinds = _norm_kinds(
++                        getattr(_gate_policy, "allowed_source_kinds", None)
++                    )
++                    if _allowed_kinds and evidence_for_gen:
++
++                        def _kind_match(_r: "Any") -> bool:
+                             try:
+-                                _u = _elig_url(_r)
+-                                return bool(_jo_credential(_r, _u)[0])
++                                return _kind_of(_r) in _allowed_kinds
+                             except Exception:  # noqa: BLE001
+                                 return False
+ 
+-                        # stable partition: journal/DOI rows first, original order preserved
++                        # stable partition: in-scope-KIND rows first, original order preserved
+                         # within each group (Python sort is stable; nothing added/removed).
+                         _n_before = len(evidence_for_gen)
+                         evidence_for_gen = sorted(
+-                            evidence_for_gen, key=lambda _r: 0 if _is_journal_lead(_r) else 1
++                            evidence_for_gen, key=lambda _r: 0 if _kind_match(_r) else 1
+                         )
+-                        _n_lead = sum(1 for _r in evidence_for_gen if _is_journal_lead(_r))
+-                        assert len(evidence_for_gen) == _n_before, "journal-first reorder changed count"
++                        _n_lead = sum(1 for _r in evidence_for_gen if _kind_match(_r))
++                        assert len(evidence_for_gen) == _n_before, "in-scope-kind reorder changed count"
+                         _log(
+-                            f"[quality_eligibility] FIX 5(d): journal-preference selection ordering "
+-                            f"— {_n_lead}/{_n_before} journal/DOI row(s) moved to the front of the "
++                            f"[quality_eligibility] FIX 5(d): in-scope-kind selection ordering "
++                            f"— {_n_lead}/{_n_before} in-scope-kind row(s) moved to the front of the "
+                             "citable menu (pure permutation; nothing dropped)."
+                         )
+                 except Exception as _jo_ord_exc:  # noqa: BLE001 - ordering is best-effort
+-                    _log(f"[quality_eligibility] journal-preference ordering skipped: {_jo_ord_exc}")
++                    _log(f"[quality_eligibility] in-scope-kind ordering skipped: {_jo_ord_exc}")
+ 
+                 # Durable receipts + disclosure (consumed by audit_contract later).
+                 if _gate_scope_receipts or _elig_records:
+@@ -17300,6 +17420,18 @@ async def run_one_query(
+                     )
+         except Exception as _dd_exc:  # noqa: BLE001 — additive disclosure; never abort the report
+             _log(f"[drop-disclosure] skipped (fail-open): {_dd_exc}")
++        # GENERALIZE Fix 5 §3.5: fold the source-KIND degrade disclosure (a hard allowed-kind
++        # restriction that could not be enforced on this corpus -> prioritized-not-enforced) into
++        # the drop-disclosure machinery block so ``order_report_blocks`` routes it below the audit
++        # appendix boundary. Empty (no source-kind clause, or the mask armed) => byte-identical.
++        if _source_kind_disclosure_md:
++            _drop_disclosure_md = (_drop_disclosure_md or "") + _source_kind_disclosure_md
++            try:
++                manifest.setdefault("scope_notes", []).append(
++                    _source_kind_disclosure_md.strip()
++                )
++            except Exception:  # noqa: BLE001 — manifest note is additive; never abort
++                pass
+         # I-arch-011 PR-d (#1268): abstract (front) + conclusion (end) synthesis layer, drafted
+         # LAST from the ALREADY-strict_verify-PASSED body (SectionResult.verified_text) only —
+         # zero new sourced findings, no new LLM call (pure verbatim re-presentation in the default
+@@ -17451,33 +17583,101 @@ async def run_one_query(
+                 )
+             except Exception as _cwf_exc:  # noqa: BLE001 — additive disclosure; never abort the report
+                 _log(f"[cwf-disclosed-block] skipped (fail-open): {_cwf_exc}")
+-        # FIX 4(a)+(b): reshape the render assembly into a literature-review shape. POSITION ONLY —
+-        # every block below is MOVED, none deleted: the report now opens on the H1 title + a claim-
+-        # free ``## Introduction and Scope`` framing paragraph, the thematic sections precede the
+-        # Key-Findings recap, and the Methods / disclosure MACHINERY moves into the trailing typed
+-        # appendix (composed with the reliability header at the report.md write). Every kept finding
+-        # sentence stays byte-identical strict_verify output — this reorders blocks, it never re-
+-        # composes a verified sentence. Default-ON kill-switch PG_REPORT_LITREVIEW_SHAPE; OFF => the
+-        # legacy machinery-first order (byte-identical).
+-        _litreview_machinery_appendix = ""
+-        if litreview_shape_enabled():
+-            # Strip any injected-instruction appendix from the objective BEFORE it reaches the intro —
++        # FIX 4(a)+(b) — GENERALIZED (GATE_GENERALIZE_FIX45_PLAN §2). Reshape the render assembly by
++        # the report ARCHETYPE resolved from the contract's deliverable.kind (review [default] /
++        # systematic_review / memo / brief / comparison / explainer). POSITION ONLY — every block below
++        # is MOVED, none deleted: the report opens on the H1 title + (for archetypes with a framing
++        # title) a claim-free framing paragraph; the Key-Findings recap sits where the archetype's
++        # kf_position says (memo/brief LEAD with it, BLUF); and the Methods / disclosure MACHINERY moves
++        # into the trailing typed appendix — EXCEPT a Methods that a contract.sections requirement names
++        # stays in the scored body (systematic-review / PRISMA carve-out). Every kept finding sentence
++        # stays byte-identical strict_verify output — this reorders opaque blocks, it never re-composes
++        # a verified sentence. DOUBLE-GUARDED: PG_REPORT_SHAPE (default ON) AND a resolvable archetype;
++        # the ``review`` default (no contract) reproduces the landed d44ee36 order + intro byte-for-byte.
++        # OFF => the legacy machinery-first order (byte-identical).
++        _report_machinery_appendix = ""
++        _shape_archetype = None
++        if report_shape_enabled():
++            from src.polaris_graph.generator.report_skeleton import (  # noqa: PLC0415
++                resolve_archetype as _resolve_archetype,
++                contract_requires_section as _contract_requires_section,
++            )
++            _shape_archetype, _arch_assumed, _arch_opaque_kind = _resolve_archetype(_shape_contract)
++            # Disclose the assumption when the archetype was defaulted (no contract kind, or an
++            # unmapped kind preserved verbatim as opaque). Best-effort: a disclosure emit must never
++            # abort the report. The default ``review`` shape is byte-identical to the landed build, so
++            # this is a transparency note, not a behavior change.
++            if _arch_assumed:
++                try:
++                    _arch_note = (
++                        f"report archetype assumed '{_shape_archetype.key}' "
++                        + (
++                            f"(contract named unmapped deliverable.kind '{_arch_opaque_kind}', "
++                            "preserved verbatim; default shape used)"
++                            if _arch_opaque_kind
++                            else "(contract named no deliverable.kind; default shape used)"
++                        )
++                    )
++                    manifest.setdefault("assumptions_ledger", []).append(_arch_note)
++                    _log(f"[report-shape]  {_arch_note}")
++                except Exception:  # noqa: BLE001 — disclosure is additive; never abort the report
++                    pass
++            # Strip any injected-instruction appendix from the objective BEFORE it reaches the framing —
+             # the SAME sanitizer the H1 title uses, so an injected instruction can never surface as
+-            # framing text (defense-in-depth; the intro is claim-free framing, not a scored claim).
+-            _intro_md = build_intro_and_scope_md(
+-                _strip_injected_instruction_appendix(_clean_question)
++            # framing text (defense-in-depth; the framing is claim-free framing, not a scored claim).
++            _intro_md = build_framing_md(
++                _strip_injected_instruction_appendix(_clean_question),
++                _shape_archetype,
+             )
+             if _intro_md:
+                 _assembled_title = _assembled_title + _intro_md
+-            _assembled_body, _litreview_machinery_appendix = reshape_report_body_litreview(
+-                key_findings_md=_key_findings,
++            # Methods-in-body carve-out: a Methods section named by contract.sections is SCORED content
++            # (PRISMA systematic review), not machinery. 2-line guard, no subsystem.
++            _methods_is_machinery = not _contract_requires_section(_shape_contract, "methods")
++            # Item 5: archetype-driven KF header label (chrome only — bullets byte-identical). The
++            # ``review`` default keeps ``## Key Findings`` verbatim; a memo relabels to ``## Bottom
++            # Line``. No-op string when the archetype's kf_title is already "Key Findings".
++            _key_findings_shaped = _relabel_key_findings_header(_key_findings, _shape_archetype)
++            _assembled_body, _report_machinery_appendix = order_report_blocks(
++                _shape_archetype,
++                key_findings_md=_key_findings_shaped,
+                 sections_concat=sections_concat,
+                 depth_layer_md=_depth_layer,
+                 methods_md=methods,
+                 biblio_section_md=biblio_section,
+                 cwf_disclosed_md=_cwf_disclosed_md,
+                 drop_disclosure_md=_drop_disclosure_md,
++                methods_is_machinery=_methods_is_machinery,
+             )
++            # Render-time PERMUTATION invariant: the multiset of the seven render blocks must be
++            # unchanged across (scored_body + machinery_appendix) — nothing deleted, nothing
++            # duplicated, order only. The framing paragraph is the only NEW text (claim-free), lifted
++            # into the title above, so it is excluded from the multiset by comparing block-presence.
++            # FAIL-LOUD, NEVER-ABORT: on a violation (a shaping bug dropping/duplicating a block) fall
++            # back to the legacy concat — which is provably complete + byte-identical to the OFF path —
++            # and log loudly, rather than shipping an incomplete report OR aborting the run.
++            _shape_blocks_in = [
++                _key_findings_shaped, sections_concat, _depth_layer, methods,
++                biblio_section, _cwf_disclosed_md, _drop_disclosure_md,
++            ]
++            _shape_combined = _assembled_body + _report_machinery_appendix
++            _shape_perm_ok = all(
++                (not _blk) or _shape_combined.count(_blk) == 1 for _blk in _shape_blocks_in
++            )
++            if not _shape_perm_ok:
++                _log(
++                    "[report-shape]  PERMUTATION INVARIANT VIOLATED (a render block was dropped or "
++                    "duplicated) — falling back to the legacy machinery-first concat (complete + "
++                    "byte-identical to PG_REPORT_SHAPE=0) so no content is lost."
++                )
++                _assembled_body = (
++                    _key_findings + sections_concat + _depth_layer + methods
++                    + biblio_section + _cwf_disclosed_md + _drop_disclosure_md
++                )
++                _report_machinery_appendix = ""
++                # the framing was already appended to the title; drop it so the fallback matches the
++                # legacy shape as closely as possible (framing is claim-free, safe to keep, but the
++                # legacy path emits none — prefer the exact legacy body).
+         else:
+             _assembled_body = (
+                 _key_findings + sections_concat + _depth_layer + methods
+@@ -17879,13 +18079,13 @@ async def run_one_query(
+         # full-drop disclosure — moved out of the scored body above) INTO the reliability/audit
+         # appendix so it lands under the SINGLE typed ``## Appendix`` boundary compose_report_with_
+         # reliability emits, ahead of the reliability header. POSITION ONLY (nothing deleted); the
+-        # disclosure still ships in report.md + the manifest. No-op when the litreview shape is OFF
+-        # (``_litreview_machinery_appendix`` stays "" => byte-identical).
+-        if _litreview_machinery_appendix.strip():
++        # disclosure still ships in report.md + the manifest. No-op when the report shape is OFF
++        # (``_report_machinery_appendix`` stays "" => byte-identical).
++        if _report_machinery_appendix.strip():
+             _reliability_md = (
+-                _litreview_machinery_appendix.rstrip() + "\n\n" + (_reliability_md or "").lstrip()
++                _report_machinery_appendix.rstrip() + "\n\n" + (_reliability_md or "").lstrip()
+                 if (_reliability_md or "").strip()
+-                else _litreview_machinery_appendix
++                else _report_machinery_appendix
+             )
+         (run_dir / "report.md").write_text(
+             compose_report_with_reliability(_report_artifact_body, _reliability_md), encoding="utf-8"
+@@ -20990,12 +21190,24 @@ async def run_one_query(
+                         _banner_existing = _banner_report_path.read_text(encoding="utf-8")
+                         # Idempotency marker = the banner's distinctive opening clause.
+                         if "STRONGEST VERIFIER (four-role D8) DID NOT RUN" not in _banner_existing:
+-                            _banner_report_path.write_text(
+-                                _d8_banner + _banner_existing, encoding="utf-8"
+-                            )
++                            # GENERALIZE Fix 4 (U6, §2.4): the banner is disclosure CHROME, and the
++                            # landed prepend made the report OPEN ON A BLOCKQUOTE (above the H1). In
++                            # shape-ON mode insert the banner AFTER the H1/title block so the report
++                            # opens on the ``# `` title; in legacy/OFF mode keep the current prepend.
++                            # The banner STRING is byte-identical either way (builder untouched,
++                            # provenance_generator.py 0-diff) — only the insertion POINT moves.
++                            if report_shape_enabled():
++                                _banner_new = _insert_banner_after_h1(
++                                    _banner_existing, _d8_banner
++                                )
++                                _banner_placement = "inserted after the H1 title"
++                            else:
++                                _banner_new = _d8_banner + _banner_existing
++                                _banner_placement = "prepended"
++                            _banner_report_path.write_text(_banner_new, encoding="utf-8")
+                             _log(
+-                                "[d8-banner]   report.md prepended with the D8-unadjudicated "
+-                                "banner (release_disclosure.adjudicated=False)."
++                                f"[d8-banner]   report.md {_banner_placement} with the "
++                                "D8-unadjudicated banner (release_disclosure.adjudicated=False)."
+                             )
+             except Exception as _db_exc:  # noqa: BLE001 — additive disclosure; never abort the run
+                 _log(f"[d8-banner]   skipped (fail-open): {_db_exc}")

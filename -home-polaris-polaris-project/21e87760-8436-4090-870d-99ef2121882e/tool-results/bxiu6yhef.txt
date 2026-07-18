@@ -1,0 +1,223 @@
+[S0 #1] REASONS: binding_qualifier_dropped:ev_094,ev_140
+   The Fourth Industrial Revolution, commonly referred to as Industry 4.0, is characterized by a fusion of technologies that blurs the lines between the physical, digital, and biological spheres, with artificial intelligence serving as a core driving force [#ev:ev_094:0-800][#ev:ev_140:3700-4500].
+
+[S0 #2] REASONS: no_integer_overlap_any_cited_span:ev_092,ev_094:missing=['30'];binding_qualifier_dropped:ev_092,ev_094
+   Unlike previous industrial revolutions, which unfolded over 30–80 years, the Fourth Industrial Revolution evolves at an exponential rather than linear pace, with AI already delivering measurable productivity improvements within 1–3 years of deployment [#ev:ev_094:697-1497][#ev:ev_092:1800-2600].
+
+[S0 #3] REASONS: entailment_failed:ev_092:verdict=NEUTRAL:reason=The SENTENCE adds the specific economic term 'total factor productivity' which i
+   Historical context underscores the magnitude of this shift: during the First Industrial Revolution, total factor productivity growth from 1780 to 1830 averaged only about 0.3% per year, whereas current-generation AI models are estimated to add approximately 1.3–1.8 percentage points to annual U.S. labor productivity growth over the coming decade [#ev:ev_092:1700-2500].
+
+[S0 #4] REASONS: no_provenance_token
+   However, a study of U.S.
+
+[S0 #5] REASONS: no_integer_overlap_any_cited_span:ev_006,ev_152:missing=['3'];percent_not_in_cited_span:ev_006,ev_152:missing=['3']
+   Even workers in high-wage roles heavily exposed to AI saw their share of total employment grow by about 3% over five years, because AI boosted firm productivity, and a large increase in AI use is linked to about 6% higher employment growth and 9.5% more sales growth over five years [#ev:ev_006:1200-2000][#ev:ev_152:0-800].
+
+[S0 #6] REASONS: binding_qualifier_dropped:ev_152
+   One analysis notes that early adopters of AI achieve 2–3 times higher excess returns compared to laggard firms, reflecting the profound impact of executives' digital literacy on corporate AI development in the Industry 4.0 era [#ev:ev_152:1500-2300].
+
+[S0 #7] REASONS: entailment_failed:ev_007:verdict=CONTRADICTED:reason=The span states a 0.001% increase in medium-skilled labour, while the sentence c
+   Research on Chinese provincial panel data from 2010 to 2019 demonstrates that AI increases the demand for high- and medium-skilled labour while reducing demand for low-skilled labour, with a one-unit increase in AI contributing to a 0.063% increase in high-skilled employment and a 0.001% decrease in low-skilled employment [#ev:ev_007:5400-6200].
+
+[S0 #8] REASONS: no_integer_overlap_any_cited_span:ev_012:missing=['20', '39'];percent_not_in_cited_span:ev_012:missing=['20', '39']
+   This pattern echoes broader historical trends in skill-biased technological change: the share of hours worked by college-educated workers nearly doubled from 20% in 1979 to 39% in 2018, while U.S. productivity growth slowed from 2.8% annually between 1947 and 1973 to 1.3% from 2007 to 2017 [#ev:ev_012:1700-2500].
+
+[S1 #9] REASONS: entailment_failed:ev_003:verdict=NEUTRAL:reason=The sentence introduces the claim that AI is a core driver of the Fourth Industr
+   AI is widely recognized as a core driver of the Fourth Industrial Revolution, with global business investment in artificial intelligence increasing 13-fold from US$14.57 billion in 2013 to US$189 billion in 2023 [#ev:ev_003:1000-1800].
+
+[S1 #10] REASONS: entailment_failed:ev_005:verdict=NEUTRAL:reason=The SENTENCE introduces 'rapid investment growth' which is not present in the SP
+   Despite this rapid investment growth, adoption among U.S. firms remained modest as of spring 2024, with only 5.4% of firms using AI technologies, up from 3.7% the year prior [#ev:ev_005:2500-3300].
+
+[S1 #11] REASONS: entailment_failed:ev_005:verdict=NEUTRAL:reason=The SPAN attributes the 1.4 percent time savings to 'Their analysis', while the 
+   Researchers at the Massachusetts Institute of Technology's Shaping the Future of Work initiative estimate that AI currently provides time savings amounting to only 1.4% of work hours [#ev:ev_005:3100-3900].
+
+[S1 #12] REASONS: percent_not_in_cited_span:ev_033:missing=['22.9', '23.8']
+   In the United Kingdom, however, full implementation of AI could lead to aggregate time savings across the whole economy worth up to 22.9% of total workforce time, with 23.8% of total private-sector time potentially saved [#ev:ev_033:1900-2700].
+
+[S1 #13] REASONS: percent_not_in_cited_span:ev_033:missing=['33.4', '46']
+   The largest potential time savings are seen in administrative occupations at 46% and sales occupations at 33.4% [#ev:ev_033:2400-3200].
+
+[S1 #14] REASONS: entailment_failed:ev_069:verdict=NEUTRAL:reason=The SENTENCE introduces the entity 'OECD' and the term 'labour markets', which a
+   The OECD reports that AI development and adoption will have a profound impact on labour markets, modifying the task and skill composition of jobs and the distribution of occupations in the economy [#ev:ev_069:200-1000].
+
+[S1 #15] REASONS: binding_qualifier_dropped:ev_029
+   The same review finds a 15%–22% wage premium for workers demonstrating AI-augmentation capabilities [#ev:ev_029:1000-1800].
+
+[S1 #16] REASONS: entailment_failed:ev_007:verdict=NEUTRAL:reason=The sentence introduces specific data sources (Chinese provincial panel data fro
+   Using Chinese provincial panel data from 2010 to 2019, one study shows that a one-unit increase in AI significantly contributes to the growth of high-skilled labour by 0.063 and medium-skilled labour by 0.001, while reducing low-skilled labour by 0.001 [#ev:ev_007:5200-6000].
+
+[S1 #17] REASONS: percent_not_in_cited_span:ev_033:missing=['0.6', '6']
+   In the United Kingdom, scenarios project that AI could raise the level of unemployment by up to 180,000 by 2030, with broader outcomes ranging from GDP being 0.6% to 6% higher by 2035 depending on the scenario [#ev:ev_033:1300-2100].
+
+[S1 #18] REASONS: percent_not_in_cited_span:ev_033:missing=['14', '5']
+   Across all four UK scenarios analyzed, the impact on GDP by 2050 could range from 5% to 14%, and unemployment could rise by as little as 290,000 or by as much as 1.5 million [#ev:ev_033:7800-8600].
+
+[S1 #19] REASONS: entailment_failed:ev_009:verdict=NEUTRAL:reason=The sentence introduces specific claims about the U.S., the first industrial rev
+   Historically, past innovation waves consistently displaced some jobs but ultimately increased productivity, created new roles, and expanded overall employment over time, as when U.S. agricultural employment fell from roughly 75% to just over 50% during the first industrial revolution, with real output per worker growing by about 0.84% annually between 1800 and 1850 [#ev:ev_009:1600-2400].
+
+[S1 #20] REASONS: no_content_word_overlap_any_cited_span:ev_003:sentence_words=['adoption', 'among', 'businesses', 'context', 'detailed']
+   AI adoption rates among businesses are detailed in the AI and the Fourth Industrial Revolution Context section [#ev:ev_003:1200-2000] [#ev:ev_003:1200-2000].
+
+[S1 #21] REASONS: no_content_word_overlap_any_cited_span:ev_005:sentence_words=['context', 'finding', 'fourth', 'industrial', 'investment']
+   The finding on lack of ROI from private AI investment is noted under AI and the Fourth Industrial Revolution Context [#ev:ev_005:1500-2300] [#ev:ev_005:1500-2300].
+
+[S2 #22] REASONS: binding_qualifier_dropped:ev_025
+   The World Economic Forum predicts that by 2025, 50% of tasks will be automated compared to the current 29%, with AI replacing 75 million jobs but generating 133 million new ones, yielding a net increase of 58 million jobs globally [#ev:ev_025:0-800].
+
+[S2 #23] REASONS: binding_qualifier_dropped:ev_025
+   Additionally, 75% of companies plan to adopt AI and 50% expect it to drive job growth, suggesting significant variation in expectations across industries [#ev:ev_025:0-800].
+
+[S2 #24] REASONS: number_not_in_any_cited_span:ev_006:missing=['6.4', '9.5'];no_integer_overlap_any_cited_span:ev_006:missing=['6'];percent_not_in_cited_span:ev_006:missing=['6', '6.4', '9.5']
+   A large increase in AI use is linked to about 6% higher employment growth and 9.5% more sales growth over five years, with legal jobs gaining the most at a predicted 6.4% increase in employment [#ev:ev_006:0-800].
+
+[S2 #25] REASONS: entailment_failed:ev_007:verdict=NEUTRAL:reason=The sentence introduces specific dataset details (Chinese provincial panel data 
+   Using Chinese provincial panel data from 2010 to 2019, one study finds that a one-unit increase in AI significantly contributes to 0.063% growth in high-skilled labor and 0.001% growth in medium-skilled labor, while reducing low-skilled labor by 0.001% [#ev:ev_007:5200-6000].
+
+[S2 #26] REASONS: no_integer_overlap_any_cited_span:ev_002:missing=['2'];percent_not_in_cited_span:ev_002:missing=['2']
+   Despite these dynamics, one analysis reports that current measures of exposure, automation, and augmentation show no sign of being related to changes in employment or unemployment, with the highest AI exposure group representing only around 2% of workers [#ev:ev_002:0-800].
+
+[S2 #27] REASONS: binding_qualifier_dropped:ev_005
+   As of spring 2024, only 5.4% of U.S. firms were using AI technologies, up from 3.7% the year prior, and the time savings AI currently provides amounts to only 1.4% of work hours [#ev:ev_005:3000-3800].
+
+[S2 #28] REASONS: entailment_failed:ev_003:verdict=NEUTRAL:reason=The SENTENCE introduces the specific framing 'AI and the Fourth Industrial Revol
+   Global AI investment and adoption trends are covered under AI and the Fourth Industrial Revolution Context [#ev:ev_003:1200-2000] [#ev:ev_003:1200-2000].
+
+[S2 #29] REASONS: entailment_failed:ev_008:verdict=NEUTRAL:reason=The SENTENCE introduces the specific context 'AI and the Fourth Industrial Revol
+   The gender dimension of job automation potential is detailed under AI and the Fourth Industrial Revolution Context [#ev:ev_008:1700-2500] [#ev:ev_008:1700-2500].
+
+[S3 #30] REASONS: percent_not_in_cited_span:ev_048:missing=['10.8', '11.7', '17.9', '4.0']
+   Bureau of Labor Statistics projects that AI-affected computer occupations will grow 11.7% from 2023 to 2033, with software developers projected to increase 17.9% and database architects 10.8%, both well above the 4.0% average for all occupations [#ev:ev_048:3500-4300].
+
+[S3 #31] REASONS: number_not_in_any_cited_span:ev_048:missing=['17.1', '4.4', '9.2', '9.5'];percent_not_in_cited_span:ev_048:missing=['17.1', '4.4', '9.2', '9.5']
+   Within business and financial operations, BLS projections diverge sharply by occupation: personal financial advisors are projected to grow 17.1% and financial and investment analysts 9.5%, while claims adjusters are projected to decline 4.4% and insurance appraisers, auto damage, by 9.2% [#ev:ev_048:0-800].
+
+[S3 #32] REASONS: percent_not_in_cited_span:ev_048:missing=['1.2']
+   In the legal sector, although AI tools are increasingly adopted for document drafting, review, and research, employment of lawyers is still projected to grow 5.2% through 2033, while paralegals and legal assistants face much slower growth of 1.2% [#ev:ev_048:5200-6000].
+
+[S3 #33] REASONS: entailment_failed:ev_009:verdict=NEUTRAL:reason=The SPAN cuts off before stating the outcome regarding broad-based job losses, s
+   One analysis notes that early fears of mass job elimination among junior lawyers have not materialized, as AI is now widely used in legal functions but has not produced broad-based job losses [#ev:ev_009:600-1400].
+
+[S3 #34] REASONS: binding_qualifier_dropped:ev_055,ev_140
+   In manufacturing, the integration of automation and digitalization under Industry 4.0 produces a synergistic effect where automation serves as the technical foundation—replacing manual labor—while digitalization expands capabilities through IoT, AI, and Big Data to create smart management systems covering the entire production cycle [#ev:ev_055:1000-1800][#ev:ev_140:3300-4100].
+
+[S3 #35] REASONS: entailment_failed:ev_007:verdict=NEUTRAL:reason=The sentence introduces unsupported details: Chinese provincial panel data from 
+   Analysis of Chinese provincial panel data from 2010 to 2019 demonstrates that a one-unit increase in AI significantly contributes to high-skilled labor force growth by 0.063% and medium-skilled growth by 0.001%, while reducing low-skilled employment by 0.001%, indicating AI increases demand for high- and medium-skilled labor while reducing demand for low-skilled labor [#ev:ev_007:5400-6200].
+
+[S3 #36] REASONS: no_integer_overlap_any_cited_span:ev_007:missing=['1'];percent_not_in_cited_span:ev_007:missing=['0.211', '1']
+   Regional heterogeneity in China is pronounced: in the Southern Coastal Economic Zone, every 1% increase in AI corresponds to a 0.568 increase in highly skilled labor employment, while the Northeast Economic Zone shows the smallest demand for high-skilled labor at a 0.211% increase per 1% AI increase [#ev:ev_007:8700-9500].
+
+[S3 #37] REASONS: entailment_failed:ev_152:verdict=NEUTRAL:reason=The SENTENCE introduces sample size, timeframe, and comparison between private a
+   Research on executive digital backgrounds using a sample of 29,267 Chinese A-share listed companies from 2012 to 2022 finds that the presence of executives with digital backgrounds significantly enhances AI utilization, elevating digital technology application by approximately 9.0%, with this positive effect more pronounced in private enterprises than in state-owned enterprises [#ev:ev_152:3300-4100].
+
+[S3 #38] REASONS: entailment_failed:ev_046:verdict=NEUTRAL:reason=The SENTENCE adds the specificity that previous technologies targeted 'low- and 
+   Unlike previous automation technologies such as software and industrial robots that primarily targeted low- and medium-skilled tasks, AI is directed at high-skilled tasks, and one study estimates that AI will reduce 90:10 wage inequality but will not affect the top 1% of earners [#ev:ev_046:200-1000].
+
+[S3 #39] REASONS: no_integer_overlap_any_cited_span:ev_005:missing=['95'];percent_not_in_cited_span:ev_005:missing=['95'];binding_qualifier_dropped:ev_005
+   Despite this investment, one report finds that 95% of private enterprises reported no value from their AI investments, and the time savings AI currently provides amounts to only 1.4% of work hours, suggesting that widespread productivity gains remain unrealized [#ev:ev_005:3000-3800].
+
+[S3 #40] REASONS: entailment_failed:ev_060:verdict=NEUTRAL:reason=The sentence adds claims about creating high-skilled roles and displacing low-sk
+   In the United States, the introduction of industrial robots has been observed to reduce the aggregate labor share by approximately 0.7 percentage points, while creating new high-skilled roles in programming and maintenance but displacing workers in routine and low-skilled sectors [#ev:ev_060:3000-3800].
+
+[S3 #41] REASONS: entailment_failed:ev_003:verdict=NEUTRAL:reason=The SENTENCE introduces the section title 'AI and the Fourth Industrial Revoluti
+   Global AI investment growth and business adoption rates are detailed under AI and the Fourth Industrial Revolution Context [#ev:ev_003:1200-2000] [#ev:ev_003:1200-2000].
+
+[S4 #42] REASONS: entailment_failed:ev_113,ev_124:verdict=NEUTRAL:reason=The SENTENCE introduces 'technological change' and its relationship with wage in
+   The relationship between technological change and wage inequality has been extensively documented, with evidence from 50 developing and developed countries showing a statistically significant skill abundance threshold below which the relationship between openness and wage inequality is negative and above which the estimate is positive [#ev:ev_113:900-1700][#ev:ev_124:900-1700].
+
+[S4 #43] REASONS: entailment_failed:ev_003:verdict=NEUTRAL:reason=The sentence introduces 'amplifying concerns about skill-biased technological ch
+   Global business investment in artificial intelligence increased 13-fold from US$14.57 billion in 2013 to US$189 billion in 2023, with 35% of businesses already using AI in their operations and more than 50% intending to implement AI technologies, amplifying concerns about skill-biased technological change [#ev:ev_003:1600-2400].
+
+[S4 #44] REASONS: entailment_failed:ev_007:verdict=NEUTRAL:reason=The SENTENCE introduces specific details not present in the SPAN, such as the lo
+   In China, provincial panel data from 2010 to 2019 demonstrate that AI significantly contributes to the growth of high-skilled labor by 0.063% and medium-skilled labor by 0.001% per unit increase, while reducing low-skilled labor by 0.001%, indicating a clear skill-biased restructuring of employment [#ev:ev_007:5200-6000].
+
+[S4 #45] REASONS: no_integer_overlap_any_cited_span:ev_007:missing=['1'];percent_not_in_cited_span:ev_007:missing=['0.211', '0.568', '1']
+   These effects exhibit regional heterogeneity across China's eight economic zones, with the Southern Coastal Economic Zone showing the greatest positive impact on highly skilled labor at 0.568% per 1% increase in AI, while the Northeast Economic Zone shows the smallest demand increase at 0.211% [#ev:ev_007:8700-9500].
+
+[S4 #46] REASONS: entailment_failed:ev_137:verdict=NEUTRAL:reason=The sentence introduces specific details not present in the span, such as the lo
+   Evidence from Korea during 2018 to 2023 reveals that more "traditional" AI was associated with lower growth in full-time, permanent jobs—concentrated in the manufacturing sector—where a 10-percentile point increase in AI occupational exposure appears to be associated with 5.7% lower growth in full-time, permanent employment, though this occurred in a context of 2.4% overall growth in full-time permanent jobs and 5.8% growth in total employment [#ev:ev_137:9700-10500].
+
+[S4 #47] REASONS: entailment_failed:ev_110:verdict=NEUTRAL:reason=The SENTENCE introduces facts not present in the SPAN, such as the 1% per year w
+   Evidence from developing countries shows that the returns to computer skills at work increased workers' wages by 48.4% in China, while in developed countries the wages of workers with computer skills increased by about 1% per year, underscoring how digital literacy gaps can reinforce income inequality [#ev:ev_110:3500-4300].
+
+[S4 #48] REASONS: entailment_failed:ev_105:verdict=NEUTRAL:reason=The SPAN does not state that the decrease in returns to education was the main d
+   In Brazil, the period from 1992 to 2014 saw a decline in income inequality alongside a significant increase in schooling, with the main driver of the reduction in income inequality among couples being the overall decrease in the returns to education—a trend opposite to that observed in several developed countries and China [#ev:ev_105:0-800].
+
+[S4 #49] REASONS: no_integer_overlap_any_cited_span:ev_137:missing=['47'];percent_not_in_cited_span:ev_137:missing=['47']
+   Korean SMEs report that 47% say generative AI helps address skills and experience shortages among staff, suggesting that AI may serve as a partial equalizer for firms facing human capital constraints, though AI also increases the importance of data analysis and interpretation skills most, followed by programming and coding skills [#ev:ev_137:2300-3100].
+
+[S4 #50] REASONS: entailment_failed:ev_005:verdict=NEUTRAL:reason=The SENTENCE introduces a specific contextual category ('AI and the Fourth Indus
+   U.S. firm AI adoption rates and time savings estimates are covered under AI and the Fourth Industrial Revolution Context [#ev:ev_005:3000-3800] [#ev:ev_005:3000-3800].
+
+[S5 #51] REASONS: no_provenance_token
+   The limited scale of current adoption underscores this uncertainty: a spring 2024 study of U.S.
+
+[S5 #52] REASONS: binding_qualifier_dropped:ev_005
+   AI's measurable productivity impact remains modest, with researchers at MIT's Shaping the Future of Work initiative estimating that the time savings AI currently provides amounts to only 1.4 percent of work hours [#ev:ev_005:3500-4300].
+
+[S5 #53] REASONS: entailment_failed:ev_003:verdict=NEUTRAL:reason=The sentence claims 'most research acknowledges AI poses a threat to employment 
+   A systematic literature review covering peer-reviewed publications from 2015 to July 2025 notes that most research acknowledges AI poses a threat to employment rather than being complementary, yet current policy responses remain fragmented and insufficient to address structural risks of workforce displacement [#ev:ev_003:600-1400].
+
+[S5 #54] REASONS: entailment_failed:ev_003:verdict=NEUTRAL:reason=The SENTENCE introduces a claim about a 'wide gap between investment intensity a
+   The same review highlights that global business investment in AI increased 13-fold from $14.57 billion in 2013 to $189 billion in 2023, with 35 percent of businesses already using AI and more than 50 percent intending to implement it, creating a wide gap between investment intensity and settled evidence on labor outcomes [#ev:ev_003:1200-2000].
+
+[S5 #55] REASONS: entailment_failed:ev_007:verdict=NEUTRAL:reason=The sentence adds many unsupported specifics: Chinese provincial panel data 2010
+   Empirical analyses of AI's employment effects reveal significant non-linearities and regional heterogeneity: a study using Chinese provincial panel data from 2010 to 2019 found that AI increases high-skilled employment by 0.063 percent and medium-skilled employment by 0.001 percent, while reducing low-skilled employment by 0.001 percent, but these effects vary substantially across eight comprehensive economic zones [#ev:ev_007:5900-6700].
+
+[S5 #56] REASONS: entailment_failed:ev_009:verdict=NEUTRAL:reason=The SENTENCE introduces unsupported claims and specificities, such as 'limited r
+   Historical precedent offers limited reassurance for forecasting: analysis of past innovation cycles indicates that AI's impact on labor markets has been modest so far, with little evidence of broad-based job losses, echoing earlier industrial revolutions that initially displaced workers but ultimately expanded employment over time [#ev:ev_009:0-800].
+
+[S5 #57] REASONS: entailment_failed:ev_009:verdict=NEUTRAL:reason=The sentence introduces the specific framing of a 'historical analogy contingent
+   However, one analysis cautions that faster or more job-substitution-driven AI adoption could lead to greater inequality, making the historical analogy contingent on the pace and nature of deployment [#ev:ev_009:100-900].
+
+[S5 #58] REASONS: entailment_failed:ev_152:verdict=NEUTRAL:reason=The SENTENCE introduces claims about 'AI affecting labor' and 'uncertainty about
+   Firm-level evidence introduces additional uncertainty about the mechanisms through which AI affects labor: research on Chinese A-share listed companies from 2012 to 2022 shows that executives' digital backgrounds significantly enhance AI utilization, with the positive effect operating through total factor productivity and digital technology application proficiency, suggesting that organizational heterogeneity is a critical but underexplored variable [#ev:ev_152:600-1400].
+
+[S5 #59] REASONS: entailment_failed:ev_152:verdict=NEUTRAL:reason=The SENTENCE introduces 'labor market impacts' and 'managerial capabilities' whi
+   The same study reports that early adopters of AI achieve 2 to 3 times higher excess returns compared to laggard firms, implying that labor market impacts may be unevenly distributed across firms with differing managerial capabilities [#ev:ev_152:1200-2000].
+
+[S5 #60] REASONS: entailment_failed:ev_113,ev_124:verdict=NEUTRAL:reason=The SENTENCE introduces AI-specific forecasting and AI's wage effects, which are
+   Broader labor market research further complicates AI-specific forecasting: a threshold estimation across 50 developing and developed countries identifies a statistically significant skill abundance threshold below which the relationship between openness and wage inequality is negative and above which it is positive, indicating that AI's wage effects may depend on pre-existing skill distributions that vary by country [#ev:ev_113:800-1600][#ev:ev_124:800-1600].
+
+[S5 #61] REASONS: no_integer_overlap_any_cited_span:ev_105:missing=['1992', '2014']
+   Meanwhile, evidence from Brazil between 1992 and 2014 demonstrates that the main driver of declining income inequality was the overall decrease in returns to education, a trend opposite to that observed in several developed countries and China, suggesting that AI's interaction with educational returns may produce divergent outcomes across institutional contexts [#ev:ev_105:200-1000].
+
+[S5 #62] REASONS: entailment_failed:ev_110:verdict=NEUTRAL:reason=The SENTENCE introduces specific claims not present in the SPAN, such as 'China'
+   Studies on internet usage preferences and labor income in China further reveal that proficiency in accessing online information is associated with higher labor income while digital literacy gaps produce significant regional differences, hinting that AI's labor market effects may be mediated by pre-existing digital divides rather than technology alone [#ev:ev_110:800-1600].
+
+[S5 #63] REASONS: entailment_failed:ev_140:verdict=NEUTRAL:reason=The sentence introduces facts not present in the span, such as the year 2011 and
+   The term Industry 4.0 itself was only coined in 2011, and scholars are already envisioning Industry 5.0, reflecting how rapidly the technological landscape is evolving and how premature any long-term labor market forecasts may be [#ev:ev_140:2200-3000].
+
+[S5 #64] REASONS: entailment_failed:ev_003,ev_005,ev_007,ev_009,ev_152:verdict=NEUTRAL:reason=The SENTENCE introduces concepts like 'definitional ambiguity', 'divergent educa
+   These overlapping uncertainties—ranging from definitional ambiguity and low current adoption rates to non-linear regional effects, organizational heterogeneity, and divergent educational returns—collectively suggest that existing models of AI's labor market impact remain preliminary and that forecasts should be treated as conditional on rapid technological, organizational, and policy developments [#ev:ev_003:600-1400][#ev:ev_005:1800-2600][#ev:ev_007:100-900][#ev:ev_009:100-900][#ev:ev_152:1100-1900].
+
+[S5 #65] REASONS: entailment_failed:ev_005:verdict=NEUTRAL:reason=The SENTENCE introduces the specific section name 'AI and the Fourth Industrial 
+   Census Bureau data on firm AI adoption rates is noted in the AI and the Fourth Industrial Revolution Context section [#ev:ev_005:2500-3300] [#ev:ev_005:2500-3300].
+
+[S5 #66] REASONS: entailment_failed:ev_005:verdict=NEUTRAL:reason=The SPAN mentions the NANDA at MIT finding but does not specify that it is detai
+   The NANDA at MIT finding on AI investment returns is detailed in the AI and the Fourth Industrial Revolution Context section [#ev:ev_005:1500-2300] [#ev:ev_005:1500-2300].
+
+[S6 #67] REASONS: binding_qualifier_dropped:ev_140,ev_152
+   Artificial intelligence is widely identified as a core driving force of the fourth industrial revolution (Industry 4.0), functioning as an algorithm-based intelligence fed to machines to perform problem-solving, decision-making, and human-like assignments across manufacturing and service sectors [#ev:ev_140:8200-9000][#ev:ev_152:1000-1800].
+
+[S6 #68] REASONS: entailment_failed:ev_140:verdict=NEUTRAL:reason=The SENTENCE introduces specific facts about the coining of Industry 4.0 and app
+   The term Industry 4.0 was coined in 2011 at the Hannover Fair, and AI has since been applied in predictive maintenance, predictive analytics, inventory management, machine vision, industrial robotics, and supply chain management [#ev:ev_140:8800-9600].
+
+[S6 #69] REASONS: no_integer_overlap_any_cited_span:ev_029:missing=['23'];percent_not_in_cited_span:ev_029:missing=['14', '23'];binding_qualifier_dropped:ev_029
+   Empirical research using a systematic review of 94 studies (with 42 included in quantitative extraction) documents a 14% to 41% reduction in job postings for entry- and mid-level software development and content-creation roles in high-income economies between 2022 and 2024, with a median decline of 23% across non-overlapping study designs [#ev:ev_029:400-1200].
+
+[S6 #70] REASONS: no_integer_overlap_any_cited_span:ev_029:missing=['22', '26'];percent_not_in_cited_span:ev_029:missing=['14', '22', '26'];binding_qualifier_dropped:ev_029
+   The same systematic review finds a 15% to 22% wage premium for workers demonstrating AI-augmentation capabilities, alongside heterogeneous sectoral effects in which AI-adjacent roles grow by 26% while AI-replaced roles decline by 14% [#ev:ev_029:600-1400].
+
+[S6 #71] REASONS: entailment_failed:ev_110:verdict=NEUTRAL:reason=The sentence introduces claims about 'accessing online information and engaging 
+   At the individual worker level, proficiency in accessing online information and engaging in online business is correlated with higher labor income, and data from China confirm that computer use at work increased the return on workers' wages by 48.4% in developing countries [#ev:ev_110:3900-4700].
+
+[S6 #72] REASONS: no_integer_overlap_any_cited_span:ev_012:missing=['1979', '20', '39', '67', '91'];percent_not_in_cited_span:ev_012:missing=['20', '39', '67', '91']
+   The broader historical pattern in the United States shows that the share of hours worked by college-educated workers nearly doubled from 20% in 1979 to 39% in 2018, and the experience premium increased from roughly 67% in 1980 to 91% in 2018, suggesting that technological change continues to reward both formal and informal skills [#ev:ev_012:6500-7300].
+
+[S6 #73] REASONS: entailment_failed:ev_113,ev_124:verdict=NEUTRAL:reason=The SENTENCE introduces 'technological and economic restructuring' and 'distribu
+   Cross-country evidence on 50 developing and developed countries further reveals a statistically significant skill abundance threshold below which the relationship between openness and wage inequality is negative and above which the estimate is positive, indicating that the distributional consequences of technological and economic restructuring depend on a country's skill composition [#ev:ev_113:900-1700][#ev:ev_124:900-1700].
+
+[S6 #74] REASONS: entailment_failed:ev_137:verdict=NEUTRAL:reason=The span discusses AI task replacement and skill requirement changes but does no
+   Korean firms' AI task replacement and skill requirement changes are noted under Inequality and Skill-Biased Technological Change [#ev:ev_137:2000-2800] [#ev:ev_137:2000-2800].
+
+TOTAL DROPPED (failure, non-dedup): 74

@@ -1,0 +1,439 @@
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py-        SPRINT 2 FIX: Added GPU configuration and model size options.
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py-        - Use POLARIS_MINICHECK_MODEL env var to override model (default: roberta-large)
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py:        - Use POLARIS_USE_GPU env var to force CPU if GPU causes OOM
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py-        """
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py-        import os
+--
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py-                if torch.cuda.is_available():
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py-                    logger.info(f"Initializing MiniCheck with {model_name} on GPU...")
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py:                    # Set memory fraction to avoid OOM
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py-                    torch.cuda.set_per_process_memory_fraction(0.7, 0)
+/home/polaris/wt/outline_agent/src/agents/auditor_agent.py-                else:
+/home/polaris/wt/outline_agent/src/polaris_graph/graph_v3.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/graph_v3.py-Evidence content stored in side-channel dict (evidence_store), NOT in
+/home/polaris/wt/outline_agent/src/polaris_graph/graph_v3.py:LangGraph state. Prevents OOM at >1000 evidence pieces.
+/home/polaris/wt/outline_agent/src/polaris_graph/graph_v3.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/graph_v3.py-All node functions are closures capturing `client` and `evidence_store`.
+/home/polaris/wt/outline_agent/src/polaris_graph/audit_ir/freshness_aggregates.py-# Hard cap for list_alerts() pagination — phase 1 defaults to 100
+/home/polaris/wt/outline_agent/src/polaris_graph/audit_ir/freshness_aggregates.py-# but we need the full window. SQLite can handle 1M+ rows; this
+/home/polaris/wt/outline_agent/src/polaris_graph/audit_ir/freshness_aggregates.py:# cap is just to avoid OOM on a misconfigured store. Callers
+/home/polaris/wt/outline_agent/src/polaris_graph/audit_ir/freshness_aggregates.py-# who legitimately have >1M alerts in one workspace must shard
+/home/polaris/wt/outline_agent/src/polaris_graph/audit_ir/freshness_aggregates.py-# the workspace, use the phase 1 store query API directly with
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py-
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py-        try:
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py:            embeddings = self._embedding_model.encode(texts, convert_to_tensor=True)
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py-
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py-            for i, ev_id in enumerate(ids):
+--
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py-
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py-            # Embed the sentence
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py:            sentence_emb = self._embedding_model.encode(sentence, convert_to_tensor=True)
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py-
+/home/polaris/wt/outline_agent/src/agents/citation_enricher_agent.py-            # Calculate similarity with all evidence
+/home/polaris/wt/outline_agent/src/polaris_graph/state_v3.py:"""v3 Pipeline State — Decomposed, lightweight, OOM-safe.
+/home/polaris/wt/outline_agent/src/polaris_graph/state_v3.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/state_v3.py-Key design: Evidence content is stored OUTSIDE this state in a
+/home/polaris/wt/outline_agent/src/polaris_graph/state_v3.py-side-channel dict (evidence_store). State carries only evidence IDs
+/home/polaris/wt/outline_agent/src/polaris_graph/state_v3.py:and lightweight metadata. This prevents LangGraph serialization OOM
+/home/polaris/wt/outline_agent/src/polaris_graph/state_v3.py-at >1000 evidence pieces (P0 risk CC.7).
+/home/polaris/wt/outline_agent/src/polaris_graph/state_v3.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py-    SAME generator-role knobs the section composer uses (``multi_section_generator`` section-writer leg):
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py-    ``PG_SECTION_REASONING_MAX_TOKENS`` bounds the reasoning pool and CONTENT is floored strictly above
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py:    it (+``PG_SECTION_CONTENT_HEADROOM_TOKENS``) so a reasoning-first generator (GLM-5.2) cannot starve
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py-    content (§9.1.8 "never starve"). No parallel ``PG_DEPTH_SYNTHESIS_*`` token knob, no model-specific
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py-    hardcoded default — the budget tracks the section composer."""
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py-    content = max(
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py-        _env_int("PG_SECTION_MAX_TOKENS", 64000),
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py:        reasoning + _env_int("PG_SECTION_CONTENT_HEADROOM_TOKENS", 8192),
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py-    )
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/depth_synthesis.py-    return content, reasoning
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/analyst_synthesis.py-# request to PG_REASONING_FIRST_HARD_CAP (default 16384, DeepInfra's verified
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/analyst_synthesis.py-# deepseek-v4-pro cap). So on the DEFAULT provider this constant above 16384 is
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/analyst_synthesis.py:# forward-compat HEADROOM, not active room (>16384 clamps down to 16384; <16384
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/analyst_synthesis.py-# floors UP to 16384). It only takes effect once an operator points the writer at
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/analyst_synthesis.py-# a higher-tier endpoint AND raises PG_REASONING_FIRST_HARD_CAP above the model's
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/corpus_snapshot.py-(serper/s2/openalex discovery + fetch + tier-classification) and in the additive
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/corpus_snapshot.py-deepener/agentic/STORM/saturation merge lanes. A run that is killed mid-GENERATION
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/corpus_snapshot.py:(the drb_72-class ~473s blank-stream stall, an OOM, an operator Ctrl-C) currently
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/corpus_snapshot.py-restarts ALL of that retrieval from zero — the F04 checkpoint gap that HARD-gates the
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/corpus_snapshot.py-full Q1 certification sweep.
+/home/polaris/wt/outline_agent/src/polaris_graph/llm/openrouter_client.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/llm/openrouter_client.py-        A8.2: Acquires global concurrency semaphore before executing.
+/home/polaris/wt/outline_agent/src/polaris_graph/llm/openrouter_client.py:        This prevents GPU OOM on sovereign deployments and 429 rate
+/home/polaris/wt/outline_agent/src/polaris_graph/llm/openrouter_client.py-        limits on cloud APIs by limiting parallel LLM calls.
+/home/polaris/wt/outline_agent/src/polaris_graph/llm/openrouter_client.py-        """
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# I-deepfix-001 W04-consolidation-nli-wall (#1344): a TOTAL wall-clock deadline for the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# whole score_pairs scoring loop. The bounded-parallel pool.map blocks until EVERY chunk
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:# finishes — on a slow/contended/CPU-degraded cross-encoder (the post-OOM CPU re-score
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# pins the rest of the run), this had NO time bound (the MAX_PAIRS cap bounds COUNT, not
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# wall-clock), and the prose path runs it ONCE PER SECTION. When the deadline passes we
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# I-deepfix-001 fix-3 (#1344): optional device placement for the cross-encoder. On
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# the crammed 2-GPU split (W6 embedder + W5 reranker + W10 NLI co-resident on cuda:0)
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:# a CUDA OOM during load/predict used to RAISE and KILL the consolidation step (a
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# §-1.3 WEIGHT, not a faithfulness gate). Unset => NO device kwarg (byte-identical
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:# library auto-placement). A CUDA OOM degrades to CPU (keeps MORE baskets, never dies).
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-ENV_DEVICE = "PG_CONSOLIDATION_NLI_DEVICE"
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# I-deepfix-001 (#1344): cap the index-pairs scored in ONE cross-encoder `.predict`
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# forward, INDEPENDENT of the worker count. The old chunk_size = ceil(pairs/min(workers,
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# pairs)) grew UNBOUNDED with corpus size (~2500 pairs -> a ~5000-tuple forward), which
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:# OOM'd the crammed card on the 890+-source clinical corpora (the CUBLAS_STATUS_ALLOC_FAILED
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# crash). Bounding the forward keeps peak GPU memory constant regardless of corpus size.
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-ENV_PREDICT_CHUNK = "PG_CONSOLIDATION_NLI_PREDICT_CHUNK"
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-_DEFAULT_PREDICT_CHUNK = "256"  # I-deepfix-001 #1344: max index-pairs per `.predict` forward
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-_DEFAULT_SUBBUCKET_JACCARD = "0.30"  # I-deepfix-001 W04-prebucket (#1369): routing threshold
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:_CPU_DEVICE = "cpu"         # the OOM-degrade target
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# nli-deberta-v3-base label order (verified from model.config.id2label in the smoke
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    """I-deepfix-001 (#1344): the max index-pairs scored in ONE cross-encoder `.predict`
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    forward. Caps peak GPU memory INDEPENDENT of corpus size (the old chunk grew unbounded
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    and OOM'd the clinical corpora). The grouping is an order-independent union-find over
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    the gathered edges, so smaller forwards are byte-identical to the verdict (only
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    WHERE-in-a-batch a pair sits, never WHICH pairs are compared or the entailment margin).
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-def _is_cuda_oom(exc: BaseException) -> bool:
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    """True iff ``exc`` is a CUDA out-of-memory / allocation failure (the only failure the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    W10 winner DEGRADES to CPU; every other error fails loud per §-1.4). Detects the typed
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    ``torch.cuda.OutOfMemoryError``, the generic ``RuntimeError('CUDA out of memory ...')``,
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    AND the cuBLAS allocation failures ``CUBLAS_STATUS_ALLOC_FAILED`` /
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    ``CUBLAS_STATUS_NOT_INITIALIZED`` — by class name + message, so no hard torch import.
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    I-deepfix-001 (#1344): the cuBLAS branch is the crash fix. When the card is full the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    SAME out-of-memory condition surfaces from a cuBLAS handle allocation as
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    ``CUDA error: CUBLAS_STATUS_ALLOC_FAILED`` (or ``..._NOT_INITIALIZED`` when a prior
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    alloc poisoned the handle) with NO 'out of memory' substring. The old matcher missed
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    it, so the CPU degrade never fired and the run DIED at the consolidation step on the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    large clinical corpora. cuBLAS-alloc is OOM-equivalent — route it to the SAME
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    already-tested identical-result CPU degrade."""
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    name = type(exc).__name__
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        return True
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    msg = str(exc).lower()
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    if "out of memory" in msg and ("cuda" in msg or "gpu" in msg):
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        return True
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    return "cublas_status_alloc_failed" in msg or "cublas_status_not_initialized" in msg
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-_MODEL: Any = None
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# I-deepfix-001 fix-3 (#1344): the device the resident `_MODEL` was loaded on (or None
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:# for library auto-placement). When a predict-time CUDA OOM forces a CPU degrade, the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-# model is rebuilt on CPU and this is set to "cpu" so the rebuild happens once.
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-_MODEL_DEVICE: Optional[str] = None
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    I-deepfix-001 fix-3 (#1344): honors ``PG_CONSOLIDATION_NLI_DEVICE`` (or the explicit
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    ``device`` arg, used by the predict-OOM CPU degrade). On a CUDA OOM during the GPU
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    load the model is RETRIED on CPU (degrade) so the consolidation winner still FIRES —
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    it never raises an OOM and never loses a basket. A non-OOM load error still fails
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    loud (§-1.4). The model is cached with its loaded device in ``_MODEL_DEVICE``."""
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    global _MODEL, _MODEL_DEVICE
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            _MODEL = _construct_cross_encoder(model_id, want_device)
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            _MODEL_DEVICE = want_device
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:        except Exception as exc:  # noqa: BLE001 — classify: only a CUDA OOM degrades
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            if not _is_cuda_oom(exc) or want_device == _CPU_DEVICE:
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:                raise  # non-OOM (or already-CPU) load failure => fail loud (§-1.4)
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            logger.warning(
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:                "[consolidation_nli] CUDA OOM loading the cross-encoder on device=%s; "
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-                "DEGRADING to CPU so consolidation still fires (no basket lost): %s",
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-                want_device, exc,
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-def _reload_model_on_cpu() -> Any:
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    """Drop the resident (GPU) cross-encoder and rebuild it on CPU — the predict-time
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    CUDA OOM degrade. Returns the CPU model. Thread-safe (under ``_MODEL_LOCK``)."""
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    global _MODEL, _MODEL_DEVICE
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    with _MODEL_LOCK:
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        model_id = os.environ.get(ENV_MODEL, "").strip() or _DEFAULT_MODEL
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        logger.warning(
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:            "[consolidation_nli] CUDA OOM during predict; DEGRADING the cross-encoder "
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            "to CPU and re-scoring (no basket lost)."
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        )
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        carry this claim);
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-      * ``None``  — the verdict is UNAVAILABLE (empty text, or the cross-encoder could not be
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:        loaded / scored for a NON-OOM reason). None is the DEGRADE sentinel: the caller keeps
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        the citation on its already-passed lexical/numeric grounding rather than detaching on
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        a model outage (never fights §-1.3 breadth on infra failure).
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    Reuses ``_load_model`` + ``_entails`` on ONE forward pair, with the SAME CUDA-OOM -> CPU
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    degrade as ``score_pairs`` (an OOM re-scores on CPU, never dies). ``predict_fn`` is the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    deterministic test-injection seam (no GPU / model download); production passes None => the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    lazy cross-encoder. No new model is loaded — it is the SAME resident cross-encoder the
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    try:
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        logits = predict_fn(batch)
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    except Exception as exc:  # noqa: BLE001 — only a CUDA OOM degrades; else UNKNOWN
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        if not _is_cuda_oom(exc) or _injected:
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            logger.warning(
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    # I-deepfix-001 fix-3 (#1344): track whether the predict came from the real lazy
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:    # cross-encoder (production) vs an injected stub (the fire-test seam). On a CUDA OOM
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    # during predict, the production path RELOADS the model on CPU and re-scores (degrade,
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    # no basket lost); an injected stub is simply retried (its own recovery semantics).
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-    def _predict_with_oom_degrade(batch: list[tuple[str, str]]) -> Any:
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:        """Run the active predict; on a CUDA OOM, DEGRADE to CPU (production) or retry
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:        the injected stub, then re-run ONCE. A non-OOM error fails loud (§-1.4)."""
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        try:
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            return _predict_holder[0](batch)
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:        except Exception as exc:  # noqa: BLE001 — classify: only a CUDA OOM degrades
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            if not _is_cuda_oom(exc):
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-                raise
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            batch.append((texts[i], texts[j]))
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-            batch.append((texts[j], texts[i]))
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py:        logits = _predict_with_oom_degrade(batch)  # shape (2*len(chunk), 3)
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        edges: list[tuple[int, int]] = []
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/consolidation_nli.py-        for idx, (i, j) in enumerate(chunk):
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/crag_retriever.py-        Fix R4-#3 (State Memory Bloat): LangGraph serializes the entire state
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/crag_retriever.py-        dict at every node boundary. If 100+ raw HTML pages (50-100MB) stay in
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/crag_retriever.py:        state["fetched_content"], the checkpointer will time out or OOM.
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/crag_retriever.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/crag_retriever.py-        The CRAG graph node MUST merge these keys into its return dict:
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py-    (``evidence_selector._maybe_rerank_selection``) treats this as the structural
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py-    W7-dark signal the winner-firing gate hard-gates on. A failure of the per-document
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py:    FORWARD PASS (a transient encode/OOM exception) is NOT wrapped in this type — it
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py-    surfaces as a plain exception so the caller can treat it as a transient (the model
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py-    DID load) and NOT flip the sticky structural signal. This mirrors the embedder's
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py-        inputs = tokenizer(
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py-            text,
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py:            return_tensors="pt",
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py-            truncation=True,
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/qwen_reranker_scorer.py-            max_length=_MAX_INPUT_TOKENS,
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-        max_length = max(512, int(os.getenv("PG_CONTENT_RELEVANCE_MAX_LENGTH", "4096")))
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-        # I-deepfix-001 FIX-1 (keystone): score in CHUNKS so the per-forward
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py:        # ``model(**inputs).logits`` tensor ([chunk x seq x ~152k-vocab]) stays
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-        # small enough to fit alongside the co-resident Qwen3-Embedding-8B on
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-        # cuda:0 (the W5-dark → CRAG-non-convergence keystone bug). DEFAULT 0
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            logger.info(
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-                "[content_relevance] SCORE_CHUNK active: %d pairs in %d chunks (chunk_size=%d) — "
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py:                "per-forward logits bounded to avoid the one-pass co-resident OOM (WS-0).",
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-                len(ids_all), len(index_groups), _score_chunk,
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            )
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            inputs = tokenizer.pad(
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-                {"input_ids": [ids_all[i] for i in _grp]},
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py:                padding="max_length", max_length=global_len, return_tensors="pt",
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            )
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            inputs = {k: v.to(model.device) for k, v in inputs.items()}
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-                scores = probs[:, 1].exp().tolist()
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            all_scores.extend(float(s) for s in scores)
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py:            # Codex iter1 P1-1: DROP refs to the large CUDA tensors BEFORE
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            # empty_cache() so the [chunk x seq x vocab] block is actually released
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            # before the next forward (otherwise empty_cache is a no-op — they are
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py:            # still live — and the next allocation can overlap and OOM).
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            del logits, true_v, false_v, stacked, probs, inputs
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/content_relevance_judge.py-            if len(index_groups) > 1 and str(model.device).startswith("cuda"):
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-YAML config, and — critically — FAILS LOUD when ``vlm-http-client`` is selected
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-without a server URL, so the pipeline can never SILENTLY fall back to in-process
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py:and re-create the OOM this fix exists to prevent (LAW II: no silent fallback).
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-LAW VI: every value comes from env or ``config/serving/mineru_vllm_server.yaml``.
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-    The canonical case: ``PG_MINERU25_BACKEND=vlm-http-client`` with no server
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-    URL. Failing loud here is the whole point — a silent fall-back to in-process
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py:    is exactly the OOM this fix removes.
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-    """
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-    FAIL LOUD (LAW II): selecting ``vlm-http-client`` without a non-empty
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-    ``server_url`` raises ``MineruBackendConfigError`` — the pipeline must NOT
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py:    silently fall back to in-process (that re-creates the CUBLAS OOM). An
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-    unknown backend value also raises.
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-    """
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-            "PG_MINERU25_SERVER_URL (or server_url in the YAML). Refusing to "
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-            "silently fall back to in-process mineru — that re-creates the "
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py:            "CUBLAS_STATUS_ALLOC_FAILED OOM this fix removes (LAW II fail loud)."
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-        )
+/home/polaris/wt/outline_agent/src/polaris_graph/scale/mineru_vllm_config.py-
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-# `False` ("tried, unavailable") on ANY first failure — which permanently DARKENED
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-# the embedder for the whole run when the very first load hit a TRANSIENT failure
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py:# (e.g. a GPU OOM / race while the heavy models co-resident). That is the deepfix
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-# darkness this fix prevents. Now we distinguish:
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-#   * STRUCTURAL failure (the import of `_load_embedder` itself raises — the module
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-#     / symbol does not exist): cache `False` — retrying cannot help.
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-#   * TRANSIENT failure (`_load_embedder()` returns None — it swallows its own
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py:#     load exception, which may be a recoverable OOM/race): do NOT cache `False`;
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-#     return None so the NEXT section retries the load (one bad load doesn't dark
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-#     the whole run).
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-# The transient retry is BOUNDED (§8.4 resource discipline): `_load_embedder()`
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py:# reads a ~16GB model from disk before it can OOM, so an unbounded per-section retry
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-# of a genuinely-persistent failure would thrash CPU/RAM every section. After
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-# `PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES` consecutive transient None returns we
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-        # token-id resolution). That is the structural W7-dark signal the winner-firing
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-        # gate hard-gates on → mark the sticky module signal True. A FORWARD-PASS
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py:        # exception (a transient encode/OOM) surfaces as a PLAIN exception and is NOT
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-        # caught here — it propagates to the OUTER except as a transient and must NOT
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-        # flip the sticky structural signal (winner_firing_gate: "never a single
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-        # above and has ALREADY set `_W7_RERANKER_LOAD_FAILED=True`. This outer handler
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-        # covers a config read (CrossEncoderConfig.from_env), a per-document FORWARD-PASS
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py:        # exception (a transient encode/OOM — the model DID load), or a permutation/sort
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-        # hiccup AFTER the model loaded — all transients that must NOT flip the sticky
+/home/polaris/wt/outline_agent/src/polaris_graph/retrieval/evidence_selector.py-        # structural signal (winner_firing_gate: "never a single transient encode
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-#     FAIL-CLOSED singleton, and the run CONTINUES (never raises, never drops a row).
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-# This is the fail-closed-CONTINUE keystone the `score_pairs`-based `_apply_qualitative_nli_union`
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py:# (PG_CONSOLIDATION_NLI_QUALITATIVE) does not provide (that path RAISES on a non-OOM model
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-# failure). Both flags are additive / merge-only / keep-all, BUT they are NOT independently safe
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py:# together: when BOTH are ON the legacy union runs FIRST and would RAISE on a non-OOM model fault
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-# BEFORE the keystone's fail-closed grouping runs, aborting the run at the dedup step (the exact
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-# Wave-3 slate config). So the wiring in `_build_qualitative_groups` GUARDS the legacy union
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # I-deepfix-001 Wave-3a (#1344): ADDITIVE activation telemetry (never changes a merge). A one-element
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # mutable flag is set when the cross-encoder returns None on a pair of NON-empty representatives — the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py:    # DEGRADE sentinel (infra fault: model unavailable / OOM CPU-degrade failed), distinct from a genuine
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # empty-text None. Only surfaced through the ``telemetry`` out-param; discarded (behavior-inert) when
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # the caller passes no dict (the deterministic-stub test path).
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # guard inside ``_apply_qualitative_nli_union``.
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # When the keystone is OFF this runs UNGUARDED => byte-identical legacy behavior (incl. the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py:    # legacy union's raise-on-non-OOM-failure). When the keystone is ALSO ON (the Wave-3 slate
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py:    # config) the legacy union runs FIRST and would RAISE on a non-OOM model fault BEFORE the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # fail-closed keystone below — aborting the run at the dedup step. So under the keystone regime
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # ONLY, GUARD it: degrade a legacy raise to a §-1.3-safe under-merge (logged loud, never
+--
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # lexical singletons) whose representatives STRICTLY BIDIRECTIONALLY entail, using the
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # 3-state ``consolidation_nli.entails_directional`` primitive so an infra fault degrades to a
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py:    # FAIL-CLOSED singleton and the run CONTINUES (the score_pairs path raises on a non-OOM
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # failure — hence the guard above under the both-flags-ON regime). one-direction => EXTENSION
+/home/polaris/wt/outline_agent/src/polaris_graph/synthesis/finding_dedup.py-    # (no merge); contradiction => no merge; polarity hard-block defense-in-depth. OFF =>
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py-# Batch processing. PG_EMBED_BATCH_SIZE caps the per-forward-pass activation PEAK
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py-# (I-deepfix-001 FIX-1 keystone): the qwen3 Qwen3-Embedding-8B batch-32 activation
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py:# peak fills cuda:0 under the static 2-GPU split and OOMs the co-resident W5
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py-# content-relevance reranker (the W5-dark → CRAG-non-convergence keystone bug).
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py-# Lowering the batch shrinks the GPU activation peak. THROUGHPUT/MEMORY ONLY —
+--
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py-                _embed_device = (os.getenv("PG_EMBED_DEVICE", "") or "").strip()
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py-                # I-deepfix-001 P0-3b (2026-06-28): the Qwen3-Embedding-8B winner loads
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py:                # FP32 by default (~24-32GB) and OOMs a single 24GB card — the embedder
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py-                # then returns None (DARK) and the static 2-GPU split is impossible. Load
+/home/polaris/wt/outline_agent/src/utils/embedding_service.py-                # the 8B in FP16 (~15GB on cuda:0, validated; encode dim=4096) so it fits
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/multi_section_generator.py-            max_tokens,
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/multi_section_generator.py-            _section_reasoning_max_tokens
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/multi_section_generator.py:            + int(os.getenv("PG_SECTION_CONTENT_HEADROOM_TOKENS", "8192")),
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/multi_section_generator.py-        )
+/home/polaris/wt/outline_agent/src/polaris_graph/generator/multi_section_generator.py-        response = await client.generate(
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py-Provides:
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py-- ABC-based LLMProvider interface with OpenRouter, vLLM, and Ollama backends
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py:- Global concurrency semaphore preventing GPU/API OOM crashes (A8.2)
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py-- Exponential backoff with jitter for rate limit / overload recovery
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py-- Sovereign mode toggle: PG_SOVEREIGN_MODE=1 forces local-only providers
+--
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py-    of concurrent LLM API calls across all pipeline nodes to prevent:
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py-    - 429 rate limit errors on cloud APIs
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py:    - GPU OOM crashes on local vLLM deployments
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py-
+/home/polaris/wt/outline_agent/src/providers/llm_provider.py-    F01 (A3): an ``asyncio.Semaphore`` is bound to the loop it is created in.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-#   (2) MinerU's model manager is a PROCESS-SINGLETON (``__new__`` instance cache)
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-#       sharing ONE VLM model + processor across every ``do_parse`` call, so
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:#       concurrent batched inference interleaves tensor state.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-#
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# In production, ``live_retriever._fetch_content`` fans each PDF fetch onto its
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# via ``loop.run_in_executor(None, ...)``. Two clinical PDFs fetched concurrently
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# therefore call ``do_parse`` simultaneously and CORRUPT each other. The symptom
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:# is timing-dependent: the iwire014 confirm run saw a torch tensor-shape error
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# ("expanded size (2) must match existing size (0) ... [3, 2,"); the VM repro saw
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# ``PdfiumError: Failed to import pages`` / ``Data format error`` on the SAME two
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# `_maybe_mineru25_extract` already has a per-call `PG_MINERU25_TIMEOUT_S` (300s)
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# wall, but had NO circuit breaker. On a GPU host where mineru25 is CONSISTENTLY
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:# failing/timing out (model-load failure, CUDA OOM, hung VLM), EVERY clinical PDF in
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# a ~1000-URL run paid the full 300s before falling back to Docling — the run ground
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-# for hours. This mirrors the module-global jina/firecrawl/zyte/crawl4ai breakers
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-    @staticmethod
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-    def _docling_oom_safe(pdf_bytes: bytes) -> bool:
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:        """B1 re-fetch guard: True iff a PDF is within the docling OOM gate (bytes +
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        page count) so re-running Docling cannot ``std::bad_alloc`` / SIGSEGV. Mirrors
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        the ``PG_MAX_DOCLING_PDF_*`` gate in ``_extract_pdf_text_from_bytes_impl``.
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                finally:
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                    _doc.close()
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:            except Exception:  # noqa: BLE001 — cannot verify size => do not risk OOM
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                return False
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        return True
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-          1. mineru25 (GPU VLM) when a GPU is present — the cleanest extractor,
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:             safe on big PDFs (remote server, no local OOM), breaker-guarded;
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:          2. Docling — ONLY when the PDF is within the OOM gate (never risk a
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-             ``std::bad_alloc`` SIGSEGV on a big PDF the gate would have skipped).
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                    "[B1-FURNITURE] mineru re-extract skipped: %s", str(_exc)[:80]
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                )
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:        # 2. Docling — only when OOM-safe (bounded); the flat-furniture path skipped it.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        if self._docling_oom_safe(pdf_bytes):
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            try:
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        Split out of :meth:`_extract_pdf_text` (which owns the network fetch)
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:        so the extractor SELECTOR + docling-OOM gate + docling/PyMuPDF routing
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        can be unit-tested without a network round-trip (I-deepfix-001 U19).
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        (fail-open). ``strip_pdf_frontmatter`` still runs on the slice (in the
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        caller's PDF branch). The docling / mineru paths are unchanged — for the
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:        big combined-issue PDFs this targets they are OOM-gated to this fitz path.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        """
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        import tempfile
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            The mineru25 wrapper logs a ``selected_extractor=docling`` DEGRADE
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            row when it falls through, but the TRUE final extractor (docling
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:            vs PyMuPDF) is only known here — so a run whose docling-OOM gate
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            skipped docling and used PyMuPDF was mislabeled ``docling`` in the
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            manifest. Emit the ground-truth extractor. Fail-safe: a tracer
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            # Fall through to the unchanged Docling -> PyMuPDF path below.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:        # FIX-DOCLING-OOM-V2: Guard against docling std::bad_alloc on large PDFs.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        # Docling's C++ preprocess stage has memory complexity proportional to
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        # total_pages x image_resolution^2, doesn't release memory between
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        #
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        # V2 improvement: check BOTH byte size AND page count. A 3MB 200-page
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:        # dense-text PDF wouldn't trip a bytes-only guard but would still OOM
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        # docling. PyMuPDF page count costs ~50ms and is memory-safe.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        #
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                # Skip docling and let PyMuPDF fallback handle with its own error.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                logger.debug(
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:                    "[ACCESS] FIX-DOCLING-OOM-V2: page count failed (%s), skipping docling",
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                    str(_exc)[:80],
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                )
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        if _skip_docling_reason:
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            logger.warning(
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:                "[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (%s), using PyMuPDF: %s",
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                _skip_docling_reason, url[:50],
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            )
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                # extraction with asyncio.wait_for (the mineru path is already wrapped; this
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                # one was NOT). docling's C++ convert can wedge/run-minutes on a malformed/
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:                # encrypted/image-heavy PDF that passed the OOM-V2 page/byte gate, bounded only
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                # by the 90s outer join. With mineru25 OFF this is the PRIMARY extraction path.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-                # A wedged docling now fails-fast to the PyMuPDF fallback INSIDE the worker
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        except Exception as exc:  # noqa: BLE001 — any mineru failure => LOUD fallback
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            latency_ms = (_time.perf_counter() - _t0) * 1000.0
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:            # I-deepfix-001 BUG-B: a hard exception (model-load failure, CUDA OOM)
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            # is a genuine HEALTH failure — count it toward the breaker.
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-            _note_mineru25_failure()
+--
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        non-zero exit, or no markdown output RAISES so the async wrapper degrades
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        LOUDLY to Docling and the circuit breaker counts the health failure —
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py:        never a silent in-process fall-back (that re-creates the CUBLAS OOM this
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-        fix removes).
+/home/polaris/wt/outline_agent/src/tools/access_bypass.py-

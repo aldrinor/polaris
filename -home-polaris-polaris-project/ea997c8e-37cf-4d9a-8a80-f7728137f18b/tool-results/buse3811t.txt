@@ -1,0 +1,436 @@
+0615bc5 compose: unblock the event loop — NLI verify off-loop via asyncio.to_thread
+eff82fb compose gear-loop iter 5: GEAR-RULE newest-cp4+cp3 auto-resolve launcher + 429 self-contention concurrency cut (builds on iter-4 resume)
+4e0b1f9 compose gear-loop iter 4: section-level crash RESUME (SHA-gated) + self-relaunch launcher
+1add5ce compose gear-loop iter 3: kill iter-2 span-dump; enable basket-scaled wall + K-span recovery pass; writer conc 4->24 + global PG_MAX_CONCURRENT_LLM 5->30; call deadline 120->300s; per-basket draft-kept INFO log (P2); track launch scripts (P3)
+738e382 compose gear-loop iter 2: apply Fable full compose-fix wave (P0 boundary+disclosure raw-text kill, citation normalizer, coherence+dedup passes)
+        # (PG_ABSTRACTIVE_WRITER). OFF => the deterministic short-writer stub + bare _vc_verify
+        # below are BYTE-IDENTICAL and the new module is NEVER imported on the hot path (the flag is
+        # read inline, no module touch). ON => an awaited async PRE-PASS precomputes one
+        # LLM-rewritten verified draft per basket and the SYNC writer_fn is a pure precomputed-dict
+        # lookup; the writer-specific verify WRAPPER (allow_local_window_fallback=False +
+        # judge_error-fail-closed + numeric-completeness) is injected through the existing verify_fn
+        # parameter, so _compose_section_per_basket / _compose_one_basket /
+        # verify_sentence_provenance are UNTOUCHED (the engine never learns it is wrapped).
+        # Fail-closed: the writer REFUSES to activate unless entailment=enforce.
+        # I-deepfix-001 Wave-1a (#1344): PG_SYNTH_PRIMARY makes the group-writer branch the PRIMARY body
+        # path — it IMPLIES PG_ABSTRACTIVE_WRITER (the same fail-closed assert_activation_preconditions
+        # still hard-requires entailment=enforce), constructs the writer closure with group_mode=True +
+        # a re-draft closure so _compose_one_basket's bounded repair loop can re-call the writer, and
+        # (via the FIX-K demotion above) makes this the primary body producer. OFF (both flags) =>
+        # byte-identical: the condition is exactly the pre-Wave-1a PG_ABSTRACTIVE_WRITER read.
+        if (
+            os.getenv("PG_ABSTRACTIVE_WRITER", "0").strip().lower() not in ("", "0", "false", "off", "no")
+            or _synth_primary_active
+        ):
+            from src.polaris_graph.generator.abstractive_writer import (  # noqa: PLC0415
+                abstractive_pre_pass,
+                assert_activation_preconditions,
+                make_abstractive_writer_fn,
+                make_writer_verify_fn,
+            )
+            assert_activation_preconditions()
+            _vc_writer_verify = make_writer_verify_fn(_vc_verify)
+            # P0-2 OUTLINE-ECHO (2026-07-10): thread the section {title, focus} + research_question into
+            # the abstractive writer so it synthesizes prose that FULFILLS this section's focus and omits
+            # off-focus spans. General/question-agnostic — the values come from the plan, never hardcoded.
+            _vc_section_context = {
+                "title": str(getattr(section, "title", "") or ""),
+                "focus": str(getattr(section, "focus", "") or ""),
+                "research_question": str(research_question or ""),
+            }
+            # I-deepfix-001 Wave-1a (#1344) KEYSTONE (Codex P1 / Fable P1): thread group_mode into the
+            # pre-pass so that under PG_SYNTH_PRIMARY the ATTEMPT-0 precomputed draft is already the GROUP
+            # contract (one coherent multi-sentence narrative per basket). Without this the pre-pass emits
+            # single-sentence-per-span and retries until the wrapper passes, so attempt-0 arrives at
+            # _compose_one_basket with failed=[] and the group writer NEVER fires on most baskets — the
+            # coherent-narrative effect would not materialize on real upstream. group_mode=False (OFF) =>
+            # byte-identical single-sentence-per-span pre-pass.
+            # Fix 4 (P1-2, 2026-07-10 compose gear-loop): GROUP mode is the DEFAULT on the primary writer
+            # path so sections read as ONE coherent narrative (multi-citation dedup, outline fulfilment),
+            # not one-sentence-per-span. We are already inside the `PG_ABSTRACTIVE_WRITER or
+            # _synth_primary_active` branch, so any active writer path composes in group mode; the base
+            # verifier still gates every sentence, so this adds no faithfulness risk. (Was tied to
+            # _synth_primary_active only.)
+            _vc_precomputed = await abstractive_pre_pass(
+                _vc_baskets, evidence_pool, writer_verify_fn=_vc_writer_verify,
+                group_mode=True,
+                section_context=_vc_section_context,
+            )
+            # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the no-token-repair
+            # pass (below, after `raw`) uses the SAME ones composing this section. Under PG_SYNTH_PRIMARY
+            # the precomputed drafts are GROUP-contract narratives (see the pre-pass call above); the SYNC
+            # writer_fn is still the pure precomputed-dict lookup, and the group re-draft closure below
+            # feeds _compose_one_basket's bounded repair loop.
+            _vc_writer_fn = make_abstractive_writer_fn(_vc_precomputed)
+            _vc_verify_fn = _vc_writer_verify
+            # I-deepfix-001 Wave-1a (#1344): the SYNTH_PRIMARY group re-draft closure (group_mode=True,
+            # whole-paragraph re-draft feeding revise_reasons). None unless PG_SYNTH_PRIMARY is ON =>
+            # _compose_one_basket keeps its legacy path (byte-identical). No new hot-path module import —
+            # constructed inline behind the flag.
+            _vc_redraft_fn = (
+                _make_group_redraft_fn(evidence_pool, _vc_section_context)
+                if _synth_primary_active else None
+            )
+            _vc_composed = _compose_section_per_basket(
+                _vc_baskets, evidence_pool,
+                writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
+                # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list off the
+                # already-built ClaimGraph / CredibilityAnalysis) so the cross-source analytical pass can
+                # LICENSE a conflict connective. No-op unless PG_CROSS_SOURCE_SYNTHESIS is ON.
+                edges=getattr(credibility_analysis, "edges", None),
+                redraft_fn=_vc_redraft_fn,
+                # Wave-2a: None unless PG_NUMERIC_COMPARATOR is ON (byte-identical otherwise).
+                numeric_key_by_cluster=_vc_numeric_keys,
+                # I-deepfix-003 (#1374) STEP 5: thread the research_question so the K-span FALLBACK
+                # (build_verified_span_draft_multi) applies the off-topic span screen on THIS abstractive
+                # path too (its primary writer is the precomputed LLM lookup, not a topical writer).
+                research_question=research_question,
+            )
+        else:
+            # RENDER PROBE (advisor 2026-06-20): a DETERMINISTIC short writer (first sentence of each
+            # basket's strongest verified member) — NO LLM, NO glm — so this render probes the path
+            # (fires-through-render? short prose fits 150K? does D8/glm hang locally?). Byte-identical
+            # to the pre-#1282 behavior; replaced by the LLM writer when PG_ABSTRACTIVE_WRITER is ON.
+            # I-deepfix-001 WS-3 (#1344): capture the PRODUCTION writer/verify fns so the
+            # no-token-repair pass (below, after `raw`) uses the SAME ones composing this section.
+            # L2 sub-topic decomposition (I-deepfix-001 #1344): the DETERMINISTIC per-basket producer
+            # emits ONE verbatim-span sentence per DISTINCT atomic fact the basket grounds (deduped,
+            # keep-all) instead of just the first member's headline — more DRB-II Recall from the corpus
+            # already fetched, zero new fetching. Each unit is a verbatim span carrying its member's own
+            # provenance token -> re-passes the UNCHANGED strict_verify + P1-1 region gate below trivially
+            # (faithfulness-neutral). Region-safe (tight per-unit offsets, no snap-past-region). Default-ON
+            # kill-switch PG_SUBTOPIC_DECOMPOSITION; OFF => the single-headline short writer (byte-identical).
+            # (Dark on the paid ABSTRACTIVE path AS A WRITER — that path's L2 lands via
+            # _compose_one_basket's build_verified_span_draft_multi fallback — but LIVE on smoke /
+            # non-abstractive runs.) Item 11 (#1344) ADDITIVE arm: on the abstractive SUCCESS path, L2's
+            # distinct BARE-INTEGER facts (counts / currency / dates / multipliers) the paraphrase
+            # DROPPED can be surfaced ADDITIVELY by _compose_section_per_basket's
+            # compose_distinct_fact_units pass (DEFAULT-OFF kill-switch PG_SUBTOPIC_ADDITIVE_FACTS; opt
+            # in per-run) — each a verbatim span re-verified by the UNCHANGED strict_verify, never
+            # replacing the abstractive winner's prose.
+            # I-deepfix-003 (#1374) STEP 5: bind the run's research_question into the deterministic body
+            # writers so their per-span off-topic screen (PG_COMPOSE_SPAN_TOPICALITY, default ON) can
+            # WITHHOLD a confidently-foreign span of an on-topic source from citation. research_question
+            # "" (framing-only default) => byte-identical (no span ever withheld).
+            if _vc_subtopic_enabled():
+                _vc_writer_fn = lambda _b, _p: _vc_multi_writer(_b, evidence_pool, research_question=research_question)  # noqa: E731
+            else:
+                _vc_writer_fn = lambda _b, _p: _vc_short_writer(_b, evidence_pool, research_question=research_question)  # noqa: E731
+            _vc_verify_fn = _vc_verify
+            _vc_composed = _compose_section_per_basket(
+                _vc_baskets, evidence_pool,
+                writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
+                # I-deepfix-001 M6: thread the certified relation engine (ContradictionEdge list) so the
+                # cross-source analytical pass can LICENSE a conflict connective. No-op unless
+                # PG_CROSS_SOURCE_SYNTHESIS is ON.
+                edges=getattr(credibility_analysis, "edges", None),
+                # Wave-2a: None unless PG_NUMERIC_COMPARATOR is ON (byte-identical otherwise).
+                numeric_key_by_cluster=_vc_numeric_keys,
+                # I-deepfix-003 (#1374) STEP 5: thread the research_question so the K-span FALLBACK
+                # (build_verified_span_draft_multi) applies the off-topic span screen (the primary
+                # deterministic writers already carry it via their bound closures above).
+                research_question=research_question,
+            )
+        # I-beatboth-011 keystone-F1 (#1284): _compose_section_per_basket now routes any basket carrying
+        # >=2 corroborating isolated-SUPPORTS members through compose_basket_multicited_sentence — ONE
+        # multi-cited sentence surfacing ALL the basket's corroborators (the §-1.3 consolidate-keep-all
+        # reading) with the relational-quantifier guard stripping any unlicensed aggregate predicate —
+        # WHEN PG_VERIFIED_COMPOSE_MULTICITED is ON. DEFAULT-OFF => this branch is byte-identical (the
+        # section producer takes the unchanged single-basket K-span path). Each multi-cited clause still
+        # passes the UNCHANGED strict_verify per-clause in the _rewrite_draft_with_spans + strict_verify
+        # tail below; faithfulness is untouched (composition layer only).
+        # I-deepfix-001 Wave-3 PART 2 ARM B P1a (#1344): HOLD ASIDE any degraded-verify disclosure
+        # placeholder (`[verification incomplete: ...]`) so it NEVER enters the strict_verify-bound `raw`
+        # — where _repair_untokened_draft could rebind its tokenless text to a foreign SUPPORTS basket, or
+        # strict_verify would drop it no_provenance_token (the Codex P1a bug). The held-aside disclosures
+        # are re-appended to the section body AFTER strict_verify + the render screens (below), as
+        # marker-less honest disclosures (never verified prose, never counted as support). When
+        # PG_DEGRADED_VERIFY_DISCLOSURE is OFF no such label is ever produced => partition is a no-op =>
+        # byte-identical.
+        _vc_real_units, _vc_degraded_disclosures = partition_composed_disclosures(_vc_composed)
+        # I-deepfix-001 Wave-2d (#1344): TWO-SIDED DEBATE. For a DEBATE-framed section (plan framing,
+        # not a content guess) that composed a verified PRO clause but NO verified CON clause, DISCLOSE
+        # the evidence asymmetry honestly. The con side is already CONSOLIDATED into _vc_baskets by B1
+        # (refuter_cluster_ids) + composed per-basket, each clause verified against its OWN basket-scoped
+        # pool (unchanged); this pass only INSPECTS the composed real units' [#ev] tokens and appends a
+        # marker-less disclosure to the held-aside list, which renders AFTER strict_verify via
+        # render_degraded_disclosures (never verified prose, never counted as support). It NEVER
+        # fabricates a con and NEVER asserts an ungrounded balancing claim (fabricating balance is the
+        # lethal direction). Default OFF (PG_TWO_SIDED_DEBATE) => the guard is False => byte-identical.
+        if _two_sided_debate_enabled() and _is_debate_section(section):
+            _pre_debate_disc = len(_vc_degraded_disclosures or [])
+            _vc_degraded_disclosures = _maybe_two_sided_debate_disclosure(
+                section, _vc_baskets, _vc_real_units, _vc_degraded_disclosures,
+            )
+            # I-deepfix-001 Wave-3a (#1344, Fable P1): ACCUMULATE this debate section's counts into the
+            # per-run totals instead of emitting a per-section marker. The ONE per-run summary marker is
+            # emitted by _emit_two_sided_debate_run_summary() after all sections compose, so "flag ON" always
+            # yields exactly one marker even when NO section is debate-framed. Reached ONLY under
+            # PG_TWO_SIDED_DEBATE + a plan-framed debate section => OFF byte-identical.
+            _accumulate_two_sided_debate(
+                len(_vc_real_units or []),
+                len(_vc_degraded_disclosures or []) - _pre_debate_disc,
+            )
+        raw = "\n".join(c for c in _vc_real_units if c and c.strip())
+        # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR. Before `raw` flows into the
+        # UNCHANGED _rewrite_draft_with_spans + strict_verify tail (where an untokened sentence is
+        # dropped no_provenance_token — the drb_72 leak), rebind any untokened sentence to the nearest
+        # supporting basket's OWN verified clause, using the SAME production writer/verify fns that
+        # composed this section. Default-ON (PG_NO_TOKEN_SENTENCE_REPAIR); byte-identical when OFF or
+        # when nothing is repaired. Faithfulness-neutral — the frozen engine is untouched.
+        raw = _repair_untokened_draft(
+            raw, _vc_baskets, evidence_pool,
+            writer_fn=_vc_writer_fn, verify_fn=_vc_verify_fn,
+        )
+        # Fix 4 (P1-2, 2026-07-10 compose gear-loop iter 2): SECTION COHERENCE PASS. The per-basket
+        # drafts are composed independently and concatenated, so a later basket's paragraph can open with
+        # a dangling anaphor ("these estimates" / "the researchers" / "The treatment group") pointing at a
+        # PRIOR basket. Resolve those referents IN PLACE before the UNCHANGED strict_verify tail runs;
+        # every rewritten sentence is re-verified by the base bar (context NLI + forward numeric) and a
+        # failing / token-altering rewrite keeps the ORIGINAL sentence (fail-open — never loses verified
+        # content or a citation). Default-ON kill-switch (PG_SECTION_COHERENCE_PASS); OFF/fault => raw
+        # unchanged. Runs on the tokened draft so the frozen faithfulness engine is byte-untouched.
+        try:
+            from src.polaris_graph.generator.section_polish import (  # noqa: PLC0415
+                coherence_rewrite_section as _coherence_rewrite,
+            )
+            raw = await _coherence_rewrite(
+                raw, evidence_pool,
+                section_context={
+                    "title": str(getattr(section, "title", "") or ""),
+                    "focus": str(getattr(section, "focus", "") or ""),
+                    "research_question": str(research_question or ""),
+                },
+            )
+        except Exception:  # noqa: BLE001 — additive coherence polish; never break composition
+            pass
+        in_tok = out_tok = 0
+        section_atom_catalog = {}
+        logger.info(
+            "[multi_section] %s verified-compose PRIMARY: %d baskets -> draft_chars=%d",
+            section.title, len(_vc_baskets), len(raw),
+        )
+        _draft_directly_tokened = True  # I-beatboth-009 (#1287): already [#ev:]-tokened; skip REDUCE filter
+    else:
+        raw, in_tok, out_tok, section_atom_catalog = await _call_section(
+            section, ev_subset, model, temperature, max_tokens_per_section,
+            tighter_retry=False,
+            contradictions=contradictions,
+            cross_trial_block=cross_trial_block,
+            use_field_agnostic_prompt=use_field_agnostic_prompt,
+            advisory_text=advisory_text,
+            distillate=distillate,
+            research_question=research_question,
+        )
+    total_in_tok += in_tok
+    total_out_tok += out_tok
+
+    # I-perm-016 (#1209): in REDUCE mode, drop any uncited reducer prose and
+    # strip the [[finding:...]] markers BEFORE the unchanged
+    # _rewrite_draft_with_spans + strict_verify run. A sentence survives only
+    # when it cites a KNOWN finding marker AND an evidence marker; the reducer's
+    # legacy [ev_XXX] marker is then rebound to a full [#ev:...] token by the
+    # unchanged sentence-aware span rewriter.
+    # Distillate None (legacy) -> raw is unchanged (byte-identical).
+    # I-beatboth-009 (#1287): directly-[#ev:]-tokened drafts (FIX-K / verified-compose
+    # PRIMARY) carry no [[finding:]] markers and MUST NOT pass through this REDUCE-marker
+    # filter — it would drop the entire draft. They go straight to the rewrite+verify tail.
+    if distillate is not None and not _draft_directly_tokened:
+        from src.polaris_graph.generator.evidence_distiller import (
+            filter_and_strip_reduce_markers,
+        )
+        raw = filter_and_strip_reduce_markers(raw, distillate)
+
+    # Rewrite provenance tokens
+    rewritten, _converted, _unver = _rewrite_draft_with_spans(raw, evidence_pool)
+
+    # I-deepfix-001 WS-3 (#1344): NO-PROVENANCE-TOKEN LEAK REPAIR for the LLM _call_section
+    # ELSE-branch (the drb_72 no_provenance_token leak that emptied safety sections). The primary
+    # verified-compose branch repaired its already-tokened `raw` above; the LLM branch never
+    # reached that helper, so an untokened model sentence fell straight into strict_verify's
+    # no_provenance_token drop. Repair it here — AFTER _rewrite_draft_with_spans has bound every
+    # legit legacy marker to a real [#ev:] token (so only genuinely untokened sentences are repair
+    # candidates) and BEFORE strict_verify. Directly-tokened drafts (verified-compose PRIMARY /
+    # FIX-K) already ran the repair on `raw`, so they SKIP this pass (byte-identical no-op).
+    # Faithfulness-neutral — the frozen strict_verify / NLI / provenance engine is untouched; a
+    # repaired clause re-passes the UNCHANGED strict_verify per clause, and an unbindable untokened
+    # sentence is left AS-IS so strict_verify still drops it.
+    if not _draft_directly_tokened:
+        rewritten = _repair_llm_draft_untokened(
+            rewritten, section, credibility_analysis, evidence_pool,
+        )
+
+    # Strict verify against full evidence_pool (not subset — the model
+    # might cite an ev from outside the assigned subset; still valid).
+    # I-deepfix-001 W03-strict-verify-offload (#1344): OFFLOAD the inline SYNC
+    # strict_verify to a worker thread so the enclosing asyncio.wait_for (the
+    # per-section 9000s wall + the 7200s run-wall) can ACTUALLY preempt a wedged
+    # per-sentence entailment judge. Run on the event-loop thread it blocked with NO
+    # await between per-sentence judge calls, so neither wall could interrupt it (the
+    # py-spy 'ssl.recv on MainThread, 0 CPU' freeze that hung Q72/Q76/Q90). Mirrors the
+    # credibility-pass to_thread fix already in this file (:7210). SAME verdicts, SAME
+    # engine, faithfulness BYTE-IDENTICAL — only the thread changes.
+    report = await asyncio.to_thread(strict_verify, rewritten, evidence_pool)
+
+    # I-bug-108: verifier-driven sentence repair loop. Per Codex
+    # strategic-review iter 1 path B (recommended after PR #350 D).
+    # When strict_verify drops sentences for "drift" reasons (entailment
+    # failed, number/trial-name mismatches, content overlap), feed the
+    # dropped sentence + cited spans + failure reason back to the
+    # generator and ask for one rewrite that the cited span entails.
+    # Repaired sentences re-run the FULL verification chain before
+    # entering kept[]; failures stay dropped (no double-counting).
+    # Per Codex iter-1 brief verdict: 1 retry per sentence, MAX 10
+    # repairs per section, deterministic order, token-set preservation
+    # check. Telemetry (attempts/successes/failures) accumulates on
+    # the SectionResult so the manifest can report recovery rate.
+    section_repair_telemetry = None
+    # FIX K (Codex P2-1): skip the LLM sentence-repair loop for the deterministic
+    # verified-span render. Repairing a dropped self-quote PARAPHRASES it into model
+    # prose — defeating K's core "every citation is the source's OWN verbatim words"
+    # traceability property — and re-introduces an LLM call. A unit the span-finder
+    # could not bind stays dropped, never reworded; report stays as strict_verify left it.
+    if not _evsr:
+      try:
+        from src.polaris_graph.generator.sentence_repair import (
+            repair_dropped_section_sentences,
+        )
+        repaired_kept, repaired_dropped, section_repair_telemetry = (
+            await repair_dropped_section_sentences(
+                kept=report.kept_sentences,
+                dropped=report.dropped_sentences,
+                evidence_pool=evidence_pool,
+                model=model,
+                max_tokens=400,
+                temperature=0.2,
+            )
+        )
+        if section_repair_telemetry.attempts > 0:
+            logger.info(
+                "[multi_section] %s repair_loop: attempts=%d "
+                "successes=%d (rate=%.2f) null_drops=%d "
+                "token_set_violations=%d re_verify_fail=%d "
+                "api_fail=%d",
+                section.title,
+                section_repair_telemetry.attempts,
+                section_repair_telemetry.successes,
+                section_repair_telemetry.recovery_rate,
+                section_repair_telemetry.null_drops,
+                section_repair_telemetry.token_set_violations,
+                section_repair_telemetry.re_verify_failures,
+                section_repair_telemetry.api_failures,
+            )
+            total_in_tok += section_repair_telemetry.input_tokens
+            total_out_tok += section_repair_telemetry.output_tokens
+        # Codex iter-1 P0 #2: drop accounting honest — recovered
+        # sentences are removed from dropped (already done in repair
+        # orchestrator) and added to kept. Replace the report's lists
+        # in-place so downstream M-41c filter sees the augmented kept.
+        report.kept_sentences = repaired_kept
+        report.dropped_sentences = repaired_dropped
+        report.total_kept = len(repaired_kept)
+        report.total_dropped = len(repaired_dropped)
+      except Exception as exc:
+        logger.warning(
+            "[multi_section] %s repair_loop failed (non-fatal): %s",
+            section.title, exc,
+        )
+
+    total = max(1, report.total_in)
+    kept_fraction = report.total_kept / total
+
+    # M-41c pre-filter (pass-2 fix for Codex audit blocker): apply the
+    # claim-frame filter to the first pass BEFORE the retry comparison
+    # so we compare POST-FILTER totals, not pre-filter. Otherwise a
+    # retry that generates 6 strict-verified but mostly under-framed
+    # sentences would beat a first-pass with 5 fully-framed sentences,
+    # then M-41c would drop most of the retry → fewer final sentences
+    # than the first pass would have delivered.
+    report_kept_after_m41c, report_dropped_m41c = (
+        filter_underframed_trial_sentences(report.kept_sentences)
+    )
+    post_filter_kept = len(report_kept_after_m41c)
+    # Use post-filter count for the retry decision.
+    post_filter_fraction = post_filter_kept / max(1, report.total_in)
+
+    regen_attempted = False
+    # I-perm-016 (#1209): the legacy tighter_retry injects a "[ev_XXX]-end every
+    # sentence" HARD CONTRACT (the reasoning-first retry block) that is
+    # INCOMPATIBLE with the REDUCE finding-marker format + marker-stripping. In
+    # distill mode the retry would also have to re-run MAP to produce a fresh
+    # ledger. Skip the legacy retry entirely under distill mode so the legacy
+    # contract is never mixed with the REDUCE path. OFF mode (distillate is None)
+    # keeps the retry behavior byte-identical.
+    if (
+        distillate is None
+        and not _evsr  # FIX K: the verified-span draft is deterministic; an LLM
+                       # tighter-retry would re-introduce un-verified generated
+                       # prose. Survivors come only from the source's own spans.
+        and post_filter_fraction < min_kept_fraction
+        and report.total_in > 0
+    ):
+        logger.info(
+            "[multi_section] %s post-M-41c kept_fraction=%.2f below "
+            "min %.2f — retrying",
+            section.title, post_filter_fraction, min_kept_fraction,
+        )
+        regen_attempted = True
+        # Step 3b commit 3: 4-tuple unpacking. Retry catalog identical
+        # to first-pass catalog (same evidence_subset → same atom_NNN
+        # numbering). Discard duplicate.
+        raw2, in_tok2, out_tok2, _ = await _call_section(
+            section, ev_subset, model, temperature, max_tokens_per_section,
+            tighter_retry=True,
+            contradictions=contradictions,
+            cross_trial_block=cross_trial_block,
+            use_field_agnostic_prompt=use_field_agnostic_prompt,
+            advisory_text=advisory_text,
+            research_question=research_question,
+        )
+        total_in_tok += in_tok2
+        total_out_tok += out_tok2
+        rewritten2, _c2, _u2 = _rewrite_draft_with_spans(raw2, evidence_pool)
+        # I-deepfix-001 P1#3 (retry-path repair gated by STALE first-pass flag, provenance): repair the
+        # retry draft UNCONDITIONALLY — AFTER _rewrite_draft_with_spans (so every legit legacy marker is
+        # already bound to a real [#ev:] token) and BEFORE the retry strict_verify. The retry ALWAYS
+        # produces LLM prose (it calls _call_section above) regardless of whether the FIRST pass was a
+        # direct-tokened verified-compose (which sets _draft_directly_tokened True). Pre-fix the retry
+        # repair was guarded by that STALE first-pass flag, so a verified-compose-primary -> LLM-retry
+        # path skipped _repair_llm_draft_untokened and went straight to strict_verify, dropping an
+        # untokened-but-groundable retry sentence as no_provenance_token (the drb_72 leak on the retry
+        # branch). Dropping the guard is safe: _repair_llm_draft_untokened is itself a NO-OP on
+        # already-tokened sentences. Faithfulness-neutral — the frozen strict_verify/NLI/provenance
+        # engine is untouched, a repaired clause re-passes the UNCHANGED strict_verify, and an
+        # unbindable untokened sentence is left AS-IS so strict_verify still drops it.
+        rewritten2 = _repair_llm_draft_untokened(
+            rewritten2, section, credibility_analysis, evidence_pool,
+        )
+        # I-deepfix-001 W03-strict-verify-offload (#1344): the regeneration-pass verify,
+        # offloaded for the same reason as the primary verify above.
+        report2 = await asyncio.to_thread(strict_verify, rewritten2, evidence_pool)
+        # M-41c pass-2: compare POST-FILTER kept counts, not
+        # pre-filter strict_verify totals. This prevents a retry with
+        # many under-framed trial-name claims from winning over a
+        # first pass with fewer but properly-framed claims.
+        report2_kept_after_m41c, report2_dropped_m41c = (
+            filter_underframed_trial_sentences(report2.kept_sentences)
+        )
+        if len(report2_kept_after_m41c) > post_filter_kept:
+            raw, rewritten, report = raw2, rewritten2, report2
+            report_kept_after_m41c = report2_kept_after_m41c
+            report_dropped_m41c = report2_dropped_m41c
+
+    # P0-A4 (I-arch-007): basket-atomic comparative synthesis recovery. Runs on the
+    # CHOSEN report's strict_verify-DROPPED sentences (whichever pass won above), BEFORE
+    # the M-41c list is applied below, so every recovered sentence is routed THROUGH the
+    # SAME M-41c policy filter + credibility-disclosure + resolve path as a normally-kept
+    # sentence (NOT appended after the gates — per Codex). A comparative sentence is
+    # licensed iff EVERY per-source atom independently passes the UNCHANGED single-span
+    # gate (ALL-or-NEI); failures stay dropped. Default ON; PG_GEN_COMPARATIVE_RECOVERY=0
+    # => byte-identical legacy path (no recovery). The faithfulness engine is not relaxed
+    # — recovery is the same hard single-span check applied per source and AND-ed.
+    if _comparative_recovery_enabled() and report.dropped_sentences:
+        _recovered_svs, _still_dropped = _recover_comparative_synthesis(
+            report.dropped_sentences, evidence_pool,
+        )
+        if _recovered_svs:

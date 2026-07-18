@@ -1,0 +1,2326 @@
+########## provenance.py ##########
+     1	#!/usr/bin/env python3
+     2	"""TYPED WORK / EXPRESSION / MANIFESTATION GRAPH — attribution may name only what the bytes prove.
+     3	
+     4	WHY THIS EXISTS
+     5	
+     6	  The corpus was one row per DOI. One row means one identity, so the row for a QJE article and the
+     7	  bytes of an NBER working paper were THE SAME OBJECT. `wp_fetch.py` wrote the working paper's text
+     8	  into `row['fulltext']`; the row kept `attribution = "Writing in the Quarterly Journal of Economics
+     9	  in 2003, Autor, Levy and Murnane"`. The miner then bound spans to that row, the writer named the
+    10	  journal, and the gate checked the sentence against the working paper's span. Every component was
+    11	  honest. The DATA MODEL did the lying: it had nowhere to put the difference.
+    12	
+    13	  Sol, verbatim: "A predecessor working paper and later journal article may be closely related, but
+    14	  they are DIFFERENT SOURCES until version equivalence is proven. The recovered text is presently A
+    15	  DISCOVERY LEAD, not automatically journal-attributable evidence."
+    16	
+    17	  So the row is split into three typed nodes, and the difference gets somewhere to live:
+    18	
+    19	      Work           the research object / case / trial          "what was studied"
+    20	        Expression   the version of the report of that work      "which version says it"
+    21	          Manifest.  the retrieved bytes + content hash          "the text we actually hold"
+    22	
+    23	  Spans bind to a MANIFESTATION, never to a Work. That is the whole point: `span -> manifestation`
+    24	  is a fact about bytes we hold; `span -> work` is a wish.
+    25	
+    26	THE CORE RULE (Sol, verbatim)
+    27	
+    28	  "Every span binds to its exact manifestation_id and content hash. ATTRIBUTION MAY NAME ONLY THAT
+    29	   MANIFESTATION, unless a stronger edge proves that the cited source contains the same span."
+    30	
+    31	  Implemented in `Graph.attribution_targets()`. An edge only widens what a span may name if it is
+    32	  SPAN-PRESERVING (exact_copy_of, authenticated accepted_manuscript_of) *and* ASSERTED. A
+    33	  `predecessor_of` edge never widens anything, however plausible: PEER REVIEW CHANGES NUMBERS.
+    34	
+    35	  "A title similarity match can PROPOSE predecessor_of; it CANNOT ASSERT exact_copy_of."
+    36	  -> every edge carries `status` (PROPOSED | ASSERTED) and a `basis` naming the evidence. An edge
+    37	     with no basis cannot be constructed.
+    38	
+    39	NO UNIVERSAL WORD THRESHOLD (Sol, item 4)
+    40	
+    41	  "A universal word threshold cannot define 'full text': a short judicial opinion, statute section,
+    42	   trial-registry record, and journal article have different completeness profiles."
+    43	
+    44	  MIN_WORDS=2500 was my own invention and it is deleted. `profile()` derives, FROM THE BYTES:
+    45	  artifact_kind, sections present, body/chrome ratio, result-bearing sections, extractability,
+    46	  identity agreement, fetch outcome — and judges completeness AGAINST THE PROFILE FOR THAT KIND.
+    47	  A four-page judicial opinion is COMPLETE. A 535-word cookie banner is not, at any length.
+    48	
+    49	  There is exactly ONE reducer that may answer "is this the whole document?": `judge_completeness()`,
+    50	  driven by the KIND_PROFILE registry. `profile()` calls it, `Graph.from_json()` calls it, and
+    51	  `event_ledger.derive_content_profile()` calls it. It was written twice before — 1,200 words here
+    52	  and FULLTEXT_MIN=2,500 there — which is not a shared rule, it is two rules that disagree, and the
+    53	  document a card cites depends on which module last looked at it.
+    54	
+    55	THE API. EXACTLY THREE ENTRY POINTS (Sol, "reality checks", item 5)
+    56	
+    57	    bind_span(manifestation_id, start, end)   -> bytes -> a bound span. BOUNDS ARE VALIDATED.
+    58	    resolve_attribution(manifestation_id, policy) -> what that span may NAME, under THIS task's rule
+    59	    verify_span(binding)                      -> the enforcement point re-checks EVERYTHING
+    60	
+    61	  bind_span() returns IDENTIFIERS — `expression_id` and `permitted_expression_ids`. It used to return
+    62	  `may_name`: a list of English SENTENCES. A sentence is a display cache, and a consumer that must
+    63	  string-match prose to decide what is legal has no rule at all — it has a suggestion. Prose is
+    64	  produced by resolve_attribution(), carried as `.text`, and NOTHING IS EVER VALIDATED AGAINST IT.
+    65	
+    66	WHAT RE-DERIVING THE LABELS FROM THE BYTES ACTUALLY FOUND
+    67	
+    68	  The memo assumed the six `fulltext_source='working_paper'` rows were working papers. The bytes say
+    69	  that label recorded WHICH FETCHER RAN, not WHAT THE ARTIFACT IS. It is false in both directions:
+    70	
+    71	    Parry et al. (2016), Group & Organization Management, "Rise of the Machines"
+    72	        -> the bytes are Yang-Hui He, "MATHEMATICS: THE RISE OF THE MACHINES", an arXiv PAPER ABOUT
+    73	           THEOREM-PROVING. None of Parry, Cohen or Bhattacharya appears anywhere in the 4,027 words.
+    74	           The title matcher matched the phrase "Rise of the Machines". This is not a predecessor,
+    75	           not a preprint, not a version — IT IS A DIFFERENT WORK, and 17 of its numbers were queued
+    76	           to be printed as findings of a management journal.
+    77	    Acemoglu and Restrepo (2019), JEP -> the bytes ARE the typeset JEP article. Not a working paper.
+    78	    Autor (2015), JEP                 -> the bytes are the AEA WEBSITE'S COOKIE BANNER. 535 words.
+    79	    Autor et al. (2003), QJE          -> readable body, but chars 0-19,569 are (cid:N) font codes and
+    80	                                         NOTHING in the bytes says whether this is QJE or NBER 8337.
+    81	                                         Genuinely UNRESOLVED -> therefore NOT journal-attributable.
+    82	
+    83	  And one the memo never suspected, found by the same content check, ALREADY SHIPPED IN A CARD:
+    84	
+    85	    Weiss (2008), Economics Letters   -> the PDF extracted as a CAESAR-SHIFTED GLYPH DUMP.
+    86	        span:  "...wkh qxpehu ri kdluguhvvhuv juhz pruh wkdq 633 shu fhqw ehwzhhq 4<<5 dqg 4<<<"
+    87	        plain: "...the number of hairdressers grew more than 300 per cent between 1992 and 1999"
+    88	        card:  "633 percent increase in number of hairdressers"          THE PAPER SAYS 300.
+    89	
+    90	        The span gate did its job perfectly: that span IS verbatim in the source. But the SOURCE was
+    91	        a corrupted encoding of the paper, so "verbatim from the source" was verbatim from garbage.
+    92	        EXTRACTION QUALITY IS A PRECONDITION FOR THE GATE TO MEAN ANYTHING, and nothing was checking
+    93	        it. That is why `extractability` is in the profile and why it is load-bearing for
+    94	        faithfulness, not merely for tidy labelling.
+    95	
+    96	    usage:  python3 scripts/provenance.py            # the honest census
+    97	"""
+    98	from __future__ import annotations
+    99	
+   100	import hashlib
+   101	import json
+   102	import re
+   103	import statistics
+   104	import sys
+   105	import unicodedata
+   106	from dataclasses import dataclass, field, asdict
+   107	from pathlib import Path
+   108	
+   109	ROOT = Path(__file__).resolve().parents[1]
+   110	sys.path.insert(0, str(Path(__file__).resolve().parent))
+   111	
+   112	# ONE definition of "section", shared with the miner. Two functions that each decide what a section
+   113	# is will drift, and every offset stored in every card indexes into whichever one won that day.
+   114	from evidence_miner import View, sections_of, SECTION_WEIGHT  # noqa: E402
+   115	
+   116	CORPUS = ROOT / 'outputs' / 'journal_corpus_content.json'
+   117	GRAPH_OUT = ROOT / 'outputs' / 'provenance_graph.json'
+   118	
+   119	#: THE API. A span becomes a citation through these three functions and no others.
+   120	#:     bind_span(manifestation_id, start, end)        -> Graph.bind_span
+   121	#:     resolve_attribution(manifestation_id, policy)  -> Graph.resolve_attribution
+   122	#:     verify_span(binding)                           -> Graph.verify_span
+   123	__all__ = [
+   124	    'Graph', 'Work', 'Expression', 'Manifestation', 'Edge', 'SpanCorrespondence',
+   125	    'SourcePolicy', 'Attribution', 'SpanBindingError', 'GraphIntegrityError',
+   126	    'JOURNAL_ONLY', 'PEER_REVIEWED', 'OFFICIAL_TEXT', 'ANY_VERSION',
+   127	    'KIND_PROFILE', 'ARTIFACT_KINDS', 'FINDING_BEARING_KINDS', 'EXPRESSION_KINDS', 'WORK_KINDS',
+   128	    'SPAN_PRESERVING', 'NON_SPAN_PRESERVING',
+   129	    'CANON_ALGORITHM', 'CANON_VERSION', 'canonicalize', 'canonical_hash', 'binding_id',
+   130	    'make_correspondence',
+   131	    'judge_completeness', 'profile', 'derive_expression_kind', 'derive_source_type', 'migrate',
+   132	]
+   133	
+   134	
+   135	# =================================================================================================
+   136	# 1. NODE TYPES
+   137	# =================================================================================================
+   138	
+   139	# The version taxonomy. `repository` is NOT a version — a repository copy is a MANIFESTATION (a place
+   140	# bytes live) of some expression, which is where it sits in the graph below.
+   141	#
+   142	# A JUDICIAL OPINION HAS NO `journal_version`, AND A STATUTE HAS NO PREPRINT. The scholarly five were
+   143	# the only kinds here, and `migrate()` therefore minted a `journal_version` for every row it saw —
+   144	# which is not a taxonomy, it is an assumption wearing one. `official_text` and `registry_record` are
+   145	# the authoritative expressions of the non-scholarly works, and the registry below says which work
+   146	# kind has which.
+   147	EXPRESSION_KINDS = ('journal_version', 'proceedings_version', 'accepted_manuscript', 'working_paper',
+   148	                    'preprint', 'official_text', 'registry_record', 'unknown')
+   149	
+   150	
+   151	@dataclass
+   152	class Work:
+   153	    """The research object / case / trial. NOT a document. Nothing binds to it.
+   154	
+   155	    `kind` IS LOAD-BEARING, not decoration: it selects the completeness profile its documents are
+   156	    judged against. A `case` is judged as a judicial opinion — COMPLETE AT ANY LENGTH — and a `study`
+   157	    is judged as a scholarly article, where 300 words is a fragment. Judge one by the other's rule and
+   158	    you either destroy the opinion or admit the fragment.
+   159	    """
+   160	    id: str
+   161	    title: str
+   162	    authors: list[str]
+   163	    year: int | None
+   164	    venue: str | None            # the venue / court / reporter / registry that names the official text
+   165	    doi: str | None
+   166	    kind: str = 'study'          # WORK_KINDS
+   167	
+   168	
+   169	@dataclass
+   170	class Expression:
+   171	    """A VERSION of the report of a Work. This is the unit an attribution may name.
+   172	
+   173	    There is NO `citable_in_journal_only_answer` field any more. Citability is a property of THE
+   174	    ANSWER'S INSTRUCTION, not of the node: the same accepted manuscript is inadmissible under
+   175	    "journal articles only" and admissible under "any identified version". A boolean stored on the
+   176	    node has to be wrong for one of them, and a stored label that can be wrong is this whole file's
+   177	    subject. It is DERIVED, per policy, by `Graph.resolve_attribution()`.
+   178	    """
+   179	    id: str
+   180	    work_id: str
+   181	    kind: str                     # EXPRESSION_KINDS
+   182	    kind_basis: str               # WHY we believe that — derived from bytes, or 'claimed_by_metadata'
+   183	    attribution: str              # DISPLAY ONLY. The sentence a writer may render for THIS expression.
+   184	    #                             # Nothing is ever validated against it — see THE LAW.
+   185	
+   186	
+   187	@dataclass
+   188	class Manifestation:
+   189	    """The BYTES WE ACTUALLY HOLD. Every span binds here, and to `content_hash`."""
+   190	    id: str
+   191	    expression_id: str
+   192	    work_id: str
+   193	    text: str                     # retained in full. NOTHING IS EVER DELETED.
+   194	    content_hash: str             # sha256 of `text`
+   195	    n_words: int
+   196	    locator: str | None           # the URL these bytes came from
+   197	    locator_status: str           # RECORDED | NOT_RECORDED_BY_FETCHER | CONTRADICTS_CONTENT
+   198	    fetched_by: str               # which fetcher wrote it
+   199	    text_field: str               # which corpus field it came from ('fulltext' | 'abstract')
+   200	    profile: dict = field(default_factory=dict)   # the content-derived artifact profile
+   201	
+   202	
+   203	@dataclass
+   204	class Edge:
+   205	    """A TYPED, EVIDENCED relation. An edge with no basis cannot be constructed."""
+   206	    src: str
+   207	    dst: str
+   208	    type: str                     # EDGE_TYPES
+   209	    status: str                   # PROPOSED | ASSERTED
+   210	    basis: str                    # the evidence. Never empty.
+   211	
+   212	
+   213	EDGE_TYPES = ('exact_copy_of', 'accepted_manuscript_of', 'predecessor_of',
+   214	              'reports_same_study', 'supersedes', 'cites')
+   215	
+   216	# THE ONLY EXPRESSION-WIDE EDGE THAT MAY WIDEN AN ATTRIBUTION.
+   217	# A span in manifestation M may name expression E != M.expression ONLY across this edge, and ONLY when
+   218	# the edge is ASSERTED. `predecessor_of` and `reports_same_study` are deliberately absent: a working
+   219	# paper and the journal article report the same study, and PEER REVIEW CHANGES NUMBERS.
+   220	#
+   221	# `accepted_manuscript_of` WAS IN THIS TUPLE AND IS NOT ANY MORE. (Sol, V9 §4: "`accepted_manuscript_of`
+   222	# remains a useful bibliographic edge, but it is not span-preserving.") It stayed here on the theory that
+   223	# an accepted manuscript is post-peer-review and therefore says what the journal says. It is not, and it
+   224	# does not: copy-editing, proof corrections, and the editor's own last round all land AFTER acceptance,
+   225	# and the numbers move. Worse, the edge was reachable FROM REPOSITORY METADATA — version_align mapped
+   226	# Unpaywall's `acceptedVersion` string straight onto it and alignment_census declared the result
+   227	# journal-ADMISSIBLE. That is a live fabrication path: a repository's one-word label, three hops later,
+   228	# printing a manuscript's number under a journal's name.
+   229	#
+   230	# AN ACCEPTED MANUSCRIPT IS NEVER THE JOURNAL VERSION MERELY BECAUSE A REPOSITORY SAYS `acceptedVersion`.
+   231	# What CAN carry a span from an accepted manuscript into the journal is a verified SpanCorrespondence —
+   232	# THAT SPAN, those two hashes, those two offsets, exact canonical equality — and nothing else.
+   233	SPAN_PRESERVING = ('exact_copy_of',)
+   234	
+   235	#: An edge that is a real bibliographic fact and transfers NO attribution whatsoever. Kept explicit so
+   236	#: that "which edges are inert" is a statement in the code and not an absence from a tuple.
+   237	NON_SPAN_PRESERVING = tuple(t for t in ('exact_copy_of', 'accepted_manuscript_of', 'predecessor_of',
+   238	                                        'reports_same_study', 'supersedes', 'cites')
+   239	                            if t not in SPAN_PRESERVING)
+   240	
+   241	
+   242	# =================================================================================================
+   243	# 1b. PER-SPAN ATTRIBUTION — THE SpanCorrespondence  (Sol V9 §4)
+   244	# =================================================================================================
+   245	"""
+   246	THE API MOVED FROM MANIFESTATION-WIDE PERMISSION TO BINDING-SPECIFIC PERMISSION.
+   247	
+   248	The old shape was `resolve_attribution(manifestation_id, policy)`: ONE answer for a whole document. An
+   249	edge that widened it widened it for EVERY span in the manifestation at once — so proving that ONE
+   250	sentence of an accepted manuscript survived into the journal would have licensed the OTHER four hundred,
+   251	including the ones peer review rewrote. That is permission by association, and the association is exactly
+   252	what we cannot check.
+   253	
+   254	A `SpanCorrespondence` is the narrowest true thing: THIS span, in THESE bytes, is character-for-character
+   255	THAT span, in THOSE bytes. It carries both manifestation ids, both content hashes, both offset pairs,
+   256	both verbatim spans, the canonicalization ALGORITHM AND VERSION under which they were compared, the exact
+   257	canonical-span hash, and the identity decision for each manifestation. The verifier RECHECKS all of it —
+   258	the hashes, the offsets, and exact canonical text equality — because a correspondence that arrives from a
+   259	JSON file is an untrusted input, like everything else here.
+   260	
+   261	Consequences, all of them mechanical below:
+   262	
+   263	  * Repository metadata can NEVER prove span equivalence. There is no field on this record where a
+   264	    repository's opinion could be written; the record is made of hashes and offsets or it is not made.
+   265	  * A correspondence grants permission FOR THAT SPAN ONLY — not for every assertion in the manuscript.
+   266	  * "0.37 versus 0.2" FAILS IMMEDIATELY: canonicalization does not touch digits, so the canonical texts
+   267	    differ and `verify_correspondence()` returns False before any policy is consulted.
+   268	  * A span found independently in the VoR's own bytes should be REBOUND to the VoR manifestation
+   269	    (`Graph.rebind()`), which is strictly stronger than a correspondence: no cross-document permission
+   270	    is needed at all when the span is IN the document you want to name.
+   271	  * An accepted manuscript with no VoR bytes stays accepted-manuscript-attributable ONLY.
+   272	"""
+   273	
+   274	#: THE CANONICALIZATION. Named and VERSIONED, because two documents compared under different rules were
+   275	#: never compared. It does exactly two things — Unicode compatibility normalisation (so a ligature or a
+   276	#: non-breaking space in a PDF is not a "difference"), and whitespace collapse (so a column break is not
+   277	#: a difference either).
+   278	#:
+   279	#: WHAT IT DELIBERATELY DOES NOT DO, and why each omission is load-bearing:
+   280	#:   - it does not case-fold      : "Table 3" and "table 3" may genuinely be different objects
+   281	#:   - it does not strip punctuation: "0.37" vs "037" is not a rounding, it is a different number
+   282	#:   - it does not normalise digits or units: THIS IS THE ACEMOGLU TEST. 0.37pp in the NBER working
+   283	#:     paper, 0.2pp in the published JPE. Any "smart" numeric tolerance here would align them, and the
+   284	#:     whole point of this file is that PEER REVIEW CHANGES NUMBERS.
+   285	CANON_ALGORITHM = 'nfkc_whitespace_collapse'
+   286	CANON_VERSION = '1'
+   287	
+   288	
+   289	def canonicalize(s: str) -> str:
+   290	    """The ONE canonicalization. Its name and version travel with every correspondence that uses it."""
+   291	    return re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', s or '')).strip()
+   292	
+   293	
+   294	def canonical_hash(s: str) -> str:
+   295	    """sha256 of the canonical form, DOMAIN-SEPARATED BY ALGORITHM AND VERSION.
+   296	
+   297	    Without the prefix, a hash computed under algorithm v1 and a hash computed under a future v2 would be
+   298	    indistinguishable strings, and a stored hash would silently certify a comparison that was never made.
+   299	    """
+   300	    return hashlib.sha256(
+   301	        f'{CANON_ALGORITHM}:{CANON_VERSION}:{canonicalize(s)}'.encode('utf-8', 'ignore')).hexdigest()
+   302	
+   303	
+   304	def binding_id(manifestation_id: str, content_hash: str, start: int, end: int) -> str:
+   305	    """The identity of a BOUND SPAN — the unit `resolve_attribution()` now answers about.
+   306	
+   307	    It is derived, not minted: the same span of the same bytes always has the same id, and a binding whose
+   308	    offsets or whose source bytes were edited IS A DIFFERENT BINDING and cannot inherit the old one's
+   309	    permission.
+   310	    """
+   311	    h = hashlib.sha256(f'{manifestation_id}|{content_hash}|{start}|{end}'.encode()).hexdigest()
+   312	    return f'bind:{h[:16]}'
+   313	
+   314	
+   315	@dataclass
+   316	class SpanCorrespondence:
+   317	    """THIS span in THESE bytes IS THAT span in THOSE bytes. The only thing that can move a span across
+   318	    documents — and it moves exactly one span.
+   319	
+   320	    Every field is a hash, an offset, a verbatim string, or a decision derived from bytes. There is no
+   321	    field for a repository's version label, and that absence is the design.
+   322	    """
+   323	    id: str
+   324	    source_manifestation_id: str
+   325	    source_raw_hash: str          # sha256 of the source manifestation's text (its content_hash)
+   326	    source_start: int
+   327	    source_end: int
+   328	    source_span: str              # VERBATIM, as sliced
+   329	
+   330	    target_manifestation_id: str
+   331	    target_raw_hash: str
+   332	    target_start: int
+   333	    target_end: int
+   334	    target_span: str              # VERBATIM, as sliced
+   335	
+   336	    canonicalization: str         # ALGORITHM:VERSION under which the two were compared
+   337	    canonical_span_hash: str      # the exact hash of the shared canonical text
+   338	
+   339	    source_identity: str          # the identity decision for the SOURCE manifestation
+   340	    target_identity: str          # ...and for the TARGET. Both must be CONFIRMED.
+   341	    basis: str                    # how this correspondence was established. Never empty.
+   342	
+   343	
+   344	CORRESPONDENCE_IDENTITY_OK = ('CONFIRMED',)
+   345	
+   346	
+   347	def make_correspondence(g: 'Graph', source_mid: str, source_start: int, source_end: int,
+   348	                        target_mid: str, target_start: int, target_end: int,
+   349	                        basis: str) -> SpanCorrespondence:
+   350	    """Build a correspondence FROM THE BYTES. It is then still VERIFIED before it grants anything —
+   351	    the constructor is a convenience, never an authority.
+   352	    """
+   353	    src = g.manifestations[source_mid]
+   354	    tgt = g.manifestations[target_mid]
+   355	    s_span = src.text[source_start:source_end]
+   356	    t_span = tgt.text[target_start:target_end]
+   357	    cid = hashlib.sha256(
+   358	        f'{source_mid}|{source_start}|{source_end}|{target_mid}|{target_start}|{target_end}'
+   359	        .encode()).hexdigest()[:16]
+   360	    return SpanCorrespondence(
+   361	        id=f'corr:{cid}',
+   362	        source_manifestation_id=source_mid, source_raw_hash=src.content_hash,
+   363	        source_start=source_start, source_end=source_end, source_span=s_span,
+   364	        target_manifestation_id=target_mid, target_raw_hash=tgt.content_hash,
+   365	        target_start=target_start, target_end=target_end, target_span=t_span,
+   366	        canonicalization=f'{CANON_ALGORITHM}:{CANON_VERSION}',
+   367	        canonical_span_hash=canonical_hash(s_span),
+   368	        source_identity=(src.profile.get('identity') or {}).get('verdict', 'UNRESOLVED'),
+   369	        target_identity=(tgt.profile.get('identity') or {}).get('verdict', 'UNRESOLVED'),
+   370	        basis=basis)
+   371	
+   372	
+   373	# =================================================================================================
+   374	# 2. CONTENT-DERIVED ARTIFACT PROFILE  — this replaces MIN_WORDS
+   375	# =================================================================================================
+   376	
+   377	# --- extractability ------------------------------------------------------------------------------
+   378	# Thresholds are DERIVED FROM THE OBSERVED DISTRIBUTION of this corpus, not invented, and __main__
+   379	# reprints that distribution so they can be re-derived by anyone who doubts them. On the 70-row
+   380	# corpus the stopword density of intact prose runs 0.198 - 0.45 (median 0.292); the single
+   381	# Caesar-shifted document sits at 0.012. The gap is 16x and the threshold below falls in empty space.
+   382	_FUNCTION_WORDS = frozenset("""the of and to in a is that for with as on by are we this be it from at
+   383	an not which or have has was were their its they there than these such been between more can may""".split())
+   384	CORRUPT_STOPWORD_DENSITY = 0.10   # < this => the bytes are not English prose (cipher / glyph dump)
+   385	DEGRADED_CID_RATIO = 0.05         # > this => a non-embedded font left (cid:N) codes in the text
+   386	
+   387	_CID = re.compile(r'\(cid:\d+\)')
+   388	_WORDY = re.compile(r"[A-Za-z']+")
+   389	
+   390	# --- chrome --------------------------------------------------------------------------------------
+   391	# Web furniture. A landing page is not a paper at ANY word count, and 548 words of it is not an
+   392	# "abstract" either -- calling it one implies the paper's own summary, which we do not have.
+   393	_CHROME = re.compile(
+   394	    r'(uses cookies|cookie (policy|settings|consent)|accept(ing)? (all )?cookies|skip to (main|content)'
+   395	    r'|sign in|log ?in|register|create an account|privacy policy|terms (of use|and conditions)'
+   396	    r'|newsletter|subscribe|add to cart|purchase|download pdf|share (this|on)|permissions'
+   397	    r'|all rights reserved|advertisement|search this site|contact name email|send me)', re.I)
+   398	
+   399	# --- self-identifying version furniture ----------------------------------------------------------
+   400	_WP_MARK = re.compile(
+   401	    r'(nber working paper|national bureau of economic research|working paper (no\.?|series|\d)'
+   402	    r'|iza (discussion paper|dp)|discussion paper (no\.?|series)|cepr discussion paper'
+   403	    r'|preliminary(?: and incomplete)?[.:—-]? *(?:please )?do not (cite|quote)'
+   404	    r'|comments? welcome|this draft)', re.I)
+   405	_PREPRINT_MARK = re.compile(r'(arxiv[:\s]*\d{4}\.\d{4,5}|ssrn[- ]id|preprint (submitted|version)|biorxiv)', re.I)
+   406	_AM_MARK = re.compile(
+   407	    # ---- THE WHITE ROSE GAP (found by the hop-6 probe; it was a LIVE fabrication path) -----------
+   408	    # This detector required the literal word `accepted` or `final`, or the phrase "this is THE
+   409	    # author". White Rose, Enlighten and most EPrints repositories write, verbatim:
+   410	    #
+   411	    #     "This is AN AUTHOR PRODUCED VERSION of a paper published in <journal>."
+   412	    #
+   413	    # `produced` is neither `accepted` nor `final`, and `an` is not `the` — so the commonest
+   414	    # accepted-manuscript cover sheet in the UK was INVISIBLE to the accepted-manuscript detector. It
+   415	    # then fell through to _JOURNAL_MARK, which matched the DOI THE COVER SHEET PRINTS, and the
+   416	    # manuscript was classified `journal_version` and CITED AS THE JOURNAL ARTICLE.
+   417	    # Like the NIH widening below, this can only move bytes OUT of journal_version, never into it.
+   418	    r"(accepted manuscript|author'?s? (accepted|final|original) (version|manuscript)"
+   419	    r'|author[- ]?produced[- ]?(version|manuscript)|postprint|post-print'
+   420	    r'|published version\)? *\(refereed\)|this is (?:the|an?) (author|accepted)'
+   421	    # ---- THE NIH AUTHOR MANUSCRIPT (Sol V9 §2, the PMC silent failure list, verbatim: "NIH manuscript
+   422	    # ---- is mistaken for publisher VoR") ---------------------------------------------------------
+   423	    # PMC deposits NIH-funded accepted manuscripts ALONGSIDE publisher VoRs, in the same JATS dialect,
+   424	    # under the same kind of PMCID. Nothing on the wire distinguishes them — Europe PMC's `nihAuthMan`
+   425	    # flag is a REPOSITORY LABEL, and the whole V9 P0 was the project of refusing to let a repository
+   426	    # label decide what bytes ARE. So the tell has to come from THE DOCUMENT'S OWN FRONT MATTER, and
+   427	    # there are exactly two that are reliable:
+   428	    #
+   429	    #   1. the stamp PMC prints in the running head of every page of one:
+   430	    #        "Author manuscript; available in PMC 2026 Jan 01."
+   431	    #      Note this did NOT match the old pattern: `author'?s? (accepted|final) (version|manuscript)`
+   432	    #      requires the word `accepted` or `final`, and the NIH stamp says neither. The most common
+   433	    #      accepted manuscript in biomedicine was invisible to the accepted-manuscript detector.
+   434	    #   2. the JATS front-matter id <article-id pub-id-type="manuscript">NIHMS2075474</article-id>,
+   435	    #      which routes_bio.jats_to_text linearizes into the header. A VoR does not carry one.
+   436	    #
+   437	    # Both are ANCHORED (the stamp requires "in PMC"; the id requires the NIHMS prefix + digits), so a
+   438	    # paper that merely discusses author manuscripts in its prose cannot trip them. This is a STRICTLY
+   439	    # WIDENING change to an accepted-manuscript detector: it can only move bytes OUT of journal_version,
+   440	    # never into it. Under a JOURNAL-ONLY contract that is the safe direction, and it is the true one.
+   441	    r'|author manuscript;? *available in pmc|\bnihms\s*\d{3,})', re.I)
+   442	# Typeset journal furniture: a running head with volume/issue/pages, or a publisher rights block.
+   443	_JOURNAL_MARK = re.compile(
+   444	    r'(volume \d+[,—-] *number \d+|vol\.? *\d+[,(]? *(no\.?|issue|\()? *\d+'
+   445	    r'|doi[:\s]*10\.\d{4,9}/|©\s*(the author|\d{4})|article reuse guidelines'
+   446	    r'|received .{0,40}(revised|accepted).{0,40}\d{4}'
+   447	    # ---- THE MASTHEAD FORMS THIS PATTERN COULD NOT SEE ------------------------------------------
+   448	    # Segmenting the cover sheet off (below) exposed a gap that the cover sheet had been HIDING: the
+   449	    # two commonest article-of-record mastheads in this corpus matched NOTHING here, and both real
+   450	    # journal articles were being rescued by the DOI THEIR COVER SHEET PRINTED. Remove the cover
+   451	    # sheet and the AER deposit fell to `unknown`. The furniture was always right there:
+   452	    #     "American Economic Review 2014, 104(8): 2509-2526"   <- vol(issue): page-range
+   453	    #     "AI and Ethics (2021) 1:119-130"                     <- (year) vol:page-range
+   454	    #     "https://doi.org/10.1007/..."                        <- `doi[:\s]*10\.` cannot match this:
+   455	    #                                                             ".org/" sits between `doi` and `10.`
+   456	    # Widening an ADMITTING mark is the dangerous direction, and it is safe ONLY because of where this
+   457	    # mark may now be read: the article's OWN front matter, never a cover sheet, and only after the
+   458	    # accepted-manuscript / working-paper / preprint marks have all declined to fire.
+   459	    r'|doi\.org/10\.\d{4,9}/'
+   460	    r'|\b\d{1,4} *\( *\d{1,3} *\) *: *\d{1,5} *[-–—] *\d{1,5}'
+   461	    r'|\(\d{4}\) *\d{1,4} *: *\d{1,5} *[-–—] *\d{1,5})', re.I)
+   462	
+   463	#: ══ A REPOSITORY COVER SHEET IS NOT THE DOCUMENT. THE *ONE* DEFINITION. ═════════════════════════
+   464	#:
+   465	#: THE SIXTH HOP OF THE V9 P0 LIVED IN EXACTLY THIS GAP. `_JOURNAL_MARK` above matches a bare DOI
+   466	#: string — and this file's own census docstring has warned, in writing, the whole time:
+   467	#:
+   468	#:     "`_JOURNAL_MARK` matches a DOI string — but a DOI string is printed by every repository COVER
+   469	#:      SHEET, which cites the article rather than being it."
+   470	#:
+   471	#: The warning was written and the code was never changed. `derive_expression_kind` read its marks out
+   472	#: of `text[:12000]` — cover sheet included — so a White Rose deposit of an ACCEPTED MANUSCRIPT was
+   473	#: classified `journal_version` on the strength of the DOI ITS OWN COVER SHEET PRINTS, and
+   474	#: `resolve_attribution(JOURNAL_ONLY)` then ADMITTED it and would have printed "Acemoglu and Restrepo
+   475	#: (2020), Journal of Political Economy" over the manuscript's 0.37pp.
+   476	#:
+   477	#: THE RULE, AND IT IS NOT NEGOTIABLE:
+   478	#:   * the cover sheet MAY CONVICT — a library writing "this is an author produced version" is
+   479	#:     describing THE FILE IT DEPOSITED, and that is testimony about these bytes;
+   480	#:   * the cover sheet MAY NEVER ACQUIT — its DOI, its volume/issue, its citation block are the
+   481	#:     library CITING the article of record, which is precisely what a document that IS the article
+   482	#:     of record never needs to do.
+   483	#: Convicting evidence is read from the whole document; ACQUITTING evidence only from the article's
+   484	#: own front matter. (event_ledger imports this same pattern, so "what is a cover sheet" is defined
+   485	#: ONCE in this repo and cannot drift between the two lanes that ask.)
+   486	_COVER_SHEET = re.compile(
+   487	    r'(this is a repository copy of|this is an? (author|accepted|final)[- ]?(produced|version)'
+   488	    r'|white rose research online|enlighten|eprints|dspace|munin|hal (open science|id)'
+   489	    r'|citation for (the )?published version|the version (presented here|in the repository)'
+   490	    r'|downloaded from .{0,60}(repository|eprints|dspace|core\.ac\.uk)'
+   491	    r'|this version is available at|general rights|take down policy'
+   492	    r'|users may download and print one copy)', re.I)
+   493	
+   494	
+   495	def segment_cover_sheet(text: str, window: int = 12000) -> tuple[str, str]:
+   496	    """-> (cover_sheet_text, the_document_itself).
+   497	
+   498	    The boundary is the first form feed after the last cover-sheet marker — a cover sheet IS a
+   499	    separate PDF page, and that is the one structural thing reliably true of it. No marker => no cover
+   500	    sheet, and the document is the whole text (the common case, which must stay cheap).
+   501	    """
+   502	    head = text[:window]
+   503	    hits = list(_COVER_SHEET.finditer(head))
+   504	    if not hits:
+   505	        return '', text
+   506	    end = hits[-1].end()
+   507	    ff = text.find('\x0c', end)
+   508	    boundary = ff + 1 if 0 <= ff < window else end
+   509	    return text[:boundary], text[boundary:]
+   510	
+   511	# =================================================================================================
+   512	# THE REGISTRY — the ONE table that says what each artifact kind IS and when it is COMPLETE.
+   513	# =================================================================================================
+   514	# Sol's point, made mechanical: completeness is a property OF A KIND, never of a word count.
+   515	#
+   516	# `stub_floor` separates THE DOCUMENT from A STUB OF IT, and it exists ONLY for the scholarly kinds,
+   517	# where a 500-word artifact is definitionally not the article (it is its abstract, or its landing
+   518	# page). For a judicial opinion, a statute section or a trial-registry record it is None: THOSE
+   519	# ARTIFACTS ARE COMPLETE AT ANY LENGTH. That is the whole difference between this and MIN_WORDS=2500,
+   520	# which asserted one number over every kind of document in the world.
+   521	#
+   522	# `expression` is the expression kind these bytes CONSTITUTE when they are the document — the link
+   523	# between "what is this artifact" and "what may a span in it name". A judicial opinion's bytes are its
+   524	# `official_text`; there is no journal version of it to widen to, ever.
+   525	#
+   526	# `needs_results` IS DELIBERATELY ABSENT. I first wrote it as a completeness gate and it declared six
+   527	# genuine journal articles incomplete — Technovation (15,985w), JEP (11,872w), AER (9,732w), JBR,
+   528	# Raj, Chalmers — because economics papers title their results sections after their CONTENT ("V. The
+   529	# Effect of Robots on Employment"), and a JEP essay has no results section at all. Gating on a
+   530	# section heading is the same error as gating on a word count, moved one axis over. The
+   531	# result-bearing sections are REPORTED in the profile (the miner weights by them) and GATE NOTHING.
+   532	
+   533	SCHOLARLY_STUB_FLOOR = 1200     # scholarly kinds ONLY. It is not a fact about documents in general.
+   534	SCHOLARLY_ABSTRACT_FLOOR = 120  # ...and below THIS, a scholarly fragment is a citation stub.
+   535	
+   536	KIND_PROFILE: dict[str, dict] = {
+   537	    'journal_article':       dict(stub_floor=SCHOLARLY_STUB_FLOOR, abstract_floor=SCHOLARLY_ABSTRACT_FLOOR,
+   538	                                  expression='journal_version',     finding_bearing=True),
+   539	    'proceedings_paper':     dict(stub_floor=SCHOLARLY_STUB_FLOOR, abstract_floor=SCHOLARLY_ABSTRACT_FLOOR,
+   540	                                  expression='proceedings_version', finding_bearing=True),
+   541	    'working_paper':         dict(stub_floor=SCHOLARLY_STUB_FLOOR, abstract_floor=SCHOLARLY_ABSTRACT_FLOOR,
+   542	                                  expression='working_paper',       finding_bearing=True),
+   543	    'preprint':              dict(stub_floor=SCHOLARLY_STUB_FLOOR, abstract_floor=SCHOLARLY_ABSTRACT_FLOOR,
+   544	                                  expression='preprint',            finding_bearing=True),
+   545	    'accepted_manuscript':   dict(stub_floor=SCHOLARLY_STUB_FLOOR, abstract_floor=SCHOLARLY_ABSTRACT_FLOOR,
+   546	                                  expression='accepted_manuscript', finding_bearing=True),
+   547	    # A short official opinion IS the whole artifact. No results section, no methods, and COMPLETE.
+   548	    # stub_floor=None IS THE POINT OF THIS TABLE. Do not put a number here. Ever.
+   549	    'judicial_opinion':      dict(stub_floor=None, abstract_floor=None,
+   550	                                  expression='official_text',   finding_bearing=True),
+   551	    'statute_section':       dict(stub_floor=None, abstract_floor=None,
+   552	                                  expression='official_text',   finding_bearing=True),
+   553	    'trial_registry_record': dict(stub_floor=None, abstract_floor=None,
+   554	                                  expression='registry_record', finding_bearing=True),
+   555	    # These are NEVER complete, at any length, and may never carry a finding. They have no expression:
+   556	    # a cookie banner is not a VERSION of the paper, it is not the paper at all.
+   557	    'abstract':              dict(stub_floor=None, abstract_floor=None, expression=None, finding_bearing=False),
+   558	    'citation_only':         dict(stub_floor=None, abstract_floor=None, expression=None, finding_bearing=False),
+   559	    'landing_page':          dict(stub_floor=None, abstract_floor=None, expression=None, finding_bearing=False),
+   560	    'extraction_failure':    dict(stub_floor=None, abstract_floor=None, expression=None, finding_bearing=False),
+   561	    'wrong_work':            dict(stub_floor=None, abstract_floor=None, expression=None, finding_bearing=False),
+   562	    'unknown':               dict(stub_floor=None, abstract_floor=None, expression=None, finding_bearing=False),
+   563	}
+   564	# DERIVED from the registry, never maintained beside it — two lists of kinds will drift, and the one
+   565	# that drifts is always the one a gate reads.
+   566	ARTIFACT_KINDS = tuple(KIND_PROFILE)
+   567	FINDING_BEARING_KINDS = tuple(k for k, v in KIND_PROFILE.items() if v['finding_bearing'])
+   568	
+   569	#: NOT A DOCUMENT AT ALL — as distinct from `unknown`, which IS a document whose VERSION we cannot
+   570	#: establish. Autor, Levy & Murnane (2003) is 10,902 readable words whose title page is (cid:N) font
+   571	#: codes: we HOLD a document and cannot say which version it is. A cookie banner is not a document.
+   572	#: Reporting those two in one bucket would say "we hold nothing" about a paper we hold in full, which
+   573	#: is a different claim, and a false one.
+   574	NOT_A_DOCUMENT_KINDS = tuple(k for k, v in KIND_PROFILE.items()
+   575	                             if not v['finding_bearing'] and k != 'unknown')
+   576	
+   577	#: WHICH COMPLETENESS PROFILE DOES THIS WORK'S DOCUMENT GET? `None` => the scholarly family, whose
+   578	#: artifact kind is derived from the bytes' own version furniture. Everything else is fixed by the
+   579	#: work: a case produces judicial opinions, and no amount of NBER letterhead makes one a working paper.
+   580	WORK_KIND_ARTIFACT: dict[str, str | None] = {
+   581	    'study':   None,
+   582	    'case':    'judicial_opinion',
+   583	    'statute': 'statute_section',
+   584	    'trial':   'trial_registry_record',
+   585	}
+   586	WORK_KINDS = tuple(WORK_KIND_ARTIFACT)
+   587	
+   588	#: THE ROW'S OWN DECLARED TYPE -> (work kind, the expression the METADATA claims exists).
+   589	#: `migrate()` used to hardcode a `journal_version` for every row in the corpus. Sol: "That is not
+   590	#: valid for a judicial opinion or statute." The row DECLARES its type — every one of the 70 rows here
+   591	#: carries `type: 'journal-article'` from Crossref, and the code never once read it. It assumed the
+   592	#: answer it happened to be right about, which is not the same as being right.
+   593	SOURCE_TYPE: dict[str, tuple[str, str]] = {
+   594	    'journal-article':     ('study',   'journal_version'),
+   595	    'journal article':     ('study',   'journal_version'),
+   596	    'proceedings-article': ('study',   'proceedings_version'),
+   597	    'book-chapter':        ('study',   'journal_version'),
+   598	    'posted-content':      ('study',   'preprint'),      # a preprint row claims NO journal version
+   599	    'preprint':            ('study',   'preprint'),
+   600	    'report':              ('study',   'working_paper'),
+   601	    'working-paper':       ('study',   'working_paper'),
+   602	    'judicial-opinion':    ('case',    'official_text'),
+   603	    'opinion':             ('case',    'official_text'),
+   604	    'case':                ('case',    'official_text'),
+   605	    'statute':             ('statute', 'official_text'),
+   606	    'legislation':         ('statute', 'official_text'),
+   607	    'clinical-trial':      ('trial',   'registry_record'),
+   608	    'trial-registration':  ('trial',   'registry_record'),
+   609	}
+   610	
+   611	RESULT_BEARING = ('results', 'tables', 'analysis')
+   612	
+   613	
+   614	def judge_completeness(artifact_kind: str, n_words: int,
+   615	                       extraction_verdict: str = 'CLEAN') -> tuple[bool, list[str]]:
+   616	    """THE ONE COMPLETENESS REDUCER. `profile()`, `Graph.from_json()` and
+   617	    `event_ledger.derive_content_profile()` all come through here and through nothing else.
+   618	
+   619	    THERE IS NO UNIVERSAL WORD THRESHOLD IN THIS FUNCTION AND THERE MUST NEVER BE ONE. Completeness is
+   620	    read out of KIND_PROFILE for THIS kind: a judicial opinion, a statute section and a trial-registry
+   621	    record have stub_floor=None and are COMPLETE AT ANY LENGTH. A cookie banner is incomplete at ANY
+   622	    length, because `landing_page` cannot bear a finding at all — which is the correct reason, and not
+   623	    a fact about its size.
+   624	
+   625	    The one length that is never enough is ZERO. "Complete at any length" is not complete at no length:
+   626	    a registry record we hold nothing of is not a short registry record.
+   627	    """
+   628	    spec = KIND_PROFILE.get(artifact_kind)
+   629	    if spec is None:
+   630	        raise ValueError(f'{artifact_kind!r} is not a registered artifact kind — an unregistered kind '
+   631	                         f'cannot be judged complete OR incomplete, and defaulting it to either is how '
+   632	                         f'a label outruns its evidence. Register it in KIND_PROFILE.')
+   633	    reasons: list[str] = []
+   634	    if not spec['finding_bearing']:
+   635	        reasons.append(f'artifact kind `{artifact_kind}` cannot carry a finding')
+   636	    if extraction_verdict == 'CORRUPT':
+   637	        reasons.append('bytes are not readable prose')
+   638	    if n_words <= 0:
+   639	        reasons.append('there are no bytes — complete at any length is not complete at NO length')
+   640	    elif spec['stub_floor'] is not None and n_words < spec['stub_floor']:
+   641	        reasons.append(f'{n_words} words is below the stub floor for `{artifact_kind}` '
+   642	                       f'({spec["stub_floor"]}) — this is a fragment of the document, not the document')
+   643	    return (not reasons), reasons
+   644	
+   645	
+   646	def _norm(s: str) -> str:
+   647	    return re.sub(r'\s+', ' ', (s or '')).strip()
+   648	
+   649	
+   650	def extractability(text: str) -> dict:
+   651	    """Are these bytes even a readable rendering of a document? Derived, never asserted."""
+   652	    toks = _WORDY.findall(text.lower())
+   653	    n = len(toks) or 1
+   654	    sw = sum(1 for t in toks if t in _FUNCTION_WORDS) / n
+   655	    words = text.split() or ['']
+   656	    cid = len(_CID.findall(text)) / len(words)
+   657	    alpha = sum(c.isalpha() or c.isspace() for c in text) / max(1, len(text))
+   658	    if sw < CORRUPT_STOPWORD_DENSITY:
+   659	        verdict = 'CORRUPT'          # not English. A cipher, a glyph dump, or not prose at all.
+   660	    elif cid > DEGRADED_CID_RATIO:
+   661	        verdict = 'DEGRADED'         # readable body, but a non-embedded font ate part of it
+   662	    else:
+   663	        verdict = 'CLEAN'
+   664	    return dict(verdict=verdict, stopword_density=round(sw, 4),
+   665	                cid_ratio=round(cid, 4), alpha_ratio=round(alpha, 3))
+   666	
+   667	
+   668	# A body that is the paper CONTAINS THE PAPER'S OWN ABSTRACT'S VOCABULARY -- the abstract is a
+   669	# summary of it. Measured on this corpus: every genuine body scores 0.975-1.000 (7 of 9 at exactly
+   670	# 1.000). The one body that is a DIFFERENT PAPER scores 0.391. The threshold below sits in the middle
+   671	# of that empty gap; __main__ reprints the distribution so it can be re-derived rather than believed.
+   672	CONTRADICTED_VOCAB_OVERLAP = 0.70
+   673	_IDENT_MIN_ABSTRACT_WORDS = 40      # below this the abstract is too thin to be a probe
+   674	_IDENT_MIN_VOCAB = 10
+   675	_IDENT_MIN_BODY_WORDS = 1000        # below this the body is a stub; absence proves nothing
+   676	
+   677	
+   678	def identity_agreement(text: str, work: Work, independent_abstract: str = '',
+   679	                       readable: bool = True) -> dict:
+   680	    """Do these bytes belong to the Work the row claims? THE CHECK THAT CATCHES A DIFFERENT PAPER.
+   681	
+   682	    Not one component asked this. A title matcher matched the phrase "Rise of the Machines" and
+   683	    handed us a MATHEMATICS PREPRINT; every downstream check then verified, correctly and
+   684	    irrelevantly, that the span was verbatim IN THE MATHEMATICS PREPRINT.
+   685	
+   686	    CONTRADICTED REQUIRES POSITIVE EVIDENCE OF A DIFFERENT WORK. It is never inferred from the
+   687	    ABSENCE of ours. My first version of this function inferred it from absence -- "none of the
+   688	    claimed authors appears in the text" -- and it convicted EIGHT papers, all innocent: seven were
+   689	    bare abstracts that simply do not carry an author block, and the eighth was Autor (2003), whose
+   690	    title page is (cid:N) font codes. Meanwhile the ONE genuinely foreign paper scored CONFIRMED,
+   691	    because its two-word title ("Rise of the Machines") appears verbatim in the maths paper.
+   692	    Absence of our evidence, read as evidence of absence, is the HTTP-429-means-"no free copy exists"
+   693	    error exactly. So the only route to CONTRADICTED is a positive, two-sided content test:
+   694	
+   695	        the row carries an abstract FROM THE BIBLIOGRAPHY (independent of whatever we fetched);
+   696	        the body we fetched does NOT contain that abstract's distinctive vocabulary;
+   697	        therefore the body is not a rendering of this work.
+   698	    """
+   699	    head = text[:20000]
+   700	    authors = [a for a in (work.authors or []) if len(a) > 2]
+   701	    named = [a for a in authors if re.search(r'\b' + re.escape(a) + r'\b', head, re.I)]
+   702	    twords = {w for w in re.findall(r'[a-z]{5,}', (work.title or '').lower())}
+   703	    tfound = {w for w in twords if w in head.lower()}
+   704	    # A title of one or two distinctive words is not a test: "Rise of the Machines" yields {machines},
+   705	    # which the maths paper contains. Below three, the title signal is UNUSABLE, not passing.
+   706	    title_usable = len(twords) >= 3
+   707	
+   708	    overlap: float | None = None
+   709	    vocab = {w for w in re.findall(r'[a-z]{5,}', (independent_abstract or '').lower())
+   710	             if w not in _FUNCTION_WORDS}
+   711	    if (len((independent_abstract or '').split()) >= _IDENT_MIN_ABSTRACT_WORDS
+   712	            and len(vocab) >= _IDENT_MIN_VOCAB
+   713	            and len(text.split()) >= _IDENT_MIN_BODY_WORDS):
+   714	        low = text.lower()
+   715	        overlap = round(sum(1 for w in vocab if w in low) / len(vocab), 3)
+   716	
+   717	    if not readable:
+   718	        # You cannot judge identity from bytes you cannot read. Autor (2003)'s authors and title are
+   719	        # absent because they are (cid:11)(cid:3)... -- that is a fact about the FONT, not the paper.
+   720	        verdict, basis = 'UNRESOLVED', 'bytes are not readable — identity cannot be judged'
+   721	    elif overlap is not None and overlap < CONTRADICTED_VOCAB_OVERLAP:
+   722	        verdict = 'CONTRADICTED'
+   723	        basis = (f'the body contains only {overlap:.0%} of the distinctive vocabulary of this work’s '
+   724	                 f'own abstract (genuine bodies on this corpus: 97.5–100%) — THESE ARE NOT ITS BYTES')
+   725	    elif named:
+   726	        verdict, basis = 'CONFIRMED', f'{len(named)}/{len(authors)} claimed authors named in the text'
+   727	    elif overlap is not None and overlap >= 0.90:
+   728	        verdict, basis = 'CONFIRMED', f'body contains {overlap:.0%} of its own abstract’s vocabulary'
+   729	    elif title_usable and len(tfound) >= 0.8 * len(twords):
+   730	        verdict, basis = 'CONFIRMED', f'{len(tfound)}/{len(twords)} distinctive title words present'
+   731	    else:
+   732	        verdict, basis = 'UNRESOLVED', 'no positive evidence either way (absence proves nothing)'
+   733	
+   734	    return dict(verdict=verdict, basis=basis,
+   735	                authors_named=len(named), authors_claimed=len(authors),
+   736	                title_words_found=len(tfound), title_words=len(twords), title_usable=title_usable,
+   737	                abstract_vocab_overlap=overlap)
+   738	
+   739	
+   740	def derive_expression_kind(text: str, work_kind: str = 'study') -> tuple[str, str]:
+   741	    """Which VERSION do these bytes say they are? Derived from self-identifying furniture.
+   742	
+   743	    Returns ('unknown', ...) freely. `unknown` is the honest answer for a PDF body with its title
+   744	    page mangled, and an honest `unknown` costs us evidence -- which is the correct price.
+   745	
+   746	    THE SCHOLARLY VERSION TAXONOMY APPLIES ONLY TO SCHOLARLY WORKS. There is no preprint of a statute
+   747	    and no accepted manuscript of a judicial opinion; the authoritative text IS the artifact, and the
+   748	    registry says so. Running the NBER/arXiv/"accepted manuscript" regexes over a court opinion does
+   749	    not find nothing — it finds whatever the opinion happens to QUOTE, which is how a whole-text scan
+   750	    for "NBER Working Paper" once read the bibliography and called the JEP article a working paper.
+   751	    """
+   752	    fam = WORK_KIND_ARTIFACT.get(work_kind or 'study')
+   753	    if fam is not None:
+   754	        ex = KIND_PROFILE[fam]['expression']
+   755	        return ex, (f'work kind `{work_kind}` — the version taxonomy of a {fam.replace("_", " ")} is '
+   756	                    f'not the scholarly one; these bytes are its {ex.replace("_", " ")}')
+   757	    head = text[:12000]
+   758	    # THE COVER SHEET MAY CONVICT BUT MAY NEVER ACQUIT (see `_COVER_SHEET`). The three INADMISSIBLE
+   759	    # marks are read from the whole head — a library describing the file it deposited is testimony
+   760	    # about these bytes. The one ADMITTING mark is read ONLY from the article's own front matter,
+   761	    # because a cover sheet's DOI and citation block are the library CITING the article of record,
+   762	    # which is the one thing the article of record itself never has to do.
+   763	    cover, document = segment_cover_sheet(head)
+   764	    wp, pre, am = _WP_MARK.search(head), _PREPRINT_MARK.search(head), _AM_MARK.search(head)
+   765	    jr = _JOURNAL_MARK.search(document[:12000])
+   766	
+   767	    # Order still matters (an accepted manuscript carries the journal's citation block too), but it is
+   768	    # no longer LOAD-BEARING: the only branch that can return `journal_version` cannot see the cover
+   769	    # sheet at all, so no reordering of these four lines can promote a manuscript to the article of
+   770	    # record. The ordering is a courtesy to the ERROR MESSAGE, not the thing keeping the door shut.
+   771	    if am:
+   772	        return 'accepted_manuscript', f'bytes say: {am.group(0)[:48]!r}'
+   773	    if wp:
+   774	        return 'working_paper', f'bytes say: {wp.group(0)[:48]!r}'
+   775	    if pre:
+   776	        return 'preprint', f'bytes say: {pre.group(0)[:48]!r}'
+   777	    if jr:
+   778	        return 'journal_version', (f'typeset journal furniture in the ARTICLE\'S OWN front matter '
+   779	                                   f'(not on a cover sheet): {jr.group(0)[:48]!r}')
+   780	    if cover:
+   781	        return 'unknown', ('a repository cover sheet, and NO version furniture in the document under '
+   782	                           'it — the library\'s citation of the article is not the article')
+   783	    return 'unknown', 'no self-identifying version furniture in the first 12,000 chars'
+   784	
+   785	
+   786	def profile(text: str, work: Work, independent_abstract: str = '',
+   787	            fetch_outcome: str = 'ok') -> dict:
+   788	    """THE CONTENT-DERIVED ARTIFACT PROFILE. Replaces MIN_WORDS entirely.
+   789	
+   790	    Every field is derived FROM THE BYTES. `complete` is judged against the profile FOR THIS KIND,
+   791	    so a short judicial opinion is complete and a 535-word cookie banner is not.
+   792	    """
+   793	    text = text or ''
+   794	    words = len(text.split())
+   795	    ex = extractability(text)
+   796	    ident = identity_agreement(text, work, independent_abstract, readable=ex['verdict'] == 'CLEAN')
+   797	
+   798	    view = View(text)
+   799	    secs = sections_of(view)
+   800	    present = sorted({name for _, _, name in secs if name not in ('front', 'body')})
+   801	    result_secs = [s for s in present if s in RESULT_BEARING]   # REPORTED. GATES NOTHING. See above.
+   802	    # body/chrome ratio, measured on the bytes -- not on a word count.
+   803	    chrome_hits = len(_CHROME.findall(text))
+   804	    body_chars = sum(e - s for s, e, name in secs if SECTION_WEIGHT.get(name, 0.5) > 0)
+   805	    body_ratio = round(body_chars / max(1, len(text)), 3)
+   806	    chrome_per_kw = round(1000 * chrome_hits / max(1, words), 2)
+   807	
+   808	    work_kind = work.kind or 'study'
+   809	    family = WORK_KIND_ARTIFACT.get(work_kind)      # None => scholarly; else the kind is FIXED by the work
+   810	    ekind, ebasis = derive_expression_kind(text, work_kind=work_kind)
+   811	
+   812	    # ---- artifact_kind: DERIVED, in strict order of what the bytes can actually PROVE ------------
+   813	    # THE BYTES MAY ALWAYS DEMOTE. They may never promote. A judicial opinion whose fetch returned a
+   814	    # login wall is a landing_page, not a short opinion — so the demotions run FIRST, above the work's
+   815	    # own kind. But nothing in a stranger's letterhead can turn a statute into a working paper, so the
+   816	    # work's kind runs ABOVE the scholarly version furniture.
+   817	    if fetch_outcome != 'ok':
+   818	        # A failed fetch is a fact about our REQUEST, never a fact about the world.
+   819	        kind, basis = 'unknown', f'fetch outcome: {fetch_outcome}'
+   820	    elif ident['verdict'] == 'CONTRADICTED':
+   821	        # The single most important branch in this file. These bytes are SOMEONE ELSE'S PAPER.
+   822	        kind, basis = 'wrong_work', ident['basis']
+   823	    elif ex['verdict'] == 'CORRUPT':
+   824	        kind, basis = 'extraction_failure', (
+   825	            f"stopword density {ex['stopword_density']} < {CORRUPT_STOPWORD_DENSITY} — "
+   826	            f"these bytes are not English prose")
+   827	    elif chrome_hits >= 2 and (chrome_per_kw >= 5 or (family is None and words < SCHOLARLY_STUB_FLOOR)):
+   828	        # WEB FURNITURE WITH NO DOCUMENT UNDER IT. Note that the AEA landing page for Autor (2015)
+   829	        # carries the article's own "vol. 29, no. 3" citation block -- so journal furniture proves
+   830	        # only that a page CITES the article, never that it IS the article. This test runs first for
+   831	        # exactly that reason.
+   832	        # The LENGTH half of this test is scholarly-only: a 300-word statute section is a statute
+   833	        # section, and only the chrome DENSITY may call it a web page.
+   834	        kind, basis = 'landing_page', (
+   835	            f'{chrome_hits} web-chrome markers ({chrome_per_kw}/1k words) over {words} words — '
+   836	            f'this is a web page about the document, not the document')
+   837	    elif family is not None:
+   838	        # A CASE, A STATUTE, A TRIAL RECORD. Its completeness is not a word count and never was.
+   839	        kind, basis = family, (f'work kind `{work_kind}` — this is its {family.replace("_", " ")}, '
+   840	                               f'which is COMPLETE AT ANY LENGTH (registry stub_floor=None)')
+   841	    elif ekind == 'journal_version':
+   842	        kind, basis = 'journal_article', ebasis
+   843	    elif ekind == 'proceedings_version':
+   844	        kind, basis = 'proceedings_paper', ebasis
+   845	    elif ekind in ('working_paper', 'preprint', 'accepted_manuscript'):
+   846	        kind, basis = ekind, ebasis
+   847	    elif words < SCHOLARLY_ABSTRACT_FLOOR:
+   848	        kind, basis = 'citation_only', f'{words} words — a citation stub, not even an abstract'
+   849	    elif words < SCHOLARLY_STUB_FLOOR:
+   850	        kind, basis = 'abstract', f'{words} words with no version furniture — a stub, not the article'
+   851	    else:
+   852	        kind, basis = 'unknown', ebasis
+   853	
+   854	    # ---- completeness: THE ONE REDUCER, driven by the registry FOR THIS KIND ---------------------
+   855	    complete, reasons = judge_completeness(kind, words, ex['verdict'])
+   856	
+   857	    return dict(
+   858	        artifact_kind=kind, artifact_kind_basis=basis,
+   859	        expression_kind=ekind, expression_kind_basis=ebasis,
+   860	        complete=complete, incomplete_because=reasons,
+   861	        n_words=words, sections_present=present, result_bearing_sections=result_secs,
+   862	        body_ratio=body_ratio, chrome_markers=chrome_hits, chrome_per_1k_words=chrome_per_kw,
+   863	        extractability=ex, identity=ident, fetch_outcome=fetch_outcome,
+   864	    )
+   865	
+   866	
+   867	# =================================================================================================
+   868	# 3. THE GRAPH
+   869	# =================================================================================================
+   870	
+   871	class SpanBindingError(ValueError):
+   872	    """A span that cannot be bound to real bytes. Not a warning: THE BINDING DOES NOT EXIST."""
+   873	
+   874	
+   875	class GraphIntegrityError(ValueError):
+   876	    """A graph on disk that does not agree with itself. It is REFUSED, never repaired."""
+   877	
+   878	
+   879	# What it takes to ASSERT that a span survives from one expression into another. Only a claim about
+   880	# BYTES can do it -- that is the entire content of the word "span-preserving".
+   881	_AUTHENTICATES = re.compile(
+   882	    r'byte[- ]for[- ]byte|byte[- ]level|checksum|sha-?256|content[_ -]hash'
+   883	    r'|identical (?:bytes|text|spans?)|span[- ]level (?:diff|comparison)'
+   884	    r'|(?:diffed|compared) (?:it )?against the .{0,30}(?:pdf|bytes|text|version)', re.I)
+   885	_PROVES_NOTHING_ABOUT_BYTES = re.compile(
+   886	    r'\btitles?\b|\bmetadata\b|\bsimilar\b|\bplausib|\blooks? like\b|self[- ]describ|\bassum', re.I)
+   887	
+   888	
+   889	def authentication_failure(basis: str) -> str:
+   890	    """'' if `basis` authenticates SPAN PRESERVATION; otherwise the reason it does not.
+   891	
+   892	    Sol, verbatim: "A title similarity match can PROPOSE predecessor_of; it CANNOT ASSERT
+   893	    exact_copy_of."
+   894	
+   895	    An ASSERTED span-preserving edge is the ONLY thing in this graph that lets a span name a document
+   896	    WHOSE BYTES WE DO NOT HOLD. It is therefore the only thing worth attacking, and it was guarded on
+   897	    ONE of its two types: the old check read `type == 'exact_copy_of' and 'title' in basis`. But
+   898	    `accepted_manuscript_of` is span-preserving too, and it widens attribution identically — so
+   899	
+   900	        add_edge(wp, journal, 'accepted_manuscript_of', 'ASSERTED', 'the titles match')
+   901	
+   902	    was ACCEPTED, and it made the working paper's spans journal-attributable. The rule is not "no
+   903	    title matches for exact_copy_of". The rule is: an ASSERTED span-preserving edge must name
+   904	    BYTE-LEVEL EVIDENCE, whatever it is called. Both directions are enforced here, in ONE predicate,
+   905	    used by `add_edge()` at construction AND by `from_json()` at load — because an edge that cannot be
+   906	    constructed but CAN BE LOADED is not a rule, it is a speed bump.
+   907	    """
+   908	    if not basis or not basis.strip():
+   909	        return 'an edge MUST carry a basis naming the evidence for it'
+   910	    weak = _PROVES_NOTHING_ABOUT_BYTES.search(basis)
+   911	    if weak:
+   912	        return (f'the basis rests on {weak.group(0)!r}, which proves NOTHING ABOUT BYTES — PEER REVIEW '
+   913	                f'CHANGES NUMBERS, and matching titles/metadata cannot show a span survived it')
+   914	    if not _AUTHENTICATES.search(basis):
+   915	        return ('the basis names no BYTE-LEVEL evidence (a byte-for-byte / checksum / span-level '
+   916	                'comparison against the target expression). Nothing else can ASSERT span preservation')
+   917	    return ''
+   918	
+   919	
+   920	@dataclass(frozen=True)
+   921	class SourcePolicy:
+   922	    """WHICH EXPRESSIONS THIS ANSWER IS ALLOWED TO CITE. The task's instruction, made mechanical.
+   923	
+   924	    This is an ARGUMENT, not a stored field, because admissibility is a property of THE ANSWER and not
+   925	    of the bytes. The same accepted manuscript is inadmissible under "journal articles only" and
+   926	    admissible under "any identified version"; a boolean on the node has to be wrong for one of them.
+   927	    `Expression.citable_in_journal_only_answer` was exactly that boolean, and it is gone.
+   928	    """
+   929	    name: str
+   930	    permitted_expression_kinds: tuple[str, ...]
+   931	    require_complete: bool = True
+   932	
+   933	
+   934	#: Task 72. "If only the working paper is available, citing it VIOLATES THE JOURNAL-ONLY INSTRUCTION."
+   935	JOURNAL_ONLY  = SourcePolicy('journal_articles_only', ('journal_version',))
+   936	PEER_REVIEWED = SourcePolicy('peer_reviewed', ('journal_version', 'proceedings_version'))
+   937	#: For a legal or clinical question, the authoritative text IS the source. There is no journal here.
+   938	OFFICIAL_TEXT = SourcePolicy('official_text_only', ('official_text', 'registry_record'))
+   939	ANY_VERSION   = SourcePolicy('any_identified_version',
+   940	                             ('journal_version', 'proceedings_version', 'accepted_manuscript',
+   941	                              'working_paper', 'preprint', 'official_text', 'registry_record'))
+   942	
+   943	
+   944	@dataclass(frozen=True)
+   945	class Attribution:
+   946	    """The resolved answer to: may a span from these bytes be attributed AT ALL, and TO WHAT?"""
+   947	    manifestation_id: str
+   948	    content_hash: str
+   949	    expression_id: str                        # the expression whose bytes these ARE
+   950	    permitted_expression_ids: tuple[str, ...]  # everything a span here may name (IDs — never prose)
+   951	    policy: str
+   952	    admitted: bool
+   953	    names_expression_id: str | None           # THE id the sentence must name. None => name NOTHING.
+   954	    text: str | None                          # display cache. NOTHING IS EVER VALIDATED AGAINST IT.
+   955	    refusal: str | None
+   956	    #: WHICH SPAN this permission was granted to. `None` means the question was asked about a whole
+   957	    #: manifestation, and the answer therefore carries NO per-span widening — see resolve_attribution.
+   958	    binding_id: str | None = None
+   959	
+   960	
+   961	@dataclass
+   962	class Graph:
+   963	    works: dict[str, Work] = field(default_factory=dict)
+   964	    expressions: dict[str, Expression] = field(default_factory=dict)
+   965	    manifestations: dict[str, Manifestation] = field(default_factory=dict)
+   966	    edges: list[Edge] = field(default_factory=list)
+   967	    correspondences: list[SpanCorrespondence] = field(default_factory=list)
+   968	
+   969	    # -- construction -----------------------------------------------------------------------------
+   970	    def add_edge(self, src: str, dst: str, type: str, status: str, basis: str) -> Edge:
+   971	        if type not in EDGE_TYPES:
+   972	            raise ValueError(f'unknown edge type {type!r}')
+   973	        if status not in ('PROPOSED', 'ASSERTED'):
+   974	            raise ValueError(f'edge status must be PROPOSED or ASSERTED, not {status!r}')
+   975	        if not basis or not basis.strip():
+   976	            # An edge with no evidence is the entire failure we are here to end.
+   977	            raise ValueError('an edge MUST carry a basis naming the evidence for it')
+   978	        if status == 'ASSERTED' and type in SPAN_PRESERVING:
+   979	            # Enforced in the constructor so no caller can talk its way past it, and re-enforced in
+   980	            # from_json() so no FILE can either.
+   981	            why = authentication_failure(basis)
+   982	            if why:
+   983	                raise ValueError(f'cannot ASSERT {type} — {why}')
+   984	            why = self.exact_copy_failure(src, dst)
+   985	            if why:
+   986	                raise ValueError(f'cannot ASSERT {type} — {why}')
+   987	        e = Edge(src, dst, type, status, basis)
+   988	        self.edges.append(e)
+   989	        return e
+   990	
+   991	    def exact_copy_failure(self, src: str, dst: str) -> str:
+   992	        """'' if the graph's OWN BYTES prove `src` and `dst` are the same document; else the reason.
+   993	
+   994	        Sol V9 §4: "Expression-wide `exact_copy_of` is reserved for identity-confirmed manifestations
+   995	        whose entire canonical document text is equal."
+   996	
+   997	        The old guard was `authentication_failure()` — a REGEX OVER THE BASIS STRING. It asked whether the
+   998	        PROSE mentioned a checksum. So the sentence
+   999	
+  1000	            'byte-for-byte comparison against the journal PDF: identical'
+  1001	
+  1002	        asserted the edge, and NO BYTES WERE EVER COMPARED. A rule enforced by reading an English
+  1003	        sentence is a rule enforced by whoever writes the sentence. The basis check is kept (it is a
+  1004	        cheap filter and it catches the honest mistake), but the edge now also has to be TRUE: we must
+  1005	        HOLD both documents, both must be identity-CONFIRMED, and their ENTIRE canonical texts must be
+  1006	        equal. An expression-wide claim requires expression-wide evidence.
+  1007	
+  1008	        This is deliberately hard to satisfy. It should be: an expression-wide edge is the only thing in
+  1009	        this graph that widens EVERY span at once, and there are only two ways to earn one — hold both
+  1010	        documents and find them identical, or don't have the edge. For anything narrower there is
+  1011	        `SpanCorrespondence`, which grants one span.
+  1012	        """
+  1013	        def held(eid: str) -> list[Manifestation]:
+  1014	            return [m for m in self.manifestations.values() if m.expression_id == eid]
+  1015	
+  1016	        smans, tmans = held(src), held(dst)
+  1017	        if not smans:
+  1018	            return (f'we hold NO BYTES for {src!r}. An expression-wide exact_copy_of is a claim that two '
+  1019	                    f'ENTIRE documents are equal; it cannot be made about a document we do not have')
+  1020	        if not tmans:
+  1021	            return (f'we hold NO BYTES for {dst!r} — THE DOCUMENT THIS EDGE WOULD LET US NAME. This is the '
+  1022	                    f'exact shape of the P0: claiming equality with bytes we have never seen. Get the '
+  1023	                    f'target document, or bind the span to what we actually hold')
+  1024	        for label, mans in (('source', smans), ('target', tmans)):
+  1025	            for m in mans:
+  1026	                v = (m.profile.get('identity') or {}).get('verdict')
+  1027	                if v not in CORRESPONDENCE_IDENTITY_OK:
+  1028	                    return (f'the {label} manifestation {m.id!r} is identity `{v}`, not CONFIRMED — '
+  1029	                            f'two documents we cannot even prove are OUR work cannot be proven equal '
+  1030	                            f'to each other')
+  1031	        for sm in smans:
+  1032	            for tm in tmans:
+  1033	                if canonicalize(sm.text) == canonicalize(tm.text):
+  1034	                    return ''
+  1035	        # Report the closest pair's disagreement, because "not equal" with no locus is unactionable.
+  1036	        sm, tm = smans[0], tmans[0]
+  1037	        cs, ct = canonicalize(sm.text), canonicalize(tm.text)
+  1038	        return (f'the canonical texts are NOT equal ({len(cs):,} vs {len(ct):,} chars under '
+  1039	                f'{CANON_ALGORITHM}:{CANON_VERSION}) — these are two different documents, and PEER '
+  1040	                f'REVIEW CHANGES NUMBERS. If ONE SPAN survives, prove THAT SPAN with a '
+  1041	                f'SpanCorrespondence; it grants that span and nothing else')
+  1042	
+  1043	    def add_correspondence(self, sc: SpanCorrespondence) -> SpanCorrespondence:
+  1044	        """A correspondence is VERIFIED AT CONSTRUCTION and re-verified at every use. It never enters
+  1045	        the graph on its author's word — which is the one thing this whole file refuses to accept."""
+  1046	        ok, why = self.verify_correspondence(sc)
+  1047	        if not ok:
+  1048	            raise ValueError(f'cannot add SpanCorrespondence {sc.id!r} — ' + '; '.join(why))
+  1049	        self.correspondences.append(sc)
+  1050	        return sc
+  1051	
+  1052	    # -- THE CORE RULE ----------------------------------------------------------------------------
+  1053	    def attribution_targets(self, manifestation_id: str) -> list[str]:
+  1054	        """Which expressions a span in this manifestation MAY name WITHOUT A PER-SPAN PROOF.
+  1055	
+  1056	        Always: the manifestation's own expression -- the bytes we hold are, definitionally, that
+  1057	        expression's bytes. Additionally: any expression reachable by an ASSERTED, SPAN-PRESERVING
+  1058	        edge — and after Sol V9 there is exactly ONE such edge type, `exact_copy_of`, which now requires
+  1059	        that we HOLD both documents and that their ENTIRE canonical texts be equal. If two documents are
+  1060	        the same document, every span in one is in the other, and widening is not a leap.
+  1061	
+  1062	        Nothing else. `predecessor_of`, `reports_same_study` and — SINCE V9 — `accepted_manuscript_of`
+  1063	        transfer NOTHING, however obvious the relation. To move ONE span across a non-identical document
+  1064	        boundary, prove THAT SPAN: see `attribution_targets_for_binding()`.
+  1065	        """
+  1066	        m = self.manifestations[manifestation_id]
+  1067	        targets = [m.expression_id]
+  1068	        for e in self.edges:
+  1069	            if e.src == m.expression_id and e.type in SPAN_PRESERVING and e.status == 'ASSERTED':
+  1070	                if e.dst not in targets:
+  1071	                    targets.append(e.dst)
+  1072	        return targets
+  1073	
+  1074	    # -- THE CORE RULE, PER SPAN (Sol V9 §4) ------------------------------------------------------
+  1075	    def verify_correspondence(self, sc: SpanCorrespondence) -> tuple[bool, list[str]]:
+  1076	        """RECHECK EVERYTHING: both hashes, both offsets, and exact canonical text equality.
+  1077	
+  1078	        A correspondence is an untrusted input — it has been through a JSON file, like the graph itself.
+  1079	        So nothing stored on it is believed: the hashes are recomputed from the bytes on the node, the
+  1080	        offsets are re-sliced, the canonical forms are recomputed under the NAMED algorithm and version,
+  1081	        and the two canonical spans must be EXACTLY equal.
+  1082	
+  1083	        THE ACEMOGLU TEST LIVES HERE. "0.37 percentage points" and "0.2 percentage points" canonicalize
+  1084	        to two different strings, so this returns False, and no policy is ever consulted. The failure is
+  1085	        at the level of the bytes, which is the only level at which it cannot be argued with.
+  1086	        """
+  1087	        bad: list[str] = []
+  1088	        src = self.manifestations.get(sc.source_manifestation_id)
+  1089	        tgt = self.manifestations.get(sc.target_manifestation_id)
+  1090	        if src is None:
+  1091	            bad.append(f'source manifestation {sc.source_manifestation_id!r} is not held')
+  1092	        if tgt is None:
+  1093	            bad.append(f'target manifestation {sc.target_manifestation_id!r} is not held')
+  1094	        if bad:
+  1095	            return False, bad
+  1096	
+  1097	        if sc.canonicalization != f'{CANON_ALGORITHM}:{CANON_VERSION}':
+  1098	            bad.append(f'canonicalization {sc.canonicalization!r} is not this build\'s '
+  1099	                       f'{CANON_ALGORITHM}:{CANON_VERSION} — two documents compared under a rule we no '
+  1100	                       f'longer run were never compared by us at all')
+  1101	            return False, bad
+  1102	
+  1103	        for who, m, h, s, e, span in (
+  1104	                ('source', src, sc.source_raw_hash, sc.source_start, sc.source_end, sc.source_span),
+  1105	                ('target', tgt, sc.target_raw_hash, sc.target_start, sc.target_end, sc.target_span)):
+  1106	            # 1. the hash on the correspondence must be the hash of the bytes on the node...
+  1107	            if h != m.content_hash:
+  1108	                bad.append(f'{who} hash {h[:12]}… is not the held manifestation\'s content_hash '
+  1109	                           f'{m.content_hash[:12]}… — the document moved under the correspondence')
+  1110	                continue
+  1111	            # 2. ...and the node's bytes must still hash to it.
+  1112	            if hashlib.sha256(m.text.encode('utf-8', 'ignore')).hexdigest() != m.content_hash:
+  1113	                bad.append(f'{who} manifestation {m.id!r} does not hash to its own content_hash')
+  1114	                continue
+  1115	            # 3. the offsets are re-validated, never trusted (see bind_span for why `text[900:100]` is
+  1116	            #    not merely wrong but INVISIBLY wrong).
+  1117	            if (isinstance(s, bool) or isinstance(e, bool) or not isinstance(s, int)
+  1118	                    or not isinstance(e, int) or s < 0 or e <= s or e > len(m.text)):
+  1119	                bad.append(f'{who} offsets [{s}:{e}] are not a valid span of {m.id!r} ({len(m.text)} chars)')
+  1120	                continue
+  1121	            # 4. the verbatim span must BE what those offsets slice.
+  1122	            if m.text[s:e] != span:
+  1123	                bad.append(f'{who} verbatim span does not match the bytes at [{s}:{e}] of {m.id!r}')
+  1124	        if bad:
+  1125	            return False, bad
+  1126	
+  1127	        # 5. IDENTITY. A correspondence between two documents we cannot prove are the works we asked for
+  1128	        #    proves only that two strangers agree.
+  1129	        for who, m, stored in (('source', src, sc.source_identity), ('target', tgt, sc.target_identity)):
+  1130	            live = (m.profile.get('identity') or {}).get('verdict', 'UNRESOLVED')
+  1131	            if stored != live:
+  1132	                bad.append(f'{who} identity decision {stored!r} is stale — the bytes now derive {live!r}')
+  1133	            elif live not in CORRESPONDENCE_IDENTITY_OK:
+  1134	                bad.append(f'{who} manifestation {m.id!r} is identity `{live}`, not CONFIRMED')
+  1135	
+  1136	        # 6. EXACT CANONICAL EQUALITY. The whole edifice reduces to this line.
+  1137	        cs, ct = canonicalize(src.text[sc.source_start:sc.source_end]), \
+  1138	            canonicalize(tgt.text[sc.target_start:sc.target_end])
+  1139	        if cs != ct:
+  1140	            bad.append(f'the canonical spans are NOT equal under {sc.canonicalization} — '
+  1141	                       f'{cs[:60]!r} vs {ct[:60]!r}. THIS IS THE FINDING, not a bug to tune away: the '
+  1142	                       f'two documents say different things, and peer review is what changed them')
+  1143	        elif sc.canonical_span_hash != canonical_hash(src.text[sc.source_start:sc.source_end]):
+  1144	            bad.append('the stored canonical_span_hash is not the hash of the canonical span')
+  1145	        if not (sc.basis or '').strip():
+  1146	            bad.append('a correspondence MUST carry a basis naming how it was established')
+  1147	        return (not bad), bad
+  1148	
+  1149	    def attribution_targets_for_binding(self, binding: dict) -> list[str]:
+  1150	        """Which expressions THIS BOUND SPAN may name. The binding-specific rule.
+  1151	
+  1152	        = the manifestation-wide targets (own expression + whole-document exact_copy_of)
+  1153	        + the expression of every manifestation to which a VERIFIED CORRESPONDENCE carries THIS SPAN.
+  1154	
+  1155	        "THIS SPAN" means these exact offsets. NOT a span that contains it, and NOT a span it contains —
+  1156	        and that is not pedantry. Canonicalization collapses whitespace, so character offsets in the
+  1157	        source do not map linearly onto the target; a sub-range of a proven-equal span has no proven
+  1158	        counterpart. A correspondence grants permission for THAT SPAN ONLY (Sol V9 §4), and the only
+  1159	        unfoolable reading of "that span" is offset equality.
+  1160	        """
+  1161	        mid = binding.get('manifestation_id')
+  1162	        s, e = binding.get('span_start'), binding.get('span_end')
+  1163	        targets = list(self.attribution_targets(mid))
+  1164	        for sc in self.correspondences:
+  1165	            if sc.source_manifestation_id != mid or sc.source_start != s or sc.source_end != e:
+  1166	                continue
+  1167	            ok, _why = self.verify_correspondence(sc)
+  1168	            if not ok:
+  1169	                continue          # a correspondence that no longer verifies grants NOTHING. Silently.
+  1170	            tgt = self.manifestations[sc.target_manifestation_id]
+  1171	            if tgt.expression_id not in targets:
+  1172	                targets.append(tgt.expression_id)
+  1173	        return targets
+  1174	
+  1175	    # -- THE API. THREE FUNCTIONS. --------------------------------------------------------------
+  1176	    def bind_span(self, manifestation_id: str, start: int, end: int) -> dict:
+  1177	        """A span binds to its EXACT manifestation and content hash. This is what a card must carry
+  1178	        instead of a bare DOI -- a DOI names a Work, and a Work has no bytes.
+  1179	
+  1180	        BOUNDS ARE VALIDATED HERE. THEY WERE NOT, AND PYTHON IS SILENT ABOUT NONSENSE: for a
+  1181	        1,000-char text, `text[-5:20]`, `text[900:100]` and `text[5000:6000]` are all `''`. Every one
+  1182	        of those is a span that BINDS CLEANLY AND THEN VERIFIES — its stored text is empty, the empty
+  1183	        slice still equals it, and the content hash is perfectly correct. The card would name a real
+  1184	        paper, carry a real hash, pass verify_span(), and quote NOTHING FROM IT. That is a fabricated
+  1185	        citation with a valid receipt, which is the exact shape of every defect in this file's header.
+  1186	        A negative offset is worse than empty: `text[-5:]` silently indexes from the END and binds a
+  1187	        span from somewhere else entirely.
+  1188	
+  1189	        So they are REFUSED, not clamped. Clamping would invent a span the miner never mined.
+  1190	
+  1191	        RETURNS IDENTIFIERS, NOT PROSE. `may_name` used to hand back English SENTENCES, so a consumer
+  1192	        deciding what was legal had to string-match a display string. Prose is a cache; an id resolves.
+  1193	        """
+  1194	        m = self.manifestations.get(manifestation_id)
+  1195	        if m is None:
+  1196	            raise SpanBindingError(f'no manifestation {manifestation_id!r} — a span cannot bind to '
+  1197	                                   f'bytes we do not hold')
+  1198	        for nm, v in (('start', start), ('end', end)):
+  1199	            if isinstance(v, bool) or not isinstance(v, int):
+  1200	                raise SpanBindingError(f'{nm} offset must be an int, got {v!r} ({type(v).__name__})')
+  1201	        n = len(m.text)
+  1202	        if start < 0 or end < 0:
+  1203	            raise SpanBindingError(
+  1204	                f'NEGATIVE span [{start}:{end}] on {manifestation_id} — Python would index from the '
+  1205	                f'END of the text and bind a span from a different part of the document')
+  1206	        if end <= start:
+  1207	            raise SpanBindingError(
+  1208	                f'EMPTY OR REVERSED span [{start}:{end}] on {manifestation_id} — it slices to "" and '
+  1209	                f'would then verify perfectly against nothing, under a real citation')
+  1210	        if end > n:
+  1211	            raise SpanBindingError(
+  1212	                f'span [{start}:{end}] runs past the end of {manifestation_id} ({n} chars) — Python '
+  1213	                f'would truncate it silently, and the stored text would not be the span that was mined')
+  1214	        b = dict(
+  1215	            manifestation_id=manifestation_id,
+  1216	            content_hash=m.content_hash,
+  1217	            span_start=start, span_end=end,
+  1218	            text=m.text[start:end],
+  1219	            expression_id=m.expression_id,
+  1220	        )
+  1221	        # THE BINDING IS NOW A NAMED THING. `resolve_attribution()` answers about IT, not about the
+  1222	        # whole document — so it needs an identity, and that identity is DERIVED from the bytes and the
+  1223	        # offsets. Edit either and you have a different binding, which inherits no permission.
+  1224	        b['binding_id'] = binding_id(manifestation_id, m.content_hash, start, end)
+  1225	        b['permitted_expression_ids'] = list(self.attribution_targets_for_binding(b))
+  1226	        return b
+  1227	
+  1228	    def rebind(self, binding: dict, target_manifestation_id: str) -> dict | None:
+  1229	        """THE SPAN IS IN THE VoR's OWN BYTES — so bind it THERE, and stop needing permission.
+  1230	
+  1231	        Sol V9 §4: "A matching span found independently in VoR bytes should normally be rebound directly
+  1232	        to the VoR manifestation."
+  1233	
+  1234	        This is strictly stronger than any correspondence, and it is the path we should take whenever it
+  1235	        is open. A correspondence says "trust this proof that the other document contains the span". A
+  1236	        REBINDING says "the document you want to cite contains the span; here are its offsets". The
+  1237	        second needs no cross-document permission at all, because there is no crossing.
+  1238	
+  1239	        Returns a NEW binding on the target, or None if the span is not verbatim in the target's bytes —
+  1240	        and None is the honest answer, not a reason to fall back to a weaker claim.
+  1241	        """
+  1242	        tgt = self.manifestations.get(target_manifestation_id)
+  1243	        if tgt is None:
+  1244	            raise SpanBindingError(f'no manifestation {target_manifestation_id!r}')
+  1245	        span = (binding or {}).get('text') or ''
+  1246	        if not span:
+  1247	            return None
+  1248	        i = tgt.text.find(span)
+  1249	        if i < 0:
+  1250	            # Try the canonical view: a PDF column break inside the span is a rendering artifact, not a
+  1251	            # textual difference. The OFFSETS returned are always into the RAW text, never the canonical
+  1252	            # one — a card that indexes a canonical string indexes a document nobody holds.
+  1253	            cspan = canonicalize(span)
+  1254	            if not cspan:
+  1255	                return None
+  1256	            for j in range(len(tgt.text)):
+  1257	                if canonicalize(tgt.text[j:j + len(span) + 64]).startswith(cspan):
+  1258	                    for k in range(j + len(cspan), min(len(tgt.text), j + len(span) + 64) + 1):
+  1259	                        if canonicalize(tgt.text[j:k]) == cspan:
+  1260	                            return self.bind_span(target_manifestation_id, j, k)
+  1261	            return None
+  1262	        return self.bind_span(target_manifestation_id, i, i + len(span))
+  1263	
+  1264	    def resolve_attribution(self, ref: dict | str,
+  1265	                            source_policy: SourcePolicy = JOURNAL_ONLY) -> Attribution:
+  1266	        """MAY THIS BOUND SPAN be attributed under THIS task's instruction, and TO WHAT ID?
+  1267	
+  1268	        Sol V9 §4 moved this API from manifestation-wide permission to BINDING-SPECIFIC permission:
+  1269	
+  1270	            resolve_attribution(binding, attribution_policy)
+  1271	
+  1272	        `ref` is therefore a BINDING (the dict `bind_span()` returns, which is also what a card carries).
+  1273	        A bare `manifestation_id` string is still accepted — the honest whole-document question, asked by
+  1274	        the census and by the quarantine sweep — and it answers WITHOUT any per-span widening: a
+  1275	        manifestation-wide question can only be answered with manifestation-wide evidence, i.e. the
+  1276	        document's own expression plus a whole-document `exact_copy_of`. A SpanCorrespondence grants ONE
+  1277	        SPAN and therefore cannot answer a question that was not asked about a span.
+  1278	
+  1279	        Two independent conditions, BOTH required:
+  1280	          1. the bytes are usable as evidence at all — complete, uncorrupted, the right work; AND
+  1281	          2. some expression this span MAY LEGALLY NAME is of a kind THIS POLICY PERMITS.
+  1282	
+  1283	        A span from a corrupt PDF of the real journal article is still inadmissible -- see Weiss, whose
+  1284	        verbatim span said "633 per cent" because the PDF was a Caesar-shifted encoding of "300".
+  1285	        """
+  1286	        if isinstance(ref, str):
+  1287	            manifestation_id, bid, targets_of = ref, None, self.attribution_targets
+  1288	            binding = None
+  1289	        else:
+  1290	            binding = ref
+  1291	            manifestation_id = binding.get('manifestation_id')
+  1292	            bid = binding.get('binding_id')
+  1293	            targets_of = None
+  1294	
+  1295	        m = self.manifestations.get(manifestation_id)
+  1296	        if m is None:
+  1297	            raise KeyError(f'no manifestation {manifestation_id!r}')
+  1298	
+  1299	        if binding is None:
+  1300	            targets = tuple(targets_of(manifestation_id))
+  1301	        else:
+  1302	            # THE BINDING IS AN UNTRUSTED INPUT. It has been through a JSON file, and a binding whose
+  1303	            # offsets nobody rechecked is `text[900:100]` — empty, self-consistent, and citing nothing.
+  1304	            if not self.verify_span(binding):
+  1305	                return Attribution(
+  1306	                    manifestation_id=manifestation_id, content_hash=m.content_hash,
+  1307	                    expression_id=m.expression_id, permitted_expression_ids=(),
+  1308	                    policy=source_policy.name, admitted=False, names_expression_id=None, text=None,
+  1309	                    binding_id=bid,
+  1310	                    refusal=('this binding does not verify against the bytes it names — the offsets, the '
+  1311	                             'hash, the stored span or the permitted set disagree with the manifestation'))
+  1312	            targets = tuple(self.attribution_targets_for_binding(binding))
+  1313	
+  1314	        base = dict(manifestation_id=manifestation_id, content_hash=m.content_hash,
+  1315	                    expression_id=m.expression_id, permitted_expression_ids=targets,
+  1316	                    policy=source_policy.name, binding_id=bid)
+  1317	
+  1318	        if source_policy.require_complete and not m.profile.get('complete'):
+  1319	            why = '; '.join(m.profile.get('incomplete_because') or ['the bytes are not a usable document'])
+  1320	            return Attribution(**base, admitted=False, names_expression_id=None, text=None,
+  1321	                               refusal=f'these bytes may not carry a finding: {why}')
+  1322	
+  1323	        # Prefer the expression whose bytes these ACTUALLY ARE. Widening is a fallback, never a first
+  1324	        # choice: naming the document we hold is always the strongest true thing we can say.
+  1325	        permitted = [t for t in targets
+  1326	                     if self.expressions[t].kind in source_policy.permitted_expression_kinds]
+  1327	        if not permitted:
+  1328	            kinds = ', '.join(sorted({self.expressions[t].kind for t in targets})) or 'nothing'
+  1329	            return Attribution(
+  1330	                **base, admitted=False, names_expression_id=None, text=None,
+  1331	                refusal=(f'policy `{source_policy.name}` permits '
+  1332	                         f'{{{", ".join(source_policy.permitted_expression_kinds)}}}, and a span here '
+  1333	                         f'may only name {{{kinds}}}. No ASSERTED span-preserving edge widens it — '
+  1334	                         f'citing a permitted source with THESE bytes would be fabrication'))
+  1335	        chosen = m.expression_id if m.expression_id in permitted else permitted[0]
+  1336	        return Attribution(**base, admitted=True, names_expression_id=chosen,
+  1337	                           text=self.expressions[chosen].attribution, refusal=None)
+  1338	
+  1339	    def verify_span(self, binding: dict) -> bool:
+  1340	        """The enforcement point. A binding arriving here is AN UNTRUSTED INPUT — by now it has been
+  1341	        through a JSON file — so this re-checks EVERYTHING bind_span() checked, and then the bytes.
+  1342	
+  1343	        A gate that trusts the offsets it is handed is a gate that verifies `text[900:100] == ''`.
+  1344	        """
+  1345	        try:
+  1346	            mid = binding['manifestation_id']
+  1347	            s, e = binding['span_start'], binding['span_end']
+  1348	            stored, chash = binding['text'], binding['content_hash']
+  1349	        except (KeyError, TypeError):
+  1350	            return False
+  1351	        m = self.manifestations.get(mid)
+  1352	        if m is None or m.content_hash != chash:
+  1353	            return False
+  1354	        for v in (s, e):
+  1355	            if isinstance(v, bool) or not isinstance(v, int):
+  1356	                return False
+  1357	        if s < 0 or e <= s or e > len(m.text):
+  1358	            return False
+  1359	        # the node itself must not have been edited since it was loaded: the hash is over THE TEXT.
+  1360	        if hashlib.sha256(m.text.encode('utf-8', 'ignore')).hexdigest() != m.content_hash:
+  1361	            return False
+  1362	        if m.text[s:e] != stored:
+  1363	            return False
+  1364	        # ...and the permitted set is not a cache. If an edge changed, or a SpanCorrespondence stopped
+  1365	        # verifying, the STORED permission is stale — and a stale permission is how a span keeps naming
+  1366	        # a journal it was never allowed to name. Recomputed PER SPAN, because that is now the unit at
+  1367	        # which permission exists.
+  1368	        if 'permitted_expression_ids' in binding:
+  1369	            live = self.attribution_targets_for_binding(
+  1370	                dict(manifestation_id=mid, span_start=s, span_end=e))
+  1371	            if list(binding['permitted_expression_ids']) != live:
+  1372	                return False
+  1373	        return True
+  1374	
+  1375	    # -- derived conveniences (they go THROUGH the API above; they are not a second door) ----------
+  1376	    def journal_attributable(self, manifestation_id: str) -> bool:
+  1377	        """May a span from these bytes be printed as a finding OF A JOURNAL ARTICLE? (task 72)"""
+  1378	        return self.resolve_attribution(manifestation_id, JOURNAL_ONLY).admitted
+  1379	
+  1380	    # -- serialisation ----------------------------------------------------------------------------
+  1381	    def to_json(self) -> dict:
+  1382	        return dict(
+  1383	            works=[asdict(w) for w in self.works.values()],
+  1384	            expressions=[asdict(e) for e in self.expressions.values()],
+  1385	            # text is retained on disk too: NOTHING IS EVER DELETED.
+  1386	            manifestations=[asdict(m) for m in self.manifestations.values()],
+  1387	            edges=[asdict(e) for e in self.edges],
+  1388	            correspondences=[asdict(c) for c in self.correspondences],
+  1389	        )
+  1390	
+  1391	    @classmethod
+  1392	    def from_json(cls, data: dict | str) -> 'Graph':
+  1393	        """STRICT LOAD. A GRAPH ON DISK IS AN UNTRUSTED INPUT.
+  1394	
+  1395	        Every check here exists because the file it reads is the same KIND of artifact that lied to us
+  1396	        already. `to_json()` writes the text, its hash, its word count and its derived profile, and any
+  1397	        copy of that file — hand-edited, half-written, merged, or produced by an older version of this
+  1398	        module — can disagree with itself in every one of those places. A loader that accepts what it
+  1399	        is handed re-opens the hole FROM THE OTHER SIDE: the enforcement point would read a
+  1400	        `complete: true` that no bytes support, and would enforce it.
+  1401	
+  1402	        REFUSES, NEVER REPAIRS:
+  1403	          - a content_hash that is not sha256(text)                  [the span gate's only anchor]
+  1404	          - an n_words that is not len(text.split())                 [the count that describes a
+  1405	                                                                       document we no longer hold —
+  1406	                                                                       the exact defect event_ledger
+  1407	                                                                       catches in the live corpus]
+  1408	          - a stored extractability verdict the text does not support
+  1409	          - a `complete: true` (or false) THE REGISTRY DOES NOT DERIVE for that kind and that text
+  1410	          - a manifestation naming an expression or a work that does not exist
+  1411	          - a manifestation whose expression belongs to a DIFFERENT work
+  1412	          - an expression naming a work that does not exist
+  1413	          - an edge whose endpoints do not exist, or that carries no basis
+  1414	          - an ASSERTED span-preserving edge whose basis does not AUTHENTICATE span preservation
+  1415	          - any unknown field, anywhere (a schema drift silently drops the field a gate reads)
+  1416	        """
+  1417	        if isinstance(data, str):
+  1418	            data = json.loads(data)
+  1419	        g = cls()
+  1420	        err: list[str] = []
+  1421	
+  1422	        def _fields(cl) -> set[str]:
+  1423	            return set(cl.__dataclass_fields__)
+  1424	
+  1425	        def _take(cl, d: dict, what: str):
+  1426	            extra = set(d) - _fields(cl)
+  1427	            if extra:
+  1428	                err.append(f'{what}: unknown field(s) {sorted(extra)} — this graph was not written by '
+  1429	                           f'this schema, and a field a gate reads may be missing from it')
+  1430	                return None
+  1431	            missing = _fields(cl) - set(d) - {'profile', 'kind'}
+  1432	            if missing:
+  1433	                err.append(f'{what}: missing field(s) {sorted(missing)}')
+  1434	                return None
+  1435	            return cl(**d)
+  1436	
+  1437	        for d in data.get('works', []):
+  1438	            w = _take(Work, d, f"work {d.get('id')!r}")
+  1439	            if w is None:
+  1440	                continue
+  1441	            if w.kind not in WORK_KINDS:
+  1442	                err.append(f'work {w.id!r}: kind {w.kind!r} is not a registered work kind {WORK_KINDS}')
+  1443	            g.works[w.id] = w
+  1444	
+  1445	        for d in data.get('expressions', []):
+  1446	            e = _take(Expression, d, f"expression {d.get('id')!r}")
+  1447	            if e is None:
+  1448	                continue
+  1449	            if e.kind not in EXPRESSION_KINDS:
+  1450	                err.append(f'expression {e.id!r}: kind {e.kind!r} is not in EXPRESSION_KINDS')
+  1451	            if e.work_id not in g.works:
+  1452	                err.append(f'expression {e.id!r}: names work {e.work_id!r}, WHICH DOES NOT EXIST')
+  1453	            g.expressions[e.id] = e
+  1454	
+  1455	        for d in data.get('manifestations', []):
+  1456	            m = _take(Manifestation, d, f"manifestation {d.get('id')!r}")
+  1457	            if m is None:
+  1458	                continue
+  1459	            g.manifestations[m.id] = m
+  1460	            where = f'manifestation {m.id!r}'
+  1461	
+  1462	            # 1. THE HASH IS THE ONLY ANCHOR THE SPAN GATE HAS.
+  1463	            real = hashlib.sha256((m.text or '').encode('utf-8', 'ignore')).hexdigest()
+  1464	            if real != m.content_hash:
+  1465	                err.append(f'{where}: content_hash {m.content_hash[:12]}… IS NOT sha256(text) '
+  1466	                           f'({real[:12]}…) — every span bound to it is bound to nothing')
+  1467	                continue
+  1468	
+  1469	            # 2. references resolve, and resolve TO THE SAME WORK.
+  1470	            if m.expression_id not in g.expressions:
+  1471	                err.append(f'{where}: names expression {m.expression_id!r}, WHICH DOES NOT EXIST')
+  1472	            elif g.expressions[m.expression_id].work_id != m.work_id:
+  1473	                err.append(f'{where}: is filed under work {m.work_id!r} but its expression '
+  1474	                           f'{m.expression_id!r} belongs to work '
+  1475	                           f'{g.expressions[m.expression_id].work_id!r}')
+  1476	            if m.work_id not in g.works:
+  1477	                err.append(f'{where}: names work {m.work_id!r}, WHICH DOES NOT EXIST')
+  1478	
+  1479	            # 3. the counts and labels stored beside the text must be THE ONES THE TEXT EARNS.
+  1480	            words = len((m.text or '').split())
+  1481	            if m.n_words != words:
+  1482	                err.append(f'{where}: n_words={m.n_words:,} but the text holds {words:,} — the count '
+  1483	                           f'describes a document this node no longer carries')
+  1484	            prof = m.profile or {}
+  1485	            kind = prof.get('artifact_kind')
+  1486	            if kind not in KIND_PROFILE:
+  1487	                err.append(f'{where}: artifact_kind {kind!r} is not a registered kind')
+  1488	                continue
+  1489	            verdict = extractability(m.text or '')['verdict']
+  1490	            stored_v = (prof.get('extractability') or {}).get('verdict')
+  1491	            if stored_v != verdict:
+  1492	                err.append(f'{where}: stored extractability {stored_v!r} but the bytes are {verdict!r}')
+  1493	            # THE ONE REDUCER, run again, against the bytes on disk. A `complete` flag nobody can
+  1494	            # re-derive is a label that asserts more than its content supports — with nothing checking.
+  1495	            ok, reasons = judge_completeness(kind, words, verdict)
+  1496	            if bool(prof.get('complete')) != ok:
+  1497	                err.append(f'{where}: profile says complete={prof.get("complete")!r}, but the registry '
+  1498	                           f'derives complete={ok!r} for a `{kind}` of {words:,} words '
+  1499	                           f'({"; ".join(reasons) if reasons else "no objection"})')
+  1500	
+  1501	        for i, d in enumerate(data.get('edges', [])):
+  1502	            e = _take(Edge, d, f'edge #{i}')
+  1503	            if e is None:
+  1504	                continue
+  1505	            g.edges.append(e)
+  1506	            where = f'edge #{i} {e.src!r} -{e.type}-> {e.dst!r}'
+  1507	            if e.type not in EDGE_TYPES:
+  1508	                err.append(f'{where}: unknown edge type {e.type!r}')
+  1509	            if e.status not in ('PROPOSED', 'ASSERTED'):
+  1510	                err.append(f'{where}: status must be PROPOSED or ASSERTED, not {e.status!r}')
+  1511	            for end in (e.src, e.dst):
+  1512	                if end not in g.expressions:
+  1513	                    err.append(f'{where}: endpoint {end!r} DOES NOT EXIST')
+  1514	            if not (e.basis or '').strip():
+  1515	                err.append(f'{where}: carries NO BASIS')
+  1516	            if e.status == 'ASSERTED' and e.type in SPAN_PRESERVING:
+  1517	                why = authentication_failure(e.basis) or g.exact_copy_failure(e.src, e.dst)
+  1518	                if why:
+  1519	                    err.append(f'{where}: ASSERTED span-preserving edge — {why}')
+  1520	
+  1521	        # ---- CORRESPONDENCES. Every one of them is RE-VERIFIED AGAINST THE BYTES ON DISK. ---------
+  1522	        # A correspondence is the ONLY per-span door out of a document, so a file that could smuggle one
+  1523	        # in would be a file that could make any manuscript's number into any journal's finding. The
+  1524	        # loader runs the SAME verifier the resolver runs — hashes, offsets, exact canonical equality —
+  1525	        # and refuses the whole graph if any of them fails. An edge that cannot be constructed but CAN
+  1526	        # BE LOADED is not a rule; it is a speed bump, and we have been over that speed bump already.
+  1527	        for i, d in enumerate(data.get('correspondences', [])):
+  1528	            sc = _take(SpanCorrespondence, d, f'correspondence #{i}')
+  1529	            if sc is None:
+  1530	                continue
+  1531	            g.correspondences.append(sc)
+  1532	            ok, why = g.verify_correspondence(sc)
+  1533	            if not ok:
+  1534	                err.append(f'correspondence #{i} {sc.id!r} '
+  1535	                           f'({sc.source_manifestation_id} -> {sc.target_manifestation_id}) '
+  1536	                           f'DOES NOT VERIFY: ' + '; '.join(why))
+  1537	
+  1538	        if err:
+  1539	            raise GraphIntegrityError(
+  1540	                f'{len(err)} integrity failure(s); THIS GRAPH IS NOT LOADED:\n  - ' + '\n  - '.join(err))
+  1541	        return g
+  1542	
+  1543	
+  1544	# =================================================================================================
+  1545	# 4. MIGRATION — corpus rows -> graph. NO TEXT IS DELETED.
+  1546	# =================================================================================================
+  1547	
+  1548	def _slug(s: str, n: int = 40) -> str:
+  1549	    return re.sub(r'[^a-z0-9]+', '-', (s or '').lower()).strip('-')[:n] or 'x'
+  1550	
+  1551	
+  1552	def derive_source_type(row: dict) -> tuple[str, str, str]:
+  1553	    """WHAT KIND OF SOURCE DOES THIS ROW DECLARE ITSELF TO BE?
+  1554	    -> (work_kind, the expression the metadata CLAIMS exists, basis)
+  1555	
+  1556	    `migrate()` used to open with `jid = f'{wid}:journal_version'` for every row it was ever handed.
+  1557	    Sol: "That is not valid for a judicial opinion or statute." It is not even valid for a PREPRINT
+  1558	    row — a posted-content record claims no journal version at all, and minting one creates, out of
+  1559	    nothing, a node whose whole meaning is "a peer-reviewed article exists here", for a work that may
+  1560	    never have been through peer review.
+  1561	
+  1562	    An empty claimed-expression is a LEGAL ANSWER and migrate() then mints no node. A row that names
+  1563	    no venue claims no published version, and the honest record of that is an absence — not a
+  1564	    `journal_version` whose attribution string renders as "Smith (2020), None".
+  1565	    """
+  1566	    declared = _norm(str(row.get('type') or '')).lower()
+  1567	    if declared in SOURCE_TYPE:
+  1568	        wk, ex = SOURCE_TYPE[declared]
+  1569	        if ex in ('journal_version', 'proceedings_version') and not _norm(row.get('venue') or ''):
+  1570	            return wk, '', (f'row declares type={declared!r} but names NO venue — there is no journal '
+  1571	                            f'to name, so no journal expression is claimed')
+  1572	        return wk, ex, f'row declares type={declared!r}'
+  1573	    if row.get('nct_id') or re.match(r'\s*(NCT\d{8}|ISRCTN\d+|EUCTR)', str(row.get('id') or ''), re.I):
+  1574	        return 'trial', 'registry_record', 'the row carries a trial-registry identifier'
+  1575	    if row.get('court') or row.get('case_name'):
+  1576	        return 'case', 'official_text', 'the row carries a court/case field'
+  1577	    if row.get('statute') or row.get('section'):
+  1578	        return 'statute', 'official_text', 'the row carries a statute/section field'
+  1579	    if row.get('doi') and _norm(row.get('venue') or ''):
+  1580	        return 'study', 'journal_version', 'no declared type; the row carries a DOI and a venue'
+  1581	    return 'study', '', (f'the row declares type={declared or None!r} and carries no venue — it claims '
+  1582	                         f'NO published expression, so none is minted')
+  1583	
+  1584	
+  1585	def _attribution_for(kind: str, work: Work) -> str:
+  1586	    """The sentence a writer may RENDER for this expression. DISPLAY ONLY.
+  1587	
+  1588	    Whether it is legal in THIS answer is NOT decided here and is not stored anywhere — it is derived
+  1589	    per policy by `Graph.resolve_attribution()`. Sol: "If only the working paper is available, citing
+  1590	    it VIOLATES THE JOURNAL-ONLY INSTRUCTION, so it stays OUTSIDE THE ANSWER BODY." That is the
+  1591	    JOURNAL_ONLY policy refusing it, not a boolean baked into the node.
+  1592	    """
+  1593	    who = ' and '.join(work.authors[:2]) + (' et al.' if len(work.authors) > 2 else '')
+  1594	    yr = work.year
+  1595	    venue = work.venue or ''
+  1596	    if kind in ('official_text', 'registry_record'):
+  1597	        # A case or a statute is named by ITS OWN TITLE and its court/reporter/registry — not by
+  1598	        # "authors (year)". `Smith v. Jones (1998), Court of Appeal`.
+  1599	        return f'{work.title} ({yr}), {venue}' if venue else f'{work.title} ({yr})'
+  1600	    if not venue:
+  1601	        return f'{who} ({yr}), UNNAMED VENUE [may not be cited]'
+  1602	    if kind in ('journal_version', 'proceedings_version'):
+  1603	        return f'{who} ({yr}), {venue}'
+  1604	    if kind == 'accepted_manuscript':
+  1605	        # Legal ONLY if authenticated as the AM *of the journal version* -- that edge, not this label.
+  1606	        return f'{who} ({yr}), accepted manuscript of {venue}'
+  1607	    if kind == 'working_paper':
+  1608	        return f'{who} ({yr}), working paper [NOT the {venue} article]'
+  1609	    if kind == 'preprint':
+  1610	        return f'{who} ({yr}), preprint [NOT the {venue} article]'
+  1611	    return f'{who} ({yr}), UNIDENTIFIED VERSION [may not be cited]'
+  1612	
+  1613	
+  1614	def ensure_work(g: Graph, *, doi: str, title: str, authors: list[str], year, venue: str,
+  1615	                source_type: str = '') -> tuple[Work, str, str]:
+  1616	    """The Work node, and the expression its METADATA CLAIMS EXISTS. -> (work, claimed_id, claimed_kind)
+  1617	
+  1618	    The claimed expression is real but WE MAY NOT HOLD ITS BYTES: it gets a node with no manifestation,
+  1619	    and that emptiness is the honest record of what we do not have.
+  1620	    """
+  1621	    wid = 'work:' + (_slug(doi) if doi else _slug(title))
+  1622	    row = dict(doi=doi, title=title, venue=venue, type=source_type)
+  1623	    work_kind, claimed_kind, claimed_basis = derive_source_type(row)
+  1624	    work = Work(id=wid, title=title or '', authors=list(authors or []), year=year,
+  1625	                venue=_norm(venue or '').replace('&amp;', '&'), doi=doi or None, kind=work_kind)
+  1626	    g.works.setdefault(wid, work)
+  1627	    work = g.works[wid]
+  1628	
+  1629	    claimed_id = ''
+  1630	    if claimed_kind:
+  1631	        claimed_id = f'{wid}:{claimed_kind}'
+  1632	        g.expressions.setdefault(claimed_id, Expression(
+  1633	            id=claimed_id, work_id=wid, kind=claimed_kind,
+  1634	            kind_basis=f'claimed_by_metadata ({claimed_basis}; bytes NOT verified)',
+  1635	            attribution=_attribution_for(claimed_kind, work)))
+  1636	    return work, claimed_id, claimed_kind
+  1637	
+  1638	
+  1639	def ingest_bytes(g: Graph, work: Work, text: str, *, text_field: str, fetched_by: str,
+  1640	                 locator: str | None, locator_status: str, claimed_id: str, claimed_kind: str,
+  1641	                 independent_abstract: str = '') -> str:
+  1642	    """THE ONE PLACE BYTES BECOME A TYPED NODE. -> manifestation id.
+  1643	
+  1644	    `migrate()` (corpus rows) and `provenance_construct.construct()` (the event ledger) BOTH come
+  1645	    through here, and they must: two functions that each decide what an expression is would be two
+  1646	    answers to "may this span name the journal", and the one that ships is whichever ran last.
+  1647	    """
+  1648	    wid = work.id
+  1649	    prof = profile(text, work, independent_abstract=independent_abstract)
+  1650	    ekind = prof['expression_kind']
+  1651	    ebasis = prof['expression_kind_basis']
+  1652	
+  1653	    if prof['artifact_kind'] in ('wrong_work', 'landing_page', 'extraction_failure'):
+  1654	        # NOT A RENDERING OF ANY VERSION OF THIS WORK. It gets a QUARANTINE expression, not a version
+  1655	        # node: the ORA landing page for Frey & Osborne contains the words "published version
+  1656	        # (refereed)", and if we let that furniture name the expression we would have filed a WEB PAGE
+  1657	        # as an accepted manuscript of a journal article. The bytes are RETAINED in full (nothing is
+  1658	        # ever deleted) and attributable to nobody.
+  1659	        eid = f'{wid}:quarantine:{prof["artifact_kind"]}'
+  1660	        att = (f'THESE BYTES ARE NOT A USABLE RENDERING OF THIS WORK '
+  1661	               f'({prof["artifact_kind"]}) — no attribution is possible')
+  1662	        g.expressions[eid] = Expression(
+  1663	            id=eid, work_id=wid, kind='unknown', kind_basis=prof['artifact_kind_basis'],
+  1664	            attribution=att)
+  1665	    elif ekind == 'unknown':
+  1666	        eid = f'{wid}:unresolved_version'
+  1667	        g.expressions[eid] = Expression(
+  1668	            id=eid, work_id=wid, kind='unknown', kind_basis=ebasis,
+  1669	            attribution=_attribution_for('unknown', work))
+  1670	    else:
+  1671	        eid = f'{wid}:{ekind}'
+  1672	        g.expressions.setdefault(eid, Expression(
+  1673	            id=eid, work_id=wid, kind=ekind, kind_basis=ebasis,
+  1674	            attribution=_attribution_for(ekind, work)))
+  1675	
+  1676	    h = hashlib.sha256(text.encode('utf-8', 'ignore')).hexdigest()
+  1677	    mid = f'manif:{h[:12]}'
+  1678	    g.manifestations[mid] = Manifestation(
+  1679	        id=mid, expression_id=eid, work_id=wid, text=text, content_hash=h,
+  1680	        n_words=prof['n_words'], locator=locator, locator_status=locator_status,
+  1681	        fetched_by=fetched_by, text_field=text_field, profile=prof)
+  1682	
+  1683	    # ---- EDGES. Only what the bytes support. ----------------------------------------------------
+  1684	    # An edge needs somewhere to point. If the row claimed no published expression, there is no target
+  1685	    # -- and inventing one to have something to point AT is how the journal_version node came to exist
+  1686	    # for every row in the first place.
+  1687	    if claimed_id and eid != claimed_id and not eid.startswith(f'{wid}:quarantine'):
+  1688	        existing = {(e.src, e.dst, e.type) for e in g.edges}
+  1689	        def _edge(src, dst, typ, status, basis):
+  1690	            if (src, dst, typ) not in existing:          # idempotent: construct() runs after EVERY batch
+  1691	                g.add_edge(src, dst, typ, status, basis)
+  1692	                existing.add((src, dst, typ))
+  1693	        if ekind in ('working_paper', 'preprint'):
+  1694	            # The strongest thing that is TRUE. Not exact_copy_of. Not even asserted: we have not
+  1695	            # compared the two texts, because we do not hold the other one.
+  1696	            _edge(eid, claimed_id, 'predecessor_of', 'PROPOSED',
+  1697	                  f'same work per bibliography metadata; version equivalence NOT tested '
+  1698	                  f'(we do not hold the {claimed_kind} bytes). {ebasis}')
+  1699	            _edge(eid, claimed_id, 'reports_same_study', 'PROPOSED',
+  1700	                  'same title/authors/DOI row; peer review may still have changed the numbers')
+  1701	        elif ekind == 'accepted_manuscript':
+  1702	            # PROPOSED, not ASSERTED: the artifact SAYS it is the accepted manuscript. That is a claim
+  1703	            # a component makes about itself, which is the one thing we never trust. ASSERTING this
+  1704	            # edge requires authentication against the journal version's bytes.
+  1705	            _edge(eid, claimed_id, 'accepted_manuscript_of', 'PROPOSED',
+  1706	                  f'the artifact self-describes ({ebasis}); NOT authenticated against the '
+  1707	                  f'{claimed_kind}, whose bytes we do not hold')
+  1708	        elif ekind == 'unknown':
+  1709	            _edge(eid, claimed_id, 'reports_same_study', 'PROPOSED',
+  1710	                  'the bytes carry no version furniture; they may or may not be the '
+  1711	                  f'{claimed_kind} text')
+  1712	    return mid
+  1713	
+  1714	
+  1715	def migrate(corpus: list[dict]) -> Graph:
+  1716	    g = Graph()
+  1717	    for row in corpus:
+  1718	        work, claimed_id, claimed_kind = ensure_work(
+  1719	            g, doi=row.get('doi') or '', title=row.get('title') or '',
+  1720	            authors=list(row.get('authors') or []), year=row.get('year'),
+  1721	            venue=row.get('venue') or '', source_type=str(row.get('type') or ''))
+  1722	
+  1723	        # ---- the bytes we hold, if any ----------------------------------------------------------
+  1724	        for fieldname in ('fulltext', 'abstract'):
+  1725	            text = (row.get(fieldname) or '').strip()
+  1726	            if not text:
+  1727	                continue
+  1728	            # The row's abstract came from the BIBLIOGRAPHY, independently of whatever body we
+  1729	            # fetched — which is exactly what makes it usable as a probe against that body. It is
+  1730	            # never used to probe itself.
+  1731	            indep = (row.get('abstract') or '') if fieldname == 'fulltext' else ''
+  1732	
+  1733	            # The fetcher's own label is EVIDENCE, NOT TRUTH. `fulltext_source='working_paper'`
+  1734	            # records WHICH FETCHER RAN, not what the artifact is: it is false on 5 of the 6 rows
+  1735	            # that carry it. The bytes decide; the label is recorded and contradicted in the open.
+  1736	            claimed_src = row.get('fulltext_source') or 'publisher_or_oa'
+  1737	
+  1738	            # THE LOCATOR. wp_fetch.py NEVER RECORDED THE URL IT FETCHED FROM, so for the rows it
+  1739	            # touched the only URL on the row is `oa_url` -- left by an EARLIER fetcher and pointing
+  1740	            # at the PUBLISHER (aeaweb.org!). A locator that names the journal while the bytes are a
+  1741	            # working paper is worse than no locator, so it is not silently adopted.
+  1742	            locator, lstatus = row.get('oa_url') or None, 'RECORDED'
+  1743	            if not locator:
+  1744	                lstatus = 'NOT_RECORDED_BY_FETCHER'
+  1745	            elif claimed_src == 'working_paper':
+  1746	                lstatus = 'CONTRADICTS_CONTENT (oa_url points at the publisher; these bytes were ' \
+  1747	                          'fetched by wp_fetch, which never recorded its own URL)'
+  1748	
+  1749	            ingest_bytes(g, work, text, text_field=fieldname, fetched_by=claimed_src,
+  1750	                         locator=locator, locator_status=lstatus, claimed_id=claimed_id,
+  1751	                         claimed_kind=claimed_kind, independent_abstract=indep)
+  1752	    return g
+  1753	
+  1754	
+  1755	# =================================================================================================
+  1756	# 5. THE HONEST CENSUS
+  1757	# =================================================================================================
+  1758	
+  1759	def census(g: Graph, corpus: list[dict]) -> None:
+  1760	    P = print
+  1761	    P('=' * 100)
+  1762	    P('PROVENANCE CENSUS — every label re-derived from the bytes it describes')
+  1763	    P('=' * 100)
+  1764	
+  1765	    P(f'\n  WORKS                 {len(g.works)}')
+  1766	    P(f'  EXPRESSIONS           {len(g.expressions)}')
+  1767	    P(f'  MANIFESTATIONS        {len(g.manifestations)}   (bytes we actually hold)')
+  1768	    P(f'  EDGES                 {len(g.edges)}')
+  1769	
+  1770	    P('\n--- MANIFESTATIONS BY EXPRESSION KIND (what version the BYTES say they are) ' + '-' * 24)
+  1771	    byk: dict[str, list[Manifestation]] = {}
+  1772	    for m in g.manifestations.values():
+  1773	        byk.setdefault(g.expressions[m.expression_id].kind, []).append(m)
+  1774	    for k in EXPRESSION_KINDS:
+  1775	        ms = byk.get(k, [])
+  1776	        if ms:
+  1777	            P(f'  {k:<22} {len(ms):>3}   ({sum(x.n_words for x in ms):>7,} words held)')
+  1778	
+  1779	    P('\n--- MANIFESTATIONS BY CONTENT-DERIVED ARTIFACT KIND ' + '-' * 47)
+  1780	    bya: dict[str, list[Manifestation]] = {}
+  1781	    for m in g.manifestations.values():
+  1782	        bya.setdefault(m.profile['artifact_kind'], []).append(m)
+  1783	    for k in ARTIFACT_KINDS:
+  1784	        ms = bya.get(k, [])
+  1785	        if ms:
+  1786	            ok = sum(1 for x in ms if x.profile['complete'])
+  1787	            P(f'  {k:<22} {len(ms):>3}   complete: {ok:>2}   not complete: {len(ms) - ok:>2}')
+  1788	
+  1789	    # ---- THE NUMBER THE ANSWER ACTUALLY RESTS ON --------------------------------------------
+  1790	    P('\n--- ADMISSIBILITY FOR A JOURNAL-ONLY ANSWER (task 72) ' + '-' * 45)
+  1791	    jok = [m for m in g.manifestations.values() if g.journal_attributable(m.id)]
+  1792	    wponly, unres, dead = [], [], []
+  1793	    for m in g.manifestations.values():
+  1794	        if g.journal_attributable(m.id):
+  1795	            continue
+  1796	        k = g.expressions[m.expression_id].kind
+  1797	        if k in ('working_paper', 'preprint', 'accepted_manuscript'):
+  1798	            wponly.append(m)
+  1799	        # Read from the registry, not from a literal list kept beside it. The literal list is how a
+  1800	        # new kind gets silently counted as something else: `citation_only` was born and 13 citation
+  1801	        # stubs would have been reported as "unresolved versions" — a claim about VERSIONS, made about
+  1802	        # documents we do not have.
+  1803	        elif not m.profile['complete'] and m.profile['artifact_kind'] in NOT_A_DOCUMENT_KINDS:
+  1804	            dead.append(m)
+  1805	        else:
+  1806	            unres.append(m)
+  1807	
+  1808	    P(f'  JOURNAL-ATTRIBUTABLE            {len(jok):>3}   spans from these may be printed as journal findings')
+  1809	    P(f'  WORKING-PAPER / PREPRINT ONLY   {len(wponly):>3}   INELIGIBLE — citing them breaks the journal-only')
+  1810	    P(f'  {"":<32}      instruction; citing the journal with THEIR text is fabrication')
+  1811	    P(f'  UNRESOLVED VERSION              {len(unres):>3}   bytes carry no version furniture — cannot be claimed')
+  1812	    P(f'  NOT A DOCUMENT                  {len(dead):>3}   landing pages, corrupt extractions, wrong work')
+  1813	
+  1814	    claimed_ft = sum(1 for c in corpus if c.get('content_status') == 'FULLTEXT')
+  1815	    P(f'\n  THE CORPUS CLAIMS               {claimed_ft:>3}   rows with content_status=FULLTEXT')
+  1816	    P(f'  THE BYTES SUPPORT               {len(jok):>3}   journal-attributable manifestations')
+  1817	    P(f'  {"":>32}   ^ THIS IS WORSE THAN THE CORPUS CLAIMS. IT IS ALSO TRUE.')
+  1818	
+  1819	    P('\n--- EDGES (nothing is ASSERTED that the bytes do not prove) ' + '-' * 39)
+  1820	    for t in EDGE_TYPES:
+  1821	        es = [e for e in g.edges if e.type == t]
+  1822	        if es:
+  1823	            a = sum(1 for e in es if e.status == 'ASSERTED')
+  1824	            P(f'  {t:<24} {len(es):>3}   ASSERTED: {a}   PROPOSED: {len(es) - a}')
+  1825	    P('  (0 ASSERTED span-preserving edges: we hold no journal bytes to compare against, so no')
+  1826	    P('   working paper has EARNED the right to be cited as its journal article.)')
+  1827	
+  1828	    # ---- every recovered paper, profiled -----------------------------------------------------
+  1829	    P('\n--- CONTENT-DERIVED ARTIFACT PROFILE OF EVERY MANIFESTATION WE HOLD ' + '-' * 31)
+  1830	    P(f'  {"words":>6} {"kind":<19} {"ver":<12} {"extract":<9} {"ident":<12} {"J?":<3} source')
+  1831	    for m in sorted(g.manifestations.values(), key=lambda m: (
+  1832	            not g.journal_attributable(m.id), -m.n_words)):
+  1833	        p = m.profile
+  1834	        w = g.works[m.work_id]
+  1835	        who = f"{(w.authors or ['?'])[0]} ({w.year})"
+  1836	        P(f"  {m.n_words:>6} {p['artifact_kind']:<19} {p['expression_kind'][:11]:<12} "
+  1837	          f"{p['extractability']['verdict']:<9} {p['identity']['verdict']:<12} "
+  1838	          f"{'YES' if g.journal_attributable(m.id) else ' no':<3} {who[:28]:<28} {w.venue[:30]}")
+  1839	
+  1840	    # ---- the ones that were about to ship -----------------------------------------------------
+  1841	    P('\n--- LABELS THAT ASSERTED MORE THAN THEIR CONTENT SUPPORTED ' + '-' * 40)
+  1842	    for m in g.manifestations.values():
+  1843	        p = m.profile
+  1844	        # Only the manifestation the FULLTEXT claim actually refers to. A row's abstract is not
+  1845	        # claimed to be full text, and reporting it here would itself be a label over-asserting.
+  1846	        if m.text_field != 'fulltext':
+  1847	            continue
+  1848	        row = next((c for c in corpus if (c.get('doi') or '') == (g.works[m.work_id].doi or '')), {})
+  1849	        claimed = row.get('content_status')
+  1850	        if claimed == 'FULLTEXT' and not p['complete']:
+  1851	            w = g.works[m.work_id]
+  1852	            P(f"\n  {w.authors[0] if w.authors else '?'} ({w.year}), {w.venue[:44]}")
+  1853	            P(f"      corpus says : content_status=FULLTEXT"
+  1854	              + (f", fulltext_source={row.get('fulltext_source')}" if row.get('fulltext_source') else ''))
+  1855	            P(f"      bytes say   : {p['artifact_kind']} — {p['artifact_kind_basis']}")
+  1856	            for r in p['incomplete_because']:
+  1857	                P(f"                    - {r}")
+  1858	
+  1859	    P('\n--- EXTRACTABILITY DISTRIBUTION (so the thresholds can be RE-DERIVED, not trusted) ' + '-' * 16)
+  1860	    dens = sorted(((m.profile['extractability']['stopword_density'], m.id, m)
+  1861	                   for m in g.manifestations.values() if m.n_words >= 50))
+  1862	    P(f'  stopword density: min {dens[0][0]:.3f}  median {statistics.median([d for d, _, _ in dens]):.3f}'
+  1863	      f'  max {dens[-1][0]:.3f}   (n={len(dens)})')
+  1864	    P('  lowest three: ' + ', '.join(
+  1865	        f"{d:.3f} ({(g.works[m.work_id].authors or ['?'])[0]})" for d, _, m in dens[:3]))
+  1866	    P(f'  CORRUPT threshold {CORRUPT_STOPWORD_DENSITY} sits in the gap between {dens[0][0]:.3f} and '
+  1867	      f'{dens[1][0]:.3f} — a {dens[1][0] / max(dens[0][0], 1e-9):.0f}x separation, not a magic number.')
+  1868	
+  1869	    ov = sorted((m.profile['identity']['abstract_vocab_overlap'], m.id, m)
+  1870	                for m in g.manifestations.values()
+  1871	                if m.profile['identity']['abstract_vocab_overlap'] is not None)
+  1872	    if len(ov) >= 3:
+  1873	        P(f'  abstract-vocabulary overlap (the wrong-work test), n={len(ov)}:')
+  1874	        P('    lowest three: ' + ', '.join(
+  1875	            f"{o:.3f} ({(g.works[m.work_id].authors or ['?'])[0]})" for o, _, m in ov[:3]))
+  1876	        P(f'    CONTRADICTED threshold {CONTRADICTED_VOCAB_OVERLAP} sits between {ov[0][0]:.3f} '
+  1877	          f'(a different paper) and {ov[1][0]:.3f} (the lowest genuine body).')
+  1878	
+  1879	
+  1880	# =================================================================================================
+  1881	# 6. SELF-TEST — ADVERSARIAL. Every case here is an ATTACK on the core rule, not a demonstration.
+  1882	# =================================================================================================
+  1883	
+  1884	def _raises(fn, exc) -> bool:
+  1885	    """`fn` MUST raise `exc`. Returning a falsy value is not the same as refusing, and a check that
+  1886	    accepts either is a check that would pass on a function that silently returns None."""
+  1887	    try:
+  1888	        fn()
+  1889	    except exc:
+  1890	        return True
+  1891	    except Exception:
+  1892	        return False
+  1893	    return False
+  1894	
+  1895	
+  1896	def self_test() -> int:
+  1897	    fails: list[str] = []
+  1898	
+  1899	    def ck(name: str, ok: bool) -> None:
+  1900	        print(f"  [{'PASS' if ok else '**FAIL**'}] {name}")
+  1901	        if not ok:
+  1902	            fails.append(name)
+  1903	
+  1904	    w = Work(id='work:w', title='Robots and Jobs', authors=['Acemoglu', 'Restrepo'], year=2020,
+  1905	             venue='Journal of Political Economy', doi='10.1086/705716')
+  1906	    g = Graph(works={'work:w': w})
+  1907	    g.expressions['work:w:journal_version'] = Expression(
+  1908	        'work:w:journal_version', 'work:w', 'journal_version', 'metadata',
+  1909	        'Acemoglu and Restrepo (2020), Journal of Political Economy')
+  1910	    g.expressions['work:w:working_paper'] = Expression(
+  1911	        'work:w:working_paper', 'work:w', 'working_paper', 'bytes say NBER WORKING PAPER SERIES',
+  1912	        'Acemoglu and Restrepo (2020), working paper [NOT the Journal of Political Economy article]')
+  1913	    # The authors are NAMED in the header, so identity derives CONFIRMED — which the V9 exact_copy_of
+  1914	    # rule now REQUIRES on both sides. (Two documents we cannot prove are ours cannot be proven equal.)
+  1915	    body = ('NBER WORKING PAPER SERIES ROBOTS AND JOBS by Acemoglu and Restrepo. '
+  1916	            + 'the effect of robots on employment is '
+  1917	              'estimated across commuting zones and we find a decline. ' * 80)
+  1918	    g.manifestations['manif:wp'] = Manifestation(
+  1919	        'manif:wp', 'work:w:working_paper', 'work:w', body,
+  1920	        hashlib.sha256(body.encode()).hexdigest(), len(body.split()), None,
+  1921	        'NOT_RECORDED_BY_FETCHER', 'wp_fetch', 'fulltext',
+  1922	        profile(body, w))
+  1923	
+  1924	    # ---- THE CORE RULE ---------------------------------------------------------------------
+  1925	    ck('a span in a WORKING PAPER may NOT name the journal article',
+  1926	       'work:w:journal_version' not in g.attribution_targets('manif:wp'))
+  1927	    ck('...and journal_attributable() says NO',
+  1928	       not g.journal_attributable('manif:wp'))
+  1929	    ck('the only attribution offered names the WORKING PAPER, and says it is not the journal',
+  1930	       'NOT the Journal of Political Economy'
+  1931	       in g.resolve_attribution('manif:wp', ANY_VERSION).text)
+  1932	
+  1933	    g.add_edge('work:w:working_paper', 'work:w:journal_version', 'predecessor_of', 'PROPOSED',
+  1934	               'title match')
+  1935	    ck('a PROPOSED predecessor_of edge does NOT make it journal-attributable',
+  1936	       not g.journal_attributable('manif:wp'))
+  1937	
+  1938	    g.add_edge('work:w:working_paper', 'work:w:journal_version', 'predecessor_of', 'ASSERTED',
+  1939	               'the working paper is provably the predecessor of the journal article')
+  1940	    ck('even an ASSERTED predecessor_of does NOT transfer attribution (PEER REVIEW CHANGES NUMBERS)',
+  1941	       not g.journal_attributable('manif:wp'))
+  1942	
+  1943	    g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'PROPOSED',
+  1944	               'the texts look similar')
+  1945	    ck('a PROPOSED exact_copy_of does NOT transfer attribution either',
+  1946	       not g.journal_attributable('manif:wp'))
+  1947	
+  1948	    try:
+  1949	        g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
+  1950	                   'the titles match')
+  1951	        ok = False
+  1952	    except ValueError:
+  1953	        ok = True
+  1954	    ck('a TITLE MATCH may not ASSERT exact_copy_of (Sol: it can only PROPOSE predecessor_of)', ok)
+  1955	
+  1956	    # ---- THE V9 P0: `accepted_manuscript_of` IS NOT SPAN-PRESERVING -------------------------------
+  1957	    # It WAS. It was in SPAN_PRESERVING, and it widened attribution exactly as exact_copy_of does — so an
+  1958	    # ASSERTED accepted_manuscript_of made a manuscript's spans printable under the journal's name. And
+  1959	    # the edge was reachable from A REPOSITORY'S ONE-WORD LABEL: Unpaywall says `acceptedVersion`,
+  1960	    # version_align mapped that to this edge, alignment_census called the result ADMISSIBLE. Three hops
+  1961	    # from a metadata string to a fabricated journal finding.
+  1962	    ck('accepted_manuscript_of is NO LONGER span-preserving (the V9 P0)',
+  1963	       'accepted_manuscript_of' not in SPAN_PRESERVING
+  1964	       and 'accepted_manuscript_of' in NON_SPAN_PRESERVING)
+  1965	    g.add_edge('work:w:working_paper', 'work:w:journal_version', 'accepted_manuscript_of', 'ASSERTED',
+  1966	               'byte-for-byte checksum of the repository deposit against the accepted manuscript')
+  1967	    ck('even an ASSERTED accepted_manuscript_of, on BYTE-LEVEL evidence, TRANSFERS NOTHING',
+  1968	       'work:w:journal_version' not in g.attribution_targets('manif:wp')
+  1969	       and not g.journal_attributable('manif:wp'))
+  1970	    ck('...and the refusal still names fabrication — an AM is not the journal version',
+  1971	       'fabrication' in (g.resolve_attribution('manif:wp', JOURNAL_ONLY).refusal or ''))
+  1972	
+  1973	    try:
+  1974	        g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED', '')
+  1975	        ok = False
+  1976	    except ValueError:
+  1977	        ok = True
+  1978	    ck('an edge with NO BASIS cannot be constructed at all', ok)
+  1979	
+  1980	    # A BASIS THAT *SAYS* "byte-for-byte" IS STILL A SENTENCE. The old guard was a REGEX OVER PROSE, so
+  1981	    # the string below asserted the edge and NO BYTES WERE EVER COMPARED. We hold no journal bytes here.
+  1982	    try:
+  1983	        g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
+  1984	                   'byte-for-byte comparison against the journal PDF: identical span at 76927-77299')
+  1985	        ok = False
+  1986	    except ValueError:
+  1987	        ok = True
+  1988	    ck('an exact_copy_of asserted on a SENTENCE about bytes we do not hold is REFUSED (V9 §4)', ok)
+  1989	
+  1990	    # The rule must also WORK when the proof is genuinely earned -- a gate that never opens is a gate
+  1991	    # nobody will keep. Expression-wide equality requires EXPRESSION-WIDE EVIDENCE: we must hold BOTH
+  1992	    # documents, both identity-CONFIRMED, and their ENTIRE canonical texts must be equal.
+  1993	    jbody = body.replace('NBER WORKING PAPER SERIES ', '')   # ...a DIFFERENT document. Not equal.
+  1994	    g.expressions['work:w2:journal_version'] = g.expressions['work:w:journal_version']
+  1995	    g.manifestations['manif:jv'] = Manifestation(
+  1996	        'manif:jv', 'work:w:journal_version', 'work:w', jbody,
+  1997	        hashlib.sha256(jbody.encode()).hexdigest(), len(jbody.split()), None, 'RECORDED',
+  1998	        'publisher', 'fulltext', profile(jbody, w))
+  1999	    del g.expressions['work:w2:journal_version']
+  2000	    try:
+  2001	        g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
+  2002	                   'sha-256 of both canonical texts compared')
+  2003	        ok = False
+  2004	    except ValueError:
+  2005	        ok = True
+  2006	    ck('an exact_copy_of between two documents whose canonical texts DIFFER is REFUSED', ok)
+  2007	
+  2008	    # ...and now the honest case: the journal bytes really ARE the same document.
+  2009	    g.manifestations['manif:jv'] = Manifestation(
+  2010	        'manif:jv', 'work:w:journal_version', 'work:w', body,
+  2011	        hashlib.sha256(body.encode()).hexdigest(), len(body.split()), None, 'RECORDED',
+  2012	        'publisher', 'fulltext', profile(body, w))
+  2013	    g.add_edge('work:w:working_paper', 'work:w:journal_version', 'exact_copy_of', 'ASSERTED',
+  2014	               'sha-256 of the entire canonical text of both manifestations: equal')
+  2015	    ck('an ASSERTED exact_copy_of (both documents HELD, entire canonical text equal) DOES license it',
+  2016	       g.journal_attributable('manif:wp'))
+  2017	    ck('...and resolve_attribution then names the JOURNAL EXPRESSION BY ID, not by prose',
+  2018	       g.resolve_attribution('manif:wp', JOURNAL_ONLY).names_expression_id == 'work:w:journal_version')
+  2019	    g.edges = [e for e in g.edges if e.type != 'exact_copy_of' or e.status != 'ASSERTED']
+  2020	    del g.manifestations['manif:jv']
+  2021	
+  2022	    # ---- PER-SPAN ATTRIBUTION (Sol V9 §4) --------------------------------------------------------
+  2023	    # An ACCEPTED MANUSCRIPT and the JOURNAL VERSION. They are NOT the same document — the AM says
+  2024	    # 0.37, the journal says 0.2 — but ONE sentence survived peer review verbatim. That sentence, and
+  2025	    # NOTHING ELSE IN THE MANUSCRIPT, may be printed under the journal's name.
+  2026	    SURVIVED = 'Industrial robots are fully autonomous and reprogrammable machines used in manufacturing.'
+  2027	    CHANGED_AM = 'we estimate that one more robot per thousand workers reduces employment by 0.37 percent'
+  2028	    CHANGED_J = 'we estimate that one more robot per thousand workers reduces employment by 0.2 percent'
+  2029	    pad = 'The analysis proceeds in three stages across commuting zones and industries. ' * 90
+  2030	
+  2031	    # Each document's own front matter says what it is, and NAMES ITS AUTHORS — so profile() derives
+  2032	    # `accepted_manuscript` / `journal_article`, both complete, both identity CONFIRMED. Nothing here is
+  2033	    # asserted; it is all read out of the bytes, exactly as in production.
+  2034	    am_head = 'Accepted manuscript. Robots and Jobs. Acemoglu and Restrepo. '
+  2035	    jv_head = 'Journal of Political Economy Vol. 128, No. 6. Robots and Jobs. Acemoglu and Restrepo. '
+  2036	    am_text = am_head + pad + SURVIVED + ' ' + CHANGED_AM + ' ' + pad
+  2037	    jv_text = jv_head + pad + SURVIVED + ' ' + CHANGED_J + ' ' + pad
+  2038	    pg = Graph(works={'work:w': w})
+  2039	    pg.expressions['work:w:accepted_manuscript'] = Expression(
+  2040	        'work:w:accepted_manuscript', 'work:w', 'accepted_manuscript', 'bytes say ACCEPTED MANUSCRIPT',
+  2041	        _attribution_for('accepted_manuscript', w))
+  2042	    pg.expressions['work:w:journal_version'] = Expression(
+  2043	        'work:w:journal_version', 'work:w', 'journal_version', 'typeset',
+  2044	        'Acemoglu and Restrepo (2020), Journal of Political Economy')
+  2045	
+  2046	    def _man(mid, eid, text):
+  2047	        p = profile(text, w)
+  2048	        p['identity'] = dict(p['identity'], verdict='CONFIRMED', basis='test fixture: identity confirmed')
+  2049	        pg.manifestations[mid] = Manifestation(
+  2050	            mid, eid, 'work:w', text, hashlib.sha256(text.encode()).hexdigest(),
+  2051	            len(text.split()), None, 'RECORDED', 'test', 'fulltext', p)
+  2052	
+  2053	    _man('manif:am', 'work:w:accepted_manuscript', am_text)
+  2054	    _man('manif:jv', 'work:w:journal_version', jv_text)
+  2055	
+  2056	    a_s = am_text.index(SURVIVED)
+  2057	    j_s = jv_text.index(SURVIVED)
+  2058	    a_c = am_text.index(CHANGED_AM)
+  2059	    j_c = jv_text.index(CHANGED_J)
+  2060	
+  2061	    b_surv = pg.bind_span('manif:am', a_s, a_s + len(SURVIVED))
+  2062	    b_chng = pg.bind_span('manif:am', a_c, a_c + len(CHANGED_AM))
+  2063	    ck('a bound span now carries a BINDING_ID — permission is a property OF THE SPAN',
+  2064	       b_surv['binding_id'].startswith('bind:') and b_surv['binding_id'] != b_chng['binding_id'])
+  2065	    ck('with NO correspondence, an accepted manuscript is NOT journal-attributable, span by span',
+  2066	       not pg.resolve_attribution(b_surv, JOURNAL_ONLY).admitted
+  2067	       and not pg.resolve_attribution(b_chng, JOURNAL_ONLY).admitted)
+  2068	    ck('...and it IS attributable AS AN ACCEPTED MANUSCRIPT (V9: "accepted-manuscript-attributable only")',
+  2069	       pg.resolve_attribution(b_surv, ANY_VERSION).admitted
+  2070	       and pg.resolve_attribution(b_surv, ANY_VERSION).names_expression_id
+  2071	       == 'work:w:accepted_manuscript')
+  2072	
+  2073	    # THE ACEMOGLU TEST. 0.37 in the manuscript, 0.2 in the journal. IT MUST FAIL AT THE BYTES.
+  2074	    bad_sc = make_correspondence(pg, 'manif:am', a_c, a_c + len(CHANGED_AM),
+  2075	                                 'manif:jv', j_c, j_c + len(CHANGED_J),
+  2076	                                 basis='the same sentence in both documents')
+  2077	    okc, whyc = pg.verify_correspondence(bad_sc)
+  2078	    ck('THE ACEMOGLU TEST: a 0.37-vs-0.2 correspondence FAILS IMMEDIATELY (canonical texts differ)',
+  2079	       not okc and any('NOT equal' in x for x in whyc))
+  2080	    ck('...and add_correspondence REFUSES it — it never reaches the graph',
+  2081	       _raises(lambda: pg.add_correspondence(bad_sc), ValueError))
+  2082	
+  2083	    # THE SURVIVING SENTENCE. Verbatim in both. It — and only it — earns the journal's name.
+  2084	    good_sc = make_correspondence(pg, 'manif:am', a_s, a_s + len(SURVIVED),
+  2085	                                  'manif:jv', j_s, j_s + len(SURVIVED),
+  2086	                                  basis='exact canonical equality of the span in both held documents')
+  2087	    pg.add_correspondence(good_sc)
+  2088	    b_surv = pg.bind_span('manif:am', a_s, a_s + len(SURVIVED))       # re-bind: permission changed
+  2089	    b_chng = pg.bind_span('manif:am', a_c, a_c + len(CHANGED_AM))
+  2090	    ck('a VERIFIED correspondence makes THAT SPAN journal-attributable',
+  2091	       pg.resolve_attribution(b_surv, JOURNAL_ONLY).admitted
+  2092	       and pg.resolve_attribution(b_surv, JOURNAL_ONLY).names_expression_id
+  2093	       == 'work:w:journal_version')
+  2094	    ck('THAT SPAN ONLY: the 0.37 sentence in the SAME manuscript is STILL refused',
+  2095	       not pg.resolve_attribution(b_chng, JOURNAL_ONLY).admitted)
+  2096	    ck('...and the MANIFESTATION-WIDE question is still NO (a per-span proof is not a document permit)',
+  2097	       not pg.journal_attributable('manif:am'))
+  2098	
+  2099	    # THE REBINDING. The span is in the VoR's OWN bytes, so bind it THERE and need no permission at all.
+  2100	    rb = pg.rebind(b_surv, 'manif:jv')
+  2101	    ck('a span found independently in the VoR bytes REBINDS directly to the VoR manifestation',
+  2102	       rb is not None and rb['manifestation_id'] == 'manif:jv'
+  2103	       and rb['text'] == SURVIVED and pg.verify_span(rb)
+  2104	       and pg.resolve_attribution(rb, JOURNAL_ONLY).names_expression_id == 'work:w:journal_version')
+  2105	    ck('...and a span that is NOT in the VoR bytes cannot be rebound to them (None, not a fallback)',
+  2106	       pg.rebind(b_chng, 'manif:jv') is None)
+  2107	
+  2108	    # THE CORRESPONDENCE IS RE-VERIFIED AT EVERY USE, INCLUDING FROM DISK.
+  2109	    tampered = json.loads(json.dumps(pg.to_json()))
+  2110	    tampered['correspondences'][0]['target_start'] = j_c
+  2111	    tampered['correspondences'][0]['target_end'] = j_c + len(CHANGED_J)
+  2112	    ck('from_json REFUSES a correspondence whose offsets were re-pointed at a DIFFERENT sentence',
+  2113	       _raises(lambda: Graph.from_json(tampered), GraphIntegrityError))
+  2114	    tampered2 = json.loads(json.dumps(pg.to_json()))
+  2115	    tampered2['correspondences'][0]['source_span'] = 'anything at all'
+  2116	    ck('from_json REFUSES a correspondence whose verbatim span is not what its offsets slice',
+  2117	       _raises(lambda: Graph.from_json(tampered2), GraphIntegrityError))
+  2118	    ck('a graph carrying a GENUINE correspondence round-trips through the strict loader',
+  2119	       len(Graph.from_json(json.loads(json.dumps(pg.to_json()))).correspondences) == 1)
+  2120	
+  2121	    # ---- corrupt bytes of the RIGHT paper are still inadmissible ----------------------------
+  2122	    caesar = 'Vhfwlrq 5 wkdw wkh qxpehu ri kdluguhvvhuv juhz pruh wkdq 633 shu fhqw. ' * 40
+  2123	    p = profile(caesar, w)
+  2124	    ck('a CAESAR-SHIFTED PDF dump is an extraction_failure, not full text',
+  2125	       p['artifact_kind'] == 'extraction_failure' and not p['complete'])
+  2126	    g.manifestations['manif:bad'] = Manifestation(
+  2127	        'manif:bad', 'work:w:journal_version', 'work:w', caesar,
+  2128	        hashlib.sha256(caesar.encode()).hexdigest(), len(caesar.split()), None, 'RECORDED',
+  2129	        'publisher', 'fulltext', p)
+  2130	    ck('...and corrupt bytes OF THE JOURNAL VERSION ITSELF are still NOT journal-attributable',
+  2131	       not g.journal_attributable('manif:bad'))
+  2132	
+  2133	    # ---- NO UNIVERSAL WORD THRESHOLD (Sol, item 4) ------------------------------------------
+  2134	    # This test used to FAKE its own subject: `op_kind = dict(op, artifact_kind='judicial_opinion')`
+  2135	    # -- it overwrote the derived kind with the one it wanted, then checked the REGISTRY TABLE rather
+  2136	    # than the DERIVATION, and passed. profile() could not produce `judicial_opinion` at all: a
+  2137	    # 100-word opinion came out `abstract`, complete=False, and the registry entry that says
+  2138	    # stub_floor=None was UNREACHABLE CODE. The generality was asserted in a comment and denied by
+  2139	    # the function. Now the work's kind drives it, and the check is on what profile() ACTUALLY RETURNS.
+  2140	    opinion = Work('work:op', 'Smith v. Jones', ['Smith'], 1998, 'Court of Appeal', None, 'case')
+  2141	    short = ('The appellant challenges the order of the court below. We have considered the record '
+  2142	             'and the submissions of both parties. The appeal is dismissed with costs. It is so '
+  2143	             'ordered by the court this day. ') * 3
+  2144	    op = profile(short, opinion)
+  2145	    ck(f'a {len(short.split())}-word JUDICIAL OPINION is COMPLETE — profile() DERIVES it, no floor applies',
+  2146	       op['artifact_kind'] == 'judicial_opinion' and op['complete'] and not op['incomplete_because'])
+  2147	    ck('...and the same 100 words of a SCHOLARLY work is a stub, NOT the article',
+  2148	       not profile(short, w)['complete']
+  2149	       and KIND_PROFILE['journal_article']['stub_floor'] == SCHOLARLY_STUB_FLOOR)
+  2150	    statute = Work('work:st', 'Section 230', [], 1996, '47 U.S.C.', None, 'statute')
+  2151	    st = profile('No provider or user of an interactive computer service shall be treated as the '
+  2152	                 'publisher or speaker of any information provided by another information content '
+  2153	                 'provider.', statute)
+  2154	    ck('a 32-word STATUTE SECTION is COMPLETE AT ANY LENGTH (it is the whole enacted text)',
+  2155	       st['artifact_kind'] == 'statute_section' and st['complete'])
+  2156	    ck('...but NO length is complete at ZERO — an empty registry record is not a short one',
+  2157	       not judge_completeness('trial_registry_record', 0)[0]
+  2158	       and judge_completeness('trial_registry_record', 12)[0])
+  2159	    ck('an unregistered artifact kind cannot be judged complete OR incomplete — it RAISES',
+  2160	       _raises(lambda: judge_completeness('press_release', 5000), ValueError))
+  2161	
+  2162	    banner = ('This website uses cookies. By clicking the Accept button you agree. Privacy Policy. '
+  2163	              'Sign in. Subscribe. Download PDF. ') * 12
+  2164	    ck('a 535-word publisher COOKIE BANNER is a landing_page, complete=False',
+  2165	       profile(banner, w)['artifact_kind'] == 'landing_page'
+  2166	       and not profile(banner, w)['complete'])
+  2167	    # ...and the bytes may always DEMOTE, even a work whose kind would otherwise be complete at any
+  2168	    # length. A login wall served by a court's website is a login wall.
+  2169	    ck('a COOKIE BANNER served for a JUDICIAL OPINION is still a landing_page (bytes may demote)',
+  2170	       profile(banner, opinion)['artifact_kind'] == 'landing_page'
+  2171	       and not profile(banner, opinion)['complete'])
+  2172	
+  2173	    # ---- identity: ABSENCE IS NOT CONTRADICTION ---------------------------------------------
+  2174	    no_authors = ('The effect of robots on employment across commuting zones is estimated. ' * 200)
+  2175	    i = identity_agreement(no_authors, w, independent_abstract='', readable=True)
+  2176	    ck('an author block missing from the text NEVER yields CONTRADICTED (absence proves nothing)',
+  2177	       i['verdict'] != 'CONTRADICTED')
+  2178	    # >= _IDENT_MIN_BODY_WORDS: below that floor the probe DECLINES to judge rather than guess, so a
+  2179	    # short fixture would pass this test for the wrong reason.
+  2180	    maths = 'We argue how AI can assist mathematics in theorem proving and conjecture formulation. ' * 90
+  2181	    assert len(maths.split()) >= _IDENT_MIN_BODY_WORDS
+  2182	    # A realistic bibliography abstract: >= _IDENT_MIN_ABSTRACT_WORDS, else the probe rightly declines.
+  2183	    abs_ = ('We estimate the effect of industrial robots on employment and wages across United States '
+  2184	            'commuting zones exposed to automation between 1990 and 2007, using an instrument built '
+  2185	            'from robot adoption in other advanced economies. Our estimates imply large negative '
+  2186	            'effects of robots on employment and wages in local labour markets, concentrated in '
+  2187	            'manufacturing industries and among routine manual occupations.')
+  2188	    assert len(abs_.split()) >= _IDENT_MIN_ABSTRACT_WORDS
+  2189	    i2 = identity_agreement(maths, w, independent_abstract=abs_, readable=True)
+  2190	    ck('a DIFFERENT PAPER is CONTRADICTED by positive evidence (its abstract vocabulary is absent)',
+  2191	       i2['verdict'] == 'CONTRADICTED')
+  2192	
+  2193	    # ---- span binding: BOUNDS ARE VALIDATED, NOT TRUSTED -------------------------------------
+  2194	    b = g.bind_span('manif:wp', 10, 60)
+  2195	    ck('a bound span carries its manifestation_id AND content hash',
+  2196	       b['manifestation_id'] == 'manif:wp' and len(b['content_hash']) == 64 and g.verify_span(b))
+  2197	    ck('a span whose source bytes changed FAILS verification',
+  2198	       not g.verify_span(dict(b, content_hash='0' * 64)))
+  2199	
+  2200	    # THE BINDING RETURNS IDS, NOT PROSE. A consumer that must string-match an English sentence to
+  2201	    # find out what it may cite has a suggestion, not a rule.
+  2202	    # The ASSERTED exact_copy_of was withdrawn above (we no longer hold the journal bytes), and the
+  2203	    # ASSERTED accepted_manuscript_of transfers NOTHING — so the ONLY thing this span may name is the
+  2204	    # working paper whose bytes it is. That is the V9 P0, visible in the permitted set itself.
+  2205	    ck('a bound span carries expression_id + PERMITTED EXPRESSION IDS (not `may_name` prose)',
+  2206	       b['expression_id'] == 'work:w:working_paper'
+  2207	       and b['permitted_expression_ids'] == ['work:w:working_paper']
+  2208	       and 'may_name' not in b)
+  2209	
+  2210	    n = len(g.manifestations['manif:wp'].text)
+  2211	    for name, s, e in (('NEGATIVE  (Python would index from the END of the text)', -5, 20),
+  2212	                       ('REVERSED  (slices to "", then verifies against nothing)', 900, 100),
+  2213	                       ('EMPTY     (a real citation quoting zero characters)',     50, 50),
+  2214	                       ('PAST-END  (Python truncates it silently)',                n - 10, n + 500),
+  2215	                       ('BOTH PAST-END (the span is nowhere in the document)',     n + 10, n + 60)):
+  2216	        ck(f'bind_span REFUSES a {name} span [{s}:{e}]',
+  2217	           _raises(lambda s=s, e=e: g.bind_span('manif:wp', s, e), SpanBindingError))
+  2218	    ck('bind_span REFUSES a non-int offset (True is an int in Python, and it is not an offset)',
+  2219	       _raises(lambda: g.bind_span('manif:wp', True, 60), SpanBindingError)
+  2220	       and _raises(lambda: g.bind_span('manif:wp', 10.5, 60), SpanBindingError))
+  2221	    ck('bind_span REFUSES bytes we do not hold',
+  2222	       _raises(lambda: g.bind_span('manif:nonexistent', 0, 10), SpanBindingError))
+  2223	
+  2224	    # ...and the ENFORCEMENT POINT re-checks them, because by then the binding has been through a file.
+  2225	    ck('verify_span REJECTS a hand-edited binding whose offsets were never validated',
+  2226	       not g.verify_span(dict(b, span_start=900, span_end=100, text=''))
+  2227	       and not g.verify_span(dict(b, span_start=-5, span_end=20, text=''))
+  2228	       and not g.verify_span(dict(b, span_end=n + 500)))
+  2229	    ck('verify_span REJECTS a binding whose PERMITTED SET is stale (an edge changed under it)',
+  2230	       not g.verify_span(dict(b, permitted_expression_ids=['work:w:journal_version', 'work:w:oops'])))
+  2231	
+  2232	    # ---- the policy, not a boolean on the node ------------------------------------------------
+  2233	    wp_only = Graph(works={'work:w': w},
+  2234	                    expressions={k: v for k, v in g.expressions.items()},
+  2235	                    manifestations={'manif:wp': g.manifestations['manif:wp']})   # NO edges
+  2236	    ck('under JOURNAL_ONLY the working paper is REFUSED, with the reason named',
+  2237	       not wp_only.resolve_attribution('manif:wp', JOURNAL_ONLY).admitted
+  2238	       and 'fabrication' in wp_only.resolve_attribution('manif:wp', JOURNAL_ONLY).refusal)
+  2239	    ck('...and under ANY_VERSION THE SAME BYTES are admitted, naming the working paper',
+  2240	       wp_only.resolve_attribution('manif:wp', ANY_VERSION).admitted
+  2241	       and wp_only.resolve_attribution('manif:wp', ANY_VERSION).names_expression_id
+  2242	       == 'work:w:working_paper')
+  2243	
+  2244	    # ---- migrate() MUST NOT MINT A JOURNAL VERSION FOR EVERY ROW ON EARTH --------------------
+  2245	    mg = migrate([
+  2246	        {'doi': '10.1/j', 'title': 'A Journal Article', 'authors': ['A'], 'year': 2020,
+  2247	         'venue': 'Journal of Political Economy', 'type': 'journal-article', 'abstract': ''},
+  2248	        {'doi': '', 'title': 'Smith v. Jones', 'authors': [], 'year': 1998,
+  2249	         'venue': 'Court of Appeal', 'type': 'judicial-opinion', 'abstract': ''},
+  2250	        {'doi': '10.1/p', 'title': 'A Preprint', 'authors': ['B'], 'year': 2024,
+  2251	         'venue': 'arXiv', 'type': 'posted-content', 'abstract': ''},
+  2252	    ])
+  2253	    kinds = {e.work_id: e.kind for e in mg.expressions.values()}
+  2254	    ck('migrate() gives a JUDICIAL OPINION an `official_text`, NOT a journal_version',
+  2255	       kinds.get('work:smith-v-jones') == 'official_text')
+  2256	    ck('migrate() gives a PREPRINT ROW a `preprint` — a posted-content record claims NO journal',
+  2257	       kinds.get('work:10-1-p') == 'preprint')
+  2258	    ck('...and a journal-article row still claims its journal_version',
+  2259	       kinds.get('work:10-1-j') == 'journal_version')
+  2260	    ck('a row that names NO venue and NO type claims NOTHING — no expression is invented for it',
+  2261	       not migrate([{'doi': '', 'title': 'Loose Bytes', 'authors': ['C'], 'year': 2020,
+  2262	                     'venue': '', 'type': '', 'abstract': ''}]).expressions)
+  2263	
+  2264	    # ---- from_json: A GRAPH ON DISK IS AN UNTRUSTED INPUT -------------------------------------
+  2265	    doc = g.to_json()
+  2266	    ck('a graph written by to_json() round-trips through the STRICT loader',
+  2267	       len(Graph.from_json(json.loads(json.dumps(doc))).manifestations) == len(g.manifestations))
+  2268	
+  2269	    def tamper(fn) -> dict:
+  2270	        d = json.loads(json.dumps(doc))
+  2271	        fn(d)
+  2272	        return d
+  2273	
+  2274	    attacks = [
+  2275	        ('the TEXT is edited but the hash is left alone (every span bound to it is bound to nothing)',
+  2276	         lambda d: d['manifestations'][0].__setitem__('text', d['manifestations'][0]['text'] + ' and 633 per cent')),
+  2277	        ('the hash is recomputed but N_WORDS still describes the document we no longer hold',
+  2278	         lambda d: d['manifestations'][0].__setitem__('n_words', 99999)),
+  2279	        ('a manifestation names an EXPRESSION THAT DOES NOT EXIST',
+  2280	         lambda d: d['manifestations'][0].__setitem__('expression_id', 'work:w:ghost')),
+  2281	        ('a manifestation names a WORK THAT DOES NOT EXIST',
+  2282	         lambda d: d['manifestations'][0].__setitem__('work_id', 'work:ghost')),
+  2283	        ('an edge endpoint DOES NOT EXIST',
+  2284	         lambda d: d['edges'][0].__setitem__('dst', 'work:w:ghost')),
+  2285	        ('an edge carries NO BASIS',
+  2286	         lambda d: d['edges'][0].__setitem__('basis', '   ')),
+  2287	        ('an ASSERTED exact_copy_of is smuggled in ON A TITLE MATCH (add_edge refuses it; the FILE must too)',
+  2288	         lambda d: d['edges'].append(dict(src='work:w:working_paper', dst='work:w:journal_version',
+  2289	                                          type='exact_copy_of', status='ASSERTED',
+  2290	                                          basis='the titles and metadata match exactly'))),
+  2291	        ('an ASSERTED exact_copy_of is smuggled in NAMING BYTES WE DO NOT HOLD (V9 §4)',
+  2292	         lambda d: d['edges'].append(dict(src='work:w:working_paper', dst='work:w:journal_version',
+  2293	                                          type='exact_copy_of', status='ASSERTED',
+  2294	                                          basis='sha-256 checksum of both documents: identical'))),
+  2295	        ('`complete: true` is written onto a CORRUPT extraction (the registry does not derive it)',
+  2296	         lambda d: [m for m in d['manifestations'] if m['id'] == 'manif:bad'][0]['profile']
+  2297	         .__setitem__('complete', True)),
+  2298	        ('`artifact_kind` is upgraded to journal_article to escape the stub floor',
+  2299	         lambda d: [m for m in d['manifestations'] if m['id'] == 'manif:bad'][0]['profile']
+  2300	         .update(artifact_kind='journal_article', complete=True)),
+  2301	        ('an unknown field appears (a schema drift silently drops the field a gate reads)',
+  2302	         lambda d: d['manifestations'][0].__setitem__('citable_in_journal_only_answer', True)),
+  2303	    ]
+  2304	    for name, fn in attacks:
+  2305	        ck(f'from_json REFUSES: {name}',
+  2306	           _raises(lambda fn=fn: Graph.from_json(tamper(fn)), GraphIntegrityError))
+  2307	
+  2308	    print(f"\n  {'ALL PASS' if not fails else str(len(fails)) + ' FAILURES: ' + ', '.join(fails)}")
+  2309	    return 1 if fails else 0
+  2310	
+  2311	
+  2312	def main() -> int:
+  2313	    if '--self-test' in sys.argv:
+  2314	        print('=== provenance.py SELF-TEST (every case is an attack on the core rule) ===\n')
+  2315	        return self_test()
+  2316	    corpus = json.loads(CORPUS.read_text())
+  2317	    g = migrate(corpus)
+  2318	    census(g, corpus)
+  2319	    GRAPH_OUT.write_text(json.dumps(g.to_json(), indent=1))
+  2320	    print(f'\n  graph written to {GRAPH_OUT}  (all text retained — nothing deleted)')
+  2321	    return 0
+  2322	
+  2323	
+  2324	if __name__ == '__main__':
+  2325	    raise SystemExit(main())
