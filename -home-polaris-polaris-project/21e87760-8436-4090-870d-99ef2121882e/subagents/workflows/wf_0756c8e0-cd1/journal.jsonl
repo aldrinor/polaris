@@ -1,0 +1,5 @@
+{"type":"started","key":"v2:42ea12ed8e1dc0d93338afeb05e771c55b0d6d5832ca740e4e8631d3e96f3af1","agentId":"aa3a2618c62b5fb66"}
+{"type":"started","key":"v2:2a8bb50231b0616fd6b90f72c10e449eceea2ca6c19fef9e9164905fc70f843d","agentId":"a64e9c6776b46bdb4"}
+{"type":"started","key":"v2:13c37e4391d4d634647768cf77c794ff54e1a92dfaddf82a948fb5889956acc5","agentId":"a348b66500776ac45"}
+{"type":"started","key":"v2:b151c16055449ffd146f59bb84fba84f0b527f975e3644e9bf6febc98e03a767","agentId":"ad88987fa1c4d967f"}
+{"type":"result","key":"v2:2a8bb50231b0616fd6b90f72c10e449eceea2ca6c19fef9e9164905fc70f843d","agentId":"a64e9c6776b46bdb4","result":"thin_seed: THIN's \"efficacy-only\" seed is a LIVE retrieval from query \"tirzepatide 15mg HbA1c reduction efficacy SURPASS trial results\" (acceptance_outline_agent.py:63), while the question (:69-73) asks efficacy AND long-term CV safety/MACE — but nothing filters CV-safety content out or asserts it's absent (the only guard, :65, checks row COUNT not coverage), so the \"uncovered gap\" is assumed from query wording, not established; the premise is not reliably valid and can silently fail to hold."}
