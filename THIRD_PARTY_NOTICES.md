@@ -40,11 +40,15 @@ Verify: `git ls-files third_party` → only `DeepResearch-Bench-II/uv.lock` is t
   component under its shipped `LICENSE` (Apache-2.0) and preserve its attribution in the fetched copy.
 
 ### 2.2 DeepResearch-Bench-II
-- **Path:** `third_party/DeepResearch-Bench-II/` — the only tracked content is **`uv.lock`, a Python
-  dependency lockfile of ordinary PyPI packages** (certifi, charset-normalizer, …). **No upstream
-  project source, README, or LICENSE is vendored here, so there is nothing to attribute.** If a
-  DeepResearch-Bench-II benchmark is later actually vendored, its upstream/revision/license will be
-  recorded (S6).
+- **Path:** `third_party/DeepResearch-Bench-II/` — the only tracked content is **`uv.lock`**.
+- **Provenance:** the lockfile was **generated locally** — it declares an *editable root project*
+  `deepresearch-bench-2` (`source = { editable = "." }`) and pins **9 ordinary PyPI dependencies**
+  (certifi, charset-normalizer, idna, lxml, python-docx, …). All dependency `source` entries resolve to
+  the PyPI registry; there are **no git/URL sources and no vendored third-party source code** — the
+  file is a build artifact, not copied upstream code.
+- **Licensing:** the transitive PyPI dependencies' licenses fall under the scheduled dependency SBOM
+  (**S6**). The `deepresearch-bench-2` project's own source is **not present** in this repository, and
+  nothing here is imported by the runtime.
 
 ## 3. Python dependencies
 
