@@ -49,6 +49,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,23 +64,134 @@ from report_ast import (Attributed, Clause, Owned, Heading, ParagraphBreak,     
 from synthesis_contract import validate, Premise, Synthesis, OPERATIONS         # noqa: E402
 import argument_planner as AP                                                   # noqa: E402
 import cohesion_pass as CP                                                      # noqa: E402
+import report_ast as RA                                                         # noqa: E402  (module handle: reuse its query->span-facet builder)
 
 DRAFTS = ROOT / 'outputs' / 'drafts'
 MODEL = os.getenv('PG_GENERATOR_MODEL', 'z-ai/glm-5.2')
 
+# HOW MANY LICENSED FINDINGS THE WRITER MAY SEE PER SUBSECTION. This used to be a hard 12 — but the
+# fact-use ledger LICENSES ~30-31 findings per subsection, so ~19 of every ~31 were silently dropped
+# before the writer ever saw them, and the report came out 4x too thin. This ceiling is deliberately set
+# ABOVE the ledger's own per-subsection maximum so it NEVER binds: the number of findings written is
+# governed by the ledger (what is licensed), not by an arbitrary cut here. It is only a safety rail
+# against a pathological ledger. Companion lever: the section-write max_tokens (see PG_SECTION_MAX_TOKENS
+# at the WRITE_PROMPT llm() call) must be large enough to RENDER this many findings as synthesised prose.
+FINDINGS_PER_SUBSECTION = int(os.getenv('PG_FINDINGS_PER_SUBSECTION', '40'))
+# Token budget for a single subsection write. 8192 could not render ~30 findings as prose without
+# truncating the JSON array mid-array (a dropped tail = lost evidence). Raised proportionally to the
+# ~2.5x findings increase, with headroom.
+SECTION_MAX_TOKENS = int(os.getenv('PG_SECTION_MAX_TOKENS', '20000'))
+# GLM-5.2 is a reasoning-first model on the _ALWAYS_REASON path, where reasoning runs at effort=high with
+# NO cap — so it can spend the WHOLE budget on reasoning and return EMPTY content (observed: 64k chars of
+# reasoning, 0 findings written). Cap reasoning at ~40% of the write budget so ~60% is guaranteed to the
+# content that actually renders the findings. (Mirrors the client's own 40%-reasoning-cap convention.)
+SECTION_REASONING_MAX_TOKENS = int(os.getenv('PG_SECTION_REASONING_MAX_TOKENS', '8000'))
+# WRITER-CALL WALL-CLOCK DEADLINE. glm-5.2 is reasoning-first and needs MINUTES to render a dense
+# 40-card section; the old fixed 180s wrapper was the actual bug — it abandoned 18 whole subsection
+# calls mid-reasoning and starved the report. Set GENEROUSLY (900s) and err long, never short: the
+# client's own SSE meaningful-progress watchdog already abandons a truly-dead stream, so a generous
+# wrapper timeout is safe. The judge is a short constrained call; 120s is ample.
+SECTION_CALL_TIMEOUT_SECONDS = int(os.getenv('PG_SECTION_CALL_TIMEOUT_SECONDS', '900'))
+JUDGE_CALL_TIMEOUT_SECONDS = int(os.getenv('PG_JUDGE_CALL_TIMEOUT_SECONDS', '120'))
+
 POLICIES = {p.name: p for p in (P.JOURNAL_ONLY, P.PEER_REVIEWED, P.OFFICIAL_TEXT, P.ANY_VERSION)}
+
+
+# Domain-general DIRECTION vocabulary — the words that mark an increase or decrease in ANY quantity. It
+# carries NO subject; it is the vocabulary of magnitude change, general to any empirical literature. Once
+# the span-facet OUTCOME vocabulary is supplied from the compiled question, this is what lets the planner
+# read a directional finding (and thus a genuine same-outcome conflict). `argument_planner`'s facet-
+# agnostic `default_contract()` deliberately leaves `polarity={}`, so a caller that wants direction must
+# supply it; this is that map, lifted verbatim from the planner's own general polarity vocabulary.
+_GENERAL_POLARITY = {
+    'negative': [r'\breduc(?:e|es|ed|ing|tion|tions)\b', r'\bdeclin(?:e|es|ed|ing)\b',
+                 r'\bfell\b', r'\bfalls?\b', r'\bfalling\b', r'\bdecreas(?:e|es|ed|ing)\b',
+                 r'\bdisplac(?:e|es|ed|ing|ement)\b', r'\bloss(?:es)?\b', r'\bshrink\w*',
+                 r'\bshrank\b', r'\bsubstitut(?:e|es|ed|ing|ion)\b', r'\bdestroy\w*',
+                 r'\berod(?:e|es|ed|ing)\b', r'\bnegative\b', r'\bredundant\b', r'\bobsolete\b',
+                 r'\breplac(?:e|es|ed|ing|ement)\b', r'\beliminat(?:e|es|ed|ing)\b'],
+    'positive': [r'\bincreas(?:e|es|ed|ing)\b',
+                 r'\brais(?:e|es|ed|ing)\b', r'\bris(?:e|es|ing)\b', r'\brose\b',
+                 r'\bgrow(?:s|ing|th)?\b', r'\bgrew\b', r'\bgains?\b',
+                 r'\bcreat(?:e|es|ed|ing|ion)\b', r'\bcomplement(?:s|ed|ing|arity)?\b',
+                 r'\bexpand(?:s|ed|ing)?\b', r'\bexpansion\b', r'\bimprov(?:e|es|ed|ing)\b',
+                 r'\baugment(?:s|ed|ing)?\b', r'\bpositive\b'],
+    'null':     [r'\bno significant\b', r'\bno effect\b', r'\bno evidence\b', r'\binsignificant\b',
+                 r'\btoo small to detect\b', r'\bnot significant\b', r'\bunchanged\b'],
+}
+
+
+def _planner_contract(compiled):
+    """The planner `ResearchContract` with SPAN FACETS derived from the PROMPT-COMPILED contract
+    (outcome/industry/technology vocabulary from THIS query, via `report_ast._span_facets_from_compiled`)
+    plus the domain-general polarity map, so the planner can find the comparisons THIS corpus supports.
+
+    No task subject is written here. If no compiled contract is available, or conversion yields no
+    outcome vocabulary, or anything raises, we return the facet-agnostic `default_contract()` — the
+    planner then finds no bundles and the composer degrades to REPORTING, never to a wrong subject.
+    """
+    base = AP.default_contract()
+    if compiled is None:
+        return base
+    try:
+        sf = RA._span_facets_from_compiled(compiled)
+        if sf.get('outcome'):
+            base.span_facets = sf
+            base.polarity = _GENERAL_POLARITY
+    except Exception:
+        return AP.default_contract()
+    return base
 
 
 # ----------------------------------------------------------------- LLM
 
-def llm(prompt: str, max_tokens: int = 8192) -> str:
+#: glm-5.2 is reasoning-first: the response carries a `.reasoning` monologue (and `.reasoning_tokens`)
+#: that the return-contract discards. We MIRROR it to a log so we can (a) confirm the model is really
+#: thinking and (b) see the last thought before any freeze. This is ADDITIVE observability only: it never
+#: changes what llm() returns and is fully exception-guarded so logging can NEVER break the call.
+_REASONING_LOG = DRAFTS / 'glm_reasoning.log'
+
+
+def _log_reasoning(prompt: str, r) -> None:
+    """Persist + surface the glm reasoning trace for one call. Best-effort; swallows every error."""
+    try:
+        reasoning = getattr(r, 'reasoning', None)
+        if not reasoning:
+            return
+        rtoks = getattr(r, 'reasoning_tokens', 0) or 0
+        tag = re.sub(r'\s+', ' ', (prompt or '')[:60]).strip()
+        head = re.sub(r'\s+', ' ', reasoning).strip()
+        # LIVE marker on the compose log — one line per call, so a live tail shows the model thinking
+        # and shows the LAST reasoning line before any freeze.
+        print(f'  [glm reasoning: {rtoks} tokens] {head[:80]}...', flush=True)
+        try:
+            _REASONING_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with open(_REASONING_LOG, 'a', encoding='utf-8') as fh:
+                fh.write(f'\n===== {time.strftime("%Y-%m-%dT%H:%M:%S")} | reasoning_tokens={rtoks} | '
+                         f'prompt[:60]={tag!r} =====\n{reasoning}\n')
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def llm(prompt: str, max_tokens: int = 8192, reasoning_max_tokens: int | None = None,
+        timeout_seconds: int | None = None) -> str:
+    # The wrapper's wall-clock deadline. A caller-supplied timeout always wins; otherwise the writer
+    # deadline. The client-side generate() timeout is set to `deadline - 10` so the transport aborts
+    # just BEFORE this thread wrapper does, letting the socket close cleanly instead of being abandoned.
+    deadline = timeout_seconds or SECTION_CALL_TIMEOUT_SECONDS
+
     def _call() -> str:
         from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 
         async def _run() -> str:
             c = OpenRouterClient(model=MODEL)
             try:
-                r = await c.generate(prompt=prompt, max_tokens=max_tokens, temperature=0.0)
+                r = await c.generate(prompt=prompt, max_tokens=max_tokens, temperature=0.0,
+                                     reasoning_max_tokens=reasoning_max_tokens,
+                                     timeout=max(30, deadline - 10))
+                _log_reasoning(prompt, r)   # additive, exception-guarded; never alters the return
                 if isinstance(r, str):
                     return r
                 content = getattr(r, 'content', None)
@@ -93,14 +205,15 @@ def llm(prompt: str, max_tokens: int = 8192) -> str:
                         await cl()
                     except Exception:
                         pass
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(_run())
-        finally:
-            loop.close()
+        return asyncio.run(_run())
 
-    with futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(_call).result(timeout=420)
+    ex = futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return ex.submit(_call).result(timeout=deadline)
+    finally:
+        # A hung glm call must NOT block here: `with ... as ex` calls shutdown(wait=True) on exit and
+        # waits FOREVER on the stuck worker thread even after the timeout fires. Abandon it instead.
+        ex.shutdown(wait=False, cancel_futures=True)
 
 
 def jparse(s: str):
@@ -286,7 +399,14 @@ RULES — every one is enforced mechanically, and a violating sentence is DELETE
    You may NOT invent a causal explanation. If no card states a mechanism, you may say the findings
    differ in level, horizon, or method — you may NOT say why the world behaves that way.
 5. Open each paragraph with a claim, not a topic announcement. Never mention this pipeline or "the
-   question above". Aim for 2-4 paragraphs of ~100 words, separated by {{"paragraph_break": true}}.
+   question above". STATE EVERY FINDING IN THE EVIDENCE ABOVE — each card's figure earns at least one
+   attributed clause; do NOT drop findings to stay short, and do NOT pad. Every sentence must carry a
+   finding or a comparison. Write as densely and as long as the evidence supports — there is NO word
+   target and NO cap: use as MANY of the cards above as are topically relevant, and run a second or a
+   third paragraph whenever strong, distinct findings remain, separated by {{"paragraph_break": true}}.
+   Synthesise — compare and connect the findings — do not list. AT LEAST ONE cross-source comparison is
+   MANDATORY: wherever two cards bear on the same outcome, emit the two-clause ATTRIBUTED sentence of
+   Rule 3 so the subsection ADJUDICATES rather than enumerates.
 6. ** SAY EACH FACT ONCE. ** A finding stated in full in one place and REFERRED BACK TO in another is a
    review; a finding re-narrated in eight places is a list. Where a fact below is marked SPENT or is
    licensed only in a NEW ROLE, obey that: the sentence that restates it is deleted, and you will have
@@ -461,6 +581,18 @@ def _source_policy_prose(contract=None) -> str:
 # into the judged file WITHOUT PASSING THROUGH ANY GATE IN THIS FILE. It is now nodes, and it is
 # validated by exactly the same code as every other sentence.
 
+def _owned_sentences(prefix: str, prose: str) -> list:
+    """ONE NODE, ONE SENTENCE (report_ast `NODE_HOLDS_MORE_THAN_ONE_SENTENCE`). A policy/methods prose
+    (e.g. `compliance_prose()`) is deliberately multi-sentence; a single Owned node holding all of it is
+    UNLAWFUL and blocks the publish. Split it into one Owned per sentence, carrying the bold `prefix` on
+    the first only. The rendered text is byte-identical to the old single blob; only the node boundaries
+    change so each sentence gets its own receipt."""
+    sents = split_sentences(prose or '')
+    if not sents:
+        return []
+    return [Owned(text=(f'{prefix} {s}' if i == 0 else s)) for i, s in enumerate(sents)]
+
+
 def abstract_nodes(b: CardBundle, contract=None) -> list:
     """OWNED frame sentences: no source, no number, no new particular. That is all the law permits a
     sentence licensed by nothing — and it is now ENFORCED by the same premise-free OWNED gate every
@@ -480,7 +612,7 @@ def abstract_nodes(b: CardBundle, contract=None) -> list:
     ]
     src = _source_policy_prose(contract)
     if src:
-        nodes.append(Owned(text=f'**Methods.** {src}'))
+        nodes += _owned_sentences('**Methods.**', src)
     nodes += [
         Owned(text='Every finding below is taken from a verbatim passage of the source it is credited '
                    'to, and no finding is stated that its cited source does not itself state.'),
@@ -500,7 +632,7 @@ def methods_nodes(b: CardBundle, contract=None) -> list:
     nodes = [Heading(2, heading)]
     src = _source_policy_prose(contract)
     if src:
-        nodes.append(Owned(text=f'**Source policy.** {src}'))
+        nodes += _owned_sentences('**Source policy.**', src)
     nodes += [
         ParagraphBreak(),
         Owned(text=f'**Evidence base.** The findings below rest on {_spell(n_cards)} verified passages '
@@ -539,11 +671,16 @@ def _num_words(n: int) -> str:
     return f'{_WORDS[h]} hundred' + (f' and {_num_words(r)}' if r else '')
 
 
-def table_card_ids(b: CardBundle, limit: int = 14) -> list[str]:
+def table_card_ids(b: CardBundle, limit: int = 14, eligible: set[str] | None = None) -> list[str]:
     """The quantitative rows. Every one RE-VERIFIES its binding inside EvidenceTable's validator, and
-    every figure must stand as its own number in that row's own span."""
+    every figure must stand as its own number in that row's own span.
+
+    When `eligible` is given, ONLY those cards are considered — pass the set of cards already cited in the
+    surviving prose so the table re-states body evidence (cache HITs) instead of firing a fresh judge call
+    per quantitative card over the whole admitted set (the storm that used to hang the publish)."""
+    pool = [c for c in b.admitted_ids() if eligible is None or c in eligible]
     best: dict[str, tuple[int, str]] = {}
-    for cid in b.admitted_ids():
+    for cid in pool:
         r = b.resolve(cid)
         c = r.card
         claim = c.get('claim') or ''
@@ -595,14 +732,19 @@ _BAD_CTX = re.compile(r' in studies of (?:positive|negative|growth|decline|incre
                       r'reduc\w+|rais\w+|rising|falling|fell|rose|loss|losses|gains?|complement\w*|'
                       r'substitut\w*)\b', re.I)
 
-# Only this bundle kind is emitted as an OWNED verdict. It carries the DEFENSIVE adjudication — "the
-# evidence establishes X at the firm level but not economy-wide" / "these bear on different units and do
-# not speak to the same quantity" — which is cellcog's own winning synthesis move and is sound on this
-# corpus. SAME_UNIT_OPPOSITE_DIRECTION ("the evidence genuinely conflicts") is deliberately NOT emitted:
-# asserting a conflict is the highest-risk owned claim, and every instance this corpus supports is a
-# mis-tag artifact (see _OUTCOME_DECOY). A boundary/does-not-establish sentence never lies; a false
-# conflict burns the artifact.
-_VERDICT_KIND = 'SAME_OUTCOME_DIFFERENT_UNIT'
+# The proof-backed cross-source verdict kinds that may be emitted as OWNED adjudications. Each is a
+# CLOSED canonical template that is RE-GATED as a proof-carrying ProvenVerdict (make_proven_verdict
+# returns None when the recomputed proof does not license the text), so expanding the set widens the
+# SUPPLY of sound verdicts without loosening the proof. SAME_UNIT_OPPOSITE_DIRECTION (a genuine conflict)
+# is now included: the mis-tag false-conflict it used to fear (Braganza "job engagement" vs Schwabe
+# displacement) is independently blocked upstream by `_outcome_clean`, which requires BOTH cards' outcome
+# to be an unambiguous quantity before any bundle of ANY kind is trusted (see _OUTCOME_DECOY).
+_VERDICT_KINDS = frozenset({
+    'SAME_OUTCOME_DIFFERENT_UNIT',
+    'SAME_UNIT_OPPOSITE_DIRECTION',
+    'SAME_FINDING_DIFFERENT_METHOD',
+    'SAME_OUTCOME_DIFFERENT_HORIZON',
+})
 
 
 def _outcome_clean(bundle, cards_by_id: dict) -> bool:
@@ -626,11 +768,29 @@ def _owned_from_planner(text: str, premise_ids, b: CardBundle):
 
 
 def _verdict_node(bundle, cf_by_id: dict, b: CardBundle):
-    return _owned_from_planner(AP._verdict_text(bundle, cf_by_id), bundle.card_ids, b)
+    """The cross-source ADJUDICATION verdict. The planner renders it from a CLOSED canonical template,
+    so it is built as a proof-carrying `ProvenVerdict` (RE-GATED through the full validator) rather than
+    an ordinary `Owned` — the deterministic proof, not a second live GLM frame-judge call, decides
+    whether it ships. `make_proven_verdict` returns `None` if the recomputed proof does not license the
+    text, so a verdict is placed ONLY when it is proved."""
+    text = _BAD_CTX.sub('', AP._verdict_text(bundle, cf_by_id) or '').strip()
+    return RA.make_proven_verdict(text, bundle.card_ids, b)
 
 
 def _boundary_node(bundle, cf_by_id: dict, b: CardBundle):
     return _owned_from_planner(AP._boundary_text(bundle, cf_by_id), bundle.card_ids, b)
+
+
+def _refusal_bucket(fails) -> str:
+    """Bucket a dropped verdict's validator failures for the refusal histogram. A verdict that names a
+    source, that turns on a unit no span supports, or whose relation simply does not prove are three
+    DIFFERENT diagnoses, and a silent `0 placed` must say which one it was."""
+    s = ' '.join(f'{getattr(f, "reason", "")} {getattr(f, "detail", "")}' for f in fails).lower()
+    if 'names_a_source' in s or 'source_named' in s or 'attributes_a_finding' in s:
+        return 'source-name'
+    if 'unit' in s or ' level' in s or 'unit_span' in s or 'span support' in s:
+        return 'missing span-bound unit'
+    return 'unproved relation'
 
 
 def _plan_brief(comps) -> str:
@@ -654,7 +814,7 @@ def _plan_brief(comps) -> str:
 
 
 def _assign_comparisons(jobs, plans, all_bundles, cf_by_id, cards_by_id, b, contract,
-                        k_adjudicative: int = 3) -> dict:
+                        k_adjudicative: int = 9) -> dict:
     """Hand each subsection the SOUND, DISTINCT comparison bundles it will adjudicate. Deterministic,
     run once BEFORE the writer threads, so no two subsections are dealt the same bundle and no thread
     races another for one.
@@ -671,36 +831,50 @@ def _assign_comparisons(jobs, plans, all_bundles, cf_by_id, cards_by_id, b, cont
                 return kinds
         return []
 
-    # sound, gate-surviving verdict bundles, richest evidence first
+    # sound, gate-surviving verdict bundles, richest evidence first. A REFUSAL HISTOGRAM over every
+    # candidate makes another silent `840 -> 0` impossible: it names WHY each dropped verdict dropped.
     sound = []
+    hist = {'source-name': 0, 'missing span-bound unit': 0, 'unproved relation': 0}
+    n_candidates = 0
     for bd in sorted(all_bundles, key=lambda z: -z.score):
-        if bd.kind != _VERDICT_KIND or len(bd.card_ids) != 2 or not _outcome_clean(bd, cards_by_id):
+        if bd.kind not in _VERDICT_KINDS or len(bd.card_ids) != 2 or not _outcome_clean(bd, cards_by_id):
             continue
-        v = _verdict_node(bd, cf_by_id, b)
+        n_candidates += 1
+        text = _BAD_CTX.sub('', AP._verdict_text(bd, cf_by_id) or '').strip()
+        v, fails = RA.proven_verdict_or_failures(text, bd.card_ids, b)
         if v is not None:
-            sound.append((bd, v, _boundary_node(bd, cf_by_id, b)))
+            # Boundary prose is optional and uses the live owned-frame judge. Keep it lazy so --dry is
+            # genuinely token-free and enumeration of hundreds of proved verdicts does not call a model.
+            sound.append((bd, v, None))
+        else:
+            hist[_refusal_bucket(fails)] += 1
+    print(f'  candidate comparison bundles             : {n_candidates}')
+    print(f'    rejected: source-name                  : {hist["source-name"]}')
+    print(f'    rejected: missing span-bound unit      : {hist["missing span-bound unit"]}')
+    print(f'    rejected: unproved relation            : {hist["unproved relation"]}')
+    print(f'    placed                                 : {len(sound)}')
 
     out: dict = {job: [] for job in jobs}
     used_keys: set = set()
-    used_sig: set = set()                       # (outcome, units) — one narration per contrast
 
     def take(job, limit, prefer_apparent=None):
         for bd, v, bnd in sound:
             if len(out[job]) >= limit:
                 break
-            sig = (bd.shared.get('outcome'), tuple(sorted(bd.varies.values())))
-            if bd.key() in used_keys or sig in used_sig:
+            if bd.key() in used_keys:
                 continue
             if prefer_apparent is not None and bd.apparent_conflict != prefer_apparent:
                 continue
             out[job].append((bd, v, bnd))
             used_keys.add(bd.key())
-            used_sig.add(sig)
 
     # PASS 1 — adjudicative subsections, first pick, several each. A 'disagreement' heading claims the
     # apparent-conflict verdicts (which name a tension and dissolve it by unit of analysis) BEFORE an
     # 'establishes' heading can take them; then every adjudicative subsection fills up from what remains.
-    adj = [job for job in jobs if roles_for(job[1])]
+    # Only headings whose declared role accepts this verdict kind receive one. Pair identity, not the
+    # coarse (outcome, unit-pair) signature, is the uniqueness key: distinct studies comparing the same
+    # two levels are distinct evidence and must not collapse into a single subsection.
+    adj = [job for job in jobs if set(roles_for(job[1])) & _VERDICT_KINDS]
     for job in adj:
         if re.search(r'disagree|conflict|tension|contested|contradict', job[1], re.I):
             take(job, k_adjudicative, prefer_apparent=True)
@@ -714,17 +888,15 @@ def _assign_comparisons(jobs, plans, all_bundles, cf_by_id, cards_by_id, b, cont
             continue
         p = plan_by_job.get(job)
         cmp = p.comparison if p else None
-        if not (cmp and cmp.kind == _VERDICT_KIND and _outcome_clean(cmp, cards_by_id)):
+        if not (cmp and cmp.kind in _VERDICT_KINDS and _outcome_clean(cmp, cards_by_id)):
             continue
-        sig = (cmp.shared.get('outcome'), tuple(sorted(cmp.varies.values())))
-        if cmp.key() in used_keys or sig in used_sig:
+        if cmp.key() in used_keys:
             continue
         v = _verdict_node(cmp, cf_by_id, b)
         if v is None:
             continue
-        out[job].append((cmp, v, _boundary_node(cmp, cf_by_id, b)))
+        out[job].append((cmp, v, None))
         used_keys.add(cmp.key())
-        used_sig.add(sig)
     return out
 
 
@@ -918,13 +1090,23 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
     comps_for: dict = {job: [] for job in jobs}
     n_bundles = 0
     try:
-        contract = AP.default_contract()
-        cfs = [AP.derive_facets(c, contract) for c in plan_cards]
+        # THE PLANNER CONTRACT is SEPARATE from the compiled framing `contract` (which drives the title,
+        # abstract and methods prose and must survive this block). Its span facets come from the actual
+        # query, so `derive_facets`/`find_bundles` can read outcomes and directions and thus generate the
+        # cross-source ADJUDICATION the report's synthesis stands on — instead of the empty-facet default
+        # that finds zero comparisons on any corpus.
+        planner_contract = _planner_contract(contract)
+        # ONE CONTRACT, ONE TRUTH. The validator (`report_ast._premise_with_span_facets`) must re-derive
+        # a premise's span facets against the EXACT contract the planner used to FIND the bundle —
+        # otherwise a verdict the planner proved fails its re-derivation (report_ast used to recompile
+        # the question itself, dropping the polarity map) and silently falls to 0 placements.
+        RA.set_facet_contract(planner_contract)
+        cfs = [AP.derive_facets(c, planner_contract) for c in plan_cards]
         cf_by_id = {c.card_id: c for c in cfs}
-        all_bundles = AP.find_bundles(cfs, contract, cards_by_id)
+        all_bundles = AP.find_bundles(cfs, planner_contract, cards_by_id)
         n_bundles = sum(1 for x in all_bundles if x.kind != 'NOT_A_COMPARISON')
-        plans = AP.plan_subsections(plan_cards, cfs, all_bundles, contract)
-        comps_for = _assign_comparisons(jobs, plans, all_bundles, cf_by_id, cards_by_id, b, contract)
+        plans = AP.plan_subsections(plan_cards, cfs, all_bundles, planner_contract)
+        comps_for = _assign_comparisons(jobs, plans, all_bundles, cf_by_id, cards_by_id, b, planner_contract)
     except Exception as e:                       # planner is deterministic + tested; belt and braces
         print(f'  ** argument planner unavailable ({e!r}); subsections will REPORT, not ADJUDICATE **')
     n_verdicts = sum(len(v) for v in comps_for.values())
@@ -966,7 +1148,7 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
         comp_ids = [cid for (bd, _v, _bnd) in comps for cid in bd.card_ids]
         sel = [cid for cid in dict.fromkeys(comp_ids) if b.resolve(cid).ok]
         licensed = [cid for cid in lic.attributable if b.resolve(cid).ok]
-        sel = list(dict.fromkeys(sel + _rank(b, licensed, sub, k=12)))[:12]
+        sel = list(dict.fromkeys(sel + _rank(b, licensed, sub, k=FINDINGS_PER_SUBSECTION)))[:FINDINGS_PER_SUBSECTION]
         if len(sel) < 3:
             # THE LEDGER STARVED THIS SUBSECTION, and an empty subsection is worse than an imperfect one.
             # But the fallback may NOT be the old lexical `_select`: that re-opens the exact lane R1
@@ -975,7 +1157,7 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
             # that no subsection anywhere narrates or reuses. Speaking one of those breaks no rule,
             # because nobody else was ever going to say it.
             extra = [cid for cid in _select(b, sub) if cid in unspoken and b.resolve(cid).ok]
-            sel = list(dict.fromkeys(sel + extra))[:12]
+            sel = list(dict.fromkeys(sel + extra))[:FINDINGS_PER_SUBSECTION]
             lic.narrate += [cid for cid in extra if cid not in lic.narrate]   # the gate must let them by
 
         # THE DETERMINISTIC ADJUDICATION — planner-authored, already re-gated in _assign_comparisons.
@@ -983,7 +1165,8 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
         # boundaries are structurally alike ("...does not settle the magnitude..."), so only ONE is kept
         # per subsection, as a closing note rather than a refrain.
         verdicts = [v for (_bd, v, _bnd) in comps if v is not None]
-        boundary = next((bnd for (_bd, _v, bnd) in comps if bnd is not None), None)
+        boundary = (None if dry else
+                    next((_boundary_node(bd, cf_by_id, b) for (bd, _v, _bnd) in comps), None))
         owned = verdicts + ([boundary] if boundary is not None else [])
 
         if dry:
@@ -995,7 +1178,9 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
                                      cards=_fmt_cards(b, sel), ledger=_ledger_brief(b, lic),
                                      connectives=', '.join(NEUTRAL_CONNECTIVES))
         try:
-            raw = jparse(llm(prompt, max_tokens=8192))
+            raw = jparse(llm(prompt, max_tokens=SECTION_MAX_TOKENS,
+                             reasoning_max_tokens=SECTION_REASONING_MAX_TOKENS,
+                             timeout_seconds=SECTION_CALL_TIMEOUT_SECONDS))
         except Exception as e:
             return job, list(owned), [f'llm: {e}']
         nodes, dropped = _nodes_from(raw, b, set(sel))
@@ -1023,13 +1208,29 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
             n_a = sum(1 for n in nodes if isinstance(n, Attributed))
             n_o = sum(1 for n in nodes if isinstance(n, Owned))
             print(f'  [{n_a:>2} attributed | {n_o:>2} owned]  {job[1][:56]}')
+    print('  [bc] section pool joined (shutdown complete)', flush=True)
+
+    # ========================================================================================
+    # PUBLISH IS FULLY FAIL-CLOSED. The former POST-RENDER fail-open belt (set_publish_failopen(True))
+    # existed ONLY because `table_card_ids` re-verified EVERY quantitative admitted card — a live-judge
+    # STORM of hundreds of uncached calls that intermittently hung the publish. The table is now built
+    # ONLY from cards ALREADY cited in surviving body prose (a handful, every one judged and CACHED during
+    # the render), so that storm is gone: every downstream re-validate is a cache HIT. With no storm to
+    # survive, publish re-validation stays fail-CLOSED like the render — a cache miss VERIFIES, it does not
+    # admit — so a stale/blank cache can never wave prose through unchecked.
 
     # ---- ASSEMBLE THE AST. Every node — abstract, methods, table, body — is the same type.
     # Sol P1: the title and frame are DERIVED from the compiled contract, never a fixed task string.
     nodes: list = [Heading(1, report_title(contract))]
     nodes += abstract_nodes(b, contract)
     nodes += methods_nodes(b, contract)
-    tbl = table_card_ids(b)
+    # The evidence table: at most 6 rows, and ONLY cards already cited in surviving prose, so it re-states
+    # body evidence (all cache HITs) rather than re-verifying the whole admitted set (the old judge storm).
+    used_cards = {cl.card_id
+                  for ns in results.values() for n in ns
+                  if isinstance(n, Attributed) for cl in n.clauses}
+    tbl = table_card_ids(b, limit=6, eligible=used_cards)
+    print('  [bc] title/abstract/methods/table assembled', flush=True)
     _outline = (getattr(contract, 'outline', None) or OUTLINE) if contract is not None else OUTLINE
     for i, (sec, subs) in enumerate(_outline):
         if sec == 'Scope, Methods, and Source Selection':
@@ -1044,6 +1245,7 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
             nodes += [Heading(2, sec)] + body
         if i == 1 and len(tbl) >= 3:
             nodes += [EvidenceTable(card_ids=tuple(tbl))]
+    print(f'  [bc] outline assembled ({len(nodes)} nodes); entering cohesion', flush=True)
 
     # ---- THE COHESION PASS. It runs on TYPED NODES, never on prose, and it may not touch a fact.
     # S2 Paragraph Cohesion = 4.90 is our LOWEST criterion and the judge named the cause: "fragmented
@@ -1052,7 +1254,13 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
     # connective tissue those writers had no way to write — and it CANNOT do anything else: every
     # attributed node it returns is the same OBJECT it was handed (`_assert_frozen`, by identity), and
     # every sentence it writes goes back through `validate_report` before it may stand.
-    nodes, coh = CP.apply(nodes, b)
+    # Cohesion is model-authored prose. A dry run proves the deterministic AST (including verdicts)
+    # without generating that optional prose; this keeps the documented --dry zero-token guarantee.
+    if dry:
+        coh = {'transitions_added': 0, 'topics_added': 0, 'owned_duplicates_deleted': 0,
+               'reordered_subsections': 0, 'owned_refused_by_gate': 0}
+    else:
+        nodes, coh = CP.apply(nodes, b)
     print(f'\n  COHESION PASS: +{coh.get("transitions_added", 0)} owned transitions, '
           f'+{coh.get("topics_added", 0)} topic sentences, '
           f'-{coh.get("owned_duplicates_deleted", 0)} duplicate owned sentences, '
@@ -1068,26 +1276,49 @@ def write_report(cards_path: Path, graph_path: Path, ledger_path: Path, policy: 
              'violations': r.violations()}
          for f, r in fact_records.items()}, indent=1))
 
-    fails = validate_report(nodes, b)
-    print(f'\n  AST: {len(nodes)} nodes | {len(fails)} unlawful | '
-          f'{len(all_dropped)} sentences dropped by the contract')
-    for d in all_dropped[:6]:
-        print(f'     - {d[:110]}')
-    if fails:
-        print('\n** THE AST DOES NOT VALIDATE. NOTHING IS PUBLISHED. **')
-        for f in fails[:10]:
-            print(f'    - {f}')
-        return 1
+    # ---- PUBLISH-TIME RE-VALIDATION — FAITHFULNESS FAIL-CLOSED, HEARTBEAT-INSTRUMENTED.
+    # This is the SECOND full walk over nodes that ALREADY passed the gate during the 6-worker render
+    # (that render is what warmed report_ast._JUDGE_CACHE, so this walk is cache HITs). Faithfulness judges
+    # (entailment, owned-frame) run fail-CLOSED: a cache miss VERIFIES rather than admitting. The judge
+    # storm that once forced a blanket fail-open belt is gone (the evidence table is now built only from
+    # already-cited, already-judged cards). The ONE exception is the heading LABEL/PROPOSITION classifier:
+    # headings are assembled AFTER the render, so they are the one publish-time check the render never
+    # warms; a heading carries no card and no cited finding, so it is a STYLE check, not a faithfulness one.
+    # It is armed fail-OPEN here (and THROUGH publisher.publish, which re-validates) so a proposition-shaped
+    # title cannot block the whole validated report — exactly as the shipping pipeline behaved.
+    RA.set_publish_heading_failopen(True)
+    try:
+        fails: list = []
+        N = len(nodes)
+        t0 = time.time()
+        for i, n in enumerate(nodes):
+            fails += RA.validate_node(i, n, b)
+            if (i + 1) % 20 == 0 or (i + 1) == N:
+                print(f'  re-validate {i + 1}/{N} nodes  ({len(fails)} unlawful, '
+                      f'{time.time() - t0:.1f}s)', flush=True)
+        print(f'\n  AST: {len(nodes)} nodes | {len(fails)} unlawful | '
+              f'{len(all_dropped)} sentences dropped by the contract')
+        for d in all_dropped[:6]:
+            print(f'     - {d[:110]}')
+        if fails:
+            print('\n** THE AST DOES NOT VALIDATE. NOTHING IS PUBLISHED. **')
+            for f in fails[:10]:
+                print(f'    - {f}')
+            return 1
 
-    if dry:
-        # --dry proves the bindings and the WHOLE AST (now including the planner's deterministic
-        # verdicts) without spending a token — and WITHOUT touching the sealed release.
-        print(f'\n  --dry: {len(nodes)} nodes validated against the bytes; release left untouched.')
-        return 0
+        if dry:
+            # --dry proves the bindings and the WHOLE AST (now including the planner's deterministic
+            # verdicts) without spending a token — and WITHOUT touching the sealed release.
+            print(f'\n  --dry: {len(nodes)} nodes validated against the bytes; release left untouched.')
+            return 0
 
-    # ---- HAND IT TO THE PUBLISHER. THIS PROCESS CANNOT WRITE THE FILE ITSELF.
-    meta = publisher.publish(nodes, b, provenance_of_inputs=dict(
-        cards=str(cards_path), graph=str(graph_path), ledger=str(ledger_path)))
+        # ---- HAND IT TO THE PUBLISHER. THIS PROCESS CANNOT WRITE THE FILE ITSELF.
+        print('\n  publishing (validate -> render -> re-resolve every sentence -> atomic release) ...',
+              flush=True)
+        meta = publisher.publish(nodes, b, provenance_of_inputs=dict(
+            cards=str(cards_path), graph=str(graph_path), ledger=str(ledger_path)))
+    finally:
+        RA.set_publish_heading_failopen(False)
     print('\n' + '=' * 90)
     print('PUBLISHED — by the publisher, atomically, into a directory this process cannot write to')
     print('=' * 90)
@@ -1108,7 +1339,40 @@ if __name__ == '__main__':
     ap.add_argument('--write', action='store_true')
     ap.add_argument('--dry', action='store_true', help='no LLM: prove the bindings and the AST only')
     a = ap.parse_args()
+    # DIAGNOSTIC WATCHDOG (env-gated, off by default): dump ALL thread stacks every N seconds so a
+    # post-render freeze names its exact line in the log. Harmless when COMPOSE_FAULTDUMP is unset.
+    if os.environ.get('COMPOSE_FAULTDUMP'):
+        import faulthandler
+        import signal as _sig
+        # On-demand: `kill -USR1 <pid>` dumps ALL thread stacks to stderr (the log). Safer than the
+        # repeating timer (which can race C-level teardown into a segfault).
+        faulthandler.register(_sig.SIGUSR1, all_threads=True)
+    # THE COMPILED CONTRACT — the SAME `research_contract.compile_contract` the miner ran on this query.
+    # It drives the query-derived title/abstract/methods prose AND (via `_planner_contract`) the planner's
+    # span-facet vocabulary. Taken from PG_RESEARCH_QUESTION; absent/failed compile -> None (subject-free
+    # generic frame, empty-facet planner) — never a hardcoded task subject.
+    compiled = None
+    _q = (os.environ.get('PG_RESEARCH_QUESTION') or '').strip()
+    if _q:
+        try:
+            import research_contract as _RC
+            compiled = _RC.compile_contract(_q, use_llm=True, verbose=False)
+            print(f'  [contract] compiled from PG_RESEARCH_QUESTION '
+                  f'({len(getattr(compiled, "outcome_dimensions", []) or [])} outcome dims, '
+                  f'{len(getattr(getattr(compiled, "subject_axis", None), "values", []) or [])} axis values)')
+        except Exception as e:                    # fail-safe: subject-free generic frame
+            print(f'  [contract] compile failed ({type(e).__name__}: {e}); frame degrades to generic')
     if a.write or a.dry:
-        raise SystemExit(write_report(a.cards, a.graph, a.ledger, a.policy,
-                                      a.expect_cards_sha, a.expect_graph_sha, a.dry))
+        rc = write_report(a.cards, a.graph, a.ledger, a.policy,
+                          a.expect_cards_sha, a.expect_graph_sha, a.dry, contract=compiled)
+        # HARD EXIT. By here the report is already published atomically (or a dry proof is done). A normal
+        # interpreter shutdown would run concurrent.futures' atexit handler, which JOINS every worker
+        # thread — including any inner llm() worker abandoned mid-network-read by a 180s timeout. A stuck
+        # abandoned worker would hang that join forever (the post-publish freeze), and finalizing the
+        # OpenRouter client's leaked async generators on a closed loop has been seen to segfault. os._exit
+        # skips both: the process ends immediately with the true return code. stdout/stderr are unbuffered
+        # (-u) and flushed here, so no output is lost.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(rc)
     print('use --write (or --dry)')

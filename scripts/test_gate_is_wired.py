@@ -129,8 +129,7 @@ check('the gate REJECTS a real mechanism bound to a paper that never states it',
 # =================================================================================================
 check('a TRUE finding, present in its own span, REACHES THE PAGE',
       not A.validate_report(
-          [Attributed(clauses=(Clause('c:autor', 'computer capital substitutes for workers in a limited '
-                                                 'and well-defined set of routine tasks'),))], B),
+          [Attributed(clauses=(Clause('c:autor', _test_fixtures.AUTOR_SPAN),))], B),
       'real evidence deleted — the gate is starving again')
 
 check('an ATTRIBUTED number that is not in the cited source is REJECTED',
@@ -149,8 +148,7 @@ check('an ATTRIBUTED number that is only a SUBSTRING of a source number is REJEC
 # CROSS-SOURCE SYNTHESIS — the joint-heaviest criterion on the board (w=0.0800). The old gate deleted
 # EVERY one of these, which is why our synthesis section was 210 words out of 8,012.
 synth = [Attributed(clauses=(
-    Clause('c:autor', 'computer capital substitutes for workers in a limited and well-defined set of '
-                      'routine tasks'),
+    Clause('c:autor', _test_fixtures.AUTOR_SPAN),
     Clause('c:bres', 'computer automation of such work has been correspondingly limited in its scope')),
     connective='while')]
 check('CROSS-SOURCE SYNTHESIS survives the gate (it is the heaviest criterion, w=0.0800)',
@@ -217,21 +215,16 @@ _JFILLER = _FAB._FILLER
 
 
 def _add(cid, span, claim, authors, year, venue, **facets):
-    """Bind ONE more real journal card (bytes on disk, real bind_span/resolve_attribution)."""
+    """Bind ONE more real journal card THE PRODUCTION WAY (ensure_work -> ingest_bytes ->
+    derive_binding_core), so its identity is EARNED (`VERSION_OF_PUBLISHED`) and the finding reaches the
+    entailment judge instead of being masked by a `None`-identity source-policy refusal."""
     wid, eid, mid = f'w:{cid}', f'e:{cid}', f'm:{cid}'
-    _JG.works[wid] = P.Work(id=wid, title='A study', authors=authors, year=year, venue=venue,
-                            doi=f'10.8/{wid}', kind='study')
-    _JG.expressions[eid] = P.Expression(id=eid, work_id=wid, kind='journal_version',
-        kind_basis='test', attribution=P._attribution_for('journal_version', _JG.works[wid]))
-    text = _JFILLER + span + ' ' + _JFILLER
-    _JG.manifestations[mid] = P.Manifestation(id=mid, expression_id=eid, work_id=wid, text=text,
-        content_hash=hashlib.sha256(text.encode()).hexdigest(), n_words=len(text.split()),
-        locator='http://x', locator_status='RECORDED', fetched_by='t', text_field='fulltext',
-        profile=dict(artifact_kind='journal_article', complete=True,
-                     extractability=P.extractability(text), incomplete_because=[]))
+    m = _test_fixtures._ingest(_JG, mid=mid, doi=f'10.8/{wid}', title='A study', authors=authors,
+                               year=year, venue=venue, span=span, kind='journal')
+    text = m.text
     s = text.index(span)
     bnd = _JG.bind_span(mid, s, s + len(span))
-    att = _JG.resolve_attribution(mid, P.JOURNAL_ONLY)
+    att = _JG.resolve_attribution(bnd, P.JOURNAL_ONLY)
     return dict(id=cid, manifestation_id=mid, content_hash=bnd['content_hash'],
         span_start=s, span_end=s + len(span), span_raw=bnd['text'], span=span, claim=claim,
         expression_id=bnd['expression_id'],
@@ -399,7 +392,7 @@ if RELEASE.exists():
             t = line.strip()
             if not t or t.startswith('#') or t.startswith('|') or t.startswith('**Table'):
                 continue
-            for s in publisher._sentences(t):
+            for s in A.split_sentences(t):
                 if A.sentence_hash(s) not in known:
                     orphan.append(s)
         check('SHIPPED ARTIFACT: EVERY sentence in it resolves to a binding',

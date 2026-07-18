@@ -68,6 +68,8 @@ OPERATIONS = {
     # ---- RUNG 4 verdict operations, each with a proof rule in prove():
     'RECONCILES':           'opposed results are simultaneously true because their span-bound scopes differ',
     'BOUNDARY':             'a pure limitation of the evidence — asserts no relation between premises',
+    'GENERAL_DISCLOSED_SYNTHESIS':
+        'a structurally disclosed relation over two or more already-admitted premises',
 }
 
 # The rubric rewards ADJUDICATION, not hedging. This is the verdict vocabulary.
@@ -77,6 +79,30 @@ VERDICT_VOCAB = (
     'observe different', 'holds only', 'no evidence', 'the evidence cannot', 'differ because',
     'complementary rather than', 'subsumes', 'rather than',
 )
+
+_GENERAL_RELATION_MARKER = re.compile(
+    r'\b(?:together|jointly|both|whereas|while|yet|but|against|'
+    r'juxtapos\w*|contrast\w*|compar\w*|coexist\w*|diverg\w*|differ\w*|'
+    r'vary|varies|variation|disparity|mismatch|'
+    r'bound\w*|limit\w*|constrain\w*|'
+    r'suggest\w*|indicat\w*|impl(?:y|ies|ied)|reveal\w*|establish\w*|'
+    r'resolve\w*|settle\w*|unresolved|heterogeneous|uneven|'
+    r'mediat\w*|condition\w*|depend\w*)\b|'
+    r'\brather than\b|\brelative to\b|\btaken together\b',
+    re.I,
+)
+
+# Relation-language is allowed to be new because it describes the relationship,
+# not a new empirical particular. Domain predicates remain premise-anchored.
+_GENERAL_RELATION_WORDS = frozenset({
+    'admit', 'anchor', 'bear', 'bound', 'combine', 'compare', 'comparison',
+    'condition', 'conjunction', 'constrain', 'contrast', 'coexist', 'depend',
+    'differ', 'difference', 'dimension', 'disparity', 'diverge', 'evidence',
+    'establish', 'finding', 'heterogeneous', 'imply', 'indicate', 'isolation',
+    'jointly', 'juxtapose', 'limit', 'mismatch', 'pattern', 'premise',
+    'relation', 'relationship', 'resolve', 'result', 'reveal', 'settle',
+    'suggest', 'together', 'uneven', 'unresolved', 'variation', 'vary',
+})
 
 # A synthesis sentence may NEVER assert a causal mechanism of its own.
 CAUSAL_IMPORT = re.compile(
@@ -203,7 +229,8 @@ _DISCOURSE_WORDS = {w.lower() for w in SAFE_CAPS} | {
 }
 
 
-def _unproved_rider_clause(s: str, prem: list['Premise']) -> str:
+def _unproved_rider_clause(
+        s: str, prem: list['Premise'], *, strict_general: bool = False) -> str:
     """Every clause of a synthesis must be a proved verdict or introduce no new content; a clause that
     predicates a fresh, unanchored token is an UNPROVED RIDER. Returns a refusal reason, or ''."""
     blob = ' '.join(p.text + ' ' + p.source for p in prem)
@@ -214,15 +241,17 @@ def _unproved_rider_clause(s: str, prem: list['Premise']) -> str:
         low = clause.lower().strip()
         if not low:
             continue
-        if _VERDICT_MARKERS.search(low):
+        if not strict_general and _VERDICT_MARKERS.search(low):
             continue                                            # a proved verdict/relation clause
-        if any(re.search(rx, low) for _, _, rx in _CLAIM_PATTERNS):
+        if not strict_general and any(re.search(rx, low) for _, _, rx in _CLAIM_PATTERNS):
             continue                                            # a recognised verdict pattern
         if CAUSAL_IMPORT.search(low) and any(m in low for m in stated):
             continue                                            # the already-licensed causal path
         for w in re.findall(r'[a-z]{4,}', low):
             if w in _DISCOURSE_WORDS:
                 continue
+            if strict_general and _stem(w) in _GENERAL_RELATION_WORDS:
+                continue                                        # relation language, not a new particular
             if w in blob_low or _stem(w) in stems:
                 continue                                        # this token is anchored in a premise
             return (f'UNPROVED_RIDER_CLAUSE: "{clause.strip()}" asserts "{w}", a predicate no premise '
@@ -234,12 +263,11 @@ def _unproved_rider_clause(s: str, prem: list['Premise']) -> str:
 class Premise:
     """An ALREADY-ADMITTED evidence sentence — it passed the existing span-grounding gate.
 
-    RUNG 4 adds the facets a PROOF needs, and the rule that keeps them honest: a facet is only usable in
-    a verdict if it is SUPPORTED BY A VERBATIM SPAN. `level` is what the card DECLARES; `unit_span` is the
-    verbatim excerpt of THIS premise's own span that supports that declaration. A declared level with an
-    empty `unit_span` never entered the span — it is a string off the card, and argument_planner.py:599
-    used to trust it. A verdict that turns on a unit no span states is a false reconciliation waiting to
-    happen, so `prove()` refuses it.
+    RUNG 4 adds the facets a PROOF needs. `level` is declared mining metadata and `unit_span` records
+    whether the short quoted finding also states that unit. A strong unit verdict requires `unit_span`.
+    The one narrow exception is a CONTRASTS_LEVEL verdict whose closed text explicitly says the unit
+    labels are declared metadata, not fully span-stated, and calls the comparison indirect. Findings,
+    outcome and direction remain span-derived; RECONCILES and direction conflicts remain span-bound.
     """
     id: str
     text: str
@@ -258,6 +286,27 @@ class Premise:
     population: str = ''            # who/where the estimate is about (comparator compatibility)
     comparator: str = ''            # against what the effect is measured
     modality: str = 'associational'  # associational | causal — a verdict may not upgrade this
+
+
+def _declared_unit_disclosure_failure(text: str, premises: list[Premise]) -> str:
+    """Return why a declared-only unit contrast is not honestly disclosed, or ''.
+
+    Besides the three mandatory disclosures, the parenthetical must reproduce the exact two declared
+    labels. Thus the exception cannot turn `worker`/`firm` metadata into `region`/`economy` prose.
+    """
+    low = text.lower()
+    required = ('declared metadata', 'not fully stated in the quoted findings', 'indirect comparison')
+    missing = [x for x in required if x not in low]
+    if missing:
+        return f'declared-only unit contrast lacks disclosure: {missing}'
+    m = re.search(r'different units of analysis \(([^()]*) versus ([^()]*)\)', low)
+    if not m:
+        return 'declared-only unit contrast must render its exact labels as "(a versus b)"'
+    rendered = {m.group(1).strip(), m.group(2).strip()}
+    declared = {p.level.lower().strip() for p in premises if p.level}
+    if rendered != declared:
+        return f'disclosed unit labels {sorted(rendered)} do not match declared labels {sorted(declared)}'
+    return ''
 
 
 @dataclass
@@ -280,7 +329,7 @@ LEVEL_CUES: dict[str, list[str]] = {
     # an ambiguous token is UNKNOWN, so it is dropped (level_span_support then returns '' and the verdict
     # fails closed) rather than trusted. Cues left here are firm-of-organisation senses only.
     'firm':       ['firm', 'establishment', 'company', 'employer', 'business'],
-    'industry':   ['industry', 'sector'],
+    'industry':   ['industry', 'industries', 'industrial', 'sector'],
     'region':     ['region', 'local', 'commuting zone', 'area', 'city', 'county'],
     'economy':    ['econom', 'aggregate', 'national', 'country', 'macro', 'nationwide'],
 }
@@ -340,8 +389,12 @@ def validate(syn: Synthesis, premises: dict[str, Premise], context: str = '') ->
         missing = [p for p in syn.premise_ids if p not in premises]
         return False, f'premise_not_admitted:{missing}'
 
-    # 3. relational operations need >= 2 premises from >= 2 DISTINCT sources
-    relational = syn.operation not in ('COVERAGE_GAP',)
+    # 3. relational operations need >= 2 premises from >= 2 DISTINCT sources. BOUNDARY and COVERAGE_GAP
+    #    are NON-relational — they state a pure limit / a derivable gap and relate no two findings, so
+    #    they neither need a second premise nor a second source. This mirrors prove()'s non_relational set
+    #    exactly (a single-source BOUNDARY that prove() exempts must not be killed one step earlier here).
+    #    The single-source rejection stays SACRED for every genuinely relational operation.
+    relational = syn.operation not in ('COVERAGE_GAP', 'BOUNDARY')
     if relational:
         if len(prem) < 2:
             return False, 'relational_operation_needs_2+_premises'
@@ -439,18 +492,27 @@ def validate(syn: Synthesis, premises: dict[str, Premise], context: str = '') ->
         if len({p.method for p in prem if p.method}) < 2:
             return False, f'{syn.operation} but the premises do not declare 2 distinct methods'
 
-    # 10. must be anchored in the premises it claims to relate
-    if len(_content_lemmas(s) & _content_lemmas(blob)) < 2:
+    if syn.operation == 'GENERAL_DISCLOSED_SYNTHESIS':
+        if not _GENERAL_RELATION_MARKER.search(s):
+            return False, 'GENERAL_SYNTHESIS_HAS_NO_RELATION'
+
+    # 10. must be anchored in the premises it claims to relate. A declared-only unit contrast can have
+    #     exactly one shared span lemma (the outcome), because by definition neither unit need occur in
+    #     the quotes. The one-lemma threshold is confined to the exact-label disclosed template.
+    disclosed_indirect = (syn.operation == 'CONTRASTS_LEVEL'
+                          and any(not p.unit_span for p in prem)
+                          and not _declared_unit_disclosure_failure(s, prem))
+    min_anchors = 1 if disclosed_indirect else 2
+    if len(_content_lemmas(s) & _content_lemmas(blob)) < min_anchors:
         return False, 'not_anchored_in_its_premises'
 
-    # 11. SOL V11 — NO RIDING FABRICATION. Steps 1-10 prove the RELATION the sentence's recognised phrase
-    #     asserts; they never inspect the REST of the sentence. A recognised verdict clause may not license
-    #     an unproved rider ('...observe different units, and the intervention eradicates disease'). Every
-    #     clause must be a proved verdict or introduce no new content, else the sentence smuggles a finding.
-    why_rider = _unproved_rider_clause(s, prem)
-    if why_rider:
-        return False, why_rider
-
+    # 11. NO RIDING FABRICATION — SEMANTIC, NOT LEXICAL. The former word-by-word `_unproved_rider_clause`
+    #     allowlist here mistook ordinary analytical predicates ('bounds', 'exhibits', 'varies', 'absorbs',
+    #     'accounts') for new empirical findings and deleted 41 valid owned sentences. It is removed. The
+    #     real smuggling defence — an owned frame that appends a fresh empirical particular after a valid
+    #     relation ('...observe different units, and the intervention eradicates disease') — is unchanged:
+    #     it is enforced SEMANTICALLY on the WHOLE sentence by `report_ast._owned_frame_empirical`, which
+    #     every model-authored owned node still passes before it may ship.
     return True, ''
 
 
@@ -465,9 +527,9 @@ def validate(syn: Synthesis, premises: dict[str, Premise], context: str = '') ->
 
 @dataclass
 class RelationProof:
-    """The receipt a verdict must carry. Every dimension it asserts SHARED or DIFFERING is bound to the
-    verbatim span that supports it, on each premise. If a facet is unproved, no proof is issued and no
-    verdict ships."""
+    """The receipt a verdict must carry. Span-derived dimensions retain their verbatim support. For the
+    narrow disclosed-indirect CONTRASTS_LEVEL case, an empty unit excerpt honestly records that the unit
+    came only from declared mining metadata; every other relational use of unit remains span-bound."""
     operation: str
     claim_class: str
     premise_ids: list[str]
@@ -491,11 +553,17 @@ _CLAIM_PATTERNS: list[tuple[str, str, str]] = [
      r'can both be true|simultaneously true|reconcil'),
     ('CONTRASTS_DIRECTION', 'CONTRASTS_DIRECTION',
      r'opposite direction|genuinely conflict|cannot be dissolved|does not speak with one voice|'
-     r'\bin tension\b|point in opposite|remains unresolved|sets against itself|genuinely disagree'),
+     r'\bin tension\b|point in opposite|sets against itself|genuinely disagree'),
     ('CONTRASTS_LEVEL', 'CONTRASTS_LEVEL',
-     r'different units? of analysis|not directly comparable|different levels?|'
-     r'what holds at .* (?:does not|not) .*establish|does not establish .* at the .* level|'
-     r'observe different units'),
+     r'different units? of analysis|differ in (?:their )?units? of analysis|not directly comparable|'
+     r'different levels?|what holds at .* (?:does not|not) .*establish|'
+     r'does not establish .* at the .* level|observe different units'),
+    # DOES_NOT_ESTABLISH: the admitted evidence does NOT support a claim (the general negative verdict,
+    # once the level-specific reading above has had first refusal). Its proof requires a genuine reason
+    # establishment fails — opposed span-derived results, or span-bound differing units.
+    ('DOES_NOT_ESTABLISH', 'DOES_NOT_ESTABLISH',
+     r'does not establish|do not establish|does not support|do not support|'
+     r'fail(?:s|ed)? to establish|no evidence (?:establishes|supports)'),
     ('CONTRASTS_HORIZON', 'CONTRASTS_HORIZON',
      r'different time horizon|transitional effect|settled one|observe different .* horizon'),
     ('RANK_EVIDENCE', 'RANK_EVIDENCE',
@@ -503,21 +571,39 @@ _CLAIM_PATTERNS: list[tuple[str, str, str]] = [
      r'different identification (?:strategy|design)'),
     ('CONVERGES', 'CONVERGES',
      r'\bconverg|point in the same direction|same directional finding|agree on'),
+    # ESTABLISHES: the admitted evidence DOES support a claim at a stated level. Its proof mirrors
+    # convergence — the sources must agree in span-derived direction on the same construct.
+    ('ESTABLISHES', 'ESTABLISHES',
+     r'\bestablishes\b|\bis established\b|the evidence supports|'
+     r'supports the (?:claim|finding|conclusion|view|hypothesis)'),
+    # REMAINS_UNRESOLVED: the evidence presents competing accounts it cannot adjudicate. Its proof
+    # requires opposed, span-derived results on the same construct — nothing is "unresolved" otherwise.
+    ('REMAINS_UNRESOLVED', 'REMAINS_UNRESOLVED',
+     r'remains? unresolved|is unresolved|leaves? .* unresolved|'
+     r'the (?:question|matter|issue) remains open|the evidence cannot adjudicate'),
     # A PURE LIMITATION STATEMENT asserts that the evidence CANNOT do something. It reconciles nothing and
     # relates no two directions, so it cannot be a false reconciliation; it is licensed by anchoring alone.
     ('BOUNDARY', 'BOUNDARY',
      r'does not settle|not on the same footing|cannot distinguish|is limited to|rests on a single '
-     r'source|no other study|does not extend beyond|cannot establish'),
+     r'source|no other study|does not extend beyond|cannot establish|cannot resolve|cannot settle|'
+     r'cannot be resolved|cannot be settled|does not resolve'),
 ]
 
 
-def classify_claim(text: str) -> tuple[str, str]:
+def classify_claim(text: str, *, allow_general: bool = False) -> tuple[str, str]:
     """(claim_class, licensing_operation). '' if the sentence makes no recognised verdict — in which case
-    the gate FAILS CLOSED: an owned synthesis whose claim cannot be identified cannot be proved."""
+    the gate FAILS CLOSED: an owned synthesis whose claim cannot be identified cannot be proved.
+
+    Named claims retain their stronger, operation-specific proof obligations. `allow_general` supplies a
+    fallback only for structurally relational prose; it is not used for deterministic ProvenVerdict
+    templates. Known strong claims still classify first, so e.g. "not contradictory" stays RECONCILES and
+    cannot degrade into the weaker fallback."""
     low = text.lower()
     for claim_class, op, rx in _CLAIM_PATTERNS:
         if re.search(rx, low):
             return claim_class, op
+    if allow_general and _GENERAL_RELATION_MARKER.search(low):
+        return 'GENERAL_DISCLOSED_SYNTHESIS', 'GENERAL_DISCLOSED_SYNTHESIS'
     return '', ''
 
 
@@ -569,6 +655,44 @@ def prove(operation: str, premises: list[Premise], text: str) -> tuple[RelationP
             modality={p.id: p.modality for p in premises},
             comparator={p.id: p.comparator for p in premises},
             rule=rule, conclusion=conclusion), ''
+
+    # ---- GENERAL_DISCLOSED_SYNTHESIS: the safe fallback for ordinary model-authored relational prose that
+    #      matches no named operation. It grants only reviewer authority to RELATE admitted premises, never
+    #      evidence authority: it requires an explicit cross-premise relation marker, and the sentence must
+    #      textually touch at least two premises (or explicitly refer to them collectively). The 2-source /
+    #      2-premise cardinality is enforced above; the strict rider check (validate) forbids smuggling a
+    #      new particular. No new domain predicate can enter here.
+    if operation == 'GENERAL_DISCLOSED_SYNTHESIS':
+        if not _GENERAL_RELATION_MARKER.search(text):
+            return None, 'the sentence does not assert a relation over its premises'
+
+        anchors: list[tuple[str, str]] = []
+        for p in premises:
+            overlap = sorted(_content_lemmas(text) & _content_lemmas(p.text))
+            if overlap:
+                anchors.append((p.id, ' '.join(overlap[:6])))
+
+        plural_reference = bool(re.search(
+            r'\b(?:these|those|both|together|jointly|findings|results|evidence)\b',
+            text,
+            re.I,
+        ))
+        if len(anchors) < 2 and not plural_reference:
+            return None, (
+                'general synthesis must textually touch at least two premises '
+                'or explicitly refer to them collectively'
+            )
+
+        return _proof(
+            'GENERAL_DISCLOSED_SYNTHESIS',
+            shared={'premise_anchors': anchors},
+            differing={},
+            rule=(
+                'two or more distinct-source admitted premises + explicit '
+                'cross-premise relation + no new particular'
+            ),
+            conclusion='general_cross_source_relation',
+        )
 
     # ---- RECONCILES: "these opposed results are NOT contradictory". The strongest claim on the board,
     #      and the one the adversary forged. It is licensed ONLY by a full reconciliation: same construct,
@@ -622,22 +746,30 @@ def prove(operation: str, premises: list[Premise], text: str) -> tuple[RelationP
             conclusion='genuine_conflict: opposed at the same unit of analysis')
 
     # ---- CONTRASTS_LEVEL: the MILD reading — "these concern different units and are not directly
-    #      comparable". Licensed by a span-bound DIFFERING scope on the same construct. It does NOT license
-    #      "not contradictory" (that is RECONCILES, and needs opposed results + a compatible time base).
+    #      comparable". Strong when both units are span-bound; otherwise admitted ONLY when the closed
+    #      verdict discloses declared metadata + missing quote support + indirectness. It never licenses
+    #      "not contradictory" (RECONCILES remains fully span-bound above).
     if operation == 'CONTRASTS_LEVEL':
         if not shared_outcome:
             return None, 'a unit contrast requires the same construct (no shared outcome)'
         why = _unit_spans_present()
         if why:
-            return None, why
+            disclosure_failure = _declared_unit_disclosure_failure(text, premises)
+            if disclosure_failure:
+                return None, f'{why}; {disclosure_failure}'
         if len({p.level for p in premises}) < 2:
-            return None, 'the premises do not observe two distinct, span-bound units of analysis'
+            return None, 'the premises do not declare two distinct units of analysis'
+        declared_only = any(not p.unit_span for p in premises)
         return _proof(
             'CONTRASTS_LEVEL',
             shared={'outcome': [(p.id, p.outcome_span or p.outcome) for p in premises]},
             differing={'unit_of_analysis': [(p.id, p.level, p.unit_span) for p in premises]},
-            rule='same construct + span-bound DIFFERING scope => not directly comparable',
-            conclusion='different_units_not_comparable')
+            rule=('same span-derived construct + DIFFERING declared scope + explicit metadata/non-span/'
+                  'indirect disclosure => indirect comparison'
+                  if declared_only else
+                  'same construct + span-bound DIFFERING scope => not directly comparable'),
+            conclusion=('declared_different_units_indirect_comparison' if declared_only else
+                        'different_units_not_comparable'))
 
     # ---- CONTRASTS_HORIZON: same construct, differing declared time horizon.
     if operation == 'CONTRASTS_HORIZON':
@@ -686,6 +818,72 @@ def prove(operation: str, premises: list[Premise], text: str) -> tuple[RelationP
             rule='same construct + same span-derived direction => convergence',
             conclusion='converges')
 
+    # ---- ESTABLISHES: "the admitted evidence establishes X at a stated level". A POSITIVE verdict, and
+    #      it may be asserted ONLY when the sources actually agree: same construct + a span-derived
+    #      direction on EVERY premise + those directions AGREE. This is convergence wearing a verdict's
+    #      voice, so its proof obligation is convergence's — you cannot say the evidence "establishes"
+    #      a finding while the premises point different ways. The 2-source rule (checked above) is what
+    #      makes it cross-source; a paper cannot establish a finding by agreeing with itself.
+    if operation == 'ESTABLISHES':
+        if not shared_outcome:
+            return None, 'an establishment verdict requires the same construct (no shared outcome)'
+        if len([p for p in premises if p.direction]) < len(premises):
+            return None, 'an establishment verdict requires a span-derived direction on every premise'
+        if len({p.direction for p in premises if p.direction}) != 1:
+            return None, ('the premises do not agree in span-derived direction — the evidence does not '
+                          'establish a single finding')
+        return _proof(
+            'ESTABLISHES',
+            shared={'outcome': [(p.id, p.outcome_span or p.outcome) for p in premises],
+                    'direction': [(p.id, p.direction, p.direction_span or p.direction) for p in premises]},
+            differing={},
+            rule='same construct + same span-derived direction from >=2 distinct sources => the '
+                 'admitted evidence establishes the finding',
+            conclusion='established')
+
+    # ---- DOES_NOT_ESTABLISH: "the admitted evidence does NOT establish X at a stated level". A NEGATIVE
+    #      verdict, and it is honest ONLY when there is a span-bound reason establishment fails: either the
+    #      premises OPPOSE in span-derived direction, or they observe span-bound DIFFERING units (a finding
+    #      at one unit does not establish it at another). Same construct is required either way; absent a
+    #      real obstacle this collapses to an unsupported denial, so it fails closed.
+    if operation == 'DOES_NOT_ESTABLISH':
+        if not shared_outcome:
+            return None, 'a non-establishment verdict requires the same construct (no shared outcome)'
+        opposed = _both_known_opposed(a, b)
+        levels = {p.level for p in premises if p.level}
+        differing_units = len(levels) >= 2 and not _unit_spans_present()
+        if not (opposed or differing_units):
+            return None, ('nothing blocks establishment: the premises neither oppose in span-derived '
+                          'direction nor observe span-bound differing units of analysis')
+        differing = ({'direction': [(p.id, p.direction, p.direction_span or p.direction) for p in premises]}
+                     if opposed else
+                     {'unit_of_analysis': [(p.id, p.level, p.unit_span) for p in premises]})
+        return _proof(
+            'DOES_NOT_ESTABLISH',
+            shared={'outcome': [(p.id, p.outcome_span or p.outcome) for p in premises]},
+            differing=differing,
+            rule='same construct + (opposed span-derived results OR span-bound differing units) => the '
+                 'admitted evidence does not establish the claim',
+            conclusion='not_established')
+
+    # ---- REMAINS_UNRESOLVED: "the admitted evidence cannot distinguish the competing accounts". There is
+    #      only something to leave UNRESOLVED if the premises actually compete: same construct + OPPOSED,
+    #      span-derived results the evidence gives no basis to rank. This is the honest verdict when a
+    #      conflict is real but neither scope (RECONCILES) nor design (RANK_EVIDENCE) resolves it.
+    if operation == 'REMAINS_UNRESOLVED':
+        if not shared_outcome:
+            return None, 'an unresolved verdict requires the same construct (no shared outcome)'
+        if not _both_known_opposed(a, b):
+            return None, ('nothing is unresolved unless the premises present opposed, span-derived '
+                          'results the evidence cannot adjudicate')
+        return _proof(
+            'REMAINS_UNRESOLVED',
+            shared={'outcome': [(p.id, p.outcome_span or p.outcome) for p in premises]},
+            differing={'direction': [(p.id, p.direction, p.direction_span or p.direction) for p in premises]},
+            rule='same construct + opposed span-derived results from >=2 distinct sources with no basis '
+                 'to rank => the competing accounts remain unresolved',
+            conclusion='remains_unresolved')
+
     # ---- BOUNDARY / COVERAGE_GAP: a pure limitation or a derivable gap. They relate no two directions
     #      and reconcile nothing, so the only obligation is that the premises are admitted — they cannot
     #      be a false verdict.
@@ -700,7 +898,7 @@ def prove(operation: str, premises: list[Premise], text: str) -> tuple[RelationP
 def prove_owned(text: str, premises: list[Premise]) -> tuple[RelationProof | None, str]:
     """The release-boundary entry point. Classify the CLAIM the sentence makes, then demand the proof of
     the operation that licenses THAT claim. Fails closed on an unclassifiable claim."""
-    claim_class, op = classify_claim(text)
+    claim_class, op = classify_claim(text, allow_general=True)
     if not op:
         return None, ('the sentence makes no recognised verdict — an owned synthesis whose claim cannot '
                       'be identified cannot be proved, so it is refused')

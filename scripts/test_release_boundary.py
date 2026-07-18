@@ -315,7 +315,7 @@ def unresolved_sentences(report: Path, sidecar: Path) -> list[str]:
         t = line.strip()
         if not t or t.startswith('#') or t.startswith('|') or t.startswith('**Table'):
             continue
-        for s in publisher._sentences(t):
+        for s in A.split_sentences(t):
             if A.sentence_hash(s) not in known:
                 out.append(s)
     return out

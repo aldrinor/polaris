@@ -207,6 +207,7 @@ def _mode_apply_dry(bank: dict) -> int:
 
     sigs_before = {str(p.get('title', '')): plan_signature(p) for p in plans}
     parsed = parse_revision_ops(reviser_output, allowed_ev_ids=allowed, plan_titles=titles)
+<<<<<<< Updated upstream
     # item 13: when the bank has a required-section structure, thread it so apply restricts ops to
     # keep/reassign and cannot break the user's exact-N-in-order contract.
     _required = [
@@ -214,6 +215,8 @@ def _mode_apply_dry(bank: dict) -> int:
         for t in ((bank.get("deliverable") or {}).get("required_sections", []) or [])
         if str(t).strip()
     ]
+=======
+>>>>>>> Stashed changes
     # Fable item 6: thread the digest ev_id->basket map so apply RE-BACKFILLS basket_ids on the
     # recomposed sections (a reassign that homes an orphan basket's members must clear it from the
     # orphan list — the compose router is ev-overlap-keyed, find_orphan_baskets is basket_id-keyed;
@@ -224,8 +227,12 @@ def _mode_apply_dry(bank: dict) -> int:
         for ev in (members or [])
     }
     applied = apply_revision_ops(
+<<<<<<< Updated upstream
         plans, parsed, outcomes=outcomes,
         required_titles=_required, ev_id_to_basket=ev_id_to_basket,
+=======
+        plans, parsed, outcomes=outcomes, ev_id_to_basket=ev_id_to_basket,
+>>>>>>> Stashed changes
     )
 
     print("\n=== APPLY RESULT ===")
@@ -459,6 +466,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         ],
         "unassigned_singletons_count": len(unassigned_singletons),
         "unassigned_high_tier": unassigned_high_tier,
+<<<<<<< Updated upstream
         # item 14: same-work anchor folds per section (canonical kept, aliases disclosed) — §-1.3
         # consolidate; the folded aliases remain in the pool/bibliography, never dropped.
         "plan_work_folds": plan_work_folds,
@@ -475,6 +483,8 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
             "mode is correct) — its firing is an explicit S5 acceptance criterion; do not let the "
             "revise loop fall silently between section loops.",
         ],
+=======
+>>>>>>> Stashed changes
         "note": ("orphan baskets, single-work unassigned baskets, and unassigned singletons are ALL "
                  "DISCLOSED here (§-1.3 consolidate — none dropped); this cp4 audit is DISCLOSURE "
                  "ONLY, zero plan mutation. Any actual reassignment at COMPOSE "
@@ -554,6 +564,7 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
         stats["undersupplied_sections"] = list(undersupplied_sections)
 
     # (d) cp4 write + load (verdict-leak guarded on BOTH)
+<<<<<<< Updated upstream
     # item 6: record the FULL effective S4 knob set + a sha256 of it as run_config_sha (until
     # RunConfig WP-0b lands) so the checkpoint can PROVE what produced it — the prior hardcoded
     # {"PG_OUTLINE_BASKET_DIGEST":"1"} + run_config_sha="" proved nothing about the actual run.
@@ -563,6 +574,23 @@ def _mode_plan(bank: dict, *, model: str, run_dir: Path) -> int:
     ).hexdigest()
     print(f"\n[d] effective S4 flag_slate={json.dumps(flag_slate, sort_keys=True)} "
           f"run_config_sha={run_config_sha[:12]}")
+=======
+    # Fable item 8: pin EVERY env knob this run's behavior (and the downstream compose promise in the
+    # note) actually reads — not just PG_OUTLINE_BASKET_DIGEST — and thread a REAL run_config sha
+    # (was hardcoded ''), so the cp4 envelope is reproducible. Effective env value per knob; unset =>
+    # "" (the code default applied). The sha is over the sorted slate so it is order-independent.
+    _env_knobs = (
+        "PG_OUTLINE_BASKET_DIGEST",
+        "PG_OUTLINE_DIGEST_MAX_CHARS",
+        "PG_OUTLINE_MIN_MAX_TOKENS",
+        "PG_OUTLINE_REASONING_MAX_TOKENS",
+        "PG_ROUTE_ALL_BASKETS",
+    )
+    flag_slate = {k: os.getenv(k, "") for k in _env_knobs}
+    run_config_sha = hashlib.sha256(
+        json.dumps(flag_slate, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+>>>>>>> Stashed changes
     payload = build_cp4_payload(
         question_sha=hashlib.sha256(question.encode("utf-8")).hexdigest(),
         upstream=[{"stage": "basket", "sha": str(bank.get("cp3_sha", ""))}],

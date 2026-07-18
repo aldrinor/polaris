@@ -216,10 +216,17 @@ def parse_revision_ops(
                 return None
             return t
 
+<<<<<<< Updated upstream
         # item 1: ``split`` MUST validate its source ``title`` here too. Without it a split with a
         # missing title passes parse then crashes ``KeyError`` at apply (``op["title"]``), and a split
         # with an UNKNOWN title silently keeps the original section AND adds the children (content
         # duplication). Validating here rejects both before apply.
+=======
+        # Fable item 3: a ``split`` MUST validate its source title too. Without this, a split whose
+        # ``title`` names no live section was accepted, then apply appended the children and removed
+        # nothing (reproduced final titles ['A','B','X','Y']). Validate it alongside keep/retitle/
+        # reassign so a bad-source split is rejected (unknown_title) before the children are built.
+>>>>>>> Stashed changes
         if kind in ("keep", "retitle", "reassign", "split") and _need_title() is None:
             continue
         if kind == "retitle" and not str(op.get("new_title", "")).strip():
@@ -298,6 +305,7 @@ def parse_revision_ops(
             if _add_title.lower() in titles_lower:
                 rejected.append({"op": dict(op), "reason_code": f"title_collision:{_add_title}"})
                 continue
+<<<<<<< Updated upstream
         # item 8 (STRIP-AND-KEEP, consistent with the outline's item-5a): a reassign/add/split that
         # references some UNKNOWN ev_ids KEEPS its valid remainder — the good ids were already retained
         # in ``op`` above; only the bad ones are stripped — and the strip is DISCLOSED as a
@@ -307,6 +315,8 @@ def parse_revision_ops(
         # ``undersupplied`` downstream (item 12 — the gap is DISCLOSED, never faked). §-1.3: an ev_id
         # reference is a routing hint, not the source itself, so one bad hint never deletes the good
         # remainder (the prior blanket reject discarded valid reassignments over a single stale id).
+=======
+>>>>>>> Stashed changes
         if bad_all:
             rejected.append({"op": dict(op), "reason_code": f"unknown_ev_ids_stripped:{bad_all[:5]}"})
         if kind == "reassign" and not op.get("add_ev_ids") and not op.get("drop_ev_ids"):
@@ -423,8 +433,11 @@ def apply_revision_ops(
     *,
     max_recompose_cap: int | None = None,
     outcomes: Sequence[SectionOutcome] | None = None,
+<<<<<<< Updated upstream
     required_titles: Sequence[str] | None = None,
     min_sections: int = 0,
+=======
+>>>>>>> Stashed changes
     ev_id_to_basket: Mapping[str, str] | None = None,
 ) -> RevisionApplyResult:
     """Apply validated ops deterministically and return the new plan set + the recompose set.
@@ -668,6 +681,7 @@ def apply_revision_ops(
         new_plans.append(by_title.get(cur_title, p))
     new_plans += added_plans
 
+<<<<<<< Updated upstream
     # item 4: dedupe recompose_titles AND drop any GHOST title not present in the final plan set —
     # a ghost would make the compose stage re-open a section that does not exist.
     _final_titles = {p["title"] for p in new_plans}
@@ -678,6 +692,8 @@ def apply_revision_ops(
     ]
     _recompose_final = set(recompose)
     kept = [p["title"] for p in new_plans if p["title"] not in _recompose_final]
+=======
+>>>>>>> Stashed changes
     # Fable item 6: a reassign (and split/add) mutates a section's ev_ids, but the apply branches
     # above do NOT recompute basket_ids. Because find_orphan_baskets is basket_id-keyed while the
     # compose router (verified_compose.route_orphan_baskets_to_section_plans) is ev-overlap-keyed,
@@ -689,7 +705,11 @@ def apply_revision_ops(
     # digest) => unchanged, fail-open (§-1.3 no drop).
     if ev_id_to_basket:
         for p in new_plans:
+<<<<<<< Updated upstream
             if p["title"] in _recompose_final:
+=======
+            if p["title"] in recompose_set:
+>>>>>>> Stashed changes
                 p["basket_ids"] = sorted(
                     {ev_id_to_basket[e]
                      for e in (p.get("ev_ids", []) or []) if e in ev_id_to_basket}

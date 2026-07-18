@@ -713,9 +713,8 @@ class CardFacets:
     numbers: list[str]
     ineligibility: list[str] = field(default_factory=list)     # FATAL: may not be attributed at all
     not_adjudicable: list[str] = field(default_factory=list)   # SOFT: citable, but not a comparison term
-    #: RUNG 4 obligation 2 — for each DECLARED facet, the verbatim span excerpt that supports it (or ''
-    #: if the span never states it). A declared value the span does not corroborate is a string off the
-    #: card; a verdict may not turn on it.
+    #: For each DECLARED facet, the verbatim supporting excerpt (or ''). An empty unit excerpt selects
+    #: the disclosed-indirect unit template; it cannot license a strong reconciliation.
     facet_spans: dict[str, str] = field(default_factory=dict)
 
     def f(self, name: str) -> Facet:
@@ -747,10 +746,9 @@ def derive_facets(card: dict, contract: ResearchContract) -> CardFacets:
     for fname, field_name in contract.declared_facets.items():
         v = (card.get(field_name) or '').strip()
         fx[fname] = Facet(fname, v, 'declared') if v else Facet(fname)
-        # RUNG 4 obligation 2: a DECLARED facet is only usable in a verdict if the SPAN corroborates it.
-        # The unit of analysis is the axis a reconciliation turns on, so its span-binding is load-bearing;
-        # `level_span_support` returns the verbatim excerpt, or '' when the card asserts a level the span
-        # never states (the exact way argument_planner.py:599 used to trust a string off the card).
+        # Record whether the short quote corroborates the declared unit. Missing support no longer drops
+        # a mild unit contrast; it selects an explicitly disclosed indirect template. Reconciliation
+        # remains load-bearing and span-bound in synthesis_contract.prove().
         if v and fname == 'unit_of_analysis':
             facet_spans[fname] = level_span_support(span, v)
     for fname, vocab in contract.span_facets.items():
@@ -1192,6 +1190,11 @@ def _verdict_text(bundle: Bundle, cf: dict[str, CardFacets]) -> str:
     ctx = f' in studies of {o2}' if o2 else ''   # number-agnostic: the surface form may be sing. or pl.
     if bundle.kind == 'SAME_OUTCOME_DIFFERENT_UNIT':
         ua, ub = (bundle.varies[i] for i in ids)
+        units_span_bound = all(cf[i].facet_span('unit_of_analysis') for i in ids)
+        if not units_span_bound:
+            return (f'The unit labels are declared metadata and are not fully stated in the quoted '
+                    f'findings, so this is an indirect comparison of {o} across different units of '
+                    f'analysis ({ua} versus {ub}) and is not directly comparable.')
         if bundle.apparent_conflict:
             return (f'These {o} findings are not contradictory{ctx}: the two estimates observe '
                     f'different units of analysis, and the evidence establishes the effect at the '

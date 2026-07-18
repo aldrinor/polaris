@@ -187,7 +187,7 @@ def publish(nodes: list[A.Node], bundle: A.CardBundle, *, name: str = 'report.md
         t = line.strip()
         if not t or t.startswith('#') or t.startswith('|') or t.startswith('**Table'):
             continue
-        for s in _sentences(t):
+        for s in A.split_sentences(t):
             if A.sentence_hash(s) not in known:
                 raise RefusedToPublish(
                     f'THE RELEASED FILE WOULD CONTAIN A SENTENCE NO NODE PRODUCED: {s[:90]!r}')
@@ -227,26 +227,6 @@ def publish(nodes: list[A.Node], bundle: A.CardBundle, *, name: str = 'report.md
     return meta
 
 
-def _sentences(text: str) -> list[str]:
-    import re
-    _AB = re.compile(r'\b(et al|e\.g|i\.e|cf|vs|Dr|Prof|Mr|Mrs|Ms|St|Fig|No|pp|vol|ed|eds|approx|ca)\.\s*$',
-                     re.I)
-    _IN = re.compile(r'\b[A-Z]\.\s*$')
-    out, buf = [], ''
-    for chunk in re.split(r'(?<=[.!?])(\s+)', text):
-        buf += chunk
-        if not chunk.strip():
-            continue
-        if _AB.search(buf) or _IN.search(buf):
-            continue
-        if re.search(r'[.!?]\s*$', buf):
-            out.append(buf.strip())
-            buf = ''
-    if buf.strip():
-        out.append(buf.strip())
-    return [x for x in out if x]
-
-
 # =================================================================================================
 # VERIFY A RELEASE THAT IS ALREADY ON DISK — the auditor's entry point
 # =================================================================================================
@@ -275,7 +255,7 @@ def verify_release(graph_path: Path, name: str = 'report.md') -> int:
         t = line.strip()
         if not t or t.startswith('#') or t.startswith('|') or t.startswith('**Table'):
             continue
-        for s in _sentences(t):
+        for s in A.split_sentences(t):
             e = sc.get(A.sentence_hash(s))
             if e is None:
                 bad.append(f'UNBOUND SENTENCE IN THE RELEASED FILE: {s[:80]!r}')

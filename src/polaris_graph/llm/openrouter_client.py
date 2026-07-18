@@ -873,6 +873,14 @@ GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "6
 # the outer ``asyncio.wait_for`` still bounds the TOTAL call. Transport-only; no faithfulness gate touched.
 PG_SSE_READ_STALL_TIMEOUT_SECONDS = float(os.getenv("PG_SSE_READ_STALL_TIMEOUT_SECONDS", "120"))
 
+# ROOT-CAUSE FIX (Sol #1/#2): httpx's read timeout measures time-between-BYTES, and OpenRouter sends
+# SSE keep-alive comments (": OPENROUTER PROCESSING") that reset it — so a DEAD provider stream (no model
+# progress) looks alive to httpx forever and the call hangs until the coarse per-attempt watchdog. These
+# two knobs drive a MEANINGFUL-PROGRESS watchdog in _accumulate_sse (reset only by real content/reasoning/
+# finish/usage/error/[DONE]) and a whole-call deadline for small (validation) calls that go non-streaming.
+SSE_PROGRESS_TIMEOUT_SECONDS = float(os.getenv("PG_SSE_PROGRESS_TIMEOUT_SECONDS", "180"))
+SHORT_CALL_TOTAL_TIMEOUT_SECONDS = float(os.getenv("PG_SHORT_LLM_TOTAL_TIMEOUT_SECONDS", "150"))
+
 # I-wire-013 (#1327): outer watchdog grace added on top of the per-attempt httpx budget so the
 # asyncio-level ceiling always fires AFTER the transport-level one (never races it). Named here to
 # keep the value defined once instead of an inline magic number at each call/log site.
@@ -1587,11 +1595,18 @@ class OpenRouterClient:
                 "HTTP-Referer": "https://polaris-research.ai",
                 "X-Title": "polaris graph",
             },
-            timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
+            # ROOT-CAUSE FIX (Sol #1): explicit, bounded transport timeouts. The per-request stream()
+            # call overrides read/connect anyway, but a bounded default (esp. a small pool timeout) is
+            # defensive against a caller that forgets to pass one. Real liveness is enforced by the
+            # meaningful-SSE-progress watchdog in _accumulate_sse, not by these byte-level timeouts.
+            timeout=httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=5.0),
         )
         limits = _client_limits_from_env()
-        if limits is not None:
-            client_kwargs["limits"] = limits
+        if limits is None:
+            limits = httpx.Limits(
+                max_connections=32, max_keepalive_connections=8, keepalive_expiry=15.0,
+            )
+        client_kwargs["limits"] = limits
         return httpx.AsyncClient(**client_kwargs)
 
     async def close(self):
@@ -1639,8 +1654,29 @@ class OpenRouterClient:
         # the reasoning->content promotion guard can refuse promotion of a "length"-truncated trace.
         final_finish_reason: Optional[str] = None
 
-        async for line in response.aiter_lines():
-            # Skip empty lines and SSE comments (keep-alive)
+        # ROOT-CAUSE FIX (Sol #2): MEANINGFUL-PROGRESS watchdog. `response.aiter_lines()` yields on every
+        # network chunk INCLUDING OpenRouter's ": OPENROUTER PROCESSING" keep-alive comments, which reset
+        # httpx's byte-level read timeout — so a provider that has silently died keeps the socket "alive"
+        # forever. We instead arm our OWN deadline that ONLY a real SSE data chunk (content/reasoning/
+        # finish/usage/error) resets; a stream carrying nothing but keep-alives or blank lines for
+        # SSE_PROGRESS_TIMEOUT_SECONDS is declared dead and raises, letting the coroutine unwind and CLOSE
+        # the socket instead of hanging until the coarse per-attempt watchdog (up to 31 min across retries).
+        _sse_lines = response.aiter_lines().__aiter__()
+        _sse_loop = asyncio.get_running_loop()
+        progress_deadline = _sse_loop.time() + SSE_PROGRESS_TIMEOUT_SECONDS
+        while True:
+            remaining = progress_deadline - _sse_loop.time()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"SSE produced no meaningful model progress for "
+                    f"{SSE_PROGRESS_TIMEOUT_SECONDS:.0f}s (keep-alive-only stream; provider stalled)"
+                )
+            try:
+                async with asyncio.timeout(remaining):
+                    line = await anext(_sse_lines)
+            except StopAsyncIteration:
+                break
+            # Skip empty lines and SSE comments (keep-alive) — these do NOT reset the progress watchdog.
             if not line or line.startswith(":"):
                 continue
             # SSE data lines start with "data: "
@@ -1656,6 +1692,9 @@ class OpenRouterClient:
                 logger.debug("[polaris graph] SSE: skipping unparseable chunk")
                 continue
 
+            # A real, parsed SSE data chunk IS meaningful model progress — rearm the watchdog. (Keep-alive
+            # ":" comments and blank lines `continue` above and never reach here, which is the whole point.)
+            progress_deadline = _sse_loop.time() + SSE_PROGRESS_TIMEOUT_SECONDS
             chunk_count += 1
 
             # I-safety-002b (#925): capture genuinely-served identity (last non-null wins).
@@ -1935,12 +1974,19 @@ class OpenRouterClient:
             clean_msg = {k: v for k, v in msg.items() if v is not None}
             sanitized_messages.append(clean_msg)
 
+        # ROOT-CAUSE FIX (Sol #3): capture the CALLER'S requested size BEFORE the GLM per-model floor
+        # (~4096, below) inflates it. Small constrained calls — above all the 300-token entailment judge —
+        # must NOT stream: a reasoning-first model can emit only keep-alive comments until the whole short
+        # completion is ready, which is exactly the stall this fixes. Large report-generation calls keep
+        # streaming (their reasoning deltas rearm the progress watchdog). requested_max_tokens travels with
+        # the call so the timeout selection (below) can give small calls a tight whole-call budget.
+        requested_max_tokens = int(max_tokens or 0)
         body: dict[str, Any] = {
             "model": self.model,
             "messages": sanitized_messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "stream": True,
+            "stream": requested_max_tokens > 1024,
         }
 
         # GLM-5 TWO-POOL ARCHITECTURE:
@@ -2168,7 +2214,16 @@ class OpenRouterClient:
                     if self.model in _REASONING_FIRST_MODELS
                     else DEFAULT_TIMEOUT_SECONDS
                 )
-                actual_timeout = timeout or _default_timeout
+                # ROOT-CAUSE FIX (Sol #3/#4): a SMALL constrained call (e.g. the 300-token entailment
+                # judge, now non-streaming) must NOT inherit the reasoning-first 600s generator budget.
+                # Bound each attempt to SHORT_CALL_TOTAL_TIMEOUT_SECONDS (150s < the composer's 180s
+                # Future.result wrapper), so a stalled judge attempt raises in time for the coroutine to
+                # unwind and CLOSE its socket rather than lingering. Long report-gen calls keep the
+                # generous budget (their streaming reasoning deltas rearm the SSE progress watchdog).
+                if requested_max_tokens and requested_max_tokens <= 1024:
+                    actual_timeout = SHORT_CALL_TOTAL_TIMEOUT_SECONDS
+                else:
+                    actual_timeout = timeout or _default_timeout
 
                 # I-arch-004 F02 (#1255): the genuinely-served provider for THIS attempt
                 # (display name), used by the degenerate-blank rotation below to exclude

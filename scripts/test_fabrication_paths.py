@@ -62,23 +62,18 @@ _FILLER = ('The paper proceeds as follows. We describe the data, the identificat
 
 
 def build_bundle() -> CardBundle:
-    """The shipping fixture, extended with two controlled employment-ratio journal articles."""
+    """The shipping fixture, extended with two controlled employment-ratio journal articles.
+
+    Every manifestation is built THE PRODUCTION WAY (`_test_fixtures._ingest`: ensure_work ->
+    ingest_bytes -> derive_binding_core), so its `semantic_binding` is EARNED (`VERSION_OF_PUBLISHED`),
+    not stamped. A finding therefore reaches the entailment/verdict lanes it is meant to test instead of
+    being masked by a `None`-identity refusal at the source-policy gate."""
     g, cards = _test_fixtures.build()
 
     def add_journal(wid, eid, mid, authors, year, venue, span):
-        g.works[wid] = P.Work(id=wid, title='A study of technology and employment', authors=authors,
-                              year=year, venue=venue, doi=f'10.9/{wid}', kind='study')
-        g.expressions[eid] = P.Expression(id=eid, work_id=wid, kind='journal_version',
-                                          kind_basis='test fixture',
-                                          attribution=P._attribution_for('journal_version', g.works[wid]))
-        text = _FILLER + span + ' ' + _FILLER
-        g.manifestations[mid] = P.Manifestation(
-            id=mid, expression_id=eid, work_id=wid, text=text,
-            content_hash=hashlib.sha256(text.encode()).hexdigest(), n_words=len(text.split()),
-            locator='http://example/x', locator_status='RECORDED', fetched_by='test',
-            text_field='fulltext',
-            profile=dict(artifact_kind='journal_article', complete=True,
-                         extractability=P.extractability(text), incomplete_because=[]))
+        _test_fixtures._ingest(g, mid=mid, doi=f'10.9/{wid}',
+                               title='A study of technology and employment',
+                               authors=authors, year=year, venue=venue, span=span, kind='journal')
 
     add_journal('w:up', 'e:up:j', 'm:up', ['Bloom', 'Draca'], 2021, 'American Economic Review', ROSE_SPAN)
     add_journal('w:down', 'e:down:j', 'm:down', ['Graetz', 'Michaels'], 2019,
@@ -90,7 +85,7 @@ def build_bundle() -> CardBundle:
         m = g.manifestations[mid]
         s = m.text.index(span)
         b = g.bind_span(mid, s, s + len(span))
-        att = g.resolve_attribution(mid, P.JOURNAL_ONLY)
+        att = g.resolve_attribution(b, P.JOURNAL_ONLY)
         w = g.works[m.work_id]
         return dict(
             id=cid, manifestation_id=mid, content_hash=b['content_hash'],
