@@ -74,13 +74,13 @@
       "consolidated": 0
     },
     "render_seam_sanitize_units_removed": 0,
-    "report_pre_chars": 3308,
-    "report_post_chars": 3308,
+    "report_pre_chars": 3306,
+    "report_post_chars": 3306,
     "fired": true
   },
   "audit": {
-    "total_sentences": 12,
-    "sentences_with_citation": 12,
+    "total_sentences": 14,
+    "sentences_with_citation": 14,
     "citation_survival_pct": 100.0,
     "chrome_sentences": 0,
     "quote_dump_sentences": 0,
@@ -88,8 +88,8 @@
       {
         "section_index": 0,
         "title": "Positive Views on Generative AI's Impact on Employment",
-        "sentences": 5,
-        "with_citation": 5,
+        "sentences": 9,
+        "with_citation": 9,
         "chrome_sentences": 0,
         "quote_dump_sentences": 0,
         "flagged": []
@@ -97,8 +97,8 @@
       {
         "section_index": 1,
         "title": "Negative Views on Generative AI's Impact on Employment",
-        "sentences": 7,
-        "with_citation": 7,
+        "sentences": 5,
+        "with_citation": 5,
         "chrome_sentences": 0,
         "quote_dump_sentences": 0,
         "flagged": []
@@ -115,15 +115,15 @@
       "kspan_fallback": 0,
       "transport_reconnect": 0,
       "transport_disconnect": 0,
-      "judge_error": 3,
+      "judge_error": 0,
       "judge_empty_content": 0,
       "judge_total_deadline": 0,
-      "judge_retryable_fault": 0,
+      "judge_retryable_fault": 1,
       "basket_all_chrome_skipped": 0
     },
     "prepass_lines": [
-      "[abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=68.0s, retries_budget=1, wall_cap=520s, abandoned=0)",
-      "[abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=41.0s, retries_budget=1, wall_cap=520s, abandoned=0)"
+      "[abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=56.1s, retries_budget=1, wall_cap=520s, abandoned=0)",
+      "[abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=66.3s, retries_budget=1, wall_cap=520s, abandoned=0)"
     ]
   },
   "payload": {
@@ -152,9 +152,9 @@
           "ev_919",
           "ev_205"
         ],
-        "verified_text": "Eloundou and colleagues introduce a framework for assessing how large-language-models (LLMs) and related technologies might reshape work by examining the degree to which these tools are relevant to the tasks that workers carry out in their jobs.[1][2] Generative AI functions simultaneously as a task-automating and task-augmenting technology, meaning that while it can replace labor through automation in some occupations, it can also raise labor demand and expand job postings in occupations amenable to augmentation.[3][4][5] Average time savings from generative AI amounted to 5.4% of work hours for users, equivalent to 2.2 hours per week for someone working 40 hours, and when factoring in all workers including nonusers, 1.4% of total hours were saved because of generative AI.[6][7][8] Among specific occupations, legal jobs gained the most from AI, with a predicted 6.4% increase in employment, as these roles face little direct automation impact and are often situated in firms that use AI heavily.[9] Generative AI shapes labor markets through two distinct mechanisms, as automation substitutes technology for tasks previously performed by humans while augmentation complements and enhances existing human skills.[10]",
-        "sentences_verified": 5,
-        "sentences_dropped": 6,
+        "verified_text": "Autor argues that automation simultaneously substitutes for and complements labor, with productivity improvements in one set of tasks increasing the economic value of the remaining tasks that workers perform, a mechanism captured by the O-ring production function where making one link in a production chain more reliable raises the value of improving all other links.[1] In a study of generative AI adoption, the average user saved 5.4% of work hours, equivalent to 2.2 hours per week for a 40-hour worker, and when nonusers were included the figure fell to 1.4% of total hours saved because of generative AI.[2][3][4] By industry, information services led with 14.0% of work hours spent using generative AI and 2.6% time savings, while leisure, accommodation, and other services had the lowest figures at 2.3% and 0.6% respectively.[2][3][4] In a study of AI deployment, once individual agent and tenure fixed effects were added, the estimated effect of AI deployment on resolutions per hour settled at 0.30 chats, or 13.8%.[5][6][7][8] The typical customer chat in this study shortened by 3.8 minutes, a 9% reduction from the baseline.[5][6][7][8] Agents in this study gained the ability to handle 0.37 additional chats per hour, roughly a 14% increase over a baseline mean of 2.6.[5][6][7][8] Resolution rates in this study ticked up by 1.3 percentage points, significant at the 10% level, against an already high baseline of 82%.[5][6][7][8] Net promoter scores in this study showed no meaningful change, with a coefficient of -0.13 percentage points compared to a mean of 79.6%.[5][6][7][8] Generative AI influences labor through both automation, which substitutes technology for human tasks, and augmentation, which complements human skills.[9]",
+        "sentences_verified": 9,
+        "sentences_dropped": 5,
         "regen_attempted": false,
         "dropped_due_to_failure": false,
         "is_gap_stub": false,
@@ -181,15 +181,15 @@
           "ev_009",
           "ev_1112"
         ],
-        "verified_text": "A new measure called observed exposure combines theoretical large language model capability with real-world usage data, weighting automated and work-related uses more heavily, and finds that actual AI coverage remains only a fraction of what is theoretically feasible.[1][2] Of the tasks observed across previous Economic Index reports, 97 percent fall into categories rated as theoretically feasible, with tasks fully feasible for an LLM alone accounting for 68 percent of usage.[1][2] Baseline difference-in-differences estimates confirmed this pattern, with the high-substitution occupation interaction term posting a coefficient of -0.122 in the most restrictive specification, and effects growing across successive post-release periods to -0.064 in the first year, -0.135 in the second year, and -0.182 in the third year.[3][4][5] A formal pre-trend test yielded a Wald statistic of 0.83 with a p-value of 0.66, failing to reject the null hypothesis of common pre-trends and thereby validating the difference-in-differences identification strategy.[3][4][5] A survey developed to measure the economic effects of generative AI in the labor market found that large language model tools are most frequently adopted by younger, more highly educated, and higher-income workers, particularly in customer service, marketing, and information technology industries.[6][7][8] Adoption of large language model tools among U.S. workers rose rapidly from 30.1% in December 2024 to 38.3% in December 2025, placing the United States near the top among advanced economies.[7][8][6] Researchers estimating the labor market effects of generative AI exposure found only small wage impacts in more exposed occupations following ChatGPT's public release in November 2022, while detecting no significant changes in job openings or total employment.[7][8][6]",
-        "sentences_verified": 7,
-        "sentences_dropped": 1,
+        "verified_text": "Most Americans expect generative artificial intelligence to exert a largely negative effect on employment over the coming two decades, according to a Pew Research Center poll that found widespread public concern about the technology's consequences for jobs and livelihoods.[1][2][3] The ILO's global study reports that 5.5 percent of total employment in high-income countries is potentially exposed to automation effects from generative AI, compared with only 0.4 per cent in low-income countries, a difference the authors attribute to varying occupational structures across income levels.[4] A new measure called observed exposure combines theoretical large language model capability with real-world usage data, weighting automated and work-related uses more heavily, and it finds that AI's actual coverage remains only a fraction of what is theoretically feasible.[5][6] Displacement effects intensify over time, with the coefficient for high-substitution occupations deepening from -0.155* to -0.064* in the first year post-release, -0.252*** to -0.135** in the second year, and -0.310*** to -0.182*** in the third year.[7][8][9] A formal pre-trend test with a Wald statistic of 0.83 and a p-value of 0.66 fails to reject the null hypothesis of common pre-trends, validating the identification strategy.[7][8][9]",
+        "sentences_verified": 5,
+        "sentences_dropped": 4,
         "regen_attempted": false,
         "dropped_due_to_failure": false,
         "is_gap_stub": false,
         "error": ""
       }
     ],
-    "assembled_report_md": "# I am researching the impact of Generative AI on the future labor market, please help me complete a research report.\n\n## Positive Views on Generative AI's Impact on Employment\n\nEloundou and colleagues introduce a framework for assessing how large-language-models (LLMs) and related technologies might reshape work by examining the degree to which these tools are relevant to the tasks that workers carry out in their jobs.[1][2] Generative AI functions simultaneously as a task-automating and task-augmenting technology, meaning that while it can replace labor through automation in some occupations, it can also raise labor demand and expand job postings in occupations amenable to augmentation.[3][4][5] Average time savings from generative AI amounted to 5.4% of work hours for users, equivalent to 2.2 hours per week for someone working 40 hours, and when factoring in all workers including nonusers, 1.4% of total hours were saved because of generative AI.[6][7][8] Among specific occupations, legal jobs gained the most from AI, with a predicted 6.4% increase in employment, as these roles face little direct automation impact and are often situated in firms that use AI heavily.[9] Generative AI shapes labor markets through two distinct mechanisms, as automation substitutes technology for tasks previously performed by humans while augmentation complements and enhances existing human skills.[10]\n\n## Negative Views on Generative AI's Impact on Employment\n\nA new measure called observed exposure combines theoretical large language model capability with real-world usage data, weighting automated and work-related uses more heavily, and finds that actual AI coverage remains only a fraction of what is theoretically feasible.[1][2] Of the tasks observed across previous Economic Index reports, 97 percent fall into categories rated as theoretically feasible, with tasks fully feasible for an LLM alone accounting for 68 percent of usage.[1][2] Baseline difference-in-differences estimates confirmed this pattern, with the high-substitution occupation interaction term posting a coefficient of -0.122 in the most restrictive specification, and effects growing across successive post-release periods to -0.064 in the first year, -0.135 in the second year, and -0.182 in the third year.[3][4][5] A formal pre-trend test yielded a Wald statistic of 0.83 with a p-value of 0.66, failing to reject the null hypothesis of common pre-trends and thereby validating the difference-in-differences identification strategy.[3][4][5] A survey developed to measure the economic effects of generative AI in the labor market found that large language model tools are most frequently adopted by younger, more highly educated, and higher-income workers, particularly in customer service, marketing, and information technology industries.[6][7][8] Adoption of large language model tools among U.S. workers rose rapidly from 30.1% in December 2024 to 38.3% in December 2025, placing the United States near the top among advanced economies.[7][8][6] Researchers estimating the labor market effects of generative AI exposure found only small wage impacts in more exposed occupations following ChatGPT's public release in November 2022, while detecting no significant changes in job openings or total employment.[7][8][6]\n"
+    "assembled_report_md": "# I am researching the impact of Generative AI on the future labor market, please help me complete a research report.\n\n## Positive Views on Generative AI's Impact on Employment\n\nAutor argues that automation simultaneously substitutes for and complements labor, with productivity improvements in one set of tasks increasing the economic value of the remaining tasks that workers perform, a mechanism captured by the O-ring production function where making one link in a production chain more reliable raises the value of improving all other links.[1] In a study of generative AI adoption, the average user saved 5.4% of work hours, equivalent to 2.2 hours per week for a 40-hour worker, and when nonusers were included the figure fell to 1.4% of total hours saved because of generative AI.[2][3][4] By industry, information services led with 14.0% of work hours spent using generative AI and 2.6% time savings, while leisure, accommodation, and other services had the lowest figures at 2.3% and 0.6% respectively.[2][3][4] In a study of AI deployment, once individual agent and tenure fixed effects were added, the estimated effect of AI deployment on resolutions per hour settled at 0.30 chats, or 13.8%.[5][6][7][8] The typical customer chat in this study shortened by 3.8 minutes, a 9% reduction from the baseline.[5][6][7][8] Agents in this study gained the ability to handle 0.37 additional chats per hour, roughly a 14% increase over a baseline mean of 2.6.[5][6][7][8] Resolution rates in this study ticked up by 1.3 percentage points, significant at the 10% level, against an already high baseline of 82%.[5][6][7][8] Net promoter scores in this study showed no meaningful change, with a coefficient of -0.13 percentage points compared to a mean of 79.6%.[5][6][7][8] Generative AI influences labor through both automation, which substitutes technology for human tasks, and augmentation, which complements human skills.[9]\n\n## Negative Views on Generative AI's Impact on Employment\n\nMost Americans expect generative artificial intelligence to exert a largely negative effect on employment over the coming two decades, according to a Pew Research Center poll that found widespread public concern about the technology's consequences for jobs and livelihoods.[1][2][3] The ILO's global study reports that 5.5 percent of total employment in high-income countries is potentially exposed to automation effects from generative AI, compared with only 0.4 per cent in low-income countries, a difference the authors attribute to varying occupational structures across income levels.[4] A new measure called observed exposure combines theoretical large language model capability with real-world usage data, weighting automated and work-related uses more heavily, and it finds that AI's actual coverage remains only a fraction of what is theoretically feasible.[5][6] Displacement effects intensify over time, with the coefficient for high-substitution occupations deepening from -0.155* to -0.064* in the first year post-release, -0.252*** to -0.135** in the second year, and -0.310*** to -0.182*** in the third year.[7][8][9] A formal pre-trend test with a Wald statistic of 0.83 and a p-value of 0.66 fails to reject the null hypothesis of common pre-trends, validating the identification strategy.[7][8][9]\n"
   }
 }

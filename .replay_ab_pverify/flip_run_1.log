@@ -1,0 +1,73 @@
+[RR replay] installed (ZERO LLM) judge_keys=239 writer_keys=55 from /home/polaris/wt/compose_fix/.replay_ab_pverify/rr_store.pkl
+[RR] asyncio.to_thread INLINED (serial control arm)
+[load] question_len=2045 evidence_pool=996 cp3_baskets=329 plans=4
+[baskets] reconstructed ClaimBaskets=328 (members total=384)
+[cred] coverage populated: credibility_by_evidence=996 origin_by_evidence=996 cluster_id_by_evidence=384
+[map] section_basket_map_enabled=True weights={'provenance': 3, 'subquery': 2, 'topical': 1}
+[map] stranded=0 residual_index=4 nocid_synth=0 per_section_views={0: 16, 1: 12, 4: 274, 2: 14, 3: 16}
+[map] primary_per_section={0: 15, 1: 12, 4: 274, 2: 14, 3: 13}
+[map] CAP-PRIMARY=8 -> primary_per_section={0: 8, 1: 8, 4: 8, 2: 8, 3: 8}
+[map] residual SectionPlan appended idx=4 ev_ids=12
+[section 0] START title="Positive Views on Generative AI's Impact on Employment" ev_ids=18
+2026-07-11 23:10:21,112 INFO src.polaris_graph.generator.verified_compose [activation] debate_con_basket_consolidation: consolidated=0
+2026-07-11 23:10:21,135 INFO src.polaris_graph.generator.abstractive_writer [activation] outline_echo: title="Positive Views on Generative AI's Impact on Employment" focus_len=218 q_len=2045
+2026-07-11 23:10:21,928 WARNING src.polaris_graph.llm.openrouter_client [polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+2026-07-11 23:10:22,142 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=acemoglu_restrepo_automation_tasks (drafted 1)
+2026-07-11 23:10:22,163 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=autor_why_still_jobs (drafted 2)
+2026-07-11 23:10:22,166 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=eloundou_gpts_are_gpts (drafted 3)
+2026-07-11 23:10:22,255 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_000 (drafted 4)
+2026-07-11 23:10:22,285 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_017 (drafted 5)
+2026-07-11 23:10:22,291 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_019 (drafted 6)
+2026-07-11 23:10:22,438 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_077 (drafted 7)
+2026-07-11 23:10:22,449 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_205 (drafted 8)
+2026-07-11 23:10:22,449 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=1.3s, retries_budget=1, wall_cap=520s, abandoned=0)
+2026-07-11 23:10:22,957 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:10:23,418 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=3
+2026-07-11 23:10:24,141 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:10:25,605 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=4
+2026-07-11 23:10:26,443 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:10:26,446 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:10:26,448 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:10:26,802 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:10:58,768 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 5089 chunks, content=3351 bytes (3347 chars), reasoning=18144 bytes (18000 chars), done=True, has_usage=True
+2026-07-11 23:10:58,769 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1237 in/5089 out/4597 reasoning tokens, 32.3s, $0.0241 cumulative
+2026-07-11 23:10:58,769 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (18000 chars) for generate()
+2026-07-11 23:10:58,796 INFO src.polaris_graph.generator.section_polish [section_polish] coherence rewrite resolved referents in 1 sentence(s)
+2026-07-11 23:10:58,796 INFO polaris_graph.multi_section [multi_section] Positive Views on Generative AI's Impact on Employment verified-compose PRIMARY: 8 baskets -> draft_chars=3357
+2026-07-11 23:10:58,864 INFO polaris_graph.multi_section [multi_section] B11 same-span dedup: collapsed 2 degenerate same-span restatement(s) in section "Positive Views on Generative AI's Impact on Employment" (6 -> 4 kept)
+[section 0] DONE 38s verified_chars=1078 sentences_verified=4 dropped=6 regen=False dropped_fail=False gap_stub=False error=''
+[section 0] OPENING: David Autor's analysis of workplace automation establishes that while technology substitutes for human labor in routine tasks, it simultaneously complements labor by raising output in ways that increase demand for workers, a complementarity mechanism that commentators frequently overlook when they overstate machine substitution.[1] Generative AI functions simultaneously as a task-automating and task-augmenting technology, meaning that while it can replace labor through automation in some occupat
+[section 1] START title="Negative Views on Generative AI's Impact on Employment" ev_ids=15
+2026-07-11 23:10:58,881 INFO src.polaris_graph.generator.verified_compose [activation] debate_con_basket_consolidation: consolidated=0
+2026-07-11 23:10:58,881 INFO src.polaris_graph.generator.abstractive_writer [activation] outline_echo: title="Negative Views on Generative AI's Impact on Employment" focus_len=181 q_len=2045
+2026-07-11 23:10:59,372 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=acemoglu_restrepo_robots_jobs (drafted 1)
+2026-07-11 23:10:59,386 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_009 (drafted 2)
+2026-07-11 23:10:59,403 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_020 (drafted 3)
+2026-07-11 23:10:59,410 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_047 (drafted 4)
+2026-07-11 23:10:59,414 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_057 (drafted 5)
+2026-07-11 23:10:59,458 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_1018 (drafted 6)
+2026-07-11 23:10:59,464 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_1176 (drafted 7)
+2026-07-11 23:10:59,477 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_133 (drafted 8)
+2026-07-11 23:10:59,477 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=0.6s, retries_budget=1, wall_cap=520s, abandoned=0)
+2026-07-11 23:10:59,650 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:10:59,883 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=2
+2026-07-11 23:11:00,313 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:11:01,328 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:11:01,339 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=3
+2026-07-11 23:11:01,818 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:11:02,069 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:11:23,958 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 4205 chunks, content=2173 bytes (2173 chars), reasoning=16549 bytes (16519 chars), done=True, has_usage=True
+2026-07-11 23:11:23,959 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 888 in/4205 out/4172 reasoning tokens, 22.1s, $0.0197 cumulative
+2026-07-11 23:11:23,959 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (16519 chars) for generate()
+2026-07-11 23:11:23,996 INFO polaris_graph.multi_section [multi_section] Negative Views on Generative AI's Impact on Employment verified-compose PRIMARY: 8 baskets -> draft_chars=2157
+[section 1] DONE 25s verified_chars=1753 sentences_verified=7 dropped=1 regen=False dropped_fail=False gap_stub=False error=''
+[section 1] OPENING: A new measure called observed exposure combines theoretical large language model capability with real-world usage data, weighting automated and work-related uses more heavily, and finds that actual AI coverage remains only a fraction of what is theoretically feasible.[1].[2] Of the tasks observed across previous Economic Index reports, 97 percent fall into categories rated as theoretically feasible, with tasks fully feasible for an LLM alone accounting for 68 percent of usage.[1].[2] Adoption re
+[holistic] cross_section_repetition_guard = {"clusters": 0, "consolidated": 0}
+2026-07-11 23:11:24,079 INFO src.polaris_graph.generator.weighted_enrichment [activation] empty_bullet_drop: dropped=0
+[holistic] sanitize_rendered_report units_removed=0 pre_chars=3064 post_chars=3064
+[audit] source_shingles=570782 ngram=12
+[audit] sentences=11 with_citation=11 chrome=0 quote_dump=0
+[acceptance] acceptance=True reasons=[]
+
+[WROTE] /home/polaris/wt/compose_fix/.replay_ab_pverify/flip_run_1.json bytes=12233 cp5_sha=a52e68fab8ba12a9 sections=2
+[RR] run complete wall=64.2s stats={'judge_calls': 308, 'judge_miss': 7, 'judge_divergent_keys': 0, 'writer_calls': 62, 'writer_miss': 0}

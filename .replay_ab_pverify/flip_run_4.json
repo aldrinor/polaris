@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "stage": "s5_generation_live_compose",
+  "iter": 4,
+  "acceptance": true,
+  "acceptance_reasons": [],
+  "excepted_sections": [],
+  "question_sha": "146597e3a837074d92cfbc7fdb0fba5e9a54456bf66cc69fc5134972504dca94",
+  "flag_slate": {
+    "PG_SECTION_BASKET_MAP": "1",
+    "PG_SECTION_BASKET_MAP_REFINE_NLI": null,
+    "PG_SECTION_BASKET_ROLE_POLICY": null,
+    "PG_COMPOSE_NO_RAW_SPAN_FALLBACK": "1",
+    "PG_SYNTH_PRIMARY": "1",
+    "PG_ABSTRACTIVE_WRITER": "1",
+    "PG_VERIFIED_COMPOSE": "1",
+    "PG_VERIFIED_COMPOSE_MULTICITED": "1",
+    "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
+    "PG_CROSS_SECTION_REPETITION_GUARD": "1",
+    "PG_RENDER_SEAM_SANITIZE": "1",
+    "PG_GENERATOR_MODEL": "z-ai/glm-5.2",
+    "PG_ENTAILMENT_MODEL": "z-ai/glm-5.2",
+    "PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY": "1",
+    "PG_SECTION_MAX_TOKENS": "8000",
+    "PG_WRITER_DEADLINE_TRANSPORT_AWARE": "1",
+    "PG_WRITER_WALL_BASKET_SCALED": "1",
+    "PG_WRITER_KSPAN_RECOVERY_PASS": "1",
+    "PG_JUDGE_PROVIDER_ROTATE": "1",
+    "PG_ENTAILMENT_TOTAL_S": "120"
+  },
+  "upstream": [
+    {
+      "stage": "corpus",
+      "checkpoint": "/workspace/POLARIS/outputs/s2_hamster_i1/cp2_corpus_snapshot.json",
+      "sha": "c2aae4b741076deef0fc91d00efc41b4e4d7c2aef4fcf4b382d9bec3e88fcfe7"
+    },
+    {
+      "stage": "basket",
+      "checkpoint": "/workspace/POLARIS/outputs/s3_gear/cp3_basket_snapshot.json",
+      "sha": "94684212397010533c45ae66d4b7eacbf5178405c0943c9b12d0c36bc2df409b"
+    },
+    {
+      "stage": "outline",
+      "checkpoint": "/workspace/POLARIS/outputs/s4_gear/cp4_outline_snapshot.json",
+      "sha": "59dd87603c2ed59b9ec075734d8ca96b398199e896cfe3ac89dc2743100ebdcd"
+    }
+  ],
+  "faithfulness_invariant": "REAL live compose. Abstractive LLM writer drafts synthesis prose per PRIMARY basket; every composed sentence re-passes the UNCHANGED strict_verify (numeric + context-level NLI entailment). The lexical content-word-overlap gate + verbatim raw-span fallback (the ghost) are DELETED at 0966373 and NOT reintroduced. Map is pure placement; nothing dropped (stranded_count==0). No stored verdict; resume re-runs every gate.",
+  "map_stats": {
+    "baskets": 328,
+    "sections": 5,
+    "stranded_count": 0,
+    "residual_section_index": 4,
+    "nocid_synthetic_count": 0,
+    "primary_homes": 328,
+    "per_section_views": {
+      "0": 16,
+      "1": 12,
+      "4": 274,
+      "2": 14,
+      "3": 16
+    },
+    "primary_per_section": {
+      "0": 8,
+      "1": 8,
+      "4": 8,
+      "2": 8,
+      "3": 8
+    }
+  },
+  "holistic_review": {
+    "cross_section_repetition_guard": {
+      "clusters": 0,
+      "consolidated": 0
+    },
+    "render_seam_sanitize_units_removed": 0,
+    "report_pre_chars": 3079,
+    "report_post_chars": 3079,
+    "fired": true
+  },
+  "audit": {
+    "total_sentences": 11,
+    "sentences_with_citation": 11,
+    "citation_survival_pct": 100.0,
+    "chrome_sentences": 0,
+    "quote_dump_sentences": 0,
+    "per_section": [
+      {
+        "section_index": 0,
+        "title": "Positive Views on Generative AI's Impact on Employment",
+        "sentences": 4,
+        "with_citation": 4,
+        "chrome_sentences": 0,
+        "quote_dump_sentences": 0,
+        "flagged": []
+      },
+      {
+        "section_index": 1,
+        "title": "Negative Views on Generative AI's Impact on Employment",
+        "sentences": 7,
+        "with_citation": 7,
+        "chrome_sentences": 0,
+        "quote_dump_sentences": 0,
+        "flagged": []
+      }
+    ]
+  },
+  "writer_forensics": {
+    "marker_counts": {
+      "synth_primary_fired": 10,
+      "outline_echo_fired": 2,
+      "uncovered_fact_withheld": 0,
+      "prepass_complete": 2,
+      "kspan_recovery_pass": 0,
+      "kspan_fallback": 0,
+      "transport_reconnect": 0,
+      "transport_disconnect": 0,
+      "judge_error": 0,
+      "judge_empty_content": 0,
+      "judge_total_deadline": 0,
+      "judge_retryable_fault": 0,
+      "basket_all_chrome_skipped": 0
+    },
+    "prepass_lines": [
+      "[abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=1.3s, retries_budget=1, wall_cap=520s, abandoned=0)",
+      "[abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=0.6s, retries_budget=1, wall_cap=520s, abandoned=0)"
+    ]
+  },
+  "payload": {
+    "section_drafts": [
+      {
+        "section_index": 0,
+        "title": "Positive Views on Generative AI's Impact on Employment",
+        "focus": "Productivity enhancement, labor augmentation, complementarity effects, and new task creation driven by generative AI, drawing on seminal automation-and-reinstatement theory and early experimental productivity evidence.",
+        "ev_ids_assigned": [
+          "acemoglu_restrepo_automation_tasks",
+          "autor_why_still_jobs",
+          "ev_975",
+          "ev_019",
+          "ev_931",
+          "ev_941",
+          "ev_929",
+          "ev_883",
+          "ev_884",
+          "ev_879",
+          "ev_880",
+          "ev_077",
+          "ev_000",
+          "ev_017",
+          "ev_499",
+          "ev_938",
+          "ev_919",
+          "ev_205"
+        ],
+        "verified_text": "David Autor's analysis of workplace automation establishes that while technology substitutes for human labor in routine tasks, it simultaneously complements labor by raising output in ways that increase demand for workers, a complementarity mechanism that commentators frequently overlook when they overstate machine substitution.[1] Generative AI functions simultaneously as a task-automating and task-augmenting technology, meaning that while it can replace labor through automation in some occupations, it can also raise labor demand and expand job postings in occupations amenable to augmentation.[2][3][4] The average time savings amounted to 5.4% of work hours for users, equivalent to 2.2 hours per week for someone working 40 hours, and when factoring in all workers including nonusers, 1.4% of total hours were saved because of generative AI.[5][6][7] Generative AI shapes labor markets through two distinct mechanisms, as automation substitutes technology for tasks previously performed by humans while augmentation complements and enhances existing human skills.[8]",
+        "sentences_verified": 4,
+        "sentences_dropped": 6,
+        "regen_attempted": false,
+        "dropped_due_to_failure": false,
+        "is_gap_stub": false,
+        "error": ""
+      },
+      {
+        "section_index": 1,
+        "title": "Negative Views on Generative AI's Impact on Employment",
+        "focus": "Job displacement risks, occupational exposure to automation, labor market polarization, wage inequality, and evidence of short-term displacement effects from generative AI adoption.",
+        "ev_ids_assigned": [
+          "frey_osborne_computerisation",
+          "acemoglu_restrepo_robots_jobs",
+          "ev_043",
+          "ev_133",
+          "ev_144",
+          "ev_958",
+          "ev_160",
+          "ev_967",
+          "ev_968",
+          "ev_001",
+          "ev_020",
+          "ev_057",
+          "ev_170",
+          "ev_009",
+          "ev_1112"
+        ],
+        "verified_text": "A new measure called observed exposure combines theoretical large language model capability with real-world usage data, weighting automated and work-related uses more heavily, and finds that actual AI coverage remains only a fraction of what is theoretically feasible.[1][2] Of the tasks observed across previous Economic Index reports, 97 percent fall into categories rated as theoretically feasible, with tasks fully feasible for an LLM alone accounting for 68 percent of usage.[1][2] Adoption remains relatively low, however, particularly among midsized and small enterprises, and a recent US survey found only 9.3% of companies reported using generative AI in production during the preceding two weeks, limiting the overall labor-market impact to date.[3] The displacement effect grows over time: the coefficient reaches -0.155 in the first year after ChatGPT's launch, -0.252 in the second year, and -0.310 in the third year in the least restrictive specification.[4][5][6] A survey developed to measure the economic effects of generative AI in the labor market found that large language model tools are most frequently adopted by younger, more highly educated, and higher-income workers, particularly in customer service, marketing, and information technology industries.[7][8][9] Adoption of large language model tools among U.S. workers rose rapidly from 30.1% in December 2024 to 38.3% in December 2025, placing the United States near the top among advanced economies.[8][9][7] The researchers estimated the labor market effects of generative AI exposure and found only small wage impacts in more exposed occupations following ChatGPT's public release in November 2022, while detecting no significant changes in job openings or total employment.[8][9][7]",
+        "sentences_verified": 7,
+        "sentences_dropped": 1,
+        "regen_attempted": false,
+        "dropped_due_to_failure": false,
+        "is_gap_stub": false,
+        "error": ""
+      }
+    ],
+    "assembled_report_md": "# I am researching the impact of Generative AI on the future labor market, please help me complete a research report.\n\n## Positive Views on Generative AI's Impact on Employment\n\nDavid Autor's analysis of workplace automation establishes that while technology substitutes for human labor in routine tasks, it simultaneously complements labor by raising output in ways that increase demand for workers, a complementarity mechanism that commentators frequently overlook when they overstate machine substitution.[1] Generative AI functions simultaneously as a task-automating and task-augmenting technology, meaning that while it can replace labor through automation in some occupations, it can also raise labor demand and expand job postings in occupations amenable to augmentation.[2][3][4] The average time savings amounted to 5.4% of work hours for users, equivalent to 2.2 hours per week for someone working 40 hours, and when factoring in all workers including nonusers, 1.4% of total hours were saved because of generative AI.[5][6][7] Generative AI shapes labor markets through two distinct mechanisms, as automation substitutes technology for tasks previously performed by humans while augmentation complements and enhances existing human skills.[8]\n\n## Negative Views on Generative AI's Impact on Employment\n\nA new measure called observed exposure combines theoretical large language model capability with real-world usage data, weighting automated and work-related uses more heavily, and finds that actual AI coverage remains only a fraction of what is theoretically feasible.[1][2] Of the tasks observed across previous Economic Index reports, 97 percent fall into categories rated as theoretically feasible, with tasks fully feasible for an LLM alone accounting for 68 percent of usage.[1][2] Adoption remains relatively low, however, particularly among midsized and small enterprises, and a recent US survey found only 9.3% of companies reported using generative AI in production during the preceding two weeks, limiting the overall labor-market impact to date.[3] The displacement effect grows over time: the coefficient reaches -0.155 in the first year after ChatGPT's launch, -0.252 in the second year, and -0.310 in the third year in the least restrictive specification.[4][5][6] A survey developed to measure the economic effects of generative AI in the labor market found that large language model tools are most frequently adopted by younger, more highly educated, and higher-income workers, particularly in customer service, marketing, and information technology industries.[7][8][9] Adoption of large language model tools among U.S. workers rose rapidly from 30.1% in December 2024 to 38.3% in December 2025, placing the United States near the top among advanced economies.[8][9][7] The researchers estimated the labor market effects of generative AI exposure and found only small wage impacts in more exposed occupations following ChatGPT's public release in November 2022, while detecting no significant changes in job openings or total employment.[8][9][7]\n"
+  }
+}

@@ -1,0 +1,643 @@
+[RR record] installed (real LLM) -> /home/polaris/wt/compose_fix/.replay_ab_pverify/rr_store.pkl
+[load] question_len=2045 evidence_pool=996 cp3_baskets=329 plans=4
+[baskets] reconstructed ClaimBaskets=328 (members total=384)
+[cred] coverage populated: credibility_by_evidence=996 origin_by_evidence=996 cluster_id_by_evidence=384
+[map] section_basket_map_enabled=True weights={'provenance': 3, 'subquery': 2, 'topical': 1}
+[map] stranded=0 residual_index=4 nocid_synth=0 per_section_views={0: 16, 1: 12, 4: 274, 2: 14, 3: 16}
+[map] primary_per_section={0: 15, 1: 12, 4: 274, 2: 14, 3: 13}
+[map] CAP-PRIMARY=8 -> primary_per_section={0: 8, 1: 8, 4: 8, 2: 8, 3: 8}
+[map] residual SectionPlan appended idx=4 ev_ids=12
+[section 0] START title="Positive Views on Generative AI's Impact on Employment" ev_ids=18
+2026-07-11 23:29:59,522 INFO src.polaris_graph.generator.verified_compose [activation] debate_con_basket_consolidation: consolidated=0
+2026-07-11 23:29:59,544 INFO src.polaris_graph.generator.abstractive_writer [activation] outline_echo: title="Positive Views on Generative AI's Impact on Employment" focus_len=218 q_len=2045
+2026-07-11 23:30:00,383 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:00,384 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:30:00,447 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:00,449 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:00,451 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:00,452 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:00,454 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:00,456 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:00,458 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:00,725 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:00,748 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:01,010 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:01,031 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:01,036 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:01,061 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:01,333 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:01,460 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:04,384 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 604 chunks, content=915 bytes (915 chars), reasoning=2096 bytes (2096 chars), done=True, has_usage=True
+2026-07-11 23:30:04,385 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1580 in/604 out/528 reasoning tokens, 3.9s, $0.0033 cumulative
+2026-07-11 23:30:04,385 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2096 chars) for generate()
+2026-07-11 23:30:04,389 WARNING src.polaris_graph.llm.openrouter_client [polaris graph] I-beatboth-008 #1285: generator and evaluator are BOTH family 'glm' and PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY=1 -> two-family self-bias safeguard DISABLED for this run (operator-approved all-GLM-5.2). Disclosed.
+2026-07-11 23:30:04,736 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 747 chunks, content=1902 bytes (1902 chars), reasoning=1673 bytes (1673 chars), done=True, has_usage=True
+2026-07-11 23:30:04,737 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 2019 in/747 out/424 reasoning tokens, 4.3s, $0.0039 cumulative
+2026-07-11 23:30:04,737 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1673 chars) for generate()
+2026-07-11 23:30:04,739 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:04,952 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:06,025 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 792 chunks, content=2827 bytes (2821 chars), reasoning=1266 bytes (1266 chars), done=True, has_usage=True
+2026-07-11 23:30:06,026 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6201 in/792 out/320 reasoning tokens, 5.6s, $0.0109 cumulative
+2026-07-11 23:30:06,026 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1266 chars) for generate()
+2026-07-11 23:30:06,992 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:07,178 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1175 chunks, content=2171 bytes (2171 chars), reasoning=2487 bytes (2487 chars), done=True, has_usage=True
+2026-07-11 23:30:07,178 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6995 in/1175 out/627 reasoning tokens, 6.7s, $0.0145 cumulative
+2026-07-11 23:30:07,178 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2487 chars) for generate()
+2026-07-11 23:30:07,591 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1546 chunks, content=3102 bytes (3102 chars), reasoning=2161 bytes (2153 chars), done=True, has_usage=True
+2026-07-11 23:30:07,591 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6543 in/1546 out/547 reasoning tokens, 7.1s, $0.0146 cumulative
+2026-07-11 23:30:07,591 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2153 chars) for generate()
+2026-07-11 23:30:07,666 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1156 chunks, content=2058 bytes (2058 chars), reasoning=2499 bytes (2495 chars), done=True, has_usage=True
+2026-07-11 23:30:07,667 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 10609 in/1156 out/631 reasoning tokens, 7.2s, $0.0186 cumulative
+2026-07-11 23:30:07,667 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2495 chars) for generate()
+2026-07-11 23:30:07,780 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 583 chunks, content=1167 bytes (1167 chars), reasoning=1447 bytes (1447 chars), done=True, has_usage=True
+2026-07-11 23:30:07,780 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 2042 in/583 out/367 reasoning tokens, 3.0s, $0.0032 cumulative
+2026-07-11 23:30:07,780 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1447 chars) for generate()
+2026-07-11 23:30:08,188 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1537 chunks, content=2749 bytes (2749 chars), reasoning=4464 bytes (4464 chars), done=True, has_usage=True
+2026-07-11 23:30:08,188 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6117 in/1537 out/1123 reasoning tokens, 7.7s, $0.0084 cumulative
+2026-07-11 23:30:08,188 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (4464 chars) for generate()
+2026-07-11 23:30:08,464 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:09,124 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:09,780 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:10,076 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:10,344 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:10,418 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:10,973 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:12,464 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:12,999 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:14,428 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:14,540 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:14,689 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:15,022 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:15,215 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:15,416 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1048 chunks, content=2013 bytes (2013 chars), reasoning=1821 bytes (1821 chars), done=True, has_usage=True
+2026-07-11 23:30:15,417 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 10636 in/1048 out/461 reasoning tokens, 5.6s, $0.0075 cumulative
+2026-07-11 23:30:15,417 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1821 chars) for generate()
+2026-07-11 23:30:15,473 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_019 (drafted 1)
+2026-07-11 23:30:16,800 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 3241 chunks, content=1150 bytes (1150 chars), reasoning=12870 bytes (12840 chars), done=True, has_usage=True
+2026-07-11 23:30:16,800 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3109 in/3241 out/3255 reasoning tokens, 16.3s, $0.0173 cumulative
+2026-07-11 23:30:16,800 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (12840 chars) for generate()
+2026-07-11 23:30:17,137 WARNING src.polaris_graph.llm.entailment_judge [entailment] provider-rotate on rate_limit_200: -> novita (ring pos 1, 2/4 hosts tried)
+2026-07-11 23:30:17,137 WARNING src.polaris_graph.llm.entailment_judge entailment judge retryable fault (attempt 1/6): rate_limit_200 — rate-limit backoff 15.0s.
+2026-07-11 23:30:18,392 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:18,437 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 643 chunks, content=1900 bytes (1900 chars), reasoning=1213 bytes (1213 chars), done=True, has_usage=True
+2026-07-11 23:30:18,438 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6144 in/643 out/307 reasoning tokens, 3.7s, $0.0101 cumulative
+2026-07-11 23:30:18,438 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1213 chars) for generate()
+2026-07-11 23:30:18,644 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:18,711 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:18,845 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 645 chunks, content=1755 bytes (1749 chars), reasoning=1532 bytes (1532 chars), done=True, has_usage=True
+2026-07-11 23:30:18,845 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6228 in/645 out/387 reasoning tokens, 4.3s, $0.0102 cumulative
+2026-07-11 23:30:18,845 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1532 chars) for generate()
+2026-07-11 23:30:19,046 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:19,293 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:20,387 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:21,268 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:21,786 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:23,121 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:24,165 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:24,737 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:28,047 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1408 chunks, content=3381 bytes (3381 chars), reasoning=2161 bytes (2161 chars), done=True, has_usage=True
+2026-07-11 23:30:28,049 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6570 in/1408 out/547 reasoning tokens, 6.8s, $0.0141 cumulative
+2026-07-11 23:30:28,049 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2161 chars) for generate()
+2026-07-11 23:30:28,050 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_017 (drafted 2)
+2026-07-11 23:30:28,679 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 814 chunks, content=1561 bytes (1561 chars), reasoning=2494 bytes (2494 chars), done=True, has_usage=True
+2026-07-11 23:30:28,680 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 7022 in/814 out/631 reasoning tokens, 4.5s, $0.0129 cumulative
+2026-07-11 23:30:28,680 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2494 chars) for generate()
+2026-07-11 23:30:28,680 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_000 (drafted 3)
+2026-07-11 23:30:29,879 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:30,726 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_077 (drafted 4)
+2026-07-11 23:30:31,086 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=acemoglu_restrepo_automation_tasks (drafted 5)
+2026-07-11 23:30:33,627 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:34,992 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 3559 chunks, content=1171 bytes (1171 chars), reasoning=12881 bytes (12851 chars), done=True, has_usage=True
+2026-07-11 23:30:34,993 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3136 in/3559 out/3253 reasoning tokens, 16.3s, $0.0187 cumulative
+2026-07-11 23:30:34,993 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (12851 chars) for generate()
+2026-07-11 23:30:35,326 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=autor_why_still_jobs (drafted 6)
+2026-07-11 23:30:36,116 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:48,272 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_205 (drafted 7)
+2026-07-11 23:30:51,101 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:30:51,405 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:53,611 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 448 chunks, content=1002 bytes (1002 chars), reasoning=1037 bytes (1037 chars), done=True, has_usage=True
+2026-07-11 23:30:53,612 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1607 in/448 out/263 reasoning tokens, 2.5s, $0.0029 cumulative
+2026-07-11 23:30:53,612 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1037 chars) for generate()
+2026-07-11 23:30:53,813 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:30:55,649 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=eloundou_gpts_are_gpts (drafted 8)
+2026-07-11 23:30:55,650 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=56.1s, retries_budget=1, wall_cap=520s, abandoned=0)
+2026-07-11 23:30:56,636 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:31:08,944 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:31:18,419 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:31:36,436 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:31:36,436 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:31:36,983 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:31:40,476 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 563 chunks, content=1937 bytes (1935 chars), reasoning=894 bytes (894 chars), done=True, has_usage=True
+2026-07-11 23:31:40,477 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6258 in/563 out/227 reasoning tokens, 4.0s, $0.0099 cumulative
+2026-07-11 23:31:40,477 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (894 chars) for generate()
+2026-07-11 23:31:40,944 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:31:43,691 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:31:54,847 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:32:00,753 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:32:17,794 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:32:17,794 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:32:18,301 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:32:29,187 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1846 chunks, content=2002 bytes (2000 chars), reasoning=6995 bytes (6985 chars), done=True, has_usage=True
+2026-07-11 23:32:29,187 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6258 in/1846 out/1763 reasoning tokens, 11.4s, $0.0156 cumulative
+2026-07-11 23:32:29,187 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (6985 chars) for generate()
+2026-07-11 23:32:29,490 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:32:32,693 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:32:44,635 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:32:48,591 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:32:54,246 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:32:57,144 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:33:04,381 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=2
+2026-07-11 23:33:06,756 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:33:11,856 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:33:20,947 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:33:24,761 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:33:41,453 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:33:41,453 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:33:41,913 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:33:45,192 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 694 chunks, content=1664 bytes (1664 chars), reasoning=1839 bytes (1839 chars), done=True, has_usage=True
+2026-07-11 23:33:45,192 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6185 in/694 out/466 reasoning tokens, 3.7s, $0.0104 cumulative
+2026-07-11 23:33:45,192 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1839 chars) for generate()
+2026-07-11 23:33:48,233 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:33:48,392 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:33:48,392 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:33:49,002 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:33:52,015 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 659 chunks, content=2175 bytes (2175 chars), reasoning=979 bytes (979 chars), done=True, has_usage=True
+2026-07-11 23:33:52,016 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6193 in/659 out/248 reasoning tokens, 3.6s, $0.0046 cumulative
+2026-07-11 23:33:52,016 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (979 chars) for generate()
+2026-07-11 23:33:53,390 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:02,667 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:04,507 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:23,446 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:25,451 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:30,568 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:31,279 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=2
+2026-07-11 23:34:33,076 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:35,975 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:37,441 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:40,779 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:34:40,780 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:34:41,043 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:44,442 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 574 chunks, content=1038 bytes (1038 chars), reasoning=1562 bytes (1562 chars), done=True, has_usage=True
+2026-07-11 23:34:44,443 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1974 in/574 out/396 reasoning tokens, 3.7s, $0.0040 cumulative
+2026-07-11 23:34:44,443 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1562 chars) for generate()
+2026-07-11 23:34:44,792 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:49,156 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:51,831 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:51,874 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:34:51,874 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:34:52,178 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:34:55,629 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 534 chunks, content=669 bytes (669 chars), reasoning=1820 bytes (1820 chars), done=True, has_usage=True
+2026-07-11 23:34:55,629 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1974 in/534 out/461 reasoning tokens, 3.8s, $0.0038 cumulative
+2026-07-11 23:34:55,629 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1820 chars) for generate()
+2026-07-11 23:34:56,809 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:09,652 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:10,192 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:35:10,192 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:35:10,756 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:15,597 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 995 chunks, content=1306 bytes (1306 chars), reasoning=3120 bytes (3120 chars), done=True, has_usage=True
+2026-07-11 23:35:15,598 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 7252 in/995 out/788 reasoning tokens, 5.4s, $0.0132 cumulative
+2026-07-11 23:35:15,598 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (3120 chars) for generate()
+2026-07-11 23:35:17,309 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:25,780 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:27,824 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:43,513 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:48,181 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:52,935 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:35:52,935 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:35:53,514 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:35:59,358 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1070 chunks, content=2211 bytes (2211 chars), reasoning=2542 bytes (2542 chars), done=True, has_usage=True
+2026-07-11 23:35:59,359 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 7256 in/1070 out/643 reasoning tokens, 6.4s, $0.0136 cumulative
+2026-07-11 23:35:59,359 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2542 chars) for generate()
+2026-07-11 23:36:01,565 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:06,370 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:11,619 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:14,074 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:18,845 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:21,337 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:31,764 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:36:32,270 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:33,233 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:36:33,233 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:36:33,790 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:41,005 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1739 chunks, content=3590 bytes (3588 chars), reasoning=2274 bytes (2274 chars), done=True, has_usage=True
+2026-07-11 23:36:41,005 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6914 in/1739 out/575 reasoning tokens, 7.8s, $0.0160 cumulative
+2026-07-11 23:36:41,006 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2274 chars) for generate()
+2026-07-11 23:36:43,506 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:52,020 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:36:54,995 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:01,775 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:04,558 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:18,484 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:21,874 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:30,612 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:33,710 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:38,462 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:37:38,462 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:37:38,986 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:54,397 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 3255 chunks, content=3580 bytes (3580 chars), reasoning=6960 bytes (6952 chars), done=True, has_usage=True
+2026-07-11 23:37:54,398 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 6994 in/3255 out/1753 reasoning tokens, 15.9s, $0.0228 cumulative
+2026-07-11 23:37:54,398 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (6952 chars) for generate()
+2026-07-11 23:37:56,532 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:37:58,480 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:38:04,720 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:38:08,470 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:38:17,156 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:38:19,652 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:38:25,162 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:38:27,364 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:38:33,968 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:38:44,851 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:00,552 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:01,417 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=2
+2026-07-11 23:39:06,059 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:08,650 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:09,706 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:10,900 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:11,619 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:13,882 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:15,485 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:16,749 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:19,206 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:21,738 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:23,489 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:27,955 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:28,800 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:39:28,800 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:39:29,074 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:35,454 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1200 chunks, content=1373 bytes (1373 chars), reasoning=4471 bytes (4471 chars), done=True, has_usage=True
+2026-07-11 23:39:35,455 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 2046 in/1200 out/1126 reasoning tokens, 6.7s, $0.0059 cumulative
+2026-07-11 23:39:35,455 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (4471 chars) for generate()
+2026-07-11 23:39:38,077 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:42,550 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:39:42,551 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:39:42,824 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:46,155 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 727 chunks, content=1598 bytes (1598 chars), reasoning=1564 bytes (1564 chars), done=True, has_usage=True
+2026-07-11 23:39:46,156 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 2042 in/727 out/397 reasoning tokens, 3.6s, $0.0047 cumulative
+2026-07-11 23:39:46,156 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1564 chars) for generate()
+2026-07-11 23:39:47,978 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:51,235 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:56,799 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:39:59,346 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:04,933 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:07,347 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:12,922 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:16,501 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:26,362 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:40:26,362 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:40:27,560 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:31,693 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 981 chunks, content=1689 bytes (1689 chars), reasoning=2047 bytes (2047 chars), done=True, has_usage=True
+2026-07-11 23:40:31,693 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 11364 in/981 out/517 reasoning tokens, 5.3s, $0.0189 cumulative
+2026-07-11 23:40:31,693 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2047 chars) for generate()
+2026-07-11 23:40:34,245 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:37,761 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:56,560 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:40:59,723 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:07,079 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:41:07,081 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:41:07,868 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:18,216 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 2533 chunks, content=1691 bytes (1691 chars), reasoning=6123 bytes (6121 chars), done=True, has_usage=True
+2026-07-11 23:41:18,217 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 11364 in/2533 out/1542 reasoning tokens, 11.1s, $0.0257 cumulative
+2026-07-11 23:41:18,217 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (6121 chars) for generate()
+2026-07-11 23:41:20,437 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:24,791 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:30,090 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:33,186 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:39,353 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:41,225 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:45,896 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:46,341 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=6
+2026-07-11 23:41:48,460 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:51,746 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:55,952 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:41:59,167 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:02,676 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:07,031 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:42:07,031 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:42:07,379 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:10,516 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 667 chunks, content=1364 bytes (1364 chars), reasoning=1588 bytes (1588 chars), done=True, has_usage=True
+2026-07-11 23:42:10,516 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3152 in/667 out/401 reasoning tokens, 3.5s, $0.0060 cumulative
+2026-07-11 23:42:10,516 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1588 chars) for generate()
+2026-07-11 23:42:12,560 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:17,012 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:42:17,013 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:42:17,349 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:22,293 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 944 chunks, content=1327 bytes (1327 chars), reasoning=2778 bytes (2760 chars), done=True, has_usage=True
+2026-07-11 23:42:22,293 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3168 in/944 out/704 reasoning tokens, 5.3s, $0.0073 cumulative
+2026-07-11 23:42:22,293 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2760 chars) for generate()
+2026-07-11 23:42:24,319 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:27,678 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:30,066 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:36,147 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:42:38,009 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:43:19,473 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:43:21,475 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:43:21,479 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:43:21,479 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:43:21,765 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:44:19,072 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 10330 chunks, content=3975 bytes (3975 chars), reasoning=37324 bytes (37242 chars), done=True, has_usage=True
+2026-07-11 23:44:19,073 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1415 in/10330 out/9416 reasoning tokens, 57.6s, $0.0474 cumulative
+2026-07-11 23:44:19,073 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (37242 chars) for generate()
+2026-07-11 23:44:20,091 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:44:32,103 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:44:35,627 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:44:44,913 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:44:48,155 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:44:55,046 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:44:56,771 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:02,074 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:06,812 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:13,356 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:13,487 INFO src.polaris_graph.generator.section_polish [section_polish] coherence rewrite resolved referents in 10 sentence(s)
+2026-07-11 23:45:13,487 INFO polaris_graph.multi_section [multi_section] Positive Views on Generative AI's Impact on Employment verified-compose PRIMARY: 8 baskets -> draft_chars=3928
+2026-07-11 23:45:13,830 INFO polaris_graph.multi_section [multi_section] B11 same-span dedup: collapsed 2 degenerate same-span restatement(s) in section "Positive Views on Generative AI's Impact on Employment" (11 -> 9 kept)
+[section 0] DONE 914s verified_chars=1758 sentences_verified=9 dropped=5 regen=False dropped_fail=False gap_stub=False error=''
+[section 0] OPENING: Autor argues that automation simultaneously substitutes for and complements labor, with productivity improvements in one set of tasks increasing the economic value of the remaining tasks that workers perform, a mechanism captured by the O-ring production function where making one link in a production chain more reliable raises the value of improving all other links.[1] In a study of generative AI adoption, the average user saved 5.4% of work hours, equivalent to 2.2 hours per week for a 40-hour 
+[section 1] START title="Negative Views on Generative AI's Impact on Employment" ev_ids=15
+2026-07-11 23:45:13,861 INFO src.polaris_graph.generator.verified_compose [activation] debate_con_basket_consolidation: consolidated=0
+2026-07-11 23:45:13,861 INFO src.polaris_graph.generator.abstractive_writer [activation] outline_echo: title="Negative Views on Generative AI's Impact on Employment" focus_len=181 q_len=2045
+2026-07-11 23:45:14,265 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:14,267 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:14,269 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:14,270 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:14,272 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:14,274 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:14,275 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:14,277 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:14,529 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:14,733 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:14,770 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:14,777 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:14,868 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:14,872 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:15,106 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:15,453 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:19,502 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 724 chunks, content=1165 bytes (1165 chars), reasoning=2459 bytes (2459 chars), done=True, has_usage=True
+2026-07-11 23:45:19,502 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1697 in/724 out/622 reasoning tokens, 5.2s, $0.0051 cumulative
+2026-07-11 23:45:19,502 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2459 chars) for generate()
+2026-07-11 23:45:19,505 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:19,542 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 814 chunks, content=1802 bytes (1802 chars), reasoning=1345 bytes (1325 chars), done=True, has_usage=True
+2026-07-11 23:45:19,542 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 5471 in/814 out/342 reasoning tokens, 5.3s, $0.0107 cumulative
+2026-07-11 23:45:19,542 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1325 chars) for generate()
+2026-07-11 23:45:19,728 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:20,249 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 381 chunks, content=1022 bytes (1022 chars), reasoning=935 bytes (935 chars), done=True, has_usage=True
+2026-07-11 23:45:20,249 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1351 in/381 out/236 reasoning tokens, 6.0s, $0.0031 cumulative
+2026-07-11 23:45:20,249 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (935 chars) for generate()
+2026-07-11 23:45:20,482 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:20,689 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:20,782 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 937 chunks, content=1734 bytes (1734 chars), reasoning=2724 bytes (2724 chars), done=True, has_usage=True
+2026-07-11 23:45:20,783 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3657 in/937 out/689 reasoning tokens, 6.5s, $0.0087 cumulative
+2026-07-11 23:45:20,783 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2724 chars) for generate()
+2026-07-11 23:45:20,785 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:21,272 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 517 chunks, content=1102 bytes (1102 chars), reasoning=1408 bytes (1408 chars), done=True, has_usage=True
+2026-07-11 23:45:21,273 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3209 in/517 out/357 reasoning tokens, 7.0s, $0.0063 cumulative
+2026-07-11 23:45:21,273 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1408 chars) for generate()
+2026-07-11 23:45:21,375 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:21,905 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 598 chunks, content=1057 bytes (1057 chars), reasoning=1465 bytes (1463 chars), done=True, has_usage=True
+2026-07-11 23:45:21,905 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1765 in/598 out/369 reasoning tokens, 7.6s, $0.0046 cumulative
+2026-07-11 23:45:21,905 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1463 chars) for generate()
+2026-07-11 23:45:23,221 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:23,544 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:23,754 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:23,838 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 940 chunks, content=2214 bytes (2209 chars), reasoning=2088 bytes (2083 chars), done=True, has_usage=True
+2026-07-11 23:45:23,839 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3280 in/940 out/528 reasoning tokens, 9.6s, $0.0082 cumulative
+2026-07-11 23:45:23,839 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2083 chars) for generate()
+2026-07-11 23:45:24,338 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:24,469 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:25,083 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:25,645 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 541 chunks, content=1591 bytes (1591 chars), reasoning=1121 bytes (1121 chars), done=True, has_usage=True
+2026-07-11 23:45:25,645 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1720 in/541 out/285 reasoning tokens, 6.1s, $0.0029 cumulative
+2026-07-11 23:45:25,645 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1121 chars) for generate()
+2026-07-11 23:45:25,646 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_057 (drafted 1)
+2026-07-11 23:45:25,775 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1273 chunks, content=2561 bytes (2551 chars), reasoning=2349 bytes (2338 chars), done=True, has_usage=True
+2026-07-11 23:45:25,775 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 8032 in/1273 out/594 reasoning tokens, 11.5s, $0.0163 cumulative
+2026-07-11 23:45:25,775 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2338 chars) for generate()
+2026-07-11 23:45:25,887 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 662 chunks, content=1780 bytes (1780 chars), reasoning=1398 bytes (1398 chars), done=True, has_usage=True
+2026-07-11 23:45:25,887 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3680 in/662 out/354 reasoning tokens, 5.1s, $0.0076 cumulative
+2026-07-11 23:45:25,887 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1398 chars) for generate()
+2026-07-11 23:45:25,888 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_133 (drafted 2)
+2026-07-11 23:45:26,041 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:26,056 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:26,386 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:26,428 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:27,812 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:28,933 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:29,910 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 511 chunks, content=874 bytes (874 chars), reasoning=1701 bytes (1697 chars), done=True, has_usage=True
+2026-07-11 23:45:29,910 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1378 in/511 out/431 reasoning tokens, 3.9s, $0.0029 cumulative
+2026-07-11 23:45:29,910 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1697 chars) for generate()
+2026-07-11 23:45:30,209 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:30,685 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:31,175 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:32,312 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:32,596 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 690 chunks, content=1758 bytes (1758 chars), reasoning=1209 bytes (1201 chars), done=True, has_usage=True
+2026-07-11 23:45:32,596 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 5498 in/690 out/307 reasoning tokens, 9.1s, $0.0094 cumulative
+2026-07-11 23:45:32,596 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1201 chars) for generate()
+2026-07-11 23:45:33,021 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 476 chunks, content=876 bytes (876 chars), reasoning=1095 bytes (1095 chars), done=True, has_usage=True
+2026-07-11 23:45:33,021 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1792 in/476 out/277 reasoning tokens, 4.1s, $0.0041 cumulative
+2026-07-11 23:45:33,021 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1095 chars) for generate()
+2026-07-11 23:45:33,240 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:33,888 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:34,078 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:45:34,525 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=acemoglu_restrepo_robots_jobs (drafted 3)
+2026-07-11 23:45:34,666 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:35,366 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1011 chunks, content=2574 bytes (2572 chars), reasoning=1937 bytes (1933 chars), done=True, has_usage=True
+2026-07-11 23:45:35,366 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3307 in/1011 out/490 reasoning tokens, 9.3s, $0.0078 cumulative
+2026-07-11 23:45:35,366 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1933 chars) for generate()
+2026-07-11 23:45:36,286 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 854 chunks, content=1471 bytes (1471 chars), reasoning=2599 bytes (2599 chars), done=True, has_usage=True
+2026-07-11 23:45:36,287 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3236 in/854 out/658 reasoning tokens, 5.6s, $0.0078 cumulative
+2026-07-11 23:45:36,287 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (2599 chars) for generate()
+2026-07-11 23:45:36,593 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:37,045 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:37,169 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:37,880 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:38,026 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_020 (drafted 4)
+2026-07-11 23:45:38,833 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_047 (drafted 5)
+2026-07-11 23:45:41,938 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_1176 (drafted 6)
+2026-07-11 23:45:43,735 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:48,045 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 2150 chunks, content=2581 bytes (2571 chars), reasoning=6061 bytes (6056 chars), done=True, has_usage=True
+2026-07-11 23:45:48,045 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 8059 in/2150 out/1529 reasoning tokens, 14.0s, $0.0194 cumulative
+2026-07-11 23:45:48,045 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (6056 chars) for generate()
+2026-07-11 23:45:50,488 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:45:51,812 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_1018 (drafted 7)
+2026-07-11 23:45:59,801 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:09,995 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:17,491 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:20,199 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] draft kept basket=ev_009 (drafted 8)
+2026-07-11 23:46:20,200 INFO src.polaris_graph.generator.abstractive_writer [abstractive_writer] pre-pass complete: 8/8 baskets drafted (model=z-ai/glm-5.2, elapsed=66.3s, retries_budget=1, wall_cap=520s, abandoned=0)
+2026-07-11 23:46:21,669 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:21,696 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:46:21,696 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:46:24,458 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:27,319 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 421 chunks, content=1068 bytes (1068 chars), reasoning=1047 bytes (1047 chars), done=True, has_usage=True
+2026-07-11 23:46:27,320 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1378 in/421 out/266 reasoning tokens, 5.6s, $0.0025 cumulative
+2026-07-11 23:46:27,320 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1047 chars) for generate()
+2026-07-11 23:46:28,388 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:34,288 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:36,787 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:37,703 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:46:37,703 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:46:37,983 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:39,920 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 216 chunks, content=746 bytes (746 chars), reasoning=353 bytes (353 chars), done=True, has_usage=True
+2026-07-11 23:46:39,921 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1378 in/216 out/89 reasoning tokens, 2.2s, $0.0024 cumulative
+2026-07-11 23:46:39,921 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (353 chars) for generate()
+2026-07-11 23:46:41,504 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:41,630 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=5
+2026-07-11 23:46:42,965 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:46,587 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:48,325 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:46:48,325 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:46:48,692 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:46:52,007 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 586 chunks, content=1261 bytes (1257 chars), reasoning=1570 bytes (1570 chars), done=True, has_usage=True
+2026-07-11 23:46:52,007 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3353 in/586 out/396 reasoning tokens, 3.7s, $0.0060 cumulative
+2026-07-11 23:46:52,007 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1570 chars) for generate()
+2026-07-11 23:46:52,671 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:47:00,044 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:47:01,553 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:47:01,553 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:47:01,994 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:48:05,237 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 7774 chunks, content=1133 bytes (1133 chars), reasoning=34530 bytes (34352 chars), done=True, has_usage=True
+2026-07-11 23:48:05,237 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3353 in/7774 out/8724 reasoning tokens, 63.7s, $0.0384 cumulative
+2026-07-11 23:48:05,237 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (34352 chars) for generate()
+2026-07-11 23:48:06,535 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:48:22,047 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:48:23,457 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:48:27,358 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:48:29,220 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:48:30,508 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:48:43,574 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:48:49,056 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:49:03,697 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:49:09,787 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:49:25,901 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:49:30,747 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:49:30,749 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:49:31,156 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:49:36,275 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 588 chunks, content=1383 bytes (1383 chars), reasoning=1161 bytes (1160 chars), done=True, has_usage=True
+2026-07-11 23:49:36,276 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3668 in/588 out/294 reasoning tokens, 5.5s, $0.0064 cumulative
+2026-07-11 23:49:36,276 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1160 chars) for generate()
+2026-07-11 23:49:38,429 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:49:47,751 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:49:49,533 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:49:59,991 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:50:00,628 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:50:00,628 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:50:01,142 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:50:09,179 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 825 chunks, content=1637 bytes (1637 chars), reasoning=1798 bytes (1795 chars), done=True, has_usage=True
+2026-07-11 23:50:09,180 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3627 in/825 out/457 reasoning tokens, 8.6s, $0.0074 cumulative
+2026-07-11 23:50:09,180 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1795 chars) for generate()
+2026-07-11 23:50:10,212 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:50:15,908 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:50:17,834 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:50:22,614 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:50:24,012 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:50:28,514 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:50:31,046 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=1
+2026-07-11 23:50:32,441 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:51:07,502 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:51:07,502 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:51:08,260 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:51:14,868 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 656 chunks, content=1607 bytes (1607 chars), reasoning=1620 bytes (1620 chars), done=True, has_usage=True
+2026-07-11 23:51:14,868 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1757 in/656 out/411 reasoning tokens, 7.4s, $0.0040 cumulative
+2026-07-11 23:51:14,869 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1620 chars) for generate()
+2026-07-11 23:51:15,121 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:51:19,457 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:51:19,457 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:51:20,204 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:51:24,136 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 628 chunks, content=1556 bytes (1556 chars), reasoning=1449 bytes (1449 chars), done=True, has_usage=True
+2026-07-11 23:51:24,136 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1732 in/628 out/366 reasoning tokens, 4.7s, $0.0033 cumulative
+2026-07-11 23:51:24,136 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1449 chars) for generate()
+2026-07-11 23:51:26,676 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:51:34,499 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:51:37,308 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:51:47,070 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:51:50,178 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:52:12,529 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:52:15,789 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:52:25,608 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:52:28,031 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:52:33,565 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:52:36,716 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:52:46,555 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:52:46,555 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:52:48,812 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:53:02,008 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1322 chunks, content=1604 bytes (1600 chars), reasoning=3357 bytes (3351 chars), done=True, has_usage=True
+2026-07-11 23:53:02,008 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 8521 in/1322 out/846 reasoning tokens, 15.5s, $0.0177 cumulative
+2026-07-11 23:53:02,009 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (3351 chars) for generate()
+2026-07-11 23:53:02,593 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:53:08,513 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:53:16,200 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:53:20,979 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:53:27,132 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:53:27,132 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:53:27,814 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:53:34,334 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 988 chunks, content=2087 bytes (2077 chars), reasoning=1479 bytes (1476 chars), done=True, has_usage=True
+2026-07-11 23:53:34,335 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 8521 in/988 out/374 reasoning tokens, 7.2s, $0.0163 cumulative
+2026-07-11 23:53:34,335 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1476 chars) for generate()
+2026-07-11 23:53:34,788 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:53:42,960 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:06,404 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:10,732 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:16,967 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:21,557 INFO src.polaris_graph.generator.verified_compose [activation] synth_primary: authored_prose kept=2
+2026-07-11 23:54:22,242 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:23,181 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:54:23,181 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:54:23,630 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:28,264 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 367 chunks, content=805 bytes (805 chars), reasoning=745 bytes (745 chars), done=True, has_usage=True
+2026-07-11 23:54:28,265 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 2180 in/367 out/189 reasoning tokens, 5.1s, $0.0034 cumulative
+2026-07-11 23:54:28,265 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (745 chars) for generate()
+2026-07-11 23:54:30,342 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:31,318 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:54:31,318 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:54:31,639 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:35,551 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 495 chunks, content=847 bytes (847 chars), reasoning=1253 bytes (1253 chars), done=True, has_usage=True
+2026-07-11 23:54:35,552 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 2188 in/495 out/317 reasoning tokens, 4.2s, $0.0039 cumulative
+2026-07-11 23:54:35,552 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (1253 chars) for generate()
+2026-07-11 23:54:37,941 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:55,506 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:54:58,032 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:55:02,188 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:55:02,188 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:55:02,766 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:55:19,305 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 1359 chunks, content=1961 bytes (1961 chars), reasoning=4414 bytes (4414 chars), done=True, has_usage=True
+2026-07-11 23:55:19,306 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3710 in/1359 out/1114 reasoning tokens, 17.1s, $0.0112 cumulative
+2026-07-11 23:55:19,306 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (4414 chars) for generate()
+2026-07-11 23:55:21,382 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:55:23,869 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:55:28,155 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:55:32,414 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:55:37,760 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:55:39,917 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:55:43,319 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:55:43,319 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:55:43,887 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:56:08,028 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 2247 chunks, content=1381 bytes (1381 chars), reasoning=8342 bytes (8342 chars), done=True, has_usage=True
+2026-07-11 23:56:08,029 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 3758 in/2247 out/2106 reasoning tokens, 24.7s, $0.0110 cumulative
+2026-07-11 23:56:08,029 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (8342 chars) for generate()
+2026-07-11 23:56:08,361 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:56:11,658 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:56:17,976 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:56:20,395 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:56:27,161 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:56:28,283 INFO src.polaris_graph.llm.openrouter_client OpenRouter client initialized: model=z-ai/glm-5.2, budget=$50.00
+2026-07-11 23:56:28,283 INFO polaris.providers.llm [llm_provider] Concurrency semaphore (re)initialized: max=16 loop=<_UnixSelectorEventLoop running=True closed=False debug=False>
+2026-07-11 23:56:35,069 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:57:08,944 INFO src.polaris_graph.llm.openrouter_client [polaris graph] SSE metrics: 5486 chunks, content=2953 bytes (2953 chars), reasoning=20881 bytes (20879 chars), done=True, has_usage=True
+2026-07-11 23:57:08,945 INFO src.polaris_graph.llm.openrouter_client [polaris graph] generate completed: 1106 in/5486 out/5266 reasoning tokens, 40.7s, $0.0257 cumulative
+2026-07-11 23:57:08,945 INFO src.polaris_graph.llm.openrouter_client [polaris graph] POOL-1: Reasoning logged (20879 chars) for generate()
+2026-07-11 23:57:12,350 INFO httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-11 23:57:39,115 INFO src.polaris_graph.generator.section_polish [section_polish] coherence rewrite resolved referents in 1 sentence(s)
+2026-07-11 23:57:39,115 INFO polaris_graph.multi_section [multi_section] Negative Views on Generative AI's Impact on Employment verified-compose PRIMARY: 8 baskets -> draft_chars=2953
+2026-07-11 23:57:39,254 INFO polaris_graph.multi_section [multi_section] B11 same-span dedup: collapsed 4 degenerate same-span restatement(s) in section "Negative Views on Generative AI's Impact on Employment" (9 -> 5 kept)
+[section 1] DONE 745s verified_chars=1318 sentences_verified=5 dropped=4 regen=False dropped_fail=False gap_stub=False error=''
+[section 1] OPENING: Most Americans expect generative artificial intelligence to exert a largely negative effect on employment over the coming two decades, according to a Pew Research Center poll that found widespread public concern about the technology's consequences for jobs and livelihoods.[1].[2][3] The ILO's global study reports that 5.5 percent of total employment in high-income countries is potentially exposed to automation effects from generative AI, compared with only 0.4 per cent in low-income countries, a
+[holistic] cross_section_repetition_guard = {"clusters": 0, "consolidated": 0}
+2026-07-11 23:57:39,285 INFO src.polaris_graph.generator.weighted_enrichment [activation] empty_bullet_drop: dropped=0
+[holistic] sanitize_rendered_report units_removed=0 pre_chars=3306 post_chars=3306
+[audit] source_shingles=570782 ngram=12
+[audit] sentences=14 with_citation=14 chrome=0 quote_dump=0
+[acceptance] acceptance=True reasons=[]
+
+[WROTE] /home/polaris/wt/compose_fix/.replay_ab_pverify/cp5_record.json bytes=12719 cp5_sha=eb04b3660d967c68 sections=2
+[RR] run complete wall=1661.0s stats={'judge_calls': 0, 'judge_miss': 0, 'judge_divergent_keys': 0, 'writer_calls': 0, 'writer_miss': 0, 'gen_calls': 0, 'gen_miss': 0, 'gen_divergent_keys': 8}
+[RR record] dumped judge_keys=222 writer_keys=54 gen_keys=56 divergent_judge_keys=0 divergent_gen_keys=8 -> /home/polaris/wt/compose_fix/.replay_ab_pverify/rr_store.pkl
+=== record rc=0 store=-rw-r--r-- 1 polaris polaris 174244 Jul 11 23:57 /home/polaris/wt/compose_fix/.replay_ab_pverify/rr_store.pkl ===

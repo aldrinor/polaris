@@ -148,9 +148,22 @@ def _judge_key(sentence, span) -> str:
     ).hexdigest()
 
 
+def _gen_key(model, prompt, system) -> str:
+    """Content key for a SECONDARY prose LLM boundary (OpenRouterClient.generate): the section-polish
+    coherence-rewrite, the qualifier synthesizer, and the semantic-dup check, plus sentence_repair.
+    These are NOT the abstractive writer / entailment judge (mocked separately), and BEFORE this shim
+    they were left UNMOCKED — so the 'zero-LLM' replay actually fired live glm-5.2 calls whose sampling
+    is non-deterministic, which is the true source of the assembled-report SHA bistable flip (NOT a
+    concurrent accumulator race). Keying on (model, system, prompt) content makes replay deterministic."""
+    return hashlib.sha256(
+        (str(model) + "\x00" + str(system) + "\x00" + str(prompt)).encode("utf-8", "surrogatepass")
+    ).hexdigest()
+
+
 _RR_LOCK = threading.Lock()
 _RR_STATS = {"judge_calls": 0, "judge_miss": 0, "judge_divergent_keys": 0,
-             "writer_calls": 0, "writer_miss": 0}
+             "writer_calls": 0, "writer_miss": 0,
+             "gen_calls": 0, "gen_miss": 0, "gen_divergent_keys": 0}
 
 
 def _install_record_replay():
@@ -160,12 +173,33 @@ def _install_record_replay():
     store_path = os.environ["HB_REPLAY_FILE"]
     from src.polaris_graph.llm import entailment_judge as ej
     from src.polaris_graph.generator import abstractive_writer as aw
+    from src.polaris_graph.llm.openrouter_client import OpenRouterClient as _ORC
+    from types import SimpleNamespace as _NS
 
     if mode == "record":
         judge_store: dict = {}
         writer_store: dict = {}
+        gen_store: dict = {}
         orig_judge = ej._EntailmentJudge.judge
         orig_writer = aw._call_writer
+        orig_gen = _ORC.generate
+
+        async def _rec_generate(self, prompt, system="", **kw):
+            r = await orig_gen(self, prompt, system=system, **kw)
+            k = _gen_key(getattr(self, "model", ""), prompt, system)
+            rec = {
+                "content": getattr(r, "content", "") or "",
+                "input_tokens": getattr(r, "input_tokens", 0),
+                "output_tokens": getattr(r, "output_tokens", 0),
+            }
+            with _RR_LOCK:
+                seq = gen_store.setdefault(k, [])
+                if seq and seq[0]["content"] != rec["content"]:
+                    _RR_STATS["gen_divergent_keys"] += 1
+                seq.append(rec)
+            return r
+
+        _ORC.generate = _rec_generate
 
         def _rec_judge(self, sentence, span):
             r = orig_judge(self, sentence, span)
@@ -191,10 +225,12 @@ def _install_record_replay():
 
         def _dump():
             with open(store_path, "wb") as f:
-                pickle.dump({"judge": judge_store, "writer": writer_store}, f)
+                pickle.dump({"judge": judge_store, "writer": writer_store,
+                             "generate": gen_store}, f)
             print(f"[RR record] dumped judge_keys={len(judge_store)} "
-                  f"writer_keys={len(writer_store)} divergent_judge_keys="
-                  f"{_RR_STATS['judge_divergent_keys']} -> {store_path}", flush=True)
+                  f"writer_keys={len(writer_store)} gen_keys={len(gen_store)} "
+                  f"divergent_judge_keys={_RR_STATS['judge_divergent_keys']} "
+                  f"divergent_gen_keys={_RR_STATS['gen_divergent_keys']} -> {store_path}", flush=True)
 
         atexit.register(_dump)
         print(f"[RR record] installed (real LLM) -> {store_path}", flush=True)
@@ -203,6 +239,20 @@ def _install_record_replay():
             data = pickle.load(f)
         judge_store = data["judge"]
         writer_store = data["writer"]
+        gen_store = data.get("generate", {})
+
+        async def _rep_generate(self, prompt, system="", **kw):
+            k = _gen_key(getattr(self, "model", ""), prompt, system)
+            with _RR_LOCK:
+                _RR_STATS["gen_calls"] += 1
+                seq = gen_store.get(k)
+                if not seq:
+                    _RR_STATS["gen_miss"] += 1
+            rec = seq[0] if seq else {"content": "", "input_tokens": 0, "output_tokens": 0}
+            return _NS(content=rec["content"], input_tokens=rec["input_tokens"],
+                       output_tokens=rec["output_tokens"])
+
+        _ORC.generate = _rep_generate
 
         def _rep_judge(self, sentence, span):
             k = _judge_key(sentence, span)
@@ -226,7 +276,7 @@ def _install_record_replay():
         ej._EntailmentJudge.judge = _rep_judge
         aw._call_writer = _rep_writer
         print(f"[RR replay] installed (ZERO LLM) judge_keys={len(judge_store)} "
-              f"writer_keys={len(writer_store)} from {store_path}", flush=True)
+              f"writer_keys={len(writer_store)} gen_keys={len(gen_store)} from {store_path}", flush=True)
 
 
 def _replay_main():
