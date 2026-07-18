@@ -66,3 +66,13 @@
 {"type":"result","key":"v2:4e0ec9b9a66a5bda161351069482ae1a5d8165c95a141db05db17a921d03501e","agentId":"a0b043b67e0e19d1c","result":"shard 31: 3 renames, 0 kept across 9 files"}
 {"type":"result","key":"v2:5ff462cdbcaab0297841aede23ff25ecae1dc6d41ed9be177b0b85f118670533","agentId":"a4a587941f5a8c048","result":"shard 33: 0 renames, 0 kept across 19 files"}
 {"type":"result","key":"v2:f7697c2b000d87f20057461a7510bb4b02a0f3b03dcb2c35646450b984ead7f2","agentId":"a211a34b789e0f0c1","result":"shard 32: 0 renames, 0 kept across 14 files"}
+{"type":"result","key":"v2:ed75ebc6b82e028dd734a85341882fc57a0dad02d8da1284ba4be8b0b4013a09","agentId":"ab183798e8981eb75","result":"shard 30: 0 renames, 0 kept across 12 files"}
+{"type":"result","key":"v2:a0fa011717f7efd83dcc8a3d02d1be34be7fb9498971de3aa9a7681f4ff8322b","agentId":"a6be5a46b35b75b70","result":"shard 34: 14 renames, 1 kept across 31 files"}
+{"type":"started","key":"v2:5f7fc8e12b1d971c66ab8653370ddd34c3700f1ec8194297c362ca3d4079ef98","agentId":"a72bcffddb5b79aca"}
+{"type":"started","key":"v2:ef23d04d03f9943ef3dcdf23558e21049af11857efe9b2c3815b0632adbcd8a9","agentId":"a83bb34e56c784220"}
+{"type":"started","key":"v2:caa7670d755fdd42a0a565fcec5fd5a43564fe349bcd702b52ed7ecc40f097c4","agentId":"a1527df432ef19096"}
+{"type":"started","key":"v2:40462d1ae04af497f76980585c6019926ed808dc95d76a21e1071da49f1ac2f8","agentId":"a084de87be5007889"}
+{"type":"started","key":"v2:ce7e874212a17e395efb81402d5cd553c7c0c19326e9965aabc056abeb76172b","agentId":"a41724215c039feab"}
+{"type":"result","key":"v2:ce7e874212a17e395efb81402d5cd553c7c0c19326e9965aabc056abeb76172b","agentId":"a41724215c039feab","result":"shard 39: 2 renames, 1 kept across 6 files"}
+{"type":"result","key":"v2:5f7fc8e12b1d971c66ab8653370ddd34c3700f1ec8194297c362ca3d4079ef98","agentId":"a72bcffddb5b79aca","result":"shard 35: 0 renames, 0 kept across 25 files"}
+{"type":"result","key":"v2:40462d1ae04af497f76980585c6019926ed808dc95d76a21e1071da49f1ac2f8","agentId":"a084de87be5007889","result":"shard 38: 0 renames, 0 kept across 9 files"}
