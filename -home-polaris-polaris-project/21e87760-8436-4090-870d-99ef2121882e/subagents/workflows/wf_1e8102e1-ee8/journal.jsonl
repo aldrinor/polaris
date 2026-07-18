@@ -106,3 +106,14 @@
 {"type":"result","key":"v2:0fa6589a1f9bc3d36291d2b974702bc65aa81a87f206d3a591e49b316fc71577","agentId":"adbad109ab18f9599","result":"shard 54: 0 renames, 0 kept across 5 files"}
 {"type":"result","key":"v2:6fc8da0e142992708f3ec4618cd6e9e4d96e01e984cc5604e86ee62388972fda","agentId":"af5d6b0ef453c35a8","result":"shard 50: 0 renames, 0 kept across 13 files"}
 {"type":"result","key":"v2:f368895d7adfb77241cb32adcefb9cf698fb39e6924337eadf25764ffbc021de","agentId":"a68b0adb45d852c1d","result":"shard 52: 0 renames, 0 kept across 8 files"}
+{"type":"result","key":"v2:3fcca8d689b7cb5a0b97b29cd686a582c6890c921aad96b71fa1bee71c81b4e3","agentId":"aaa6a3137d4a47e2e","result":"shard 53: 4 renames, 6 kept across 10 files"}
+{"type":"result","key":"v2:ad5f09083fb9efddb32cb06e7d82146f327715ebb9007d6f6929f02ca2efef44","agentId":"a1038687c9607745d","result":"shard 51: 1 renames, 0 kept across 9 files"}
+{"type":"started","key":"v2:8fe6d6bf7f21d7ba8cc6ef7aee2aa292d54e6154b666c1ef7fb68621b95d6121","agentId":"a730e450f57a2e510"}
+{"type":"started","key":"v2:d1d763f1916a01b6f70dfc9ba4efa964ad00f54899b26f67869d0c97d749e98a","agentId":"a41d55786f51a56e8"}
+{"type":"started","key":"v2:f7681b01c38c6e154049ca09c71f322fb3abb452277a956241e730f063b27deb","agentId":"a920ec28f76a1496a"}
+{"type":"started","key":"v2:9797f8ac53e39eaed5a28c1d83afc0452bbc2ac67e29866029663e57f1537f60","agentId":"aacfd810b60ea2d09"}
+{"type":"started","key":"v2:474befd7f85a5b78713328d13a5ddc31734bd4eb15866073dd940d60079bd773","agentId":"ab6960e4502a7a238"}
+{"type":"result","key":"v2:d1d763f1916a01b6f70dfc9ba4efa964ad00f54899b26f67869d0c97d749e98a","agentId":"a41d55786f51a56e8","result":"shard 56: 0 renames, 0 kept across 7 files"}
+{"type":"result","key":"v2:f7681b01c38c6e154049ca09c71f322fb3abb452277a956241e730f063b27deb","agentId":"a920ec28f76a1496a","result":"shard 57: 0 renames, 0 kept across 1 files"}
+{"type":"result","key":"v2:9797f8ac53e39eaed5a28c1d83afc0452bbc2ac67e29866029663e57f1537f60","agentId":"aacfd810b60ea2d09","result":"shard 58: 27 renames, 2 kept across 1 files"}
+{"type":"result","key":"v2:474befd7f85a5b78713328d13a5ddc31734bd4eb15866073dd940d60079bd773","agentId":"ab6960e4502a7a238","result":"shard 59: 0 renames, 0 kept across 16 files."}
