@@ -172,8 +172,15 @@ def _build_runs() -> tuple[RunSummary, ...]:
 #   - thread-safe.
 # The one intended change is *when* validation fires: at first registry access
 # rather than at import (that deferral is the entire point of this fix).
+#
+# Deliberate difference from the original: a failed build is cached and re-raised
+# for the life of the process (we do NOT retry on subsequent calls). The original
+# eager build raised at import, which — via sys.modules eviction — could be retried
+# by a later re-import; we intentionally do not, because the only failure cause here
+# (missing/malformed allowlist artifacts) does not change within a process, so a
+# retry would only repeat the filesystem work and the same error.
 _RUNS_CACHE: tuple[RunSummary, ...] | None = None
-_RUNS_ERROR: Exception | None = None
+_RUNS_ERROR: BaseException | None = None
 _RUNS_BUILT: bool = False
 _RUNS_LOCK = threading.Lock()
 

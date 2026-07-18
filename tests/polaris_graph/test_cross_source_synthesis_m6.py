@@ -58,11 +58,15 @@ _BANK = (
     _REPO / ".codex" / "I-deepfix-001" / "smoke_forensics" / "outputs"
     / "deepfix_safety_smoke" / "workforce" / "drb_72_ai_labor"
 )
-# Fall back to the absolute main-repo location (the worktree may not carry the smoke_forensics bank).
+# The smoke_forensics fixture bank is not carried in every worktree/CI checkout.
+# Skip cleanly when it's absent rather than erroring at collection (previously this
+# fell back to a hardcoded Windows path `C:/POLARIS/...` that FileNotFound'd on Linux/CI).
 if not _BANK.exists():
-    _BANK = Path(
-        "C:/POLARIS/.codex/I-deepfix-001/smoke_forensics/outputs/"
-        "deepfix_safety_smoke/workforce/drb_72_ai_labor"
+    import pytest
+
+    pytest.skip(
+        "cross-source synthesis fixture bank not present in this checkout",
+        allow_module_level=True,
     )
 
 
