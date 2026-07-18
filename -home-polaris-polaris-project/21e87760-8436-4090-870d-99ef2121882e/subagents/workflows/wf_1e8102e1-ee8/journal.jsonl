@@ -25,3 +25,23 @@
 {"type":"started","key":"v2:fd078485874f2be76f1885ba9c8379eeb59e60ebc95021c3bd58077b9db9a730","agentId":"a8a78d5d5d3d91eab"}
 {"type":"result","key":"v2:02db918df329067c776d1bd42fbbba8dacbcb62529779cb052124246828aaaa6","agentId":"adfa90fe46549080f","result":"shard 11: cached"}
 {"type":"result","key":"v2:fd078485874f2be76f1885ba9c8379eeb59e60ebc95021c3bd58077b9db9a730","agentId":"a8a78d5d5d3d91eab","result":"shard 14: 0 renames, 0 kept across 19 files"}
+{"type":"result","key":"v2:ea420a750860fc567337b0c40095147eb503de777a9ab0133b75bebd3b61b04d","agentId":"a0d1d94d83019b7b9","result":"shard 10: 0 renames, 22 kept across 22 files"}
+{"type":"result","key":"v2:13246158834032870ffe661dcb1dd43144715b90fa68eab7e6fe62eb561695a9","agentId":"a8a18f37e82a86358","result":"shard 13: 2 renames, 0 kept across 21 files"}
+{"type":"result","key":"v2:faba13bc64c2fdb0a824e3d9687dfbae55b06f83d7e1d5d7ce795dc16154e44b","agentId":"abb8ab74fd66c26c0","result":"shard 12: 4 renames, 2 kept across 7 files"}
+{"type":"started","key":"v2:0b8acb164360837688f98bd6c18fa28da12b4fa0b0cace4817ff5add23e311a0","agentId":"a9ecb73d6fe056456"}
+{"type":"started","key":"v2:9e2d99185780212c5b087255d2febcb429b25aa04794d6952c73ed79014dc0ef","agentId":"a9469d85f154c9e83"}
+{"type":"started","key":"v2:d0645a404c5a2f76c87e729478b74c2365276341252d66af18023befcaea8a42","agentId":"a210889ed1e3014df"}
+{"type":"started","key":"v2:04e18180ee782ad32d8fd345d0a701d4b70d36b408bedd82ebb80c058db11fb5","agentId":"a5ef36b2ad4639045"}
+{"type":"started","key":"v2:92399f65817ec0412e76a6270cef3dc72febe7d926abc64512d02cec495168cb","agentId":"a339e793d0d110d0a"}
+{"type":"result","key":"v2:92399f65817ec0412e76a6270cef3dc72febe7d926abc64512d02cec495168cb","agentId":"a339e793d0d110d0a","result":"shard 19: cached"}
+{"type":"result","key":"v2:9e2d99185780212c5b087255d2febcb429b25aa04794d6952c73ed79014dc0ef","agentId":"a9469d85f154c9e83","result":"shard 16: 1 renames, 0 kept across 6 files"}
+{"type":"result","key":"v2:0b8acb164360837688f98bd6c18fa28da12b4fa0b0cace4817ff5add23e311a0","agentId":"a9ecb73d6fe056456","result":"shard 15: 3 renames, 2 kept across 16 files"}
+{"type":"result","key":"v2:04e18180ee782ad32d8fd345d0a701d4b70d36b408bedd82ebb80c058db11fb5","agentId":"a5ef36b2ad4639045","result":"shard 18: 19 renames, 0 kept across 17 files"}
+{"type":"result","key":"v2:d0645a404c5a2f76c87e729478b74c2365276341252d66af18023befcaea8a42","agentId":"a210889ed1e3014df","result":"shard 17: 0 renames, 0 kept across 14 files"}
+{"type":"started","key":"v2:0aa239cd56d9211fddc30482d6504b7d45edfc6796ce79f60dd12bc42214048c","agentId":"ad811dad3161d78f4"}
+{"type":"started","key":"v2:21f5954e89a186728d287425bbc84602eb89cd8a0ff895259740be63aef110bd","agentId":"af71d78b08cc54c76"}
+{"type":"started","key":"v2:2105dd06d275ac7b7931c87e6d54aa957347a080c31d7aeebed1a3c1e3ffebb9","agentId":"a655eead45e78c1f8"}
+{"type":"started","key":"v2:362351653afe419e5815b599716dd8d9875ae4a68b30c40be9e832ad175f5290","agentId":"a68217295c5abb67d"}
+{"type":"started","key":"v2:ed45471838602690697e4714b078b1e8b47e98a22871b26da4ca0e71f97bb532","agentId":"a084e294762734185"}
+{"type":"result","key":"v2:21f5954e89a186728d287425bbc84602eb89cd8a0ff895259740be63aef110bd","agentId":"af71d78b08cc54c76","result":"shard 21: cached"}
+{"type":"result","key":"v2:2105dd06d275ac7b7931c87e6d54aa957347a080c31d7aeebed1a3c1e3ffebb9","agentId":"a655eead45e78c1f8","result":"shard 22: cached"}
