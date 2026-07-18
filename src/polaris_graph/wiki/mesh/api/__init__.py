@@ -1,1 +1,0 @@
-"""Mesh REST API package."""
