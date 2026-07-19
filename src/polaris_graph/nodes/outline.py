@@ -26,13 +26,14 @@ from src.polaris_graph.contracts_v3 import (
     Reflection,
     SubQuestion,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
-_MAX_GAP_SEARCHES = int(os.getenv("PG_V3_MAX_GAP_SEARCHES", "2"))
-_MIN_EVIDENCE_PER_SECTION = int(os.getenv("PG_V3_MIN_EVIDENCE_PER_SECTION", "3"))
-_MAX_OUTLINE_VERSIONS = int(os.getenv("PG_V3_MAX_OUTLINE_VERSIONS", "4"))
-_MIN_SECTIONS = int(os.getenv("PG_V3_MIN_SECTIONS", "6"))
+_MAX_GAP_SEARCHES = int(resolve("PG_V3_MAX_GAP_SEARCHES"))
+_MIN_EVIDENCE_PER_SECTION = int(resolve("PG_V3_MIN_EVIDENCE_PER_SECTION"))
+_MAX_OUTLINE_VERSIONS = int(resolve("PG_V3_MAX_OUTLINE_VERSIONS"))
+_MIN_SECTIONS = int(resolve("PG_V3_MIN_SECTIONS"))
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +100,7 @@ async def generate_outline(
                 schema=LiveOutline,
                 system=_OUTLINE_SYSTEM_PROMPT,
                 max_tokens=int(os.getenv("PG_V3_OUTLINE_MAX_TOKENS", "8192")),
-                timeout=int(os.getenv("PG_V3_OUTLINE_TIMEOUT", "180")),
+                timeout=int(resolve("PG_V3_OUTLINE_TIMEOUT")),
             )
             if outline and len(outline.sections) >= 1:
                 break
@@ -185,7 +186,7 @@ async def refine_outline(
             schema=LiveOutline,
             system=_OUTLINE_SYSTEM_PROMPT,
             max_tokens=int(os.getenv("PG_V3_OUTLINE_MAX_TOKENS", "8192")),
-            timeout=int(os.getenv("PG_V3_OUTLINE_TIMEOUT", "180")),
+            timeout=int(resolve("PG_V3_OUTLINE_TIMEOUT")),
         )
         if refined:
             refined.version = current_outline.version + 1

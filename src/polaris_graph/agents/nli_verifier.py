@@ -28,26 +28,27 @@ from typing import Any
 from src.polaris_graph.settings import get_model_settings
 
 import numpy as np
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # Model selection via env var
 # Wave 5: PG_NLI_MODEL=auto selects best model within VRAM constraints
 PG_NLI_MODEL = get_model_settings().nli_model  # was os.getenv("PG_NLI_MODEL", "flan-t5-large")
-PG_NLI_BATCH_SIZE = int(os.getenv("PG_NLI_BATCH_SIZE", "16"))
-PG_NLI_ENABLED = os.getenv("PG_NLI_ENABLED", "0") == "1"
+PG_NLI_BATCH_SIZE = int(resolve("PG_NLI_BATCH_SIZE"))
+PG_NLI_ENABLED = resolve("PG_NLI_ENABLED") == "1"
 # Wave 5: Lower dispute threshold → more claims get LLM second opinion
-PG_NLI_DISPUTE_THRESHOLD = float(os.getenv("PG_NLI_DISPUTE_THRESHOLD", "0.25"))
+PG_NLI_DISPUTE_THRESHOLD = float(resolve("PG_NLI_DISPUTE_THRESHOLD"))
 # Wave 5: Expanded context window for better surrounding evidence capture
-PG_NLI_CONTEXT_WINDOW = int(os.getenv("PG_NLI_CONTEXT_WINDOW", "3072"))
+PG_NLI_CONTEXT_WINDOW = int(resolve("PG_NLI_CONTEXT_WINDOW"))
 
 # D5-FIX: Domain-adaptive NLI threshold.
 # When the average NLI score across ALL claims is below this floor, the NLI
 # model cannot handle the domain (e.g., polymer chemistry, niche materials).
 # All claims are marked DISPUTED for LLM second opinion instead of blindly
 # marking them CONTRADICTS.
-PG_NLI_DOMAIN_ADAPTIVE = os.getenv("PG_NLI_DOMAIN_ADAPTIVE", "0") == "1"
-PG_NLI_DOMAIN_FLOOR = float(os.getenv("PG_NLI_DOMAIN_FLOOR", "0.10"))
+PG_NLI_DOMAIN_ADAPTIVE = resolve("PG_NLI_DOMAIN_ADAPTIVE") == "1"
+PG_NLI_DOMAIN_FLOOR = float(resolve("PG_NLI_DOMAIN_FLOOR"))
 
 # Wave 5: Analytical claim patterns — skip NLI, route to LLM second opinion.
 # These are synthesis claims, not factual assertions, so NLI will false-negative.
@@ -94,7 +95,7 @@ async def _load_faithlens():
                 # I-deepfix-001 P0-3 (LAW VI): launch-env device knob, default cuda:0
                 # so behavior is unchanged when unset. The deepfix static 2-card split
                 # can repin FaithLens (off the critical path) via PG_NLI_DEVICE.
-                device=os.getenv("PG_NLI_DEVICE", "cuda:0"),
+                device=resolve("PG_NLI_DEVICE"),
             )
             elapsed = time.time() - start
             logger.info(
@@ -334,11 +335,11 @@ def _statement_anchored_context(
 
 
 # FIX-048-K1: Cross-source verification config (LAW VI: from env vars)
-PG_CROSS_SOURCE_ENABLED = os.getenv("PG_CROSS_SOURCE_ENABLED", "1") == "1"
-PG_CROSS_SOURCE_MIN_SIM = float(os.getenv("PG_CROSS_SOURCE_MIN_SIM", "0.3"))
-PG_CROSS_SOURCE_MIN_NLI = float(os.getenv("PG_CROSS_SOURCE_MIN_NLI", "0.5"))
-PG_CROSS_SOURCE_MAX_SOURCES = int(os.getenv("PG_CROSS_SOURCE_MAX_SOURCES", "3"))
-PG_CROSS_SOURCE_SELF_CHECK_MIN = float(os.getenv("PG_CROSS_SOURCE_SELF_CHECK_MIN", "0.7"))
+PG_CROSS_SOURCE_ENABLED = resolve("PG_CROSS_SOURCE_ENABLED") == "1"
+PG_CROSS_SOURCE_MIN_SIM = float(resolve("PG_CROSS_SOURCE_MIN_SIM"))
+PG_CROSS_SOURCE_MIN_NLI = float(resolve("PG_CROSS_SOURCE_MIN_NLI"))
+PG_CROSS_SOURCE_MAX_SOURCES = int(resolve("PG_CROSS_SOURCE_MAX_SOURCES"))
+PG_CROSS_SOURCE_SELF_CHECK_MIN = float(resolve("PG_CROSS_SOURCE_SELF_CHECK_MIN"))
 # BUG-092: Cap cross-source NLI pairs to prevent O(n^2) explosion.
 # Selects top-N pairs by relevance score (embedding similarity) rather than
 # arbitrary truncation. W3.8: Raised 50→200 after audit showed typical pair

@@ -32,6 +32,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.fact_dedup")
 
@@ -395,7 +396,7 @@ def _consolidation_nli_enabled_factdedup() -> bool:
     PG_CONSOLIDATION_NLI_PROSE=0 restores the byte-identical legacy. Single source of truth for the
     master gate lives in ``consolidation_nli``; imported LAZILY so fact_dedup never pulls the
     cross-encoder when the sub-flag/master is off."""
-    if os.getenv("PG_CONSOLIDATION_NLI_PROSE", "1").strip().lower() in ("", "0", "false", "off", "no"):
+    if resolve("PG_CONSOLIDATION_NLI_PROSE").strip().lower() in ("", "0", "false", "off", "no"):
         return False
     from src.polaris_graph.synthesis.consolidation_nli import (  # noqa: PLC0415
         consolidation_nli_enabled,
@@ -914,7 +915,7 @@ _PROVENANCE_TOKEN_RE_FACTDEDUP = re.compile(
 
 def _carry_provenance_enabled() -> bool:
     """PG_FACT_DEDUP_CARRY_PROVENANCE gate (default ON)."""
-    return os.getenv("PG_FACT_DEDUP_CARRY_PROVENANCE", "1").strip().lower() not in (
+    return resolve("PG_FACT_DEDUP_CARRY_PROVENANCE").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 

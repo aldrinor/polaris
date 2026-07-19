@@ -31,6 +31,7 @@ from dotenv import load_dotenv
 
 from src.polaris_graph.retrieval.pooled_embedder import embed_with_pooling
 from src.polaris_graph.retrieval.source_registry import SourceRegistry
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 logger = logging.getLogger("polaris_graph")
@@ -45,34 +46,34 @@ class CRAGConfig:
     """Immutable configuration for the CRAG retriever."""
 
     # Chunking (L6)
-    chunk_size_tokens: int = int(os.getenv("PG_CRAG_CHUNK_SIZE", "1024"))
-    chunk_overlap_tokens: int = int(os.getenv("PG_CRAG_CHUNK_OVERLAP", "128"))
-    abstract_max_chars: int = int(os.getenv("PG_CRAG_ABSTRACT_MAX_CHARS", "500"))
+    chunk_size_tokens: int = int(resolve("PG_CRAG_CHUNK_SIZE"))
+    chunk_overlap_tokens: int = int(resolve("PG_CRAG_CHUNK_OVERLAP"))
+    abstract_max_chars: int = int(resolve("PG_CRAG_ABSTRACT_MAX_CHARS"))
 
     # Dedup (L7) — reuses existing MinHash infra
-    dedup_threshold: float = float(os.getenv("PG_CRAG_DEDUP_THRESHOLD", "0.85"))
-    dedup_num_hashes: int = int(os.getenv("PG_CRAG_DEDUP_HASHES", "128"))
-    dedup_shingle_size: int = int(os.getenv("PG_CRAG_DEDUP_SHINGLE", "3"))
+    dedup_threshold: float = float(resolve("PG_CRAG_DEDUP_THRESHOLD"))
+    dedup_num_hashes: int = int(resolve("PG_CRAG_DEDUP_HASHES"))
+    dedup_shingle_size: int = int(resolve("PG_CRAG_DEDUP_SHINGLE"))
 
     # Embedding scoring
-    gold_threshold: float = float(os.getenv("PG_CRAG_GOLD_THRESHOLD", "0.55"))
-    silver_threshold: float = float(os.getenv("PG_CRAG_SILVER_THRESHOLD", "0.35"))
-    min_relevance: float = float(os.getenv("PG_CRAG_MIN_RELEVANCE", "0.20"))
+    gold_threshold: float = float(resolve("PG_CRAG_GOLD_THRESHOLD"))
+    silver_threshold: float = float(resolve("PG_CRAG_SILVER_THRESHOLD"))
+    min_relevance: float = float(resolve("PG_CRAG_MIN_RELEVANCE"))
 
     # CRAG gate thresholds (Yan et al. 2024)
-    correct_threshold: float = float(os.getenv("PG_CRAG_CORRECT_THRESHOLD", "0.50"))
-    incorrect_threshold: float = float(os.getenv("PG_CRAG_INCORRECT_THRESHOLD", "0.25"))
+    correct_threshold: float = float(resolve("PG_CRAG_CORRECT_THRESHOLD"))
+    incorrect_threshold: float = float(resolve("PG_CRAG_INCORRECT_THRESHOLD"))
 
     # Capacity
-    max_evidence: int = int(os.getenv("PG_CRAG_MAX_EVIDENCE", "200"))
-    max_chunks_per_doc: int = int(os.getenv("PG_CRAG_MAX_CHUNKS_PER_DOC", "30"))
-    min_chunk_chars: int = int(os.getenv("PG_CRAG_MIN_CHUNK_CHARS", "100"))
+    max_evidence: int = int(resolve("PG_CRAG_MAX_EVIDENCE"))
+    max_chunks_per_doc: int = int(resolve("PG_CRAG_MAX_CHUNKS_PER_DOC"))
+    min_chunk_chars: int = int(resolve("PG_CRAG_MIN_CHUNK_CHARS"))
 
     # Fix #3 (Table Bomb): max chars for a single table before row-splitting
-    max_table_chars: int = int(os.getenv("PG_CRAG_MAX_TABLE_CHARS", "4000"))
+    max_table_chars: int = int(resolve("PG_CRAG_MAX_TABLE_CHARS"))
 
     # Fix #4 (Paywall Poison): min chars for fetched content to be usable
-    paywall_min_chars: int = int(os.getenv("PG_CRAG_PAYWALL_MIN_CHARS", "1000"))
+    paywall_min_chars: int = int(resolve("PG_CRAG_PAYWALL_MIN_CHARS"))
 
 
 # ---------------------------------------------------------------------------

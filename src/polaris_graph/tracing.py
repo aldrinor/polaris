@@ -19,10 +19,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
-PG_TRACING_ENABLED = os.getenv("PG_TRACING_ENABLED", "1") == "1"
+PG_TRACING_ENABLED = resolve("PG_TRACING_ENABLED") == "1"
 
 # Thread-safe vector_id propagation
 _current_vector_id: ContextVar[str] = ContextVar("pg_vector_id", default="unknown")
