@@ -1,3 +1,5 @@
 {"type":"started","key":"v2:274f04e234383f4ef5bafa67470a3b4257de6709a939d35c014c55368a22d981","agentId":"a37806c67d2fdb3ad"}
 {"type":"result","key":"v2:274f04e234383f4ef5bafa67470a3b4257de6709a939d35c014c55368a22d981","agentId":"a37806c67d2fdb3ad","result":{"danglings_fixed":2,"dangling_method":"delete-scripts","lethal_renamed":true,"lethal_new_name":"high_recall_retrieve","collection_after":"16738 collected, 11 errors (unchanged from baseline; all 11 are pre-existing missing-module import errors unrelated to this change)"}}
 {"type":"started","key":"v2:4aded1a6563346ec584996961ea8a71a326fa440e3d1c5f5dbd8ecf2a512bf9b","agentId":"a1a72c5eba509ef72"}
+{"type":"result","key":"v2:4aded1a6563346ec584996961ea8a71a326fa440e3d1c5f5dbd8ecf2a512bf9b","agentId":"a1a72c5eba509ef72","result":{"collection_ok":true,"oracle_matches":true,"oracle_sha":"9c0a3d438da943242c98e2fe714494c342d42d02102202d75a61a4554339db98","no_danglings":true,"lethal_old_ref_resolves":true}}
+{"type":"started","key":"v2:42c7e955ab25ab78486a2a5c4a54076c6834db87a393bb2b75fdf336b6d656c9","agentId":"a8e0f70cbb387e49f"}
