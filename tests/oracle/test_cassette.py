@@ -96,6 +96,25 @@ def test_tampered_request_field_detected_on_load(tmp_path):
         Cassette(tape, "replay")
 
 
+def test_replay_is_exactly_once(tmp_path):
+    tape = tmp_path / "t.jsonl"
+    with Cassette(tape, "record") as c:
+        c.call("llm", {"p": "x"}, _fake(["X"]), call_id="a")
+    c = Cassette(tape, "replay")
+    assert c.call("llm", {"p": "x"}, _fake([]), call_id="a") == "X"
+    with pytest.raises(CassetteError, match="REUSE"):  # a 2nd identical call = an extra request
+        c.call("llm", {"p": "x"}, _fake([]), call_id="a")
+
+
+def test_finalize_is_terminal(tmp_path):
+    tape = tmp_path / "t.jsonl"
+    c = Cassette(tape, "record")
+    c.call("llm", {"p": "x"}, _fake(["X"]), call_id="a")
+    c.finalize()
+    with pytest.raises(CassetteError, match="finalized"):
+        c.call("llm", {"p": "y"}, _fake(["Y"]), call_id="b")
+
+
 def test_missing_cassette_is_an_error(tmp_path):
     with pytest.raises(CassetteError, match="not found"):
         Cassette(tmp_path / "nope.jsonl", "replay")
