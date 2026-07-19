@@ -1,0 +1,621 @@
+.codex/I-anti-002/codex_brief_verdict.txt:3275:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_brief_verdict.txt:3797:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_diff_audit.txt:711:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_diff_audit.txt:1509:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_diff_audit.txt:10164:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_diff_audit.txt:10686:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_diff_audit.txt:13715:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_diff_audit.txt:14513:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_diff_audit.txt:23168:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-anti-002/codex_diff_audit.txt:23690:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-arch-001a/codex_diff_audit.txt:12450:tests\unit\test_mesh_lethal_retrieve.py:446:    def test_partial_overlap(self, store, workspace_id, source_web):
+.codex/I-arch-001b/codex_brief_verdict.txt:274:.\tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-arch-001b/codex_brief_verdict.txt:941:.\tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-arch-001b/codex_brief_verdict.txt:8722:.\tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-arch-001b/codex_brief_verdict.txt:9389:.\tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-arch-001b/codex_diff_audit.txt:2494:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-arch-001b/codex_diff_audit.txt:2495:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-arch-001b/codex_diff_audit.txt:2496:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-arch-001b/codex_diff_audit.txt:2497:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-arch-001b/codex_diff_audit.txt:2603:scripts\pg_mesh_preflight.py:28:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-arch-001b/codex_diff_audit.txt:3453:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-anti-004/codex_brief_verdict.txt:2081:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-bench-002/codex_brief_verdict.txt:245:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-bench-002/codex_brief_verdict.txt:406:tests\unit\__pycache__\test_mesh_lethal_retrieve.cpython-313-pytest-8.4.1.pyc
+.codex/I-bench-002/codex_brief_verdict.txt:875:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-bench-002/codex_brief_verdict.txt:1724:tests\unit\__pycache__\test_mesh_lethal_retrieve.cpython-313-pytest-8.4.1.pyc
+.codex/I-audit-001/codex_diff_audit.txt:4758:tests\unit\test_mesh_lethal_retrieve.py:29:import numpy as np
+.codex/I-bug-100/codex_diff_audit.txt:2258:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-bug-100/codex_diff_audit.txt:2259:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-bug-100/codex_diff_audit.txt:2260:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-bug-100/codex_diff_audit.txt:2261:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-bug-100/codex_diff_audit.txt:2810:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-bug-100/codex_diff_audit.txt:3775:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-bug-100/codex_diff_audit.txt:3776:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-bug-100/codex_diff_audit.txt:3777:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-bug-100/codex_diff_audit.txt:3778:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5835:tests\unit\test_mesh_lethal_retrieve.py:169:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5836:tests\unit\test_mesh_lethal_retrieve.py:192:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5837:tests\unit\test_mesh_lethal_retrieve.py:225:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5838:tests\unit\test_mesh_lethal_retrieve.py:235:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5839:tests\unit\test_mesh_lethal_retrieve.py:266:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5840:tests\unit\test_mesh_lethal_retrieve.py:275:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5841:tests\unit\test_mesh_lethal_retrieve.py:308:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5842:tests\unit\test_mesh_lethal_retrieve.py:317:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5843:tests\unit\test_mesh_lethal_retrieve.py:344:                char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5844:tests\unit\test_mesh_lethal_retrieve.py:429:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5845:tests\unit\test_mesh_lethal_retrieve.py:452:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5846:tests\unit\test_mesh_lethal_retrieve.py:483:            char_start=0, char_end=4,
+.codex/I-cap-002-nli/codex_brief_stderr.txt:5847:tests\unit\test_mesh_lethal_retrieve.py:498:            char_start=0, char_end=4,
+.codex/I-bug-771/mdpi_reconcile.err:2481:.\tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-bug-101/codex_diff_audit.txt:4421:tests\unit\test_mesh_lethal_retrieve.py:74:def tmp_db(tmp_path: Path) -> Path:
+.codex/I-bug-101/codex_diff_audit.txt:4422:tests\unit\test_mesh_lethal_retrieve.py:75:    return tmp_path / "mesh_retrieve.db"
+.codex/I-cap-002-depth/codex_diff_stderr.txt:7557:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-cap-002-depth/codex_diff_stderr.txt:7558:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-cap-002-depth/codex_diff_stderr.txt:7559:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-cap-002-depth/codex_diff_stderr.txt:7560:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-cap-002-depth/codex_diff_stderr.txt:8962:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-cap-002-depth/codex_diff_stderr.txt:9063:scripts\pg_mesh_preflight.py:28:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-carney-001/codex_brief_v2_verdict_iter_4.txt:2558:tests\unit\test_mesh_lethal_retrieve.py:446:    def test_partial_overlap(self, store, workspace_id, source_web):
+.codex/I-carney-001/codex_brief_v2_verdict_iter_4.txt:6028:.\outputs\codex_findings\deep_dive_round_4\stderr.log:2199:tests\unit\test_mesh_lethal_retrieve.py:446:    def test_partial_overlap(self, store, workspace_id, source_web):
+.codex/I-carney-001/codex_brief_v2_verdict_iter_1.txt:2064:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-carney-001/codex_brief_v2_verdict_iter_3.txt:3300:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5404:tests\unit\test_mesh_lethal_retrieve.py:170:            tier="GOLD", relevance_score=0.9,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5405:tests\unit\test_mesh_lethal_retrieve.py:193:            tier="BRONZE", relevance_score=0.3,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5406:tests\unit\test_mesh_lethal_retrieve.py:226:            tier="GOLD", relevance_score=0.9,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5407:tests\unit\test_mesh_lethal_retrieve.py:236:            tier="GOLD", relevance_score=0.85,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5408:tests\unit\test_mesh_lethal_retrieve.py:267:            tier="GOLD", relevance_score=0.9,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5409:tests\unit\test_mesh_lethal_retrieve.py:276:            tier="GOLD", relevance_score=0.85,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5410:tests\unit\test_mesh_lethal_retrieve.py:309:            tier="GOLD", relevance_score=0.9,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5411:tests\unit\test_mesh_lethal_retrieve.py:318:            tier="GOLD", relevance_score=0.9,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5412:tests\unit\test_mesh_lethal_retrieve.py:345:                tier="GOLD", relevance_score=0.9,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5413:tests\unit\test_mesh_lethal_retrieve.py:430:            tier="GOLD", relevance_score=0.9,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5414:tests\unit\test_mesh_lethal_retrieve.py:453:            tier="GOLD", relevance_score=0.9,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5415:tests\unit\test_mesh_lethal_retrieve.py:484:            tier="SILVER", relevance_score=0.6,
+.codex/I-cred-012a/codex_brief_verdict.stderr.txt:5416:tests\unit\test_mesh_lethal_retrieve.py:499:            tier="GOLD", relevance_score=0.9,
+.codex/I-decompose-001/codex_diff_audit.txt:403:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-decompose-001/codex_diff_audit.txt:1262:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-decompose-001/codex_diff_audit.txt:2882:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-decompose-001/codex_diff_audit.txt:2883:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-decompose-001/codex_diff_audit.txt:2884:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-decompose-001/codex_diff_audit.txt:2885:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-decompose-001/codex_diff_audit.txt:2916:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-cj-004/codex_brief_verdict.txt:285:tests\unit\test_mesh_lethal_retrieve.py:52:    arr = np.zeros(dim, dtype=np.float32)
+.codex/I-cj-004/codex_brief_verdict.txt:286:tests\unit\test_mesh_lethal_retrieve.py:60:    arr = np.zeros(dim, dtype=np.float32)
+.codex/I-cj-004/codex_brief_verdict.txt:287:tests\unit\test_mesh_lethal_retrieve.py:66:    arr = np.zeros(dim, dtype=np.float32)
+.codex/I-cj-004/codex_brief_verdict.txt:288:tests\unit\test_mesh_lethal_retrieve.py:141:    def test_zero_distance(self):
+.codex/I-cj-004/codex_brief_verdict.txt:289:tests\unit\test_mesh_lethal_retrieve.py:477:    def test_no_entities_returns_zero(self, store, workspace_id, source_web):
+.codex/I-cj-004/codex_brief_verdict.txt:290:tests\unit\test_mesh_lethal_retrieve.py:490:    def test_empty_question_entities_returns_zero(
+.codex/I-cred-004b/codex_brief_verdict.stderr.txt:4596:.\tests\unit\test_mesh_lethal_retrieve.py:100:        sig_authority=0.95,
+.codex/I-cred-004b/codex_brief_verdict.stderr.txt:4597:.\tests\unit\test_mesh_lethal_retrieve.py:113:        sig_authority=0.5,
+.codex/I-cred-002/codex_diff_audit.stderr.txt:2746:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-cred-002/codex_diff_audit.stderr.txt:4251:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-cred-002/codex_diff_audit.stderr.txt:4252:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-cred-002/codex_diff_audit.stderr.txt:4253:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-cred-002/codex_diff_audit.stderr.txt:4254:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-carney-001/codex_brief_v2_verdict_iter_5.txt:1188:tests\unit\test_mesh_lethal_retrieve.py:363:    def test_in_scope(self):
+.codex/I-carney-001/codex_brief_v2_verdict_iter_5.txt:6707:scripts\pg_mesh_preflight.py:164:        retrieval = lethal_retrieve(
+.codex/I-carney-001/codex_brief_v2_verdict_iter_5.txt:11472:tests\integration\test_mesh_e2e.py:185:            retrieval = lethal_retrieve(
+.codex/I-carney-001/codex_brief_v2_verdict_iter_5.txt:12512:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-carney-001/codex_brief_v2_verdict_iter_5.txt:12513:tests\unit\test_mesh_lethal_retrieve.py:4:Tests each retrieval stage individually and the composite algorithm:
+.codex/I-cd-034/diff_iter2_output.txt:2054:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-cd-034/diff_iter2_output.txt:8883:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-ecg-001/codex_diff_audit.txt:722:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-ecg-001/codex_diff_audit.txt:1462:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-cred-012/codex_brief_verdict.stderr.txt:5843:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-002/codex_brief_audit_iter3.txt:393:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-002/codex_brief_audit_iter3.txt:935:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-002/codex_brief_audit_iter3.txt:936:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3421:.\tests\unit\test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3422:.\tests\unit\test_mesh_lethal_retrieve.py:30:import pytest
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3423:.\tests\unit\test_mesh_lethal_retrieve.py:73:@pytest.fixture
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3424:.\tests\unit\test_mesh_lethal_retrieve.py:78:@pytest.fixture
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3425:.\tests\unit\test_mesh_lethal_retrieve.py:85:@pytest.fixture
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3426:.\tests\unit\test_mesh_lethal_retrieve.py:93:@pytest.fixture
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3427:.\tests\unit\test_mesh_lethal_retrieve.py:106:@pytest.fixture
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3428:.\tests\unit\test_mesh_lethal_retrieve.py:206:        with pytest.raises(MeshStoreError, match="Workspace not found"):
+.codex/I-f3-002/codex_brief_audit_iter3.txt:3429:.\tests\unit\test_mesh_lethal_retrieve.py:475:        assert frac == pytest.approx(0.5)
+.codex/I-f11-001/codex_brief_verdict.txt:1662:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f1-006/codex_brief_verdict.txt:449:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f1-006/codex_brief_verdict.txt:1112:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-010/codex_brief_audit_iter1.txt:893:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-010/codex_brief_audit_iter1.txt:894:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-cj-003/codex_brief_verdict.txt:1307:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-cj-003/codex_brief_verdict.txt:1497:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-cj-003/codex_brief_verdict.txt:1498:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-cj-003/codex_brief_verdict.txt:1499:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-cj-003/codex_brief_verdict.txt:1500:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-f12-002/codex_brief_verdict.txt:3641:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f12-003/codex_brief_verdict.txt:1889:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f10-003/codex_diff_audit.txt:2135:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f10-005/codex_brief_verdict.txt:428:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f10-005/codex_brief_verdict.txt:1168:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-009/codex_diff_audit.txt:284:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-009/codex_diff_audit.txt:285:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f3-009/codex_diff_audit.txt:286:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-f3-009/codex_diff_audit.txt:546:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-009/codex_diff_audit.txt:547:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f3-009/codex_diff_audit.txt:548:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-f3-009/codex_diff_audit.txt:877:tests\unit\test_mesh_lethal_retrieve.py:73:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:878:tests\unit\test_mesh_lethal_retrieve.py:78:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:879:tests\unit\test_mesh_lethal_retrieve.py:85:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:880:tests\unit\test_mesh_lethal_retrieve.py:93:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:881:tests\unit\test_mesh_lethal_retrieve.py:106:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:1122:tests\unit\test_mesh_lethal_retrieve.py:73:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:1123:tests\unit\test_mesh_lethal_retrieve.py:78:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:1124:tests\unit\test_mesh_lethal_retrieve.py:85:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:1125:tests\unit\test_mesh_lethal_retrieve.py:93:@pytest.fixture
+.codex/I-f3-009/codex_diff_audit.txt:1126:tests\unit\test_mesh_lethal_retrieve.py:106:@pytest.fixture
+.codex/I-f3-010/codex_brief_verdict.txt:1125:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-010/codex_brief_verdict.txt:1126:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f8-005/codex_brief_verdict.txt:957:tests\unit\test_mesh_lethal_retrieve.py:8:  - Stage 4: contradiction surface
+.codex/I-f8-005/codex_brief_verdict.txt:958:tests\unit\test_mesh_lethal_retrieve.py:258:    def test_contradiction_surface_includes_contradicting_claim(
+.codex/I-f2-002/codex_diff_audit.txt:3891:.\tests\unit\test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+.codex/I-f2-002/codex_diff_audit.txt:3892:.\tests\unit\test_mesh_lethal_retrieve.py:30:import pytest
+.codex/I-f2-002/codex_diff_audit.txt:3893:.\tests\unit\test_mesh_lethal_retrieve.py:73:@pytest.fixture
+.codex/I-f2-002/codex_diff_audit.txt:3894:.\tests\unit\test_mesh_lethal_retrieve.py:78:@pytest.fixture
+.codex/I-f2-002/codex_diff_audit.txt:3895:.\tests\unit\test_mesh_lethal_retrieve.py:85:@pytest.fixture
+.codex/I-f2-002/codex_diff_audit.txt:3896:.\tests\unit\test_mesh_lethal_retrieve.py:93:@pytest.fixture
+.codex/I-f2-002/codex_diff_audit.txt:3897:.\tests\unit\test_mesh_lethal_retrieve.py:106:@pytest.fixture
+.codex/I-f2-002/codex_diff_audit.txt:3898:.\tests\unit\test_mesh_lethal_retrieve.py:206:        with pytest.raises(MeshStoreError, match="Workspace not found"):
+.codex/I-f2-002/codex_diff_audit.txt:3899:.\tests\unit\test_mesh_lethal_retrieve.py:475:        assert frac == pytest.approx(0.5)
+.codex/I-f11-003/codex_brief_verdict.txt:1836:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-cj-001/codex_diff_audit.txt:501:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-cj-001/codex_diff_audit.txt:948:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-cj-001/codex_diff_audit.txt:949:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-cj-001/codex_diff_audit.txt:950:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-cj-001/codex_diff_audit.txt:951:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-cj-006/codex_brief_verdict.txt:272:tests\unit\test_mesh_lethal_retrieve.py:12:  - NEARBY budget: FIX S6 daily counter
+.codex/I-cj-006/codex_brief_verdict.txt:273:tests\unit\test_mesh_lethal_retrieve.py:35:    check_nearby_budget,
+.codex/I-cj-006/codex_brief_verdict.txt:274:tests\unit\test_mesh_lethal_retrieve.py:37:    increment_nearby_budget,
+.codex/I-cj-006/codex_brief_verdict.txt:275:tests\unit\test_mesh_lethal_retrieve.py:401:    def test_fresh_workspace_has_budget(self, store, workspace_id):
+.codex/I-cj-006/codex_brief_verdict.txt:276:tests\unit\test_mesh_lethal_retrieve.py:402:        assert check_nearby_budget(store, workspace_id) is True
+.codex/I-cj-006/codex_brief_verdict.txt:277:tests\unit\test_mesh_lethal_retrieve.py:404:    def test_budget_depletes(self, store, workspace_id):
+.codex/I-cj-006/codex_brief_verdict.txt:278:tests\unit\test_mesh_lethal_retrieve.py:405:        # Set budget to 3 for easy testing
+.codex/I-cj-006/codex_brief_verdict.txt:279:tests\unit\test_mesh_lethal_retrieve.py:407:            "UPDATE workspaces SET nearby_expansion_budget_daily = 3 WHERE id = ?",
+.codex/I-cj-006/codex_brief_verdict.txt:280:tests\unit\test_mesh_lethal_retrieve.py:411:        check_nearby_budget(store, workspace_id)
+.codex/I-cj-006/codex_brief_verdict.txt:281:tests\unit\test_mesh_lethal_retrieve.py:413:            increment_nearby_budget(store, workspace_id)
+.codex/I-cj-006/codex_brief_verdict.txt:282:tests\unit\test_mesh_lethal_retrieve.py:414:        assert check_nearby_budget(store, workspace_id) is False
+.codex/I-cj-006/codex_brief_verdict.txt:283:tests\unit\test_mesh_lethal_retrieve.py:417:        assert check_nearby_budget(store, "ws_fake") is False
+.codex/I-cj-006/codex_brief_verdict.txt:429:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-cj-006/codex_brief_verdict.txt:693:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-cj-006/codex_brief_verdict.txt:694:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-cj-006/codex_brief_verdict.txt:695:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-cj-006/codex_brief_verdict.txt:696:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-cj-006/codex_brief_verdict.txt:799:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-cj-006/codex_brief_verdict.txt:2088:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-cj-006/codex_brief_verdict.txt:2089:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-cj-006/codex_brief_verdict.txt:2090:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-cj-006/codex_brief_verdict.txt:2091:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-f3-003/codex_brief_verdict.txt:6027:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-003/codex_brief_verdict.txt:6569:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-003/codex_brief_verdict.txt:6570:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f3-003/codex_brief_verdict.txt:9055:.\tests\unit\test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+.codex/I-f3-003/codex_brief_verdict.txt:9056:.\tests\unit\test_mesh_lethal_retrieve.py:30:import pytest
+.codex/I-f3-003/codex_brief_verdict.txt:9057:.\tests\unit\test_mesh_lethal_retrieve.py:73:@pytest.fixture
+.codex/I-f3-003/codex_brief_verdict.txt:9058:.\tests\unit\test_mesh_lethal_retrieve.py:78:@pytest.fixture
+.codex/I-f3-003/codex_brief_verdict.txt:9059:.\tests\unit\test_mesh_lethal_retrieve.py:85:@pytest.fixture
+.codex/I-f3-003/codex_brief_verdict.txt:9060:.\tests\unit\test_mesh_lethal_retrieve.py:93:@pytest.fixture
+.codex/I-f3-003/codex_brief_verdict.txt:9061:.\tests\unit\test_mesh_lethal_retrieve.py:106:@pytest.fixture
+.codex/I-f3-003/codex_brief_verdict.txt:9062:.\tests\unit\test_mesh_lethal_retrieve.py:206:        with pytest.raises(MeshStoreError, match="Workspace not found"):
+.codex/I-f3-003/codex_brief_verdict.txt:9063:.\tests\unit\test_mesh_lethal_retrieve.py:475:        assert frac == pytest.approx(0.5)
+.codex/I-f2-008/codex_brief_verdict.txt:7264:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f14-003/codex_brief_verdict.txt:2466:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-meta-002-pr3/codex_diff_audit.txt:3123:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-meta-002-pr3/codex_diff_audit.txt:3124:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-meta-002-pr3/codex_diff_audit.txt:3125:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-meta-002-pr3/codex_diff_audit.txt:3126:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-meta-002-pr3/codex_diff_audit.txt:3521:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-f15-001/codex_diff_audit.txt:883:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-meta-005-phase-0a/codex_brief_verdict.txt:1625:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-010/codex_brief_audit_iter3.txt:1125:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-010/codex_brief_audit_iter3.txt:1126:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f3-002/codex_brief_audit_iter1.txt:3244:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-f3-002/codex_brief_audit_iter1.txt:3943:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-f3-002/codex_brief_audit_iter1.txt:3944:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-f3-002/codex_brief_audit_iter1.txt:3945:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-f3-002/codex_brief_audit_iter1.txt:3946:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-f3-002/codex_brief_audit_iter1.txt:5080:scripts\pg_mesh_preflight.py:28:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-f2-008/codex_brief_audit_iter2.txt:7264:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-gen-005-step3b/codex_step3b_design_verdict.txt:1775:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f2-008/codex_brief_audit_iter1.txt:2609:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-009/codex_brief_verdict.txt:561:tests\unit\__pycache__\test_mesh_lethal_retrieve.cpython-313-pytest-8.4.1.pyc
+.codex/I-f3-009/codex_brief_verdict.txt:609:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-009/codex_brief_verdict.txt:1238:tests\unit\__pycache__\test_mesh_lethal_retrieve.cpython-313-pytest-8.4.1.pyc
+.codex/I-f3-009/codex_brief_verdict.txt:1286:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-003/codex_brief_audit_iter1.txt:6027:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-003/codex_brief_audit_iter1.txt:6569:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-003/codex_brief_audit_iter1.txt:6570:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9055:.\tests\unit\test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9056:.\tests\unit\test_mesh_lethal_retrieve.py:30:import pytest
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9057:.\tests\unit\test_mesh_lethal_retrieve.py:73:@pytest.fixture
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9058:.\tests\unit\test_mesh_lethal_retrieve.py:78:@pytest.fixture
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9059:.\tests\unit\test_mesh_lethal_retrieve.py:85:@pytest.fixture
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9060:.\tests\unit\test_mesh_lethal_retrieve.py:93:@pytest.fixture
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9061:.\tests\unit\test_mesh_lethal_retrieve.py:106:@pytest.fixture
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9062:.\tests\unit\test_mesh_lethal_retrieve.py:206:        with pytest.raises(MeshStoreError, match="Workspace not found"):
+.codex/I-f3-003/codex_brief_audit_iter1.txt:9063:.\tests\unit\test_mesh_lethal_retrieve.py:475:        assert frac == pytest.approx(0.5)
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2241:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2242:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2243:tests\unit\test_mesh_lethal_retrieve.py:94:def source_upload(store: MeshStore, workspace_id: str) -> str:
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2244:tests\unit\test_mesh_lethal_retrieve.py:97:        kind="upload",
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2245:tests\unit\test_mesh_lethal_retrieve.py:98:        filepath="upload.md",
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2246:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2247:tests\unit\test_mesh_lethal_retrieve.py:217:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2248:tests\unit\test_mesh_lethal_retrieve.py:232:            source_page_id=source_upload,
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2249:tests\unit\test_mesh_lethal_retrieve.py:259:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2250:tests\unit\test_mesh_lethal_retrieve.py:272:            source_page_id=source_upload,
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2251:tests\unit\test_mesh_lethal_retrieve.py:299:    def test_upload_source_ranked_higher(
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2252:tests\unit\test_mesh_lethal_retrieve.py:300:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2253:tests\unit\test_mesh_lethal_retrieve.py:302:        # Same embedding, same tier — upload source should rank higher
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2254:tests\unit\test_mesh_lethal_retrieve.py:312:        clm_upload = store.insert_claim(
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2255:tests\unit\test_mesh_lethal_retrieve.py:314:            source_page_id=source_upload,
+.codex/I-f3-007/codex_brief_audit_iter4.txt:2256:tests\unit\test_mesh_lethal_retrieve.py:329:        assert ids.index(clm_upload) < ids.index(clm_web)
+.codex/I-f3-007/codex_brief_audit_iter4.txt:4223:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-f3-002/codex_brief_verdict.txt:393:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-002/codex_brief_verdict.txt:935:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-002/codex_brief_verdict.txt:936:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f3-002/codex_brief_verdict.txt:3421:.\tests\unit\test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+.codex/I-f3-002/codex_brief_verdict.txt:3422:.\tests\unit\test_mesh_lethal_retrieve.py:30:import pytest
+.codex/I-f3-002/codex_brief_verdict.txt:3423:.\tests\unit\test_mesh_lethal_retrieve.py:73:@pytest.fixture
+.codex/I-f3-002/codex_brief_verdict.txt:3424:.\tests\unit\test_mesh_lethal_retrieve.py:78:@pytest.fixture
+.codex/I-f3-002/codex_brief_verdict.txt:3425:.\tests\unit\test_mesh_lethal_retrieve.py:85:@pytest.fixture
+.codex/I-f3-002/codex_brief_verdict.txt:3426:.\tests\unit\test_mesh_lethal_retrieve.py:93:@pytest.fixture
+.codex/I-f3-002/codex_brief_verdict.txt:3427:.\tests\unit\test_mesh_lethal_retrieve.py:106:@pytest.fixture
+.codex/I-f3-002/codex_brief_verdict.txt:3428:.\tests\unit\test_mesh_lethal_retrieve.py:206:        with pytest.raises(MeshStoreError, match="Workspace not found"):
+.codex/I-f3-002/codex_brief_verdict.txt:3429:.\tests\unit\test_mesh_lethal_retrieve.py:475:        assert frac == pytest.approx(0.5)
+.codex/I-f5-010/codex_brief_verdict.txt:1917:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-meta-002-pr8-m2/codex_brief_verdict.txt:6055:.\tests\unit\test_mesh_lethal_retrieve.py:17:  - No real embedding model — all tests pass `question_embedding=`.
+.codex/I-meta-002-pr8-m2/codex_brief_verdict.txt:7593:C:\POLARIS\tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-meta-002-pr8-m2/codex_brief_verdict.txt:7641:C:\POLARIS\tests\unit\__pycache__\test_mesh_lethal_retrieve.cpython-313-pytest-8.4.1.pyc
+.codex/I-f3-002/codex_diff_audit.txt:328:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-002/codex_diff_audit.txt:329:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-meta-002-solution/codex_solution_verdict.txt:8713:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f8-002/codex_brief_verdict.txt:1282:tests\unit\test_mesh_lethal_retrieve.py:8:  - Stage 4: contradiction surface
+.codex/I-f8-002/codex_brief_verdict.txt:1283:tests\unit\test_mesh_lethal_retrieve.py:258:    def test_contradiction_surface_includes_contradicting_claim(
+.codex/I-f11-003/codex_diff_audit.txt:3852:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f11-003/codex_diff_audit.txt:18380:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f8-003/codex_brief_verdict.txt:4497:tests\unit\test_mesh_lethal_retrieve.py:  - Stage 4: contradiction surface
+.codex/I-f8-003/codex_brief_verdict.txt:4498:tests\unit\test_mesh_lethal_retrieve.py:    def test_contradiction_surface_includes_contradicting_claim(
+.codex/I-f8-004/codex_diff_audit.txt:1117:tests\unit\test_mesh_lethal_retrieve.py:8:  - Stage 4: contradiction surface
+.codex/I-f8-004/codex_diff_audit.txt:1118:tests\unit\test_mesh_lethal_retrieve.py:159:        assert result.gap_category == "ORTHOGONAL"
+.codex/I-f8-004/codex_diff_audit.txt:1119:tests\unit\test_mesh_lethal_retrieve.py:258:    def test_contradiction_surface_includes_contradicting_claim(
+.codex/I-f3-001/codex_diff_audit.txt:3855:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-f3-001/codex_diff_audit.txt:4838:scripts\pg_mesh_preflight.py:28:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-f3-001/codex_diff_audit.txt:5220:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-f3-001/codex_diff_audit.txt:5221:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-f3-001/codex_diff_audit.txt:5222:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-f3-001/codex_diff_audit.txt:5223:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-f3-001/codex_diff_audit.txt:8521:tests\unit\test_mesh_lethal_retrieve.py:170:            tier="GOLD", relevance_score=0.9,
+.codex/I-f3-001/codex_diff_audit.txt:8522:tests\unit\test_mesh_lethal_retrieve.py:226:            tier="GOLD", relevance_score=0.9,
+.codex/I-f3-001/codex_diff_audit.txt:8523:tests\unit\test_mesh_lethal_retrieve.py:236:            tier="GOLD", relevance_score=0.85,
+.codex/I-f3-001/codex_diff_audit.txt:8524:tests\unit\test_mesh_lethal_retrieve.py:267:            tier="GOLD", relevance_score=0.9,
+.codex/I-f3-001/codex_diff_audit.txt:8525:tests\unit\test_mesh_lethal_retrieve.py:276:            tier="GOLD", relevance_score=0.85,
+.codex/I-f3-001/codex_diff_audit.txt:8526:tests\unit\test_mesh_lethal_retrieve.py:309:            tier="GOLD", relevance_score=0.9,
+.codex/I-f3-001/codex_diff_audit.txt:8527:tests\unit\test_mesh_lethal_retrieve.py:318:            tier="GOLD", relevance_score=0.9,
+.codex/I-f3-001/codex_diff_audit.txt:8528:tests\unit\test_mesh_lethal_retrieve.py:333:    def test_exploration_adds_unseen_gold_claims(
+.codex/I-f3-001/codex_diff_audit.txt:8529:tests\unit\test_mesh_lethal_retrieve.py:337:        # some will be distant but GOLD + never used → exploration candidates
+.codex/I-f3-001/codex_diff_audit.txt:8530:tests\unit\test_mesh_lethal_retrieve.py:345:                tier="GOLD", relevance_score=0.9,
+.codex/I-f3-001/codex_diff_audit.txt:8531:tests\unit\test_mesh_lethal_retrieve.py:430:            tier="GOLD", relevance_score=0.9,
+.codex/I-f3-001/codex_diff_audit.txt:8532:tests\unit\test_mesh_lethal_retrieve.py:453:            tier="GOLD", relevance_score=0.9,
+.codex/I-f3-001/codex_diff_audit.txt:8533:tests\unit\test_mesh_lethal_retrieve.py:499:            tier="GOLD", relevance_score=0.9,
+.codex/I-f7-002/codex_brief_verdict.txt:1101:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f7-002/codex_brief_verdict.txt:1102:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-f7-002/codex_brief_verdict.txt:1103:tests\unit\test_mesh_lethal_retrieve.py:36:    classify_gap,
+.codex/I-f7-002/codex_brief_verdict.txt:1104:tests\unit\test_mesh_lethal_retrieve.py:159:        assert result.gap_category == "ORTHOGONAL"
+.codex/I-f7-002/codex_brief_verdict.txt:1105:tests\unit\test_mesh_lethal_retrieve.py:364:        assert classify_gap(
+.codex/I-f7-002/codex_brief_verdict.txt:1106:tests\unit\test_mesh_lethal_retrieve.py:370:        assert classify_gap(
+.codex/I-f7-002/codex_brief_verdict.txt:1107:tests\unit\test_mesh_lethal_retrieve.py:376:        assert classify_gap(
+.codex/I-f7-002/codex_brief_verdict.txt:1108:tests\unit\test_mesh_lethal_retrieve.py:388:        assert classify_gap(
+.codex/I-f7-002/codex_brief_verdict.txt:1109:tests\unit\test_mesh_lethal_retrieve.py:394:        assert classify_gap(
+.codex/I-meta-005/codex_fundamental_verdict.txt:2121:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2351:tests\unit\test_mesh_lethal_retrieve.py:94:def source_upload(store: MeshStore, workspace_id: str) -> str:
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2352:tests\unit\test_mesh_lethal_retrieve.py:97:        kind="upload",
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2353:tests\unit\test_mesh_lethal_retrieve.py:98:        filepath="upload.md",
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2354:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2355:tests\unit\test_mesh_lethal_retrieve.py:217:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2356:tests\unit\test_mesh_lethal_retrieve.py:232:            source_page_id=source_upload,
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2357:tests\unit\test_mesh_lethal_retrieve.py:259:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2358:tests\unit\test_mesh_lethal_retrieve.py:272:            source_page_id=source_upload,
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2359:tests\unit\test_mesh_lethal_retrieve.py:299:    def test_upload_source_ranked_higher(
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2360:tests\unit\test_mesh_lethal_retrieve.py:300:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2361:tests\unit\test_mesh_lethal_retrieve.py:302:        # Same embedding, same tier — upload source should rank higher
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2362:tests\unit\test_mesh_lethal_retrieve.py:312:        clm_upload = store.insert_claim(
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2363:tests\unit\test_mesh_lethal_retrieve.py:314:            source_page_id=source_upload,
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2364:tests\unit\test_mesh_lethal_retrieve.py:329:        assert ids.index(clm_upload) < ids.index(clm_web)
+.codex/I-f3-007/codex_brief_audit_iter1.txt:2615:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-f3-005/codex_diff_audit.txt:4909:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3568:.\tests\unit\test_mesh_lethal_retrieve.py:94:def source_upload(store: MeshStore, workspace_id: str) -> str:
+.codex/I-f3-005/codex_diff_audit.txt:4910:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3569:.\tests\unit\test_mesh_lethal_retrieve.py:97:        kind="upload",
+.codex/I-f3-005/codex_diff_audit.txt:4911:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3570:.\tests\unit\test_mesh_lethal_retrieve.py:98:        filepath="upload.md",
+.codex/I-f3-005/codex_diff_audit.txt:4912:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3571:.\tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-f3-005/codex_diff_audit.txt:4913:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3572:.\tests\unit\test_mesh_lethal_retrieve.py:217:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-005/codex_diff_audit.txt:4914:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3573:.\tests\unit\test_mesh_lethal_retrieve.py:232:            source_page_id=source_upload,
+.codex/I-f3-005/codex_diff_audit.txt:4915:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3574:.\tests\unit\test_mesh_lethal_retrieve.py:259:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-005/codex_diff_audit.txt:4916:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3575:.\tests\unit\test_mesh_lethal_retrieve.py:272:            source_page_id=source_upload,
+.codex/I-f3-005/codex_diff_audit.txt:4917:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3576:.\tests\unit\test_mesh_lethal_retrieve.py:299:    def test_upload_source_ranked_higher(
+.codex/I-f3-005/codex_diff_audit.txt:4918:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3577:.\tests\unit\test_mesh_lethal_retrieve.py:300:        self, store, workspace_id, source_web, source_upload,
+.codex/I-f3-005/codex_diff_audit.txt:4919:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3578:.\tests\unit\test_mesh_lethal_retrieve.py:302:        # Same embedding, same tier — upload source should rank higher
+.codex/I-f3-005/codex_diff_audit.txt:4920:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3579:.\tests\unit\test_mesh_lethal_retrieve.py:312:        clm_upload = store.insert_claim(
+.codex/I-f3-005/codex_diff_audit.txt:4921:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3580:.\tests\unit\test_mesh_lethal_retrieve.py:314:            source_page_id=source_upload,
+.codex/I-f3-005/codex_diff_audit.txt:4922:outputs\codex_findings\v30_user_wishlist_plan\codex_stdout.log:3581:.\tests\unit\test_mesh_lethal_retrieve.py:329:        assert ids.index(clm_upload) < ids.index(clm_web)
+.codex/I-f3-005/codex_diff_audit.txt:5578:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-p2c-004/codex_brief_verdict.txt:1443:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-009/codex_brief_audit_iter1.txt:561:tests\unit\__pycache__\test_mesh_lethal_retrieve.cpython-313-pytest-8.4.1.pyc
+.codex/I-f3-009/codex_brief_audit_iter1.txt:609:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f3-009/codex_brief_audit_iter1.txt:1238:tests\unit\__pycache__\test_mesh_lethal_retrieve.cpython-313-pytest-8.4.1.pyc
+.codex/I-f3-009/codex_brief_audit_iter1.txt:1286:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f8-006/codex_brief_verdict.txt:3261:tests\unit\test_mesh_lethal_retrieve.py:8:  - Stage 4: contradiction surface
+.codex/I-f8-006/codex_brief_verdict.txt:3262:tests\unit\test_mesh_lethal_retrieve.py:258:    def test_contradiction_surface_includes_contradicting_claim(
+.codex/I-f3-010/codex_brief_audit_iter2.txt:412:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-f3-010/codex_brief_audit_iter2.txt:413:tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+.codex/I-f5-008/codex_brief_verdict.txt:1162:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f5-008/codex_brief_verdict.txt:1934:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-f8-004/codex_brief_verdict.txt:1310:tests\unit\test_mesh_lethal_retrieve.py:8:  - Stage 4: contradiction surface
+.codex/I-f8-004/codex_brief_verdict.txt:1311:tests\unit\test_mesh_lethal_retrieve.py:258:    def test_contradiction_surface_includes_contradicting_claim(
+.codex/I-meta-002-pr4/codex_diff_audit.txt:1402:tests\unit\test_mesh_lethal_retrieve.py:99:        content_hash="u" * 64,
+.codex/I-meta-002-pr4/codex_diff_audit.txt:1403:tests\unit\test_mesh_lethal_retrieve.py:112:        content_hash="w" * 64,
+.codex/I-meta-002-q1d-credit-hardening/codex_brief_verdict.txt:908:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-meta-002-q1d-credit-hardening/codex_brief_verdict.txt:909:tests\unit\test_mesh_lethal_retrieve.py:114:        url="https://example.com/web",
+.codex/I-p2-006/brief_review_iter1.txt:1261:tests\unit\test_mesh_lethal_retrieve.py:16:    axes) so cosine distances are deterministic.
+.codex/I-p2-006/brief_review_iter1.txt:1262:tests\unit\test_mesh_lethal_retrieve.py:41:    _distance_to_cosine,
+.codex/I-p2-006/brief_review_iter1.txt:1263:tests\unit\test_mesh_lethal_retrieve.py:140:class TestDistanceToCosine:
+.codex/I-p2-006/brief_review_iter1.txt:1264:tests\unit\test_mesh_lethal_retrieve.py:141:    def test_zero_distance(self):
+.codex/I-p2-006/brief_review_iter1.txt:1265:tests\unit\test_mesh_lethal_retrieve.py:142:        assert abs(_distance_to_cosine(0.0) - 1.0) < 1e-6
+.codex/I-f4-004/codex_diff_audit.txt:6648:tests\unit\test_mesh_lethal_retrieve.py:94:def source_upload(store: MeshStore, workspace_id: str) -> str:
+.codex/I-f4-004/codex_diff_audit.txt:6649:tests\unit\test_mesh_lethal_retrieve.py:107:def source_web(store: MeshStore, workspace_id: str) -> str:
+.codex/I-tpl-006/codex_brief_verdict.txt:3888:.\tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-meta-003/codex_arch_iter2_verdict.txt:2655:tests\unit\test_mesh_lethal_retrieve.py:8:  - Stage 4: contradiction surface
+.codex/I-meta-003/codex_arch_iter2_verdict.txt:2656:tests\unit\test_mesh_lethal_retrieve.py:258:    def test_contradiction_surface_includes_contradicting_claim(
+.codex/I-meta-008-thinstub/codex_audit.txt:2832:tests\unit\test_mesh_lethal_retrieve.py:168:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2833:tests\unit\test_mesh_lethal_retrieve.py:191:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2834:tests\unit\test_mesh_lethal_retrieve.py:224:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2835:tests\unit\test_mesh_lethal_retrieve.py:234:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2836:tests\unit\test_mesh_lethal_retrieve.py:265:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2837:tests\unit\test_mesh_lethal_retrieve.py:274:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2838:tests\unit\test_mesh_lethal_retrieve.py:307:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2839:tests\unit\test_mesh_lethal_retrieve.py:316:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2840:tests\unit\test_mesh_lethal_retrieve.py:343:                direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2841:tests\unit\test_mesh_lethal_retrieve.py:428:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2842:tests\unit\test_mesh_lethal_retrieve.py:451:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2843:tests\unit\test_mesh_lethal_retrieve.py:482:            direct_quote="test",
+.codex/I-meta-008-thinstub/codex_audit.txt:2844:tests\unit\test_mesh_lethal_retrieve.py:497:            direct_quote="test",
+.codex/I-p2c-004/codex_diff_audit.txt:8544:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-p2c-004/codex_diff_audit.txt:14899:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-p2c-004/codex_diff_audit.txt:28713:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9570:tests\unit\test_mesh_lethal_retrieve.py:154:            question_text="Any question",
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9571:tests\unit\test_mesh_lethal_retrieve.py:158:        assert len(result.scored_claims) == 0
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9572:tests\unit\test_mesh_lethal_retrieve.py:176:            question_text="How does GAC remove PFOS?",
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9573:tests\unit\test_mesh_lethal_retrieve.py:180:        assert len(result.scored_claims) >= 1
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9574:tests\unit\test_mesh_lethal_retrieve.py:181:        assert clm_id in result.claim_ids()
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9575:tests\unit\test_mesh_lethal_retrieve.py:199:            question_text="PFOS info",
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9576:tests\unit\test_mesh_lethal_retrieve.py:203:        assert clm_id in result.claim_ids()
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9577:tests\unit\test_mesh_lethal_retrieve.py:210:                question_text="test",
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9578:tests\unit\test_mesh_lethal_retrieve.py:249:            question_text="query",
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9579:tests\unit\test_mesh_lethal_retrieve.py:254:        assert clm_b in result.claim_ids()
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9580:tests\unit\test_mesh_lethal_retrieve.py:289:            question_text="PFOS removal",
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9581:tests\unit\test_mesh_lethal_retrieve.py:294:        assert clm_a in result.claim_ids()
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9582:tests\unit\test_mesh_lethal_retrieve.py:295:        assert clm_contra in result.claim_ids()
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9583:tests\unit\test_mesh_lethal_retrieve.py:324:            question_text="query",
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9584:tests\unit\test_mesh_lethal_retrieve.py:328:        ids = result.claim_ids()
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9585:tests\unit\test_mesh_lethal_retrieve.py:333:    def test_exploration_adds_unseen_gold_claims(
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9586:tests\unit\test_mesh_lethal_retrieve.py:336:        # Insert many claims — some will be in the main pool (high cosine),
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9587:tests\unit\test_mesh_lethal_retrieve.py:351:            question_text="specific topic 0",
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9588:tests\unit\test_mesh_lethal_retrieve.py:355:        # With 15 claims and K=10, exploration should contribute some
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9589:tests\unit\test_mesh_lethal_retrieve.py:356:        assert result.exploration_count >= 0  # may be 0 if all claims in main
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9590:tests\unit\test_mesh_lethal_retrieve.py:357:        assert len(result.scored_claims) <= 10
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9591:tests\unit\test_mesh_lethal_retrieve.py:369:    def test_nearby_few_claims(self):
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:9592:tests\unit\test_mesh_lethal_retrieve.py:385:        # → means entity expansion found claims but they all got
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:12310:tests\unit\test_mesh_lethal_retrieve.py:158:        assert len(result.scored_claims) == 0
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:12311:tests\unit\test_mesh_lethal_retrieve.py:180:        assert len(result.scored_claims) >= 1
+.codex/I-perm-024/score_run_wiring_audit_stderr.txt:12312:tests\unit\test_mesh_lethal_retrieve.py:357:        assert len(result.scored_claims) <= 10
+.codex/I-p2c-003/codex_brief_verdict.txt:8845:tests\unit\test_mesh_lethal_retrieve.py:124:        assert abs(r - 1.0) < 0.01
+.codex/I-p2c-003/codex_brief_verdict.txt:8846:tests\unit\test_mesh_lethal_retrieve.py:128:        assert 0.79 < r < 0.83
+.codex/I-p2c-003/codex_brief_verdict.txt:8847:tests\unit\test_mesh_lethal_retrieve.py:132:        assert r < 1.0
+.codex/I-p2c-003/codex_brief_verdict.txt:8848:tests\unit\test_mesh_lethal_retrieve.py:133:        assert r > 0.7
+.codex/I-p2c-003/codex_brief_verdict.txt:8849:tests\unit\test_mesh_lethal_retrieve.py:137:        assert r >= 0.7
+.codex/I-p2c-003/codex_brief_verdict.txt:8850:tests\unit\test_mesh_lethal_retrieve.py:142:        assert abs(_distance_to_cosine(0.0) - 1.0) < 1e-6
+.codex/I-p2c-003/codex_brief_verdict.txt:8851:tests\unit\test_mesh_lethal_retrieve.py:158:        assert len(result.scored_claims) == 0
+.codex/I-p2c-003/codex_brief_verdict.txt:8852:tests\unit\test_mesh_lethal_retrieve.py:159:        assert result.gap_category == "ORTHOGONAL"
+.codex/I-p2c-003/codex_brief_verdict.txt:8853:tests\unit\test_mesh_lethal_retrieve.py:180:        assert len(result.scored_claims) >= 1
+.codex/I-p2c-003/codex_brief_verdict.txt:8854:tests\unit\test_mesh_lethal_retrieve.py:181:        assert clm_id in result.claim_ids()
+.codex/I-p2c-003/codex_brief_verdict.txt:8855:tests\unit\test_mesh_lethal_retrieve.py:182:        assert result.seed_count >= 1
+.codex/I-p2c-003/codex_brief_verdict.txt:8856:tests\unit\test_mesh_lethal_retrieve.py:203:        assert clm_id in result.claim_ids()
+.codex/I-p2c-003/codex_brief_verdict.txt:8857:tests\unit\test_mesh_lethal_retrieve.py:254:        assert clm_b in result.claim_ids()
+.codex/I-p2c-003/codex_brief_verdict.txt:8858:tests\unit\test_mesh_lethal_retrieve.py:294:        assert clm_a in result.claim_ids()
+.codex/I-p2c-003/codex_brief_verdict.txt:8859:tests\unit\test_mesh_lethal_retrieve.py:295:        assert clm_contra in result.claim_ids()
+.codex/I-p2c-003/codex_brief_verdict.txt:8860:tests\unit\test_mesh_lethal_retrieve.py:329:        assert ids.index(clm_upload) < ids.index(clm_web)
+.codex/I-p2c-003/codex_brief_verdict.txt:8861:tests\unit\test_mesh_lethal_retrieve.py:356:        assert result.exploration_count >= 0  # may be 0 if all claims in main
+.codex/I-p2c-003/codex_brief_verdict.txt:8862:tests\unit\test_mesh_lethal_retrieve.py:357:        assert len(result.scored_claims) <= 10
+.codex/I-p2c-003/codex_brief_verdict.txt:8863:tests\unit\test_mesh_lethal_retrieve.py:364:        assert classify_gap(
+.codex/I-p2c-003/codex_brief_verdict.txt:8864:tests\unit\test_mesh_lethal_retrieve.py:370:        assert classify_gap(
+.codex/I-p2c-003/codex_brief_verdict.txt:8865:tests\unit\test_mesh_lethal_retrieve.py:376:        assert classify_gap(
+.codex/I-p2c-003/codex_brief_verdict.txt:8866:tests\unit\test_mesh_lethal_retrieve.py:388:        assert classify_gap(
+.codex/I-p2c-003/codex_brief_verdict.txt:8867:tests\unit\test_mesh_lethal_retrieve.py:394:        assert classify_gap(
+.codex/I-p2c-003/codex_brief_verdict.txt:8868:tests\unit\test_mesh_lethal_retrieve.py:402:        assert check_nearby_budget(store, workspace_id) is True
+.codex/I-p2c-003/codex_brief_verdict.txt:8869:tests\unit\test_mesh_lethal_retrieve.py:414:        assert check_nearby_budget(store, workspace_id) is False
+.codex/I-p2c-003/codex_brief_verdict.txt:8870:tests\unit\test_mesh_lethal_retrieve.py:417:        assert check_nearby_budget(store, "ws_fake") is False
+.codex/I-p2c-003/codex_brief_verdict.txt:8871:tests\unit\test_mesh_lethal_retrieve.py:444:        assert frac == 1.0
+.codex/I-p2c-003/codex_brief_verdict.txt:8872:tests\unit\test_mesh_lethal_retrieve.py:475:        assert frac == pytest.approx(0.5)
+.codex/I-p2c-003/codex_brief_verdict.txt:8873:tests\unit\test_mesh_lethal_retrieve.py:488:        assert frac == 0.0
+.codex/I-p2c-003/codex_brief_verdict.txt:8874:tests\unit\test_mesh_lethal_retrieve.py:503:        assert frac == 0.0
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5819:tests\unit\test_mesh_lethal_retrieve.py:94:def source_upload(store: MeshStore, workspace_id: str) -> str:
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5820:tests\unit\test_mesh_lethal_retrieve.py:97:        kind="upload",
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5821:tests\unit\test_mesh_lethal_retrieve.py:98:        filepath="upload.md",
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5822:tests\unit\test_mesh_lethal_retrieve.py:101:        url="https://example.com/upload",
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5823:tests\unit\test_mesh_lethal_retrieve.py:217:        self, store, workspace_id, source_web, source_upload,
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5824:tests\unit\test_mesh_lethal_retrieve.py:232:            source_page_id=source_upload,
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5825:tests\unit\test_mesh_lethal_retrieve.py:243:            evidence_weight=0.9,
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5826:tests\unit\test_mesh_lethal_retrieve.py:259:        self, store, workspace_id, source_web, source_upload,
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5827:tests\unit\test_mesh_lethal_retrieve.py:272:            source_page_id=source_upload,
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5828:tests\unit\test_mesh_lethal_retrieve.py:283:            evidence_weight=0.82,
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5829:tests\unit\test_mesh_lethal_retrieve.py:299:    def test_upload_source_ranked_higher(
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5830:tests\unit\test_mesh_lethal_retrieve.py:300:        self, store, workspace_id, source_web, source_upload,
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5831:tests\unit\test_mesh_lethal_retrieve.py:302:        # Same embedding, same tier — upload source should rank higher
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5832:tests\unit\test_mesh_lethal_retrieve.py:312:        clm_upload = store.insert_claim(
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5833:tests\unit\test_mesh_lethal_retrieve.py:314:            source_page_id=source_upload,
+.codex/I-ready-011/codex_brief_verdict.stderr.txt:5834:tests\unit\test_mesh_lethal_retrieve.py:329:        assert ids.index(clm_upload) < ids.index(clm_web)
+.codex/I-perm-007/codex_diff_audit.stderr.txt:2056:tests\unit\test_mesh_lethal_retrieve.py:264:            statement="GAC removes 90% PFOS",
+.codex/I-perm-007/codex_diff_audit.stderr.txt:2057:tests\unit\test_mesh_lethal_retrieve.py:273:            statement="GAC removes only 30% PFOS",
+.codex/I-perm-007/codex_diff_audit.stderr.txt:2058:tests\unit\test_mesh_lethal_retrieve.py:346:                embedding=_orthogonal_vec(i % EMBEDDING_DIM),
+.codex/I-perm-005/slice2_codex_diff_audit_iter3.stderr.txt:172:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-perm-005/slice2_codex_diff_audit_iter3.stderr.txt:975:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-perm-011/fix_gate_stderr.txt:2576:tests\unit\test_mesh_lethal_retrieve.py:386:        # filtered in stage 6? Unlikely. Let me use the simple case:
+.codex/I-safety-002b/codex_step3_gate_iter1.txt:1019:tests\integration\test_mesh_e2e.py:185:            retrieval = lethal_retrieve(
+.codex/I-safety-002b/codex_step3_gate_iter1.txt:1085:tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-safety-002b/codex_step3_gate_iter1.txt:1086:tests\unit\test_mesh_lethal_retrieve.py:4:Tests each retrieval stage individually and the composite algorithm:
+.codex/I-safety-002b/codex_step3_gate_iter1.txt:2953:scripts\pg_mesh_preflight.py:164:        retrieval = lethal_retrieve(
+.codex/I-phase0-005/codex_brief_verdict.txt:3519:tests\unit\test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+.codex/I-phase0-005/codex_brief_verdict.txt:3520:tests\unit\test_mesh_lethal_retrieve.py:30:import pytest
+.codex/I-phase0-005/codex_brief_verdict.txt:3521:tests\unit\test_mesh_lethal_retrieve.py:73:@pytest.fixture
+.codex/I-phase0-005/codex_brief_verdict.txt:3522:tests\unit\test_mesh_lethal_retrieve.py:78:@pytest.fixture
+.codex/I-phase0-005/codex_brief_verdict.txt:3523:tests\unit\test_mesh_lethal_retrieve.py:85:@pytest.fixture
+.codex/I-phase0-005/codex_brief_verdict.txt:3524:tests\unit\test_mesh_lethal_retrieve.py:93:@pytest.fixture
+.codex/I-phase0-005/codex_brief_verdict.txt:3525:tests\unit\test_mesh_lethal_retrieve.py:106:@pytest.fixture
+.codex/I-phase0-005/codex_brief_verdict.txt:3526:tests\unit\test_mesh_lethal_retrieve.py:206:        with pytest.raises(MeshStoreError, match="Workspace not found"):
+.codex/I-phase0-005/codex_brief_verdict.txt:3527:tests\unit\test_mesh_lethal_retrieve.py:475:        assert frac == pytest.approx(0.5)
+.codex/I-rdy-004/codex_diff_audit.txt:11506:tests\unit\test_mesh_lethal_retrieve.py:100:        sig_authority=0.95,
+.codex/I-rdy-004/codex_diff_audit.txt:11507:tests\unit\test_mesh_lethal_retrieve.py:113:        sig_authority=0.5,
+.codex/I-meta-002-cost/codex_cost_verdict.txt:3525:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-rdy-004/codex_brief_verdict.txt:3388:tests\unit\test_mesh_lethal_retrieve.py:100:        sig_authority=0.95,
+.codex/I-rdy-004/codex_brief_verdict.txt:3389:tests\unit\test_mesh_lethal_retrieve.py:113:        sig_authority=0.5,
+.codex/I-rdy-002/codex_verdict_iter2.txt:2883:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-perm-011/fix_gate2_stderr.txt:4645:tests\integration\test_mesh_e2e.py:6:  canonicalize entities → discover edges → lethal_retrieve →
+.codex/I-perm-011/fix_gate2_stderr.txt:5258:tests\unit\test_mesh_lethal_retrieve.py:435:            canonical_name="PFOS",
+.codex/I-perm-011/fix_gate2_stderr.txt:5259:tests\unit\test_mesh_lethal_retrieve.py:458:            canonical_name="PFOS",
+.codex/I-perm-011/fix_gate2_stderr.txt:5260:tests\unit\test_mesh_lethal_retrieve.py:466:            canonical_name="GAC",
+.codex/I-snowball-002/codex_diff_audit.txt:5066:tests\unit\test_mesh_lethal_retrieve.py:417:        assert check_nearby_budget(store, "ws_fake") is False
+.codex/I-ui-002/brief_review_iter2.txt:3163:tests\unit\test_mesh_lethal_retrieve.py:81:    yield s
+.codex/I-safety-002b/codex_lock5.txt:3432:.\tests\unit\test_mesh_lethal_retrieve.py:264:            statement="GAC removes 90% PFOS",
+.codex/I-safety-002b/codex_lock5.txt:7326:.\tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-safety-002b/codex_lock5.txt:9699:tests\unit\test_mesh_lethal_retrieve.py:264:            statement="GAC removes 90% PFOS",
+.codex/I-rdy-002/codex_verdict.txt:3482:tests\unit\test_mesh_lethal_retrieve.py:86:def workspace_id(store: MeshStore) -> str:
+.codex/I-rdy-002/codex_verdict.txt:3483:tests\unit\test_mesh_lethal_retrieve.py:94:def source_upload(store: MeshStore, workspace_id: str) -> str:
+.codex/I-rdy-002/codex_verdict.txt:3484:tests\unit\test_mesh_lethal_retrieve.py:96:        workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3485:tests\unit\test_mesh_lethal_retrieve.py:107:def source_web(store: MeshStore, workspace_id: str) -> str:
+.codex/I-rdy-002/codex_verdict.txt:3486:tests\unit\test_mesh_lethal_retrieve.py:109:        workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3487:tests\unit\test_mesh_lethal_retrieve.py:149:        self, store, workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3488:tests\unit\test_mesh_lethal_retrieve.py:153:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3489:tests\unit\test_mesh_lethal_retrieve.py:162:        self, store, workspace_id, source_web,
+.codex/I-rdy-002/codex_verdict.txt:3490:tests\unit\test_mesh_lethal_retrieve.py:165:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3491:tests\unit\test_mesh_lethal_retrieve.py:175:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3492:tests\unit\test_mesh_lethal_retrieve.py:185:        self, store, workspace_id, source_web,
+.codex/I-rdy-002/codex_verdict.txt:3493:tests\unit\test_mesh_lethal_retrieve.py:188:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3494:tests\unit\test_mesh_lethal_retrieve.py:198:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3495:tests\unit\test_mesh_lethal_retrieve.py:209:                workspace_id="ws_nonexistent",
+.codex/I-rdy-002/codex_verdict.txt:3496:tests\unit\test_mesh_lethal_retrieve.py:217:        self, store, workspace_id, source_web, source_upload,
+.codex/I-rdy-002/codex_verdict.txt:3497:tests\unit\test_mesh_lethal_retrieve.py:221:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3498:tests\unit\test_mesh_lethal_retrieve.py:231:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3499:tests\unit\test_mesh_lethal_retrieve.py:240:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3500:tests\unit\test_mesh_lethal_retrieve.py:248:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3501:tests\unit\test_mesh_lethal_retrieve.py:259:        self, store, workspace_id, source_web, source_upload,
+.codex/I-rdy-002/codex_verdict.txt:3502:tests\unit\test_mesh_lethal_retrieve.py:262:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3503:tests\unit\test_mesh_lethal_retrieve.py:271:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3504:tests\unit\test_mesh_lethal_retrieve.py:280:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3505:tests\unit\test_mesh_lethal_retrieve.py:288:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3506:tests\unit\test_mesh_lethal_retrieve.py:300:        self, store, workspace_id, source_web, source_upload,
+.codex/I-rdy-002/codex_verdict.txt:3507:tests\unit\test_mesh_lethal_retrieve.py:304:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3508:tests\unit\test_mesh_lethal_retrieve.py:313:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3509:tests\unit\test_mesh_lethal_retrieve.py:323:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3510:tests\unit\test_mesh_lethal_retrieve.py:334:        self, store, workspace_id, source_web,
+.codex/I-rdy-002/codex_verdict.txt:3511:tests\unit\test_mesh_lethal_retrieve.py:340:                workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3512:tests\unit\test_mesh_lethal_retrieve.py:350:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3513:tests\unit\test_mesh_lethal_retrieve.py:401:    def test_fresh_workspace_has_budget(self, store, workspace_id):
+.codex/I-rdy-002/codex_verdict.txt:3514:tests\unit\test_mesh_lethal_retrieve.py:402:        assert check_nearby_budget(store, workspace_id) is True
+.codex/I-rdy-002/codex_verdict.txt:3515:tests\unit\test_mesh_lethal_retrieve.py:404:    def test_budget_depletes(self, store, workspace_id):
+.codex/I-rdy-002/codex_verdict.txt:3516:tests\unit\test_mesh_lethal_retrieve.py:408:            (workspace_id,),
+.codex/I-rdy-002/codex_verdict.txt:3517:tests\unit\test_mesh_lethal_retrieve.py:411:        check_nearby_budget(store, workspace_id)
+.codex/I-rdy-002/codex_verdict.txt:3518:tests\unit\test_mesh_lethal_retrieve.py:413:            increment_nearby_budget(store, workspace_id)
+.codex/I-rdy-002/codex_verdict.txt:3519:tests\unit\test_mesh_lethal_retrieve.py:414:        assert check_nearby_budget(store, workspace_id) is False
+.codex/I-rdy-002/codex_verdict.txt:3520:tests\unit\test_mesh_lethal_retrieve.py:423:    def test_full_overlap(self, store, workspace_id, source_web):
+.codex/I-rdy-002/codex_verdict.txt:3521:tests\unit\test_mesh_lethal_retrieve.py:425:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3522:tests\unit\test_mesh_lethal_retrieve.py:434:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3523:tests\unit\test_mesh_lethal_retrieve.py:446:    def test_partial_overlap(self, store, workspace_id, source_web):
+.codex/I-rdy-002/codex_verdict.txt:3524:tests\unit\test_mesh_lethal_retrieve.py:448:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3525:tests\unit\test_mesh_lethal_retrieve.py:457:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3526:tests\unit\test_mesh_lethal_retrieve.py:465:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3527:tests\unit\test_mesh_lethal_retrieve.py:477:    def test_no_entities_returns_zero(self, store, workspace_id, source_web):
+.codex/I-rdy-002/codex_verdict.txt:3528:tests\unit\test_mesh_lethal_retrieve.py:479:            workspace_id=workspace_id,
+.codex/I-rdy-002/codex_verdict.txt:3529:tests\unit\test_mesh_lethal_retrieve.py:491:        self, store, workspace_id, source_web,
+.codex/I-rdy-002/codex_verdict.txt:3530:tests\unit\test_mesh_lethal_retrieve.py:494:            workspace_id=workspace_id,
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2832:tests\unit\test_mesh_lethal_retrieve.py:168:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2833:tests\unit\test_mesh_lethal_retrieve.py:191:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2834:tests\unit\test_mesh_lethal_retrieve.py:224:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2835:tests\unit\test_mesh_lethal_retrieve.py:234:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2836:tests\unit\test_mesh_lethal_retrieve.py:265:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2837:tests\unit\test_mesh_lethal_retrieve.py:274:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2838:tests\unit\test_mesh_lethal_retrieve.py:307:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2839:tests\unit\test_mesh_lethal_retrieve.py:316:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2840:tests\unit\test_mesh_lethal_retrieve.py:343:                direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2841:tests\unit\test_mesh_lethal_retrieve.py:428:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2842:tests\unit\test_mesh_lethal_retrieve.py:451:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2843:tests\unit\test_mesh_lethal_retrieve.py:482:            direct_quote="test",
+outputs/audits/I-meta-008-thinstub/codex_independent_audit.txt:2844:tests\unit\test_mesh_lethal_retrieve.py:497:            direct_quote="test",
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10898:.\tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10899:.\tests\unit\test_mesh_lethal_retrieve.py:10:  - Stage 6: lethal re-rank with snowball + exploration reservation
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10900:.\tests\unit\test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10901:.\tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10902:.\tests\unit\test_mesh_lethal_retrieve.py:44:    lethal_retrieve,
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10903:.\tests\unit\test_mesh_lethal_retrieve.py:151:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10904:.\tests\unit\test_mesh_lethal_retrieve.py:173:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10905:.\tests\unit\test_mesh_lethal_retrieve.py:196:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10906:.\tests\unit\test_mesh_lethal_retrieve.py:207:            lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10907:.\tests\unit\test_mesh_lethal_retrieve.py:246:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10908:.\tests\unit\test_mesh_lethal_retrieve.py:286:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10909:.\tests\unit\test_mesh_lethal_retrieve.py:321:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10910:.\tests\unit\test_mesh_lethal_retrieve.py:348:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10925:.\tests\integration\test_mesh_e2e.py:6:  canonicalize entities → discover edges → lethal_retrieve →
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10926:.\tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:10928:.\tests\integration\test_mesh_e2e.py:185:            retrieval = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11131:.\scripts\pg_mesh_preflight.py:28:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11132:.\scripts\pg_mesh_preflight.py:164:        retrieval = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11143:.\state\polaris_statistical_contract\human_free_amendment\codex_trail\06_0a1A_0a1B_convert_iter1.txt:2566:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11300:.\tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11301:.\tests\unit\test_mesh_lethal_retrieve.py:10:  - Stage 6: lethal re-rank with snowball + exploration reservation
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11302:.\tests\unit\test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11303:.\tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11304:.\tests\unit\test_mesh_lethal_retrieve.py:44:    lethal_retrieve,
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11305:.\tests\unit\test_mesh_lethal_retrieve.py:151:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11306:.\tests\unit\test_mesh_lethal_retrieve.py:173:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11307:.\tests\unit\test_mesh_lethal_retrieve.py:196:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11308:.\tests\unit\test_mesh_lethal_retrieve.py:207:            lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11309:.\tests\unit\test_mesh_lethal_retrieve.py:246:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11310:.\tests\unit\test_mesh_lethal_retrieve.py:286:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11311:.\tests\unit\test_mesh_lethal_retrieve.py:321:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11312:.\tests\unit\test_mesh_lethal_retrieve.py:348:        result = lethal_retrieve(
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11327:.\tests\integration\test_mesh_e2e.py:6:  canonicalize entities → discover edges → lethal_retrieve →
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11328:.\tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-safety-002b/codex_proper_benchmark_design.txt:11330:.\tests\integration\test_mesh_e2e.py:185:            retrieval = lethal_retrieve(
+.codex/reprioritization_2026_05_20/review_iter1.txt:2364:tests\unit\test_mesh_lethal_retrieve.py
+.codex/reprioritization_2026_05_20/review_iter2.txt:2526:tests\unit\test_mesh_lethal_retrieve.py
+.codex/keystone_forensic/codex_reforensic_stderr.txt:12604:tests\unit\test_mesh_lethal_retrieve.py:423:    def test_full_overlap(self, store, workspace_id, source_web):
+.codex/keystone_forensic/codex_reforensic_stderr.txt:12605:tests\unit\test_mesh_lethal_retrieve.py:446:    def test_partial_overlap(self, store, workspace_id, source_web):
+.codex/I-safety-002a/codex_overflagging_rootcause.txt:1680:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-ui-002/brief_review_iter5.txt:4971:tests\unit\test_mesh_lethal_retrieve.py:446:    def test_partial_overlap(self, store, workspace_id, source_web):
+.codex/I-snowball-006/codex_diff_audit.txt:1793:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-perm-005/slice1_codex_diff_audit.stderr.txt:988:tests\unit\test_mesh_lethal_retrieve.py:53:    c = float(cos_to_ref)
+.codex/I-tests-001/codex_diff_audit.txt:406:scripts\pg_mesh_preflight.py:28:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-tests-001/codex_diff_audit.txt:1243:tests\unit\test_mesh_lethal_retrieve.py:32:from src.polaris_graph.wiki.mesh import MeshStore, MeshStoreError
+.codex/I-tests-001/codex_diff_audit.txt:1244:tests\unit\test_mesh_lethal_retrieve.py:33:from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
+.codex/I-tests-001/codex_diff_audit.txt:1245:tests\unit\test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+.codex/I-tests-001/codex_diff_audit.txt:1246:tests\unit\test_mesh_lethal_retrieve.py:46:from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
+.codex/I-tests-001/codex_diff_audit.txt:2277:tests\integration\test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+.codex/I-safety-002a/codex_medhallu_design.txt:187:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-safety-002a/codex_medhallu_design.txt:817:tests\unit\test_mesh_lethal_retrieve.py
+scripts/_retired_2026_06_14/pg_mesh_preflight.py:28:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+scripts/_retired_2026_06_14/pg_mesh_preflight.py:164:        retrieval = lethal_retrieve(
+.codex/I-ready-007/codex_diff_audit.txt:2109:tests\unit\test_mesh_lethal_retrieve.py
+.codex/I-ui-002/diff_review_iter1.txt:17594:tests\unit\test_mesh_lethal_retrieve.py:446:    def test_partial_overlap(self, store, workspace_id, source_web):
+state/polaris_statistical_contract/human_free_amendment/codex_trail/06_0a1A_0a1B_convert_iter1.txt:2566:tests\unit\test_mesh_lethal_retrieve.py
+tests/integration/test_mesh_e2e.py:6:  canonicalize entities → discover edges → lethal_retrieve →
+tests/integration/test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+tests/integration/test_mesh_e2e.py:185:            retrieval = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+tests/unit/test_mesh_lethal_retrieve.py:44:    lethal_retrieve,
+tests/unit/test_mesh_lethal_retrieve.py:151:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:173:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:196:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:207:            lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:246:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:286:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:321:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:348:        result = lethal_retrieve(
