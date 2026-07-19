@@ -167,6 +167,19 @@ class Cassette:
                 )
             entry = self._entries.get(key)
             if entry is None:
+                _dbg_env = os.environ.get("PG_ORACLE_DEBUG_MISS")
+                if _dbg_env and (not os.environ.get("PG_ORACLE_DEBUG_MISS_METHOD")
+                                 or os.environ.get("PG_ORACLE_DEBUG_MISS_METHOD") == method):
+                    dbg = Path(_dbg_env)
+                    dbg.parent.mkdir(parents=True, exist_ok=True)
+                    recorded = [
+                        e["args"] for e in self._entries.values()
+                        if isinstance(e, dict) and e.get("method") == method
+                    ]
+                    dbg.write_text(json.dumps(
+                        {"method": method, "missed_args": _deepcopy_json(args),
+                         "recorded_same_method": recorded},
+                        indent=2, sort_keys=True), encoding="utf-8")
                 raise CassetteError(
                     f"replay MISS: {method} call_id={call_id!r} not in {self.path.name} "
                     f"— a request the recording never saw (behaviour change)."
