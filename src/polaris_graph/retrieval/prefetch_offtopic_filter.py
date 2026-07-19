@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+from src.polaris_graph.settings import get_model_settings
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -102,7 +103,7 @@ _DEFAULT_EMBED_MODEL = "Qwen/Qwen3-Embedding-8B"
 def _embed_model_name() -> str:
     """The relevance embedder id — LOCKED slate Qwen3-Embedding-8B by default,
     env-overridable via ``PG_EMBED_MODEL`` (LAW VI)."""
-    return (os.getenv("PG_EMBED_MODEL", _DEFAULT_EMBED_MODEL).strip()
+    return (get_model_settings().embed_model.strip()  # was os.getenv("PG_EMBED_MODEL", _DEFAULT_EMBED_MODEL)
             or _DEFAULT_EMBED_MODEL)
 
 

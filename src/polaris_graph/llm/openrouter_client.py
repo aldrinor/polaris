@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+from src.polaris_graph.settings import get_model_settings
 import re
 import threading
 import time
@@ -602,7 +603,7 @@ PG_GENERATOR_MODEL = os.getenv(
 # OpenRouter). These defaults MUST equal config/architecture/polaris_runtime_lock.yaml
 # (verify_lock asserts lock model_slug == code default).
 PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "z-ai/glm-5.2")  # I-beatboth-008 #1285: mirror 5.1->5.2 (== lock model_slug)
-PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
+PG_SENTINEL_MODEL = get_model_settings().sentinel_model  # was os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
 # I-judge-kimi (2026-06-29): the ACTIVE benchmark Judge is moonshotai/kimi-k2.6 (kimi has 21
 # OpenRouter providers -> no 429 -> the 4-role D8 seam completes; see openrouter_role_transport
 # ._BENCHMARK_LINEUP_DEFAULT_SLUG). That swap is carried by the TRANSPORT benchmark default, NOT
@@ -611,7 +612,7 @@ PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
 # qwen until an operator-signed reconciliation flips the lock's judge.model_slug + family AND this
 # constant to kimi together (and re-pins docs/canonical_pin.txt). Setting either to kimi now would
 # raise LockMismatch (and changing the pinned lock would trip the boot canonical-pin-drift HARD STOP).
-PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
+PG_JUDGE_MODEL = get_model_settings().judge_model  # was os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
 
 # Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
 # role subsumes the old "evaluator" responsibilities). When PG_EVALUATOR_MODEL
