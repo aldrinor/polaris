@@ -1,0 +1,9 @@
+# Exact SBOM/lock generator versions used to produce the committed S6 artifacts
+# (sbom.cdx.json, requirements.hashed.txt). Read by the two-build recipe in
+# docs/review_readiness/reproducible_build.md so the generator is not a hidden variable.
+#
+# The cyclonedx version below is not hand-guessed: it is the value the committed
+# sbom.cdx.json records for itself under metadata.tools (cyclonedx-py 7.3.0,
+# cyclonedx-python-lib 11.11.0). Verify with:
+#   python3 -c "import json;print([ (c['name'],c['version']) for c in json.load(open('sbom.cdx.json'))['metadata']['tools']['components'] ])"
+cyclonedx-bom==7.3.0
