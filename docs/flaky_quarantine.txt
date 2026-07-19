@@ -1,0 +1,22 @@
+# Flaky-test quarantine list (tracked, non-governing only)
+#
+# Policy: docs/review_readiness/flakiness_policy.md
+#
+# Format (one entry per line, when non-empty):
+#   <pytest node-id>  |  quarantined=<YYYY-MM-DD>  |  evidence=<runs passed/failed>  |  owner=<name/issue>
+#
+# RULES:
+#  - GOVERNING tests (see flakiness_policy.md §3) are NEVER listed here. Governing
+#    instability is a BLOCKING STOP, not a quarantine.
+#  - Quarantine means TRACKED, not deleted. Listed tests keep running in CI; they are
+#    only excluded from the ratchet's "must be green" accounting until fixed.
+#  - A test is eligible only if confirmed flaky under the bar in flakiness_policy.md §1
+#    (fails in some-but-not-all strictly-serial runs on unchanged code).
+#
+# CURRENT QUARANTINE COUNT: 0
+#
+# The 3B characterization sweep produced NO completed multi-run data (see
+# flakiness_policy.md §5), so no test can be honestly classified flaky. This list is
+# intentionally empty rather than populated with unverified node-ids.
+#
+# --- entries below this line ---
