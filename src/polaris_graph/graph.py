@@ -933,7 +933,7 @@ def build_graph() -> StateGraph:
         if quality_gate == "below_minimum":
             qm = result.get("quality_metrics", {})
             total_words = qm.get("total_words", 0)
-            min_words = int(os.getenv("PG_MIN_TOTAL_WORDS", "10000"))
+            min_words = int(os.getenv("PG_MIN_TOTAL_WORDS", "0"))
             sections = result.get("sections", [])
             if total_words < min_words and sections:
                 sorted_sections = sorted(sections, key=lambda s: s.get("word_count", 0))

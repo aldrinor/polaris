@@ -61,7 +61,7 @@ MAX_EXECUTION_MINUTES = int(resolve("PG_V2_MAX_MINUTES"))
 
 # Fetch concurrency (matches v1 default)
 FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "10"))
-FETCH_TIMEOUT = int(os.getenv("PG_FETCH_TIMEOUT", "20"))
+FETCH_TIMEOUT = int(os.getenv("PG_FETCH_TIMEOUT", "30"))
 
 
 # ---------------------------------------------------------------------------

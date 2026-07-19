@@ -90,7 +90,7 @@ PG_MAX_EVIDENCE_TO_EXTRACT = int(resolve("PG_MAX_EVIDENCE_TO_EXTRACT"))
 
 # FIX-059-D (BUG-4): Minimum quote word count -- reject quotes shorter than this.
 # Headings and nav labels are typically 5-10 words; 15 filters them out.
-PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "15"))
+PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "5"))
 
 # FIX-C4: Consolidate env var reads at module level (single source of truth).
 # Previously read inline in analyze_sources() — violates LAW VI (zero hard-coding).
@@ -2077,7 +2077,7 @@ Sources:
             schema=SourceAnalysisBatch,
             system=ANALYSIS_SYSTEM,
             max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
-            timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
+            timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "900")),
             reasoning_enabled=False,  # FIX-I2b: Evidence extraction is pattern-matching, not reasoning
             # W1.4 (S3 diagnosis): cap reasoning on GLM-5.1 (server always reasons even with
             # reasoning_enabled=False). Caps runaway reasoning observed at 10,813 tokens per batch.
@@ -2240,7 +2240,7 @@ Sources:
                 schema=SourceAnalysisBatch,
                 system=ANALYSIS_SYSTEM,
                 max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
-                timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
+                timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "900")),
                 reasoning_enabled=False,
                 reasoning_max_tokens=int(os.getenv("PG_EXTRACTION_REASONING_MAX_TOKENS", "2048")),
             )

@@ -24,7 +24,7 @@ from src.polaris_graph.settings import resolve
 logger = logging.getLogger("polaris_graph")
 
 # Concurrency cap — matches existing PG_FETCH_CONCURRENCY default
-FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "5"))
+FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "10"))
 
 # Retry config for 429/5xx responses
 MAX_RETRIES = int(resolve("PG_FETCH_MAX_RETRIES"))

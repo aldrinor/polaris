@@ -580,7 +580,7 @@ def remove_redundancy(
         The same report_sections list with duplicates removed from later sections.
     """
     if threshold is None:
-        threshold = float(os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.45"))
+        threshold = float(os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.65"))
     embedding_threshold = float(
         resolve("PG_REDUNDANCY_EMBEDDING_THRESHOLD")
     )
@@ -2092,7 +2092,7 @@ def compute_quality_metrics(
 
     max_citation_frequency = max(citation_freq.values()) if citation_freq else 0
     max_over_cited_threshold = int(
-        os.getenv("PG_MAX_CITATION_FREQUENCY", "5")
+        os.getenv("PG_MAX_CITATION_FREQUENCY", "10")
     )
     over_cited = [
         f"[{k}]" for k, v in citation_freq.items()

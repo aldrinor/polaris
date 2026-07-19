@@ -345,7 +345,7 @@ PG_CROSS_SOURCE_SELF_CHECK_MIN = float(resolve("PG_CROSS_SOURCE_SELF_CHECK_MIN")
 # arbitrary truncation. W3.8: Raised 50→200 after audit showed typical pair
 # counts (171, 139) were dropping ~70% of candidates. With top-N-by-relevance
 # selection, 200 stays well inside latency budget (NLI ~20-30ms/pair on CUDA).
-PG_MAX_CROSS_SOURCE_PAIRS = int(os.getenv("PG_MAX_CROSS_SOURCE_PAIRS", "200"))
+PG_MAX_CROSS_SOURCE_PAIRS = int(os.getenv("PG_MAX_CROSS_SOURCE_PAIRS", "50"))
 
 
 def _find_independent_sources(
@@ -822,7 +822,7 @@ async def verify_evidence_nli(
     # Build result dicts
     # FIX-059-B: NLI faithfulness threshold. Claims below this probability
     # are not faithful regardless of binary label.
-    _nli_faith_threshold = float(os.getenv("PG_FAITHFULNESS_NLI_THRESHOLD", "0.65"))
+    _nli_faith_threshold = float(os.getenv("PG_FAITHFULNESS_NLI_THRESHOLD", "0.75"))
     offtopic_overrides = 0
     for i in range(len(evidence)):
         ev = evidence[i]

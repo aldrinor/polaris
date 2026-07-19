@@ -435,7 +435,7 @@ def resolve_citations(
     """
 
     if max_frequency <= 0:
-        max_frequency = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "5"))
+        max_frequency = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "10"))
     max_global_freq = int(resolve("PG_MAX_GLOBAL_CITATION_FREQ"))
 
     # Normalize multi-citations and truncated citations first

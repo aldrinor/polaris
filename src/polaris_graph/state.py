@@ -42,7 +42,7 @@ MAX_EXECUTION_MINUTES = int(resolve("PG_MAX_EXECUTION_MINUTES"))
 
 # Synthesis — maxed out
 MAX_SECTIONS = int(resolve("PG_MAX_SECTIONS"))
-MAX_WORDS_PER_SECTION = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "2000"))
+MAX_WORDS_PER_SECTION = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "3000"))
 # GEMINI-ARCH: MIN_TOTAL_WORDS set to 0 (advisory). Quality emerges from evidence
 # density, not word count targets. Sections are as long as their evidence supports.
 MIN_TOTAL_WORDS = int(os.getenv("PG_MIN_TOTAL_WORDS", "0"))
@@ -82,7 +82,7 @@ PG_AMPLIFICATION_VARIANTS = int(resolve("PG_AMPLIFICATION_VARIANTS"))
 
 # Academic search caps (Change 4)
 PG_ACADEMIC_QUERY_CAP = int(resolve("PG_ACADEMIC_QUERY_CAP"))
-PG_MAX_TOTAL_ACADEMIC = int(os.getenv("PG_MAX_TOTAL_ACADEMIC", "500"))
+PG_MAX_TOTAL_ACADEMIC = int(os.getenv("PG_MAX_TOTAL_ACADEMIC", "100"))
 
 # Content pipeline (Change 3)
 PG_MAX_CONTENT_LENGTH = int(resolve("PG_MAX_CONTENT_LENGTH"))
@@ -90,8 +90,8 @@ PG_CONTENT_PER_SOURCE = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
 PG_MIN_CONTENT_LENGTH = int(resolve("PG_MIN_CONTENT_LENGTH"))
 PG_ANALYSIS_CONCURRENCY = int(resolve("PG_ANALYSIS_CONCURRENCY"))
 PG_ANALYSIS_BATCH_SIZE = int(resolve("PG_ANALYSIS_BATCH_SIZE"))
-PG_ANALYSIS_BATCH_TIMEOUT = float(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "240.0"))
-PG_FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "5"))
+PG_ANALYSIS_BATCH_TIMEOUT = float(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "900.0"))
+PG_FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "10"))
 
 # Verification/synthesis concurrency (Change 4)
 PG_VERIFY_BATCH_SIZE = int(resolve("PG_VERIFY_BATCH_SIZE"))
@@ -218,7 +218,7 @@ PG_REFINER_MAX_TOKENS = int(os.getenv("PG_REFINER_MAX_TOKENS", "4096"))
 
 # Agentic search loop (Gemini-style deep research)
 PG_AGENTIC_SEARCH_ENABLED = resolve("PG_AGENTIC_SEARCH_ENABLED") == "1"
-PG_AGENTIC_MAX_ROUNDS = int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "12"))
+PG_AGENTIC_MAX_ROUNDS = int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "15"))
 PG_AGENTIC_MAX_QUERIES = int(resolve("PG_AGENTIC_MAX_QUERIES"))
 PG_AGENTIC_MAX_TIME_SECONDS = int(resolve("PG_AGENTIC_MAX_TIME_SECONDS"))
 PG_AGENTIC_SEED_QUERIES = int(resolve("PG_AGENTIC_SEED_QUERIES"))

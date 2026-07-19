@@ -1407,7 +1407,7 @@ async def _focused_reextraction(
     ) -> list[dict]:
         async with semaphore:
             # Truncate content to cap
-            _content_cap = int(os.getenv("PG_CONTENT_PER_SOURCE", "10000"))
+            _content_cap = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
             content_truncated = content[:_content_cap]
 
             prompt = (
@@ -3524,7 +3524,7 @@ async def synthesize_report(
         )
 
     # M-18: Evidence utilization gate warning
-    min_utilization = float(os.getenv("PG_MIN_EVIDENCE_UTILIZATION", "0.30"))
+    min_utilization = float(os.getenv("PG_MIN_EVIDENCE_UTILIZATION", "0.40"))
     actual_utilization = quality.get("evidence_utilization", 0.0)
     if actual_utilization < min_utilization:
         logger.warning(
@@ -3541,7 +3541,7 @@ async def synthesize_report(
 
     # FIX-046A: Define target_total BEFORE the while loop so it's always
     # available for post-loop code (line ~1034) that uses it.
-    target_total = int(os.getenv("PG_TARGET_TOTAL_WORDS", "12000"))
+    target_total = int(os.getenv("PG_TARGET_TOTAL_WORDS", "8000"))
 
     # DUR-5: Skip expansion entirely if already above threshold
     skip_expansion_threshold = int(resolve("PG_SKIP_EXPANSION_WORD_THRESHOLD"))
@@ -5154,7 +5154,7 @@ Identify any aspects not well-covered."""
             schema=ClusterPlan,
             system=CLUSTER_SYSTEM,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=int(os.getenv("PG_CLUSTER_BATCH_TIMEOUT", "300")),
+            timeout=int(os.getenv("PG_CLUSTER_BATCH_TIMEOUT", "600")),
         )
 
         # Reverse-remap short IDs back to original ev_xxx IDs

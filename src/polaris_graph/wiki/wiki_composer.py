@@ -488,7 +488,7 @@ async def compose_from_wiki(
         bibliography=wiki_result.bibliography,
         evidence_count=total_evidence,
         iteration_count=1,
-        search_rounds=int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "2")),
+        search_rounds=int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "15")),
         persona_count=5,
     )
 

@@ -46,7 +46,7 @@ logger = logging.getLogger("polaris_graph")
 _MAX_ITERATIONS = int(resolve("PG_REACT_MAX_ITERATIONS"))
 _TIMEOUT_SECONDS = int(resolve("PG_REACT_TIMEOUT_SECONDS"))
 _TOOL_TIMEOUT = int(resolve("PG_REACT_TOOL_TIMEOUT"))
-_INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "240"))
+_INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"))
 
 # 8-phase pipeline env vars
 _ANALYSIS_PIPELINE = os.getenv("PG_ANALYSIS_PIPELINE", "8phase")
@@ -672,7 +672,7 @@ class ReactAnalysisAgent:
         elif mode:
             self._mode = mode
         else:
-            self._mode = os.getenv("PG_ANALYSIS_PIPELINE", "") or "8phase"
+            self._mode = os.getenv("PG_ANALYSIS_PIPELINE", "8phase") or "8phase"
 
     async def run(self) -> AnalysisNotebook:
         """Execute analysis and return the notebook.

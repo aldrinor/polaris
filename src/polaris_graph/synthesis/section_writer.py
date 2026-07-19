@@ -1003,7 +1003,7 @@ def _validate_outline_evidence(outline: ReportOutline) -> ReportOutline:
        redistributing from over-assigned sections.
     """
     min_evidence_per_section = int(
-        os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "3")
+        os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5")
     )
 
     seen: set[str] = set()
@@ -1593,7 +1593,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
 
     # v4-simplify: Cap section length to prevent one section dominating the report.
     # TEST_082: Section 1 was 4,268 words (55% of the report).
-    _max_section_words = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "1500"))
+    _max_section_words = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "3000"))
     _word_count = len(content.split())
     if _word_count > _max_section_words:
         # Truncate at the last sentence boundary before the cap
@@ -1981,7 +1981,7 @@ async def write_all_sections(
     section_evidence_map: dict[str, list[str]] = {}
 
     # FIX-9: Track citation frequency per source URL for diversity enforcement
-    max_citation_freq = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "8"))
+    max_citation_freq = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "10"))
     source_citation_count: dict[str, int] = {}  # source_url -> citation count
 
     # FIX-304: Build full outline context for position awareness
@@ -2008,7 +2008,7 @@ async def write_all_sections(
     _n_sections_a = max(len(sorted_sections), 1)
     _total_evidence_a = len(evidence)
     _fair_share_a = max(
-        int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8")),
+        int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5")),
         int(_total_evidence_a / _n_sections_a * 1.5),
     )
 
@@ -2100,7 +2100,7 @@ async def write_all_sections(
         _n_sections = max(len(sorted_sections), 1)
         _total_evidence = len(evidence)
         _fair_share = max(
-            int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8")),
+            int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5")),
             int(_total_evidence / _n_sections),
         )
         if _hard_dedup:
@@ -2126,7 +2126,7 @@ async def write_all_sections(
             # FIX-069: When outline assignment is empty or depleted by dedup,
             # pull from the FULL unclaimed pool by embedding similarity.
             # This prevents 14/15 sections getting 0 evidence.
-            _min_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8"))
+            _min_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5"))
             if len(assigned_evidence) < _min_per_section:
                 _all_unclaimed = [
                     e for e in evidence
