@@ -160,3 +160,20 @@ Supply-chain / hygiene scanning is added to the **report-only** `python-ci` work
 `pip-licenses`, secret scan via `detect-secrets`). These are informational and do **not**
 block merges. CI remains report-only until the §1 bar is met. See
 `docs/review_readiness/ci_scanning.md` for what each scan covers and how to read its output.
+
+## Addendum — empirical N-run status (honest)
+
+The flakiness **policy, quarantine mechanism, governing-test protection, and report-only CI scanning
+are in place**. The **empirical N≥3 characterization is the remaining step** and is intentionally NOT
+completed in a single run: the suite's ML tail (retrieval/synthesis/clinical/llm — real CPU
+embedding + NLI inference) takes ~12 min per serial pass, and the suite is **not safe to run
+concurrently with itself** (parallel sessions share filesystem/port/model state → phantom failures),
+so N passes must be **serialized over a longer window** — exactly Plan V4's "run the suite N times
+over several days" before CI flips report-only → required. The quarantine list is therefore currently
+empty (no fabricated entries); it is populated as the scheduled serial runs accumulate.
+
+**Authoritative collection state:** the FULL suite collects **16,738 tests / 11 pre-existing errors**
+on the config branch (verified) — no regression from the migration. (A transient "35 errors" seen
+during characterization was a subset + concurrent-contamination measurement artifact, not a real
+count.) **Governing tests (oracle acceptance, crown-jewels, strict_verify/faithfulness) are NEVER
+quarantined** — an unstable governing measurement is a BLOCKING stop, not a quarantine.
