@@ -76,3 +76,23 @@ def get_model_settings() -> ModelSettings:
     Construction is cheap (12 fields); the freshness guarantee is what preserves behaviour.
     """
     return ModelSettings()
+
+
+# ── Long-tail config registry ────────────────────────────────────────────────
+# For the ~871 non-model keys with a clean single-line default, a central registry provides a
+# byte-identical alternative to scattered os.getenv. Typed accessors (like ModelSettings) are layered
+# on top per-domain over time; resolve() is the mechanical, provably-equivalent first step.
+from src.polaris_graph.config_defaults import CONFIG_DEFAULTS  # noqa: E402
+
+
+def resolve(key: str) -> str | None:
+    """Return ``os.getenv(key, CONFIG_DEFAULTS[key])`` — byte-identical to the original call site.
+
+    A migrated call site replaces ``os.getenv("PG_X", "<lit>")`` with ``resolve("PG_X")`` where the
+    registry already holds ``"<lit>"``. Reads the CURRENT environment on every call (like os.getenv).
+    """
+    import os
+
+    if key not in CONFIG_DEFAULTS:
+        raise KeyError(f"{key!r} is not a registered config key (multi-line/computed/conflicting — migrate manually)")
+    return os.getenv(key, CONFIG_DEFAULTS[key])
