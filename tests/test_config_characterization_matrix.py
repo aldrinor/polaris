@@ -367,3 +367,187 @@ def test_precedence_process_env_beats_registry_default(monkeypatch):
         monkeypatch.setenv(key, "PROC-WINS")
         assert resolve(key) == "PROC-WINS"
         assert resolve(key) != CONFIG_DEFAULTS[key] or CONFIG_DEFAULTS[key] == "PROC-WINS"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Axis I — .env PRECEDENCE TIER (codex-flagged).
+#
+# GROUND TRUTH of THIS module: settings.py does NOT call load_dotenv itself. Its
+# resolve()/ModelSettings read ONLY os.getenv/os.environ. The codebase's OTHER
+# modules (state.py, graph.py, checkpoint_manager.py, ...) call
+# ``load_dotenv()`` — i.e. ``load_dotenv(override=False)`` — at import time,
+# which COPIES .env keys into os.environ *only for keys not already present*.
+# So the observable precedence the config layer sees is entirely produced by
+# that copy step:
+#
+#   registry default  <  .env value  <  process-env value
+#
+# and, critically, override=False means a key ALREADY in os.environ (process
+# env) is NOT overwritten by .env. These tests reproduce the real mechanism
+# (a temp .env file fed through dotenv.load_dotenv(override=False)) and then
+# assert what resolve()/get_model_settings() actually return. Cleanup pops any
+# key the dotenv load injected into os.environ so the suite stays hermetic
+# (monkeypatch.setenv/delenv can't auto-revert os.environ mutations that
+# load_dotenv performs directly).
+# ─────────────────────────────────────────────────────────────────────────────
+
+import tempfile  # noqa: E402
+
+from dotenv import load_dotenv  # noqa: E402
+
+
+def _write_env_file(tmp_path, **pairs):
+    """Write a temp .env file with the given KEY=VALUE pairs, return its path."""
+    p = tmp_path / "hermetic.env"
+    p.write_text("".join(f"{k}={v}\n" for k, v in pairs.items()))
+    return str(p)
+
+
+def test_dotenv_only_key_beats_registry_default(tmp_path, monkeypatch):
+    """(a) A key present ONLY in .env (not in process env) beats the registry default.
+
+    Mechanism: load_dotenv(override=False) injects the key into os.environ because
+    it is absent there; resolve() then reads it via os.getenv and returns the
+    .env value in preference to CONFIG_DEFAULTS[key].
+    """
+    key = "ANTIWORD_CMD"
+    assert key in CONFIG_DEFAULTS
+    default = CONFIG_DEFAULTS[key]
+    monkeypatch.delenv(key, raising=False)  # ensure NOT in process env
+    assert resolve(key) == default  # baseline: registry default stands
+
+    env_path = _write_env_file(tmp_path, ANTIWORD_CMD="from-dotenv-only")
+    try:
+        loaded = load_dotenv(env_path, override=False)
+        assert loaded is True
+        assert os.environ.get(key) == "from-dotenv-only"  # dotenv copied it in
+        assert resolve(key) == "from-dotenv-only"  # .env value beats default
+        assert resolve(key) != default
+    finally:
+        os.environ.pop(key, None)  # undo the direct os.environ mutation
+
+
+def test_dotenv_only_key_beats_default_model_layer(tmp_path, monkeypatch):
+    """(a') Same layering through the pydantic ModelSettings path.
+
+    A model key present only in .env (loaded into os.environ) overrides the
+    pydantic field default on the next fresh get_model_settings() read.
+    """
+    monkeypatch.delenv("PG_JUDGE_MODEL", raising=False)
+    assert get_model_settings().judge_model == "qwen/qwen3.6-35b-a3b"  # field default
+
+    env_path = _write_env_file(tmp_path, PG_JUDGE_MODEL="dotenv/judge-model")
+    try:
+        assert load_dotenv(env_path, override=False) is True
+        assert get_model_settings().judge_model == "dotenv/judge-model"
+    finally:
+        os.environ.pop("PG_JUDGE_MODEL", None)
+
+
+def test_process_env_beats_dotenv_because_override_false(tmp_path, monkeypatch):
+    """(b) A key in BOTH process-env and .env resolves to the PROCESS-ENV value.
+
+    override=False is the codebase-wide setting (bare ``load_dotenv()``): a key
+    ALREADY in os.environ is left untouched, so .env never shadows real env.
+    """
+    key = "ANTIWORD_CMD"
+    monkeypatch.setenv(key, "from-process-env")  # process env set FIRST
+    env_path = _write_env_file(tmp_path, ANTIWORD_CMD="from-dotenv")
+    try:
+        assert load_dotenv(env_path, override=False) is True
+        # os.environ still holds the process value — dotenv did not overwrite it.
+        assert os.environ[key] == "from-process-env"
+        assert resolve(key) == "from-process-env"  # process env wins over .env
+        assert resolve(key) != "from-dotenv"
+    finally:
+        # monkeypatch.setenv reverts the process value; nothing extra to pop
+        # (dotenv left os.environ[key] as the monkeypatched value it found).
+        pass
+
+
+def test_dotenv_override_false_is_the_codebase_setting():
+    """Guard: load_dotenv's default override is False, matching every bare
+    ``load_dotenv()`` call in src/polaris_graph (state.py, graph.py, ...).
+
+    If a dependency bump flipped this default, the (b) precedence above would
+    silently invert; this locks the assumption the layering tests rely on.
+    """
+    import inspect
+
+    assert inspect.signature(load_dotenv).parameters["override"].default is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Axis J — ModelSettings EMPTY-VALUE / malformed-value (codex-flagged).
+#
+# For a model key, characterize EXACTLY what get_model_settings().<field>
+# returns when the env var is '' and when it is a malformed-looking string.
+# ACTUAL behaviour (pydantic-settings, plain ``str`` / ``str | None`` fields,
+# no validators): the empty string stays '' (it is NOT coerced to None and NOT
+# ignored), and an arbitrary/malformed string is preserved VERBATIM — the field
+# type is an unconstrained str, so there is no notion of "malformed".
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_model_setting_empty_string_stays_empty_string(monkeypatch):
+    """env='' -> field is '' exactly (NOT None, NOT the default, NOT dropped)."""
+    monkeypatch.setenv("PG_JUDGE_MODEL", "")
+    val = get_model_settings().judge_model
+    assert val == ""
+    assert val is not None  # empty string is NOT normalized to None
+    assert val != "qwen/qwen3.6-35b-a3b"  # the field default did NOT stand
+
+
+def test_model_setting_optional_empty_string_stays_empty_not_none(monkeypatch):
+    """For a ``str | None`` field (PG_EVALUATOR_MODEL), env='' still yields ''.
+
+    Even though None is a valid value for this field, an explicit empty-string
+    env var is passed through as '' — pydantic does NOT map ''->None here.
+    """
+    monkeypatch.setenv("PG_EVALUATOR_MODEL", "")
+    val = get_model_settings().evaluator_model
+    assert val == ""
+    assert val is not None  # distinct from the unset case, which IS None
+
+
+def test_model_setting_malformed_string_preserved_verbatim(monkeypatch):
+    """Malformed-looking value: the field is an unconstrained str, so the raw
+    string is stored byte-for-byte — no parsing, no rejection, no coercion.
+
+    (N/A-for-validation: 'malformed' is undefined for a free-form str field;
+    this LOCKS that there is no hidden validator that would reject it.)
+    """
+    garbage = "not/a real::model @@@  \t"
+    monkeypatch.setenv("PG_JUDGE_MODEL", garbage)
+    assert get_model_settings().judge_model == garbage  # verbatim, incl. trailing ws
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Axis K — resolve()-LAYER KEY-CASE sensitivity (codex-flagged).
+#
+# resolve() looks a key up in CONFIG_DEFAULTS (exact string membership) then
+# reads os.getenv(key) (exact, case-sensitive). So a LOWERCASE form of a
+# registered key is a DIFFERENT, unregistered key: setting it in env does NOT
+# override the correctly-cased resolve(), and resolve(lowercase) raises KeyError.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("key", ["PG_MAX_SECTIONS", "ANTIWORD_CMD"])
+def test_resolve_is_case_sensitive_lowercase_env_does_not_override(monkeypatch, key):
+    """A lowercase-named env var does NOT feed the correctly-cased resolve(key)."""
+    lower = key.lower()
+    assert lower != key  # sanity: the two names actually differ
+    assert lower not in CONFIG_DEFAULTS  # lowercase form is unregistered
+    monkeypatch.delenv(key, raising=False)  # correct-case var unset
+    monkeypatch.setenv(lower, "LOWERCASE-SHOULD-NOT-WIN")
+    # resolve of the CORRECT case ignores the lowercase env and returns default:
+    assert resolve(key) == CONFIG_DEFAULTS[key]
+    assert resolve(key) != "LOWERCASE-SHOULD-NOT-WIN"
+
+
+@pytest.mark.parametrize("key", ["PG_MAX_SECTIONS", "ANTIWORD_CMD"])
+def test_resolve_lowercase_key_raises_keyerror_even_when_env_set(monkeypatch, key):
+    """resolve(lowercase) raises KeyError — the lowercase key is not registered,
+    and an env var by that name does NOT rescue it (the gate is the registry)."""
+    lower = key.lower()
+    monkeypatch.setenv(lower, "present-in-env")
+    with pytest.raises(KeyError):
+        resolve(lower)
