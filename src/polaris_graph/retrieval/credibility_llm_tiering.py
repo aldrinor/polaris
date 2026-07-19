@@ -53,6 +53,7 @@ from src.polaris_graph.retrieval.tier_classifier import (
     _is_corroborated_scholarly_venue,
     _normalize_domain,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -384,7 +385,7 @@ def _tier_llm_batch_wall_seconds() -> float:
     this post-loop W5 batch. When the deadline passes we STOP waiting and keep the
     deterministic rules-FLOOR tier for every un-returned source (no drop, §-1.3). `<= 0`
     disables the wall. Default 600s (generous)."""
-    raw = os.getenv("PG_TIER_LLM_BATCH_WALL_SECONDS", "600").strip()
+    raw = resolve("PG_TIER_LLM_BATCH_WALL_SECONDS").strip()
     try:
         value = float(raw)
     except (TypeError, ValueError):
@@ -406,7 +407,7 @@ def _tier_llm_per_call_seconds() -> float:
     120s) so a call that hits ITS timeout still resolves before this cutoff, and only a call hung
     BEYOND its own timeout (or burning retries) is cut; far below the batch wall. ``<= 0`` disables
     it (only the batch wall bounds the tail, legacy behavior)."""
-    raw = os.getenv("PG_TIER_LLM_PER_CALL_SECONDS", "150").strip()
+    raw = resolve("PG_TIER_LLM_PER_CALL_SECONDS").strip()
     try:
         value = float(raw)
     except (TypeError, ValueError):
@@ -422,7 +423,7 @@ def _tier_llm_degrade_after() -> int:
     many tiering calls in a row fall back (blank/trickle storm), short-circuit the REMAINING
     sources straight to the rules-floor instead of paying the per-call budget on each. `<= 0`
     disables the breaker. Default 8."""
-    raw = os.getenv("PG_TIER_LLM_DEGRADE_AFTER", "8").strip()
+    raw = resolve("PG_TIER_LLM_DEGRADE_AFTER").strip()
     try:
         value = int(raw)
     except (TypeError, ValueError):

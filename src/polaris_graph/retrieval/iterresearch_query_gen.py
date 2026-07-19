@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Any, Callable
+from src.polaris_graph.settings import resolve
 
 # (research_question, **kw) -> LiveRetrievalResult. Injected so this module never imports the
 # 1000-line live_retriever at module load (and so it is unit-testable on a stub).
@@ -34,13 +35,13 @@ LlmFn = Callable[[str], str]
 
 def iterresearch_enabled() -> bool:
     """True iff the IterResearch query-gen path is flag-enabled (default OFF = legacy behaviour)."""
-    return os.getenv("PG_QGEN_ITERRESEARCH", "0").strip() in ("1", "true", "True")
+    return resolve("PG_QGEN_ITERRESEARCH").strip() in ("1", "true", "True")
 
 
 def _max_rounds() -> int:
     """Max IterResearch rounds (= max distinct queries issued). Caps cost; default matches the
     bake-off's equal-budget regime."""
-    return int(os.getenv("PG_QGEN_ITERRESEARCH_MAX_ROUNDS", "35"))
+    return int(resolve("PG_QGEN_ITERRESEARCH_MAX_ROUNDS"))
 
 
 def _obs_digest(rows: list[dict], n: int = 8, chars: int = 160) -> str:

@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+from src.polaris_graph.settings import resolve
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Lexicon (LAW VI: SME-editable config, validated fail-loud at first use)
@@ -94,7 +95,7 @@ _OFF_VALUES = frozenset({"0", "false", "False", "no", "off"})
 def qualitative_conflict_enabled() -> bool:
     """The sweep kill-switch. Default ON (no-spend, additive); `PG_SWEEP_QUALITATIVE_CONFLICT=0`
     disables the qualitative pass (numeric detection is unaffected)."""
-    return os.getenv("PG_SWEEP_QUALITATIVE_CONFLICT", "1") not in _OFF_VALUES
+    return resolve("PG_SWEEP_QUALITATIVE_CONFLICT") not in _OFF_VALUES
 
 
 @dataclass

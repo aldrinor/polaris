@@ -17,6 +17,7 @@ from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 from src.polaris_graph.schemas import CitationAudit, SectionDraft
 from src.polaris_graph.state import BibliographyEntry, EvidencePiece
 from src.polaris_graph.tracing import get_tracer
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +220,7 @@ async def audit_citations(
     # sentence and the evidence statement is ~0. Strip these misattributions.
     # FIX-B1: Embedding similarity for citation-claim matching.
     # Domain-agnostic — no hardcoded stopwords. Works for any topic.
-    _cite_sim_threshold = float(os.getenv("PG_CITE_SIMILARITY_THRESHOLD", "0.3"))
+    _cite_sim_threshold = float(resolve("PG_CITE_SIMILARITY_THRESHOLD"))
     _misattributed_count = 0
 
     for section in sections:
@@ -435,7 +436,7 @@ def resolve_citations(
 
     if max_frequency <= 0:
         max_frequency = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "5"))
-    max_global_freq = int(os.getenv("PG_MAX_GLOBAL_CITATION_FREQ", "10"))
+    max_global_freq = int(resolve("PG_MAX_GLOBAL_CITATION_FREQ"))
 
     # Normalize multi-citations and truncated citations first
     normalized = _normalize_citations(content)

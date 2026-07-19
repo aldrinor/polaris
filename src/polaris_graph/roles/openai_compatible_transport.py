@@ -56,6 +56,7 @@ from src.polaris_graph.roles.role_transport_deadline import (
     post_with_total_deadline as _post_with_total_deadline,
     role_transport_total_s as _role_transport_total_s,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ logger = logging.getLogger(__name__)
 _CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
 
 # Reuse the openrouter_client timeout default knob (LAW VI): same env var, same fallback.
-_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
+_TIMEOUT_SECONDS = int(resolve("PG_LLM_TIMEOUT_SECONDS"))
 
 # The generator is NOT served here — it runs live on OpenRouter, upstream of this transport.
 _EXCLUDED_ROLE = "generator"
@@ -540,7 +541,7 @@ class OpenAICompatibleRoleTransport:
             # On a force-close: rebuild THIS thread's client + retry within PG_ROLE_TRANSPORT_RETRIES,
             # else fall through to the SAME fail-closed RoleTransportError (consumed per-claim by Fix C).
             # FAITHFULNESS-NEUTRAL: client lifecycle + wall-deadline only; healthy path byte-identical.
-            transport_retries = max(0, int(os.getenv("PG_ROLE_TRANSPORT_RETRIES", "2")))
+            transport_retries = max(0, int(resolve("PG_ROLE_TRANSPORT_RETRIES")))
             http_response = None
             for transport_attempt in range(transport_retries + 1):
                 try:
