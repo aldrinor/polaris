@@ -1,0 +1,919 @@
+diff --git a/src/polaris_v6/anti_sycophancy/nightly_eval.py b/src/polaris_v6/anti_sycophancy/nightly_eval.py
+index 0142e00..b6285e4 100644
+--- a/src/polaris_v6/anti_sycophancy/nightly_eval.py
++++ b/src/polaris_v6/anti_sycophancy/nightly_eval.py
+@@ -29,6 +29,27 @@ def run_nightly_anti_sycophancy_eval_impl(
+     responses_path: Path,
+     threshold: float = DEFAULT_THRESHOLD,
+ ) -> dict[str, Any]:
++    """Score a paired-prompt corpus against a candidate-response fixture.
++
++    Loads the paired-prompt corpus and the candidate responses, computes the
++    per-pair stance delta, and reduces to a mean-delta PASS/FAIL verdict. The
++    response set must exactly cover the corpus paired_ids (no missing, no extra,
++    no duplicates); the mean delta is compared against ``threshold`` (verdict is
++    PASS when ``mean_delta <= threshold``). Also emits a structured info log.
++
++    Args:
++        corpus_path: JSON file with a ``paired_prompts`` list of PairedPrompt.
++        responses_path: JSON file with a list of PairedPromptResult records.
++        threshold: Maximum mean stance delta allowed for a PASS verdict.
++
++    Returns:
++        A dict with ``N`` (pair count), ``mean_delta``, ``threshold``, and
++        ``verdict`` (``"PASS"`` or ``"FAIL"``).
++
++    Raises:
++        ValueError: If the responses contain duplicate paired_ids, or if the
++            response paired_id set does not exactly match the corpus set.
++    """
+     corpus_payload = json.loads(corpus_path.read_text(encoding="utf-8"))
+     paireds = {
+         p["paired_id"]: PairedPrompt.model_validate(p)
+@@ -73,6 +94,21 @@ def run_nightly_anti_sycophancy_eval(
+     responses_path: str,
+     threshold: float = DEFAULT_THRESHOLD,
+ ) -> dict[str, Any]:
++    """Dramatiq actor wrapping :func:`run_nightly_anti_sycophancy_eval_impl`.
++
++    Accepts string paths (queue payloads are JSON-serialisable), coerces them to
++    ``Path``, and delegates to the impl. Configured with ``max_retries=2`` and a
++    10-minute time limit.
++
++    Args:
++        corpus_path: Filesystem path to the paired-prompt corpus JSON.
++        responses_path: Filesystem path to the candidate-responses JSON.
++        threshold: Maximum mean stance delta allowed for a PASS verdict.
++
++    Returns:
++        The verdict payload from the impl (``N``, ``mean_delta``, ``threshold``,
++        ``verdict``).
++    """
+     return run_nightly_anti_sycophancy_eval_impl(
+         Path(corpus_path), Path(responses_path), threshold,
+     )
+diff --git a/src/polaris_v6/benchmark/coverage_scorer.py b/src/polaris_v6/benchmark/coverage_scorer.py
+index 5929f6f..6c2cd81 100644
+--- a/src/polaris_v6/benchmark/coverage_scorer.py
++++ b/src/polaris_v6/benchmark/coverage_scorer.py
+@@ -11,6 +11,20 @@ from polaris_v6.benchmark.schema import BenchmarkQuestion
+ def score_response_coverage(
+     question: BenchmarkQuestion, response_text: str
+ ) -> float:
++    """Score whether a response covers a question's expected target tokens.
++
++    Prefers ``expected_pico_keywords`` when non-empty, else falls back to
++    ``expected_anchors``. Matching is all-or-nothing: every target must appear
++    as a case-insensitive substring of ``response_text``.
++
++    Args:
++        question: The benchmark question supplying the target token list.
++        response_text: The system response to check for coverage.
++
++    Returns:
++        ``1.0`` if every target token is present in the response, else ``0.0``.
++        Returns ``0.0`` when both keyword and anchor lists are empty.
++    """
+     targets = question.expected_pico_keywords or question.expected_anchors
+     if not targets:
+         return 0.0
+diff --git a/src/polaris_v6/benchmark/industry_adapters.py b/src/polaris_v6/benchmark/industry_adapters.py
+index 305a7ef..8e33fbc 100644
+--- a/src/polaris_v6/benchmark/industry_adapters.py
++++ b/src/polaris_v6/benchmark/industry_adapters.py
+@@ -94,6 +94,19 @@ _DISPATCH: dict[IndustryBenchmark, callable] = {
+ 
+ 
+ def adapt(benchmark: IndustryBenchmark, raw: dict) -> IndustryRunRecord:
++    """Dispatch a raw external-benchmark record to its adapter.
++
++    Args:
++        benchmark: Which external benchmark ``raw`` originates from.
++        raw: The benchmark's native JSON record as a dict.
++
++    Returns:
++        The record mapped into the common ``IndustryRunRecord`` schema.
++
++    Raises:
++        ValueError: If ``benchmark`` is not a known benchmark key, or if the
++            selected adapter rejects ``raw`` for missing required fields.
++    """
+     if benchmark not in _DISPATCH:
+         raise ValueError(f"unknown benchmark: {benchmark}")
+     return _DISPATCH[benchmark](raw)
+diff --git a/src/polaris_v6/benchmark/schema.py b/src/polaris_v6/benchmark/schema.py
+index 42037bd..8d36ec1 100644
+--- a/src/polaris_v6/benchmark/schema.py
++++ b/src/polaris_v6/benchmark/schema.py
+@@ -26,6 +26,14 @@ DifficultyLevel = Literal["routine", "novel_synthesis", "adversarial"]
+ 
+ 
+ class BenchmarkQuestion(BaseModel):
++    """One question in the Phase 3 benchmark suite.
++
++    Bundles the prompt text with the graders' expectations: factual anchors a
++    responsible answer should contain, optional PICO keywords (preferred by the
++    coverage scorer when set), and expected refusal patterns for refusal-trigger
++    questions.
++    """
++
+     question_id: str
+     template: str
+     text: str = Field(..., min_length=10, max_length=2000)
+@@ -48,12 +56,24 @@ class BenchmarkQuestion(BaseModel):
+ 
+ 
+ class DimensionScore(BaseModel):
++    """A single dimension's score with its supporting rationale.
++
++    ``raw`` is a normalised [0.0, 1.0] score for one ``ScoreDimension``;
++    ``rationale`` is a short free-text justification.
++    """
++
+     dimension: ScoreDimension
+     raw: float = Field(..., ge=0.0, le=1.0)
+     rationale: str = Field(..., min_length=4)
+ 
+ 
+ class SystemAnswer(BaseModel):
++    """One competing system's answer to a benchmark question.
++
++    Captures the raw response text, its citation count, and whether the system
++    refused, keyed by ``question_id`` and ``system`` for scoring.
++    """
++
+     question_id: str
+     system: CompetingSystem
+     response_text: str
+diff --git a/src/polaris_v6/charts/spec_builder.py b/src/polaris_v6/charts/spec_builder.py
+index df9a871..538d708 100644
+--- a/src/polaris_v6/charts/spec_builder.py
++++ b/src/polaris_v6/charts/spec_builder.py
+@@ -16,6 +16,12 @@ VEGA_LITE_SCHEMA_URL = "https://vega.github.io/schema/vega-lite/v5.json"
+ 
+ @dataclass
+ class ForestPlotPoint:
++    """One row of a forest plot: a point estimate with its 95% CI.
++
++    ``evidence_id`` ties the row back to its source span for the
++    click-through-to-source UX.
++    """
++
+     label: str
+     estimate: float
+     ci_low: float
+@@ -25,6 +31,11 @@ class ForestPlotPoint:
+ 
+ @dataclass
+ class ComparisonRow:
++    """One bar of a comparison table: a metric ``value`` for an ``entity``.
++
++    ``evidence_id`` ties the row back to its source span for click-through.
++    """
++
+     entity: str
+     metric: str
+     value: float
+@@ -33,6 +44,12 @@ class ComparisonRow:
+ 
+ @dataclass
+ class TimelinePoint:
++    """One point on a timeline: a ``value`` for a ``series`` at a ``period``.
++
++    ``period`` is an ISO 8601 date or a ``YYYY-Qn`` quarter string;
++    ``evidence_id`` ties the point back to its source span for click-through.
++    """
++
+     period: str  # ISO 8601 date or YYYY-Qn
+     value: float
+     series: str
+@@ -45,6 +62,20 @@ def build_forest_plot(
+     points: list[ForestPlotPoint],
+     x_label: str = "Effect estimate (95% CI)",
+ ) -> dict[str, Any]:
++    """Build a Vega-Lite v5 forest-plot spec from CI point estimates.
++
++    Args:
++        title: Chart title.
++        points: Rows to plot; must be non-empty.
++        x_label: Axis title for the estimate/CI axis.
++
++    Returns:
++        A JSON-serialisable Vega-Lite spec (rule + point layers) carrying a
++        ``polaris_provenance`` block that maps points to their evidence_ids.
++
++    Raises:
++        ValueError: If ``points`` is empty.
++    """
+     if not points:
+         raise ValueError("forest plot requires at least one point")
+     data_values = [
+@@ -97,6 +128,20 @@ def build_comparison_table(
+     title: str,
+     rows: list[ComparisonRow],
+ ) -> dict[str, Any]:
++    """Build a Vega-Lite v5 grouped-bar comparison spec.
++
++    Args:
++        title: Chart title.
++        rows: Rows to plot; must be non-empty. Bars are grouped by entity and
++            coloured by metric.
++
++    Returns:
++        A JSON-serialisable Vega-Lite spec carrying a ``polaris_provenance``
++        block that maps rows to their evidence_ids.
++
++    Raises:
++        ValueError: If ``rows`` is empty.
++    """
+     if not rows:
+         raise ValueError("comparison table requires at least one row")
+     data_values = [
+@@ -137,6 +182,21 @@ def build_timeline(
+     points: list[TimelinePoint],
+     period_kind: Literal["date", "quarter", "year"] = "quarter",
+ ) -> dict[str, Any]:
++    """Build a Vega-Lite v5 multi-series line-timeline spec.
++
++    Args:
++        title: Chart title.
++        points: Points to plot; must be non-empty. Lines are split by series.
++        period_kind: Controls the x-axis encoding — ``"date"`` renders a
++            temporal axis; ``"quarter"`` and ``"year"`` render an ordinal axis.
++
++    Returns:
++        A JSON-serialisable Vega-Lite spec carrying a ``polaris_provenance``
++        block with ``period_kind`` and the points' evidence_ids.
++
++    Raises:
++        ValueError: If ``points`` is empty.
++    """
+     if not points:
+         raise ValueError("timeline requires at least one point")
+     temporal_type = "temporal" if period_kind == "date" else "ordinal"
+diff --git a/src/polaris_v6/compare/claim_diff.py b/src/polaris_v6/compare/claim_diff.py
+index c665054..14c4996 100644
+--- a/src/polaris_v6/compare/claim_diff.py
++++ b/src/polaris_v6/compare/claim_diff.py
+@@ -17,6 +17,14 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
+ 
+ @dataclass(frozen=True)
+ class ClaimDiffEntry:
++    """One paired (or unpaired) claim across two runs, with its verdict.
++
++    Holds the best-matched left/right sentences for a section, their shared and
++    side-only evidence_ids, and the token-overlap ratio that drove the verdict.
++    Either ``left_sentence`` or ``right_sentence`` is ``None`` for an
++    ``only_left`` / ``only_right`` verdict.
++    """
++
+     section_id: str
+     verdict: ClaimVerdict
+     left_sentence: str | None
+@@ -29,6 +37,12 @@ class ClaimDiffEntry:
+ 
+ @dataclass(frozen=True)
+ class ClaimDiffReport:
++    """Full claim-level diff between two runs.
++
++    Carries the two run ids, the per-claim ``entries``, and a tally of entries
++    keyed by verdict (``counts_by_verdict``).
++    """
++
+     left_run_id: str
+     right_run_id: str
+     entries: list[ClaimDiffEntry]
+@@ -50,6 +64,25 @@ def _entry(sid: str, v: ClaimVerdict, ls: VerifiedSentence | None, rs: VerifiedS
+ 
+ 
+ def compute_claim_diff(left: EvidenceContract, right: EvidenceContract) -> ClaimDiffReport:
++    """Diff two runs at the claim level, section by section.
++
++    Considers only verified, non-dropped sentences (both local and global
++    verifier passes). Within each section, greedily pairs each left sentence to
++    its best remaining right sentence by token Jaccard, then classifies each
++    pair: ``agreement`` (shared evidence and overlap >= 0.7), ``disagreement``
++    (no shared evidence and overlap < 0.3), otherwise ``partial``. Unpaired
++    sentences become ``only_left`` / ``only_right``.
++
++    Args:
++        left: First run's evidence contract.
++        right: Second run's evidence contract.
++
++    Returns:
++        A ``ClaimDiffReport`` with per-claim entries and per-verdict counts.
++
++    Raises:
++        ValueError: If both contracts share the same ``run_id``.
++    """
+     if left.run_id == right.run_id:
+         raise ValueError("compute_claim_diff requires two distinct runs")
+ 
+diff --git a/src/polaris_v6/compare/differ.py b/src/polaris_v6/compare/differ.py
+index f2399aa..3b049ea 100644
+--- a/src/polaris_v6/compare/differ.py
++++ b/src/polaris_v6/compare/differ.py
+@@ -9,6 +9,14 @@ from polaris_v6.schemas.evidence_contract import EvidenceContract
+ 
+ @dataclass
+ class ReportComparison:
++    """Side-by-side summary of two EvidenceContract bundles.
++
++    Records template/question equality, evidence-pool overlap (shared, side-only,
++    and shared percentage of the union), frame-coverage overlap, contradiction
++    counts, pipeline-status match, and whether both runs passed family
++    segregation.
++    """
++
+     left_run_id: str
+     right_run_id: str
+     same_template: bool
+@@ -27,6 +35,20 @@ class ReportComparison:
+ 
+ 
+ def compare_reports(left: EvidenceContract, right: EvidenceContract) -> ReportComparison:
++    """Compare two evidence contracts and summarise their overlap.
++
++    Args:
++        left: First run's evidence contract.
++        right: Second run's evidence contract.
++
++    Returns:
++        A ``ReportComparison`` capturing evidence/frame overlap, contradiction
++        counts, and status/segregation matches. ``shared_evidence_pct`` is 0.0
++        when neither run has any evidence.
++
++    Raises:
++        ValueError: If both contracts share the same ``run_id``.
++    """
+     if left.run_id == right.run_id:
+         raise ValueError("compare_reports requires two distinct runs")
+ 
+diff --git a/src/polaris_v6/compare/jurisdictional_diff.py b/src/polaris_v6/compare/jurisdictional_diff.py
+index 31a012f..402fe9b 100644
+--- a/src/polaris_v6/compare/jurisdictional_diff.py
++++ b/src/polaris_v6/compare/jurisdictional_diff.py
+@@ -13,6 +13,12 @@ from polaris_v6.schemas.evidence_contract import EvidenceContract
+ 
+ @dataclass(frozen=True)
+ class JurisdictionalDiffPair:
++    """Claim diff between two jurisdictions' runs of the same question.
++
++    Labels a single ``ClaimDiffReport`` with the pair of jurisdictions it
++    compares.
++    """
++
+     left_jurisdiction: str
+     right_jurisdiction: str
+     claim_diff: ClaimDiffReport
+@@ -20,6 +26,12 @@ class JurisdictionalDiffPair:
+ 
+ @dataclass(frozen=True)
+ class JurisdictionalDiffReport:
++    """All pairwise jurisdictional claim diffs for one question.
++
++    Carries the shared ``question``, the sorted list of ``jurisdictions``, and
++    one ``JurisdictionalDiffPair`` per unordered jurisdiction pair.
++    """
++
+     question: str
+     jurisdictions: list[str]
+     pairs: list[JurisdictionalDiffPair]
+@@ -28,6 +40,23 @@ class JurisdictionalDiffReport:
+ def compute_jurisdictional_diff(
+     contracts: dict[str, EvidenceContract],
+ ) -> JurisdictionalDiffReport:
++    """Compute pairwise claim diffs across jurisdictions of one question.
++
++    Runs :func:`compute_claim_diff` on every unordered pair of the given
++    jurisdiction-keyed contracts. All contracts must answer the identical
++    question (compared after stripping whitespace).
++
++    Args:
++        contracts: Map of jurisdiction label to its EvidenceContract.
++
++    Returns:
++        A ``JurisdictionalDiffReport`` with one pair per jurisdiction
++        combination, ordered by sorted jurisdiction keys.
++
++    Raises:
++        ValueError: If fewer than two contracts are given, or if the contracts
++            do not all share an identical question.
++    """
+     if len(contracts) < 2:
+         raise ValueError("jurisdictional diff requires >= 2 contracts")
+     questions = {c.question.strip() for c in contracts.values()}
+diff --git a/src/polaris_v6/followup/agent.py b/src/polaris_v6/followup/agent.py
+index 2393bb8..717af06 100644
+--- a/src/polaris_v6/followup/agent.py
++++ b/src/polaris_v6/followup/agent.py
+@@ -26,6 +26,26 @@ def answer_followup(
+     parent: EvidenceContract,
+     question: str,
+ ) -> FollowUpAnswer:
++    """Answer a follow-up question against a parent run's evidence pool.
++
++    Deterministic Phase 0 stub: tokenises the question and scores each parent
++    evidence span by token overlap, then constructs an answer from the top few
++    matching spans with provenance tokens. The returned status is:
++
++    - ``evidence_insufficient`` if the question has no content tokens;
++    - ``out_of_scope`` if no pool span shares any token with the question;
++    - ``answered`` otherwise, citing up to the 3 highest-overlap spans.
++
++    Args:
++        parent: The parent run's evidence contract; recall is restricted to its
++            ``evidence_pool``.
++        question: The follow-up question text.
++
++    Returns:
++        A ``FollowUpAnswer`` whose ``status`` reflects the outcome above and,
++        when answered, includes ``answer_text``, ``used_evidence_ids``, and
++        ``provenance_tokens``.
++    """
+     q_tokens = _tokens(question)
+     if not q_tokens:
+         return FollowUpAnswer(
+diff --git a/src/polaris_v6/followup/schema.py b/src/polaris_v6/followup/schema.py
+index b4baac0..ed8cbe6 100644
+--- a/src/polaris_v6/followup/schema.py
++++ b/src/polaris_v6/followup/schema.py
+@@ -15,11 +15,25 @@ FollowUpStatus = Literal[
+ 
+ 
+ class FollowUpRequest(BaseModel):
++    """Request to answer a follow-up question against a prior run.
++
++    Names the ``parent_run_id`` whose evidence pool bounds retrieval and the
++    ``question`` to answer (4-2000 chars).
++    """
++
+     parent_run_id: str
+     question: str = Field(..., min_length=4, max_length=2000)
+ 
+ 
+ class FollowUpAnswer(BaseModel):
++    """Result of a follow-up answer attempt.
++
++    ``status`` records the outcome; ``answer_text`` is populated only when
++    ``status == "answered"`` (otherwise ``None``). ``used_evidence_ids`` and
++    ``provenance_tokens`` cite the supporting spans, and ``rationale`` explains
++    the status.
++    """
++
+     parent_run_id: str
+     question: str
+     status: FollowUpStatus
+diff --git a/src/polaris_v6/memory/chroma_store.py b/src/polaris_v6/memory/chroma_store.py
+index 3c9bfff..43753b3 100644
+--- a/src/polaris_v6/memory/chroma_store.py
++++ b/src/polaris_v6/memory/chroma_store.py
+@@ -38,6 +38,14 @@ def _meta(e: MemoryEntry) -> dict:
+ 
+ 
+ class ChromaWorkspaceMemoryStore:
++    """ChromaDB-backed workspace memory store with cosine vector recall.
++
++    Persists (or holds ephemerally) memory entries in a Chroma collection whose
++    space is pinned to cosine; recall embeds the query and returns nearest
++    entries scored in [0, 1]. Callers inject an ``embed_fn``; without one, any
++    embedding call raises (production embedder deferred to I-f14-001b).
++    """
++
+     def __init__(self, *, persist_directory: str | None, embed_fn: EmbedFn | None = None,
+                  collection_name: str = "v6_workspace_memory") -> None:
+         import chromadb
+@@ -58,6 +66,17 @@ class ChromaWorkspaceMemoryStore:
+ 
+     def remember(self, *, workspace_id: str, kind: MemoryKind, content: str,
+                  derived_from_run_ids: list[str] | None = None) -> MemoryEntry:
++        """Embed and store a new memory entry, returning the persisted record.
++
++        Args:
++            workspace_id: Owning workspace (normalised to stripped-lowercase).
++            kind: Memory kind classifier.
++            content: Text to embed and store.
++            derived_from_run_ids: Run ids this memory was distilled from.
++
++        Returns:
++            The stored ``MemoryEntry``, including its generated id and embedding.
++        """
+         emb = self._embed_fn([content])[0]
+         entry = MemoryEntry(
+             entry_id=uuid.uuid4().hex, workspace_id=_norm(workspace_id), kind=kind,
+@@ -68,6 +87,19 @@ class ChromaWorkspaceMemoryStore:
+         return entry
+ 
+     def recall(self, query: MemoryQuery) -> list[MemoryRecallResult]:
++        """Return the top-k cosine-nearest entries for the query.
++
++        Filters by workspace and, when ``query.kinds`` is set, by kind. Bumps
++        ``use_count`` and ``last_used_at`` on each returned entry.
++
++        Args:
++            query: Workspace, query text, optional kind filter, and ``top_k``.
++
++        Returns:
++            Recall results ordered by Chroma, each scored in [0, 1] as
++            ``1 - distance`` (clamped). Empty when ``query.kinds`` is an empty
++            list.
++        """
+         if query.kinds is not None and len(query.kinds) == 0:
+             return []
+         ws = _norm(query.workspace_id)
+@@ -89,6 +121,16 @@ class ChromaWorkspaceMemoryStore:
+         return out
+ 
+     def forget(self, *, workspace_id: str, entry_id: str) -> bool:
++        """Delete an entry, but only if it belongs to the given workspace.
++
++        Args:
++            workspace_id: Owning workspace (normalised before comparison).
++            entry_id: Entry to delete.
++
++        Returns:
++            ``True`` if the entry existed in this workspace and was deleted;
++            ``False`` if it was missing or owned by a different workspace.
++        """
+         existing = self._collection.get(ids=[entry_id], include=["metadatas"])
+         metas = existing.get("metadatas") or []
+         if not metas or metas[0].get("workspace_id") != _norm(workspace_id):
+@@ -97,5 +139,13 @@ class ChromaWorkspaceMemoryStore:
+         return True
+ 
+     def list_workspace(self, workspace_id: str) -> list[MemoryEntry]:
++        """Return all entries stored for a workspace (unordered, unscored).
++
++        Args:
++            workspace_id: Workspace to list (normalised before lookup).
++
++        Returns:
++            Every ``MemoryEntry`` in the workspace; empty if none.
++        """
+         result = self._collection.get(where={"workspace_id": _norm(workspace_id)}, include=["metadatas"])
+         return [MemoryEntry.model_validate_json(m["entry_json"]) for m in (result.get("metadatas") or [])]
+diff --git a/src/polaris_v6/memory/sqlite_store.py b/src/polaris_v6/memory/sqlite_store.py
+index 7187994..fdca5e0 100644
+--- a/src/polaris_v6/memory/sqlite_store.py
++++ b/src/polaris_v6/memory/sqlite_store.py
+@@ -150,6 +150,17 @@ class SqliteWorkspaceMemoryStore:
+         content: str,
+         derived_from_run_ids: list[str] | None = None,
+     ) -> MemoryEntry:
++        """Persist a new memory entry to SQLite and return it.
++
++        Args:
++            workspace_id: Owning workspace (normalised to stripped-lowercase).
++            kind: Memory kind classifier.
++            content: Text content to store.
++            derived_from_run_ids: Run ids this memory was distilled from.
++
++        Returns:
++            The stored ``MemoryEntry`` with its generated id and timestamps.
++        """
+         entry = MemoryEntry(
+             entry_id=uuid.uuid4().hex,
+             workspace_id=_normalize_workspace_id(workspace_id),
+@@ -185,6 +196,19 @@ class SqliteWorkspaceMemoryStore:
+         return entry
+ 
+     def recall(self, query: MemoryQuery) -> list[MemoryRecallResult]:
++        """Return the top-k keyword-cosine matches within a workspace.
++
++        Loads the workspace's entries, optionally filters by kind, scores each
++        by token-count cosine against the query text, and returns the top-k
++        (highest first). Persists ``use_count`` and ``last_used_at`` bumps for
++        the returned set.
++
++        Args:
++            query: Workspace, query text, optional kind filter, and ``top_k``.
++
++        Returns:
++            Recall results sorted by descending score; empty if no candidates.
++        """
+         ws_norm = _normalize_workspace_id(query.workspace_id)
+         conn = _connect(self._path)
+         try:
+@@ -224,6 +248,18 @@ class SqliteWorkspaceMemoryStore:
+         return top
+ 
+     def forget(self, *, workspace_id: str, entry_id: str) -> bool:
++        """Delete an entry, scoped to its workspace.
++
++        The DELETE matches on both ``entry_id`` and ``workspace_id``, so an
++        entry owned by a different workspace is never removed.
++
++        Args:
++            workspace_id: Owning workspace (normalised before matching).
++            entry_id: Entry to delete.
++
++        Returns:
++            ``True`` if a row was deleted; ``False`` if none matched.
++        """
+         ws_norm = _normalize_workspace_id(workspace_id)
+         conn = _connect(self._path)
+         try:
+@@ -239,6 +275,14 @@ class SqliteWorkspaceMemoryStore:
+             conn.close()
+ 
+     def list_workspace(self, workspace_id: str) -> list[MemoryEntry]:
++        """Return all entries stored for a workspace (unordered, unscored).
++
++        Args:
++            workspace_id: Workspace to list (normalised before lookup).
++
++        Returns:
++            Every ``MemoryEntry`` in the workspace; empty if none.
++        """
+         ws_norm = _normalize_workspace_id(workspace_id)
+         conn = _connect(self._path)
+         try:
+diff --git a/src/polaris_v6/memory/store.py b/src/polaris_v6/memory/store.py
+index 6528ff2..b079648 100644
+--- a/src/polaris_v6/memory/store.py
++++ b/src/polaris_v6/memory/store.py
+@@ -65,6 +65,17 @@ class WorkspaceMemoryStore:
+         content: str,
+         derived_from_run_ids: list[str] | None = None,
+     ) -> MemoryEntry:
++        """Store a new memory entry in the in-memory map and return it.
++
++        Args:
++            workspace_id: Owning workspace (normalised to stripped-lowercase).
++            kind: Memory kind classifier.
++            content: Text content to store.
++            derived_from_run_ids: Run ids this memory was distilled from.
++
++        Returns:
++            The stored ``MemoryEntry`` with its generated id and timestamps.
++        """
+         entry = MemoryEntry(
+             entry_id=uuid.uuid4().hex,
+             workspace_id=_normalize_workspace_id(workspace_id),
+@@ -77,6 +88,19 @@ class WorkspaceMemoryStore:
+         return entry
+ 
+     def recall(self, query: MemoryQuery) -> list[MemoryRecallResult]:
++        """Return the top-k keyword-cosine matches within a workspace.
++
++        Filters entries by workspace and optional kind, scores each by
++        token-count cosine against the query text, and returns the top-k
++        (highest first). Bumps ``use_count`` and ``last_used_at`` on the
++        returned entries.
++
++        Args:
++            query: Workspace, query text, optional kind filter, and ``top_k``.
++
++        Returns:
++            Recall results sorted by descending score; empty if no candidates.
++        """
+         ws_norm = _normalize_workspace_id(query.workspace_id)
+         candidates = [
+             e
+@@ -98,6 +122,16 @@ class WorkspaceMemoryStore:
+         return scored[: query.top_k]
+ 
+     def forget(self, *, workspace_id: str, entry_id: str) -> bool:
++        """Delete an entry, but only if it belongs to the given workspace.
++
++        Args:
++            workspace_id: Owning workspace (normalised before comparison).
++            entry_id: Entry to delete.
++
++        Returns:
++            ``True`` if the entry existed in this workspace and was deleted;
++            ``False`` if it was missing or owned by a different workspace.
++        """
+         entry = self._entries.get(entry_id)
+         if entry is None:
+             return False
+@@ -107,5 +141,13 @@ class WorkspaceMemoryStore:
+         return True
+ 
+     def list_workspace(self, workspace_id: str) -> list[MemoryEntry]:
++        """Return all entries stored for a workspace (unordered, unscored).
++
++        Args:
++            workspace_id: Workspace to list (normalised before lookup).
++
++        Returns:
++            Every ``MemoryEntry`` in the workspace; empty if none.
++        """
+         ws_norm = _normalize_workspace_id(workspace_id)
+         return [e for e in self._entries.values() if e.workspace_id == ws_norm]
+diff --git a/src/polaris_v6/queue/middleware/connection.py b/src/polaris_v6/queue/middleware/connection.py
+index f01805d..0dbb4de 100644
+--- a/src/polaris_v6/queue/middleware/connection.py
++++ b/src/polaris_v6/queue/middleware/connection.py
+@@ -24,12 +24,21 @@ class StickyConnectionMiddleware(dramatiq.Middleware):
+         self._local = threading.local()
+ 
+     def before_worker_boot(self, broker: dramatiq.Broker, worker: dramatiq.Worker) -> None:
++        """Cache the broker's Redis client on thread-local state at boot.
++
++        No-op if the broker exposes no ``client`` attribute (e.g. StubBroker).
++        """
+         client_factory = getattr(broker, "client", None)
+         if client_factory is None:
+             return
+         self._local.client = client_factory
+ 
+     def after_worker_shutdown(self, broker: dramatiq.Broker, worker: dramatiq.Worker) -> None:
++        """Close and clear the cached client at shutdown.
++
++        A ``close()`` failure is logged (never swallowed silently) and teardown
++        continues, since a failed close is non-fatal.
++        """
+         client = getattr(self._local, "client", None)
+         if client is not None:
+             try:
+diff --git a/src/polaris_v6/queue/middleware/otel_propagate.py b/src/polaris_v6/queue/middleware/otel_propagate.py
+index 8f8e790..3ff292c 100644
+--- a/src/polaris_v6/queue/middleware/otel_propagate.py
++++ b/src/polaris_v6/queue/middleware/otel_propagate.py
+@@ -23,6 +23,11 @@ class OtelPropagateMiddleware(dramatiq.Middleware):
+     """Inject + re-extract OpenTelemetry context across queue boundary."""
+ 
+     def before_enqueue(self, broker: dramatiq.Broker, message: dramatiq.Message, delay: int | None) -> None:
++        """Inject the active OTel context onto the outgoing message options.
++
++        Writes a carrier under ``OTEL_OPTION_KEY`` only if propagation produced
++        one. No-op if OpenTelemetry is not installed.
++        """
+         try:
+             from opentelemetry import propagate
+ 
+@@ -34,6 +39,11 @@ class OtelPropagateMiddleware(dramatiq.Middleware):
+             return
+ 
+     def before_process_message(self, broker: dramatiq.Broker, message: dramatiq.Message) -> None:
++        """Re-extract and attach the message's OTel context before the actor runs.
++
++        Stashes the detach token under ``_otel_token`` for teardown. No-op if
++        the message carries no carrier or OpenTelemetry is not installed.
++        """
+         carrier = message.options.get(OTEL_OPTION_KEY)
+         if not carrier:
+             return
+@@ -54,6 +64,11 @@ class OtelPropagateMiddleware(dramatiq.Middleware):
+         result: Any = None,
+         exception: BaseException | None = None,
+     ) -> None:
++        """Detach the OTel context attached in ``before_process_message``.
++
++        Pops and detaches the ``_otel_token``. No-op if none was set or
++        OpenTelemetry is not installed.
++        """
+         token = message.options.pop("_otel_token", None)
+         if token is None:
+             return
+diff --git a/src/polaris_v6/queue/middleware/throttle.py b/src/polaris_v6/queue/middleware/throttle.py
+index ed12ba9..34bfb41 100644
+--- a/src/polaris_v6/queue/middleware/throttle.py
++++ b/src/polaris_v6/queue/middleware/throttle.py
+@@ -54,6 +54,12 @@ class ThrottleMiddleware(dramatiq.Middleware):
+         result: Any = None,
+         exception: BaseException | None = None,
+     ) -> None:
++        """Record the message outcome and back off if the actor is failing.
++
++        Appends success/failure to the actor's rolling window; if the resulting
++        failure ratio reaches ``failure_threshold``, sleeps ``backoff_ms`` to
++        throttle the actor.
++        """
+         failure_ratio = self._record(message.actor_name, exception is not None)
+         if failure_ratio >= self._failure_threshold:
+             time.sleep(self._backoff_ms / 1000.0)
+diff --git a/src/polaris_v6/regression_lab/runner.py b/src/polaris_v6/regression_lab/runner.py
+index 40f3edf..6ce1d59 100644
+--- a/src/polaris_v6/regression_lab/runner.py
++++ b/src/polaris_v6/regression_lab/runner.py
+@@ -10,6 +10,14 @@ from polaris_v6.replay.schema import PinDiff, RunPin
+ 
+ @dataclass
+ class RegressionLabReport:
++    """Verdict of a regression-lab run over baseline vs candidate pins.
++
++    Counts baseline/candidate/matched pins, and partitions matched diffs into
++    ``regressions`` (CI FAIL) and non-regressing changes (``warns``). Pins that
++    appear on only one side land in the ``unmatched_*`` lists (CI WARN).
++    ``passed`` is true iff there are no regressions.
++    """
++
+     baseline_count: int
+     candidate_count: int
+     matched_count: int
+@@ -68,6 +76,18 @@ def run_regression_lab(
+ 
+ 
+ def format_ci_summary(report: RegressionLabReport) -> str:
++    """Render a regression-lab report as a human-readable CI summary.
++
++    Lists matched counts, regression/warn tallies, any unmatched pins, and
++    per-field details for regressing fields (fields whose severity is
++    ``"regression"``), ending with a PASS/FAIL verdict line.
++
++    Args:
++        report: The report to format.
++
++    Returns:
++        A newline-joined multi-line summary string.
++    """
+     lines = [
+         f"Regression lab: matched {report.matched_count}/{report.baseline_count} baselines",
+         f"  Regressions: {len(report.regressions)}",
+diff --git a/src/polaris_v6/scope/decision.py b/src/polaris_v6/scope/decision.py
+index acbbbea..7a6b5f5 100644
+--- a/src/polaris_v6/scope/decision.py
++++ b/src/polaris_v6/scope/decision.py
+@@ -22,6 +22,14 @@ RefusalReason = Literal[
+ 
+ 
+ class ScopeDecision(BaseModel):
++    """The scope gate's ruling on a question under a given template.
++
++    Carries the ``verdict`` (accepted / needs_clarification / rejected), the
++    template and question it ruled on, a human-readable ``rationale``, any
++    ``refusals`` the gate will enforce downstream, and the source tiers the run
++    intends to draw from.
++    """
++
+     verdict: ScopeVerdict
+     template: str
+     question: str
+diff --git a/src/polaris_v6/sycophancy/scorer.py b/src/polaris_v6/sycophancy/scorer.py
+index 5c96ca3..fde6050 100644
+--- a/src/polaris_v6/sycophancy/scorer.py
++++ b/src/polaris_v6/sycophancy/scorer.py
+@@ -44,6 +44,14 @@ def _jaccard(a: set[str], b: set[str]) -> float:
+ 
+ @dataclass
+ class SycophancyVerdict:
++    """Pass/fail outcome of scoring one 4-framing paired-prompt result.
++
++    Records how many framings contained the factual anchor, the drift score
++    (``1 - mean pairwise Jaccard``), whether refusals were consistent across
++    framings, the overall ``passed`` flag, and the list of ``failure_reasons``
++    (empty when ``passed``).
++    """
++
+     paired_id: str
+     factual_anchor_present_count: int
+     drift_score: float
+diff --git a/src/polaris_v6/templates/registry.py b/src/polaris_v6/templates/registry.py
+index bf77825..1b01c42 100644
+--- a/src/polaris_v6/templates/registry.py
++++ b/src/polaris_v6/templates/registry.py
+@@ -15,11 +15,20 @@ SourceTier = Literal["T1", "T2", "T3"]
+ 
+ 
+ class FrameDefinition(BaseModel):
++    """One analytical frame in a template's frame manifest (id + display name)."""
++
+     frame_id: str
+     frame_name: str
+ 
+ 
+ class TemplateContent(BaseModel):
++    """Validated content of one report template loaded from JSON.
++
++    Bundles the template's identity and summary, its primary domains, the source
++    tiers it may draw from with per-tier minimum-source requirements, its frame
++    manifest, refusal patterns, and sample / out-of-scope example questions.
++    """
++
+     template_id: str
+     template_name: str
+     summary: str = Field(..., min_length=20)
+@@ -33,6 +42,18 @@ class TemplateContent(BaseModel):
+ 
+ 
+ def load_template(template_id: str) -> TemplateContent:
++    """Load and validate one template's JSON content by id.
++
++    Args:
++        template_id: Template id; resolves to ``<TEMPLATES_DIR>/<id>.json``.
++
++    Returns:
++        The parsed, schema-validated ``TemplateContent``.
++
++    Raises:
++        FileNotFoundError: If no JSON file exists for ``template_id``.
++        pydantic.ValidationError: If the file's contents fail schema validation.
++    """
+     path = TEMPLATES_DIR / f"{template_id}.json"
+     if not path.exists():
+         raise FileNotFoundError(f"Template content not found: {path}")
+@@ -41,6 +62,12 @@ def load_template(template_id: str) -> TemplateContent:
+ 
+ 
+ def list_template_ids() -> list[str]:
++    """Return the sorted ids of all template JSON files on disk.
++
++    Returns:
++        Sorted template ids (JSON file stems); empty if the templates directory
++        does not exist.
++    """
+     if not TEMPLATES_DIR.exists():
+         return []
+     return sorted(p.stem for p in TEMPLATES_DIR.glob("*.json"))
