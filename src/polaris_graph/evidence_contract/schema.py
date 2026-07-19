@@ -24,6 +24,13 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class Jurisdiction(str, Enum):
+    """Regulatory jurisdiction a claim's evidence may be required to originate from.
+
+    Members map to the authoritative-domain sets in the gate
+    (`JURISDICTION_DOMAINS`); `GLOBAL` covers cross-jurisdiction bodies (WHO,
+    Cochrane).
+    """
+
     CA = "CA"
     US = "US"
     EU = "EU"

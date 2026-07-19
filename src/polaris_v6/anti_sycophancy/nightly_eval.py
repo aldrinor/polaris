@@ -29,6 +29,27 @@ def run_nightly_anti_sycophancy_eval_impl(
     responses_path: Path,
     threshold: float = DEFAULT_THRESHOLD,
 ) -> dict[str, Any]:
+    """Score a paired-prompt corpus against a candidate-response fixture.
+
+    Loads the paired-prompt corpus and the candidate responses, computes the
+    per-pair stance delta, and reduces to a mean-delta PASS/FAIL verdict. The
+    response set must exactly cover the corpus paired_ids (no missing, no extra,
+    no duplicates); the mean delta is compared against ``threshold`` (verdict is
+    PASS when ``mean_delta <= threshold``). Also emits a structured info log.
+
+    Args:
+        corpus_path: JSON file with a ``paired_prompts`` list of PairedPrompt.
+        responses_path: JSON file with a list of PairedPromptResult records.
+        threshold: Maximum mean stance delta allowed for a PASS verdict.
+
+    Returns:
+        A dict with ``N`` (pair count), ``mean_delta``, ``threshold``, and
+        ``verdict`` (``"PASS"`` or ``"FAIL"``).
+
+    Raises:
+        ValueError: If the responses contain duplicate paired_ids, or if the
+            response paired_id set does not exactly match the corpus set.
+    """
     corpus_payload = json.loads(corpus_path.read_text(encoding="utf-8"))
     paireds = {
         p["paired_id"]: PairedPrompt.model_validate(p)
@@ -73,6 +94,21 @@ def run_nightly_anti_sycophancy_eval(
     responses_path: str,
     threshold: float = DEFAULT_THRESHOLD,
 ) -> dict[str, Any]:
+    """Dramatiq actor wrapping :func:`run_nightly_anti_sycophancy_eval_impl`.
+
+    Accepts string paths (queue payloads are JSON-serialisable), coerces them to
+    ``Path``, and delegates to the impl. Configured with ``max_retries=2`` and a
+    10-minute time limit.
+
+    Args:
+        corpus_path: Filesystem path to the paired-prompt corpus JSON.
+        responses_path: Filesystem path to the candidate-responses JSON.
+        threshold: Maximum mean stance delta allowed for a PASS verdict.
+
+    Returns:
+        The verdict payload from the impl (``N``, ``mean_delta``, ``threshold``,
+        ``verdict``).
+    """
     return run_nightly_anti_sycophancy_eval_impl(
         Path(corpus_path), Path(responses_path), threshold,
     )

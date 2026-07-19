@@ -31,8 +31,10 @@ from __future__ import annotations
 
 import logging
 import os
+from src.polaris_graph.settings import get_model_settings
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.prefetch_offtopic")
 
@@ -102,7 +104,7 @@ _DEFAULT_EMBED_MODEL = "Qwen/Qwen3-Embedding-8B"
 def _embed_model_name() -> str:
     """The relevance embedder id — LOCKED slate Qwen3-Embedding-8B by default,
     env-overridable via ``PG_EMBED_MODEL`` (LAW VI)."""
-    return (os.getenv("PG_EMBED_MODEL", _DEFAULT_EMBED_MODEL).strip()
+    return (get_model_settings().embed_model.strip()  # was os.getenv("PG_EMBED_MODEL", _DEFAULT_EMBED_MODEL)
             or _DEFAULT_EMBED_MODEL)
 
 
@@ -137,7 +139,7 @@ def _load_embedder() -> Any:
             # installed sentence-transformers that rejects `device=` falls back to
             # the no-arg constructor with a LOUD warning (never a silent device
             # drop). Empty/unset PG_EMBED_DEVICE => no-arg constructor (unchanged).
-            device = (os.getenv("PG_EMBED_DEVICE", "") or "").strip()
+            device = (resolve("PG_EMBED_DEVICE") or "").strip()
             if device:
                 try:
                     model = SentenceTransformer(model_name, device=device)
@@ -285,7 +287,7 @@ def filter_search_results(
 
     if threshold is None:
         threshold = float(
-            os.getenv("PG_OFFTOPIC_PREFETCH_THRESHOLD", "0.25")
+            resolve("PG_OFFTOPIC_PREFETCH_THRESHOLD")
         )
 
     # Anchor must be non-empty

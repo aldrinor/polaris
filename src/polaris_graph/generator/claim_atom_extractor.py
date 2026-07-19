@@ -105,6 +105,14 @@ class ClaimAtom:
 # ---------------------------------------------------------------------------
 
 class NumberRole(Enum):
+    """Role a numeric anchor plays in clinical text (outcome, dose, timepoint, CI, etc.).
+
+    Classified before atom creation so non-outcome numbers (doses,
+    timepoints, sample sizes, CI bounds/levels, p-values) do not pollute the
+    atom catalog; ``OUTCOME`` is the implicit default and ``UNKNOWN`` marks a
+    number that could not be classified.
+    """
+
     OUTCOME = "outcome"          # Primary or secondary clinical endpoint value
     DOSE = "dose"                # Drug dose (5 mg, 0.5 μg)
     TIMEPOINT = "timepoint"      # Follow-up duration (40 weeks, 1.8 years)

@@ -323,6 +323,14 @@ async def repair_sentence(
 
 @dataclass
 class RepairTelemetry:
+    """Counters for the sentence-repair loop over a section.
+
+    Tracks attempts and their dispositions (successes, NULL_DROPs,
+    token-set violations, re-verify failures, API failures), token usage,
+    and legitimately pruned co-cited markers. ``recovery_rate`` is
+    ``successes / attempts`` (0.0 when no attempts were made).
+    """
+
     attempts: int = 0
     successes: int = 0
     null_drops: int = 0           # model said NULL_DROP

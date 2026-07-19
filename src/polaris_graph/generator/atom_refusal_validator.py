@@ -36,12 +36,16 @@ from src.polaris_graph.generator.claim_atom_extractor import (
 
 
 class RefusalAction(str, Enum):
+    """Disposition applied to a validated sentence: refused, allowed, or logged-only."""
+
     REFUSED = "refused"            # sentence replaced with refusal template
     ALLOWED = "allowed"            # sentence kept as-is (atom valid)
     LOGGED_ONLY = "logged_only"    # sentence kept but soft mismatch logged
 
 
 class RefusalReason(str, Enum):
+    """Why a sentence was refused or flagged (missing/invalid atom citation, mismatch, etc.)."""
+
     MISSING_ATOM_CITATION = "missing_atom_citation"   # no atom_NNN in sentence
     INVALID_ATOM_ID = "invalid_atom_id"               # atom_NNN cited but not in catalog
     EV_CITATION_FOR_CLAIM = "ev_citation_for_claim"   # [ev_XXX] used for factual claim
@@ -846,6 +850,14 @@ def _detect_timepoint_in_sentence(sentence: str) -> Optional[str]:
 
 @dataclass
 class SectionValidationResult:
+    """Outcome of validating one section's sentences against the atom catalog.
+
+    Carries the original and post-validation ``rendered_text`` (refused
+    sentences replaced) plus the per-sentence ``gap_records``. The count
+    properties tally those records by their ``RefusalAction`` (refused,
+    soft-mismatch/logged-only, allowed).
+    """
+
     section_id: str
     section_title: str
     original_text: str

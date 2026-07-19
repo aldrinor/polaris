@@ -21,10 +21,11 @@ import re
 from typing import Any
 
 from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
-PG_CITATION_AGENT_ENABLED = os.getenv("PG_CITATION_AGENT_ENABLED", "0") == "1"
+PG_CITATION_AGENT_ENABLED = resolve("PG_CITATION_AGENT_ENABLED") == "1"
 PG_CITATION_AGENT_MAX_TOKENS = int(os.getenv("PG_CITATION_AGENT_MAX_TOKENS", "8192"))
 
 CITATION_SYSTEM = """You are a precision citation specialist for academic research reports.
@@ -172,7 +173,7 @@ async def recite_all_sections(
 
     import asyncio
 
-    min_citations_per_500w = int(os.getenv("PG_MIN_CITATIONS_PER_500W", "3"))
+    min_citations_per_500w = int(resolve("PG_MIN_CITATIONS_PER_500W"))
     tasks = []
 
     for section in sections:

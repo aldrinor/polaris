@@ -148,6 +148,11 @@ def load_evidence_contract_for_run(run_id: str) -> EvidenceContract:
 
 @router.get("/{run_id}/bundle", response_model=EvidenceContract)
 def get_bundle(run_id: str) -> EvidenceContract:
+    """Return the F15 EvidenceContract audit bundle (JSON) for a run.
+
+    Resolves both golden fixtures and real completed runs via
+    `load_evidence_contract_for_run`; see it for the 404/422 conditions.
+    """
     # I-cd-680: real runs now resolve to a typed EvidenceContract built from
     # the slice-chain (was 404-with-pointer-to-bundle.tar.gz). Golden
     # fixtures unchanged.

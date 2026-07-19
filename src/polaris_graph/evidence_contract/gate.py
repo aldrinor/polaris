@@ -30,6 +30,14 @@ class ContractRequiredError(Exception):
 
 
 class GateVerdict(BaseModel):
+    """Outcome of evaluating a report against its evidence contract.
+
+    `passed` is True iff `failures` is empty. Each failure is a structured
+    `reason:detail` code (e.g. `entity_not_covered:...`,
+    `insufficient_t1_sources:...`). `contract_id`/`report_id` identify the
+    evaluated pair.
+    """
+
     passed: bool
     failures: list[str] = Field(default_factory=list)
     contract_id: str
@@ -39,6 +47,12 @@ class GateVerdict(BaseModel):
 def assert_generation_has_contract(
     contract: EvidenceContract | None, *, report_id: str | None = None
 ) -> None:
+    """Guarantee a contract is present before generation proceeds.
+
+    A no-op when `contract` is provided; raises `ContractRequiredError` when it
+    is None so callers cannot run generation without a contract. `report_id`, if
+    given, is included in the error message for traceability.
+    """
     if contract is None:
         raise ContractRequiredError(
             f"Evidence Contract required: generation cannot proceed without a contract"
@@ -106,6 +120,17 @@ def _domain_matches_jurisdiction(domain: str, jurisdiction: Jurisdiction) -> boo
 def evaluate_contract(
     contract: EvidenceContract, pool: EvidencePool, report: VerifiedReport
 ) -> GateVerdict:
+    """Evaluate whether a report satisfies every expectation in the contract.
+
+    Checks that each expected entity and claim is covered by kept, verifier-
+    passing sentences, that each claim's required jurisdictions are backed by a
+    citing source in a matching domain, and that cited-source tier counts meet
+    the contract's minimum coverage. Pure function (no I/O).
+
+    Returns:
+        A `GateVerdict` whose `passed` is True only when no expectation failed;
+        otherwise `failures` lists every unmet expectation as a structured code.
+    """
     failures: list[str] = []
     sentence_texts = _kept_sentence_texts(report)
     blob = " ".join(sentence_texts)

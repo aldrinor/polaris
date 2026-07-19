@@ -165,6 +165,7 @@ class CrossJurisdictionSynthesis:
 
 
 def synthesis_to_dict(s: CrossJurisdictionSynthesis) -> dict[str, Any]:
+    """Serialize a ``CrossJurisdictionSynthesis`` to a plain JSON-ready dict (paragraphs + per-field verdicts)."""
     return {
         "paragraphs": list(s.paragraphs),
         "verdicts": [

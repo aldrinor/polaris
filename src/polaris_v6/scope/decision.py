@@ -22,6 +22,8 @@ RefusalReason = Literal[
 
 
 class ScopeDecision(BaseModel):
+    """Scope gate's verdict on a question, with rationale, refusals, and intended source tiers."""
+
     verdict: ScopeVerdict
     template: str
     question: str

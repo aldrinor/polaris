@@ -17,12 +17,13 @@ import numpy as np
 
 from src.polaris_graph.schemas import SectionDraft
 from src.utils.embedding_service import embed_texts
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # Thresholds (LAW VI)
-_CONTRADICTION_THRESHOLD = float(os.getenv("PG_DISULFIDE_CONTRADICTION_THRESHOLD", "0.30"))
-_REDUNDANCY_THRESHOLD = float(os.getenv("PG_DISULFIDE_REDUNDANCY_THRESHOLD", "0.85"))
+_CONTRADICTION_THRESHOLD = float(resolve("PG_DISULFIDE_CONTRADICTION_THRESHOLD"))
+_REDUNDANCY_THRESHOLD = float(resolve("PG_DISULFIDE_REDUNDANCY_THRESHOLD"))
 
 
 def analyze_disulfide_bridges(

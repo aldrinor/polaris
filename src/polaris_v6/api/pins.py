@@ -132,6 +132,12 @@ def _qualifies(run: RunStatusResponse) -> bool:
 
 @router.get("/{run_id}/pins", response_model=list[PinSnapshot])
 def list_pins(run_id: str) -> list[PinSnapshot]:
+    """Return the pin timeline for a run's query (chronological PinSnapshots).
+
+    Synthesizes one PinSnapshot per qualifying completed run sharing the anchor
+    run's `query_slug`. Raises HTTPException 404 when the run is unknown or has
+    no `query_slug` yet (pipeline not completed).
+    """
     anchor = run_store.get_run(run_id)
     if anchor is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found.")
@@ -158,6 +164,15 @@ def get_pin_by_date(
     run_id: str,
     date: str,
 ) -> PinSnapshot:
+    """Return the single PinSnapshot for a run finished on the given date.
+
+    `date` must be `YYYY-MM-DD` and match the run's `finished_at[:10]`. Raises
+    HTTPException 422 when `date` has the wrong shape (not length-10 with hyphens
+    at positions 4 and 7); the day/month ranges are not validated, so a
+    well-shaped but out-of-range date (e.g. `2026-99-99`) is not a 422 and instead
+    falls through to the 404 date-mismatch path below. Raises 404 when the run is
+    not pin-eligible, finished on a different date, or has no readable manifest.
+    """
     if len(date) != 10 or date[4] != "-" or date[7] != "-":
         raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
     run = run_store.get_run(run_id)

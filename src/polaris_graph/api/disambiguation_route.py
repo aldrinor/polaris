@@ -19,23 +19,46 @@ router = APIRouter(tags=["disambiguation"])
 
 
 class CandidateSnippet(BaseModel):
+    """One candidate snippet to disambiguate: its text and its embedding vector.
+
+    `embedding` must be non-empty; all snippets in a request must share the same
+    dimensionality (enforced by the route, not the model).
+    """
+
     text: str = Field(min_length=1)
     embedding: list[float] = Field(min_length=1)
 
 
 class DisambiguationRequest(BaseModel):
+    """Request body for `POST /disambiguation`.
+
+    Carries the candidate snippets to cluster plus clustering knobs:
+    `min_cluster_size` (minimum members for a cluster to form) and
+    `max_snippets_per_cluster` (how many sample snippets each labeled cluster
+    surfaces). At least one candidate is required.
+    """
+
     candidates: list[CandidateSnippet] = Field(min_length=1)
     min_cluster_size: int = Field(default=2, ge=2)
     max_snippets_per_cluster: int = Field(default=3, ge=1)
 
 
 class ClusterPayload(BaseModel):
+    """One labeled cluster in the response: its id, LLM-assigned label, and samples."""
+
     cluster_id: int
     label: str
     sample_snippets: list[str]
 
 
 class DisambiguationResponse(BaseModel):
+    """Response body for `POST /disambiguation`.
+
+    `is_ambiguous` is True only when two or more clusters formed; when False
+    (0 or 1 cluster) `clusters` is empty and no labeling was performed.
+    `server_time_utc` is an ISO-8601 timestamp with a trailing `Z`.
+    """
+
     is_ambiguous: bool
     num_clusters: int
     clusters: list[ClusterPayload]
@@ -43,10 +66,20 @@ class DisambiguationResponse(BaseModel):
 
 
 class _OpenRouterLabelClient:
+    """`ClusterLabelClient` implementation backed by the OpenRouter chat API."""
+
     def __init__(self, api_key: str, model: str) -> None:
         self.api_key, self.model = api_key, model
 
     def complete(self, prompt: str, *, max_tokens: int | None = None) -> str:
+        """Return the model's text completion for `prompt`.
+
+        `max_tokens` is a billing cap, not a target; it is raised to the
+        reasoning-first floor (`PG_DISAMBIG_LABEL_MAX_TOKENS`, default 16384)
+        when unset or below it, so reasoning-first models are not truncated
+        mid-thought into empty content. Raises `RuntimeError` if OpenRouter
+        returns empty text, or `httpx.HTTPStatusError` on a non-2xx response.
+        """
         # I-arch-003 (#1253): self.model is reasoning-first (deepseek); the old 50-token default truncated
         # mid-reasoning -> empty content -> RuntimeError. Un-starve to the reasoning-first floor + reasoning ON
         # at max effort (env-overridable). The label output is short; max_tokens is a cap billed by usage.
@@ -76,12 +109,27 @@ def _make_openrouter_label_client() -> ClusterLabelClient | None:
     return _OpenRouterLabelClient(api_key=key, model=model)
 
 
-def get_label_client() -> ClusterLabelClient | None: return _make_openrouter_label_client()
+def get_label_client() -> ClusterLabelClient | None:
+    """FastAPI dependency yielding a cluster-label client, or None if unconfigured.
+
+    Returns an OpenRouter-backed client when `OPENROUTER_API_KEY` is set,
+    otherwise None (the route then rejects ambiguous inputs with 503).
+    """
+    return _make_openrouter_label_client()
 
 
 @router.post("/disambiguation", response_model=None)
 def post_disambiguation(req: DisambiguationRequest,
         client: ClusterLabelClient | None = Depends(get_label_client)) -> DisambiguationResponse:
+    """Cluster candidate snippet embeddings and label ambiguous clusters.
+
+    Returns a non-ambiguous response (empty `clusters`) when fewer than two
+    clusters form; otherwise labels each cluster via the injected client.
+
+    Raises:
+        HTTPException 400: candidate embeddings have mismatched dimensions.
+        HTTPException 503: input is ambiguous but no label client is configured.
+    """
     dim = len(req.candidates[0].embedding)
     if any(len(c.embedding) != dim for c in req.candidates):
         raise HTTPException(status_code=400, detail={"error": True,
@@ -107,5 +155,10 @@ def post_disambiguation(req: DisambiguationRequest,
 
 @router.get("/disambiguation/health")
 def get_disambiguation_health() -> dict[str, Any]:
+    """Liveness probe for the disambiguation route.
+
+    Returns a static `status: ok` plus the pipeline stage names and whether a
+    real (`openrouter`) or sentinel label client is currently configured.
+    """
     return {"status": "ok", "stages": ["cluster_candidates", "label_clusters"],
             "label_client": "openrouter" if get_label_client() is not None else "sentinel"}

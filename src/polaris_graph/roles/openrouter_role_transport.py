@@ -129,6 +129,7 @@ from src.polaris_graph.roles.provider_routing import (
     slug_for_provider,
 )
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -340,7 +341,7 @@ FOUR_ROLE_STAGE = "benchmark_openrouter"
 # allocation, so the prior "high" default silently DOWNGRADED the operator's MAX-reasoning
 # directive). Source: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens .
 # LAW VI: effort is overridable via PG_FOUR_ROLE_REASONING_EFFORT (default "xhigh" = MAX).
-_REASONING_EFFORT = os.getenv("PG_FOUR_ROLE_REASONING_EFFORT", "xhigh")
+_REASONING_EFFORT = resolve("PG_FOUR_ROLE_REASONING_EFFORT")
 
 # === kimi-k2.6 Judge reasoning guard (I-judge-kimi 2026-06-29) ================================
 # The benchmark Judge is now moonshotai/kimi-k2.6 (see _BENCHMARK_LINEUP_DEFAULT_SLUG). Live
@@ -412,7 +413,7 @@ _JUDGE_MAX_TOKENS_CHAIN_MIN = 262144     # kimi-k2.6 nominal max_completion (hig
 # (comma-separated; the literal "off"/"none" -> reasoning disabled). MAX-reasoning-first, then a
 # guaranteed verdict, then fail-loud only if even reasoning-off blanks.
 def _parse_effort_ladder() -> tuple[object, ...]:
-    raw = os.getenv("PG_FOUR_ROLE_EFFORT_LADDER")
+    raw = resolve("PG_FOUR_ROLE_EFFORT_LADDER")
     if not raw:
         return (_REASONING_EFFORT, "low", None)
     out: list[object] = []
@@ -513,7 +514,7 @@ def role_reasoning_enabled(role: str, slug_override: str | None = None) -> bool:
 # NOTE: this is the PER-POST httpx timeout (bounds ONE network call). It does NOT bound the COMPOSED
 # retry loop (effort-ladder x transport-retries x rate-limit-backoff), which can stack to hours per
 # claim — that composition is bounded SEPARATELY by the #1226 wall-clock watchdog below.
-_TIMEOUT_SECONDS = int(os.getenv("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900"))
+_TIMEOUT_SECONDS = int(resolve("PG_VERIFIER_LLM_TIMEOUT_SECONDS"))
 
 
 def set_four_role_reasoning_effort(effort: str) -> None:
@@ -1491,8 +1492,8 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
     # sweep_integration (identical input -> ONE pipeline run -> one shared
     # verdict); temperature/seed are necessary-not-sufficient under shared-batch
     # nondeterminism, so seed stays operator-gated for providers known to honor it.
-    body["temperature"] = float(os.getenv("PG_VERIFIER_TEMPERATURE", "0"))
-    _seed = os.getenv("PG_VERIFIER_SEED", "").strip()
+    body["temperature"] = float(resolve("PG_VERIFIER_TEMPERATURE"))
+    _seed = resolve("PG_VERIFIER_SEED").strip()
     if _seed:
         body["seed"] = int(_seed)
     return body
@@ -1820,7 +1821,7 @@ class OpenRouterRoleTransport:
         # I-run11-007 (#1051): a non-effort-ladder role gets (1 + PG_PROVIDER_BLANK_RETRIES) attempts
         # when routed, so a blank from a flaky provider advances to the next HEALTHY provider (OpenRouter
         # does not auto-advance on an empty 200). WITHOUT routing it keeps the original single attempt.
-        provider_blank_retries = max(0, int(os.getenv("PG_PROVIDER_BLANK_RETRIES", "3")))
+        provider_blank_retries = max(0, int(resolve("PG_PROVIDER_BLANK_RETRIES")))
         role_is_routed = role_provider_routing(request.role) is not None
         retry_attempts = (1 + provider_blank_retries) if role_is_routed else 1
         effort_ladder: tuple[object, ...] = (
@@ -1890,7 +1891,7 @@ class OpenRouterRoleTransport:
                 # whole 4-role run — these are intermittent OpenRouter-edge blips, not a verdict
                 # failure. Retry the POST a bounded number of times (env-driven, LAW VI) before
                 # fail-loud. HTTP-STATUS errors are handled separately below (not retried here).
-                transport_retries = max(0, int(os.getenv("PG_ROLE_TRANSPORT_RETRIES", "2")))
+                transport_retries = max(0, int(resolve("PG_ROLE_TRANSPORT_RETRIES")))
                 # I-beatboth-429 (#1173): rate-limit retry budget is SEPARATE from the
                 # transport-fault budget above (a 429 is not a connection reset). Read lazily so a
                 # monkeypatched env override is honored. The retryable-status set defaults to the

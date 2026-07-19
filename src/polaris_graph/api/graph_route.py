@@ -47,6 +47,14 @@ _VALID_TIERS = {"T1", "T2", "T3", "T4", "T5", "T6", "T7"}
 # ---------------------------------------------------------------------------
 
 class NodeData(BaseModel):
+    """Cytoscape `data` payload for one graph node.
+
+    `id` is a namespaced key (e.g. `src:`, `section:`, `frame:`, `sent:`). The
+    type-specific fields (`tier`, `sentence_text`, `source_url`, `section_title`,
+    `frame_status`) are populated only for the node `type` they apply to and are
+    None otherwise; `classes` carries optional cytoscape style classes.
+    """
+
     id: str = Field(min_length=1, max_length=300)
     type: NodeType
     label: str = Field(min_length=1, max_length=500)
@@ -59,16 +67,30 @@ class NodeData(BaseModel):
 
 
 class Position(BaseModel):
+    """Cytoscape 2-D node position (client-computed layout coordinates)."""
+
     x: float
     y: float
 
 
 class ClaimNode(BaseModel):
+    """A cytoscape graph node: its `data` plus an optional layout `position`.
+
+    Per DECISION.md Option B, `position` is always None server-side; the client
+    computes layout in a Web Worker and populates it there.
+    """
+
     data: NodeData
     position: Position | None = None  # Option B: None server-side; client populates
 
 
 class EdgeData(BaseModel):
+    """Cytoscape `data` payload for one graph edge.
+
+    `source`/`target` are node ids and `edge_type` classifies the relation
+    (`cites`, `contradicts`, or `section_member`).
+    """
+
     id: str = Field(min_length=1, max_length=400)
     source: str
     target: str
@@ -76,15 +98,26 @@ class EdgeData(BaseModel):
 
 
 class ClaimEdge(BaseModel):
+    """A cytoscape graph edge wrapping its `EdgeData`."""
+
     data: EdgeData
 
 
 class GraphElements(BaseModel):
+    """The full cytoscape element set: all graph nodes and edges."""
+
     nodes: list[ClaimNode]
     edges: list[ClaimEdge]
 
 
 class GraphDiagnostics(BaseModel):
+    """Bibliography-integrity counters for a graph payload.
+
+    Reports how many bibliography entries exist versus how many referenced
+    evidence ids were missing from it (both as unique fallback sources and as
+    total reference occurrences), plus the list of unknown evidence ids.
+    """
+
     bibliography_count: int
     fallback_source_count: int  # unique evidence_ids referenced but absent from bibliography
     missing_reference_occurrence_count: int  # total references (with duplicates)
@@ -92,6 +125,13 @@ class GraphDiagnostics(BaseModel):
 
 
 class GraphPayload(BaseModel):
+    """Top-level `GET /runs/{run_id}/graph` response.
+
+    Bundles the cytoscape `elements`, the owning `run_id`, a canonical
+    `elements_hash` (SHA-256 hex of the position-stripped, id-sorted elements),
+    `diagnostics`, and a fixed `schema_version`.
+    """
+
     elements: GraphElements
     run_id: str = Field(min_length=1, max_length=200)
     elements_hash: str = Field(min_length=64, max_length=64)

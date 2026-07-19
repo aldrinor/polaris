@@ -529,6 +529,17 @@ class _MinLenStemPattern:
         self._exclude_words = exclude_words
 
     def search(self, text: str) -> Optional[re.Match[str]]:
+        """First intervention-recognizer match that survives the post-filters.
+
+        Unlike a raw ``re.search``, this scans ALL matches (``finditer``) and
+        returns the first whose matched token both (a) is at least
+        ``min_token_len`` characters and (b) is not (case-insensitively) in the
+        ``exclude_words`` denylist. Those two filters — length anchoring plus the
+        common-English collision denylist — are the whole point of this wrapper:
+        they suppress the short/ambiguous stem hits that a plain regex search
+        would falsely accept. Returns the surviving :class:`re.Match`, or ``None``
+        if every match is filtered out. Never raises.
+        """
         for m in self._pattern.finditer(text):
             token = m.group(0)
             if len(token) < self._min_token_len:

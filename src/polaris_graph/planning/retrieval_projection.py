@@ -56,6 +56,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from src.polaris_graph.settings import resolve
 
 
 def _source_restriction_hard_enabled() -> bool:
@@ -66,7 +67,7 @@ def _source_restriction_hard_enabled() -> bool:
     ``allowed_source_kinds`` term is projected as a visible PREFERENCE (demote-not-drop),
     never a corpus-starving mask. The genuine hard restriction is additionally gated behind
     a runtime corpus-adequacy + acquisition-receipt pre-check at the eligibility seam."""
-    return os.getenv("PG_SOURCE_RESTRICTION_HARD", "0").strip().lower() in (
+    return resolve("PG_SOURCE_RESTRICTION_HARD").strip().lower() in (
         "1", "true", "on", "yes", "enabled",
     )
 

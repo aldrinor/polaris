@@ -150,6 +150,17 @@ class SqliteWorkspaceMemoryStore:
         content: str,
         derived_from_run_ids: list[str] | None = None,
     ) -> MemoryEntry:
+        """Persist a new memory entry to SQLite and return it.
+
+        Args:
+            workspace_id: Owning workspace (normalised to stripped-lowercase).
+            kind: Memory kind classifier.
+            content: Text content to store.
+            derived_from_run_ids: Run ids this memory was distilled from.
+
+        Returns:
+            The stored ``MemoryEntry`` with its generated id and timestamps.
+        """
         entry = MemoryEntry(
             entry_id=uuid.uuid4().hex,
             workspace_id=_normalize_workspace_id(workspace_id),
@@ -185,6 +196,19 @@ class SqliteWorkspaceMemoryStore:
         return entry
 
     def recall(self, query: MemoryQuery) -> list[MemoryRecallResult]:
+        """Return the top-k keyword-cosine matches within a workspace.
+
+        Loads the workspace's entries, optionally filters by kind, scores each
+        by token-count cosine against the query text, and returns the top-k
+        (highest first). Persists ``use_count`` and ``last_used_at`` bumps for
+        the returned set.
+
+        Args:
+            query: Workspace, query text, optional kind filter, and ``top_k``.
+
+        Returns:
+            Recall results sorted by descending score; empty if no candidates.
+        """
         ws_norm = _normalize_workspace_id(query.workspace_id)
         conn = _connect(self._path)
         try:
@@ -224,6 +248,18 @@ class SqliteWorkspaceMemoryStore:
         return top
 
     def forget(self, *, workspace_id: str, entry_id: str) -> bool:
+        """Delete an entry, scoped to its workspace.
+
+        The DELETE matches on both ``entry_id`` and ``workspace_id``, so an
+        entry owned by a different workspace is never removed.
+
+        Args:
+            workspace_id: Owning workspace (normalised before matching).
+            entry_id: Entry to delete.
+
+        Returns:
+            ``True`` if a row was deleted; ``False`` if none matched.
+        """
         ws_norm = _normalize_workspace_id(workspace_id)
         conn = _connect(self._path)
         try:
@@ -239,6 +275,14 @@ class SqliteWorkspaceMemoryStore:
             conn.close()
 
     def list_workspace(self, workspace_id: str) -> list[MemoryEntry]:
+        """Return all entries stored for a workspace (unordered, unscored).
+
+        Args:
+            workspace_id: Workspace to list (normalised before lookup).
+
+        Returns:
+            Every ``MemoryEntry`` in the workspace; empty if none.
+        """
         ws_norm = _normalize_workspace_id(workspace_id)
         conn = _connect(self._path)
         try:

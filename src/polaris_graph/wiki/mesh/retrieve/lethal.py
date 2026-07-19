@@ -41,14 +41,15 @@ from ..snowball import (
     usage_bonus,
 )
 from ..store import EMBEDDING_DIM, MeshStore, MeshStoreError
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # ───── constants ─────
 
-SEED_K = int(os.getenv("PG_LETHAL_SEED_K", "80"))
-ENTITY_COSINE_MIN = float(os.getenv("PG_ENTITY_COSINE_MIN", "0.50"))
-CORROBORATION_WALK_LIMIT = int(os.getenv("PG_CORROBORATION_WALK_LIMIT", "5"))
+SEED_K = int(resolve("PG_LETHAL_SEED_K"))
+ENTITY_COSINE_MIN = float(resolve("PG_ENTITY_COSINE_MIN"))
+CORROBORATION_WALK_LIMIT = int(resolve("PG_CORROBORATION_WALK_LIMIT"))
 CORROBORATION_WALK_MIN_WEIGHT = 0.6
 CORROBORATION_WALK_DECAY = 0.7
 CONTRADICTION_BASE_SCORE = 0.3
@@ -61,6 +62,18 @@ EXPLORATION_FRACTION = 0.10
 # ───── result container ─────
 
 class RetrievalResult:
+    """Result of the 'lethal' mesh retrieval path — provenance consumed by compose.
+
+    ``scored_claims`` is the ordered ``(claim_id, score)`` list (the payload);
+    ``claim_ids()`` projects just the ids and ``as_dict()`` serializes for the
+    receipt. ``gap_category`` records how the query related to the mesh (default
+    ``"ORTHOGONAL"``). The remaining counters are retrieval provenance — how the
+    scored set was reached: ``seed_count`` (direct seeds),
+    ``entity_expansion_count`` (added via entity expansion), ``walked_count``
+    (added by graph walk), and ``exploration_count`` (added by the random
+    exploration fraction). Plain mutable container; no validation.
+    """
+
     __slots__ = (
         "scored_claims", "gap_category", "seed_count",
         "entity_expansion_count", "walked_count", "exploration_count",

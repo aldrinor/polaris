@@ -59,6 +59,13 @@ def _coerce_pairs(pairs) -> list[tuple]:
 
 @dataclass
 class ReliabilityBin:
+    """One [lower, upper) bucket of a reliability diagram.
+
+    Records how many predictions fell in the bucket and their mean predicted
+    probability vs mean observed outcome; ``gap`` is the absolute difference
+    between the two.
+    """
+
     lower: float
     upper: float
     count: int
@@ -69,6 +76,12 @@ class ReliabilityBin:
 
 @dataclass
 class CalibrationReport:
+    """Aggregate calibration metrics over ``n`` prediction/outcome pairs.
+
+    Bundles the Brier score, expected and maximum calibration error (ECE/MCE),
+    and the per-bucket ``ReliabilityBin`` list backing the reliability diagram.
+    """
+
     n: int
     brier_score: float
     ece: float

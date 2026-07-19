@@ -33,6 +33,7 @@ from scripts.dr_benchmark.pathB_run_gate import (
     assert_post_run,
     preflight,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ def _benchmark_openrouter_route() -> bool:
     self-host boxes. 'self_host' => the lock route (qwen Judge on the vast box), so the benchmark
     override below does NOT apply. Mirrors run_gate_b.four_role_transport_mode's default test WITHOUT
     importing the heavy benchmark CLI (LAW VII: a benchmark-side helper, not a lock change)."""
-    return (os.getenv("PG_FOUR_ROLE_TRANSPORT") or "openrouter").strip().lower() == "openrouter"
+    return (resolve("PG_FOUR_ROLE_TRANSPORT") or "openrouter").strip().lower() == "openrouter"
 
 
 def _lock_default_slug(role: str) -> str:
@@ -173,7 +174,7 @@ def role_tag(role: str):
 
 
 def _salt() -> bytes:
-    return (os.getenv("PG_PATHB_GATE_SALT") or "pathB-default-unsalted").encode("utf-8")
+    return (resolve("PG_PATHB_GATE_SALT") or "pathB-default-unsalted").encode("utf-8")
 
 
 @contextlib.contextmanager

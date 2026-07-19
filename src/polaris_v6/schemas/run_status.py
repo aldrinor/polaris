@@ -75,6 +75,16 @@ RunStatus = LifecycleStatus
 
 
 class RunStatusResponse(BaseModel):
+    """Status record for a run, returned by the runs/status endpoints.
+
+    Separates the operational `lifecycle_status` (queued → in_progress →
+    completed|failed|cancelled) from `pipeline_status` (the pipeline-A manifest
+    verdict, NULL until a terminal pipeline state). Optional fields carry timing,
+    result/error payloads, slug/artifact mapping, cost, and cancellation state.
+    The deprecated `status` computed field mirrors `lifecycle_status` for
+    backcompat.
+    """
+
     run_id: str = Field(..., description="Server-assigned UUID hex.")
     lifecycle_status: LifecycleStatus = Field(
         ...,

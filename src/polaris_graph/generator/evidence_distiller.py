@@ -66,6 +66,7 @@ from src.polaris_graph.generator.claim_atom_extractor import (
 from src.polaris_graph.generator.provenance_generator import (
     verify_sentence_provenance,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.evidence_distiller")
 
@@ -120,7 +121,7 @@ def _map_text_mode() -> bool:
     # activate. NOT a faithfulness change: distill MAP is per-source consolidation,
     # not one of the 4 hard gates; output still flows through
     # _validate_and_store_one_source unchanged.
-    return os.getenv("PG_DISTILL_MAP_TEXT_MODE", "0").strip().lower() in (
+    return resolve("PG_DISTILL_MAP_TEXT_MODE").strip().lower() in (
         "1", "true", "yes",
     )
 
@@ -226,6 +227,14 @@ def _default_cache_dir() -> Path:
 
 @dataclass(frozen=True)
 class DistilledFinding:
+    """One distilled, span-grounded finding extracted from a single evidence row.
+
+    Carries the claim text, its source span (``span_start``/``span_end`` +
+    ``support_quote``), extracted numbers/entities, an optional caveat, the
+    contradiction key used for clustering, the source tier, and the ids of the
+    claim atoms it maps to.
+    """
+
     finding_id: str
     evidence_id: str
     claim: str
@@ -242,6 +251,8 @@ class DistilledFinding:
 
 @dataclass(frozen=True)
 class CoverageRow:
+    """Per-evidence distillation outcome: its status, finding count, and optional reason."""
+
     evidence_id: str
     status: str  # mapped | no_relevant_findings | map_failed | validation_failed
     n_findings: int
@@ -250,6 +261,8 @@ class CoverageRow:
 
 @dataclass(frozen=True)
 class ContradictionCluster:
+    """A group of findings sharing one contradiction key, with an optional summary."""
+
     contradiction_key: str
     finding_ids: list[str]
     summary: str = ""
@@ -257,6 +270,13 @@ class ContradictionCluster:
 
 @dataclass(frozen=True)
 class SectionDistillate:
+    """Full distillation output for one section.
+
+    Bundles the section's findings, per-evidence coverage rows, contradiction
+    clusters, and atom catalog, plus token/cache telemetry and the distiller
+    version.
+    """
+
     section_title: str
     section_focus: str
     findings: list[DistilledFinding]
@@ -712,7 +732,7 @@ def _distill_fuzzy_min_overlap_frac() -> float:
     source window for #1217 fuzzy span recovery to ACCEPT it (LAW VI: env-tunable,
     default 0.6). Higher = stricter recovery."""
     try:
-        return float(os.getenv("PG_DISTILL_FUZZY_MIN_OVERLAP", "0.6"))
+        return float(resolve("PG_DISTILL_FUZZY_MIN_OVERLAP"))
     except ValueError:
         return 0.6
 
@@ -884,7 +904,7 @@ def _validate_finding(
     for #1217 PG_DISTILL_DEBUG reject tracing (rejected findings do NOT consume a
     finding_id, so finding_id alone cannot disambiguate which proposal was killed).
     """
-    _dbg = os.getenv("PG_DISTILL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    _dbg = resolve("PG_DISTILL_DEBUG").strip().lower() in ("1", "true", "yes", "on")
 
     def _rej(step: str, reason: str) -> None:
         """#1217 diagnostic: log which validation STEP killed this proposal (keyed on
@@ -1918,7 +1938,7 @@ def filter_and_strip_reduce_markers(
         return _BARE_EV_MARKER_RE.sub(_sub, marker_text)
 
     sentences = split_into_sentences(raw)
-    _dbg = os.getenv("PG_DISTILL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    _dbg = resolve("PG_DISTILL_DEBUG").strip().lower() in ("1", "true", "yes", "on")
     if _dbg:
         logger.warning(
             "[DISTILL_DEBUG] section=%r: ledger=%d findings; REDUCE raw=%d chars / %d sentences; raw_sample=%r",

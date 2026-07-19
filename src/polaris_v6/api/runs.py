@@ -80,6 +80,17 @@ def _resolve_uploaded_documents(document_ids: list[str]) -> list[dict]:
 
 @router.post("", response_model=RunStatusResponse, status_code=202)
 def create_run(payload: RunRequest) -> RunStatusResponse:
+    """Create, persist, and enqueue a research run (202 Accepted).
+
+    Resolves any uploaded `document_ids` to content first (fail-loud on missing
+    or unparsed uploads), then atomically inserts the run under the
+    1-concurrent-session gate and enqueues the Dramatiq actor.
+
+    Raises:
+        HTTPException 400: an uploaded document is missing or has no text.
+        HTTPException 409: another research run is already active, or a uuid clash.
+        HTTPException 503: the store is unavailable or enqueue failed (run marked failed).
+    """
     # I-rdy-010: resolve uploads BEFORE insert_run/enqueue so a bad
     # document_id fails loud here instead of orphaning a queued run.
     uploaded_documents = _resolve_uploaded_documents(payload.document_ids)
@@ -161,6 +172,10 @@ def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusRespo
 
 @router.get("/{run_id}", response_model=RunStatusResponse)
 def get_run(run_id: str) -> RunStatusResponse:
+    """Return the current status record for a run.
+
+    Raises HTTPException 404 when no run with `run_id` exists.
+    """
     record = run_store.get_run(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")

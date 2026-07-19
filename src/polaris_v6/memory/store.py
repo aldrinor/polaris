@@ -65,6 +65,17 @@ class WorkspaceMemoryStore:
         content: str,
         derived_from_run_ids: list[str] | None = None,
     ) -> MemoryEntry:
+        """Store a new memory entry in the in-memory map and return it.
+
+        Args:
+            workspace_id: Owning workspace (normalised to stripped-lowercase).
+            kind: Memory kind classifier.
+            content: Text content to store.
+            derived_from_run_ids: Run ids this memory was distilled from.
+
+        Returns:
+            The stored ``MemoryEntry`` with its generated id and timestamps.
+        """
         entry = MemoryEntry(
             entry_id=uuid.uuid4().hex,
             workspace_id=_normalize_workspace_id(workspace_id),
@@ -77,6 +88,19 @@ class WorkspaceMemoryStore:
         return entry
 
     def recall(self, query: MemoryQuery) -> list[MemoryRecallResult]:
+        """Return the top-k keyword-cosine matches within a workspace.
+
+        Filters entries by workspace and optional kind, scores each by
+        token-count cosine against the query text, and returns the top-k
+        (highest first). Bumps ``use_count`` and ``last_used_at`` on the
+        returned entries.
+
+        Args:
+            query: Workspace, query text, optional kind filter, and ``top_k``.
+
+        Returns:
+            Recall results sorted by descending score; empty if no candidates.
+        """
         ws_norm = _normalize_workspace_id(query.workspace_id)
         candidates = [
             e
@@ -98,6 +122,16 @@ class WorkspaceMemoryStore:
         return scored[: query.top_k]
 
     def forget(self, *, workspace_id: str, entry_id: str) -> bool:
+        """Delete an entry, but only if it belongs to the given workspace.
+
+        Args:
+            workspace_id: Owning workspace (normalised before comparison).
+            entry_id: Entry to delete.
+
+        Returns:
+            ``True`` if the entry existed in this workspace and was deleted;
+            ``False`` if it was missing or owned by a different workspace.
+        """
         entry = self._entries.get(entry_id)
         if entry is None:
             return False
@@ -107,5 +141,13 @@ class WorkspaceMemoryStore:
         return True
 
     def list_workspace(self, workspace_id: str) -> list[MemoryEntry]:
+        """Return all entries stored for a workspace (unordered, unscored).
+
+        Args:
+            workspace_id: Workspace to list (normalised before lookup).
+
+        Returns:
+            Every ``MemoryEntry`` in the workspace; empty if none.
+        """
         ws_norm = _normalize_workspace_id(workspace_id)
         return [e for e in self._entries.values() if e.workspace_id == ws_norm]

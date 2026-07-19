@@ -39,6 +39,11 @@ class SubQuestion(BaseModel):
     @field_validator("analytical_focus", mode="before")
     @classmethod
     def validate_focus(cls, v):
+        """Normalize analytical_focus to a known value, defaulting to 'explain'.
+
+        Lowercases/strips an incoming string and returns it if recognized;
+        any unrecognized or non-string input falls back to 'explain'.
+        """
         valid = {"aggregate", "compare", "explain", "tabulate", "challenge"}
         if isinstance(v, str) and v.lower().strip() in valid:
             return v.lower().strip()
@@ -47,6 +52,11 @@ class SubQuestion(BaseModel):
     @field_validator("expected_depth", mode="before")
     @classmethod
     def validate_depth(cls, v):
+        """Normalize expected_depth to a known value, defaulting to 'moderate'.
+
+        Lowercases/strips an incoming string and returns it if recognized;
+        any unrecognized or non-string input falls back to 'moderate'.
+        """
         valid = {"deep", "moderate", "brief"}
         if isinstance(v, str) and v.lower().strip() in valid:
             return v.lower().strip()
@@ -115,6 +125,11 @@ class ScopeOutput(BaseModel):
 
     @model_validator(mode="after")
     def validate_minimums(self):
+        """Enforce the SCOPE floor: >= 3 sub-questions and >= 3 perspectives.
+
+        Returns self on success; raises ValueError if either minimum is unmet.
+        `search_queries` may be empty (a fallback generates them later).
+        """
         if len(self.sub_questions) < 3:
             raise ValueError(f"Need >= 3 sub-questions, got {len(self.sub_questions)}")
         if len(self.perspectives) < 3:
@@ -192,6 +207,11 @@ class OutlineSection(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_section_fields(cls, data):
+        """Map LLM field-name variants onto the canonical section fields.
+
+        Aliases like `section_id`/`section_title`/`question_id` are folded into
+        `id`/`title`/`sub_question_id`, and `id` is coerced to a string.
+        """
         if isinstance(data, dict):
             # LLM may use "section_id", "section_title", etc.
             for alt in ("section_id", "section_number"):
@@ -241,6 +261,10 @@ class LiveOutline(BaseModel):
 
     @model_validator(mode="after")
     def validate_sections(self):
+        """Require the outline to contain at least one section.
+
+        Returns self on success; raises ValueError on an empty outline.
+        """
         if len(self.sections) == 0:
             raise ValueError("Outline must have at least 1 section")
         return self

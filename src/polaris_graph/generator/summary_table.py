@@ -382,6 +382,12 @@ class _RowData:
 
 @dataclass
 class SummaryTableResult:
+    """Output of the summary-table pass: the (possibly) rewritten text and its table shape.
+
+    ``changed`` says whether a table was inserted; ``canary`` carries the
+    fired-in-output marker and ``rows``/``headers`` describe the emitted table.
+    """
+
     text: str
     changed: bool
     canary: str = ""

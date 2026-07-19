@@ -411,6 +411,15 @@ class CredibilityPassError(RuntimeError):
 
 @dataclass
 class EvidenceCredibility:
+    """Per-source credibility scores emitted by the credibility pass.
+
+    Holds the post-supersession ``credibility_weight`` (clamped [0,1]) plus its
+    reliability/relevance components, the source's origin cluster and whether it
+    is the canonical origin, an explicit ``certainty_downgrade`` flag, any soft
+    warning, and ``credibility_unscored`` (True when this source's judge errored
+    and the priors-only fallback weight was used).
+    """
+
     evidence_id: str
     credibility_weight: float       # POST-P3: P2 weight × supersession multiplier, clamped [0,1]
     reliability_score: float
@@ -784,6 +793,15 @@ class ClaimBasket:
 
 @dataclass
 class CredibilityAnalysis:
+    """Full output of the credibility pass consumed by downstream disclosure rendering.
+
+    Maps each evidence id to its ``EvidenceCredibility`` and origin cluster, and
+    carries the Phase-5/6 atomic claims, contradiction edges, and weight-mass
+    rows. The trailing fields are defaulted so the empty-rows early-return and
+    legacy callers still build: the per-claim ``baskets`` + sentence-to-cluster
+    binding, and the corroboration entailment-judge availability disclosure.
+    """
+
     credibility_by_evidence: dict   # evidence_id -> EvidenceCredibility
     origin_by_evidence: dict        # evidence_id -> origin_cluster_id
     claims: list                    # AtomicClaim[] (Phase-5)

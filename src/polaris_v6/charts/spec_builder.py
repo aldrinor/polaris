@@ -16,6 +16,12 @@ VEGA_LITE_SCHEMA_URL = "https://vega.github.io/schema/vega-lite/v5.json"
 
 @dataclass
 class ForestPlotPoint:
+    """One row of a forest plot: a point estimate with its 95% CI.
+
+    ``evidence_id`` ties the row back to its source span for the
+    click-through-to-source UX.
+    """
+
     label: str
     estimate: float
     ci_low: float
@@ -25,6 +31,11 @@ class ForestPlotPoint:
 
 @dataclass
 class ComparisonRow:
+    """One bar of a comparison table: a metric ``value`` for an ``entity``.
+
+    ``evidence_id`` ties the row back to its source span for click-through.
+    """
+
     entity: str
     metric: str
     value: float
@@ -33,6 +44,12 @@ class ComparisonRow:
 
 @dataclass
 class TimelinePoint:
+    """One point on a timeline: a ``value`` for a ``series`` at a ``period``.
+
+    ``period`` is an ISO 8601 date or a ``YYYY-Qn`` quarter string;
+    ``evidence_id`` ties the point back to its source span for click-through.
+    """
+
     period: str  # ISO 8601 date or YYYY-Qn
     value: float
     series: str
@@ -45,6 +62,20 @@ def build_forest_plot(
     points: list[ForestPlotPoint],
     x_label: str = "Effect estimate (95% CI)",
 ) -> dict[str, Any]:
+    """Build a Vega-Lite v5 forest-plot spec from CI point estimates.
+
+    Args:
+        title: Chart title.
+        points: Rows to plot; must be non-empty.
+        x_label: Axis title for the estimate/CI axis.
+
+    Returns:
+        A JSON-serialisable Vega-Lite spec (rule + point layers) carrying a
+        ``polaris_provenance`` block that maps points to their evidence_ids.
+
+    Raises:
+        ValueError: If ``points`` is empty.
+    """
     if not points:
         raise ValueError("forest plot requires at least one point")
     data_values = [
@@ -97,6 +128,20 @@ def build_comparison_table(
     title: str,
     rows: list[ComparisonRow],
 ) -> dict[str, Any]:
+    """Build a Vega-Lite v5 grouped-bar comparison spec.
+
+    Args:
+        title: Chart title.
+        rows: Rows to plot; must be non-empty. Bars are grouped by entity and
+            coloured by metric.
+
+    Returns:
+        A JSON-serialisable Vega-Lite spec carrying a ``polaris_provenance``
+        block that maps rows to their evidence_ids.
+
+    Raises:
+        ValueError: If ``rows`` is empty.
+    """
     if not rows:
         raise ValueError("comparison table requires at least one row")
     data_values = [
@@ -137,6 +182,21 @@ def build_timeline(
     points: list[TimelinePoint],
     period_kind: Literal["date", "quarter", "year"] = "quarter",
 ) -> dict[str, Any]:
+    """Build a Vega-Lite v5 multi-series line-timeline spec.
+
+    Args:
+        title: Chart title.
+        points: Points to plot; must be non-empty. Lines are split by series.
+        period_kind: Controls the x-axis encoding — ``"date"`` renders a
+            temporal axis; ``"quarter"`` and ``"year"`` render an ordinal axis.
+
+    Returns:
+        A JSON-serialisable Vega-Lite spec carrying a ``polaris_provenance``
+        block with ``period_kind`` and the points' evidence_ids.
+
+    Raises:
+        ValueError: If ``points`` is empty.
+    """
     if not points:
         raise ValueError("timeline requires at least one point")
     temporal_type = "temporal" if period_kind == "date" else "ordinal"

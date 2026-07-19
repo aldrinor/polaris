@@ -252,6 +252,11 @@ class PolicyResponse(BaseModel):
 
 @router.get("/policy", response_model=PolicyResponse)
 def policy() -> PolicyResponse:
+    """Return the full sovereignty + egress policy descriptor.
+
+    Bundles the policy version, sovereignty filter, current egress allowlist,
+    and the host/Docker enforcement layers that enforce it.
+    """
     return PolicyResponse(
         version=POLICY_VERSION,
         sovereignty_filter=_sovereignty_policy(),

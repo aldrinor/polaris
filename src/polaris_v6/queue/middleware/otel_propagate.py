@@ -23,6 +23,11 @@ class OtelPropagateMiddleware(dramatiq.Middleware):
     """Inject + re-extract OpenTelemetry context across queue boundary."""
 
     def before_enqueue(self, broker: dramatiq.Broker, message: dramatiq.Message, delay: int | None) -> None:
+        """Inject the active OTel context onto the outgoing message options.
+
+        Writes a carrier under ``OTEL_OPTION_KEY`` only if propagation produced
+        one. No-op if OpenTelemetry is not installed.
+        """
         try:
             from opentelemetry import propagate
 
@@ -34,6 +39,11 @@ class OtelPropagateMiddleware(dramatiq.Middleware):
             return
 
     def before_process_message(self, broker: dramatiq.Broker, message: dramatiq.Message) -> None:
+        """Re-extract and attach the message's OTel context before the actor runs.
+
+        Stashes the detach token under ``_otel_token`` for teardown. No-op if
+        the message carries no carrier or OpenTelemetry is not installed.
+        """
         carrier = message.options.get(OTEL_OPTION_KEY)
         if not carrier:
             return
@@ -54,6 +64,11 @@ class OtelPropagateMiddleware(dramatiq.Middleware):
         result: Any = None,
         exception: BaseException | None = None,
     ) -> None:
+        """Detach the OTel context attached in ``before_process_message``.
+
+        Pops and detaches the ``_otel_token``. No-op if none was set or
+        OpenTelemetry is not installed.
+        """
         token = message.options.pop("_otel_token", None)
         if token is None:
             return

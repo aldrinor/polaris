@@ -178,6 +178,8 @@ class SourcedInput:
 
 @dataclass(frozen=True)
 class ModeledInput:
+    """A modeled (assumption) input: its base value, unit, and sweep bracket [lo, hi] with step."""
+
     name: str
     base: float
     unit: str
@@ -188,6 +190,8 @@ class ModeledInput:
 
 @dataclass(frozen=True)
 class OutputField:
+    """A declared model output: its name, unit, display kind, and the arithmetic formula."""
+
     name: str
     unit: str
     display_kind: str
@@ -196,18 +200,31 @@ class OutputField:
 
 @dataclass(frozen=True)
 class Sensitivity:
+    """A requested sensitivity sweep: how a declared ``output`` varies over a MODELED ``input``."""
+
     input: str   # a MODELED input name
     output: str   # a declared output name
 
 
 @dataclass(frozen=True)
 class SolveFor:
+    """A break-even solve request: find the ``var`` value (within its sweep) where ``output`` == 0."""
+
     var: str      # a MODELED input name whose sweep is the [lo,hi] bracket
     output: str   # a declared output name (break-even = root of formula==0)
 
 
 @dataclass
 class ModelSpec:
+    """A full trade-off model: its sourced + modeled inputs, outputs, and optional sweeps.
+
+    The convenience lookups resolve names: ``input_names`` lists all input
+    names (sourced then modeled), ``modeled_by_name`` / ``output_by_name``
+    fetch a specific ``ModeledInput`` / ``OutputField`` (or None), and
+    ``base_env`` builds the ``{name: value}`` evaluation environment from the
+    sourced values and modeled base values.
+    """
+
     model_id: str
     title: str
     sourced_inputs: list[SourcedInput]

@@ -79,6 +79,14 @@ _URL_MISMATCH_NOTE = (
 
 @dataclass
 class RequiredEntityLedger:
+    """Tally of the run's required-entity slots and their coverage state.
+
+    Holds one ``RequiredSlot`` per required entity and exposes the
+    verified/gap partition plus the coverage fraction. ``to_evidence_gaps``
+    renders the un-covered (gap-disclosed) slots as machine-readable records
+    for the manifest's audit trail.
+    """
+
     slots: list[RequiredSlot] = field(default_factory=list)
 
     def verified_slots(self) -> list[RequiredSlot]:

@@ -181,6 +181,23 @@ class MockScopeAffinityLLM:
         question: str,
         supported_domains: tuple[str, ...],
     ) -> LLMVerdict:
+        """Deterministic scope classification: route a question in/out of scope.
+
+        CONTRACT (offline mock — same question always yields the same
+        :class:`LLMVerdict`; never raises, never does IO). Scores the question's
+        lowercased text against each supported domain's keyword profile and
+        returns one of four verdicts:
+
+        - ``out_of_scope`` — empty ``supported_domains`` intersection with the
+          mock profiles, OR no domain keyword matched at all.
+        - ``uncertain`` — empty ``question``, OR the top two domains are within a
+          keyword-count margin < 1 (a tie the mock refuses to break).
+        - ``in_scope`` — one domain wins by margin >= 1; ``domain`` names it and
+          ``confidence`` = clamp((best_count + 2*margin) / 10, 0, 1).
+
+        Each branch carries a ``rationale`` string. This is the load-bearing
+        fallback behavior real classifiers must mirror for scope enforcement.
+        """
         if not question:
             return LLMVerdict(
                 verdict="uncertain",

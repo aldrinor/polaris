@@ -40,6 +40,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Callable, Optional
+from src.polaris_graph.settings import resolve
 
 # (prompt) -> text. The already-picked FS-Researcher / intent-frame LOCKED policy model, injected by
 # the caller (async client wrapped to sync) so this module never imports a live client at load time.
@@ -56,7 +57,7 @@ def landmark_study_expansion_enabled() -> bool:
     ON alongside ``PG_QGEN_PARALLEL_QUERIES`` / ``PG_OPENALEX_DATE_FILTER``. The tests exercise both the
     ON and OFF paths explicitly.
     """
-    return os.getenv("PG_LANDMARK_EXPANDER", "0").strip().lower() in _ON_VALUES
+    return resolve("PG_LANDMARK_EXPANDER").strip().lower() in _ON_VALUES
 
 
 def _max_landmark_studies() -> int:
@@ -64,7 +65,7 @@ def _max_landmark_studies() -> int:
     (studies x fetch), NOT a breadth target — it bounds the frontier UP-side, never forces a number
     up (§-1.3). Default 12."""
     try:
-        return max(1, int(os.getenv("PG_LANDMARK_MAX_STUDIES", "12")))
+        return max(1, int(resolve("PG_LANDMARK_MAX_STUDIES")))
     except ValueError:
         return 12
 
@@ -80,7 +81,7 @@ def _landmark_reserve() -> int:
     WEIGHT-AND-CONSOLIDATE widen-only: a compute-safety UP-side bound (LAW VI env cap
     ``PG_LANDMARK_QUERY_RESERVE``, default 10), never a breadth target and never a drop."""
     try:
-        return max(0, int(os.getenv("PG_LANDMARK_QUERY_RESERVE", "10")))
+        return max(0, int(resolve("PG_LANDMARK_QUERY_RESERVE")))
     except ValueError:
         return 10
 

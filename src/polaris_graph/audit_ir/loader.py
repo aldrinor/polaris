@@ -441,6 +441,12 @@ class AuditIR:
     def get_bibliography_by_evidence_id(
         self, evidence_id: str
     ) -> BibliographyEntry | None:
+        """Resolve an evidence id back to its bibliography source entry.
+
+        Part of the evidence-traceability contract: given an ``evidence_id``,
+        returns the matching :class:`BibliographyEntry`, or ``None`` when no
+        bibliography row carries that id (unresolved provenance). Never raises.
+        """
         for entry in self.bibliography:
             if entry.evidence_id == evidence_id:
                 return entry
@@ -449,6 +455,13 @@ class AuditIR:
     def get_contradictions_for_evidence(
         self, evidence_id: str
     ) -> tuple[ContradictionCluster, ...]:
+        """Every recorded contradiction cluster that involves this evidence id.
+
+        Feeds the contradiction-disclosure path: scans the stored contradiction
+        clusters and returns those with at least one claim whose ``evidence_id``
+        matches. Returns an empty tuple when the id participates in no
+        contradiction. Never raises.
+        """
         out = []
         for cluster in self.contradictions:
             if any(c.evidence_id == evidence_id for c in cluster.claims):
@@ -464,6 +477,14 @@ class AuditIR:
         return None
 
     def get_tier_counts(self) -> dict[str, int]:
+        """Source-tier histogram (tier label -> source count) for tier-compliance gates.
+
+        Reconstructs per-tier counts by multiplying each tier's stored fraction
+        (``tier_mix.fractions``) by the corpus source count
+        (``tier_mix.corpus_count``) and rounding to an integer. The tier labels
+        are the POLARIS authority taxonomy (e.g. T1..T7 / GOLD/SILVER/BRONZE per
+        the mix's own keys). Never raises.
+        """
         return {
             tier: int(round(frac * self.tier_mix.corpus_count))
             for tier, frac in self.tier_mix.fractions.items()
@@ -480,6 +501,12 @@ class AuditIR:
     def get_evidence_spans_for_claim(
         self, claim_id: str
     ) -> tuple[EvidenceSpanToken, ...]:
+        """Claim id -> its evidence-span tokens (the span-level traceability join).
+
+        Underpins span-level faithfulness verification: resolves the report
+        sentence carrying ``claim_id`` and returns its ``tokens``. Returns an
+        empty tuple when no sentence maps to the claim. Never raises.
+        """
         sentence = self.get_sentence_by_claim_id(claim_id)
         return sentence.tokens if sentence is not None else ()
 

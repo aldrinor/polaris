@@ -28,6 +28,7 @@ import os
 from typing import Optional
 
 import numpy as np
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +39,17 @@ logger = logging.getLogger(__name__)
 
 def _get_min_sources() -> int:
     """Read minimum unique-source count from env or use default."""
-    return int(os.getenv("PG_CROSS_REF_MIN_SOURCES", "3"))
+    return int(resolve("PG_CROSS_REF_MIN_SOURCES"))
 
 
 def _get_sim_threshold() -> float:
     """Read cosine-similarity threshold from env or use default."""
-    return float(os.getenv("PG_CROSS_REF_SIM_THRESHOLD", "0.65"))
+    return float(resolve("PG_CROSS_REF_SIM_THRESHOLD"))
 
 
 def _get_max_evidence() -> int:
     """Read evidence cap from env or use default."""
-    return int(os.getenv("PG_CROSS_REF_MAX_EVIDENCE", "1500"))
+    return int(resolve("PG_CROSS_REF_MAX_EVIDENCE"))
 
 
 # ---------------------------------------------------------------------------

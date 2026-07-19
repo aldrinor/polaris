@@ -21,6 +21,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from typing import Any
+from src.polaris_graph.settings import resolve
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -2722,7 +2723,7 @@ def _maybe_rerank_selection(
         # LAUNCH-ENV read (not a slate force-ON value), so it does not trip SLATE-PURITY /
         # NO-LOSER (those gate winner force-ON values, not device reads).
         device_override = (
-            os.getenv("PG_RERANKER_DEVICE", "").strip()
+            resolve("PG_RERANKER_DEVICE").strip()
             or (_ce_cfg.device if (_ce_cfg.device and _ce_cfg.device != "auto") else None)
         )
         documents = [

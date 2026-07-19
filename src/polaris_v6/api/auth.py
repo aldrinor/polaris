@@ -49,11 +49,19 @@ router = APIRouter(tags=["auth"])
 
 
 class LoginRequest(BaseModel):
+    """Request body for `POST /auth/login`: the username and plaintext password."""
+
     username: str
     password: str
 
 
 class LoginResponse(BaseModel):
+    """Response body for a successful login.
+
+    Carries the signed HS256 `access_token`, its `token_type` (`bearer`), the
+    account `role`, and `expires_in` (token lifetime in seconds).
+    """
+
     access_token: str
     token_type: str = "bearer"
     role: str
@@ -61,6 +69,8 @@ class LoginResponse(BaseModel):
 
 
 class User(BaseModel):
+    """Authenticated principal resolved from a validated JWT: username and role."""
+
     username: str
     role: str
 
@@ -166,6 +176,13 @@ async def require_auth(
 
 @router.post("/auth/login", response_model=LoginResponse)
 def login(payload: LoginRequest) -> LoginResponse:
+    """Authenticate against the static-accounts YAML and issue a JWT.
+
+    On a matching username with a verified bcrypt password, returns a
+    `LoginResponse` with a freshly issued token. Raises HTTPException 401 with
+    an `invalid_credentials` shape on any failure, without revealing whether the
+    username existed.
+    """
     accounts = _load_accounts()
     for account in accounts:
         if account.get("username") == payload.username:

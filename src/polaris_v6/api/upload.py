@@ -95,6 +95,14 @@ async def _extract_text_local(content: bytes, ext: str) -> str:
 
 
 class UploadResponse(BaseModel):
+    """Result of an upload: the stored document's identity, parse state, and content.
+
+    `parse_status` reflects whether text was extracted (`completed`) or the
+    format is deferred to downstream parsing (`queued`); `chunk_preview` holds
+    the leading preview chunks, and `content`/`html` carry the extracted text
+    and an escaped HTML rendering when available.
+    """
+
     document_id: str
     filename: str
     bytes: int
@@ -142,6 +150,17 @@ async def upload_document(
     file: UploadFile,
     classification: DataClassification = Form("UNKNOWN"),
 ) -> UploadResponse:
+    """Accept a document upload, extract its text, and register it (201 Created).
+
+    Validates extension and size, then routes text extraction by the configured
+    `PG_DOC_INGEST_BACKEND`: `.md`/`.txt` decode directly, `local` parses
+    PDF/DOCX via DocumentIngester, and VLM backends fail loud until enabled.
+
+    Raises:
+        HTTPException 400: missing filename or unknown ingest backend.
+        HTTPException 413/415/422: oversized, unsupported extension, or empty/unparsable file.
+        HTTPException 501: an operator-gated VLM-OCR backend is selected but not enabled.
+    """
     if file.filename is None:
         raise HTTPException(status_code=400, detail="filename required")
 
@@ -246,6 +265,10 @@ async def upload_document(
 
 @router.get("/{document_id}", response_model=UploadResponse)
 def get_upload(document_id: str) -> UploadResponse:
+    """Return a previously uploaded document by id.
+
+    Raises HTTPException 404 when no document with `document_id` is registered.
+    """
     record = _UPLOAD_TABLE.get(document_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"document {document_id!r} not found")

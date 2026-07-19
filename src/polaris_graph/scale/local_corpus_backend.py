@@ -43,6 +43,7 @@ import numpy as np
 
 from src.polaris_graph.retrieval.pooled_embedder import embed_with_pooling
 from src.polaris_graph.retrieval.prefetch_offtopic_filter import SearchCandidate
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.scale.local_corpus")
 
@@ -134,7 +135,7 @@ class LocalCorpusConfig:
           PG_LOCAL_CORPUS_EXTENSIONS     comma-separated file extensions
         """
         root_values: list[str | Path] = list(roots or [])
-        env_roots = os.getenv("PG_LOCAL_CORPUS_ROOTS", "").strip()
+        env_roots = resolve("PG_LOCAL_CORPUS_ROOTS").strip()
         if env_roots:
             root_values.extend(
                 p for p in env_roots.split(os.pathsep) if p.strip()
@@ -147,7 +148,7 @@ class LocalCorpusConfig:
             )
 
         weights = dict(_DEFAULT_CLASS_WEIGHTS)
-        raw_w = os.getenv("PG_LOCAL_CORPUS_WEIGHTS", "").strip()
+        raw_w = resolve("PG_LOCAL_CORPUS_WEIGHTS").strip()
         if raw_w:
             try:
                 parsed = json.loads(raw_w)
@@ -163,7 +164,7 @@ class LocalCorpusConfig:
             for k, v in parsed.items():
                 weights[str(k)] = float(v)
 
-        exts_raw = os.getenv("PG_LOCAL_CORPUS_EXTENSIONS", "").strip()
+        exts_raw = resolve("PG_LOCAL_CORPUS_EXTENSIONS").strip()
         extensions = _DEFAULT_EXTENSIONS
         if exts_raw:
             extensions = tuple(

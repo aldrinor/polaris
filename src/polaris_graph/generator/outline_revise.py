@@ -58,6 +58,7 @@ def revise_rounds() -> int:
 
 
 def max_recompose() -> int:
+    """Ceiling on how many sections a revise round may re-open (env-tunable, floor 1)."""
     return max(1, _env_int("PG_OUTLINE_REVISE_MAX_RECOMPOSE", PG_OUTLINE_REVISE_MAX_RECOMPOSE_DEFAULT))
 
 
@@ -66,6 +67,13 @@ def max_recompose() -> int:
 # ─────────────────────────────────────────────────────────────────────────
 @dataclass
 class SectionOutcome:
+    """Pure telemetry digest of one section's result — the reviser's per-section checklist.
+
+    Records the verified sentence count and kept fraction, whether the section
+    dropped, its assigned-but-uncited ``unused_ev_ids``, corroboration baskets
+    with no cited member, and the carried-through ``undersupplied`` flag.
+    """
+
     title: str
     verified_sentence_count: int
     kept_fraction: float
@@ -154,6 +162,13 @@ def find_orphan_baskets(
 # ─────────────────────────────────────────────────────────────────────────
 @dataclass
 class RevisionParseResult:
+    """Result of parsing/validating the reviser's proposed ops.
+
+    Splits ops into the accepted ``ops`` (in submission order) and
+    ``rejected`` (each with a reason code), collects any ``gap_queries``,
+    and flags whether a revision is needed or the parse failed outright.
+    """
+
     ops: list[dict[str, Any]]           # accepted, validated ops in submission order
     rejected: list[dict[str, Any]]      # {op, reason_code}
     gap_queries: list[str]
@@ -346,6 +361,14 @@ def parse_revision_ops(
 # ─────────────────────────────────────────────────────────────────────────
 @dataclass
 class RevisionApplyResult:
+    """Result of deterministically applying validated revision ops to the outline.
+
+    Emits the final ``new_plans`` set and partitions sections into those to
+    re-open (``recompose_titles``) vs reused byte-identical (``kept_titles``),
+    alongside the applied, deferred (dropped by the max_recompose ceiling), and
+    rejected ops. ``changed`` is True when the outline actually changed.
+    """
+
     new_plans: list[dict[str, Any]]     # final plan set, in stable order
     recompose_titles: list[str]         # sections to RE-OPEN and recompose (the [IN-PROGRESS] set)
     kept_titles: list[str]              # sections reused byte-identical (no recompose)

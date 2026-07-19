@@ -58,6 +58,7 @@ from src.polaris_graph.retrieval.contradiction_detector import (
     POSSIBLE_METRIC_MISMATCH_MARKER,
     _suppress_metric_mismatch_enabled,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.live_deepseek_generator")
 
@@ -76,6 +77,13 @@ _DECIMAL_RE = re.compile(r"-?\d+\.\d+")
 
 @dataclass
 class LiveGenerationResult:
+    """Result of one live generation call: the draft plus citation and cost telemetry.
+
+    Holds both the model's ``raw_draft`` and the offset-corrected
+    ``rewritten_draft``, the counts of citations converted vs left
+    unverifiable, the total sentence count, and the model/token/cost usage.
+    """
+
     raw_draft: str                # DeepSeek's raw prose (with [ev_XXX])
     rewritten_draft: str          # After offset post-processing
     citations_converted: int
@@ -386,12 +394,12 @@ def _find_best_span_for_sentence(
             # the verifier's content-word-overlap (>=2) check downstream.
             # Capped to single env-var bump per Codex "cap Step 2
             # quickly, do not consume the architecture window."
-            window = int(os.getenv("PG_PROVENANCE_SPAN_WINDOW", "800"))
+            window = int(resolve("PG_PROVENANCE_SPAN_WINDOW"))
         except ValueError:
             window = 500
     if stride is None:
         try:
-            stride = int(os.getenv("PG_PROVENANCE_SPAN_STRIDE", "100"))
+            stride = int(resolve("PG_PROVENANCE_SPAN_STRIDE"))
         except ValueError:
             stride = 100
     window = max(100, window)

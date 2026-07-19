@@ -97,6 +97,7 @@ from src.polaris_graph.llm import judge_verdict_cache as _verdict_cache
 # only; verdict logic + fail-closed sentinel untouched. Default-ON; PG_SIDE_JUDGE_MAX_CONCURRENCY=0 =>
 # byte-identical pre-fix (no-op) path. LAW VI.
 from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -115,12 +116,12 @@ _ENTAILMENT_TIMEOUT_S = 30.0
 # the connection on a ReadTimeout, and explicit keepalive-expiry reaps the half-open CLOSE_WAIT sockets the
 # old pooled client leaked on the error path (HANG-J2). Transport/observability only — the verdict logic,
 # the fail-CLOSED `judge_error:` sentinel, and the two-family/model lock are all UNCHANGED. (LAW VI: env-driven.)
-_ENTAILMENT_CONNECT_S = float(os.getenv("PG_ENTAILMENT_CONNECT_S", "30"))
-_ENTAILMENT_READ_STALL_S = float(os.getenv("PG_ENTAILMENT_READ_STALL_S", "120"))
-_ENTAILMENT_WRITE_S = float(os.getenv("PG_ENTAILMENT_WRITE_S", "60"))
-_ENTAILMENT_POOL_S = float(os.getenv("PG_ENTAILMENT_POOL_S", "30"))
-_ENTAILMENT_MAX_KEEPALIVE = int(os.getenv("PG_ENTAILMENT_MAX_KEEPALIVE", "8"))
-_ENTAILMENT_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_ENTAILMENT_KEEPALIVE_EXPIRY_S", "30"))
+_ENTAILMENT_CONNECT_S = float(resolve("PG_ENTAILMENT_CONNECT_S"))
+_ENTAILMENT_READ_STALL_S = float(resolve("PG_ENTAILMENT_READ_STALL_S"))
+_ENTAILMENT_WRITE_S = float(resolve("PG_ENTAILMENT_WRITE_S"))
+_ENTAILMENT_POOL_S = float(resolve("PG_ENTAILMENT_POOL_S"))
+_ENTAILMENT_MAX_KEEPALIVE = int(resolve("PG_ENTAILMENT_MAX_KEEPALIVE"))
+_ENTAILMENT_KEEPALIVE_EXPIRY_S = float(resolve("PG_ENTAILMENT_KEEPALIVE_EXPIRY_S"))
 # I-arch-006 HANG-J3 (overnight 2026-06-15): the read-stall (read=_ENTAILMENT_READ_STALL_S) is a per-read
 # GAP timeout that httpx RESETS on every received byte. OpenRouter/Cloudflare holds the judge socket
 # ESTABLISHED and TRICKLES keep-alive bytes (SSE comment lines / chunked keep-alives), so the gap timer
@@ -133,7 +134,7 @@ _ENTAILMENT_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_ENTAILMENT_KEEPALIVE_EXPIRY
 # faithfulness-safe, never fabricates). Transport-only; verdict logic + the fail-closed contract UNCHANGED.
 # LAW VI: env-driven. Default 150s comfortably exceeds a real high-effort GLM-5.1 NLI call (~6-40s observed)
 # while bounding the trickle hang; with the 2 retries the worst-case wall per claim is ~3*150s before drop.
-_ENTAILMENT_TOTAL_S = float(os.getenv("PG_ENTAILMENT_TOTAL_S", "150"))
+_ENTAILMENT_TOTAL_S = float(resolve("PG_ENTAILMENT_TOTAL_S"))
 
 
 def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):
