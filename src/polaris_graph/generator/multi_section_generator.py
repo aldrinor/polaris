@@ -10671,7 +10671,7 @@ async def generate_multi_section_report(
         _off_topic_ev_ids: set[str] = set()
         _singleton_candidates: list[dict[str, str]] = []
         if route_all_baskets_enabled():
-            from src.polaris_graph.generator.junk_deletion_gate import (  # noqa: PLC0415
+            from src.polaris_graph.generator.content_integrity_deletion_gate import (  # noqa: PLC0415
                 is_row_deletable_offtopic,
             )
             _claimed_ev_ids: set[str] = set()
