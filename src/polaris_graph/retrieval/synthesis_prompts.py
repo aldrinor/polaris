@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 
 from src.polaris_graph.retrieval.citation_normalizer import CITATION_RULES  # v2 only
+from src.polaris_graph.settings import resolve
 
 # ---------------------------------------------------------------------------
 # FIX-CITE: v1/v3 citation rules using [CITE:evidence_id] format
@@ -186,7 +187,7 @@ def build_section_writer_prompt(
     Returns:
         Complete system prompt string.
     """
-    use_analytical = os.getenv("PG_V3_ANALYTICAL_PROMPT", "0") == "1"
+    use_analytical = resolve("PG_V3_ANALYTICAL_PROMPT") == "1"
     writing_rules = ANALYTICAL_WRITING_RULES if use_analytical else EVIDENCE_FIRST_RULES
 
     focus_block = ""

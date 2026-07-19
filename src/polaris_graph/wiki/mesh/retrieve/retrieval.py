@@ -41,14 +41,15 @@ from ..snowball import (
     usage_bonus,
 )
 from ..store import EMBEDDING_DIM, MeshStore, MeshStoreError
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # ───── constants ─────
 
-SEED_K = int(os.getenv("PG_LETHAL_SEED_K", "80"))
-ENTITY_COSINE_MIN = float(os.getenv("PG_ENTITY_COSINE_MIN", "0.50"))
-CORROBORATION_WALK_LIMIT = int(os.getenv("PG_CORROBORATION_WALK_LIMIT", "5"))
+SEED_K = int(resolve("PG_LETHAL_SEED_K"))
+ENTITY_COSINE_MIN = float(resolve("PG_ENTITY_COSINE_MIN"))
+CORROBORATION_WALK_LIMIT = int(resolve("PG_CORROBORATION_WALK_LIMIT"))
 CORROBORATION_WALK_MIN_WEIGHT = 0.6
 CORROBORATION_WALK_DECAY = 0.7
 CONTRADICTION_BASE_SCORE = 0.3
@@ -91,7 +92,7 @@ class RetrievalResult:
 
 # ───── public API ─────
 
-def lethal_retrieve(
+def high_recall_retrieve(
     store: MeshStore,
     *,
     workspace_id: str,
@@ -282,6 +283,13 @@ def lethal_retrieve(
         result.exploration_count, result.gap_category,
     )
     return result
+
+
+# Backward-compat alias: `lethal_retrieve` was renamed to `high_recall_retrieve`
+# (the function's 6 stages aggressively widen the candidate pool for recall, then
+# re-rank). Existing importers (tests, callers) resolve through this alias — same
+# object, no behavior change.
+lethal_retrieve = high_recall_retrieve
 
 
 # ───── helpers ─────

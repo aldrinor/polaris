@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +289,7 @@ def _get_retraction_watch_db() -> set[str] | None:
 
 # ── Source Quality Gate ──────────────────────────────────────────────
 
-QUALITY_GATE_THRESHOLD = float(os.getenv("PG_SOURCE_QUALITY_GATE", "0.3"))
+QUALITY_GATE_THRESHOLD = float(resolve("PG_SOURCE_QUALITY_GATE"))
 
 
 def source_quality_gate(score: EnhancedSourceScore) -> bool:

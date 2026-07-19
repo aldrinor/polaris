@@ -11,6 +11,7 @@ import os
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -442,7 +443,7 @@ class SourceAnalysis(BaseModel):
         Sort by relevance_score descending, keep top 15.
         Pattern from atomic_decomposer.py:204.
         """
-        max_facts = int(os.getenv("PG_MAX_FACTS_PER_SOURCE", "15"))
+        max_facts = int(resolve("PG_MAX_FACTS_PER_SOURCE"))
         if len(v) <= max_facts:
             return v
         # Sort by relevance descending, keep top max_facts

@@ -36,6 +36,7 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Any
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.search_fusion_wrrf")
 
@@ -52,13 +53,13 @@ def wrrf_enabled() -> bool:
     Default OFF: the legacy inline-dedup / RRF-free merge path runs unchanged
     and the candidate ordering is byte-identical to before this wiring.
     """
-    return os.getenv("PG_SEARCH_FUSION_WRRF", "").strip().lower() in {
+    return resolve("PG_SEARCH_FUSION_WRRF").strip().lower() in {
         "1", "true", "yes", "on",
     }
 
 
 def _wrrf_k() -> float:
-    raw = os.getenv("PG_SEARCH_FUSION_WRRF_K", "").strip()
+    raw = resolve("PG_SEARCH_FUSION_WRRF_K").strip()
     if not raw:
         return _DEFAULT_K
     try:
@@ -81,7 +82,7 @@ def _wrrf_k() -> float:
 
 
 def _default_engine_weight() -> float:
-    raw = os.getenv("PG_SEARCH_FUSION_WRRF_DEFAULT_WEIGHT", "").strip()
+    raw = resolve("PG_SEARCH_FUSION_WRRF_DEFAULT_WEIGHT").strip()
     if not raw:
         return _DEFAULT_ENGINE_WEIGHT
     try:
@@ -101,7 +102,7 @@ def _engine_weights() -> dict[str, float]:
     entries are skipped loudly (never crash the merge).
     """
     weights: dict[str, float] = {}
-    raw = os.getenv("PG_SEARCH_FUSION_WRRF_WEIGHTS", "").strip()
+    raw = resolve("PG_SEARCH_FUSION_WRRF_WEIGHTS").strip()
     if not raw:
         return weights
     for part in raw.split(","):

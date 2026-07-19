@@ -29,6 +29,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from src.polaris_graph.settings import resolve
 
 # (prompt) -> text. The already-picked FS-Researcher / intent-frame policy model, injected by the
 # caller (async client wrapped to sync) so this module never imports a live client at load time.
@@ -53,13 +54,13 @@ def expert_facet_enabled() -> bool:
     LAW VI env kill-switch. Default OFF keeps the production sweep byte-identical until the fresh
     paid run that validates the widened frontier; the tests exercise the ON path explicitly.
     """
-    return os.getenv("PG_EXPERT_FACET_PLANNER", "0").strip() in ("1", "true", "True")
+    return resolve("PG_EXPERT_FACET_PLANNER").strip() in ("1", "true", "True")
 
 
 def _max_facets() -> int:
     """Max facets kept from the facet tree. A compute-safety CAP on cost (facets x angles x fetch),
     NOT a breadth target — it bounds the frontier UP-side, it never forces a number up (§-1.3)."""
-    return max(1, int(os.getenv("PG_EXPERT_FACET_MAX_FACETS", "12")))
+    return max(1, int(resolve("PG_EXPERT_FACET_MAX_FACETS")))
 
 
 def _angles_per_facet() -> int:
@@ -125,7 +126,7 @@ _DEBATE_RE = re.compile(
 def two_sided_debate_enabled() -> bool:
     """``PG_TWO_SIDED_DEBATE`` kill-switch (default OFF, LAW VI). OFF => the con-side retrieval guarantee
     and the composition-side disclosure are both no-ops => byte-identical."""
-    return os.getenv("PG_TWO_SIDED_DEBATE", "0").strip().lower() not in ("", "0", "false", "off", "no")
+    return resolve("PG_TWO_SIDED_DEBATE").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def is_debate_question(text: str) -> bool:

@@ -36,7 +36,7 @@ from src.polaris_graph.wiki.mesh.retrieve.gap_classify import (
     classify_gap,
     increment_nearby_budget,
 )
-from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+from src.polaris_graph.wiki.mesh.retrieve.retrieval import (
     RetrievalResult,
     _distance_to_cosine,
     _entity_match_fraction,

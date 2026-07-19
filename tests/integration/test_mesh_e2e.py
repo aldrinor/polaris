@@ -28,7 +28,7 @@ from src.polaris_graph.wiki.mesh.claim_extract import extract_claims_from_source
 from src.polaris_graph.wiki.mesh.edge_discovery import discover_edges_for_claims
 from src.polaris_graph.wiki.mesh.ingest import ingest_file
 from src.polaris_graph.wiki.mesh.qa.ask import ask
-from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+from src.polaris_graph.wiki.mesh.retrieve.retrieval import lethal_retrieve
 from src.polaris_graph.wiki.mesh.snapshot import (
     create_snapshot,
     list_snapshots,

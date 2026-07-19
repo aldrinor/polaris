@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Iterable
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.evidence_type_query_expansion")
 
@@ -48,7 +49,7 @@ def evidence_type_query_expansion_enabled() -> bool:
     Default OFF: unset / empty => no expansion and the effective query list is
     byte-identical to before this wiring.
     """
-    return os.getenv("PG_EVIDENCE_TYPE_QUERY_EXPANSION", "").strip().lower() in {
+    return resolve("PG_EVIDENCE_TYPE_QUERY_EXPANSION").strip().lower() in {
         "1", "true", "yes", "on",
     }
 
@@ -61,7 +62,7 @@ def _evidence_type_terms() -> tuple[str, ...]:
     entries) never crash: blanks are skipped and the defaults backstop an empty
     result (fail-safe, LAW II).
     """
-    raw = os.getenv("PG_EVIDENCE_TYPE_QUERY_TERMS", "").strip()
+    raw = resolve("PG_EVIDENCE_TYPE_QUERY_TERMS").strip()
     if not raw:
         return _DEFAULT_CLINICAL_EVIDENCE_TYPE_TERMS
     terms = tuple(t.strip() for t in raw.split(",") if t.strip())

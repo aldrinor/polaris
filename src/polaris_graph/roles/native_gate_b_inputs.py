@@ -45,6 +45,7 @@ from src.polaris_graph.roles.sweep_integration import (
     FourRoleClaim,
     FourRoleEvaluationInputs,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ def _depth_synthesis_d8_gate_enabled() -> bool:
     behavior is identical — read locally to keep this pure-roles module free of a generator import.
     OFF => the DS-* second loop no-ops and this builder is byte-identical to legacy.
     """
-    return os.getenv("PG_DEPTH_SYNTHESIS_D8_GATE", "1").strip().lower() not in (
+    return resolve("PG_DEPTH_SYNTHESIS_D8_GATE").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 
@@ -149,7 +150,7 @@ def _synth_d8_promote_enabled() -> bool:
     the legacy ``PG_DEPTH_SYNTHESIS_D8_GATE`` is OFF, so a rescued paraphrase is NEVER rendered as body
     prose without VERIFIED/UNSUPPORTED adjudication. OFF => only the legacy gate routes (byte-identical).
     """
-    return os.getenv("PG_SYNTH_D8_PROMOTE", "1").strip().lower() not in (
+    return resolve("PG_SYNTH_D8_PROMOTE").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 

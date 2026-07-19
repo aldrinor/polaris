@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from src.polaris_graph.benchmark import pathB_capture as pc
-from src.polaris_graph.benchmark.pathB_runner import gate_around_question
+from src.polaris_graph.benchmark import benchmark_run_capture as pc
+from src.polaris_graph.benchmark.benchmark_gate_runner import gate_around_question
 from scripts.dr_benchmark.pathB_run_gate import GateError
 
 
@@ -99,7 +99,7 @@ def _capture_four_roles(pc) -> None:
 
 def _patch_preflight_offline(monkeypatch):
     """Force preflight(offline=True) so the lifecycle helper does not hit the network in tests."""
-    from src.polaris_graph.benchmark import pathB_runner
+    from src.polaris_graph.benchmark import benchmark_gate_runner
     real_preflight = pathB_runner.preflight
 
     def _offline_preflight(**kw):
@@ -163,7 +163,7 @@ def test_pin_reads_pg_generator_model_first(monkeypatch) -> None:
     monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
     monkeypatch.setenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
     monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "deepinfra")
-    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    from src.polaris_graph.benchmark.benchmark_gate_runner import _role_pins
     pins = {p.role: p for p in _role_pins()}
     assert pins["generator"].model_slug == "deepseek/deepseek-v4-pro"  # NOT "wrong/wrong-slug"
 
@@ -180,7 +180,7 @@ def test_role_pins_returns_four_locked_roles(monkeypatch) -> None:
     monkeypatch.delenv("PG_JUDGE_MODEL", raising=False)
     monkeypatch.delenv("PG_BENCHMARK_JUDGE_MODEL", raising=False)
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default = benchmark openrouter
-    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    from src.polaris_graph.benchmark.benchmark_gate_runner import _role_pins
     pins = {p.role: p.model_slug for p in _role_pins()}
     assert pins == {
         "generator": _GEN_SLUG,
@@ -196,7 +196,7 @@ def test_role_pins_env_overrides_applied(monkeypatch) -> None:
     monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
     # Override mirror to another distinct-family slug (mistral) so all_distinct still holds.
     monkeypatch.setenv("PG_MIRROR_MODEL", "mistralai/mistral-large")
-    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    from src.polaris_graph.benchmark.benchmark_gate_runner import _role_pins
     pins = {p.role: p.model_slug for p in _role_pins()}
     assert pins["mirror"] == "mistralai/mistral-large"
     assert pins["generator"] == _GEN_SLUG  # untouched, lock-sourced
@@ -215,7 +215,7 @@ def test_role_pins_rejects_family_collision(monkeypatch) -> None:
     monkeypatch.delenv("OPENROUTER_DEFAULT_MODEL", raising=False)
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default = benchmark openrouter
     monkeypatch.setenv("PG_BENCHMARK_JUDGE_MODEL", "z-ai/glm-5.1")  # 'glm' -> non-allowed collision
-    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    from src.polaris_graph.benchmark.benchmark_gate_runner import _role_pins
     with pytest.raises(RuntimeError, match="family"):
         _role_pins()
 
@@ -231,7 +231,7 @@ def test_role_pins_judge_is_benchmark_kimi_on_openrouter_route(monkeypatch) -> N
               "PG_SENTINEL_MODEL", "PG_JUDGE_MODEL", "PG_BENCHMARK_JUDGE_MODEL",
               "PG_FOUR_ROLE_TRANSPORT"):
         monkeypatch.delenv(v, raising=False)
-    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    from src.polaris_graph.benchmark.benchmark_gate_runner import _role_pins
     pins = {p.role: p for p in _role_pins()}
     assert pins["judge"].model_slug == _BENCHMARK_JUDGE_SLUG     # kimi, NOT lock qwen
     assert pins["judge"].serving_route == "openrouter"          # overrides vast_self_host_fp8
@@ -252,7 +252,7 @@ def test_role_pins_judge_reverts_to_lock_qwen_in_self_host_mode(monkeypatch) -> 
               "PG_SENTINEL_MODEL", "PG_JUDGE_MODEL", "PG_BENCHMARK_JUDGE_MODEL"):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setenv("PG_FOUR_ROLE_TRANSPORT", "self_host")
-    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    from src.polaris_graph.benchmark.benchmark_gate_runner import _role_pins
     pins = {p.role: p for p in _role_pins()}
     assert pins["judge"].model_slug == _JUDGE_SLUG              # lock qwen (sovereign)
     assert pins["judge"].serving_route is None                 # lock-sourced at preflight

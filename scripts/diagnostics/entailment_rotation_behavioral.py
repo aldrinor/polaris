@@ -40,7 +40,7 @@ with open(_TMP_YAML, "w", encoding="utf-8") as fh:
 os.environ["PG_PROVIDER_ROUTING_CONFIG"] = _TMP_YAML
 os.environ["PG_OPENROUTER_PROVIDER_ROUTING"] = "1"
 
-from src.polaris_graph.benchmark import pathB_capture  # noqa: E402
+from src.polaris_graph.benchmark import benchmark_run_capture  # noqa: E402
 from src.polaris_graph.llm import entailment_judge  # noqa: E402
 from src.polaris_graph.roles import provider_routing  # noqa: E402
 

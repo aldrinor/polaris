@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from src.polaris_graph.benchmark.pathB_capture import corpus_truncated_from_manifest
+from src.polaris_graph.benchmark.benchmark_run_capture import corpus_truncated_from_manifest
 from src.polaris_graph.retrieval.live_retriever import LiveRetrievalResult
 
 

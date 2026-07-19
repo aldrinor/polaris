@@ -1,0 +1,35 @@
+# Deep Cove Research — Python quality CI (Phase 0: REPORT-ONLY).
+# This workflow is INFORMATIONAL and must NOT block merges yet: the test suite is not green
+# out-of-the-box (see docs/review_readiness/baseline_test_state.md) and there are ~530 docstring
+# gaps. It establishes the enforcement spine; it is ratcheted to a REQUIRED check only in Phase 3,
+# after a stable green baseline exists. Actions are SHA-pinned (supply-chain hygiene).
+name: python-ci (report-only)
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [chore/review-readiness-phase0]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    continue-on-error: true  # PHASE 0: never blocks. Remove when ratcheted to required (Phase 3).
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: '3.11'
+      - name: Install quality tools
+        run: python -m pip install --upgrade pip ruff mypy interrogate
+      - name: Ruff lint (report-only)
+        run: ruff check src scripts || true
+      - name: Ruff format check (report-only)
+        run: ruff format --check src scripts || true
+      - name: Mypy (report-only, scoped to src/polaris_graph)
+        run: mypy || true
+      - name: Interrogate docstring coverage (report-only)
+        run: interrogate -v src/polaris_graph || true

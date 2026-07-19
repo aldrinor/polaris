@@ -15,14 +15,15 @@ from typing import Optional
 
 import aiosqlite
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path(os.getenv("PG_CACHE_DIR", "state"))
+CACHE_DIR = Path(resolve("PG_CACHE_DIR"))
 CACHE_DB = CACHE_DIR / "pg_search_cache.sqlite"
-DEFAULT_TTL_HOURS = int(os.getenv("PG_SEARCH_CACHE_TTL_HOURS", "24"))
+DEFAULT_TTL_HOURS = int(resolve("PG_SEARCH_CACHE_TTL_HOURS"))
 
 
 def _query_hash(query: str, search_type: str = "") -> str:

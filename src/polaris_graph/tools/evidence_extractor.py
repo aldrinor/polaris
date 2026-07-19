@@ -19,10 +19,11 @@ from src.polaris_graph.tools.numeric_sanitizer import (
     is_structural_identifier_number,
     numeric_sanitizer_enabled,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
-_MAX_EVIDENCE = int(os.getenv("PG_EXTRACT_MAX_EVIDENCE", "500"))
+_MAX_EVIDENCE = int(resolve("PG_EXTRACT_MAX_EVIDENCE"))
 
 
 # ---------------------------------------------------------------------------

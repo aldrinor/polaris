@@ -37,6 +37,7 @@ from src.polaris_graph.llm.openrouter_client import (
 )
 from src.polaris_graph.state import ResearchState
 from src.polaris_graph.tracing import get_tracer
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -46,31 +47,31 @@ logger = logging.getLogger(__name__)
 # Configuration (LAW VI: all from env)
 # ---------------------------------------------------------------------------
 
-PG_EVIDENCE_DEEPENER = os.getenv("PG_EVIDENCE_DEEPENER", "1") == "1"
+PG_EVIDENCE_DEEPENER = resolve("PG_EVIDENCE_DEEPENER") == "1"
 
 # Max papers to resolve S2 IDs for (URL→paperId)
-PG_DEEPENER_MAX_RESOLVE = int(os.getenv("PG_DEEPENER_MAX_RESOLVE", "20"))
+PG_DEEPENER_MAX_RESOLVE = int(resolve("PG_DEEPENER_MAX_RESOLVE"))
 
 # Max meta-analyses to chase citations from
-PG_DEEPENER_MAX_CHASE_SEEDS = int(os.getenv("PG_DEEPENER_MAX_CHASE_SEEDS", "10"))
+PG_DEEPENER_MAX_CHASE_SEEDS = int(resolve("PG_DEEPENER_MAX_CHASE_SEEDS"))
 
 # Max references to keep per seed paper
-PG_DEEPENER_REFS_PER_SEED = int(os.getenv("PG_DEEPENER_REFS_PER_SEED", "10"))
+PG_DEEPENER_REFS_PER_SEED = int(resolve("PG_DEEPENER_REFS_PER_SEED"))
 
 # Max papers for S2 recommendations call
-PG_DEEPENER_RECOMMEND_SEEDS = int(os.getenv("PG_DEEPENER_RECOMMEND_SEEDS", "5"))
+PG_DEEPENER_RECOMMEND_SEEDS = int(resolve("PG_DEEPENER_RECOMMEND_SEEDS"))
 
 # Max recommendation results to keep
-PG_DEEPENER_RECOMMEND_LIMIT = int(os.getenv("PG_DEEPENER_RECOMMEND_LIMIT", "20"))
+PG_DEEPENER_RECOMMEND_LIMIT = int(resolve("PG_DEEPENER_RECOMMEND_LIMIT"))
 
 # Number of mechanism keyword queries
-PG_DEEPENER_MECHANISM_QUERIES = int(os.getenv("PG_DEEPENER_MECHANISM_QUERIES", "5"))
+PG_DEEPENER_MECHANISM_QUERIES = int(resolve("PG_DEEPENER_MECHANISM_QUERIES"))
 
 # Total cap on new evidence from deepening (prevents synthesis starvation)
-PG_DEEPENER_EVIDENCE_CAP = int(os.getenv("PG_DEEPENER_EVIDENCE_CAP", "150"))
+PG_DEEPENER_EVIDENCE_CAP = int(resolve("PG_DEEPENER_EVIDENCE_CAP"))
 
 # Time budget for entire deepening pass (seconds)
-PG_DEEPENER_TIMEOUT = int(os.getenv("PG_DEEPENER_TIMEOUT", "720"))
+PG_DEEPENER_TIMEOUT = int(resolve("PG_DEEPENER_TIMEOUT"))
 
 
 def _resolve_llm_op_timeout(op_timeout_floor: int) -> int:
@@ -85,13 +86,13 @@ def _resolve_llm_op_timeout(op_timeout_floor: int) -> int:
         historical 120s, never regress (honors the Gate-B slate's set_generator_timeout_seconds).
     The pass is still bounded overall by PG_DEEPENER_TIMEOUT (_over_budget checks) + the $ hard cap.
     """
-    explicit = os.getenv("PG_DEEPENER_LLM_OP_TIMEOUT")
+    explicit = resolve("PG_DEEPENER_LLM_OP_TIMEOUT")
     if explicit is not None:
         return int(explicit)
     return max(int(op_timeout_floor), get_generator_timeout_seconds())
 
 # S2 rate limit (requests per second) — free tier = 1, with key = 10
-_S2_RPS = float(os.getenv("PG_S2_RPS", "1.0"))
+_S2_RPS = float(resolve("PG_S2_RPS"))
 _S2_INTERVAL = 1.0 / max(_S2_RPS, 0.1)
 
 # S2 API base
@@ -163,7 +164,7 @@ async def deepen_evidence(
     # consumed 928s out of 720s budget, leaving 0 papers.
     # This HTTP/S2 clock bounds the network-bound ops (OP-2 ID resolve, OP-3 citation
     # chase, OP-4 recommendations, OP-6 PDF fetch) — those are S2/aiohttp calls, NOT LLM.
-    _OP_TIMEOUT = int(os.getenv("PG_DEEPENER_OP_TIMEOUT", "120"))
+    _OP_TIMEOUT = int(resolve("PG_DEEPENER_OP_TIMEOUT"))
     # I-arch-004 F20 (#1255): see _resolve_llm_op_timeout — the LLM-bound ops (OP-1, OP-5) are
     # sized off the generator budget so a reasoning-first call is not killed by the cheap HTTP clock.
     _LLM_OP_TIMEOUT = _resolve_llm_op_timeout(_OP_TIMEOUT)
@@ -323,7 +324,7 @@ async def _extract_named_studies(
     try:
         result = await client.reason(
             prompt=prompt,
-            effort=os.getenv("PG_DEEPENER_REASONING_EFFORT", "high"),  # operator 2026-06-13: reasoning MAX
+            effort=resolve("PG_DEEPENER_REASONING_EFFORT"),  # operator 2026-06-13: reasoning MAX
             # I-arch-003 (#1253): reason() takes the reasoning-ON branch which (pre-fix) had NO 32768
             # floor, so the old max_tokens=2000 was eaten by V4-Pro's ~17-18k reasoning tokens -> empty
             # study list -> silent snowball loss. Floored to the reasoning-first minimum; the
@@ -849,7 +850,7 @@ async def _mechanism_search(
     try:
         result = await client.reason(
             prompt=prompt,
-            effort=os.getenv("PG_DEEPENER_REASONING_EFFORT", "high"),  # operator 2026-06-13: reasoning MAX
+            effort=resolve("PG_DEEPENER_REASONING_EFFORT"),  # operator 2026-06-13: reasoning MAX
             # I-arch-003 (#1253): same reasoning-ON / no-floor land mine as _extract_named_studies — the
             # old max_tokens=500 was the MOST starved site on the live path (500 total vs ~17-18k V4-Pro
             # reasoning -> guaranteed empty -> silent fallback to deterministic mechanism queries).
@@ -946,7 +947,7 @@ async def _fetch_full_text(papers: list[dict]) -> int:
 
     bypass = AccessBypass()
     fetched = 0
-    max_fetch = int(os.getenv("PG_DEEPENER_MAX_PDF_FETCH", "10"))
+    max_fetch = int(resolve("PG_DEEPENER_MAX_PDF_FETCH"))
 
     # Prioritize papers with OA-PDF URLs, then by citation count
     fetchable = []
@@ -996,7 +997,7 @@ def _filter_by_query_relevance(papers: list[dict], query: str) -> list[dict]:
     if not papers:
         return papers
 
-    threshold = float(os.getenv("PG_DEEPENER_RELEVANCE_THRESHOLD", "0.4"))
+    threshold = float(resolve("PG_DEEPENER_RELEVANCE_THRESHOLD"))
 
     # Primary: embedding-based filter
     try:

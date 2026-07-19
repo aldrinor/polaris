@@ -35,7 +35,7 @@ import httpx
 import pytest
 
 from scripts.dr_benchmark import run_gate_b
-from src.polaris_graph.benchmark import pathB_capture as pc
+from src.polaris_graph.benchmark import benchmark_run_capture as pc
 from src.polaris_graph.roles.openai_compatible_transport import (
     BlankVerdictError,
     OpenAICompatibleRoleTransport,

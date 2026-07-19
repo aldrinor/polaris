@@ -26,7 +26,7 @@ from src.polaris_graph.audit_ir.job_runner import (
     register_runner,
 )
 from src.polaris_graph.audit_ir.job_worker import JobWorker
-from src.polaris_graph.audit_ir.honest_sweep_job_runner import (
+from src.polaris_graph.audit_ir.v30_sweep_job_runner import (
     HonestSweepJobRunner,
     HonestSweepJobRunnerConfig,
     make_default_honest_sweep_job_runner,

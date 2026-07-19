@@ -31,7 +31,7 @@ import re
 
 from src.polaris_graph.generator import multi_section_generator as m
 from src.polaris_graph.synthesis import credibility_pass as cp
-from src.polaris_graph.synthesis import synthesizer_v2 as sv2
+from src.polaris_graph.synthesis import section_synthesizer_parallel as sv2
 
 
 def _collapse(fn) -> str:

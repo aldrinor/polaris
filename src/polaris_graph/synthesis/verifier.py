@@ -30,25 +30,26 @@ from src.polaris_graph.retrieval.verify_schemas import (
     VERIFY_USER_TEMPLATE,
 )
 from src.polaris_graph.state import ReportSection
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
 # Minimum confidence to accept a claim as supported
 # V2_E2E_006: 0.6 was too strict (flagged ~60% of claims)
 VERIFY_CONFIDENCE_THRESHOLD = float(
-    os.getenv("PG_V2_VERIFY_CONFIDENCE", "0.4")
+    resolve("PG_V2_VERIFY_CONFIDENCE")
 )
 
 # Max claims to verify per section (cost cap)
 # V2_E2E_006: 20 claims × 14 sections = 280 scorings, too many
 MAX_CLAIMS_PER_SECTION = int(
-    os.getenv("PG_V2_MAX_CLAIMS_PER_SECTION", "8")
+    resolve("PG_V2_MAX_CLAIMS_PER_SECTION")
 )
 
 # Max rewrites per section (prevents runaway rewrite loops)
 # V2_E2E_006: 170 rewrites in 2h35m, never reached assembly
 MAX_REWRITES_PER_SECTION = int(
-    os.getenv("PG_V2_MAX_REWRITES_PER_SECTION", "3")
+    resolve("PG_V2_MAX_REWRITES_PER_SECTION")
 )
 
 # Max tokens for surgical rewrite

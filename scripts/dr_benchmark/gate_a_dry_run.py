@@ -147,7 +147,7 @@ def check_frozen_lock_coverage() -> CheckResult:
     bypass a paid smoke could reuse. No network: imports + pure pin-build + family registry.
     """
     # Imported lazily so the module stays import-safe at boot (no side effects on import).
-    from src.polaris_graph.benchmark.pathB_runner import _role_pins
+    from src.polaris_graph.benchmark.benchmark_gate_runner import _role_pins
     from src.polaris_graph.llm.openrouter_client import validate_role_families
 
     pins = _role_pins()

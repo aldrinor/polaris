@@ -16,13 +16,14 @@ import numpy as np
 
 from src.polaris_graph.schemas import SectionDraft
 from src.utils.embedding_service import embed_texts
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # Thresholds from config (LAW VI)
-_WEAK_BOND_THRESHOLD = float(os.getenv("PG_COVALENT_WEAK_THRESHOLD", "0.40"))
-_BROKEN_BOND_THRESHOLD = float(os.getenv("PG_COVALENT_BROKEN_THRESHOLD", "0.25"))
-_MISSING_BOND_THRESHOLD = float(os.getenv("PG_COVALENT_MISSING_THRESHOLD", "0.60"))
+_WEAK_BOND_THRESHOLD = float(resolve("PG_COVALENT_WEAK_THRESHOLD"))
+_BROKEN_BOND_THRESHOLD = float(resolve("PG_COVALENT_BROKEN_THRESHOLD"))
+_MISSING_BOND_THRESHOLD = float(resolve("PG_COVALENT_MISSING_THRESHOLD"))
 
 # Regex for numeric/named-entity sentences that should have citations
 _DATA_PATTERN = re.compile(
