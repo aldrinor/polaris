@@ -16,6 +16,7 @@ import re
 from typing import Any
 
 from src.polaris_graph.schemas import SectionDraft
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ async def reflect_across_sections(
         logger.info("[MoST-R] Only %d section(s), skipping reflection", len(sections))
         return sections
 
-    max_context = int(os.getenv("PG_REFLECTION_MAX_CONTEXT", "4"))
+    max_context = int(resolve("PG_REFLECTION_MAX_CONTEXT"))
 
     # Build evidence map: section_id -> list of evidence_ids cited
     section_evidence_map = {}

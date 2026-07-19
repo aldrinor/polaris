@@ -18,6 +18,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -25,10 +26,10 @@ logger = logging.getLogger(__name__)
 
 # Configuration (LAW VI: from env vars)
 PG_SECTION_TOKEN_BUDGET = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000"))
-PG_EVIDENCE_FORMAT_TOP_FULL = int(os.getenv("PG_EVIDENCE_FORMAT_TOP_FULL", "3"))
-PG_EVIDENCE_CANDIDATE_POOL = int(os.getenv("PG_EVIDENCE_CANDIDATE_POOL", "100"))
-PG_EVIDENCE_L0_MAX_CHARS = int(os.getenv("PG_EVIDENCE_L0_MAX_CHARS", "100"))
-PG_EVIDENCE_L1_MAX_CHARS = int(os.getenv("PG_EVIDENCE_L1_MAX_CHARS", "300"))
+PG_EVIDENCE_FORMAT_TOP_FULL = int(resolve("PG_EVIDENCE_FORMAT_TOP_FULL"))
+PG_EVIDENCE_CANDIDATE_POOL = int(resolve("PG_EVIDENCE_CANDIDATE_POOL"))
+PG_EVIDENCE_L0_MAX_CHARS = int(resolve("PG_EVIDENCE_L0_MAX_CHARS"))
+PG_EVIDENCE_L1_MAX_CHARS = int(resolve("PG_EVIDENCE_L1_MAX_CHARS"))
 
 # Tier weights for priority scoring
 _TIER_WEIGHTS = {"GOLD": 1.0, "SILVER": 0.7, "BRONZE": 0.4}

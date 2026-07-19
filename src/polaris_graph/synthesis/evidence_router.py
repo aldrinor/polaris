@@ -19,24 +19,25 @@ import os
 import numpy as np
 
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 # Feature flag (LAW VI)
-PG_EMBEDDING_ROUTING = os.getenv("PG_EMBEDDING_ROUTING", "1") == "1"
+PG_EMBEDDING_ROUTING = resolve("PG_EMBEDDING_ROUTING") == "1"
 
 # Evidence with top-2 section similarity delta below this threshold
 # is treated as cross-section (visible to all sections).
 PG_CROSS_SECTION_SIMILARITY_DELTA = float(
-    os.getenv("PG_CROSS_SECTION_SIMILARITY_DELTA", "0.05")
+    resolve("PG_CROSS_SECTION_SIMILARITY_DELTA")
 )
 
 # Minimum similarity to be assigned to any section.
 # Evidence below this threshold is unassigned (goes to cross-section pool).
 PG_EMBEDDING_ROUTING_MIN_SIMILARITY = float(
-    os.getenv("PG_EMBEDDING_ROUTING_MIN_SIMILARITY", "0.20")
+    resolve("PG_EMBEDDING_ROUTING_MIN_SIMILARITY")
 )
 
 

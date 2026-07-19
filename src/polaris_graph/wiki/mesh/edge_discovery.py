@@ -55,18 +55,19 @@ import os
 import numpy as np
 
 from .store import EMBEDDING_DIM, MeshStore, MeshStoreError
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # ───── thresholds (design doc §8, env-overridable) ─────
 
 CORROBORATION_THRESHOLD = float(
-    os.getenv("PG_CORROBORATION_THRESHOLD", "0.75"),
+    resolve("PG_CORROBORATION_THRESHOLD"),
 )
 CONTRADICTION_THRESHOLD = float(
-    os.getenv("PG_CONTRADICTION_THRESHOLD", "0.70"),
+    resolve("PG_CONTRADICTION_THRESHOLD"),
 )
-EDGE_KNN_K = int(os.getenv("PG_EDGE_KNN_K", "20"))
+EDGE_KNN_K = int(resolve("PG_EDGE_KNN_K"))
 EVIDENCE_WEIGHT_MIN = 0.7
 
 

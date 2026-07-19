@@ -12,10 +12,13 @@ router = APIRouter(prefix="/scope", tags=["scope"])
 
 
 class ScopeCheckRequest(BaseModel):
+    """Request body for `POST /scope/check`: the chosen template and question."""
+
     template: TemplateId
     question: str = Field(..., min_length=1, max_length=2000)
 
 
 @router.post("/check", response_model=ScopeDecision)
 def check_scope(payload: ScopeCheckRequest) -> ScopeDecision:
+    """Classify a question against a template and return its ScopeDecision."""
     return classify_scope(payload.template, payload.question)

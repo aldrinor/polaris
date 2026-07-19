@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Any, Iterable, Optional
+from src.polaris_graph.settings import resolve
 
 _ENV_FLAG = "PG_SECTION_BOUNDARY_CONDITIONS"
 _OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
@@ -189,7 +190,7 @@ def _boundary_quote_hygiene_enabled() -> bool:
     unscreened (byte-identical to legacy). ON => a truncated / glued / render-chrome candidate quote is
     SKIPPED (the section falls through to the next candidate or emits nothing) so a broken 'graduatio...'
     fragment never renders as counter-evidence."""
-    return os.getenv("PG_BOUNDARY_QUOTE_HYGIENE", "1").strip().lower() not in ("", "0", "false", "off", "no")
+    return resolve("PG_BOUNDARY_QUOTE_HYGIENE").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def _boundary_quote_hygiene_v2_enabled() -> bool:
@@ -199,7 +200,7 @@ def _boundary_quote_hygiene_v2_enabled() -> bool:
     leak); (b) `synthesize_boundary_line` uses the ``" on {subject}"`` suffix ONLY when the headline
     subject carries >=2 content words (kills "on however:" / "on entry-:" / "on mid-:"). OFF =>
     byte-identical (neither rule fires)."""
-    return os.getenv("PG_BOUNDARY_QUOTE_HYGIENE_V2", "").strip().lower() in ("1", "true", "on", "yes")
+    return resolve("PG_BOUNDARY_QUOTE_HYGIENE_V2").strip().lower() in ("1", "true", "on", "yes")
 
 
 # N1-FIX-2: a markdown link (``[text](url)``) and a bare domain-path URL fragment (the first
