@@ -17,12 +17,13 @@ from typing import Optional
 
 import aiosqlite
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path(os.getenv("PG_CACHE_DIR", "state"))
+CACHE_DIR = Path(resolve("PG_CACHE_DIR"))
 CACHE_DB = CACHE_DIR / "pg_session_feedback.sqlite"
 
 

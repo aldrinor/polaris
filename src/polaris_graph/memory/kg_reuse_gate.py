@@ -25,6 +25,7 @@ from src.polaris_graph.clinical_generator.strict_verify import (
     _decimals,
     _min_overlap_threshold,
 )
+from src.polaris_graph.settings import resolve
 
 _OFF_VALUES = frozenset({"0", "false", "False", "no", "off", ""})
 
@@ -32,7 +33,7 @@ _OFF_VALUES = frozenset({"0", "false", "False", "no", "off", ""})
 def kg_reuse_enabled() -> bool:
     """Default OFF — the read-path changes the analyst prompt; opt-in until a live smoke validates it.
     Normalize before comparison (Codex diff-gate iter-1 P2) so FALSE/NO/OFF (any case) stay disabled."""
-    return os.getenv("PG_SWEEP_KG_REUSE", "0").strip().lower() not in _OFF_VALUES
+    return resolve("PG_SWEEP_KG_REUSE").strip().lower() not in _OFF_VALUES
 
 
 def match_prior_claims_to_current_corpus(

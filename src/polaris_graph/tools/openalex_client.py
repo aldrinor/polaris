@@ -36,6 +36,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ OPENALEX_BASE = "https://api.openalex.org"
 POLITE_EMAIL = os.getenv("OPENALEX_EMAIL", "")
 CACHE_DB = Path(os.getenv("OPENALEX_CACHE_DB", "cache/openalex.sqlite"))
 TIMEOUT = float(os.getenv("OPENALEX_TIMEOUT", "10"))
-ENABLED = os.getenv("PG_OPENALEX_ENABLED", "1") == "1"
+ENABLED = resolve("PG_OPENALEX_ENABLED") == "1"
 
 
 @dataclass
