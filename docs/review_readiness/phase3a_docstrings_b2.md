@@ -42,6 +42,32 @@ intent — zero behavior change.
 
 4. **py_compile — clean** on all 19 changed files.
 
+## Scope of "byte-identical"
+
+The "byte-identical" / "zero behavior change" claim is about **pipeline
+behaviour**, not the whole surface:
+
+- **Pipeline behaviour is byte-identical and oracle-proven** (governing oracle,
+  golden SHA `9c0a3d43…`). RACE, faithfulness, and data I/O are unchanged; the
+  docstring-stripped AST equivalence (19/19, 0 removed source lines) independently
+  confirms the only source delta is docstrings.
+
+- **Where a docstring reaches the API's OpenAPI schema it GAINS a documentation
+  description** — an operation description (FastAPI route) or a model/field
+  description (pydantic). Previously such descriptions were empty. This is an
+  **intended improvement** (Plan V4 concern #5): the schema is strictly enriched
+  with human-readable text and its shape (paths, operations, field names, types,
+  required/optional) is unchanged. (For this batch specifically the `__doc__`
+  audit below found none of the 19 changed files import `fastapi` and no changed
+  pydantic model sets `use_attribute_docstrings=True`, so the new text is surfaced
+  only via `help()`/pydoc here; the note applies wherever a future batch's
+  docstring does feed the schema.)
+
+- **No consumer depends on the prior empty descriptions.** Test collection is
+  unchanged (16738/11) and no committed artifact (golden fixture, cassette,
+  snapshot) pins the previously-empty descriptions; the `__doc__`-consumer audit
+  found 0 load-bearing runtime readers.
+
 ## Blocker — why this was NOT committed
 
 The commit gate requires **all** of `ast_equivalence_all_pass`, `oracle_matches`,
