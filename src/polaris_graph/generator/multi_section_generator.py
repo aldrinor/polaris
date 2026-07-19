@@ -1192,6 +1192,15 @@ def select_advisory_prompt_text(
 
 @dataclass
 class SectionPlan:
+    """Plan for one report section: its title, focus, and assigned evidence.
+
+    ``ev_ids`` are the evidence rows the section should draw from. The trailing
+    fields are additive and default so the OFF path stays byte-identical:
+    ``archetype`` (on-mode routing tag), ``undersupplied`` (a required section
+    accepted below the evidence floor), and ``basket_ids`` (deterministically
+    backfilled for orphan-basket detection).
+    """
+
     title: str            # one of _ALLOWED_SECTIONS (off-mode) or a
                           # question-specific heading (on-mode)
     focus: str            # one-sentence focus statement for the prompt
@@ -1218,6 +1227,13 @@ class SectionPlan:
 
 @dataclass
 class SectionResult:
+    """Generated + verified output for one section.
+
+    Carries the draft at each stage (raw, rewritten, post-strict_verify
+    ``verified_text``), the bibliography slice, verified/dropped sentence
+    counts, regeneration/failure flags, token usage, and any error string.
+    """
+
     title: str
     focus: str
     ev_ids_assigned: list[str]
@@ -1309,6 +1325,14 @@ class SectionResult:
 
 @dataclass
 class MultiSectionResult:
+    """Aggregate output of the multi-section generator across the whole report.
+
+    Holds every ``SectionResult`` and its ``SectionPlan`` outline, the merged
+    bibliography, word/sentence totals and token usage, plus optional
+    default-OFF side-channels (outline-agent stats, the Limitations paragraph,
+    and the credibility analysis).
+    """
+
     sections: list[SectionResult]
     outline: list[SectionPlan]
     bibliography: list[dict[str, Any]]

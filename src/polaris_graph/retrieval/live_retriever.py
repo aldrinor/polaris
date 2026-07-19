@@ -580,6 +580,16 @@ def _row_is_retracted(oa: Any, tier_result: Any) -> bool:
 
 @dataclass
 class LiveRetrievalResult:
+    """Full result of one live retrieval pass over a research question.
+
+    Holds the ``classified_sources`` and their ``evidence_rows`` plus the
+    candidate funnel counts (pre-filter, kept by scope/off-topic, fetched,
+    failed) and per-API call tallies. The remaining fields are fail-loud
+    truncation/wall signals: ``corpus_truncated`` (post-fetch loop budget broke
+    mid-corpus) and the retrieval-wall telemetry (partial corpus that still
+    rendered), each defaulted so existing constructors stay valid.
+    """
+
     classified_sources: list[CorpusSource]
     evidence_rows: list[dict[str, Any]]
     total_candidates_pre_filter: int

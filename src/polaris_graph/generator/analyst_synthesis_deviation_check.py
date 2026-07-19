@@ -169,6 +169,7 @@ _ENV_BASKET_MODE = "PG_ANALYST_SYNTHESIS_BASKET_MODE"
 
 
 def basket_mode_enabled() -> bool:
+    """True iff the basket-mode synthesis gate is on AND grounded-promotion is enabled (both required; default OFF)."""
     on = os.environ.get(_ENV_BASKET_MODE, "0").strip().lower() not in _OFF_VALUES
     return on and promote_grounded_enabled()
 

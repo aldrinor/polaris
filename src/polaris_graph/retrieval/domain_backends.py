@@ -890,6 +890,14 @@ def openalex_search(
 
 @dataclass
 class DomainBackendResult:
+    """Merged output of running a domain's search backends.
+
+    Carries the deduped ``candidates`` plus which ``backends_used`` produced
+    them and ``per_backend_counts``. ``per_engine_lists`` holds the intra-backend
+    ranked lists (empty on the serial/legacy path) so a caller can feed real
+    per-engine ranks to fusion.
+    """
+
     domain: str
     candidates: list[SearchCandidate]
     backends_used: list[str]

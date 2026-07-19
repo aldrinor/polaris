@@ -717,6 +717,11 @@ def _strip_bogus_ev_markers(
 
 @dataclass
 class ProvenanceToken:
+    """A single ``[#ev]`` provenance marker: its evidence id and character span.
+
+    ``span_len`` is the length of the cited source span (``end - start``).
+    """
+
     evidence_id: str
     start: int
     end: int
@@ -729,6 +734,14 @@ class ProvenanceToken:
 
 @dataclass
 class SentenceVerification:
+    """Per-sentence strict-verify outcome and its provenance/credibility side-data.
+
+    Records the sentence text, its ``ProvenanceToken`` list, the ``is_verified``
+    verdict and any ``failure_reasons``. The remaining fields are additive
+    side-outputs that are NEVER inputs to ``is_verified`` (soft warnings,
+    ``judge_error``, and the default-OFF credibility-disclosure fields).
+    """
+
     sentence: str
     tokens: list[ProvenanceToken]
     is_verified: bool
@@ -3021,6 +3034,8 @@ def split_into_sentences(text: str) -> list[str]:
 
 @dataclass
 class StrictVerificationReport:
+    """Result of running strict_verify over a body: kept vs dropped sentences and their totals."""
+
     kept_sentences: list[SentenceVerification]
     dropped_sentences: list[SentenceVerification]
     total_in: int
@@ -4065,6 +4080,7 @@ def get_purity_telemetry() -> dict[str, int]:
 
 
 def reset_purity_telemetry() -> None:
+    """Zero the module-level P2 citation-purity counters (per-run reset)."""
     for _k in _PURITY_TELEMETRY:
         _PURITY_TELEMETRY[_k] = 0
 
@@ -4404,6 +4420,7 @@ def get_relevance_telemetry() -> dict[str, int]:
 
 
 def reset_relevance_telemetry() -> None:
+    """Zero the module-level relevance-gate counters (per-run reset)."""
     for _k in _RELEVANCE_TELEMETRY:
         _RELEVANCE_TELEMETRY[_k] = 0
 

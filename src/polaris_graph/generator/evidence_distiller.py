@@ -227,6 +227,14 @@ def _default_cache_dir() -> Path:
 
 @dataclass(frozen=True)
 class DistilledFinding:
+    """One distilled, span-grounded finding extracted from a single evidence row.
+
+    Carries the claim text, its source span (``span_start``/``span_end`` +
+    ``support_quote``), extracted numbers/entities, an optional caveat, the
+    contradiction key used for clustering, the source tier, and the ids of the
+    claim atoms it maps to.
+    """
+
     finding_id: str
     evidence_id: str
     claim: str
@@ -243,6 +251,8 @@ class DistilledFinding:
 
 @dataclass(frozen=True)
 class CoverageRow:
+    """Per-evidence distillation outcome: its status, finding count, and optional reason."""
+
     evidence_id: str
     status: str  # mapped | no_relevant_findings | map_failed | validation_failed
     n_findings: int
@@ -251,6 +261,8 @@ class CoverageRow:
 
 @dataclass(frozen=True)
 class ContradictionCluster:
+    """A group of findings sharing one contradiction key, with an optional summary."""
+
     contradiction_key: str
     finding_ids: list[str]
     summary: str = ""
@@ -258,6 +270,13 @@ class ContradictionCluster:
 
 @dataclass(frozen=True)
 class SectionDistillate:
+    """Full distillation output for one section.
+
+    Bundles the section's findings, per-evidence coverage rows, contradiction
+    clusters, and atom catalog, plus token/cache telemetry and the distiller
+    version.
+    """
+
     section_title: str
     section_focus: str
     findings: list[DistilledFinding]

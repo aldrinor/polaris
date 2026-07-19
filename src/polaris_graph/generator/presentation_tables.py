@@ -75,6 +75,13 @@ class VerifiedNumericClaim:
 
 @dataclass
 class PresentationTablesResult:
+    """Output of the presentation-tables pass: the (possibly) rewritten text and its counts.
+
+    ``changed`` says whether any table was inserted; ``tables``/``rows`` count
+    what was emitted and ``canary`` carries the marker used to assert the pass
+    fired in output.
+    """
+
     text: str
     changed: bool
     tables: int = 0

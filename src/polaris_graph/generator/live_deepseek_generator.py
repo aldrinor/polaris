@@ -77,6 +77,13 @@ _DECIMAL_RE = re.compile(r"-?\d+\.\d+")
 
 @dataclass
 class LiveGenerationResult:
+    """Result of one live generation call: the draft plus citation and cost telemetry.
+
+    Holds both the model's ``raw_draft`` and the offset-corrected
+    ``rewritten_draft``, the counts of citations converted vs left
+    unverifiable, the total sentence count, and the model/token/cost usage.
+    """
+
     raw_draft: str                # DeepSeek's raw prose (with [ev_XXX])
     rewritten_draft: str          # After offset post-processing
     citations_converted: int
