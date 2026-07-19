@@ -66,6 +66,7 @@ from src.polaris_graph.generator.claim_atom_extractor import (
 from src.polaris_graph.generator.provenance_generator import (
     verify_sentence_provenance,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.evidence_distiller")
 
@@ -120,7 +121,7 @@ def _map_text_mode() -> bool:
     # activate. NOT a faithfulness change: distill MAP is per-source consolidation,
     # not one of the 4 hard gates; output still flows through
     # _validate_and_store_one_source unchanged.
-    return os.getenv("PG_DISTILL_MAP_TEXT_MODE", "0").strip().lower() in (
+    return resolve("PG_DISTILL_MAP_TEXT_MODE").strip().lower() in (
         "1", "true", "yes",
     )
 
@@ -712,7 +713,7 @@ def _distill_fuzzy_min_overlap_frac() -> float:
     source window for #1217 fuzzy span recovery to ACCEPT it (LAW VI: env-tunable,
     default 0.6). Higher = stricter recovery."""
     try:
-        return float(os.getenv("PG_DISTILL_FUZZY_MIN_OVERLAP", "0.6"))
+        return float(resolve("PG_DISTILL_FUZZY_MIN_OVERLAP"))
     except ValueError:
         return 0.6
 
@@ -884,7 +885,7 @@ def _validate_finding(
     for #1217 PG_DISTILL_DEBUG reject tracing (rejected findings do NOT consume a
     finding_id, so finding_id alone cannot disambiguate which proposal was killed).
     """
-    _dbg = os.getenv("PG_DISTILL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    _dbg = resolve("PG_DISTILL_DEBUG").strip().lower() in ("1", "true", "yes", "on")
 
     def _rej(step: str, reason: str) -> None:
         """#1217 diagnostic: log which validation STEP killed this proposal (keyed on
@@ -1918,7 +1919,7 @@ def filter_and_strip_reduce_markers(
         return _BARE_EV_MARKER_RE.sub(_sub, marker_text)
 
     sentences = split_into_sentences(raw)
-    _dbg = os.getenv("PG_DISTILL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    _dbg = resolve("PG_DISTILL_DEBUG").strip().lower() in ("1", "true", "yes", "on")
     if _dbg:
         logger.warning(
             "[DISTILL_DEBUG] section=%r: ledger=%d findings; REDUCE raw=%d chars / %d sentences; raw_sample=%r",

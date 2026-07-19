@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -34,9 +35,9 @@ logger = logging.getLogger(__name__)
 # Configuration (LAW VI: all from env vars)
 # ---------------------------------------------------------------------------
 
-DOC_RAG_DIR = Path(os.getenv("PG_DOC_RAG_DIR", "state/doc_rag"))
-CHUNK_SIZE_TOKENS = int(os.getenv("PG_DOC_RAG_CHUNK_SIZE", "512"))
-CHUNK_OVERLAP_TOKENS = int(os.getenv("PG_DOC_RAG_CHUNK_OVERLAP", "50"))
+DOC_RAG_DIR = Path(resolve("PG_DOC_RAG_DIR"))
+CHUNK_SIZE_TOKENS = int(resolve("PG_DOC_RAG_CHUNK_SIZE"))
+CHUNK_OVERLAP_TOKENS = int(resolve("PG_DOC_RAG_CHUNK_OVERLAP"))
 COLLECTION_PREFIX = "docs_"
 
 # Approximate characters per token for whitespace-split tokenisation.
@@ -45,7 +46,7 @@ COLLECTION_PREFIX = "docs_"
 CHARS_PER_TOKEN = int(os.getenv("PG_DOC_RAG_CHARS_PER_TOKEN", "4"))
 
 # Maximum batch size for ChromaDB upsert to avoid memory pressure.
-UPSERT_BATCH_SIZE = int(os.getenv("PG_DOC_RAG_UPSERT_BATCH", "256"))
+UPSERT_BATCH_SIZE = int(resolve("PG_DOC_RAG_UPSERT_BATCH"))
 
 
 class LocalDocumentRAG:

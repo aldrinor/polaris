@@ -74,6 +74,7 @@ from src.polaris_graph.schemas import SourceAnalysisBatch
 from .entity import DisambigClient, canonicalize_entities_for_claim
 from .ingest import read_source_text
 from .store import EMBEDDING_DIM, MeshStore, MeshStoreError
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +117,10 @@ MESH_SYSTEM = ANALYSIS_SYSTEM + (
 # ───── constants (mirroring analyzer.py) ─────
 
 PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "5"))
-PG_MIN_STATEMENT_LEN = int(os.getenv("PG_MIN_STATEMENT_LEN", "10"))
+PG_MIN_STATEMENT_LEN = int(resolve("PG_MIN_STATEMENT_LEN"))
 PG_CONTENT_PER_SOURCE = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
 PG_EXTRACTION_MAX_TOKENS = int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384"))
-PG_EXTRACTION_TIMEOUT = int(os.getenv("PG_EXTRACTION_TIMEOUT", "180"))
+PG_EXTRACTION_TIMEOUT = int(resolve("PG_EXTRACTION_TIMEOUT"))
 
 # Sentinel char span for claims whose direct_quote could not be located
 # in the source body. Store's CHECK constraint requires char_end > char_start,

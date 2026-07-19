@@ -12,6 +12,7 @@ import logging
 import os
 import subprocess
 import sys
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
@@ -27,7 +28,7 @@ _WHITELIST = frozenset(
     os.getenv("PG_APPROVED_PACKAGES", _DEFAULT_WHITELIST).split(",")
     if p.strip()
 )
-_INSTALL_TIMEOUT = int(os.getenv("PG_PACKAGE_INSTALL_TIMEOUT", "120"))
+_INSTALL_TIMEOUT = int(resolve("PG_PACKAGE_INSTALL_TIMEOUT"))
 _installed_cache: set[str] = set()  # Track what's already installed this session
 
 

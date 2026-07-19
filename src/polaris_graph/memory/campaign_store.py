@@ -17,6 +17,7 @@ from typing import Optional
 
 import aiosqlite
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # LAW VI -- all paths/thresholds from environment, never hard-coded
 # ---------------------------------------------------------------------------
-_DB_DIR = Path(os.getenv("PG_CACHE_DIR", "state"))
+_DB_DIR = Path(resolve("PG_CACHE_DIR"))
 _DB_PATH = Path(os.getenv("PG_CAMPAIGN_DB_PATH", str(_DB_DIR / "pg_campaigns.sqlite")))
 
 # JSON serialisation helpers

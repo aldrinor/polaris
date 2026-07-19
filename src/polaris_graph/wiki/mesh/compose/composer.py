@@ -28,12 +28,13 @@ from typing import Any, Protocol
 
 from ..store import MeshStore, MeshStoreError
 from .artifact_directives import render_artifacts
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 COMPOSE_MAX_TOKENS = int(os.getenv("PG_MESH_COMPOSE_MAX_TOKENS", "4096"))
-COMPOSE_TIMEOUT = int(os.getenv("PG_MESH_COMPOSE_TIMEOUT", "120"))
-MAX_CLAIMS_FOR_PROMPT = int(os.getenv("PG_MESH_MAX_CLAIMS_PROMPT", "30"))
+COMPOSE_TIMEOUT = int(resolve("PG_MESH_COMPOSE_TIMEOUT"))
+MAX_CLAIMS_FOR_PROMPT = int(resolve("PG_MESH_MAX_CLAIMS_PROMPT"))
 
 
 # ───── client protocol ─────

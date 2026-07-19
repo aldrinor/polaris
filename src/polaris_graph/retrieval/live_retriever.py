@@ -69,6 +69,7 @@ from src.polaris_graph.retrieval.tier_classifier import (
 # a PURE htmldate-style cascade over ALREADY-fetched content (only `re`; no heavy models, no
 # network) so importing it here has ZERO runtime side effect — the OFF path never CALLS it.
 from src.polaris_graph.retrieval.publication_date_resolver import resolve_publication_date
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.live_retriever")
 
@@ -94,7 +95,7 @@ OPENALEX_SOURCES_SELECT = (
 # schema version is bumped (not CREATE-IF-NOT-EXISTS no-op) on any column
 # change, with an ALTER/rebuild migration (C5 requirement).
 AUTHORITY_CACHE_DB = Path(
-    os.getenv("PG_AUTHORITY_CACHE_DB", "cache/authority_enrich.sqlite")
+    resolve("PG_AUTHORITY_CACHE_DB")
 )
 # I-ready-017 #1134 (Codex diff-gate P1-2): bumped 1->2 so cached enrich payloads
 # written before the journal_only `is_retracted` + `openalex_venue` fields are
@@ -111,8 +112,8 @@ AUTHORITY_CACHE_DB = Path(
 AUTHORITY_CACHE_SCHEMA_VERSION = 4
 
 # Hard caps
-DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
-DEFAULT_MAX_S2 = int(os.getenv("PG_LIVE_MAX_S2", "20"))
+DEFAULT_MAX_SERPER = int(resolve("PG_LIVE_MAX_SERPER"))
+DEFAULT_MAX_S2 = int(resolve("PG_LIVE_MAX_S2"))
 # I-deepfix-001 D3 breadth (2026-06-29): the fetch BUDGET is the §-1.3 disclosed
 # bound (the ONLY thing that limits how far down the demote-not-drop cosine-ordered
 # candidate list we fetch). The legacy default of 40 was the dominant breadth lever
@@ -124,7 +125,7 @@ DEFAULT_MAX_S2 = int(os.getenv("PG_LIVE_MAX_S2", "20"))
 # sets PG_LIVE_FETCH_CAP higher (and the sweep's own PG_SWEEP_FETCH_CAP, which
 # overrides this default on run_live_retrieval's main lane). A CAP, not a target —
 # billed by actual fetches, so a generous cap is free insurance.
-DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "200"))
+DEFAULT_FETCH_CAP = int(resolve("PG_LIVE_FETCH_CAP"))
 # I-deepfix-001 U31 fetch-fidelity (2026-07-01): the legacy per-source extract
 # cap of 25000 chars cut 75-87% of long clinical papers mid-body (a full
 # systematic review / guideline PDF is ~100K-190K chars; at 25K only the
@@ -137,8 +138,8 @@ DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "200"))
 # are stored at their real length, so a generous cap only helps the rare long
 # doc and costs nothing on the common short one. Still env-overridable (LAW VI)
 # via PG_LIVE_CONTENT_MAX — a memory-constrained box can lower it.
-DEFAULT_CONTENT_MAX_CHARS = int(os.getenv("PG_LIVE_CONTENT_MAX", "300000"))
-DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
+DEFAULT_CONTENT_MAX_CHARS = int(resolve("PG_LIVE_CONTENT_MAX"))
+DEFAULT_HTTP_TIMEOUT = float(resolve("PG_LIVE_HTTP_TIMEOUT"))
 
 # I-fetch-003 (#1175 / BB5-C02): parallel-fetch worker-pool sizing. When
 # PG_LIVE_RETRIEVER_MAX_WORKERS is UNSET, the pool scales with the candidate
@@ -163,7 +164,7 @@ from src.polaris_graph.audit_ir.parallel_fetch import (  # noqa: E402
 # I-fetch-003 (#1175 / AC3): WARN floor for the new fetch_success_rate
 # retrieval diagnostic. Env-overridable; below this, a loud warning fires.
 _FETCH_SUCCESS_RATE_WARN_FLOOR = float(
-    os.getenv("PG_LIVE_FETCH_SUCCESS_RATE_WARN_FLOOR", "0.5")
+    resolve("PG_LIVE_FETCH_SUCCESS_RATE_WARN_FLOOR")
 )
 
 # BB5-C05 (#1177): "fetched-200-but-empty-extract" thresholds. A fetch counts
@@ -172,10 +173,10 @@ _FETCH_SUCCESS_RATE_WARN_FLOOR = float(
 # readability → regex) yielded fewer than _EXTRACT_EMPTY_FLOOR usable chars.
 # Named constants (LAW VI — no magic numbers); env-overridable.
 _EXTRACT_NONEMPTY_RAW_FLOOR = int(
-    os.getenv("PG_FETCH_NONEMPTY_RAW_FLOOR", "200")
+    resolve("PG_FETCH_NONEMPTY_RAW_FLOOR")
 )
 _EXTRACT_EMPTY_FLOOR = int(
-    os.getenv("PG_FETCH_EMPTY_EXTRACT_FLOOR", "50")
+    resolve("PG_FETCH_EMPTY_EXTRACT_FLOOR")
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -198,7 +199,7 @@ _EXTRACT_EMPTY_FLOOR = int(
 # Read at CALL time (LAW VI — env-overridable per run; not frozen at import).
 def _fetch_min_body_chars() -> int:
     try:
-        return int(os.getenv("PG_FETCH_MIN_BODY_CHARS", "0"))
+        return int(resolve("PG_FETCH_MIN_BODY_CHARS"))
     except ValueError:
         return 0
 
@@ -233,7 +234,7 @@ _PAYWALL_PUBLISHER_HOSTS_DEFAULT = (
 def _paywall_publisher_hosts() -> tuple[str, ...]:
     """F14: the paywalled-publisher host list (default + env-additive). Read at
     call time so PG_PAYWALL_PUBLISHER_HOSTS can extend it per run (LAW VI)."""
-    extra = os.getenv("PG_PAYWALL_PUBLISHER_HOSTS", "").strip()
+    extra = resolve("PG_PAYWALL_PUBLISHER_HOSTS").strip()
     hosts = list(_PAYWALL_PUBLISHER_HOSTS_DEFAULT)
     if extra:
         hosts.extend(
@@ -851,7 +852,7 @@ def _serper_search(
     except ValueError:
         _total = per_page
     try:
-        _max_pages = max(1, int(os.getenv("PG_SERPER_MAX_PAGES", "3")))
+        _max_pages = max(1, int(resolve("PG_SERPER_MAX_PAGES")))
     except ValueError:
         _max_pages = 3
     _n_pages = min(_max_pages, -(-_total // per_page))  # ceil(total/per_page)
@@ -865,7 +866,7 @@ def _serper_search(
     # items, or (c) PG_SERPER_MAX_PAGES — the only RELIABLE end-of-results signals. DEFAULT OFF
     # = byte-identical (the legacy short-page break is preserved). Discovery-breadth only; every
     # new URL flows through the same fetch -> strict_verify -> 4-role chokepoint unchanged.
-    _stop_on_zero_new = os.getenv("PG_SERPER_STOP_ON_ZERO_NEW", "0").strip() in (
+    _stop_on_zero_new = resolve("PG_SERPER_STOP_ON_ZERO_NEW").strip() in (
         "1", "true", "True",
     )
 
@@ -1597,13 +1598,13 @@ _MATCH_VALIDATE_LOCK = threading.Lock()
 def _openalex_match_validate_enabled() -> bool:
     """PG_OPENALEX_MATCH_VALIDATE opt-in kill-switch (default OFF; read at CALL time, LAW VI).
     OFF => the title-search match is trusted exactly as before (byte-identical)."""
-    return os.getenv("PG_OPENALEX_MATCH_VALIDATE", "0").strip().lower() in _ON_TOKENS
+    return resolve("PG_OPENALEX_MATCH_VALIDATE").strip().lower() in _ON_TOKENS
 
 
 def _resolve_pubdate_from_html_enabled() -> bool:
     """PG_RESOLVE_PUBDATE_FROM_HTML opt-in kill-switch (default OFF; read at CALL time, LAW VI).
     OFF => the DARK resolver is never called and the row's date handling is byte-identical."""
-    return os.getenv("PG_RESOLVE_PUBDATE_FROM_HTML", "0").strip().lower() in _ON_TOKENS
+    return resolve("PG_RESOLVE_PUBDATE_FROM_HTML").strip().lower() in _ON_TOKENS
 
 
 def _pg_gate_row_metadata_enabled() -> bool:
@@ -2132,7 +2133,7 @@ def _retrieval_fetch_wall_fraction() -> float:
     Pure (env-only); unit-testable. Faithfulness-neutral: a source not fetched before the cap
     is DISCLOSED via ``fetch_subwall_hit`` / ``notes``, never silently dropped (§-1.3).
     """
-    raw = os.getenv("PG_RETRIEVAL_FETCH_WALL_FRACTION")
+    raw = resolve("PG_RETRIEVAL_FETCH_WALL_FRACTION")
     if raw is None:
         return 0.75
     try:
@@ -2162,7 +2163,7 @@ def _retrieval_w2_wall_fraction() -> float:
     STOPS earlier — content_relevance_judge's always-release keeps un-scored / un-escalated
     passages at FULL weight (never demote-on-timeout, never drop — §-1.3).
     """
-    raw = os.getenv("PG_RETRIEVAL_W2_WALL_FRACTION")
+    raw = resolve("PG_RETRIEVAL_W2_WALL_FRACTION")
     if raw is None:
         return 0.5
     try:
@@ -2218,7 +2219,7 @@ def _corpus_truncation_policy() -> str:
                    truncated corpus never reaches generation (no tokens billed).
 
     Unknown / empty value falls back to ``warn`` (byte-identical default)."""
-    raw = (os.getenv("PG_CORPUS_TRUNCATION_POLICY", "") or "").strip().lower()
+    raw = (resolve("PG_CORPUS_TRUNCATION_POLICY") or "").strip().lower()
     if raw in ("warn", "repair", "fail_closed"):
         return raw
     if raw:
@@ -2457,7 +2458,7 @@ def _openalex_date_filter_enabled() -> bool:
 
     Default OFF => the extra date-scoped ``openalex_search`` never fires and the OpenAlex path is
     byte-identical. The Gate-B slate quad-pins ``PG_OPENALEX_DATE_FILTER`` ON."""
-    return os.getenv("PG_OPENALEX_DATE_FILTER", "0").strip().lower() in ("1", "true", "on", "yes")
+    return resolve("PG_OPENALEX_DATE_FILTER").strip().lower() in ("1", "true", "on", "yes")
 
 
 def _openalex_full_iso(iso: str | None, *, ceiling: bool) -> str | None:
@@ -2898,7 +2899,7 @@ def _strip_html(html: str) -> str:
         no_tags = re.sub(r"<[^>]+>", " ", no_tags)
         no_tags = re.sub(r"\s+", " ", no_tags)
         base = no_tags.strip()
-    if os.getenv("PG_FETCH_TABLE_LINEARIZE", "1").strip().lower() not in ("0", "false", "no", "off", ""):
+    if resolve("PG_FETCH_TABLE_LINEARIZE").strip().lower() not in ("0", "false", "no", "off", ""):
         tables = linearize_html_tables(html)
         if tables:
             base = (base + "\n\n" + tables).strip() if base else tables
@@ -3446,7 +3447,7 @@ _UNPAYWALL_PLACEHOLDER_EMAIL = "polaris@example.org"
 def _oa_resolver_enabled() -> bool:
     """True iff the live OA resolver is enabled. Off iff the env var is set to
     a recognized falsey value ("0" / "false" / "no"); default ON."""
-    raw = os.getenv("PG_ENABLE_LIVE_OA_RESOLVER", "1").strip().lower()
+    raw = resolve("PG_ENABLE_LIVE_OA_RESOLVER").strip().lower()
     return raw not in ("0", "false", "no", "off", "")
 
 
@@ -3691,7 +3692,7 @@ def _force_zyte_refetch(url: str, max_chars: int = DEFAULT_CONTENT_MAX_CHARS) ->
     worker = threading.Thread(target=_zyte_worker, daemon=True)
     worker.start()
     try:
-        deadline = float(os.getenv("PG_FETCH_DEADLINE_SECONDS", "90"))
+        deadline = float(resolve("PG_FETCH_DEADLINE_SECONDS"))
     except ValueError:
         deadline = 90.0
     worker.join(timeout=deadline if deadline > 0 else None)
@@ -3951,7 +3952,7 @@ def _fetch_content(
                 url, "blocked_reference", f"blocked_reference_denylist:{_block_reason}"
             )
             return ("", False, "", "blocked_reference", "")
-    if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0") == "1":
+    if resolve("PG_DISABLE_ACCESS_BYPASS") == "1":
         # M-45 pass-2: record env-opt-out so diagnostics can see it.
         _m45_record_fetch_telemetry(
             url, "httpx_naive", "pg_disable_access_bypass=1"
@@ -4084,7 +4085,7 @@ def _fetch_content(
     # Default 90s = Crawl4AI worst-case (~70s) + margin. Override via
     # PG_FETCH_DEADLINE_SECONDS. Set to 0 to disable (not recommended).
     try:
-        deadline = float(os.getenv("PG_FETCH_DEADLINE_SECONDS", "90"))
+        deadline = float(resolve("PG_FETCH_DEADLINE_SECONDS"))
     except ValueError:
         deadline = 90.0
     worker.join(timeout=deadline if deadline > 0 else None)
@@ -4338,7 +4339,7 @@ def _fetch_content(
     # flag OFF ("0") is byte-identical to the prior _strip_html(...)[:max_chars].
     # Input hygiene only — strict_verify / NLI / 4-role / span-grounding untouched.
     _stripped_body = _strip_html(result.content)
-    if os.getenv("PG_FETCH_COOKIE_CHROME_STRIP", "1") != "0":
+    if resolve("PG_FETCH_COOKIE_CHROME_STRIP") != "0":
         # I-fetchclean-001 A3: reuse the A3 probe's already-cleaned body when it was
         # computed (``PG_FETCH_SHELL_VOCAB_GATE`` on) so ``clean_fetch_body`` runs at
         # most once. ``_probe_cf.cleaned_text`` == ``clean_fetch_body(_strip_html(
@@ -4615,7 +4616,7 @@ _FORMATTING_NOISE_MARKERS = (
 # which is exactly the divergence this consolidation prevents). Re-pointed here as module-level
 # aliases so every existing reference is byte-identical.
 _ACCESS_DENIAL_MARKERS = shell_detector.ACCESS_DENIAL_MARKERS
-_ACCESS_DENIAL_MAX_CHARS = int(os.getenv("PG_ACCESS_DENIAL_MAX_CHARS", "3000"))
+_ACCESS_DENIAL_MAX_CHARS = int(resolve("PG_ACCESS_DENIAL_MAX_CHARS"))
 _CHALLENGE_PAGE_COOCCURRENCE = shell_detector.CHALLENGE_PAGE_COOCCURRENCE
 
 
@@ -5871,7 +5872,7 @@ def run_live_retrieval(
         # academic backend — ADD (union), not replace S2 (Codex Q8) — sending the NL `q`; union+dedup
         # via the shared `seen_urls`. Candidates carry source="openalex_search"; default query_origin
         # to `q`. Flag-gated PG_OPENALEX_SEARCH (default on). Fail-open: a backend fault adds 0 hits.
-        if os.getenv("PG_OPENALEX_SEARCH", "1") != "0":
+        if resolve("PG_OPENALEX_SEARCH") != "0":
             _oa_t0 = time.time()
             try:
                 from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402

@@ -16,11 +16,12 @@ import numpy as np
 
 from src.polaris_graph.schemas import SectionDraft
 from src.utils.embedding_service import embed_texts
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # Minimum affinity delta to recommend migration (LAW VI)
-_MIN_AFFINITY_DELTA = float(os.getenv("PG_IONIC_MIN_DELTA", "0.15"))
+_MIN_AFFINITY_DELTA = float(resolve("PG_IONIC_MIN_DELTA"))
 
 
 def analyze_ionic_bonds(

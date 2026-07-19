@@ -17,12 +17,13 @@ import numpy as np
 
 from src.polaris_graph.schemas import SectionDraft
 from src.utils.embedding_service import embed_texts
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # Thresholds (LAW VI)
-_REPEAT_THRESHOLD = float(os.getenv("PG_PEPTIDE_REPEAT_THRESHOLD", "0.80"))
-_WEAK_TRANSITION_THRESHOLD = float(os.getenv("PG_PEPTIDE_WEAK_TRANSITION", "0.15"))
+_REPEAT_THRESHOLD = float(resolve("PG_PEPTIDE_REPEAT_THRESHOLD"))
+_WEAK_TRANSITION_THRESHOLD = float(resolve("PG_PEPTIDE_WEAK_TRANSITION"))
 
 # Connectors that should not start a section
 # FIX-047-K2: Expanded with contrastive connectors (T047 audit: "In contrast"
@@ -326,7 +327,7 @@ def _detect_cross_section_repeats(sections: list[SectionDraft]) -> list[dict]:
         return []
 
     # Limit to avoid embedding too many sentences
-    max_sentences = int(os.getenv("PG_PEPTIDE_MAX_SENTENCES", "300"))
+    max_sentences = int(resolve("PG_PEPTIDE_MAX_SENTENCES"))
     if len(section_sentences) > max_sentences:
         section_sentences = section_sentences[:max_sentences]
 

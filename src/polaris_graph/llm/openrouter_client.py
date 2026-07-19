@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+from src.polaris_graph.settings import get_model_settings
 import re
 import threading
 import time
@@ -41,6 +42,7 @@ from src.polaris_graph.llm.token_limit_resolver import (
     compute_allowed_max_tokens as _resolve_allowed_max_tokens,
     estimate_prompt_tokens as _estimate_prompt_tokens,
 )
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -53,7 +55,7 @@ T = TypeVar("T", bound=BaseModel)
 # ---------------------------------------------------------------------------
 
 # FIX-305: Persistent cost ledger
-_COST_LEDGER_PATH = Path(os.getenv("PG_COST_LEDGER_PATH", "logs/pg_cost_ledger.jsonl"))
+_COST_LEDGER_PATH = Path(resolve("PG_COST_LEDGER_PATH"))
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv(
@@ -79,7 +81,7 @@ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 # matches the honest_sweep_job_runner.py default and still catches a genuine
 # infinite loop / recursive-outline runaway. Override per-run via the
 # PG_MAX_COST_PER_RUN env var if a tighter ceiling is wanted.
-PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "10.00"))
+PG_MAX_COST_PER_RUN = float(resolve("PG_MAX_COST_PER_RUN"))
 
 # BUG-B-201 fix (pass 2 remediation): per-task ambient state via
 # contextvars so concurrent async run_one_query() calls don't stomp
@@ -601,8 +603,8 @@ PG_GENERATOR_MODEL = os.getenv(
 # 56-item fixture) and the MIRROR is z-ai/glm-5.1 (the operator re-pick; Cohere is not on
 # OpenRouter). These defaults MUST equal config/architecture/polaris_runtime_lock.yaml
 # (verify_lock asserts lock model_slug == code default).
-PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "z-ai/glm-5.2")  # I-beatboth-008 #1285: mirror 5.1->5.2 (== lock model_slug)
-PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
+PG_MIRROR_MODEL = resolve("PG_MIRROR_MODEL")  # I-beatboth-008 #1285: mirror 5.1->5.2 (== lock model_slug)
+PG_SENTINEL_MODEL = get_model_settings().sentinel_model  # was os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
 # I-judge-kimi (2026-06-29): the ACTIVE benchmark Judge is moonshotai/kimi-k2.6 (kimi has 21
 # OpenRouter providers -> no 429 -> the 4-role D8 seam completes; see openrouter_role_transport
 # ._BENCHMARK_LINEUP_DEFAULT_SLUG). That swap is carried by the TRANSPORT benchmark default, NOT
@@ -611,20 +613,20 @@ PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
 # qwen until an operator-signed reconciliation flips the lock's judge.model_slug + family AND this
 # constant to kimi together (and re-pins docs/canonical_pin.txt). Setting either to kimi now would
 # raise LockMismatch (and changing the pinned lock would trip the boot canonical-pin-drift HARD STOP).
-PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
+PG_JUDGE_MODEL = get_model_settings().judge_model  # was os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
 
 # Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
 # role subsumes the old "evaluator" responsibilities). When PG_EVALUATOR_MODEL
 # IS set, it overrides PG_MIRROR_MODEL for the Mirror role (back-compat).
-PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL") or PG_MIRROR_MODEL
+PG_EVALUATOR_MODEL = resolve("PG_EVALUATOR_MODEL") or PG_MIRROR_MODEL
 
 # Explicit family overrides for the cases where the model-name prefix is
 # not the true family (fine-tunes, licensed redistributions, etc.).
-PG_GENERATOR_FAMILY_OVERRIDE = os.getenv("PG_GENERATOR_FAMILY_OVERRIDE", "")
-PG_EVALUATOR_FAMILY_OVERRIDE = os.getenv("PG_EVALUATOR_FAMILY_OVERRIDE", "")
-PG_MIRROR_FAMILY_OVERRIDE = os.getenv("PG_MIRROR_FAMILY_OVERRIDE", "")
-PG_SENTINEL_FAMILY_OVERRIDE = os.getenv("PG_SENTINEL_FAMILY_OVERRIDE", "")
-PG_JUDGE_FAMILY_OVERRIDE = os.getenv("PG_JUDGE_FAMILY_OVERRIDE", "")
+PG_GENERATOR_FAMILY_OVERRIDE = resolve("PG_GENERATOR_FAMILY_OVERRIDE")
+PG_EVALUATOR_FAMILY_OVERRIDE = resolve("PG_EVALUATOR_FAMILY_OVERRIDE")
+PG_MIRROR_FAMILY_OVERRIDE = resolve("PG_MIRROR_FAMILY_OVERRIDE")
+PG_SENTINEL_FAMILY_OVERRIDE = resolve("PG_SENTINEL_FAMILY_OVERRIDE")
+PG_JUDGE_FAMILY_OVERRIDE = resolve("PG_JUDGE_FAMILY_OVERRIDE")
 
 # Known family prefixes. The first prefix matched wins. Distinct families
 # per the loopback/audit/_open_source_models_2026.md family-distance table.
@@ -841,8 +843,8 @@ OUTPUT_COST_PER_M = float(os.getenv("OPENROUTER_OUTPUT_COST_PER_M", "1.56"))
 # Timeouts — FIX-SCHEMA-5: reduced from 180/300 to 90/180.
 # Qwen 3.5 Plus typically responds in 10-60s. 3+ min means the API is hung.
 # asyncio.wait_for adds +30s grace period on top of these.
-DEFAULT_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
-LONG_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_LONG_TIMEOUT_SECONDS", "180"))
+DEFAULT_TIMEOUT_SECONDS = int(resolve("PG_LLM_TIMEOUT_SECONDS"))
+LONG_TIMEOUT_SECONDS = int(resolve("PG_LLM_LONG_TIMEOUT_SECONDS"))
 # I-meta-008 FULL-POWER: the DeepSeek V4 Pro reasoning-first GENERATOR needs minutes per section
 # (observed up to 412s for ONE successful section). Give the WRITER its own generous per-attempt
 # timeout so it never inherits the cheap 90s shared default (which also governs verifier / retrieval /
@@ -861,7 +863,7 @@ LONG_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_LONG_TIMEOUT_SECONDS", "180"))
 # (or run under the Gate-B slate). The contract-slot call passes its OWN explicit timeout
 # (PG_CONTRACT_SLOT_STALL_TIMEOUT_S, multi_section_generator.py) and is therefore unaffected by this
 # default (see _call_impl: actual_timeout = timeout or default — an explicit timeout always wins).
-GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "600"))
+GENERATOR_TIMEOUT_SECONDS = int(resolve("PG_GENERATOR_LLM_TIMEOUT_SECONDS"))
 
 # I-arch-006 F33 (#1262): tight per-chunk SSE READ-stall timeout. The streaming read timeout must NOT
 # default to the full generator budget (``GENERATOR_TIMEOUT_SECONDS`` — 6500s under the cert slate): a
@@ -871,12 +873,12 @@ GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "6
 # so a tight read-stall fires ONLY on genuine socket silence — slow reasoning is UNAFFECTED (CLAUDE.md
 # §9.1.8 "never starve"). The existing retry (``MAX_RETRIES``) reopens a fresh socket on a stalled read;
 # the outer ``asyncio.wait_for`` still bounds the TOTAL call. Transport-only; no faithfulness gate touched.
-PG_SSE_READ_STALL_TIMEOUT_SECONDS = float(os.getenv("PG_SSE_READ_STALL_TIMEOUT_SECONDS", "120"))
+PG_SSE_READ_STALL_TIMEOUT_SECONDS = float(resolve("PG_SSE_READ_STALL_TIMEOUT_SECONDS"))
 
 # I-wire-013 (#1327): outer watchdog grace added on top of the per-attempt httpx budget so the
 # asyncio-level ceiling always fires AFTER the transport-level one (never races it). Named here to
 # keep the value defined once instead of an inline magic number at each call/log site.
-LLM_CALL_WATCHDOG_GRACE_SECONDS = float(os.getenv("PG_LLM_CALL_WATCHDOG_GRACE_SECONDS", "30"))
+LLM_CALL_WATCHDOG_GRACE_SECONDS = float(resolve("PG_LLM_CALL_WATCHDOG_GRACE_SECONDS"))
 
 
 def get_generator_timeout_seconds() -> int:
@@ -1991,7 +1993,7 @@ class OpenRouterClient:
                 _rf_min = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "32768"))
                 if body.get("max_tokens", 0) < _rf_min:
                     body["max_tokens"] = _rf_min
-                _rf_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "384000"))
+                _rf_cap = int(resolve("PG_REASONING_FIRST_HARD_CAP"))
                 if body.get("max_tokens", 0) > _rf_cap:
                     body["max_tokens"] = _rf_cap
         elif self.model in _REASONING_FIRST_MODELS:
@@ -2061,7 +2063,7 @@ class OpenRouterClient:
             # (WandB/Parasail 1,048,576; StreamLake/SiliconFlow/Baidu/Novita >= 384,000; DeepInfra fp4/16384
             # EXCLUDED) and require_parameters:true only routes to providers that honor the requested budget,
             # so 384000 never 404s on this chain. Env-tunable up to the provider max (1,048,576).
-            _hard_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "384000"))
+            _hard_cap = int(resolve("PG_REASONING_FIRST_HARD_CAP"))
             if body.get("max_tokens", 0) > _hard_cap:
                 body["max_tokens"] = _hard_cap
 
@@ -2415,7 +2417,7 @@ class OpenRouterClient:
                     # DeepInfra's V4 Pro throttle window is longer than 14s; the old 3-attempt
                     # / 14s-total budget reliably gave up before the throttle cleared on
                     # parallel-section generation. Operator-tunable via PG_RATE_LIMIT_FLOOR_S.
-                    floor = float(os.getenv("PG_RATE_LIMIT_FLOOR_S", "15.0"))
+                    floor = float(resolve("PG_RATE_LIMIT_FLOOR_S"))
                     wait = min(60.0, max(floor, RETRY_BACKOFF_BASE ** (attempt + 1)) * (attempt + 1))
                     # I-deepfix-001 wave-2: HONOR a server-provided Retry-After header when present.
                     # Per RFC 9110 a 429 MAY carry Retry-After telling us EXACTLY when the throttle
@@ -2427,7 +2429,7 @@ class OpenRouterClient:
                     # Transport timing only — the faithfulness engine is untouched.
                     retry_after = _parse_retry_after(exc.response.headers.get("Retry-After"))
                     if retry_after is not None:
-                        cap = float(os.getenv("PG_RATE_LIMIT_RETRY_AFTER_CAP_S", "120.0"))
+                        cap = float(resolve("PG_RATE_LIMIT_RETRY_AFTER_CAP_S"))
                         wait = max(1.0, min(cap, retry_after))
                     logger.warning(
                         "[polaris graph] Rate limited, waiting %.1fs (attempt %d/%d)%s",
@@ -2572,7 +2574,7 @@ class OpenRouterClient:
                             type(exc).__name__, attempt + 1, MAX_RETRIES + 1,
                         )
                     if is_dns_failure:
-                        dns_wait = float(os.getenv("PG_DNS_RETRY_BACKOFF", "30"))
+                        dns_wait = float(resolve("PG_DNS_RETRY_BACKOFF"))
                         logger.warning(
                             "[polaris graph] DNS failure (getaddrinfo), "
                             "waiting %.0fs before retry (attempt %d/%d): %s",
@@ -3639,7 +3641,7 @@ class OpenRouterClient:
         # same prompt-based-JSON / reasoning-extraction path GLM uses (the recovery at ~2650 is
         # model-agnostic), so the structured-output 404 cannot recur.
         response_format = None
-        strict_schema_enabled = os.getenv("PG_STRICT_JSON_SCHEMA", "1") == "1"
+        strict_schema_enabled = resolve("PG_STRICT_JSON_SCHEMA") == "1"
         _effective_reasoning = reasoning_enabled or (self.model in _REASONING_FIRST_MODELS)
         if not _effective_reasoning and strict_schema_enabled:
             try:

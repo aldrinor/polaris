@@ -18,10 +18,11 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import os
+from src.polaris_graph.settings import get_model_settings
 from typing import Any, Awaitable, Callable
 
 # Model the deepener uses for its mechanism-query generation LLM call (env-overridable).
-DEEPENER_LLM_MODEL = os.getenv("PG_SWEEP_DEEPENER_MODEL", "deepseek/deepseek-v4-pro")
+DEEPENER_LLM_MODEL = get_model_settings().sweep_deepener_model  # was os.getenv("PG_SWEEP_DEEPENER_MODEL", "deepseek/deepseek-v4-pro")
 
 # Default URL injection cap (bounds the deepener fetch pass; also env-overridable at the call site).
 DEFAULT_DEEPENER_URL_CAP = 20
