@@ -1,1 +1,3 @@
 {"type":"started","key":"v2:ffec4e5014ce6e126864fd8dc4ff8ea351e2b19e9160283719c795c511ed3e29","agentId":"a71b40f42875d32b4"}
+{"type":"result","key":"v2:ffec4e5014ce6e126864fd8dc4ff8ea351e2b19e9160283719c795c511ed3e29","agentId":"a71b40f42875d32b4","result":{"launcher_created":true,"variants_consolidated":9,"shims_written":9,"env_dicts_byte_identical":true,"skipped":[],"collection_after":"16738 tests collected, 11 errors (pre-existing, unrelated to launcher: mesh/auth/hle/clarification/perspective/playwright collection failures)"}}
+{"type":"started","key":"v2:a66dffd95d5033eb6b6c6c7f6b2ca6b41429cba3ffbc70f0d5596bcc5d302526","agentId":"abe7eb9b75803ff98"}

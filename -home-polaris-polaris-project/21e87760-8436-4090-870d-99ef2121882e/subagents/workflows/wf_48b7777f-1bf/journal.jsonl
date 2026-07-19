@@ -3,3 +3,5 @@
 {"type":"started","key":"v2:b93c2633052203a930be894b0028c3f4fc300303e1ddafc86844ede08f6d4af1","agentId":"a706340869a8cd51e"}
 {"type":"result","key":"v2:b93c2633052203a930be894b0028c3f4fc300303e1ddafc86844ede08f6d4af1","agentId":"a706340869a8cd51e","result":{"doc_path":"/home/polaris/wt/phase-q1/docs/review_readiness/graph_fork_3c.md","comment_added":true,"no_runtime_change":true}}
 {"type":"started","key":"v2:d3fd5d1834a72ae4fef6632392423a1a4eb302cd318382841803825fab4b3c2c","agentId":"a403fab87bb64418a"}
+{"type":"result","key":"v2:d3fd5d1834a72ae4fef6632392423a1a4eb302cd318382841803825fab4b3c2c","agentId":"a403fab87bb64418a","result":{"collection_ok":true,"oracle_matches":true,"oracle_sha":"9c0a3d438da943242c98e2fe714494c342d42d02102202d75a61a4554339db98","docs_only":false}}
+{"type":"started","key":"v2:6d4440e3f0e1201a82468c777d008df7e7741f27562d15a45f0e3fc66677ed72","agentId":"ad59dd3532fd68b71"}
