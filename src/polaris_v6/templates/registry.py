@@ -15,11 +15,15 @@ SourceTier = Literal["T1", "T2", "T3"]
 
 
 class FrameDefinition(BaseModel):
+    """One report frame, identified by ``frame_id`` and its display ``frame_name``."""
+
     frame_id: str
     frame_name: str
 
 
 class TemplateContent(BaseModel):
+    """One template's validated content: identity, source tiers, frame manifest, and examples."""
+
     template_id: str
     template_name: str
     summary: str = Field(..., min_length=20)
