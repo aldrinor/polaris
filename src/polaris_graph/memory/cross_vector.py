@@ -20,6 +20,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -129,10 +130,10 @@ def promote_to_ltm(
 
     # LAW VI: env var overrides for LTM promotion thresholds
     if min_quality is None:
-        min_quality = os.getenv("PG_LTM_MIN_QUALITY", "GOLD")
+        min_quality = resolve("PG_LTM_MIN_QUALITY")
     if min_faithfulness is None:
         try:
-            min_faithfulness = float(os.getenv("PG_LTM_MIN_FAITHFULNESS", "0.9"))
+            min_faithfulness = float(resolve("PG_LTM_MIN_FAITHFULNESS"))
         except (ValueError, TypeError):
             min_faithfulness = 0.9
 
