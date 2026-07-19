@@ -92,7 +92,7 @@ class RetrievalResult:
 
 # ───── public API ─────
 
-def lethal_retrieve(
+def high_recall_retrieve(
     store: MeshStore,
     *,
     workspace_id: str,
@@ -283,6 +283,13 @@ def lethal_retrieve(
         result.exploration_count, result.gap_category,
     )
     return result
+
+
+# Backward-compat alias: `lethal_retrieve` was renamed to `high_recall_retrieve`
+# (the function's 6 stages aggressively widen the candidate pool for recall, then
+# re-rank). Existing importers (tests, callers) resolve through this alias — same
+# object, no behavior change.
+lethal_retrieve = high_recall_retrieve
 
 
 # ───── helpers ─────
