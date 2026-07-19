@@ -1,0 +1,255 @@
+src/polaris_graph/clinical_generator/strict_verify.py:502:    # lethal weakened-positive). CJK / Arabic / Cyrillic etc. tokenize correctly
+src/polaris_graph/clinical_generator/strict_verify.py:533:        # silent downgrade of the binding faithfulness gate (LAW II / lethal-in-clinical). Detect it and
+src/polaris_graph/authority/clinical_view.py:31:  >=0.95 agreement with ZERO lethal inversions BEFORE PG_USE_AUTHORITY_MODEL is
+src/polaris_graph/evaluator/evaluator_gate.py:290:        # unjudged report shipping as "ok" is lethal). The PRIOR behavior returned
+src/polaris_graph/benchmark/extended_metrics.py:16:string-presence PASS/FAIL — "lethal in clinical").
+src/polaris_graph/benchmark/claim_dedup.py:78:    (under-merge = §-1.1-safe; over-merge is the lethal direction we forbid)."""
+src/polaris_graph/generator/atom_refusal_validator.py:488:    # false positive (mask real outcome) is lethal.
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:533:            # (BUCKET_LOW). NEVER trust a non-clean parse as supported (lethal-inversion guard).
+src/polaris_graph/generator/abstract_conclusion.py:8:FAITHFULNESS CONTRACT (clinical-lethal). Every abstract/conclusion sentence is a VERBATIM
+src/polaris_graph/generator/abstract_conclusion.py:185:# statement" phrasing over-claimed — it is the §-1.1 lethal-miss a blind reader hears by ear: a
+src/polaris_graph/generator/analyst_synthesis.py:160:    # sentences DROPPED from the unverified synthesis output (the lethal fabrication class).
+src/polaris_graph/generator/analyst_synthesis.py:773:    # SAFETY sentences from the analyst layer (the lethal fabrication class) — runs AFTER the syntactic
+src/polaris_graph/generator/key_findings.py:411:        # BEFORE the ``t in known_words`` early-out below. Precision guard (this is §-1.1-lethal):
+src/polaris_graph/generator/key_findings.py:1076:        # HONEST provenance sub-label (§-1.1 — a misstated provenance label is treated as lethal): the
+src/polaris_graph/generator/depth_synthesis.py:672:                # keeps the cross-source label honest (§-1.1 misstated corroboration is lethal).
+src/polaris_graph/generator/depth_synthesis.py:746:        # honestly labeled "(single source)", never a blanket "corroborated" (§-1.1 lethal-if-misstated).
+src/polaris_graph/generator/cross_source_synthesis.py:27:FAIL-CLOSED (the §-1.3 + brief boundary contract, "under-relax is safe; over-relax is lethal"):
+src/polaris_graph/generator/cross_source_synthesis.py:208:        license (over-relax is the lethal direction).
+src/polaris_graph/generator/cross_source_synthesis.py:432:    connective falls to ``neutral`` (over-relax is the lethal direction)."""
+src/polaris_graph/generator/cross_source_synthesis.py:688:    module "under-relax is safe; over-relax is lethal" contract). A one-way / absent / non-``True`` verdict
+src/polaris_graph/generator/claim_labeler.py:44:    A non-VERIFIED claim therefore can never be ``high`` (the lethal over-confidence the reframe
+src/polaris_graph/generator/numeric_comparator.py:8:safe; over-relax is lethal — a wrong "for comparison" across incompatible denominators is a clinical
+src/polaris_graph/generator/numeric_comparator.py:21:(licensing "for comparison" between %-points and mmol/mol whose unit was never established is the lethal
+src/polaris_graph/generator/numeric_comparator.py:65:# the lethal over-relax. Mirror ``claim_graph._unknown_arm`` (which treats ``"treatment"`` AS UNKNOWN on
+src/polaris_graph/generator/numeric_comparator.py:166:    # two values across an unknown unit / entity / baseline (%-points vs mmol/mol) is the lethal over-relax.
+src/polaris_graph/generator/numeric_comparator.py:174:    # implies a same-arm claim that was NEVER positively established (the lethal over-relax). Fail closed on
+src/polaris_graph/generator/relational_quantifier_guard.py:64:# over-relax is the lethal direction". The env knob is the seam a LATER increment uses (a producer that
+src/polaris_graph/generator/relational_quantifier_guard.py:226:    quantifier is stripped). UNDER-relax is safe; over-relax is lethal."""
+src/polaris_graph/generator/relational_quantifier_guard.py:381:    # NEVER strip it — that would misquote the source (the lethal direction). The default production writer
+src/polaris_graph/generator/overstatement_guard.py:968:    over-crediting a mis-populated number is lethal; under-drop is safe)."""
+src/polaris_graph/generator/overstatement_guard.py:999:# (conservative — a report that inverts a contraindication is §-1.1-lethal).
+src/polaris_graph/generator/overstatement_guard.py:1073:    rendered from a non-negated span (or vice-versa) is a lethal inversion (§-1.3)."""
+src/polaris_graph/generator/span_resolver.py:12:SAFETY — the §-1.1-lethal failure here is MANUFACTURING support (re-pointing to a span that does not
+src/polaris_graph/generator/required_entity_ledger.py:120:    Coverage-gaps disclosure (hiding a coverage gap = over-claiming completeness, the lethal
+src/polaris_graph/generator/script_aware_grounding.py:20:The second is lethal in the Telus clinical context.
+src/polaris_graph/generator/script_aware_grounding.py:177:    segmenter we do not run, and guessing a pass would be the lethal
+src/polaris_graph/nodes/complexity_router.py:68:# diff-gate iter-1 P1-1; lethal-class under-serving per CLAUDE.md §-1.1). Erring toward complex here
+src/polaris_graph/generator/provenance_generator.py:485:# "[11][12]", which a reader reads as TWO independent corroborating sources — a lethal metadata
+src/polaris_graph/generator/provenance_generator.py:1366:# (the §-1.1 lethal failure mode). So accept is permitted ONLY under enforce.
+src/polaris_graph/generator/provenance_generator.py:2449:        # UNGROUNDED — the lethal weakened-positive hole (Codex iter-3 P1). We now
+src/polaris_graph/generator/provenance_generator.py:3977:    wrong-claim citation (lethal in clinical context). We therefore expand ONLY a
+src/polaris_graph/generator/multi_section_generator.py:4635:#     verified sibling — a wrong-claim citation (lethal in clinical context).
+src/polaris_graph/generator/multi_section_generator.py:5300:# percentage that survives to render is lethal).
+src/polaris_graph/generator/multi_section_generator.py:5366:        # survives to render is lethal). ``kept`` is empty here ONLY when the splitter
+src/polaris_graph/generator/multi_section_generator.py:5690:# claim (under-relax is safe; fabricating balance is the lethal direction). The faithfulness engine is
+src/polaris_graph/generator/multi_section_generator.py:6289:        # lethal direction). Default OFF (PG_TWO_SIDED_DEBATE) => the guard is False => byte-identical.
+src/polaris_graph/memory/verified_claim_graph.py:20:over-flags rather than under-flags (clinical-safety: a missed contradiction is the lethal
+src/polaris_graph/memory/verified_claim_graph.py:232:        Documented heuristic STUB (over-flags by design — a missed contradiction is the lethal
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:6:(the lethal-error class per `feedback_qualitative_negation_escapes_regex_2026_05_26`). This module
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:26:Fail-safe = escalate-to-review, never silent: a missed contradiction is the lethal error.
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:126:    # multi-source basket of OPPOSITE populations (clinical-lethal; the per-sentence
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:262:    # 2. statistical null (the lethal-FP class) -> STATISTICAL_NULL.
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:359:# hidden exclusion is the lethal over-merge (Codex Slice-B iter-4 P0).
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:366:# be a lethal over-merge (with a genuine "without X"), so only operators that reliably denote
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:377:# 'without' would itself over-merge with a genuine without-population — the lethal direction).
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:436:    consolidate (each a singleton); over-fragmentation is SAFE, over-merge is lethal. A
+src/polaris_graph/generator/verified_compose.py:2029:#     without F1-2 (the boundary contract — under-relaxing is safe; over-relaxing is the lethal direction).
+src/polaris_graph/roles/sentinel_contract.py:133:# §-1.1 clinically lethal). It is a SEPARATE contract over a DIFFERENT prompt's output. The
+src/polaris_graph/roles/sentinel_contract.py:148:# VERIFIED, §-1.1 clinically lethal). With the anchored full match, "not grounded", "grounded: no",
+src/polaris_graph/roles/sentinel_contract.py:243:    FAIL CLOSED (lethal-inversion guard, identical safety to the other two parsers): ANY of —
+src/polaris_graph/roles/sentinel_contract.py:355:# clinical risk (a missed contraindication is §-1.1 lethal), yet no atom ever examined it.
+src/polaris_graph/nodes/safety_classifier.py:47:# A person/victim object — the lethal-intent patterns anchor to a PERSON so "kill a process",
+src/polaris_graph/nodes/safety_classifier.py:50:# reflexive self-kill is self-harm semantics (its own category + help-guard), not lethal-against-
+src/polaris_graph/nodes/safety_classifier.py:109:    # (b) lethal/fatal DOSE framed at a PERSON — anchored to _PERSON so "dose that would kill bacteria /
+src/polaris_graph/nodes/safety_classifier.py:111:    + r"|\b(?:lethal|fatal|deadly)\s+(?:dose|amount|quantity)\b.{0,30}?\b(?:to|for)\s+" + _PERSON
+src/polaris_graph/nodes/safety_classifier.py:113:    r"\b(?:to|would|will|that\s+(?:would|will|could|can)|can|could|be\s+(?:lethal|fatal)\s+(?:to|for))\s+"
+src/polaris_graph/nodes/safety_classifier.py:115:    + r"|\b(?:would|will|could|is|are)\s+(?:be\s+)?(?:lethal|fatal|deadly)\s+(?:to|for)\s+" + _PERSON
+src/polaris_graph/nodes/safety_classifier.py:130:# When present, the generic (un-targeted) lethal branch is vetoed.
+src/polaris_graph/nodes/safety_classifier.py:139:# Generic un-targeted lethal intent ("overdose protocol TO CAUSE DEATH") — a human victim is implied.
+src/polaris_graph/nodes/safety_classifier.py:141:# Excludes bare "lethal dose" (dual-use toxicology, e.g. "lethal dose of acetaminophen").
+src/polaris_graph/nodes/safety_classifier.py:145:    r"(?:cause\s+(?:a\s+|the\s+)?death|be\s+(?:lethal|fatal)|prove\s+fatal)\b",
+src/polaris_graph/nodes/safety_classifier.py:231:    r"|\bsuicide\s+method[s]?\b|\bhow\s+much\s+\w+\s+(?:to|will)\s+\w*\s*(?:overdose|be\s+lethal|kill\s+me)\b"
+src/polaris_graph/nodes/safety_classifier.py:232:    # Codex diff-gate iter-4: direct first-person lethal-dose/overdose phrasing.
+src/polaris_graph/nodes/safety_classifier.py:235:    r"|\b(?:lethal|fatal|deadly)\s+(?:dose|amount)\s+(?:of\s+\w+\s+)?(?:for|to\s+kill)\s+(?:myself|me)\b"
+src/polaris_graph/nodes/safety_classifier.py:326:    over-refused. Each category with a legitimate counterpart (lethal/self-harm → care/help;
+src/polaris_graph/nodes/safety_classifier.py:344:                True, "lethal_intent_against_persons", 0.9,
+src/polaris_graph/nodes/safety_classifier.py:345:                ["lethal_intent_against_persons_explicit_intent"],
+src/polaris_graph/nodes/safety_classifier.py:347:        # Generic un-targeted lethal ("overdose to cause death") — human implied; vetoed by an explicit
+src/polaris_graph/nodes/safety_classifier.py:352:                True, "lethal_intent_against_persons", 0.9, ["lethal_generic_cause_death"],
+src/polaris_graph/retrieval/semantic_conflict_detector.py:9:report that is the lethal-miss class (F12).
+src/polaris_graph/roles/coverage_binder.py:154:#     SAFE disclosed gap; over-crediting safety would be lethal — this path can only under-, not over-,
+src/polaris_graph/roles/sentinel_adapter.py:16:FAIL CLOSED (lethal-inversion guard, ALL modes): a malformed/empty output OR a transport error
+src/polaris_graph/retrieval/contradiction_detector.py:327:#     FABRICATED ``possible_metric_mismatch`` (lethal in clinical context, §-1.1). We reject such a
+src/polaris_graph/retrieval/contradiction_detector.py:2010:# printed junk magnitudes (368100% / 3473.5%) in the report — the §-1.1-lethal
+src/polaris_graph/retrieval/contradiction_detector.py:2425:# signal", which is meaningless (and lethal in clinical context per §-1.1). This is
+src/polaris_graph/synthesis/claim_graph.py:19:  1. CONSERVATIVE-SINGLETON / under-merge (clinical-lethal if violated). Two atomic
+src/polaris_graph/synthesis/claim_graph.py:26:  2. RECALL-FIRST on contradictions / over-detect (a missed refutation is the lethal
+src/polaris_graph/synthesis/claim_graph.py:283:# the SOLE defence against over-merge — the clinical-lethal direction. Therefore
+src/polaris_graph/synthesis/claim_graph.py:462:        # SPLITS the lethal over-merge ("causes nausea WITH renal" vs "...WITHOUT"), and an
+src/polaris_graph/synthesis/claim_graph.py:514:    FAIL-CLOSED on two axes (the clinical-lethal direction is OVER-merge, so every
+src/polaris_graph/synthesis/claim_graph.py:845:        conflicts + review flags (the no-number lethal-miss class).
+src/polaris_graph/synthesis/finding_dedup.py:10:CONSERVATIVE-SINGLETON safety rule (brief §2.4 — clinical-lethal if violated):
+src/polaris_graph/synthesis/finding_dedup.py:1211:    REQUIRED HARD OVER-MERGE BLOCKERS (§-1.1 clinical-lethal if a false 'corroborated' renders;
+src/polaris_graph/synthesis/finding_dedup.py:1232:           calls clinical-lethal). This mirrors the VALIDATED-SAFE direct-to-primary pattern the
+src/polaris_graph/synthesis/finding_dedup.py:1455:         clinical-lethal).
+src/polaris_graph/synthesis/finding_dedup.py:1582:    lethal, so NONE of these blockers is optional):
+src/polaris_graph/roles/openrouter_role_transport.py:222:# 4-distinct-family check passed — a clinical-lethal self-verify collision (CLAUDE.md §9.1)
+src/polaris_graph/roles/openrouter_role_transport.py:305:    (clinical-lethal self-verify, CLAUDE.md §9.1). An IN-LANE override (same provider prefix)
+src/polaris_graph/roles/native_gate_b_inputs.py:518:# signal for the whole claim (conservative = SAFE under-credit, never lethal over-credit).
+src/polaris_graph/roles/native_gate_b_inputs.py:586:    contraindication is §-1.1-lethal; under-crediting is a safe disclosed gap under always-release):
+src/polaris_graph/wiki/mesh/store.py:425:        retrieve/lethal.py — this method only bumps the raw counter.
+src/polaris_graph/wiki/mesh/store.py:537:        **claim_b = neighbor** — the retrieval layer in lethal.py reads
+src/polaris_graph/roles/role_pipeline.py:13:Two safety properties this module guarantees (both clinical-lethal if absent):
+src/polaris_graph/wiki/mesh/compose/composer.py:4:Takes a RetrievalResult from Unit 5's lethal_retrieve, hydrates claims
+src/polaris_graph/wiki/mesh/compose/composer.py:113:        From Unit 5's lethal_retrieve.
+src/polaris_graph/wiki/mesh/qa/ask.py:34:from ..retrieve.lethal import lethal_retrieve
+src/polaris_graph/wiki/mesh/qa/ask.py:135:    retrieval = lethal_retrieve(
+src/polaris_graph/synthesis/content_dedup_consolidate.py:23:    clinical-lethal over-merge risk finding_dedup's conservative key guards against is
+scripts/iarch_beatboth011_multicited_synthesis_harness.py:21:        quantifier is the lethal direction.)
+src/polaris_graph/wiki/mesh/snowball.py:13:    - M4 (upload gravity): triggered during lethal re-rank (Unit 5)
+src/polaris_graph/wiki/mesh/snowball.py:14:    - M3 (contradiction penalty): triggered during lethal re-rank (Unit 5)
+src/polaris_graph/wiki/mesh/snowball.py:95:    Returns a multiplicative factor for lethal re-ranking. Upload
+src/polaris_graph/wiki/mesh/snowball.py:105:def lethal_snowball_score(
+src/polaris_graph/wiki/mesh/snowball.py:117:    This is the function Unit 5's lethal retrieval will call during
+src/polaris_graph/synthesis/credibility_pass.py:1178:        a contradiction (clinical-lethal). Each edge's ``claim_cluster_ids`` is rewritten through the
+src/polaris_graph/wiki/mesh/retrieve/__init__.py:1:"""Mesh retrieval package — lethal retrieval + gap classification."""
+src/polaris_graph/wiki/mesh/retrieve/__init__.py:4:from .lethal import RetrievalResult, lethal_retrieve
+src/polaris_graph/wiki/mesh/retrieve/__init__.py:11:    "lethal_retrieve",
+src/polaris_graph/wiki/mesh/retrieve/gap_classify.py:62:        Highest lethal score in the re-ranked output.
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:2:Mesh lethal retrieval — 6-stage algorithm (FIX D3, S5, S8).
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:20:  - Stage 6 (lethal re-rank): snowball formulas from snowball.py +
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:95:def lethal_retrieve(
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:105:    6-stage lethal retrieval.
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:209:    # ══════ STAGE 6: lethal re-rank ══════
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:211:    lethal_scored: list[tuple[str, float]] = []
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:240:        lethal = (
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:250:        lethal_scored.append((claim_id, lethal))
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:252:    lethal_scored.sort(key=lambda x: -x[1])
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:256:    main = lethal_scored[:main_k]
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:275:        max_score=lethal_scored[0][1] if lethal_scored else 0.0,
+src/polaris_graph/wiki/mesh/retrieve/lethal.py:279:        "lethal_retrieve: %d claims (seed=%d, entity=%d, walked=%d, "
+scripts/iarch011_prd_abstract_conclusion_replay_harness.py:12:clinical-lethal class the gate targeted; rather than ship a green harness over an unsound gate, PR-d
+scripts/iarch_beatboth011_dedup_replay_harness.py:195:            f"cross-reffed away; this is the lethal over-merge direction)"
+scripts/iarch_beatboth011_dedup_replay_harness.py:269:            f"away (the lethal over-merge Codex #1289 P1 flagged)."
+scripts/iarch_beatboth011_selfcert_relabel_replay_harness.py:8:corroborated). For a blind operator reading by ear that is the §-1.1 lethal-miss.
+scripts/iwire013_fast_render_audit.py:340:    #     the lethal §-1.1 case the I-wire-013 render-gate at _render_contradicts_block:L2464 removes).
+scripts/_retired_2026_06_14/pg_mesh_preflight.py:28:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+scripts/_retired_2026_06_14/pg_mesh_preflight.py:164:        retrieval = lethal_retrieve(
+scripts/diagnostics/mirror_reasoning_off_smoke.py:7:  - false_bind     (bound on UNGROUNDED claims — LOWER better, the §-1.1 lethal direction)
+scripts/diagnostics/sentinel_groundedness_probe.py:400:            "claims (B) — clinically lethal per §-1.1. The safe path is the locked self-hosted "
+scripts/diagnostics/sentinel_groundedness_probe.py:451:        "calls clinically lethal."
+scripts/dr_benchmark/offline_e2e.py:223:            # guardian -> `<score>no</score>` (no risk => grounded, lethal-polarity yes=risk);
+scripts/diagnostics/mirror_seam_bakeoff.py:272:    grounding — the §-1.1-lethal failure). So `false_bind_rate` gates hardest:
+scripts/diagnostics/mirror_seam_bakeoff.py:286:    # regardless of how clean its blank count is — that is the lethal direction for a voter.
+scripts/dr_benchmark/reconcile.py:5:disagreement, take the WORSE-of-two as the gating verdict — clinical-lethal framing means a
+scripts/run_honest_sweep_r3.py:1644:        is ON — the lethal prose-only contradiction class is covered).
+scripts/run_honest_sweep_r3.py:1666:            f"NLI contradiction detector runs (the prose-only lethal-miss class)."
+scripts/run_honest_sweep_r3.py:4285:    SUPPRESS a real Coverage-gaps disclosure — over-claiming completeness, the lethal direction. Keying
+scripts/run_honest_sweep_r3.py:5066:        # contradiction (a fabricated disagreement — lethal in clinical context, §-1.1). Skip it
+scripts/run_honest_sweep_r3.py:5078:        # category-error framing the detector rejected (lethal in clinical context, §-1.1). Disclose
+scripts/run_honest_sweep_r3.py:9617:        # assists the harmful objective (the §-1.1 lethality scenario). The classifier is HIGH-
+scripts/run_honest_sweep_r3.py:10138:        # lethal class). With the adequacy gate intact, a mis-classified clinical query still hits the
+scripts/run_honest_sweep_r3.py:12933:        # number and NO NegEx cue that the numeric+qualitative rule layers miss (the lethal-miss
+scripts/run_honest_sweep_r3.py:20346:                    # (over-claiming completeness, the lethal direction).
+tests/dr_benchmark/test_gate_a_dry_run.py:5:P2 option-(b) direct path), the per-role contract fixtures (Sentinel lethal-polarity, Judge
+tests/battery/cases/corroboration.py:56:        # lethal over-corroboration faithfulness failure this tool exists to catch.
+scripts/diagnostics/sentinel_bakeoff.py:785:             "**FA**=FALSE-ACCEPT (ungrounded wrongly passed — clinically lethal), "
+tests/integration/test_mesh_e2e.py:6:  canonicalize entities → discover edges → lethal_retrieve →
+tests/integration/test_mesh_e2e.py:31:from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+tests/integration/test_mesh_e2e.py:184:            # ── Step 6: lethal retrieve ──
+tests/integration/test_mesh_e2e.py:185:            retrieval = lethal_retrieve(
+scripts/dr_benchmark/gate_a_dry_run.py:21:      (lethal-polarity), Judge 5-enum (off-enum raises), Mirror two-pass binding holds.
+scripts/dr_benchmark/gate_a_dry_run.py:55:_SENTINEL_YES = "<score>yes</score>"  # yes = risk present = UNGROUNDED (lethal-polarity guard)
+scripts/dr_benchmark/gate_a_dry_run.py:226:    - Sentinel ``<score>yes</score>`` => UNGROUNDED (lethal-polarity: yes=risk=ungrounded).
+scripts/dr_benchmark/gate_a_dry_run.py:246:    # mode="guardian" is pinned so this lethal-polarity fixture is mode-deterministic regardless of
+tests/polaris_graph/test_atom_refusal_validator.py:177:    lethal in clinical context."""
+tests/polaris_graph/test_analyst_synthesis_safety.py:22:# --- (B) negation screen: the lethal fabrication class is DROPPED fail-closed --------------------
+tests/polaris_graph/test_deepfix_p4_qualitative_nli_union.py:22:class §-1.1 calls clinical-lethal. So the union is guarded by a STRICT bidirectional requirement
+tests/polaris_graph/test_deepfix_p4_qualitative_nli_union.py:74:# were never scored as the same claim — a false-'corroborated' render chain (§-1.1 clinical-lethal).
+tests/polaris_graph/test_deepfix_p4_qualitative_nli_union.py:256:    a false-'corroborated' render chain (§-1.1 clinical-lethal)."""
+tests/polaris_graph/test_deepfix_p4_qualitative_nli_union.py:298:    (B), never against the head (§-1.1 clinical-lethal)."""
+tests/polaris_graph/test_bug7_completeness_drug_applicability_iarch006.py:14:topic silently disables a real safety abort — that is the lethal failure mode.
+tests/polaris_graph/test_bug7_completeness_drug_applicability_iarch006.py:196:    """The lethal symptom: the CRITICAL contraindications topic must NOT apply to
+tests/polaris_graph/test_complexity_router_iready006.py:100:    # to the 1-source simple adequacy profile (lethal-class under-serving per §-1.1).
+tests/polaris_graph/test_deepfix_contradiction_unitless_p1.py:8:contradiction is the §-1.1-lethal "mislabel a real finding" class, so this is locked by a test.
+tests/polaris_graph/test_deepfix_w4sl_s5_l1_l2_l3.py:234:    immunocompromised) drops — the lethal mis-population."""
+tests/polaris_graph/test_provenance_generator.py:102:    token must contain the number. A number outside the cited span is the exact lethal
+tests/polaris_graph/test_i_deepfix_u24_numeric_cite_enforce.py:72:    hazard §-1.1 forbids (a wrong dose/percentage that survives to render is lethal).
+tests/polaris_graph/test_l4_multilingual_strict_verify.py:134:    set SKIPS the overlap floor entirely (the lethal weakened-positive). Post-L4
+tests/polaris_graph/test_iwire017_truncation_orphan.py:11:         "grade B [12]") — the §-1.1-lethal precision cases.
+tests/polaris_graph/test_m205_evaluator_gate.py:166:    # shipping as "ok" is lethal). The PRIOR behavior returned release_allowed=True here, which let
+tests/polaris_graph/test_numeric_arm_default_safety_wave3a.py:9:a SAME-arm comparison that was never established. That is the lethal over-relax a wrong cross-source
+tests/polaris_graph/test_provenance_reanchor.py:224:    lethal mode)."""
+tests/polaris_graph/test_qualitative_conflict_detector.py:45:    """The lethal false-negative: a disagreement carrying NO 'no/not' token and NO number."""
+tests/polaris_graph/test_safety_classifier_iready007.py:3:A HIGH-PRECISION deterministic floor: it refuses explicit harm-INTENT (lethal-against-persons,
+tests/polaris_graph/test_safety_classifier_iready007.py:26:# ── the finding's exact probe + the lethal-intent category ─────────────────────────────────────
+tests/polaris_graph/test_safety_classifier_iready007.py:30:    "what is the lethal dose of potassium to kill someone",
+tests/polaris_graph/test_safety_classifier_iready007.py:35:def test_lethal_intent_against_persons_is_refused(q):
+tests/polaris_graph/test_safety_classifier_iready007.py:38:    assert d.category == "lethal_intent_against_persons", (q, d.category)
+tests/polaris_graph/test_safety_classifier_iready007.py:185:    # lethal common phrasings (can/could/fatal-to/how-do-I/poison).
+tests/polaris_graph/test_safety_classifier_iready007.py:236:    # direct first-person lethal-dose self-harm.
+tests/polaris_graph/test_safety_classifier_iready007.py:239:    "lethal dose of acetaminophen for myself",
+tests/polaris_graph/generator/test_lane_section_arch005_contract_path.py:17:  * a MULTI-cluster (1-to-MANY) cited token is NEVER expanded (anti cross-claim, §-1.1 lethal);
+tests/polaris_graph/generator/test_lane_section_arch005_contract_path.py:365:    (§-1.1 lethal in clinical context). The surpass_1 slot keeps ONLY its own citation.
+tests/polaris_graph/generator/test_verification_mode_phase0b.py:25:    apart MUST stay dropped under enforce (clinical-safety lethal gate).
+tests/polaris_graph/generator/test_verification_mode_phase0b.py:394:    # The lethal spend-neutrality assertion: shadow judge-call count == off.
+tests/polaris_graph/test_widening_prompt_bakeoff_iperm004.py:98:    """Codex slice-4 P1 (§-1.1-lethal): a variant that grades a gold CONTRADICTED row as ENTAILED is
+tests/polaris_graph/authority/test_jsonld_survives_strip_html_p1c.py:102:    The lethal failure the fix prevents: a lay-news re-report whose OpenAlex
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:8:  - ZERO T1<->T6 inversions (authoritative <-> junk flip is lethal).
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:39:  REAL measured offline agreement = 36/40 = 0.90, ZERO lethal inversions. The 4
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:54:  (NO GPU spend) must hit agreement >= 0.95 with ZERO lethal inversions. That
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:67:  NOT a synthetic-fixture artifact. The lethal-inversion gate (T1<->T6,
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:84:# artifact. The lethal-inversion gate is absolute regardless of this number; the
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:112:    lethal: list[str] = []
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:139:            lethal.append(f"T1<->T6 inversion: {e['url']} (head={head} view={view})")
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:141:            lethal.append(f"T1/T2<->T7 collapse: {e['url']} (head={head} view={view})")
+tests/polaris_graph/authority/test_authority_reproduces_clinical_tier_view.py:168:    assert not lethal, f"S2 LETHAL inversion(s) detected: {lethal}"
+tests/polaris_graph/generator/test_claim_labeler_iperm005.py:45:    # The lethal over-confidence the reframe must not introduce.
+tests/polaris_graph/generator/test_breadth_corroborator_faithfulness_iarch007.py:18:(§-1.1 lethal; the Codex scope-lock at ``contract_section_runner.py:386-397`` records this
+tests/polaris_graph/generator/test_cross_source_body_wave2a.py:277:    whose unit was never established (%-points vs mmol/mol) is the lethal over-relax. Must fail closed."""
+tests/polaris_graph/generator/test_depth_synthesis.py:246:    # verbatim lifts — the sub-label must say so (§-1.1 misstated-provenance is lethal).
+tests/polaris_graph/synthesis/test_finding_dedup_nli_wave1b.py:160:    basket head's corroboration with a claim that only entails a sibling — §-1.1 clinical-lethal)."""
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:3:Covers the deterministic boilerplate classifier and the entailing-span ARGMAX. The §-1.1-lethal
+tests/polaris_graph/replay/test_drb76_baseline.py:99:        ("5 mg dose", "given 50 mg daily", True, "substring 5-in-50 (lethal)"),
+tests/polaris_graph/roles/test_coverage_binder_iperm020.py:136:# --- ON: over-credit is impossible (the lethal direction) ------------------------------------
+tests/polaris_graph/roles/test_coverage_binder_iperm020.py:153:        # Negated / inverted — MUST refuse (the §-1.1-lethal case).
+tests/polaris_graph/roles/test_coverage_binder_iperm020.py:413:# THE lethal-direction property: the binder credits at build time, but release_policy's S0 must-cover
+tests/polaris_graph/synthesis/test_c2_qualitative_nli_allmembers.py:10:Over-merge canaries (§-1.1 clinical-lethal if a false 'corroborated' renders):
+tests/polaris_graph/roles/test_semantic_contraindication_iperm002.py:95:# --- ON: the negation guard makes over-credit impossible (§-1.1-lethal direction) ------------
+tests/polaris_graph/synthesis/test_finding_dedup_phase5.py:88:# ── P5-3 NO unique-claim loss (clinical-lethal) ──────────────────────────────
+tests/polaris_graph/synthesis/test_claim_graph_phase5.py:105:    is the clinical-lethal failure mode this invariant forbids."""
+tests/polaris_graph/synthesis/test_claim_graph_phase5.py:262:    """RECALL-FIRST on the no-number lethal-miss class: a present-vs-absent
+tests/polaris_graph/synthesis/test_claim_graph_merge_key_arch002.py:9:design §0), so the lethal direction is OVER-merge — every ambiguity must resolve to a
+tests/polaris_graph/synthesis/test_claim_graph_merge_key_arch002.py:544:    fail-closed). They MUST NOT share a key — the lethal over-merge is impossible."""
+tests/polaris_graph/synthesis/test_claim_graph_merge_key_arch002.py:575:# lethal direction. The scoped back-walk stops at the "in" population introducer.
+tests/roles/test_openrouter_role_transport_meta007.py:615:    # P1-1 clinical-lethal guard / the BINDING NEGATIVE case: an UNLISTED same-family collision
+tests/roles/test_sentinel_contract.py:176:# --- explicit anti-inversion guard (the lethal property) ---------------------------
+tests/roles/test_sentinel_contract.py:269:    """The lethal property for the non-inverted contract: no ambiguous/garbage input may yield a
+tests/roles/test_sentinel_contract.py:486:    """The lethal property: no malformed/garbage input may yield GROUNDED. The ONLY GROUNDED path
+tests/roles/test_sentinel_atom_coverage_f06.py:8:risk (§-1.1 lethal: a missed contraindication).
+tests/roles/test_sweep_integration.py:144:    (the lethal-safety invariant: a Sentinel-UNGROUNDED claim can never ride prefilled coverage)."""
+tests/unit/test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+tests/unit/test_mesh_lethal_retrieve.py:10:  - Stage 6: lethal re-rank with snowball + exploration reservation
+tests/unit/test_mesh_lethal_retrieve.py:22:    python -m pytest tests/unit/test_mesh_lethal_retrieve.py -v
+tests/unit/test_mesh_lethal_retrieve.py:39:from src.polaris_graph.wiki.mesh.retrieve.lethal import (
+tests/unit/test_mesh_lethal_retrieve.py:44:    lethal_retrieve,
+tests/unit/test_mesh_lethal_retrieve.py:151:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:173:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:196:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:207:            lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:246:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:286:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:321:        result = lethal_retrieve(
+tests/unit/test_mesh_lethal_retrieve.py:348:        result = lethal_retrieve(
+tests/unit/test_mesh_claim_extract.py:480:        # invisible to lethal retrieval (Unit 5's entry path).
+tests/unit/test_mesh_snowball.py:11:  - Composite lethal_snowball_score
+tests/unit/test_mesh_snowball.py:28:    lethal_snowball_score,
+tests/unit/test_mesh_snowball.py:137:        assert lethal_snowball_score(base_score=0.8) == pytest.approx(0.8)
+tests/unit/test_mesh_snowball.py:140:        score = lethal_snowball_score(
+tests/unit/test_mesh_snowball.py:158:        no_c = lethal_snowball_score(base_score=1.0, has_contradiction=False)
+tests/unit/test_mesh_snowball.py:159:        with_c = lethal_snowball_score(base_score=1.0, has_contradiction=True)
+tests/unit/test_mesh_snowball.py:164:        web = lethal_snowball_score(base_score=1.0, is_upload=False)
+tests/unit/test_mesh_snowball.py:165:        upload = lethal_snowball_score(base_score=1.0, is_upload=True)
+tests/unit/test_mesh_snowball.py:171:        score = lethal_snowball_score(
+tests/unit/test_mesh_snowball.py:186:        score = lethal_snowball_score(
