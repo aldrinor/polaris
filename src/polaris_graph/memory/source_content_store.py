@@ -18,16 +18,17 @@ from typing import Optional
 
 import aiosqlite
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path(os.getenv("PG_CACHE_DIR", "state"))
+CACHE_DIR = Path(resolve("PG_CACHE_DIR"))
 STORE_DB = CACHE_DIR / "pg_source_content.sqlite"
 
 # Feature flag (LAW VI: from env var)
-PG_SOURCE_CONTENT_STORE_ENABLED = os.getenv("PG_SOURCE_CONTENT_STORE_ENABLED", "1") == "1"
+PG_SOURCE_CONTENT_STORE_ENABLED = resolve("PG_SOURCE_CONTENT_STORE_ENABLED") == "1"
 
 
 def _normalize_url(url: str) -> str:

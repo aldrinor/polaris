@@ -38,6 +38,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -369,7 +370,7 @@ def _live_enabled() -> bool:
     ``OPENROUTER_API_KEY`` alone is not sufficient — the flag must be truthy —
     which keeps unit runs hermetic even on a developer box that has a key.
     """
-    return os.getenv("PG_CONSTRAINT_EXTRACT_LIVE", "0").strip().lower() in (
+    return resolve("PG_CONSTRAINT_EXTRACT_LIVE").strip().lower() in (
         "1",
         "true",
         "yes",

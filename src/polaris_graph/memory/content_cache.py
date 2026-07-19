@@ -14,17 +14,18 @@ from typing import Optional
 
 import aiosqlite
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path(os.getenv("PG_CACHE_DIR", "state"))
+CACHE_DIR = Path(resolve("PG_CACHE_DIR"))
 CACHE_DB = CACHE_DIR / "pg_content_cache.sqlite"
-DEFAULT_TTL_HOURS = int(os.getenv("PG_CONTENT_CACHE_TTL_HOURS", "168"))  # 7 days
+DEFAULT_TTL_HOURS = int(resolve("PG_CONTENT_CACHE_TTL_HOURS"))  # 7 days
 
 # A1.1: Cap raw HTML storage to prevent SQLite bloat (LAW VI).
-_RAW_HTML_MAX_CHARS = int(os.getenv("PG_RAW_HTML_MAX_CHARS", "500000"))  # 500KB
+_RAW_HTML_MAX_CHARS = int(resolve("PG_RAW_HTML_MAX_CHARS"))  # 500KB
 
 
 def extract_readability_html(raw_html: str) -> str:

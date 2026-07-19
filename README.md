@@ -1,8 +1,13 @@
-# POLARIS
+# Deep Cove Research
 
 High-integrity research pipeline: turns a plain-language research
 question into a grounded, per-sentence-verified markdown report with
 bibliography, corpus-approval gate, and a separate-family evaluator.
+
+> **Internal codename:** *Polaris*. You will still see `polaris_*` packages, `PG_*` env flags, and
+> `/workspace/POLARIS` paths throughout the code — that is the engine's codename, not the product
+> name. De-branding of internal identifiers is deliberate and gradual so it never destabilizes the
+> running pipeline.
 
 ## v6.2 mission state (2026-05-04)
 
@@ -53,7 +58,12 @@ days before the v6.2 cutover) plus the legacy CLI. See
 python -m venv .venv
 .venv\Scripts\activate    # Windows
 # source .venv/bin/activate  # macOS/Linux
-pip install -r requirements.txt
+pip install -r requirements.txt   # dev convenience set (un-hashed)
+
+# For a reproducible, supply-chain-verified install, use the pinned+hashed lock
+# instead (Python 3.11.10, pinned in .python-version):
+#   pip install --require-hashes --no-deps -r requirements.hashed.txt
+# See docs/review_readiness/reproducible_build.md for the SBOM + two-build hash-match method.
 
 # 2. Configure — set these in .env
 #    OPENROUTER_API_KEY=...     (required for generator + evaluator)
