@@ -96,3 +96,48 @@ def resolve(key: str) -> str | None:
     if key not in CONFIG_DEFAULTS:
         raise KeyError(f"{key!r} is not a registered config key (multi-line/computed/conflicting — migrate manually)")
     return os.getenv(key, CONFIG_DEFAULTS[key])
+
+
+# ── Computed-default accessors (Phase ACC) ───────────────────────────────────
+# The long-tail ``resolve()`` above only owns single-line *string-literal* defaults. The three keys
+# below have a genuinely *computed* default (a module-local const REDEFINED cross-module, or an
+# arithmetic-expression default under ``int()`` coercion) and are read at 2+ call sites — so each
+# gets a typed getter that owns its computed default ONCE. Each is BYTE-IDENTICAL to the call sites
+# it replaces: same env key, same default value, same coercion, same ``os.getenv`` env precedence
+# (a fresh read of the CURRENT environment on every call, like the originals).
+
+# Cross-module const, duplicated verbatim in entailment_judge.py:107 and
+# semantic_conflict_detector.py:80. Owned here once so a drift in one copy cannot silently diverge
+# the entailment model across the two NLI paths.
+_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.2"
+
+# docling OOM gate default, duplicated verbatim at access_bypass.py:5781 and :5950.
+_DEFAULT_MAX_DOCLING_PDF_BYTES = 5 * 1024 * 1024
+
+# Cross-module const, duplicated verbatim in broker.py:22 and run_events.py:24.
+_DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+
+
+def get_entailment_model() -> str:
+    """``os.environ.get("PG_ENTAILMENT_MODEL", "z-ai/glm-5.2")`` — byte-identical, no coercion."""
+    import os
+
+    return os.environ.get("PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL)
+
+
+def get_max_docling_pdf_bytes() -> int:
+    """``int(os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(5 * 1024 * 1024)))`` — byte-identical.
+
+    Raises ``TypeError``/``ValueError`` on a non-integer override exactly as the inline ``int()``
+    did (the call sites already ``try/except (TypeError, ValueError)`` around these reads).
+    """
+    import os
+
+    return int(os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(_DEFAULT_MAX_DOCLING_PDF_BYTES)))
+
+
+def get_v6_redis_url() -> str:
+    """``os.environ.get("POLARIS_V6_REDIS_URL", "redis://localhost:6379/0")`` — byte-identical."""
+    import os
+
+    return os.environ.get("POLARIS_V6_REDIS_URL", _DEFAULT_REDIS_URL)
