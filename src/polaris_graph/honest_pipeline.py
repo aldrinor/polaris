@@ -67,6 +67,96 @@ from src.polaris_graph.retrieval.tier_classifier import (
 logger = logging.getLogger("polaris_graph.honest_pipeline")
 
 
+# ── Plan V4 2C: generation checkpoint (pre-check data only) ────────────────
+# Pipeline A (this file) is a synchronous, non-LangGraph orchestrator, so the
+# LangGraph AsyncSqliteSaver in checkpoint_manager cannot be reused here. We
+# persist ONLY pre-check data (the draft + retrieved evidence_pool) needed to
+# resume — NEVER a strict_verify verdict. On resume the draft is reloaded but
+# strict_verify is re-run from scratch (see run_honest_pipeline), so a
+# poisoned/partial verdict can never be trusted from disk.
+#
+# SAFETY: every read/write below is gated behind PG_CHECKPOINT_ENABLED (default
+# '0'). When the flag is OFF, _pg2c_checkpoint_enabled() returns False and none
+# of this code runs — the generation path is byte-identical to today.
+
+
+def _pg2c_checkpoint_enabled() -> bool:
+    """True only when PG_CHECKPOINT_ENABLED == '1'. Default is '0' (off)."""
+    from src.polaris_graph.settings import resolve
+
+    return resolve("PG_CHECKPOINT_ENABLED") == "1"
+
+
+def _pg2c_checkpoint_path(run_id: str) -> Path:
+    """Location of the pre-check draft checkpoint for a run (never a verdict)."""
+    from src.polaris_graph.settings import resolve
+
+    return Path(resolve("PG_CHECKPOINT_DIR")) / f"pg2c_precheck_{run_id}.json"
+
+
+def _pg2c_save_precheck(
+    run_id: str,
+    draft_text: str,
+    evidence_pool: dict[str, Any],
+) -> None:
+    """Persist pre-check data (draft + evidence) so a restart can re-verify.
+
+    Writes ONLY the draft and the retrieved evidence_pool — never the
+    strict_verify outcome. Best-effort: any failure is logged and swallowed so
+    checkpointing can never break generation.
+    """
+    try:
+        path = _pg2c_checkpoint_path(run_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "draft_text": draft_text,
+                    "evidence_pool": evidence_pool,
+                },
+                indent=2, sort_keys=True, default=str,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        logger.info(
+            "[polaris graph] 2C: saved pre-check checkpoint for %s (%s)",
+            run_id, path,
+        )
+    except Exception as exc:  # pragma: no cover - best effort
+        logger.warning(
+            "[polaris graph] 2C: failed to save pre-check checkpoint for %s: %s",
+            run_id, str(exc)[:200],
+        )
+
+
+def _pg2c_load_precheck(run_id: str) -> dict[str, Any] | None:
+    """Load pre-check data (draft + evidence_pool) if a checkpoint exists.
+
+    Returns None when no usable checkpoint is present. NEVER returns a verdict —
+    the caller re-runs strict_verify from scratch on the loaded draft.
+    """
+    try:
+        path = _pg2c_checkpoint_path(run_id)
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or "draft_text" not in data:
+            return None
+        logger.info(
+            "[polaris graph] 2C: reloaded pre-check checkpoint for %s — "
+            "re-running strict_verify from scratch (no saved verdict trusted)",
+            run_id,
+        )
+        return data
+    except Exception as exc:  # pragma: no cover - best effort
+        logger.warning(
+            "[polaris graph] 2C: failed to load pre-check checkpoint for %s: %s",
+            run_id, str(exc)[:200],
+        )
+        return None
+
+
 # Canonical tier order for the "Actual distribution" disclosure. ALL seven
 # tiers are ALWAYS shown (including 0% ones) so the disclosure has no gap.
 _DISCLOSURE_TIER_ORDER = ("T1", "T2", "T3", "T4", "T5", "T6", "T7")
@@ -203,6 +293,17 @@ def run_honest_pipeline(
     """
     run_dir_path = Path(run_dir)
     run_dir_path.mkdir(parents=True, exist_ok=True)
+
+    # ── Plan V4 2C: reload pre-check checkpoint (flag-gated) ────────────
+    # On restart with PG_CHECKPOINT_ENABLED=1 and a checkpoint present, restore
+    # the saved draft (pre-check data only) so we can re-verify from scratch.
+    # The strict_verify verdict is NEVER restored — it is recomputed at the
+    # Phase 4 step below on the reloaded draft. When the flag is OFF this block
+    # is skipped entirely (byte-identical to today).
+    if _pg2c_checkpoint_enabled():
+        _pg2c_reloaded = _pg2c_load_precheck(run_id)
+        if _pg2c_reloaded is not None:
+            draft_text = _pg2c_reloaded.get("draft_text", draft_text)
 
     # ── Phase 2b: scope gate ────────────────────────────────────────────
     scope_result = run_scope_gate(
@@ -341,6 +442,14 @@ def run_honest_pipeline(
     # the ``[#ev:]`` span path (``number_not_in_any_cited_span`` still fires), so this only
     # OPENS the verified compute lane in production — it never widens the render surface.
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
+    # ── Plan V4 2C: save pre-check checkpoint (flag-gated) ──────────────
+    # Persist the draft + evidence_pool as pre-check resume data BEFORE the
+    # strict_verify verdict is computed — the verdict itself is never saved, so
+    # a resumed run always re-verifies from scratch. The entire write is guarded
+    # by PG_CHECKPOINT_ENABLED; with the flag OFF this block is a no-op and the
+    # generation path is byte-identical to today.
+    if _pg2c_checkpoint_enabled():
+        _pg2c_save_precheck(run_id, draft_text, evidence_pool)
     strict = strict_verify(draft_text, evidence_pool, quantified_models=quantified_models)
     rendered_text, biblio = resolve_provenance_to_citations(
         strict.kept_sentences, evidence_pool,
