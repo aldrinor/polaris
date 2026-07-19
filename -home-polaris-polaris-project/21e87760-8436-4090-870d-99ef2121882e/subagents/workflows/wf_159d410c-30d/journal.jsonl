@@ -1,1 +1,3 @@
 {"type":"started","key":"v2:274f04e234383f4ef5bafa67470a3b4257de6709a939d35c014c55368a22d981","agentId":"a37806c67d2fdb3ad"}
+{"type":"result","key":"v2:274f04e234383f4ef5bafa67470a3b4257de6709a939d35c014c55368a22d981","agentId":"a37806c67d2fdb3ad","result":{"danglings_fixed":2,"dangling_method":"delete-scripts","lethal_renamed":true,"lethal_new_name":"high_recall_retrieve","collection_after":"16738 collected, 11 errors (unchanged from baseline; all 11 are pre-existing missing-module import errors unrelated to this change)"}}
+{"type":"started","key":"v2:4aded1a6563346ec584996961ea8a71a326fa440e3d1c5f5dbd8ecf2a512bf9b","agentId":"a1a72c5eba509ef72"}
