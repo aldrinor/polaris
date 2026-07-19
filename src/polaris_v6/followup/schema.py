@@ -26,6 +26,8 @@ class FollowUpRequest(BaseModel):
 
 
 class FollowUpAnswer(BaseModel):
+    """Answer to a follow-up question, carrying status, evidence ids, and rationale."""
+
     parent_run_id: str
     question: str
     status: FollowUpStatus
