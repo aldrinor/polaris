@@ -58,6 +58,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Literal
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.slot_fill")
 
@@ -645,7 +646,7 @@ def _slot_prose_sentence_cites_enabled() -> bool:
     truthy value (1/true/on/yes). Unset / empty / anything else => OFF =>
     byte-identical current output (LAW VI env-overridable, DEFAULT OFF)."""
     return (
-        os.getenv("PG_SLOT_PROSE_SENTENCE_CITES", "").strip().lower()
+        resolve("PG_SLOT_PROSE_SENTENCE_CITES").strip().lower()
         in _SLOT_PROSE_SENTENCE_CITES_ON_VALUES
     )
 

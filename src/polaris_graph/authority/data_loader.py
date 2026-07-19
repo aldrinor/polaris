@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from src.polaris_graph.settings import resolve
 
 
 class AuthorityDataError(RuntimeError):
@@ -28,7 +29,7 @@ _DEFAULT_DATA_DIR = Path(__file__).resolve().parents[3] / "config" / "authority"
 
 def _data_dir() -> Path:
     """Data dir, overridable via env for tests (LAW VI — no hardcode)."""
-    override = os.getenv("PG_AUTHORITY_DATA_DIR", "")
+    override = resolve("PG_AUTHORITY_DATA_DIR")
     return Path(override) if override else _DEFAULT_DATA_DIR
 
 

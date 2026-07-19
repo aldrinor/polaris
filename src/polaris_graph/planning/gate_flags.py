@@ -15,10 +15,11 @@ never itself drops a source or alters faithfulness.
 from __future__ import annotations
 
 import os
+from src.polaris_graph.settings import resolve
 
 _TRUTHY = ("1", "true", "yes", "on")
 
 
 def gate_enabled() -> bool:
     """True iff the planning-gate retrieval projection is wired ON (default OFF)."""
-    return os.getenv("PG_GATE", "0").strip().lower() in _TRUTHY
+    return resolve("PG_GATE").strip().lower() in _TRUTHY

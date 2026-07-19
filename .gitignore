@@ -280,3 +280,4 @@ nda/
 third_party/deep_research_bench/
 third_party/**/.git/
 outputs/live_compose/
+baseline/

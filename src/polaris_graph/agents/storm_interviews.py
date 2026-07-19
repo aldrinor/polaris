@@ -31,6 +31,7 @@ from src.polaris_graph.llm.openrouter_client import (
 )
 from src.polaris_graph.state import ResearchState, STORM_PERSPECTIVES
 from src.polaris_graph.tracing import get_tracer
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +40,10 @@ logger = logging.getLogger(__name__)
 # Configuration (LAW VI: all from env vars with defaults)
 # ---------------------------------------------------------------------------
 
-PG_STORM_ENABLED = os.getenv("PG_STORM_ENABLED", "0") == "1"
-PG_STORM_PERSPECTIVES_COUNT = int(os.getenv("PG_STORM_PERSPECTIVES_COUNT", "8"))
-PG_STORM_ROUNDS_PER_PERSPECTIVE = int(os.getenv("PG_STORM_ROUNDS_PER_PERSPECTIVE", "4"))
-PG_STORM_MAX_TIME_SECONDS = int(os.getenv("PG_STORM_MAX_TIME_SECONDS", "600"))
+PG_STORM_ENABLED = resolve("PG_STORM_ENABLED") == "1"
+PG_STORM_PERSPECTIVES_COUNT = int(resolve("PG_STORM_PERSPECTIVES_COUNT"))
+PG_STORM_ROUNDS_PER_PERSPECTIVE = int(resolve("PG_STORM_ROUNDS_PER_PERSPECTIVE"))
+PG_STORM_MAX_TIME_SECONDS = int(resolve("PG_STORM_MAX_TIME_SECONDS"))
 PG_STORM_QUESTIONS_MAX_TOKENS = int(os.getenv("PG_STORM_QUESTIONS_MAX_TOKENS", "1024"))
 PG_STORM_ANSWER_MAX_TOKENS = int(os.getenv("PG_STORM_ANSWER_MAX_TOKENS", "2048"))
 
@@ -66,7 +67,7 @@ def _resolve_interview_timeout() -> int:
         Gate-B slate's set_generator_timeout_seconds), never regress below the historical 300s.
     The $ hard cap, not this clock, is the spend backstop.
     """
-    explicit = os.getenv("PG_STORM_INTERVIEW_TIMEOUT")
+    explicit = resolve("PG_STORM_INTERVIEW_TIMEOUT")
     if explicit is not None:
         return int(explicit)
     return max(_STORM_INTERVIEW_TIMEOUT_FLOOR, get_generator_timeout_seconds())
@@ -81,7 +82,7 @@ _STORM_OUTLINE_TIME_RESERVE_FLOOR_S = 90.0
 # BUG-9 (#1262): absolute minimum wall-clock (seconds) below which the real outline LLM call
 # cannot even be started; below this the DISCLOSED fallback outline is used. Named to retire
 # the historical magic ``15.0`` literal (LAW VI). Operator-overridable.
-_STORM_OUTLINE_MIN_VIABLE_S = float(os.getenv("PG_STORM_OUTLINE_MIN_VIABLE_S", "15"))
+_STORM_OUTLINE_MIN_VIABLE_S = float(resolve("PG_STORM_OUTLINE_MIN_VIABLE_S"))
 
 
 def _resolve_outline_time_reserve() -> float:
@@ -110,7 +111,7 @@ def _resolve_outline_time_reserve() -> float:
     per §-1.3 "disclose, don't silently drop". This is a budget RESERVATION + disclosure,
     never a coverage target/cap.
     """
-    explicit = os.getenv("PG_STORM_OUTLINE_TIME_RESERVE_S")
+    explicit = resolve("PG_STORM_OUTLINE_TIME_RESERVE_S")
     if explicit is not None:
         try:
             return max(0.0, float(explicit))
@@ -134,8 +135,8 @@ def _resolve_outline_time_reserve() -> float:
 # generous budget is honored only up to that cap — a CAP, not a target (billed by actual usage).
 PG_STORM_OUTLINE_MAX_TOKENS = int(os.getenv("PG_STORM_OUTLINE_MAX_TOKENS", "64000"))
 PG_STORM_PERSONA_MAX_TOKENS = int(os.getenv("PG_STORM_PERSONA_MAX_TOKENS", "2048"))
-PG_STORM_SEARCH_QUERIES_PER_QUESTION = int(os.getenv("PG_STORM_SEARCH_QUERIES_PER_QUESTION", "3"))
-PG_STORM_WEB_RESULTS_PER_QUERY = int(os.getenv("PG_STORM_WEB_RESULTS_PER_QUERY", "5"))
+PG_STORM_SEARCH_QUERIES_PER_QUESTION = int(resolve("PG_STORM_SEARCH_QUERIES_PER_QUESTION"))
+PG_STORM_WEB_RESULTS_PER_QUERY = int(resolve("PG_STORM_WEB_RESULTS_PER_QUERY"))
 
 
 # ---------------------------------------------------------------------------
@@ -619,7 +620,7 @@ def _dedup_personas(
     if len(personas) <= 1:
         return personas
 
-    dedup_threshold = float(os.getenv("PG_STORM_PERSONA_DEDUP_THRESHOLD", "0.70"))
+    dedup_threshold = float(resolve("PG_STORM_PERSONA_DEDUP_THRESHOLD"))
     deduped: list[StormPersona] = []
     dropped_count = 0
 
@@ -1222,7 +1223,7 @@ async def _generate_outline_from_conversations(
                     max_tokens=PG_STORM_OUTLINE_MAX_TOKENS,
                     reasoning_enabled=True,
                 ),
-                timeout=float(os.getenv("PG_STORM_OUTLINE_CALL_TIMEOUT_S", "300")),
+                timeout=float(resolve("PG_STORM_OUTLINE_CALL_TIMEOUT_S")),
             )
 
         if result and result.sections:
@@ -1407,7 +1408,7 @@ async def run_storm_interviews(
     # FIX-PARALLEL: Run STORM interviews concurrently with semaphore control.
     # Pre-allocate time budget per persona (total budget / persona count).
     # Previous: sequential loop meant later personas got exponentially less time.
-    storm_concurrency = int(os.getenv("PG_STORM_CONCURRENCY", "4"))
+    storm_concurrency = int(resolve("PG_STORM_CONCURRENCY"))
     storm_sem = asyncio.Semaphore(storm_concurrency)
     # BUG-9 (#1262): RESERVE a disclosed slice of the budget for Phase 3 outline generation
     # BEFORE dividing the rest across personas. Without this carve-out the parallel interview

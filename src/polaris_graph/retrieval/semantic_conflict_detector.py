@@ -57,6 +57,7 @@ from src.polaris_graph.llm.judge_reasoning_block import build_judge_reasoning_bl
 # NLI conflict side-judge pins the SAME mirror chain, so it shares the ONE global slot pool that caps
 # TOTAL glm-5.2 mirror POSTs in flight. Transport-only; the (label, confidence) logic is unchanged. LAW VI.
 from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +84,12 @@ _JUDGE_TIMEOUT_S = 30.0
 # trips fast; keep-alives reset the timer so a slow-but-alive judge is unaffected) + bounded keepalive to
 # reap half-open CLOSE_WAIT sockets. Transport-only — the fail-open ("neutral", 0.0) verdict logic that
 # prevents a transient outage from FABRICATING a conflict is UNCHANGED. (LAW VI: env-driven.)
-_JUDGE_CONNECT_S = float(os.getenv("PG_NLI_CONFLICT_CONNECT_S", "30"))
-_JUDGE_READ_STALL_S = float(os.getenv("PG_NLI_CONFLICT_READ_STALL_S", "120"))
-_JUDGE_WRITE_S = float(os.getenv("PG_NLI_CONFLICT_WRITE_S", "60"))
-_JUDGE_POOL_S = float(os.getenv("PG_NLI_CONFLICT_POOL_S", "30"))
-_JUDGE_MAX_KEEPALIVE = int(os.getenv("PG_NLI_CONFLICT_MAX_KEEPALIVE", "8"))
-_JUDGE_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_NLI_CONFLICT_KEEPALIVE_EXPIRY_S", "30"))
+_JUDGE_CONNECT_S = float(resolve("PG_NLI_CONFLICT_CONNECT_S"))
+_JUDGE_READ_STALL_S = float(resolve("PG_NLI_CONFLICT_READ_STALL_S"))
+_JUDGE_WRITE_S = float(resolve("PG_NLI_CONFLICT_WRITE_S"))
+_JUDGE_POOL_S = float(resolve("PG_NLI_CONFLICT_POOL_S"))
+_JUDGE_MAX_KEEPALIVE = int(resolve("PG_NLI_CONFLICT_MAX_KEEPALIVE"))
+_JUDGE_KEEPALIVE_EXPIRY_S = float(resolve("PG_NLI_CONFLICT_KEEPALIVE_EXPIRY_S"))
 # I-arch-007 BUG-2 (verify-hang, 2026-06-17): the read-stall above (read=_JUDGE_READ_STALL_S) is a per-read
 # GAP timeout that httpx RESETS on every received byte. OpenRouter/Cloudflare holds the NLI-conflict judge
 # socket ESTABLISHED and TRICKLES keep-alive bytes (chunked keep-alives), so the gap timer never elapses and
@@ -103,7 +104,7 @@ _JUDGE_KEEPALIVE_EXPIRY_S = float(os.getenv("PG_NLI_CONFLICT_KEEPALIVE_EXPIRY_S"
 # only: the (label, confidence) verdict logic + the strict-fail-closed contract are UNCHANGED. LAW VI:
 # env-driven; default 150s comfortably exceeds a real high-effort GLM-5.1 NLI call (~6-40s observed) while
 # bounding the trickle hang.
-_JUDGE_TOTAL_S = float(os.getenv("PG_NLI_CONFLICT_TOTAL_S", "150"))
+_JUDGE_TOTAL_S = float(resolve("PG_NLI_CONFLICT_TOTAL_S"))
 
 
 def _post_with_total_deadline(client, endpoint, headers, json_body, total_s):

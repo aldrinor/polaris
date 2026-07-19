@@ -99,6 +99,7 @@ from src.polaris_graph.generator.cross_section_repetition_guard import (
     consolidate_cross_section_repetition,
     guard_enabled as cross_section_repetition_guard_enabled,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.multi_section")
 
@@ -388,7 +389,7 @@ async def _run_section_with_wallclock(runner, plan):
         run_deadline = _RUN_WALL_DEADLINE_CTX.get()
         if run_deadline is not None:
             try:
-                _gap_margin = float(os.getenv("PG_SECTION_RUNWALL_MARGIN_S", "120"))
+                _gap_margin = float(resolve("PG_SECTION_RUNWALL_MARGIN_S"))
             except ValueError:
                 _gap_margin = 120.0
             remaining = run_deadline - time.monotonic() - _gap_margin
@@ -453,7 +454,7 @@ def _credibility_redesign_enabled() -> bool:
     ``PG_SWEEP_CREDIBILITY_REDESIGN=0`` (off/false/no) still returns False -> byte-identical legacy
     path."""
     return (
-        os.getenv("PG_SWEEP_CREDIBILITY_REDESIGN", "on").strip().lower()
+        resolve("PG_SWEEP_CREDIBILITY_REDESIGN").strip().lower()
         not in ("", "0", "false", "off", "no")
     )
 
@@ -484,7 +485,7 @@ def _section_budgets_enabled() -> bool:
     if _credibility_redesign_enabled():
         return True
     return (
-        os.getenv("PG_GEN_ROW_CAPS", "").strip().lower()
+        resolve("PG_GEN_ROW_CAPS").strip().lower()
         not in ("1", "true", "yes", "on")
     )
 
@@ -502,7 +503,7 @@ def _section_budgets_enabled() -> bool:
 def _ev_budget_tracks_payload() -> bool:
     """True iff PG_EV_BUDGET_TRACKS_PAYLOAD removes the PG_MAX_EV_PER_SECTION row-cap CEILING so a
     section's evidence budget tracks its full matched payload (F2 cap-removal). Default-OFF."""
-    return os.getenv("PG_EV_BUDGET_TRACKS_PAYLOAD", "0").strip().lower() not in (
+    return resolve("PG_EV_BUDGET_TRACKS_PAYLOAD").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 
@@ -534,7 +535,7 @@ def _writer_topn_ev_per_section() -> int:
     read at call time (monkeypatch-testable). <=0 / non-integer => 0 => the cap is OFF (byte-identical:
     the writer sees every assigned row)."""
     try:
-        v = int(os.getenv("PG_WRITER_TOPN_EV_PER_SECTION", "0").strip())
+        v = int(resolve("PG_WRITER_TOPN_EV_PER_SECTION").strip())
     except (TypeError, ValueError):
         return 0
     return v if v > 0 else 0
@@ -746,7 +747,7 @@ PG_CONTRACT_SLOT_REASONING_MAX_TOKENS: int = int(
     os.getenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", "2048")
 )
 PG_CONTRACT_SLOT_STALL_TIMEOUT_S: float = float(
-    os.getenv("PG_CONTRACT_SLOT_STALL_TIMEOUT_S", "1200")
+    resolve("PG_CONTRACT_SLOT_STALL_TIMEOUT_S")
 )
 
 # I-arch-004 F32 (#1255): the V30 per-entity NARRATIVE paragraph call must NOT
@@ -2255,7 +2256,7 @@ def _build_deterministic_fallback_outline(
     # PG_GEN_ROW_CAPS restores the exact min(.., PG_MAX_EV_PER_SECTION=30) clamp,
     # byte-identical.
     _redesign = _section_budgets_enabled()
-    _MAX_EV_PER_FALLBACK_SECTION = int(os.getenv("PG_MAX_EV_PER_SECTION", "30"))
+    _MAX_EV_PER_FALLBACK_SECTION = int(resolve("PG_MAX_EV_PER_SECTION"))
     _char_len_by_id = _ev_char_len_by_id(evidence) if _redesign else {}
     _char_budget = _section_ev_char_budget() if _redesign else 0
     plans: list[SectionPlan] = []
@@ -2595,7 +2596,7 @@ def _assign_evidence_to_planned_outline(
     planned_outline: list[Any],
     evidence: list[dict[str, Any]],
     *,
-    max_ev_per_section: int = int(os.getenv("PG_MAX_EV_PER_SECTION", "30")),  # I-ready-001 (#1070): env-tunable, default 30
+    max_ev_per_section: int = int(resolve("PG_MAX_EV_PER_SECTION")),  # I-ready-001 (#1070): env-tunable, default 30
     sub_queries: list[str] | None = None,
     authority_floor: float | None = None,
 ) -> list[SectionPlan]:
@@ -2716,10 +2717,10 @@ def _assign_evidence_to_planned_outline(
             # identical. The transform is a pure REORDER (set of ev_ids invariant); it
             # only changes WHICH candidate spans the generator sees first — strict_verify
             # + NLI-enforce + 4-role re-verify every emitted sentence unchanged.
-            _interleave = os.getenv("PG_SECTION_SOURCE_INTERLEAVE", "0").strip().lower() not in (
+            _interleave = resolve("PG_SECTION_SOURCE_INTERLEAVE").strip().lower() not in (
                 "0", "", "false", "no", "off",
             )
-            _per_source_cap = int(os.getenv("PG_SECTION_PER_SOURCE_SPAN_CAP", "0") or 0)
+            _per_source_cap = int(resolve("PG_SECTION_PER_SOURCE_SPAN_CAP") or 0)
             if _interleave or _per_source_cap > 0:
                 _src_key = _build_source_key_fn(evidence)
                 _seen = {_src_key(e) for e in reserved}
@@ -3161,7 +3162,7 @@ async def _call_outline(
     # paid outline). §-1.3: CONSOLIDATE-keep-all — the digest accounts for 100% of the pool.
     _digest_menu = None  # hoisted: needed AFTER parse for the PUSH 2 basket_ids backfill
     if (
-        os.getenv("PG_OUTLINE_BASKET_DIGEST", "0").strip().lower() in ("1", "true", "yes", "on")
+        resolve("PG_OUTLINE_BASKET_DIGEST").strip().lower() in ("1", "true", "yes", "on")
         and finding_clusters
     ):
         try:
@@ -3843,7 +3844,7 @@ def _anti_verbosity_enabled() -> bool:
     at import — that is the import-time-cache bug from I-cap-005). Default OFF:
     any unset / empty / "0" / "false" / "off" / "no" value keeps the locked
     benchmark byte-identical to today."""
-    return os.getenv("PG_ANTI_VERBOSITY", "").strip().lower() in (
+    return resolve("PG_ANTI_VERBOSITY").strip().lower() in (
         "1", "true", "yes", "on",
     )
 
@@ -3854,7 +3855,7 @@ def _section_distill_enabled() -> bool:
     unset / empty / "0" / "false" / "off" / "no" value keeps the legacy
     map-less generation path BYTE-IDENTICAL (no distiller import, no distill
     call, no prompt change, unchanged retry)."""
-    return os.getenv("PG_SECTION_DISTILL", "").strip().lower() in (
+    return resolve("PG_SECTION_DISTILL").strip().lower() in (
         "1", "true", "yes", "on",
     )
 
@@ -3879,7 +3880,7 @@ def _anti_restatement_enabled() -> bool:
     the pass already KEEPS restated facts as cross-references (the drop-to-PRIMARY-only
     branch is a safe-fail fallback that fires ONLY on an LLM rewrite failure)."""
     return (
-        os.getenv("PG_ANTI_RESTATEMENT", "on").strip().lower()
+        resolve("PG_ANTI_RESTATEMENT").strip().lower()
         not in ("", "0", "false", "off", "no")
     )
 
@@ -6128,7 +6129,7 @@ async def _run_section(
             # numeric_comparator activation marker reads build_ok=false instead of the fault vanishing. The
             # warning is gated on the flag so an OFF run stays byte-identical even if the import itself fails.
             _vc_numeric_keys = None
-            if os.getenv("PG_NUMERIC_COMPARATOR", "0").strip().lower() not in ("", "0", "false", "off", "no"):
+            if resolve("PG_NUMERIC_COMPARATOR").strip().lower() not in ("", "0", "false", "off", "no"):
                 logger.warning(
                     "[multi_section] %s numeric_comparator key-lookup build failed (%s); cross-source "
                     "numeric comparison DISABLED for this section (build_ok=false)",
@@ -6151,7 +6152,7 @@ async def _run_section(
         # (via the FIX-K demotion above) makes this the primary body producer. OFF (both flags) =>
         # byte-identical: the condition is exactly the pre-Wave-1a PG_ABSTRACTIVE_WRITER read.
         if (
-            os.getenv("PG_ABSTRACTIVE_WRITER", "0").strip().lower() not in ("", "0", "false", "off", "no")
+            resolve("PG_ABSTRACTIVE_WRITER").strip().lower() not in ("", "0", "false", "off", "no")
             or _synth_primary_active
         ):
             from src.polaris_graph.generator.abstractive_writer import (  # noqa: PLC0415
@@ -6671,7 +6672,7 @@ async def _run_section(
     # carve-out keeps a same-span sentence that states a genuinely NEW statistic. DEFAULT-ON; set
     # PG_COMPOSE_SAME_SPAN_DEDUP=0 for byte-identical legacy behavior.
     _same_span_collapsed: list = []
-    if os.getenv("PG_COMPOSE_SAME_SPAN_DEDUP", "1").strip().lower() not in ("", "0", "false", "off", "no"):
+    if resolve("PG_COMPOSE_SAME_SPAN_DEDUP").strip().lower() not in ("", "0", "false", "off", "no"):
         _dd_kept, _same_span_collapsed = dedup_same_span_sentences(report.kept_sentences)
         if _same_span_collapsed:
             report.kept_sentences = _dd_kept
@@ -10233,7 +10234,7 @@ async def generate_multi_section_report(
             # (never narrows), so this is a correctness raise, not a new filter.
             plans, m44_injection_log = _m44_inject_primaries_into_outline(
                 plans, m44_primary_by_anchor,
-                max_ev_per_section=int(os.getenv("PG_MAX_EV_PER_SECTION", "30")),
+                max_ev_per_section=int(resolve("PG_MAX_EV_PER_SECTION")),
                 use_archetype=research_plan is not None,
             )
             injected_count = sum(
@@ -10324,7 +10325,7 @@ async def generate_multi_section_report(
             # forfeiting the credibility disclosure; still env-overridable (LAW VI) and still a
             # hard wall (the always-release degrade path below remains the safety net). The pass
             # is ADVISORY — strict_verify / NLI / 4-role D8 / span-grounding are untouched.
-            _cred_pass_wall_s = float(os.getenv("PG_CREDIBILITY_PASS_WALL_S", "1200"))
+            _cred_pass_wall_s = float(resolve("PG_CREDIBILITY_PASS_WALL_S"))
             # I-deepfix-001 (box2 SPEED fix): for the DURATION of this advisory pass ONLY, raise the
             # shared side-judge concurrency cap to PG_CREDIBILITY_PASS_SIDE_JUDGE_CONCURRENCY so BOTH
             # legs (the ~999 credibility-scorer POSTs AND the basket-member entailment verify POSTs,
@@ -10332,7 +10333,7 @@ async def generate_multi_section_report(
             # the composition-time cap (which stays put, protecting the composition entailment burst).
             # Unset/0 => no override => byte-identical. Transport-only; no gate/verdict touched.
             from ..llm.judge_concurrency import credibility_pass_concurrency as _cred_pass_concurrency
-            _cred_phase_c_raw = os.getenv("PG_CREDIBILITY_PASS_SIDE_JUDGE_CONCURRENCY", "").strip()
+            _cred_phase_c_raw = resolve("PG_CREDIBILITY_PASS_SIDE_JUDGE_CONCURRENCY").strip()
             try:
                 _cred_phase_c = int(_cred_phase_c_raw) if _cred_phase_c_raw else 0
             except ValueError:
@@ -10352,7 +10353,7 @@ async def generate_multi_section_report(
             # skipped members can only UNDERCOUNT (never surface); strict_verify / NLI / 4-role D8 /
             # span-grounding are untouched.
             try:
-                _cred_bank_frac = float(os.getenv("PG_CREDIBILITY_PASS_BANK_FRAC", "0.85"))
+                _cred_bank_frac = float(resolve("PG_CREDIBILITY_PASS_BANK_FRAC"))
             except (TypeError, ValueError):
                 _cred_bank_frac = 0.85
             if not (0.0 < _cred_bank_frac < 1.0):
@@ -10709,7 +10710,7 @@ async def generate_multi_section_report(
     # section's assigned evidence RESOLVED to {tier,title,url,quote} BEFORE the expensive per-section
     # compose, so a caller can READ + quality-assess the outline (rich vs thin/poor) and abort early.
     # Pure instrumentation — no behavior change to compose. PG_DUMP_ROUTED_OUTLINE=<path>.
-    _gate_dump = os.getenv("PG_DUMP_ROUTED_OUTLINE", "").strip()
+    _gate_dump = resolve("PG_DUMP_ROUTED_OUTLINE").strip()
     if _gate_dump:
         try:
             _pool = evidence_pool or {}
@@ -10747,7 +10748,7 @@ async def generate_multi_section_report(
     # is a CONCURRENCY bound, never a section TARGET/cap-to-hit-a-number. Unset =>
     # byte-identical to the caller-supplied max_parallel_sections (no behavior change).
     _section_concurrency = max_parallel_sections
-    _parallel_sections_raw = os.getenv("PG_PARALLEL_SECTIONS", "").strip()
+    _parallel_sections_raw = resolve("PG_PARALLEL_SECTIONS").strip()
     if _parallel_sections_raw:
         try:
             _parallel_sections_override = int(_parallel_sections_raw)
@@ -11788,7 +11789,7 @@ async def generate_multi_section_report(
     analyst_synth_in_tok = 0
     analyst_synth_out_tok = 0
     analyst_synth_enabled = (
-        os.getenv("PG_SWEEP_ANALYST_SYNTHESIS", "1").strip() in ("1", "true", "True")
+        resolve("PG_SWEEP_ANALYST_SYNTHESIS").strip() in ("1", "true", "True")
     )
     # I-meta-005 Phase 6 (#990, Codex ruling B-impl-1): DEMOTE the unverified
     # analyst-synthesis block ON-MODE (research_plan is not None). On-mode the

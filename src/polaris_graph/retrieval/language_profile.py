@@ -39,6 +39,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
+from src.polaris_graph.settings import resolve
 
 # (english_query, target_lang_code) -> translated query. Injected by production
 # (may wrap the GLM mirror). None => deterministic native-term carry only.
@@ -123,7 +124,7 @@ def multilingual_enabled() -> bool:
 
     OFF => the expansion is a byte-identical no-op regardless of the profile.
     """
-    return os.getenv("PG_MULTILINGUAL_RETRIEVAL", "1").strip().lower() in _ON_VALUES
+    return resolve("PG_MULTILINGUAL_RETRIEVAL").strip().lower() in _ON_VALUES
 
 
 def _max_queries() -> int:
