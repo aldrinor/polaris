@@ -20,3 +20,6 @@
 # intentionally empty rather than populated with unverified node-ids.
 #
 # --- entries below this line ---
+
+# Empirical N=3 serial run (2026-07-19) — flaky NON-governing tests (quarantined, tracked):
+tests/polaris_graph/test_md8_phase1_parallel_fetch.py::test_timeout_started_at_reflects_actual_start_when_known  # timing/started-at race; non-governing

@@ -177,3 +177,12 @@ on the config branch (verified) — no regression from the migration. (A transie
 during characterization was a subset + concurrent-contamination measurement artifact, not a real
 count.) **Governing tests (oracle acceptance, crown-jewels, strict_verify/faithfulness) are NEVER
 quarantined** — an unstable governing measurement is a BLOCKING stop, not a quarantine.
+
+## Empirical N=3 run — RESULTS (closes the 3B empirical gate)
+
+Ran the bounded fast subset (tests/unit + tests/polaris_graph, excluding slow/api/live, serially N=3 — the suite is NOT concurrency-safe). Result:
+- **Flaky (failed in some-but-not-all of the 3 runs): 1 test** — `test_md8_phase1_parallel_fetch::test_timeout_started_at_reflects_actual_start_when_known` (a started-at/timeout timing race). NON-governing → quarantined (docs/flaky_quarantine.txt), tracked for repair.
+- **Flaky GOVERNING tests: 0.** The governing measurement (oracle acceptance, crown-jewels, strict_verify/faithfulness/entailment) was STABLE across all 3 runs — **no BLOCKING condition** (an unstable governing measurement would be a stop, not a quarantine).
+- Consistent (failed in all 3) results are stable env/import-path artifacts of the subset harness (`ModuleNotFoundError: polaris_graph` under the subset PYTHONPATH), NOT flakiness — excluded from the quarantine.
+
+**Bar status:** governing measurement stable (0 flaky) + 1 quarantined non-governing flaky test. The report-only→required CI promotion remains a separate, deliberate change (a contributor-facing behavior change), to be made after owner sign-off.
