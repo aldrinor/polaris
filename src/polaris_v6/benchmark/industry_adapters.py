@@ -94,6 +94,19 @@ _DISPATCH: dict[IndustryBenchmark, callable] = {
 
 
 def adapt(benchmark: IndustryBenchmark, raw: dict) -> IndustryRunRecord:
+    """Dispatch a raw external-benchmark record to its adapter.
+
+    Args:
+        benchmark: Which external benchmark ``raw`` originates from.
+        raw: The benchmark's native JSON record as a dict.
+
+    Returns:
+        The record mapped into the common ``IndustryRunRecord`` schema.
+
+    Raises:
+        ValueError: If ``benchmark`` is not a known benchmark key, or if the
+            selected adapter rejects ``raw`` for missing required fields.
+    """
     if benchmark not in _DISPATCH:
         raise ValueError(f"unknown benchmark: {benchmark}")
     return _DISPATCH[benchmark](raw)

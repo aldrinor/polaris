@@ -33,6 +33,18 @@ class TemplateContent(BaseModel):
 
 
 def load_template(template_id: str) -> TemplateContent:
+    """Load and validate one template's JSON content by id.
+
+    Args:
+        template_id: Template id; resolves to ``<TEMPLATES_DIR>/<id>.json``.
+
+    Returns:
+        The parsed, schema-validated ``TemplateContent``.
+
+    Raises:
+        FileNotFoundError: If no JSON file exists for ``template_id``.
+        pydantic.ValidationError: If the file's contents fail schema validation.
+    """
     path = TEMPLATES_DIR / f"{template_id}.json"
     if not path.exists():
         raise FileNotFoundError(f"Template content not found: {path}")
@@ -41,6 +53,12 @@ def load_template(template_id: str) -> TemplateContent:
 
 
 def list_template_ids() -> list[str]:
+    """Return the sorted ids of all template JSON files on disk.
+
+    Returns:
+        Sorted template ids (JSON file stems); empty if the templates directory
+        does not exist.
+    """
     if not TEMPLATES_DIR.exists():
         return []
     return sorted(p.stem for p in TEMPLATES_DIR.glob("*.json"))

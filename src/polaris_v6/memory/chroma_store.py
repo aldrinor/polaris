@@ -38,6 +38,14 @@ def _meta(e: MemoryEntry) -> dict:
 
 
 class ChromaWorkspaceMemoryStore:
+    """ChromaDB-backed workspace memory store with cosine vector recall.
+
+    Persists (or holds ephemerally) memory entries in a Chroma collection whose
+    space is pinned to cosine; recall embeds the query and returns nearest
+    entries scored in [0, 1]. Callers inject an ``embed_fn``; without one, any
+    embedding call raises (production embedder deferred to I-f14-001b).
+    """
+
     def __init__(self, *, persist_directory: str | None, embed_fn: EmbedFn | None = None,
                  collection_name: str = "v6_workspace_memory") -> None:
         import chromadb
@@ -58,6 +66,17 @@ class ChromaWorkspaceMemoryStore:
 
     def remember(self, *, workspace_id: str, kind: MemoryKind, content: str,
                  derived_from_run_ids: list[str] | None = None) -> MemoryEntry:
+        """Embed and store a new memory entry, returning the persisted record.
+
+        Args:
+            workspace_id: Owning workspace (normalised to stripped-lowercase).
+            kind: Memory kind classifier.
+            content: Text to embed and store.
+            derived_from_run_ids: Run ids this memory was distilled from.
+
+        Returns:
+            The stored ``MemoryEntry``, including its generated id and embedding.
+        """
         emb = self._embed_fn([content])[0]
         entry = MemoryEntry(
             entry_id=uuid.uuid4().hex, workspace_id=_norm(workspace_id), kind=kind,
@@ -68,6 +87,19 @@ class ChromaWorkspaceMemoryStore:
         return entry
 
     def recall(self, query: MemoryQuery) -> list[MemoryRecallResult]:
+        """Return the top-k cosine-nearest entries for the query.
+
+        Filters by workspace and, when ``query.kinds`` is set, by kind. Bumps
+        ``use_count`` and ``last_used_at`` on each returned entry.
+
+        Args:
+            query: Workspace, query text, optional kind filter, and ``top_k``.
+
+        Returns:
+            Recall results ordered by Chroma, each scored in [0, 1] as
+            ``1 - distance`` (clamped). Empty when ``query.kinds`` is an empty
+            list.
+        """
         if query.kinds is not None and len(query.kinds) == 0:
             return []
         ws = _norm(query.workspace_id)
@@ -89,6 +121,16 @@ class ChromaWorkspaceMemoryStore:
         return out
 
     def forget(self, *, workspace_id: str, entry_id: str) -> bool:
+        """Delete an entry, but only if it belongs to the given workspace.
+
+        Args:
+            workspace_id: Owning workspace (normalised before comparison).
+            entry_id: Entry to delete.
+
+        Returns:
+            ``True`` if the entry existed in this workspace and was deleted;
+            ``False`` if it was missing or owned by a different workspace.
+        """
         existing = self._collection.get(ids=[entry_id], include=["metadatas"])
         metas = existing.get("metadatas") or []
         if not metas or metas[0].get("workspace_id") != _norm(workspace_id):
@@ -97,5 +139,13 @@ class ChromaWorkspaceMemoryStore:
         return True
 
     def list_workspace(self, workspace_id: str) -> list[MemoryEntry]:
+        """Return all entries stored for a workspace (unordered, unscored).
+
+        Args:
+            workspace_id: Workspace to list (normalised before lookup).
+
+        Returns:
+            Every ``MemoryEntry`` in the workspace; empty if none.
+        """
         result = self._collection.get(where={"workspace_id": _norm(workspace_id)}, include=["metadatas"])
         return [MemoryEntry.model_validate_json(m["entry_json"]) for m in (result.get("metadatas") or [])]

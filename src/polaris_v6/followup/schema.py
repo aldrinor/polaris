@@ -15,6 +15,12 @@ FollowUpStatus = Literal[
 
 
 class FollowUpRequest(BaseModel):
+    """Request to answer a follow-up question against a prior run.
+
+    Names the ``parent_run_id`` whose evidence pool bounds retrieval and the
+    ``question`` to answer (4-2000 chars).
+    """
+
     parent_run_id: str
     question: str = Field(..., min_length=4, max_length=2000)
 
