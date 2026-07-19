@@ -10,6 +10,14 @@ from polaris_v6.replay.schema import PinDiff, RunPin
 
 @dataclass
 class RegressionLabReport:
+    """Verdict of a regression-lab run over baseline vs candidate pins.
+
+    Counts baseline/candidate/matched pins, and partitions matched diffs into
+    ``regressions`` (CI FAIL) and non-regressing changes (``warns``). Pins that
+    appear on only one side land in the ``unmatched_*`` lists (CI WARN).
+    ``passed`` is true iff there are no regressions.
+    """
+
     baseline_count: int
     candidate_count: int
     matched_count: int
@@ -68,6 +76,18 @@ def run_regression_lab(
 
 
 def format_ci_summary(report: RegressionLabReport) -> str:
+    """Render a regression-lab report as a human-readable CI summary.
+
+    Lists matched counts, regression/warn tallies, any unmatched pins, and
+    per-field details for regressing fields (fields whose severity is
+    ``"regression"``), ending with a PASS/FAIL verdict line.
+
+    Args:
+        report: The report to format.
+
+    Returns:
+        A newline-joined multi-line summary string.
+    """
     lines = [
         f"Regression lab: matched {report.matched_count}/{report.baseline_count} baselines",
         f"  Regressions: {len(report.regressions)}",

@@ -19,16 +19,17 @@ from src.polaris_graph.state import (
     QUERIES_PER_PERSPECTIVE,
     PG_AGENTIC_SEED_QUERIES,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # FIX-054: Configurable planner timeout (BUG-089).
 # T052: All 3 SeedQueryPlan attempts timed out at 120s each.
 # require_parameters=true may route to slower providers.
-PG_PLANNER_TIMEOUT = int(os.getenv("PG_PLANNER_TIMEOUT", "180"))
+PG_PLANNER_TIMEOUT = int(resolve("PG_PLANNER_TIMEOUT"))
 
 # FIX-C9: Configurable fallback query count (LAW VI: no hardcoded counts).
-PG_FALLBACK_QUERY_COUNT = int(os.getenv("PG_FALLBACK_QUERY_COUNT", "22"))
+PG_FALLBACK_QUERY_COUNT = int(resolve("PG_FALLBACK_QUERY_COUNT"))
 
 _PERSPECTIVE_QUERY_TEMPLATES = {
     "Regulatory": "{topic} government regulations standards compliance requirements",
@@ -278,7 +279,7 @@ Ensure every perspective is represented for maximum evidence diversity."""
                      for sq in plan.sub_queries])
 
     # RC-7: Source diversity — add targeted queries for underrepresented perspectives
-    if os.getenv("PG_V3_SOURCE_DIVERSITY", "0") == "1":
+    if resolve("PG_V3_SOURCE_DIVERSITY") == "1":
         try:
             from src.polaris_graph.agents.searcher import _compute_perspective_distribution
             current_evidence = state.get("evidence", [])

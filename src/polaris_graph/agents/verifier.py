@@ -26,6 +26,7 @@ from src.polaris_graph.state import (
     PG_VERIFY_GATHER_TIMEOUT,
     PG_VERIFIER_CONTENT_CAP,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ async def verify_claims(
     )
     # FIX-059-B: NLI faithfulness threshold for merge point (LLM second opinion).
     _nli_faith_threshold_merge = float(os.getenv("PG_FAITHFULNESS_NLI_THRESHOLD", "0.75"))
-    nli_enabled = os.getenv("PG_NLI_ENABLED", "0") == "1"
+    nli_enabled = resolve("PG_NLI_ENABLED") == "1"
     if nli_enabled:
         logger.info(
             "[polaris graph] ARCH-1: Using NLI model for primary verification "
@@ -174,7 +175,7 @@ async def verify_claims(
         # for cross-source verification (avoids re-embedding).
         statement_embeddings = None
         try:
-            _embed_enabled = os.getenv("PG_CROSS_SOURCE_ENABLED", "1") == "1"
+            _embed_enabled = resolve("PG_CROSS_SOURCE_ENABLED") == "1"
             if _embed_enabled:
                 from src.utils.embedding_service import embed_texts
                 statements = [e.get("statement", "") for e in evidence]
@@ -328,7 +329,7 @@ async def verify_claims(
             # domain-specific content (e.g., chemistry, materials science), it
             # defaults to NOT_SUPPORTED for everything. Fall back to LLM-only
             # verification which understands the domain better than flan-t5-large.
-            _nli_floor = float(os.getenv("PG_NLI_FAITHFULNESS_FLOOR", "0.15"))
+            _nli_floor = float(resolve("PG_NLI_FAITHFULNESS_FLOOR"))
             if faithfulness < _nli_floor:
                 logger.warning(
                     "[polaris graph] FIX-3: NLI faithfulness %.1f%% below %.0f%% "
@@ -395,7 +396,7 @@ async def verify_claims(
     # FIX-RC2: Auto-scale gather timeout based on batch count and concurrency.
     # With 767 batches at 30 concurrency and 300s/call, the old 3600s was too short.
     base_timeout = PG_VERIFY_GATHER_TIMEOUT
-    per_call_timeout_est = int(os.getenv("PG_VERIFY_PER_CALL_TIMEOUT", "300"))
+    per_call_timeout_est = int(resolve("PG_VERIFY_PER_CALL_TIMEOUT"))
     estimated_time = (len(batches) / max(concurrency, 1)) * per_call_timeout_est
     gather_timeout = max(base_timeout, int(estimated_time * 1.5))  # 50% safety margin
     if gather_timeout > base_timeout:
@@ -488,7 +489,7 @@ async def verify_claims(
                     )
 
     # Retry failed batches with consecutive timeout cap (FIX-V7)
-    retry_cap = int(os.getenv("PG_VERIFY_RETRY_CAP", "3"))
+    retry_cap = int(resolve("PG_VERIFY_RETRY_CAP"))
     if failed_batches:
         logger.info(
             "[polaris graph] Retrying %d failed verification batches "
@@ -582,7 +583,7 @@ async def verify_claims(
         c for c in all_verified
         if c.get("verification_method") == "api_error"
     ]
-    max_individual_retries = int(os.getenv("PG_MAX_INDIVIDUAL_RETRIES", "20"))
+    max_individual_retries = int(resolve("PG_MAX_INDIVIDUAL_RETRIES"))
     if api_error_claims and len(api_error_claims) <= max_individual_retries:
         logger.info(
             "[polaris graph] FIX-045G: Retrying %d api_error claims individually",
@@ -962,7 +963,7 @@ async def _verify_batch(
         # FIX-STUB: Detect paywall/stub content — if source content is below
         # the minimum useful threshold, fall back to quote_only verification
         # instead of content verification against HTML boilerplate.
-        min_useful_content = int(os.getenv("PG_MIN_USEFUL_CONTENT", "500"))
+        min_useful_content = int(resolve("PG_MIN_USEFUL_CONTENT"))
         content_block = ""
         if source_content and len(source_content) >= min_useful_content:
             content_block = (
@@ -1000,7 +1001,7 @@ async def _verify_batch(
     ) if url_content_map else False
 
     # ARCH-4: Balanced prompting (Gemini 3 pattern) — verify AND try to disprove
-    balanced_enabled = os.getenv("PG_BALANCED_PROMPTING", "0") == "1"
+    balanced_enabled = resolve("PG_BALANCED_PROMPTING") == "1"
     logger.debug(
         "[polaris graph] ARCH-4: Balanced prompting %s, has_content=%s",
         "ENABLED" if balanced_enabled else "DISABLED", has_content,
@@ -1057,7 +1058,7 @@ Each claim was extracted from its cited source by an AI system.
             # since we removed reasoning field from ClaimVerification schema).
             # FIX-MP1: Configurable per-call timeout (was hardcoded 120s, caused
             # 70+ batch timeouts in PG_TEST_033 with batch_size=10 + 3000 chars/claim)
-            per_call_timeout = int(os.getenv("PG_VERIFY_PER_CALL_TIMEOUT", "300"))
+            per_call_timeout = int(resolve("PG_VERIFY_PER_CALL_TIMEOUT"))
             parsed = await client.generate_structured(
                 prompt=prompt,
                 schema=VerificationBatch,
@@ -1104,7 +1105,7 @@ Each claim was extracted from its cited source by an AI system.
                 # deployment running NLI can't accidentally rubber-stamp
                 # claims that NLI never looked at. Override via the explicit
                 # PG_REQUIRE_NLI_FOR_FAITHFUL env var.
-                _nli_globally_on = os.getenv("PG_NLI_ENABLED", "0") == "1"
+                _nli_globally_on = resolve("PG_NLI_ENABLED") == "1"
                 _require_nli_default = "1" if _nli_globally_on else "0"
                 _require_nli = os.getenv(
                     "PG_REQUIRE_NLI_FOR_FAITHFUL", _require_nli_default
@@ -1318,7 +1319,7 @@ def _triangulate_claims(
     to avoid O(n^2) scaling. Sorts by tier+relevance and takes top N.
     """
     # BUG-092: Cap evidence to prevent O(n^2) scaling
-    max_evidence = int(os.getenv("PG_MAX_TRIANGULATE_EVIDENCE", "500"))
+    max_evidence = int(resolve("PG_MAX_TRIANGULATE_EVIDENCE"))
     if len(evidence) > max_evidence:
         logger.warning(
             "[polaris graph] BUG-092: Capping triangulation from %d to %d evidence",
@@ -1402,7 +1403,7 @@ def link_corroborating_evidence(
 
     # Use env var only when caller uses the default (5)
     if max_per_claim == 5:
-        max_per_claim = int(os.getenv("PG_CORROBORATION_MAX_PER_CLAIM", "5"))
+        max_per_claim = int(resolve("PG_CORROBORATION_MAX_PER_CLAIM"))
     enriched_count = 0
 
     # FIX-047-K5: Claim-level similarity threshold for corroboration.
@@ -1411,7 +1412,7 @@ def link_corroborating_evidence(
     # "Stratmoor Hills water treatment plant" was "supported" by Astute Analytica
     # market analysis. Now requires statement-level Jaccard similarity >= threshold.
     corr_sim_threshold = float(
-        os.getenv("PG_CORROBORATION_SIM_THRESHOLD", "0.15")
+        resolve("PG_CORROBORATION_SIM_THRESHOLD")
     )
 
     # Build evidence statement lookup for similarity checking
@@ -1491,7 +1492,7 @@ def link_corroborating_evidence(
         # but returns actual evidence IDs, not just counts)
 
         # BUG-092: Cap evidence to prevent O(n^2) scaling in Jaccard fallback
-        max_corr_evidence = int(os.getenv("PG_MAX_CORROBORATION_EVIDENCE", "500"))
+        max_corr_evidence = int(resolve("PG_MAX_CORROBORATION_EVIDENCE"))
         if len(evidence) > max_corr_evidence:
             logger.warning(
                 "[polaris graph] BUG-092: Capping corroboration evidence from %d to %d",
@@ -1521,7 +1522,7 @@ def link_corroborating_evidence(
 
         eid_to_idx = {eid: i for i, eid in enumerate(ev_ids)}
         jaccard_threshold = float(
-            os.getenv("PG_CORROBORATION_JACCARD_THRESHOLD", "0.35")
+            resolve("PG_CORROBORATION_JACCARD_THRESHOLD")
         )
 
         for claim in claims:
@@ -1631,7 +1632,7 @@ def detect_contradictions(
     - PG_CONTRADICTION_NLI_THRESHOLD (default: 0.7) — NLI contradiction score
     - PG_CONTRADICTION_MODEL (default: cross-encoder/nli-deberta-v3-base)
     """
-    if os.getenv("PG_CONTRADICTION_ENABLED", "1") != "1":
+    if resolve("PG_CONTRADICTION_ENABLED") != "1":
         return []
 
     sim_threshold = float(
@@ -1684,7 +1685,7 @@ def detect_contradictions(
         return []
 
     # BUG-092: Cap contradiction pairs to prevent O(n^2) NLI calls
-    max_pairs = int(os.getenv("PG_MAX_CONTRADICTION_PAIRS", "1000"))
+    max_pairs = int(resolve("PG_MAX_CONTRADICTION_PAIRS"))
     if len(candidate_pairs) > max_pairs:
         logger.info(
             "[polaris graph] BUG-092: Capping contradiction pairs from %d to %d",

@@ -17,6 +17,14 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 
 @dataclass(frozen=True)
 class ClaimDiffEntry:
+    """One paired (or unpaired) claim across two runs, with its verdict.
+
+    Holds the best-matched left/right sentences for a section, their shared and
+    side-only evidence_ids, and the token-overlap ratio that drove the verdict.
+    Either ``left_sentence`` or ``right_sentence`` is ``None`` for an
+    ``only_left`` / ``only_right`` verdict.
+    """
+
     section_id: str
     verdict: ClaimVerdict
     left_sentence: str | None
@@ -29,6 +37,12 @@ class ClaimDiffEntry:
 
 @dataclass(frozen=True)
 class ClaimDiffReport:
+    """Full claim-level diff between two runs.
+
+    Carries the two run ids, the per-claim ``entries``, and a tally of entries
+    keyed by verdict (``counts_by_verdict``).
+    """
+
     left_run_id: str
     right_run_id: str
     entries: list[ClaimDiffEntry]
@@ -50,6 +64,25 @@ def _entry(sid: str, v: ClaimVerdict, ls: VerifiedSentence | None, rs: VerifiedS
 
 
 def compute_claim_diff(left: EvidenceContract, right: EvidenceContract) -> ClaimDiffReport:
+    """Diff two runs at the claim level, section by section.
+
+    Considers only verified, non-dropped sentences (both local and global
+    verifier passes). Within each section, greedily pairs each left sentence to
+    its best remaining right sentence by token Jaccard, then classifies each
+    pair: ``agreement`` (shared evidence and overlap >= 0.7), ``disagreement``
+    (no shared evidence and overlap < 0.3), otherwise ``partial``. Unpaired
+    sentences become ``only_left`` / ``only_right``.
+
+    Args:
+        left: First run's evidence contract.
+        right: Second run's evidence contract.
+
+    Returns:
+        A ``ClaimDiffReport`` with per-claim entries and per-verdict counts.
+
+    Raises:
+        ValueError: If both contracts share the same ``run_id``.
+    """
     if left.run_id == right.run_id:
         raise ValueError("compute_claim_diff requires two distinct runs")
 

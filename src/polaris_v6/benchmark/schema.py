@@ -26,6 +26,14 @@ DifficultyLevel = Literal["routine", "novel_synthesis", "adversarial"]
 
 
 class BenchmarkQuestion(BaseModel):
+    """One question in the Phase 3 benchmark suite.
+
+    Bundles the prompt text with the graders' expectations: factual anchors a
+    responsible answer should contain, optional PICO keywords (preferred by the
+    coverage scorer when set), and expected refusal patterns for refusal-trigger
+    questions.
+    """
+
     question_id: str
     template: str
     text: str = Field(..., min_length=10, max_length=2000)
@@ -48,12 +56,24 @@ class BenchmarkQuestion(BaseModel):
 
 
 class DimensionScore(BaseModel):
+    """A single dimension's score with its supporting rationale.
+
+    ``raw`` is a normalised [0.0, 1.0] score for one ``ScoreDimension``;
+    ``rationale`` is a short free-text justification.
+    """
+
     dimension: ScoreDimension
     raw: float = Field(..., ge=0.0, le=1.0)
     rationale: str = Field(..., min_length=4)
 
 
 class SystemAnswer(BaseModel):
+    """One competing system's answer to a benchmark question.
+
+    Captures the raw response text, its citation count, and whether the system
+    refused, keyed by ``question_id`` and ``system`` for scoring.
+    """
+
     question_id: str
     system: CompetingSystem
     response_text: str

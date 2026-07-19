@@ -31,6 +31,7 @@ import os
 import re
 import time
 from typing import Any, Callable, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -2957,7 +2958,7 @@ def _compose_section_per_basket(
         # _basket_workers threads; each thread blocks on its own verify_fn NLI-judge network call, so the
         # cross-basket in-flight concurrency the serial one-thread loop could never reach is realized here.
         from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
-        _timing = os.getenv("PG_COMPOSE_TIMING", "0").strip() not in ("", "0", "false", "off", "no")
+        _timing = resolve("PG_COMPOSE_TIMING").strip() not in ("", "0", "false", "off", "no")
         if _timing:
             # Measurement-only (byte-identical to the untimed map): wrap each per-basket compose to
             # record its wall duration + executing thread, so the effective parallelism of THIS

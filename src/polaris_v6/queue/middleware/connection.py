@@ -24,12 +24,21 @@ class StickyConnectionMiddleware(dramatiq.Middleware):
         self._local = threading.local()
 
     def before_worker_boot(self, broker: dramatiq.Broker, worker: dramatiq.Worker) -> None:
+        """Cache the broker's Redis client on thread-local state at boot.
+
+        No-op if the broker exposes no ``client`` attribute (e.g. StubBroker).
+        """
         client_factory = getattr(broker, "client", None)
         if client_factory is None:
             return
         self._local.client = client_factory
 
     def after_worker_shutdown(self, broker: dramatiq.Broker, worker: dramatiq.Worker) -> None:
+        """Close and clear the cached client at shutdown.
+
+        A ``close()`` failure is logged (never swallowed silently) and teardown
+        continues, since a failed close is non-fatal.
+        """
         client = getattr(self._local, "client", None)
         if client is not None:
             try:
