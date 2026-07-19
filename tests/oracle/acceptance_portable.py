@@ -66,7 +66,12 @@ os.environ.setdefault("PG_OUTLINE_REASONING_MAX_TOKENS", "32768")
 # Keep the acceptance run FAST: small turn/wall budgets are fine for W1 proof (the design's
 # defaults are 24 turns / 900s for a full production run; the smoke here just needs the loop to
 # fire at least once on the thin case and zero times on the saturated case).
-os.environ.setdefault("PG_OUTLINE_AGENT_MAX_TURNS", "6")
+# MUST be 3 (not 6): the frozen golden (SHA 9c0a3d43...) was recorded with MAX_TURNS=3, and this
+# value is embedded verbatim in the decide-step prompt ("Max N turns total."), so it is part of
+# the cassette request identity. A default of 6 desyncs the out-of-box `--mode replay` from its
+# own golden (replay MISS on the decide request). Pin 3 so a reviewer reproduces the golden with
+# no env override. See docs/review_readiness/oracle_status.md.
+os.environ.setdefault("PG_OUTLINE_AGENT_MAX_TURNS", "3")
 os.environ.setdefault("PG_OUTLINE_AGENT_WALL_SECONDS", "420")
 
 from src.polaris_graph.outline import outline_agent as oa  # noqa: E402
