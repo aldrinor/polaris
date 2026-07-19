@@ -123,32 +123,41 @@ class Cassette:
         if mode == "replay":
             self._load()
 
-    def call(self, method: str, args: Any, live_fn, *, call_id: str) -> Any:
-        """Record: reserve+run+store. Replay: serve once from tape. call_id is the stable identity."""
-        args_snap = _deepcopy_json(args)          # snapshot BEFORE the live call (mutation-safe)
-        key = _key(method, args_snap, call_id)    # validates method/call_id; fixes identity
-        if self.mode == "record":
-            with self._lock:
-                if self._sealed:
-                    raise CassetteError("cassette finalized; no further calls permitted")
-                if key in self._entries:
-                    raise CassetteError(
-                        f"duplicate call_id {call_id!r} for {method} — call_id must be UNIQUE "
-                        f"per logical call."
-                    )
-                self._entries[key] = _PENDING     # reserve so finalize cannot omit an in-flight call
-            response = live_fn()                  # outside the lock
-            resp_snap = _deepcopy_json(response)  # canonical snapshot
-            entry = {"method": method, "args": args_snap, "call_id": call_id,
-                     "response": resp_snap}
-            with self._lock:
-                self._entries[key] = entry
-            # Return a fresh canonical copy in record mode too, so the downstream pipeline sees the
-            # SAME normalized object shape it will see under replay (record/replay symmetry — no
-            # dict-order / aliasing / json-subclass drift between the two modes).
-            return _deepcopy_json(resp_snap)
-        # replay
+    def record_begin(self, method: str, args: Any, call_id: str) -> tuple[str, Any]:
+        """RECORD: snapshot the request and reserve its slot BEFORE the live call. Returns (key, args_snap).
+
+        Reserving before the live call is mutation-safe (identity fixed even if the client mutates its
+        args) and finalize-safe (an in-flight call cannot be dropped). The async-friendly primitive
+        that :meth:`call` wraps; pair with :meth:`record_end`.
+        """
+        args_snap = _deepcopy_json(args)
+        key = _key(method, args_snap, call_id)
         with self._lock:
+            if self.mode != "record":
+                raise CassetteError("record_begin called on a replay cassette")
+            if self._sealed:
+                raise CassetteError("cassette finalized; no further calls permitted")
+            if key in self._entries:
+                raise CassetteError(
+                    f"duplicate call_id {call_id!r} for {method} — call_id must be UNIQUE per call."
+                )
+            self._entries[key] = _PENDING
+        return key, args_snap
+
+    def record_end(self, key: str, method: str, args_snap: Any, call_id: str, response: Any) -> Any:
+        """RECORD: store the response for a reserved slot; returns a fresh canonical copy (replay-symmetric)."""
+        resp_snap = _deepcopy_json(response)
+        entry = {"method": method, "args": args_snap, "call_id": call_id, "response": resp_snap}
+        with self._lock:
+            self._entries[key] = entry
+        return _deepcopy_json(resp_snap)
+
+    def replay(self, method: str, args: Any, call_id: str) -> Any:
+        """REPLAY: serve the recorded response exactly once; miss/reuse/sealed = behaviour change."""
+        key = _key(method, _deepcopy_json(args), call_id)
+        with self._lock:
+            if self.mode != "replay":
+                raise CassetteError("replay called on a record cassette")
             if self._sealed:
                 raise CassetteError("cassette finalized; no further calls permitted")
             if key in self._used:
@@ -165,6 +174,13 @@ class Cassette:
             self._used.add(key)
             resp = entry["response"]
         return _deepcopy_json(resp)
+
+    def call(self, method: str, args: Any, live_fn, *, call_id: str) -> Any:
+        """Sync convenience: record = reserve+run+store; replay = serve once. call_id = stable identity."""
+        if self.mode == "record":
+            key, args_snap = self.record_begin(method, args, call_id)
+            return self.record_end(key, method, args_snap, call_id, live_fn())
+        return self.replay(method, args, call_id)
 
     def finalize(self) -> None:
         with self._lock:
