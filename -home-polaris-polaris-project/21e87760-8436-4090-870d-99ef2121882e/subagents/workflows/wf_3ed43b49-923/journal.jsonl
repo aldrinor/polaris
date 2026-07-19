@@ -1,1 +1,5 @@
 {"type":"started","key":"v2:f78585219f827fab5daeed030960c31a06e5df50f61e9f2a16b3ebfd3fda21d0","agentId":"a82f5a7bde5bc28f9"}
+{"type":"result","key":"v2:f78585219f827fab5daeed030960c31a06e5df50f61e9f2a16b3ebfd3fda21d0","agentId":"a82f5a7bde5bc28f9","result":{"collection":"16738 tests collected, 11 errors (baseline confirmed with all docstrings in place; identical to target 16738/11). py_compile OK on all 21 modified src files.","kept":62,"reverted":0,"reverted_detail":[],"no_loadbearing_doc_confirmed":true}}
+{"type":"started","key":"v2:d8e2b6dc8f9f42d92226a4e7baa57c8aae53326458e72d03e80c7abdd93d69ab","agentId":"a6e4239c643ad7905"}
+{"type":"result","key":"v2:d8e2b6dc8f9f42d92226a4e7baa57c8aae53326458e72d03e80c7abdd93d69ab","agentId":"a6e4239c643ad7905","result":{"ast_equivalence_all_pass":true,"ast_failures":[],"oracle_matches":true,"oracle_sha":"9c0a3d438da943242c98e2fe714494c342d42d02102202d75a61a4554339db98","collection_ok":true}}
+{"type":"started","key":"v2:1e98c5d5745c4f420076aae4cfc919b0c462bb9cc1d3e4be0f684d2178dc003e","agentId":"a384eceea072e015b"}
