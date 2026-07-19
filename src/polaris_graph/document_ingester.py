@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -47,17 +48,17 @@ logger = logging.getLogger(__name__)
 # Configuration (LAW VI: all from env vars)
 # ---------------------------------------------------------------------------
 
-MAX_UPLOAD_SIZE_MB = int(os.getenv("PG_MAX_UPLOAD_SIZE_MB", "100"))
-DOCUMENT_STORAGE_DIR = Path(os.getenv("PG_DOCUMENT_STORAGE_DIR", "data/documents"))
+MAX_UPLOAD_SIZE_MB = int(resolve("PG_MAX_UPLOAD_SIZE_MB"))
+DOCUMENT_STORAGE_DIR = Path(resolve("PG_DOCUMENT_STORAGE_DIR"))
 
 # OCR fallback configuration for vector-curve PDFs (CorelDRAW, Illustrator, etc.)
 TESSERACT_CMD = os.getenv(
     "TESSERACT_CMD",
     r"C:\Program Files\Tesseract-OCR\tesseract.exe",
 )
-OCR_DPI = int(os.getenv("PG_OCR_DPI", "300"))
-OCR_MAX_PAGES = int(os.getenv("PG_OCR_MAX_PAGES", "20"))
-OCR_MIN_TEXT_CHARS = int(os.getenv("PG_OCR_MIN_TEXT_CHARS", "100"))
+OCR_DPI = int(resolve("PG_OCR_DPI"))
+OCR_MAX_PAGES = int(resolve("PG_OCR_MAX_PAGES"))
+OCR_MIN_TEXT_CHARS = int(resolve("PG_OCR_MIN_TEXT_CHARS"))
 
 # Audio transcription configuration
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")

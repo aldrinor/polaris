@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.regulatory_expander")
 
@@ -55,7 +56,7 @@ _DEFAULT_MAX_ANCHORS = 12
 def _max_anchors() -> int:
     """Read the max-anchor cap from env each call (so a test can monkey-
     patch without importing a module-level constant)."""
-    raw = os.getenv("PG_SWEEP_MAX_REGULATORY_ANCHORS")
+    raw = resolve("PG_SWEEP_MAX_REGULATORY_ANCHORS")
     if raw is None:
         return _DEFAULT_MAX_ANCHORS
     try:

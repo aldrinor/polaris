@@ -19,6 +19,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 from scipy import stats
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -27,25 +28,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Outlier detection: IQR multiplier (standard = 1.5, conservative = 2.0)
-_IQR_MULTIPLIER = float(os.getenv("PG_OUTLIER_IQR_MULTIPLIER", "1.5"))
+_IQR_MULTIPLIER = float(resolve("PG_OUTLIER_IQR_MULTIPLIER"))
 
 # Outlier detection: Z-score threshold (standard = 3.0, sensitive = 2.0)
-_ZSCORE_THRESHOLD = float(os.getenv("PG_OUTLIER_ZSCORE_THRESHOLD", "3.0"))
+_ZSCORE_THRESHOLD = float(resolve("PG_OUTLIER_ZSCORE_THRESHOLD"))
 
 # Agreement score: minimum statements required for meaningful comparison
-_MIN_AGREEMENT_STATEMENTS = int(os.getenv("PG_MIN_AGREEMENT_STATEMENTS", "2"))
+_MIN_AGREEMENT_STATEMENTS = int(resolve("PG_MIN_AGREEMENT_STATEMENTS"))
 
 # Impact ranking: z-score threshold for "high impact" classification
-_HIGH_IMPACT_THRESHOLD = float(os.getenv("PG_HIGH_IMPACT_ZSCORE", "1.5"))
+_HIGH_IMPACT_THRESHOLD = float(resolve("PG_HIGH_IMPACT_ZSCORE"))
 
 # Meta-analysis: confidence level for interval estimation
-_META_CONFIDENCE_LEVEL = float(os.getenv("PG_META_CONFIDENCE_LEVEL", "0.95"))
+_META_CONFIDENCE_LEVEL = float(resolve("PG_META_CONFIDENCE_LEVEL"))
 
 # Maximum data points to process (prevent runaway computation)
-_MAX_DATA_POINTS = int(os.getenv("PG_ANALYSIS_MAX_DATA_POINTS", "10000"))
+_MAX_DATA_POINTS = int(resolve("PG_ANALYSIS_MAX_DATA_POINTS"))
 
 # Minimum sample size for confidence interval computation
-_MIN_CI_SAMPLE_SIZE = int(os.getenv("PG_MIN_CI_SAMPLE_SIZE", "3"))
+_MIN_CI_SAMPLE_SIZE = int(resolve("PG_MIN_CI_SAMPLE_SIZE"))
 
 
 # ---------------------------------------------------------------------------
