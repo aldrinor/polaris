@@ -1,4 +1,4 @@
-"""Load manually-exported ChatGPT/Gemini DR outputs for BEAT-BOTH scoring.
+"""Load manually-exported ChatGPT/Gemini DR outputs for head-to-head scoring.
 
 Per `.codex/slices/slice_005/architecture_proposal.md` §"external_loader".
 

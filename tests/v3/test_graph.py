@@ -47,9 +47,9 @@ class TestStateInitialization:
     """V3 state must initialize with all required fields."""
 
     def test_create_v3_state(self):
-        from src.polaris_graph.state_v3 import create_v3_state
+        from src.polaris_graph.state_v3 import create_lightweight_state
 
-        state = create_v3_state(
+        state = create_lightweight_state(
             vector_id="V3_TEST_001",
             query="biochar heavy metal removal",
             application="water_treatment",
@@ -65,17 +65,17 @@ class TestStateInitialization:
 
     def test_state_serialization_bounded(self):
         """Empty state must serialize to < 5KB."""
-        from src.polaris_graph.state_v3 import create_v3_state
+        from src.polaris_graph.state_v3 import create_lightweight_state
 
-        state = create_v3_state("test", "query", "app", "region")
+        state = create_lightweight_state("test", "query", "app", "region")
         serialized = json.dumps(state)
         assert len(serialized) < 5000, f"Empty state too large: {len(serialized)} bytes"
 
     def test_state_with_evidence_ids_bounded(self):
         """State with 1000 evidence IDs must serialize to < 50KB."""
-        from src.polaris_graph.state_v3 import create_v3_state
+        from src.polaris_graph.state_v3 import create_lightweight_state
 
-        state = create_v3_state("test", "query", "app", "region")
+        state = create_lightweight_state("test", "query", "app", "region")
         state["evidence_ids"] = [f"ev_{i:06x}" for i in range(1000)]
         state["evidence_meta"] = {
             f"ev_{i:06x}": {"tier": "GOLD", "score": 0.9}

@@ -189,9 +189,9 @@ def test_build_known_words_from_evidence_rows_and_map():
         {"evidence_id": "a", "direct_quote": "research research research methodology methodology"},
         {"evidence_id": "b", "statement": "research methodology", "title": "research"},
     ]
-    known = we.build_known_words_from_evidence(rows, floor=3)
+    known = we.build_corpus_vocabulary_from_evidence(rows, floor=3)
     assert "research" in known          # occurs 5x >= floor 3
     assert "methodology" in known       # occurs 3x >= floor 3
     # the in-memory ev_pool MAP shape ({evidence_id: row}) is accepted too
-    known_map = we.build_known_words_from_evidence({r["evidence_id"]: r for r in rows}, floor=3)
+    known_map = we.build_corpus_vocabulary_from_evidence({r["evidence_id"]: r for r in rows}, floor=3)
     assert known_map == known

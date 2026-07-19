@@ -1305,7 +1305,7 @@ def _mineru25_timeout_seconds(pdf_bytes: bytes, floor: float) -> float:
 # faithfulness gate and drops no source.
 # ---------------------------------------------------------------------------
 
-def mineru_fire_canary_enabled() -> bool:
+def mineru_degrade_canary_enabled() -> bool:
     """PG_MINERU_FIRE_CANARY kill-switch (default ON). OFF => the U8 mineru-fires belt check
     is not surfaced (the raw ``clinical_pdf_winner_degraded`` telemetry is unaffected). Read at
     CALL time (LAW VI) so a slate/operator override after import wins."""

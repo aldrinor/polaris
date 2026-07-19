@@ -138,7 +138,7 @@ class PipelineArtifacts:
 
 @dataclass
 class PipelineResult:
-    """Return value of run_honest_pipeline()."""
+    """Return value of run_provenance_verified_pipeline()."""
 
     artifacts: PipelineArtifacts
     scope_result: ScopeGateResult
@@ -170,7 +170,7 @@ def _build_tier_signals(
     )
 
 
-def run_honest_pipeline(
+def run_provenance_verified_pipeline(
     *,
     research_question: str,
     domain: str,

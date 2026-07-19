@@ -25,7 +25,7 @@ from src.polaris_graph.wiki.mesh.claim_extract import extract_claims_from_source
 from src.polaris_graph.wiki.mesh.compose.composer import compose_answer
 from src.polaris_graph.wiki.mesh.edge_discovery import discover_edges_for_claims
 from src.polaris_graph.wiki.mesh.ingest import ingest_file
-from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+from src.polaris_graph.wiki.mesh.retrieve.lethal import retrieve_claims
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("preflight")
@@ -161,7 +161,7 @@ async def run_model_test(model_name: str, model_id: str, base_dir: Path):
         metrics["edges_contradict"] = edge_result.contradiction_count
 
         # -- Step 5: Retrieve --
-        retrieval = lethal_retrieve(
+        retrieval = retrieve_claims(
             store, workspace_id=ws_id,
             question_text=QUESTION,
         )

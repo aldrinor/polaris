@@ -1,7 +1,7 @@
 """Per-tool utilization tracer (I-meta-007b).
 
 A thread-safe, spend-free, network-free recorder of external tool / API
-invocations made during a single honest-rebuild run (pipeline A). Each call
+invocations made during a single pipeline-A run (pipeline A). Each call
 site (Serper search, Semantic Scholar search, content fetch, ...) records a
 :class:`ToolCall` describing the outcome — never changing the call's own
 behavior or return value.
@@ -463,10 +463,10 @@ def attach_tool_utilization(manifest: dict[str, Any], run_dir: Path) -> dict[str
         # a faithfulness-gate touch. Lazy import avoids an access_bypass<->tool_tracer import cycle.
         try:
             from src.tools.access_bypass import (
-                mineru_fire_canary_enabled,
+                mineru_degrade_canary_enabled,
                 mineru_silent_degrade_disclosure,
             )
-            if mineru_fire_canary_enabled():
+            if mineru_degrade_canary_enabled():
                 _mineru_firing = mineru_silent_degrade_disclosure(_winner_status)
                 manifest["mineru_firing"] = _mineru_firing
                 if _mineru_firing.get("silent_degrade"):

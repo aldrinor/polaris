@@ -105,10 +105,10 @@ def _run_embed_candidates(content: list[str], chrome: list[str]) -> dict[str, An
 def _run_glm_fewshot(content: list[str], chrome: list[str], sample: int) -> dict[str, Any]:
     import random  # noqa: PLC0415 — eval sampling only; seeded
     rnd = random.Random(0)
-    cs = rnd.sample(content, min(sample, len(content)))
-    hs = rnd.sample(chrome, min(sample, len(chrome)))
-    texts = cs + hs
-    y = [0] * len(cs) + [1] * len(hs)
+    content_sample = rnd.sample(content, min(sample, len(content)))
+    chrome_sample = rnd.sample(chrome, min(sample, len(chrome)))
+    texts = content_sample + chrome_sample
+    y = [0] * len(content_sample) + [1] * len(chrome_sample)
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
     client = OpenRouterClient(model=os.getenv("PG_JUDGE_MODEL", "z-ai/glm-5.2"))
     sys_prompt = (

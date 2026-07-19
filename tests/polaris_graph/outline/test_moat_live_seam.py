@@ -1,6 +1,6 @@
 """MOAT LIVE-SEAM: the [#calc:] calc-lane render proven on the FULL-CORPUS composer path.
 
-STEP-4 proved the moat through ``run_honest_pipeline`` (the honest-full-cycle path). But the
+STEP-4 proved the moat through ``run_provenance_verified_pipeline`` (the honest-full-cycle path). But the
 REAL 346-basket ``cp4_used=agentic`` corpus run composes section bodies through
 ``generate_multi_section_report`` -> ``_run_section``, and there the outline agent's run-scoped
 verified-compute registry was DISCARDED at the seam: every section-body ``strict_verify`` was

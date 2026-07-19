@@ -1,4 +1,4 @@
-"""Telemetry subpackage for the honest-rebuild pipeline (pipeline A).
+"""Telemetry subpackage for the pipeline A / rebuild pipeline.
 
 Local-only, spend-free observability helpers. The first member is the
 per-tool utilization tracer (I-meta-007b), which records every external

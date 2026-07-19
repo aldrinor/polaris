@@ -61,7 +61,7 @@ class V3State(TypedDict):
     research_brief: str          # Campaign Control Center context
 
 
-def create_v3_state(
+def create_lightweight_state(
     vector_id: str,
     query: str,
     application: str = "",

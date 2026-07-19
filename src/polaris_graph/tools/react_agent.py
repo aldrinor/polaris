@@ -170,7 +170,7 @@ _FILLER_DEMONSTRATES = re.compile(
 # surface modification via plasma" where the subject word echoes in the
 # predicate.  Jaccard guard in _post_process_interpretation() prevents
 # over-stripping valid prose.
-_TEMPLATE_ECHO_DEMONSTRATES = re.compile(
+_TEMPLATE_ECHO_SUBJECT_PREDICATE = re.compile(
     r'(?:^|(?<=[.!?]\s))'               # sentence boundary
     r'([A-Z][A-Za-z]+(?:\s+[A-Za-z]+)*'  # subject phrase (1+ words)
     r'\s+demonstrates?\s+'                # "demonstrate(s)"
@@ -219,24 +219,24 @@ _CITE_VALIDATION_THRESHOLD = float(
 )
 
 # R5: Legitimate doubled words (preserved by PDF artifact repair).
-_R5_LEGIT_DOUBLES = frozenset({"had", "that", "can", "the"})
+_LEGITIMATE_DOUBLED_WORDS = frozenset({"had", "that", "can", "the"})
 
 # R6: Scientific lens context words (skip scrubbing near these).
-_R6_SCI_LENS_WORDS = frozenset({
+_SCIENTIFIC_LENS_CONTEXT_WORDS = frozenset({
     "optical", "convex", "concave", "camera", "microscope",
     "zoom", "contact", "objective", "focal", "crystalline",
     "fisheye", "achromatic", "telephoto",
 })
 
 # R3: Scale transformation words (billion, million, etc.).
-_R3_SCALE_WORDS = frozenset({
+_SCALE_TRANSFORM_WORDS = frozenset({
     "billion", "million", "trillion", "thousand", "bn", "mn", "tn",
 })
 
 # R7: Known transitive verbs for active-to-passive transform.
 # Only these verbs are accepted — prevents misidentifying
 # nouns/adjectives as verbs (CRITICAL-1 fix).
-_R7_TRANSITIVE_VERBS = frozenset({
+_TRANSITIVE_VERBS = frozenset({
     "achieve", "show", "provide", "remove", "demonstrate",
     "exhibit", "indicate", "suggest", "reveal", "produce",
     "generate", "require", "enable", "reduce", "increase",
@@ -247,7 +247,7 @@ _R7_TRANSITIVE_VERBS = frozenset({
 })
 
 # R7: Irregular past participles for passive voice transform.
-_R7_IRREGULAR_PP = {
+_IRREGULAR_PAST_PARTICIPLES = {
     "show": "shown", "give": "given", "take": "taken",
     "make": "made", "find": "found", "get": "gotten",
     "keep": "kept", "know": "known", "see": "seen",
@@ -265,7 +265,7 @@ _R7_IRREGULAR_PP = {
 }
 
 # R7: Words ending in 's' that are NOT plural (skip "are" logic).
-_R7_SINGULAR_S = frozenset({
+_SINGULAR_WORDS_ENDING_IN_S = frozenset({
     "analysis", "process", "stress", "loss", "access",
     "success", "mass", "class", "glass", "gas", "basis",
     "thesis", "crisis", "diagnosis", "hypothesis", "synthesis",
@@ -5265,20 +5265,20 @@ class ReactAnalysisAgent:
                 else:
                     verb_stem_alt = None
 
-                if verb_stem in _R7_TRANSITIVE_VERBS or (
+                if verb_stem in _TRANSITIVE_VERBS or (
                     verb_stem_alt
-                    and verb_stem_alt in _R7_TRANSITIVE_VERBS
+                    and verb_stem_alt in _TRANSITIVE_VERBS
                 ):
                     # Derive past participle
                     lookup = verb_stem
                     if (
-                        lookup not in _R7_IRREGULAR_PP
+                        lookup not in _IRREGULAR_PAST_PARTICIPLES
                         and verb_stem_alt
-                        and verb_stem_alt in _R7_IRREGULAR_PP
+                        and verb_stem_alt in _IRREGULAR_PAST_PARTICIPLES
                     ):
                         lookup = verb_stem_alt
-                    if lookup in _R7_IRREGULAR_PP:
-                        pp = _R7_IRREGULAR_PP[lookup]
+                    if lookup in _IRREGULAR_PAST_PARTICIPLES:
+                        pp = _IRREGULAR_PAST_PARTICIPLES[lookup]
                     elif lookup.endswith("e"):
                         pp = lookup + "d"
                     else:
@@ -5310,7 +5310,7 @@ class ReactAnalysisAgent:
                         and obj_words[-1].lower().endswith("ly")
                         and len(obj_words[-1]) > 3
                         and obj_words[-1].lower()
-                        not in _R7_SINGULAR_S
+                        not in _SINGULAR_WORDS_ENDING_IN_S
                     ):
                         trailing_advs.insert(0, obj_words.pop())
                     obj_phrase_clean = " ".join(obj_words)
@@ -5337,7 +5337,7 @@ class ReactAnalysisAgent:
                         )
                         if (
                             last_w.endswith("s")
-                            and last_w not in _R7_SINGULAR_S
+                            and last_w not in _SINGULAR_WORDS_ENDING_IN_S
                         ):
                             aux = "are"
 
@@ -6682,7 +6682,7 @@ class ReactAnalysisAgent:
         def _replace_lens_ref(m: re.Match) -> str:
             start = max(0, m.start() - 30)
             before_window = _lens_source[start:m.start()].lower()
-            if any(w in before_window for w in _R6_SCI_LENS_WORDS):
+            if any(w in before_window for w in _SCIENTIFIC_LENS_CONTEXT_WORDS):
                 return m.group(0)  # Genuine scientific lens
             return "the analysis"
 
@@ -6741,7 +6741,7 @@ class ReactAnalysisAgent:
         claims_3grams = (
             self._ngrams(claims_text.lower(), 3) if claims_text else set()
         )
-        for echo_match in _TEMPLATE_ECHO_DEMONSTRATES.finditer(text):
+        for echo_match in _TEMPLATE_ECHO_SUBJECT_PREDICATE.finditer(text):
             matched = echo_match.group(1)
             has_cite = '[CITE:' in matched
 
@@ -7302,7 +7302,7 @@ class ReactAnalysisAgent:
                                         ].lower()
                                         if any(
                                             sw in window
-                                            for sw in _R3_SCALE_WORDS
+                                            for sw in _SCALE_TRANSFORM_WORDS
                                         ):
                                             # WP-1.2: Reject expanded
                                             # decimals (10+ digits).
@@ -7454,7 +7454,7 @@ class ReactAnalysisAgent:
         # Double-word dedup (2+ char words, safelist legit doubles)
         def _dedup_double_word(m: re.Match) -> str:
             word = m.group(1)
-            if word.lower() in _R5_LEGIT_DOUBLES:
+            if word.lower() in _LEGITIMATE_DOUBLED_WORDS:
                 return m.group(0)  # Preserve legitimate doubles
             return word
 

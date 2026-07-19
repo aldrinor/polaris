@@ -72,7 +72,7 @@ DESIGN_KEYWORDS: dict[str, float] = {
 
 
 @dataclass
-class EnhancedSourceScore:
+class SourceQualityScore:
     """Full source quality score with all signals."""
 
     # Core signals (from existing source_quality.py)
@@ -292,7 +292,7 @@ def _get_retraction_watch_db() -> set[str] | None:
 QUALITY_GATE_THRESHOLD = float(resolve("PG_SOURCE_QUALITY_GATE"))
 
 
-def source_quality_gate(score: EnhancedSourceScore) -> bool:
+def source_quality_gate(score: SourceQualityScore) -> bool:
     """
     Determine if a source passes the quality gate.
 
@@ -359,7 +359,7 @@ def enrich_evidence_with_quality(
 
         # Build enhanced score
         base_score = ev.get("source_confidence", ev.get("relevance_score", 0.5))
-        enhanced = EnhancedSourceScore(
+        enhanced = SourceQualityScore(
             base_quality_score=base_score,
             study_design=design_name,
             study_design_score=design_score,

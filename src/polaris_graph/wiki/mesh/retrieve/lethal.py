@@ -92,7 +92,7 @@ class RetrievalResult:
 
 # ───── public API ─────
 
-def lethal_retrieve(
+def retrieve_claims(
     store: MeshStore,
     *,
     workspace_id: str,
@@ -208,7 +208,7 @@ def lethal_retrieve(
 
     # ══════ STAGE 6: lethal re-rank ══════
     today = date.today()
-    lethal_scored: list[tuple[str, float]] = []
+    ranked_scored: list[tuple[str, float]] = []
 
     for claim_id, base_score in pool.items():
         claim = store.get_claim(claim_id)
@@ -237,7 +237,7 @@ def lethal_retrieve(
         entity_frac = _entity_match_fraction(store, claim_id, q_entities)
         recency = _recency_factor(today.year, source_year)
 
-        lethal = (
+        composite_score = (
             base_score
             * sig_authority
             * corroboration_factor(corr_count)
@@ -247,13 +247,13 @@ def lethal_retrieve(
             * recency
             * usage_bonus(times_used_val, float(age_days))
         )
-        lethal_scored.append((claim_id, lethal))
+        ranked_scored.append((claim_id, composite_score))
 
-    lethal_scored.sort(key=lambda x: -x[1])
+    ranked_scored.sort(key=lambda x: -x[1])
 
     # Main pool: top 90%
     main_k = max(1, int(K * (1.0 - EXPLORATION_FRACTION)))
-    main = lethal_scored[:main_k]
+    main = ranked_scored[:main_k]
     main_ids = {cid for cid, _ in main}
 
     # Exploration: 10% random GOLD claims never used
@@ -272,11 +272,11 @@ def lethal_retrieve(
         seed_count=result.seed_count,
         entity_count=result.entity_expansion_count,
         total_count=len(pool),
-        max_score=lethal_scored[0][1] if lethal_scored else 0.0,
+        max_score=ranked_scored[0][1] if ranked_scored else 0.0,
     ).value
 
     logger.info(
-        "lethal_retrieve: %d claims (seed=%d, entity=%d, walked=%d, "
+        "retrieve_claims: %d claims (seed=%d, entity=%d, walked=%d, "
         "exploration=%d, gap=%s)",
         len(result.scored_claims), result.seed_count,
         result.entity_expansion_count, result.walked_count,

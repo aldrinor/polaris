@@ -6214,11 +6214,11 @@ def run_live_retrieval(
     # => the legacy `_rerank_and_reserve` count-cut runs byte-identically AND the
     # semantic embedder is never imported. ON + embedder unavailable => LOUD
     # fallback to the SAME legacy cut (LAW II: no silent degrade).
-    _b4_relevance_weights: dict[str, float] = {}
-    _b4_gate: Optional[RelevanceGateResult] = None
+    _relevance_gate_weights: dict[str, float] = {}
+    _relevance_gate: Optional[RelevanceGateResult] = None
     _b4_selected: Optional[list[SearchCandidate]] = None
     if _relevance_gate_enabled():
-        _b4_selected, _b4_relevance_weights, _b4_gate = _relevance_threshold_select(
+        _b4_selected, _relevance_gate_weights, _relevance_gate = _relevance_threshold_select(
             candidates,
             research_question=research_question,
             sub_queries=list(effective_queries),
@@ -6255,21 +6255,21 @@ def run_live_retrieval(
     # the budget vs left in the tail) is surfaced on `relevance_gate` telemetry
     # (manifest) below. `_rerank_dropped_urls` here is exactly the tail (the only
     # non-fetched set), so every traced url is a cost non-fetch, not a relevance drop.
-    if _b4_gate is not None:
+    if _relevance_gate is not None:
         drop_reasons.setdefault("relevance_budget_tail", 0)
         drop_reasons.setdefault("relevance_below_floor_tail", 0)
-        drop_reasons["relevance_budget_tail"] += _b4_gate.unfetched_relevant_tail
-        drop_reasons["relevance_below_floor_tail"] += _b4_gate.demoted_tail
+        drop_reasons["relevance_budget_tail"] += _relevance_gate.unfetched_relevant_tail
+        drop_reasons["relevance_below_floor_tail"] += _relevance_gate.demoted_tail
         for _dropped_url in _rerank_dropped_urls:
             _trace_drop(_dropped_url, "relevance_gate_not_fetched")
         _msg = (
-            f"relevance_gate: threshold={_b4_gate.threshold:.2f} scored="
-            f"{_b4_gate.total_scored} above_floor={_b4_gate.kept_on_topic} "
-            f"demoted_below_floor={_b4_gate.demoted_below_floor} "
-            f"(fetched_to_fill={_b4_gate.demoted_fetched_to_fill}, "
-            f"tail={_b4_gate.demoted_tail}) fetched={_b4_gate.fetched_budget} "
-            f"unfetched_relevant_tail={_b4_gate.unfetched_relevant_tail} "
-            f"(fetch_cap={fetch_cap} scorer={_b4_gate.scorer}, demote-not-drop)"
+            f"relevance_gate: threshold={_relevance_gate.threshold:.2f} scored="
+            f"{_relevance_gate.total_scored} above_floor={_relevance_gate.kept_on_topic} "
+            f"demoted_below_floor={_relevance_gate.demoted_below_floor} "
+            f"(fetched_to_fill={_relevance_gate.demoted_fetched_to_fill}, "
+            f"tail={_relevance_gate.demoted_tail}) fetched={_relevance_gate.fetched_budget} "
+            f"unfetched_relevant_tail={_relevance_gate.unfetched_relevant_tail} "
+            f"(fetch_cap={fetch_cap} scorer={_relevance_gate.scorer}, demote-not-drop)"
         )
         logger.info("[live_retriever] %s", _msg)
         notes.append(_msg)
@@ -6312,17 +6312,17 @@ def run_live_retrieval(
     # evidence ROW (evidence_rows[].tier, consumed as ev.get("tier") in the outline
     # digest), NOT off classified_sources. The post-loop LLM-tiering batch only
     # back-fills classified_sources, so without this the LLM tier would silently
-    # no-op in report.md (rules-floor placeholder only). `_w5_loop_idx` carries the
+    # no-op in report.md (rules-floor placeholder only). `_llm_tiering_batch_index` carries the
     # current candidate's position in _deferred_tier_signals so the evidence row it
     # produces records that index; the post-loop batch then back-fills BOTH surfaces.
-    _w5_loop_idx: int = -1
+    _llm_tiering_batch_index: int = -1
     # I-ready-017 #1134: journal_only metadata sidecar (ON-path only). Keyed by
     # canonical URL; carries per-source journal-article signals for the
     # citeability predicate. Stays None when the flag is OFF (byte-identical).
     from src.polaris_graph.nodes.journal_only_filter import (
         journal_only_flag_enabled as _jo_flag_enabled,
         journal_metadata_entry as _jo_meta_entry,
-        canonicalize_url as _jo_canon,
+        canonicalize_url as _journal_only_canon_url,
     )
     _journal_only_on = _jo_flag_enabled()
     _journal_sidecar: dict[str, Any] = {} if _journal_only_on else {}
@@ -6689,21 +6689,21 @@ def run_live_retrieval(
     # On the serial fetch fallback (`use_parallel=False`) there is no pre-loop
     # body, so the score is computed inline per-candidate below with a LOUD
     # disclosed "serial non-batched" degrade (wiring_standard point 1).
-    _w2_on = False
+    _content_relevance_enabled_flag = False
     _w2_by_idx: dict[int, Any] = {}
-    _w2_report = None
+    _content_relevance_report = None
     try:
         from src.polaris_graph.retrieval.content_relevance_judge import (  # noqa: E402
             content_relevance_enabled,
         )
-        _w2_on = content_relevance_enabled()
+        _content_relevance_enabled_flag = content_relevance_enabled()
     except Exception as _w2_imp_exc:  # import must never break retrieval
         logger.warning(
             "[live_retriever] W2 content_relevance import failed (%s) — W2 OFF",
             str(_w2_imp_exc)[:160],
         )
-        _w2_on = False
-    if _w2_on and use_parallel and candidates:
+        _content_relevance_enabled_flag = False
+    if _content_relevance_enabled_flag and use_parallel and candidates:
         from src.polaris_graph.retrieval.content_relevance_judge import (  # noqa: E402
             score_passages,
         )
@@ -6729,22 +6729,22 @@ def run_live_retrieval(
             + _retrieval_w2_wall_fraction()
             * max(0.0, _retrieval_deadline - _w2_now),
         )
-        _w2_report = score_passages(
+        _content_relevance_report = score_passages(
             research_question, _w2_passages,
             deadline_monotonic=_w2_deadline,
         )
-        _w2_by_idx = _w2_report.by_idx()
+        _w2_by_idx = _content_relevance_report.by_idx()
         # Highest-visibility console event (point 8): the W2 disposition.
         logger.info(
             "[live_retriever] W2 content-relevance: scored=%d relevant=%d "
             "demoted=%d escalated=%d device=%s (DEMOTE keeps low weight, NO drop)",
-            _w2_report.n_scored, _w2_report.n_relevant, _w2_report.n_demoted,
-            _w2_report.n_escalated, _w2_report.reranker_device,
+            _content_relevance_report.n_scored, _content_relevance_report.n_relevant, _content_relevance_report.n_demoted,
+            _content_relevance_report.n_escalated, _content_relevance_report.reranker_device,
         )
         notes.append(
-            f"content_relevance_judge: scored={_w2_report.n_scored} "
-            f"relevant={_w2_report.n_relevant} demoted={_w2_report.n_demoted} "
-            f"escalated={_w2_report.n_escalated} (weight-not-filter, no drop)"
+            f"content_relevance_judge: scored={_content_relevance_report.n_scored} "
+            f"relevant={_content_relevance_report.n_relevant} demoted={_content_relevance_report.n_demoted} "
+            f"escalated={_content_relevance_report.n_escalated} (weight-not-filter, no drop)"
         )
 
     # ── WAVE-2 Fix A: PG_POST_FETCH_ENRICH_PARALLEL — pre-loop bounded-parallel
@@ -6967,14 +6967,14 @@ def run_live_retrieval(
         # drop). Parallel path: read the precomputed batch verdict. Serial path:
         # compute inline with a LOUD disclosed "non-batched" degrade. OFF => the
         # weight stays 1.0 / label "" so the CorpusSource is byte-identical.
-        _w2_weight = 1.0
-        _w2_label = ""
-        if _w2_on:
+        _content_relevance_weight = 1.0
+        _content_relevance_label = ""
+        if _content_relevance_enabled_flag:
             if use_parallel:
                 _w2v = _w2_by_idx.get(i)
                 if _w2v is not None:
-                    _w2_weight = _w2v.weight
-                    _w2_label = _w2v.label
+                    _content_relevance_weight = _w2v.weight
+                    _content_relevance_label = _w2v.label
             elif not _wall_rescue_mode:
                 # Serial fallback: no pre-loop batch — compute this one inline.
                 # WAVE-2 Fix B: SKIP this inline (GPU) compute in rescue mode — the
@@ -6993,8 +6993,8 @@ def run_live_retrieval(
                     research_question, [(i, cand.url, content or "")],
                 ).by_idx().get(i)
                 if _w2_single is not None:
-                    _w2_weight = _w2_single.weight
-                    _w2_label = _w2_single.label
+                    _content_relevance_weight = _w2_single.weight
+                    _content_relevance_label = _w2_single.label
 
         if not ok:
             failed_fetch += 1
@@ -7140,7 +7140,7 @@ def run_live_retrieval(
         # I-ready-017 #1134: resolve the article DOI for the journal_only
         # citeability predicate (ADDITIVE — sourced from the candidate's OA
         # hints; "" when unknown). Cheap, no network.
-        _jo_doi, _jo_pmid = _candidate_oa_hints(getattr(cand, "metadata", None))
+        _journal_only_doi, _jo_pmid = _candidate_oa_hints(getattr(cand, "metadata", None))
         signals = ClassificationSignals(
             url=cand.url,
             title=classifier_title,
@@ -7156,7 +7156,7 @@ def run_live_retrieval(
             # classifier fix is INERT on the live cert path (the run-killer
             # path). "" when OpenAlex returned no venue (demotion preserved).
             openalex_venue=oa.get("openalex_venue", "") or "",
-            doi=str(_jo_doi or ""),
+            doi=str(_journal_only_doi or ""),
             source_type_hint="",
             # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
             body_article_type=body_article_type,
@@ -7186,13 +7186,13 @@ def run_live_retrieval(
             # tier (NO LLM defer, NO dispatcher, NO network) via the shared
             # `_wall_rescue_classify_source` helper; the source is KEPT with a FINAL
             # tier (never a placeholder -> the W5 batch never touches it) so it feeds
-            # the CRAG reserve. `_w5_loop_idx=-1` disables the later evidence-row W5
+            # the CRAG reserve. `_llm_tiering_batch_index=-1` disables the later evidence-row W5
             # back-fill hook. §-1.3 keep-not-drop; the frozen faithfulness engine
             # (strict_verify / NLI / 4-role / provenance) is UNTOUCHED — this only
             # classifies+keeps, the downstream verify leg still re-checks the row.
-            _w5_loop_idx = -1
+            _llm_tiering_batch_index = -1
             # Codex wave-2 P1b + Wave-2 re-review P0/P1: KEEP the rescued body at the
-            # deterministic RULES-FLOOR weight, NEVER the default full `_w2_weight`
+            # deterministic RULES-FLOOR weight, NEVER the default full `_content_relevance_weight`
             # (1.0). Past the wall the content-relevance pass is skipped (no GPU
             # reranker), so the row was never scored — carrying full weight would
             # falsely rank it as fully relevant. The floor (`_wall_rescue_weight`,
@@ -7204,7 +7204,7 @@ def run_live_retrieval(
             #
             # Resolve the floor ONCE and stamp it on BOTH surfaces so they can never
             # diverge (the Wave-2 re-review defect): (1) the per-candidate locals
-            # `_w2_weight`/`_w2_label` — the values the groundable EVIDENCE row the
+            # `_content_relevance_weight`/`_content_relevance_label` — the values the groundable EVIDENCE row the
             # generator/CRAG path actually reads picks up below (~L6780). Previously
             # these were left at the full 1.0/"" default in rescue mode (the W2 block
             # above skips the inline compute via `elif not _wall_rescue_mode`), so the
@@ -7212,14 +7212,14 @@ def run_live_retrieval(
             # got the floor — a rescued body laundered into the evidence/CRAG path at
             # full/default weight (§-1.3 weight-not-drop violated on that path); and
             # (2) the CorpusSource the helper builds. Setting the locals to the floor
-            # makes the `if _w2_label:` evidence-row block below fire and stamp the SAME
+            # makes the `if _content_relevance_label:` evidence-row block below fire and stamp the SAME
             # floor weight + keep-neutral label onto the row, so the rescued body is
             # safely kept AND provenanced at the honest rules-floor on every downstream
             # surface. Faithfulness-neutral (a weight + disclosure label only; the frozen
             # strict_verify / NLI / 4-role / provenance engine is untouched).
             _rescue_weight = _wall_rescue_weight()
-            _w2_weight = _rescue_weight
-            _w2_label = _WALL_RESCUE_LABEL
+            _content_relevance_weight = _rescue_weight
+            _content_relevance_label = _WALL_RESCUE_LABEL
             _rescue_src, tier_result = _wall_rescue_classify_source(
                 signals, cand.url, cand.title, domain_,
                 content_relevance_weight=_rescue_weight,
@@ -7240,11 +7240,11 @@ def run_live_retrieval(
             # `_classify_source_tier_rules`, the SAME instant fallback the W5 batch uses
             # at credibility_llm_tiering.py:238 — never the LLM dispatcher
             # `classify_source_tier` (that would fire a blocking per-source LLM call and
-            # defeat the bounded-parallel batch). `_w5_loop_idx` is the position in
+            # defeat the bounded-parallel batch). `_llm_tiering_batch_index` is the position in
             # _deferred_tier_signals so the evidence row can record it and the post-loop
             # batch back-fills BOTH classified_sources AND the matching evidence row's
             # tier (the surface the generator actually reads).
-            _w5_loop_idx = len(_deferred_tier_signals)
+            _llm_tiering_batch_index = len(_deferred_tier_signals)
             tier_result = _classify_source_tier_rules(signals)
             # I-deepfix-001 (journal_genre_stamp): the W5 deferred path calls
             # `_classify_source_tier_rules` DIRECTLY, bypassing the `classify_source_tier`
@@ -7272,13 +7272,13 @@ def run_live_retrieval(
                 tier_reasons=[],
                 # I-wire-001 W2 (#1311): surface the content-relevance WEIGHT + label
                 # per citation (§-1.3). Defaults 1.0/"" when W2 OFF => byte-identical.
-                content_relevance_weight=_w2_weight,
-                content_relevance_label=_w2_label,
+                content_relevance_weight=_content_relevance_weight,
+                content_relevance_label=_content_relevance_label,
             ))
         else:
             # OFF path: no W5 deferral; clear the W5 evidence-row index so a stale
             # value from a prior ON-path iteration can never leak onto this row.
-            _w5_loop_idx = -1
+            _llm_tiering_batch_index = -1
             tier_result = classify_source_tier(signals)
 
             classified_sources.append(CorpusSource(
@@ -7291,8 +7291,8 @@ def run_live_retrieval(
                 tier_reasons=list(tier_result.reasons),
                 # I-wire-001 W2 (#1311): surface the content-relevance WEIGHT + label
                 # per citation (§-1.3). Defaults 1.0/"" when W2 OFF => byte-identical.
-                content_relevance_weight=_w2_weight,
-                content_relevance_label=_w2_label,
+                content_relevance_weight=_content_relevance_weight,
+                content_relevance_label=_content_relevance_label,
             ))
 
         # I-ready-017 #1134: record the per-source journal-article signals into
@@ -7302,12 +7302,12 @@ def run_live_retrieval(
             # Codex diff-gate P2: resolve the DOI from candidate metadata, then
             # the OpenAlex work DOI, then a DOI embedded in the URL — so an anchor
             # discovered via a Serper/URL-only path is still credited.
-            _jo_doi_resolved = str(_jo_doi or "") or str(oa.get("doi", "") or "")
-            if not _jo_doi_resolved:
-                _jo_doi_m = re.search(r"10\.\d{4,9}/[^\s?#\"'<>]+", cand.url or "")
-                if _jo_doi_m:
-                    _jo_doi_resolved = _jo_doi_m.group(0)
-            _journal_sidecar[_jo_canon(cand.url)] = _jo_meta_entry(
+            _journal_only_doi_resolved = str(_journal_only_doi or "") or str(oa.get("doi", "") or "")
+            if not _journal_only_doi_resolved:
+                _journal_only_doi_match = re.search(r"10\.\d{4,9}/[^\s?#\"'<>]+", cand.url or "")
+                if _journal_only_doi_match:
+                    _journal_only_doi_resolved = _journal_only_doi_match.group(0)
+            _journal_sidecar[_journal_only_canon_url(cand.url)] = _jo_meta_entry(
                 openalex_pub_type=oa.get("openalex_pub_type", "") or "",
                 openalex_source_type=oa.get("openalex_source_type", "") or "",
                 is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
@@ -7315,7 +7315,7 @@ def run_live_retrieval(
                 # grounding row + the credibility engine (bool("false") is True — the
                 # coercion bug); a string "false"/"0" must not mark the source retracted.
                 is_retracted=_retraction_is_truthy(oa, "is_retracted"),
-                doi=_jo_doi_resolved,
+                doi=_journal_only_doi_resolved,
                 venue=oa.get("openalex_venue", "") or "",
             )
 
@@ -7335,28 +7335,28 @@ def run_live_retrieval(
         # judged by the SAME is_content_starved / _recovered_content_error_class
         # screens the BUG-B02/B04 path uses and then flows through the UNCHANGED
         # strict_verify / NLI / 4-role / provenance engine like any other full-text
-        # row (nothing relaxed; ``_u21_repaired`` clears the stale classification-time
+        # row (nothing relaxed; ``_empty_fetch_repaired`` clears the stale classification-time
         # degraded flag exactly like the BUG-B02/B04 recovered case).
-        _u21_repaired = False
+        _empty_fetch_repaired = False
         if (not content) and (not ok) and _refetch_degraded_enabled() and not _wall_rescue_mode:
-            _u21_recovered = _try_refetch_degraded_row(
+            _recovered_from_refetch = _try_refetch_degraded_row(
                 cand.url, DEFAULT_CONTENT_MAX_CHARS,
             )
             if (
-                _u21_recovered
-                and not is_content_starved(_u21_recovered)
-                and not _recovered_content_error_class(_u21_recovered)
+                _recovered_from_refetch
+                and not is_content_starved(_recovered_from_refetch)
+                and not _recovered_content_error_class(_recovered_from_refetch)
             ):
                 logger.info(
                     "[live_retriever] U21 EMPTY-FETCH REPAIRED %r (tier=%s "
                     "zyte_len=%d) — failed-fetch source recovered to full text via "
                     "forced Zyte; now a citable full-weight row, NOT retained at "
                     "zero weight.",
-                    cand.url, tier_result.tier.value, len(_u21_recovered),
+                    cand.url, tier_result.tier.value, len(_recovered_from_refetch),
                 )
-                content = _u21_recovered
+                content = _recovered_from_refetch
                 ok = True
-                _u21_repaired = True
+                _empty_fetch_repaired = True
             else:
                 logger.info(
                     "[live_retriever] U21 EMPTY-FETCH REPAIR MISS %r (tier=%s) — "
@@ -7412,11 +7412,11 @@ def run_live_retrieval(
             # I-deepfix-001 (Codex P1 #2): tracks whether the forced re-fetch below upgraded a
             # degraded stub to full text. A recovered row is a NORMAL full-text row, so the stale
             # classification-time ``tier_result.fetch_degraded`` must NOT be propagated onto it
-            # (see ``_row_degraded_flags``). Seeded from ``_u21_repaired`` so the U21 empty-fetch
+            # (see ``_row_degraded_flags``). Seeded from ``_empty_fetch_repaired`` so the U21 empty-fetch
             # REPAIR above (which recovered this now-non-empty body) is likewise treated as a
             # recovered full-text row — the stale degraded flag from its empty-content
             # classification is cleared. Default False => a non-recovered stub keeps its label.
-            _refetch_recovered = _u21_repaired
+            _refetch_recovered = _empty_fetch_repaired
             # BUG-B02 / BUG-B04 (I-arch-011): degraded-row re-fetch. When this row
             # is about to be flagged degraded (content-less stub / landing-page
             # shell — e.g. the NEJM 489-char / FDA P960009 266-char anti-bot
@@ -7570,8 +7570,8 @@ def run_live_retrieval(
                 # P1: this is the evidence_for_gen.direct_quote path). Input hygiene
                 # only; full_content_length below keeps the raw fetched length.
                 from src.tools.access_bypass import clean_fetch_body
-                _cf_quote = clean_fetch_body(content)
-                _cleaned_for_quote = _cf_quote.cleaned_text
+                _cleaned_fetch_result = clean_fetch_body(content)
+                _cleaned_for_quote = _cleaned_fetch_result.cleaned_text
                 # I-beatboth-011 idx49 (#1289): when clean_fetch_body reports the
                 # WHOLE cleaned body is a fetch SHELL (boilerplate / soft-404 /
                 # Cloudflare or "security check required" interstitial — the junk
@@ -7586,11 +7586,11 @@ def run_live_retrieval(
                 # This consumes the EXISTING `shell_reason` signal and the EXISTING
                 # skip mechanism (no new drop/cap/threshold; §-1.3: removes only
                 # confirmed fetch-junk, never a real source).
-                if _cf_quote.shell_reason:
+                if _cleaned_fetch_result.shell_reason:
                     logger.info(
                         "[live_retriever] fetch-shell evidence rejected for %r "
                         "(reason=%s len=%d) → existing skip/gap branch, NOT cited",
-                        cand.url, _cf_quote.shell_reason, len(content),
+                        cand.url, _cleaned_fetch_result.shell_reason, len(content),
                     )
                     _trace_drop(cand.url, "fetch_shell")
                     drop_reasons["fetch_shell"] += 1
@@ -7658,9 +7658,9 @@ def run_live_retrieval(
                 # with a real disposition) so a W2-OFF / unlabelled row is byte-identical.
                 # Pure placement/relevance metadata — never enters a verified claim, never
                 # relaxes strict_verify / NLI / 4-role (§-1.3 disclose-don't-drop).
-                if _w2_label:
-                    _row["content_relevance_label"] = _w2_label
-                    _row["content_relevance_weight"] = _w2_weight
+                if _content_relevance_label:
+                    _row["content_relevance_label"] = _content_relevance_label
+                    _row["content_relevance_weight"] = _content_relevance_weight
                 # I-deepfix-001 Wave-4 CONTAMINATION (#1344) part C: ACTIVATE the DARK
                 # publication_date_resolver at the REAL date-screen consumer seam — where a
                 # fetched source's `pub_date`/`year` (the fields constraint_enforcement._row_pub_ym
@@ -7676,7 +7676,7 @@ def run_live_retrieval(
                 # marker (canary-rejected) fires. ACTIVATE-not-rebuild: only its existing pure
                 # functions are called here; faithfulness-neutral fetch-time PROVENANCE only.
                 if _resolve_pubdate_from_html_enabled() and _pub_date is None:
-                    _pub_date, _pub_year, _pd_res, _pd_fo = _resolve_row_pubdate_backfill(
+                    _pub_date, _pub_year, _pubdate_resolved_flag, _pd_fo = _resolve_row_pubdate_backfill(
                         content=content,
                         jsonld=raw_jsonld,
                         url=cand.url,
@@ -7690,7 +7690,7 @@ def run_live_retrieval(
                             "[live_retriever] pubdate HTML-resolve FAULT for %r "
                             "(fail-open, row date unchanged)", cand.url,
                         )
-                    elif _pd_res:
+                    elif _pubdate_resolved_flag:
                         _pubdate_resolved += 1
                     else:
                         _pubdate_unresolved += 1
@@ -7771,17 +7771,17 @@ def run_live_retrieval(
                 # tier — otherwise the W5 winner reaches classified_sources but NOT the
                 # evidence row the generator actually reads (ev.get("tier")), silently
                 # no-opping in report.md. ABSENT on the OFF path => byte-identical.
-                if _llm_tiering_on and _w5_loop_idx >= 0:
-                    _row["_w5_tier_batch_idx"] = _w5_loop_idx
+                if _llm_tiering_on and _llm_tiering_batch_index >= 0:
+                    _row["_w5_tier_batch_idx"] = _llm_tiering_batch_index
                 # B4 (b1b10 redesign, I-arch-005 Phase-2/3): carry the source's
                 # topical-relevance score FORWARD as a weight. ON-path only
-                # (`_b4_relevance_weights` is empty when PG_RETRIEVAL_RELEVANCE_GATE
+                # (`_relevance_gate_weights` is empty when PG_RETRIEVAL_RELEVANCE_GATE
                 # is OFF), so the key is ABSENT on the OFF path => byte-identical.
                 # This is a topical-relevance WEIGHT surfaced to composition; it is
                 # NOT a credibility/authority weight (those stay the tier/authority
                 # surface) and it NEVER gates here — the gate already happened
                 # pre-fetch. Seeds carry empty text so they are not in the map.
-                _b4_rw = _b4_relevance_weights.get(cand.url)
+                _b4_rw = _relevance_gate_weights.get(cand.url)
                 if _b4_rw is not None:
                     _row["relevance_weight"] = float(_b4_rw)
                 # F15/F30 (§-1.3 WEIGHT-not-FILTER): under the redesign flag, a
@@ -7914,7 +7914,7 @@ def run_live_retrieval(
             # preserved, sorts the row LAST), and no other consumer `or`-launders
             # it (grep-verified). OFF path (redesign flag unset) → this elif is
             # never entered → byte-identical legacy hard-drop.
-            _row0: dict[str, Any] = {
+            _zero_weight_row: dict[str, Any] = {
                 "evidence_id": f"ev_{i:03d}",
                 "source_url": cand.url,
                 # NO `statement` key — see grounding note above.
@@ -7930,19 +7930,19 @@ def run_live_retrieval(
                 "query_origin": getattr(cand, "query_origin", "") or "",
             }
             if _pub_year is not None:
-                _row0["year"] = _pub_year
-                _row0["publication_year"] = _pub_year
+                _zero_weight_row["year"] = _pub_year
+                _zero_weight_row["publication_year"] = _pub_year
             if research_frame is not None:
-                _auth0 = score_source_authority(signals)
-                _row0["authority_score"] = float(_auth0.authority_score)
-                _row0["authority_confidence"] = _auth0.authority_confidence.value
+                _zero_weight_authority = score_source_authority(signals)
+                _zero_weight_row["authority_score"] = float(_zero_weight_authority.authority_score)
+                _zero_weight_row["authority_confidence"] = _zero_weight_authority.authority_confidence.value
             # I-deepfix-001 M2: carry the document GENRE on the disclosed zero-weight row too
             # (set ONLY when the classifier stamped one => PG_DOCUMENT_TYPE_WEIGHT ON; OFF row
             # byte-identical). Disclosure metadata only; this row already carries direct_quote=""
             # so it can never ground a claim (the faithfulness engine is untouched).
             if getattr(tier_result, "document_type", None):
-                _row0["document_type"] = tier_result.document_type
-            evidence_rows.append(_row0)
+                _zero_weight_row["document_type"] = tier_result.document_type
+            evidence_rows.append(_zero_weight_row)
             logger.info(
                 "[live_retriever] §-1.3 RETAIN failed-fetch source at ZERO weight "
                 "for %r (tier=%s) — DISCLOSED (weight=0.0, fetch_failed=True, "
@@ -7961,15 +7961,15 @@ def run_live_retrieval(
     # the canary ACCEPTS (§-1.3 never gate on count>0); a fault path additionally emits a DISTINCT
     # ``unavailable_failopen`` degrade the canary REJECTS. Module logger => captured by the canary.
     if _openalex_match_validate_enabled():
-        _mv_now = _match_validate_snapshot()
-        _mv_checked = _mv_now.get("checked", 0) - _mv_snapshot0.get("checked", 0)
-        _mv_rejected = _mv_now.get("rejected", 0) - _mv_snapshot0.get("rejected", 0)
-        _mv_failopen = _mv_now.get("failopen", 0) - _mv_snapshot0.get("failopen", 0)
+        _match_validate_snapshot_now = _match_validate_snapshot()
+        _match_validate_checked = _match_validate_snapshot_now.get("checked", 0) - _mv_snapshot0.get("checked", 0)
+        _match_validate_rejected = _match_validate_snapshot_now.get("rejected", 0) - _mv_snapshot0.get("rejected", 0)
+        _match_validate_failopen = _match_validate_snapshot_now.get("failopen", 0) - _mv_snapshot0.get("failopen", 0)
         logger.info(
             "[activation] openalex_match_validate: checked=%d rejected=%d",
-            _mv_checked, _mv_rejected,
+            _match_validate_checked, _match_validate_rejected,
         )
-        if _mv_failopen > 0:
+        if _match_validate_failopen > 0:
             logger.info("[activation] openalex_match_validate: unavailable_failopen")
     if _resolve_pubdate_from_html_enabled():
         logger.info(
@@ -8055,7 +8055,7 @@ def run_live_retrieval(
     # the set is identical, and strict_verify re-checks every row regardless of
     # order (§-1.3 faithfulness-neutral). OFF => no reorder => byte-identical.
     # Runs AFTER the W5 tier back-fill so the reorder reflects final tier state.
-    if _w2_on and classified_sources:
+    if _content_relevance_enabled_flag and classified_sources:
         classified_sources = sorted(
             classified_sources,
             key=lambda s: -getattr(s, "content_relevance_weight", 1.0),
@@ -8144,11 +8144,11 @@ def run_live_retrieval(
         # B4 (b1b10 redesign, I-arch-005 Phase-2/3): relevance-gate telemetry,
         # including the unfetched-but-relevant tail. None when the B4 gate is OFF
         # (PG_RETRIEVAL_RELEVANCE_GATE unset) => byte-identical.
-        relevance_gate=(_b4_gate.to_dict() if _b4_gate is not None else None),
+        relevance_gate=(_relevance_gate.to_dict() if _relevance_gate is not None else None),
         # I-wire-001 W2 (#1311): content-relevance judge telemetry (None when W2
         # OFF => byte-identical). DISTINCT key from relevance_gate above.
         content_relevance=(
-            _w2_report.to_dict() if _w2_report is not None else None
+            _content_relevance_report.to_dict() if _content_relevance_report is not None else None
         ),
         # Codex diff-gate iter-1 P1: freeze the extraction-stage count HERE (at
         # return), before run_one_query mutates evidence_rows via the expansion/

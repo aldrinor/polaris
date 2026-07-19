@@ -41,7 +41,7 @@ SCREENSHOT_DIR = Path("outputs/design_audit/pdf_screenshots")
 DIAGNOSTIC_DIR = Path("outputs/design_audit/diagnostic")
 INTERACTION_DIR = Path("outputs/design_audit/interactions")
 DIFF_DIR = Path("outputs/design_audit/diffs")
-V1_ARCHIVE_DIR = Path("outputs/design_audit/v1_archive")
+PREVIOUS_RUN_ARCHIVE_DIR = Path("outputs/design_audit/v1_archive")
 PDF_OUTPUT = Path("outputs/design_audit/ui_review_v2.pdf")
 AUDIT_OUTPUT = Path("outputs/design_audit/alignment_audit.json")
 DESKTOP_WIDTH = 1440
@@ -1044,11 +1044,11 @@ def generate_diffs() -> None:
     DIFF_DIR.mkdir(parents=True, exist_ok=True)
     diff_count = 0
 
-    if not V1_ARCHIVE_DIR.exists():
-        logger.warning("No v1 archive at %s — skipping diffs", V1_ARCHIVE_DIR)
+    if not PREVIOUS_RUN_ARCHIVE_DIR.exists():
+        logger.warning("No v1 archive at %s — skipping diffs", PREVIOUS_RUN_ARCHIVE_DIR)
         return
 
-    for v1_file in V1_ARCHIVE_DIR.glob("*.png"):
+    for v1_file in PREVIOUS_RUN_ARCHIVE_DIR.glob("*.png"):
         v2_file = SCREENSHOT_DIR / v1_file.name
         if not v2_file.exists():
             logger.info("No v2 match for %s", v1_file.name)
@@ -1273,12 +1273,12 @@ def archive_v1() -> None:
         logger.info("No existing screenshots to archive")
         return
 
-    V1_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    PREVIOUS_RUN_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     count = 0
     for f in SCREENSHOT_DIR.glob("*.png"):
-        shutil.copy2(f, V1_ARCHIVE_DIR / f.name)
+        shutil.copy2(f, PREVIOUS_RUN_ARCHIVE_DIR / f.name)
         count += 1
-    logger.info("Archived %d screenshots to %s", count, V1_ARCHIVE_DIR)
+    logger.info("Archived %d screenshots to %s", count, PREVIOUS_RUN_ARCHIVE_DIR)
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ markers ("Like Comment Share" -> "users were invited to like, comment and share"
 on the writer INPUT, before the LLM call (advisor 2026-06-21).
 
 FIX (§3.1): in ``_pre_pass_one_basket`` (the per-basket writer driver), drop members whose verified span
-text is chrome via the §3.4 ``_compose_junk_screen`` BEFORE ``_call_writer``. Faithfulness-safe (§-1.3):
+text is chrome via the §3.4 ``_compose_boilerplate_screen`` BEFORE ``_call_writer``. Faithfulness-safe (§-1.3):
 boilerplate is not a corroborating source. A MIXED basket keeps its real members + citations; an
 ALL-chrome basket leaves zero members -> writer skipped (None) -> the loop K-span-falls-back.
 

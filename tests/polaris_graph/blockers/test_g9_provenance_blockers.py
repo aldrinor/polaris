@@ -44,7 +44,7 @@ from src.polaris_graph.generator.provenance_generator import (
     _is_content_empty_sentence,
     get_token_honesty_telemetry,
     parse_provenance_tokens,
-    reset_token_honesty_telemetry,
+    reset_token_accounting_telemetry,
     strict_verify,
     verify_sentence_provenance,
 )
@@ -52,9 +52,9 @@ from src.polaris_graph.generator.provenance_generator import (
 
 @pytest.fixture(autouse=True)
 def _reset_telemetry():
-    reset_token_honesty_telemetry()
+    reset_token_accounting_telemetry()
     yield
-    reset_token_honesty_telemetry()
+    reset_token_accounting_telemetry()
 
 
 def _pool() -> dict[str, dict[str, object]]:

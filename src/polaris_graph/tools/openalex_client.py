@@ -76,7 +76,7 @@ class OpenAlexWork:
         fetched_content_length: int = 0,
         publisher: str = "",
     ) -> str:
-        """HONEST-REBUILD Phase 2f — return a T1-T7 tier via the new rules.
+        """Rebuild Phase 2f — return a T1-T7 tier via the new rules.
 
         Runs the OpenAlex metadata through the Phase 2a tier_classifier
         so regulatory documents (T3), industry marketing (T5), student

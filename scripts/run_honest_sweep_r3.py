@@ -103,7 +103,7 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     # across queries and the per-run totals surface in the manifest. `_token_honest_drop_enabled`
     # gates the snapshot so a PG_PROVENANCE_TOKEN_HONEST_DROP=0 run keeps a byte-identical manifest.
     get_token_honesty_telemetry,
-    reset_token_honesty_telemetry,
+    reset_token_accounting_telemetry,
     _token_honest_drop_enabled,
     # I-deepfix-001 Wave-3a (#1344): per-run reset + snapshot of the re-anchor counters so the
     # provenance-reanchor activation marker surfaces the argmax-leg firing at RUN level. `_provenance_
@@ -449,7 +449,7 @@ def to_unified_status(summary_status: str) -> str:
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
 
 
-def _depth_d8_true_drop(
+def _depth_d8_drop_not_sink(
     *,
     report_path,
     final_verdicts: dict,
@@ -561,7 +561,7 @@ def _depth_d8_true_drop(
     return section_verdicts, section_nonverified
 
 
-def _depth_true_drop_when_all_verified(
+def _depth_drop_when_all_verified(
     *,
     report_path,
     audit_map_path,
@@ -574,7 +574,7 @@ def _depth_true_drop_when_all_verified(
 
     The section reconcile chain in ``run_one_query`` short-circuits on ``if not
     _nonverified_verdicts`` (every JUDGED 4-role verdict is VERIFIED). Both existing
-    ``_depth_d8_true_drop`` call sites live in the LATER ``elif`` branches, so that short-circuit
+    ``_depth_d8_drop_not_sink`` call sites live in the LATER ``elif`` branches, so that short-circuit
     would SKIP the depth reconcile entirely — and a rendered synthesized ``DS-*`` bullet whose claim
     was NEVER judged (an ``is_synthesized`` row present in the audit_map yet ABSENT from
     ``final_verdicts`` — its evidence failed to resolve so no D8 claim was built) would then SHIP
@@ -585,7 +585,7 @@ def _depth_true_drop_when_all_verified(
     Returns ``(final_verdicts, nonverified_verdicts, ran)``. ``ran`` is True iff the depth gate is ON,
     both artifacts exist on disk, AND at least one droppable synthesized row is present
     (``is_synthesized`` AND either unjudged or judged non-VERIFIED) — in which case
-    ``_depth_d8_true_drop`` ran and rewrote ``report_path``. When ``ran`` is False this is a
+    ``_depth_d8_drop_not_sink`` ran and rewrote ``report_path``. When ``ran`` is False this is a
     byte-identical no-op and the caller keeps the legacy skip log: gate OFF, a missing artifact, or
     no synthesized row to drop (every synthesized claim judged VERIFIED == the legacy all-verified
     no-op). STRENGTHENS faithfulness (it can only DROP an un-adjudicated bullet to the visible gap;
@@ -606,7 +606,7 @@ def _depth_true_drop_when_all_verified(
     )
     if not droppable:
         return final_verdicts, section_nonverified, False
-    new_final, new_nonverified = _depth_d8_true_drop(
+    new_final, new_nonverified = _depth_d8_drop_not_sink(
         report_path=report_path,
         final_verdicts=final_verdicts,
         audit_map=audit_map,
@@ -1184,7 +1184,7 @@ def _title_has_named_chrome(text: str) -> bool:
 # truth. A row/source that is NOT junk passes through byte-identical; the env
 # kill-switch `PG_JUNK_SOURCE_SCREEN=0` makes every caller a no-op (LAW VI).
 # ---------------------------------------------------------------------------
-def _junk_ev_row_text(_row: Any) -> str:
+def _low_quality_ev_row_text(_row: Any) -> str:
     """Fetched-body text of an evidence row (dict OR object); '' when absent."""
     if isinstance(_row, dict):
         return str(_row.get("direct_quote") or _row.get("statement") or "")
@@ -1193,18 +1193,18 @@ def _junk_ev_row_text(_row: Any) -> str:
     )
 
 
-def _junk_ev_row_url(_row: Any) -> str:
+def _low_quality_ev_row_url(_row: Any) -> str:
     """Source URL of an evidence row (dict OR object); '' when absent."""
     if isinstance(_row, dict):
         return str(_row.get("source_url") or _row.get("url") or "")
     return str(getattr(_row, "source_url", "") or getattr(_row, "url", "") or "")
 
 
-def _junk_ev_row_direct_quote(_row: Any) -> str:
+def _low_quality_ev_row_direct_quote(_row: Any) -> str:
     """U20 (I-deepfix-001): the row's ACTUAL fetched span (``direct_quote``) with NO
     ``statement`` fallback.
 
-    ``_junk_ev_row_text`` deliberately falls back to ``statement`` so the error-shell
+    ``_low_quality_ev_row_text`` deliberately falls back to ``statement`` so the error-shell
     BODY screen has text to inspect. But an EMPTY ``direct_quote`` (a source that
     contributed no grounding span) is itself junk that inflates breadth — and the
     statement fallback would MASK it. So the empty-quote screen reads the raw
@@ -1238,7 +1238,7 @@ def _a15_row_furniture_degraded(
         return False
 
 
-def _junk_src_url(_src: Any) -> str:
+def _low_quality_src_url(_src: Any) -> str:
     """URL of a classified source (dict OR CorpusSource object); '' when absent."""
     if isinstance(_src, dict):
         return str(_src.get("url") or _src.get("source_url") or "")
@@ -1297,19 +1297,19 @@ def _screen_junk_evidence(
             # Evidence rows carry the fetched body (direct_quote) AND the URL, so
             # both signals apply (host junk + error-shell body + captcha/cookie
             # interstitial span, U20).
-            if _is_junk_source(_junk_ev_row_url(_row), _junk_ev_row_text(_row)):
+            if _is_junk_source(_low_quality_ev_row_url(_row), _low_quality_ev_row_text(_row)):
                 _rows_excluded.append(
-                    {"url": _junk_ev_row_url(_row)[:300], "reason": "junk_source"}
+                    {"url": _low_quality_ev_row_url(_row)[:300], "reason": "junk_source"}
                 )
             # U20 (I-deepfix-001): a row whose ACTUAL fetched span is empty/whitespace
             # contributed no grounding and must not count toward breadth. Checked on the
-            # raw direct_quote (NOT the statement fallback that _junk_ev_row_text uses),
+            # raw direct_quote (NOT the statement fallback that _low_quality_ev_row_text uses),
             # so a phantom row with a model statement but no source span is dropped. This
             # runs at corpus consumption AFTER all retrieval, so direct_quote is settled;
             # faithfulness-neutral (an ungrounded row can never verify anyway).
-            elif not _junk_ev_row_direct_quote(_row).strip():
+            elif not _low_quality_ev_row_direct_quote(_row).strip():
                 _rows_excluded.append(
-                    {"url": _junk_ev_row_url(_row)[:300], "reason": "empty_quote"}
+                    {"url": _low_quality_ev_row_url(_row)[:300], "reason": "empty_quote"}
                 )
             else:
                 _rows_kept.append(_row)
@@ -1319,9 +1319,9 @@ def _screen_junk_evidence(
     if srcs is not None:
         for _src in _srcs_in:
             # CorpusSource carries no fetched body — screen on HOST only.
-            if _is_junk_source_host(_junk_src_url(_src)):
+            if _is_junk_source_host(_low_quality_src_url(_src)):
                 _srcs_excluded.append(
-                    {"url": _junk_src_url(_src)[:300], "reason": "junk_source_host"}
+                    {"url": _low_quality_src_url(_src)[:300], "reason": "junk_source_host"}
                 )
             else:
                 _srcs_kept.append(_src)
@@ -1430,14 +1430,14 @@ def _screen_blocked_references(
     if rows is not None:
         for _row in _rows_in:
             _hit, _reason = registry.is_blocked(
-                url=_junk_ev_row_url(_row),
+                url=_low_quality_ev_row_url(_row),
                 doi=_blocked_ref_row_doi(_row),
                 title=_blocked_ref_row_title(_row),
             )
             if _hit:
                 _rows_excluded.append(
                     {
-                        "url": _junk_ev_row_url(_row)[:300],
+                        "url": _low_quality_ev_row_url(_row)[:300],
                         "reason": f"blocked_reference:{_reason}"[:300],
                     }
                 )
@@ -1449,13 +1449,13 @@ def _screen_blocked_references(
     if srcs is not None:
         for _src in _srcs_in:
             _hit, _reason = registry.is_blocked(
-                url=_junk_src_url(_src),
+                url=_low_quality_src_url(_src),
                 title=_blocked_ref_row_title(_src),
             )
             if _hit:
                 _srcs_excluded.append(
                     {
-                        "url": _junk_src_url(_src)[:300],
+                        "url": _low_quality_src_url(_src)[:300],
                         "reason": f"blocked_reference:{_reason}"[:300],
                     }
                 )
@@ -4820,7 +4820,7 @@ def render_semantic_disclosure(
                 # trimmed "…" form. A genuinely chrome-only side still flags (its raw text IS chrome).
                 raw_norm = _normalize_claim_summary(raw, quote_trim=0)
                 if (
-                    _contradiction_render_honest_enabled()
+                    _contradiction_render_verbatim_enabled()
                     and raw_norm
                     and _contradiction_side_text_is_chrome(raw_norm)
                 ):
@@ -4852,7 +4852,7 @@ def render_semantic_disclosure(
 # it drops NO source (every record stays in the contradictions.json sidecar — §-1.3) and never
 # fabricates a conflict the detectors did not find. Default-ON LAW VI kill-switch
 # PG_CONTRADICTION_RENDER_HONEST; OFF reverts byte-identically.
-def _contradiction_render_honest_enabled() -> bool:
+def _contradiction_render_verbatim_enabled() -> bool:
     return os.environ.get("PG_CONTRADICTION_RENDER_HONEST", "1").strip().lower() in (
         "1", "true", "on", "yes", "enabled",
     )
@@ -4885,7 +4885,7 @@ def _contradict_side(claim: dict, *, is_semantic: bool = False) -> str:
     I-deepfix-001 B4-render #22 (#1344): with ``is_semantic=True`` under the honest-render flag, the
     numeric ``value`` (the 0.0 semantic sentinel) is NOT rendered — the substantive quote is used
     instead (no "0.0 VS 0.0"). A chrome-only quote returns "" so the caller drops that side."""
-    honest = _contradiction_render_honest_enabled()
+    honest = _contradiction_render_verbatim_enabled()
     _suppress_numeric = honest and is_semantic
     ev = str(claim.get("evidence_id") or "").strip()
     tier = str(claim.get("source_tier") or claim.get("tier") or "").strip()
@@ -9278,7 +9278,7 @@ async def run_one_query(
     # when the honest-drop path is off the counters stay 0, so reset/snapshot are no-ops. The
     # snapshot into manifest['token_honesty'] happens at report assembly. Best-effort import.
     try:
-        reset_token_honesty_telemetry()
+        reset_token_accounting_telemetry()
     except Exception:  # noqa: BLE001 — telemetry reset must never abort the run
         pass
 
@@ -15672,7 +15672,7 @@ async def run_one_query(
                 except Exception:  # noqa: BLE001 — no Zyte entry => skip the final-Zyte pass
                     _final_zyte = None
             _ci_stamped = 0
-            _ci_zyte_saved = 0
+            _content_integrity_recovered_count = 0
             # I-deepfix-003 (#1374) Fix 4 (stamp-side): a confirmed chrome non-source is routed
             # to the chrome-delete leg ONLY — it must NEVER be counted or deleted as off-topic
             # (Cause 3: a garbled/bot body scored low + a chrome title mislabeled it
@@ -15714,7 +15714,7 @@ async def run_one_query(
                             _re_junk, _re_cls = _detect_ci_junk(_fresh, _url, _title)
                             if not _re_junk:
                                 _r["direct_quote"] = _fresh  # adopt Zyte-recovered content
-                                _ci_zyte_saved += 1
+                                _content_integrity_recovered_count += 1
                                 continue  # recovered by final Zyte — KEEP
                             _cls = _re_cls or _cls
                     except Exception as _fz_exc:  # noqa: BLE001 — final Zyte best-effort
@@ -15728,10 +15728,10 @@ async def run_one_query(
                     # chrome leg, not the off-topic leg).
                     _r["topic_off_subject"] = False
                 _ci_stamped += 1
-            if _ci_stamped or _ci_zyte_saved:
+            if _ci_stamped or _content_integrity_recovered_count:
                 _log(
                     f"[content-integrity] stamped {_ci_stamped} chrome non-source(s) for "
-                    f"deletion; final-Zyte recovered {_ci_zyte_saved} (kept). A15+Zyte tried "
+                    f"deletion; final-Zyte recovered {_content_integrity_recovered_count} (kept). A15+Zyte tried "
                     "first; deleting only unrecoverable junk (§-1.3.1)."
                 )
         except Exception as _ci_exc:  # noqa: BLE001 — stamp is best-effort; no stamp => no delete
@@ -15742,7 +15742,7 @@ async def run_one_query(
         # identical, no deletion) and the disclosure is empty. evidence_for_gen is only
         # reassigned AFTER partition_rows returns, via a temp, so a raising partition never
         # leaves it half-mutated.
-        _run_junk_deleted_disclosed: list = []
+        _run_nonsource_deleted_disclosed: list = []
         try:
             from src.polaris_graph.generator import junk_deletion_gate as _junk_gate  # noqa: PLC0415
             try:
@@ -15757,7 +15757,7 @@ async def run_one_query(
                 if isinstance(r, dict) and (_jd_is_marquee(r) or r.get("v30_entity_id"))
             }
             _jd_exempt_ids.discard("")
-            _jd_kept, _junk_deleted_for_disclosure = _junk_gate.partition_rows(
+            _jd_kept, _nonsource_deleted_for_disclosure = _junk_gate.partition_rows(
                 evidence_for_gen,
                 exempt_ids=_jd_exempt_ids,
                 # Fix 2: only ids THIS run's topic judge freshly confirmed OFF_SUBJECT are
@@ -15768,27 +15768,27 @@ async def run_one_query(
             # while evidence_for_gen is STILL the original (un-pruned) pool. Only after ALL
             # accounting succeeds do we COMMIT the pruned pool AND its disclosure together, as
             # the final two statements. So if disclosure_records() or the log raises, the outer
-            # except leaves BOTH evidence_for_gen and _run_junk_deleted_disclosed untouched —
+            # except leaves BOTH evidence_for_gen and _run_nonsource_deleted_disclosed untouched —
             # no pruned-pool-without-disclosure state can ever exist (§-1.3.1: a deletion is
             # ALWAYS disclosed; a deletion and its disclosure are all-or-nothing).
-            _jd_disclosed = _junk_gate.disclosure_records(_junk_deleted_for_disclosure)
-            if _junk_deleted_for_disclosure:
+            _jd_disclosed = _junk_gate.disclosure_records(_nonsource_deleted_for_disclosure)
+            if _nonsource_deleted_for_disclosure:
                 _chrome_n = sum(
-                    1 for r in _junk_deleted_for_disclosure
+                    1 for r in _nonsource_deleted_for_disclosure
                     if str(r.get("deletion_reason", "")).startswith("content_integrity_junk")
                 )
-                _offtopic_n = len(_junk_deleted_for_disclosure) - _chrome_n
+                _offtopic_n = len(_nonsource_deleted_for_disclosure) - _chrome_n
                 _log(
                     "[junk-deletion-gate] RUN-LEVEL: DELETED "
-                    f"{len(_junk_deleted_for_disclosure)} junk/off-topic source(s) from the "
+                    f"{len(_nonsource_deleted_for_disclosure)} junk/off-topic source(s) from the "
                     f"grounding pool (chrome_nonsource={_chrome_n}, confirmed_offtopic="
                     f"{_offtopic_n}; marquee/contract anchors exempt); disclosed in manifest: "
-                    f"{[r.get('evidence_id') for r in _junk_deleted_for_disclosure]}"
+                    f"{[r.get('evidence_id') for r in _nonsource_deleted_for_disclosure]}"
                 )
             # ATOMIC COMMIT — pruned pool + disclosure together, only after all of the above
             # succeeded. A raise anywhere above skips BOTH assignments (fail-open, consistent).
             evidence_for_gen = _jd_kept
-            _run_junk_deleted_disclosed = _jd_disclosed
+            _run_nonsource_deleted_disclosed = _jd_disclosed
         except Exception as _jd_exc:  # noqa: BLE001 — a gate defect must NEVER abort the paid run
             _log(
                 "[junk-deletion-gate] SKIPPED (fail-open): "
@@ -15805,8 +15805,8 @@ async def run_one_query(
             (run_dir / "junk_deletion_disclosure.json").write_text(
                 json.dumps(
                     {
-                        "deleted": _run_junk_deleted_disclosed,
-                        "count": len(_run_junk_deleted_disclosed),
+                        "deleted": _run_nonsource_deleted_disclosed,
+                        "count": len(_run_nonsource_deleted_disclosed),
                     },
                     indent=2, sort_keys=True, default=str,
                 ) + "\n",
@@ -17847,10 +17847,10 @@ async def run_one_query(
         # (suppress-only; touches no strict_verify/NLI/4-role/span verdict). Fail-open.
         try:
             from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
-                build_known_words_from_evidence,
+                build_corpus_vocabulary_from_evidence,
                 sanitize_rendered_report,
             )
-            _seam_known_words = build_known_words_from_evidence(evidence_for_gen)
+            _seam_known_words = build_corpus_vocabulary_from_evidence(evidence_for_gen)
             final_report, _seam_removed = sanitize_rendered_report(
                 final_report, _seam_known_words
             )
@@ -18149,7 +18149,7 @@ async def run_one_query(
         # best-effort from the durable in-memory records; a missing count defaults to 0 and the
         # line still ships (fail-loud disclosure — a deletion is never silent). §-1.3.1.
         try:
-            _mh_disc = list(_run_junk_deleted_disclosed or [])
+            _mh_disc = list(_run_nonsource_deleted_disclosed or [])
             _mh_chrome = sum(
                 1 for r in _mh_disc
                 if str(r.get("deletion_reason", "")).startswith("content_integrity_junk")
@@ -18976,7 +18976,7 @@ async def run_one_query(
         # DURABLE run_dir/junk_deletion_disclosure.json the seam wrote. That is the single decision
         # surface — split by reason (``confirmed_offtopic*`` for off-topic, ``content_integrity_junk``
         # for chrome) — so the prior success-only block that MISSED the Fix-1 ``confirmed_offtopic_subject``
-        # reason (``== "confirmed_offtopic"``) is retired here. _run_junk_deleted_disclosed stays the
+        # reason (``== "confirmed_offtopic"``) is retired here. _run_nonsource_deleted_disclosed stays the
         # in-memory record for the Methods line (below).
 
         # I-cred-006b (#1170): surface the weighted-corpus credibility disclosure in the per-run
@@ -19824,7 +19824,7 @@ async def run_one_query(
                     # both artifacts exist + a droppable synthesized row is present; otherwise a
                     # byte-identical no-op that keeps the legacy skip log below.
                     _final_verdicts, _nonverified_verdicts, _depth_dropped = (
-                        _depth_true_drop_when_all_verified(
+                        _depth_drop_when_all_verified(
                             report_path=_redact_report_path,
                             audit_map_path=_audit_map_path,
                             final_verdicts=_final_verdicts,
@@ -19921,7 +19921,7 @@ async def run_one_query(
                         depth_synthesis_d8_gate_enabled as _depth_d8_gate,
                     )
                     if _depth_d8_gate():
-                        _final_verdicts, _nonverified_verdicts = _depth_d8_true_drop(
+                        _final_verdicts, _nonverified_verdicts = _depth_d8_drop_not_sink(
                             report_path=_redact_report_path,
                             final_verdicts=_final_verdicts,
                             audit_map=_audit_map,
@@ -20120,7 +20120,7 @@ async def run_one_query(
                         depth_synthesis_d8_gate_enabled as _depth_d8_gate,
                     )
                     if _depth_d8_gate():
-                        _final_verdicts, _nonverified_verdicts = _depth_d8_true_drop(
+                        _final_verdicts, _nonverified_verdicts = _depth_d8_drop_not_sink(
                             report_path=_redact_report_path,
                             final_verdicts=_final_verdicts,
                             audit_map=_audit_map,
@@ -20230,8 +20230,8 @@ async def run_one_query(
             try:
                 from src.polaris_graph.honest_sweep_integration import (
                     append_disclosure_to_report,
-                    merge_v30_into_manifest,
-                    run_v30_post_generation,
+                    merge_frame_coverage_into_manifest,
+                    run_frame_coverage_post_generation,
                 )
                 # Phase 1 ships RETRIEVAL-coverage semantics only.
                 # Legacy report / bibliography cross-check was
@@ -20241,7 +20241,7 @@ async def run_one_query(
                 # Phase 2 (M-58 + M-59 generator integration)
                 # will claim true report-coverage.
                 _report_path = run_dir / "report.md"
-                v30_result = run_v30_post_generation(
+                v30_result = run_frame_coverage_post_generation(
                     research_question=q["question"],
                     scope_template=_template,
                     slug=q["slug"],
@@ -20258,7 +20258,7 @@ async def run_one_query(
                 )
                 # Manifest merge via factored helper (unit-tested
                 # in tests/polaris_graph/test_honest_sweep_integration.py).
-                merge_v30_into_manifest(manifest, v30_result)
+                merge_frame_coverage_into_manifest(manifest, v30_result)
                 # Append Methods disclosure to report.md only if
                 # the report actually exists — helper never
                 # creates a disclosure-only file.
@@ -21363,9 +21363,9 @@ async def run_one_query(
         # lowered), and an unadjudicated outcome keeps its honest "N/A" display untouched.
         try:
             from src.polaris_graph.roles.release_policy import (  # noqa: PLC0415
-                apply_honest_scorecard_to_manifest,
+                apply_release_quality_scorecard_to_manifest,
             )
-            apply_honest_scorecard_to_manifest(manifest)
+            apply_release_quality_scorecard_to_manifest(manifest)
         except Exception as _sc_exc:  # noqa: BLE001 — additive display recompute; never abort the run
             _log(f"[scorecard]   honest release-quality recompute skipped (fail-open): {_sc_exc}")
 

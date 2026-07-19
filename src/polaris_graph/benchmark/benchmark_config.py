@@ -1,4 +1,4 @@
-"""Benchmark configuration loader for slice 005 BEAT-BOTH.
+"""Benchmark configuration loader for slice 005 head-to-head benchmark.
 
 Per `.codex/slices/slice_005/architecture_proposal.md` §"benchmark_config".
 

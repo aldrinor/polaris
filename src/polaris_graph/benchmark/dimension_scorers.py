@@ -1,4 +1,4 @@
-"""Per-dimension scoring functions for slice 005 BEAT-BOTH benchmark.
+"""Per-dimension scoring functions for slice 005 head-to-head benchmark.
 
 Per `.codex/slices/slice_005/architecture_proposal.md` §"dimension_scorers".
 

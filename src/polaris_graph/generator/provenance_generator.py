@@ -547,7 +547,7 @@ def get_token_honesty_telemetry() -> dict[str, int]:
     return dict(_TOKEN_HONESTY_TELEMETRY)
 
 
-def reset_token_honesty_telemetry() -> None:
+def reset_token_accounting_telemetry() -> None:
     """Zero the malformed-token counters (call between runs / tests)."""
     for k in _TOKEN_HONESTY_TELEMETRY:
         _TOKEN_HONESTY_TELEMETRY[k] = 0

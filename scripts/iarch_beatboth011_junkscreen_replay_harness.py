@@ -5,8 +5,8 @@
 path applied NO boilerplate/junk screen, so a chrome ``direct_quote`` (Scribd / Facebook / YouTube /
 journal masthead) that self-entailed to SUPPORTS was dumped VERBATIM into the report as "verified" prose.
 
-FIX (§3.4): a per-sentence-unit ALLOWLIST chrome screen (``_compose_junk_screen``, reusing the shared
-``weighted_enrichment._make_junk_screen`` = is_boilerplate_or_nonassertional + the high-precision
+FIX (§3.4): a per-sentence-unit ALLOWLIST chrome screen (``_compose_boilerplate_screen``, reusing the shared
+``weighted_enrichment._make_chrome_screen`` = is_boilerplate_or_nonassertional + the high-precision
 multi-word chrome list) applied at the verbatim-emit consumers (build_verified_span_draft /
 build_short_member_sentence). P1-4: ALLOWLIST-anchored only — a real SHORT sentence is KEPT (no length
 drop). Faithfulness-safe: boilerplate is not a corroborating source, so removing it is not a §-1.3 DROP.
@@ -33,7 +33,7 @@ def _fail(msg: str) -> None:
 
 def main() -> None:
     from src.polaris_graph.generator.verified_compose import (
-        _compose_junk_screen,
+        _compose_boilerplate_screen,
         build_short_member_sentence,
         build_verified_span_draft,
     )
@@ -50,7 +50,7 @@ def main() -> None:
         "Accept all cookies",                        # cookie consent
     ]
     for u in chrome_units:
-        if not _compose_junk_screen(u):
+        if not _compose_boilerplate_screen(u):
             _fail(f"chrome unit NOT screened (should be dropped): {u!r}")
     real_short = [
         "AI cut 14% of jobs.",                       # 20 chars — real content, MUST be kept
@@ -59,7 +59,7 @@ def main() -> None:
         "Generative AI raised measured labor productivity in customer support by fourteen percent.",
     ]
     for u in real_short:
-        if _compose_junk_screen(u):
+        if _compose_boilerplate_screen(u):
             _fail(f"real content unit WRONGLY screened (P1-4 violation — looks like a min-length drop): {u!r}")
     print(f"(A) ok: {len(chrome_units)} chrome units dropped; {len(real_short)} real units (incl. <20-char) KEPT.")
 

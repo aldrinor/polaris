@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 
 
-_V30_PHASE2_ENV: dict[str, str] = {
+LAUNCH_ENV: dict[str, str] = {
     # V30 gating: Phase-1 + Phase-2 both ACTIVE.
     "PG_V30_ENABLED":          "1",
     "PG_V30_PHASE2_ENABLED":   "1",
@@ -71,7 +71,7 @@ _V30_PHASE2_ENV: dict[str, str] = {
 
 
 def _apply_env() -> None:
-    for key, val in _V30_PHASE2_ENV.items():
+    for key, val in LAUNCH_ENV.items():
         existing = os.environ.get(key)
         if existing is None or existing == "":
             os.environ[key] = val

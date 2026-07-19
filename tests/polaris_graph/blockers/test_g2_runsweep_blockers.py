@@ -585,7 +585,7 @@ def test_1240_token_honesty_reset_zeroes_counters():
     # do not accumulate across queries. Drive the real provenance-generator helpers.
     from src.polaris_graph.generator import provenance_generator as pg
 
-    pg.reset_token_honesty_telemetry()
+    pg.reset_token_accounting_telemetry()
     snap = pg.get_token_honesty_telemetry()
     # I-deepfix-001 B9(c) (#1353): the token-honesty telemetry grew a third counter
     # `mirror_cites_collapsed` (paired-mirror citations folded to one origin). The
@@ -599,7 +599,7 @@ def test_1240_token_honesty_reset_zeroes_counters():
     pg._TOKEN_HONESTY_TELEMETRY["malformed_canonicalized"] = 4
     pg._TOKEN_HONESTY_TELEMETRY["malformed_dropped"] = 2
     assert pg.get_token_honesty_telemetry()["malformed_canonicalized"] == 4
-    pg.reset_token_honesty_telemetry()
+    pg.reset_token_accounting_telemetry()
     assert pg.get_token_honesty_telemetry() == {
         "malformed_canonicalized": 0,
         "malformed_dropped": 0,
@@ -612,11 +612,11 @@ def test_1240_token_honesty_snapshot_is_a_copy_not_a_live_ref():
     # cannot retroactively mutate an already-written manifest's recorded counts.
     from src.polaris_graph.generator import provenance_generator as pg
 
-    pg.reset_token_honesty_telemetry()
+    pg.reset_token_accounting_telemetry()
     snap = pg.get_token_honesty_telemetry()
     pg._TOKEN_HONESTY_TELEMETRY["malformed_dropped"] = 9
     assert snap["malformed_dropped"] == 0  # the earlier snapshot is unaffected
-    pg.reset_token_honesty_telemetry()
+    pg.reset_token_accounting_telemetry()
 
 
 # ── I-arch-011 PR-b (#1268) Argus keep-all basket-corroboration render ────────────

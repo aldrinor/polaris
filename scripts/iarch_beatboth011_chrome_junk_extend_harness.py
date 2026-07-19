@@ -34,7 +34,7 @@ REPORT_MD = CORPUS_DIR / "report.md"
 from src.tools.access_bypass import is_junk_source, is_junk_source_host  # noqa: E402
 from scripts.run_honest_sweep_r3 import (  # noqa: E402
     _header_line_is_garbled,
-    _junk_ev_row_url,
+    _low_quality_ev_row_url,
     _screen_garbled_headers,
     _screen_junk_evidence,
 )
@@ -105,9 +105,9 @@ def main() -> int:
         )
         realpath_dropped = n_in - len(kept_rows)
         realpath_survivors = [
-            _junk_ev_row_url(r) for r in kept_rows
+            _low_quality_ev_row_url(r) for r in kept_rows
             if any(
-                s in _junk_ev_row_url(r).lower()
+                s in _low_quality_ev_row_url(r).lower()
                 for s in ("facebook.com", "reddit.com", "linkedin.com", "quizlet.com",
                           "twitter.com", "instagram.com", "youtube.com")
             )
@@ -115,7 +115,7 @@ def main() -> int:
         realpath_real_kept = sum(
             1 for r in kept_rows
             if any(
-                s in _junk_ev_row_url(r).lower()
+                s in _low_quality_ev_row_url(r).lower()
                 for s in ("doi.org", "nature.com", "frontiersin.org", "pmc.ncbi.nlm.nih.gov")
             )
         )

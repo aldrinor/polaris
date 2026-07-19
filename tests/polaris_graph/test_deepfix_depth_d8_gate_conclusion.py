@@ -12,7 +12,7 @@ assertion under ``PG_DEPTH_SYNTHESIS_D8_GATE=0``.
             is byte-identical to legacy (OFF / no synthesized_findings). Coverage denominator unchanged.
   RELEASE   apply_d8_release_policy: a DS-* S3 FABRICATED row is release-neutral; a section S1
             FABRICATED row DOES latch (proves the test is not a vacuous pass).
-  CHANGE 4  run_honest_sweep_r3._depth_d8_true_drop: a non-VERIFIED / unjudged depth bullet is DROPPED
+  CHANGE 4  run_honest_sweep_r3._depth_d8_drop_not_sink: a non-VERIFIED / unjudged depth bullet is DROPPED
             to the visible gap (refuse-in-place); a VERIFIED depth bullet survives; the section verdicts
             are returned depth-stripped; a legacy audit_map (no is_synthesized) is byte-identical inert.
 """
@@ -329,7 +329,7 @@ def test_release_neutrality_control_section_s1_fabricated_latches():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHANGE 4 — _depth_d8_true_drop: non-VERIFIED/unjudged depth bullets DROPPED, VERIFIED survives
+# CHANGE 4 — _depth_d8_drop_not_sink: non-VERIFIED/unjudged depth bullets DROPPED, VERIFIED survives
 # ─────────────────────────────────────────────────────────────────────────────
 def _import_true_drop():
     import importlib
@@ -337,7 +337,7 @@ def _import_true_drop():
     module = importlib.import_module("scripts.run_honest_sweep_r3")
     from src.polaris_graph.roles.report_redactor import _GAP_REPLACEMENT
 
-    return module._depth_d8_true_drop, _GAP_REPLACEMENT
+    return module._depth_d8_drop_not_sink, _GAP_REPLACEMENT
 
 
 _REPORT_MD = """## Analytical synthesis
@@ -447,8 +447,8 @@ def test_change4_negative_legacy_audit_map_is_inert(tmp_path):
 # CHANGE 4 P1 (Codex) — OUTER-PATH (caller) regression: the caller's `if not _nonverified_verdicts`
 # short-circuit must NOT skip the depth true-drop when a rendered is_synthesized DS-* row was NEVER
 # judged (all other claims VERIFIED). Exercises the extracted caller helper
-# `_depth_true_drop_when_all_verified`, which reads the audit_map from DISK (unlike the direct
-# `_depth_d8_true_drop` tests above), so it is a genuine caller-path test.
+# `_depth_drop_when_all_verified`, which reads the audit_map from DISK (unlike the direct
+# `_depth_d8_drop_not_sink` tests above), so it is a genuine caller-path test.
 # ─────────────────────────────────────────────────────────────────────────────
 def _import_caller_all_verified():
     import importlib
@@ -456,7 +456,7 @@ def _import_caller_all_verified():
     module = importlib.import_module("scripts.run_honest_sweep_r3")
     from src.polaris_graph.roles.report_redactor import _GAP_REPLACEMENT
 
-    return module._depth_true_drop_when_all_verified, _GAP_REPLACEMENT
+    return module._depth_drop_when_all_verified, _GAP_REPLACEMENT
 
 
 def _write_caller_fixtures(tmp_path, audit_map):

@@ -1,5 +1,5 @@
 """
-DEEP GEMINI VERIFICATION — Tests that each Gemini-class feature actually works
+DEEP GEMINI VERIFICATION — Tests that each high-quality output feature actually works
 with REAL LLM calls, REAL data, and REAL rendering.
 
 Unlike the smoke test (individual components) or fire test Layer 1 (local-only),

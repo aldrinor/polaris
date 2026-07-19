@@ -948,7 +948,7 @@ def honest_release_quality_score(
     return round(score, 3)
 
 
-def apply_honest_scorecard_to_manifest(manifest: dict) -> dict:
+def apply_release_quality_scorecard_to_manifest(manifest: dict) -> dict:
     """Re-derive ``release_disclosure.release_quality_score`` in-place to reflect deficiencies (U26).
 
     Reads the sibling manifest signals — ``evaluator_gate_advisory.gate_class`` and

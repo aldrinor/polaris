@@ -1,7 +1,7 @@
 """
 Mesh answer composer — single-answer composition from retrieved claims.
 
-Takes a RetrievalResult from Unit 5's lethal_retrieve, hydrates claims
+Takes a RetrievalResult from Unit 5's retrieve_claims, hydrates claims
 from the store, builds an inline bibliography, formats claims for the
 LLM, and composes a cited answer.
 
@@ -110,7 +110,7 @@ async def compose_answer(
         Open mesh store for claim/source hydration.
     workspace_id : str
     retrieval_result : RetrievalResult
-        From Unit 5's lethal_retrieve.
+        From Unit 5's retrieve_claims.
     question_text : str
         The user's original question.
 

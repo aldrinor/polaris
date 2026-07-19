@@ -2,7 +2,7 @@
 
 The per-basket body writers in ``verified_compose`` — ``build_short_member_sentence``,
 ``build_multi_member_sentences`` and the K-span fallback ``build_verified_span_draft_multi`` — emit
-VERBATIM span sentences after only the chrome-FORM screen (``_compose_junk_screen``) + the downstream
+VERBATIM span sentences after only the chrome-FORM screen (``_compose_boilerplate_screen``) + the downstream
 strict_verify. NEITHER is TOPICAL, so a CONFIDENTLY-foreign span of an otherwise-on-topic source (a
 "TranScriptorium manuscript digitisation project" sentence inside an AI-labor source) composed into the
 findings body. STEP 5 wires the EXISTING high-precision, FAIL-OPEN span screen

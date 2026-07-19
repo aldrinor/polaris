@@ -1,6 +1,6 @@
 """V30 sweep integration tests.
 
-Exercises `run_v30_post_generation` — the glue module that wires
+Exercises `run_frame_coverage_post_generation` — the glue module that wires
 M-54..M-61 into run_honest_sweep_r3.py. Pure tests (no network;
 M-56 httpx calls stubbed via MockTransport injected through
 environment patches + module-level shims).
@@ -150,9 +150,9 @@ class TestOptInGating:
     ) -> None:
         monkeypatch.delenv("PG_V30_ENABLED", raising=False)
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="clinical_tirzepatide_t2dm",
@@ -182,9 +182,9 @@ class TestOptInGating:
         )
         try:
             from src.polaris_graph.honest_sweep_integration import (
-                run_v30_post_generation,
+                run_frame_coverage_post_generation,
             )
-            result = run_v30_post_generation(
+            result = run_frame_coverage_post_generation(
                 research_question="tirzepatide T2D evidence",
                 scope_template=clinical_template,
                 slug="clinical_tirzepatide_t2dm",
@@ -218,9 +218,9 @@ class TestNoContractSkip:
     ) -> None:
         monkeypatch.setenv("PG_V30_ENABLED", "1")
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="slug_that_does_not_exist_in_contract",
@@ -260,9 +260,9 @@ class TestClinicalChain:
         # warning always emitted. Disclosure prose carries
         # explicit Phase-1 preamble.
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question=(
                 "What is the evidence for tirzepatide in T2D?"
             ),
@@ -319,9 +319,9 @@ class TestClinicalChain:
             ),
         )
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="clinical_tirzepatide_t2dm",
@@ -352,9 +352,9 @@ class TestClinicalChain:
             ),
         )
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="clinical_tirzepatide_t2dm",
@@ -409,9 +409,9 @@ class TestClinicalChain:
             ff, "fetch_compiled_frame", _degraded_fetch,
         )
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="clinical_tirzepatide_t2dm",
@@ -506,9 +506,9 @@ class TestGapRowToTask:
             ),
         )
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="clinical_tirzepatide_t2dm",
@@ -575,9 +575,9 @@ class TestOperatorCompletionsMerge:
         )
 
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="clinical_tirzepatide_t2dm",
@@ -637,9 +637,9 @@ class TestOperatorCompletionsMerge:
         )
 
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="clinical_tirzepatide_t2dm",
@@ -674,9 +674,9 @@ class TestExceptionSafety:
         monkeypatch.setattr(fc, "compile_frame", _raise)
 
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question="q",
             scope_template=clinical_template,
             slug="clinical_tirzepatide_t2dm",
@@ -695,12 +695,12 @@ class TestExceptionSafety:
 class TestRunnerHookMergeHelper:
     """Codex sweep-integration audit Medium: the actual runner
     integration needs its own smoke test. Exercises the factored
-    helpers `merge_v30_into_manifest` + `append_disclosure_to_report`
+    helpers `merge_frame_coverage_into_manifest` + `append_disclosure_to_report`
     without running a full sweep (no network, no LLM)."""
 
     def test_merge_disabled_is_noop(self) -> None:
         from src.polaris_graph.honest_sweep_integration import (
-            V30SweepResult, merge_v30_into_manifest,
+            V30SweepResult, merge_frame_coverage_into_manifest,
         )
         manifest = {"status": "success", "run_id": "r1"}
         disabled = V30SweepResult(
@@ -711,14 +711,14 @@ class TestRunnerHookMergeHelper:
             warnings=[],
             error=None,
         )
-        merge_v30_into_manifest(manifest, disabled)
+        merge_frame_coverage_into_manifest(manifest, disabled)
         # No mutation
         assert manifest == {"status": "success", "run_id": "r1"}
         assert "v30_enabled" not in manifest
 
     def test_merge_enabled_with_coverage(self) -> None:
         from src.polaris_graph.honest_sweep_integration import (
-            V30SweepResult, merge_v30_into_manifest,
+            V30SweepResult, merge_frame_coverage_into_manifest,
         )
         manifest = {"status": "success"}
         coverage = {"total_entities": 5, "pass_count": 5}
@@ -730,7 +730,7 @@ class TestRunnerHookMergeHelper:
             warnings=[],
             error=None,
         )
-        merge_v30_into_manifest(manifest, result)
+        merge_frame_coverage_into_manifest(manifest, result)
         assert manifest["v30_enabled"] is True
         assert manifest["frame_coverage_report"] == coverage
         assert "v30_error" not in manifest
@@ -739,7 +739,7 @@ class TestRunnerHookMergeHelper:
 
     def test_merge_enabled_with_skipped_reason(self) -> None:
         from src.polaris_graph.honest_sweep_integration import (
-            V30SweepResult, merge_v30_into_manifest,
+            V30SweepResult, merge_frame_coverage_into_manifest,
         )
         manifest = {}
         result = V30SweepResult(
@@ -751,14 +751,14 @@ class TestRunnerHookMergeHelper:
             error=None,
             skipped_reason="no_contract_for_slug",
         )
-        merge_v30_into_manifest(manifest, result)
+        merge_frame_coverage_into_manifest(manifest, result)
         assert manifest["v30_enabled"] is True
         assert manifest["v30_skipped_reason"] == "no_contract_for_slug"
         assert "frame_coverage_report" not in manifest
 
     def test_merge_enabled_with_error_and_warnings(self) -> None:
         from src.polaris_graph.honest_sweep_integration import (
-            V30SweepResult, merge_v30_into_manifest,
+            V30SweepResult, merge_frame_coverage_into_manifest,
         )
         manifest = {}
         result = V30SweepResult(
@@ -769,7 +769,7 @@ class TestRunnerHookMergeHelper:
             warnings=["w1", "w2"],
             error="RuntimeError: kaboom",
         )
-        merge_v30_into_manifest(manifest, result)
+        merge_frame_coverage_into_manifest(manifest, result)
         assert manifest["v30_error"] == "RuntimeError: kaboom"
         assert manifest["v30_warnings"] == ["w1", "w2"]
 
@@ -830,9 +830,9 @@ class TestPolicySweepIntegration:
         )
 
         from src.polaris_graph.honest_sweep_integration import (
-            run_v30_post_generation,
+            run_frame_coverage_post_generation,
         )
-        result = run_v30_post_generation(
+        result = run_frame_coverage_post_generation(
             research_question=(
                 "What does the IRA drug price negotiation statute do?"
             ),

@@ -8,7 +8,7 @@ Tests the 4 bounded feedback mechanisms from design doc §8:
   M4: upload_gravity_boost — fixed ×1.3
 
 Also tests:
-  - Composite lethal_snowball_score
+  - Composite compute_snowball_score
   - Design doc bounds (times_used=100 age<30d ≈ 1.46, age>2y ≈ 1.0)
   - Edge cases (negative inputs, zero inputs, extreme values)
 
@@ -25,7 +25,7 @@ import pytest
 from src.polaris_graph.wiki.mesh.snowball import (
     contradiction_penalty,
     corroboration_factor,
-    lethal_snowball_score,
+    compute_snowball_score,
     upload_gravity_boost,
     usage_bonus,
 )
@@ -134,10 +134,10 @@ class TestUploadGravityBoost:
 class TestLethalSnowballScore:
     def test_baseline_only(self):
         # No snowball factors → just the base score
-        assert lethal_snowball_score(base_score=0.8) == pytest.approx(0.8)
+        assert compute_snowball_score(base_score=0.8) == pytest.approx(0.8)
 
     def test_all_factors_combined(self):
-        score = lethal_snowball_score(
+        score = compute_snowball_score(
             base_score=1.0,
             times_used=50,
             age_days=30.0,
@@ -155,20 +155,20 @@ class TestLethalSnowballScore:
         assert score == pytest.approx(expected)
 
     def test_contradiction_reduces_score(self):
-        no_c = lethal_snowball_score(base_score=1.0, has_contradiction=False)
-        with_c = lethal_snowball_score(base_score=1.0, has_contradiction=True)
+        no_c = compute_snowball_score(base_score=1.0, has_contradiction=False)
+        with_c = compute_snowball_score(base_score=1.0, has_contradiction=True)
         assert with_c < no_c
         assert with_c == pytest.approx(0.7)
 
     def test_upload_boosts_score(self):
-        web = lethal_snowball_score(base_score=1.0, is_upload=False)
-        upload = lethal_snowball_score(base_score=1.0, is_upload=True)
+        web = compute_snowball_score(base_score=1.0, is_upload=False)
+        upload = compute_snowball_score(base_score=1.0, is_upload=True)
         assert upload > web
         assert upload == pytest.approx(1.3)
 
     def test_zero_base_stays_zero(self):
         # All factors are multiplicative → 0 * anything = 0
-        score = lethal_snowball_score(
+        score = compute_snowball_score(
             base_score=0.0,
             times_used=100,
             corroboration_count=50,
@@ -183,7 +183,7 @@ class TestLethalSnowballScore:
         #   M3: no contradiction → 1.0
         #   M4: upload → 1.3
         # Total: 1.0 * 1.46 * 4.0 * 1.0 * 1.3 ≈ 7.6
-        score = lethal_snowball_score(
+        score = compute_snowball_score(
             base_score=1.0,
             times_used=100,
             age_days=0.0,

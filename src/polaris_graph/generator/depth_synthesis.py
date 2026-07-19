@@ -854,17 +854,17 @@ async def _synthesize_one_basket(
     the synthesis -> the layer omits it; never crashes the run). Chrome members are input-screened
     BEFORE the call (a paraphrase would mangle the multi-word markers, so only an input screen catches
     them)."""
-    from src.polaris_graph.generator.verified_compose import _compose_junk_screen  # noqa: PLC0415
+    from src.polaris_graph.generator.verified_compose import _compose_boilerplate_screen  # noqa: PLC0415
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: PLC0415
 
     # COV-DECHROME-BASKETS (#1344): hold chrome/unrenderable member spans OUT of the SYNTHESIS input
     # BEFORE the prompt is built (the coverage-forensic root: a chrome member span mangles the multi-word
     # markers and collapses the pre-pass). The eligibility gate already logged the per-basket drop, so
-    # ``log_drops=False`` here avoids double-logging the same member. The existing ``_compose_junk_screen``
+    # ``log_drops=False`` here avoids double-logging the same member. The existing ``_compose_boilerplate_screen``
     # allowlist pass is retained as an inner belt-and-suspenders filter (no regression).
     members = [
         m for m in _dechrome_distinct_origin_supports(basket, log_drops=False)
-        if not _compose_junk_screen(str(getattr(m, "direct_quote", "") or ""))
+        if not _compose_boilerplate_screen(str(getattr(m, "direct_quote", "") or ""))
     ]
     # C2: when single-source synthesis is active (C1 + PG_SYNTH_SINGLE_SOURCE both on), a 1-member basket
     # IS drafted (labeled "(single source)" downstream, never dropped). OFF => the DEFINITIONAL >=2 floor

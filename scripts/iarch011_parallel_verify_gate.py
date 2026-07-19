@@ -51,19 +51,19 @@ distinct = len({t.evidence_id for sv in rep.kept_sentences for t in (getattr(sv,
 # junk heuristic on KEPT units (rough magnitude; manual sample below for truth)
 _URL = re.compile(r"https?://|www\.|doi\.org|\.gov/|\.com/", re.I)
 _SUBMIT = re.compile(r"\b(Received|Revised|Accepted|Published online|Correspondence|Reprints?)\b\s*[:.]", re.I)
-_REFY = re.compile(r"\bet al\b|\bbibr\d|\b(19|20)\d\d[a-z]?\)|\bVol\.|\bpp?\.\s*\d")
-def _is_junk(s: str) -> bool:
-    return bool(_URL.search(s) or _SUBMIT.search(s) or len(_REFY.findall(s)) >= 2)
+_REFERENCE_LIST_RE = re.compile(r"\bet al\b|\bbibr\d|\b(19|20)\d\d[a-z]?\)|\bVol\.|\bpp?\.\s*\d")
+def _is_non_citable_unit(s: str) -> bool:
+    return bool(_URL.search(s) or _SUBMIT.search(s) or len(_REFERENCE_LIST_RE.findall(s)) >= 2)
 kept_texts = [getattr(sv, "sentence", "") or "" for sv in rep.kept_sentences]
-junk = [t for t in kept_texts if _is_junk(t)]
+non_citable_units = [t for t in kept_texts if _is_non_citable_unit(t)]
 
 print(f"\n[GATE] verify wall={wall:.1f}s ({wall/60:.1f} min) | kept_sentences={kept} distinct_cited={distinct} dropped={rep.total_dropped}", flush=True)
-print(f"[GATE] suspected junk among kept (URL/submission-metadata/reference-list): {len(junk)} ({100*len(junk)//max(1,kept)}%)", flush=True)
+print(f"[GATE] suspected junk among kept (URL/submission-metadata/reference-list): {len(non_citable_units)} ({100*len(non_citable_units)//max(1,kept)}%)", flush=True)
 print("\n--- 10 kept-unit samples (eyeball clinical vs junk) ---")
 for t in kept_texts[:10]:
-    print(f"   [{'JUNK?' if _is_junk(t) else 'clin '}] {t[:130]!r}")
+    print(f"   [{'JUNK?' if _is_non_citable_unit(t) else 'clin '}] {t[:130]!r}")
 print("\n--- 6 suspected-junk samples ---")
-for t in junk[:6]:
+for t in non_citable_units[:6]:
     print(f"   {t[:140]!r}")
 
 problems = []
@@ -75,5 +75,5 @@ if problems:
     print("[GATE][NO-GO]"); sys.exit(1)
 print(f"[GATE][GO] enrichment verify COMPLETES in {wall/60:.1f}min (was ~173min serial) and KEEPS")
 print(f"   {kept} cited sentences / {distinct} distinct sources on the REAL enforce path (target {MIN_CITED}).")
-print(f"   junk leakage ~{100*len(junk)//max(1,kept)}% (separate quality follow-up; not a hang blocker).")
+print(f"   junk leakage ~{100*len(non_citable_units)//max(1,kept)}% (separate quality follow-up; not a hang blocker).")
 print("="*76); sys.exit(0)

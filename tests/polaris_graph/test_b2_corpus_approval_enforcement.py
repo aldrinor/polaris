@@ -137,12 +137,12 @@ def test_fx05_prerebuild_aborts_before_generation() -> None:
 
 
 def test_fx05_honest_pipeline_aborts_before_strict_verify() -> None:
-    """FX-05: run_honest_pipeline must short-circuit on denial BEFORE strict_verify
+    """FX-05: run_provenance_verified_pipeline must short-circuit on denial BEFORE strict_verify
     / report / evaluator work, returning status=abort_corpus_approval_denied."""
     import inspect
 
     import src.polaris_graph.honest_pipeline as hp
-    src = inspect.getsource(hp.run_honest_pipeline)
+    src = inspect.getsource(hp.run_provenance_verified_pipeline)
     assert "if not approved:" in src
     assert "abort_corpus_approval_denied" in src
     approval_idx = src.find("if not approved:")

@@ -22,7 +22,7 @@ from typing import Callable, Optional
 
 from langgraph.graph import END, START, StateGraph
 
-from src.polaris_graph.state_v3 import V3State, create_v3_state
+from src.polaris_graph.state_v3 import V3State, create_lightweight_state
 from src.polaris_graph.contracts_v3 import (
     LiveOutline,
     ScopeOutput,
@@ -764,7 +764,7 @@ async def build_and_run_v3(
     )
 
     # Create initial state
-    initial_state = create_v3_state(
+    initial_state = create_lightweight_state(
         vector_id=vector_id,
         query=query,
         application=application,

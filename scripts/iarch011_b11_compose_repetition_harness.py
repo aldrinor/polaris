@@ -32,10 +32,10 @@ import sys
 from pathlib import Path
 
 # Run against the real banked output in the canonical checkout (gitignored, never in the worktree).
-_BANKED_RUN = Path(
+BANKED_RUN_DIR = Path(
     r"C:\POLARIS\outputs\p6_postfix_resume\workforce\drb_72_ai_labor"
 )
-_VD_PATH = _BANKED_RUN / "verification_details.json"
+_VD_PATH = BANKED_RUN_DIR / "verification_details.json"
 
 _SPAN_RE = re.compile(r"\[#ev:([A-Za-z0-9_]+):(\d+)-(\d+)\]")
 
