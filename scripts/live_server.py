@@ -552,6 +552,8 @@ class PipelineRunner:
             # v4 enforces the 5-round pipeline-A hardening (strict_verify,
             # corpus_approval, delimiter sanitization, unified manifest.status,
             # evaluator gate, tier-balanced evidence selection).
+            # DEPRECATED (review-readiness 3c): v1/v2/v3 + PG_V2_ENABLED forks are
+            # frozen and slated for removal — see docs/review_readiness/graph_fork_3c.md.
             graph_version = os.getenv("PG_GRAPH_VERSION", "v4")
             if graph_version == "v4":
                 from src.polaris_graph.pipeline_a_ui_adapter import build_and_run_v4 as build_and_run
