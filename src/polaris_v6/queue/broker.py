@@ -73,7 +73,9 @@ def get_broker(
         broker = StubBroker()
         broker.emit_after("process_boot")
     else:
-        url = redis_url or os.environ.get("POLARIS_V6_REDIS_URL", DEFAULT_REDIS_URL)
+        from src.polaris_graph.settings import get_v6_redis_url
+
+        url = redis_url or get_v6_redis_url()
         broker = RedisBroker(url=url, heartbeat_timeout=heartbeat_seconds * 1000)
 
     dramatiq.set_broker(broker)

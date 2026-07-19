@@ -5778,7 +5778,9 @@ class AccessBypass:
         FAIL-CLOSED (``False``) on any probe error — never risk a crash to recover a
         furniture body."""
         try:
-            max_bytes = int(os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(5 * 1024 * 1024)))
+            from src.polaris_graph.settings import get_max_docling_pdf_bytes
+
+            max_bytes = get_max_docling_pdf_bytes()
             max_pages = int(os.getenv("PG_MAX_DOCLING_PDF_PAGES", "40"))
         except (TypeError, ValueError):
             return False
@@ -5946,9 +5948,9 @@ class AccessBypass:
         # Env overrides (a threshold of <= 0 DISABLES that guard — see U19):
         #   PG_MAX_DOCLING_PDF_BYTES (default 5MB; <=0 = unlimited)
         #   PG_MAX_DOCLING_PDF_PAGES (default 40 pages; <=0 = unlimited)
-        max_docling_bytes = int(
-            os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(5 * 1024 * 1024))
-        )
+        from src.polaris_graph.settings import get_max_docling_pdf_bytes
+
+        max_docling_bytes = get_max_docling_pdf_bytes()
         max_docling_pages = int(
             os.getenv("PG_MAX_DOCLING_PDF_PAGES", "40")
         )
