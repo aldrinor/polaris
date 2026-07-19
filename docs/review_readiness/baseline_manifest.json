@@ -1,0 +1,192 @@
+{
+  "manifest_kind": "Phase 0-A baseline manifest (SECRET-SAFE)",
+  "plan_item": "Plan V4 item 0A-1",
+  "generated_for": "code-review-readiness initiative (Telus review) \u2014 reviewer evidence",
+  "secret_safe": true,
+  "secret_safe_note": "Contains ONLY sha256 digests + present flags for secrets. No raw secret value appears anywhere in this file.",
+  "anchor_commit": {
+    "sha": "b6e8ef52aa29f5f2bfcbc87259125b5e30855073",
+    "short_sha": "b6e8ef5",
+    "subject": "docs(phase0): box-3 GPU fix + search-diagnosis RESOLVED (env artifact, not a bug)",
+    "note": "runtime code here == pre-initiative pipeline state; the review-readiness runtime changes begin at the NEXT commit 43214a2 (fix(audit_ir): make registry build lazy). This manifest anchors the pipeline BEFORE any initiative runtime change.",
+    "first_runtime_change_after_anchor": "43214a2"
+  },
+  "requirements_lock_sha256": {
+    "value": "14f798857739435f1fdcada49c5ffe1dc8faf95e8731959689ac39ca04d96d0e",
+    "source_command": "cd /home/polaris/wt/phase0 && git show b6e8ef5:requirements.lock | sha256sum",
+    "note": "sha256 of requirements.lock AS OF the anchor commit b6e8ef5 (1064 lines)."
+  },
+  "python_version": {
+    "declared_runtime": "3.11.10",
+    "source": "pyproject.toml [tool.ruff] target-version=py311 + docs/review_readiness/baseline_test_state.md (Python 3.11.10)",
+    "note": "3.11.10 is the pipeline's declared/target runtime. NOTE: the phase0 worktree shell interpreter observed at manifest-build time was CPython 3.10.12 (sandbox default python3); the pipeline target remains 3.11.10 and this discrepancy is recorded for the reviewer."
+  },
+  "os_platform": {
+    "uname": "Linux 88a2cef7eb24 6.8.0-101-generic #101~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Wed Feb 11 13:19:54 UTC x86_64 x86_64 x86_64 GNU/Linux",
+    "source_command": "uname -a"
+  },
+  "model_routing_config": {
+    "source_of_truth": [
+      "src/polaris_graph/llm/openrouter_client.py (4-role architecture defaults; must equal config/architecture/polaris_runtime_lock.yaml \u2014 verify_lock asserts equality)",
+      "src/polaris_graph/outline/outline_agent.py (outliner agent/code model defaults)",
+      "src/config/core.py (EnvSettings/pydantic-settings; threshold + LLMTiers)",
+      "/workspace/POLARIS/.env (live PG_*_MODEL overrides)"
+    ],
+    "code_defaults": {
+      "PG_MIRROR_MODEL": "z-ai/glm-5.2",
+      "PG_SENTINEL_MODEL": "minimax/minimax-m2",
+      "PG_JUDGE_MODEL": "qwen/qwen3.6-35b-a3b",
+      "PG_EVALUATOR_MODEL": "(unset) -> resolves to PG_MIRROR_MODEL (z-ai/glm-5.2)",
+      "PG_GENERATOR_MODEL": "deepseek/deepseek-v4-pro (I-cd-009 Carney lock; OPENROUTER_DEFAULT_MODEL)",
+      "PG_OUTLINE_AGENT_MODEL_DEFAULT (PG_OUTLINER_AGENT_MODEL)": "z-ai/glm-5.2",
+      "PG_OUTLINER_CODE_MODEL_DEFAULT (PG_OUTLINER_CODE_MODEL)": "deepseek/deepseek-v4-pro"
+    },
+    "env_overrides_from_dot_env": {
+      "OPENROUTER_DEFAULT_MODEL": "z-ai/glm-5.2",
+      "PG_GENERATOR_MODEL": "z-ai/glm-5.2",
+      "PG_MIRROR_MODEL": "z-ai/glm-5.2",
+      "PG_EVALUATOR_MODEL": "z-ai/glm-5.2",
+      "PG_ENTAILMENT_MODEL": "z-ai/glm-5.2",
+      "PG_CREDIBILITY_JUDGE_MODEL": "z-ai/glm-5.2",
+      "PG_FAITHLENS_MODEL": "ssz1111/FaithLens",
+      "PG_NLI_MODEL": "flan-t5-large"
+    },
+    "env_override_note": "In the live .env, PG_GENERATOR_MODEL is overridden to z-ai/glm-5.2 (differs from the deepseek code default). PG_SENTINEL_MODEL and PG_JUDGE_MODEL are NOT overridden in .env -> fall through to code defaults. All values above are NON-SECRET (model slugs) and recorded verbatim."
+  },
+  "secrets": {
+    "policy": "any env var whose NAME matches KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL. Recorded ONLY as {present, sha256(value)}. Never the raw value.",
+    "source_env_file": "/workspace/POLARIS/.env",
+    "excluded_non_secret_matches": {
+      "note": "The following name-matched vars are NON-SECRET config (numeric flags / paths / a public GPG key id / token-budget knobs) and are therefore NOT digested as secrets.",
+      "vars": [
+        "*_MAX_TOKENS (FIREWORKS_MAX_TOKENS, GEMINI_MAX_TOKENS, P6_GPT5_MAX_TOKENS, PG_*_MAX_TOKENS, POLARIS_*_TOKENS/MAX_TOKENS, PG_STORM_*_MAX_TOKENS)",
+        "PG_ATTRIBUTION_KEYWORD_MIN, PG_CITEFIX_KEYWORD_MIN, POLARIS_MIN_KEYWORD_MATCHES (numeric)",
+        "PG_KEY_FINDINGS_ENFORCEMENT=1, PG_TOKEN_ACCOUNTING_ENABLED=1, PG_TOKEN_ACCOUNTING_WARN_THRESHOLD (flags/thresholds)",
+        "POLARIS_AUTH_TOKEN_EXPIRY=86400 (seconds), POLARIS_CLOUD_TOKEN_PATH=state/cloud_tokens.json (path, not a secret), POLARIS_GPG_KEY_ID (public key id)"
+      ]
+    },
+    "digests": {
+      "CORE_API_KEY": {
+        "present": true,
+        "sha256": "a7e9ce109f8bdfb10e14722e21518b5a23b58d8f1a5e6e7a45cfda8b83da4637"
+      },
+      "DROPBOX_CLIENT_SECRET": {
+        "present": false
+      },
+      "EXA_API_KEY": {
+        "present": true,
+        "sha256": "6d9496fb641a7978baab8bb5a4f5c4c278e87310668c7d9ee76e7c7c0e04bbb9"
+      },
+      "FIRECRAWL_API_KEY": {
+        "present": true,
+        "sha256": "4343b1ff4dfb5fbe815170667ae05cf2716f876f33cbac32c3fdf11b16f679e8"
+      },
+      "FIREWORKS_API_KEY": {
+        "present": true,
+        "sha256": "fbfcbed82e54907f15d6289d27c1d9ce719da177f3e2c9b626d2c19b1338be99"
+      },
+      "GEMINI_API_KEY": {
+        "present": true,
+        "sha256": "8204cb6cf5b2c7f88d0fa8795c7348ce3d09d1cc93043754ed59521ca69bfd5d"
+      },
+      "GOOGLE_DRIVE_CLIENT_SECRET": {
+        "present": false
+      },
+      "JINA_API_KEY": {
+        "present": true,
+        "sha256": "7b8379f1ede47b20450b622aa7fa6283f938e26e9e706192914265a8195d6e58"
+      },
+      "NCBI_API_KEY": {
+        "present": true,
+        "sha256": "a517e11cde3f60cfd10209517e605e14ad63b52599699d6d0b1172d09022cf5e"
+      },
+      "ONEDRIVE_CLIENT_SECRET": {
+        "present": false
+      },
+      "OPENROUTER_API_KEY": {
+        "present": true,
+        "sha256": "c636499b7a3f2bb3dd479eaf990dbcecdc21383a1652869aaa3270f3b1c23fa8"
+      },
+      "OPEN_PAGERANK_API_KEY": {
+        "present": true,
+        "sha256": "1eef45b56e4b3d10a3998396fbbea6c07a6290ab5d1eca5eb31f4043337aef90"
+      },
+      "OVH_APPLICATION_KEY": {
+        "present": true,
+        "sha256": "005a4b125b0fe75049743e3877a9f1ea2e850786f334ebe65707166fc3e1995b"
+      },
+      "OVH_APPLICATION_SECRET": {
+        "present": true,
+        "sha256": "58ed7c957e432d42204b50ca1cfcba06e547661e98ae16eec7b114fedc3553eb"
+      },
+      "OVH_CONSUMER_KEY": {
+        "present": true,
+        "sha256": "4f94a52ffddf3c5056f4dc4647625455f608b4f86117e0bba1c47b9793eef97a"
+      },
+      "POLARIS_AUTH_SECRET": {
+        "present": true,
+        "sha256": "25c9535b4dde03fed142960bda64ade8a816acf4f34f5bc9f4573d8d4be0cd26"
+      },
+      "POLARIS_JWT_SECRET": {
+        "present": true,
+        "sha256": "6bafbc231b7d20a3baa16055bcd3eae4ee7066be2c560fe1cf979d7abefefc7e"
+      },
+      "SEMANTIC_SCHOLAR_API_KEY": {
+        "present": true,
+        "sha256": "cf0349b6e846dc437ffccdb40396d046f3a936e9d45e90ed8f80e680ec98aafc"
+      },
+      "SERPER_API_KEY": {
+        "present": true,
+        "sha256": "2228d9638c001867b886067583a53d90b85ba7d210f9037c80bf7c5971f666e1"
+      },
+      "VAST_API_KEY": {
+        "present": true,
+        "sha256": "cdade30523fd4144dbf0823b57ae3a2cd931bee2763b251aa9cf6187cde90f56"
+      },
+      "VEXXHOST_PASSWORD": {
+        "present": true,
+        "sha256": "7aa01631cf6c7e01b7091f15738f3c3687b95e6d5c936c3ed7b7c6ac20c183a6"
+      },
+      "ZYTE_API_KEY": {
+        "present": true,
+        "sha256": "8b7343828a09f2f305e87eb1fb5f0fccc7b62f8e1151162780622a8b5af65551"
+      }
+    }
+  },
+  "seeds": {
+    "summary": "No single global pipeline seed is declared for the acceptance run; fixed seeds are scattered in specific determinism-sensitive spots.",
+    "fixed_seeds_found": [
+      "src/utils/content_deduplicator.py:442 random.seed(42) (MinHash determinism)",
+      "scripts/pg_integration_smoke.py:18 random.seed(42)",
+      "scripts/iarch011_binding_and_judge_probe.py:76 random.seed(7)",
+      "scripts/_basket_workers_ab_cert.py:118 random.seed(1000+i)",
+      "matched_comparison_run.py: THINNED subsample seed=42 (reproducible)",
+      "scripts/loopback_dispatcher.py:97,143 random.seed(_seed_from_prompt(...)) (prompt-derived, deterministic-by-content)"
+    ],
+    "PYTHONHASHSEED": "not set by the pipeline; content_deduplicator MinHash uses builtin hash() which is PYTHONHASHSEED-randomized across processes. Bench guidance (run_bakeoff.py) recommends PYTHONHASHSEED=0 for the dedup bench, but the acceptance harness does NOT pin it.",
+    "acceptance_harness_seed": "acceptance_outline_agent.py declares no random seed; it passes anchor_seed=True to run_live_retrieval (a retrieval-scope anchor flag, NOT an RNG seed). Effective harness determinism: none declared."
+  },
+  "exact_commands": {
+    "acceptance_harness": {
+      "run_both_scenarios": "cd /home/polaris/wt/phase0 && python acceptance_outline_agent.py",
+      "single_scenario": "cd /home/polaris/wt/phase0 && python acceptance_outline_agent.py --only thin   # or: --only saturated",
+      "notes": "Harness self-loads /workspace/POLARIS/.env (override=True), forces PG_OUTLINE_AGENT=1, and sets small turn/wall budgets (PG_OUTLINE_AGENT_MAX_TURNS=6, PG_OUTLINE_AGENT_WALL_SECONDS=420) by default. It is LIVE (hits real retrieval + LLM providers). Requires the declared runtime python (3.11.10)."
+    },
+    "test_suite": {
+      "full_polaris_graph": "cd /home/polaris/wt/phase0 && python -m pytest tests/polaris_graph/ -v   # per README.md:224",
+      "default_collection": "cd /home/polaris/wt/phase0 && python -m pytest   # pytest.ini: testpaths=tests, addopts=-v --tb=short",
+      "deselect_live_slow_api": "cd /home/polaris/wt/phase0 && python -m pytest -m 'not slow and not api and not live'",
+      "notes": "pytest.ini markers: slow, api, live (live tests opt-in via env e.g. PG_ENTAILMENT_LIVE=1, skipped by default). baseline pytest recorded as 8.4.1."
+    }
+  },
+  "input_fixtures": {
+    "acceptance_harness_fixtures": "NONE (no static fixture files). acceptance_outline_agent.py has NO .json/.jsonl fixture inputs. Its seed evidence is bootstrapped LIVE via _bootstrap_seed() -> run_live_retrieval(); the two research questions (THIN: tirzepatide 15mg HbA1c efficacy + long-term CV safety; SATURATED: a narrow already-covered question) are hardcoded inline in the harness.",
+    "file_inputs_consumed": [
+      "/workspace/POLARIS/.env  (via load_dotenv, override=True) \u2014 provides API keys + PG_* model routing"
+    ],
+    "outputs_written": [
+      "/workspace/outline_agent_wt/acceptance_result.json (both scenarios)",
+      "/workspace/outline_agent_wt/acceptance_result_thin.json / _saturated.json (single-scenario mode)"
+    ]
+  }
+}

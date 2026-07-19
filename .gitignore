@@ -106,6 +106,11 @@ config/static_accounts.yaml
 # version-controlled INPUTS to the S2/S3/S4/S6 smoke tests — they MUST be
 # tracked so a clean checkout reproduces the heavy smoke (Codex diff-gate P1-A).
 !tests/fixtures/authority/*.jsonl
+# Oracle Layer 2 exception: the acceptance cassette tapes (LLM + retrieval) are
+# frozen record/replay INPUTS that make the acceptance harness deterministic and
+# browser-free. They MUST be tracked so `--mode replay` reproduces the golden
+# byte-identically on a clean checkout. Scanned for plaintext secrets before commit.
+!tests/oracle/cassettes/*.jsonl
 
 # --- ML models (multi-GB) ---
 models/

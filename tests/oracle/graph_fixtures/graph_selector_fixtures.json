@@ -1,0 +1,2534 @@
+{
+  "constants": {
+    "PG_V2_MAX_ITERATIONS": 3,
+    "PG_V3_MAX_GAP_SEARCHES": 2
+  },
+  "description": "Phase 0A-5 replay fixtures for the 3 routed graph selectors (v1/v2/v3). Each case pins input state (+ any env the selector reads at call time) to the edge-name the production selector returns. Baseline 'before' for the Phase 3C compatibility matrix.",
+  "schema": "polaris.graph_selector_fixtures/v1",
+  "selectors": {
+    "v1": {
+      "_should_finalize": [
+        {
+          "env": {},
+          "expected_edge": "end",
+          "name": "converged_end",
+          "state": {
+            "converged": true
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "end",
+          "name": "quality_passed_end",
+          "state": {
+            "converged": false,
+            "quality_gate_result": "passed"
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "search_gaps",
+          "name": "below_min_with_gap_queries_search_gaps",
+          "state": {
+            "converged": false,
+            "gap_queries": [
+              "q1"
+            ],
+            "iteration_count": 0,
+            "max_iterations": 3,
+            "quality_gate_result": "below_minimum"
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "end",
+          "name": "below_min_no_gap_queries_end",
+          "state": {
+            "converged": false,
+            "iteration_count": 0,
+            "max_iterations": 3,
+            "quality_gate_result": "below_minimum"
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "end",
+          "name": "below_min_at_max_iterations_end",
+          "state": {
+            "converged": false,
+            "gap_queries": [
+              "q1"
+            ],
+            "iteration_count": 3,
+            "max_iterations": 3,
+            "quality_gate_result": "below_minimum"
+          }
+        }
+      ],
+      "_should_iterate": [
+        {
+          "env": {
+            "PG_FAITH_ITERATE_THRESHOLD": "0.75",
+            "PG_FAITH_MIN_EVIDENCE_FOR_SKIP": "500",
+            "PG_FAST_EXIT_EVIDENCE_COUNT": "200",
+            "PG_FAST_EXIT_FAITHFULNESS": "0.85",
+            "PG_FAST_EXIT_UNIQUE_SOURCES": "15"
+          },
+          "expected_edge": "synthesize",
+          "name": "missing_needs_iteration_defaults_synthesize",
+          "state": {}
+        },
+        {
+          "env": {
+            "PG_FAITH_ITERATE_THRESHOLD": "0.75",
+            "PG_FAITH_MIN_EVIDENCE_FOR_SKIP": "500",
+            "PG_FAST_EXIT_EVIDENCE_COUNT": "200",
+            "PG_FAST_EXIT_FAITHFULNESS": "0.85",
+            "PG_FAST_EXIT_UNIQUE_SOURCES": "15"
+          },
+          "expected_edge": "synthesize",
+          "name": "needs_iteration_false_synthesize",
+          "state": {
+            "needs_iteration": false
+          }
+        },
+        {
+          "env": {
+            "PG_FAITH_ITERATE_THRESHOLD": "0.75",
+            "PG_FAITH_MIN_EVIDENCE_FOR_SKIP": "500",
+            "PG_FAST_EXIT_EVIDENCE_COUNT": "200",
+            "PG_FAST_EXIT_FAITHFULNESS": "0.85",
+            "PG_FAST_EXIT_UNIQUE_SOURCES": "15"
+          },
+          "expected_edge": "synthesize",
+          "name": "fast_exit_all_three_signals_synthesize",
+          "state": {
+            "evidence": [
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              },
+              {
+                "source_url": "https://ex.test/s10"
+              },
+              {
+                "source_url": "https://ex.test/s11"
+              },
+              {
+                "source_url": "https://ex.test/s12"
+              },
+              {
+                "source_url": "https://ex.test/s13"
+              },
+              {
+                "source_url": "https://ex.test/s14"
+              },
+              {
+                "source_url": "https://ex.test/s15"
+              },
+              {
+                "source_url": "https://ex.test/s16"
+              },
+              {
+                "source_url": "https://ex.test/s17"
+              },
+              {
+                "source_url": "https://ex.test/s18"
+              },
+              {
+                "source_url": "https://ex.test/s19"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              }
+            ],
+            "faithfulness_score": 0.9,
+            "iteration_count": 0,
+            "max_iterations": 3,
+            "needs_iteration": true
+          }
+        },
+        {
+          "env": {
+            "PG_FAITH_ITERATE_THRESHOLD": "0.75",
+            "PG_FAITH_MIN_EVIDENCE_FOR_SKIP": "500",
+            "PG_FAST_EXIT_EVIDENCE_COUNT": "200",
+            "PG_FAST_EXIT_FAITHFULNESS": "0.85",
+            "PG_FAST_EXIT_UNIQUE_SOURCES": "15"
+          },
+          "expected_edge": "synthesize",
+          "name": "fix_loop_faith_and_evidence_synthesize",
+          "state": {
+            "evidence": [
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              }
+            ],
+            "faithfulness_score": 0.8,
+            "iteration_count": 0,
+            "max_iterations": 3,
+            "needs_iteration": true
+          }
+        },
+        {
+          "env": {
+            "PG_FAITH_ITERATE_THRESHOLD": "0.75",
+            "PG_FAITH_MIN_EVIDENCE_FOR_SKIP": "500",
+            "PG_FAST_EXIT_EVIDENCE_COUNT": "200",
+            "PG_FAST_EXIT_FAITHFULNESS": "0.85",
+            "PG_FAST_EXIT_UNIQUE_SOURCES": "15"
+          },
+          "expected_edge": "plan",
+          "name": "iterate_to_plan_no_gap_queries",
+          "state": {
+            "evidence": [
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              }
+            ],
+            "faithfulness_score": 0.4,
+            "iteration_count": 0,
+            "max_iterations": 3,
+            "needs_iteration": true
+          }
+        },
+        {
+          "env": {
+            "PG_FAITH_ITERATE_THRESHOLD": "0.75",
+            "PG_FAITH_MIN_EVIDENCE_FOR_SKIP": "500",
+            "PG_FAST_EXIT_EVIDENCE_COUNT": "200",
+            "PG_FAST_EXIT_FAITHFULNESS": "0.85",
+            "PG_FAST_EXIT_UNIQUE_SOURCES": "15"
+          },
+          "expected_edge": "search_gaps",
+          "name": "iterate_to_search_gaps_with_gap_queries",
+          "state": {
+            "evidence": [
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              }
+            ],
+            "faithfulness_score": 0.4,
+            "gap_queries": [
+              "gap one",
+              "gap two"
+            ],
+            "iteration_count": 0,
+            "max_iterations": 3,
+            "needs_iteration": true
+          }
+        },
+        {
+          "env": {
+            "PG_FAITH_ITERATE_THRESHOLD": "0.75",
+            "PG_FAITH_MIN_EVIDENCE_FOR_SKIP": "500",
+            "PG_FAST_EXIT_EVIDENCE_COUNT": "200",
+            "PG_FAST_EXIT_FAITHFULNESS": "0.85",
+            "PG_FAST_EXIT_UNIQUE_SOURCES": "15"
+          },
+          "expected_edge": "synthesize",
+          "name": "at_max_iterations_synthesize",
+          "state": {
+            "evidence": [
+              {
+                "source_url": "https://ex.test/s0"
+              },
+              {
+                "source_url": "https://ex.test/s1"
+              },
+              {
+                "source_url": "https://ex.test/s2"
+              },
+              {
+                "source_url": "https://ex.test/s3"
+              },
+              {
+                "source_url": "https://ex.test/s4"
+              },
+              {
+                "source_url": "https://ex.test/s5"
+              },
+              {
+                "source_url": "https://ex.test/s6"
+              },
+              {
+                "source_url": "https://ex.test/s7"
+              },
+              {
+                "source_url": "https://ex.test/s8"
+              },
+              {
+                "source_url": "https://ex.test/s9"
+              }
+            ],
+            "faithfulness_score": 0.4,
+            "iteration_count": 3,
+            "max_iterations": 3,
+            "needs_iteration": true
+          }
+        }
+      ]
+    },
+    "v2": {
+      "route_after_crag": [
+        {
+          "env": {},
+          "expected_edge": "plan_outline",
+          "name": "correct_plan_outline",
+          "state": {
+            "crag_gate": "CORRECT",
+            "iteration_count": 0
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "plan",
+          "name": "ambiguous_under_max_replan",
+          "state": {
+            "crag_gate": "AMBIGUOUS",
+            "iteration_count": 0
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "plan_outline",
+          "name": "ambiguous_at_max_plan_outline",
+          "state": {
+            "crag_gate": "AMBIGUOUS",
+            "iteration_count": 3
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "plan",
+          "name": "incorrect_under_max_replan",
+          "state": {
+            "crag_gate": "INCORRECT",
+            "iteration_count": 0
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "plan_outline",
+          "name": "incorrect_at_max_plan_outline",
+          "state": {
+            "crag_gate": "INCORRECT",
+            "iteration_count": 3
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "plan",
+          "name": "missing_gate_defaults_incorrect_replan",
+          "state": {
+            "iteration_count": 0
+          }
+        }
+      ]
+    },
+    "v3": {
+      "_should_search_gaps": [
+        {
+          "env": {},
+          "expected_edge": "v3_write_section",
+          "name": "status_not_running_write_section",
+          "state": {
+            "gap_searches_done": 0,
+            "gaps": [
+              "g"
+            ],
+            "status": "complete"
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "v3_search",
+          "name": "gaps_under_cap_search",
+          "state": {
+            "gap_searches_done": 0,
+            "gaps": [
+              "g1",
+              "g2"
+            ],
+            "status": "running"
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "v3_write_section",
+          "name": "gaps_at_cap_write_section",
+          "state": {
+            "gap_searches_done": 2,
+            "gaps": [
+              "g1"
+            ],
+            "status": "running"
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "v3_write_section",
+          "name": "no_gaps_write_section",
+          "state": {
+            "gap_searches_done": 0,
+            "gaps": [],
+            "status": "running"
+          }
+        },
+        {
+          "env": {},
+          "expected_edge": "v3_write_section",
+          "name": "default_status_running_no_gaps_write_section",
+          "state": {
+            "gap_searches_done": 0,
+            "gaps": []
+          }
+        }
+      ]
+    }
+  }
+}

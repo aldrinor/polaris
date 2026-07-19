@@ -20,6 +20,7 @@ at startup and raises.
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -155,22 +156,64 @@ def _build_runs() -> tuple[RunSummary, ...]:
     return tuple(summaries)
 
 
-# Built once at module import. If the curated allowlist is malformed, this
-# raises immediately and the inspector route fails to mount — which is what
-# we want (fail loud, not silent).
-_RUNS: tuple[RunSummary, ...] = _build_runs()
+# Built lazily on first access (not at import). Rationale: an eager module-level
+# build raised at IMPORT time whenever the curated allowlist artifacts were absent
+# (e.g. a clean checkout / CI), which broke test collection for every module that
+# merely imports this one. Deferring to first use keeps the fail-loud guarantee —
+# the inspector route still raises when actually used with a malformed allowlist —
+# without coupling importability to the presence of run artifacts.
+#
+# Semantics match the original eager build EXACTLY except for timing:
+#   - built exactly ONCE (double-checked lock; concurrent first callers cannot
+#     run _build_runs() more than once),
+#   - fail ONCE and stay failed (a failed build is cached and re-raised on every
+#     later call — the original import-time failure was likewise permanent; we do
+#     NOT retry),
+#   - thread-safe.
+# The one intended change is *when* validation fires: at first registry access
+# rather than at import (that deferral is the entire point of this fix).
+#
+# Deliberate difference from the original: a failed build is cached and re-raised
+# for the life of the process (we do NOT retry on subsequent calls). The original
+# eager build raised at import, which — via sys.modules eviction — could be retried
+# by a later re-import; we intentionally do not, because the only failure cause here
+# (missing/malformed allowlist artifacts) does not change within a process, so a
+# retry would only repeat the filesystem work and the same error.
+_RUNS_CACHE: tuple[RunSummary, ...] | None = None
+_RUNS_ERROR: BaseException | None = None
+_RUNS_BUILT: bool = False
+_RUNS_LOCK = threading.Lock()
+
+
+def _runs() -> tuple[RunSummary, ...]:
+    """Return the validated registry, building (and caching) it once on first access."""
+    global _RUNS_CACHE, _RUNS_ERROR, _RUNS_BUILT
+    if not _RUNS_BUILT:
+        with _RUNS_LOCK:
+            if not _RUNS_BUILT:
+                try:
+                    _RUNS_CACHE = _build_runs()
+                except BaseException as exc:  # noqa: BLE001 — cache & re-raise; never leave a half-built None state
+                    _RUNS_ERROR = exc
+                    _RUNS_BUILT = True
+                    raise
+                _RUNS_BUILT = True  # only marked built AFTER success (or a cached failure above)
+    if _RUNS_ERROR is not None:
+        raise _RUNS_ERROR
+    return _RUNS_CACHE  # type: ignore[return-value]
 
 
 def list_available_runs() -> list[RunSummary]:
     """Return every Phase-A-allowlisted V30 audit artifact (already validated)."""
-    return list(_RUNS)
+    return list(_runs())
 
 
 def find_run_by_slug(slug: str) -> RunSummary | None:
     """Find a run by slug. Slugs are guaranteed unique within the registry."""
+    runs = _runs()  # always initialize (validate) first — even for a falsy slug
     if not slug:
         return None
-    for run in _RUNS:
+    for run in runs:
         if run.slug == slug:
             return run
     return None
@@ -178,9 +221,10 @@ def find_run_by_slug(slug: str) -> RunSummary | None:
 
 def find_run_by_id(run_id: str) -> RunSummary | None:
     """Find a run by its canonical unique run_id."""
+    runs = _runs()  # always initialize (validate) first — even for a falsy id
     if not run_id:
         return None
-    for run in _RUNS:
+    for run in runs:
         if run.run_id == run_id:
             return run
     return None

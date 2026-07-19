@@ -39,7 +39,7 @@ jobs:
       diff_sha256: ${{ steps.extract.outputs.diff_sha256 }}
     steps:
       - name: Checkout PR
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -91,7 +91,7 @@ jobs:
           fi
 
       - name: Upload codex-input artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: codex-input
           path: /tmp/codex_input/
@@ -108,7 +108,7 @@ jobs:
     # `codex login` ran ONCE during runner provisioning (Plan v13 §G #10/#11 folded).
     steps:
       - name: Download codex-input
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           name: codex-input
           path: /tmp/codex_input
@@ -295,7 +295,7 @@ EOF
           docker network rm polaris-egress 2>/dev/null || true
 
       - name: Upload codex-output artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: codex-output-raw
           path: /tmp/codex_output/
@@ -310,7 +310,7 @@ EOF
     environment: hmac_validator
     steps:
       - name: Checkout validator from trusted base ref (Codex round-3 P0 fix)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           # Use PR's base branch (`polaris`), NOT `refs/heads/main`. main doesn't
           # have the validator code yet (only initial commit until end-of-Phase-0
@@ -328,13 +328,13 @@ EOF
           sparse-checkout-cone-mode: false
 
       - name: Checkout PR (read-only paths needed for committed verdict + manifest)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr
 
       - name: Download codex-output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           name: codex-output-raw
           path: artifacts
