@@ -1,4 +1,4 @@
-"""I-deepfix-001 wave-2 (#1370) seconds-level RED/GREEN harness — REAL box2 junk fixtures.
+"""I-deepfix-001 wave-2 (#1370) seconds-level RED/GREEN harness — REAL box2 chrome/noise fixtures.
 
 Every string here is verbatim from box2's rendered report.md (LAW II: real data, not synthetic).
 CHROME must DROP (is_render_chrome_or_unrenderable -> True); real FINDINGS must survive (-> False).

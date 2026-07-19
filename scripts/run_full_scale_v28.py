@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 
 
-_V28_ENV: dict[str, str] = {
+LAUNCH_ENV: dict[str, str] = {
     # Sweep-level retrieval knobs
     "PG_SWEEP_MAX_SERPER":    "50",
     "PG_SWEEP_MAX_S2":        "50",
@@ -89,7 +89,7 @@ _V28_ENV: dict[str, str] = {
 
 
 def _apply_env() -> None:
-    for key, val in _V28_ENV.items():
+    for key, val in LAUNCH_ENV.items():
         existing = os.environ.get(key)
         if existing is None or existing == "":
             os.environ[key] = val

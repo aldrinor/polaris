@@ -102,7 +102,7 @@ def upload_gravity_boost(is_upload: bool) -> float:
     return 1.3 if is_upload else 1.0
 
 
-def lethal_snowball_score(
+def compute_snowball_score(
     *,
     base_score: float,
     times_used: int = 0,

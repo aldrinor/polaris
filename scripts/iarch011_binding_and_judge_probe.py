@@ -7,11 +7,11 @@
 """
 from __future__ import annotations
 import json, os, sys, time, statistics, random
-_R = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _R)
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _REPO_ROOT)
 
 # load OPENROUTER_API_KEY (+ any PG_*) from .env for the real-judge sample
-for line in open(os.path.join(_R, ".env"), encoding="utf-8", errors="ignore"):
+for line in open(os.path.join(_REPO_ROOT, ".env"), encoding="utf-8", errors="ignore"):
     line = line.strip()
     if line and not line.startswith("#") and "=" in line:
         k, _, v = line.partition("=")
@@ -31,10 +31,10 @@ for r in (snap.get("evidence_for_gen") or []):
 from src.polaris_graph.authority.data_loader import load_authority_data
 gov = tuple(load_authority_data().get("psl_gov_suffixes") or ())
 from src.polaris_graph.synthesis.credibility_pass import run_credibility_analysis
-an = run_credibility_analysis(snap.get("question") or "", list(pool.values()), gov_suffixes=gov, domain=snap.get("domain") or None, judge=None)
+credibility_analysis = run_credibility_analysis(snap.get("question") or "", list(pool.values()), gov_suffixes=gov, domain=snap.get("domain") or None, judge=None)
 from src.polaris_graph.generator.weighted_enrichment import diagnose_unbound_supports_selection, build_verified_span_draft
-wfe = diagnose_unbound_supports_selection(evidence_pool=pool, credibility_analysis=an, contract_plans=[])
-raw = build_verified_span_draft(wfe.ev_ids, pool)
+unbound_supports_diag = diagnose_unbound_supports_selection(evidence_pool=pool, credibility_analysis=credibility_analysis, contract_plans=[])
+raw = build_verified_span_draft(unbound_supports_diag.ev_ids, pool)
 from src.polaris_graph.generator.live_deepseek_generator import _rewrite_draft_with_spans
 rewritten, _c, _u = _rewrite_draft_with_spans(raw, pool)
 
@@ -55,13 +55,13 @@ from src.polaris_graph.generator.provenance_generator import strict_verify
 strict_verify(rewritten, pool)
 
 def _norm(x): return _re.sub(r"\s+", " ", x or "").strip()
-verb = sum(1 for _, s, sp in pairs if _norm(s) in _norm(sp))
-cw_cov = sum(1 for _, s, sp in pairs if _cw(s) and _cw(s).issubset(_cw(sp)))
+verbatim_count = sum(1 for _, s, sp in pairs if _norm(s) in _norm(sp))
+content_word_coverage_count = sum(1 for _, s, sp in pairs if _cw(s) and _cw(s).issubset(_cw(sp)))
 fixb_hit = sum(1 for m, _, _ in pairs if m)
 tot = len(pairs)
 print(f"\n=== (1) BINDING COVERAGE over {tot} rendered units ===")
-print(f"  unit is VERBATIM substring of its span:        {verb} ({100*verb//max(1,tot)}%)  [FIX-B can fire]")
-print(f"  unit content-words SUBSET of span words:       {cw_cov} ({100*cw_cov//max(1,tot)}%)  [judge likely ENTAILED]")
+print(f"  unit is VERBATIM substring of its span:        {verbatim_count} ({100*verbatim_count//max(1,tot)}%)  [FIX-B can fire]")
+print(f"  unit content-words SUBSET of span words:       {content_word_coverage_count} ({100*content_word_coverage_count//max(1,tot)}%)  [judge likely ENTAILED]")
 print(f"  FIX-B matched (boundary-aligned verbatim):     {fixb_hit} ({100*fixb_hit//max(1,tot)}%)")
 print("\n--- 12 sample pairs (mix of lengths) ---")
 short = [p for p in pairs if len(p[1]) <= 220][:6]
@@ -79,9 +79,9 @@ sample = residual[:N_SAMPLE]
 print(f"\n=== (2) REAL glm-5.1 judge on {len(sample)} residual units (free-route) ===", flush=True)
 judge = _sv._get_judge  # currently stub; build a REAL one
 import importlib
-ej = importlib.import_module("src.polaris_graph.llm.entailment_judge")
-real = ej._EntailmentJudge()
-kept = 0; lats = []; verds = {}
+entailment_judge_mod = importlib.import_module("src.polaris_graph.llm.entailment_judge")
+real = entailment_judge_mod._EntailmentJudge()
+kept = 0; lats = []; verdict_counts = {}
 for i, (s, sp) in enumerate(sample):
     t = time.time()
     try:
@@ -90,12 +90,12 @@ for i, (s, sp) in enumerate(sample):
         v, reason = "ERR", f"{type(exc).__name__}:{exc}"
     dt = time.time() - t
     lats.append(dt)
-    verds[v] = verds.get(v, 0) + 1
+    verdict_counts[v] = verdict_counts.get(v, 0) + 1
     if v == "ENTAILED" and not str(reason).startswith("judge_error"):
         kept += 1
     if i < 8:
         print(f"  [{i}] {dt:5.1f}s {v:12} reason={str(reason)[:60]!r} | sent={s[:70]!r}", flush=True)
-print(f"\n  verdict_counts={verds}")
+print(f"\n  verdict_counts={verdict_counts}")
 print(f"  KEEP-RATE (real ENTAILED): {kept}/{len(sample)} = {100*kept//max(1,len(sample))}%")
 if lats:
     lats.sort()

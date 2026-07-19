@@ -71,10 +71,10 @@ def main() -> None:
             if len(samples[cls]) < 6:
                 samples[cls].append((ccid[:18], repr(header[:140])))
     total = len(seen)
-    bad = classes.get("HASH(clm_)", 0) + classes.get("2WORD_STUB(subject+predicate)", 0)
+    junk_header_count = classes.get("HASH(clm_)", 0) + classes.get("2WORD_STUB(subject+predicate)", 0)
     print(f"unique baskets (deduped by ccid): {total}")
-    print(f"REAL HEADER (sentence / title / claim_text): {total - bad}")
-    print(f"JUNK HEADER (hash / 2-word stub): {bad}   <-- FIX-A target: 0\n")
+    print(f"REAL HEADER (sentence / title / claim_text): {total - junk_header_count}")
+    print(f"JUNK HEADER (hash / 2-word stub): {junk_header_count}   <-- FIX-A target: 0\n")
     print("--- classification breakdown ---")
     for cls, n in sorted(classes.items(), key=lambda kv: -kv[1]):
         print(f"  {n:4d}  {cls}")

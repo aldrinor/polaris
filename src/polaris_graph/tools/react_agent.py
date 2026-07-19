@@ -39,42 +39,43 @@ from src.polaris_graph.tools.tool_registry import (
     build_default_registry,
 )
 from src.utils.embedding_service import embed_text, embed_texts
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
-_MAX_ITERATIONS = int(os.getenv("PG_REACT_MAX_ITERATIONS", "5"))
-_TIMEOUT_SECONDS = int(os.getenv("PG_REACT_TIMEOUT_SECONDS", "900"))
-_TOOL_TIMEOUT = int(os.getenv("PG_REACT_TOOL_TIMEOUT", "60"))
+_MAX_ITERATIONS = int(resolve("PG_REACT_MAX_ITERATIONS"))
+_TIMEOUT_SECONDS = int(resolve("PG_REACT_TIMEOUT_SECONDS"))
+_TOOL_TIMEOUT = int(resolve("PG_REACT_TOOL_TIMEOUT"))
 _INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "240"))
 
 # 8-phase pipeline env vars
 _ANALYSIS_PIPELINE = os.getenv("PG_ANALYSIS_PIPELINE", "8phase")
 _DOMAIN_RELEVANCE_THRESHOLD = float(
-    os.getenv("PG_DOMAIN_RELEVANCE_THRESHOLD", "0.15"),
+    resolve("PG_DOMAIN_RELEVANCE_THRESHOLD"),
 )
-_LEARNINGS_PER_CLUSTER = int(os.getenv("PG_LEARNINGS_PER_CLUSTER", "8"))
-_EVIDENCE_PER_CLUSTER = int(os.getenv("PG_EVIDENCE_PER_CLUSTER", "5"))
-_MAX_CLUSTERS = int(os.getenv("PG_MAX_CLUSTERS", "15"))
-_MAX_GAP_EVIDENCE = int(os.getenv("PG_MAX_GAP_EVIDENCE", "15"))
+_LEARNINGS_PER_CLUSTER = int(resolve("PG_LEARNINGS_PER_CLUSTER"))
+_EVIDENCE_PER_CLUSTER = int(resolve("PG_EVIDENCE_PER_CLUSTER"))
+_MAX_CLUSTERS = int(resolve("PG_MAX_CLUSTERS"))
+_MAX_GAP_EVIDENCE = int(resolve("PG_MAX_GAP_EVIDENCE"))
 _MAX_INTERPRETATION_REWRITES = int(
-    os.getenv("PG_MAX_INTERPRETATION_REWRITES", "1"),
+    resolve("PG_MAX_INTERPRETATION_REWRITES"),
 )
-_SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "240"))
-_CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "180"))
+_SCAFFOLD_TIMEOUT = int(resolve("PG_SCAFFOLD_TIMEOUT"))
+_CRITIQUE_TIMEOUT = int(resolve("PG_CRITIQUE_TIMEOUT"))
 
 # 6-phase adaptive pipeline env vars
-_ADAPTIVE_SCAFFOLD = os.getenv("PG_ADAPTIVE_SCAFFOLD", "1") == "1"
-_REFINER_ENABLED = os.getenv("PG_REFINER_ENABLED", "1") == "1"
-_SELF_REFINE_ENABLED = os.getenv("PG_SELF_REFINE_ENABLED", "1") == "1"
+_ADAPTIVE_SCAFFOLD = resolve("PG_ADAPTIVE_SCAFFOLD") == "1"
+_REFINER_ENABLED = resolve("PG_REFINER_ENABLED") == "1"
+_SELF_REFINE_ENABLED = resolve("PG_SELF_REFINE_ENABLED") == "1"
 _SELF_REFINE_MAX_ITERATIONS = int(
-    os.getenv("PG_SELF_REFINE_MAX_ITERATIONS", "2"),
+    resolve("PG_SELF_REFINE_MAX_ITERATIONS"),
 )
 
 # WS-5: CiteFix post-processing (ACL 2025 Industry)
-_CITEFIX_ENABLED = os.getenv("PG_CITEFIX_ENABLED", "0") == "1"
+_CITEFIX_ENABLED = resolve("PG_CITEFIX_ENABLED") == "1"
 _CITEFIX_KEYWORD_MIN = int(os.getenv("PG_CITEFIX_KEYWORD_MIN", "3"))
 _CITEFIX_SEMANTIC_THRESHOLD = float(
-    os.getenv("PG_CITEFIX_SEMANTIC_THRESHOLD", "0.50"),
+    resolve("PG_CITEFIX_SEMANTIC_THRESHOLD"),
 )
 
 # Generate-Then-Attribute: separate prose generation from citation placement
@@ -82,10 +83,10 @@ _CITEFIX_SEMANTIC_THRESHOLD = float(
 # write prompts produce citation-free prose, and _attribute_citations()
 # adds citations programmatically at sentence boundaries using 3 strategies:
 # number matching → keyword overlap → embedding similarity.
-_GTA_ENABLED = os.getenv("PG_GENERATE_THEN_ATTRIBUTE", "0") == "1"
-_GTA_THRESHOLD = float(os.getenv("PG_ATTRIBUTION_THRESHOLD", "0.35"))
+_GTA_ENABLED = resolve("PG_GENERATE_THEN_ATTRIBUTE") == "1"
+_GTA_THRESHOLD = float(resolve("PG_ATTRIBUTION_THRESHOLD"))
 _GTA_MAX_PER_SENTENCE = int(
-    os.getenv("PG_ATTRIBUTION_MAX_PER_SENTENCE", "3"),
+    resolve("PG_ATTRIBUTION_MAX_PER_SENTENCE"),
 )
 _GTA_KEYWORD_MIN = int(os.getenv("PG_ATTRIBUTION_KEYWORD_MIN", "3"))
 
@@ -93,14 +94,14 @@ _GTA_KEYWORD_MIN = int(os.getenv("PG_ATTRIBUTION_KEYWORD_MIN", "3"))
 # STORM/OpenScholar/Attribute-First pattern (ACL 2024-2026).
 # When ON: evidence grouped by theme with [N] markers, LLM cites by
 # number, post-process maps [N] -> [CITE:ev_xxx].
-_HYBRID_EVIDENCE = os.getenv("PG_HYBRID_EVIDENCE", "0") == "1"
+_HYBRID_EVIDENCE = resolve("PG_HYBRID_EVIDENCE") == "1"
 
 # Learnings extraction env vars
-_LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
-_LEARNINGS_BATCH_SIZE = int(os.getenv("PG_LEARNINGS_BATCH_SIZE", "10"))
-_LEARNINGS_BATCH_TIMEOUT = int(os.getenv("PG_LEARNINGS_BATCH_TIMEOUT", "180"))
+_LLM_LEARNINGS_ENABLED = resolve("PG_LLM_LEARNINGS_ENABLED") == "1"
+_LEARNINGS_BATCH_SIZE = int(resolve("PG_LEARNINGS_BATCH_SIZE"))
+_LEARNINGS_BATCH_TIMEOUT = int(resolve("PG_LEARNINGS_BATCH_TIMEOUT"))
 _LEARNINGS_MAX_CONCURRENCY = int(
-    os.getenv("PG_LEARNINGS_MAX_CONCURRENCY", "3"),
+    resolve("PG_LEARNINGS_MAX_CONCURRENCY"),
 )
 
 # Tool names Qwen is allowed to pick (for extraction from malformed JSON)
@@ -121,7 +122,7 @@ _DOMAIN_TERMS_BASE = frozenset({
     "analysis", "performance", "process", "demonstrated", "indicated",
     "significant", "respectively", "approximately", "conditions",
 })
-_extra = os.getenv("PG_DOMAIN_TERMS_EXTRA", "")
+_extra = resolve("PG_DOMAIN_TERMS_EXTRA")
 _DOMAIN_TERMS = _DOMAIN_TERMS_BASE | frozenset(
     w.strip().lower() for w in _extra.split(",") if w.strip()
 )
@@ -169,7 +170,7 @@ _FILLER_DEMONSTRATES = re.compile(
 # surface modification via plasma" where the subject word echoes in the
 # predicate.  Jaccard guard in _post_process_interpretation() prevents
 # over-stripping valid prose.
-_TEMPLATE_ECHO_DEMONSTRATES = re.compile(
+_TEMPLATE_ECHO_SUBJECT_PREDICATE = re.compile(
     r'(?:^|(?<=[.!?]\s))'               # sentence boundary
     r'([A-Z][A-Za-z]+(?:\s+[A-Za-z]+)*'  # subject phrase (1+ words)
     r'\s+demonstrates?\s+'                # "demonstrate(s)"
@@ -214,28 +215,28 @@ _VERBATIM_REQUIRED = re.compile(
 # CR3: 0.15 is derived from stress test data — FAIL cases had
 # sem=-0.04 and sem=0.15, all PASS cases had sem>=0.41.
 _CITE_VALIDATION_THRESHOLD = float(
-    os.getenv("PG_CITE_VALIDATION_THRESHOLD", "0.15"),
+    resolve("PG_CITE_VALIDATION_THRESHOLD"),
 )
 
 # R5: Legitimate doubled words (preserved by PDF artifact repair).
-_R5_LEGIT_DOUBLES = frozenset({"had", "that", "can", "the"})
+_LEGITIMATE_DOUBLED_WORDS = frozenset({"had", "that", "can", "the"})
 
 # R6: Scientific lens context words (skip scrubbing near these).
-_R6_SCI_LENS_WORDS = frozenset({
+_SCIENTIFIC_LENS_CONTEXT_WORDS = frozenset({
     "optical", "convex", "concave", "camera", "microscope",
     "zoom", "contact", "objective", "focal", "crystalline",
     "fisheye", "achromatic", "telephoto",
 })
 
 # R3: Scale transformation words (billion, million, etc.).
-_R3_SCALE_WORDS = frozenset({
+_SCALE_TRANSFORM_WORDS = frozenset({
     "billion", "million", "trillion", "thousand", "bn", "mn", "tn",
 })
 
 # R7: Known transitive verbs for active-to-passive transform.
 # Only these verbs are accepted — prevents misidentifying
 # nouns/adjectives as verbs (CRITICAL-1 fix).
-_R7_TRANSITIVE_VERBS = frozenset({
+_TRANSITIVE_VERBS = frozenset({
     "achieve", "show", "provide", "remove", "demonstrate",
     "exhibit", "indicate", "suggest", "reveal", "produce",
     "generate", "require", "enable", "reduce", "increase",
@@ -246,7 +247,7 @@ _R7_TRANSITIVE_VERBS = frozenset({
 })
 
 # R7: Irregular past participles for passive voice transform.
-_R7_IRREGULAR_PP = {
+_IRREGULAR_PAST_PARTICIPLES = {
     "show": "shown", "give": "given", "take": "taken",
     "make": "made", "find": "found", "get": "gotten",
     "keep": "kept", "know": "known", "see": "seen",
@@ -264,7 +265,7 @@ _R7_IRREGULAR_PP = {
 }
 
 # R7: Words ending in 's' that are NOT plural (skip "are" logic).
-_R7_SINGULAR_S = frozenset({
+_SINGULAR_WORDS_ENDING_IN_S = frozenset({
     "analysis", "process", "stress", "loss", "access",
     "success", "mass", "class", "glass", "gas", "basis",
     "thesis", "crisis", "diagnosis", "hypothesis", "synthesis",
@@ -665,7 +666,7 @@ class ReactAnalysisAgent:
         self._notebook = AnalysisNotebook(query, evidence_ids)
         # Mode precedence: PG_REACT_MODE env (legacy compat) > constructor
         # > PG_ANALYSIS_PIPELINE env (pipeline default) > "8phase"
-        react_mode = os.getenv("PG_REACT_MODE", "")
+        react_mode = resolve("PG_REACT_MODE")
         if react_mode:
             self._mode = react_mode
         elif mode:
@@ -1577,7 +1578,7 @@ class ReactAnalysisAgent:
         # Gate: LLM learnings disabled, no client, or evidence >100
         # INF-1: Skip LLM for large evidence sets (timeout risk)
         _learnings_llm_threshold = int(
-            os.getenv("PG_LEARNINGS_LLM_THRESHOLD", "100"),
+            resolve("PG_LEARNINGS_LLM_THRESHOLD"),
         )
         if (
             not _LLM_LEARNINGS_ENABLED
@@ -2988,7 +2989,7 @@ class ReactAnalysisAgent:
 
         Returns formatted section or empty string if no data points.
         """
-        if os.getenv("PG_MANDATORY_NUMBERS_ENABLED", "0") != "1":
+        if resolve("PG_MANDATORY_NUMBERS_ENABLED") != "1":
             return ""
         data_points = self._notebook.data_points
         if not data_points:
@@ -3030,7 +3031,7 @@ class ReactAnalysisAgent:
 
         Returns formatted section or empty string if disabled/single perspective.
         """
-        if os.getenv("PG_PERSPECTIVE_COVERAGE_ENABLED", "0") != "1":
+        if resolve("PG_PERSPECTIVE_COVERAGE_ENABLED") != "1":
             return ""
         learnings = briefing.get("learnings", [])
         if not learnings:
@@ -4401,7 +4402,7 @@ class ReactAnalysisAgent:
             )
 
         write_timeout = int(
-            os.getenv("PG_WRITE_TIMEOUT", "120"),
+            resolve("PG_WRITE_TIMEOUT"),
         )
 
         try:
@@ -4650,7 +4651,7 @@ class ReactAnalysisAgent:
 
         # FIX-D7: Stricter parroting gate (ratio + absolute floor)
         parrot_threshold = float(
-            os.getenv("PG_PARROTING_THRESHOLD", "0.15"),
+            resolve("PG_PARROTING_THRESHOLD"),
         )
         # WP-2.1 (CRITICAL-4): Lower absolute parroting count to 5
         # to catch DVS runs with 10-17 parroted sentences
@@ -4673,7 +4674,7 @@ class ReactAnalysisAgent:
             # B5: "leading to this gap is critical"
             r'\bleading\s+to\s+this\s+gap\s+is\s+critical\b',
         ]
-        if os.getenv("PG_TEMPLATE_ECHO_GATE", "1") == "1":
+        if resolve("PG_TEMPLATE_ECHO_GATE") == "1":
             echo_count = sum(
                 len(re.findall(p, draft, re.IGNORECASE))
                 for p in _echo_patterns
@@ -4767,7 +4768,7 @@ class ReactAnalysisAgent:
 
         # Budget check: need 90s for retry (WP-4: lowered from 180s)
         pipeline_timeout = int(
-            os.getenv("PG_REACT_TIMEOUT_SECONDS", "900"),
+            resolve("PG_REACT_TIMEOUT_SECONDS"),
         )
         elapsed = time.monotonic() - start_time
         if elapsed > pipeline_timeout - 90:
@@ -5093,7 +5094,7 @@ class ReactAnalysisAgent:
         cite_re = re.compile(r'\[CITE:(ev_[a-f0-9]+)\]')
         # W4: configurable parroting Jaccard threshold
         jaccard_threshold = float(
-            os.getenv("PG_PARROTING_JACCARD_THRESHOLD", "0.40"),
+            resolve("PG_PARROTING_JACCARD_THRESHOLD"),
         )
         parroted = 0
         checked = 0
@@ -5173,7 +5174,7 @@ class ReactAnalysisAgent:
         # Transform B: Numeric Foregrounding (WP-1.1: gated, default OFF)
         # Creates defects A2 ("2 GPa" orphan), A3 ("99.Achieving 0%").
         # Disabled by default; re-enable via PG_TRANSFORM_B_ENABLED=1.
-        _transform_b = os.getenv("PG_TRANSFORM_B_ENABLED", "0") == "1"
+        _transform_b = resolve("PG_TRANSFORM_B_ENABLED") == "1"
         if _transform_b:
             num_match = re.search(
                 r'(\d+\.?\d*)\s*(%|mg/[Ll]|ppt|ppb|ppm|µm|nm|mm|cm|'
@@ -5264,20 +5265,20 @@ class ReactAnalysisAgent:
                 else:
                     verb_stem_alt = None
 
-                if verb_stem in _R7_TRANSITIVE_VERBS or (
+                if verb_stem in _TRANSITIVE_VERBS or (
                     verb_stem_alt
-                    and verb_stem_alt in _R7_TRANSITIVE_VERBS
+                    and verb_stem_alt in _TRANSITIVE_VERBS
                 ):
                     # Derive past participle
                     lookup = verb_stem
                     if (
-                        lookup not in _R7_IRREGULAR_PP
+                        lookup not in _IRREGULAR_PAST_PARTICIPLES
                         and verb_stem_alt
-                        and verb_stem_alt in _R7_IRREGULAR_PP
+                        and verb_stem_alt in _IRREGULAR_PAST_PARTICIPLES
                     ):
                         lookup = verb_stem_alt
-                    if lookup in _R7_IRREGULAR_PP:
-                        pp = _R7_IRREGULAR_PP[lookup]
+                    if lookup in _IRREGULAR_PAST_PARTICIPLES:
+                        pp = _IRREGULAR_PAST_PARTICIPLES[lookup]
                     elif lookup.endswith("e"):
                         pp = lookup + "d"
                     else:
@@ -5309,7 +5310,7 @@ class ReactAnalysisAgent:
                         and obj_words[-1].lower().endswith("ly")
                         and len(obj_words[-1]) > 3
                         and obj_words[-1].lower()
-                        not in _R7_SINGULAR_S
+                        not in _SINGULAR_WORDS_ENDING_IN_S
                     ):
                         trailing_advs.insert(0, obj_words.pop())
                     obj_phrase_clean = " ".join(obj_words)
@@ -5336,7 +5337,7 @@ class ReactAnalysisAgent:
                         )
                         if (
                             last_w.endswith("s")
-                            and last_w not in _R7_SINGULAR_S
+                            and last_w not in _SINGULAR_WORDS_ENDING_IN_S
                         ):
                             aux = "are"
 
@@ -6228,7 +6229,7 @@ class ReactAnalysisAgent:
         )
 
         # INF-2: Cap plan timeout at 30s (fallback handles failure)
-        plan_timeout = int(os.getenv("PG_PLAN_TIMEOUT", "30"))
+        plan_timeout = int(resolve("PG_PLAN_TIMEOUT"))
         plan = await asyncio.wait_for(
             self._client.generate_structured(
                 prompt=prompt,
@@ -6317,7 +6318,7 @@ class ReactAnalysisAgent:
         if not tool_def or not tool_def.execute:
             return ""
 
-        chart_timeout = int(os.getenv("PG_CHART_TIMEOUT", "60"))
+        chart_timeout = int(resolve("PG_CHART_TIMEOUT"))
         try:
             result = await asyncio.wait_for(
                 tool_def.execute(
@@ -6681,7 +6682,7 @@ class ReactAnalysisAgent:
         def _replace_lens_ref(m: re.Match) -> str:
             start = max(0, m.start() - 30)
             before_window = _lens_source[start:m.start()].lower()
-            if any(w in before_window for w in _R6_SCI_LENS_WORDS):
+            if any(w in before_window for w in _SCIENTIFIC_LENS_CONTEXT_WORDS):
                 return m.group(0)  # Genuine scientific lens
             return "the analysis"
 
@@ -6740,7 +6741,7 @@ class ReactAnalysisAgent:
         claims_3grams = (
             self._ngrams(claims_text.lower(), 3) if claims_text else set()
         )
-        for echo_match in _TEMPLATE_ECHO_DEMONSTRATES.finditer(text):
+        for echo_match in _TEMPLATE_ECHO_SUBJECT_PREDICATE.finditer(text):
             matched = echo_match.group(1)
             has_cite = '[CITE:' in matched
 
@@ -6915,7 +6916,7 @@ class ReactAnalysisAgent:
         # Domain-term exclusion (PlagBench), cited-evidence-only (DEER).
         # TWO structural transforms: B: Numeric Foregrounding, D: Causal Inversion.
         _rewrite_jaccard = float(
-            os.getenv("PG_PARROTING_JACCARD_THRESHOLD", "0.40"),
+            resolve("PG_PARROTING_JACCARD_THRESHOLD"),
         )
         parroted_count = 0
         parroted_rewrites: list[tuple[str, str]] = []
@@ -7301,7 +7302,7 @@ class ReactAnalysisAgent:
                                         ].lower()
                                         if any(
                                             sw in window
-                                            for sw in _R3_SCALE_WORDS
+                                            for sw in _SCALE_TRANSFORM_WORDS
                                         ):
                                             # WP-1.2: Reject expanded
                                             # decimals (10+ digits).
@@ -7364,7 +7365,7 @@ class ReactAnalysisAgent:
         # 80% of "hallucinations" in RAG are incorrect citations, not
         # fabricated facts. Three strategies: keyword, semantic, number.
         # Tracks P7 swaps to avoid undoing correct fixes (MODERATE-1).
-        if os.getenv("PG_CITEFIX_ENABLED", "0") == "1" and self._evidence_store:
+        if resolve("PG_CITEFIX_ENABLED") == "1" and self._evidence_store:
             text = self._fix_citations(text)
 
         # --- Fix 5: Remove incomplete sentences + D4 dangling preps ---
@@ -7453,7 +7454,7 @@ class ReactAnalysisAgent:
         # Double-word dedup (2+ char words, safelist legit doubles)
         def _dedup_double_word(m: re.Match) -> str:
             word = m.group(1)
-            if word.lower() in _R5_LEGIT_DOUBLES:
+            if word.lower() in _LEGITIMATE_DOUBLED_WORDS:
                 return m.group(0)  # Preserve legitimate doubles
             return word
 

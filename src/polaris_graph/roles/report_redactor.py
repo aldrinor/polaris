@@ -75,6 +75,7 @@ from src.polaris_graph.generator.overstatement_guard import (
     effect_size_conditional_reason,
     figure_consistency_annotate_enabled,
 )
+from src.polaris_graph.settings import resolve
 
 # REDACTION IS SEVERITY-INDEPENDENT (I-faith-003 #1174). Any claim the 4-role seam did NOT
 # mark VERIFIED — PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE — must not ship as asserted prose,
@@ -647,7 +648,7 @@ def _section_level_fallback_enabled() -> bool:
     its markdown section instead of aborting the whole report. OFF => reverts to the legacy
     whole-report fail-closed abort. Faithfulness is IDENTICAL either way — the unsupported claim
     NEVER ships; the flag only chooses the blast radius (one section vs the entire report)."""
-    return os.getenv("PG_REDACT_SECTION_LEVEL_FALLBACK", "1").strip().lower() not in (
+    return resolve("PG_REDACT_SECTION_LEVEL_FALLBACK").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 

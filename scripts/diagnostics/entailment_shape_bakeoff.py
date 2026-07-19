@@ -202,10 +202,10 @@ if __name__ == "__main__":
     if clean:
         print(f"WINNER={clean[0]['name']}", flush=True)
     else:
-        passced = [r for r in rows if r["all_correct"]]
-        if passced:
-            passced.sort(key=lambda r: (r["nonans_pct"], r["median_s"]))
-            print(f"NO_ZERO_BLANK_WINNER — best all-correct: {passced[0]['name']} "
-                  f"(nonans={passced[0]['nonans_pct']:.0f}%)", flush=True)
+        passed = [r for r in rows if r["all_correct"]]
+        if passed:
+            passed.sort(key=lambda r: (r["nonans_pct"], r["median_s"]))
+            print(f"NO_ZERO_BLANK_WINNER — best all-correct: {passed[0]['name']} "
+                  f"(nonans={passed[0]['nonans_pct']:.0f}%)", flush=True)
         else:
             print("NO_WINNER — no shape got all 3 labels correct (investigate before any fix)", flush=True)

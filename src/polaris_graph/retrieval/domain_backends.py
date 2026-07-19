@@ -41,11 +41,12 @@ import httpx
 from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
     SearchCandidate,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.domain_backends")
 
-PG_DOMAIN_MAX_HITS = int(os.getenv("PG_DOMAIN_MAX_HITS", "10"))
-HTTP_TIMEOUT = float(os.getenv("PG_DOMAIN_HTTP_TIMEOUT", "15"))
+PG_DOMAIN_MAX_HITS = int(resolve("PG_DOMAIN_MAX_HITS"))
+HTTP_TIMEOUT = float(resolve("PG_DOMAIN_HTTP_TIMEOUT"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +67,7 @@ def _backend_fanout_enabled() -> bool:
     """True iff the W3 WRRF flag is ON (the parallel backend fan-out shares the
     SAME single kill-switch as the fusion it feeds — wiring_standard point 13).
     Default/unset => OFF => the serial `_run` loop runs byte-identically."""
-    return os.getenv("PG_SEARCH_FUSION_WRRF", "").strip().lower() in {
+    return resolve("PG_SEARCH_FUSION_WRRF").strip().lower() in {
         "1", "true", "yes", "on",
     }
 
@@ -75,7 +76,7 @@ def _backend_workers() -> int:
     """Bounded backend fan-out cap (LAW VI). Default 6 per the execution graph
     (sized to avoid upstream-API 429s). Clamped >= 1."""
     try:
-        return max(1, int(os.getenv("PG_RETRIEVAL_BACKEND_WORKERS", "6")))
+        return max(1, int(resolve("PG_RETRIEVAL_BACKEND_WORKERS")))
     except ValueError:
         return 6
 
@@ -476,7 +477,7 @@ def _workforce_t3_targeting_enabled() -> bool:
     """LAW VI kill-switch for the workforce statistical-agency retrieval backend
     (PG_WORKFORCE_T3_TARGETING). Default-OFF => the workforce domain selects no
     backend (specs == []), byte-identical to legacy."""
-    return os.getenv("PG_WORKFORCE_T3_TARGETING", "0").strip().lower() in (
+    return resolve("PG_WORKFORCE_T3_TARGETING").strip().lower() in (
         "1", "true", "yes", "on",
     )
 
@@ -716,7 +717,7 @@ def _openalex_auth_params() -> dict[str, str]:
     api_key = os.getenv("PG_OPENALEX_API_KEY", "").strip()
     if api_key:
         params["api_key"] = api_key
-    mailto = os.getenv("PG_OPENALEX_MAILTO", "").strip()
+    mailto = resolve("PG_OPENALEX_MAILTO").strip()
     if mailto:
         params["mailto"] = mailto
     return params
@@ -730,7 +731,7 @@ def _openalex_per_page(limit: int) -> int:
     slate sets PG_OPENALEX_PER_PAGE=200 so one page covers up to 200 works.
     A bad value FAILS LOUD (LAW II) rather than silently throttling to a default.
     """
-    raw = os.getenv("PG_OPENALEX_PER_PAGE", "25").strip()
+    raw = resolve("PG_OPENALEX_PER_PAGE").strip()
     try:
         cap = int(raw)
     except ValueError:
@@ -743,7 +744,7 @@ def _openalex_max_pages() -> int:
     """BB-003 (#1171): cursor-page count cap. DEFAULT 1 (PG_OPENALEX_MAX_PAGES
     unset) = single page = byte-identical OFF. The slate raises it to cover the
     requested ``limit``. A bad value FAILS LOUD."""
-    raw = os.getenv("PG_OPENALEX_MAX_PAGES", "1").strip()
+    raw = resolve("PG_OPENALEX_MAX_PAGES").strip()
     try:
         pages = int(raw)
     except ValueError:
@@ -965,7 +966,7 @@ def run_domain_backends(
         # I-meta-002-q1d (#942-clinical): add Europe PMC primary-literature breadth on top of generic
         # Serper + S2. Keyless/free + fail-open; kill-switch PG_CLINICAL_EUROPE_PMC=0. (ClinicalTrials.gov
         # + openFDA/DailyMed are named fast-follows — CT.gov runtime 403, openFDA needs an allowlist change.)
-        if os.getenv("PG_CLINICAL_EUROPE_PMC", "1").strip() in ("1", "true", "True"):
+        if resolve("PG_CLINICAL_EUROPE_PMC").strip() in ("1", "true", "True"):
             specs = [("europe_pmc", europe_pmc_search)]
     elif domain == "workforce":
         # T3 retrieval-targeting (PG_WORKFORCE_T3_TARGETING, default-OFF). The

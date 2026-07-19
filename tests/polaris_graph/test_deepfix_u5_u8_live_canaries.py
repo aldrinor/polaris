@@ -221,6 +221,6 @@ def test_mineru_empty_status_safe():
 
 def test_mineru_fire_canary_enabled_default_on(monkeypatch):
     monkeypatch.delenv("PG_MINERU_FIRE_CANARY", raising=False)
-    assert access_bypass.mineru_fire_canary_enabled() is True
+    assert access_bypass.mineru_degrade_canary_enabled() is True
     monkeypatch.setenv("PG_MINERU_FIRE_CANARY", "0")
-    assert access_bypass.mineru_fire_canary_enabled() is False
+    assert access_bypass.mineru_degrade_canary_enabled() is False

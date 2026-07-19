@@ -633,7 +633,7 @@ async def _pre_pass_one_basket(
     byte-identical single-sentence-per-span pre-pass."""
     from src.polaris_graph.generator.verified_compose import (  # noqa: PLC0415
         _basket_supports_members,
-        _compose_junk_screen,
+        _compose_boilerplate_screen,
     )
 
     members = _basket_supports_members(basket)
@@ -651,7 +651,7 @@ async def _pre_pass_one_basket(
     # to empty — only baskets that carry no real content drop out).
     screened_members = [
         m for m in members
-        if not _compose_junk_screen(str(getattr(m, "direct_quote", "") or ""))
+        if not _compose_boilerplate_screen(str(getattr(m, "direct_quote", "") or ""))
     ]
     if not screened_members:
         logger.info(

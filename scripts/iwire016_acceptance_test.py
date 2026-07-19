@@ -27,7 +27,7 @@ The §-1.3 gate
 The truncation leg in the predicate is corpus-grounded. With ``known_words=None`` (no evidence
 basis) the boundary-cut leg no-ops safely and only the unambiguous-marker leg runs — exactly the
 render-seam contract when no corpus vocabulary is available. We therefore call the predicate with
-an EMPTY/None known-words basis built via ``build_known_words_from_evidence([])`` (returns an empty
+an EMPTY/None known-words basis built via ``build_corpus_vocabulary_from_evidence([])`` (returns an empty
 set), proving the truncation leg degrades safely. This is intentional: the offline gate has no run
 corpus, so it exercises the marker-only truncation signal, which must never over-flag real prose.
 
@@ -52,7 +52,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Local Modules
 from src.polaris_graph.generator.weighted_enrichment import (  # noqa: E402
-    build_known_words_from_evidence,
+    build_corpus_vocabulary_from_evidence,
     is_render_chrome_or_unrenderable,
 )
 
@@ -95,7 +95,7 @@ def main() -> int:
     # The render-seam contract with no run corpus: an empty/None known-words basis. The truncation
     # boundary-cut leg no-ops safely (only the unambiguous-marker leg runs), so a real finding is
     # never flagged by a missing-corpus span guess.
-    known_words = build_known_words_from_evidence([])  # -> empty set, == safe None-equivalent basis
+    known_words = build_corpus_vocabulary_from_evidence([])  # -> empty set, == safe None-equivalent basis
     known_basis = known_words or None  # pass None when empty so the boundary leg is fully inert
 
     chrome_units = _load_units(_CHROME_FILE)

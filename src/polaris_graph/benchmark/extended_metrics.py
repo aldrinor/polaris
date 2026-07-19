@@ -1,4 +1,4 @@
-"""I-perm-024 (#1216) — beat-both scorer metric extension (claim-by-claim only).
+"""I-perm-024 (#1216) — head-to-head scorer metric extension (claim-by-claim only).
 
 Five extended metrics for the DR head-to-head, computed STRICTLY from the
 already-audited per-claim ledger (``ClaimRow``s — each a reconciled VERIFIED/

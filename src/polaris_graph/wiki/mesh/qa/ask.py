@@ -31,7 +31,7 @@ from typing import Any
 
 from ..compose.composer import ComposeResult, compose_answer
 from ..retrieve.gap_classify import check_nearby_budget
-from ..retrieve.lethal import lethal_retrieve
+from ..retrieve.lethal import retrieve_claims
 from ..store import MeshStore, MeshStoreError
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ async def ask(
     )
 
     # ── Step 3: retrieve ──
-    retrieval = lethal_retrieve(
+    retrieval = retrieve_claims(
         store,
         workspace_id=workspace_id,
         question_text=question_text,

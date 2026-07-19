@@ -22,16 +22,17 @@ from typing import Callable, Optional
 
 from langgraph.graph import END, START, StateGraph
 
-from src.polaris_graph.state_v3 import V3State, create_v3_state
+from src.polaris_graph.state_v3 import V3State, create_lightweight_state
 from src.polaris_graph.contracts_v3 import (
     LiveOutline,
     ScopeOutput,
     V3_NODE_NAMES,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
-_MAX_GAP_SEARCHES = int(os.getenv("PG_V3_MAX_GAP_SEARCHES", "2"))
+_MAX_GAP_SEARCHES = int(resolve("PG_V3_MAX_GAP_SEARCHES"))
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +261,7 @@ def build_v3_graph(
             "evidence_meta": new_meta,
             "reflections": reflections,
             "search_rounds_completed": state.get("search_rounds_completed", 0) + 1,
-            "convergence_score": min(0.9, len(all_ids) / max(int(os.getenv("PG_V3_MAX_EVIDENCE", "1000")), 1)),
+            "convergence_score": min(0.9, len(all_ids) / max(int(resolve("PG_V3_MAX_EVIDENCE")), 1)),
         }
 
         if tracer:
@@ -289,7 +290,7 @@ def build_v3_graph(
         if tracer:
             tracer.node_start("v3_storm")
 
-        storm_enabled = os.getenv("PG_STORM_ENABLED", "0") == "1"
+        storm_enabled = resolve("PG_STORM_ENABLED") == "1"
         if not storm_enabled:
             logger.info("[v3 storm] STORM disabled (PG_STORM_ENABLED=0)")
             if tracer:
@@ -482,7 +483,7 @@ def build_v3_graph(
         if tracer:
             tracer.node_start("v3_analyze")
 
-        analysis_enabled = os.getenv("PG_V3_ANALYSIS_ENABLED", "1") == "1"
+        analysis_enabled = resolve("PG_V3_ANALYSIS_ENABLED") == "1"
         if not analysis_enabled:
             logger.info("[v3 analyze] Analysis phase disabled")
             if tracer:
@@ -592,8 +593,8 @@ def build_v3_graph(
                 len(analysis_entries),
             )
 
-        synth_budget_pct = float(os.getenv("PG_V3_SYNTH_BUDGET_PCT", "40"))
-        total_budget = float(os.getenv("PG_V3_TOTAL_BUDGET_SECONDS", "3600"))
+        synth_budget_pct = float(resolve("PG_V3_SYNTH_BUDGET_PCT"))
+        total_budget = float(resolve("PG_V3_TOTAL_BUDGET_SECONDS"))
         synth_budget = total_budget * synth_budget_pct / 100
 
         result = await run_synthesis_phase(
@@ -763,7 +764,7 @@ async def build_and_run_v3(
     )
 
     # Create initial state
-    initial_state = create_v3_state(
+    initial_state = create_lightweight_state(
         vector_id=vector_id,
         query=query,
         application=application,
@@ -840,7 +841,7 @@ async def build_and_run_v3(
         })
 
     # Save output to disk
-    output_dir = Path(os.getenv("PG_OUTPUT_DIR", "outputs/polaris_graph"))
+    output_dir = Path(resolve("PG_OUTPUT_DIR"))
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{vector_id}.json"
     try:

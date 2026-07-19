@@ -10,7 +10,7 @@ adjudicated run stays green. No GPU / network / paid-LLM — pure functions over
 from __future__ import annotations
 
 from src.polaris_graph.roles.release_policy import (
-    apply_honest_scorecard_to_manifest,
+    apply_release_quality_scorecard_to_manifest,
     green_quality_floor,
     honest_release_quality_score,
 )
@@ -82,7 +82,7 @@ def test_manifest_abort_gate_pulls_scorecard_below_green():
     manifest = _green_manifest_with_abort_gate()
     floor = green_quality_floor()
 
-    apply_honest_scorecard_to_manifest(manifest)
+    apply_release_quality_scorecard_to_manifest(manifest)
 
     rd = manifest["release_disclosure"]
     assert rd["release_quality_score"] < floor
@@ -99,7 +99,7 @@ def test_manifest_empty_required_slot_pulls_scorecard_below_green():
     manifest["required_entity_coverage"]["verified"] = 4  # one empty required slot
     floor = green_quality_floor()
 
-    apply_honest_scorecard_to_manifest(manifest)
+    apply_release_quality_scorecard_to_manifest(manifest)
 
     rd = manifest["release_disclosure"]
     assert rd["release_quality_score"] < floor
@@ -113,7 +113,7 @@ def test_manifest_clean_adjudicated_run_stays_green():
     # 5/5 already verified -> no empty slot
     before = dict(manifest["release_disclosure"])
 
-    apply_honest_scorecard_to_manifest(manifest)
+    apply_release_quality_scorecard_to_manifest(manifest)
 
     rd = manifest["release_disclosure"]
     assert rd["release_quality_score"] == 1.0
@@ -127,7 +127,7 @@ def test_manifest_unadjudicated_display_preserved():
     manifest["release_disclosure"]["adjudicated"] = False
     manifest["release_disclosure"]["release_quality_score_display"] = "N/A (D8 unadjudicated)"
 
-    apply_honest_scorecard_to_manifest(manifest)
+    apply_release_quality_scorecard_to_manifest(manifest)
 
     rd = manifest["release_disclosure"]
     assert rd["release_quality_score_display"] == "N/A (D8 unadjudicated)"
@@ -137,5 +137,5 @@ def test_manifest_unadjudicated_display_preserved():
 def test_manifest_without_release_disclosure_is_noop():
     """The legacy always-release-OFF path (no release_disclosure) is left byte-identical."""
     manifest = {"evaluator_gate_advisory": {"gate_class": "abort"}}
-    apply_honest_scorecard_to_manifest(manifest)
+    apply_release_quality_scorecard_to_manifest(manifest)
     assert manifest == {"evaluator_gate_advisory": {"gate_class": "abort"}}

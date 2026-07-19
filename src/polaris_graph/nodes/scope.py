@@ -23,6 +23,7 @@ from src.polaris_graph.contracts_v3 import (
     SearchQuery,
     SubQuestion,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
@@ -31,7 +32,7 @@ _MAX_SCOPE_RETRIES = 2
 
 # Diversity gate threshold — cosine similarity above this = too similar (F1.2)
 _DIVERSITY_SIMILARITY_THRESHOLD = float(
-    os.getenv("PG_V3_SCOPE_DIVERSITY_THRESHOLD", "0.85")
+    resolve("PG_V3_SCOPE_DIVERSITY_THRESHOLD")
 )
 
 # Minimum distinct analytical focuses required (F1.2)
@@ -124,7 +125,7 @@ async def run_scope(
                 schema=ScopeOutput,
                 system=_SCOPE_SYSTEM_PROMPT,
                 max_tokens=int(os.getenv("PG_V3_SCOPE_MAX_TOKENS", "8192")),
-                timeout=int(os.getenv("PG_V3_SCOPE_TIMEOUT", "120")),
+                timeout=int(resolve("PG_V3_SCOPE_TIMEOUT")),
             )
             if scope_output and len(scope_output.sub_questions) >= 3:
                 break
@@ -158,7 +159,7 @@ async def run_scope(
                     schema=ScopeOutput,
                     system=_SCOPE_SYSTEM_PROMPT,
                     max_tokens=int(os.getenv("PG_V3_SCOPE_MAX_TOKENS", "8192")),
-                    timeout=int(os.getenv("PG_V3_SCOPE_TIMEOUT", "120")),
+                    timeout=int(resolve("PG_V3_SCOPE_TIMEOUT")),
                 )
                 if not scope_output or len(scope_output.sub_questions) < 3:
                     scope_output = None

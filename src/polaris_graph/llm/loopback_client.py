@@ -37,16 +37,17 @@ from src.polaris_graph.llm.openrouter_client import (
     LLMResponse,
     UsageTracker,
 )
+from src.polaris_graph.settings import resolve
 
 T = TypeVar("T", bound=BaseModel)
 logger = logging.getLogger(__name__)
 
-LOOPBACK_DIR = Path(os.getenv("PG_LOOPBACK_DIR", "loopback"))
+LOOPBACK_DIR = Path(resolve("PG_LOOPBACK_DIR"))
 PENDING_DIR = LOOPBACK_DIR / "pending"
 RESPONSES_DIR = LOOPBACK_DIR / "responses"
 DONE_DIR = LOOPBACK_DIR / "done"
 POLL_INTERVAL_SEC = 0.5
-DEFAULT_TIMEOUT_SEC = float(os.getenv("PG_LOOPBACK_TIMEOUT_SEC", "7200"))  # 2h per call
+DEFAULT_TIMEOUT_SEC = float(resolve("PG_LOOPBACK_TIMEOUT_SEC"))  # 2h per call
 
 
 class LoopbackLLMClient:

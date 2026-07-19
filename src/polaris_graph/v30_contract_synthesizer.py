@@ -75,7 +75,7 @@ def _concrete_url_for_entity(frame_idx: int, source_tiers: dict[str, Any]) -> st
     return _EMPTY_T1_FALLBACK
 
 
-def build_v30_contract(
+def build_report_contract(
     v6_template: dict[str, Any],
     query_slug: str,
     question: str | None = None,

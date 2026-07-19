@@ -48,6 +48,7 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.external_evaluator")
 
@@ -519,7 +520,7 @@ def pt03_waived_honest_enabled() -> bool:
     emitted as an HONEST WAIVER (``waived=True`` + a WAIVED detail) rather than a silent PASS that
     still reads as a genuine "(separate family)" segregation (default ON). LAW VI kill-switch
     ``PG_PT03_WAIVED_HONEST``; OFF reverts to the pre-#16 silent-pass behaviour byte-identically."""
-    return os.getenv("PG_PT03_WAIVED_HONEST", "1").strip().lower() in (
+    return resolve("PG_PT03_WAIVED_HONEST").strip().lower() in (
         "1", "true", "yes", "on",
     )
 

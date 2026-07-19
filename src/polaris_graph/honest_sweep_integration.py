@@ -1,7 +1,7 @@
 """V30 sweep integration — wires M-54..M-61 into
 `run_honest_sweep_r3.py`.
 
-Single entrypoint: `run_v30_post_generation(...)`. The sweep
+Single entrypoint: `run_frame_coverage_post_generation(...)`. The sweep
 runner calls this AFTER multi_section_generator produces its
 result but BEFORE the manifest is written. Returns a
 `V30SweepResult` with:
@@ -96,7 +96,7 @@ def _is_enabled() -> bool:
     return os.environ.get(_ENABLED_ENV, "0").strip() in ("1", "true", "True")
 
 
-def merge_v30_into_manifest(
+def merge_frame_coverage_into_manifest(
     manifest: dict[str, Any], v30_result: V30SweepResult,
 ) -> None:
     """Runner-hook helper (Codex sweep-integration audit Medium):
@@ -153,7 +153,7 @@ def append_disclosure_to_report(
     return True
 
 
-def run_v30_post_generation(
+def run_frame_coverage_post_generation(
     research_question: str,
     scope_template: dict[str, Any] | None,
     slug: str,
@@ -247,7 +247,7 @@ def _run_inner(
     legacy_bibliography: list[dict[str, Any]] | None = None,
     strict_verify_by_key: dict[Any, Any] | None = None,  # I-ready-017 #1111
 ) -> V30SweepResult:
-    """Actual chain. Separated so run_v30_post_generation can wrap
+    """Actual chain. Separated so run_frame_coverage_post_generation can wrap
     it in a broad exception guard without obscuring the happy-path
     logic."""
     from .generator.frame_manifest import (

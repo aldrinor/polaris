@@ -48,6 +48,7 @@ import os
 import re
 from collections import Counter
 from typing import Any, Callable, NamedTuple
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -634,9 +635,9 @@ def _we_recency_factor(year: "int | None", reference_year: "int | None") -> floa
     if year is None or reference_year is None or not _composition_recency_enabled():
         return 1.0
     try:
-        grace = int(os.getenv("PG_M2_RECENCY_GRACE_YEARS", "5"))
-        decay = float(os.getenv("PG_M2_RECENCY_DECAY_PER_YEAR", "0.02"))
-        floor = float(os.getenv("PG_M2_RECENCY_FLOOR", "0.25"))
+        grace = int(resolve("PG_M2_RECENCY_GRACE_YEARS"))
+        decay = float(resolve("PG_M2_RECENCY_DECAY_PER_YEAR"))
+        floor = float(resolve("PG_M2_RECENCY_FLOOR"))
     except (TypeError, ValueError):
         grace, decay, floor = 5, 0.02, 0.25
     age = max(0, int(reference_year) - int(year) - grace)
@@ -1781,11 +1782,11 @@ def _is_web_chrome(text: str) -> bool:
 # The render/compose surfaces (Corroborated Weighted Findings, the verified-compose
 # section body, the per-claim corroboration header, Key-Findings / Abstract /
 # Conclusion / depth) each grew their OWN parallel chrome screen
-# (``_make_junk_screen`` here, ``verified_compose._compose_junk_screen``,
+# (``_make_chrome_screen`` here, ``verified_compose._compose_boilerplate_screen``,
 # ``run_honest_sweep_r3._span_is_render_chrome`` / ``_claim_header_is_unrenderable``,
 # the ``key_findings`` filter). Parallel screens DRIFT — a chrome shape patched in
 # one leaks through the others. This module is the chrome hub (verified_compose
-# already delegates to ``_make_junk_screen``), so the ONE predicate lives here and
+# already delegates to ``_make_chrome_screen``), so the ONE predicate lives here and
 # every screen DELEGATES to it: no composer can emit an unscreened claim.
 #
 # FAITHFULNESS (FROZEN engine): this is render/compose INPUT hygiene only — it
@@ -3069,8 +3070,8 @@ def render_chrome_screen_enabled() -> bool:
     )
 
 
-def _base_junk(text: str) -> bool:
-    """The PRE-I-wire-012 junk screen, byte-equivalent to the old ``_make_junk_screen``
+def _is_base_boilerplate_chrome(text: str) -> bool:
+    """The PRE-I-wire-012 junk screen, byte-equivalent to the old ``_make_chrome_screen``
     closure: production boilerplate OR sentence-form web-chrome OR CAPTCHA stub OR a
     unit that reduces to "" under ``strip_web_boilerplate``. Import-safe (access_bypass
     import failure falls back to the chrome + CAPTCHA screens, never fail-open to nothing)."""
@@ -3182,7 +3183,7 @@ def _is_generated_narration_or_masthead(text: str) -> bool:
     return False
 
 
-def _is_new_chrome_category(text: str) -> bool:
+def _is_i_wire_012_chrome_category(text: str) -> bool:
     """The NEW I-wire-012 chrome categories (default-ON, high-precision) PLUS the I-wire-013 (#1327)
     CONTAINMENT forensic rules (a unit that CONTAINS glued page-furniture, not only IS junk)."""
     if _SHARED_RENDER_CHROME_RE.search(text):
@@ -3341,7 +3342,7 @@ _FURN_CONTACT_CTX_RE = re.compile(
 
 
 def _source_furniture_chrome_enabled() -> bool:
-    return os.getenv("PG_SOURCE_FURNITURE_CHROME", "1").strip().lower() not in ("0", "false", "off", "no")
+    return resolve("PG_SOURCE_FURNITURE_CHROME").strip().lower() not in ("0", "false", "off", "no")
 
 
 def _contains_source_furniture_chrome(text: str) -> bool:
@@ -3415,15 +3416,15 @@ def is_render_chrome_or_unrenderable(
     if not text or not str(text).strip():
         return True  # an empty unit is non-assertional by definition
     s = str(text)
-    if _base_junk(s):
+    if _is_base_boilerplate_chrome(s):
         return True
     if not render_chrome_screen_enabled():
         return False  # NEW categories OFF -> byte-identical to the legacy base screen
-    if _is_new_chrome_category(s):
+    if _is_i_wire_012_chrome_category(s):
         return True
     # I-deepfix-001 P0 (box2 chrome infestation): the missing-vocabulary furniture classes. SUPPRESS-ONLY,
     # faithfulness-neutral; inside the render_chrome_screen_enabled() gate so PG_RENDER_CHROME_SCREEN=0 stays
-    # byte-identical. Auto-fixes _screen_render_chrome_prose + _compose_junk_screen + the render seam at once.
+    # byte-identical. Auto-fixes _screen_render_chrome_prose + _compose_boilerplate_screen + the render seam at once.
     if _contains_source_furniture_chrome(s):
         return True
     try:
@@ -4515,7 +4516,7 @@ def _known_word_floor() -> int:
         return _DEFAULT_KNOWN_WORD_FLOOR
 
 
-def build_known_words_from_evidence(evidence_rows: Any, floor: int | None = None) -> set[str]:
+def build_corpus_vocabulary_from_evidence(evidence_rows: Any, floor: int | None = None) -> set[str]:
     """The corpus-vocabulary allowlist (the truncation false-positive guard) built from the run's OWN
     fetched source text — every lowercase token occurring >= ``floor`` times across the evidence
     rows' ``direct_quote`` / ``statement`` / ``title`` fields. So a word the corpus genuinely uses
@@ -4822,12 +4823,12 @@ def sanitize_rendered_report(
     return "\n".join(out_lines), removed
 
 
-def _make_junk_screen() -> Any:
+def _make_chrome_screen() -> Any:
     """Return THE shared render-side chrome+truncation predicate (I-wire-012 #1326).
 
     Historically this returned a bespoke closure (boilerplate + web-chrome + CAPTCHA).
     It now returns ``is_render_chrome_or_unrenderable`` so every consumer of this hub
-    (``verified_compose._compose_junk_screen``, this module's own
+    (``verified_compose._compose_boilerplate_screen``, this module's own
     ``_substantive_units`` / ``build_verified_span_draft``) screens through the ONE
     predicate. The base screen still ALWAYS runs (so flag-OFF is byte-identical for
     these consumers); the new chrome categories are added when
@@ -5115,7 +5116,7 @@ def _samework_url_leg_on() -> bool:
     always in lockstep. OFF => the url leg is skipped and ``_work_identity`` is byte-identical
     to the prior DOI/title-only keying."""
     import os  # noqa: PLC0415
-    return os.getenv("PG_SAMEWORK_URL_LEG", "1").strip().lower() not in (
+    return resolve("PG_SAMEWORK_URL_LEG").strip().lower() not in (
         "0", "false", "no", "off", "",
     )
 
@@ -5209,7 +5210,7 @@ def build_verified_span_draft(
     the existing gap stub, never a silent success). NO LLM, NO faithfulness-gate touch.
     """
     pool = evidence_pool or {}
-    is_junk = _make_junk_screen()
+    is_junk = _make_chrome_screen()
     budget = spans_per_source()
     # I-deepfix-001 (#1344 SPAN-TOPICALITY): precision-safe per-span off-topic WITHHOLD
     # inputs (empty question OR flag OFF => empty term set => no span ever withheld =>
@@ -5345,7 +5346,7 @@ def build_evidence_base_section(
     if not ev_ids:
         return ""
     pool = evidence_pool or {}
-    is_junk = _make_junk_screen()
+    is_junk = _make_chrome_screen()
     budget = spans_per_source()
     # I-deepfix-001 (#1344 SPAN-TOPICALITY): precision-safe per-span off-topic WITHHOLD
     # inputs (empty question OR flag OFF => empty term set => no span ever withheld).

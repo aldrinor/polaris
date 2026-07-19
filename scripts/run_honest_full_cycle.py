@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.polaris_graph.honest_pipeline import run_honest_pipeline
+from src.polaris_graph.honest_pipeline import run_provenance_verified_pipeline
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ def main() -> int:
 
     draft = _build_draft(EVIDENCE)
 
-    result = run_honest_pipeline(
+    result = run_provenance_verified_pipeline(
         research_question=RESEARCH_QUESTION,
         domain="clinical",
         run_id="HONEST_FULL_CYCLE_001",

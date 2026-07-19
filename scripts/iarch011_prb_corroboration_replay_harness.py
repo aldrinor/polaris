@@ -65,7 +65,7 @@ from src.polaris_graph.synthesis.credibility_pass import (
 # The weak (DETERMINISTIC_ONLY) and garbage (UNVERIFIED) source URLs — referenced in the
 # inflation assertions so they are single-sourced.
 _WEAK_URL = "https://preprint.org/c"
-_GARBAGE_URL = "https://blog.example/d"
+_UNVERIFIED_URL = "https://blog.example/d"
 _SUPPORT_URL_A = "https://nejm.org/a"
 _SUPPORT_URL_B = "https://lancet.com/b"
 
@@ -91,7 +91,7 @@ def _build_real_basket_inputs():
         "ev_a": {"source_url": _SUPPORT_URL_A, "tier": "T1", "statement": "HbA1c cut 2.1%"},
         "ev_b": {"source_url": _SUPPORT_URL_B, "tier": "T1", "statement": "2.1% drop"},
         "ev_c": {"source_url": _WEAK_URL, "tier": "T4", "statement": "improved"},
-        "ev_d": {"source_url": _GARBAGE_URL, "tier": "T7", "statement": "news"},
+        "ev_d": {"source_url": _UNVERIFIED_URL, "tier": "T7", "statement": "news"},
     }
     sent = "Tirzepatide reduced HbA1c by 2.1% at 40 weeks [#ev:ev_a:0-13]."
     kept = [
@@ -110,7 +110,7 @@ def _build_real_basket_inputs():
                      "2.1% drop", "SUPPORTS", MEMBER_TIER_ENTAILMENT_VERIFIED),
         BasketMember("ev_c", _WEAK_URL, "T4", "o3", 0.40, 0.3, (0, 8),
                      "improved", "UNSUPPORTED", MEMBER_TIER_DETERMINISTIC_ONLY),
-        BasketMember("ev_d", _GARBAGE_URL, "T7", "o4", 0.05, 0.05, (0, 4),
+        BasketMember("ev_d", _UNVERIFIED_URL, "T7", "o4", 0.05, 0.05, (0, 4),
                      "news", "UNSUPPORTED", MEMBER_TIER_UNVERIFIED),
     ]
     basket = ClaimBasket(
@@ -206,8 +206,8 @@ def main() -> int:
         _fail("assert5_no_inflation", "the verified-support COUNT was inflated to 3 or 4 — a "
                                      "weak/unverified member leaked into verified_support_origin_count.")
     # 5c: the UNVERIFIED garbage member is never surfaced at all (not even as weak).
-    if _GARBAGE_URL in rendered:
-        _fail("assert5_no_inflation", f"the UNVERIFIED garbage member {_GARBAGE_URL} appears in the "
+    if _UNVERIFIED_URL in rendered:
+        _fail("assert5_no_inflation", f"the UNVERIFIED garbage member {_UNVERIFIED_URL} appears in the "
                                      "rendered output — deterministic garbage was surfaced (the "
                                      "member_tier contract requires it stay hidden).")
 

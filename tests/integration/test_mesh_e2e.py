@@ -3,7 +3,7 @@ Integration test — mesh golden path end-to-end (Unit 10).
 
 Exercises the ENTIRE vertical slice with a mock LLM but REAL embeddings:
   create workspace → ingest file → extract claims (mock LLM) →
-  canonicalize entities → discover edges → lethal_retrieve →
+  canonicalize entities → discover edges → retrieve_claims →
   compose_answer (mock LLM) → ask() with thread follow-up →
   verify everything persisted
 
@@ -28,7 +28,7 @@ from src.polaris_graph.wiki.mesh.claim_extract import extract_claims_from_source
 from src.polaris_graph.wiki.mesh.edge_discovery import discover_edges_for_claims
 from src.polaris_graph.wiki.mesh.ingest import ingest_file
 from src.polaris_graph.wiki.mesh.qa.ask import ask
-from src.polaris_graph.wiki.mesh.retrieve.lethal import lethal_retrieve
+from src.polaris_graph.wiki.mesh.retrieve.lethal import retrieve_claims
 from src.polaris_graph.wiki.mesh.snapshot import (
     create_snapshot,
     list_snapshots,
@@ -182,7 +182,7 @@ class TestMeshGoldenPath:
             # (may or may not hit the 0.85 threshold depending on embedding model)
 
             # ── Step 6: lethal retrieve ──
-            retrieval = lethal_retrieve(
+            retrieval = retrieve_claims(
                 store, workspace_id=ws_id,
                 question_text="How does GAC remove PFOS?",
             )

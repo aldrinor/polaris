@@ -2,7 +2,7 @@
 
 All assertions run THE PRODUCTION predicates against the REAL drb_72 corpus
 (``tests/fixtures/drb72/evidence_pool.json``); ``known_words`` is built via the production
-``build_known_words_from_evidence``. No live calls; every helper is pure and withhold-only — the
+``build_corpus_vocabulary_from_evidence``. No live calls; every helper is pure and withhold-only — the
 faithfulness engine (strict_verify / NLI / 4-role / provenance / span) is untouched.
 
 FIX A  — the truncation leg flags a LOWERCASE single-letter mid-word cut ("At t.[2]",
@@ -13,7 +13,7 @@ FIX B  — ``_sanitize_report_line`` drops the orphaned continuation markers ([7
          the prose segment they continue is dropped as chrome; a marker run after a KEPT segment stays.
 FIX C1 — ``sanitize_rendered_report`` drops a non-scaffolding ###-or-deeper section whose body
          collapsed to bare-citations-only, while preserving a scaffolding ### header.
-FIX R1 — ``_compose_junk_screen`` (the K-span PRODUCER path) now flags a truncated span it previously
+FIX R1 — ``_compose_boilerplate_screen`` (the K-span PRODUCER path) now flags a truncated span it previously
          passed, once known_words + require_sentence_form are threaded in.
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _evidence_pool() -> list:
 
 
 def _known_words() -> "set[str]":
-    return we.build_known_words_from_evidence(_evidence_pool())
+    return we.build_corpus_vocabulary_from_evidence(_evidence_pool())
 
 
 # ── FIX A: single-letter truncation recall + capital-label precision ─────────
@@ -142,13 +142,13 @@ def test_fix_c1_top_level_headers_never_dropped():
 
 # ── FIX R1: K-span producer now screens truncation it previously passed ──────
 def test_fix_r1_kspan_screen_flags_previously_passed_truncation():
-    """The K-span ``_compose_junk_screen`` passed a mid-word-cut span before (no known_words / no
+    """The K-span ``_compose_boilerplate_screen`` passed a mid-word-cut span before (no known_words / no
     require_sentence_form); with FIX R1's threaded args it now flags it."""
     kw = vc._known_words_for_compose(_evidence_pool())
     assert kw  # the producer builds a real allowlist from the pool
     frag = "developed by researchers and deployed in produc"  # 'produc' -> 'production' (cut)
-    assert vc._compose_junk_screen(frag) is False  # OLD inert behaviour (no args)
-    assert vc._compose_junk_screen(frag, kw, require_sentence_form=True) is True  # NEW: flagged
+    assert vc._compose_boilerplate_screen(frag) is False  # OLD inert behaviour (no args)
+    assert vc._compose_boilerplate_screen(frag, kw, require_sentence_form=True) is True  # NEW: flagged
 
 
 def test_fix_r1_real_whole_sentence_is_kept():
@@ -158,4 +158,4 @@ def test_fix_r1_real_whole_sentence_is_kept():
         "Artificial intelligence systems can automate routine cognitive tasks "
         "across many industries."
     )
-    assert vc._compose_junk_screen(real, kw, require_sentence_form=True) is False
+    assert vc._compose_boilerplate_screen(real, kw, require_sentence_form=True) is False

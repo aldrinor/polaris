@@ -95,7 +95,7 @@ def _install_raising_client(monkeypatch, exc):
 
 
 def _one_member():
-    # A member that survives _basket_supports_members + _compose_junk_screen (clean prose, SUPPORTS).
+    # A member that survives _basket_supports_members + _compose_boilerplate_screen (clean prose, SUPPORTS).
     return SimpleNamespace(
         evidence_id="e1",
         span_verdict="SUPPORTS",

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import os
 import re
+from src.polaris_graph.settings import resolve
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Env flags (LAW VI — named, env-gated, no magic numbers).
@@ -51,12 +52,12 @@ _TRUE_TOKENS = frozenset({"1", "true", "yes", "on", "enforce", "warn"})
 
 def epistemic_guard_enabled() -> bool:
     """Whether the epistemic-marker preservation leg is active (default ON)."""
-    return os.getenv("PG_EPISTEMIC_MARKER_GUARD", "1").strip().lower() in _TRUE_TOKENS
+    return resolve("PG_EPISTEMIC_MARKER_GUARD").strip().lower() in _TRUE_TOKENS
 
 
 def temporal_scope_guard_enabled() -> bool:
     """Whether the temporal-scope-match leg is active (default ON)."""
-    return os.getenv("PG_TEMPORAL_SCOPE_GUARD", "1").strip().lower() in _TRUE_TOKENS
+    return resolve("PG_TEMPORAL_SCOPE_GUARD").strip().lower() in _TRUE_TOKENS
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -305,7 +306,7 @@ def epistemic_overstatement_reason(claim: str, span_text: str) -> str | None:
 # ─────────────────────────────────────────────────────────────────────────────
 def figure_consistency_annotate_enabled() -> bool:
     """Whether the effect-size conditional/threshold annotate leg is active (default ON)."""
-    return os.getenv("PG_FIGURE_CONSISTENCY_ANNOTATE", "1").strip().lower() in _TRUE_TOKENS
+    return resolve("PG_FIGURE_CONSISTENCY_ANNOTATE").strip().lower() in _TRUE_TOKENS
 
 
 # Provenance / numbered-citation markers stripped off the CLAIM before number
@@ -424,7 +425,7 @@ def effect_size_conditional_reason(claim: str, span_text: str) -> str | None:
 # ─────────────────────────────────────────────────────────────────────────────
 def unit_conflation_guard_enabled() -> bool:
     """Whether the tasks-vs-jobs unit-conflation drop leg is active (default ON)."""
-    return os.getenv("PG_UNIT_CONFLATION_GUARD", "1").strip().lower() in _TRUE_TOKENS
+    return resolve("PG_UNIT_CONFLATION_GUARD").strip().lower() in _TRUE_TOKENS
 
 
 # The two measure-unit families that get conflated. A "job unit" counts positions/people; a "task
@@ -508,7 +509,7 @@ def unit_conflation_reason(claim: str, span_text: str) -> str | None:
 # ─────────────────────────────────────────────────────────────────────────────
 def primacy_frame_annotate_enabled() -> bool:
     """Whether the one-sidedness primacy annotate leg is active (default ON)."""
-    return os.getenv("PG_PRIMACY_FRAME_ANNOTATE", "1").strip().lower() in _TRUE_TOKENS
+    return resolve("PG_PRIMACY_FRAME_ANNOTATE").strip().lower() in _TRUE_TOKENS
 
 
 # A PERCENT figure: a numeric token (the SAME ``\d+(?:\.\d+)?`` shape as
@@ -712,7 +713,7 @@ def numeric_qualifier_retention_enabled() -> bool:
     (default ON). Kill-switch PG_STRICT_VERIFY_NUMERIC_QUALIFIER_RETENTION=0
     reverts byte-identical."""
     return (
-        os.getenv("PG_STRICT_VERIFY_NUMERIC_QUALIFIER_RETENTION", "1").strip().lower()
+        resolve("PG_STRICT_VERIFY_NUMERIC_QUALIFIER_RETENTION").strip().lower()
         in _TRUE_TOKENS
     )
 
@@ -841,7 +842,7 @@ def numeric_role_match_enabled() -> bool:
     """Whether the L2 currency/multiplier VALUE-AND-ROLE DROP leg is active (default
     ON). Kill-switch PG_PROVENANCE_NUMERIC_ROLE_MATCH=0 reverts byte-identical."""
     return (
-        os.getenv("PG_PROVENANCE_NUMERIC_ROLE_MATCH", "1").strip().lower()
+        resolve("PG_PROVENANCE_NUMERIC_ROLE_MATCH").strip().lower()
         in _TRUE_TOKENS
     )
 
@@ -945,7 +946,7 @@ def clinical_qualifier_unit_enabled() -> bool:
     (default ON). Kill-switch PG_STRICT_VERIFY_CLINICAL_QUALIFIER_UNIT=0 reverts
     byte-identical."""
     return (
-        os.getenv("PG_STRICT_VERIFY_CLINICAL_QUALIFIER_UNIT", "1").strip().lower()
+        resolve("PG_STRICT_VERIFY_CLINICAL_QUALIFIER_UNIT").strip().lower()
         in _TRUE_TOKENS
     )
 
@@ -1060,7 +1061,7 @@ def clinical_polarity_guard_enabled() -> bool:
     (default ON). Kill-switch PG_STRICT_VERIFY_CLINICAL_POLARITY=0 reverts
     byte-identical."""
     return (
-        os.getenv("PG_STRICT_VERIFY_CLINICAL_POLARITY", "1").strip().lower()
+        resolve("PG_STRICT_VERIFY_CLINICAL_POLARITY").strip().lower()
         in _TRUE_TOKENS
     )
 

@@ -34,7 +34,7 @@ from pathlib import Path
 # its role so future readers know what's on.
 # ---------------------------------------------------------------------------
 
-_V25_ENV: dict[str, str] = {
+LAUNCH_ENV: dict[str, str] = {
     # Sweep-level retrieval knobs (scripts/run_honest_sweep_r3.py:536-538)
     "PG_SWEEP_MAX_SERPER":    "50",     # amplified queries fanned to Serper
     "PG_SWEEP_MAX_S2":        "50",     # amplified queries to Semantic Scholar
@@ -69,7 +69,7 @@ def _apply_env() -> None:
     overwrite .env-loaded values either; python-dotenv's load_dotenv()
     inside the sweep script uses its default override=False behavior.
     """
-    for key, val in _V25_ENV.items():
+    for key, val in LAUNCH_ENV.items():
         existing = os.environ.get(key)
         if existing is None or existing == "":
             os.environ[key] = val

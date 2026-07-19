@@ -95,9 +95,9 @@ def test_corroborated_weighted_findings_composer() -> None:
 
 
 def test_section_body_composer() -> None:
-    print("1) section-body composer (verified_compose._compose_junk_screen)")
-    _check("chrome screened by compose", verified_compose._compose_junk_screen(_CHROME_UNITS[0]))
-    _check("real kept by compose", not verified_compose._compose_junk_screen(_REAL_CLAIM))
+    print("1) section-body composer (verified_compose._compose_boilerplate_screen)")
+    _check("chrome screened by compose", verified_compose._compose_boilerplate_screen(_CHROME_UNITS[0]))
+    _check("real kept by compose", not verified_compose._compose_boilerplate_screen(_REAL_CLAIM))
 
 
 def test_key_findings_composer() -> None:

@@ -49,6 +49,7 @@ from typing import Any, Callable
 from src.polaris_graph.generator.multi_section_generator import (
     SECTION_ARCHETYPES,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.research_planner")
 
@@ -199,12 +200,12 @@ def validate_jurisdiction_shapes(values: list[str]) -> list[str]:
 # historical literal 40 so an unset env is byte-identical. This is an UPPER
 # merge/truncate bound, NOT a §-1.3 breadth-target hard-filter — raising it
 # only loosens the fan-out ceiling; it never drops a source to hit a number.
-DEFAULT_MAX_SUBQUERIES = int(os.getenv("PG_PLANNER_MAX_SUBQUERIES", "40"))
+DEFAULT_MAX_SUBQUERIES = int(resolve("PG_PLANNER_MAX_SUBQUERIES"))
 # LOWER bound that triggers ONE fail-loud retry (brief §2.1). A genuinely
 # narrow question may legitimately accept fewer after the retry; we never pad.
 # F23: env-overridable; default keeps the historical literal 12 (byte-identical
 # when unset). This is a fail-loud retry trigger, never deterministic padding.
-MIN_SUBQUERIES = int(os.getenv("PG_PLANNER_MIN_SUBQUERIES", "12"))
+MIN_SUBQUERIES = int(resolve("PG_PLANNER_MIN_SUBQUERIES"))
 
 
 class PlannerError(RuntimeError):

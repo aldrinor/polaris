@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from polaris_graph.v30_contract_synthesizer import build_v30_contract
+from polaris_graph.v30_contract_synthesizer import build_report_contract
 from polaris_v6.templates.registry import load_template
 
 ALL_V6_TEMPLATES = [
@@ -25,10 +25,10 @@ def _load_v6_template(template_id: str) -> dict:
 
 @pytest.mark.parametrize("template_id", ALL_V6_TEMPLATES)
 def test_build_v30_contract_matches_golden_fixture(template_id: str) -> None:
-    """build_v30_contract output for the fixture slug must equal the golden file."""
+    """build_report_contract output for the fixture slug must equal the golden file."""
     v6_tmpl = _load_v6_template(template_id)
     slug = f"{template_id}_fixture"
-    actual = build_v30_contract(v6_tmpl, slug, question=None)
+    actual = build_report_contract(v6_tmpl, slug, question=None)
     expected = json.loads((FIXTURE_DIR / f"{template_id}.json").read_text(encoding="utf-8"))
     assert actual == expected
 
@@ -59,7 +59,7 @@ def test_synthesized_contract_compiles_via_compile_frame(template_id: str) -> No
 
     v6_tmpl = _load_v6_template(template_id)
     slug = "test_compile_slug"
-    contract = build_v30_contract(v6_tmpl, slug, question="test question")
+    contract = build_report_contract(v6_tmpl, slug, question="test question")
     scope_tmpl = {"per_query_report_contract": dict(contract)}
     cf = compile_frame("test question", scope_tmpl, slug)
     assert cf is not None
@@ -77,7 +77,7 @@ def test_synthesized_bindings_have_fetchable_url(template_id: str) -> None:
 
     v6_tmpl = _load_v6_template(template_id)
     slug = "fetchability_slug"
-    contract = build_v30_contract(v6_tmpl, slug, question="test question")
+    contract = build_report_contract(v6_tmpl, slug, question="test question")
     scope_tmpl = {"per_query_report_contract": dict(contract)}
     cf = compile_frame("test question", scope_tmpl, slug)
     assert cf is not None
@@ -102,9 +102,9 @@ def test_synthesized_bindings_have_fetchable_url(template_id: str) -> None:
 def test_anchor_is_stable_and_collision_safe() -> None:
     """Same (template, frame, slug) → same anchor; different inputs → different anchor."""
     v6 = _load_v6_template("clinical")
-    c1 = build_v30_contract(v6, "slug_alpha")
-    c2 = build_v30_contract(v6, "slug_alpha")
-    c3 = build_v30_contract(v6, "slug_beta")
+    c1 = build_report_contract(v6, "slug_alpha")
+    c2 = build_report_contract(v6, "slug_alpha")
+    c3 = build_report_contract(v6, "slug_beta")
     anchors_1 = {e["anchor"] for e in c1["slug_alpha"]["required_entities"]}
     anchors_2 = {e["anchor"] for e in c2["slug_alpha"]["required_entities"]}
     anchors_3 = {e["anchor"] for e in c3["slug_beta"]["required_entities"]}
@@ -116,7 +116,7 @@ def test_url_pattern_rotates_through_t1_sources() -> None:
     """If T1 has N URLs and contract has M ≥ N entities, entity[i].url_pattern == T1[i % N]."""
     v6 = _load_v6_template("clinical")
     t1 = v6["source_tiers"]["T1"]
-    contract = build_v30_contract(v6, "rotation_slug")
+    contract = build_report_contract(v6, "rotation_slug")
     entities = contract["rotation_slug"]["required_entities"]
     for i, e in enumerate(entities):
         assert e["url_pattern"] == t1[i % len(t1)], (
@@ -128,7 +128,7 @@ def test_empty_t1_falls_back_to_known_url() -> None:
     """Defensive fallback for templates with empty T1 (none exist today, but ...)."""
     v6 = _load_v6_template("clinical")
     v6["source_tiers"]["T1"] = []
-    contract = build_v30_contract(v6, "empty_t1_slug")
+    contract = build_report_contract(v6, "empty_t1_slug")
     for e in contract["empty_t1_slug"]["required_entities"]:
         parsed = urlparse(e["url_pattern"])
         assert parsed.scheme in ("http", "https")

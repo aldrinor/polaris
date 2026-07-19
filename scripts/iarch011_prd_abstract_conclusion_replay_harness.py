@@ -101,7 +101,7 @@ class _FakeSection:
 
 # ── SYNTHETIC REAL-SHAPED FALLBACK (LAW VI): only on a bare CI checkout with NO banked corpus.
 # Real numeric clinical sentences (each carries a digit so strict_verify's decimal check fires).
-_SYN = [
+_SYNTHETIC_FIXTURE_ROWS = [
     ("Efficacy", "Semaglutide reduced major cardiovascular events by 20 percent in adults with obesity."),
     ("Glycaemic control", "Tirzepatide lowered HbA1c by 2.1 percentage points at 40 weeks versus placebo."),
     ("Heart failure", "Empagliflozin reduced heart failure hospitalization by 35 percent in adults."),
@@ -196,7 +196,7 @@ def _resolve_bodies():
         )
         source_kind = "synthetic"
         path = None
-        triples = [(_SYN[i][0], f"ev_b{i + 1}", _SYN[i][1]) for i in range(3)]
+        triples = [(_SYNTHETIC_FIXTURE_ROWS[i][0], f"ev_b{i + 1}", _SYNTHETIC_FIXTURE_ROWS[i][1]) for i in range(3)]
 
     sections: list[_FakeSection] = []
     evidence_pool: dict[str, dict] = {}
@@ -344,7 +344,7 @@ def _run_assertions(entailment_mode: str, sections, evidence_pool, body_sentence
     # ── REDACTION DUPLICATE LANDMINE (brief P2-2): a verbatim abstract sentence whose underlying body
     # claim is flipped non-VERIFIED is redacted by the REAL reconcile in the SAME pass as the body
     # copy, then refilter_abstract_conclusion_block drops the gap-stub'd block (no orphan). ──
-    _check_redaction_landmine(entailment_mode)
+    _check_redaction_duplicate_edge_case(entailment_mode)
 
     # ── REPORT.MD ASSEMBLY (Codex PR-d diff-gate P1 iter1+iter2, §-1.4 artifact-level): drive the REAL
     # production assemble_report_md and assert flag-OFF BYTE-IDENTITY (== pre-PR-d dedup(title+body))
@@ -383,7 +383,7 @@ def _run_assertions(entailment_mode: str, sections, evidence_pool, body_sentence
     }
 
 
-def _check_redaction_landmine(entailment_mode) -> None:
+def _check_redaction_duplicate_edge_case(entailment_mode) -> None:
     """Drive the REAL reconcile_report_against_verdicts + refilter_abstract_conclusion_block over a
     report.md containing the body copy AND the verbatim abstract copy of a claim that the 4-role seam
     flips non-VERIFIED. The redactor's multi-occurrence loop must remove BOTH copies (no orphan), and

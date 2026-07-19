@@ -41,7 +41,7 @@ from src.polaris_graph.wiki.mesh.retrieve.lethal import (
     _distance_to_cosine,
     _entity_match_fraction,
     _recency_factor,
-    lethal_retrieve,
+    retrieve_claims,
 )
 from src.polaris_graph.wiki.mesh.store import EMBEDDING_DIM
 
@@ -148,7 +148,7 @@ class TestLethalRetrieveBasic:
     def test_empty_workspace_returns_orthogonal(
         self, store, workspace_id,
     ):
-        result = lethal_retrieve(
+        result = retrieve_claims(
             store,
             workspace_id=workspace_id,
             question_text="Any question",
@@ -170,7 +170,7 @@ class TestLethalRetrieveBasic:
             tier="GOLD", relevance_score=0.9,
             embedding=_ref_vec(),
         )
-        result = lethal_retrieve(
+        result = retrieve_claims(
             store,
             workspace_id=workspace_id,
             question_text="How does GAC remove PFOS?",
@@ -193,7 +193,7 @@ class TestLethalRetrieveBasic:
             tier="BRONZE", relevance_score=0.3,
             embedding=_ref_vec(),
         )
-        result = lethal_retrieve(
+        result = retrieve_claims(
             store,
             workspace_id=workspace_id,
             question_text="PFOS info",
@@ -204,7 +204,7 @@ class TestLethalRetrieveBasic:
 
     def test_unknown_workspace_raises(self, store):
         with pytest.raises(MeshStoreError, match="Workspace not found"):
-            lethal_retrieve(
+            retrieve_claims(
                 store,
                 workspace_id="ws_nonexistent",
                 question_text="test",
@@ -243,7 +243,7 @@ class TestLethalRetrieveCorroborationWalk:
             evidence_weight=0.9,
             discovery_method="test",
         )
-        result = lethal_retrieve(
+        result = retrieve_claims(
             store,
             workspace_id=workspace_id,
             question_text="query",
@@ -283,7 +283,7 @@ class TestLethalRetrieveContradiction:
             evidence_weight=0.82,
             discovery_method="test",
         )
-        result = lethal_retrieve(
+        result = retrieve_claims(
             store,
             workspace_id=workspace_id,
             question_text="PFOS removal",
@@ -318,7 +318,7 @@ class TestLethalRetrieveReRank:
             tier="GOLD", relevance_score=0.9,
             embedding=_unit_vec(0.96),
         )
-        result = lethal_retrieve(
+        result = retrieve_claims(
             store,
             workspace_id=workspace_id,
             question_text="query",
@@ -345,7 +345,7 @@ class TestLethalRetrieveExploration:
                 tier="GOLD", relevance_score=0.9,
                 embedding=_orthogonal_vec(i % EMBEDDING_DIM),
             )
-        result = lethal_retrieve(
+        result = retrieve_claims(
             store,
             workspace_id=workspace_id,
             question_text="specific topic 0",

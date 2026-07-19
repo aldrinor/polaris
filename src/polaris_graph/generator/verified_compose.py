@@ -31,6 +31,7 @@ import os
 import re
 import time
 from typing import Any, Callable, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -374,10 +375,10 @@ def _tokens_within_basket_regions(sentence: str, regions: dict) -> bool:
     return True
 
 
-_JUNK_SCREEN = None
+_CHROME_SCREEN_FN = None
 
 
-def _compose_junk_screen(
+def _compose_boilerplate_screen(
     unit: str,
     known_words: "set[str] | frozenset[str] | None" = None,
     *,
@@ -386,7 +387,7 @@ def _compose_junk_screen(
     """I-beatboth-011 §3.4 (#1289): True iff ``unit`` is allowlist crawl/social/masthead chrome —
     INPUT HYGIENE applied per sentence-unit at the verbatim-emit (and abstractive-writer input)
     consumers, NEVER inside the verify pool/regions and NEVER a verdict. Reuses the shared
-    ``weighted_enrichment._make_junk_screen`` (``is_boilerplate_or_nonassertional`` + the high-precision
+    ``weighted_enrichment._make_chrome_screen`` (``is_boilerplate_or_nonassertional`` + the high-precision
     multi-word chrome list). P1-4: allowlist-anchored only — a real short sentence is KEPT (no length
     drop). Faithfulness-safe: boilerplate is not a corroborating source, so removing it is not a §-1.3
     DROP. Lazy + fail-CONSERVATIVE: on any import failure fall back to the boilerplate helper, and only
@@ -398,27 +399,27 @@ def _compose_junk_screen(
     previously inert here because they were called without these arguments. Safe on this path: K-span
     units are whole lifted SOURCE sentences (not the render seam's mid-clause ``[N]`` fragments).
     Still suppress-only; the fallback screens (which take no kwargs) are called positionally."""
-    global _JUNK_SCREEN
-    if _JUNK_SCREEN is None:
+    global _CHROME_SCREEN_FN
+    if _CHROME_SCREEN_FN is None:
         try:
-            from src.polaris_graph.generator.weighted_enrichment import _make_junk_screen
-            _JUNK_SCREEN = _make_junk_screen()
+            from src.polaris_graph.generator.weighted_enrichment import _make_chrome_screen
+            _CHROME_SCREEN_FN = _make_chrome_screen()
         except Exception:  # pragma: no cover — weighted_enrichment is stable in-tree
             try:
                 from src.tools.access_bypass import is_boilerplate_or_nonassertional as _b
-                _JUNK_SCREEN = lambda t: bool(_b(t))  # noqa: E731
+                _CHROME_SCREEN_FN = lambda t: bool(_b(t))  # noqa: E731
             except Exception:
-                _JUNK_SCREEN = lambda _t: False  # noqa: E731 — keep content; never drop real prose
+                _CHROME_SCREEN_FN = lambda _t: False  # noqa: E731 — keep content; never drop real prose
     try:
         return bool(
-            _JUNK_SCREEN(
+            _CHROME_SCREEN_FN(
                 unit, require_sentence_form=require_sentence_form, known_words=known_words
             )
         )
     except TypeError:
         # The boilerplate / no-op fallback screens take only the unit (no kwargs).
         try:
-            return bool(_JUNK_SCREEN(unit))
+            return bool(_CHROME_SCREEN_FN(unit))
         except Exception:
             return False
     except Exception:
@@ -428,17 +429,17 @@ def _compose_junk_screen(
 def _known_words_for_compose(evidence_pool: Any) -> "set[str] | None":
     """I-wire-017 (#1339) FIX R1 helper: the run's corpus-vocabulary allowlist for the K-span chrome
     screen, built from the evidence pool's own fetched source text via the shared
-    ``weighted_enrichment.build_known_words_from_evidence``. Lazy + fail-CONSERVATIVE: returns None on
+    ``weighted_enrichment.build_corpus_vocabulary_from_evidence``. Lazy + fail-CONSERVATIVE: returns None on
     any import/build failure (and on an empty pool), so the truncation leg is simply skipped — never a
     wrong drop, never a crash. PURE."""
     try:
         from src.polaris_graph.generator.weighted_enrichment import (
-            build_known_words_from_evidence,
+            build_corpus_vocabulary_from_evidence,
         )
     except Exception:  # pragma: no cover — weighted_enrichment is stable in-tree
         return None
     try:
-        words = build_known_words_from_evidence(evidence_pool)
+        words = build_corpus_vocabulary_from_evidence(evidence_pool)
     except Exception:  # pragma: no cover — defensive; build is pure
         return None
     return words or None
@@ -864,7 +865,7 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
         units_before = len(units)
         units = [
             u for u in units
-            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
+            if not _compose_boilerplate_screen(u, known_words, require_sentence_form=True)
         ]
         if units_before and not units:
             # every sentence unit of this member's verified span was screened as chrome.
@@ -898,7 +899,7 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
 #
 # The per-basket body writers below (build_short_member_sentence / build_multi_member_sentences /
 # build_verified_span_draft_multi) emit VERBATIM span sentences after only the chrome-FORM screen
-# (_compose_junk_screen) + the downstream strict_verify. NEITHER is TOPICAL, so a CONFIDENTLY-foreign
+# (_compose_boilerplate_screen) + the downstream strict_verify. NEITHER is TOPICAL, so a CONFIDENTLY-foreign
 # span of an otherwise-on-topic source (e.g. a "TranScriptorium manuscript project €2.4m" sentence
 # inside an AI-labor source) composes into the findings body. This reuses the EXISTING high-precision,
 # FAIL-OPEN span screen ``weighted_enrichment._withhold_offtopic_spans`` — already live on the
@@ -987,7 +988,7 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict, research_quest
         units = [u.strip() for u in (split_into_sentences(quote) or [quote]) if u.strip()]
         # I-beatboth-011 §3.4 (#1289): drop allowlist crawl/social chrome units (input hygiene); if EVERY
         # unit is chrome, fall through to the next SUPPORTS member. Real short sentences are KEPT (P1-4).
-        units = [u for u in units if not _compose_junk_screen(u)]
+        units = [u for u in units if not _compose_boilerplate_screen(u)]
         # I-deepfix-003 (#1374) STEP 5: WITHHOLD a confidently-off-topic span of this on-topic source
         # from citation (fail-open; source never dropped; faithfulness engine untouched).
         units = _apply_compose_offtopic_screen(units, (evidence_pool or {}).get(eid), screen_ctx)
@@ -1085,7 +1086,7 @@ def build_multi_member_sentences(basket: Any, evidence_pool: dict, research_ques
     by ``_atomic_fact_key``. Each unit carries TIGHT per-unit global offsets inside its member's quote
     (NO forward snap), so every emitted token lands strictly WITHIN that member's own region — it passes
     the UNCHANGED ``_compose_one_basket`` strict_verify + P1-1 region gate exactly like
-    ``build_short_member_sentence``. Cut-mid-word units are screened by ``_compose_junk_screen``
+    ``build_short_member_sentence``. Cut-mid-word units are screened by ``_compose_boilerplate_screen``
     (require_sentence_form); if EVERY unit screens out this returns "" so ``_compose_one_basket`` falls
     to the SNAP-preserving K-span fallback (``build_verified_span_draft_multi``), which recovers a cut
     quote — so L2 never REGRESSES the single-headline recall. When PG_SUBTOPIC_DECOMPOSITION is OFF this
@@ -1111,7 +1112,7 @@ def build_multi_member_sentences(basket: Any, evidence_pool: dict, research_ques
         # short sentences. require_sentence_form drops a mid-word cut fragment (no forward snap here).
         units = [
             u for u in units
-            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
+            if not _compose_boilerplate_screen(u, known_words, require_sentence_form=True)
         ]
         # I-deepfix-003 (#1374) STEP 5: WITHHOLD a confidently-off-topic span of this on-topic source
         # from citation (fail-open; source never dropped; faithfulness engine untouched).
@@ -1180,7 +1181,7 @@ def build_verified_span_draft_multi(basket: Any, evidence_pool: dict, research_q
         units_before = len(units)
         units = [
             u for u in units
-            if not _compose_junk_screen(u, known_words, require_sentence_form=True)
+            if not _compose_boilerplate_screen(u, known_words, require_sentence_form=True)
         ]
         if units_before and not units:
             all_chrome_member_drops += 1
@@ -1768,12 +1769,12 @@ def _uncovered_fact_min_span_words() -> int:
         return _DEFAULT_UNCOVERED_FACT_MIN_SPAN_WORDS
 
 
-def _uncovered_fact_disclosure_is_junk(basket: Any, span_text: str) -> bool:
+def _uncovered_fact_disclosure_is_low_quality(basket: Any, span_text: str) -> bool:
     """Precision-first screen (True => WITHHOLD) for the SYNTH_PRIMARY uncovered-fact disclosure. Fires
     iff the block would be marker-less junk: a NON-SUBSTANTIVE subject (< ``_uncovered_fact_min_subject_words``
     content words via ``_repair_content_words`` — a lone stopword-ish token such as
     "because"/"reuse"/"estimate") OR a fallback SPAN that carries markdown-link furniture (``[text](url)``),
-    is allowlist crawl/masthead chrome (``_compose_junk_screen``), is render chrome / unrenderable
+    is allowlist crawl/masthead chrome (``_compose_boilerplate_screen``), is render chrome / unrenderable
     (``_sentence_is_render_chrome`` -> ``is_render_chrome_or_unrenderable``), or falls below the span
     content-word floor. Mirrors ``_uncovered_fact_disclosure``'s subject resolution so the screened subject
     is exactly the one that would be emitted. Faithfulness-NEUTRAL + PURE read: the SOURCE stays in the
@@ -1788,7 +1789,7 @@ def _uncovered_fact_disclosure_is_junk(basket: Any, span_text: str) -> bool:
     span = span_text or ""
     if _MARKDOWN_LINK_FURNITURE_RE.search(span):
         return True
-    if _compose_junk_screen(span):
+    if _compose_boilerplate_screen(span):
         return True
     if _sentence_is_render_chrome(span):
         return True
@@ -1818,7 +1819,7 @@ def _synth_primary_fallback_unit(basket: Any, evidence_pool: dict, *, body: str,
         # markdown-link + chrome span). Ship the real authored body when one survived; else "" so the
         # partition/render drops the unit (never a marker-less "[uncovered supporting evidence for: …]"
         # chrome block). Faithfulness-NEUTRAL (the SOURCE stays in the pool). Default-ON.
-        if _uncovered_fact_subject_gate_enabled() and _uncovered_fact_disclosure_is_junk(basket, fallback):
+        if _uncovered_fact_subject_gate_enabled() and _uncovered_fact_disclosure_is_low_quality(basket, fallback):
             # Anti-dark activation canary (sibling of ``_emit_synth_primary_marker``): fires on WITHHOLD
             # so a run log proves the gate is live and default-ON.
             logger.info("[activation] uncovered_fact_subject_gate: withheld=%d", 1)
@@ -2447,7 +2448,7 @@ def _member_sentence_units_with_percents(
     Each unit is a whole sentence lifted VERBATIM from the member's own quote (so ``(s, e)`` is
     strictly WITHIN the member's verified region by construction — off >= 0, e <= quote end — and
     always clears the basket-region gate). Chrome / truncated-fragment units are screened out
-    (``_compose_junk_screen`` with ``require_sentence_form=True``); units with no percent are dropped
+    (``_compose_boilerplate_screen`` with ``require_sentence_form=True``); units with no percent are dropped
     (they can never be a companion figure). ``percents`` is ``overstatement_guard._primacy_percents``
     output for that unit — the SAME detector the primacy advisory uses, so companion and label agree.
     Pure read; no faithfulness state touched. Returns ``[]`` when the member has no resolvable span."""
@@ -2478,7 +2479,7 @@ def _member_sentence_units_with_percents(
             cursor = off + len(u)  # advance past this occurrence for the next iteration
         # Input hygiene: drop allowlist chrome AND subjectless / mid-word-truncated fragments (the
         # K-span PRODUCER screen), so a companion is always a whole real source sentence.
-        if _compose_junk_screen(u, known_words, require_sentence_form=True):
+        if _compose_boilerplate_screen(u, known_words, require_sentence_form=True):
             continue
         s = gstart + off
         e = s + len(u)
@@ -2630,7 +2631,7 @@ def compose_qualifier_elaboration_units(
                 cursor = off + len(u)
             # Input hygiene: drop allowlist chrome + subjectless / mid-word-truncated fragments so an
             # elaboration is always a whole real source sentence.
-            if _compose_junk_screen(u, known_words, require_sentence_form=True):
+            if _compose_boilerplate_screen(u, known_words, require_sentence_form=True):
                 continue
             # Selection filter: only lift a sentence that carries a real qualifier cue.
             if not _sentence_carries_qualifier(u):
@@ -2746,7 +2747,7 @@ def compose_distinct_fact_units(
                 cursor = off + len(u)
             # Input hygiene: drop allowlist chrome + subjectless / mid-word-truncated fragments so a
             # surfaced fact is always a whole real source sentence.
-            if _compose_junk_screen(u, known_words, require_sentence_form=True):
+            if _compose_boilerplate_screen(u, known_words, require_sentence_form=True):
                 continue
             u_norm = " ".join(u.split()).strip().lower()
             if u_norm in seen_norms:
@@ -2957,7 +2958,7 @@ def _compose_section_per_basket(
         # _basket_workers threads; each thread blocks on its own verify_fn NLI-judge network call, so the
         # cross-basket in-flight concurrency the serial one-thread loop could never reach is realized here.
         from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
-        _timing = os.getenv("PG_COMPOSE_TIMING", "0").strip() not in ("", "0", "false", "off", "no")
+        _timing = resolve("PG_COMPOSE_TIMING").strip() not in ("", "0", "false", "off", "no")
         if _timing:
             # Measurement-only (byte-identical to the untimed map): wrap each per-basket compose to
             # record its wall duration + executing thread, so the effective parallelism of THIS

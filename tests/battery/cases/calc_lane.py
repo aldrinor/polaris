@@ -221,7 +221,7 @@ async def _case_wrong_pair_subtraction() -> list[Assertion]:
     return out
 
 
-# ── H01e PRODUCTION HANDOFF: the calc number ships through run_honest_pipeline ─
+# ── H01e PRODUCTION HANDOFF: the calc number ships through run_provenance_verified_pipeline ─
 @contextlib.contextmanager
 def _scoped_env(**kv):
     """Set env vars for the duration of the block, restoring exactly (parent env is never left
@@ -241,14 +241,14 @@ def _scoped_env(**kv):
 
 async def _case_production_handoff() -> list[Assertion]:
     """Drive an outline-emitted [#calc:] sentence + the quantified_models registry through the
-    REAL run_honest_pipeline downstream strict_verify handoff (honest_pipeline.py:336). Proves the
+    REAL run_provenance_verified_pipeline downstream strict_verify handoff (honest_pipeline.py:336). Proves the
     moat number SHIPS in production, not just in the probe.
 
     Guard: run WITHOUT the registry (legacy prod default) => the calc sentence is DROPPED and the
     number is absent from the report; WITH the registry => kept and present. Both directions asserted
     so a regression that drops the plumbing is caught.
     """
-    from src.polaris_graph.honest_pipeline import run_honest_pipeline
+    from src.polaris_graph.honest_pipeline import run_provenance_verified_pipeline
 
     ws = _workspace()
     claim = await _compute(
@@ -268,7 +268,7 @@ async def _case_production_handoff() -> list[Assertion]:
 
     def _run(qm):
         d = tempfile.mkdtemp(prefix="battery_h01e_")
-        return run_honest_pipeline(
+        return run_provenance_verified_pipeline(
             research_question=_QUESTION, domain="due_diligence", run_id="battery_h01e",
             run_dir=d, retrieved_sources=srcs, evidence=evl, draft_text=sentence,
             quantified_models=qm,
@@ -302,7 +302,7 @@ async def _case_production_handoff() -> list[Assertion]:
 async def _case_composer_handoff() -> list[Assertion]:
     """Drive the outline-emitted [#calc:] sentence + the quantified_models registry through the
     REAL full-corpus composer ``_run_section`` (the path ``generate_multi_section_report`` uses in
-    the cp4_used=agentic 346-basket run — NOT run_honest_pipeline). Proves the moat number renders
+    the cp4_used=agentic 346-basket run — NOT run_provenance_verified_pipeline). Proves the moat number renders
     in the SECTION BODY on the pipeline that actually composes section bodies in the corpus run.
 
     Guard: WITHOUT the registry (legacy prod default) => the calc sentence is DROPPED (section

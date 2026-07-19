@@ -48,10 +48,11 @@ import os
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+from src.polaris_graph.settings import resolve
 
 # I-run11-010 (#1056, S2): minimum direct_quote length (chars) for a frame row to carry a verifiable
 # citation span. A METADATA_ONLY row below this is routed to gap disclosure (LAW VI: env-overridable).
-_MIN_VERIFIABLE_SPAN_CHARS = int(os.getenv("PG_MIN_VERIFIABLE_SPAN_CHARS", "50"))
+_MIN_VERIFIABLE_SPAN_CHARS = int(resolve("PG_MIN_VERIFIABLE_SPAN_CHARS"))
 
 from ..nodes.contract_outline import ContractSectionPlan, ContractSlotPlan
 from ..nodes.report_contract import RequiredEntity
@@ -362,7 +363,7 @@ def _a1_basket_fallback_enabled() -> bool:
     SAME falsey vocabulary as the nearby feature flags (Codex iarch007 P1 #3:
     was `!= "0"` only, which silently ignored `false`/`off`/`no`)."""
     return (
-        os.getenv("PG_A1_BASKET_FALLBACK", "1").strip().lower()
+        resolve("PG_A1_BASKET_FALLBACK").strip().lower()
         not in _A1_BASKET_FALLBACK_OFF_VALUES
     )
 
@@ -396,7 +397,7 @@ _FALSE_GAP_KSPAN_OFF_VALUES = frozenset({"0", "false", "off", "no", ""})
 # reconstruction. A leading bullet/rule line with fewer than this many alpha
 # words AND no digit is dropped as chrome; a real numeric/prose line always
 # clears it. Env-overridable; ``int(...)`` fails LOUD on a malformed value.
-_KSPAN_MIN_PROSE_WORDS = int(os.getenv("PG_CONTRACT_KSPAN_MIN_PROSE_WORDS", "4"))
+_KSPAN_MIN_PROSE_WORDS = int(resolve("PG_CONTRACT_KSPAN_MIN_PROSE_WORDS"))
 
 
 def _false_gap_kspan_enabled() -> bool:
@@ -405,7 +406,7 @@ def _false_gap_kspan_enabled() -> bool:
     SAME falsey vocabulary as the nearby feature flags (Codex iarch007 P1 #3: a
     bare ``!= "0"`` silently ignores ``false``/``off``/``no``)."""
     return (
-        os.getenv("PG_CONTRACT_FALSE_GAP_KSPAN", "1").strip().lower()
+        resolve("PG_CONTRACT_FALSE_GAP_KSPAN").strip().lower()
         not in _FALSE_GAP_KSPAN_OFF_VALUES
     )
 
@@ -549,7 +550,7 @@ def _slot_fragment_snap_enabled() -> bool:
     """N5-FIX-2 — True only when ``PG_SLOT_FRAGMENT_SNAP`` is an explicit truthy
     value (1/true/on/yes). Unset / empty / other => OFF => byte-identical."""
     return (
-        os.getenv("PG_SLOT_FRAGMENT_SNAP", "").strip().lower()
+        resolve("PG_SLOT_FRAGMENT_SNAP").strip().lower()
         in _SLOT_FRAGMENT_SNAP_ON_VALUES
     )
 
@@ -723,7 +724,7 @@ def _fragment_prose_dedup_enabled() -> bool:
     value. DEFAULT "0" (OFF => byte-identical); same falsey vocabulary as
     ``_false_gap_kspan_enabled`` (Codex iarch007 P1 #3)."""
     return (
-        os.getenv("PG_CONTRACT_FRAGMENT_PROSE_DEDUP", "0").strip().lower()
+        resolve("PG_CONTRACT_FRAGMENT_PROSE_DEDUP").strip().lower()
         not in _FRAGMENT_PROSE_DEDUP_OFF_VALUES
     )
 
@@ -855,7 +856,7 @@ def _contract_gap_plain_disclosure_enabled() -> bool:
     DEFAULT "0" (OFF => byte-identical); same falsey vocabulary as the sibling
     ``_false_gap_kspan_enabled``."""
     return (
-        os.getenv("PG_CONTRACT_GAP_PLAIN_DISCLOSURE", "0").strip().lower()
+        resolve("PG_CONTRACT_GAP_PLAIN_DISCLOSURE").strip().lower()
         not in _CONTRACT_GAP_PLAIN_OFF_VALUES
     )
 
@@ -920,17 +921,17 @@ _B5_AUTHOR_ABSTRACT_PREFIX_RE = re.compile(
 
 def _author_abstract_header_strip_enabled() -> bool:
     """B5 — True only when ``PG_AUTHOR_ABSTRACT_HEADER_STRIP`` is truthy. DEFAULT OFF."""
-    return os.getenv("PG_AUTHOR_ABSTRACT_HEADER_STRIP", "").strip().lower() in _B5_ON_VALUES
+    return resolve("PG_AUTHOR_ABSTRACT_HEADER_STRIP").strip().lower() in _B5_ON_VALUES
 
 
 def _contract_bind_doi_fallback_enabled() -> bool:
     """B5 — True only when ``PG_CONTRACT_BIND_DOI_FALLBACK`` is truthy. DEFAULT OFF."""
-    return os.getenv("PG_CONTRACT_BIND_DOI_FALLBACK", "").strip().lower() in _B5_ON_VALUES
+    return resolve("PG_CONTRACT_BIND_DOI_FALLBACK").strip().lower() in _B5_ON_VALUES
 
 
 def _contract_reanchor_clean_sibling_enabled() -> bool:
     """B5 — True only when ``PG_CONTRACT_REANCHOR_CLEAN_SIBLING`` is truthy. DEFAULT OFF."""
-    return os.getenv("PG_CONTRACT_REANCHOR_CLEAN_SIBLING", "").strip().lower() in _B5_ON_VALUES
+    return resolve("PG_CONTRACT_REANCHOR_CLEAN_SIBLING").strip().lower() in _B5_ON_VALUES
 
 
 def _b5_reanchor_any_enabled() -> bool:
