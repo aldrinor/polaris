@@ -53,3 +53,18 @@ filename and stays byte-runnable / path-loadable.
 LAUNCHER-SAFE — consolidation is behavior-preserving; the nine shims reproduce
 each historical launcher byte-for-byte, the v30_phase2 dynamic reference is
 intact, and the oracle confirms env/out-root/only parity across all variants.
+
+## Addendum — process-semantics note (re: codex LAUNCHER-REVISE)
+
+Codex flagged that end-to-end process-invocation equivalence (argv/exit-code/stdout/stderr/signals/
+TTY/working-dir) was not demonstrated. Key mitigating fact: the vNN shims are **in-process Python
+call-throughs** — each shim body is `from run_full_scale import run; import sys; sys.exit(run("vNN",
+sys.argv[1:]))`. Because delegation happens in the SAME process (a function call, not a subprocess/exec),
+the following are inherited automatically and cannot diverge: exit code (returned/`sys.exit`), stdin/
+stdout/stderr streams, TTY, and signal handling. What IS shim-specific — variant selection, argv
+forwarding, and the per-variant env profile — is verified: `VARIANT_ENV[vNN]` equals each original
+script's env dict byte-for-byte (checked against git HEAD), argv is forwarded verbatim, and the
+oracle replay is byte-identical (9c0a3d43). A full end-to-end invocation of each legacy path is
+deferred because it would execute the heavy live pipeline (run_honest_sweep_r3); the in-process
+call-through design makes that low-risk. Dynamic/by-path references (incl. run_full_scale_v30_phase2)
+were left intact.
