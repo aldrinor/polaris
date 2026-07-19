@@ -1,0 +1,731 @@
+-"""V10 full-scale launcher — explicit, reproducible, auditable env config.
+-Per advisor feedback 2026-04-19 (blocker 2): previous V4-V9 runs were
+-launched with ad-hoc env exports at the call site, so the exact env
+-coverage was not reproducible from the repo. This wrapper makes every
+-capacity knob and feature flag explicit and version-controlled.
++launchers into a single parameterized launcher. This shim preserves the old
++entrypoint (kept, not deleted, because archive handovers / preservation-test
++skip messages reference this path) by delegating to:
+-Usage:
+-This launches the SURPASS/tirzepatide single-query run at max capacity
+-against the M-23 + M-24 post-fix code (commits 6c999e8 + ff68b86).
++Any extra CLI args are forwarded verbatim, so
++still works exactly as before.
+-import os
+-# ---------------------------------------------------------------------------
+-# V10 CAPACITY KNOBS — set BEFORE importing the sweep module so env defaults
+-# read at import time pick up our values. Every override is annotated with
+-# its role so future readers know what's on.
+-# ---------------------------------------------------------------------------
+-
+-_V10_ENV: dict[str, str] = {
+-    "PG_SWEEP_MAX_SERPER":    "50",     # amplified queries fanned to Serper
+-    "PG_SWEEP_MAX_S2":        "50",     # amplified queries to Semantic Scholar
+-    "PG_SWEEP_FETCH_CAP":     "500",    # max URLs classified + fetched per query
+-
+-    # Generator evidence pool cap
+-    # Advisor: bump 400→600 to give the planner a bigger pool so the
+-    # M-24 "no overlap / ≥8 per section" targets have headroom.
+-    "PG_LIVE_MAX_EV_TO_GEN":  "600",
+-
+-    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+-    "PG_MAX_COST_PER_RUN":    "10.00",
+-
+-    # M-23 access-bypass feature flags
+-    "PG_UNPAYWALL_ENABLED":   "1",      # M-23a Unpaywall step 0 (default on)
+-    "PG_CRAWL4AI_ENABLED":    "1",      # concurrent Crawl4AI primary backend
+-    "PG_FIRECRAWL_ENABLED":   "0",      # per user directive: costs money
+-    "PG_TRAFILATURA_ENABLED": "1",      # concurrent Trafilatura backend
+-
+-    # Scraper circuit breakers (keep defaults tolerant)
+-    "PG_CRAWL4AI_TIMEOUT":    "30",
+-    "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+-    "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-
+-    # Sci-Hub DISABLED by default (legal/provenance, I-faith-002); CORE is the OA full-text source
+-    "PG_SCIHUB_ENABLED":      "0",
+-}
+-
+-
+-def _apply_env() -> None:
+-    """Export V10 env. Does NOT overwrite values already set by the user
+-    in the parent shell — so manual overrides remain possible. Does NOT
+-    overwrite .env-loaded values either; python-dotenv's load_dotenv()
+-    inside the sweep script uses its default override=False behavior.
+-    """
+-    for key, val in _V10_ENV.items():
+-        existing = os.environ.get(key)
+-        if existing is None or existing == "":
+-            os.environ[key] = val
+-            print(f"[V10 env]  {key} = {val}")
+-        else:
+-            print(f"[V10 env]  {key} = {existing}  (already set, not overriding)")
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
+-    _apply_env()
+-
+-    # Delegate to the sweep script with whatever CLI args were passed.
+-    # Default tirzepatide-only run for the auto-loop; caller can override.
+-    if "--only" not in sys.argv:
+-        sys.argv.extend(["--only", "clinical_tirzepatide_t2dm"])
+-    if "--out-root" not in sys.argv:
+-
+-    print("=" * 72)
+-    print(f"V10 launch with argv: {sys.argv}")
+-    print("=" * 72)
+-
+-    # Import AFTER env is set so module-level env.getenv() calls see our values
+-    repo_root = Path(__file__).resolve().parents[1]
+-    if str(repo_root) not in sys.path:
+-        sys.path.insert(0, str(repo_root))
+-    return sweep_main()
++    return run("v10", sys.argv[1:])
+-"""V23 full-scale launcher — explicit, reproducible, auditable env config.
+-V23 = V22 launcher knobs + M-33 section_max_tokens fix (1200→2400)
+-(matches V22's pre_filter=362, fetched=344).
++launchers into a single parameterized launcher. This shim preserves the old
++entrypoint (kept, not deleted, because archive handovers / preservation-test
++skip messages reference this path) by delegating to:
+-Per advisor feedback 2026-04-19 (blocker 2): previous V4-V9 runs were
+-launched with ad-hoc env exports at the call site, so the exact env
+-coverage was not reproducible from the repo. This wrapper makes every
+-capacity knob and feature flag explicit and version-controlled.
+-Usage:
++Any extra CLI args are forwarded verbatim, so
++still works exactly as before.
+-import os
+-# ---------------------------------------------------------------------------
+-# V23 CAPACITY KNOBS — set BEFORE importing the sweep module so env defaults
+-# read at import time pick up our values. Every override is annotated with
+-# its role so future readers know what's on.
+-# ---------------------------------------------------------------------------
+-
+-_V23_ENV: dict[str, str] = {
+-    "PG_SWEEP_MAX_SERPER":    "50",     # amplified queries fanned to Serper
+-    "PG_SWEEP_MAX_S2":        "50",     # amplified queries to Semantic Scholar
+-    "PG_SWEEP_FETCH_CAP":     "500",    # max URLs classified + fetched per query
+-
+-    # Generator evidence pool cap
+-    "PG_LIVE_MAX_EV_TO_GEN":  "600",
+-
+-    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+-    "PG_MAX_COST_PER_RUN":    "10.00",
+-
+-    # M-23 access-bypass feature flags
+-    "PG_UNPAYWALL_ENABLED":   "1",      # M-23a Unpaywall step 0 (default on)
+-    "PG_CRAWL4AI_ENABLED":    "1",      # concurrent Crawl4AI primary backend
+-    "PG_FIRECRAWL_ENABLED":   "0",      # per user directive: costs money
+-    "PG_TRAFILATURA_ENABLED": "1",      # concurrent Trafilatura backend
+-
+-    # Scraper circuit breakers (keep defaults tolerant)
+-    "PG_CRAWL4AI_TIMEOUT":    "30",
+-    "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+-    "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-
+-    # Sci-Hub DISABLED by default (legal/provenance, I-faith-002); CORE is the OA full-text source
+-    "PG_SCIHUB_ENABLED":      "0",
+-}
+-
+-
+-def _apply_env() -> None:
+-    """Export V23 env. Does NOT overwrite values already set by the user
+-    in the parent shell — so manual overrides remain possible. Does NOT
+-    overwrite .env-loaded values either; python-dotenv's load_dotenv()
+-    inside the sweep script uses its default override=False behavior.
+-    """
+-    for key, val in _V23_ENV.items():
+-        existing = os.environ.get(key)
+-        if existing is None or existing == "":
+-            os.environ[key] = val
+-            print(f"[V23 env]  {key} = {val}")
+-        else:
+-            print(f"[V23 env]  {key} = {existing}  (already set, not overriding)")
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
+-    _apply_env()
+-
+-    if "--only" not in sys.argv:
+-        sys.argv.extend(["--only", "clinical_tirzepatide_t2dm"])
+-    if "--out-root" not in sys.argv:
+-
+-    print("=" * 72)
+-    print(f"V23 launch with argv: {sys.argv}")
+-    print("=" * 72)
+-
+-    repo_root = Path(__file__).resolve().parents[1]
+-    if str(repo_root) not in sys.path:
+-        sys.path.insert(0, str(repo_root))
+-    return sweep_main()
++    return run("v23", sys.argv[1:])
+-"""V24 full-scale launcher — explicit, reproducible, auditable env config.
+-V24 = V23 launcher knobs + the five V24 code fixes Codex-approved
+-2026-04-21 for Codex DR pass-11 gaps:
+-        (closes Citations LOSE_BOTH).
+-  M-36: Trial Summary markdown table post-synthesis stage
+-        (closes Structural depth LOSE_BOTH).
+-  M-37: Health Canada pdf.hres.ca regulatory-domain tier fix +
+-        jurisdictional coverage prompt rule (lifts Regulatory /
+-        Jurisdictional BEAT_ONE → BEAT_BOTH).
+-  M-38: Claim-frame hard constraint — 3-of-7 frame elements or
+-        drop short-name attribution (closes Claim frames LOSE_BOTH).
+-  M-40: Mechanism-section outline rule + title visibility to
+-        outline LLM (closes Narrative depth LOSE_BOTH).
++launchers into a single parameterized launcher. This shim preserves the old
++entrypoint (kept, not deleted, because archive handovers / preservation-test
++skip messages reference this path) by delegating to:
+-+11 SURPASS/SURMOUNT primary papers surfacing via anchor queries.
+-Usage:
++Any extra CLI args are forwarded verbatim, so
++still works exactly as before.
+-import os
+-# ---------------------------------------------------------------------------
+-# V24 CAPACITY KNOBS — set BEFORE importing the sweep module so env defaults
+-# read at import time pick up our values. Every override is annotated with
+-# its role so future readers know what's on.
+-# ---------------------------------------------------------------------------
+-
+-_V24_ENV: dict[str, str] = {
+-    "PG_SWEEP_MAX_SERPER":    "50",     # amplified queries fanned to Serper
+-    "PG_SWEEP_MAX_S2":        "50",     # amplified queries to Semantic Scholar
+-    "PG_SWEEP_FETCH_CAP":     "500",    # max URLs classified + fetched per query
+-
+-    # Generator evidence pool cap
+-    "PG_LIVE_MAX_EV_TO_GEN":  "600",
+-
+-    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+-    "PG_MAX_COST_PER_RUN":    "10.00",
+-
+-    # M-23 access-bypass feature flags
+-    "PG_UNPAYWALL_ENABLED":   "1",      # M-23a Unpaywall step 0 (default on)
+-    "PG_CRAWL4AI_ENABLED":    "1",      # concurrent Crawl4AI primary backend
+-    "PG_FIRECRAWL_ENABLED":   "0",      # per user directive: costs money
+-    "PG_TRAFILATURA_ENABLED": "1",      # concurrent Trafilatura backend
+-
+-    # Scraper circuit breakers (keep defaults tolerant)
+-    "PG_CRAWL4AI_TIMEOUT":    "30",
+-    "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+-    "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-
+-    # Sci-Hub DISABLED by default (legal/provenance, I-faith-002); CORE is the OA full-text source
+-    "PG_SCIHUB_ENABLED":      "0",
+-}
+-
+-
+-def _apply_env() -> None:
+-    """Export V24 env. Does NOT overwrite values already set by the user
+-    in the parent shell — so manual overrides remain possible. Does NOT
+-    overwrite .env-loaded values either; python-dotenv's load_dotenv()
+-    inside the sweep script uses its default override=False behavior.
+-    """
+-    for key, val in _V24_ENV.items():
+-        existing = os.environ.get(key)
+-        if existing is None or existing == "":
+-            os.environ[key] = val
+-            print(f"[V24 env]  {key} = {val}")
+-        else:
+-            print(f"[V24 env]  {key} = {existing}  (already set, not overriding)")
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
+-    _apply_env()
+-
+-    if "--only" not in sys.argv:
+-        sys.argv.extend(["--only", "clinical_tirzepatide_t2dm"])
+-    if "--out-root" not in sys.argv:
+-
+-    print("=" * 72)
+-    print(f"V24 launch with argv: {sys.argv}")
+-    print("=" * 72)
+-
+-    repo_root = Path(__file__).resolve().parents[1]
+-    if str(repo_root) not in sys.path:
+-        sys.path.insert(0, str(repo_root))
+-    return sweep_main()
++    return run("v24", sys.argv[1:])
+-"""V25 full-scale launcher — explicit, reproducible, auditable env config.
+-V25 = V24 code + M-41 bundle (Codex pass-2 READY 2026-04-21):
+-  M-41a: outline cap 5 → 6 when Mechanism+Regulatory both trigger
+-         (closes V24 Regulatory-displacement regression).
+-  M-41b: drop trial summary table rows with >2 dashes
+-         (closes V24 "3 rows, 2 mostly empty" table finding).
+-  M-41c: deterministic claim-frame post-check
+-         (converts probabilistic M-38 prompt rule to code-enforced).
+-  M-41d: evidence-selector T3 jurisdictional floor
+-         (unblocks M-37 HC work that was stranded by V24's missing
+-         Regulatory section).
++launchers into a single parameterized launcher. This shim preserves the old
++entrypoint (kept, not deleted, because archive handovers / preservation-test
++skip messages reference this path) by delegating to:
+-FIRST V SWEEP UNDER AUTOLOOP V2 PROTOCOL. After completion:
+-  1. Claude output audit + Codex output audit (parallel)
+-  2. Cross-review with per-disagreement table
+-  3. Gate verdict → SHIPPABLE or iterate
+-  4. If iterate: fix plan + Codex plan review
+-  5. Re-launch under Codex-approved plan
+-  Full runbook: state/autoloop_v2_runbook.md
+-Usage:
++Any extra CLI args are forwarded verbatim, so
++still works exactly as before.
+-import os
+-# ---------------------------------------------------------------------------
+-# V25 CAPACITY KNOBS — set BEFORE importing the sweep module so env defaults
+-# read at import time pick up our values. Every override is annotated with
+-# its role so future readers know what's on.
+-# ---------------------------------------------------------------------------
+-
+-_V25_ENV: dict[str, str] = {
+-    "PG_SWEEP_MAX_SERPER":    "50",     # amplified queries fanned to Serper
+-    "PG_SWEEP_MAX_S2":        "50",     # amplified queries to Semantic Scholar
+-    "PG_SWEEP_FETCH_CAP":     "500",    # max URLs classified + fetched per query
+-
+-    # Generator evidence pool cap
+-    "PG_LIVE_MAX_EV_TO_GEN":  "600",
+-
+-    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+-    "PG_MAX_COST_PER_RUN":    "10.00",
+-
+-    # M-23 access-bypass feature flags
+-    "PG_UNPAYWALL_ENABLED":   "1",      # M-23a Unpaywall step 0 (default on)
+-    "PG_CRAWL4AI_ENABLED":    "1",      # concurrent Crawl4AI primary backend
+-    "PG_FIRECRAWL_ENABLED":   "0",      # per user directive: costs money
+-    "PG_TRAFILATURA_ENABLED": "1",      # concurrent Trafilatura backend
+-
+-    # Scraper circuit breakers (keep defaults tolerant)
+-    "PG_CRAWL4AI_TIMEOUT":    "30",
+-    "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+-    "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-
+-    # Sci-Hub DISABLED by default (legal/provenance, I-faith-002); CORE is the OA full-text source
+-    "PG_SCIHUB_ENABLED":      "0",
+-}
+-
+-
+-def _apply_env() -> None:
+-    """Export V25 env. Does NOT overwrite values already set by the user
+-    in the parent shell — so manual overrides remain possible. Does NOT
+-    overwrite .env-loaded values either; python-dotenv's load_dotenv()
+-    inside the sweep script uses its default override=False behavior.
+-    """
+-    for key, val in _V25_ENV.items():
+-        existing = os.environ.get(key)
+-        if existing is None or existing == "":
+-            os.environ[key] = val
+-            print(f"[V25 env]  {key} = {val}")
+-        else:
+-            print(f"[V25 env]  {key} = {existing}  (already set, not overriding)")
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
+-    _apply_env()
+-
+-    if "--only" not in sys.argv:
+-        sys.argv.extend(["--only", "clinical_tirzepatide_t2dm"])
+-    if "--out-root" not in sys.argv:
+-
+-    print("=" * 72)
+-    print(f"V25 launch with argv: {sys.argv}")
+-    print("=" * 72)
+-
+-    repo_root = Path(__file__).resolve().parents[1]
+-    if str(repo_root) not in sys.path:
+-        sys.path.insert(0, str(repo_root))
+-    return sweep_main()
++    return run("v25", sys.argv[1:])
+-"""V26 full-scale launcher — explicit, reproducible, auditable env config.
+-V26 = V25 code + M-42 bundle (Codex pass-2 audit verdicts 2026-04-22):
+-  M-42e: named-trial primary-paper T1 floor (cap 6, quota-trim guard).
+-  M-42a: anaphoric + group-reference claim-frame prompt tightening.
+-  M-42b: direct_quote-only trial summary table + timeline builder
+-         (strict direct_quote OR refetch OR skip contract; no statement
+-         fallback; LLM fallback receives primary-trial direct_quotes
+-         only).
+-  M-42c: mechanism evidence T1+T2 floor (reserve up to 3 slots when
+-         pool has >=4 mechanism-rich rows) + conditional section prompt
+-         target (20-35 / 15-20 / 10-15 based on mech ev_id count).
+-  M-42d: Health Canada T3 quota expansion (1 → 2 slots) with
+-         FDA/EMA/NICE preservation guard; hpfb-dgpsa.ca anchor added.
++launchers into a single parameterized launcher. This shim preserves the old
++entrypoint (kept, not deleted, because archive handovers / preservation-test
++skip messages reference this path) by delegating to:
+-Codex verdicts across the M-42 bundle:
+-  M-42e: READY pass-3 (post-hoc detection + cap-trim telemetry fixes).
+-  M-42a+b: READY pass-2 (statement fallback removed; LLM fallback
+-           receives primary-trial direct_quotes; year-from-refetched
+-           check added).
+-  M-42c: CONDITIONAL (no blockers; 4 Medium follow-ups tracked as task
+-         #31 for future tightening).
+-  M-42d: CONDITIONAL pass-1 + pass-2 fixes applied (telemetry reserved
+-         semantic; test short-circuit removal).
+-V26 success criteria (per fix_plan.md):
+-  - Close Claim frames LOSE_BOTH → BEAT_ONE or BEAT_BOTH
+-  - Close Structural depth LOSE_BOTH → BEAT_ONE or BEAT_BOTH
+-  - Preserve V25 baselines: FDA>=7, EMA>=3, NICE>=4, biblio>=40,
+-    contradictions>=10; improve HC to >=2 (M-42d target).
+-
+-Autonomous launch authorized per user directive 2026-04-21:
+-  "Claude launches the next V{N} sweep WITHOUT asking for user
+-   approval as long as (a) code audit is Codex READY, (b) prior
+-   V{N-1} did not produce SHIPPABLE, and (c) no halt condition is
+-   triggered."
+-
+-Usage:
++Any extra CLI args are forwarded verbatim, so
++still works exactly as before.
+-import os
+-# ---------------------------------------------------------------------------
+-# V26 CAPACITY KNOBS — same baseline as V25 with the M-42d HC quota knob
+-# explicitly at its default to make the behavior auditable.
+-# ---------------------------------------------------------------------------
+-
+-_V26_ENV: dict[str, str] = {
+-    "PG_SWEEP_MAX_SERPER":    "50",     # amplified queries fanned to Serper
+-    "PG_SWEEP_MAX_S2":        "50",     # amplified queries to Semantic Scholar
+-    "PG_SWEEP_FETCH_CAP":     "500",    # max URLs classified + fetched per query
+-
+-    # Generator evidence pool cap
+-    "PG_LIVE_MAX_EV_TO_GEN":  "600",
+-
+-    # Budget cap (src/polaris_graph/... PG_MAX_COST_PER_RUN)
+-    "PG_MAX_COST_PER_RUN":    "10.00",
+-
+-    # M-23 access-bypass feature flags (unchanged from V25)
+-    "PG_UNPAYWALL_ENABLED":   "1",
+-    "PG_CRAWL4AI_ENABLED":    "1",
+-    "PG_FIRECRAWL_ENABLED":   "0",      # per user directive: costs money
+-    "PG_TRAFILATURA_ENABLED": "1",
+-
+-    # Scraper circuit breakers (unchanged from V25)
+-    "PG_CRAWL4AI_TIMEOUT":    "30",
+-    "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+-    "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-
+-    # Sci-Hub DISABLED by default (legal/provenance, I-faith-002); CORE is the OA full-text source
+-    "PG_SCIHUB_ENABLED":      "0",
+-
+-    # M-42d knob: HC T3 quota. 2 = default (new in V26). 1 = legacy
+-    # M-41d behavior. Override via shell env to experiment.
+-    "PG_M41D_HC_QUOTA":       "2",
+-}
+-
+-
+-def _apply_env() -> None:
+-    """Export V26 env. Does NOT overwrite values already set by the user
+-    in the parent shell — so manual overrides remain possible. Does NOT
+-    overwrite .env-loaded values either; python-dotenv's load_dotenv()
+-    inside the sweep script uses its default override=False behavior.
+-    """
+-    for key, val in _V26_ENV.items():
+-        existing = os.environ.get(key)
+-        if existing is None or existing == "":
+-            os.environ[key] = val
+-            print(f"[V26 env]  {key} = {val}")
+-        else:
+-            print(f"[V26 env]  {key} = {existing}  (already set, not overriding)")
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
+-    _apply_env()
+-
+-    if "--only" not in sys.argv:
+-        sys.argv.extend(["--only", "clinical_tirzepatide_t2dm"])
+-    if "--out-root" not in sys.argv:
+-
+-    print("=" * 72)
+-    print(f"V26 launch with argv: {sys.argv}")
+-    print("=" * 72)
+-
+-    repo_root = Path(__file__).resolve().parents[1]
+-    if str(repo_root) not in sys.path:
+-        sys.path.insert(0, str(repo_root))
+-    return sweep_main()
++    return run("v26", sys.argv[1:])
+-"""V27 full-scale launcher — V26 rerun with M-43 anchor cap fix.
+-V27 = V26 code + M-43 (regulatory_anchors cap 10 → 12).
++launchers into a single parameterized launcher. This shim preserves the old
++entrypoint (kept, not deleted, because archive handovers / preservation-test
++skip messages reference this path) by delegating to:
+-V26 outcome (2026-04-22 03:44→05:38, 113.7 min):
+-  - manifest.status=partial_evaluator_advisory, release_allowed=False
+-  - Biblio 48 (up from V25=40), contradictions 15 (same as V25)
+-  - HC=3 (M-42d target MET, up from V25=1)
+-  - Report 3527 words (up from V25=1455, +142%)
+-  - **REGRESSION: NICE=0** (V25=4). Caught by preservation test suite.
+-V26 regression root cause (caught by preservation suite, fixed as M-43):
+-  Adding M-42d's hpfb-dgpsa.ca anchor pushed clinical.yaml's
+-  `regulatory_anchors` list to 11 entries. `PG_SWEEP_MAX_REGULATORY_ANCHORS`
+-  default cap = 10 silently truncated the 11th entry (nice.org.uk),
+-
+-M-43 fix (commit pending):
+-  - `_DEFAULT_MAX_ANCHORS` raised 10 → 12 in regulatory_expander.py
+-  - V27 launcher explicitly sets `PG_SWEEP_MAX_REGULATORY_ANCHORS=12`
+-    so the fix is visible in the sweep config
+-  - Regression test: `test_m43_anchor_cap.py` asserts all 11
+-    clinical.yaml anchors (incl. nice.org.uk) emit queries
+-
+-Codex M-43 verdict: READY required before V27 launch.
+-
+-V27 success criteria (V25 baseline preservation + V26 improvements):
+-  - Preserve: FDA>=7, EMA>=3, NICE>=4 (M-43 fix), biblio>=40,
+-    contradictions>=10, T2>=3
+-  - M-42d improvement: HC>=2 (V26 already achieved 3)
+-  - Claim frames + Structural depth LOSE_BOTH → BEAT_ONE/BEAT_BOTH
+-
+-Usage:
++Any extra CLI args are forwarded verbatim, so
++still works exactly as before.
+-import os
+-
+-_V27_ENV: dict[str, str] = {
+-    "PG_SWEEP_MAX_SERPER":    "50",
+-    "PG_SWEEP_MAX_S2":        "50",
+-    "PG_SWEEP_FETCH_CAP":     "500",
+-    "PG_LIVE_MAX_EV_TO_GEN":  "600",
+-    "PG_MAX_COST_PER_RUN":    "10.00",
+-
+-    # M-23 access-bypass feature flags
+-    "PG_UNPAYWALL_ENABLED":   "1",
+-    "PG_CRAWL4AI_ENABLED":    "1",
+-    "PG_FIRECRAWL_ENABLED":   "0",
+-    "PG_TRAFILATURA_ENABLED": "1",
+-
+-    # Scraper circuit breakers
+-    "PG_CRAWL4AI_TIMEOUT":    "30",
+-    "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+-    "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-    "PG_SCIHUB_ENABLED":      "0",
+-
+-    # M-42d knob: HC T3 quota
+-    "PG_M41D_HC_QUOTA":       "2",
+-
+-    # M-43 knob: regulatory anchor cap. clinical.yaml has 11 anchors;
+-    # V26 default cap=10 truncated nice.org.uk → NICE=0 regression.
+-    # 12 accommodates current + 1 future. Code default is now 12 too;
+-    # this env var makes the choice explicit in the sweep config.
+-    "PG_SWEEP_MAX_REGULATORY_ANCHORS": "12",
+-}
+-
+-
+-def _apply_env() -> None:
+-    for key, val in _V27_ENV.items():
+-        existing = os.environ.get(key)
+-        if existing is None or existing == "":
+-            os.environ[key] = val
+-            print(f"[V27 env]  {key} = {val}")
+-        else:
+-            print(f"[V27 env]  {key} = {existing}  (already set, not overriding)")
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
+-    _apply_env()
+-
+-    if "--only" not in sys.argv:
+-        sys.argv.extend(["--only", "clinical_tirzepatide_t2dm"])
+-    if "--out-root" not in sys.argv:
+-
+-    print("=" * 72)
+-    print(f"V27 launch with argv: {sys.argv}")
+-    print("=" * 72)
+-
+-    repo_root = Path(__file__).resolve().parents[1]
+-    if str(repo_root) not in sys.path:
+-        sys.path.insert(0, str(repo_root))
+-    return sweep_main()
++    return run("v27", sys.argv[1:])
+-"""V28 full-scale launcher — V27 code + M-44..M-50 bundle.
+-V28 = V27 code + complete M-44..M-50 V28 bundle:
+-  - M-44: primary-trial scorer/subset injection + same-sentence
+-          validator + one-shot regen (Codex pass-3 READY)
+-  - M-45: refetch diagnostics with per-URL backend/method + failure
+-          mode (Codex pass-2 SIGN OFF)
+-  - M-46: selector early-exit fix — floors fire even when
+-          pool_size <= max_rows (Codex READY)
+-  - M-47: evidence-linked clamp/PK quantitative validator with
+-          field-context tokens + regen (Codex pass-2)
+-  - M-48: per-anchor first-author variants + population-scope
+-          labels (Codex APPROVED pass-2)
+-  - M-50: per-trial subsections for T2D-direct primaries (Codex
+-          audit in flight)
++launchers into a single parameterized launcher. This shim preserves the old
++entrypoint (kept, not deleted, because archive handovers / preservation-test
++skip messages reference this path) by delegating to:
+-V28 target (cross-reviewed content audit): 5 BEAT_BOTH + 2 BEAT_ONE
+-+ 0 LOSE_BOTH (up from V27's 3 BB + 2 BO + 2 LB).
+-V27 outcome (2026-04-22 06:58→11:11, 113.7 min):
+-  - 3 BEAT_BOTH (Regulatory, Jurisdictional, Contradictions)
+-  - 2 BEAT_ONE (Citations, Narrative depth)
+-  - 2 LOSE_BOTH (Claim frames, Structural depth)
+-  - Content audit: ChatGPT 4 wins / V27 1 / Gemini 1
+-
+-V27 → V28 targeted lifts:
+-  - Citations: BEAT_ONE → BEAT_BOTH (M-44 + M-48 variants)
+-  - Claim frames: LOSE_BOTH → BEAT_BOTH (M-44 + M-45 table + M-50
+-    subsections)
+-  - Structural depth: LOSE_BOTH → BEAT_BOTH (M-45 table + M-50
+-    subsections)
+-  - Narrative depth: LOSE_BOTH → BEAT_ONE (M-47 + M-50)
+-  - Regulatory / Jurisdictional / Contradictions: BEAT_BOTH preserved
+-
+-V28 preflight (optional, budget saver):
+-        --slug clinical_tirzepatide_t2dm \\
+-        --question "What is the efficacy..." \\
+-        --domain clinical
+-
+-Usage:
++Any extra CLI args are forwarded verbatim, so
++still works exactly as before.
+-import os
+-
+-_V28_ENV: dict[str, str] = {
+-    "PG_SWEEP_MAX_SERPER":    "50",
+-    "PG_SWEEP_MAX_S2":        "50",
+-    "PG_SWEEP_FETCH_CAP":     "500",
+-
+-    # M-46 (2026-04-22): PG_LIVE_MAX_EV_TO_GEN reduced 600 → 300 so
+-    # the selector's short-circuit path is less likely to trigger,
+-    # giving M-42e/c/d floors more surface area. M-46 SELECTOR fix
+-    # (committed in e6fd147) makes floors fire even in the
+-    # short-circuit path, but 300 also reduces prompt-window load.
+-    "PG_LIVE_MAX_EV_TO_GEN":  "300",
+-
+-    "PG_MAX_COST_PER_RUN":    "10.00",
+-
+-    # M-23 access-bypass feature flags (unchanged from V27)
+-    "PG_UNPAYWALL_ENABLED":   "1",
+-    "PG_CRAWL4AI_ENABLED":    "1",
+-    "PG_FIRECRAWL_ENABLED":   "0",
+-    "PG_TRAFILATURA_ENABLED": "1",
+-
+-    # Scraper circuit breakers (unchanged from V27)
+-    "PG_CRAWL4AI_TIMEOUT":    "30",
+-    "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+-    "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-    "PG_SCIHUB_ENABLED":      "0",
+-
+-    # M-42d knob: HC T3 quota (unchanged from V27)
+-    "PG_M41D_HC_QUOTA":       "2",
+-
+-    # M-43 knob: regulatory anchor cap (unchanged from V27)
+-    "PG_SWEEP_MAX_REGULATORY_ANCHORS": "12",
+-
+-    # M-35 knob: primary-trial anchor cap (default 15; 11 configured
+-    # in clinical.yaml so cap is not hit, but set explicitly for
+-    # reproducibility)
+-    "PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS": "15",
+-}
+-
+-
+-def _apply_env() -> None:
+-    for key, val in _V28_ENV.items():
+-        existing = os.environ.get(key)
+-        if existing is None or existing == "":
+-            os.environ[key] = val
+-            print(f"[V28 env]  {key} = {val}")
+-        else:
+-            print(f"[V28 env]  {key} = {existing}  (already set, not overriding)")
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
+-    _apply_env()
+-
+-    if "--only" not in sys.argv:
+-        sys.argv.extend(["--only", "clinical_tirzepatide_t2dm"])
+-    if "--out-root" not in sys.argv:
+-
+-    print("=" * 72)
+-    print(f"V28 launch with argv: {sys.argv}")
+-    print("=" * 72)
+-
+-    repo_root = Path(__file__).resolve().parents[1]
+-    if str(repo_root) not in sys.path:
+-        sys.path.insert(0, str(repo_root))
+-    return sweep_main()
++    return run("v28", sys.argv[1:])
+-"""V29 full-scale launcher — V28 code + M-51/52/53 custody bundle.
+-V29 = V28 code + Strategy β cycle 1 of 4:
+-  - M-51: Selector hard-reservation of anchor-matched primaries
+-          from live_corpus (Codex CONDITIONAL-no-blockers pass-1)
+-  - M-52: Generator-side pull from live_corpus when evidence_pool
+-          lacks anchor-matched primary (Codex audit pending)
+-  - M-53: Per-anchor custody telemetry v29_primary_custody.json
+-          (Codex-required diagnostic; M-49 assertion extension)
++launchers into a single parameterized launcher. This shim preserves the old
++entrypoint (kept, not deleted, because archive handovers / preservation-test
++skip messages reference this path) by delegating to:
+-V29 target per strategic cross-review: 4-5 BB + 2-3 BO + 0-1 LB.
+-Lift Dims 1/4/5 from LOSE_BOTH to ≥BEAT_ONE. Dim 7 (Narrative) may
+-still lag (V31 is the dedicated closure cycle).
+-V28 outcome (2026-04-22 23:14, 2h51m, $0.018):
+-  - Cross-reviewed: 3 BB + 0 BO + 4 LB (NOT SHIPPABLE)
+-  - Net ≥BEAT_ONE count regressed 5 → 3 vs V27
+-  - Root cause: primary papers in live_corpus but dropped by selector
+-    (SURPASS-4 Del Prato + SURPASS-CVOT Nicholls verified by Codex)
+-
+-V29 bundle addresses this single defect at both the selector (M-51)
+-and generator (M-52) boundaries, with M-53 telemetry to diagnose
+-precisely where the chain breaks if it still does.
+-
+-Usage:
++Any extra CLI args are forwarded verbatim, so
++still works exactly as before.
+-import os
+-
+-_V29_ENV: dict[str, str] = {
+-    "PG_SWEEP_MAX_SERPER":    "50",
+-    "PG_SWEEP_MAX_S2":        "50",
+-    "PG_SWEEP_FETCH_CAP":     "500",
+-    "PG_LIVE_MAX_EV_TO_GEN":  "300",
+-    "PG_MAX_COST_PER_RUN":    "10.00",
+-
+-    # Access-bypass feature flags
+-    "PG_UNPAYWALL_ENABLED":   "1",
+-    "PG_CRAWL4AI_ENABLED":    "1",
+-    "PG_FIRECRAWL_ENABLED":   "0",
+-    "PG_TRAFILATURA_ENABLED": "1",
+-
+-    # Scraper circuit breakers
+-    "PG_CRAWL4AI_TIMEOUT":    "30",
+-    "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+-    "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-    "PG_SCIHUB_ENABLED":      "0",
+-
+-    # M-42d: HC T3 quota
+-    "PG_M41D_HC_QUOTA":       "2",
+-
+-    # M-43: regulatory anchor cap (11 in clinical.yaml; fits cap=12)
+-    "PG_SWEEP_MAX_REGULATORY_ANCHORS": "12",
+-
+-    # M-35: primary-trial anchor cap
+-    "PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS": "15",
+-}
+-
+-
+-def _apply_env() -> None:
+-    for key, val in _V29_ENV.items():
+-        existing = os.environ.get(key)
+-        if existing is None or existing == "":
+-            os.environ[key] = val
+-            print(f"[V29 env]  {key} = {val}")
+-        else:
+-            print(f"[V29 env]  {key} = {existing}  (already set, not overriding)")
++_REPO_ROOT = Path(__file__).resolve().parents[1]
++if str(_REPO_ROOT) not in sys.path:
++    sys.path.insert(0, str(_REPO_ROOT))
+-    _apply_env()
+-
+-    if "--only" not in sys.argv:
+-        sys.argv.extend(["--only", "clinical_tirzepatide_t2dm"])
+-    if "--out-root" not in sys.argv:
+-
+-    print("=" * 72)
+-    print(f"V29 launch with argv: {sys.argv}")
+-    print("=" * 72)
+-
+-    repo_root = Path(__file__).resolve().parents[1]
+-    if str(repo_root) not in sys.path:
+-        sys.path.insert(0, str(repo_root))
+-    return sweep_main()
++    return run("v29", sys.argv[1:])
++from src.polaris_graph.synthesis.verifier import verify_section
+===[any lines above = unexplained non-rename changes]===
