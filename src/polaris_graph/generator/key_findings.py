@@ -13,6 +13,7 @@ import logging
 import os
 import re
 from typing import Any, Callable
+from src.polaris_graph.settings import resolve
 
 # Module logger for the FF3 render-truncation ``[activation]`` markers (I-deepfix-001 Wave-5 #1344).
 # A child logger => it propagates to root, so the Gate-B ``_ActivationMarkerCaptureHandler`` (attached to
@@ -1148,7 +1149,7 @@ def build_depth_layer(
         # guard misses a formatting-only difference, which is how a Tension line duplicated its own headline
         # in the drb_72 report. Normalized = strip [N] markers + collapse whitespace + lowercase. Default-ON
         # kill-switch PG_TENSION_HEADLINE_DEDUP (OFF => byte-identical exact-string guard only).
-        _tension_dedup_on = os.getenv("PG_TENSION_HEADLINE_DEDUP", "1").strip().lower() not in (
+        _tension_dedup_on = resolve("PG_TENSION_HEADLINE_DEDUP").strip().lower() not in (
             "", "0", "false", "off", "no",
         )
 

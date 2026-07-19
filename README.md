@@ -1,8 +1,13 @@
-# POLARIS
+# Deep Cove Research
 
 High-integrity research pipeline: turns a plain-language research
 question into a grounded, per-sentence-verified markdown report with
 bibliography, corpus-approval gate, and a separate-family evaluator.
+
+> **Internal codename:** *Polaris*. You will still see `polaris_*` packages, `PG_*` env flags, and
+> `/workspace/POLARIS` paths throughout the code — that is the engine's codename, not the product
+> name. De-branding of internal identifiers is deliberate and gradual so it never destabilizes the
+> running pipeline.
 
 ## v6.2 mission state (2026-05-04)
 

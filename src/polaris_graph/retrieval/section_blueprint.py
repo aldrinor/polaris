@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 
 from src.polaris_graph.retrieval.pooled_embedder import embed_with_pooling
 from src.polaris_graph.retrieval.source_registry import SourceRegistry
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -39,7 +40,7 @@ logger = logging.getLogger("polaris_graph")
 # ---------------------------------------------------------------------------
 
 # Fix R3-#5: Words-per-evidence-chunk for dynamic word budget
-WORDS_PER_EVIDENCE_CHUNK = int(os.getenv("PG_WORDS_PER_EVIDENCE_CHUNK", "120"))
+WORDS_PER_EVIDENCE_CHUNK = int(resolve("PG_WORDS_PER_EVIDENCE_CHUNK"))
 
 
 # I-deepfix-001 F5 (#1344): per-section WORD budget tracks the FULL routed basket payload.
@@ -55,7 +56,7 @@ def _word_budget_tracks_payload() -> bool:
     """True iff PG_WORD_BUDGET_TRACKS_PAYLOAD removes the ``min(target_words, ..)`` CEILING from
     ``effective_target_words`` so the per-section word budget tracks the full routed basket payload
     (F5). Default-OFF => the legacy clamp (byte-identical)."""
-    return os.getenv("PG_WORD_BUDGET_TRACKS_PAYLOAD", "0").strip().lower() not in (
+    return resolve("PG_WORD_BUDGET_TRACKS_PAYLOAD").strip().lower() not in (
         "", "0", "false", "off", "no",
     )
 
@@ -158,12 +159,12 @@ class SectionBlueprint:
         min_evidence_per_section: int = 5,
         max_sections_per_evidence: int = 2,
         max_chunks_per_section: int = int(
-            os.getenv("PG_BLUEPRINT_MAX_CHUNKS_PER_SECTION", "15")
+            resolve("PG_BLUEPRINT_MAX_CHUNKS_PER_SECTION")
         ),
         primary_threshold: float = 0.40,
         secondary_threshold: float = 0.25,
         core_source_threshold: float = float(
-            os.getenv("PG_BLUEPRINT_CORE_SOURCE_THRESHOLD", "0.85")
+            resolve("PG_BLUEPRINT_CORE_SOURCE_THRESHOLD")
         ),
     ) -> None:
         self._min_per_section = min_evidence_per_section
