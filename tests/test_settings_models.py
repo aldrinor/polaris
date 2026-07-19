@@ -44,3 +44,22 @@ def test_registry_matches_fields():
     for key, (field, default) in MODEL_KEY_DEFAULTS.items():
         assert hasattr(s, field), f"{key} -> missing field {field}"
         assert default is None or isinstance(default, str)
+
+
+def test_fresh_read_reflects_env_change_like_getenv(monkeypatch):
+    """get_model_settings() reads CURRENT env each call — byte-identical to os.getenv semantics."""
+    from src.polaris_graph.settings import get_model_settings
+    monkeypatch.delenv("PG_JUDGE_MODEL", raising=False)
+    assert get_model_settings().judge_model == "qwen/qwen3.6-35b-a3b"
+    monkeypatch.setenv("PG_JUDGE_MODEL", "override/model")
+    assert get_model_settings().judge_model == "override/model"
+
+
+def test_cached_instance_is_a_snapshot_use_accessor(monkeypatch):
+    """A cached instance snapshots env (documented). The fresh accessor is the migration target."""
+    from src.polaris_graph.settings import get_model_settings
+    monkeypatch.delenv("PG_JUDGE_MODEL", raising=False)
+    cached = ModelSettings()
+    monkeypatch.setenv("PG_JUDGE_MODEL", "override/model")
+    assert cached.judge_model == "qwen/qwen3.6-35b-a3b"
+    assert get_model_settings().judge_model == "override/model"

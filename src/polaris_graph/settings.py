@@ -61,3 +61,18 @@ MODEL_KEY_DEFAULTS: dict[str, tuple[str, str | None]] = {
     "PG_OUTLINER_CODE_MODEL": ("outliner_code_model", "deepseek/deepseek-v4-pro"),
     "PG_EVALUATOR_MODEL": ("evaluator_model", None),
 }
+
+
+def get_model_settings() -> ModelSettings:
+    """Return a FRESH ``ModelSettings`` reading the CURRENT environment.
+
+    **Byte-identical migration contract.** ``os.getenv`` reads the current environment on *every*
+    call; a ``ModelSettings`` instance instead *snapshots* the environment at construction. So a
+    migrated call site must replace ``os.getenv("PG_X", default)`` with ``get_model_settings().x``
+    (a fresh read), **never** a cached module-level instance — otherwise it would go stale relative
+    to a runtime env change. Two model keys are set at process startup by scripts
+    (``PG_NLI_MODEL`` via ``setdefault``, ``PG_EVALUATOR_MODEL`` from a CLI arg) and none are mutated
+    mid-run, so a fresh read at the call site is exactly equivalent to the original ``os.getenv``.
+    Construction is cheap (12 fields); the freshness guarantee is what preserves behaviour.
+    """
+    return ModelSettings()
