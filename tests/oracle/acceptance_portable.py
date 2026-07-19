@@ -146,6 +146,13 @@ async def run_thin() -> dict:
     checklist_gaps = sum(
         1 for d in stats.get("disclosures", []) if d.startswith("checklist[")
     )
+    # Enforceable POSITIVE control (mirrors run_saturated's valid_negative_control): the thin case
+    # MUST have fired at least one real scoped retrieval AND mutated the outline vs the seed. If
+    # either is false the harness is asserting nothing and the control is vacuous — fail loud.
+    valid_positive_control = search_calls >= 1 and outline_mutated
+    print(f"valid_positive_control={valid_positive_control} "
+          f"(search_calls>=1={search_calls >= 1} [search_calls={search_calls}], "
+          f"outline_mutated={outline_mutated})")
     return {
         "elapsed_s": round(elapsed, 1),
         "turns": stats.get("turns"),
@@ -156,6 +163,7 @@ async def run_thin() -> dict:
         "checklist_gap_events": checklist_gaps,
         "unfilled_gaps": stats.get("unfilled_gaps"),
         "outline_mutated": outline_mutated,
+        "valid_positive_control": valid_positive_control,
         "update_outline_calls": update_outline_calls,
         "final_section_ev_counts": {
             oa._plan_field(p, "title", ""): len(oa._plan_field(p, "ev_ids", []) or [])  # noqa: SLF001
@@ -288,6 +296,217 @@ async def run_saturated() -> dict:
     }
 
 
+# --------------------------------------------------------------------------------------------
+# Deterministic browser-free golden (Oracle Layer 2 wiring). The acceptance harness has TWO
+# non-deterministic boundaries: the OpenRouter LLM (frozen by tests/oracle/llm_cassette.py) and the
+# live retriever / browser (frozen by tests/oracle/retrieval_cassette.py). Freezing BOTH makes the
+# whole run deterministic, so the produced result artifact is byte-identical across replays and any
+# diff is a real regression.
+#
+# Modes (``--mode`` / legacy flags):
+#   seed-retrieval : LIVE OpenRouter + LIVE retriever (network+browser ONCE). Captures BOTH the
+#                    retrieval cassette (the reusable seed artifact) AND the llm cassette.
+#   record         : LIVE OpenRouter + FROZEN retrieval (NO browser). Records the llm cassette
+#                    against the already-frozen retrieval seed; emits the GOLDEN artifact.
+#   replay         : FROZEN OpenRouter + FROZEN retrieval (NO network at all). Reproduces the
+#                    golden byte-identically.
+#   (none)         : legacy fully-live run (both boundaries live), unchanged behaviour.
+_ORACLE_DIR = Path(__file__).resolve().parent
+_CASSETTE_DIR = _ORACLE_DIR / "cassettes"
+_RETRIEVAL_TAPE = _CASSETTE_DIR / "acceptance_retrieval.jsonl"
+_LLM_TAPE = _CASSETTE_DIR / "acceptance_llm.jsonl"
+_GOLDEN_PATH = _CASSETTE_DIR / "acceptance_golden.json"
+
+
+def _parse_mode() -> str | None:
+    for flag, mode in (("--seed-retrieval", "seed-retrieval"),
+                       ("--record", "record"), ("--replay", "replay")):
+        if flag in sys.argv:
+            return mode
+    if "--mode" in sys.argv:
+        idx = sys.argv.index("--mode")
+        if idx + 1 < len(sys.argv):
+            return sys.argv[idx + 1].strip().lower()
+    return None
+
+
+import re as _re  # noqa: E402
+
+# Wall-clock timings the outline agent bakes into disclosure strings (outline_agent.py:821 emits a
+# per-search ``... in {elapsed:.1f}s``). These are the ONE non-deterministic substring inside the
+# otherwise pure ``disclosures`` list — frozen retrieval returns instantly on replay, so the real
+# fetch elapsed differs from the recorded one. Normalizing it to a fixed token keeps the golden a
+# function of BEHAVIOUR (what searched/folded/mutated), not of fetch latency.
+_ELAPSED_IN_DISCLOSURE = _re.compile(r" in \d+\.\d+s\b")
+
+
+def _normalize_disclosure(s: str) -> str:
+    return _ELAPSED_IN_DISCLOSURE.sub(" in <elapsed>s", s)
+
+
+def _canonical_golden(result: dict) -> str:
+    """Deterministic, byte-stable serialization of the acceptance result. Drops the ``elapsed_s``
+    wall-time field, normalizes wall-clock timings embedded in disclosure strings, and sorts keys.
+    Every remaining field (turn counts, evidence counts, search-call counts, the searched/folded
+    disclosures, the control verdicts) is a pure function of the frozen LLM + retrieval I/O, so this
+    string is identical across replays iff behaviour is unchanged."""
+    def _strip(d: dict) -> dict:
+        out = {}
+        for k, v in d.items():
+            if k == "elapsed_s":
+                continue
+            if k == "disclosures" and isinstance(v, list):
+                out[k] = [_normalize_disclosure(str(x)) for x in v]
+            else:
+                out[k] = v
+        return out
+
+    canon = {scen: _strip(payload) for scen, payload in result.items()}
+    return json.dumps(canon, indent=2, sort_keys=True, ensure_ascii=True, default=str)
+
+
+async def _run_scenarios(only: str | None) -> dict:
+    result: dict = {}
+    if only in (None, "thin"):
+        result["thin"] = await run_thin()
+    if only in (None, "saturated"):
+        result["saturated"] = await run_saturated()
+    return result
+
+
+import contextlib as _contextlib_top  # noqa: E402
+
+
+@_contextlib_top.contextmanager
+def _frozen_step_clock():
+    """Normalize the per-step wall-clock time the notebook bakes into the decide prompt.
+
+    ``AnalysisNotebook.summary_for_llm`` renders ``({step.elapsed_seconds:.1f}s)`` INTO the decide
+    LLM prompt (analysis_notebook.py:269). That elapsed is real fetch latency at record time (~58s for
+    a live gap search) but ~0s on replay with frozen retrieval — so the decide prompt would differ
+    and ``generate_structured`` would MISS. This is exactly the "wall clock ... frozen separately by
+    the harness" carve-out the cassette documents: elapsed is a NON-behavioural input (the decision
+    must not hinge on 58.3 vs 58.4s). We render it as a fixed ``0.0`` in BOTH record and replay, so
+    the decide prompt — and therefore the whole loop — is timing-independent and record==replay.
+    Applied identically in record and replay, it never hides a real behaviour change."""
+    from src.polaris_graph.tools import analysis_notebook as _an  # noqa: PLC0415
+    _orig = _an.AnalysisNotebook.summary_for_llm
+
+    def _patched(self, include_results: bool = False) -> str:
+        # Normalize BOTH wall-clock timings the notebook feeds the decide prompt, at their SOURCE so
+        # the downstream length-sensitive truncation (_result_digest_lines caps the flattened result
+        # markdown at a char budget) sees byte-identical text in record and replay:
+        #   (a) the per-step ``({elapsed:.1f}s)`` in the step header line — zero elapsed_seconds; and
+        #   (b) the ``... in {elapsed:.1f}s`` that search_more_evidence bakes INTO its ToolResult
+        #       .markdown (outline_agent.py:821/825). Record's raw markdown carries e.g. "in 84.4s"
+        #       (7 chars); replay's carries "in 0.0s" (6 chars). If we normalized only the FINAL
+        #       summary the digest budget would already have truncated one char differently — the
+        #       classic off-by-one that made the turn-2 decide prompt differ by a single character.
+        #       So we rewrite each step's result.markdown to the fixed-width ``in <elapsed>s`` token
+        #       BEFORE _orig renders/truncates it. Both are non-behavioural timings; the identical
+        #       normalization in record and replay never hides a real change.
+        saved_elapsed = [s.elapsed_seconds for s in self._steps]
+        saved_md = [getattr(s.result, "markdown", None) for s in self._steps]
+        try:
+            for s in self._steps:
+                s.elapsed_seconds = 0.0
+                md = getattr(s.result, "markdown", None)
+                if isinstance(md, str):
+                    s.result.markdown = _ELAPSED_IN_DISCLOSURE.sub(" in <elapsed>s", md)
+            summary = _orig(self, include_results)
+        finally:
+            for s, ev, md in zip(self._steps, saved_elapsed, saved_md):
+                s.elapsed_seconds = ev
+                if md is not None:
+                    s.result.markdown = md
+        return _ELAPSED_IN_DISCLOSURE.sub(" in <elapsed>s", summary)
+
+    _an.AnalysisNotebook.summary_for_llm = _patched
+    try:
+        yield
+    finally:
+        _an.AnalysisNotebook.summary_for_llm = _orig
+
+
+async def _main_oracle(mode: str, only: str | None) -> None:
+    """Run the acceptance scenarios with the LLM and/or retrieval boundaries frozen, emit the
+    golden artifact, and (in replay) enforce byte-identity + the two controls."""
+    from tests.oracle.llm_cassette import llm_cassette  # noqa: PLC0415
+    from tests.oracle.retrieval_cassette import retrieval_cassette  # noqa: PLC0415
+    import hashlib  # noqa: PLC0415
+    import contextlib as _contextlib  # noqa: PLC0415
+
+    if mode == "seed-retrieval":
+        retr_mode, llm_mode = "record", "record"
+    elif mode == "record":
+        retr_mode, llm_mode = "replay", "record"
+    elif mode == "replay":
+        retr_mode, llm_mode = "replay", "replay"
+    else:
+        raise SystemExit(f"unknown --mode {mode!r} (use seed-retrieval | record | replay)")
+
+    print(f"[oracle] mode={mode} retrieval-cassette={retr_mode} llm-cassette={llm_mode}")
+    print(f"[oracle] retrieval tape: {_RETRIEVAL_TAPE}")
+    print(f"[oracle] llm tape:       {_LLM_TAPE}")
+
+    _CASSETTE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Order matters: retrieval cassette is the OUTER context so its patched run_live_retrieval is in
+    # place before any scenario runs; the llm cassette patches the OpenRouter boundary independently.
+    # _frozen_step_clock normalizes the per-step elapsed the notebook feeds the decide prompt (a
+    # non-behavioural wall-clock input) so record and replay issue byte-identical decide requests.
+    with _frozen_step_clock(), \
+            retrieval_cassette(_RETRIEVAL_TAPE, retr_mode), \
+            llm_cassette(_LLM_TAPE, llm_mode):
+        result = await _run_scenarios(only)
+
+    print("\n" + "#" * 80)
+    print("ACCEPTANCE SUMMARY (oracle mode)")
+    print("#" * 80)
+    print(json.dumps(result, indent=2, default=str))
+
+    golden = _canonical_golden(result)
+    golden_bytes = golden.encode("utf-8")
+    sha = hashlib.sha256(golden_bytes).hexdigest()
+
+    out_dir = Path(os.environ.get("PG_ACCEPTANCE_OUT_DIR", str(_REPO_ROOT)))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "acceptance_result.json").write_text(
+        json.dumps(result, indent=2, default=str), encoding="utf-8")
+
+    if mode in ("seed-retrieval", "record") or (mode == "replay" and not _GOLDEN_PATH.is_file()):
+        # Recording writes the golden as the reference artifact for later byte-compare. A replay run
+        # ALSO writes it when the reference is absent (first-replay bootstrap after a canonicalizer
+        # change), so the golden always reflects the current canonical form; subsequent replays then
+        # byte-compare against it.
+        _GOLDEN_PATH.write_bytes(golden_bytes)
+        print(f"\n[oracle] wrote golden -> {_GOLDEN_PATH}")
+    print(f"[oracle] GOLDEN SHA-256: {sha}")
+    print(f"[oracle] GOLDEN bytes:   {len(golden_bytes)}")
+
+    if mode == "replay" and _GOLDEN_PATH.is_file():
+        ref = _GOLDEN_PATH.read_bytes()
+        if ref != golden_bytes:
+            print("\n[oracle] REPLAY MISMATCH vs recorded golden (behaviour change / non-determinism)")
+            print(f"  recorded sha={hashlib.sha256(ref).hexdigest()}")
+            print(f"  replay   sha={sha}")
+            sys.exit(3)
+        print("[oracle] replay artifact BYTE-IDENTICAL to recorded golden.")
+
+    # Enforce BOTH controls exactly as the live harness does.
+    failures: list[str] = []
+    if "thin" in result and not result["thin"].get("valid_positive_control"):
+        failures.append("positive control (THIN): valid_positive_control=False")
+    if "saturated" in result and not result["saturated"].get("valid_negative_control"):
+        failures.append("negative control (SATURATED): valid_negative_control=False")
+    if failures:
+        print("\nACCEPTANCE FAILED:")
+        for f in failures:
+            print(f"  - {f}")
+        sys.exit(1)
+    print("\nACCEPTANCE PASSED: all run controls valid")
+
+
 async def main() -> None:
     # Iter-2: allow re-verifying a single scenario (``--only thin`` / ``--only saturated``) so a
     # targeted fix to one path doesn't force re-spending on the other, already-passing scenario.
@@ -298,11 +517,12 @@ async def main() -> None:
         if idx + 1 < len(sys.argv):
             only = sys.argv[idx + 1].strip().lower()
 
-    result: dict = {}
-    if only in (None, "thin"):
-        result["thin"] = await run_thin()
-    if only in (None, "saturated"):
-        result["saturated"] = await run_saturated()
+    mode = _parse_mode()
+    if mode is not None:
+        await _main_oracle(mode, only)
+        return
+
+    result = await _run_scenarios(only)
     print("\n" + "#" * 80)
     print("ACCEPTANCE SUMMARY")
     print("#" * 80)
@@ -317,6 +537,22 @@ async def main() -> None:
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2, default=str)
     print(f"[portable] wrote {out_path}")
+
+    # Enforce BOTH controls: the harness must exit NON-ZERO if the positive (THIN) control did not
+    # fire a search + mutate the outline, or if the negative (SATURATED) control did not stay at
+    # zero retrieval on a genuinely-built loop. A scenario that was not run this invocation
+    # (``--only``) is skipped, not treated as a failure.
+    failures: list[str] = []
+    if "thin" in result and not result["thin"].get("valid_positive_control"):
+        failures.append("positive control (THIN): valid_positive_control=False")
+    if "saturated" in result and not result["saturated"].get("valid_negative_control"):
+        failures.append("negative control (SATURATED): valid_negative_control=False")
+    if failures:
+        print("\nACCEPTANCE FAILED:")
+        for f in failures:
+            print(f"  - {f}")
+        sys.exit(1)
+    print("\nACCEPTANCE PASSED: all run controls valid")
 
 
 if __name__ == "__main__":
