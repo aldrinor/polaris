@@ -84,3 +84,35 @@ category rows below show counts **after** that override is applied, so every key
   test-locked in Phase 1B (`test_config_registry.py`, `test_settings_models.py`). ✅
 
 **S1 governance gate: MET.** No runtime / `src/` change — documentation and metadata only.
+
+## Addendum — accountability + precedence clarifications (codex review)
+
+**Accountability (all 1,044 keys).** The **project OWNER is accountable for every key** — including
+the 829 in the EXECUTOR bucket. "EXECUTOR (engineering)" denotes who is **responsible for the work**
+(migration, tuning behind characterization tests); the OWNER retains accountability and sign-off.
+So: OWNER = accountable (1,044/1,044); EXECUTOR = responsible-executor (829); directly-owner-operated
+(model/secret/faithfulness) = 215. No key is left without an accountable owner.
+
+**Precedence — the true 3 tiers.** The uniform rule is **process-env (`os.environ`) > dotenv-loaded
+value (`load_dotenv(override=False)`) > resolver-specific default**, matched case-sensitively on the
+exact key name. "Resolver-specific default" is the third tier and is NOT uniform:
+- **871 registry keys** → `settings.resolve()` = `os.getenv(key, CONFIG_DEFAULTS[key])`.
+- **12 model keys** → `ModelSettings` field default via `validation_alias="PG_*"`, `case_sensitive=True`.
+- **~161-key tail** (secret-shaped / computed-multiline / 20 conflicting-default) → call-site
+  `os.getenv(key, <literal>)`.
+
+**Test-locked (Phase 1B, PR #1389).** `tests/test_config_characterization_matrix.py` now *proves*
+this precedence and case behaviour, not just asserts it: a key only in `.env` resolves over the
+registry default; a key in both `.env` and the process env resolves to the **process-env** value
+(because `override=False`); a lowercase form of a registered key does **not** override
+(case-sensitive at both the `resolve()` and `ModelSettings` layers). This closes the ".env tier" and
+"model-key case/precedence" items.
+
+**Non-`PG_` domains (39 keys: `OPENROUTER_*`, `OPENAI_*`, `HF_*`, tool paths, `HOME`/`PATH`).** Same
+precedence (`process-env > .env > default`), same case-sensitivity — they are read via plain
+`os.getenv` and kept in their external namespace (not renamed). Secret-shaped ones (`*_API_KEY`) are
+OWNER-accountable; the rest are EXECUTOR/external-system.
+
+**No-runtime-change proof.** This deliverable's diff vs its baseline is exactly one file —
+`docs/review_readiness/config_ownership.md` — with **zero** `src/`, `tests/`, or `.py` changes
+(verifiable: `git show --stat` on this branch's commits touches only this doc). Documentation/metadata only.
