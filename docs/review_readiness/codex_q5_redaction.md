@@ -54,3 +54,18 @@ because the module is not wired into any scored path.
   cannot move the RACE score.
 - **codex verdict: Q5-OK** — dormant, additive, tested, cannot affect pipeline behavior or
   RACE; the staging guard excludes the contaminated oracle files.
+
+## Acceptance — codex DECISION Q5:A (high reasoning)
+
+Codex accepted the redaction helper + non-vacuous canary tests as sufficient defense-in-depth, and
+ruled that NO synthetic wired boundary is required. Rationale + what this acceptance records:
+- **No secret-value sink exists today** (S4 threat model): production logging/diagnostics do not emit
+  secret values (secrets only in Authorization headers, never logged; a dedicated commit secret-scanner
+  exists). So `boundaries_wired = []` accurately represents the current architecture — it is **not** a gap.
+- **The helper is verified** by a canary-secret test that is non-vacuous (it masks a recognizable canary
+  and would leak if redaction were disabled).
+- **The helper is the required mechanism** the moment a future config-dump / diagnostic payload /
+  exception formatter / structured-log field that could carry a secret is introduced — Q5 must be
+  revisited and the redactor wired at that new boundary then.
+- The existing secret scanner + no-leak coverage remain in place.
+- **SecretStr bulk conversion is deliberately NOT done** (codex Q5): invasive, no observed exposure.
