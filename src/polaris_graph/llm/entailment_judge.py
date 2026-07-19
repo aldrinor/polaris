@@ -97,7 +97,7 @@ from src.polaris_graph.llm import judge_verdict_cache as _verdict_cache
 # only; verdict logic + fail-closed sentinel untouched. Default-ON; PG_SIDE_JUDGE_MAX_CONCURRENCY=0 =>
 # byte-identical pre-fix (no-op) path. LAW VI.
 from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
-from src.polaris_graph.settings import resolve
+from src.polaris_graph.settings import get_entailment_model, resolve
 
 logger = logging.getLogger(__name__)
 
@@ -660,9 +660,7 @@ class _EntailmentJudge:
             "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
         ).rstrip("/")
         self._endpoint = f"{base_url}/chat/completions"
-        self._model = os.environ.get(
-            "PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL
-        )
+        self._model = get_entailment_model()
         # Two-family invariant per §9.1.1: raises RuntimeError if the
         # entailment judge ends up in the same family as the generator
         # (e.g. an operator setting PG_ENTAILMENT_MODEL to a DeepSeek

@@ -57,7 +57,7 @@ from src.polaris_graph.llm.judge_reasoning_block import build_judge_reasoning_bl
 # NLI conflict side-judge pins the SAME mirror chain, so it shares the ONE global slot pool that caps
 # TOTAL glm-5.2 mirror POSTs in flight. Transport-only; the (label, confidence) logic is unchanged. LAW VI.
 from src.polaris_graph.llm.judge_concurrency import acquire_judge_slot as _acquire_judge_slot
-from src.polaris_graph.settings import resolve
+from src.polaris_graph.settings import get_entailment_model, resolve
 
 logger = logging.getLogger(__name__)
 
@@ -689,7 +689,7 @@ class _SemanticContradictionJudge:
             "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
         ).rstrip("/")
         self._endpoint = f"{base_url}/chat/completions"
-        self._model = os.environ.get("PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL)
+        self._model = get_entailment_model()
         # Two-family invariant (§9.1.1): the conflict judge is an evaluator-family
         # call and MUST differ from the generator family — raises at construction.
         check_family_segregation(evaluator_model=self._model)

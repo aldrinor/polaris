@@ -26,7 +26,9 @@ STREAM_MAX_LEN = 10_000
 
 
 def _redis_url() -> str:
-    return os.environ.get("POLARIS_V6_REDIS_URL", DEFAULT_REDIS_URL)
+    from src.polaris_graph.settings import get_v6_redis_url
+
+    return get_v6_redis_url()
 
 
 def _get_sync_redis():
