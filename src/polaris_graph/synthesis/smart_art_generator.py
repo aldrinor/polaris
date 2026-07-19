@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 from src.polaris_graph.tracing import get_tracer
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +26,16 @@ logger = logging.getLogger(__name__)
 # Configuration (LAW VI — zero hard-coding)
 # ---------------------------------------------------------------------------
 
-PG_MAX_SMART_ART: int = int(os.getenv("PG_MAX_SMART_ART", "5"))
-PG_SMART_ART_ENABLED: bool = os.getenv("PG_SMART_ART_ENABLED", "1") == "1"
+PG_MAX_SMART_ART: int = int(resolve("PG_MAX_SMART_ART"))
+PG_SMART_ART_ENABLED: bool = resolve("PG_SMART_ART_ENABLED") == "1"
 
 # LLM call parameters — configurable via environment
 _ANALYSIS_MAX_TOKENS: int = int(os.getenv("PG_SMART_ART_ANALYSIS_MAX_TOKENS", "4096"))
 _MERMAID_MAX_TOKENS: int = int(os.getenv("PG_SMART_ART_MERMAID_MAX_TOKENS", "4096"))
-_ANALYSIS_TEMPERATURE: float = float(os.getenv("PG_SMART_ART_ANALYSIS_TEMP", "0.4"))
-_MERMAID_TEMPERATURE: float = float(os.getenv("PG_SMART_ART_MERMAID_TEMP", "0.3"))
-_ANALYSIS_TIMEOUT: float = float(os.getenv("PG_SMART_ART_ANALYSIS_TIMEOUT", "120"))
-_MERMAID_TIMEOUT: float = float(os.getenv("PG_SMART_ART_MERMAID_TIMEOUT", "90"))
+_ANALYSIS_TEMPERATURE: float = float(resolve("PG_SMART_ART_ANALYSIS_TEMP"))
+_MERMAID_TEMPERATURE: float = float(resolve("PG_SMART_ART_MERMAID_TEMP"))
+_ANALYSIS_TIMEOUT: float = float(resolve("PG_SMART_ART_ANALYSIS_TIMEOUT"))
+_MERMAID_TIMEOUT: float = float(resolve("PG_SMART_ART_MERMAID_TIMEOUT"))
 
 # ---------------------------------------------------------------------------
 # Diagram type registry
@@ -442,7 +443,7 @@ class SmartArtGenerator:
                 )
                 retry_code = _strip_code_fences(retry_resp.content.strip())
                 _retry_lines = len(retry_code.strip().split("\n"))
-                _min = int(os.getenv("PG_DIAGRAM_MIN_LINES", "10"))
+                _min = int(resolve("PG_DIAGRAM_MIN_LINES"))
                 if _validate_mermaid(retry_code) and _retry_lines >= _min:
                     logger.info(
                         "[smart_art] FIX-A4: Retry succeeded for '%s' (%d chars, %d lines)",
@@ -469,7 +470,7 @@ class SmartArtGenerator:
         # s05 "Healthy Diet → Insulin Sensitivity" (6 lines) and
         # s12 "Identify Population → Contraindication?" (6 lines)
         # added no value in TEST_071. Minimum 10 lines ensures substance.
-        _min_lines = int(os.getenv("PG_DIAGRAM_MIN_LINES", "10"))
+        _min_lines = int(resolve("PG_DIAGRAM_MIN_LINES"))
         _diagram_lines = len(mermaid_code.strip().split("\n"))
         if _diagram_lines < _min_lines:
             logger.warning(
@@ -647,7 +648,7 @@ class SmartArtGenerator:
         LLM to make informed diagram-type decisions.
         """
         max_content_preview: int = int(
-            os.getenv("PG_SMART_ART_CONTENT_PREVIEW_CHARS", "1500")
+            resolve("PG_SMART_ART_CONTENT_PREVIEW_CHARS")
         )
         parts: list[str] = []
         for sec in sections:

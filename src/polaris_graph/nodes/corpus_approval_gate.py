@@ -35,6 +35,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.corpus_approval_gate")
 
@@ -42,7 +43,7 @@ logger = logging.getLogger("polaris_graph.corpus_approval_gate")
 # actual fraction is more than this far from its expected bounds is
 # flagged as "material deviation" requiring an explicit opt-in note.
 PG_TIER_MATERIAL_DEVIATION_PP = float(
-    os.getenv("PG_TIER_MATERIAL_DEVIATION_PP", "15.0")
+    resolve("PG_TIER_MATERIAL_DEVIATION_PP")
 ) / 100.0
 
 

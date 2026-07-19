@@ -30,6 +30,7 @@ import os
 import re
 import time
 from typing import Any, Callable
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.fs_researcher_query_gen")
 
@@ -42,17 +43,17 @@ LlmFn = Callable[[str], str]
 
 def fs_researcher_enabled() -> bool:
     """True iff the FS-Researcher query-gen path is flag-enabled (default OFF = legacy behaviour)."""
-    return os.getenv("PG_QGEN_FS_RESEARCHER", "0").strip() in ("1", "true", "True")
+    return resolve("PG_QGEN_FS_RESEARCHER").strip() in ("1", "true", "True")
 
 
 def _max_queries() -> int:
     """Max search queries issued (the equal-budget cap the bake-off used). Caps cost."""
-    return int(os.getenv("PG_QGEN_FS_RESEARCHER_MAX_QUERIES", "35"))
+    return int(resolve("PG_QGEN_FS_RESEARCHER_MAX_QUERIES"))
 
 
 def _max_rounds() -> int:
     """Max outer todo-queue / checklist re-plan rounds."""
-    return int(os.getenv("PG_QGEN_FS_RESEARCHER_MAX_ROUNDS", "6"))
+    return int(resolve("PG_QGEN_FS_RESEARCHER_MAX_ROUNDS"))
 
 
 def _qgen_parallel_workers() -> int:
@@ -65,7 +66,7 @@ def _qgen_parallel_workers() -> int:
     the retrieval wall and only ~3 of ~35 planned queries fired. §-1.3: additive orchestration; the
     frozen faithfulness engine is untouched. A bad value falls back to 1 (serial)."""
     try:
-        return max(1, int(os.getenv("PG_QGEN_PARALLEL_QUERIES", "1")))
+        return max(1, int(resolve("PG_QGEN_PARALLEL_QUERIES")))
     except ValueError:
         return 1
 
@@ -215,7 +216,7 @@ def _seed_angles_per_facet() -> int:
     target (§-1.3). Default 2. When R2 is OFF the full angle frontier is seeded (no reserve
     carve), so the R1-only path is unchanged in query count."""
     try:
-        return max(1, int(os.getenv("PG_EXPERT_FACET_SEED_ANGLES", "2")))
+        return max(1, int(resolve("PG_EXPERT_FACET_SEED_ANGLES")))
     except ValueError:
         return 2
 
@@ -278,7 +279,7 @@ def _multilingual_native_reserve() -> int:
     drops none. It is clamped so it can never displace more than half the English
     breadth. Env-driven `PG_MULTILINGUAL_QUERY_RESERVE` (default 6)."""
     try:
-        return max(0, int(os.getenv("PG_MULTILINGUAL_QUERY_RESERVE", "6")))
+        return max(0, int(resolve("PG_MULTILINGUAL_QUERY_RESERVE")))
     except ValueError:
         return 6
 
@@ -381,7 +382,7 @@ def _scope_anchored() -> bool:
     not touch tiering, verification, citation, or any faithfulness gate, and drops ZERO fetched
     sources (§-1.3 — this is retrieval SCOPING of the query, not a filter/cap on results).
     OFF (``0``/``false``) => byte-identical legacy prompts."""
-    return os.getenv("PG_FS_RESEARCHER_SCOPE_ANCHOR", "1").strip() not in ("0", "false", "False")
+    return resolve("PG_FS_RESEARCHER_SCOPE_ANCHOR").strip() not in ("0", "false", "False")
 
 
 def _landmark_expander_enabled() -> bool:
@@ -391,7 +392,7 @@ def _landmark_expander_enabled() -> bool:
     defense-in-depth: a commit assembled from the diff alone must not ModuleNotFoundError the OFF path).
     Mirrors ``landmark_study_expander.landmark_study_expansion_enabled`` exactly (default OFF; accepts
     ``1``/``true``/``on``/``yes``)."""
-    return os.getenv("PG_LANDMARK_EXPANDER", "0").strip().lower() in ("1", "true", "on", "yes")
+    return resolve("PG_LANDMARK_EXPANDER").strip().lower() in ("1", "true", "on", "yes")
 
 
 # GENERAL stance / view-diversification frames. Each is a short, TOPIC-AGNOSTIC lens phrase appended to
@@ -413,7 +414,7 @@ def _stance_diversify_enabled() -> bool:
     flag-OFF run NEVER perturbs the query-gen path — byte-identical (the lane is simply skipped). Default
     OFF; accepts ``1``/``true``/``on``/``yes``. Read at CALL time (LAW VI). Mirrors
     ``_landmark_expander_enabled`` exactly."""
-    return os.getenv("PG_STANCE_DIVERSIFY_SEEDS", "0").strip().lower() in ("1", "true", "on", "yes")
+    return resolve("PG_STANCE_DIVERSIFY_SEEDS").strip().lower() in ("1", "true", "on", "yes")
 
 
 def _stance_diversify_seeds(facets: list[Any], question: str) -> list[str]:
