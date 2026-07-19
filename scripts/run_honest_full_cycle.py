@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.polaris_graph.honest_pipeline import run_honest_pipeline
+from src.polaris_graph.provenance_verified_pipeline import run_honest_pipeline
 
 
 # ─────────────────────────────────────────────────────────────────────────────

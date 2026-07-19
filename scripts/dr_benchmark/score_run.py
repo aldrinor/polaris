@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 from scripts.dr_benchmark.ledger_schema import load_ledger
-from src.polaris_graph.benchmark.pathB_capture import corpus_truncated_from_manifest
+from src.polaris_graph.benchmark.benchmark_run_capture import corpus_truncated_from_manifest
 from src.polaris_graph.benchmark.claim_audit_scorer import (
     ClaimRow,
     RubricElement,

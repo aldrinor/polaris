@@ -23,7 +23,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+from src.polaris_graph.benchmark import benchmark_run_capture as _pathb_capture
 from src.polaris_graph.llm.openrouter_client import (
     NoEndpointError,
     OpenRouterClient,

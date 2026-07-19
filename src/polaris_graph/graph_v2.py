@@ -44,9 +44,9 @@ from src.polaris_graph.state import (
     SectionOutline,
     merge_sections_reducer,
 )
-from src.polaris_graph.synthesis.report_assembler_v2 import assemble_report
-from src.polaris_graph.synthesis.synthesizer_v2 import write_section
-from src.polaris_graph.synthesis.verifier_v2 import verify_section
+from src.polaris_graph.synthesis.grounded_bibliography_assembler import assemble_report
+from src.polaris_graph.synthesis.section_synthesizer_parallel import write_section
+from src.polaris_graph.synthesis.verifier import verify_section
 from src.polaris_graph.tracing import get_tracer
 from src.polaris_graph.settings import resolve
 
@@ -875,7 +875,7 @@ def _build_frontend_bibliography(
     back to registry entries.
     """
     import re
-    from src.polaris_graph.synthesis.report_assembler_v2 import _extract_cited_sources
+    from src.polaris_graph.synthesis.grounded_bibliography_assembler import _extract_cited_sources
 
     # Gather all section content
     all_content = " ".join(

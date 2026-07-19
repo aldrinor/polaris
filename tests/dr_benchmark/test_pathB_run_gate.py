@@ -485,7 +485,7 @@ def test_get_role_provider_explicit_lookup_ignores_ambient_role() -> None:
     """Codex iter-1 diff P1#2 regression: get_role_provider(role) MUST NOT read ambient _ROLE.
     The entailment judge fires under _ROLE=='generator' but posts the evaluator model; it
     must explicitly request the evaluator provider."""
-    from src.polaris_graph.benchmark import pathB_capture as _pb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pb
     token_rp = _pb.set_role_providers({"generator": "Fireworks", "evaluator": "Novita"})
     try:
         with _pb.llm_role("generator"):
@@ -521,7 +521,7 @@ def test_preflight_architecture_coverage_can_be_explicitly_disabled(monkeypatch)
 
 def test_role_provider_contextvar_set_get_reset() -> None:
     """The pathB_capture ContextVar must roundtrip: set → get-by-role → reset."""
-    from src.polaris_graph.benchmark import pathB_capture as _pb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pb
     # Outside any role/gate scope, get returns None.
     assert _pb.current_role_provider() is None
     token_rp = _pb.set_role_providers({"generator": "Fireworks", "evaluator": "Novita"})

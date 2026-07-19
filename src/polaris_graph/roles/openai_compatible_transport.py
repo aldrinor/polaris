@@ -46,7 +46,7 @@ from typing import Any
 
 import httpx
 
-from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+from src.polaris_graph.benchmark import benchmark_run_capture as _pathb_capture
 from src.polaris_graph.roles.role_transport import (
     RoleRequest,
     RoleResponse,

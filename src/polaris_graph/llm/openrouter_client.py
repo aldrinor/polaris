@@ -32,7 +32,7 @@ from pydantic import BaseModel, ValidationError
 from src.polaris_graph.tracing import _current_tracer
 # I-safety-002b (#925): Path-B benchmark gate capture (stdlib-only, no circular import;
 # all calls are gate-flagged via is_active() so the hot path pays one contextvar read).
-from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+from src.polaris_graph.benchmark import benchmark_run_capture as _pathb_capture
 # B10 (2026-06-14): token-limit resolver — module-top import (stdlib-only module, no
 # circular import; same `from src.polaris_graph...` convention as the imports above).
 # Imported here (not lazily inside _call_impl) so an import failure is LOUD at module

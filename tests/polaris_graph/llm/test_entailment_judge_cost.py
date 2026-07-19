@@ -299,7 +299,7 @@ def test_entailment_judge_pins_mirror_chain_when_gate_active(monkeypatch):
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
     }
     judge = _make_judge_with_mock_response(monkeypatch, payload)
-    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
     looked_up = []
 
     def _fake_get_role_provider(role):
@@ -325,7 +325,7 @@ def test_entailment_judge_retired_evaluator_key_does_not_free_route(monkeypatch)
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
     }
     judge = _make_judge_with_mock_response(monkeypatch, payload)
-    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
     role_map = {"generator": "fireworks", "mirror": "novita",
                 "sentinel": "deepinfra", "judge": "together"}
     monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))

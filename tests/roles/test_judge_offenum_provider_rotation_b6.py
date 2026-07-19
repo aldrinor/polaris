@@ -22,7 +22,7 @@ import json
 import httpx
 import pytest
 
-from src.polaris_graph.benchmark import pathB_capture as pc
+from src.polaris_graph.benchmark import benchmark_run_capture as pc
 from src.polaris_graph.roles import openrouter_role_transport as ort
 from src.polaris_graph.roles.judge_adapter import (
     _extract_verdict_token,

@@ -775,7 +775,7 @@ class _SemanticContradictionJudge:
         # pins to the SAME provider chain as the main mirror role (allow_fallbacks=False,
         # require_parameters=True).
         try:
-            from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
+            from src.polaris_graph.benchmark import benchmark_run_capture as _pathb_for_routing
             _gate_provider = _pathb_for_routing.get_role_provider("mirror")
         except Exception:
             _gate_provider = None

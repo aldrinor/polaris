@@ -22,7 +22,7 @@ from typing import Callable, Optional
 
 from langgraph.graph import END, START, StateGraph
 
-from src.polaris_graph.state_v3 import V3State, create_v3_state
+from src.polaris_graph.state_lightweight import V3State, create_v3_state
 from src.polaris_graph.contracts_v3 import (
     LiveOutline,
     ScopeOutput,

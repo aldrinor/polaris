@@ -248,7 +248,7 @@ async def _case_production_handoff() -> list[Assertion]:
     number is absent from the report; WITH the registry => kept and present. Both directions asserted
     so a regression that drops the plumbing is caught.
     """
-    from src.polaris_graph.honest_pipeline import run_honest_pipeline
+    from src.polaris_graph.provenance_verified_pipeline import run_honest_pipeline
 
     ws = _workspace()
     claim = await _compute(

@@ -31,7 +31,7 @@ from typing import Any
 
 from ..compose.composer import ComposeResult, compose_answer
 from ..retrieve.gap_classify import check_nearby_budget
-from ..retrieve.lethal import lethal_retrieve
+from ..retrieve.retrieval import lethal_retrieve
 from ..store import MeshStore, MeshStoreError
 
 logger = logging.getLogger(__name__)

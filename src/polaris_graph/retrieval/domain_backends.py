@@ -343,7 +343,7 @@ def policy_targeted_serper(
         return []
     # I-safety-002b (#925) PR-2: record serper attempt for the Path-B gate (best-effort).
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_attempt("serper")
     except Exception:
         pass
@@ -375,7 +375,7 @@ def policy_targeted_serper(
         ))
     # I-meta-002-q1d (#945): per-call retrieval trace (best-effort, no-op when not started).
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_query("serper_policy", q, [c.url for c in out])
     except Exception:
         pass
@@ -405,7 +405,7 @@ def site_scoped_serper(
     if not api_key:
         return []
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_attempt("serper")
     except Exception:
         pass
@@ -436,7 +436,7 @@ def site_scoped_serper(
             source=source,
         ))
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_query(source, q, [c.url for c in out])
     except Exception:
         pass

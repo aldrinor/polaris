@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from polaris_graph.v30_contract_synthesizer import build_v30_contract
+from polaris_graph.contract_synthesizer import build_v30_contract
 from polaris_v6.templates.registry import load_template
 
 ALL_V6_TEMPLATES = [

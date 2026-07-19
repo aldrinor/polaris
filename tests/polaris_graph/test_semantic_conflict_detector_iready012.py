@@ -257,7 +257,7 @@ def test_conflict_judge_pins_mirror_chain_when_gate_active(monkeypatch):
     monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")  # glm != deepseek => family ok
     judge = scd._SemanticContradictionJudge(strict_fail_closed=False)
     judge._client = _CaptureClient()
-    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
     looked_up = []
 
     def _fake_get_role_provider(role):
@@ -280,7 +280,7 @@ def test_conflict_judge_retired_evaluator_key_does_not_free_route(monkeypatch):
     monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
     judge = scd._SemanticContradictionJudge(strict_fail_closed=False)
     judge._client = _CaptureClient()
-    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
     role_map = {"generator": "fireworks", "mirror": "novita",
                 "sentinel": "deepinfra", "judge": "together"}
     monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))

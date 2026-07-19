@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from src.polaris_graph.benchmark import pathB_capture as pb
+from src.polaris_graph.benchmark import benchmark_run_capture as pb
 
 
 @pytest.fixture(autouse=True)

@@ -18,7 +18,7 @@ import json
 import httpx
 import pytest
 
-from src.polaris_graph.benchmark import pathB_capture as pc
+from src.polaris_graph.benchmark import benchmark_run_capture as pc
 from src.polaris_graph.roles.openai_compatible_transport import (
     OpenAICompatibleRoleTransport,
     RoleTransportError,

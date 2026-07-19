@@ -22,7 +22,7 @@ import os
 from pathlib import Path
 from typing import Iterator
 
-from src.polaris_graph.benchmark import pathB_capture as _capture
+from src.polaris_graph.benchmark import benchmark_run_capture as _capture
 from src.polaris_graph.llm.openrouter_client import validate_role_families
 from src.polaris_graph.roles.openrouter_role_transport import benchmark_verifier_slug
 from scripts.architecture.verify_lock import load_lock

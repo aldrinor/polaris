@@ -107,7 +107,7 @@ import time
 
 import httpx
 
-from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+from src.polaris_graph.benchmark import benchmark_run_capture as _pathb_capture
 from src.polaris_graph.roles.adaptive_concurrency import (
     AdaptiveConcurrencyController,
     adaptive_concurrency_enabled,

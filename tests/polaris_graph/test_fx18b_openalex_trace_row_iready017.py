@@ -13,7 +13,7 @@ nothing here touches grounding / strict_verify / 4-role.
 """
 from __future__ import annotations
 
-import src.polaris_graph.benchmark.pathB_capture as pathb
+import src.polaris_graph.benchmark.benchmark_run_capture as pathb
 import src.polaris_graph.retrieval.domain_backends as _db
 import src.polaris_graph.retrieval.live_retriever as lr
 from src.polaris_graph.retrieval.prefetch_offtopic_filter import SearchCandidate

@@ -15,7 +15,7 @@ import json
 
 import pytest
 
-from src.polaris_graph.benchmark import pathB_capture
+from src.polaris_graph.benchmark import benchmark_run_capture
 from src.polaris_graph.llm import openrouter_client
 from src.polaris_graph.retrieval import semantic_conflict_detector as scd
 

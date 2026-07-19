@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-import src.polaris_graph.benchmark.pathB_capture as pathb
+import src.polaris_graph.benchmark.benchmark_run_capture as pathb
 
 
 @pytest.fixture(autouse=True)

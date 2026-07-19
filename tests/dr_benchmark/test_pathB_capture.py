@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.polaris_graph.benchmark import pathB_capture as pc
+from src.polaris_graph.benchmark import benchmark_run_capture as pc
 from scripts.dr_benchmark.pathB_run_gate import (
     GateError,
     LLMCall,

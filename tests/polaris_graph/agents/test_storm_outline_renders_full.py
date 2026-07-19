@@ -34,7 +34,7 @@ from src.polaris_graph.agents.storm_interviews import (
     StormOutlinePlan,
     _generate_outline_from_conversations,
 )
-from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
+from src.polaris_graph.benchmark import benchmark_run_capture as _pathb_capture
 
 _GENERATOR_SINGLETON = "Friendli"  # the gate-resolved GLM-5.2 served provider (the sections' provider).
 _QUERY = "What are the cardiovascular outcomes of GLP-1 receptor agonists?"

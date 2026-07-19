@@ -704,7 +704,7 @@ class LiveRetrievalResult:
 # ─────────────────────────────────────────────────────────────────────────────
 def _trace_query(backend: str, query: str, urls: list[str]) -> None:
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_query(backend, query, urls)
     except Exception:
         pass
@@ -712,7 +712,7 @@ def _trace_query(backend: str, query: str, urls: list[str]) -> None:
 
 def _trace_kept(url: str, backend: str) -> None:
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_kept(url, backend)
     except Exception:
         pass
@@ -720,7 +720,7 @@ def _trace_kept(url: str, backend: str) -> None:
 
 def _trace_drop(url: str, reason: str) -> None:
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_drop(url, reason)
     except Exception:
         pass
@@ -830,7 +830,7 @@ def _serper_search(
     # invoked (key present + call attempted). assert_post_run rejects a run where a
     # required backend was never tried. Lazy + best-effort; no-op when gate is off.
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_attempt("serper")
     except Exception:
         pass
@@ -926,7 +926,7 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
     # I-safety-002b (#925) PR-2: record S2 backend attempt (lazy, best-effort).
     try:
-        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
         _pathb.record_retrieval_attempt("semantic_scholar")
     except Exception:
         pass

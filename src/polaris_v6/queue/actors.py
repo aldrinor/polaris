@@ -157,7 +157,7 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
     # contract via legacy no-contract path.
     try:
         from polaris_v6.templates.registry import load_template
-        from src.polaris_graph.v30_contract_synthesizer import build_v30_contract
+        from src.polaris_graph.contract_synthesizer import build_v30_contract
 
         v6_tmpl = load_template(template_id).model_dump()
         q["v30_contract_patch"] = build_v30_contract(v6_tmpl, slug, question)
