@@ -5,3 +5,4 @@
 {"type":"started","key":"v2:94a058e6ca4e5c202b633a56dbf676d4c879c04e30568a6b47c72167bcd53f92","agentId":"a7fdb032619d4c83b"}
 {"type":"result","key":"v2:94a058e6ca4e5c202b633a56dbf676d4c879c04e30568a6b47c72167bcd53f92","agentId":"a7fdb032619d4c83b","result":{"oracle_matches":true,"oracle_sha":"9c0a3d438da943242c98e2fe714494c342d42d02102202d75a61a4554339db98","collection_ok":true}}
 {"type":"started","key":"v2:7ece329e723b9f088128a908abf5958d5b44f365df5465179c36be79d5cb9444","agentId":"a000f2528a4a5e0e1"}
+{"type":"result","key":"v2:7ece329e723b9f088128a908abf5958d5b44f365df5465179c36be79d5cb9444","agentId":"a000f2528a4a5e0e1","result":{"commit_sha":"cd509a319e5ae5231b79dab7c89fc33a4551c0cd","pushed":true}}
