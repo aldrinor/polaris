@@ -414,8 +414,8 @@ def _ensure_runners_registered() -> None:
     # V30 sweep runner — wraps scripts/run_full_scale_v30_phase2.py
     # as a subprocess and emits cooperative checkpoints per phase.
     try:
-        from src.polaris_graph.audit_ir.honest_sweep_job_runner import make_default_honest_sweep_job_runner
-        register_runner(make_default_honest_sweep_job_runner())
+        from src.polaris_graph.audit_ir.honest_sweep_job_runner import make_default_v30_clinical_sweep_job_runner
+        register_runner(make_default_v30_clinical_sweep_job_runner())
     except Exception:
         # If the V30 runner can't be constructed (missing script,
         # bad repo layout, etc.), don't crash the queue — just skip.
