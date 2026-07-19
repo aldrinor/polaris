@@ -110,6 +110,7 @@ from src.polaris_graph.generator.attribution_origin_guard import (
     attribution_origin_guard_enabled as _attribution_origin_guard_enabled,
     attribution_origin_reason as _attribution_origin_reason,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.provenance_generator")
 
@@ -474,7 +475,7 @@ def _entailment_judge_error_advisory_enabled() -> bool:
     soft-keep (for the deterministic K-span path where a verbatim substring is grounded by
     construction). It is NEVER the default. Read at call time so tests can toggle without re-import.
     """
-    v = os.getenv("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY", "0").strip().lower()
+    v = resolve("PG_ENTAILMENT_JUDGE_ERROR_ADVISORY").strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 
@@ -492,7 +493,7 @@ def _entailment_judge_error_advisory_enabled() -> bool:
 def mirror_cite_collapse_enabled() -> bool:
     """True iff the default-ON B9(c) mirror-cite collapse is active (LAW VI kill-switch
     ``PG_MIRROR_CITE_COLLAPSE=0`` => byte-identical legacy render)."""
-    return os.getenv("PG_MIRROR_CITE_COLLAPSE", "1").strip().lower() not in (
+    return resolve("PG_MIRROR_CITE_COLLAPSE").strip().lower() not in (
         "0", "off", "false", "no", "disabled",
     )
 
@@ -716,6 +717,11 @@ def _strip_bogus_ev_markers(
 
 @dataclass
 class ProvenanceToken:
+    """A single ``[#ev]`` provenance marker: its evidence id and character span.
+
+    ``span_len`` is the length of the cited source span (``end - start``).
+    """
+
     evidence_id: str
     start: int
     end: int
@@ -728,6 +734,14 @@ class ProvenanceToken:
 
 @dataclass
 class SentenceVerification:
+    """Per-sentence strict-verify outcome and its provenance/credibility side-data.
+
+    Records the sentence text, its ``ProvenanceToken`` list, the ``is_verified``
+    verdict and any ``failure_reasons``. The remaining fields are additive
+    side-outputs that are NEVER inputs to ``is_verified`` (soft warnings,
+    ``judge_error``, and the default-OFF credibility-disclosure fields).
+    """
+
     sentence: str
     tokens: list[ProvenanceToken]
     is_verified: bool
@@ -899,7 +913,7 @@ _ATTRIBUTION_VERB_RE = re.compile(
 def _pt13_lexicon_v2_enabled() -> bool:
     """PG_PT13_LEXICON_V2 (default ON). OFF / empty => the legacy unhedged-superlative detector is used
     byte-for-byte (no attribution-verb hedge, no ``top`` list/positional exemption)."""
-    return os.getenv("PG_PT13_LEXICON_V2", "1").strip().lower() not in ("0", "false", "off", "no")
+    return resolve("PG_PT13_LEXICON_V2").strip().lower() not in ("0", "false", "off", "no")
 
 
 def _top_match_is_exempt(clean: str, start: int, end: int) -> bool:
@@ -1117,7 +1131,7 @@ def _percent_role_match_enabled() -> bool:
     is newly dropped. Kill-switch PG_PROVENANCE_PERCENT_ROLE_MATCH=0 reverts the
     behavior BYTE-IDENTICAL. Read at call time so tests toggle without re-import.
     """
-    v = os.getenv("PG_PROVENANCE_PERCENT_ROLE_MATCH", "1").strip().lower()
+    v = resolve("PG_PROVENANCE_PERCENT_ROLE_MATCH").strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 
@@ -1337,7 +1351,7 @@ def _content_words(text: str) -> set[str]:
 # via PG_PROVENANCE_MIN_CONTENT_OVERLAP=1 for legitimate short sentences,
 # but the default must enforce a real semantic floor.
 MIN_CONTENT_WORD_OVERLAP = int(
-    os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "2")
+    resolve("PG_PROVENANCE_MIN_CONTENT_OVERLAP")
 )
 
 # I-complete-003 (#1189) — PROVENANCE RE-ANCHOR.
@@ -1365,7 +1379,7 @@ MIN_CONTENT_WORD_OVERLAP = int(
 # (the §-1.1 lethal failure mode). So accept is permitted ONLY under enforce.
 
 PG_PROVENANCE_REANCHOR_MAX_CANDIDATES = int(
-    os.getenv("PG_PROVENANCE_REANCHOR_MAX_CANDIDATES", "40")
+    resolve("PG_PROVENANCE_REANCHOR_MAX_CANDIDATES")
 )
 
 # Sliding-window size (chars) for enumerating candidate spans inside a row's
@@ -1373,7 +1387,7 @@ PG_PROVENANCE_REANCHOR_MAX_CANDIDATES = int(
 # discipline (window=400) so a candidate is a bounded local slice, never the
 # whole row.
 PG_PROVENANCE_REANCHOR_WINDOW = int(
-    os.getenv("PG_PROVENANCE_REANCHOR_WINDOW", "400")
+    resolve("PG_PROVENANCE_REANCHOR_WINDOW")
 )
 
 
@@ -1381,7 +1395,7 @@ def _provenance_reanchor_enabled() -> bool:
     """True iff PG_PROVENANCE_REANCHOR is set truthy. Read at call time so
     tests can toggle without re-import. Falsy (unset/0/false/no/off) => the
     re-anchor is a no-op and strict_verify is byte-identical to pre-#1189."""
-    v = os.getenv("PG_PROVENANCE_REANCHOR", "").strip().lower()
+    v = resolve("PG_PROVENANCE_REANCHOR").strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 
@@ -1394,14 +1408,14 @@ def _provenance_reanchor_enabled() -> bool:
 # the ones that already pass.
 def _span_resolver_enabled() -> bool:
     """True iff PG_SPAN_RESOLVER is set truthy (default OFF -> first-passing loop, byte-identical)."""
-    v = os.getenv("PG_SPAN_RESOLVER", "").strip().lower()
+    v = resolve("PG_SPAN_RESOLVER").strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 
 def _span_resolve_topk() -> int:
     """Bound on judge calls per row in the argmax recovery (PG_SPAN_RESOLVE_TOPK, default 4)."""
     try:
-        return max(1, int(os.getenv("PG_SPAN_RESOLVE_TOPK", "4")))
+        return max(1, int(resolve("PG_SPAN_RESOLVE_TOPK")))
     except ValueError:
         return 4
 
@@ -1746,7 +1760,7 @@ def _verification_mode() -> str:
                       BOUNDED local content window; drop the judge-error
                       fail-open sentinel).
     """
-    v = os.getenv("PG_VERIFICATION_MODE", "off").strip().lower()
+    v = resolve("PG_VERIFICATION_MODE").strip().lower()
     return v if v in ("off", "shadow", "enforce") else "off"
 
 
@@ -1831,7 +1845,7 @@ def _trial_names_in_evidence(ev: dict[str, Any]) -> set[str]:
 def _trial_name_span_fallback_enabled() -> bool:
     """I-meta-002-q1d (#949). Default ON. When OFF, trial-name matching is the exact pass-7
     title/statement-only behavior (byte-identical)."""
-    return os.getenv("PG_VERIFY_TRIAL_NAME_SPAN_FALLBACK", "1").strip().lower() not in (
+    return resolve("PG_VERIFY_TRIAL_NAME_SPAN_FALLBACK").strip().lower() not in (
         "0", "false", "no", "off", "",
     )
 
@@ -2994,7 +3008,7 @@ _SENTENCE_SPLIT_RE_V2 = re.compile(
 def _sentence_split_symbol_boundary_enabled() -> bool:
     """PG_SENTENCE_SPLIT_SYMBOL_BOUNDARY (default ON). OFF / empty => the legacy split regex is used =>
     byte-identical sentence segmentation."""
-    return os.getenv("PG_SENTENCE_SPLIT_SYMBOL_BOUNDARY", "1").strip().lower() not in (
+    return resolve("PG_SENTENCE_SPLIT_SYMBOL_BOUNDARY").strip().lower() not in (
         "0", "false", "off", "no",
     )
 
@@ -3020,6 +3034,8 @@ def split_into_sentences(text: str) -> list[str]:
 
 @dataclass
 class StrictVerificationReport:
+    """Result of running strict_verify over a body: kept vs dropped sentences and their totals."""
+
     kept_sentences: list[SentenceVerification]
     dropped_sentences: list[SentenceVerification]
     total_in: int
@@ -3387,7 +3403,7 @@ def _skip_empty_enabled() -> bool:
     PG_PROVENANCE_SKIP_EMPTY=0 reverts to the legacy behavior where a
     content-empty pass-through fragment is counted as verified (byte-identical
     to pre-#1241). Read at call time so tests can toggle without re-import."""
-    v = os.getenv("PG_PROVENANCE_SKIP_EMPTY", "1").strip().lower()
+    v = resolve("PG_PROVENANCE_SKIP_EMPTY").strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 
@@ -3415,7 +3431,7 @@ def _parallel_verify_workers() -> int:
     default and any non-positive override is byte-identical to the legacy serial
     loop. Returns N>=2 only for an explicit positive override, capping the number
     of concurrent entailment-judge calls. Read at call time so tests can toggle."""
-    raw = os.getenv("PG_PARALLEL_VERIFY", "").strip()
+    raw = resolve("PG_PARALLEL_VERIFY").strip()
     if not raw:
         return 1
     try:
@@ -3496,7 +3512,7 @@ def _pregate_boilerplate_filter_enabled() -> bool:
     faithfulness gate's INPUT (so they can never be counted as verified claims).
     Kill-switch: PG_PREGATE_STRIP_BOILERPLATE=0 reverts to byte-identical
     pre-#1262 behavior. Read at call time so tests can toggle without re-import."""
-    v = os.getenv("PG_PREGATE_STRIP_BOILERPLATE", "1").strip().lower()
+    v = resolve("PG_PREGATE_STRIP_BOILERPLATE").strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 
@@ -4064,6 +4080,7 @@ def get_purity_telemetry() -> dict[str, int]:
 
 
 def reset_purity_telemetry() -> None:
+    """Zero the module-level P2 citation-purity counters (per-run reset)."""
     for _k in _PURITY_TELEMETRY:
         _PURITY_TELEMETRY[_k] = 0
 
@@ -4403,6 +4420,7 @@ def get_relevance_telemetry() -> dict[str, int]:
 
 
 def reset_relevance_telemetry() -> None:
+    """Zero the module-level relevance-gate counters (per-run reset)."""
     for _k in _RELEVANCE_TELEMETRY:
         _RELEVANCE_TELEMETRY[_k] = 0
 

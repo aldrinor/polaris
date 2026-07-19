@@ -38,6 +38,7 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.contradiction_detector")
 
@@ -1640,14 +1641,14 @@ def extract_numeric_claims(
 # Relative-difference threshold (|a-b|/min(|a|,|b|)) above which we
 # flag a contradiction. Default 0.10 = 10%.
 PG_CONTRADICTION_REL_THRESHOLD = float(
-    os.getenv("PG_CONTRADICTION_REL_THRESHOLD", "0.10")
+    resolve("PG_CONTRADICTION_REL_THRESHOLD")
 )
 
 # Absolute-difference threshold (in the claim's native unit). If the
 # relative threshold is tripped, absolute threshold is an AND filter —
 # both must exceed to flag (avoids flagging 0.01 vs 0.03 rel=66%).
 PG_CONTRADICTION_ABS_THRESHOLD = float(
-    os.getenv("PG_CONTRADICTION_ABS_THRESHOLD", "1.0")
+    resolve("PG_CONTRADICTION_ABS_THRESHOLD")
 )
 
 # ── I-deepfix-001 U28 (#1344) — contradiction-noise guards ───────────────────
@@ -1670,7 +1671,7 @@ PG_CONTRADICTION_ABS_THRESHOLD = float(
 PG_CONTRADICTION_ABSURD_REL = float(
     # 5000% — far above any real same-metric ratio disagreement; above this the "gap" is a
     # near-zero denominator or a lifted identifier/count, not a benign low-severity signal.
-    os.getenv("PG_CONTRADICTION_ABSURD_REL", "50.0")
+    resolve("PG_CONTRADICTION_ABSURD_REL")
 )
 _NOISE_GUARD_FLAG = "PG_CONTRADICTION_NOISE_GUARD"
 _NOISE_GUARD_OFF_VALUES = frozenset({"0", "false", "off", "no"})
@@ -2020,13 +2021,13 @@ def _group_incommensurable_reason(group: list["ExtractedNumericClaim"]) -> str:
 # A 0–1 ratio/probability paired with a value at/above this magnitude is an
 # incompatible-scale pairing (a fraction vs a raw count), not a contradiction.
 PG_CONTRADICTION_RAW_COUNT_FLOOR = float(
-    os.getenv("PG_CONTRADICTION_RAW_COUNT_FLOOR", "100")
+    resolve("PG_CONTRADICTION_RAW_COUNT_FLOOR")
 )
 # A unit-less relative difference at/above this ratio (default 10.0 = 1000%) is an
 # obviously-spurious magnitude from a scale/identifier mismatch, not a real
 # disagreement — a genuine same-metric gap is well under 1000%.
 PG_CONTRADICTION_SPURIOUS_REL = float(
-    os.getenv("PG_CONTRADICTION_SPURIOUS_REL", "10.0")
+    resolve("PG_CONTRADICTION_SPURIOUS_REL")
 )
 
 

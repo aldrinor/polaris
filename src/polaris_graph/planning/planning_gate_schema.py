@@ -665,6 +665,13 @@ class Assumption:
 
 @dataclass
 class Ambiguity:
+    """A detected ambiguity in the prompt: its interpretations and whether it blocks progress.
+
+    ``to_dict`` serializes to a plain dict; ``from_dict`` rebuilds one from a
+    dict (raising ``SchemaError`` if the input is not an object), coercing
+    ``confidence`` to float and filtering ``decision_impact`` to known stages.
+    """
+
     ambiguity_id: str
     text: str
     affected_term_ids: list[str] = field(default_factory=list)
@@ -711,6 +718,12 @@ class Ambiguity:
 
 @dataclass
 class ContractConflict:
+    """A conflict between contract terms, its explanation, resolution, and whether it is fatal.
+
+    ``to_dict`` serializes to a plain dict; ``from_dict`` rebuilds one from a
+    dict, raising ``SchemaError`` if the input is not an object.
+    """
+
     conflict_id: str
     term_ids: list[str] = field(default_factory=list)
     explanation: str = ""
@@ -930,6 +943,12 @@ QUERY_PURPOSES: frozenset[str] = frozenset({
 
 @dataclass
 class ResearchThread:
+    """One research thread: its question plus the coverage/contract/evidence ids it owns.
+
+    ``to_dict`` serializes to a plain dict; ``from_dict`` rebuilds one from a
+    dict, raising ``SchemaError`` if the input is not an object.
+    """
+
     thread_id: str
     question: str
     purpose: str = ""
@@ -972,6 +991,14 @@ class ResearchThread:
 
 @dataclass
 class QueryIntent:
+    """A planned search intent for a thread: its concepts, filters, and date window.
+
+    ``to_dict`` serializes to a plain dict; ``from_dict`` rebuilds one from a
+    dict (raising ``SchemaError`` if the input is not an object), normalizing
+    ``purpose`` to a known value and accepting either a two-element
+    ``date_window`` or explicit ``date_start``/``date_end`` keys.
+    """
+
     intent_id: str
     thread_id: str
     purpose: str = "discovery"
@@ -1031,6 +1058,12 @@ class QueryIntent:
 
 @dataclass
 class EvidenceNeed:
+    """An evidence requirement: its kind, the coverage/source-policy ids it binds, and its sufficiency test.
+
+    ``to_dict`` serializes to a plain dict; ``from_dict`` rebuilds one from a
+    dict, raising ``SchemaError`` if the input is not an object.
+    """
+
     need_id: str
     kind: str = ""
     coverage_requirement_ids: list[str] = field(default_factory=list)
@@ -1061,6 +1094,12 @@ class EvidenceNeed:
 
 @dataclass
 class OutlineSeed:
+    """A seeded outline section: its title, order, optional locks, and bound coverage/thread/evidence ids.
+
+    ``to_dict`` serializes to a plain dict; ``from_dict`` rebuilds one from a
+    dict, raising ``SchemaError`` if the input is not an object.
+    """
+
     section_id: str
     display_title: str = ""
     purpose: str = ""
@@ -1141,6 +1180,14 @@ class CoverageBinding:
 
 @dataclass
 class BudgetEnvelope:
+    """Execution budget: mandatory lane count, parallelism/query/round caps, and overflow policy.
+
+    ``to_dict`` serializes to a plain dict; ``from_dict`` rebuilds one from a
+    dict, returning defaults for a non-object input and coercing
+    ``overflow_policy`` to ``expand`` unless it is the recognized
+    ``fail_preflight``.
+    """
+
     mandatory_lane_count: int = 0
     max_parallelism: Optional[int] = None
     max_queries: Optional[int] = None
@@ -1174,6 +1221,13 @@ class BudgetEnvelope:
 
 @dataclass
 class ResearchExecutionPlan:
+    """The full execution plan: threads, evidence needs, query intents, outline seed, coverage matrix, and budget.
+
+    ``mandatory_query_intents`` filters ``query_intents`` to the mandatory ones;
+    ``to_dict`` serializes the whole plan (recursing into each nested member).
+    Rebuild from a dict via the module-level ``plan_from_dict``.
+    """
+
     plan_version: str = SCHEMA_VERSION
     threads: list[ResearchThread] = field(default_factory=list)
     evidence_needs: list[EvidenceNeed] = field(default_factory=list)
@@ -1220,6 +1274,11 @@ def plan_from_dict(d: Any) -> ResearchExecutionPlan:
 
 @dataclass
 class ClarificationQuestion:
+    """A question posed to the user to resolve an ambiguity, with choices and an optional answer.
+
+    ``to_dict`` serializes to a plain dict.
+    """
+
     question_id: str
     prompt: str
     choices: list[str] = field(default_factory=list)

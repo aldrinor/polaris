@@ -61,6 +61,7 @@ from src.polaris_graph.roles.openrouter_role_transport import (
     rate_limit_counter_snapshot,
     reset_rate_limit_counter,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ def _resolve_claim_workers() -> int:
     per-role MAX ceiling so the controller has worker threads to ramp into; with adaptive OFF, the
     static default 6 is used (byte-identical to pre-#1321).
     """
-    explicit = os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS")
+    explicit = resolve("PG_FOUR_ROLE_CLAIM_WORKERS")
     if explicit is not None:
         try:
             return max(1, int(explicit))
@@ -247,7 +248,7 @@ FOUR_ROLE_RATE_LIMIT_TELEMETRY_FILENAME = "four_role_rate_limit_telemetry.json"
 # UNTOUCHED and byte-identical: it keeps the live per-call `RecordingTransport` budget (soft-by-one,
 # exactly as today). Flag-gated by PG_FOUR_ROLE_BUDGET_RESERVE (default ON); OFF reverts the parallel
 # path to the pre-F22 submit-all + reconcile-on-completion behaviour (still bounded, not hard).
-_BUDGET_RESERVE_ENABLED = os.getenv("PG_FOUR_ROLE_BUDGET_RESERVE", "1") != "0"
+_BUDGET_RESERVE_ENABLED = resolve("PG_FOUR_ROLE_BUDGET_RESERVE") != "0"
 
 # I-arch-004 F22 (#1255, h4): a TRUE per-call token upper bound for the reservation, covering BOTH the
 # prompt (input) and the completion+reasoning (output) sides. For any one OpenRouter call the provider
@@ -509,7 +510,7 @@ def _compute_claim_results(
     # verdict). Flag-gated (PG_FOUR_ROLE_CLAIM_DEDUP, default ON); OFF reverts to
     # the per-claim run. Recursion on representatives is one level deep (reps have
     # all-distinct keys -> this branch is skipped on the inner call).
-    _dedup_enabled = os.getenv("PG_FOUR_ROLE_CLAIM_DEDUP", "1") != "0"
+    _dedup_enabled = resolve("PG_FOUR_ROLE_CLAIM_DEDUP") != "0"
 
     def _dedup_key(c: FourRoleClaim) -> tuple:
         # I-deepfix-001 tail-B1 (#1344, finding #10): normalize a leaked contract-field label prefix

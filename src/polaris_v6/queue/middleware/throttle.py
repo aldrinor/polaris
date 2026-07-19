@@ -54,6 +54,12 @@ class ThrottleMiddleware(dramatiq.Middleware):
         result: Any = None,
         exception: BaseException | None = None,
     ) -> None:
+        """Record the message outcome and back off if the actor is failing.
+
+        Appends success/failure to the actor's rolling window; if the resulting
+        failure ratio reaches ``failure_threshold``, sleeps ``backoff_ms`` to
+        throttle the actor.
+        """
         failure_ratio = self._record(message.actor_name, exception is not None)
         if failure_ratio >= self._failure_threshold:
             time.sleep(self._backoff_ms / 1000.0)

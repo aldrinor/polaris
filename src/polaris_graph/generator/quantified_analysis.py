@@ -598,6 +598,15 @@ def detect_sourced_conflicts(
 
 @dataclass
 class QuantifiedResult:
+    """Computed outputs of one quantified model spec.
+
+    Pairs the resolved ``spec`` with its per-field results (value,
+    display_value, modeled/sourced provenance). ``key`` returns the
+    ``(model_id, spec_hash)`` identity, ``display_value`` looks up a field's
+    rendered value, and ``calc_token`` builds the ``[#calc:...]`` reference
+    marker for a field.
+    """
+
     model_id: str
     spec_hash: str
     spec: ModelSpec

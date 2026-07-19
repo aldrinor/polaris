@@ -69,6 +69,16 @@ async def _lifespan(_: FastAPI):
 
 
 def create_app() -> FastAPI:
+    """Build and return the fully wired POLARIS v6 ASGI application.
+
+    Fails loud at construction if the auth substrate is misconfigured (LAW II,
+    unless `POLARIS_AUTH_DISABLED=1`), then mounts all v6 routers plus the
+    polaris_graph slice routers under `/api`. Real backends (retrieval fetcher,
+    generation completion, GPG signer, benchmark results root) are injected via
+    dependency overrides only when their configuring env vars are present;
+    otherwise the sentinel defaults remain and fail loud at call time rather
+    than silently degrading. CORS origins come from `POLARIS_V6_CORS_ORIGINS`.
+    """
     # I-carney-004 LAW II: fail-loud at app construction if auth substrate
     # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
     _verify_auth_startup()

@@ -83,6 +83,7 @@ from src.polaris_graph.state import (
     PG_AGENTIC_ANALYSIS_TIMEOUT_SECONDS,
     STORM_PERSPECTIVES,
 )
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -118,7 +119,7 @@ def _compute_perspective_distribution(
     import math
     from collections import Counter
 
-    min_pct = float(os.getenv("PG_V3_MIN_PERSPECTIVE_PCT", "0.10"))
+    min_pct = float(resolve("PG_V3_MIN_PERSPECTIVE_PCT"))
 
     perspectives = [e.get("perspective", "Unknown") for e in evidence]
     counts = Counter(perspectives)
@@ -158,9 +159,9 @@ def _import_search_tools():
 # FIX-047-K11: OpenAlex as primary academic search provider.
 # T047 audit: S2 returned 0 academic results (broken API key or rate limit).
 # OpenAlex has 474M+ works, 100 RPS rate limit, free API key.
-PG_OPENALEX_ENABLED = os.getenv("PG_OPENALEX_ENABLED", "1") == "1"
-PG_OPENALEX_EMAIL = os.getenv("PG_OPENALEX_EMAIL", "polaris@research.local")
-PG_OPENALEX_MAX_PER_QUERY = int(os.getenv("PG_OPENALEX_MAX_PER_QUERY", "10"))
+PG_OPENALEX_ENABLED = resolve("PG_OPENALEX_ENABLED") == "1"
+PG_OPENALEX_EMAIL = resolve("PG_OPENALEX_EMAIL")
+PG_OPENALEX_MAX_PER_QUERY = int(resolve("PG_OPENALEX_MAX_PER_QUERY"))
 
 
 def _search_openalex(query: str, max_results: int = 10) -> list[dict]:
@@ -587,7 +588,7 @@ def _prefilter_academic_results(papers: list[dict], query: str) -> list[dict]:
             stemmed.add(w)
         return stemmed
 
-    min_abstract_len = int(os.getenv("PG_ACADEMIC_MIN_ABSTRACT_LEN", "50"))
+    min_abstract_len = int(resolve("PG_ACADEMIC_MIN_ABSTRACT_LEN"))
 
     query_stems = _stem_words(query)
     # FIX-CITE-3/S1: Expand query stems with synonyms
@@ -733,7 +734,7 @@ async def _run_academic_searches(
         # PL: S2 runs ALONGSIDE OpenAlex, not as fallback.
         # S2 returns 51 results for IF queries (tested directly) but was silenced
         # because OpenAlex always returns "something" (even off-topic garbage).
-        if os.getenv("PG_S2_PARALLEL", "1") == "1" or not batch:
+        if resolve("PG_S2_PARALLEL") == "1" or not batch:
             try:
                 s2_batch = await asyncio.wait_for(
                     loop.run_in_executor(
@@ -1433,7 +1434,7 @@ async def _fetch_top_pages(
     # _is_blocked_source check (removed 2026-04-12). Sources scoring below
     # this are skipped before any fetch attempt. Set permissively (0.3) —
     # synthesis stage gates stricter downstream.
-    _auth_gate = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
+    _auth_gate = float(resolve("PG_AUTHORITY_GATE"))
 
     # Select candidate URLs
     candidates = []
@@ -1743,7 +1744,7 @@ async def execute_agentic_search(
         # Runs on web queries (Scholar uses same natural language queries).
         # This is the primary fix for source quality: Google already solved
         # academic source authority. We just weren't calling the endpoint.
-        if web_q and os.getenv("PG_SERPER_SCHOLAR_ENABLED", "1") == "1":
+        if web_q and resolve("PG_SERPER_SCHOLAR_ENABLED") == "1":
             scholar_results = await _run_serper_scholar(web_q[:3])
             if scholar_results:
                 round_academic.extend(scholar_results)

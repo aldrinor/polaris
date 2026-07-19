@@ -16,20 +16,21 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 # Feature flag — checkpointing must be explicitly enabled
-PG_CHECKPOINT_ENABLED = os.getenv("PG_CHECKPOINT_ENABLED", "0") == "1"
+PG_CHECKPOINT_ENABLED = resolve("PG_CHECKPOINT_ENABLED") == "1"
 
 # Checkpoint storage location
-CHECKPOINT_DIR = Path(os.getenv("PG_CHECKPOINT_DIR", "state"))
+CHECKPOINT_DIR = Path(resolve("PG_CHECKPOINT_DIR"))
 CHECKPOINT_DB = CHECKPOINT_DIR / "pg_checkpoints.sqlite"
 
 # A2: Maximum number of checkpoints to return from list_checkpoints
-PG_CHECKPOINT_LIST_LIMIT = int(os.getenv("PG_CHECKPOINT_LIST_LIMIT", "50"))
+PG_CHECKPOINT_LIST_LIMIT = int(resolve("PG_CHECKPOINT_LIST_LIMIT"))
 
 
 def get_checkpointer():
@@ -448,7 +449,7 @@ async def rewind_to_checkpoint(
             }
 
         # Step 3: Resume execution
-        auto_resume = os.getenv("PG_AUTO_RESUME", "1") == "1"
+        auto_resume = resolve("PG_AUTO_RESUME") == "1"
         if not auto_resume:
             logger.info(
                 "[polaris graph] A2: PG_AUTO_RESUME=0 — patch applied but "
@@ -475,7 +476,7 @@ async def rewind_to_checkpoint(
         import time as _time
 
         max_execution_minutes = int(
-            os.getenv("PG_REWIND_MAX_MINUTES", os.getenv("PG_MAX_EXECUTION_MINUTES", "60"))
+            os.getenv("PG_REWIND_MAX_MINUTES", resolve("PG_MAX_EXECUTION_MINUTES"))
         )
         timeout_seconds = max_execution_minutes * 60
 

@@ -10,6 +10,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
@@ -453,7 +454,7 @@ async def _wrap_comparison_table(
         filtered = unit_data[:50]  # Fallback: just cap rows
 
     # FIX-D2: Filter absurd numeric values before table construction
-    _max_reasonable = float(os.getenv("PG_TABLE_MAX_VALUE", "1e9"))
+    _max_reasonable = float(resolve("PG_TABLE_MAX_VALUE"))
     sane = []
     for dp in filtered:
         try:
@@ -621,7 +622,7 @@ async def _wrap_execute_python(
         else [d.get("evidence_id", "") for d in input_data if d.get("evidence_id")]
     )
 
-    tool_timeout = int(os.getenv("PG_REACT_TOOL_TIMEOUT", "60"))
+    tool_timeout = int(resolve("PG_REACT_TOOL_TIMEOUT"))
 
     try:
         result = await asyncio.wait_for(

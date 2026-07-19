@@ -26,6 +26,26 @@ def answer_followup(
     parent: EvidenceContract,
     question: str,
 ) -> FollowUpAnswer:
+    """Answer a follow-up question against a parent run's evidence pool.
+
+    Deterministic Phase 0 stub: tokenises the question and scores each parent
+    evidence span by token overlap, then constructs an answer from the top few
+    matching spans with provenance tokens. The returned status is:
+
+    - ``evidence_insufficient`` if the question has no content tokens;
+    - ``out_of_scope`` if no pool span shares any token with the question;
+    - ``answered`` otherwise, citing up to the 3 highest-overlap spans.
+
+    Args:
+        parent: The parent run's evidence contract; recall is restricted to its
+            ``evidence_pool``.
+        question: The follow-up question text.
+
+    Returns:
+        A ``FollowUpAnswer`` whose ``status`` reflects the outcome above and,
+        when answered, includes ``answer_text``, ``used_evidence_ids``, and
+        ``provenance_tokens``.
+    """
     q_tokens = _tokens(question)
     if not q_tokens:
         return FollowUpAnswer(

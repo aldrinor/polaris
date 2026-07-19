@@ -19,6 +19,12 @@ TemplateId = Literal[
 
 
 class RunRequest(BaseModel):
+    """Request body for `POST /runs`.
+
+    Carries the chosen `template` (one of the 8 locked templates), the research
+    `question`, and up to 20 optional uploaded `document_ids` to ground the run.
+    """
+
     template: TemplateId = Field(
         ...,
         description="One of the 8 locked templates per docs/blockers.md §10.",

@@ -180,10 +180,12 @@ def _escalate_below() -> float:
 
 
 def primary_model() -> str:
+    """The primary span-quality judge model id (env override, else the module default)."""
     return os.environ.get(_ENV_PRIMARY_MODEL, "").strip() or _DEFAULT_PRIMARY_MODEL
 
 
 def escalation_model() -> str:
+    """The escalation span-quality judge model id (env override, else the module default)."""
     return os.environ.get(_ENV_ESCALATION_MODEL, "").strip() or _DEFAULT_ESCALATION_MODEL
 
 

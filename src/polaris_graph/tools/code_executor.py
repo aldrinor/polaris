@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +32,17 @@ logger = logging.getLogger(__name__)
 # LAW VI: All configuration from environment variables
 # ---------------------------------------------------------------------------
 
-_TIMEOUT = int(os.getenv("PG_CODE_EXEC_TIMEOUT", "30"))
-_MAX_OUTPUT_SIZE = int(os.getenv("PG_CODE_EXEC_MAX_OUTPUT", "1000000"))  # 1MB
-_MAX_SCRIPT_SIZE = int(os.getenv("PG_CODE_EXEC_MAX_SCRIPT", "50000"))  # 50KB
-_MAX_INPUT_DATA_SIZE = int(os.getenv("PG_CODE_EXEC_MAX_INPUT", "5000000"))  # 5MB
-_MAX_RETRY_ATTEMPTS = int(os.getenv("PG_CODE_EXEC_MAX_RETRIES", "1"))
-_DATA_PREVIEW_ITEMS = int(os.getenv("PG_CODE_EXEC_PREVIEW_ITEMS", "20"))
-_DATA_PREVIEW_MAX_CHARS = int(os.getenv("PG_CODE_EXEC_PREVIEW_CHARS", "8000"))
+_TIMEOUT = int(resolve("PG_CODE_EXEC_TIMEOUT"))
+_MAX_OUTPUT_SIZE = int(resolve("PG_CODE_EXEC_MAX_OUTPUT"))  # 1MB
+_MAX_SCRIPT_SIZE = int(resolve("PG_CODE_EXEC_MAX_SCRIPT"))  # 50KB
+_MAX_INPUT_DATA_SIZE = int(resolve("PG_CODE_EXEC_MAX_INPUT"))  # 5MB
+_MAX_RETRY_ATTEMPTS = int(resolve("PG_CODE_EXEC_MAX_RETRIES"))
+_DATA_PREVIEW_ITEMS = int(resolve("PG_CODE_EXEC_PREVIEW_ITEMS"))
+_DATA_PREVIEW_MAX_CHARS = int(resolve("PG_CODE_EXEC_PREVIEW_CHARS"))
 
 # GAP-3: Sandbox file I/O directories (LAW VI: from env with defaults)
-_SANDBOX_READ_DIR = os.getenv("PG_SANDBOX_READ_DIR", "outputs/polaris_graph")
-_SANDBOX_WRITE_DIR = os.getenv("PG_SANDBOX_WRITE_DIR", "outputs/analysis")
+_SANDBOX_READ_DIR = resolve("PG_SANDBOX_READ_DIR")
+_SANDBOX_WRITE_DIR = resolve("PG_SANDBOX_WRITE_DIR")
 
 # ---------------------------------------------------------------------------
 # Security: blocked imports and dangerous patterns

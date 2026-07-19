@@ -9,6 +9,14 @@ from polaris_v6.schemas.evidence_contract import EvidenceContract
 
 @dataclass
 class ReportComparison:
+    """Side-by-side summary of two EvidenceContract bundles.
+
+    Records template/question equality, evidence-pool overlap (shared, side-only,
+    and shared percentage of the union), frame-coverage overlap, contradiction
+    counts, pipeline-status match, and whether both runs passed family
+    segregation.
+    """
+
     left_run_id: str
     right_run_id: str
     same_template: bool
@@ -27,6 +35,20 @@ class ReportComparison:
 
 
 def compare_reports(left: EvidenceContract, right: EvidenceContract) -> ReportComparison:
+    """Compare two evidence contracts and summarise their overlap.
+
+    Args:
+        left: First run's evidence contract.
+        right: Second run's evidence contract.
+
+    Returns:
+        A ``ReportComparison`` capturing evidence/frame overlap, contradiction
+        counts, and status/segregation matches. ``shared_evidence_pct`` is 0.0
+        when neither run has any evidence.
+
+    Raises:
+        ValueError: If both contracts share the same ``run_id``.
+    """
     if left.run_id == right.run_id:
         raise ValueError("compare_reports requires two distinct runs")
 
