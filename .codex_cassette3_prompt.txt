@@ -1,0 +1,227 @@
+Final review of a hardened record/replay cassette (oracle Layer 1). Prior round you flagged: replay not exactly-once, finalize not terminal, args hashed after live_fn (mutation), _key doesn't reject int-vs-str call_id, load accepts NaN/dup-keys. New version: replay rejects already-used keys; finalize seals (sealed calls raise; in-flight reservations error); args snapshotted+keyed+reserved BEFORE live_fn; _key validates method/call_id non-empty str; strict load rejects NaN/dup-keys. Are these resolved? Is the foundation now SOUND to build the pipeline-wiring layer on? Under 140 words. End APPROVED or NEEDS FIX + the single most important remaining item.
+=== cassette.py ===
+"""Deterministic regression oracle — the cassette core (Layer 1: frozen provider I/O).
+
+A cassette records every ``(request -> response)`` pair crossing a non-deterministic boundary
+(LLM client, retrieval backend, ...) and replays it from a frozen file, so an unchanged-behaviour
+refactor produces a **byte-identical** artifact and any diff is a real regression.
+
+Invariants that make it a *behavioural* oracle (not a mock):
+  * replay **MISS** = a request the recording never saw => a new request => behaviour change;
+  * replay of an **already-used** key = an *extra* call => behaviour change (replay is exactly-once);
+  * **unused** entry at finalize = a *skipped* request => behaviour change.
+
+Stable identity under concurrency (load-bearing): the caller supplies a stable ``call_id`` (a logical
+identity that is identical across record and replay for the same logical call, e.g. a section index
+or a tool-call sequence number from a single-threaded decision loop). Entry identity =
+``sha256(canonical(method, args) + call_id)`` — independent of thread scheduling. The request is
+snapshotted and its slot reserved **before** the live call, so a client that mutates its arguments,
+or a finalize racing an in-flight call, cannot corrupt or drop an entry.
+
+Out of the cassette's scope (frozen separately by the harness): wall clock, RNG seeds, minted
+evidence-ids, and output-aggregation order that depends on thread completion.
+
+Recording is a deliberate, reviewed act (``mode="record"``); CI only ever ``mode="replay"``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import threading
+from pathlib import Path
+from typing import Any
+
+_SCHEMA_VERSION = 1
+
+
+class CassetteError(RuntimeError):
+    """A replay miss/reuse, unused entry, unsupported value, or malformed cassette = behaviour change."""
+
+
+def _check_json_native(value: Any, _path: str = "$") -> None:
+    """Reject anything not strictly JSON-native, so nothing is silently type-coerced."""
+    if value is None or isinstance(value, (bool, str)):
+        return
+    if isinstance(value, int):  # bool already handled
+        return
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            raise CassetteError(f"non-finite float at {_path} is not canonically serializable")
+        return
+    if isinstance(value, list):
+        for i, v in enumerate(value):
+            _check_json_native(v, f"{_path}[{i}]")
+        return
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if not isinstance(k, str):
+                raise CassetteError(f"non-str dict key {k!r} at {_path} is not canonical")
+            _check_json_native(v, f"{_path}.{k}")
+        return
+    raise CassetteError(
+        f"unsupported type {type(value).__name__} at {_path}: pass JSON-native data only."
+    )
+
+
+def _dumps(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _canonical(method: str, args: Any) -> str:
+    _check_json_native(method)
+    _check_json_native(args)
+    return _dumps({"method": method, "args": args})
+
+
+def _key(method: str, args: Any, call_id: str) -> str:
+    # Validate identity components here so public record()/replay() cannot bypass it,
+    # and so `1` (int) and `"1"` (str) can never collide.
+    if not isinstance(method, str) or not method:
+        raise CassetteError("method must be a non-empty str")
+    if not isinstance(call_id, str) or not call_id:
+        raise CassetteError("call_id must be a non-empty str (the stable logical call identity)")
+    return hashlib.sha256(f"{_canonical(method, args)}\x00{call_id}".encode()).hexdigest()
+
+
+def _deepcopy_json(value: Any) -> Any:
+    _check_json_native(value)
+    return json.loads(_dumps(value))
+
+
+def _reject_constant(c: str) -> Any:
+    raise CassetteError(f"non-finite JSON constant {c!r} in cassette")
+
+
+def _no_dup_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k, v in pairs:
+        if k in out:
+            raise CassetteError(f"duplicate JSON key {k!r} in cassette")
+        out[k] = v
+    return out
+
+
+def _strict_loads(line: str) -> Any:
+    return json.loads(line, parse_constant=_reject_constant, object_pairs_hook=_no_dup_keys)
+
+
+_PENDING = object()  # reservation placeholder for an in-flight record
+
+
+class Cassette:
+    """Record or replay provider I/O. Thread-safe; replay exactly-once; finalize is terminal."""
+
+    def __init__(self, path: str | Path, mode: str) -> None:
+        if mode not in ("record", "replay"):
+            raise ValueError(f"mode must be 'record' or 'replay', got {mode!r}")
+        self.path = Path(path)
+        self.mode = mode
+        self._lock = threading.Lock()
+        self._entries: dict[str, Any] = {}   # key -> entry dict, or _PENDING while recording
+        self._used: set[str] = set()
+        self._sealed = False
+        if mode == "replay":
+            self._load()
+
+    def call(self, method: str, args: Any, live_fn, *, call_id: str) -> Any:
+        """Record: reserve+run+store. Replay: serve once from tape. call_id is the stable identity."""
+        args_snap = _deepcopy_json(args)          # snapshot BEFORE the live call (mutation-safe)
+        key = _key(method, args_snap, call_id)    # validates method/call_id; fixes identity
+        if self.mode == "record":
+            with self._lock:
+                if self._sealed:
+                    raise CassetteError("cassette finalized; no further calls permitted")
+                if key in self._entries:
+                    raise CassetteError(
+                        f"duplicate call_id {call_id!r} for {method} — call_id must be UNIQUE "
+                        f"per logical call."
+                    )
+                self._entries[key] = _PENDING     # reserve so finalize cannot omit an in-flight call
+            response = live_fn()                  # outside the lock
+            entry = {"method": method, "args": args_snap, "call_id": call_id,
+                     "response": _deepcopy_json(response)}
+            with self._lock:
+                self._entries[key] = entry
+            return response
+        # replay
+        with self._lock:
+            if self._sealed:
+                raise CassetteError("cassette finalized; no further calls permitted")
+            if key in self._used:
+                raise CassetteError(
+                    f"replay REUSE: {method} call_id={call_id!r} served twice — the refactor made an "
+                    f"extra call (behaviour change; replay is exactly-once)."
+                )
+            entry = self._entries.get(key)
+            if entry is None:
+                raise CassetteError(
+                    f"replay MISS: {method} call_id={call_id!r} not in {self.path.name} "
+                    f"— a request the recording never saw (behaviour change)."
+                )
+            self._used.add(key)
+            resp = entry["response"]
+        return _deepcopy_json(resp)
+
+    def finalize(self) -> None:
+        with self._lock:
+            if self._sealed:
+                return
+            self._sealed = True  # terminal: any later call() raises
+            if self.mode == "record":
+                pending = [k for k, v in self._entries.items() if v is _PENDING]
+                if pending:
+                    raise CassetteError(
+                        f"{len(pending)} in-flight record call(s) at finalize — join all workers "
+                        f"before finalizing (an un-stored reservation would be lost)."
+                    )
+                tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                with tmp.open("w", encoding="utf-8") as fh:
+                    fh.write(_dumps({"schema": _SCHEMA_VERSION}) + "\n")
+                    for key in sorted(self._entries):
+                        fh.write(_dumps({"key": key, **self._entries[key]}) + "\n")
+                os.replace(tmp, self.path)  # atomic
+                return
+            unused = set(self._entries) - self._used
+            if unused:
+                first = self._entries[sorted(unused)[0]]
+                raise CassetteError(
+                    f"{len(unused)} recorded request(s) never replayed in {self.path.name} "
+                    f"— the refactor skipped a request. First: {first['method']} "
+                    f"call_id={first['call_id']!r}"
+                )
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            raise CassetteError(f"cassette not found: {self.path} (record it first with mode='record')")
+        with self.path.open("r", encoding="utf-8") as fh:
+            header = _strict_loads(fh.readline() or "{}")
+            if header.get("schema") != _SCHEMA_VERSION:
+                raise CassetteError(f"cassette schema {header.get('schema')} != {_SCHEMA_VERSION}")
+            for lineno, line in enumerate(fh, start=2):
+                line = line.strip()
+                if not line:
+                    continue
+                rec = _strict_loads(line)
+                for field in ("key", "method", "args", "call_id", "response"):
+                    if field not in rec:
+                        raise CassetteError(f"{self.path.name}:{lineno} missing field {field!r}")
+                expected = _key(rec["method"], rec["args"], rec["call_id"])  # also validates types
+                if rec["key"] != expected:
+                    raise CassetteError(f"{self.path.name}:{lineno} key mismatch (corrupt/tampered)")
+                if rec["key"] in self._entries:
+                    raise CassetteError(f"{self.path.name}:{lineno} duplicate key")
+                _check_json_native(rec["response"])
+                self._entries[rec["key"]] = {
+                    "method": rec["method"], "args": rec["args"],
+                    "call_id": rec["call_id"], "response": rec["response"],
+                }
+
+    def __enter__(self) -> "Cassette":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if exc_type is None:  # don't mask an in-scenario error with the finalize checks
+            self.finalize()

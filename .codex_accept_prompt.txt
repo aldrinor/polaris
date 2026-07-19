@@ -1,0 +1,24 @@
+You are an independent senior engineer. A colleague ran a live "acceptance harness" as the BEFORE-baseline for a careful, byte-identical-preserving refactor of a research pipeline. The plan designates THIS harness as the arbiter of "did the pipeline change." The colleague concluded the baseline is NOT clean and wants to (1) fix a hardcoded output path in the harness, (2) `playwright install chromium`, (3) re-run to get a clean green baseline BEFORE starting Phase 1 (config migration). Do you AGREE? Anything wrong or missing? No file access — judge from the evidence below. Under 250 words.
+
+=== HARNESS DESIGN (from its docstring) ===
+Runs TWO real live scenarios against the outline agent:
+(a) THIN — seed evidence covers ONLY 'efficacy'; the question ALSO asks about long-term CV safety.
+    ACCEPTANCE: the checklist names the gap, search_more_evidence FIRES a real scoped query, new rows fold in, outline mutates.
+(b) SATURATED — a narrow question whose seed already fully covers it (negative control).
+    ACCEPTANCE: retrieval stays at ZERO (no search_more_evidence ever fires).
+"FAIL LOUD: any exception propagates."
+
+=== LIVE RUN RESULT @ commit d76a0ea ===
+- Playwright browser NOT installed: every crawl4ai browser fetch failed ("chromium executable doesn't exist"), circuit breaker opened; pipeline degraded gracefully (fell back, still retrieved 8-10 evidence rows/query via non-browser path).
+- THIN RUN (53s): checklist[seed] ran -> "NONE (no grounded deficiencies)"; search_more_evidence_calls = 0; finish_outline ACCEPTED at turn 3. (i.e. the expected gap was NOT detected and NO search fired.)
+- SATURATED RUN (44s): zero_searches=True, valid_negative_control=True -> PASSED its criterion.
+- THEN CRASHED: FileNotFoundError writing hardcoded '/workspace/outline_agent_wt/acceptance_result.json' (dir does not exist here); process exit=1.
+
+=== COLLEAGUE'S ASSESSMENT ===
+The harness is not a usable before/after oracle yet: it crashes on a hardcoded path, runs with degraded (browserless) retrieval, and the THIN case fails its designed acceptance (0 searches when a search should fire). Fix the path (it's test tooling, safe), install the browser, re-run; only then is there a clean baseline to compare Phase-1 changes against.
+
+QUESTIONS:
+1. Do you agree the harness is not yet a trustworthy oracle? 
+2. Is the THIN "0 searches" most likely a real gap-detection concern, a browserless-degradation artifact, or indeterminate — and does that change whether we can trust ANY green re-run?
+3. Is fixing the harness output path + installing the browser the right prerequisite, or is there a safer/more-correct move before Phase 1?
+4. Anything the colleague is missing?

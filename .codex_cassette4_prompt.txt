@@ -1,0 +1,46 @@
+Final sign-off on a hardened record/replay cassette (oracle Layer 1). Last blocker (record returned raw live response vs replay's canonical copy) is fixed: record now returns _deepcopy_json(snapshot), symmetric with replay; a mutation-isolation test confirms it. Across prior rounds you flagged and I fixed: stable call_id vs ordinal, typed codec, full-hash+verify, atomic write, exactly-once replay, terminal finalize, reserve-before-live, strict load. Is this foundation now SOUND to build the pipeline-wiring layer (RecordProvider/ReplayProvider around the async LLM+retrieval boundaries) on? Under 90 words. End APPROVED or NEEDS FIX + the one item.
+=== call() method (the changed part) ===
+    def call(self, method: str, args: Any, live_fn, *, call_id: str) -> Any:
+        """Record: reserve+run+store. Replay: serve once from tape. call_id is the stable identity."""
+        args_snap = _deepcopy_json(args)          # snapshot BEFORE the live call (mutation-safe)
+        key = _key(method, args_snap, call_id)    # validates method/call_id; fixes identity
+        if self.mode == "record":
+            with self._lock:
+                if self._sealed:
+                    raise CassetteError("cassette finalized; no further calls permitted")
+                if key in self._entries:
+                    raise CassetteError(
+                        f"duplicate call_id {call_id!r} for {method} — call_id must be UNIQUE "
+                        f"per logical call."
+                    )
+                self._entries[key] = _PENDING     # reserve so finalize cannot omit an in-flight call
+            response = live_fn()                  # outside the lock
+            resp_snap = _deepcopy_json(response)  # canonical snapshot
+            entry = {"method": method, "args": args_snap, "call_id": call_id,
+                     "response": resp_snap}
+            with self._lock:
+                self._entries[key] = entry
+            # Return a fresh canonical copy in record mode too, so the downstream pipeline sees the
+            # SAME normalized object shape it will see under replay (record/replay symmetry — no
+            # dict-order / aliasing / json-subclass drift between the two modes).
+            return _deepcopy_json(resp_snap)
+        # replay
+        with self._lock:
+            if self._sealed:
+                raise CassetteError("cassette finalized; no further calls permitted")
+            if key in self._used:
+                raise CassetteError(
+                    f"replay REUSE: {method} call_id={call_id!r} served twice — the refactor made an "
+                    f"extra call (behaviour change; replay is exactly-once)."
+                )
+            entry = self._entries.get(key)
+            if entry is None:
+                raise CassetteError(
+                    f"replay MISS: {method} call_id={call_id!r} not in {self.path.name} "
+                    f"— a request the recording never saw (behaviour change)."
+                )
+            self._used.add(key)
+            resp = entry["response"]
+        return _deepcopy_json(resp)
+
+    def finalize(self) -> None:

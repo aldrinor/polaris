@@ -1,0 +1,9 @@
+Independent check of a bug diagnosis. A fleet read the outline-agent code to explain why an acceptance "positive control" fired 0 `search_more_evidence` calls (expected >=1). Do you AGREE with the verdict, or see a flaw? No file access — judge from the quoted findings. Under 200 words. End with "AGREE" or "DISAGREE + reason".
+
+FINDINGS (with file:line):
+1. INSTRUMENTATION: no per-call counter; the harness counts the unconditional disclosure at outline_agent.py:823 (faithful); the loop's `new_evidence_count` (:2639) is a net-rows-KEPT delta (outcome, not attempts) and had an aliasing bug now fixed (:2452-2453). notebook_steps filtered by tool_name=="search_more_evidence" (:1792-1797) is the true attempt record but nothing counts it.
+2. THIN SEED: the "efficacy-only" seed is a LIVE (nondeterministic) retrieval (acceptance_outline_agent.py:63); nothing filters out CV-safety content or asserts its absence; the guard (:65) checks row COUNT not coverage — so the "uncovered gap" is assumed from query wording, not established.
+3. GAP DETECTION: a deficiency is admitted only if `_quote_is_grounded` (:298-310) finds the model's >=2-word quote as a literal case-insensitive SUBSTRING of the question (:310 `return q in question_norm`) — no synonym/stem/entailment tolerance; a CV-safety gap phrased differently ("cardiac risk"/"CV"/"safety profile" vs literal "cardiovascular safety") yields "NONE".
+4. GLOBAL GATING: only gate is master seat PG_OUTLINE_AGENT (=1 in acceptance); search tool registered as core, requires_data=False (:1115-1128), never filtered from the decide menu -> reachable.
+
+VERDICT: Search is NOT broken/disabled. The 0-searches is a test-premise + gap-detector artifact (nondeterministic seed + literal-substring grounding gate), not a search-path defect. The strict substring gate at :310 could also under-detect real gaps in production.

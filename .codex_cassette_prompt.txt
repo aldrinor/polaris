@@ -1,0 +1,130 @@
+Review the design + correctness of a record/replay cassette that will arbitrate 'byte-identical refactor' claims for an async LLM pipeline. Focus: is the keying (canonical hash + per-(method,args) ordinal) sound? Are the miss/unused strictness checks correct? Any concurrency, canonicalization (json sort_keys+default=str), or replay-determinism pitfalls for a pipeline that fans LLM calls across threads and mints evidence-ids? Under 220 words. End: APPROVED (foundation is sound) or NEEDS FIX + specifics.
+=== cassette.py ===
+"""Deterministic regression oracle — the cassette core (Layer 1: frozen provider I/O).
+
+A cassette records every ``(request -> response)`` pair crossing a non-deterministic boundary
+(LLM client, retrieval backend, clock/RNG/id-minting) and replays it from a frozen file, so an
+unchanged-behaviour refactor produces a **byte-identical** artifact and any diff is a real
+regression.
+
+Why this is a *behavioural* oracle, not a mock:
+  * **Miss is a hard error** — replaying a request the recording never saw means the refactor
+    issued a *new* request => behaviour changed.
+  * **Unused entry at finalize is a hard error** — a recorded request the replay never issued means
+    the refactor *skipped* a request => behaviour changed.
+
+Identical repeated requests are disambiguated by a per-``(method, args)`` monotonically-increasing
+ordinal, so a loop that issues the same call twice replays the two distinct responses in order.
+
+Recording is a deliberate, reviewed act (``mode="record"``); CI only ever ``mode="replay"``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import threading
+from pathlib import Path
+from typing import Any
+
+
+class CassetteError(RuntimeError):
+    """A replay miss, an unused entry, or a malformed cassette — all = behaviour change."""
+
+
+def _canonical(method: str, args: Any) -> str:
+    """Stable canonical serialization of a request (order-independent, type-normalized)."""
+    return json.dumps({"method": method, "args": args}, sort_keys=True, default=str,
+                      separators=(",", ":"))
+
+
+def _key(method: str, args: Any, ordinal: int) -> str:
+    return hashlib.sha256(f"{_canonical(method, args)}#{ordinal}".encode()).hexdigest()[:16]
+
+
+class Cassette:
+    """Record or replay provider I/O. Thread-safe (the pipeline fans calls across threads)."""
+
+    def __init__(self, path: str | Path, mode: str) -> None:
+        if mode not in ("record", "replay"):
+            raise ValueError(f"mode must be 'record' or 'replay', got {mode!r}")
+        self.path = Path(path)
+        self.mode = mode
+        self._lock = threading.Lock()
+        self._ordinals: dict[str, int] = {}          # (method+args canonical) -> next ordinal
+        self._entries: dict[str, dict[str, Any]] = {}  # key -> {method, args, response}
+        self._used: set[str] = set()                  # replay: keys served
+        if mode == "replay":
+            self._load()
+
+    def _next_ordinal(self, method: str, args: Any) -> int:
+        base = _canonical(method, args)
+        n = self._ordinals.get(base, 0)
+        self._ordinals[base] = n + 1
+        return n
+
+    def record(self, method: str, args: Any, response: Any) -> Any:
+        """Record a (request -> response) pair and return the response unchanged."""
+        with self._lock:
+            ordinal = self._next_ordinal(method, args)
+            key = _key(method, args, ordinal)
+            self._entries[key] = {"method": method, "args": args, "response": response}
+        return response
+
+    def replay(self, method: str, args: Any) -> Any:
+        """Return the recorded response for this request; a miss is a behaviour change."""
+        with self._lock:
+            ordinal = self._next_ordinal(method, args)
+            key = _key(method, args, ordinal)
+            entry = self._entries.get(key)
+            if entry is None:
+                raise CassetteError(
+                    f"replay MISS: {method} (ordinal {ordinal}) not in cassette {self.path.name} "
+                    f"— the refactor issued a request the recording never saw (behaviour change)."
+                )
+            self._used.add(key)
+            return entry["response"]
+
+    def call(self, method: str, args: Any, live_fn) -> Any:
+        """Dispatch: in record mode call ``live_fn()`` and record it; in replay serve from tape."""
+        if self.mode == "record":
+            return self.record(method, args, live_fn())
+        return self.replay(method, args)
+
+    def finalize(self) -> None:
+        """record -> persist the tape; replay -> assert every entry was used (else behaviour change)."""
+        if self.mode == "record":
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("w", encoding="utf-8") as fh:
+                for key in sorted(self._entries):
+                    e = self._entries[key]
+                    fh.write(json.dumps({"key": key, **e}, sort_keys=True, default=str) + "\n")
+            return
+        unused = set(self._entries) - self._used
+        if unused:
+            raise CassetteError(
+                f"{len(unused)} recorded request(s) never replayed in {self.path.name} "
+                f"— the refactor skipped a request (behaviour change). First: "
+                f"{self._entries[sorted(unused)[0]]['method']}"
+            )
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            raise CassetteError(f"cassette not found: {self.path} (record it first with mode='record')")
+        with self.path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                self._entries[rec["key"]] = {
+                    "method": rec["method"], "args": rec["args"], "response": rec["response"],
+                }
+
+    def __enter__(self) -> "Cassette":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        # Only finalize on a clean exit — don't mask an in-scenario error with an unused-entry error.
+        if exc_type is None:
+            self.finalize()

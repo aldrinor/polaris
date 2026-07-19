@@ -1,0 +1,15 @@
+Advise on the SAFEST way to fix a GPU/PyTorch incompatibility. No file access — advise from the facts. Under 300 words.
+
+FACTS:
+- Box: fresh datacenter VM. GPU: NVIDIA RTX PRO 6000 Blackwell (compute capability sm_120).
+- Driver: 595.45.04, reports "CUDA Version: 13.2" (very new; not the constraint).
+- Installed (in the SHARED, pipeline-critical conda at /opt/conda, ~320 pkgs): torch 2.5.1+cu124 (CUDA 12.4, supports only sm_50..sm_90 -> GPU matmul FAILS "no kernel image"), torchvision 0.20.1+cu124, torchaudio 2.5.1+cu124, triton 3.1.0, sentence-transformers 5.5.0, transformers 5.8.1, nvidia-*-cu12 12.4 runtime wheels.
+- GPU consumers in the pipeline: Qwen3-Reranker-0.6B via sentence-transformers CrossEncoder (GPU-first, main GPU compute in retrieval), plus sentence-transformers embeddings. The pipeline degrades to CPU when GPU fails (disclosed), so nothing is silently wrong, just slow/impaired.
+- Constraint: /opt/conda is the environment the whole pipeline runs in and must not be broken. It is the migrated env (cloned from old A100 boxes = sm_80).
+
+QUESTIONS:
+1. What torch build supports sm_120 (Blackwell)? (version + CUDA tag, e.g. cu128). Any gotcha with the driver reporting CUDA 13.2?
+2. In-place upgrade of /opt/conda vs an ISOLATED test env first vs a full cloned env — what's the safe sequence? Be concrete about ordering and what to pin together (torch/torchvision/torchaudio/triton compatibility).
+3. Exact validation before trusting it: matmul on sm_120, then loading + scoring the Qwen3-Reranker CrossEncoder on GPU, then sentence-transformers embedding.
+4. Rollback plan if the upgrade breaks /opt/conda.
+5. Any risk that transformers 5.8 / sentence-transformers 5.5 / triton need bumping alongside torch, and version-compat pitfalls.

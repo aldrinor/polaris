@@ -1,0 +1,60 @@
+Re-verify a lazy-init fix (round 2). Prior round you flagged: retries failed builds, not thread-safe, falsy find_* bypasses build. New version below uses double-checked locking + caches success OR failure (fail-once, re-raises cached exc). Confirm the retry + thread-safety concerns are resolved and semantics now match the original eager build except validation timing. Under 120 words. End APPROVED or NEEDS FIX + reason.
+=== DIFF ===
+diff --git a/src/polaris_graph/audit_ir/registry.py b/src/polaris_graph/audit_ir/registry.py
+index 96cbab5..b49bec5 100644
+--- a/src/polaris_graph/audit_ir/registry.py
++++ b/src/polaris_graph/audit_ir/registry.py
+@@ -20,6 +20,7 @@ at startup and raises.
+ from __future__ import annotations
+ 
+ import json
++import threading
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
+@@ -160,17 +161,38 @@ def _build_runs() -> tuple[RunSummary, ...]:
+ # (e.g. a clean checkout / CI), which broke test collection for every module that
+ # merely imports this one. Deferring to first use keeps the fail-loud guarantee —
+ # the inspector route still raises when actually used with a malformed allowlist —
+-# without coupling importability to the presence of run artifacts. Behavior on use
+-# is unchanged (built once, cached, same validation).
++# without coupling importability to the presence of run artifacts.
++#
++# Semantics match the original eager build EXACTLY except for timing:
++#   - built exactly ONCE (double-checked lock; concurrent first callers cannot
++#     run _build_runs() more than once),
++#   - fail ONCE and stay failed (a failed build is cached and re-raised on every
++#     later call — the original import-time failure was likewise permanent; we do
++#     NOT retry),
++#   - thread-safe.
++# The one intended change is *when* validation fires: at first registry access
++# rather than at import (that deferral is the entire point of this fix).
+ _RUNS_CACHE: tuple[RunSummary, ...] | None = None
++_RUNS_ERROR: Exception | None = None
++_RUNS_BUILT: bool = False
++_RUNS_LOCK = threading.Lock()
+ 
+ 
+ def _runs() -> tuple[RunSummary, ...]:
+-    """Return the validated registry, building (and caching) it on first access."""
+-    global _RUNS_CACHE
+-    if _RUNS_CACHE is None:
+-        _RUNS_CACHE = _build_runs()
+-    return _RUNS_CACHE
++    """Return the validated registry, building (and caching) it once on first access."""
++    global _RUNS_CACHE, _RUNS_ERROR, _RUNS_BUILT
++    if not _RUNS_BUILT:
++        with _RUNS_LOCK:
++            if not _RUNS_BUILT:
++                try:
++                    _RUNS_CACHE = _build_runs()
++                except Exception as exc:  # noqa: BLE001 — cache & re-raise (fail-once)
++                    _RUNS_ERROR = exc
++                finally:
++                    _RUNS_BUILT = True
++    if _RUNS_ERROR is not None:
++        raise _RUNS_ERROR
++    return _RUNS_CACHE  # type: ignore[return-value]
+ 
+ 
+ def list_available_runs() -> list[RunSummary]:

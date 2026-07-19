@@ -1,0 +1,16 @@
+Sanity-check a GPU-env cutover plan. Under 220 words. No file access.
+
+SITUATION: A fixed pipeline env exists at /home/polaris/conda_cu128 (torch 2.9.1+cu128, Blackwell-working, validated: matmul + Qwen3 reranker + embeddings + pipeline imports all pass). The broken original /opt/conda (torch 2.5.1+cu124, root-owned, can't run Blackwell GPU) is untouched = rollback. Facts:
+- polaris's default python3 is /usr/bin/python3; /opt/conda/bin is NOT on PATH; the pipeline is invoked via EXPLICIT /opt/conda/bin/python in run scripts + manual commands.
+- onstart.sh only launches a git-based backup tmux (no python/torch/GPU); backups are git-only. So no boot/root change is needed.
+- I cannot modify /opt/conda or root-owned files, but I own /home/polaris/* .
+
+PROPOSED CUTOVER (option A, durable):
+- Prepend `/home/polaris/conda_cu128/bin` to PATH in /home/polaris/.bashrc and /home/polaris/.profile, so python/pip/conda tools default to the cu128 clone for all polaris shells (interactive + tmux + PATH-resolving scripts).
+- Leave /opt/conda as instant rollback (remove the PATH line to revert).
+- Scripts that HARDCODE /opt/conda/bin/python keep using the old env until individually updated; update the main pipeline run script(s) to conda_cu128.
+
+QUESTIONS:
+1. Is PATH-prepend the right cutover here, or is there a safer/cleaner mechanism? Any risk (e.g. shadowing system tools, conda base activation, tmux not sourcing .bashrc)?
+2. How should we treat the fact that box-3 (newer torch) is NOT byte-identical to the A100 champion env? For the refactor's "byte-identical" rule and for reproducing the champion score.
+3. Anything I'm missing before wiring it.

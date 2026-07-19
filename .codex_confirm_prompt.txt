@@ -1,0 +1,10 @@
+You earlier REJECTED (correctly) a verdict that "the outline-agent search is not broken", saying it was an unproven hypothesis from a DEGRADED run (broken GPU + no browser). The environment is now fixed (Blackwell GPU working via torch cu128, browser installed). A clean re-run produced NEW DIRECT evidence. Does this now SETTLE it? Under 180 words. End "SETTLED: search works" or "STILL UNRESOLVED + why".
+
+DEGRADED run (before, GPU broken): THIN checklist -> "NONE (no grounded deficiencies)", search_more_evidence_calls=0; harness crashed on write.
+
+CLEAN run (now, GPU working, 387s THIN):
+- THIN: checklist[seed] NAMED 3 gaps: "Safety::long-term cardiovascular safety", "Safety::major adverse cardiovascular events", "Safety::SURMOUNT-MMO or equivalent outcome trial data"; search_more_evidence_calls = 1; the 3 gaps show status UNFILLED, attempts=0, disclosure="budget exhausted before this gap was ever searched" (harness budget 6 turns/420s, too tight now that GPU retrieval is slower).
+- SATURATED: valid_negative_control=True, zero_searches=True (0 calls).
+- Harness EXIT=0 (portability fix worked).
+
+QUESTION: Does the clean run confirm (a) the gap-detector detects the CV-safety gap, (b) the search path fires (>=1 call), (c) SATURATED's 0 is now a MEANINGFUL negative control (not vacuous)? Is the remaining "budget exhausted before filling" a harness-budget issue rather than a pipeline defect? Any residual doubt?

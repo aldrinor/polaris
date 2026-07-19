@@ -1,0 +1,15 @@
+You are an INDEPENDENT senior software engineer doing a second-opinion review. Do NOT rewrite the plan; critique it.
+
+Read this remediation plan: /home/polaris/polaris_project/TELUS_REVIEW_REMEDIATION_PLAN.md
+
+It plans to make this repo (working root = current dir, the polaris_graph research pipeline) pass an independent external code review (client: Telus), across 6 axes: (1) stage checkpointing/resumability, (2) typed central config vs ~900 hardcoded env knobs, (3) marketing-adjective/version naming (honest_*, graph_v2/v3), (4) de-vendoring external names (STORM, FS-Researcher), (5) documentation, (6) tests/CI/typing/deps/secrets. The hard constraint: the pipeline's RACE score and faithfulness behavior must stay BYTE-IDENTICAL through every change.
+
+Your job — be surgical and skeptical:
+1. AGREE/DISAGREE: which of the plan's 4 headline HIGH findings and its phase ordering do you agree with, and which do you push back on?
+2. MISSED: what did the plan miss that a real external reviewer would flag (be concrete)?
+3. SAFETY: is the "byte-identical by construction" claim actually sound? Name the single most dangerous step and whether its guardrail is sufficient. Pay special attention to the config-extraction (default preservation) and the graph_v2/v3 fork resolution.
+4. FIRST MOVE: what is the ONE thing you'd do first, and why?
+
+To keep this cheap, VERIFY AT MOST 6 specific claims by reading files (e.g. confirm save_generation_snapshot has no callers; confirm the graph.py/_v2/_v3 fork and its PG_GRAPH_VERSION dispatch; confirm the scattered _DEFAULT_*MODEL constants; confirm .env.example is ~24 keys vs ~923 getenv). Do NOT read the whole repo. Keep total file reads modest.
+
+Output: a concise markdown critique (aim ~400-700 words) with the four sections above. End with a one-line verdict: is this plan safe to execute as sequenced, yes/no + the single most important caveat.

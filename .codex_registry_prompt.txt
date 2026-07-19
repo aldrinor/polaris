@@ -1,0 +1,56 @@
+Verify a runtime fix is behavior-preserving. A module-level eager build that raised at IMPORT was made lazy (build on first access, cached). Does this change ANY runtime behavior besides import-time-vs-first-access timing? Is the fail-loud guarantee preserved? Any thread-safety or ordering concern? Under 150 words. End APPROVED or NEEDS FIX + reason.
+=== DIFF ===
+diff --git a/src/polaris_graph/audit_ir/registry.py b/src/polaris_graph/audit_ir/registry.py
+index ab65810..96cbab5 100644
+--- a/src/polaris_graph/audit_ir/registry.py
++++ b/src/polaris_graph/audit_ir/registry.py
+@@ -155,22 +155,34 @@ def _build_runs() -> tuple[RunSummary, ...]:
+     return tuple(summaries)
+ 
+ 
+-# Built once at module import. If the curated allowlist is malformed, this
+-# raises immediately and the inspector route fails to mount — which is what
+-# we want (fail loud, not silent).
+-_RUNS: tuple[RunSummary, ...] = _build_runs()
++# Built lazily on first access (not at import). Rationale: an eager module-level
++# build raised at IMPORT time whenever the curated allowlist artifacts were absent
++# (e.g. a clean checkout / CI), which broke test collection for every module that
++# merely imports this one. Deferring to first use keeps the fail-loud guarantee —
++# the inspector route still raises when actually used with a malformed allowlist —
++# without coupling importability to the presence of run artifacts. Behavior on use
++# is unchanged (built once, cached, same validation).
++_RUNS_CACHE: tuple[RunSummary, ...] | None = None
++
++
++def _runs() -> tuple[RunSummary, ...]:
++    """Return the validated registry, building (and caching) it on first access."""
++    global _RUNS_CACHE
++    if _RUNS_CACHE is None:
++        _RUNS_CACHE = _build_runs()
++    return _RUNS_CACHE
+ 
+ 
+ def list_available_runs() -> list[RunSummary]:
+     """Return every Phase-A-allowlisted V30 audit artifact (already validated)."""
+-    return list(_RUNS)
++    return list(_runs())
+ 
+ 
+ def find_run_by_slug(slug: str) -> RunSummary | None:
+     """Find a run by slug. Slugs are guaranteed unique within the registry."""
+     if not slug:
+         return None
+-    for run in _RUNS:
++    for run in _runs():
+         if run.slug == slug:
+             return run
+     return None
+@@ -180,7 +192,7 @@ def find_run_by_id(run_id: str) -> RunSummary | None:
+     """Find a run by its canonical unique run_id."""
+     if not run_id:
+         return None
+-    for run in _RUNS:
++    for run in _runs():
+         if run.run_id == run_id:
+             return run
+     return None

@@ -24,11 +24,20 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, "/workspace/outline_agent_wt")
+_HARNESS_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.environ.get("OUTLINE_AGENT_REPO_ROOT", os.path.dirname(_HARNESS_DIR))
+sys.path.insert(0, _REPO_ROOT)
+sys.path.insert(0, _HARNESS_DIR)
+
+# Output dir for the acceptance artifact (portable; overridable).
+_RESULT_DIR = os.environ.get("OUTLINE_AGENT_RESULT_DIR", _HARNESS_DIR)
 
 from dotenv import load_dotenv  # noqa: E402
-load_dotenv("/workspace/POLARIS/.env", override=True)
+_ENV_PATH = os.environ.get("OUTLINE_AGENT_DOTENV")
+if _ENV_PATH:
+    load_dotenv(_ENV_PATH, override=True)
+else:
+    load_dotenv(override=True)  # walk up from CWD for a .env; no-op if none found
 
 os.environ["PG_OUTLINE_AGENT"] = "1"
 os.environ.setdefault("PG_OUTLINE_MAX_TOKENS", "131072")
@@ -277,12 +286,42 @@ async def main() -> None:
     print("ACCEPTANCE SUMMARY")
     print("#" * 80)
     print(json.dumps(result, indent=2, default=str))
-    out_path = (
-        "/workspace/outline_agent_wt/acceptance_result.json" if only is None
-        else f"/workspace/outline_agent_wt/acceptance_result_{only}.json"
-    )
-    with open(out_path, "w", encoding="utf-8") as fh:
-        json.dump(result, fh, indent=2, default=str)
+
+    _basename = "acceptance_result.json" if only is None else f"acceptance_result_{only}.json"
+    out_path = os.path.join(_RESULT_DIR, _basename)
+
+    # --- semantic verdict, computed BEFORE and INDEPENDENT of any file write ---
+    failures: list[str] = []
+    if "thin" in result:
+        t = result["thin"]
+        if not t.get("outline_mutated"):
+            failures.append("THIN: outline did not mutate")
+        if (t.get("search_more_evidence_calls") or 0) < 1:
+            failures.append("THIN: search_more_evidence never fired")
+    if "saturated" in result:
+        s = result["saturated"]
+        if not s.get("full_loop_ran"):
+            failures.append("SATURATED: full agent loop did not run (degenerate control)")
+        if not s.get("valid_negative_control"):
+            failures.append("SATURATED: not a valid negative control "
+                            f"(search_calls={s.get('search_more_evidence_calls')})")
+
+    # Artifact write is best-effort telemetry: a write failure is reported loudly but does NOT
+    # change the semantic verdict (and a successful write does NOT launder a semantic FAIL).
+    try:
+        os.makedirs(_RESULT_DIR, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2, default=str)
+        print(f"[artifact] wrote {out_path}")
+    except OSError as exc:
+        print(f"[artifact] WARNING: could not write {out_path}: {exc}", file=sys.stderr)
+
+    if failures:
+        print("\nACCEPTANCE: FAIL", file=sys.stderr)
+        for f in failures:
+            print(f"  - {f}", file=sys.stderr)
+        sys.exit(1)
+    print("\nACCEPTANCE: PASS")
 
 
 if __name__ == "__main__":
