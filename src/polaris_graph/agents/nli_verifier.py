@@ -25,13 +25,15 @@ import re
 import time
 from typing import Any
 
+from src.polaris_graph.settings import get_model_settings
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 # Model selection via env var
 # Wave 5: PG_NLI_MODEL=auto selects best model within VRAM constraints
-PG_NLI_MODEL = os.getenv("PG_NLI_MODEL", "flan-t5-large")
+PG_NLI_MODEL = get_model_settings().nli_model  # was os.getenv("PG_NLI_MODEL", "flan-t5-large")
 PG_NLI_BATCH_SIZE = int(os.getenv("PG_NLI_BATCH_SIZE", "16"))
 PG_NLI_ENABLED = os.getenv("PG_NLI_ENABLED", "0") == "1"
 # Wave 5: Lower dispute threshold → more claims get LLM second opinion
@@ -61,7 +63,7 @@ _ANALYTICAL_CLAIM_PATTERNS = re.compile(
 # FIX-047J: FaithLens 8B model option (F1: 87.3 vs flan-t5-large 62.1)
 # Set PG_NLI_MODEL=faithlens to enable. Requires: pip install faithlens
 # Model: ssz1111/FaithLens on HuggingFace. Needs 16GB VRAM.
-PG_FAITHLENS_MODEL = os.getenv("PG_FAITHLENS_MODEL", "ssz1111/FaithLens")
+PG_FAITHLENS_MODEL = get_model_settings().faithlens_model  # was os.getenv("PG_FAITHLENS_MODEL", "ssz1111/FaithLens")
 
 _scorer = None
 _faithlens_scorer = None
