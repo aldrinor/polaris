@@ -26,20 +26,21 @@ import logging
 import os
 import random
 from typing import Any, Callable, Coroutine
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
 # Max concurrent LLM calls — prevents TPM burst
 # 3-4 is safe for most OpenRouter model tiers
-LLM_CONCURRENCY = int(os.getenv("PG_LLM_CONCURRENCY", "4"))
+LLM_CONCURRENCY = int(resolve("PG_LLM_CONCURRENCY"))
 
 # Retry config for 429/502 (TPM exceeded, gateway errors)
-LLM_MAX_RETRIES = int(os.getenv("PG_LLM_MAX_RETRIES", "5"))
-LLM_RETRY_BASE = float(os.getenv("PG_LLM_RETRY_BASE", "3.0"))
-LLM_RETRY_MAX = float(os.getenv("PG_LLM_RETRY_MAX", "60.0"))
+LLM_MAX_RETRIES = int(resolve("PG_LLM_MAX_RETRIES"))
+LLM_RETRY_BASE = float(resolve("PG_LLM_RETRY_BASE"))
+LLM_RETRY_MAX = float(resolve("PG_LLM_RETRY_MAX"))
 
 # Per-call timeout
-LLM_CALL_TIMEOUT = int(os.getenv("PG_LLM_CALL_TIMEOUT", "300"))
+LLM_CALL_TIMEOUT = int(resolve("PG_LLM_CALL_TIMEOUT"))
 
 # Module-level semaphore (lazy-init inside event loop)
 _llm_semaphore: asyncio.Semaphore | None = None

@@ -29,7 +29,10 @@ from src.polaris_graph.audit_ir.job_worker import JobWorker
 from src.polaris_graph.audit_ir.honest_sweep_job_runner import (
     HonestSweepJobRunner,
     HonestSweepJobRunnerConfig,
+    V30ClinicalSweepJobRunner,
+    V30ClinicalSweepJobRunnerConfig,
     make_default_honest_sweep_job_runner,
+    make_default_v30_clinical_sweep_job_runner,
 )
 from src.polaris_graph.audit_ir.template_catalog import (
     CuratedTemplate,
@@ -143,10 +146,13 @@ __all__ = [
     "RoutingVerdict",
     "HonestSweepJobRunner",
     "HonestSweepJobRunnerConfig",
+    "V30ClinicalSweepJobRunner",
+    "V30ClinicalSweepJobRunnerConfig",
     "classify_query",
     "get_template",
     "list_catalog",
     "make_default_honest_sweep_job_runner",
+    "make_default_v30_clinical_sweep_job_runner",
     "get_runner",
     "job_to_dict",
     "list_runners",

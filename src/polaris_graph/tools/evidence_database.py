@@ -17,10 +17,11 @@ import os
 import re
 import sqlite3
 from typing import Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
-_MAX_QUERY_RESULTS = int(os.getenv("PG_SQL_MAX_RESULTS", "500"))
+_MAX_QUERY_RESULTS = int(resolve("PG_SQL_MAX_RESULTS"))
 _BLOCKED_SQL_PATTERNS = [
     r'\bDROP\b', r'\bDELETE\b', r'\bUPDATE\b', r'\bINSERT\b',
     r'\bALTER\b', r'\bCREATE\b', r'\bATTACH\b', r'\bDETACH\b',

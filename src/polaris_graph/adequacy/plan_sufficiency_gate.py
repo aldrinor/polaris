@@ -53,6 +53,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Literal
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.plan_sufficiency_gate")
 
@@ -76,7 +77,7 @@ def _authority_floor_default() -> float:
     """Single global numeric authority floor in [0,1] (brief §2.2). Read at call
     time so tests/operators can override via env; callers pass it explicitly."""
     try:
-        return float(os.getenv("PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR", "0.3"))
+        return float(resolve("PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR"))
     except (TypeError, ValueError):
         return 0.3
 
@@ -85,7 +86,7 @@ def _min_per_facet_default() -> int:
     """Minimum above-floor relevant rows EACH mapped sub-query must have for a
     section to be sufficient (brief §2.2, default 1)."""
     try:
-        return max(1, int(os.getenv("PG_PLAN_SUFFICIENCY_MIN_PER_FACET", "1")))
+        return max(1, int(resolve("PG_PLAN_SUFFICIENCY_MIN_PER_FACET")))
     except (TypeError, ValueError):
         return 1
 
@@ -155,7 +156,7 @@ def _origin_drift_fallback_enabled() -> bool:
     (the §-1.3-correct behavior — recover an orphaned drifted origin rather than
     hard-drop it). Set `PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK=0` for the
     pre-A5 strict-exact-only behavior (byte-identical to the legacy path)."""
-    val = os.getenv("PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK", "1").strip().lower()
+    val = resolve("PG_PLAN_SUFFICIENCY_ORIGIN_DRIFT_FALLBACK").strip().lower()
     return val not in ("0", "false", "no", "off", "")
 
 

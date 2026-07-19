@@ -48,6 +48,7 @@ import dataclasses
 import json
 import logging
 import os
+from src.polaris_graph.settings import get_model_settings
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -156,13 +157,13 @@ PG_OUTLINE_AGENT_RUN_TIMEOUT_GRACE_SECONDS_DEFAULT = 600
 def outliner_agent_model() -> str:
     """ReAct decide + tool-calling model (§9.1.8 lock: glm-5.2, 1M ctx — context compounds
     across a growing digest + draft + ledger + notebook)."""
-    return os.getenv("PG_OUTLINER_AGENT_MODEL", PG_OUTLINE_AGENT_MODEL_DEFAULT)
+    return get_model_settings().outliner_agent_model  # was os.getenv("PG_OUTLINER_AGENT_MODEL", PG_OUTLINE_AGENT_MODEL_DEFAULT)
 
 
 def outliner_code_model() -> str:
     """Write+run-Python / outline-prose model (§9.1.8 lock: deepseek-v4-pro — already the
     sweep's generator)."""
-    return os.getenv("PG_OUTLINER_CODE_MODEL", PG_OUTLINER_CODE_MODEL_DEFAULT)
+    return get_model_settings().outliner_code_model  # was os.getenv("PG_OUTLINER_CODE_MODEL", PG_OUTLINER_CODE_MODEL_DEFAULT)
 
 
 # Tools whose executor actually CONSUMES the ``client`` kwarg (LLM codegen). Not the same set as

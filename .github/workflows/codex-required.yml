@@ -39,7 +39,7 @@ jobs:
       # contain `$()`, quotes, semicolons, etc.
       HEAD_REF: ${{ github.event.pull_request.head.ref }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           # PR-D iter 3 PRD3-P1-001 fix: full history needed for `git diff
           # base...head` to compute canonical PR diff and bind to

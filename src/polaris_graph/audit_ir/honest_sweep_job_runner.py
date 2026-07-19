@@ -162,7 +162,7 @@ def _read_env_float(name: str, default: float) -> float:
 
 
 @dataclass
-class HonestSweepJobRunnerConfig:
+class V30ClinicalSweepJobRunnerConfig:
     """Runtime configuration for the V30 runner."""
 
     repo_root: Path
@@ -174,7 +174,7 @@ class HonestSweepJobRunnerConfig:
     extra_env: Mapping[str, str] | None = None
 
 
-class HonestSweepJobRunner(JobRunner):
+class V30ClinicalSweepJobRunner(JobRunner):
     """Runs the V30 Phase-2 sweep as a subprocess, checkpoints per phase.
 
     Job params (required): {"slug": "<canonical_slug>"}
@@ -186,7 +186,7 @@ class HonestSweepJobRunner(JobRunner):
 
     template_id = "v30_clinical"
 
-    def __init__(self, config: HonestSweepJobRunnerConfig) -> None:
+    def __init__(self, config: V30ClinicalSweepJobRunnerConfig) -> None:
         self._config = config
 
     def run(self, job: Job, control: JobControl) -> str | None:
@@ -245,7 +245,7 @@ class HonestSweepJobRunner(JobRunner):
             },
         )
 
-        logger.info("HonestSweepJobRunner: launching %s", " ".join(cmd))
+        logger.info("V30ClinicalSweepJobRunner: launching %s", " ".join(cmd))
         proc = subprocess.Popen(
             cmd,
             cwd=str(cfg.repo_root),
@@ -447,14 +447,27 @@ class HonestSweepJobRunner(JobRunner):
         return candidates[0]
 
 
-def make_default_honest_sweep_job_runner(repo_root: Path | None = None) -> HonestSweepJobRunner:
+def make_default_v30_clinical_sweep_job_runner(repo_root: Path | None = None) -> V30ClinicalSweepJobRunner:
     """Convenience factory pointing at the canonical sweep script."""
     if repo_root is None:
         # repo_root = src/polaris_graph/audit_ir/honest_sweep_job_runner.py.parents[3]
         repo_root = Path(__file__).resolve().parents[3]
-    config = HonestSweepJobRunnerConfig(
+    config = V30ClinicalSweepJobRunnerConfig(
         repo_root=repo_root,
         sweep_script=repo_root / "scripts" / "run_full_scale_v30_phase2.py",
         out_root=repo_root / "outputs" / "polaris_v30_jobs",
     )
-    return HonestSweepJobRunner(config)
+    return V30ClinicalSweepJobRunner(config)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat aliases (Q4 canonical rename, codex compat-by-default policy).
+#
+# The classes/config/factory were renamed HonestSweep* -> V30Clinical* to match
+# the template_id 'v30_clinical'. Old imports AND monkeypatch.setattr on the old
+# names must keep working, so these are MODULE-LEVEL aliases bound to the SAME
+# objects (same-object requirement): patching either name is observed by both.
+# Remove only after owner deprecation — not now.
+HonestSweepJobRunnerConfig = V30ClinicalSweepJobRunnerConfig
+HonestSweepJobRunner = V30ClinicalSweepJobRunner
+make_default_honest_sweep_job_runner = make_default_v30_clinical_sweep_job_runner

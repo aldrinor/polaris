@@ -62,6 +62,7 @@ from src.polaris_graph.audit_ir.model_pin import (
 from src.polaris_graph.auto_induction.precision_metrics import (
     PrecisionMetrics,
 )
+from src.polaris_graph.settings import resolve
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +198,7 @@ class RegressionLabError(ValueError):
 def _precision_tolerance() -> float:
     """Max allowed drop in induction precision before flagging
     regression. Default: 0.02 (2 percentage points)."""
-    raw = os.getenv("PG_REGRESSION_PRECISION_TOLERANCE", "0.02")
+    raw = resolve("PG_REGRESSION_PRECISION_TOLERANCE")
     try:
         val = float(raw)
     except ValueError as exc:
@@ -213,7 +214,7 @@ def _precision_tolerance() -> float:
 
 def _recall_tolerance() -> float:
     """Max allowed drop in recall (incl. abstain_recall)."""
-    raw = os.getenv("PG_REGRESSION_RECALL_TOLERANCE", "0.05")
+    raw = resolve("PG_REGRESSION_RECALL_TOLERANCE")
     try:
         val = float(raw)
     except ValueError as exc:
@@ -229,7 +230,7 @@ def _recall_tolerance() -> float:
 
 def _silent_disagreement_tolerance() -> float:
     """Max allowed RISE in silent-disagreement rate (more is bad)."""
-    raw = os.getenv("PG_REGRESSION_SILENT_DISAGREEMENT_TOLERANCE", "0.02")
+    raw = resolve("PG_REGRESSION_SILENT_DISAGREEMENT_TOLERANCE")
     try:
         val = float(raw)
     except ValueError as exc:
@@ -247,7 +248,7 @@ def _silent_disagreement_tolerance() -> float:
 
 def _operator_review_tolerance() -> float:
     """Max allowed RISE in operator-review load (more is worse UX)."""
-    raw = os.getenv("PG_REGRESSION_OPERATOR_REVIEW_TOLERANCE", "0.10")
+    raw = resolve("PG_REGRESSION_OPERATOR_REVIEW_TOLERANCE")
     try:
         val = float(raw)
     except ValueError as exc:

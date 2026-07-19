@@ -13,6 +13,7 @@ invariant of CLAUDE.md §9.1), and the 4-role all-distinct-lineage check
 distinct family from the Generator and from each other).
 Reuses battle-tested search/fetch infrastructure from src/tools/.
 """
+from src.polaris_graph.settings import resolve
 
 __all__ = [
     "run_research",
@@ -33,7 +34,7 @@ async def run_research(
     Routes to v3/v2/v1 based on PG_GRAPH_VERSION env var.
     """
     import os
-    graph_version = os.getenv("PG_GRAPH_VERSION", "v1")
+    graph_version = resolve("PG_GRAPH_VERSION")
     if graph_version == "v3":
         from src.polaris_graph.graph_v3 import build_and_run_v3 as build_and_run
     else:
