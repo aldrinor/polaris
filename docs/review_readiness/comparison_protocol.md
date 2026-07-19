@@ -138,25 +138,12 @@ The asymmetry is deliberate: an uncharacterizable arbiter blocks; it never defau
 
 ---
 
-## 4. The equivalence band value — TODO (fill after characterization)
+## 4. The equivalence band value
 
-The band's numeric value is **not** declared here because it must be *measured*, not guessed. It is
-filled in after the N ≥ 3 **characterization run** on the deterministic oracle with **no change
-applied** (baseline-vs-baseline), which measures the pipeline's intrinsic run-to-run RACE spread.
-
-> ### TODO — MEASURED EQUIVALENCE BAND (fill after the N ≥ 3 characterization run)
->
-> - `N` (repeats used for characterization): **TODO**
-> - Baseline RACE central value: **TODO**
-> - Observed run-to-run RACE spread (min / max / stddev over N): **TODO**
-> - **Declared equivalence band `±ε`:** **TODO** — must be ≥ the observed intrinsic spread and
->   justified (not merely "whatever contains the diff"). If the observed spread is too wide to
->   support a defensible ε, this is a §3 BLOCKING STOP: investigate the variance before any change
->   is compared.
-> - Deterministic-artifact list (artifacts under §1.3): **TODO — enumerate from oracle manifest.**
->
-> Until this block is filled, no change may be declared "behavior-preserving" under this protocol —
-> there is no band to test against.
+Equivalence band = 0 (byte-exact): the oracle is a deterministic cassette replay; "same" means the
+canonical artifact SHA-256 equals the golden
+`9c0a3d438da943242c98e2fe714494c342d42d02102202d75a61a4554339db98` exactly, and both controls (THIN
+positive, SATURATED negative) pass. Any SHA mismatch or cassette MISS is a regression.
 
 ---
 
