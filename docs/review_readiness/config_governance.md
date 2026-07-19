@@ -43,3 +43,22 @@ A one-shot rewrite of 1,044 hardcoded reads is neither safe nor reviewable. The 
 Ownership: until per-key owners are assigned, the **project owner** is accountable for the model +
 secret keys (P1); the executor (engineering) drains P2/P3 behind tests. No key migrates without a
 green characterization test.
+
+## Progress (2026-07-19)
+- **Done — foundation:** `settings.py` (`ModelSettings` for the 12 model keys + `resolve()` for the
+  871-key single-default registry `config_defaults.py`), locked by characterization tests
+  (`test_settings_models.py`, `test_config_registry.py` — resolve==os.getenv over all 871 keys).
+- **Done — bulk call-site migration:** **832 `os.getenv("PG_X", lit)` sites across 130 modules**
+  migrated to `resolve("PG_X")`, byte-identical, via an **AST codemod** (edits only real
+  `os.getenv` Call nodes; strings/comments/docstrings structurally untouched; whole-file guards for
+  any local `os`/`resolve` rebind). Verified: all 130 modules import, collection stays at the 11
+  pre-existing baseline errors, heaviest modules' test suites behave identically to HEAD. Codex-gated
+  (3 adversarial rounds → APPROVE).
+- **Remaining tail (tracked, not blocking):**
+  - **114 secret-shaped sites** → a separate `SecretStr` pass (behavior-changing; needs its own design).
+  - **46 computed/multiline-default keys** → need typed per-domain accessors (can't be a static
+    registry string).
+  - **20 conflicting-default keys** → see [`config_conflicts.md`](config_conflicts.md); each needs a
+    product decision on the single correct default before it can be centralized. One
+    (`PG_FAITHFULNESS_NLI_THRESHOLD`, 0.65 vs 0.75) touches the frozen-faithfulness invariant.
+  - **33 non-PG external-convention vars** (`OPENAI_*`, `HF_*`, …) — left as-is (not our namespace).
