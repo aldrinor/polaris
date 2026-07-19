@@ -1,0 +1,812 @@
+diff --git a/src/polaris_graph/api/disambiguation_route.py b/src/polaris_graph/api/disambiguation_route.py
+index 437e7e2..0f4f880 100644
+--- a/src/polaris_graph/api/disambiguation_route.py
++++ b/src/polaris_graph/api/disambiguation_route.py
+@@ -19,23 +19,46 @@ router = APIRouter(tags=["disambiguation"])
+ 
+ 
+ class CandidateSnippet(BaseModel):
++    """One candidate snippet to disambiguate: its text and its embedding vector.
++
++    `embedding` must be non-empty; all snippets in a request must share the same
++    dimensionality (enforced by the route, not the model).
++    """
++
+     text: str = Field(min_length=1)
+     embedding: list[float] = Field(min_length=1)
+ 
+ 
+ class DisambiguationRequest(BaseModel):
++    """Request body for `POST /disambiguation`.
++
++    Carries the candidate snippets to cluster plus clustering knobs:
++    `min_cluster_size` (minimum members for a cluster to form) and
++    `max_snippets_per_cluster` (how many sample snippets each labeled cluster
++    surfaces). At least one candidate is required.
++    """
++
+     candidates: list[CandidateSnippet] = Field(min_length=1)
+     min_cluster_size: int = Field(default=2, ge=2)
+     max_snippets_per_cluster: int = Field(default=3, ge=1)
+ 
+ 
+ class ClusterPayload(BaseModel):
++    """One labeled cluster in the response: its id, LLM-assigned label, and samples."""
++
+     cluster_id: int
+     label: str
+     sample_snippets: list[str]
+ 
+ 
+ class DisambiguationResponse(BaseModel):
++    """Response body for `POST /disambiguation`.
++
++    `is_ambiguous` is True only when two or more clusters formed; when False
++    (0 or 1 cluster) `clusters` is empty and no labeling was performed.
++    `server_time_utc` is an ISO-8601 timestamp with a trailing `Z`.
++    """
++
+     is_ambiguous: bool
+     num_clusters: int
+     clusters: list[ClusterPayload]
+@@ -43,10 +66,20 @@ class DisambiguationResponse(BaseModel):
+ 
+ 
+ class _OpenRouterLabelClient:
++    """`ClusterLabelClient` implementation backed by the OpenRouter chat API."""
++
+     def __init__(self, api_key: str, model: str) -> None:
+         self.api_key, self.model = api_key, model
+ 
+     def complete(self, prompt: str, *, max_tokens: int | None = None) -> str:
++        """Return the model's text completion for `prompt`.
++
++        `max_tokens` is a billing cap, not a target; it is raised to the
++        reasoning-first floor (`PG_DISAMBIG_LABEL_MAX_TOKENS`, default 16384)
++        when unset or below it, so reasoning-first models are not truncated
++        mid-thought into empty content. Raises `RuntimeError` if OpenRouter
++        returns empty text, or `httpx.HTTPStatusError` on a non-2xx response.
++        """
+         # I-arch-003 (#1253): self.model is reasoning-first (deepseek); the old 50-token default truncated
+         # mid-reasoning -> empty content -> RuntimeError. Un-starve to the reasoning-first floor + reasoning ON
+         # at max effort (env-overridable). The label output is short; max_tokens is a cap billed by usage.
+@@ -76,12 +109,27 @@ def _make_openrouter_label_client() -> ClusterLabelClient | None:
+     return _OpenRouterLabelClient(api_key=key, model=model)
+ 
+ 
+-def get_label_client() -> ClusterLabelClient | None: return _make_openrouter_label_client()
++def get_label_client() -> ClusterLabelClient | None:
++    """FastAPI dependency yielding a cluster-label client, or None if unconfigured.
++
++    Returns an OpenRouter-backed client when `OPENROUTER_API_KEY` is set,
++    otherwise None (the route then rejects ambiguous inputs with 503).
++    """
++    return _make_openrouter_label_client()
+ 
+ 
+ @router.post("/disambiguation", response_model=None)
+ def post_disambiguation(req: DisambiguationRequest,
+         client: ClusterLabelClient | None = Depends(get_label_client)) -> DisambiguationResponse:
++    """Cluster candidate snippet embeddings and label ambiguous clusters.
++
++    Returns a non-ambiguous response (empty `clusters`) when fewer than two
++    clusters form; otherwise labels each cluster via the injected client.
++
++    Raises:
++        HTTPException 400: candidate embeddings have mismatched dimensions.
++        HTTPException 503: input is ambiguous but no label client is configured.
++    """
+     dim = len(req.candidates[0].embedding)
+     if any(len(c.embedding) != dim for c in req.candidates):
+         raise HTTPException(status_code=400, detail={"error": True,
+@@ -107,5 +155,10 @@ def post_disambiguation(req: DisambiguationRequest,
+ 
+ @router.get("/disambiguation/health")
+ def get_disambiguation_health() -> dict[str, Any]:
++    """Liveness probe for the disambiguation route.
++
++    Returns a static `status: ok` plus the pipeline stage names and whether a
++    real (`openrouter`) or sentinel label client is currently configured.
++    """
+     return {"status": "ok", "stages": ["cluster_candidates", "label_clusters"],
+             "label_client": "openrouter" if get_label_client() is not None else "sentinel"}
+diff --git a/src/polaris_graph/api/graph_route.py b/src/polaris_graph/api/graph_route.py
+index f1966c2..a122c66 100644
+--- a/src/polaris_graph/api/graph_route.py
++++ b/src/polaris_graph/api/graph_route.py
+@@ -47,6 +47,14 @@ _VALID_TIERS = {"T1", "T2", "T3", "T4", "T5", "T6", "T7"}
+ # ---------------------------------------------------------------------------
+ 
+ class NodeData(BaseModel):
++    """Cytoscape `data` payload for one graph node.
++
++    `id` is a namespaced key (e.g. `src:`, `section:`, `frame:`, `sent:`). The
++    type-specific fields (`tier`, `sentence_text`, `source_url`, `section_title`,
++    `frame_status`) are populated only for the node `type` they apply to and are
++    None otherwise; `classes` carries optional cytoscape style classes.
++    """
++
+     id: str = Field(min_length=1, max_length=300)
+     type: NodeType
+     label: str = Field(min_length=1, max_length=500)
+@@ -59,16 +67,30 @@ class NodeData(BaseModel):
+ 
+ 
+ class Position(BaseModel):
++    """Cytoscape 2-D node position (client-computed layout coordinates)."""
++
+     x: float
+     y: float
+ 
+ 
+ class ClaimNode(BaseModel):
++    """A cytoscape graph node: its `data` plus an optional layout `position`.
++
++    Per DECISION.md Option B, `position` is always None server-side; the client
++    computes layout in a Web Worker and populates it there.
++    """
++
+     data: NodeData
+     position: Position | None = None  # Option B: None server-side; client populates
+ 
+ 
+ class EdgeData(BaseModel):
++    """Cytoscape `data` payload for one graph edge.
++
++    `source`/`target` are node ids and `edge_type` classifies the relation
++    (`cites`, `contradicts`, or `section_member`).
++    """
++
+     id: str = Field(min_length=1, max_length=400)
+     source: str
+     target: str
+@@ -76,15 +98,26 @@ class EdgeData(BaseModel):
+ 
+ 
+ class ClaimEdge(BaseModel):
++    """A cytoscape graph edge wrapping its `EdgeData`."""
++
+     data: EdgeData
+ 
+ 
+ class GraphElements(BaseModel):
++    """The full cytoscape element set: all graph nodes and edges."""
++
+     nodes: list[ClaimNode]
+     edges: list[ClaimEdge]
+ 
+ 
+ class GraphDiagnostics(BaseModel):
++    """Bibliography-integrity counters for a graph payload.
++
++    Reports how many bibliography entries exist versus how many referenced
++    evidence ids were missing from it (both as unique fallback sources and as
++    total reference occurrences), plus the list of unknown evidence ids.
++    """
++
+     bibliography_count: int
+     fallback_source_count: int  # unique evidence_ids referenced but absent from bibliography
+     missing_reference_occurrence_count: int  # total references (with duplicates)
+@@ -92,6 +125,13 @@ class GraphDiagnostics(BaseModel):
+ 
+ 
+ class GraphPayload(BaseModel):
++    """Top-level `GET /runs/{run_id}/graph` response.
++
++    Bundles the cytoscape `elements`, the owning `run_id`, a canonical
++    `elements_hash` (SHA-256 hex of the position-stripped, id-sorted elements),
++    `diagnostics`, and a fixed `schema_version`.
++    """
++
+     elements: GraphElements
+     run_id: str = Field(min_length=1, max_length=200)
+     elements_hash: str = Field(min_length=64, max_length=64)
+diff --git a/src/polaris_graph/contracts_v3.py b/src/polaris_graph/contracts_v3.py
+index 381dd24..b38cc5c 100644
+--- a/src/polaris_graph/contracts_v3.py
++++ b/src/polaris_graph/contracts_v3.py
+@@ -39,6 +39,11 @@ class SubQuestion(BaseModel):
+     @field_validator("analytical_focus", mode="before")
+     @classmethod
+     def validate_focus(cls, v):
++        """Normalize analytical_focus to a known value, defaulting to 'explain'.
++
++        Lowercases/strips an incoming string and returns it if recognized;
++        any unrecognized or non-string input falls back to 'explain'.
++        """
+         valid = {"aggregate", "compare", "explain", "tabulate", "challenge"}
+         if isinstance(v, str) and v.lower().strip() in valid:
+             return v.lower().strip()
+@@ -47,6 +52,11 @@ class SubQuestion(BaseModel):
+     @field_validator("expected_depth", mode="before")
+     @classmethod
+     def validate_depth(cls, v):
++        """Normalize expected_depth to a known value, defaulting to 'moderate'.
++
++        Lowercases/strips an incoming string and returns it if recognized;
++        any unrecognized or non-string input falls back to 'moderate'.
++        """
+         valid = {"deep", "moderate", "brief"}
+         if isinstance(v, str) and v.lower().strip() in valid:
+             return v.lower().strip()
+@@ -115,6 +125,11 @@ class ScopeOutput(BaseModel):
+ 
+     @model_validator(mode="after")
+     def validate_minimums(self):
++        """Enforce the SCOPE floor: >= 3 sub-questions and >= 3 perspectives.
++
++        Returns self on success; raises ValueError if either minimum is unmet.
++        `search_queries` may be empty (a fallback generates them later).
++        """
+         if len(self.sub_questions) < 3:
+             raise ValueError(f"Need >= 3 sub-questions, got {len(self.sub_questions)}")
+         if len(self.perspectives) < 3:
+@@ -192,6 +207,11 @@ class OutlineSection(BaseModel):
+     @model_validator(mode="before")
+     @classmethod
+     def normalize_section_fields(cls, data):
++        """Map LLM field-name variants onto the canonical section fields.
++
++        Aliases like `section_id`/`section_title`/`question_id` are folded into
++        `id`/`title`/`sub_question_id`, and `id` is coerced to a string.
++        """
+         if isinstance(data, dict):
+             # LLM may use "section_id", "section_title", etc.
+             for alt in ("section_id", "section_number"):
+@@ -241,6 +261,10 @@ class LiveOutline(BaseModel):
+ 
+     @model_validator(mode="after")
+     def validate_sections(self):
++        """Require the outline to contain at least one section.
++
++        Returns self on success; raises ValueError on an empty outline.
++        """
+         if len(self.sections) == 0:
+             raise ValueError("Outline must have at least 1 section")
+         return self
+diff --git a/src/polaris_graph/evidence_contract/gate.py b/src/polaris_graph/evidence_contract/gate.py
+index 0553a89..4666d9a 100644
+--- a/src/polaris_graph/evidence_contract/gate.py
++++ b/src/polaris_graph/evidence_contract/gate.py
+@@ -30,6 +30,14 @@ class ContractRequiredError(Exception):
+ 
+ 
+ class GateVerdict(BaseModel):
++    """Outcome of evaluating a report against its evidence contract.
++
++    `passed` is True iff `failures` is empty. Each failure is a structured
++    `reason:detail` code (e.g. `entity_not_covered:...`,
++    `insufficient_t1_sources:...`). `contract_id`/`report_id` identify the
++    evaluated pair.
++    """
++
+     passed: bool
+     failures: list[str] = Field(default_factory=list)
+     contract_id: str
+@@ -39,6 +47,12 @@ class GateVerdict(BaseModel):
+ def assert_generation_has_contract(
+     contract: EvidenceContract | None, *, report_id: str | None = None
+ ) -> None:
++    """Guarantee a contract is present before generation proceeds.
++
++    A no-op when `contract` is provided; raises `ContractRequiredError` when it
++    is None so callers cannot run generation without a contract. `report_id`, if
++    given, is included in the error message for traceability.
++    """
+     if contract is None:
+         raise ContractRequiredError(
+             f"Evidence Contract required: generation cannot proceed without a contract"
+@@ -106,6 +120,17 @@ def _domain_matches_jurisdiction(domain: str, jurisdiction: Jurisdiction) -> boo
+ def evaluate_contract(
+     contract: EvidenceContract, pool: EvidencePool, report: VerifiedReport
+ ) -> GateVerdict:
++    """Evaluate whether a report satisfies every expectation in the contract.
++
++    Checks that each expected entity and claim is covered by kept, verifier-
++    passing sentences, that each claim's required jurisdictions are backed by a
++    citing source in a matching domain, and that cited-source tier counts meet
++    the contract's minimum coverage. Pure function (no I/O).
++
++    Returns:
++        A `GateVerdict` whose `passed` is True only when no expectation failed;
++        otherwise `failures` lists every unmet expectation as a structured code.
++    """
+     failures: list[str] = []
+     sentence_texts = _kept_sentence_texts(report)
+     blob = " ".join(sentence_texts)
+diff --git a/src/polaris_graph/evidence_contract/schema.py b/src/polaris_graph/evidence_contract/schema.py
+index 1ef2c2d..e5733d0 100644
+--- a/src/polaris_graph/evidence_contract/schema.py
++++ b/src/polaris_graph/evidence_contract/schema.py
+@@ -24,6 +24,13 @@ from pydantic import BaseModel, Field, model_validator
+ 
+ 
+ class Jurisdiction(str, Enum):
++    """Regulatory jurisdiction a claim's evidence may be required to originate from.
++
++    Members map to the authoritative-domain sets in the gate
++    (`JURISDICTION_DOMAINS`); `GLOBAL` covers cross-jurisdiction bodies (WHO,
++    Cochrane).
++    """
++
+     CA = "CA"
+     US = "US"
+     EU = "EU"
+diff --git a/src/polaris_v6/api/ambiguity.py b/src/polaris_v6/api/ambiguity.py
+index 03fc45e..0cacfea 100644
+--- a/src/polaris_v6/api/ambiguity.py
++++ b/src/polaris_v6/api/ambiguity.py
+@@ -22,11 +22,20 @@ router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+ 
+ 
+ class CandidateIn(BaseModel):
++    """One pre-fetched candidate snippet: its source id and text."""
++
+     source_id: str
+     text: str = Field(..., min_length=1, max_length=8000)
+ 
+ 
+ class AmbiguityCheckRequest(BaseModel):
++    """Request body for `POST /ambiguity`.
++
++    Carries the user `question`, caller-supplied candidate snippets (may be
++    empty), and the clustering knobs `min_cluster_size` and
++    `similarity_threshold` passed through to `detect_ambiguity`.
++    """
++
+     question: str = Field(..., min_length=4, max_length=2000)
+     candidates: list[CandidateIn] = Field(
+         ...,
+@@ -41,12 +50,21 @@ class AmbiguityCheckRequest(BaseModel):
+ 
+ 
+ class AmbiguityClusterOut(BaseModel):
++    """One detected ambiguity cluster: its id, representative text, and members."""
++
+     cluster_id: int
+     representative_text: str
+     member_source_ids: list[str]
+ 
+ 
+ class AmbiguityCheckResponse(BaseModel):
++    """Response body for `POST /ambiguity`.
++
++    `is_ambiguous` signals whether disambiguation is warranted, `clusters`
++    enumerates the detected clusters, and `fallback_used` reports whether the
++    detector fell back to its heuristic path.
++    """
++
+     is_ambiguous: bool
+     clusters: list[AmbiguityClusterOut]
+     fallback_used: bool
+@@ -54,6 +72,12 @@ class AmbiguityCheckResponse(BaseModel):
+ 
+ @router.post("", response_model=AmbiguityCheckResponse)
+ def check_ambiguity(payload: AmbiguityCheckRequest) -> AmbiguityCheckResponse:
++    """Run F2 ambiguity detection over the request's candidate snippets.
++
++    Converts the inbound candidates to detector snippets, runs
++    `detect_ambiguity` with the request's clustering knobs, and returns the
++    clusters and ambiguity verdict for the frontend disambiguation modal.
++    """
+     snippets = [
+         CandidateSnippet(source_id=c.source_id, text=c.text) for c in payload.candidates
+     ]
+diff --git a/src/polaris_v6/api/app.py b/src/polaris_v6/api/app.py
+index 83432b2..f49befb 100644
+--- a/src/polaris_v6/api/app.py
++++ b/src/polaris_v6/api/app.py
+@@ -69,6 +69,16 @@ async def _lifespan(_: FastAPI):
+ 
+ 
+ def create_app() -> FastAPI:
++    """Build and return the fully wired POLARIS v6 ASGI application.
++
++    Fails loud at construction if the auth substrate is misconfigured (LAW II,
++    unless `POLARIS_AUTH_DISABLED=1`), then mounts all v6 routers plus the
++    polaris_graph slice routers under `/api`. Real backends (retrieval fetcher,
++    generation completion, GPG signer, benchmark results root) are injected via
++    dependency overrides only when their configuring env vars are present;
++    otherwise the sentinel defaults remain and fail loud at call time rather
++    than silently degrading. CORS origins come from `POLARIS_V6_CORS_ORIGINS`.
++    """
+     # I-carney-004 LAW II: fail-loud at app construction if auth substrate
+     # is misconfigured. Skipped via POLARIS_AUTH_DISABLED=1 in tests + dev.
+     _verify_auth_startup()
+diff --git a/src/polaris_v6/api/auth.py b/src/polaris_v6/api/auth.py
+index 3c4a383..4bbc9c5 100644
+--- a/src/polaris_v6/api/auth.py
++++ b/src/polaris_v6/api/auth.py
+@@ -49,11 +49,19 @@ router = APIRouter(tags=["auth"])
+ 
+ 
+ class LoginRequest(BaseModel):
++    """Request body for `POST /auth/login`: the username and plaintext password."""
++
+     username: str
+     password: str
+ 
+ 
+ class LoginResponse(BaseModel):
++    """Response body for a successful login.
++
++    Carries the signed HS256 `access_token`, its `token_type` (`bearer`), the
++    account `role`, and `expires_in` (token lifetime in seconds).
++    """
++
+     access_token: str
+     token_type: str = "bearer"
+     role: str
+@@ -61,6 +69,8 @@ class LoginResponse(BaseModel):
+ 
+ 
+ class User(BaseModel):
++    """Authenticated principal resolved from a validated JWT: username and role."""
++
+     username: str
+     role: str
+ 
+@@ -166,6 +176,13 @@ async def require_auth(
+ 
+ @router.post("/auth/login", response_model=LoginResponse)
+ def login(payload: LoginRequest) -> LoginResponse:
++    """Authenticate against the static-accounts YAML and issue a JWT.
++
++    On a matching username with a verified bcrypt password, returns a
++    `LoginResponse` with a freshly issued token. Raises HTTPException 401 with
++    an `invalid_credentials` shape on any failure, without revealing whether the
++    username existed.
++    """
+     accounts = _load_accounts()
+     for account in accounts:
+         if account.get("username") == payload.username:
+diff --git a/src/polaris_v6/api/bundle.py b/src/polaris_v6/api/bundle.py
+index f43eb87..f21b6f5 100644
+--- a/src/polaris_v6/api/bundle.py
++++ b/src/polaris_v6/api/bundle.py
+@@ -148,6 +148,11 @@ def load_evidence_contract_for_run(run_id: str) -> EvidenceContract:
+ 
+ @router.get("/{run_id}/bundle", response_model=EvidenceContract)
+ def get_bundle(run_id: str) -> EvidenceContract:
++    """Return the F15 EvidenceContract audit bundle (JSON) for a run.
++
++    Resolves both golden fixtures and real completed runs via
++    `load_evidence_contract_for_run`; see it for the 404/422 conditions.
++    """
+     # I-cd-680: real runs now resolve to a typed EvidenceContract built from
+     # the slice-chain (was 404-with-pointer-to-bundle.tar.gz). Golden
+     # fixtures unchanged.
+diff --git a/src/polaris_v6/api/compare.py b/src/polaris_v6/api/compare.py
+index dd32a40..11d5eb7 100644
+--- a/src/polaris_v6/api/compare.py
++++ b/src/polaris_v6/api/compare.py
+@@ -14,6 +14,13 @@ router = APIRouter(prefix="/runs", tags=["compare"])
+ 
+ @router.get("/{left_run_id}/compare/{right_run_id}")
+ def get_compare(left_run_id: str, right_run_id: str) -> dict:
++    """Return a side-by-side diff of two runs' evidence contracts.
++
++    Resolves each run id (golden fixture or real completed run) to its
++    EvidenceContract and returns `compare_reports(...)` as a plain dict. Raises
++    HTTPException 400 when the two ids are identical; 404/422 propagate from
++    `load_evidence_contract_for_run`.
++    """
+     if left_run_id == right_run_id:
+         raise HTTPException(
+             status_code=400, detail="compare requires two distinct run ids"
+diff --git a/src/polaris_v6/api/followup.py b/src/polaris_v6/api/followup.py
+index f9dc03c..42bf130 100644
+--- a/src/polaris_v6/api/followup.py
++++ b/src/polaris_v6/api/followup.py
+@@ -13,11 +13,19 @@ router = APIRouter(prefix="/runs", tags=["followup"])
+ 
+ 
+ class FollowUpHttpRequest(BaseModel):
++    """Request body for `POST /runs/{run_id}/followup`: the follow-up question."""
++
+     question: str = Field(..., min_length=4, max_length=2000)
+ 
+ 
+ @router.post("/{run_id}/followup", response_model=FollowUpAnswer)
+ def post_followup(run_id: str, payload: FollowUpHttpRequest) -> FollowUpAnswer:
++    """Answer a report-scoped follow-up question against a run's evidence bundle.
++
++    Resolves the run's EvidenceContract (golden fixture or real completed run)
++    and returns the follow-up agent's answer scoped to that parent report.
++    404/422 propagate from `load_evidence_contract_for_run`.
++    """
+     # I-cd-680: resolves golden fixtures AND real completed runs (was
+     # fixture-only → real runs 404).
+     bundle = load_evidence_contract_for_run(run_id)
+diff --git a/src/polaris_v6/api/health.py b/src/polaris_v6/api/health.py
+index 09c646e..df1e8e0 100644
+--- a/src/polaris_v6/api/health.py
++++ b/src/polaris_v6/api/health.py
+@@ -9,10 +9,13 @@ router = APIRouter(tags=["health"])
+ 
+ 
+ class HealthResponse(BaseModel):
++    """Health-probe payload: liveness `status` plus the running package `version`."""
++
+     status: str
+     version: str
+ 
+ 
+ @router.get("/health", response_model=HealthResponse)
+ def health() -> HealthResponse:
++    """Liveness/readiness probe returning `status: ok` and the package version."""
+     return HealthResponse(status="ok", version=__version__)
+diff --git a/src/polaris_v6/api/memory.py b/src/polaris_v6/api/memory.py
+index 900d6bc..0573b55 100644
+--- a/src/polaris_v6/api/memory.py
++++ b/src/polaris_v6/api/memory.py
+@@ -26,6 +26,12 @@ _store = SqliteWorkspaceMemoryStore()
+ 
+ 
+ class RememberRequest(BaseModel):
++    """Request body for storing a memory entry.
++
++    Carries the entry `kind`, its `content`, and optional `derived_from_run_ids`
++    that provenance-link the memory to the runs it was distilled from.
++    """
++
+     kind: MemoryKind
+     content: str = Field(..., min_length=4, max_length=4000)
+     derived_from_run_ids: list[str] = Field(default_factory=list)
+@@ -35,6 +41,7 @@ class RememberRequest(BaseModel):
+     "/{workspace_id}/memory", response_model=MemoryEntry, status_code=201
+ )
+ def remember(workspace_id: str, payload: RememberRequest) -> MemoryEntry:
++    """Persist a new memory entry into the given workspace and return it (201)."""
+     return _store.remember(
+         workspace_id=workspace_id,
+         kind=payload.kind,
+@@ -44,6 +51,12 @@ def remember(workspace_id: str, payload: RememberRequest) -> MemoryEntry:
+ 
+ 
+ class RecallRequest(BaseModel):
++    """Request body for recalling workspace memory.
++
++    `query_text` is matched against stored entries; `kinds` optionally restricts
++    the search to specific memory kinds, and `top_k` caps the number of results.
++    """
++
+     query_text: str = Field(..., min_length=1, max_length=2000)
+     kinds: list[MemoryKind] | None = None
+     top_k: int = Field(default=5, ge=1, le=50)
+@@ -54,6 +67,7 @@ class RecallRequest(BaseModel):
+     response_model=list[MemoryRecallResult],
+ )
+ def recall(workspace_id: str, payload: RecallRequest) -> list[MemoryRecallResult]:
++    """Recall the top-k memory entries in a workspace matching the query."""
+     return _store.recall(
+         MemoryQuery(
+             workspace_id=workspace_id,
+@@ -66,6 +80,11 @@ def recall(workspace_id: str, payload: RecallRequest) -> list[MemoryRecallResult
+ 
+ @router.delete("/{workspace_id}/memory/{entry_id}", status_code=204)
+ def forget(workspace_id: str, entry_id: str) -> None:
++    """Delete a memory entry from a workspace (204 on success).
++
++    Raises HTTPException 404 when no entry with `entry_id` exists in the
++    given workspace.
++    """
+     if not _store.forget(workspace_id=workspace_id, entry_id=entry_id):
+         raise HTTPException(
+             status_code=404,
+@@ -76,4 +95,5 @@ def forget(workspace_id: str, entry_id: str) -> None:
+ 
+ @router.get("/{workspace_id}/memory", response_model=list[MemoryEntry])
+ def list_workspace(workspace_id: str) -> list[MemoryEntry]:
++    """Return all memory entries stored in the given workspace."""
+     return _store.list_workspace(workspace_id)
+diff --git a/src/polaris_v6/api/pins.py b/src/polaris_v6/api/pins.py
+index 7159d57..810e516 100644
+--- a/src/polaris_v6/api/pins.py
++++ b/src/polaris_v6/api/pins.py
+@@ -132,6 +132,12 @@ def _qualifies(run: RunStatusResponse) -> bool:
+ 
+ @router.get("/{run_id}/pins", response_model=list[PinSnapshot])
+ def list_pins(run_id: str) -> list[PinSnapshot]:
++    """Return the pin timeline for a run's query (chronological PinSnapshots).
++
++    Synthesizes one PinSnapshot per qualifying completed run sharing the anchor
++    run's `query_slug`. Raises HTTPException 404 when the run is unknown or has
++    no `query_slug` yet (pipeline not completed).
++    """
+     anchor = run_store.get_run(run_id)
+     if anchor is None:
+         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found.")
+@@ -158,6 +164,12 @@ def get_pin_by_date(
+     run_id: str,
+     date: str,
+ ) -> PinSnapshot:
++    """Return the single PinSnapshot for a run finished on the given date.
++
++    `date` must be `YYYY-MM-DD` and match the run's `finished_at[:10]`. Raises
++    HTTPException 422 on a malformed date, and 404 when the run is not
++    pin-eligible, finished on a different date, or has no readable manifest.
++    """
+     if len(date) != 10 or date[4] != "-" or date[7] != "-":
+         raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+     run = run_store.get_run(run_id)
+diff --git a/src/polaris_v6/api/runs.py b/src/polaris_v6/api/runs.py
+index 5e0170b..358ba93 100644
+--- a/src/polaris_v6/api/runs.py
++++ b/src/polaris_v6/api/runs.py
+@@ -80,6 +80,17 @@ def _resolve_uploaded_documents(document_ids: list[str]) -> list[dict]:
+ 
+ @router.post("", response_model=RunStatusResponse, status_code=202)
+ def create_run(payload: RunRequest) -> RunStatusResponse:
++    """Create, persist, and enqueue a research run (202 Accepted).
++
++    Resolves any uploaded `document_ids` to content first (fail-loud on missing
++    or unparsed uploads), then atomically inserts the run under the
++    1-concurrent-session gate and enqueues the Dramatiq actor.
++
++    Raises:
++        HTTPException 400: an uploaded document is missing or has no text.
++        HTTPException 409: another research run is already active, or a uuid clash.
++        HTTPException 503: the store is unavailable or enqueue failed (run marked failed).
++    """
+     # I-rdy-010: resolve uploads BEFORE insert_run/enqueue so a bad
+     # document_id fails loud here instead of orphaning a queued run.
+     uploaded_documents = _resolve_uploaded_documents(payload.document_ids)
+@@ -161,6 +172,10 @@ def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusRespo
+ 
+ @router.get("/{run_id}", response_model=RunStatusResponse)
+ def get_run(run_id: str) -> RunStatusResponse:
++    """Return the current status record for a run.
++
++    Raises HTTPException 404 when no run with `run_id` exists.
++    """
+     record = run_store.get_run(run_id)
+     if record is None:
+         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+diff --git a/src/polaris_v6/api/scope.py b/src/polaris_v6/api/scope.py
+index 798e3bc..8afe67d 100644
+--- a/src/polaris_v6/api/scope.py
++++ b/src/polaris_v6/api/scope.py
+@@ -12,10 +12,13 @@ router = APIRouter(prefix="/scope", tags=["scope"])
+ 
+ 
+ class ScopeCheckRequest(BaseModel):
++    """Request body for `POST /scope/check`: the chosen template and question."""
++
+     template: TemplateId
+     question: str = Field(..., min_length=1, max_length=2000)
+ 
+ 
+ @router.post("/check", response_model=ScopeDecision)
+ def check_scope(payload: ScopeCheckRequest) -> ScopeDecision:
++    """Classify a question against a template and return its ScopeDecision."""
+     return classify_scope(payload.template, payload.question)
+diff --git a/src/polaris_v6/api/templates.py b/src/polaris_v6/api/templates.py
+index 75e655f..266c85f 100644
+--- a/src/polaris_v6/api/templates.py
++++ b/src/polaris_v6/api/templates.py
+@@ -19,6 +19,11 @@ router = APIRouter(prefix="/templates", tags=["templates"])
+ 
+ @router.get("", response_model=list[TemplateContent])
+ def list_all() -> list[TemplateContent]:
++    """Return all loadable v6 templates from the registry.
++
++    Templates that fail to load are silently skipped so one malformed file
++    does not break the whole selector.
++    """
+     out: list[TemplateContent] = []
+     for tid in list_template_ids():
+         try:
+@@ -30,6 +35,10 @@ def list_all() -> list[TemplateContent]:
+ 
+ @router.get("/{template_id}", response_model=TemplateContent)
+ def get_one(template_id: str) -> TemplateContent:
++    """Return one template by id.
++
++    Raises HTTPException 404 when no template with `template_id` exists.
++    """
+     try:
+         return load_template(template_id)
+     except FileNotFoundError as exc:
+diff --git a/src/polaris_v6/api/transparency.py b/src/polaris_v6/api/transparency.py
+index 1e639ec..7cae0fd 100644
+--- a/src/polaris_v6/api/transparency.py
++++ b/src/polaris_v6/api/transparency.py
+@@ -252,6 +252,11 @@ class PolicyResponse(BaseModel):
+ 
+ @router.get("/policy", response_model=PolicyResponse)
+ def policy() -> PolicyResponse:
++    """Return the full sovereignty + egress policy descriptor.
++
++    Bundles the policy version, sovereignty filter, current egress allowlist,
++    and the host/Docker enforcement layers that enforce it.
++    """
+     return PolicyResponse(
+         version=POLICY_VERSION,
+         sovereignty_filter=_sovereignty_policy(),
+diff --git a/src/polaris_v6/api/upload.py b/src/polaris_v6/api/upload.py
+index 91825a4..b105bf0 100644
+--- a/src/polaris_v6/api/upload.py
++++ b/src/polaris_v6/api/upload.py
+@@ -95,6 +95,14 @@ async def _extract_text_local(content: bytes, ext: str) -> str:
+ 
+ 
+ class UploadResponse(BaseModel):
++    """Result of an upload: the stored document's identity, parse state, and content.
++
++    `parse_status` reflects whether text was extracted (`completed`) or the
++    format is deferred to downstream parsing (`queued`); `chunk_preview` holds
++    the leading preview chunks, and `content`/`html` carry the extracted text
++    and an escaped HTML rendering when available.
++    """
++
+     document_id: str
+     filename: str
+     bytes: int
+@@ -142,6 +150,17 @@ async def upload_document(
+     file: UploadFile,
+     classification: DataClassification = Form("UNKNOWN"),
+ ) -> UploadResponse:
++    """Accept a document upload, extract its text, and register it (201 Created).
++
++    Validates extension and size, then routes text extraction by the configured
++    `PG_DOC_INGEST_BACKEND`: `.md`/`.txt` decode directly, `local` parses
++    PDF/DOCX via DocumentIngester, and VLM backends fail loud until enabled.
++
++    Raises:
++        HTTPException 400: missing filename or unknown ingest backend.
++        HTTPException 413/415/422: oversized, unsupported extension, or empty/unparsable file.
++        HTTPException 501: an operator-gated VLM-OCR backend is selected but not enabled.
++    """
+     if file.filename is None:
+         raise HTTPException(status_code=400, detail="filename required")
+ 
+@@ -246,6 +265,10 @@ async def upload_document(
+ 
+ @router.get("/{document_id}", response_model=UploadResponse)
+ def get_upload(document_id: str) -> UploadResponse:
++    """Return a previously uploaded document by id.
++
++    Raises HTTPException 404 when no document with `document_id` is registered.
++    """
+     record = _UPLOAD_TABLE.get(document_id)
+     if record is None:
+         raise HTTPException(status_code=404, detail=f"document {document_id!r} not found")
+diff --git a/src/polaris_v6/schemas/run_request.py b/src/polaris_v6/schemas/run_request.py
+index fbc9ff4..0293d71 100644
+--- a/src/polaris_v6/schemas/run_request.py
++++ b/src/polaris_v6/schemas/run_request.py
+@@ -19,6 +19,12 @@ TemplateId = Literal[
+ 
+ 
+ class RunRequest(BaseModel):
++    """Request body for `POST /runs`.
++
++    Carries the chosen `template` (one of the 8 locked templates), the research
++    `question`, and up to 20 optional uploaded `document_ids` to ground the run.
++    """
++
+     template: TemplateId = Field(
+         ...,
+         description="One of the 8 locked templates per docs/blockers.md §10.",
+diff --git a/src/polaris_v6/schemas/run_status.py b/src/polaris_v6/schemas/run_status.py
+index 20c97d4..2d6e05a 100644
+--- a/src/polaris_v6/schemas/run_status.py
++++ b/src/polaris_v6/schemas/run_status.py
+@@ -75,6 +75,16 @@ RunStatus = LifecycleStatus
+ 
+ 
+ class RunStatusResponse(BaseModel):
++    """Status record for a run, returned by the runs/status endpoints.
++
++    Separates the operational `lifecycle_status` (queued → in_progress →
++    completed|failed|cancelled) from `pipeline_status` (the pipeline-A manifest
++    verdict, NULL until a terminal pipeline state). Optional fields carry timing,
++    result/error payloads, slug/artifact mapping, cost, and cancellation state.
++    The deprecated `status` computed field mirrors `lifecycle_status` for
++    backcompat.
++    """
++
+     run_id: str = Field(..., description="Server-assigned UUID hex.")
+     lifecycle_status: LifecycleStatus = Field(
+         ...,
