@@ -118,3 +118,15 @@ def test_finalize_is_terminal(tmp_path):
 def test_missing_cassette_is_an_error(tmp_path):
     with pytest.raises(CassetteError, match="not found"):
         Cassette(tmp_path / "nope.jsonl", "replay")
+
+
+def test_record_returns_canonical_copy_symmetric_with_replay(tmp_path):
+    tape = tmp_path / "t.jsonl"
+    live_obj = {"content": "hi", "n": 1}
+    with Cassette(tape, "record") as c:
+        got = c.call("llm", {"p": "x"}, lambda: live_obj, call_id="a")
+    assert got == live_obj and got is not live_obj, "record returns a fresh copy, not the live object"
+    got["content"] = "MUT"  # mutating the returned value must not corrupt the tape
+    with Cassette(tape, "replay") as c:
+        rep = c.call("llm", {"p": "x"}, _fake([]), call_id="a")
+    assert rep == {"content": "hi", "n": 1}, "replay unaffected by mutation of record's return"

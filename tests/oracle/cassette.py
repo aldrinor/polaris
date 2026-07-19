@@ -138,11 +138,15 @@ class Cassette:
                     )
                 self._entries[key] = _PENDING     # reserve so finalize cannot omit an in-flight call
             response = live_fn()                  # outside the lock
+            resp_snap = _deepcopy_json(response)  # canonical snapshot
             entry = {"method": method, "args": args_snap, "call_id": call_id,
-                     "response": _deepcopy_json(response)}
+                     "response": resp_snap}
             with self._lock:
                 self._entries[key] = entry
-            return response
+            # Return a fresh canonical copy in record mode too, so the downstream pipeline sees the
+            # SAME normalized object shape it will see under replay (record/replay symmetry — no
+            # dict-order / aliasing / json-subclass drift between the two modes).
+            return _deepcopy_json(resp_snap)
         # replay
         with self._lock:
             if self._sealed:
