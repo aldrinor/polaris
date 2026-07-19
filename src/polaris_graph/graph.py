@@ -33,13 +33,14 @@ from src.polaris_graph.llm.openrouter_client import (
 )
 from src.polaris_graph.state import ResearchState, create_initial_state
 from src.polaris_graph.tracing import PipelineTracer, get_tracer
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 # Output directory
-OUTPUT_DIR = Path(os.getenv("PG_OUTPUT_DIR", "outputs/polaris_graph"))
+OUTPUT_DIR = Path(resolve("PG_OUTPUT_DIR"))
 
 
 def build_graph() -> StateGraph:
@@ -88,7 +89,7 @@ def build_graph() -> StateGraph:
                 perspective_coverage=result.get("perspective_distribution", {}))
 
         # MEM-2b: Query session feedback for best strategies
-        feedback_enabled = os.getenv("PG_SESSION_FEEDBACK_ENABLED", "0") == "1"
+        feedback_enabled = resolve("PG_SESSION_FEEDBACK_ENABLED") == "1"
         if feedback_enabled:
             try:
                 from src.polaris_graph.memory.session_feedback import get_best_strategies
@@ -103,7 +104,7 @@ def build_graph() -> StateGraph:
                 logger.debug("[polaris graph] MEM-2b: strategy query failed: %s", str(exc)[:200])
 
         # MEM-3b: Query LTM for relevant prior knowledge
-        ltm_enabled = os.getenv("PG_CROSS_VECTOR_LTM_ENABLED", "0") == "1"
+        ltm_enabled = resolve("PG_CROSS_VECTOR_LTM_ENABLED") == "1"
         if ltm_enabled:
             try:
                 from src.polaris_graph.memory.cross_vector import query_ltm
@@ -336,7 +337,7 @@ def build_graph() -> StateGraph:
         # FIX-RC5a: Cap accumulated evidence to prevent unbounded growth.
         # Sort by quality tier (GOLD > SILVER > BRONZE) then relevance DESC.
         # FIX-P5: Reserve 20% of evidence slots for academic sources.
-        pg_max_ev_verify = int(os.getenv("PG_MAX_EVIDENCE_FOR_VERIFY", "1500"))
+        pg_max_ev_verify = int(resolve("PG_MAX_EVIDENCE_FOR_VERIFY"))
         if len(result["evidence"]) > pg_max_ev_verify:
             tier_order = {"GOLD": 0, "SILVER": 1, "BRONZE": 2}
             _sort_key = lambda e: (
@@ -368,7 +369,7 @@ def build_graph() -> StateGraph:
             )
 
         # MEM-2: Record source-level feedback for session learning
-        feedback_enabled = os.getenv("PG_SESSION_FEEDBACK_ENABLED", "0") == "1"
+        feedback_enabled = resolve("PG_SESSION_FEEDBACK_ENABLED") == "1"
         if feedback_enabled and unique_new:
             try:
                 from src.polaris_graph.memory.session_feedback import record_feedback
@@ -464,7 +465,7 @@ def build_graph() -> StateGraph:
             # FIX-RISK-FILTER: never drop risk-axis evidence at this gate when the
             # query is about risks/adverse; it is already rare and has been
             # explicitly retained by the analyzer's risk-axis override.
-            verify_relevance_gate = float(os.getenv("PG_VERIFY_RELEVANCE_GATE", "0"))
+            verify_relevance_gate = float(resolve("PG_VERIFY_RELEVANCE_GATE"))
             query_l_risk = (state.get("query", "") or "").lower()
             risk_query_preverify = any(
                 kw in query_l_risk
@@ -569,7 +570,7 @@ def build_graph() -> StateGraph:
             from src.polaris_graph.agents.cross_reference import (
                 compute_cross_references,
             )
-            cross_ref_enabled = os.getenv("PG_CROSS_REF_ENABLED", "0") == "1"
+            cross_ref_enabled = resolve("PG_CROSS_REF_ENABLED") == "1"
             if cross_ref_enabled:
                 evidence_for_xref = state.get("evidence", [])
                 xref_groups = compute_cross_references(evidence_for_xref)
@@ -605,7 +606,7 @@ def build_graph() -> StateGraph:
         # FIX-051: Map NLI verification scores back to evidence pieces.
         # claim_id == evidence_id (nli_verifier.py:727-729). This makes Signal 5
         # (Factual Grounding, 20% of tier composite) active on iteration 2+.
-        cross_weight = float(os.getenv("PG_NLI_CROSS_SOURCE_WEIGHT", "0.6"))
+        cross_weight = float(resolve("PG_NLI_CROSS_SOURCE_WEIGHT"))
         evidence_for_enrich = state.get("evidence", [])
         claims_for_mapping = result.get("claims", [])
         enriched_count = _map_nli_scores_to_evidence(
@@ -807,7 +808,7 @@ def build_graph() -> StateGraph:
             client_holder["_snapshot"]["evidence"] = result["evidence"]
 
         # MEM-1b: Perspective gap detection from evidence hierarchy
-        hierarchy_read_enabled = os.getenv("PG_EVIDENCE_HIERARCHY_READ_ENABLED", "0") == "1"
+        hierarchy_read_enabled = resolve("PG_EVIDENCE_HIERARCHY_READ_ENABLED") == "1"
         if hierarchy_read_enabled:
             try:
                 from src.polaris_graph.memory.evidence_hierarchy import get_by_perspective
@@ -872,7 +873,7 @@ def build_graph() -> StateGraph:
         state["timestamps"]["synthesize_start"] = _now()
 
         # PL: Wiki-based synthesis (Karpathy LLM Wiki pattern)
-        wiki_enabled = os.getenv("PG_WIKI_ENABLED", "0") == "1"
+        wiki_enabled = resolve("PG_WIKI_ENABLED") == "1"
         if wiki_enabled:
             from src.polaris_graph.wiki.wiki_builder import (
                 build_wiki,
@@ -955,7 +956,7 @@ def build_graph() -> StateGraph:
                 )
 
         # MEM-3: Promote verified evidence to LTM-Global
-        ltm_enabled = os.getenv("PG_CROSS_VECTOR_LTM_ENABLED", "0") == "1"
+        ltm_enabled = resolve("PG_CROSS_VECTOR_LTM_ENABLED") == "1"
         if ltm_enabled:
             try:
                 from src.polaris_graph.memory.cross_vector import promote_to_ltm
@@ -968,7 +969,7 @@ def build_graph() -> StateGraph:
                 logger.warning("[polaris graph] MEM-3: LTM promotion failed: %s", str(ltm_exc)[:200])
 
         # A5: Smart art diagram generation (Mermaid.js)
-        smart_art_enabled = os.getenv("PG_SMART_ART_ENABLED", "1") == "1"
+        smart_art_enabled = resolve("PG_SMART_ART_ENABLED") == "1"
         if smart_art_enabled and result.get("sections") and result.get("final_report"):
             try:
                 from src.polaris_graph.synthesis.smart_art_generator import SmartArtGenerator
@@ -1079,9 +1080,9 @@ def build_graph() -> StateGraph:
         evidence_list = state.get("evidence", [])
         evidence_count = len(evidence_list)
 
-        fast_exit_faith = float(os.getenv("PG_FAST_EXIT_FAITHFULNESS", "0.85"))
-        fast_exit_evidence = int(os.getenv("PG_FAST_EXIT_EVIDENCE_COUNT", "200"))
-        fast_exit_sources = int(os.getenv("PG_FAST_EXIT_UNIQUE_SOURCES", "15"))
+        fast_exit_faith = float(resolve("PG_FAST_EXIT_FAITHFULNESS"))
+        fast_exit_evidence = int(resolve("PG_FAST_EXIT_EVIDENCE_COUNT"))
+        fast_exit_sources = int(resolve("PG_FAST_EXIT_UNIQUE_SOURCES"))
 
         # Compute unique sources from evidence source URLs
         unique_source_urls = {
@@ -1126,8 +1127,8 @@ def build_graph() -> StateGraph:
             return "synthesize"
 
         # FIX-LOOP: Break positive feedback loop when quality is sufficient
-        faith_threshold = float(os.getenv("PG_FAITH_ITERATE_THRESHOLD", "0.75"))
-        faith_min_evidence = int(os.getenv("PG_FAITH_MIN_EVIDENCE_FOR_SKIP", "500"))
+        faith_threshold = float(resolve("PG_FAITH_ITERATE_THRESHOLD"))
+        faith_min_evidence = int(resolve("PG_FAITH_MIN_EVIDENCE_FOR_SKIP"))
 
         if faithfulness >= faith_threshold and evidence_count >= faith_min_evidence:
             logger.info(
@@ -1292,7 +1293,7 @@ async def build_and_run(
     region: str,
     stage: int = 1,
     max_iterations: int = 3,
-    max_execution_minutes: int = int(os.getenv("PG_MAX_EXECUTION_MINUTES", "60")),
+    max_execution_minutes: int = int(resolve("PG_MAX_EXECUTION_MINUTES")),
     resume: bool = False,
     enable_dashboard: bool = True,
     document_ids: list[str] | None = None,
@@ -1307,7 +1308,7 @@ async def build_and_run(
     AREA-7: Uses astream() for real-time progress updates via Rich dashboard.
     AREA-8: Uses SQLite checkpointer for crash recovery and resume.
     """
-    budget_limit = float(os.getenv("PG_BUDGET_GUARD_USD", "150.0"))
+    budget_limit = float(resolve("PG_BUDGET_GUARD_USD"))
 
     logger.info(
         "[polaris graph] Starting research: vector=%s, query='%s', "
@@ -1418,7 +1419,7 @@ async def build_and_run(
     graph = build_graph()
 
     # AREA-8: Setup checkpointer (async context manager)
-    checkpoint_enabled = os.getenv("PG_CHECKPOINT_ENABLED", "0") == "1"
+    checkpoint_enabled = resolve("PG_CHECKPOINT_ENABLED") == "1"
     checkpoint_cm = None
     thread_id = None
     if checkpoint_enabled:
@@ -1461,7 +1462,7 @@ async def build_and_run(
     # Create and inject client (FIX-F2: pass session_id for cost ledger tagging)
     # W3.12: Wire PG_BUDGET_GUARD_USD through to client so cost guard actually fires.
     # PG_LOOPBACK_MODE=1: route every LLM call to disk for human-in-the-loop testing.
-    if os.getenv("PG_LOOPBACK_MODE", "0") == "1":
+    if resolve("PG_LOOPBACK_MODE") == "1":
         from src.polaris_graph.llm.loopback_client import LoopbackLLMClient
         _client_cls = LoopbackLLMClient
         logger.warning(
@@ -1503,8 +1504,8 @@ async def build_and_run(
             # A2: Parse interrupt_before/interrupt_after for checkpoint snapshots.
             # When PG_AUTO_RESUME=1 (default), interrupts create checkpoint
             # snapshots but execution auto-resumes — no manual intervention needed.
-            _interrupt_before_raw = os.getenv("PG_INTERRUPT_BEFORE", "")
-            _interrupt_after_raw = os.getenv("PG_INTERRUPT_AFTER", "")
+            _interrupt_before_raw = resolve("PG_INTERRUPT_BEFORE")
+            _interrupt_after_raw = resolve("PG_INTERRUPT_AFTER")
             if checkpointer and _interrupt_before_raw:
                 _interrupt_nodes = [
                     n.strip() for n in _interrupt_before_raw.split(",") if n.strip()
@@ -1703,8 +1704,8 @@ async def _run_with_stream(
     warned_timeout = False
 
     # A2: PG_AUTO_RESUME — when True, auto-resume through interrupt points
-    _pg_auto_resume = os.getenv("PG_AUTO_RESUME", "1") == "1"
-    _pg_max_auto_resumes = int(os.getenv("PG_MAX_AUTO_RESUMES", "20"))
+    _pg_auto_resume = resolve("PG_AUTO_RESUME") == "1"
+    _pg_max_auto_resumes = int(resolve("PG_MAX_AUTO_RESUMES"))
 
     try:
         # AREA-7: astream with updates mode — yields state changes per-node
@@ -1752,7 +1753,7 @@ async def _run_with_stream(
                 # safety net, not the primary completion mechanism.
                 # Multiplier is env-controlled so operators can tighten to 1.0 for strict caps.
                 elapsed = time.monotonic() - start_time
-                _hard_stop_mult = max(1.0, float(os.getenv("PG_HARD_STOP_MULTIPLIER", "2.0")))
+                _hard_stop_mult = max(1.0, float(resolve("PG_HARD_STOP_MULTIPLIER")))
                 warning_threshold = max_execution_minutes * 60
                 hard_stop_threshold = max_execution_minutes * 60 * _hard_stop_mult
 
@@ -1946,7 +1947,7 @@ async def _wiki_or_legacy_synthesize(client: Any, state_dict: dict) -> dict:
     Handles outline generation for wiki path (outline is normally created
     inside synthesize_report, which wiki replaces).
     """
-    if os.getenv("PG_WIKI_ENABLED", "0") == "1":
+    if resolve("PG_WIKI_ENABLED") == "1":
         from src.polaris_graph.wiki.wiki_builder import (
             build_wiki,
             generate_outline_for_wiki,
@@ -1954,7 +1955,7 @@ async def _wiki_or_legacy_synthesize(client: Any, state_dict: dict) -> dict:
         from src.polaris_graph.wiki.wiki_composer import compose_from_wiki
 
         # Phase 2: Deep crawl expansion (optional, runs before wiki build)
-        if os.getenv("PG_DEEP_CRAWL_ENABLED", "0") == "1":
+        if resolve("PG_DEEP_CRAWL_ENABLED") == "1":
             try:
                 from src.polaris_graph.wiki.wiki_crawl import deep_crawl
                 logger.info("[polaris graph] Deep crawl enabled — expanding source pool")
@@ -2191,7 +2192,7 @@ def run_sync(
     region: str,
     stage: int = 1,
     max_iterations: int = 3,
-    max_execution_minutes: int = int(os.getenv("PG_MAX_EXECUTION_MINUTES", "60")),
+    max_execution_minutes: int = int(resolve("PG_MAX_EXECUTION_MINUTES")),
     resume: bool = False,
     enable_dashboard: bool = True,
 ) -> ResearchState:
@@ -2237,7 +2238,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-iterations", type=int, default=3, help="Max iterations")
     parser.add_argument(
         "--max-minutes", type=int,
-        default=int(os.getenv("PG_MAX_EXECUTION_MINUTES", "60")),
+        default=int(resolve("PG_MAX_EXECUTION_MINUTES")),
         help="Max execution minutes (default: PG_MAX_EXECUTION_MINUTES env or 60)",
     )
     parser.add_argument(

@@ -64,6 +64,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -1375,7 +1376,7 @@ def classify_source_tier(
         Takes PRECEDENCE over PG_USE_AUTHORITY_MODEL when both are set. Lazy import
         keeps the OFF path free of the LLM caller + httpx.
     """
-    if os.getenv("PG_CREDIBILITY_LLM_TIERING", "0").strip().lower() in (
+    if resolve("PG_CREDIBILITY_LLM_TIERING").strip().lower() in (
         "1", "true", "yes", "on",
     ):
         from src.polaris_graph.retrieval.credibility_llm_tiering import (
@@ -1383,7 +1384,7 @@ def classify_source_tier(
         )
 
         result = classify_source_tier_llm(signals)
-    elif os.getenv("PG_USE_AUTHORITY_MODEL", "0").lower() in ("1", "true", "yes"):
+    elif resolve("PG_USE_AUTHORITY_MODEL").lower() in ("1", "true", "yes"):
         result = _classify_via_authority_model(signals)
     else:
         result = _classify_source_tier_rules(signals)

@@ -1,0 +1,48 @@
+# Deep Cove Research — tooling configuration.
+# Introduced in Phase 0 (code-review readiness). INFORMATIONAL for now: CI runs these
+# report-only and does not block. pytest configuration intentionally remains in pytest.ini
+# (do NOT duplicate it here — that would change test-collection behavior).
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "scripts"]
+extend-exclude = ["third_party", "outputs", "baseline", ".venv"]
+
+[tool.ruff.lint]
+# Phase 0 is report-only. We select a broad set but ignore the high-volume "missing docstring"
+# codes (tracked separately by interrogate) so the signal is actionable, not a wall of noise.
+select = ["E", "F", "I", "B", "UP", "D", "DOC"]
+ignore = [
+  "E501",  # line length — not enforced during Phase 0
+  "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",  # missing docstrings: see [tool.interrogate]
+  "B008",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "DOC"]
+"scripts/**" = ["D", "DOC"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/polaris_graph"]
+ignore_missing_imports = true
+follow_imports = "silent"
+# Lenient during Phase 0 — the goal is to get mypy RUNNING in CI, then ratchet later.
+check_untyped_defs = false
+warn_unused_ignores = false
+no_implicit_optional = true
+
+[tool.interrogate]
+# Docstring-coverage gate. Floor is intentionally low during Phase 0 (informational);
+# ratchet upward toward 85–95 in Phase 3 once the ~530 gaps are backfilled.
+fail-under = 50
+exclude = ["tests", "scripts", "third_party", "outputs", "baseline"]
+ignore-init-method = true
+ignore-magic = true
+ignore-private = true
+ignore-nested-functions = true
+verbose = 1

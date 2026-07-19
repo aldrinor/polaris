@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import os
 import re
+from src.polaris_graph.settings import resolve
 
 # Numeric citation markers as they appear in a FINAL rendered report.md:
 # ``[12]``, ``[12, 13]``, ``[12-14]``. Used both to strip citations before
@@ -118,7 +119,7 @@ def _refheader_strict_enabled() -> bool:
     """True iff PG_DEDUP_REFHEADER_STRICT is set to an explicit truthy value.
     Default (unset / empty / 0 / false / no / off) is OFF => byte-identical: the
     back_matter latch keeps its legacy loose-regex behaviour when this is OFF."""
-    return os.getenv("PG_DEDUP_REFHEADER_STRICT", "").strip().lower() in (
+    return resolve("PG_DEDUP_REFHEADER_STRICT").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -133,7 +134,7 @@ def _refheader_max_heading_len() -> int:
     TITLE that merely CONTAINS "...literature sources...". Default 80 comfortably admits
     every real variant while rejecting the long title. Env PG_DEDUP_REFHEADER_MAX_LEN."""
     try:
-        n = int(os.getenv("PG_DEDUP_REFHEADER_MAX_LEN", "80"))
+        n = int(resolve("PG_DEDUP_REFHEADER_MAX_LEN"))
     except (TypeError, ValueError):
         return 80
     return n if n > 0 else 80
