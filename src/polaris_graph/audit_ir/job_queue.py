@@ -414,6 +414,19 @@ class JobQueue:
         return self._must_get(job_id)
 
     def mark_completed(self, job_id: str, artifact_dir: str | None = None) -> Job:
+        """Guarded ``running`` -> ``completed`` transition.
+
+        CONTRACT: the UPDATE fires only ``WHERE status='running'``, so the
+        transition is atomic and idempotency-safe against a concurrent worker. If
+        ``rowcount == 0`` the guard disambiguates the cause with a follow-up
+        read: an unknown ``job_id`` and a job in the wrong state both fail, but
+        with distinct :class:`JobQueueError` messages (``unknown job`` vs
+        ``status=... not running``). A job already completed/failed/cancelled
+        therefore cannot be re-completed.
+
+        Returns the refreshed :class:`Job`. Raises :class:`JobQueueError` when the
+        job is unknown or not currently ``running``.
+        """
         with self._connect() as conn:
             now = time.time()
             cursor = conn.execute(
@@ -455,6 +468,17 @@ class JobQueue:
         return self._must_get(job_id)
 
     def mark_failed(self, job_id: str, error: str) -> Job:
+        """Guarded ``running`` -> ``failed`` transition (mirrors ``mark_completed``).
+
+        CONTRACT: the UPDATE fires only ``WHERE status='running'`` and records the
+        ``error`` string. If ``rowcount == 0`` the same follow-up-read guard
+        distinguishes an unknown ``job_id`` from a wrong-state job, each raising
+        :class:`JobQueueError` with a distinct message. A non-running job cannot
+        be marked failed.
+
+        Returns the refreshed :class:`Job`. Raises :class:`JobQueueError` when the
+        job is unknown or not currently ``running``.
+        """
         with self._connect() as conn:
             now = time.time()
             cursor = conn.execute(

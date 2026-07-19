@@ -375,6 +375,17 @@ class OpaquePlan:
     excluded_records: list[dict[str, Any]] = field(default_factory=list)
 
     def is_empty(self) -> bool:
+        """True iff this plan carries no effect on the seam (a no-op / inert plan).
+
+        CONTRACT (deliberate asymmetry): emptiness is decided from
+        ``eligibility_excluded_ids``, ``url_to_weight`` and ``receipts`` ONLY.
+        ``excluded_records`` is intentionally NOT consulted — a plan whose only
+        content is disclosure records (no actual masks, weights, or receipts) is
+        still "empty" because it changes nothing about the citable menu or
+        ordering. Callers use this as a short-circuit to skip merging an inert
+        plan; do not read a non-empty ``excluded_records`` as making the plan
+        active.
+        """
         return not (
             self.eligibility_excluded_ids
             or self.url_to_weight

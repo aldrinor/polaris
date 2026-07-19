@@ -178,6 +178,17 @@ class PrecisionMetrics:
         abstain_precision_floor: float = 0.80,
         operator_review_ceiling: float = 0.30,
     ) -> bool:
+        """Acceptance gate for an auto-induced keyword ruleset.
+
+        CONTRACT: returns ``True`` only when ALL five thresholds hold together —
+        ``precision >= precision_floor``, ``silent_disagreement_rate <=
+        silent_disagreement_ceiling``, ``abstain_recall >= abstain_recall_floor``,
+        ``abstain_precision >= abstain_precision_floor``, and
+        ``operator_review_load <= operator_review_ceiling``. A single breach fails
+        the gate, so an induced ruleset is admitted only if it is precise, rarely
+        silently wrong, abstains reliably, and does not overload operator review.
+        Pure boolean; never raises.
+        """
         return (
             self.precision >= precision_floor
             and self.silent_disagreement_rate <= silent_disagreement_ceiling

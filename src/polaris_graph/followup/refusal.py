@@ -32,6 +32,19 @@ class RefusalDecision:
 def detect_out_of_scope(
     parent_template: str, follow_up: str, *, min_overlap: int = 1
 ) -> RefusalDecision:
+    """Out-of-scope refusal gate for a follow-up against its parent template.
+
+    CONTRACT: the parent template name is treated as a ``_``-separated keyword
+    list. The follow-up is refused when the number of its tokens (lowercased,
+    punctuation-stripped) that appear in that keyword set is ``< min_overlap``.
+
+    Short-circuit: the sentinel template ``"general"`` is ALWAYS in-scope (never
+    refused), regardless of overlap — a broad parent accepts any follow-up.
+
+    Returns a :class:`RefusalDecision`; ``is_refused`` is the gate verdict and
+    ``reason`` is populated (with the observed overlap count) only on refusal.
+    Never raises. Known MVP limitation: single-token templates over-refuse.
+    """
     keywords = [t for t in parent_template.lower().split("_") if t]
     if parent_template == "general":
         return RefusalDecision(False, None, keywords, [])

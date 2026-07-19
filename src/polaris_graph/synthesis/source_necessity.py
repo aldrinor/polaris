@@ -71,6 +71,16 @@ def hopcroft_karp_matching(
     inf = float("inf")
 
     def bfs() -> bool:
+        """One Hopcroft-Karp layering phase over the current matching.
+
+        Seeds the BFS from every UNMATCHED left node (distance 0), then relaxes
+        distances across matched edges to build the layered graph the augmenting
+        DFS walks. Returns ``True`` iff at least one free (unmatched) right node
+        is reachable — i.e. an augmenting path exists and another augment phase is
+        worthwhile; ``False`` means the matching is maximum and the outer loop
+        should stop. Builds a local ``dist`` layering map; reads the enclosing
+        ``match_left`` / ``match_right`` matching state.
+        """
         dist: dict[Any, float] = {}
         queue: deque = deque()
         for u in left_nodes:

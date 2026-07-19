@@ -53,6 +53,16 @@ class _ComposeClient(Protocol):
 # ───── result container ─────
 
 class ComposeResult:
+    """Output of mesh composition — the composed answer plus its provenance.
+
+    ``answer_text`` is the composed prose; ``bibliography`` the source rows it
+    cites; ``claim_ids_used`` the mesh claim ids that backed the answer (the
+    traceability link); ``artifact_paths`` any files written; ``raw_llm_output``
+    the unparsed model response for debugging. ``as_dict()`` serializes the first
+    four fields (NOT ``raw_llm_output``) — downstream serialization depends on
+    that field contract. Plain mutable container; no validation.
+    """
+
     __slots__ = (
         "answer_text", "bibliography", "claim_ids_used",
         "artifact_paths", "raw_llm_output",

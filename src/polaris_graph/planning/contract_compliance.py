@@ -120,6 +120,13 @@ class ComplianceAudit:
     contract_sha256: str = ""
 
     def counts(self) -> dict[str, int]:
+        """Tally findings by compliance status for the gate verdict.
+
+        Returns a dict keyed by EVERY status in ``STATUSES`` (each pre-seeded to
+        0, so absent statuses report 0 rather than being missing) mapping to the
+        number of findings with that status. An unexpected status on a finding is
+        still counted (added on demand) rather than dropped. Pure; never raises.
+        """
         out: dict[str, int] = {s: 0 for s in STATUSES}
         for f in self.findings:
             out[f.status] = out.get(f.status, 0) + 1

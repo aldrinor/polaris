@@ -199,6 +199,16 @@ class AdequacyThresholds:
 
 @dataclass
 class AdequacyFinding:
+    """One per-check result of the corpus-adequacy gate.
+
+    ``severity`` is the load-bearing field and takes exactly one of the ladder
+    values ``"ok"`` | ``"warn"`` | ``"critical"`` (documented only in the
+    trailing comment): ``ok`` passes, ``warn`` is advisory, and ``critical``
+    drives the gate toward ABORT/EXPAND. ``observed`` is the measured value and
+    ``threshold`` the floor/ceiling it was tested against; ``ok`` is the boolean
+    pass flag for this single check.
+    """
+
     name: str
     ok: bool
     observed: float
@@ -208,6 +218,21 @@ class AdequacyFinding:
 
 @dataclass
 class CorpusAdequacyReport:
+    """Adequacy-gate verdict object over the fetched source pool.
+
+    ``decision`` is the gate outcome and ``findings`` the per-check ladder.
+
+    DUAL-DENOMINATOR DISCLOSURE INVARIANT (I-deepfix-001 B7): the report exposes
+    BOTH a raw-pool denominator (``raw_grounded_evidence_rows`` — grounded,
+    stub-filtered, regardless of topic) and an on-topic denominator
+    (``on_topic_evidence_rows`` — grounded AND on-topic at
+    ``on_topic_relevance_floor``). Surfacing both is what stops Methods from
+    reading e.g. "8/8 grounded" over a topically CONTAMINATED pool. The on-topic
+    fields are populated only when real ``evidence_rows`` are supplied; their
+    zero defaults keep the legacy report shape byte-identical otherwise (and
+    ``on_topic_relevance_floor == 0.0`` means the on-topic gate ran inert).
+    """
+
     decision: AdequacyDecision
     findings: list[AdequacyFinding] = field(default_factory=list)
     total_sources: int = 0

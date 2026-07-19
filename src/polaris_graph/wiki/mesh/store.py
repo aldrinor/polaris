@@ -367,6 +367,23 @@ class MeshStore:
         has_numeric: bool = False,
         embedding: "Any | None" = None,
     ) -> str:
+        """Insert a claim into the mesh store, establishing its identity + vector.
+
+        CONTRACT (identity + idempotency): the claim id is DETERMINISTIC —
+        derived from ``source_page_id``, ``char_start``, and the leading 50 chars
+        of ``statement``. Re-inserting the same source span (e.g. Unit 2
+        re-extraction) hits the same id: the existing row is PRESERVED,
+        ``claim_count`` is NOT bumped, and — if a new ``embedding`` is supplied —
+        the vector is re-written (allowing an embedding-model switch). Only a
+        genuinely new id increments the workspace ``claim_count`` and inserts the
+        vector.
+
+        Validation (each raises :class:`MeshStoreError`): ``tier`` must be one of
+        ``GOLD`` / ``SILVER`` / ``BRONZE``; ``relevance_score`` must be in
+        ``[0, 1]``; the char span must satisfy ``0 <= char_start < char_end``.
+
+        Returns the claim id (new or pre-existing).
+        """
         if tier not in ("GOLD", "SILVER", "BRONZE"):
             raise MeshStoreError(f"Invalid tier: {tier!r}")
         if not (0.0 <= relevance_score <= 1.0):
@@ -857,6 +874,18 @@ class MeshStore:
     # ─────────── stats (useful for debugging / CLI) ───────────
 
     def workspace_stats(self, workspace_id: str) -> dict:
+        """Aggregate per-workspace mesh statistics into one flat dict.
+
+        Merges the workspace row with derived counts. The added keys and what
+        they count: ``gold_claims`` / ``silver_claims`` / ``bronze_claims``
+        (claims by authority tier), ``flagged_claims`` (claims with
+        ``flagged=1``), and ``quarantined_entities`` (entities with
+        ``confidence < 0.8`` that are NOT ``user_confirmed`` — i.e. low-confidence
+        entities awaiting review). The base workspace fields (including its
+        stored ``claim_count`` etc.) are spread in unchanged.
+
+        Raises :class:`MeshStoreError` when ``workspace_id`` is unknown.
+        """
         ws = self.get_workspace(workspace_id)
         if not ws:
             raise MeshStoreError(f"Workspace not found: {workspace_id}")

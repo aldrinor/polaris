@@ -74,6 +74,17 @@ def _has_resolved_citation(row: ClaimRow) -> bool:
 
 
 def faithfulness_precision(rows: list[ClaimRow]) -> dict:
+    """Core faithfulness metric: VERIFIED material atoms / material atoms.
+
+    CONTRACT: the denominator is filtered to MATERIAL claims only (severity in
+    ``_MATERIAL_SEVERITIES`` = S0/S1/S2); non-material rows never enter numerator
+    or denominator. A claim counts toward the numerator only when its reconciled
+    ``verdict == "VERIFIED"``.
+
+    Returns a dict ``{"material_atoms", "verified", "value"}``. ``value`` is the
+    ratio, or ``None`` when there are zero material atoms (empty-denominator
+    sentinel — a genuinely undefined precision, NOT a 0.0). Never raises.
+    """
     material = [r for r in rows if _is_material(r)]
     denom = len(material)
     verified = sum(1 for r in material if r.verdict == "VERIFIED")
@@ -85,6 +96,19 @@ def faithfulness_precision(rows: list[ClaimRow]) -> dict:
 
 
 def citation_support_rate(rows: list[ClaimRow]) -> dict:
+    """Verified-AND-resolved-citation rate over material atoms.
+
+    CONTRACT: like :func:`faithfulness_precision` (same material-only S0/S1/S2
+    denominator, same ``None``-on-empty-denominator semantics) but the numerator
+    is STRICTER — a claim counts only when it is ``VERIFIED`` *and* carries a
+    resolved (non-empty) citation id (see :func:`_has_resolved_citation`). This
+    is the distinction from ``faithfulness_precision``: an unresolved / ``None``
+    citation on a VERIFIED claim passes faithfulness but FAILS citation support
+    (traceability floor). ``value`` <= faithfulness_precision's value always.
+
+    Returns ``{"material_atoms", "verified_and_cited", "value"}``; ``value`` is
+    ``None`` when there are zero material atoms. Never raises.
+    """
     material = [r for r in rows if _is_material(r)]
     denom = len(material)
     supported = sum(
@@ -110,6 +134,19 @@ def diversity_score(rows: list[ClaimRow]) -> dict:
 
 
 def required_entity_recall(rubric: list[RubricElement] | None) -> dict:
+    """Frozen-rubric coverage recall: covered+citation_supported elements / total.
+
+    CONTRACT (fail-safe pending sentinel): when no rubric is supplied (``None`` or
+    empty), returns ``{"total_required": 0, "covered_supported": 0, "value": None,
+    "pending": True}`` — ``pending=True`` signals "recall is UNDEFINED, not
+    measured", which callers MUST NOT read as a real 0.0 score. When a rubric is
+    present, ``pending`` is ``False`` and an element counts toward recall only if
+    it is BOTH ``covered`` AND ``citation_supported`` (both flags set by the same
+    §-1.1 audit). ``missing`` lists the element ids that failed either flag.
+
+    Returns ``{"total_required", "covered_supported", "value", "missing"?,
+    "pending"}``. Never raises.
+    """
     if not rubric:
         return {"total_required": 0, "covered_supported": 0, "value": None,
                 "pending": True}
@@ -128,6 +165,24 @@ def required_entity_recall(rubric: list[RubricElement] | None) -> dict:
 def safety_floor_recall(
     rubric: list[RubricElement] | None, safety_element_ids: set[str] | None,
 ) -> dict:
+    """Fail-safe safety-floor recall over the PRE-REGISTERED tagged element set.
+
+    CONTRACT (the load-bearing fail-safe): the denominator is
+    ``len(safety_element_ids)`` — the count of PRE-REGISTERED safety-tagged ids
+    (from ``safety_floor_elements_v3.json``), NOT the count of those ids present
+    in the supplied ``rubric``. A tagged id that is MISSING from the rubric MUST
+    count AGAINST recall and surface in both ``missing`` and
+    ``missing_from_rubric`` — it can never silently shrink the denominator into a
+    falsely-high recall. An id present in the rubric counts toward recall only
+    when its element is BOTH ``covered`` AND ``citation_supported``.
+
+    When either input is empty/``None``, returns the pending sentinel
+    ``{"total_safety_required": 0, "covered_supported": 0, "value": None,
+    "pending": True}`` — ``pending=True`` means UNDEFINED, not a real 0.0.
+
+    Returns ``{"total_safety_required", "covered_supported", "value", "missing",
+    "missing_from_rubric", "pending"}``. Never raises.
+    """
     if not rubric or not safety_element_ids:
         return {"total_safety_required": 0, "covered_supported": 0, "value": None,
                 "pending": True}

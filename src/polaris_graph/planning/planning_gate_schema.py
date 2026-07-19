@@ -1254,6 +1254,20 @@ class ResearchExecutionPlan:
 
 
 def plan_from_dict(d: Any) -> ResearchExecutionPlan:
+    """Deserialize a dict into a :class:`ResearchExecutionPlan` (the state entrypoint).
+
+    CONTRACT: this is the top-level state-schema builder. The input must be a
+    dict — anything else raises :class:`SchemaError`. ``plan_version`` defaults to
+    ``SCHEMA_VERSION`` when absent/blank. Every list-valued sub-structure
+    (threads, evidence_needs, query_intents, outline_seed, coverage_matrix) is
+    rebuilt recursively via its own ``from_dict``, and non-dict entries in those
+    lists are SILENTLY DROPPED (``if isinstance(..., dict)``) rather than raising
+    — malformed elements are skipped, not fatal. ``budget`` defaults to an empty
+    :class:`BudgetEnvelope` when missing.
+
+    Returns the fully-built plan. Raises :class:`SchemaError` only when ``d``
+    itself is not a dict.
+    """
     if not isinstance(d, dict):
         raise SchemaError(f"plan must be an object, got {type(d).__name__}")
     return ResearchExecutionPlan(

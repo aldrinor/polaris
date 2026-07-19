@@ -1087,6 +1087,20 @@ class ContractDraftStore:
         rejecter_user_id: str,
         rationale: str,
     ) -> ContractDraft:
+        """Reject a contract draft (state transition into the REJECTED terminal).
+
+        CONTRACT (LAW II — SOC2 audit trail): the rejection ``rationale`` is
+        MANDATORY. It is sanitized via ``_sanitize_notes``; if that yields
+        ``None`` (empty / whitespace-only / stripped to nothing) this raises
+        :class:`ContractDraftStateError` BEFORE any state change — a rejection can
+        never enter the audit trail without a recorded reason. On a valid
+        rationale the actual state precondition + edge is enforced inside
+        ``_perform_reject``'s ``BEGIN IMMEDIATE`` (org access, current status,
+        SOD), which raises :class:`ContractDraftStateError` on any violation.
+
+        Returns the updated :class:`ContractDraft`. Raises
+        :class:`ContractDraftStateError` on empty rationale or an illegal edge.
+        """
         sanitized = _sanitize_notes(rationale)
         if sanitized is None:
             raise ContractDraftStateError(

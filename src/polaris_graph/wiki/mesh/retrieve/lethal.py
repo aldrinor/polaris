@@ -62,6 +62,18 @@ EXPLORATION_FRACTION = 0.10
 # ───── result container ─────
 
 class RetrievalResult:
+    """Result of the 'lethal' mesh retrieval path — provenance consumed by compose.
+
+    ``scored_claims`` is the ordered ``(claim_id, score)`` list (the payload);
+    ``claim_ids()`` projects just the ids and ``as_dict()`` serializes for the
+    receipt. ``gap_category`` records how the query related to the mesh (default
+    ``"ORTHOGONAL"``). The remaining counters are retrieval provenance — how the
+    scored set was reached: ``seed_count`` (direct seeds),
+    ``entity_expansion_count`` (added via entity expansion), ``walked_count``
+    (added by graph walk), and ``exploration_count`` (added by the random
+    exploration fraction). Plain mutable container; no validation.
+    """
+
     __slots__ = (
         "scored_claims", "gap_category", "seed_count",
         "entity_expansion_count", "walked_count", "exploration_count",

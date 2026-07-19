@@ -20,6 +20,17 @@ from src.polaris_graph.authority.source_class import (
 
 @dataclass
 class JunkResult:
+    """Junk / low-authority detection verdict feeding source-eligibility filtering.
+
+    ``fired`` is the load-bearing flag: ``True`` means a junk pattern matched and
+    this source is downgraded/dropped by the eligibility filter. When fired,
+    ``junk_class`` names the matched class, ``source_class`` is the reclassified
+    :class:`SourceClass`, ``ceiling`` is the authority cap imposed (<= 1.0),
+    ``confidence`` the detector's :class:`AuthorityConfidence`, and ``reasons``
+    the human-readable justification. When ``fired`` is ``False`` the defaults
+    (``UNKNOWN`` class, ``ceiling=1.0``) mean no junk was detected.
+    """
+
     fired: bool
     junk_class: str = ""
     source_class: SourceClass = SourceClass.UNKNOWN

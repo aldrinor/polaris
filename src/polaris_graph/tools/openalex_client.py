@@ -60,6 +60,16 @@ class OpenAlexWork:
     is_retracted: bool
 
     def authority_tier(self) -> str:
+        """Map this OpenAlex source to a legacy POLARIS authority tier.
+
+        Returns one of ``"BLOCKED"`` | ``"GOLD"`` | ``"SILVER"`` | ``"BRONZE"``.
+        Assignment (checked in order): retracted works or errata are ``BLOCKED``;
+        peer-reviewed journal articles/reviews are ``GOLD``; preprints and
+        repository deposits are ``SILVER``; everything else falls through to
+        ``BRONZE``. This coarse tier feeds tier-compliance gates — prefer
+        :meth:`authority_tier_t7` for the finer T1-T7 taxonomy downstream. Never
+        raises.
+        """
         if self.is_retracted or self.type == "erratum":
             return "BLOCKED"
         if self.type in {"article", "review"} and self.source_type == "journal":

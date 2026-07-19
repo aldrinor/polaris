@@ -62,6 +62,17 @@ Do NOT return anything other than the JSON object. No preamble, no sign-off, no 
 
 @dataclass
 class LiveJudgeResult:
+    """Live-judge verdict object gating a generated output.
+
+    ``verdicts`` is the pass/fail signal, keyed by evaluation axis ->
+    ``{"verdict", "note"}`` (the rationale). ``parse_ok`` is the load-bearing
+    reliability flag: ``False`` means the judge response could not be parsed into
+    structured verdicts (``error`` then holds the reason and ``verdicts`` is
+    unreliable/empty) — callers MUST NOT treat a ``parse_ok=False`` result as a
+    pass. ``model`` / ``raw_response`` / ``input_tokens`` / ``output_tokens`` are
+    provenance and cost accounting for the judge call.
+    """
+
     verdicts: dict[str, dict[str, str]]   # axis -> {verdict, note}
     model: str
     raw_response: str

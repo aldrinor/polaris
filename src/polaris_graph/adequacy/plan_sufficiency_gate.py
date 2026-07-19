@@ -108,6 +108,18 @@ class UnitCoverage:
 
 @dataclass
 class PlanSufficiencyReport:
+    """Plan-sufficiency gate verdict — decides whether another retrieval round fires.
+
+    ``verdict`` is the outcome. The remaining fields are the inputs that produced
+    it and that the caller needs to disclose/act on: ``authority_floor`` (the
+    relevance/authority cutoff a row must clear to count as covered),
+    ``min_per_facet`` (the per-facet coverage minimum), ``round_index`` /
+    ``max_rounds`` (loop position — another round can fire only while
+    ``round_index < max_rounds``), ``per_unit`` (per-unit :class:`UnitCoverage`
+    breakdowns), and ``under_covered_units`` (the ids still below floor, i.e. the
+    reason a further round is requested).
+    """
+
     verdict: SufficiencyVerdict
     authority_floor: float
     min_per_facet: int

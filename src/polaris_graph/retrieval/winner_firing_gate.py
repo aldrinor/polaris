@@ -110,7 +110,17 @@ def _w7_reranker_requested() -> bool:
 
 @dataclass
 class WinnerFiringVerdict:
-    """The pure gate verdict. ``abort`` True => the run MUST stop before generation."""
+    """The pure winner-firing gate verdict.
+
+    CONTRACT: ``abort=True`` means a relevance-layer winner is structurally dark
+    and the run MUST stop BEFORE generation — it is a hard halt, not advisory.
+    ``dark_winners`` names the offending winners and ``diagnostics`` explains why.
+
+    ``winners_checked`` is a DISCLOSURE MANIFEST (winner id -> state), NOT a drop
+    list: it records every winner the gate inspected and its status for the
+    receipt, and entries in it are never removed from the corpus. A reader must
+    not treat a name appearing here as "dropped".
+    """
 
     abort: bool = False
     dark_winners: list[str] = field(default_factory=list)
