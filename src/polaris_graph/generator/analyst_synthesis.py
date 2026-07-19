@@ -34,6 +34,7 @@ import os
 import re
 from collections import Counter
 from typing import Any, Callable
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -400,7 +401,7 @@ def _format_evidence_pool_for_prompt(
     # valid [N] indices instead of hallucinating out-of-range ones. LAW VI; default 30 = byte-identical.
     if max_rows is None:
         try:
-            max_rows = int(os.getenv("PG_ANALYST_SYNTHESIS_EVIDENCE_MAX_ROWS", "30") or "30")
+            max_rows = int(resolve("PG_ANALYST_SYNTHESIS_EVIDENCE_MAX_ROWS") or "30")
         except (TypeError, ValueError):
             max_rows = 30
     # I-meta-002-q1d (#953 q1d-c): sanitize evidence text AND the id (§9.1.7 delimiter/injection defense)
@@ -669,7 +670,7 @@ async def generate_analyst_synthesis(
     # I-meta-002-q1d (#953 q1d-c): operator kill-switch. Checked BEFORE prompt construction + the model
     # call so disabling the unverified analyst layer costs nothing (Codex brief-gate P2). When off, the
     # report ships the span-verified core ONLY (caller omits an empty synthesis section).
-    if os.getenv("PG_SWEEP_ANALYST_SYNTHESIS", "1").strip() not in ("1", "true", "True"):
+    if resolve("PG_SWEEP_ANALYST_SYNTHESIS").strip() not in ("1", "true", "True"):
         logger.info(
             "[analyst_synthesis] PG_SWEEP_ANALYST_SYNTHESIS=0 — unverified layer omitted "
             "(verified core only)"

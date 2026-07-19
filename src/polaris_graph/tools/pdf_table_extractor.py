@@ -10,12 +10,13 @@ import logging
 import os
 from pathlib import Path
 from typing import Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
-_MAX_PAGES = int(os.getenv("PG_PDF_TABLE_MAX_PAGES", "50"))
-_MIN_ROWS = int(os.getenv("PG_PDF_TABLE_MIN_ROWS", "2"))
-_MIN_COLS = int(os.getenv("PG_PDF_TABLE_MIN_COLS", "2"))
+_MAX_PAGES = int(resolve("PG_PDF_TABLE_MAX_PAGES"))
+_MIN_ROWS = int(resolve("PG_PDF_TABLE_MIN_ROWS"))
+_MIN_COLS = int(resolve("PG_PDF_TABLE_MIN_COLS"))
 
 
 def _ensure_pdfplumber():

@@ -16,6 +16,7 @@ import logging
 import os
 from typing import Any
 from urllib.parse import urlparse
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Feature gate
 # ---------------------------------------------------------------------------
 # Legacy module-level constant (kept for backward compatibility in tests)
-PG_SOURCE_CONFIDENCE_ENABLED = os.getenv("PG_SOURCE_CONFIDENCE_ENABLED", "0") == "1"
+PG_SOURCE_CONFIDENCE_ENABLED = resolve("PG_SOURCE_CONFIDENCE_ENABLED") == "1"
 
 
 def _is_enabled() -> bool:
@@ -33,7 +34,7 @@ def _is_enabled() -> bool:
     If .env is loaded after import, the constant is stale.
     Use this function instead of PG_SOURCE_CONFIDENCE_ENABLED at call sites.
     """
-    return os.getenv("PG_SOURCE_CONFIDENCE_ENABLED", "0") == "1"
+    return resolve("PG_SOURCE_CONFIDENCE_ENABLED") == "1"
 
 # ---------------------------------------------------------------------------
 # Open PageRank API configuration
