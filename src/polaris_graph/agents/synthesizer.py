@@ -68,12 +68,13 @@ from src.polaris_graph.tools.data_analyzer import (
     format_chart_markdown,
     format_table_markdown,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # Map-reduce clustering config (LAW VI)
-PG_CLUSTER_BATCH_SIZE = int(os.getenv("PG_CLUSTER_BATCH_SIZE", "100"))
-PG_CLUSTER_MAX_THEMES_BEFORE_MERGE = int(os.getenv("PG_CLUSTER_MAX_THEMES_BEFORE_MERGE", "20"))
+PG_CLUSTER_BATCH_SIZE = int(resolve("PG_CLUSTER_BATCH_SIZE"))
+PG_CLUSTER_MAX_THEMES_BEFORE_MERGE = int(resolve("PG_CLUSTER_MAX_THEMES_BEFORE_MERGE"))
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +351,7 @@ def _dedup_evidence(
 
     if similarity_threshold is None:
         similarity_threshold = float(
-            os.getenv("PG_EVIDENCE_DEDUP_THRESHOLD", "0.85")
+            resolve("PG_EVIDENCE_DEDUP_THRESHOLD")
         )
 
     import numpy as np
@@ -576,7 +577,7 @@ async def _generate_section_charts(
 
     Returns the section content with charts appended.
     """
-    if os.getenv("PG_CHART_GENERATION_ENABLED", "0") != "1":
+    if resolve("PG_CHART_GENERATION_ENABLED") != "1":
         return section_content
 
     if not structured_data:
@@ -707,7 +708,7 @@ Your JSON response MUST include ALL of these fields:
                 "claims with real evidence backing them."
             ),
             max_tokens=int(os.getenv("PG_EVIDENCE_ASSIGN_MAX_TOKENS", "2048")),
-            timeout=int(os.getenv("PG_EVIDENCE_ASSIGN_TIMEOUT", "60")),
+            timeout=int(resolve("PG_EVIDENCE_ASSIGN_TIMEOUT")),
         )
         return {
             "decision": assessment.decision,
@@ -856,9 +857,9 @@ async def _summarize_evidence_clusters(
         if eid:
             ev_by_id[eid] = ev
 
-    _timeout = int(os.getenv("PG_CLUSTER_SUMMARY_TIMEOUT", "120"))
+    _timeout = int(resolve("PG_CLUSTER_SUMMARY_TIMEOUT"))
     _max_tokens = int(os.getenv("PG_CLUSTER_SUMMARY_MAX_TOKENS", "512"))
-    _concurrency = int(os.getenv("PG_CLUSTER_SUMMARY_CONCURRENCY", "5"))
+    _concurrency = int(resolve("PG_CLUSTER_SUMMARY_CONCURRENCY"))
     _sem = asyncio.Semaphore(_concurrency)
 
     async def _summarize_one(cluster: dict) -> dict:
@@ -993,7 +994,7 @@ async def _generate_evidence_driven_outline(
         )
 
     # Section cap from evidence count
-    max_sections_cap = int(os.getenv("PG_MAX_OUTLINE_SECTIONS", "15"))
+    max_sections_cap = int(resolve("PG_MAX_OUTLINE_SECTIONS"))
     _min_ev_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5"))
     if len(evidence) < 10:
         target_sections = max(3, len(evidence))
@@ -1048,7 +1049,7 @@ Rules:
             schema=ReportOutline,
             system=OUTLINE_SYSTEM_PROMPT,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=int(os.getenv("PG_OUTLINE_TIMEOUT", "600")),
+            timeout=int(resolve("PG_OUTLINE_TIMEOUT")),
         )
         if outline and len(outline.sections) == 0:
             logger.warning("[polaris graph] Phase 2A: Evidence-driven outline returned 0 sections, retrying")
@@ -1093,7 +1094,7 @@ async def _critique_outline(
     Runs up to 2 critique rounds. Applies SIMPLE adjustments only:
     reorder, rename, merge thin sections. Does NOT split or restructure.
     """
-    max_rounds = int(os.getenv("PG_OUTLINE_CRITIQUE_MAX_ROUNDS", "2"))
+    max_rounds = int(resolve("PG_OUTLINE_CRITIQUE_MAX_ROUNDS"))
 
     # Build outline description
     outline_lines = []
@@ -1156,7 +1157,7 @@ For each problem found, state:
                     max_tokens=int(os.getenv("PG_OUTLINE_CRITIQUE_MAX_TOKENS", "2048")),
                     temperature=0.8,  # Different temperature for diversity
                 ),
-                timeout=int(os.getenv("PG_OUTLINE_CRITIQUE_TIMEOUT", "180")),
+                timeout=int(resolve("PG_OUTLINE_CRITIQUE_TIMEOUT")),
             )
             critique_text = _scrub_cot(response.content.strip())
         except Exception as exc:
@@ -1284,9 +1285,9 @@ async def _generate_section_questions(
     Returns: {section_id: [question1, question2, question3]}
     """
     section_questions: dict[str, list[str]] = {}
-    _timeout = int(os.getenv("PG_SECTION_QUESTION_TIMEOUT", "120"))
+    _timeout = int(resolve("PG_SECTION_QUESTION_TIMEOUT"))
     _max_tokens = int(os.getenv("PG_SECTION_QUESTION_MAX_TOKENS", "1024"))
-    _concurrency = int(os.getenv("PG_SECTION_QUESTION_CONCURRENCY", "5"))
+    _concurrency = int(resolve("PG_SECTION_QUESTION_CONCURRENCY"))
     _sem = asyncio.Semaphore(_concurrency)
 
     async def _gen_questions_one(section) -> tuple[str, list[str]]:
@@ -1368,11 +1369,11 @@ async def _focused_reextraction(
         fetched_content: {source_url: content_text} from state.
         Returns: list of new evidence dicts to merge.
     """
-    _concurrency = int(os.getenv("PG_FOCUSED_EXTRACTION_CONCURRENCY", "5"))
-    _timeout = int(os.getenv("PG_FOCUSED_EXTRACTION_TIMEOUT", "120"))
+    _concurrency = int(resolve("PG_FOCUSED_EXTRACTION_CONCURRENCY"))
+    _timeout = int(resolve("PG_FOCUSED_EXTRACTION_TIMEOUT"))
     _max_tokens = int(os.getenv("PG_FOCUSED_EXTRACTION_MAX_TOKENS", "2048"))
-    _max_sources_per_section = int(os.getenv("PG_FOCUSED_MAX_SOURCES_PER_SECTION", "10"))
-    _max_evidence_per_section = int(os.getenv("PG_FOCUSED_MAX_EVIDENCE_PER_SECTION", "10"))
+    _max_sources_per_section = int(resolve("PG_FOCUSED_MAX_SOURCES_PER_SECTION"))
+    _max_evidence_per_section = int(resolve("PG_FOCUSED_MAX_EVIDENCE_PER_SECTION"))
 
     if not fetched_content:
         logger.warning("[polaris graph] Phase 2B: No fetched content available, skipping focused extraction")
@@ -1406,7 +1407,7 @@ async def _focused_reextraction(
     ) -> list[dict]:
         async with semaphore:
             # Truncate content to cap
-            _content_cap = int(os.getenv("PG_CONTENT_PER_SOURCE", "10000"))
+            _content_cap = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
             content_truncated = content[:_content_cap]
 
             prompt = (
@@ -1554,9 +1555,9 @@ async def _review_sections(
     Reviews each section against its assigned evidence. Returns list of
     issues with CRITICAL/ADVISORY classification.
     """
-    _timeout = int(os.getenv("PG_REVIEW_SECTION_TIMEOUT", "120"))
+    _timeout = int(resolve("PG_REVIEW_SECTION_TIMEOUT"))
     _max_tokens = int(os.getenv("PG_REVIEW_SECTION_MAX_TOKENS", "2048"))
-    _concurrency = int(os.getenv("PG_REVIEW_CONCURRENCY", "3"))
+    _concurrency = int(resolve("PG_REVIEW_CONCURRENCY"))
 
     ev_by_id = {e.get("evidence_id", ""): e for e in evidence}
     semaphore = asyncio.Semaphore(_concurrency)
@@ -1825,7 +1826,7 @@ async def synthesize_report(
 
     # FIX-058E: Removed redundant SF-27 gate (0.25) — FIX-QM4 gate (0.40) subsumes it.
     # FIX-QM4: Stronger relevance gate before synthesis (complements off-topic filter)
-    synthesis_relevance_min = float(os.getenv("PG_SYNTHESIS_RELEVANCE_GATE", "0.40"))
+    synthesis_relevance_min = float(resolve("PG_SYNTHESIS_RELEVANCE_GATE"))
     before_relevance_gate = len(evidence)
     evidence = [
         e for e in evidence
@@ -1910,7 +1911,7 @@ async def synthesize_report(
     # Sort by quality tier (GOLD > SILVER > BRONZE), then relevance DESC,
     # then source_confidence DESC (SOTA-11), then cross-referenced first (SOTA-12).
     # FIX-P5: Reserve 20% of synthesis slots for academic sources.
-    pg_max_ev_synthesis = int(os.getenv("PG_MAX_EVIDENCE_FOR_SYNTHESIS", "1000"))
+    pg_max_ev_synthesis = int(resolve("PG_MAX_EVIDENCE_FOR_SYNTHESIS"))
     if len(verified_evidence) > pg_max_ev_synthesis:
         tier_order = {"GOLD": 0, "SILVER": 1, "BRONZE": 2}
         _sort_key = lambda e: (
@@ -1952,7 +1953,7 @@ async def synthesize_report(
     )
 
     # MEM-1: Query evidence hierarchy for quality distribution insight
-    hierarchy_read_enabled = os.getenv("PG_EVIDENCE_HIERARCHY_READ_ENABLED", "0") == "1"
+    hierarchy_read_enabled = resolve("PG_EVIDENCE_HIERARCHY_READ_ENABLED") == "1"
     if hierarchy_read_enabled:
         try:
             from src.polaris_graph.memory.evidence_hierarchy import count_by_tier
@@ -1963,7 +1964,7 @@ async def synthesize_report(
             logger.debug("[polaris graph] MEM-1: hierarchy query failed: %s", str(mem_exc)[:200])
 
     # M-14: Store evidence in hierarchy (write path)
-    hierarchy_write_enabled = os.getenv("PG_EVIDENCE_HIERARCHY_WRITE_ENABLED", "1") == "1"
+    hierarchy_write_enabled = resolve("PG_EVIDENCE_HIERARCHY_WRITE_ENABLED") == "1"
     if hierarchy_write_enabled and verified_evidence:
         try:
             from src.polaris_graph.memory.evidence_hierarchy import store_evidence
@@ -1995,7 +1996,7 @@ async def synthesize_report(
             logger.debug("[polaris graph] M-14: Hierarchy write failed: %s", str(exc)[:200])
 
     # M-06: Deduplicate near-identical evidence within same source
-    dedup_enabled = os.getenv("PG_EVIDENCE_DEDUP_ENABLED", "1") == "1"
+    dedup_enabled = resolve("PG_EVIDENCE_DEDUP_ENABLED") == "1"
     if dedup_enabled and len(verified_evidence) >= 2:
         verified_evidence = _dedup_evidence(verified_evidence)
 
@@ -2007,7 +2008,7 @@ async def synthesize_report(
     # If clustering produced <3 clusters, the decomposition is degenerate
     # (all evidence in one bucket). Re-cluster with explicit granularity.
     # ===================================================================
-    _min_clusters = int(os.getenv("PG_MIN_CLUSTERS", "3"))
+    _min_clusters = int(resolve("PG_MIN_CLUSTERS"))
     if len(clusters) < _min_clusters and len(verified_evidence) >= 10:
         logger.warning(
             "[polaris graph] Pattern-E: Clustering produced only %d clusters "
@@ -2083,7 +2084,7 @@ async def synthesize_report(
                 )
 
     # Step 1b: Assess cluster viability via LLM reasoning
-    viability_enabled = os.getenv("PG_CLUSTER_VIABILITY_ENABLED", "0") == "1"
+    viability_enabled = resolve("PG_CLUSTER_VIABILITY_ENABLED") == "1"
     if viability_enabled and clusters:
         # Build evidence lookup for fast retrieval by ID
         ev_by_id: dict[str, dict] = {}
@@ -2224,7 +2225,7 @@ async def synthesize_report(
         if e.get("source_type") in peer_reviewed_types
     )
     peer_pct = peer_count / max(len(verified_evidence), 1)
-    min_peer_pct = float(os.getenv("PG_MIN_PEER_REVIEWED_PCT", "0.30"))
+    min_peer_pct = float(resolve("PG_MIN_PEER_REVIEWED_PCT"))
     if peer_pct < min_peer_pct:
         logger.warning(
             "[polaris graph] FIX-B4: Peer-reviewed sources %.1f%% < %.1f%% minimum. "
@@ -2246,7 +2247,7 @@ async def synthesize_report(
 
     # M-15: Query LTM for prior knowledge to inject into outline
     ltm_prior_context = ""
-    ltm_enabled = os.getenv("PG_CROSS_VECTOR_LTM_ENABLED", "0") == "1"
+    ltm_enabled = resolve("PG_CROSS_VECTOR_LTM_ENABLED") == "1"
     if ltm_enabled and state.get("memory_ltm_prior_count", 0) > 0:
         try:
             from src.polaris_graph.memory.cross_vector import query_ltm
@@ -2267,7 +2268,7 @@ async def synthesize_report(
     # ===================================================================
     # Step 2a: Phase 2A — Summarize evidence clusters (read-then-plan)
     # ===================================================================
-    phase_2a_enabled = os.getenv("PG_PHASE_2A_ENABLED", "1") == "1"
+    phase_2a_enabled = resolve("PG_PHASE_2A_ENABLED") == "1"
     if phase_2a_enabled and clusters:
         clusters = await _summarize_evidence_clusters(
             client=client,
@@ -2330,7 +2331,7 @@ async def synthesize_report(
     # ===================================================================
     # Step 2c: Phase 3A — Outline critique (adversarial review)
     # ===================================================================
-    phase_3a_enabled = os.getenv("PG_PHASE_3A_ENABLED", "1") == "1"
+    phase_3a_enabled = resolve("PG_PHASE_3A_ENABLED") == "1"
     if phase_3a_enabled:
         outline = await _critique_outline(
             client=client,
@@ -2342,7 +2343,7 @@ async def synthesize_report(
     # ===================================================================
     # Step 2d: Phase 2B — Focused re-extraction per section
     # ===================================================================
-    phase_2b_enabled = os.getenv("PG_PHASE_2B_ENABLED", "1") == "1"
+    phase_2b_enabled = resolve("PG_PHASE_2B_ENABLED") == "1"
     if phase_2b_enabled:
         # Generate focused questions per section
         section_questions = await _generate_section_questions(
@@ -2444,7 +2445,7 @@ async def synthesize_report(
         ev["corroborating_sources"] = corroboration_map.get(eid, 1)
 
     # FIX-045H: Multi-evidence corroboration — enrich claims with cross-ref evidence
-    corroboration_enabled = os.getenv("PG_CORROBORATION_ENABLED", "1") == "1"
+    corroboration_enabled = resolve("PG_CORROBORATION_ENABLED") == "1"
     if corroboration_enabled and claims:
         from src.polaris_graph.agents.verifier import link_corroborating_evidence
         xref_groups_for_corr = state.get("cross_reference_groups", [])
@@ -2480,7 +2481,7 @@ async def synthesize_report(
     # TIER-3 Stage 2: Embedding-based evidence routing (deterministic, zero LLM cost).
     # Replaces LLM-based _assign_evidence_globally() when PG_EMBEDDING_ROUTING=1.
     # Falls back to LLM-based assignment when PG_EMBEDDING_ROUTING=0.
-    global_assign_enabled = os.getenv("PG_GLOBAL_EVIDENCE_ASSIGNMENT", "1") == "1"
+    global_assign_enabled = resolve("PG_GLOBAL_EVIDENCE_ASSIGNMENT") == "1"
     global_assignments: dict[str, list[str]] = {}
     cross_section_evidence_ids: list[str] = []
     if global_assign_enabled and len(verified_evidence) >= 10:
@@ -2599,7 +2600,7 @@ async def synthesize_report(
 
         # Pattern J: Trim oversized sections by removing lowest-evidence-density paragraphs
         _trimmed_count = 0
-        _gini_threshold = float(os.getenv("PG_SECTION_GINI_THRESHOLD", "0.30"))
+        _gini_threshold = float(resolve("PG_SECTION_GINI_THRESHOLD"))
         if _gini > _gini_threshold:  # Imbalanced — enforce trimming
             for sec in sections:
                 _content = getattr(sec, "content", "")
@@ -2651,13 +2652,13 @@ async def synthesize_report(
 
     # Step 3b: FIX-S1 — Revise sections for quality (controlled by env var)
     # FIX-PARALLEL: Semaphore-bounded concurrent revision (was sequential)
-    revision_enabled = os.getenv("PG_SECTION_REVISION_ENABLED", "1") == "1"
+    revision_enabled = resolve("PG_SECTION_REVISION_ENABLED") == "1"
     if revision_enabled:
-        revision_concurrency = int(os.getenv("PG_REVISION_CONCURRENCY", "4"))
+        revision_concurrency = int(resolve("PG_REVISION_CONCURRENCY"))
         revision_sem = asyncio.Semaphore(revision_concurrency)
 
         # FIX-058G-v2: Per-revision timeout (same as section write timeout)
-        _revision_timeout = int(os.getenv("PG_SECTION_WRITE_TIMEOUT", "300"))
+        _revision_timeout = int(resolve("PG_SECTION_WRITE_TIMEOUT"))
 
         async def _bounded_revise(section):
             async with revision_sem:
@@ -2713,7 +2714,7 @@ async def synthesize_report(
     # iterates sections whose cluster has has_structured_data=True, filters
     # structured_data from state to evidence relevant to each section, and
     # calls _generate_section_charts() to append chart/table markdown.
-    chart_gen_enabled = os.getenv("PG_CHART_GENERATION_ENABLED", "0") == "1"
+    chart_gen_enabled = resolve("PG_CHART_GENERATION_ENABLED") == "1"
     if chart_gen_enabled and clusters:
         # Build cluster lookup: evidence_id -> cluster viability metadata
         _cluster_ev_map: dict[str, dict] = {}
@@ -2774,7 +2775,7 @@ async def synthesize_report(
     # ===================================================================
     # Step 3.5: Phase 4 — Post-write adversarial review
     # ===================================================================
-    phase_4_enabled = os.getenv("PG_PHASE_4_ENABLED", "1") == "1"
+    phase_4_enabled = resolve("PG_PHASE_4_ENABLED") == "1"
     if phase_4_enabled and sections:
         review_issues = await _review_sections(
             client=client,
@@ -2883,7 +2884,7 @@ async def synthesize_report(
                         continue
                     try:
                         # FIX-058G-v2: Timeout guard on hallucination remediation revisions
-                        _remediate_timeout = int(os.getenv("PG_SECTION_WRITE_TIMEOUT", "300"))
+                        _remediate_timeout = int(resolve("PG_SECTION_WRITE_TIMEOUT"))
                         revised = await asyncio.wait_for(
                             revise_section(
                                 client=client,
@@ -2921,7 +2922,7 @@ async def synthesize_report(
         )
 
     # MoST Safety Net: Snapshot pre-MoST sections (already halluc-audited)
-    most_enabled = os.getenv("PG_MOST_ENABLED", "0") == "1"
+    most_enabled = resolve("PG_MOST_ENABLED") == "1"
     pre_most_sections = list(sections) if most_enabled else []
     most_reflection_stats = {}
     most_exploration_stats = {}
@@ -2932,8 +2933,8 @@ async def synthesize_report(
     # Previous E2E run: 1000+ evidence → 80+ min CPU burn in narrative_flow_analyzer,
     # claim_evidence_binding, evidence_section_affinity, cross_section_source_consistency (all vecs @ vecs.T).
     # Cap at PG_MOST_MAX_EVIDENCE (default 300) sorted by tier+relevance.
-    _most_max_evidence = int(os.getenv("PG_MOST_MAX_EVIDENCE", "300"))
-    _most_total_timeout = int(os.getenv("PG_MOST_TOTAL_TIMEOUT", "300"))
+    _most_max_evidence = int(resolve("PG_MOST_MAX_EVIDENCE"))
+    _most_total_timeout = int(resolve("PG_MOST_TOTAL_TIMEOUT"))
     if most_enabled and len(verified_evidence) > _most_max_evidence:
         def _ev_sort_key(ev):
             tier = ev.get("tier", "BRONZE")
@@ -3052,7 +3053,7 @@ async def synthesize_report(
     if most_enabled:
         try:
             from src.polaris_graph.synthesis.cross_section_reflector import reflect_across_sections
-            reflection_concurrency = int(os.getenv("PG_REFLECTION_CONCURRENCY", "3"))
+            reflection_concurrency = int(resolve("PG_REFLECTION_CONCURRENCY"))
             sections = await asyncio.wait_for(
                 reflect_across_sections(
                     client=client, sections=sections, evidence=_most_evidence,
@@ -3212,7 +3213,7 @@ async def synthesize_report(
     draft_report = "\n".join(draft_parts)
 
     # RC-5: Generate contradictions section (v3 Hybrid)
-    if os.getenv("PG_V3_SURFACE_ANALYSIS", "0") == "1":
+    if resolve("PG_V3_SURFACE_ANALYSIS") == "1":
         evidence_conflicts = state.get("evidence_conflicts", [])
         gaps = state.get("gaps", [])
         if evidence_conflicts or gaps:
@@ -3300,7 +3301,7 @@ async def synthesize_report(
     # One LLM call reads ALL sections and produces transition sentences
     # to insert between adjacent sections for cross-section coherence.
     # ===================================================================
-    _coherence_pass_enabled = os.getenv("PG_COHERENCE_PASS_ENABLED", "1") == "1"
+    _coherence_pass_enabled = resolve("PG_COHERENCE_PASS_ENABLED") == "1"
     if _coherence_pass_enabled and len(sections) >= 3:
         _sorted_for_coherence = sorted(
             sections,
@@ -3339,7 +3340,7 @@ async def synthesize_report(
             "..."
         )
         try:
-            _coherence_timeout = int(os.getenv("PG_COHERENCE_PASS_TIMEOUT", "120"))
+            _coherence_timeout = int(resolve("PG_COHERENCE_PASS_TIMEOUT"))
             _coherence_response = await asyncio.wait_for(
                 client.generate(
                     prompt=_coherence_prompt,
@@ -3523,7 +3524,7 @@ async def synthesize_report(
         )
 
     # M-18: Evidence utilization gate warning
-    min_utilization = float(os.getenv("PG_MIN_EVIDENCE_UTILIZATION", "0.30"))
+    min_utilization = float(os.getenv("PG_MIN_EVIDENCE_UTILIZATION", "0.40"))
     actual_utilization = quality.get("evidence_utilization", 0.0)
     if actual_utilization < min_utilization:
         logger.warning(
@@ -3540,10 +3541,10 @@ async def synthesize_report(
 
     # FIX-046A: Define target_total BEFORE the while loop so it's always
     # available for post-loop code (line ~1034) that uses it.
-    target_total = int(os.getenv("PG_TARGET_TOTAL_WORDS", "12000"))
+    target_total = int(os.getenv("PG_TARGET_TOTAL_WORDS", "8000"))
 
     # DUR-5: Skip expansion entirely if already above threshold
-    skip_expansion_threshold = int(os.getenv("PG_SKIP_EXPANSION_WORD_THRESHOLD", "0"))
+    skip_expansion_threshold = int(resolve("PG_SKIP_EXPANSION_WORD_THRESHOLD"))
 
     while expansion_passes < PG_SYNTHESIS_MAX_EXPANSION_PASSES:
         # FIX-D: Substance-based quality gate — measure substance, not structure.
@@ -3581,7 +3582,7 @@ async def synthesize_report(
 
         # RC-8: Analytical depth gate (v3 Hybrid)
         depth_ok = True
-        if os.getenv("PG_V3_DEPTH_GATE", "0") == "1":
+        if resolve("PG_V3_DEPTH_GATE") == "1":
             depth_result = _evaluate_analytical_depth(report_sections)
             depth_ok = depth_result["passed"]
             if not depth_ok:
@@ -3902,7 +3903,7 @@ async def synthesize_report(
                 "%d/%d flagged (avg %.1f%%), threshold %.1f%%",
                 post_exp_flagged, len(hallucination_audit),
                 post_exp_avg * 100,
-                float(os.getenv("PG_HALLUCINATION_REWRITE_THRESHOLD", "0.40")) * 100,
+                float(resolve("PG_HALLUCINATION_REWRITE_THRESHOLD")) * 100,
             )
 
     # Final quality gate check — FIX-D: Substance-based gate
@@ -4068,7 +4069,7 @@ async def synthesize_report(
 
             for _si, _section in enumerate(report_sections):
                 _sec_content = _section.get("content", "")
-                _min_polish_words = int(os.getenv("PG_POLISH_MIN_SECTION_WORDS", "500"))
+                _min_polish_words = int(resolve("PG_POLISH_MIN_SECTION_WORDS"))
                 if len(_sec_content.split()) < _min_polish_words:
                     continue  # Skip sections too short to benefit from polishing
 
@@ -4137,8 +4138,8 @@ async def synthesize_report(
                 _new_sec_cites = len(_re.findall(r"\[\d+\]", _polished_sec))
                 if (
                     _polished_sec
-                    and len(_polished_sec) > len(_sec_content) * float(os.getenv("PG_POLISH_MIN_LENGTH_RATIO", "0.7"))
-                    and _new_sec_cites >= _orig_sec_cites * float(os.getenv("PG_POLISH_MIN_CITE_RATIO", "0.8"))
+                    and len(_polished_sec) > len(_sec_content) * float(resolve("PG_POLISH_MIN_LENGTH_RATIO"))
+                    and _new_sec_cites >= _orig_sec_cites * float(resolve("PG_POLISH_MIN_CITE_RATIO"))
                 ):
                     _section["content"] = _polished_sec
                     _section["word_count"] = len(_polished_sec.split())
@@ -4353,7 +4354,7 @@ async def analyze_gaps(
             # If removal rate > 60%, the verifier is being too strict —
             # keep all evidence but mark unfaithful ones so section writer
             # can deprioritize them.
-            _max_removal_rate = float(os.getenv("PG_MAX_FAITHFULNESS_REMOVAL_RATE", "0.60"))
+            _max_removal_rate = float(resolve("PG_MAX_FAITHFULNESS_REMOVAL_RATE"))
             _removal_rate = len(unfaithful_evidence_ids) / max(before_filter, 1)
             if _removal_rate > _max_removal_rate:
                 logger.warning(
@@ -4453,7 +4454,7 @@ async def analyze_gaps(
     # A default of 6 would have forced PG_TEST_091 into max-iter fallback
     # despite perfect faithfulness. 4 allows narrow topics through while
     # still enforcing that at least ~half the STORM angles are represented.
-    _min_persp_coverage = int(os.getenv("PG_MIN_PERSPECTIVE_COVERAGE", "4"))
+    _min_persp_coverage = int(resolve("PG_MIN_PERSPECTIVE_COVERAGE"))
     _persp_ok = _persp_covered >= _min_persp_coverage
     if (
         total_evidence >= MIN_EVIDENCE_COUNT
@@ -4517,7 +4518,7 @@ async def analyze_gaps(
     # generate confidence-targeted queries for low-confidence claims
     # FIX-060-D: Configurable low-confidence threshold (was hardcoded 0.7).
     # After FIX-060-A, content-basis claims cap at 0.50, so this must be tunable.
-    _low_conf_threshold = float(os.getenv("PG_LOW_CONFIDENCE_THRESHOLD", "0.60"))
+    _low_conf_threshold = float(resolve("PG_LOW_CONFIDENCE_THRESHOLD"))
     low_confidence_claims = sorted(
         [c for c in claims if c.get("confidence", 1.0) < _low_conf_threshold
          and c.get("verification_method") != "api_error"],
@@ -4597,7 +4598,7 @@ Limit to 10 highest-priority gap queries."""
             schema=GapAnalysis,
             system=GAP_ANALYSIS_SYSTEM,
             max_tokens=int(os.getenv("PG_GAP_ANALYSIS_MAX_TOKENS", "4096")),
-            timeout=int(os.getenv("PG_GAP_ANALYSIS_TIMEOUT", "120")),
+            timeout=int(resolve("PG_GAP_ANALYSIS_TIMEOUT")),
         )
 
         gap_queries = parsed.suggested_queries
@@ -4849,7 +4850,7 @@ Evidence IDs are integers (1, 2, 3...). Use EXACTLY these IDs in your response."
             return themes
 
         # FIX-RC3b: Semaphore-bounded parallel clustering (prevents API overwhelm)
-        cluster_concurrency = int(os.getenv("PG_CLUSTER_CONCURRENCY", "8"))
+        cluster_concurrency = int(resolve("PG_CLUSTER_CONCURRENCY"))
         cluster_sem = asyncio.Semaphore(cluster_concurrency)
 
         async def _bounded_cluster(batch, idx):
@@ -4958,9 +4959,9 @@ def _merge_themes_programmatic(
 
     This follows the GraphRAG pattern: code tracks IDs, LLM provides insights.
     """
-    merge_threshold = float(os.getenv("PG_THEME_MERGE_JACCARD", "0.25"))
-    target_min_clusters = int(os.getenv("PG_THEME_MERGE_MIN", "8"))
-    target_max_clusters = int(os.getenv("PG_THEME_MERGE_MAX", "15"))
+    merge_threshold = float(resolve("PG_THEME_MERGE_JACCARD"))
+    target_min_clusters = int(resolve("PG_THEME_MERGE_MIN"))
+    target_max_clusters = int(resolve("PG_THEME_MERGE_MAX"))
 
     # Build word sets for each theme (for Jaccard similarity)
     def _theme_words(t: dict) -> set[str]:
@@ -5153,7 +5154,7 @@ Identify any aspects not well-covered."""
             schema=ClusterPlan,
             system=CLUSTER_SYSTEM,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=int(os.getenv("PG_CLUSTER_BATCH_TIMEOUT", "300")),
+            timeout=int(os.getenv("PG_CLUSTER_BATCH_TIMEOUT", "600")),
         )
 
         # Reverse-remap short IDs back to original ev_xxx IDs

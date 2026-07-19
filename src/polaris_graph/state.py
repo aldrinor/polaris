@@ -11,6 +11,7 @@ from typing import Any, Optional
 from typing_extensions import TypedDict
 
 from dotenv import load_dotenv
+from src.polaris_graph.settings import resolve
 
 load_dotenv()
 
@@ -19,39 +20,39 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 # Search
-QUERIES_PER_VECTOR = int(os.getenv("PG_QUERIES_PER_VECTOR", "50"))
-WEB_RESULTS_PER_QUERY = int(os.getenv("PG_WEB_RESULTS_PER_QUERY", "20"))
-ACADEMIC_RESULTS_PER_QUERY = int(os.getenv("PG_ACADEMIC_RESULTS_PER_QUERY", "10"))
-WEB_CONCURRENCY = int(os.getenv("PG_WEB_CONCURRENCY", "20"))
-ACADEMIC_CONCURRENCY = int(os.getenv("PG_ACADEMIC_CONCURRENCY", "1"))
-MAX_SOURCES_TO_ANALYZE = int(os.getenv("PG_MAX_SOURCES_TO_ANALYZE", "300"))
-MAX_ACADEMIC_PAGES = int(os.getenv("PG_MAX_ACADEMIC_PAGES", "5"))
+QUERIES_PER_VECTOR = int(resolve("PG_QUERIES_PER_VECTOR"))
+WEB_RESULTS_PER_QUERY = int(resolve("PG_WEB_RESULTS_PER_QUERY"))
+ACADEMIC_RESULTS_PER_QUERY = int(resolve("PG_ACADEMIC_RESULTS_PER_QUERY"))
+WEB_CONCURRENCY = int(resolve("PG_WEB_CONCURRENCY"))
+ACADEMIC_CONCURRENCY = int(resolve("PG_ACADEMIC_CONCURRENCY"))
+MAX_SOURCES_TO_ANALYZE = int(resolve("PG_MAX_SOURCES_TO_ANALYZE"))
+MAX_ACADEMIC_PAGES = int(resolve("PG_MAX_ACADEMIC_PAGES"))
 
 # Quality gates
-MIN_EVIDENCE_COUNT = int(os.getenv("PG_MIN_EVIDENCE_COUNT", "20"))
-MIN_FAITHFULNESS = float(os.getenv("PG_MIN_FAITHFULNESS", "0.70"))
+MIN_EVIDENCE_COUNT = int(resolve("PG_MIN_EVIDENCE_COUNT"))
+MIN_FAITHFULNESS = float(resolve("PG_MIN_FAITHFULNESS"))
 # W3.2: Iteration-decision threshold is stricter than the final quality gate.
 # If faithfulness is between MIN_FAITHFULNESS and CONVERGENCE_MIN_FAITHFULNESS
 # we keep iterating; the final gate still uses MIN_FAITHFULNESS.
 CONVERGENCE_MIN_FAITHFULNESS = float(
-    os.getenv("PG_CONVERGENCE_MIN_FAITHFULNESS", "0.80")
+    resolve("PG_CONVERGENCE_MIN_FAITHFULNESS")
 )
-MAX_ITERATIONS = int(os.getenv("PG_MAX_ITERATIONS", "3"))
-MAX_EXECUTION_MINUTES = int(os.getenv("PG_MAX_EXECUTION_MINUTES", "60"))
+MAX_ITERATIONS = int(resolve("PG_MAX_ITERATIONS"))
+MAX_EXECUTION_MINUTES = int(resolve("PG_MAX_EXECUTION_MINUTES"))
 
 # Synthesis — maxed out
-MAX_SECTIONS = int(os.getenv("PG_MAX_SECTIONS", "15"))
-MAX_WORDS_PER_SECTION = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "2000"))
+MAX_SECTIONS = int(resolve("PG_MAX_SECTIONS"))
+MAX_WORDS_PER_SECTION = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "3000"))
 # GEMINI-ARCH: MIN_TOTAL_WORDS set to 0 (advisory). Quality emerges from evidence
 # density, not word count targets. Sections are as long as their evidence supports.
 MIN_TOTAL_WORDS = int(os.getenv("PG_MIN_TOTAL_WORDS", "0"))
 TARGET_TOTAL_WORDS = int(os.getenv("PG_TARGET_TOTAL_WORDS", "8000"))
-MIN_CITATIONS = int(os.getenv("PG_MIN_CITATIONS", "30"))
-MIN_UNIQUE_SOURCES = int(os.getenv("PG_MIN_UNIQUE_SOURCES", "8"))
+MIN_CITATIONS = int(resolve("PG_MIN_CITATIONS"))
+MIN_UNIQUE_SOURCES = int(resolve("PG_MIN_UNIQUE_SOURCES"))
 
 # Verification — verify ALL claims, no sampling
 VERIFY_ALL_CLAIMS = True
-MIN_CLAIM_CONFIDENCE = float(os.getenv("PG_MIN_CLAIM_CONFIDENCE", "0.60"))
+MIN_CLAIM_CONFIDENCE = float(resolve("PG_MIN_CLAIM_CONFIDENCE"))
 
 # STORM multi-perspective query planning (Change 1)
 STORM_PERSPECTIVES = [
@@ -65,7 +66,7 @@ STORM_PERSPECTIVES = [
     "Methodological",
     "Emerging_Trends",
 ]
-QUERIES_PER_PERSPECTIVE = int(os.getenv("PG_QUERIES_PER_PERSPECTIVE", "6"))
+QUERIES_PER_PERSPECTIVE = int(resolve("PG_QUERIES_PER_PERSPECTIVE"))
 
 # Query amplification (Change 2)
 # I-ready-017 FX-19 (#1127) RETIRED-FROM-ADVERTISED-SLATE: PG_AMPLIFICATION_VARIANTS is
@@ -76,27 +77,27 @@ QUERIES_PER_PERSPECTIVE = int(os.getenv("PG_QUERIES_PER_PERSPECTIVE", "6"))
 # planner-decomposer + STORM + the agentic reasoning loop, NOT this variant multiplier. Kept
 # (not deleted) because the legacy static lane (PG_AGENTIC_SEARCH_ENABLED=0) still uses it.
 # Do NOT re-advertise it as a full-capability benchmark lever (was a dead knob in the SOTA slate).
-PG_AMPLIFICATION_ENABLED = os.getenv("PG_AMPLIFICATION_ENABLED", "1") == "1"
-PG_AMPLIFICATION_VARIANTS = int(os.getenv("PG_AMPLIFICATION_VARIANTS", "3"))
+PG_AMPLIFICATION_ENABLED = resolve("PG_AMPLIFICATION_ENABLED") == "1"
+PG_AMPLIFICATION_VARIANTS = int(resolve("PG_AMPLIFICATION_VARIANTS"))
 
 # Academic search caps (Change 4)
-PG_ACADEMIC_QUERY_CAP = int(os.getenv("PG_ACADEMIC_QUERY_CAP", "50"))
-PG_MAX_TOTAL_ACADEMIC = int(os.getenv("PG_MAX_TOTAL_ACADEMIC", "500"))
+PG_ACADEMIC_QUERY_CAP = int(resolve("PG_ACADEMIC_QUERY_CAP"))
+PG_MAX_TOTAL_ACADEMIC = int(os.getenv("PG_MAX_TOTAL_ACADEMIC", "100"))
 
 # Content pipeline (Change 3)
-PG_MAX_CONTENT_LENGTH = int(os.getenv("PG_MAX_CONTENT_LENGTH", "30000"))
+PG_MAX_CONTENT_LENGTH = int(resolve("PG_MAX_CONTENT_LENGTH"))
 PG_CONTENT_PER_SOURCE = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
-PG_MIN_CONTENT_LENGTH = int(os.getenv("PG_MIN_CONTENT_LENGTH", "200"))
-PG_ANALYSIS_CONCURRENCY = int(os.getenv("PG_ANALYSIS_CONCURRENCY", "12"))
-PG_ANALYSIS_BATCH_SIZE = int(os.getenv("PG_ANALYSIS_BATCH_SIZE", "1"))
-PG_ANALYSIS_BATCH_TIMEOUT = float(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "240.0"))
-PG_FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "5"))
+PG_MIN_CONTENT_LENGTH = int(resolve("PG_MIN_CONTENT_LENGTH"))
+PG_ANALYSIS_CONCURRENCY = int(resolve("PG_ANALYSIS_CONCURRENCY"))
+PG_ANALYSIS_BATCH_SIZE = int(resolve("PG_ANALYSIS_BATCH_SIZE"))
+PG_ANALYSIS_BATCH_TIMEOUT = float(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "900.0"))
+PG_FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "10"))
 
 # Verification/synthesis concurrency (Change 4)
-PG_VERIFY_BATCH_SIZE = int(os.getenv("PG_VERIFY_BATCH_SIZE", "10"))
-PG_VERIFY_CONCURRENCY = int(os.getenv("PG_VERIFY_CONCURRENCY", "20"))
-PG_VERIFY_GATHER_TIMEOUT = int(os.getenv("PG_VERIFY_GATHER_TIMEOUT", "1800"))
-PG_SECTION_WRITE_CONCURRENCY = int(os.getenv("PG_SECTION_WRITE_CONCURRENCY", "1"))
+PG_VERIFY_BATCH_SIZE = int(resolve("PG_VERIFY_BATCH_SIZE"))
+PG_VERIFY_CONCURRENCY = int(resolve("PG_VERIFY_CONCURRENCY"))
+PG_VERIFY_GATHER_TIMEOUT = int(resolve("PG_VERIFY_GATHER_TIMEOUT"))
+PG_SECTION_WRITE_CONCURRENCY = int(resolve("PG_SECTION_WRITE_CONCURRENCY"))
 # GEMINI-ARCH: Qwen3.5-Plus supports 65K output. 16384 gives rich sections
 # with tables + charts + key findings without truncation.
 PG_SECTION_WRITER_MAX_TOKENS = int(os.getenv("PG_SECTION_WRITER_MAX_TOKENS", "16384"))
@@ -110,18 +111,18 @@ PG_SECTION_CONTINUATION_MAX_TOKENS = int(os.getenv("PG_SECTION_CONTINUATION_MAX_
 PG_SYNTHESIS_STRUCTURED_MAX_TOKENS = int(os.getenv("PG_SYNTHESIS_STRUCTURED_MAX_TOKENS", "16384"))
 
 # Evidence deduplication (Change 5)
-PG_EVIDENCE_DEDUP_ENABLED = os.getenv("PG_EVIDENCE_DEDUP_ENABLED", "1") == "1"
-PG_EVIDENCE_DEDUP_THRESHOLD = float(os.getenv("PG_EVIDENCE_DEDUP_THRESHOLD", "0.85"))
+PG_EVIDENCE_DEDUP_ENABLED = resolve("PG_EVIDENCE_DEDUP_ENABLED") == "1"
+PG_EVIDENCE_DEDUP_THRESHOLD = float(resolve("PG_EVIDENCE_DEDUP_THRESHOLD"))
 
 # FIX-306: Citation chasing (snowball search)
-PG_CITATION_CHASE_ENABLED = os.getenv("PG_CITATION_CHASE_ENABLED", "1") == "1"
-PG_CITATION_CHASE_MAX = int(os.getenv("PG_CITATION_CHASE_MAX", "10"))
+PG_CITATION_CHASE_ENABLED = resolve("PG_CITATION_CHASE_ENABLED") == "1"
+PG_CITATION_CHASE_MAX = int(resolve("PG_CITATION_CHASE_MAX"))
 
 # FIX-301: Strict verification toggle
-PG_STRICT_VERIFICATION = os.getenv("PG_STRICT_VERIFICATION", "1") == "1"
+PG_STRICT_VERIFICATION = resolve("PG_STRICT_VERIFICATION") == "1"
 
 # IMP-1: Verifier content cap (pass source content for real verification)
-PG_VERIFIER_CONTENT_CAP = int(os.getenv("PG_VERIFIER_CONTENT_CAP", "25000"))
+PG_VERIFIER_CONTENT_CAP = int(resolve("PG_VERIFIER_CONTENT_CAP"))
 
 # BUG-092: Cross-source NLI pair cap. Prevents O(n^2) scaling by selecting
 # top-N pairs by relevance score. At 33 pairs = 1380s; default 50 keeps
@@ -130,35 +131,35 @@ PG_MAX_CROSS_SOURCE_PAIRS = int(os.getenv("PG_MAX_CROSS_SOURCE_PAIRS", "50"))
 
 # BUG-092: Triangulation / corroboration / contradiction O(n^2) scaling caps.
 # Cap evidence pool before O(n^2) Jaccard loops. Sorted by tier+relevance, top N.
-PG_MAX_TRIANGULATE_EVIDENCE = int(os.getenv("PG_MAX_TRIANGULATE_EVIDENCE", "500"))
-PG_MAX_CORROBORATION_EVIDENCE = int(os.getenv("PG_MAX_CORROBORATION_EVIDENCE", "500"))
-PG_MAX_CONTRADICTION_PAIRS = int(os.getenv("PG_MAX_CONTRADICTION_PAIRS", "1000"))
+PG_MAX_TRIANGULATE_EVIDENCE = int(resolve("PG_MAX_TRIANGULATE_EVIDENCE"))
+PG_MAX_CORROBORATION_EVIDENCE = int(resolve("PG_MAX_CORROBORATION_EVIDENCE"))
+PG_MAX_CONTRADICTION_PAIRS = int(resolve("PG_MAX_CONTRADICTION_PAIRS"))
 
 # IMP-3: Citation chase relevance filter (embedding similarity threshold)
-PG_CITATION_CHASE_MIN_RELEVANCE = float(os.getenv("PG_CITATION_CHASE_MIN_RELEVANCE", "0.3"))
+PG_CITATION_CHASE_MIN_RELEVANCE = float(resolve("PG_CITATION_CHASE_MIN_RELEVANCE"))
 
 # FIX-045H: Multi-evidence corroboration
-PG_CORROBORATION_ENABLED = os.getenv("PG_CORROBORATION_ENABLED", "1") == "1"
-PG_CORROBORATION_MAX_PER_CLAIM = int(os.getenv("PG_CORROBORATION_MAX_PER_CLAIM", "5"))
-PG_CORROBORATION_JACCARD_THRESHOLD = float(os.getenv("PG_CORROBORATION_JACCARD_THRESHOLD", "0.35"))
+PG_CORROBORATION_ENABLED = resolve("PG_CORROBORATION_ENABLED") == "1"
+PG_CORROBORATION_MAX_PER_CLAIM = int(resolve("PG_CORROBORATION_MAX_PER_CLAIM"))
+PG_CORROBORATION_JACCARD_THRESHOLD = float(resolve("PG_CORROBORATION_JACCARD_THRESHOLD"))
 
 # FIX-D: Substance-based quality gate — citation spread per section
-PG_MIN_CITATIONS_PER_SECTION = int(os.getenv("PG_MIN_CITATIONS_PER_SECTION", "2"))
+PG_MIN_CITATIONS_PER_SECTION = int(resolve("PG_MIN_CITATIONS_PER_SECTION"))
 
 # FIX-D: Substance-based quality gate — evidence utilization floor
 PG_MIN_EVIDENCE_UTILIZATION = float(os.getenv("PG_MIN_EVIDENCE_UTILIZATION", "0.40"))
 
 # FIX-310: Post-synthesis quality gate (max expansion passes, 0=disabled)
-PG_SYNTHESIS_MAX_EXPANSION_PASSES = int(os.getenv("PG_SYNTHESIS_MAX_EXPANSION_PASSES", "2"))
+PG_SYNTHESIS_MAX_EXPANSION_PASSES = int(resolve("PG_SYNTHESIS_MAX_EXPANSION_PASSES"))
 
 # OBS-1: Pipeline tracing (1=enabled, 0=disabled)
-PG_TRACING_ENABLED = os.getenv("PG_TRACING_ENABLED", "1") == "1"
+PG_TRACING_ENABLED = resolve("PG_TRACING_ENABLED") == "1"
 
 # FETCH-1: Prefer markdown content negotiation (1=enabled, 0=disabled)
-PG_PREFER_MARKDOWN = os.getenv("PG_PREFER_MARKDOWN", "1") == "1"
+PG_PREFER_MARKDOWN = resolve("PG_PREFER_MARKDOWN") == "1"
 
 # SOTA Sprint: Source quality controls
-PG_SOURCE_AUTHORITY_ENABLED = os.getenv("PG_SOURCE_AUTHORITY_ENABLED", "1") == "1"
+PG_SOURCE_AUTHORITY_ENABLED = resolve("PG_SOURCE_AUTHORITY_ENABLED") == "1"
 # HONEST-REBUILD Phase 2d: raise off-topic threshold 0.15 -> 0.35.
 # PG_LB_SA_02_CONTENT_AUDIT Section E-03 found that threshold=0.15 let
 # evidence with near-zero semantic similarity to the research question
@@ -167,28 +168,28 @@ PG_SOURCE_AUTHORITY_ENABLED = os.getenv("PG_SOURCE_AUTHORITY_ENABLED", "1") == "
 # was raised, which defeated every tightening attempt. Phase 2d raises
 # the main threshold to 0.35 AND the risk-axis floor to 0.20 so risk
 # evidence must still be at least weakly on-topic.
-PG_OFFTOPIC_THRESHOLD = float(os.getenv("PG_OFFTOPIC_THRESHOLD", "0.35"))
-PG_OFFTOPIC_RISK_FLOOR = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.20"))
+PG_OFFTOPIC_THRESHOLD = float(resolve("PG_OFFTOPIC_THRESHOLD"))
+PG_OFFTOPIC_RISK_FLOOR = float(resolve("PG_OFFTOPIC_RISK_FLOOR"))
 # Pre-fetch filter: when we have search-result snippets but haven't
 # fetched full content yet, a looser threshold is appropriate because
 # snippets are short. Still tighter than the legacy 0.15.
 PG_OFFTOPIC_PREFETCH_THRESHOLD = float(
-    os.getenv("PG_OFFTOPIC_PREFETCH_THRESHOLD", "0.25")
+    resolve("PG_OFFTOPIC_PREFETCH_THRESHOLD")
 )
-PG_MIN_PEER_REVIEWED_PCT = float(os.getenv("PG_MIN_PEER_REVIEWED_PCT", "0.30"))
+PG_MIN_PEER_REVIEWED_PCT = float(resolve("PG_MIN_PEER_REVIEWED_PCT"))
 
 # SOTA Sprint: Jina Reader + Firecrawl fetch (D1/D2)
-PG_JINA_ENABLED = os.getenv("PG_JINA_ENABLED", "1") == "1"
-PG_FIRECRAWL_ENABLED = os.getenv("PG_FIRECRAWL_ENABLED", "1") == "1"
+PG_JINA_ENABLED = resolve("PG_JINA_ENABLED") == "1"
+PG_FIRECRAWL_ENABLED = resolve("PG_FIRECRAWL_ENABLED") == "1"
 
 # SOTA Sprint: Exa neural search (A5)
-PG_EXA_ENABLED = os.getenv("PG_EXA_ENABLED", "1") == "1"
+PG_EXA_ENABLED = resolve("PG_EXA_ENABLED") == "1"
 
 # Exa API production config (FIX-A5 overhaul)
-PG_EXA_QUERIES_PER_VECTOR = int(os.getenv("PG_EXA_QUERIES_PER_VECTOR", "5"))
-PG_EXA_RESULTS_PER_QUERY = int(os.getenv("PG_EXA_RESULTS_PER_QUERY", "10"))
-PG_EXA_SEARCH_TYPE = os.getenv("PG_EXA_SEARCH_TYPE", "auto")
-PG_EXA_CATEGORY = os.getenv("PG_EXA_CATEGORY", "research paper")
+PG_EXA_QUERIES_PER_VECTOR = int(resolve("PG_EXA_QUERIES_PER_VECTOR"))
+PG_EXA_RESULTS_PER_QUERY = int(resolve("PG_EXA_RESULTS_PER_QUERY"))
+PG_EXA_SEARCH_TYPE = resolve("PG_EXA_SEARCH_TYPE")
+PG_EXA_CATEGORY = resolve("PG_EXA_CATEGORY")
 PG_EXA_EXCLUDE_DOMAINS = [
     d.strip()
     for d in os.getenv(
@@ -197,11 +198,11 @@ PG_EXA_EXCLUDE_DOMAINS = [
     ).split(",")
     if d.strip()
 ]
-PG_EXA_HIGHLIGHTS_SENTENCES = int(os.getenv("PG_EXA_HIGHLIGHTS_SENTENCES", "2"))
-PG_EXA_HIGHLIGHTS_PER_URL = int(os.getenv("PG_EXA_HIGHLIGHTS_PER_URL", "2"))
-PG_EXA_BUDGET_USD = float(os.getenv("PG_EXA_BUDGET_USD", "20.0"))
-PG_EXA_COST_PER_SEARCH = float(os.getenv("PG_EXA_COST_PER_SEARCH", "0.005"))
-PG_EXA_COST_PER_CONTENT = float(os.getenv("PG_EXA_COST_PER_CONTENT", "0.001"))
+PG_EXA_HIGHLIGHTS_SENTENCES = int(resolve("PG_EXA_HIGHLIGHTS_SENTENCES"))
+PG_EXA_HIGHLIGHTS_PER_URL = int(resolve("PG_EXA_HIGHLIGHTS_PER_URL"))
+PG_EXA_BUDGET_USD = float(resolve("PG_EXA_BUDGET_USD"))
+PG_EXA_COST_PER_SEARCH = float(resolve("PG_EXA_COST_PER_SEARCH"))
+PG_EXA_COST_PER_CONTENT = float(resolve("PG_EXA_COST_PER_CONTENT"))
 
 # Firecrawl free-plan hardening
 FIRECRAWL_MIN_INTERVAL_SECONDS = float(os.getenv("FIRECRAWL_MIN_INTERVAL_SECONDS", "6.0"))
@@ -209,45 +210,45 @@ FIRECRAWL_MONTHLY_QUOTA = int(os.getenv("FIRECRAWL_MONTHLY_QUOTA", "500"))
 FIRECRAWL_WARN_THRESHOLD_PCT = float(os.getenv("FIRECRAWL_WARN_THRESHOLD_PCT", "0.80"))
 
 # Adaptive search rounds (Serper STORM/Gemini-style)
-PG_ADAPTIVE_SEARCH_ENABLED = os.getenv("PG_ADAPTIVE_SEARCH_ENABLED", "1") == "1"
-PG_SEARCH_ROUNDS = int(os.getenv("PG_SEARCH_ROUNDS", "3"))
-PG_INITIAL_QUERY_PCT = float(os.getenv("PG_INITIAL_QUERY_PCT", "0.30"))
-PG_REFINEMENT_QUERIES = int(os.getenv("PG_REFINEMENT_QUERIES", "10"))
+PG_ADAPTIVE_SEARCH_ENABLED = resolve("PG_ADAPTIVE_SEARCH_ENABLED") == "1"
+PG_SEARCH_ROUNDS = int(resolve("PG_SEARCH_ROUNDS"))
+PG_INITIAL_QUERY_PCT = float(resolve("PG_INITIAL_QUERY_PCT"))
+PG_REFINEMENT_QUERIES = int(resolve("PG_REFINEMENT_QUERIES"))
 PG_REFINER_MAX_TOKENS = int(os.getenv("PG_REFINER_MAX_TOKENS", "4096"))
 
 # Agentic search loop (Gemini-style deep research)
-PG_AGENTIC_SEARCH_ENABLED = os.getenv("PG_AGENTIC_SEARCH_ENABLED", "0") == "1"
-PG_AGENTIC_MAX_ROUNDS = int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "12"))
-PG_AGENTIC_MAX_QUERIES = int(os.getenv("PG_AGENTIC_MAX_QUERIES", "160"))
-PG_AGENTIC_MAX_TIME_SECONDS = int(os.getenv("PG_AGENTIC_MAX_TIME_SECONDS", "1800"))
-PG_AGENTIC_SEED_QUERIES = int(os.getenv("PG_AGENTIC_SEED_QUERIES", "9"))
-PG_AGENTIC_QUERIES_PER_ROUND = int(os.getenv("PG_AGENTIC_QUERIES_PER_ROUND", "8"))
+PG_AGENTIC_SEARCH_ENABLED = resolve("PG_AGENTIC_SEARCH_ENABLED") == "1"
+PG_AGENTIC_MAX_ROUNDS = int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "15"))
+PG_AGENTIC_MAX_QUERIES = int(resolve("PG_AGENTIC_MAX_QUERIES"))
+PG_AGENTIC_MAX_TIME_SECONDS = int(resolve("PG_AGENTIC_MAX_TIME_SECONDS"))
+PG_AGENTIC_SEED_QUERIES = int(resolve("PG_AGENTIC_SEED_QUERIES"))
+PG_AGENTIC_QUERIES_PER_ROUND = int(resolve("PG_AGENTIC_QUERIES_PER_ROUND"))
 # I-cap-005 (#1068): this read the typo'd env `PG_WEB_PER_ROUND`, so the documented
 # `PG_AGENTIC_WEB_PER_ROUND` knob silently did nothing (the agentic web breadth was stuck at the
 # default 6). Read the correct env FIRST; fall back to the legacy typo'd name for back-compat.
-PG_AGENTIC_WEB_PER_ROUND = int(os.getenv("PG_AGENTIC_WEB_PER_ROUND", os.getenv("PG_WEB_PER_ROUND", "6")))
-PG_AGENTIC_ACADEMIC_PER_ROUND = int(os.getenv("PG_AGENTIC_ACADEMIC_PER_ROUND", "2"))
-PG_AGENTIC_EXA_PER_ROUND = int(os.getenv("PG_AGENTIC_EXA_PER_ROUND", "1"))
-PG_AGENTIC_CONVERGENCE_URL_OVERLAP = float(os.getenv("PG_AGENTIC_CONVERGENCE_URL_OVERLAP", "0.40"))
-PG_AGENTIC_CONVERGENCE_THEME_SATURATION = float(os.getenv("PG_AGENTIC_CONVERGENCE_THEME_SATURATION", "0.80"))
-PG_AGENTIC_CONVERGENCE_WINDOW = int(os.getenv("PG_AGENTIC_CONVERGENCE_WINDOW", "3"))
-PG_AGENTIC_MIN_ROUNDS = int(os.getenv("PG_AGENTIC_MIN_ROUNDS", "5"))
+PG_AGENTIC_WEB_PER_ROUND = int(os.getenv("PG_AGENTIC_WEB_PER_ROUND", resolve("PG_WEB_PER_ROUND")))
+PG_AGENTIC_ACADEMIC_PER_ROUND = int(resolve("PG_AGENTIC_ACADEMIC_PER_ROUND"))
+PG_AGENTIC_EXA_PER_ROUND = int(resolve("PG_AGENTIC_EXA_PER_ROUND"))
+PG_AGENTIC_CONVERGENCE_URL_OVERLAP = float(resolve("PG_AGENTIC_CONVERGENCE_URL_OVERLAP"))
+PG_AGENTIC_CONVERGENCE_THEME_SATURATION = float(resolve("PG_AGENTIC_CONVERGENCE_THEME_SATURATION"))
+PG_AGENTIC_CONVERGENCE_WINDOW = int(resolve("PG_AGENTIC_CONVERGENCE_WINDOW"))
+PG_AGENTIC_MIN_ROUNDS = int(resolve("PG_AGENTIC_MIN_ROUNDS"))
 PG_AGENTIC_REFINER_MAX_TOKENS = int(os.getenv("PG_AGENTIC_REFINER_MAX_TOKENS", "4096"))
 
 # Agentic search Phase 2: Content-aware search
-PG_AGENTIC_CONTENT_READING_ENABLED = os.getenv("PG_AGENTIC_CONTENT_READING_ENABLED", "1") == "1"
-PG_AGENTIC_PAGES_PER_ROUND = int(os.getenv("PG_AGENTIC_PAGES_PER_ROUND", "3"))
-PG_AGENTIC_FETCH_TIMEOUT = float(os.getenv("PG_AGENTIC_FETCH_TIMEOUT", "15.0"))
-PG_AGENTIC_PAGE_CONTENT_CAP = int(os.getenv("PG_AGENTIC_PAGE_CONTENT_CAP", "5000"))
+PG_AGENTIC_CONTENT_READING_ENABLED = resolve("PG_AGENTIC_CONTENT_READING_ENABLED") == "1"
+PG_AGENTIC_PAGES_PER_ROUND = int(resolve("PG_AGENTIC_PAGES_PER_ROUND"))
+PG_AGENTIC_FETCH_TIMEOUT = float(resolve("PG_AGENTIC_FETCH_TIMEOUT"))
+PG_AGENTIC_PAGE_CONTENT_CAP = int(resolve("PG_AGENTIC_PAGE_CONTENT_CAP"))
 PG_AGENTIC_SUMMARY_MAX_TOKENS = int(os.getenv("PG_AGENTIC_SUMMARY_MAX_TOKENS", "2048"))
-PG_AGENTIC_MAX_NOTEBOOK_ENTRIES = int(os.getenv("PG_AGENTIC_MAX_NOTEBOOK_ENTRIES", "30"))
-PG_AGENTIC_KNOWLEDGE_SATURATION_PAGES = int(os.getenv("PG_AGENTIC_KNOWLEDGE_SATURATION_PAGES", "15"))
-PG_AGENTIC_MIN_NEW_NOTES_PER_ROUND = int(os.getenv("PG_AGENTIC_MIN_NEW_NOTES_PER_ROUND", "1"))
-PG_AGENTIC_CONTENT_PERSPECTIVE_WEIGHT = int(os.getenv("PG_AGENTIC_CONTENT_PERSPECTIVE_WEIGHT", "3"))
+PG_AGENTIC_MAX_NOTEBOOK_ENTRIES = int(resolve("PG_AGENTIC_MAX_NOTEBOOK_ENTRIES"))
+PG_AGENTIC_KNOWLEDGE_SATURATION_PAGES = int(resolve("PG_AGENTIC_KNOWLEDGE_SATURATION_PAGES"))
+PG_AGENTIC_MIN_NEW_NOTES_PER_ROUND = int(resolve("PG_AGENTIC_MIN_NEW_NOTES_PER_ROUND"))
+PG_AGENTIC_CONTENT_PERSPECTIVE_WEIGHT = int(resolve("PG_AGENTIC_CONTENT_PERSPECTIVE_WEIGHT"))
 # FIX-055: Per-call timeout for LLM analysis in agentic loop (prevents hung HTTP).
 # BUG-090: LLM sometimes returns prose instead of JSON for AgenticRoundAnalysis.
 # Increased from 120s to 300s to give structured output more time.
-PG_AGENTIC_ANALYSIS_TIMEOUT_SECONDS = int(os.getenv("PG_AGENTIC_ANALYSIS_TIMEOUT_SECONDS", "300"))
+PG_AGENTIC_ANALYSIS_TIMEOUT_SECONDS = int(resolve("PG_AGENTIC_ANALYSIS_TIMEOUT_SECONDS"))
 
 # AREA-2: Paywall domain fetch blocklist (don't attempt fetch, use snippet)
 PG_PAYWALL_DOMAINS = frozenset(
@@ -259,20 +260,20 @@ PG_PAYWALL_DOMAINS = frozenset(
     ).split(",")
     if d.strip()
 )
-PG_MIN_CONTENT_LENGTH_ACADEMIC = int(os.getenv("PG_MIN_CONTENT_LENGTH_ACADEMIC", "100"))
+PG_MIN_CONTENT_LENGTH_ACADEMIC = int(resolve("PG_MIN_CONTENT_LENGTH_ACADEMIC"))
 
 # AREA-8: Budget guard — skip expensive nodes when budget low
-PG_BUDGET_GUARD_USD = float(os.getenv("PG_BUDGET_GUARD_USD", "150.0"))
+PG_BUDGET_GUARD_USD = float(resolve("PG_BUDGET_GUARD_USD"))
 
 # AREA-4: Per-section evidence filtering top-k
 # GEMINI-ARCH: Qwen3.5-Plus 1M context fits 100 evidence pieces (~50K tokens)
 # easily. More evidence = better citation decisions by the model.
-PG_SECTION_EVIDENCE_TOP_K = int(os.getenv("PG_SECTION_EVIDENCE_TOP_K", "100"))
+PG_SECTION_EVIDENCE_TOP_K = int(resolve("PG_SECTION_EVIDENCE_TOP_K"))
 
 # TIER-3 Stage 3: Token-budget-aware evidence selection
 PG_SECTION_TOKEN_BUDGET = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000"))
-PG_EVIDENCE_FORMAT_TOP_FULL = int(os.getenv("PG_EVIDENCE_FORMAT_TOP_FULL", "3"))
-PG_EVIDENCE_CANDIDATE_POOL = int(os.getenv("PG_EVIDENCE_CANDIDATE_POOL", "100"))
+PG_EVIDENCE_FORMAT_TOP_FULL = int(resolve("PG_EVIDENCE_FORMAT_TOP_FULL"))
+PG_EVIDENCE_CANDIDATE_POOL = int(resolve("PG_EVIDENCE_CANDIDATE_POOL"))
 
 
 # ---------------------------------------------------------------------------

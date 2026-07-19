@@ -22,6 +22,7 @@ from src.polaris_graph.synthesis.citation_mapper import (
     CITE_PATTERN,
 )
 from src.polaris_graph.synthesis.section_writer import _clean_artifacts
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -478,10 +479,10 @@ def detect_redundancy(
         os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.65")
     )
     embedding_threshold = float(
-        os.getenv("PG_REDUNDANCY_EMBEDDING_THRESHOLD", "0.85")
+        resolve("PG_REDUNDANCY_EMBEDDING_THRESHOLD")
     )
     min_sentence_words = int(
-        os.getenv("PG_REDUNDANCY_MIN_SENTENCE_WORDS", "5")
+        resolve("PG_REDUNDANCY_MIN_SENTENCE_WORDS")
     )
 
     all_sentences: list[tuple[str, str]] = []  # (sentence, section_id)
@@ -579,12 +580,12 @@ def remove_redundancy(
         The same report_sections list with duplicates removed from later sections.
     """
     if threshold is None:
-        threshold = float(os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.45"))
+        threshold = float(os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.65"))
     embedding_threshold = float(
-        os.getenv("PG_REDUNDANCY_EMBEDDING_THRESHOLD", "0.85")
+        resolve("PG_REDUNDANCY_EMBEDDING_THRESHOLD")
     )
     min_sentence_words = int(
-        os.getenv("PG_REDUNDANCY_MIN_SENTENCE_WORDS", "5")
+        resolve("PG_REDUNDANCY_MIN_SENTENCE_WORDS")
     )
 
     # NRC-2: Pre-compute sentence embeddings for semantic dedup
@@ -1204,7 +1205,7 @@ def assemble_report(
     # FIX-COMPLETENESS: NEVER merge a section that has substantial content (>100 words),
     # even if evidence_ids is empty. evidence_ids can be lost during post-synthesis
     # transforms — content is the ground truth for whether a section should exist.
-    _min_evidence_for_section = int(os.getenv("PG_MIN_SECTION_EVIDENCE", "3"))
+    _min_evidence_for_section = int(resolve("PG_MIN_SECTION_EVIDENCE"))
     _merged_indices: set[int] = set()
     for idx in range(len(sorted_sections) - 1, 0, -1):
         sec = sorted_sections[idx]
@@ -1484,7 +1485,7 @@ def assemble_report(
         r'in contrast|conversely|alternatively|subsequently|meanwhile)\b',
         re.IGNORECASE,
     )
-    _global_max_transitions = int(os.getenv("PG_GLOBAL_MAX_TRANSITIONS", "40"))
+    _global_max_transitions = int(resolve("PG_GLOBAL_MAX_TRANSITIONS"))
     _global_transition_count = 0
     for section in report_sections:
         _sec_matches = _transition_pattern.findall(section["content"])
@@ -1813,7 +1814,7 @@ def backfill_unused_citations(
         Updated report_sections with additional citations inserted.
     """
     if min_similarity <= 0:
-        min_similarity = float(os.getenv("PG_BACKFILL_MIN_SIMILARITY", "0.75"))
+        min_similarity = float(resolve("PG_BACKFILL_MIN_SIMILARITY"))
 
     # Find uncited evidence (has a citation number but isn't used in any section)
     cited_eids: set[str] = set()
@@ -1871,7 +1872,7 @@ def backfill_unused_citations(
 
         # Find matches above threshold
         backfilled = 0
-        max_backfill = int(os.getenv("PG_MAX_BACKFILL_CITATIONS", "20"))
+        max_backfill = int(resolve("PG_MAX_BACKFILL_CITATIONS"))
 
         # FIX-C8: Build section→evidence assignment map to scope backfill.
         # Without scoping, evidence from Section A gets cited in Section B,
@@ -2091,7 +2092,7 @@ def compute_quality_metrics(
 
     max_citation_frequency = max(citation_freq.values()) if citation_freq else 0
     max_over_cited_threshold = int(
-        os.getenv("PG_MAX_CITATION_FREQUENCY", "5")
+        os.getenv("PG_MAX_CITATION_FREQUENCY", "10")
     )
     over_cited = [
         f"[{k}]" for k, v in citation_freq.items()
@@ -2141,7 +2142,7 @@ def compute_quality_metrics(
     hedging_words_strong = {"may", "could", "potentially"}
     hedging_words_weak = {"might", "possibly", "perhaps"}
     hedging_words = hedging_words_strong | hedging_words_weak
-    max_hedging = int(os.getenv("PG_MAX_HEDGING_WORDS", "55"))
+    max_hedging = int(resolve("PG_MAX_HEDGING_WORDS"))
     hedging_counts: dict[str, int] = {}
     for section in report_sections:
         content_lower = section.get("content", "").lower()
@@ -2181,7 +2182,7 @@ def compute_quality_metrics(
         )
 
     # FIX-CITE-DIV: Per-source citation cap enforcement
-    max_per_source = int(os.getenv("PG_MAX_CITATIONS_PER_SOURCE", "10"))
+    max_per_source = int(resolve("PG_MAX_CITATIONS_PER_SOURCE"))
     sources_over_cap = sum(1 for v in citation_freq.values() if v > max_per_source)
     if sources_over_cap:
         logger.warning(
@@ -2191,8 +2192,8 @@ def compute_quality_metrics(
 
     # FIX-047M: Domain concentration check
     # No single domain should account for > 30% of citations
-    max_domain_pct = float(os.getenv("PG_MAX_DOMAIN_CITATION_PCT", "0.30"))
-    min_distinct_domains = int(os.getenv("PG_MIN_DISTINCT_DOMAINS", "5"))
+    max_domain_pct = float(resolve("PG_MAX_DOMAIN_CITATION_PCT"))
+    min_distinct_domains = int(resolve("PG_MIN_DISTINCT_DOMAINS"))
     domain_citation_counts: dict[str, int] = {}
     for section in report_sections:
         for eid in section.get("evidence_ids", []):
@@ -2274,7 +2275,7 @@ def _compute_redundancy_pct(report_sections: list[ReportSection]) -> float:
 
     Returns redundancy_pct. Logs warning if > 15%.
     """
-    max_redundancy_pct = float(os.getenv("PG_MAX_REDUNDANCY_PCT", "15.0"))
+    max_redundancy_pct = float(resolve("PG_MAX_REDUNDANCY_PCT"))
     try:
         stats = detect_redundancy(report_sections)
         pct = stats.get("redundancy_pct", 0.0)

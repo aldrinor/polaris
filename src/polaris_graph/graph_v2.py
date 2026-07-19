@@ -48,6 +48,7 @@ from src.polaris_graph.synthesis.report_assembler_v2 import assemble_report
 from src.polaris_graph.synthesis.synthesizer_v2 import write_section
 from src.polaris_graph.synthesis.verifier_v2 import verify_section
 from src.polaris_graph.tracing import get_tracer
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
@@ -55,12 +56,12 @@ logger = logging.getLogger("polaris_graph")
 # Configuration
 # ---------------------------------------------------------------------------
 
-MAX_ITERATIONS = int(os.getenv("PG_V2_MAX_ITERATIONS", "3"))
-MAX_EXECUTION_MINUTES = int(os.getenv("PG_V2_MAX_MINUTES", "60"))
+MAX_ITERATIONS = int(resolve("PG_V2_MAX_ITERATIONS"))
+MAX_EXECUTION_MINUTES = int(resolve("PG_V2_MAX_MINUTES"))
 
 # Fetch concurrency (matches v1 default)
 FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "10"))
-FETCH_TIMEOUT = int(os.getenv("PG_FETCH_TIMEOUT", "20"))
+FETCH_TIMEOUT = int(os.getenv("PG_FETCH_TIMEOUT", "30"))
 
 
 # ---------------------------------------------------------------------------

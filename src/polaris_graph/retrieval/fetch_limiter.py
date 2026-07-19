@@ -19,16 +19,17 @@ import logging
 import os
 import random
 from typing import Any, Callable, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
 # Concurrency cap — matches existing PG_FETCH_CONCURRENCY default
-FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "5"))
+FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "10"))
 
 # Retry config for 429/5xx responses
-MAX_RETRIES = int(os.getenv("PG_FETCH_MAX_RETRIES", "3"))
-RETRY_BASE_SECONDS = float(os.getenv("PG_FETCH_RETRY_BASE", "2.0"))
-RETRY_MAX_SECONDS = float(os.getenv("PG_FETCH_RETRY_MAX", "30.0"))
+MAX_RETRIES = int(resolve("PG_FETCH_MAX_RETRIES"))
+RETRY_BASE_SECONDS = float(resolve("PG_FETCH_RETRY_BASE"))
+RETRY_MAX_SECONDS = float(resolve("PG_FETCH_RETRY_MAX"))
 
 # Per-fetch timeout
 FETCH_TIMEOUT_SECONDS = int(os.getenv("PG_FETCH_TIMEOUT", "30"))

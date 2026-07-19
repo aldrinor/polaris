@@ -34,6 +34,7 @@ from urllib.parse import urlparse
 import platform
 
 import numpy as np
+from src.polaris_graph.settings import resolve
 
 # FIX-I1: Pre-set short cache path on Windows BEFORE any embedding import.
 # sentence-transformers cache path too long for Windows 260-char limit -> [Errno 22].
@@ -81,20 +82,20 @@ logger = logging.getLogger(__name__)
 from src.polaris_graph.state import PG_OFFTOPIC_THRESHOLD  # noqa: E402
 
 # FIX-S2-4: Source-level topic gate threshold (LAW VI: from env var).
-_PG_SOURCE_TOPIC_GATE = float(os.getenv("PG_SOURCE_TOPIC_GATE", "0.30"))
+_PG_SOURCE_TOPIC_GATE = float(resolve("PG_SOURCE_TOPIC_GATE"))
 
 # FIX-BUDGET: Evidence extraction budget cap — stop processing batches once cap reached.
 # Saves ~60% extraction cost on large search result sets.
-PG_MAX_EVIDENCE_TO_EXTRACT = int(os.getenv("PG_MAX_EVIDENCE_TO_EXTRACT", "600"))
+PG_MAX_EVIDENCE_TO_EXTRACT = int(resolve("PG_MAX_EVIDENCE_TO_EXTRACT"))
 
 # FIX-059-D (BUG-4): Minimum quote word count -- reject quotes shorter than this.
 # Headings and nav labels are typically 5-10 words; 15 filters them out.
-PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "15"))
+PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "5"))
 
 # FIX-C4: Consolidate env var reads at module level (single source of truth).
 # Previously read inline in analyze_sources() — violates LAW VI (zero hard-coding).
-PG_SNIPPET_DROP_PCT = float(os.getenv("PG_SNIPPET_DROP_PCT", "0.40"))
-PG_SNIPPET_RERANK_ENABLED = os.getenv("PG_SNIPPET_RERANK_ENABLED", "1") == "1"
+PG_SNIPPET_DROP_PCT = float(resolve("PG_SNIPPET_DROP_PCT"))
+PG_SNIPPET_RERANK_ENABLED = resolve("PG_SNIPPET_RERANK_ENABLED") == "1"
 
 
 # FIX-059-D (H-09): Compiled regex for markdown link stripping.
@@ -112,7 +113,7 @@ def _get_low_authority_patterns() -> re.Pattern:
     cfg = _get_domain_config()
     return cfg.low_authority_patterns or re.compile(r"(?!)")  # Never-match fallback
 
-_DOMAIN_AUTHORITY_LOW_CREDIBILITY = float(os.getenv("PG_LOW_CREDIBILITY_AUTHORITY", "0.2"))
+_DOMAIN_AUTHORITY_LOW_CREDIBILITY = float(resolve("PG_LOW_CREDIBILITY_AUTHORITY"))
 
 
 def _strip_markdown(text: str) -> str:
@@ -215,7 +216,7 @@ Output format (return ONLY this JSON structure):
 # Authority gate threshold for pre-fetch filtering. Sources scoring below
 # this are skipped before fetch. Set permissively (0.3) — synthesis stage
 # applies stricter gates downstream.
-_AUTHORITY_GATE_PREFETCH = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
+_AUTHORITY_GATE_PREFETCH = float(resolve("PG_AUTHORITY_GATE"))
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +235,7 @@ _TIER2_DOMAIN_PATHS = [("bbc.com", "/news")]
 _DOMAIN_AUTHORITY_TIER1 = 1.0
 _DOMAIN_AUTHORITY_TIER2 = 0.85
 _DOMAIN_AUTHORITY_TIER3 = 0.7
-_DOMAIN_AUTHORITY_DEFAULT = float(os.getenv("PG_DEFAULT_DOMAIN_AUTHORITY", "0.5"))
+_DOMAIN_AUTHORITY_DEFAULT = float(resolve("PG_DEFAULT_DOMAIN_AUTHORITY"))
 
 
 def _get_domain_authority(url: str) -> float:
@@ -325,7 +326,7 @@ def _get_domain_authority(url: str) -> float:
     # Pattern-based low authority (from config)
     _low_auth_re = _cfg.low_authority_patterns
     if _low_auth_re and _low_auth_re.search(url_lower):
-        return float(os.getenv("PG_LOW_AUTHORITY_SCORE", "0.1"))
+        return float(resolve("PG_LOW_AUTHORITY_SCORE"))
 
     # TIER 4: Default — unknown domains get conservative score
     return _DOMAIN_AUTHORITY_DEFAULT
@@ -575,7 +576,7 @@ async def _extract_structured_data(
 
     # FIX-TIMEOUT: Structured data extraction timeout configurable via env var.
     # LLM takes 200+ seconds on complex content; previous 60s caused 100% timeouts.
-    _sd_timeout = int(os.getenv("PG_STRUCTURED_DATA_TIMEOUT", "300"))
+    _sd_timeout = int(resolve("PG_STRUCTURED_DATA_TIMEOUT"))
 
     try:
         parsed = await client.generate_structured(
@@ -636,7 +637,7 @@ async def _enrich_evidence_cards(
 
     from src.polaris_graph.schemas import EvidenceCardBatch
 
-    batch_size = int(os.getenv("PG_V3_CARD_BATCH_SIZE", "10"))
+    batch_size = int(resolve("PG_V3_CARD_BATCH_SIZE"))
     enriched_count = 0
 
     for batch_start in range(0, len(evidence), batch_size):
@@ -675,7 +676,7 @@ async def _enrich_evidence_cards(
                 schema=EvidenceCardBatch,
                 system=system,
                 max_tokens=int(os.getenv("PG_STRUCTURED_DATA_MAX_TOKENS", "4096")),
-                timeout=int(os.getenv("PG_V3_CARD_TIMEOUT", "120")),
+                timeout=int(resolve("PG_V3_CARD_TIMEOUT")),
             )
 
             # Merge enrichments back into evidence dicts
@@ -805,9 +806,9 @@ async def analyze_sources(
     fetched = await _source_topic_gate(fetched, query)
 
     # RC-4: Content quality gate (v3 Hybrid) — reject garbled/boilerplate before extraction
-    if os.getenv("PG_V3_CONTENT_QUALITY_GATE", "0") == "1":
+    if resolve("PG_V3_CONTENT_QUALITY_GATE") == "1":
         from src.polaris_graph.retrieval.content_quality_gate import score_content_quality
-        threshold = float(os.getenv("PG_V3_CONTENT_QUALITY_THRESHOLD", "0.3"))
+        threshold = float(resolve("PG_V3_CONTENT_QUALITY_THRESHOLD"))
         pre_gate_count = len(fetched)
         quality_passed = []
         for item in fetched:
@@ -1036,7 +1037,7 @@ async def analyze_sources(
     # Examines each evidence statement + source context to determine:
     # high (RCT/meta-analysis, low heterogeneity), moderate (RCT, some concerns),
     # low (observational/high heterogeneity), very low (case reports/expert opinion).
-    _grade_enabled = os.getenv("PG_GRADE_STANDARDIZATION", "1") == "1"
+    _grade_enabled = resolve("PG_GRADE_STANDARDIZATION") == "1"
     if _grade_enabled and evidence:
         try:
             # FIX-071: Reduced from 20 to 5. GLM-5 truncates output before
@@ -1070,7 +1071,7 @@ async def analyze_sources(
                             # I-arch-002 (operator 2026-06-13: reasoning stays MAX everywhere): GRADE was
                             # effort=low + 500 tok; raised to high + 4096 so high-effort reasoning completes
                             # AND emits the ratings (a starved budget would truncate). Env-overridable.
-                            effort=os.getenv("PG_GRADE_REASONING_EFFORT", "high"),
+                            effort=resolve("PG_GRADE_REASONING_EFFORT"),
                             max_tokens=int(os.getenv("PG_GRADE_MAX_TOKENS", "4096")),
                         )
                         if _grade_resp.content.strip():
@@ -1214,12 +1215,12 @@ async def analyze_sources(
         "randomized controlled", "clinical trials", "peer-reviewed",
     ]
     _query_is_clinical = any(kw in query.lower() for kw in _clinical_keywords)
-    if _query_is_clinical and os.getenv("PG_ACADEMIC_ONLY_GATE", "1") == "1":
+    if _query_is_clinical and resolve("PG_ACADEMIC_ONLY_GATE") == "1":
         # FIX-B3: Gate threshold must be ABOVE default authority (0.5) to
         # actually filter. Old threshold (>= 0.5) equaled the default,
         # making the gate a no-op (53% non-journal sources passed).
         # New: require authority >= 0.6 OR journal_article source_type.
-        _gate_threshold = float(os.getenv("PG_ACADEMIC_GATE_THRESHOLD", "0.6"))
+        _gate_threshold = float(resolve("PG_ACADEMIC_GATE_THRESHOLD"))
         _academic_source_types = {"journal_article", "academic"}
         _before = len(evidence)
         evidence = [
@@ -1289,8 +1290,8 @@ async def analyze_sources(
     uploaded_docs = state.get("uploaded_documents", [])
     if uploaded_docs:
         doc_ev_count = 0
-        chunk_size = int(os.getenv("PG_DOC_EVIDENCE_CHUNK_SIZE", "2000"))
-        max_chunks_per_doc = int(os.getenv("PG_DOC_MAX_CHUNKS", "20"))
+        chunk_size = int(resolve("PG_DOC_EVIDENCE_CHUNK_SIZE"))
+        max_chunks_per_doc = int(resolve("PG_DOC_MAX_CHUNKS"))
         for doc in uploaded_docs:
             content = doc.get("content", "") or doc.get("content_preview", "")
             if not content:
@@ -1356,9 +1357,9 @@ async def analyze_sources(
     # Now capped at PG_STRUCTURED_DATA_MAX_SOURCES (default 50) and
     # PG_STRUCTURED_DATA_TOTAL_TIMEOUT (default 1800s = 30 min).
     structured_data: list[dict] = []
-    if os.getenv("PG_STRUCTURED_DATA_EXTRACTION", "0") == "1":
-        _sd_max_sources = int(os.getenv("PG_STRUCTURED_DATA_MAX_SOURCES", "50"))
-        _sd_total_timeout = int(os.getenv("PG_STRUCTURED_DATA_TOTAL_TIMEOUT", "1800"))
+    if resolve("PG_STRUCTURED_DATA_EXTRACTION") == "1":
+        _sd_max_sources = int(resolve("PG_STRUCTURED_DATA_MAX_SOURCES"))
+        _sd_total_timeout = int(resolve("PG_STRUCTURED_DATA_TOTAL_TIMEOUT"))
         _sd_sources = fetched[:_sd_max_sources]
 
         logger.info(
@@ -1432,7 +1433,7 @@ async def analyze_sources(
         )
 
     # RC-1: Evidence card enrichment (v3 Hybrid)
-    if os.getenv("PG_V3_EVIDENCE_CARDS", "0") == "1" and evidence:
+    if resolve("PG_V3_EVIDENCE_CARDS") == "1" and evidence:
         # Build source_contents map from fetched content
         _rc1_source_contents: dict[str, str] = {}
         for _rc1_item in fetched:
@@ -2076,7 +2077,7 @@ Sources:
             schema=SourceAnalysisBatch,
             system=ANALYSIS_SYSTEM,
             max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
-            timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
+            timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "900")),
             reasoning_enabled=False,  # FIX-I2b: Evidence extraction is pattern-matching, not reasoning
             # W1.4 (S3 diagnosis): cap reasoning on GLM-5.1 (server always reasons even with
             # reasoning_enabled=False). Caps runaway reasoning observed at 10,813 tokens per batch.
@@ -2239,7 +2240,7 @@ Sources:
                 schema=SourceAnalysisBatch,
                 system=ANALYSIS_SYSTEM,
                 max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
-                timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
+                timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "900")),
                 reasoning_enabled=False,
                 reasoning_max_tokens=int(os.getenv("PG_EXTRACTION_REASONING_MAX_TOKENS", "2048")),
             )
@@ -2586,18 +2587,18 @@ def _assign_quality_tiers(evidence: list[EvidencePiece]) -> list[EvidencePiece]:
     NRC-6: Blog/commercial source types get relevance penalty.
     """
     # Signal weights (LAW VI: from env vars)
-    w_relevance = float(os.getenv("PG_TIER_W_RELEVANCE", "0.25"))
-    w_authority = float(os.getenv("PG_TIER_W_AUTHORITY", "0.25"))
-    w_density = float(os.getenv("PG_TIER_W_DENSITY", "0.20"))
-    w_freshness = float(os.getenv("PG_TIER_W_FRESHNESS", "0.10"))
-    w_grounding = float(os.getenv("PG_TIER_W_GROUNDING", "0.20"))
+    w_relevance = float(resolve("PG_TIER_W_RELEVANCE"))
+    w_authority = float(resolve("PG_TIER_W_AUTHORITY"))
+    w_density = float(resolve("PG_TIER_W_DENSITY"))
+    w_freshness = float(resolve("PG_TIER_W_FRESHNESS"))
+    w_grounding = float(resolve("PG_TIER_W_GROUNDING"))
 
     # Tier thresholds (LAW VI: from env vars)
-    gold_threshold = float(os.getenv("PG_TIER_GOLD_THRESHOLD", "0.65"))
-    silver_threshold = float(os.getenv("PG_TIER_SILVER_THRESHOLD", "0.40"))
+    gold_threshold = float(resolve("PG_TIER_GOLD_THRESHOLD"))
+    silver_threshold = float(resolve("PG_TIER_SILVER_THRESHOLD"))
 
     # NRC-6: Blog source penalty
-    _blog_penalty = float(os.getenv("PG_BLOG_SOURCE_PENALTY", "0.3"))
+    _blog_penalty = float(resolve("PG_BLOG_SOURCE_PENALTY"))
     _blog_types = frozenset([
         "blog", "commercial", "marketing", "news_blog", "opinion",
         "affiliate", "sponsored",
@@ -2605,11 +2606,11 @@ def _assign_quality_tiers(evidence: list[EvidencePiece]) -> list[EvidencePiece]:
     blog_penalized = 0
 
     # Veto thresholds
-    _min_substance_for_silver = float(os.getenv("PG_MIN_SUBSTANCE_FOR_SILVER", "0.2"))
-    _min_substance_for_gold = float(os.getenv("PG_MIN_SUBSTANCE_FOR_GOLD", "0.4"))
+    _min_substance_for_silver = float(resolve("PG_MIN_SUBSTANCE_FOR_SILVER"))
+    _min_substance_for_gold = float(resolve("PG_MIN_SUBSTANCE_FOR_GOLD"))
 
     # FIX-058D-v2: Read Signal 5 default ONCE before loop (was per-piece, N redundant getenv calls)
-    _sig5_default = float(os.getenv("PG_TIER_SIGNAL5_DEFAULT", "0.3"))
+    _sig5_default = float(resolve("PG_TIER_SIGNAL5_DEFAULT"))
 
     substance_vetoes = 0
     composite_scores: list[float] = []
@@ -2825,7 +2826,7 @@ def _filter_offtopic_evidence(
 
     # FIX-V9: Adaptive off-topic threshold — if median similarity is low
     # (narrow topic with few matching terms), lower threshold to preserve diversity
-    adaptive_enabled = os.getenv("PG_OFFTOPIC_ADAPTIVE", "0") == "1"
+    adaptive_enabled = resolve("PG_OFFTOPIC_ADAPTIVE") == "1"
 
     try:
         from src.utils.embedding_service import embed_text, embed_texts
@@ -2860,7 +2861,7 @@ def _filter_offtopic_evidence(
                 "concern", "danger",
             )
         )
-        risk_floor = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.20"))
+        risk_floor = float(resolve("PG_OFFTOPIC_RISK_FLOOR"))
         risk_categories = {"risk", "adverse_event", "contraindication", "safety"}
         risk_keywords = (
             "adverse", "contraindicat", "side effect", "side-effect",
@@ -3040,7 +3041,7 @@ async def _unified_embedding_pass(
         threshold = PG_OFFTOPIC_THRESHOLD
 
         # FIX-V9: Adaptive off-topic threshold (applied in unified pass)
-        adaptive_enabled_unified = os.getenv("PG_OFFTOPIC_ADAPTIVE", "0") == "1"
+        adaptive_enabled_unified = resolve("PG_OFFTOPIC_ADAPTIVE") == "1"
         if adaptive_enabled_unified:
             median_sim = float(np.median(similarities))
             if median_sim < threshold:
@@ -3067,7 +3068,7 @@ async def _unified_embedding_pass(
                 "concern", "danger",
             )
         )
-        risk_floor = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.20"))
+        risk_floor = float(resolve("PG_OFFTOPIC_RISK_FLOOR"))
         risk_categories = {"risk", "adverse_event", "contraindication", "safety"}
         risk_keywords = (
             "adverse", "contraindicat", "side effect", "side-effect",
@@ -3220,7 +3221,7 @@ def _validate_extraction_claims(evidence: list[EvidencePiece]) -> list[EvidenceP
 
     Returns the evidence list with quote_verified flags updated.
     """
-    max_claim_evidence = int(os.getenv("PG_MAX_EVIDENCE_PER_CLAIM", "20"))
+    max_claim_evidence = int(resolve("PG_MAX_EVIDENCE_PER_CLAIM"))
     validated = 0
     unverified = 0
 
@@ -3458,9 +3459,9 @@ def _cap_evidence_per_url(evidence: list[EvidencePiece]) -> list[EvidencePiece]:
     - PG_SEMHASH_SIMILARITY_THRESHOLD: Dedup threshold 0-1 (default: 0.85)
     - PG_MAX_EVIDENCE_PER_URL: Count cap fallback (default: 5)
     """
-    max_per_url = int(os.getenv("PG_MAX_EVIDENCE_PER_URL", "5"))
-    semhash_enabled = os.getenv("PG_SEMHASH_DEDUP_ENABLED", "1") == "1"
-    semhash_threshold = float(os.getenv("PG_SEMHASH_SIMILARITY_THRESHOLD", "0.85"))
+    max_per_url = int(resolve("PG_MAX_EVIDENCE_PER_URL"))
+    semhash_enabled = resolve("PG_SEMHASH_DEDUP_ENABLED") == "1"
+    semhash_threshold = float(resolve("PG_SEMHASH_SIMILARITY_THRESHOLD"))
 
     if max_per_url <= 0 or len(evidence) <= 1:
         return evidence

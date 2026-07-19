@@ -32,6 +32,7 @@ from src.polaris_graph.state import (
     ReportSection,
 )
 from src.polaris_graph.tracing import get_tracer
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,7 @@ def _load_prompt_fragment(section_type: str) -> str:
     Returns fragment text, or empty string if file not found.
     Max 300 tokens (~1200 chars) enforced.
     """
-    _max_chars = int(os.getenv("PG_PROMPT_FRAGMENT_MAX_CHARS", "1200"))
+    _max_chars = int(resolve("PG_PROMPT_FRAGMENT_MAX_CHARS"))
     fragment_path = os.path.join(_PROMPT_FRAGMENT_DIR, f"fragment_{section_type}.md")
 
     try:
@@ -519,7 +520,7 @@ async def _decompose_into_questions(
             schema=QuestionDecomposition,
             system=_QUESTION_DECOMPOSITION_SYSTEM,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=int(os.getenv("PG_QUESTION_DECOMP_TIMEOUT", "300")),
+            timeout=int(resolve("PG_QUESTION_DECOMP_TIMEOUT")),
         )
         if result and result.questions:
             logger.info(
@@ -562,7 +563,7 @@ async def plan_report(
     to dedicate sections or subsections to addressing these disagreements.
     """
     # RC-3: Question-driven planning (when enabled, build outline from sub-questions)
-    if os.getenv("PG_V3_QUESTION_PLANNING", "0") == "1":
+    if resolve("PG_V3_QUESTION_PLANNING") == "1":
         from src.polaris_graph.state import STORM_PERSPECTIVES
         evidence_summary = _summarize_evidence_for_planning(clusters, evidence)
         decomposition = await _decompose_into_questions(
@@ -653,7 +654,7 @@ async def plan_report(
     # BUG-091: 12-section outline from 5 evidence pieces → 7 sections with 0 evidence.
     # FIX-057: Tighten cap for critically low evidence (<10) — 1 section per piece.
     # T052 root cause: 13-section outline from 3 evidence → 10 sections with 0 evidence.
-    max_sections_cap = int(os.getenv("PG_MAX_OUTLINE_SECTIONS", "15"))
+    max_sections_cap = int(resolve("PG_MAX_OUTLINE_SECTIONS"))
     if len(evidence) < 10:
         # Critical evidence starvation: 1 section per evidence piece, minimum 3
         target_sections = max(3, len(evidence))
@@ -695,7 +696,7 @@ Design a data-driven report outline where section depth matches evidence depth:
             schema=ReportOutline,
             system=OUTLINE_SYSTEM_PROMPT,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=int(os.getenv("PG_OUTLINE_TIMEOUT", "600")),
+            timeout=int(resolve("PG_OUTLINE_TIMEOUT")),
         )
 
         # FIX-311: Retry once if outline has 0 sections (Kimi garbage output)
@@ -864,7 +865,7 @@ def _assign_evidence_to_sections(
         )
 
     # FIX-CITE-DIV-1: Cap any single source at max_source_pct of section evidence
-    max_source_pct = float(os.getenv("PG_MAX_SOURCE_PCT_PER_SECTION", "0.33"))
+    max_source_pct = float(resolve("PG_MAX_SOURCE_PCT_PER_SECTION"))
     ev_map_for_div = {e.get("evidence_id", ""): e for e in evidence}
     diversity_trimmed = 0
     for si in section_evidence:
@@ -919,7 +920,7 @@ def _assign_evidence_to_sections(
         "adolescent", "teen", "mortality", "harm",
         "dizziness", "nausea", "irritab",
     )
-    quorum_min = int(os.getenv("PG_RISK_QUORUM_MIN", "2"))
+    quorum_min = int(resolve("PG_RISK_QUORUM_MIN"))
     quorum_added = 0
     for si, section in enumerate(sorted_sections):
         title_desc = f"{section.title} {section.description}".lower()
@@ -1002,7 +1003,7 @@ def _validate_outline_evidence(outline: ReportOutline) -> ReportOutline:
        redistributing from over-assigned sections.
     """
     min_evidence_per_section = int(
-        os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "3")
+        os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5")
     )
 
     seen: set[str] = set()
@@ -1229,7 +1230,7 @@ async def write_section(
             _title_vec = np.array(embed_text(section.title))
             _ev_vecs = np.array(embed_texts(_all_ev_texts))
             _sims = _ev_vecs @ _title_vec
-            _rescue_threshold = float(os.getenv("PG_EVIDENCE_RESCUE_SIM_THRESHOLD", "0.15"))
+            _rescue_threshold = float(resolve("PG_EVIDENCE_RESCUE_SIM_THRESHOLD"))
             _top_indices = np.argsort(_sims)[-5:][::-1]  # Top 5 by similarity
             _rescued_ids = [_all_ev_ids[i] for i in _top_indices if _sims[i] > _rescue_threshold]
             if _rescued_ids:
@@ -1303,7 +1304,7 @@ async def write_section(
     # FIX-107I: Apply per-section embedding-based evidence filtering.
     # TIER-3 Stage 3: Use wider candidate pool when token budget is enabled.
     _token_budget_enabled = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
-    _candidate_pool = int(os.getenv("PG_EVIDENCE_CANDIDATE_POOL", "100")) if _token_budget_enabled else PG_SECTION_EVIDENCE_TOP_K
+    _candidate_pool = int(resolve("PG_EVIDENCE_CANDIDATE_POOL")) if _token_budget_enabled else PG_SECTION_EVIDENCE_TOP_K
     section_evidence = _filter_evidence_for_section(
         evidence=section_evidence,
         section_title=section.title,
@@ -1406,7 +1407,7 @@ async def write_section(
 
     # RC-5: Corroboration signals (v3 Hybrid)
     corroboration_block = ""
-    if os.getenv("PG_V3_SURFACE_ANALYSIS", "0") == "1":
+    if resolve("PG_V3_SURFACE_ANALYSIS") == "1":
         high_corroboration = [
             e for e in section_evidence
             if e.get("corroborating_sources", 0) >= 3
@@ -1445,7 +1446,7 @@ async def write_section(
 
     # RC-6: Pre-formatted comparison tables (v3 Hybrid)
     table_block = ""
-    if os.getenv("PG_V3_COMPARISON_TABLES", "0") == "1":
+    if resolve("PG_V3_COMPARISON_TABLES") == "1":
         tables = _build_comparison_tables(section_evidence)
         if tables:
             table_block = (
@@ -1477,7 +1478,7 @@ CROSS-REFERENCES: When referencing other sections of this report, always use the
 Target: approximately {min(200 + len(section_evidence) * 80, 2000)} words."""
 
     # RC-2 (v3 Hybrid): Inject analytical instructions when enabled
-    if os.getenv("PG_V3_ANALYTICAL_PROMPT", "0") == "1":
+    if resolve("PG_V3_ANALYTICAL_PROMPT") == "1":
         _analytical_focus = getattr(section, "analytical_focus", "") or ""
         _focus_line = f"\\nANALYTICAL FOCUS: {_analytical_focus}" if _analytical_focus else ""
         prompt += f"""
@@ -1496,7 +1497,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     _suggested_words = min(200 + _n_evidence * 80, 2000)
 
     # RC-2 (v3 Hybrid): Use build_section_writer_prompt when analytical mode enabled
-    if os.getenv("PG_V3_ANALYTICAL_PROMPT", "0") == "1":
+    if resolve("PG_V3_ANALYTICAL_PROMPT") == "1":
         from src.polaris_graph.retrieval.synthesis_prompts import build_section_writer_prompt
         _analytical_focus = getattr(section, "analytical_focus", "") or ""
         system = build_section_writer_prompt(
@@ -1511,7 +1512,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
         )
 
     # Phase 5: Modular prompt fragment injection
-    _phase_5_enabled = os.getenv("PG_PHASE_5_ENABLED", "1") == "1"
+    _phase_5_enabled = resolve("PG_PHASE_5_ENABLED") == "1"
     if _phase_5_enabled:
         _section_type = _detect_section_type(section_evidence)
         _fragment = _load_prompt_fragment(_section_type)
@@ -1592,7 +1593,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
 
     # v4-simplify: Cap section length to prevent one section dominating the report.
     # TEST_082: Section 1 was 4,268 words (55% of the report).
-    _max_section_words = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "1500"))
+    _max_section_words = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "3000"))
     _word_count = len(content.split())
     if _word_count > _max_section_words:
         # Truncate at the last sentence boundary before the cap
@@ -1793,7 +1794,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     # T047 audit found "may" 25x and "potentially" 17x (section_writer prompt
     # says "max 2 per paragraph" but had no enforcement). Count paragraphs
     # and hedging words; if ratio exceeds threshold, do a revision pass.
-    _hedging_max_per_para = int(os.getenv("PG_HEDGING_MAX_PER_PARAGRAPH", "2"))
+    _hedging_max_per_para = int(resolve("PG_HEDGING_MAX_PER_PARAGRAPH"))
     paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
     _hedge_pattern = re.compile(
         r"\b(may|might|could|potentially|perhaps|possibly)\b", re.IGNORECASE,
@@ -1841,7 +1842,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
 
     # FIX-R12: Per-section citation density enforcement.
     # Sections with < 0.5 citations per 100 words are essentially uncited prose.
-    _r12_min_density = float(os.getenv("PG_MIN_CITATION_DENSITY", "0.5"))
+    _r12_min_density = float(resolve("PG_MIN_CITATION_DENSITY"))
     _r12_word_count = len(content.split())
     _r12_cite_count = content.count("[CITE:")
     _r12_density = (_r12_cite_count / max(_r12_word_count, 1)) * 100
@@ -1980,7 +1981,7 @@ async def write_all_sections(
     section_evidence_map: dict[str, list[str]] = {}
 
     # FIX-9: Track citation frequency per source URL for diversity enforcement
-    max_citation_freq = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "8"))
+    max_citation_freq = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "10"))
     source_citation_count: dict[str, int] = {}  # source_url -> citation count
 
     # FIX-304: Build full outline context for position awareness
@@ -2002,12 +2003,12 @@ async def write_all_sections(
     section_filtered_evidence: dict[str, list[EvidencePiece]] = {}
 
     # FIX-CITE-3/HARD-DEDUP + REDIST: Global evidence dedup for Path A too
-    _hard_dedup_a = os.getenv("PG_HARD_EVIDENCE_DEDUP", "1") == "1"
+    _hard_dedup_a = resolve("PG_HARD_EVIDENCE_DEDUP") == "1"
     _globally_claimed_a: set[str] = set()
     _n_sections_a = max(len(sorted_sections), 1)
     _total_evidence_a = len(evidence)
     _fair_share_a = max(
-        int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8")),
+        int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5")),
         int(_total_evidence_a / _n_sections_a * 1.5),
     )
 
@@ -2052,7 +2053,7 @@ async def write_all_sections(
             # Final top-k filter — use wider pool when token budget enabled
             # FIX-CITE-3/REDIST: Cap to fair share (Path A)
             _tb_enabled = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
-            _pool_k = int(os.getenv("PG_EVIDENCE_CANDIDATE_POOL", "100")) if _tb_enabled else PG_SECTION_EVIDENCE_TOP_K
+            _pool_k = int(resolve("PG_EVIDENCE_CANDIDATE_POOL")) if _tb_enabled else PG_SECTION_EVIDENCE_TOP_K
             _effective_k_a = min(_pool_k, _fair_share_a) if _hard_dedup_a else _pool_k
             filtered = _filter_evidence_for_section(
                 evidence=combined,
@@ -2094,12 +2095,12 @@ async def write_all_sections(
         # FIX-CITE-3/REDIST: Fair-share cap prevents first-come hoarding.
         # Each section gets at most ceil(total_evidence / num_sections * 1.5)
         # evidence pieces. This ensures later sections have material to work with.
-        _hard_dedup = os.getenv("PG_HARD_EVIDENCE_DEDUP", "1") == "1"
+        _hard_dedup = resolve("PG_HARD_EVIDENCE_DEDUP") == "1"
         _globally_claimed: set[str] = set()
         _n_sections = max(len(sorted_sections), 1)
         _total_evidence = len(evidence)
         _fair_share = max(
-            int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8")),
+            int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5")),
             int(_total_evidence / _n_sections),
         )
         if _hard_dedup:
@@ -2125,7 +2126,7 @@ async def write_all_sections(
             # FIX-069: When outline assignment is empty or depleted by dedup,
             # pull from the FULL unclaimed pool by embedding similarity.
             # This prevents 14/15 sections getting 0 evidence.
-            _min_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8"))
+            _min_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5"))
             if len(assigned_evidence) < _min_per_section:
                 _all_unclaimed = [
                     e for e in evidence
@@ -2165,7 +2166,7 @@ async def write_all_sections(
             # Then apply embedding-based filtering on the combined pool
             # FIX-CITE-3/REDIST: Cap to fair share to prevent first-come hoarding
             _tb_enabled_b = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
-            _pool_k_b = int(os.getenv("PG_EVIDENCE_CANDIDATE_POOL", "100")) if _tb_enabled_b else PG_SECTION_EVIDENCE_TOP_K
+            _pool_k_b = int(resolve("PG_EVIDENCE_CANDIDATE_POOL")) if _tb_enabled_b else PG_SECTION_EVIDENCE_TOP_K
             _effective_k = min(_pool_k_b, _fair_share) if _hard_dedup else _pool_k_b
             filtered = _filter_evidence_for_section(
                 evidence=assigned_evidence,
@@ -2188,7 +2189,7 @@ async def write_all_sections(
     all_covered_claims: list[str] = []
 
     # FIX-058G: Per-section write timeout to prevent hung LLM calls
-    section_write_timeout = int(os.getenv("PG_SECTION_WRITE_TIMEOUT", "300"))
+    section_write_timeout = int(resolve("PG_SECTION_WRITE_TIMEOUT"))
 
     # FIX-STARVATION: Keep reference to full evidence pool for rescue
     full_evidence_pool = evidence
@@ -2245,9 +2246,9 @@ async def write_all_sections(
         # SF-13: Collect failed sections for retry
         failed_sections: list[tuple[int, SectionOutlineItem]] = []
         # Phase 3B: Quality gate thresholds
-        _gate_min_words = int(os.getenv("PG_QUALITY_GATE_MIN_WORDS", "400"))
-        _gate_min_citations = int(os.getenv("PG_QUALITY_GATE_MIN_CITATIONS", "2"))
-        _gate_relaxed_last_n = int(os.getenv("PG_QUALITY_GATE_RELAXED_LAST_N", "2"))
+        _gate_min_words = int(resolve("PG_QUALITY_GATE_MIN_WORDS"))
+        _gate_min_citations = int(resolve("PG_QUALITY_GATE_MIN_CITATIONS"))
+        _gate_relaxed_last_n = int(resolve("PG_QUALITY_GATE_RELAXED_LAST_N"))
 
         for idx, result in enumerate(batch_results):
             if isinstance(result, Exception):
@@ -2452,8 +2453,8 @@ async def write_all_sections(
                     all_covered_claims.append(stat_claim)
 
             # Phase 3B: Cap covered claims to last 20 statistics + recent claims
-            _max_covered_stats = int(os.getenv("PG_MAX_COVERED_STATS", "20"))
-            _max_covered_claims = int(os.getenv("PG_MAX_COVERED_CLAIMS", "50"))
+            _max_covered_stats = int(resolve("PG_MAX_COVERED_STATS"))
+            _max_covered_claims = int(resolve("PG_MAX_COVERED_CLAIMS"))
             stats_in_claims = [c for c in all_covered_claims if c.startswith("STATISTIC:")]
             other_claims = [c for c in all_covered_claims if not c.startswith("STATISTIC:")]
             if len(stats_in_claims) > _max_covered_stats:
@@ -2464,7 +2465,7 @@ async def write_all_sections(
 
         # Phase 3B: Generate section summaries for cross-referencing
         # Each section gets a 1-sentence summary of its key finding
-        _max_prev_summaries = int(os.getenv("PG_MAX_PREV_SUMMARIES", "5"))
+        _max_prev_summaries = int(resolve("PG_MAX_PREV_SUMMARIES"))
         if drafts:
             prev_summaries = []
             for d in drafts[-_max_prev_summaries:]:
@@ -2873,7 +2874,7 @@ def _format_cluster_detail(
     # FIX-2: Cap per-cluster evidence display to keep outline prompt compact.
     # With 15 clusters x 850 evidence, old limit of 40/cluster = 30K+ chars
     # causing 3x timeout + fallback. Now configurable, default 10.
-    max_outline_ev = int(os.getenv("PG_OUTLINE_EVIDENCE_PER_CLUSTER", "10"))
+    max_outline_ev = int(resolve("PG_OUTLINE_EVIDENCE_PER_CLUSTER"))
 
     for i, c in enumerate(clusters, 1):
         theme = c.get("theme", "Unknown")
@@ -3188,7 +3189,7 @@ def _limit_hedging(text: str) -> str:
     if not text or not text.strip():
         return text
 
-    max_hedging = int(os.getenv("PG_MAX_HEDGING_PER_SECTION", "4"))
+    max_hedging = int(resolve("PG_MAX_HEDGING_PER_SECTION"))
 
     # Pattern matches common hedging words/phrases
     _hedging_pattern = re.compile(
@@ -3269,8 +3270,8 @@ def _limit_transitions(text: str) -> str:
         return text
 
     # LAW VI: Thresholds from environment
-    max_density = float(os.getenv("PG_TRANSITION_MAX_DENSITY", "150"))  # 1 per N words
-    cap_per_10k = int(os.getenv("PG_TRANSITION_CAP_PER_10K", "60"))
+    max_density = float(resolve("PG_TRANSITION_MAX_DENSITY"))  # 1 per N words
+    cap_per_10k = int(resolve("PG_TRANSITION_CAP_PER_10K"))
 
     _transition_words = [
         "Additionally", "Moreover", "Furthermore", "In addition",
@@ -3390,8 +3391,8 @@ def _break_long_paragraphs(text: str) -> str:
         return text
 
     # LAW VI: Threshold from environment
-    max_paragraph_words = int(os.getenv("PG_MAX_PARAGRAPH_WORDS", "300"))
-    split_target_words = int(os.getenv("PG_PARAGRAPH_SPLIT_TARGET", "250"))
+    max_paragraph_words = int(resolve("PG_MAX_PARAGRAPH_WORDS"))
+    split_target_words = int(resolve("PG_PARAGRAPH_SPLIT_TARGET"))
 
     paragraphs = text.split("\n\n")
     result_paragraphs = []

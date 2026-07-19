@@ -17,13 +17,14 @@ from typing import Any
 
 from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 from src.polaris_graph.wiki.wiki_builder import WikiResult
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
-MAX_CLAIMS_PER_SECTION = int(os.getenv("PG_WIKI_MAX_CLAIMS_PER_SECTION", "20"))
-THIN_SECTION_THRESHOLD = int(os.getenv("PG_WIKI_THIN_THRESHOLD", "5"))
-TARGET_WORDS_DEFAULT = int(os.getenv("PG_WIKI_TARGET_WORDS", "1200"))
-COMPOSE_TIMEOUT = int(os.getenv("PG_WIKI_COMPOSE_TIMEOUT", "120"))
+MAX_CLAIMS_PER_SECTION = int(resolve("PG_WIKI_MAX_CLAIMS_PER_SECTION"))
+THIN_SECTION_THRESHOLD = int(resolve("PG_WIKI_THIN_THRESHOLD"))
+TARGET_WORDS_DEFAULT = int(resolve("PG_WIKI_TARGET_WORDS"))
+COMPOSE_TIMEOUT = int(resolve("PG_WIKI_COMPOSE_TIMEOUT"))
 COMPOSE_MAX_TOKENS = int(os.getenv("PG_WIKI_COMPOSE_MAX_TOKENS", "8192"))
 ABSTRACT_MAX_TOKENS = int(os.getenv("PG_WIKI_ABSTRACT_MAX_TOKENS", "1536"))
 
@@ -31,7 +32,7 @@ ABSTRACT_MAX_TOKENS = int(os.getenv("PG_WIKI_ABSTRACT_MAX_TOKENS", "1536"))
 # Adds structural depth to section composition: Evidence/Mechanism/
 # Comparison/Critique/Horizon. Targets analytical depth + completeness
 # without sacrificing wiki's pre-cited claim constraint.
-WIKI_5LENS_ENABLED = os.getenv("PG_WIKI_5LENS", "0") == "1"
+WIKI_5LENS_ENABLED = resolve("PG_WIKI_5LENS") == "1"
 
 # PATCH-B (STORM cross-section polish pass, source: stanford-oval/storm
 # PolishPageModule with remove_duplicate=True). One LLM call over the full
@@ -41,7 +42,7 @@ WIKI_5LENS_ENABLED = os.getenv("PG_WIKI_5LENS", "0") == "1"
 #      section DOES characterize X (PG_LB_SA_01 §Risks line 91 defect).
 #   2. Duplicate numeric claims across sections with the same citation.
 # The polish prompt mandates preservation of [N] citations and H2 headings.
-PG_CROSS_SECTION_POLISH = os.getenv("PG_CROSS_SECTION_POLISH", "1") == "1"
+PG_CROSS_SECTION_POLISH = resolve("PG_CROSS_SECTION_POLISH") == "1"
 
 
 # ── System Prompt ────────────────────────────────────────────────────
@@ -487,7 +488,7 @@ async def compose_from_wiki(
         bibliography=wiki_result.bibliography,
         evidence_count=total_evidence,
         iteration_count=1,
-        search_rounds=int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "2")),
+        search_rounds=int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "15")),
         persona_count=5,
     )
 
@@ -735,7 +736,7 @@ async def _compose_abstract(
             system="You are an academic researcher writing a concise abstract.",
             max_tokens=ABSTRACT_MAX_TOKENS,
             temperature=0.2,
-            timeout=int(os.getenv("PG_WIKI_ABSTRACT_TIMEOUT", "60")),
+            timeout=int(resolve("PG_WIKI_ABSTRACT_TIMEOUT")),
             reasoning_exclude=True,
         )
         abstract = result.content
