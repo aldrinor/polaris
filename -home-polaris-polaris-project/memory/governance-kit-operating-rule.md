@@ -11,6 +11,13 @@ The operator requires that **all agent work runs within the governance kit**. Th
 
 **Why:** five repeating failures (drip-fed partial answers, tunnel-vision one-spot fixes, git/doc drift, long jargon-y messages, dumping context-heavy decisions on the operator). Each checker mechanically blocks one.
 
+**STANDING DISCIPLINES (operator-confirmed 2026-07-20, apply to ALL future work):**
+1. Every improvement runs INSIDE this infra (govkit + gate-inversion). No side-channel work.
+2. Naming is plain and descriptive — NO casual/inflated/adjective names (the rename work established this).
+3. GitHub is updated on EVERY change (commit + push each fix; never let git/doc drift).
+4. New settings go through the central config layer (`resolve()` + `config_defaults.py`), NEVER a hardcoded `os.getenv("X", literal)` — a hardcoded value is the exact bug the config consolidation fixed. Offered to add a CI/pre-commit guard that blocks any NEW raw `os.getenv` outside settings.py (pending operator go-ahead) so this is machine-enforced, not just remembered.
+The 5 foundation gates are all codex-approved + pushed to gate-inversion (config 8264c3d+58e0809, checkpoints 695951c, logging 8d23105, entailment-off + run-recipe 3cb46b8). Owner-only remainder: 27 conflicting-default config keys need a product decision.
+
 **HARD BINDING (this fixed the twice-slipped bug): NEVER run `gh issue create` or `gh pr create` until `python3 tools/check_pr_body.py <body>` (add `--issue` for issues) has exited 0 on that exact body file.** Check first, create only on pass — do not create-then-fix. Same for operator messages: lint BEFORE sending, never after.
 
 **MACHINE GUARDS (installed 2026-07-20, in `~/.local/bin`, so keep `$HOME/.local/bin` on PATH — my bash preamble does):**
