@@ -1,0 +1,53 @@
+name: govkit-checks (report-only)
+
+# Report-only on purpose. This runs on every PR, proves the three checkers still
+# self-test green, and reports any governance file the PR changed that fails its
+# checker — without failing the job. Promote to a required check once it and the
+# other workflows are green.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  govkit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Checker self-tests (must stay green)
+        run: |
+          python3 tools/validate_agent_payload.py --selftest
+          python3 tools/lint_operator_message.py --selftest
+          python3 tools/check_pr_body.py --selftest
+
+      - name: Check governance files changed by this PR (report-only)
+        continue-on-error: true
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          changed="$(git diff --name-only "$base"...HEAD || git diff --name-only HEAD~1...HEAD)"
+          echo "Changed files:"; echo "$changed"
+          rc=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            [ -f "$f" ] || continue
+            case "$f" in
+              *.payload.json) python3 tools/validate_agent_payload.py "$f" || rc=1 ;;
+              gov/outbox/*.md|*.operator.md) python3 tools/lint_operator_message.py "$f" || rc=1 ;;
+              *.pr.md|*/pr_body*.md) python3 tools/check_pr_body.py "$f" || rc=1 ;;
+              *.issue.md) python3 tools/check_pr_body.py "$f" --issue || rc=1 ;;
+            esac
+          done <<< "$changed"
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning::One or more changed governance files failed its checker (report-only; not blocking)."
+          fi
