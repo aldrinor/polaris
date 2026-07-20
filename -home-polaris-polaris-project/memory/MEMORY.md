@@ -6,3 +6,4 @@
 - [Codex sol max reasoning](codex-sol-max-reasoning.md) — standing rule: all Codex gates run gpt-5.6-sol at max reasoning via CLI (bypass flag, reads files line-by-line)
 - [Governance kit operating rule](governance-kit-operating-rule.md) — all agent work runs inside govkit (bot/repo-knowledge-base); operator is blind, lint every message, use templates + payload schema
 - [Baseline next step](baseline-next-step.md) — before improvement work, run baseline_triple.sh to measure the scoreboard noise floor; foundation on gate-inversion (15fcdda)
+- [Background task lifecycle rule](background-task-lifecycle-rule.md) — never leave a background task loose; own its lifecycle, self-terminating only, TaskStop when done, none open at session end
