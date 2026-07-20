@@ -13,6 +13,11 @@ The operator requires that **all agent work runs within the governance kit**. Th
 
 **HARD BINDING (this fixed the twice-slipped bug): NEVER run `gh issue create` or `gh pr create` until `python3 tools/check_pr_body.py <body>` (add `--issue` for issues) has exited 0 on that exact body file.** Check first, create only on pass — do not create-then-fix. Same for operator messages: lint BEFORE sending, never after.
 
+**MACHINE GUARDS (installed 2026-07-20, in `~/.local/bin`, so keep `$HOME/.local/bin` on PATH — my bash preamble does):**
+- `~/.local/bin/gh` wraps the real gh (moved to `~/.local/bin/gh-real`). On `issue create` / `pr create` it runs `check_pr_body.py` on the `--body-file` ONLY when that file's first heading is `# Pull request` or `# Issue` (i.e. a govkit body — mine always are); a failing govkit body is BLOCKED before any PR/issue is made. Non-govkit bodies and all other gh commands pass straight through, so concurrent bots are untouched.
+- `~/.local/bin/opmsg <file>` is the gate for operator messages: it lints via `lint_operator_message.py` and prints the message only if it passes; otherwise it blocks. Route every operator report through `opmsg`.
+- Stable checker copy at `~/.govkit/tools/` + `~/.govkit/gov/` (decoupled from any worktree, so the guards survive a worktree removal). These are box-local; re-create from the gate-inversion kit if the box resets.
+
 **How to apply — every time, no exceptions:**
 - **Operator messages:** run through `tools/lint_operator_message.py` before sending. Max 5 sentences, flat lists only (no nesting — indentation is silent by ear), no emoji, no jargon (banned list lives in `gov/operator_voice.md`), max 35 words/sentence. Pasted command output goes in a real fenced block (skipped by the linter).
 - **Spawning any sub-agent:** prepend the matching `gov/spawn_templates/{claude,codex,kimi}.md`; require the `gov/agent_payload.schema.json` back (13 required keys incl. `findings` with real quotes, `not_covered`, `metrics`); reject a payload with empty `not_covered`. Validate with `tools/validate_agent_payload.py`.
