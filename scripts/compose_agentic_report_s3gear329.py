@@ -268,288 +268,307 @@ async def main() -> int:
              len(swg or []), domain or "(none)")
     log.info("PG_OUTLINE_AGENT=%s  out_dir=%s", os.getenv("PG_OUTLINE_AGENT"), run_dir)
 
-    from src.polaris_graph.generator.multi_section_generator import (  # noqa: PLC0415
-        generate_multi_section_report,
+    # LOGGING FIX (LOGGING-LOSSY): wire the run-scoped reasoning-trace sink. The sweep
+    # path registers it (run_honest_sweep_r3.py:9384) but the compose path never did, so
+    # openrouter_client found no sink and reasoning was silently dropped —
+    # reasoning_trace.jsonl came out empty (0 bytes). Write-through collector + up-front
+    # flush so the file is current on disk on any exit path. The generator already sets
+    # the per-call reasoning context (multi_section_generator.py:3248), so registering
+    # the sink here is all that was missing.
+    from src.polaris_graph.generator.reasoning_trace import (  # noqa: PLC0415
+        ReasoningTraceCollector,
     )
-    from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
-        PG_EVALUATOR_MODEL, PG_GENERATOR_MODEL,
-    )
-    from src.polaris_graph.outline.outline_agent import (  # noqa: PLC0415
-        outliner_agent_model, outliner_code_model,
-    )
-
-    dist = _tier_fractions(evidence)
-    log.info("tier fractions: %s", {k: round(v, 3) for k, v in dist.items()})
-    log.info("[gen] agent_model=%s code_model=%s generator=%s",
-             outliner_agent_model(), outliner_code_model(), PG_GENERATOR_MODEL)
-
-    # STEP 4 (UTILIZATION): thread the PSL government-suffix list so the credibility pass RUNS
-    # priors-only (judge=None under always-release => ZERO LLM scoring calls) and BUILDS the per-claim
-    # baskets. Without gov_suffixes the pre-run guard DEGRADES to credibility_analysis=None (the
-    # 794->9 collapse), which strands EVERY basket and makes PG_ROUTE_ALL_BASKETS inert — the report
-    # then renders only the LLM-writer's directly-cited sources. Faithfulness-neutral: priors weights
-    # are deterministic authority weights; strict_verify / 4-role D8 / span-grounding stay the ONLY
-    # binding gates. Fail-open: an empty/unavailable suffix list leaves the legacy None path.
-    _gov_suffixes = None
+    from src.polaris_graph.llm.openrouter_client import set_reasoning_sink  # noqa: PLC0415
+    _reasoning_collector = ReasoningTraceCollector(out_dir=run_dir)
+    _reasoning_collector.flush(run_dir)
+    set_reasoning_sink(_reasoning_collector)
     try:
-        from src.polaris_graph.authority.data_loader import load_authority_data  # noqa: PLC0415
-        _gov_suffixes = tuple(load_authority_data().get("psl_gov_suffixes") or ()) or None
-        log.info("[credibility] threaded psl_gov_suffixes=%d (priors-only basket build enabled)",
-                 len(_gov_suffixes or ()))
-    except Exception as _e:  # noqa: BLE001
-        log.warning("[credibility] could not load psl_gov_suffixes (%s); credibility pass will "
-                    "degrade to None and PG_ROUTE_ALL_BASKETS will be inert", _e)
 
-    # S4 render/compose projections (default-OFF): load a pinned gate artifact when
-    # supplied and compile its deliverable/scope/compose views. Absent => every
-    # projection is None => byte-identical champion composition + assembly.
-    _gate_contract = None
-    _deliverable_spec = None
-    _scope_spec = None
-    _compose_projection = None
-    _render_plan: dict = {}
-    _contract_sha = ""
-    if args.gate_artifact:
+        from src.polaris_graph.generator.multi_section_generator import (  # noqa: PLC0415
+            generate_multi_section_report,
+        )
+        from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+            PG_EVALUATOR_MODEL, PG_GENERATOR_MODEL,
+        )
+        from src.polaris_graph.outline.outline_agent import (  # noqa: PLC0415
+            outliner_agent_model, outliner_code_model,
+        )
+
+        dist = _tier_fractions(evidence)
+        log.info("tier fractions: %s", {k: round(v, 3) for k, v in dist.items()})
+        log.info("[gen] agent_model=%s code_model=%s generator=%s",
+                 outliner_agent_model(), outliner_code_model(), PG_GENERATOR_MODEL)
+
+        # STEP 4 (UTILIZATION): thread the PSL government-suffix list so the credibility pass RUNS
+        # priors-only (judge=None under always-release => ZERO LLM scoring calls) and BUILDS the per-claim
+        # baskets. Without gov_suffixes the pre-run guard DEGRADES to credibility_analysis=None (the
+        # 794->9 collapse), which strands EVERY basket and makes PG_ROUTE_ALL_BASKETS inert — the report
+        # then renders only the LLM-writer's directly-cited sources. Faithfulness-neutral: priors weights
+        # are deterministic authority weights; strict_verify / 4-role D8 / span-grounding stay the ONLY
+        # binding gates. Fail-open: an empty/unavailable suffix list leaves the legacy None path.
+        _gov_suffixes = None
         try:
-            from src.polaris_graph.planning.planning_gate_schema import (  # noqa: PLC0415
-                contract_from_dict,
-            )
-            from src.polaris_graph.planning.compose_render_projection import (  # noqa: PLC0415
-                from_contract as _crp_from_contract,
-            )
-            _art = json.loads(Path(args.gate_artifact).read_text())
-            _gate_contract = contract_from_dict(_art.get("contract") or {})
-            _contract_sha = str(_art.get("contract_sha256") or "")
-            _crp = _crp_from_contract(_gate_contract)
-            _compose_projection = _crp  # exposes .voice_advisory()
-            _render_plan = _crp.render_plan()
-            # deliverable_spec surfaced to the outliner as required-section titles/order
-            # (the S4 ORCH-2 seam already in _call_outline). scope_spec passthrough.
-            _deliverable_spec = {
-                "required_sections": _render_plan.get("required_titles", []),
-                "document_type": _render_plan.get("document_type", ""),
-            }
-            _scope_spec = {}
-            log.info("[gate] loaded artifact=%s contract_sha=%s required_sections=%d "
-                     "doc_type=%r voice=%s",
-                     args.gate_artifact, _contract_sha[:12],
-                     len(_render_plan.get("required_titles", [])),
-                     _render_plan.get("document_type", ""), _crp.has_voice())
-        except Exception as _e:  # noqa: BLE001 — fail-open: no gate => champion path
-            log.warning("[gate] could not load --gate-artifact %s (%s); running "
-                        "byte-identical champion path (no projections)",
-                        args.gate_artifact, _e)
-            _gate_contract = None
-            _deliverable_spec = _scope_spec = _compose_projection = None
-            _render_plan = {}
+            from src.polaris_graph.authority.data_loader import load_authority_data  # noqa: PLC0415
+            _gov_suffixes = tuple(load_authority_data().get("psl_gov_suffixes") or ()) or None
+            log.info("[credibility] threaded psl_gov_suffixes=%d (priors-only basket build enabled)",
+                     len(_gov_suffixes or ()))
+        except Exception as _e:  # noqa: BLE001
+            log.warning("[credibility] could not load psl_gov_suffixes (%s); credibility pass will "
+                        "degrade to None and PG_ROUTE_ALL_BASKETS will be inert", _e)
 
-    t0 = time.time()
-    multi = await generate_multi_section_report(
-        research_question=rq,
-        evidence=evidence,
-        finding_clusters=clusters,
-        same_work_groups=swg,
-        section_temperature=0.3,
-        outline_max_tokens=2500,
-        section_max_tokens=2400,
-        min_kept_fraction=0.4,
-        max_parallel_sections=args.max_parallel,
-        tier_fractions=dist,
-        domain=domain,
-        credibility_pass_gov_suffixes=_gov_suffixes,
-        # S4: None (default, no --gate-artifact) => byte-identical to HEAD.
-        deliverable_spec=_deliverable_spec,
-        scope_spec=_scope_spec,
-        compose_projection=_compose_projection,
-    )
-    dt = time.time() - t0
-    kept = [s for s in multi.sections if not s.dropped_due_to_failure]
-    log.info("[gen] elapsed=%.1fs  outline=%d sections  kept=%d  words=%s  "
-             "verified=%s  dropped=%s  in_tok=%s out_tok=%s",
-             dt, len(multi.outline), len(kept), getattr(multi, "total_words", "?"),
-             getattr(multi, "total_sentences_verified", "?"),
-             getattr(multi, "total_sentences_dropped", "?"),
-             getattr(multi, "total_input_tokens", "?"),
-             getattr(multi, "total_output_tokens", "?"))
-    for sr in multi.sections:
-        mark = "OK " if not sr.dropped_due_to_failure else "DROP"
-        log.info("   [%s] %-42s verified=%s dropped=%s regen=%s",
-                 mark, sr.title[:42], sr.sentences_verified,
-                 sr.sentences_dropped, sr.regen_attempted)
+        # S4 render/compose projections (default-OFF): load a pinned gate artifact when
+        # supplied and compile its deliverable/scope/compose views. Absent => every
+        # projection is None => byte-identical champion composition + assembly.
+        _gate_contract = None
+        _deliverable_spec = None
+        _scope_spec = None
+        _compose_projection = None
+        _render_plan: dict = {}
+        _contract_sha = ""
+        if args.gate_artifact:
+            try:
+                from src.polaris_graph.planning.planning_gate_schema import (  # noqa: PLC0415
+                    contract_from_dict,
+                )
+                from src.polaris_graph.planning.compose_render_projection import (  # noqa: PLC0415
+                    from_contract as _crp_from_contract,
+                )
+                _art = json.loads(Path(args.gate_artifact).read_text())
+                _gate_contract = contract_from_dict(_art.get("contract") or {})
+                _contract_sha = str(_art.get("contract_sha256") or "")
+                _crp = _crp_from_contract(_gate_contract)
+                _compose_projection = _crp  # exposes .voice_advisory()
+                _render_plan = _crp.render_plan()
+                # deliverable_spec surfaced to the outliner as required-section titles/order
+                # (the S4 ORCH-2 seam already in _call_outline). scope_spec passthrough.
+                _deliverable_spec = {
+                    "required_sections": _render_plan.get("required_titles", []),
+                    "document_type": _render_plan.get("document_type", ""),
+                }
+                _scope_spec = {}
+                log.info("[gate] loaded artifact=%s contract_sha=%s required_sections=%d "
+                         "doc_type=%r voice=%s",
+                         args.gate_artifact, _contract_sha[:12],
+                         len(_render_plan.get("required_titles", [])),
+                         _render_plan.get("document_type", ""), _crp.has_voice())
+            except Exception as _e:  # noqa: BLE001 — fail-open: no gate => champion path
+                log.warning("[gate] could not load --gate-artifact %s (%s); running "
+                            "byte-identical champion path (no projections)",
+                            args.gate_artifact, _e)
+                _gate_contract = None
+                _deliverable_spec = _scope_spec = _compose_projection = None
+                _render_plan = {}
 
-    # Persist the outline
-    (run_dir / "multi_section_outline.json").write_text(
-        json.dumps([{"title": p.title, "focus": p.focus, "ev_ids": p.ev_ids}
-                    for p in multi.outline], indent=2, sort_keys=True) + "\n",
-        encoding="utf-8")
+        t0 = time.time()
+        multi = await generate_multi_section_report(
+            research_question=rq,
+            evidence=evidence,
+            finding_clusters=clusters,
+            same_work_groups=swg,
+            section_temperature=0.3,
+            outline_max_tokens=2500,
+            section_max_tokens=2400,
+            min_kept_fraction=0.4,
+            max_parallel_sections=args.max_parallel,
+            tier_fractions=dist,
+            domain=domain,
+            credibility_pass_gov_suffixes=_gov_suffixes,
+            # S4: None (default, no --gate-artifact) => byte-identical to HEAD.
+            deliverable_spec=_deliverable_spec,
+            scope_spec=_scope_spec,
+            compose_projection=_compose_projection,
+        )
+        dt = time.time() - t0
+        kept = [s for s in multi.sections if not s.dropped_due_to_failure]
+        log.info("[gen] elapsed=%.1fs  outline=%d sections  kept=%d  words=%s  "
+                 "verified=%s  dropped=%s  in_tok=%s out_tok=%s",
+                 dt, len(multi.outline), len(kept), getattr(multi, "total_words", "?"),
+                 getattr(multi, "total_sentences_verified", "?"),
+                 getattr(multi, "total_sentences_dropped", "?"),
+                 getattr(multi, "total_input_tokens", "?"),
+                 getattr(multi, "total_output_tokens", "?"))
+        for sr in multi.sections:
+            mark = "OK " if not sr.dropped_due_to_failure else "DROP"
+            log.info("   [%s] %-42s verified=%s dropped=%s regen=%s",
+                     mark, sr.title[:42], sr.sentences_verified,
+                     sr.sentences_dropped, sr.regen_attempted)
 
-    # Assemble the JUDGED report body from VERIFIED text only.
-    #  - Section headings are the generator's OWN topic-driven titles (facet outline + skeleton):
-    #    an Introduction, thematic bodies, a Cross-Study Synthesis & Contradictions section, and a
-    #    Conclusions & Research Gaps section — no clinical archetypes, no relabel map.
-    #  - A single GENERAL, topic-neutral framing sentence under the title (NO factual claims / no
-    #    numbers — pure presentation). The report's substantive framing lives in the generated
-    #    Introduction section; this line only states the organizing method. The tripwire re-audits.
-    title = args.title or _derive_title(rq)
-    intro = (
-        "This report synthesizes the retrieved research evidence on the question above. It is "
-        "organized as a coherent review: an introduction that frames the scope, thematic sections "
-        "that group the evidence by sub-topic, a cross-study synthesis that surfaces where the "
-        "findings agree and conflict, and a closing discussion of conclusions and open research "
-        "gaps. Every quantitative claim is span-grounded to a cited source; claims that could not "
-        "be verified against the underlying evidence were removed rather than paraphrased."
-    )
-    # Verified section bodies (VERIFIED text only — never dropped/edited here).
-    _verified = [
-        sr for sr in multi.sections
-        if not sr.dropped_due_to_failure and sr.verified_text
-    ]
-    # S4 contract-aware order: when the render plan names required section titles
-    # in order, place matching verified sections FIRST in that order; every other
-    # verified section keeps its original relative order AFTER them. This ORDERS
-    # verified content — it never drops or fabricates a section. Absent render
-    # plan => original order => byte-identical.
-    _required_titles = list(_render_plan.get("required_titles", [])) if _render_plan else []
-    if _required_titles:
-        _verified = _order_sections_by_required(_verified, _required_titles)
-    bodies: list[str] = [f"## {sr.title}\n\n{sr.verified_text}" for sr in _verified]
-    sections_concat = "\n\n".join(bodies)
-    if getattr(multi, "limitations_text", ""):
-        sections_concat += f"\n\n## Limitations\n\n{multi.limitations_text}"
+        # Persist the outline
+        (run_dir / "multi_section_outline.json").write_text(
+            json.dumps([{"title": p.title, "focus": p.focus, "ev_ids": p.ev_ids}
+                        for p in multi.outline], indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
 
-    biblio = getattr(multi, "bibliography", []) or []
-    # S4 references dedup by WORK: when the render plan requests it (default True
-    # in a loaded contract), collapse bibliography rows that resolve to the same
-    # underlying work (same url, else same statement). The FIRST row's number is
-    # kept; this only removes DUPLICATE reference lines, never a distinct source,
-    # and does not renumber in-prose markers. No gate artifact => biblio unchanged.
-    _dedup_by_work = bool(_render_plan.get("references_dedup_by_work")) if _render_plan else False
-    biblio_render = _dedup_biblio_by_work(biblio) if _dedup_by_work else biblio
-    biblio_section = "\n\n## References\n"
-    for b in biblio_render:
-        biblio_section += (f"[{b.get('num')}] {str(b.get('statement',''))[:200]} — "
-                           f"{b.get('url','')} (tier {b.get('tier','')})\n")
+        # Assemble the JUDGED report body from VERIFIED text only.
+        #  - Section headings are the generator's OWN topic-driven titles (facet outline + skeleton):
+        #    an Introduction, thematic bodies, a Cross-Study Synthesis & Contradictions section, and a
+        #    Conclusions & Research Gaps section — no clinical archetypes, no relabel map.
+        #  - A single GENERAL, topic-neutral framing sentence under the title (NO factual claims / no
+        #    numbers — pure presentation). The report's substantive framing lives in the generated
+        #    Introduction section; this line only states the organizing method. The tripwire re-audits.
+        title = args.title or _derive_title(rq)
+        intro = (
+            "This report synthesizes the retrieved research evidence on the question above. It is "
+            "organized as a coherent review: an introduction that frames the scope, thematic sections "
+            "that group the evidence by sub-topic, a cross-study synthesis that surfaces where the "
+            "findings agree and conflict, and a closing discussion of conclusions and open research "
+            "gaps. Every quantitative claim is span-grounded to a cited source; claims that could not "
+            "be verified against the underlying evidence were removed rather than paraphrased."
+        )
+        # Verified section bodies (VERIFIED text only — never dropped/edited here).
+        _verified = [
+            sr for sr in multi.sections
+            if not sr.dropped_due_to_failure and sr.verified_text
+        ]
+        # S4 contract-aware order: when the render plan names required section titles
+        # in order, place matching verified sections FIRST in that order; every other
+        # verified section keeps its original relative order AFTER them. This ORDERS
+        # verified content — it never drops or fabricates a section. Absent render
+        # plan => original order => byte-identical.
+        _required_titles = list(_render_plan.get("required_titles", [])) if _render_plan else []
+        if _required_titles:
+            _verified = _order_sections_by_required(_verified, _required_titles)
+        bodies: list[str] = [f"## {sr.title}\n\n{sr.verified_text}" for sr in _verified]
+        sections_concat = "\n\n".join(bodies)
+        if getattr(multi, "limitations_text", ""):
+            sections_concat += f"\n\n## Limitations\n\n{multi.limitations_text}"
 
-    final_report = (f"# {title}\n\n{intro}\n\n{sections_concat}{biblio_section}")
-    (run_dir / "report.md").write_text(final_report, encoding="utf-8")
+        biblio = getattr(multi, "bibliography", []) or []
+        # S4 references dedup by WORK: when the render plan requests it (default True
+        # in a loaded contract), collapse bibliography rows that resolve to the same
+        # underlying work (same url, else same statement). The FIRST row's number is
+        # kept; this only removes DUPLICATE reference lines, never a distinct source,
+        # and does not renumber in-prose markers. No gate artifact => biblio unchanged.
+        _dedup_by_work = bool(_render_plan.get("references_dedup_by_work")) if _render_plan else False
+        biblio_render = _dedup_biblio_by_work(biblio) if _dedup_by_work else biblio
+        biblio_section = "\n\n## References\n"
+        for b in biblio_render:
+            biblio_section += (f"[{b.get('num')}] {str(b.get('statement',''))[:200]} — "
+                               f"{b.get('url','')} (tier {b.get('tier','')})\n")
 
-    # Pipeline telemetry / Methods is a SIDECAR artifact (provenance for us), NOT part of the judged
-    # deliverable — a research report's reader does not want the generator's internal telemetry.
-    tier_summary = ", ".join(f"{k}={v*100:.0f}%" for k, v in sorted(dist.items()))
-    methods = (
-        "# Methods / pipeline telemetry (sidecar — NOT part of the judged report.md)\n\n"
-        f"Judged task: DRB task {args.rq_drb_task} (verbatim prompt).\n"
-        f"Corpus RQ (provenance): {corpus_rq[:200]}...\n"
-        f"Corpus: {corpus_path.name} ({len(evidence)} evidence rows, {len(clusters)} baskets; "
-        f"domain={domain or 'general'}).\n"
-        f"Outliner: AGENTIC (PG_OUTLINE_AGENT=1) — agent {outliner_agent_model()}, "
-        f"code {outliner_code_model()}.\n"
-        f"Generator: {PG_GENERATOR_MODEL} (multi-section: agentic outline + "
-        f"{len(kept)} parallel verified sections + strict_verify + regen-on-failure).\n"
-        f"Evaluator/mirror: {PG_EVALUATOR_MODEL}.\n"
-        f"Tier distribution: {tier_summary}.\n"
-    )
-    (run_dir / "methods.md").write_text(methods, encoding="utf-8")
-    (run_dir / "bibliography.json").write_text(
-        json.dumps(biblio, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        final_report = (f"# {title}\n\n{intro}\n\n{sections_concat}{biblio_section}")
+        (run_dir / "report.md").write_text(final_report, encoding="utf-8")
 
-    # P0/proof: the agentic-outliner digest surfaced on MultiSectionResult — PROVE the deep render
-    # stayed agentic (cp4_used='agentic'), NOT degraded-to-seed (mission metric-1).
-    oa_stats = dict(getattr(multi, "outline_agent_stats", None) or {})
-    cp4_used = str(oa_stats.get("cp4_used", "MISSING"))
-    degraded_to_seed = bool(oa_stats.get("degraded_to_seed", False))
-    degrade_reason = str(oa_stats.get("degrade_reason", ""))
-    log.info("[agentic] cp4_used=%s degraded_to_seed=%s turns=%s degrade_reason=%r -> %s",
-             cp4_used, degraded_to_seed, oa_stats.get("turns"), degrade_reason[:160],
-             "AGENTIC" if cp4_used == "agentic" else "NOT-AGENTIC")
+        # Pipeline telemetry / Methods is a SIDECAR artifact (provenance for us), NOT part of the judged
+        # deliverable — a research report's reader does not want the generator's internal telemetry.
+        tier_summary = ", ".join(f"{k}={v*100:.0f}%" for k, v in sorted(dist.items()))
+        methods = (
+            "# Methods / pipeline telemetry (sidecar — NOT part of the judged report.md)\n\n"
+            f"Judged task: DRB task {args.rq_drb_task} (verbatim prompt).\n"
+            f"Corpus RQ (provenance): {corpus_rq[:200]}...\n"
+            f"Corpus: {corpus_path.name} ({len(evidence)} evidence rows, {len(clusters)} baskets; "
+            f"domain={domain or 'general'}).\n"
+            f"Outliner: AGENTIC (PG_OUTLINE_AGENT=1) — agent {outliner_agent_model()}, "
+            f"code {outliner_code_model()}.\n"
+            f"Generator: {PG_GENERATOR_MODEL} (multi-section: agentic outline + "
+            f"{len(kept)} parallel verified sections + strict_verify + regen-on-failure).\n"
+            f"Evaluator/mirror: {PG_EVALUATOR_MODEL}.\n"
+            f"Tier distribution: {tier_summary}.\n"
+        )
+        (run_dir / "methods.md").write_text(methods, encoding="utf-8")
+        (run_dir / "bibliography.json").write_text(
+            json.dumps(biblio, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    audit = _audit_citations(final_report, biblio)
-    faithful = (audit["leaked_cite_ev_tokens"] == 0 and not audit["unresolved_markers"])
-    log.info("[faithfulness] leaked_[CITE:ev]=%d  bib_markers_in_prose=%d  bib_entries=%d  "
-             "unresolved_markers=%s -> %s",
-             audit["leaked_cite_ev_tokens"], audit["distinct_bib_markers_in_prose"],
-             audit["bibliography_entries"], audit["unresolved_markers"],
-             "PASS" if faithful else "FAIL")
+        # P0/proof: the agentic-outliner digest surfaced on MultiSectionResult — PROVE the deep render
+        # stayed agentic (cp4_used='agentic'), NOT degraded-to-seed (mission metric-1).
+        oa_stats = dict(getattr(multi, "outline_agent_stats", None) or {})
+        cp4_used = str(oa_stats.get("cp4_used", "MISSING"))
+        degraded_to_seed = bool(oa_stats.get("degraded_to_seed", False))
+        degrade_reason = str(oa_stats.get("degrade_reason", ""))
+        log.info("[agentic] cp4_used=%s degraded_to_seed=%s turns=%s degrade_reason=%r -> %s",
+                 cp4_used, degraded_to_seed, oa_stats.get("turns"), degrade_reason[:160],
+                 "AGENTIC" if cp4_used == "agentic" else "NOT-AGENTIC")
 
-    # S4 contract-compliance audit — DISCLOSURE-ONLY, ALONGSIDE (never in place of)
-    # the citation audit above (which is untouched). It reads the finished report +
-    # outline + biblio and reports term-level SATISFIED/FAILED/UNSATISFIABLE/UNKNOWN
-    # per contract term with its owning stage. It NEVER drops/edits content and NEVER
-    # touches strict_verify. retrieval_scope_status is recorded as
-    # 'not_evaluated_prebuilt_corpus' because this driver runs on a PREBUILT corpus —
-    # discovery never ran under the contract, so no scope requirement is claimed
-    # satisfied. No --gate-artifact => no contract => an empty audit (fail-open).
-    compliance = None
-    if _gate_contract is not None:
-        try:
-            from src.polaris_graph.planning.contract_compliance import (  # noqa: PLC0415
-                audit_contract,
-            )
-            outline_titles = [s.title for s in multi.sections
-                              if not s.dropped_due_to_failure and s.verified_text]
-            _ca = audit_contract(
-                _gate_contract,
-                final_report,
-                outline=outline_titles,
-                biblio=biblio,
-                retrieval_scope_status="not_evaluated_prebuilt_corpus",
-                contract_sha256=_contract_sha,
-            )
-            compliance = _ca.to_dict()
-            (run_dir / "contract_compliance.json").write_text(
-                json.dumps(compliance, indent=2) + "\n", encoding="utf-8")
-            log.info("[compliance] counts=%s retrieval_scope_status=%s -> "
-                     "contract_compliance.json",
-                     compliance.get("counts"), compliance.get("retrieval_scope_status"))
-        except Exception as _e:  # noqa: BLE001 — disclosure-only, never fails the run
-            log.warning("[compliance] audit_contract failed (%s); skipping disclosure "
-                        "(faithfulness + citation audit unaffected)", _e)
-            compliance = None
+        audit = _audit_citations(final_report, biblio)
+        faithful = (audit["leaked_cite_ev_tokens"] == 0 and not audit["unresolved_markers"])
+        log.info("[faithfulness] leaked_[CITE:ev]=%d  bib_markers_in_prose=%d  bib_entries=%d  "
+                 "unresolved_markers=%s -> %s",
+                 audit["leaked_cite_ev_tokens"], audit["distinct_bib_markers_in_prose"],
+                 audit["bibliography_entries"], audit["unresolved_markers"],
+                 "PASS" if faithful else "FAIL")
 
-    summary = {
-        "corpus": corpus_path.name,
-        "judged_drb_task": args.rq_drb_task or None,
-        "composed_to_rq": rq[:160],
-        "corpus_rq": corpus_rq[:160],
-        "report_title": title,
-        "section_headings": [s.title for s in multi.sections
-                             if not s.dropped_due_to_failure and s.verified_text],
-        "evidence_rows": len(evidence),
-        "baskets": len(clusters),
-        "same_work_groups": len(swg or []),
-        "outline_sections": len(multi.outline),
-        "kept_sections": len(kept),
-        "dropped_sections": len(multi.sections) - len(kept),
-        "total_words": getattr(multi, "total_words", None),
-        "total_sentences_verified": getattr(multi, "total_sentences_verified", None),
-        "total_sentences_dropped": getattr(multi, "total_sentences_dropped", None),
-        "bibliography_entries": len(biblio),
-        "report_chars": len(final_report),
-        "report_words": len(final_report.split()),
-        "faithfulness_audit": audit,
-        "faithfulness_pass": faithful,
-        # S4 disclosure: retrieval scope was NOT evaluated (prebuilt corpus). The
-        # contract-compliance audit (when a gate artifact was supplied) is a
-        # SIDECAR disclosure — it never gates the run's return code.
-        "retrieval_scope_status": "not_evaluated_prebuilt_corpus",
-        "contract_compliance": compliance,
-        "cp4_used": cp4_used,
-        "degraded_to_seed": degraded_to_seed,
-        "degrade_reason": degrade_reason[:200],
-        "outline_agent_turns": oa_stats.get("turns"),
-        "moat_quantified_models": len(getattr(multi, "quantified_models", None) or {}),
-        "agent_model": outliner_agent_model(),
-        "code_model": outliner_code_model(),
-        "generator_model": PG_GENERATOR_MODEL,
-        "elapsed_seconds": round(dt, 1),
-        "out_dir": str(run_dir),
-    }
-    (run_dir / "compose_summary.json").write_text(
-        json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    log.info("WROTE %s (%d chars, %d words) + compose_summary.json",
-             run_dir / "report.md", len(final_report), len(final_report.split()))
-    print(json.dumps(summary, indent=2))
-    return 0 if faithful else 1
+        # S4 contract-compliance audit — DISCLOSURE-ONLY, ALONGSIDE (never in place of)
+        # the citation audit above (which is untouched). It reads the finished report +
+        # outline + biblio and reports term-level SATISFIED/FAILED/UNSATISFIABLE/UNKNOWN
+        # per contract term with its owning stage. It NEVER drops/edits content and NEVER
+        # touches strict_verify. retrieval_scope_status is recorded as
+        # 'not_evaluated_prebuilt_corpus' because this driver runs on a PREBUILT corpus —
+        # discovery never ran under the contract, so no scope requirement is claimed
+        # satisfied. No --gate-artifact => no contract => an empty audit (fail-open).
+        compliance = None
+        if _gate_contract is not None:
+            try:
+                from src.polaris_graph.planning.contract_compliance import (  # noqa: PLC0415
+                    audit_contract,
+                )
+                outline_titles = [s.title for s in multi.sections
+                                  if not s.dropped_due_to_failure and s.verified_text]
+                _ca = audit_contract(
+                    _gate_contract,
+                    final_report,
+                    outline=outline_titles,
+                    biblio=biblio,
+                    retrieval_scope_status="not_evaluated_prebuilt_corpus",
+                    contract_sha256=_contract_sha,
+                )
+                compliance = _ca.to_dict()
+                (run_dir / "contract_compliance.json").write_text(
+                    json.dumps(compliance, indent=2) + "\n", encoding="utf-8")
+                log.info("[compliance] counts=%s retrieval_scope_status=%s -> "
+                         "contract_compliance.json",
+                         compliance.get("counts"), compliance.get("retrieval_scope_status"))
+            except Exception as _e:  # noqa: BLE001 — disclosure-only, never fails the run
+                log.warning("[compliance] audit_contract failed (%s); skipping disclosure "
+                            "(faithfulness + citation audit unaffected)", _e)
+                compliance = None
+
+        summary = {
+            "corpus": corpus_path.name,
+            "judged_drb_task": args.rq_drb_task or None,
+            "composed_to_rq": rq[:160],
+            "corpus_rq": corpus_rq[:160],
+            "report_title": title,
+            "section_headings": [s.title for s in multi.sections
+                                 if not s.dropped_due_to_failure and s.verified_text],
+            "evidence_rows": len(evidence),
+            "baskets": len(clusters),
+            "same_work_groups": len(swg or []),
+            "outline_sections": len(multi.outline),
+            "kept_sections": len(kept),
+            "dropped_sections": len(multi.sections) - len(kept),
+            "total_words": getattr(multi, "total_words", None),
+            "total_sentences_verified": getattr(multi, "total_sentences_verified", None),
+            "total_sentences_dropped": getattr(multi, "total_sentences_dropped", None),
+            "bibliography_entries": len(biblio),
+            "report_chars": len(final_report),
+            "report_words": len(final_report.split()),
+            "faithfulness_audit": audit,
+            "faithfulness_pass": faithful,
+            # S4 disclosure: retrieval scope was NOT evaluated (prebuilt corpus). The
+            # contract-compliance audit (when a gate artifact was supplied) is a
+            # SIDECAR disclosure — it never gates the run's return code.
+            "retrieval_scope_status": "not_evaluated_prebuilt_corpus",
+            "contract_compliance": compliance,
+            "cp4_used": cp4_used,
+            "degraded_to_seed": degraded_to_seed,
+            "degrade_reason": degrade_reason[:200],
+            "outline_agent_turns": oa_stats.get("turns"),
+            "moat_quantified_models": len(getattr(multi, "quantified_models", None) or {}),
+            "agent_model": outliner_agent_model(),
+            "code_model": outliner_code_model(),
+            "generator_model": PG_GENERATOR_MODEL,
+            "elapsed_seconds": round(dt, 1),
+            "out_dir": str(run_dir),
+        }
+        (run_dir / "compose_summary.json").write_text(
+            json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        log.info("WROTE %s (%d chars, %d words) + compose_summary.json",
+                 run_dir / "report.md", len(final_report), len(final_report.split()))
+        print(json.dumps(summary, indent=2))
+        return 0 if faithful else 1
+    finally:
+        # LOGGING FIX: clear the run-scoped sink so it cannot leak into a reused process.
+        set_reasoning_sink(None)
 
 
 if __name__ == "__main__":
