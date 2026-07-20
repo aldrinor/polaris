@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import os
 import re
+from src.polaris_graph.settings import resolve
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Env flag (LAW VI — named, env-gated). Default ON: this is faithfulness-
@@ -62,7 +63,7 @@ _TRUE_TOKENS = frozenset({"1", "true", "yes", "on", "enforce", "warn"})
 
 def attribution_origin_guard_enabled() -> bool:
     """Whether the attribution-origin disclosure leg is active (default ON)."""
-    return os.getenv("PG_ATTRIBUTION_ORIGIN_GUARD", "1").strip().lower() in _TRUE_TOKENS
+    return resolve("PG_ATTRIBUTION_ORIGIN_GUARD").strip().lower() in _TRUE_TOKENS
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import re
 from typing import Any
 
 from src.polaris_graph.schemas import SectionDraft
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +45,8 @@ async def explore_unused_evidence(
     if not sections or not all_evidence:
         return sections
 
-    threshold = float(os.getenv("PG_EXPLORE_SIMILARITY_THRESHOLD", "0.55"))
-    max_per_section = int(os.getenv("PG_EXPLORE_MAX_NEW_PER_SECTION", "5"))
+    threshold = float(resolve("PG_EXPLORE_SIMILARITY_THRESHOLD"))
+    max_per_section = int(resolve("PG_EXPLORE_MAX_NEW_PER_SECTION"))
 
     # Step 1: Find unused evidence
     unused = _find_unused_evidence(sections, all_evidence)

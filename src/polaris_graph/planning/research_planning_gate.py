@@ -97,6 +97,7 @@ from src.polaris_graph.planning.planning_gate_schema import (
     validate_monotonicity,
     validate_plan,
 )
+from src.polaris_graph.settings import resolve
 
 # Honest gate states (spec deliverable 6). These describe the ENFORCEABILITY of
 # the pinned contract, distinct from the interactive/autonomous ``GATE_STATES``:
@@ -147,16 +148,16 @@ _PLANNING_GATE_REASONING_MAX_TOKENS = int(
 
 
 def _resolve_model() -> str:
-    override = os.getenv("PG_PLANNING_GATE_MODEL", "").strip()
+    override = resolve("PG_PLANNING_GATE_MODEL").strip()
     if override:
         return override
-    policy = os.getenv("PG_POLICY_MODEL", "").strip()
+    policy = resolve("PG_POLICY_MODEL").strip()
     return policy or _DEFAULT_POLICY_MODEL
 
 
 def _live_enabled() -> bool:
     """Whether a live LLM call is permitted. Default OFF (hermetic)."""
-    return os.getenv("PG_PLANNING_GATE_LIVE", "0").strip().lower() in (
+    return resolve("PG_PLANNING_GATE_LIVE").strip().lower() in (
         "1", "true", "yes", "on",
     )
 

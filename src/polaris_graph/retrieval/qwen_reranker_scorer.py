@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Optional, Sequence
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.qwen_reranker_scorer")
 
@@ -80,7 +81,7 @@ def _resolve_device(device: Optional[str]) -> str:
     NO-LOSER gating (those gate winner force-ON *values*, not device reads)."""
     if device:
         return device
-    env_device = os.getenv("PG_RERANKER_DEVICE", "").strip()
+    env_device = resolve("PG_RERANKER_DEVICE").strip()
     if env_device:
         return env_device
     import torch  # lazy

@@ -48,6 +48,7 @@ import os
 import re
 from collections import Counter
 from typing import Any, Callable, NamedTuple
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -634,9 +635,9 @@ def _we_recency_factor(year: "int | None", reference_year: "int | None") -> floa
     if year is None or reference_year is None or not _composition_recency_enabled():
         return 1.0
     try:
-        grace = int(os.getenv("PG_M2_RECENCY_GRACE_YEARS", "5"))
-        decay = float(os.getenv("PG_M2_RECENCY_DECAY_PER_YEAR", "0.02"))
-        floor = float(os.getenv("PG_M2_RECENCY_FLOOR", "0.25"))
+        grace = int(resolve("PG_M2_RECENCY_GRACE_YEARS"))
+        decay = float(resolve("PG_M2_RECENCY_DECAY_PER_YEAR"))
+        floor = float(resolve("PG_M2_RECENCY_FLOOR"))
     except (TypeError, ValueError):
         grace, decay, floor = 5, 0.02, 0.25
     age = max(0, int(reference_year) - int(year) - grace)
@@ -3341,7 +3342,7 @@ _FURN_CONTACT_CTX_RE = re.compile(
 
 
 def _source_furniture_chrome_enabled() -> bool:
-    return os.getenv("PG_SOURCE_FURNITURE_CHROME", "1").strip().lower() not in ("0", "false", "off", "no")
+    return resolve("PG_SOURCE_FURNITURE_CHROME").strip().lower() not in ("0", "false", "off", "no")
 
 
 def _contains_source_furniture_chrome(text: str) -> bool:
@@ -5115,7 +5116,7 @@ def _samework_url_leg_on() -> bool:
     always in lockstep. OFF => the url leg is skipped and ``_work_identity`` is byte-identical
     to the prior DOI/title-only keying."""
     import os  # noqa: PLC0415
-    return os.getenv("PG_SAMEWORK_URL_LEG", "1").strip().lower() not in (
+    return resolve("PG_SAMEWORK_URL_LEG").strip().lower() not in (
         "0", "false", "no", "off", "",
     )
 

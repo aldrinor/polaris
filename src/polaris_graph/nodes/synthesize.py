@@ -32,14 +32,15 @@ from src.polaris_graph.contracts_v3 import (
     OutlineSection,
     VerifiedSectionDraft,
 )
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph")
 
-_MAX_REVISIONS = int(os.getenv("PG_V3_MAX_REVISIONS_PER_SECTION", "2"))
-_SECTION_TIMEOUT = int(os.getenv("PG_V3_SECTION_TIMEOUT", "180"))
-_CONTEXT_WINDOW_SECTIONS = int(os.getenv("PG_V3_CONTEXT_WINDOW_SECTIONS", "2"))
+_MAX_REVISIONS = int(resolve("PG_V3_MAX_REVISIONS_PER_SECTION"))
+_SECTION_TIMEOUT = int(resolve("PG_V3_SECTION_TIMEOUT"))
+_CONTEXT_WINDOW_SECTIONS = int(resolve("PG_V3_CONTEXT_WINDOW_SECTIONS"))
 _CONTEXT_MAX_TOKENS = int(os.getenv("PG_V3_CONTEXT_MAX_TOKENS", "4000"))
-_FAST_PASS_CITATIONS = int(os.getenv("PG_V3_FAST_PASS_CITATIONS", "5"))
+_FAST_PASS_CITATIONS = int(resolve("PG_V3_FAST_PASS_CITATIONS"))
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +156,7 @@ async def _generate_charts_for_section(
 
     Returns list of chart dicts with base64 PNG images.
     """
-    chart_enabled = os.getenv("PG_CHART_GENERATION_ENABLED", "0") == "1"
+    chart_enabled = resolve("PG_CHART_GENERATION_ENABLED") == "1"
     if not chart_enabled:
         return []
 
@@ -224,7 +225,7 @@ async def _verify_section_nli(
 
     Returns (faithfulness_score, verified_claims).
     """
-    nli_enabled = os.getenv("PG_NLI_ENABLED", "0") == "1"
+    nli_enabled = resolve("PG_NLI_ENABLED") == "1"
     if not nli_enabled:
         return 0.0, []
 
@@ -242,7 +243,7 @@ async def _verify_section_nli(
             url = ev.get("source_url", "")
             content = ev.get("source_content", ev.get("direct_quote", ""))
             if url and content:
-                url_content_map[url] = content[:int(os.getenv("PG_VERIFIER_CONTENT_CAP", "25000"))]
+                url_content_map[url] = content[:int(resolve("PG_VERIFIER_CONTENT_CAP"))]
 
         if not evidence_for_nli:
             return 0.0, []
@@ -403,7 +404,7 @@ async def write_verified_section(
             score = faithfulness_score * 0.6 + min(cite_count / 10.0, 1.0) * 0.4
 
             # Fast-pass: >= 5 unique citations + faithfulness >= 0.6
-            min_faith = float(os.getenv("PG_V3_MIN_SECTION_FAITHFULNESS", "0.6"))
+            min_faith = float(resolve("PG_V3_MIN_SECTION_FAITHFULNESS"))
             if cite_count >= _FAST_PASS_CITATIONS and faithfulness_score >= min_faith:
                 draft.critic_passed = True
                 if score > best_score:

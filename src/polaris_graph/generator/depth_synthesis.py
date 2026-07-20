@@ -42,6 +42,7 @@ import logging
 import os
 import re
 from typing import Any, Callable, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -520,9 +521,9 @@ def _depth_recency_factor(year: "int | None", reference_year: "int | None") -> f
     if year is None or reference_year is None or not _depth_recency_rerank_enabled():
         return 1.0
     try:
-        grace = int(os.getenv("PG_M2_RECENCY_GRACE_YEARS", "5"))
-        decay = float(os.getenv("PG_M2_RECENCY_DECAY_PER_YEAR", "0.02"))
-        floor = float(os.getenv("PG_M2_RECENCY_FLOOR", "0.25"))
+        grace = int(resolve("PG_M2_RECENCY_GRACE_YEARS"))
+        decay = float(resolve("PG_M2_RECENCY_DECAY_PER_YEAR"))
+        floor = float(resolve("PG_M2_RECENCY_FLOOR"))
     except (TypeError, ValueError):
         grace, decay, floor = 5, 0.02, 0.25
     age = max(0, int(reference_year) - int(year) - grace)

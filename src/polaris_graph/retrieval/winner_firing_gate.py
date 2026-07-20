@@ -56,6 +56,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from typing import Any
+from src.polaris_graph.settings import resolve
 
 
 # Truthy env values shared with the winner flags (mirrors the per-winner enabled
@@ -83,7 +84,7 @@ def _w6_embedder_requested() -> bool:
     """
     if not _env_on("PG_SWEEP_CREDIBILITY_REDESIGN", "on"):
         return False
-    return bool(os.getenv("PG_EMBEDDER_MODEL", "").strip())
+    return bool(resolve("PG_EMBEDDER_MODEL").strip())
 
 
 def _w5_content_relevance_requested() -> bool:

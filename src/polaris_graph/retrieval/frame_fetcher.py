@@ -69,6 +69,7 @@ import httpx
 
 from ..nodes.frame_compiler import EvidenceBinding
 from src.tools.core_client import fetch_core_oa_fulltext
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,7 @@ _PUBMED_EFETCH_BASE = (
 # indexed journal DOIs. DOI-driven; deterministic.
 _OPENALEX_WORK_BASE = "https://api.openalex.org/works/"
 _OPENALEX_FRAME_FALLBACK_ENABLED = (
-    os.getenv("PG_OPENALEX_FRAME_FALLBACK", "1").strip().lower()
+    resolve("PG_OPENALEX_FRAME_FALLBACK").strip().lower()
     not in ("0", "false", "no", "off")
 )
 # Semantic Scholar Graph API /paper/DOI:{doi} — M3b (I-deepfix-001) 3rd deterministic
@@ -217,7 +218,7 @@ _S2_WORK_BASE = "https://api.semanticscholar.org/graph/v1/paper/DOI:"
 # (issue #1034). Paywalled-PDF stubs (e.g. aeaweb via Jina ~540 chars)
 # fall below this -> they must not block the abstract fallbacks and
 # must lose to a real abstract (e.g. OpenAlex 1331 chars).
-_OA_FULLTEXT_MIN_CHARS = int(os.getenv("PG_OA_FULLTEXT_MIN_CHARS", "1200"))
+_OA_FULLTEXT_MIN_CHARS = int(resolve("PG_OA_FULLTEXT_MIN_CHARS"))
 # Prefer the clean, deterministic abstract (CrossRef/OpenAlex/PubMed) over a
 # scraped OA "full text" for frame-contract grounding (#1034). Ground-truthed:
 # paywalled-journal OA fetches are NON-DETERMINISTIC (Sci-Hub HTML one call,
@@ -227,7 +228,7 @@ _OA_FULLTEXT_MIN_CHARS = int(os.getenv("PG_OA_FULLTEXT_MIN_CHARS", "1200"))
 # the M-66b-T clinical full-text path (multi-field trial rosters live in
 # tables, not abstracts); run_gate_b sets it ON for the benchmark.
 _FRAME_PREFER_ABSTRACT = (
-    os.getenv("PG_FRAME_PREFER_ABSTRACT", "0").strip().lower()
+    resolve("PG_FRAME_PREFER_ABSTRACT").strip().lower()
     in ("1", "true", "yes", "on")
 )
 # Entity types whose contract fields live in full-text TABLES (clinical trial
@@ -256,7 +257,7 @@ def _frame_multi_abstract_enabled() -> bool:
     (same pattern as ``_core_enabled``). OFF restores the legacy
     ``not abstract_crossref and not abstract_pubmed`` short-circuit byte-identically.
     """
-    return os.getenv("PG_FRAME_MULTI_ABSTRACT", "1").strip().lower() not in (
+    return resolve("PG_FRAME_MULTI_ABSTRACT").strip().lower() not in (
         "0", "false", "no", "off",
     )
 
@@ -265,7 +266,7 @@ def _frame_s2_abstract_enabled() -> bool:
     """M3b (I-deepfix-001) Semantic Scholar Graph API 3rd abstract source toggle
     (default ON). Read at CALL TIME. OFF removes the S2 source entirely so the
     abstract gather is byte-identical to the pre-M3b CrossRef/OpenAlex/PubMed set."""
-    return os.getenv("PG_FRAME_S2_ABSTRACT", "1").strip().lower() not in (
+    return resolve("PG_FRAME_S2_ABSTRACT").strip().lower() not in (
         "0", "false", "no", "off",
     )
 
@@ -279,13 +280,13 @@ def _core_enabled() -> bool:
     effect. Default "1" (on): CORE is the legal full-text source that
     replaced the now-disabled Sci-Hub path. Set "0" to disable.
     """
-    return os.getenv("PG_CORE_ENABLED", "1").strip().lower() not in (
+    return resolve("PG_CORE_ENABLED").strip().lower() not in (
         "0", "false", "no", "off",
     )
 
 
-_DEFAULT_TIMEOUT = float(os.getenv("PG_FRAME_FETCHER_TIMEOUT", "15"))
-_MAX_RETRIES = int(os.getenv("PG_FRAME_FETCHER_MAX_RETRIES", "3"))
+_DEFAULT_TIMEOUT = float(resolve("PG_FRAME_FETCHER_TIMEOUT"))
+_MAX_RETRIES = int(resolve("PG_FRAME_FETCHER_MAX_RETRIES"))
 # Fixed backoff schedule; deterministic (no jitter).
 _BACKOFF_SECONDS: tuple[float, ...] = (1.0, 2.0, 4.0)
 
@@ -758,7 +759,7 @@ def _call_crossref(
 def _call_unpaywall(
     client: httpx.Client, doi: str, *, email: str | None = None
 ) -> tuple[dict[str, Any] | None, list[RetrievalAttempt], list[RetrievalTiming]]:
-    email = email or os.getenv("PG_UNPAYWALL_EMAIL", "polaris@example.org")
+    email = email or resolve("PG_UNPAYWALL_EMAIL")
     url = _UNPAYWALL_BASE + _urlsafe_doi(doi)
     r, outcome, attempts, timings = _request_with_retry(
         client, "GET", "unpaywall", url,
@@ -819,7 +820,7 @@ def _call_openalex(
     abstract and the OA full-text PDF was paywalled (403). Uses the
     same retry/attempt-logging discipline as the other callers so
     M-60 manifest telemetry shows the OpenAlex attempt."""
-    email = os.getenv("PG_UNPAYWALL_EMAIL", "polaris@example.org")
+    email = resolve("PG_UNPAYWALL_EMAIL")
     url = _OPENALEX_WORK_BASE + "https://doi.org/" + _urlsafe_doi(doi)
     r, outcome, attempts, timings = _request_with_retry(
         client, "GET", "openalex", url, params={"mailto": email},
@@ -1056,17 +1057,17 @@ _M66_CONTENT_CAP = 25000
 # magnitude as live_retriever.is_content_starved's 200-char useful-text
 # floor; the fetch layer wants a slightly higher bar because a bound
 # frame-entity quote feeds slot prose, not a corpus weight.
-_MIN_MAINCONTENT_CHARS = int(os.getenv("PG_MIN_MAINCONTENT_CHARS", "250"))
+_MIN_MAINCONTENT_CHARS = int(resolve("PG_MIN_MAINCONTENT_CHARS"))
 
 # Above this fraction of lines being pure link/nav markers a body is a
 # navigation index / docket listing, not article prose (env, LAW VI).
-_MAX_LINK_DENSITY = float(os.getenv("PG_FETCH_MAX_LINK_DENSITY", "0.6"))
+_MAX_LINK_DENSITY = float(resolve("PG_FETCH_MAX_LINK_DENSITY"))
 
 # A body shorter than this is treated as a single unit for the
 # boilerplate / non-assertional whole-unit check (a real article body is
 # far longer; a stub / docket index / error page is short). Env, LAW VI.
 _SHELL_WHOLE_UNIT_MAX_CHARS = int(
-    os.getenv("PG_FETCH_SHELL_WHOLE_UNIT_MAX_CHARS", "1200")
+    resolve("PG_FETCH_SHELL_WHOLE_UNIT_MAX_CHARS")
 )
 
 

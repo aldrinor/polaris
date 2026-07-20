@@ -15,15 +15,16 @@ import os
 import re
 import time
 from typing import Any
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
-CRAWL_CONCURRENCY = int(os.getenv("PG_CRAWL_CONCURRENCY", "10"))
-CRAWL_BUDGET_MINUTES = int(os.getenv("PG_CRAWL_BUDGET_MINUTES", "15"))
-CRAWL_MAX_SOURCES = int(os.getenv("PG_CRAWL_MAX_SOURCES", "500"))
-CRAWL_L1_ENABLED = os.getenv("PG_CRAWL_L1_ENABLED", "1") == "1"
-CRAWL_L2_ENABLED = os.getenv("PG_CRAWL_L2_ENABLED", "1") == "1"
-CRAWL_L2_MAX_REFS = int(os.getenv("PG_CRAWL_L2_MAX_REFS", "10"))
+CRAWL_CONCURRENCY = int(resolve("PG_CRAWL_CONCURRENCY"))
+CRAWL_BUDGET_MINUTES = int(resolve("PG_CRAWL_BUDGET_MINUTES"))
+CRAWL_MAX_SOURCES = int(resolve("PG_CRAWL_MAX_SOURCES"))
+CRAWL_L1_ENABLED = resolve("PG_CRAWL_L1_ENABLED") == "1"
+CRAWL_L2_ENABLED = resolve("PG_CRAWL_L2_ENABLED") == "1"
+CRAWL_L2_MAX_REFS = int(resolve("PG_CRAWL_L2_MAX_REFS"))
 S2_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 
 # DOI/PMID extraction patterns
