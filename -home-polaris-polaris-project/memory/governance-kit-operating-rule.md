@@ -26,6 +26,7 @@ The 5 foundation gates are all codex-approved + pushed to gate-inversion (config
 - Stable checker copy at `~/.govkit/tools/` + `~/.govkit/gov/` (decoupled from any worktree, so the guards survive a worktree removal). These are box-local; re-create from the gate-inversion kit if the box resets.
 
 **How to apply — every time, no exceptions:**
+- **Background tasks:** NEVER spawn watchdog/`sleep`-poll chains — wait for the harness completion notification (it fires automatically); at most one Monitor with a real exit condition; keep the live/lingering count near zero. Codified in `gov/background_task_discipline.md` (committed 7fc2a45) + [[background-task-lifecycle-rule]].
 - **Operator messages:** run through `tools/lint_operator_message.py` before sending. Max 5 sentences, flat lists only (no nesting — indentation is silent by ear), no emoji, no jargon (banned list lives in `gov/operator_voice.md`), max 35 words/sentence. Pasted command output goes in a real fenced block (skipped by the linter).
 - **Spawning any sub-agent:** prepend the matching `gov/spawn_templates/{claude,codex,kimi}.md`; require the `gov/agent_payload.schema.json` back (13 required keys incl. `findings` with real quotes, `not_covered`, `metrics`); reject a payload with empty `not_covered`. Validate with `tools/validate_agent_payload.py`.
 - **Fan-out:** run ONE agent → validate its payload → 5 → the rest. If >20% fail, kill the fan-out and report.
