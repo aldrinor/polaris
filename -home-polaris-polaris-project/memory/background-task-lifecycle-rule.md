@@ -11,6 +11,8 @@ metadata:
 
 **Why:** 24 orphaned background tasks piled up in the operator's panel over Jul 18-19 (long codex runs + `while`/`until` watcher loops launched with `run_in_background` that never exited). After a session resume the task manager lost its handle to them, so neither I nor the panel could stop them — they became permanent display ghosts. That looks like runaway/drifting work to a blind operator and is exactly the mess the infra exists to prevent.
 
+**MINIMIZE COUNT (added 2026-07-20 after a repeat):** the failure recurred not as orphans but as ~11 short "watchdog" background tasks I spawned to poll long jobs — each self-terminated (rule kept) but their finished entries piled up in the operator's panel (spirit broken). **Do NOT spawn a chain of watchdog/`sleep` polling tasks.** Harness-tracked background tasks (Bash `run_in_background`, Workflow, async agents) already send an automatic completion notification — WAIT for that, don't poll. If you genuinely must watch progress, use ONE `Monitor` with a real exit condition, never a series of one-shot `sleep N; check` tasks. Target: near-zero background tasks alive or lingering at any time.
+
 **How to apply — every time:**
 1. Prefer foreground Bash (blocks, returns, done) for anything that finishes quickly.
 2. If a task MUST run in the background, it has to be self-terminating: an `until`/`grep -q` guard that exits on the condition, never an unbounded `tail -f` / `while true` / bare `sleep` loop left armed.
