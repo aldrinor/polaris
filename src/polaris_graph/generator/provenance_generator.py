@@ -1122,6 +1122,26 @@ def _percent_role_match_enabled() -> bool:
     return v in ("1", "true", "yes", "on", "enabled")
 
 
+def _strict_verify_off_enabled() -> bool:
+    """Master faithfulness kill-switch (PG_STRICT_VERIFY_OFF, DEFAULT OFF/empty).
+
+    When TRUTHY, ``verify_sentence_provenance`` short-circuits at the TOP and returns
+    EVERY sentence as VERIFIED with NO drop path evaluated — entailment, span-bounds,
+    numeric-in-span, percent-role, binding-qualifier, content-word-overlap, trial-name,
+    B16 overstatement guards, no_provenance_token, and judge-error fail-closed are ALL
+    bypassed. This exists SOLELY for the raw-A scoring experiment (scripts/run_raw_a.sh),
+    where faithfulness is turned FULLY off so 100% of composed sentences survive.
+
+    DEFAULT-OFF => when the env var is UNSET (or empty / "0" / "false" / "off" / "no"),
+    the check returns False and ``verify_sentence_provenance`` runs its FULL original
+    path BYTE-IDENTICALLY. No layer's logic is weakened; this only adds a top-level
+    bypass gated by the flag, so every other pipeline and concurrent bot is untouched.
+    Read at call time so a test / run recipe can toggle it without re-import.
+    """
+    v = resolve("PG_STRICT_VERIFY_OFF").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
+
+
 def _find_local_support_window(
     needed_tokens: set[str],
     needed_content_words: set[str],
@@ -2129,7 +2149,25 @@ def verify_sentence_provenance(
     entailing window while the token stays bound to the non-entailing span) is
     structurally closed. Production strict_verify keeps the default True, so the
     Phase 0b grounded-prose rescue is unchanged outside the re-anchor accept gate.
+
+    MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): when set truthy, this
+    function short-circuits HERE — BEFORE the calc router and BEFORE every drop path
+    (no_provenance_token, span_out_of_bounds/invalid, fetch_shell, number/integer/
+    percent-not-in-span, binding_qualifier_dropped, no_content_word_overlap,
+    trial_name_mismatch, entailment_failed, B16 overstatement guards, judge-error
+    fail-closed) — and returns the sentence as VERIFIED with its parsed provenance
+    tokens (or an empty token list when none parse) and no failure reasons. 100% of
+    composed sentences survive. UNSET => this branch never runs and the full original
+    verifier below is byte-identical.
     """
+    if _strict_verify_off_enabled():
+        return SentenceVerification(
+            sentence=sentence,
+            tokens=parse_provenance_tokens(sentence),
+            is_verified=True,
+            failure_reasons=[],
+        )
+
     if quantified_models is not None:
         _calc_matches = list(_CALC_TOKEN_RE.finditer(sentence))
         if _calc_matches:
@@ -3625,6 +3663,15 @@ def strict_verify(
     _honest_tokens = _token_honest_drop_enabled()
     _skip_empty = _skip_empty_enabled()
 
+    # MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): the raw-A scoring experiment
+    # turns faithfulness FULLY off, so strict_verify must EXCLUDE nothing pre-verify either.
+    # Force the two input-hygiene pre-filters OFF (content-empty skip + web-boilerplate strip/
+    # exclude) so EVERY split unit reaches the (already-bypassed) verifier and is kept. UNSET =>
+    # both flags keep their resolved values and every pre-filter runs BYTE-IDENTICALLY.
+    _strict_verify_off = _strict_verify_off_enabled()
+    if _strict_verify_off:
+        _skip_empty = False
+
     # I-pipe-016 (#1241): content-empty fragments are excluded from total_in
     # (denominator) — they are neither kept nor dropped, they do not count.
     _excluded_empty = 0
@@ -3639,7 +3686,7 @@ def strict_verify(
     # changes; every pattern is allowlist-only + whole-unit anchored so a real
     # clinical sentence (any language) is never touched. OFF-path (flag=0) is
     # byte-identical: helpers are never loaded, text is untouched.
-    _pregate_boilerplate = _pregate_boilerplate_filter_enabled()
+    _pregate_boilerplate = _pregate_boilerplate_filter_enabled() and not _strict_verify_off
     _is_boilerplate = None
     if _pregate_boilerplate:
         _strip_web_boilerplate, _is_boilerplate = _load_boilerplate_helpers()
@@ -4742,6 +4789,12 @@ def resolve_provenance_to_citations_with_count(
 
     findings_lines: list[str] = []
     limitations_lines: list[str] = []
+    # MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): the raw-A scoring experiment turns
+    # faithfulness FULLY off, so the two render-time survival drops below (F31 bogus-only span-
+    # grounding + BUG-M-8 degenerate-fragment floor) must NOT remove any sentence. Bogus bracketed
+    # markers are still STRIPPED from the rendered `stripped` (no literal leak), only the sentence-
+    # DROP is bypassed. UNSET => both drops run BYTE-IDENTICALLY.
+    _resolve_verify_off = _strict_verify_off_enabled()
     for sv in kept_sentences:
         # F31 (I-arch-004 A3): does this sentence carry a VALID grounding token —
         # a parsed `[#ev:...]` whose evidence-id is a real pool row? strict_verify
@@ -4791,7 +4844,7 @@ def resolve_provenance_to_citations_with_count(
         # present AND no valid `[#ev:...]` grounding survives — a normal cited
         # sentence (valid grounding) and a no-bracket pass-through sentence (no
         # bogus marker) are both untouched.
-        if _has_bogus_marker and not _has_valid_grounding:
+        if _has_bogus_marker and not _has_valid_grounding and not _resolve_verify_off:
             continue
         # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments
         # that survive strict_verify as bare punctuation + citation
@@ -4814,8 +4867,11 @@ def resolve_provenance_to_citations_with_count(
         )
         _content_w = re.findall(r"[A-Za-z]+", _for_count)
         if (
-            len(_content_w) < _RESOLVE_MIN_CONTENT_WORDS
-            or len(_for_count.strip()) < _RESOLVE_MIN_PROSE_CHARS
+            not _resolve_verify_off
+            and (
+                len(_content_w) < _RESOLVE_MIN_CONTENT_WORDS
+                or len(_for_count.strip()) < _RESOLVE_MIN_PROSE_CHARS
+            )
         ):
             continue
         # I-beatboth-003 (#1280): SURE-RAG per-citation relevance LABEL + demotion.
