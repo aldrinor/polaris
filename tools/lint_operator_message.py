@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -760,6 +761,42 @@ def run_selftest() -> int:
                 passed += 1
         else:
             print("[case %d] %s: ACCEPTED but must be blocked -> FAIL" % (index, name))
+
+    index = len(_case_list()) + 2
+    total += 1
+    code = main(["some_real_message.md", "--selftest"])
+    if code == 2:
+        print(
+            "[case %d] bad_selftest_together_with_a_file: REFUSED as expected -> PASS"
+            % index
+        )
+        passed += 1
+    else:
+        print(
+            "[case %d] bad_selftest_together_with_a_file: returned %d, wanted 2 -> FAIL"
+            % (index, code)
+        )
+
+    index += 1
+    total += 1
+    with tempfile.TemporaryDirectory() as folder:
+        weak = Path(folder) / VOICE_DOC_NAME
+        weak.write_text(
+            "%s\nzzzz\n%s\n" % (BANNED_BEGIN, BANNED_END), encoding="utf-8"
+        )
+        try:
+            load_banned_terms(weak)
+            print(
+                "[case %d] bad_swapped_policy_with_one_term: ACCEPTED but must be "
+                "blocked -> FAIL" % index
+            )
+        except ValueError as error:
+            print(
+                "[case %d] bad_swapped_policy_with_one_term: REFUSED as expected -> PASS"
+                % index
+            )
+            print("           reason: %s" % ascii_safe(str(error)))
+            passed += 1
 
     print("")
     print("RESULT: %d of %d cases PASS" % (passed, total))

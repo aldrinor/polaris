@@ -1151,6 +1151,21 @@ def run_selftest() -> int:
                 print("[case %d] %s: REJECTED for the wrong reason -> FAIL" % (index, name))
                 print("           got: %s" % ascii_safe(message))
 
+    index += 1
+    total += 1
+    code = main(["some_real_payload.json", "--selftest"])
+    if code == 2:
+        print(
+            "[case %d] bad_selftest_together_with_a_file: REFUSED as expected -> PASS"
+            % index
+        )
+        passed += 1
+    else:
+        print(
+            "[case %d] bad_selftest_together_with_a_file: returned %d, wanted 2 -> FAIL"
+            % (index, code)
+        )
+
     print("")
     print(
         "Evidence really opened and read during this run: %d quote(s) checked "

@@ -970,6 +970,13 @@ def run_selftest() -> int:
         else:
             record(case["name"], False, "ACCEPTED but must be blocked")
 
+    code = main(["some_real_body.md", "--selftest"])
+    record(
+        "selftest_together_with_a_file_is_refused",
+        code == 2,
+        "returned exit code %d, and 2 means it refused to check the wrong thing" % code,
+    )
+
     for index, (name, ok, note) in enumerate(results, start=1):
         verdict = "PASS" if ok else "FAIL"
         print("[case %d] %s: %s" % (index, name, verdict))
