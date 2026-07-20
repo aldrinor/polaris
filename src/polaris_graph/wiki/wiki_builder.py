@@ -19,14 +19,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
-WIKI_BASE_DIR = Path(os.getenv("PG_WIKI_DIR", "wiki"))
-OUTLINE_MAX_SECTIONS = int(os.getenv("PG_WIKI_MAX_SECTIONS", "10"))
-MIN_SIMILARITY = float(os.getenv("PG_WIKI_MIN_SIMILARITY", "0.3"))
-STARVATION_MIN_CLAIMS = int(os.getenv("PG_WIKI_STARVATION_MIN", "3"))
-DEDUP_THRESHOLD = float(os.getenv("PG_WIKI_DEDUP_THRESHOLD", "0.85"))
+WIKI_BASE_DIR = Path(resolve("PG_WIKI_DIR"))
+OUTLINE_MAX_SECTIONS = int(resolve("PG_WIKI_MAX_SECTIONS"))
+MIN_SIMILARITY = float(resolve("PG_WIKI_MIN_SIMILARITY"))
+STARVATION_MIN_CLAIMS = int(resolve("PG_WIKI_STARVATION_MIN"))
+DEDUP_THRESHOLD = float(resolve("PG_WIKI_DEDUP_THRESHOLD"))
 
 
 @dataclass
@@ -87,7 +88,7 @@ async def generate_outline_for_wiki(
             system="You are a research outline planner. Return ONLY valid JSON.",
             max_tokens=2048,
             temperature=0.2,
-            timeout=int(os.getenv("PG_WIKI_OUTLINE_TIMEOUT", "60")),
+            timeout=int(resolve("PG_WIKI_OUTLINE_TIMEOUT")),
         )
 
         import json as json_module
@@ -400,7 +401,7 @@ def build_wiki(
     #
     # Adaptive strategy: pick the threshold that keeps at least
     # max(num_sections * 8, 50) evidence pieces. Walks down from 0.5 to 0.0.
-    authority_gate_default = float(os.getenv("PG_WIKI_AUTHORITY_GATE", "0.5"))
+    authority_gate_default = float(resolve("PG_WIKI_AUTHORITY_GATE"))
     num_sections_target = max(len(outline), 1)
     min_post_gate = max(num_sections_target * 8, 50)
 
@@ -567,7 +568,7 @@ def build_wiki(
         ).lower()
         return any(k in blob for k in _RISK_EV_KEYWORDS)
 
-    quorum_min = int(os.getenv("PG_RISK_QUORUM_MIN", "2"))
+    quorum_min = int(resolve("PG_RISK_QUORUM_MIN"))
     quorum_injected = 0
     for section in outline:
         sid = section.get("section_id", "")

@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from src.polaris_graph.retrieval.expert_facet_planner import Facet
+from src.polaris_graph.settings import resolve
 
 # (research_question, **kw) -> LiveRetrievalResult (has ``.evidence_rows``). Injected — same contract
 # as ``fs_researcher_query_gen.PerQueryRetrieveFn`` so the loop is unit-testable on a stub.
@@ -53,12 +54,12 @@ def facet_completeness_enabled() -> bool:
     LAW VI env kill-switch. Default OFF keeps the FS-Researcher path byte-identical; the tests
     exercise the ON path explicitly.
     """
-    return os.getenv("PG_FACET_COMPLETENESS", "0").strip() in ("1", "true", "True")
+    return resolve("PG_FACET_COMPLETENESS").strip() in ("1", "true", "True")
 
 
 def _min_hits() -> int:
     """Min evidence rows matching a facet's keywords for the facet to count as covered (default 1)."""
-    return max(1, int(os.getenv("PG_FACET_COVERAGE_MIN_HITS", "1")))
+    return max(1, int(resolve("PG_FACET_COVERAGE_MIN_HITS")))
 
 
 def _saturation_min_new_fraction() -> float:
@@ -66,7 +67,7 @@ def _saturation_min_new_fraction() -> float:
     corpus already gathered. A compute-safety SATURATION stop keyed to source YIELD — never a breadth
     count / target (§-1.3). Default 0.10 (a round adding <10% new sources is judged saturated)."""
     try:
-        v = float(os.getenv("PG_FACET_SATURATION_MIN_NEW_FRACTION", "0.10"))
+        v = float(resolve("PG_FACET_SATURATION_MIN_NEW_FRACTION"))
     except ValueError:
         v = 0.10
     return max(0.0, v)
@@ -75,7 +76,7 @@ def _saturation_min_new_fraction() -> float:
 def _max_expansion_rounds() -> int:
     """Hard compute-safety bound on expansion rounds (caps cost even if saturation never triggers).
     Not a breadth target — it bounds the loop UP-side. Default 4."""
-    return max(1, int(os.getenv("PG_FACET_EXPANSION_MAX_ROUNDS", "4")))
+    return max(1, int(resolve("PG_FACET_EXPANSION_MAX_ROUNDS")))
 
 
 def _content_tokens(text: str) -> set[str]:

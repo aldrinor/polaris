@@ -41,7 +41,7 @@ import time
 
 import pytest
 
-import src.polaris_graph.benchmark.pathB_capture as pathB_capture
+import src.polaris_graph.benchmark.benchmark_run_capture as pathB_capture
 import src.polaris_graph.llm.openrouter_client as openrouter_client
 from src.polaris_graph.llm.openrouter_client import BudgetExceededError
 from src.polaris_graph.roles import sweep_integration

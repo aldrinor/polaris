@@ -40,7 +40,7 @@ with open(_TMP_YAML, "w", encoding="utf-8") as fh:
 os.environ["PG_PROVIDER_ROUTING_CONFIG"] = _TMP_YAML
 os.environ["PG_OPENROUTER_PROVIDER_ROUTING"] = "1"
 
-from src.polaris_graph.benchmark import pathB_capture  # noqa: E402
+from src.polaris_graph.benchmark import benchmark_run_capture  # noqa: E402
 from src.polaris_graph.llm import entailment_judge  # noqa: E402
 from src.polaris_graph.roles import provider_routing  # noqa: E402
 
@@ -60,12 +60,12 @@ def _run(rotate: bool):
     else:
         os.environ.pop("PG_JUDGE_PROVIDER_ROTATE", None)
     # Resolve the mirror provider to the chain LEAD (novita), exactly as a live preflight would.
-    token = pathB_capture.set_role_providers({"mirror": "novita"})
+    token = benchmark_run_capture.set_role_providers({"mirror": "novita"})
     try:
         judge = entailment_judge._EntailmentJudge()
         verdict, reason = judge.judge(SENT, SPAN)
     finally:
-        pathB_capture.reset_role_providers(token)
+        benchmark_run_capture.reset_role_providers(token)
     is_judge_error = isinstance(reason, str) and reason.startswith("judge_error:")
     print(f"  rotate={'ON ' if rotate else 'OFF'} -> verdict={verdict!r} "
           f"judge_error={is_judge_error} reason={reason[:60]!r}", flush=True)

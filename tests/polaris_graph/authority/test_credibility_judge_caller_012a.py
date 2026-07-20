@@ -74,7 +74,7 @@ def test_provider_pinned_to_mirror_chain_no_fallback_when_gate_active(monkeypatc
     # up "mirror" and pins it singleton-no-fallback (allow_fallbacks=False, require_parameters=True).
     captured = {}
     monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
-    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
     looked_up = []
 
     def _fake_get_role_provider(role):
@@ -97,7 +97,7 @@ def test_retired_evaluator_key_does_not_pin_provider(monkeypatch):
     # that map shape (only "mirror" populated) and prove the caller now PINS (does not free-route).
     captured = {}
     monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
-    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
     role_map = {"generator": "fireworks", "mirror": "novita",
                 "sentinel": "deepinfra", "judge": "together"}
     monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))
@@ -188,7 +188,7 @@ def test_pathb_capture_raw_io_and_ledger_recorded(monkeypatch):
     captured = {}
     monkeypatch.setattr(httpx, "Client", _fake_client(
         captured, "{}", {"prompt_tokens": 3, "completion_tokens": 2, "cost": 0.001}))
-    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
     seen = {}
     monkeypatch.setattr(_pathb, "is_active", lambda: True)
     monkeypatch.setattr(_pathb, "capture_llm_call", lambda **kw: seen.__setitem__("capture", kw))

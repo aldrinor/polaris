@@ -308,7 +308,7 @@ def make_openrouter_credibility_caller(
         # legacy_compat the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge
         # pins to the SAME provider chain as the main mirror role.
         try:
-            from src.polaris_graph.benchmark import pathB_capture as _pathb
+            from src.polaris_graph.benchmark import benchmark_run_capture as _pathb
             gate_provider = _pathb.get_role_provider("mirror")
         except Exception:  # noqa: BLE001 — routing lookup must never break the call
             _pathb = None

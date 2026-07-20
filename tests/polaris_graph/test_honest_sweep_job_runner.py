@@ -1,4 +1,4 @@
-"""Tests for src/polaris_graph/audit_ir/honest_sweep_job_runner.py.
+"""Tests for src/polaris_graph/audit_ir/v30_sweep_job_runner.py.
 
 The V30 sweep is real-world expensive (~2h25m, $0.0074, 472 fetches).
 We test the runner using a tiny stub script that simulates the V30
@@ -23,7 +23,7 @@ from src.polaris_graph.audit_ir import (
     JobWorker,
     register_runner,
 )
-from src.polaris_graph.audit_ir.honest_sweep_job_runner import (
+from src.polaris_graph.audit_ir.v30_sweep_job_runner import (
     V30_PHASES,
     HonestSweepJobRunner,
     HonestSweepJobRunnerConfig,
@@ -386,7 +386,7 @@ def test_scope_phase_does_not_emit_preflight_surface() -> None:
     'scope' to PREFLIGHT — that mapping caused the v1 overwrite
     bug. The runner's explicit emission at t=0 is the canonical
     PREFLIGHT source."""
-    from src.polaris_graph.audit_ir.honest_sweep_job_runner import _PHASE_TO_SURFACE
+    from src.polaris_graph.audit_ir.v30_sweep_job_runner import _PHASE_TO_SURFACE
     from src.polaris_graph.audit_ir.progress_surfaces import SurfaceKind
     assert _PHASE_TO_SURFACE.get("scope") is not SurfaceKind.PREFLIGHT
 

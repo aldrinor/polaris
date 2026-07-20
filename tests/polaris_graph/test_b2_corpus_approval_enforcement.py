@@ -141,7 +141,7 @@ def test_fx05_honest_pipeline_aborts_before_strict_verify() -> None:
     / report / evaluator work, returning status=abort_corpus_approval_denied."""
     import inspect
 
-    import src.polaris_graph.honest_pipeline as hp
+    import src.polaris_graph.provenance_verified_pipeline as hp
     src = inspect.getsource(hp.run_honest_pipeline)
     assert "if not approved:" in src
     assert "abort_corpus_approval_denied" in src

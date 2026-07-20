@@ -80,7 +80,7 @@ from src.polaris_graph.synthesis.credibility_pass import (  # noqa: E402
     CredibilityPassError as _CredPassErrForAbort,
 )
 # I-safety-002b (#925) PR-2: Path-B benchmark gate (preflight + capture + assert_post_run).
-from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
+from src.polaris_graph.benchmark import benchmark_run_capture as _pathb  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
     generate_multi_section_report,
     # COMPLETENESS-CRITIC fix (I-deepfix-001 round-2): publish the run-wall deadline into
@@ -9401,7 +9401,7 @@ async def run_one_query(
         # search/fetch half — the operator's §-1.1 line-by-line audit requirement). Start a FRESH per-query
         # trace and materialize the (possibly empty) file now so an early abort still produces it. The
         # recorders are best-effort no-ops; the §9.1 retrieval/verify chokepoint is never altered.
-        from src.polaris_graph.benchmark.pathB_capture import (
+        from src.polaris_graph.benchmark.benchmark_run_capture import (
             retrieval_trace_records as _retrieval_trace_records,
             start_retrieval_trace as _start_retrieval_trace,
         )
@@ -20228,7 +20228,7 @@ async def run_one_query(
             "1", "true", "True",
         ):
             try:
-                from src.polaris_graph.honest_sweep_integration import (
+                from src.polaris_graph.v30_sweep_integration import (
                     append_disclosure_to_report,
                     merge_v30_into_manifest,
                     run_v30_post_generation,
@@ -22026,7 +22026,7 @@ async def main_async() -> int:
             # (preflight + capture + assert_post_run). No-op when --pathB-gate is off.
             _pathb_run_dir = out_root / q["domain"] / q["slug"]
             _pathb_run_dir.mkdir(parents=True, exist_ok=True)
-            from src.polaris_graph.benchmark.pathB_runner import gate_around_question
+            from src.polaris_graph.benchmark.benchmark_gate_runner import gate_around_question
             # B20 (I-arch-005 #1257, P0): the run-level wall-clock. The top run path has ZERO
             # asyncio.wait_for, so a HANG anywhere in run_one_query (a wedged fetch, a judge that
             # never returns) = PERMANENT silence: the run body's `finally` (B11) can NEVER fire on a

@@ -92,7 +92,7 @@ def check_role_set_conformance() -> dict:
     declared = sorted(lock.get("required_roles", {}).keys())
 
     # Crude scan of pathB_runner for RolePin("<role>", ...) constructions
-    runner = (REPO_ROOT / "src" / "polaris_graph" / "benchmark" / "pathB_runner.py").read_text(encoding="utf-8")
+    runner = (REPO_ROOT / "src" / "polaris_graph" / "benchmark" / "benchmark_gate_runner.py").read_text(encoding="utf-8")
     wired = sorted(set(re.findall(r'RolePin\("(\w+)"', runner)))
     missing = sorted(set(declared) - set(wired))
 

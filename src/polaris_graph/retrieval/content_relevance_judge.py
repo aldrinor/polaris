@@ -41,6 +41,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger("polaris_graph.content_relevance_judge")
 
@@ -95,7 +96,7 @@ def content_relevance_enabled() -> bool:
     NEVER instantiated, NO reranker/GLM model loads, NO weight applied). This is a
     §-1.3 WEIGHT (demote-not-drop), never a hard filter — faithfulness untouched.
     """
-    return os.getenv("PG_CONTENT_RELEVANCE_JUDGE", "1").strip().lower() not in {
+    return resolve("PG_CONTENT_RELEVANCE_JUDGE").strip().lower() not in {
         "0", "false", "no", "off", "disabled", "",
     }
 
@@ -117,7 +118,7 @@ def _band() -> tuple[float, float]:
 
 
 def _demote_weight() -> float:
-    raw = os.getenv("PG_CONTENT_RELEVANCE_DEMOTE_WEIGHT", "").strip()
+    raw = resolve("PG_CONTENT_RELEVANCE_DEMOTE_WEIGHT").strip()
     if not raw:
         return _DEFAULT_DEMOTE_WEIGHT
     try:
@@ -141,7 +142,7 @@ def _passage_chars() -> int:
     """Head-window of the body fed to the reranker (LAW VI). The reranker reads a
     bounded prefix — enough to judge topicality without paying full-body cost."""
     try:
-        return max(200, int(os.getenv("PG_CONTENT_RELEVANCE_PASSAGE_CHARS", "2000")))
+        return max(200, int(resolve("PG_CONTENT_RELEVANCE_PASSAGE_CHARS")))
     except ValueError:
         return 2000
 
@@ -189,7 +190,7 @@ def _escalation_deadline_seconds() -> float:
     BLOCKS until ALL futures finish (~ceil(N/workers)*per-call), with zero deadline checks
     inside, which can exceed the retrieval wall. ``<= 0`` disables the fallback wall (the
     caller's threaded deadline still applies if given). Default 600s (generous)."""
-    raw = os.getenv("PG_CONTENT_RELEVANCE_DEADLINE_S", "600").strip()
+    raw = resolve("PG_CONTENT_RELEVANCE_DEADLINE_S").strip()
     try:
         value = float(raw)
     except ValueError:
@@ -214,7 +215,7 @@ def _reranker_margin_seconds() -> float:
     Pure (env-only); unit-testable. Faithfulness-neutral: a larger margin only makes W2 skip
     EARLIER and release every passage at FULL weight (always-release, never demote / drop —
     §-1.3); it never relaxes the faithfulness engine."""
-    raw = os.getenv("PG_RETRIEVAL_W2_RERANKER_MARGIN_S", "").strip()
+    raw = resolve("PG_RETRIEVAL_W2_RERANKER_MARGIN_S").strip()
     if not raw:
         return _DEFAULT_RERANKER_MARGIN_S
     try:
@@ -516,7 +517,7 @@ def _load_qwen3_reranker(report: RelevanceReport) -> Any:
     from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: PLC0415
 
     model_name = _reranker_model_name()
-    device = os.getenv("PG_CONTENT_RELEVANCE_DEVICE", "").strip()
+    device = resolve("PG_CONTENT_RELEVANCE_DEVICE").strip()
     if not device:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
@@ -583,7 +584,7 @@ def _predict_with_qwen3_reranker(
         tokenizer = handle["tokenizer"]
         prefix_tokens = handle["prefix_tokens"]
         suffix_tokens = handle["suffix_tokens"]
-        max_length = max(512, int(os.getenv("PG_CONTENT_RELEVANCE_MAX_LENGTH", "4096")))
+        max_length = max(512, int(resolve("PG_CONTENT_RELEVANCE_MAX_LENGTH")))
         # I-deepfix-001 FIX-1 (keystone): score in CHUNKS so the per-forward
         # ``model(**inputs).logits`` tensor ([chunk x seq x ~152k-vocab]) stays
         # small enough to fit alongside the co-resident Qwen3-Embedding-8B on
@@ -593,7 +594,7 @@ def _predict_with_qwen3_reranker(
         # Parse-guarded (Codex iter1 P2): garbage/negative => 0 (one-pass), never
         # a ValueError leaking into the scorer's broad ``except`` (full-weight).
         try:
-            _score_chunk = int(os.getenv("PG_CONTENT_RELEVANCE_SCORE_CHUNK", "0") or "0")
+            _score_chunk = int(resolve("PG_CONTENT_RELEVANCE_SCORE_CHUNK") or "0")
         except ValueError:
             _score_chunk = 0
         if _score_chunk < 0:

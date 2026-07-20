@@ -29,6 +29,7 @@ from src.polaris_graph.domain.domain_signal import (
     GENERAL_DOMAIN,
     normalize_domain,
 )
+from src.polaris_graph.settings import resolve
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DOMAIN_PACKS_DIR = _REPO_ROOT / "config" / "domain_packs"
@@ -60,7 +61,7 @@ _pack_cache: dict[str, dict[str, Any]] = {}
 
 def _packs_dir() -> Path:
     """The packs directory, env-overridable for tests (LAW VI)."""
-    override = os.getenv("PG_DOMAIN_PACKS_DIR")
+    override = resolve("PG_DOMAIN_PACKS_DIR")
     return Path(override) if override else _DOMAIN_PACKS_DIR
 
 

@@ -88,7 +88,7 @@ def test_actors_template_to_scope_domain_is_canonical_8_identity():
 
 
 def test_v30_synthesizer_dicts_are_canonical_8():
-    from polaris_graph.v30_contract_synthesizer import (
+    from polaris_graph.contract_synthesizer import (
         _REQUIRED_FIELDS_FOR_TEMPLATE,
         _TYPE_FOR_TEMPLATE,
     )

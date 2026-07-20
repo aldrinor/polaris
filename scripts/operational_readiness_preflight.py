@@ -90,7 +90,7 @@ if str(_REPO_ROOT) not in sys.path:
 _DICED_PREFLIGHT = _REPO_ROOT / "scripts" / "pipeline_diced_preflight.py"
 # The honest_sweep --pathB-gate wrapper (read READ-ONLY via AST; never imported) — the launch-path
 # check confirms it does NOT apply the slate, so the paid run must launch via run_gate_b.py instead.
-_PATHB_RUNNER = _REPO_ROOT / "src" / "polaris_graph" / "benchmark" / "pathB_runner.py"
+_PATHB_RUNNER = _REPO_ROOT / "src" / "polaris_graph" / "benchmark" / "benchmark_gate_runner.py"
 
 GREEN = "GREEN"
 RED = "RED"

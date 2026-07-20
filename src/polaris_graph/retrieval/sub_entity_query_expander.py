@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Callable
+from src.polaris_graph.settings import resolve
 
 # (prompt) -> text. The already-picked FS-Researcher / intent-frame policy model, injected by the
 # caller (async client wrapped to sync) so this module never imports a live client at load time.
@@ -59,7 +60,7 @@ def sub_entity_expansion_enabled() -> bool:
     LAW VI env kill-switch. Default OFF keeps the FS-Researcher path byte-identical until the fresh
     paid run that validates the widened frontier; the tests exercise the ON path explicitly.
     """
-    return os.getenv("PG_SUBENTITY_QUERY_EXPANSION", "0").strip() in ("1", "true", "True")
+    return resolve("PG_SUBENTITY_QUERY_EXPANSION").strip() in ("1", "true", "True")
 
 
 def _max_sub_entities() -> int:
@@ -67,7 +68,7 @@ def _max_sub_entities() -> int:
     (entities x fetch), NOT a breadth target — it bounds the frontier UP-side, never forces a
     number up (§-1.3). Default 12."""
     try:
-        return max(1, int(os.getenv("PG_SUBENTITY_MAX_ENTITIES", "12")))
+        return max(1, int(resolve("PG_SUBENTITY_MAX_ENTITIES")))
     except ValueError:
         return 12
 
@@ -93,7 +94,7 @@ def _sub_entity_reserve() -> int:
     WEIGHT-AND-CONSOLIDATE widen-only: a compute-safety UP-side bound on the added retrieval (LAW VI env
     cap), never a breadth target and never a drop. Env-driven ``PG_SUBENTITY_QUERY_RESERVE`` (default 10)."""
     try:
-        return max(0, int(os.getenv("PG_SUBENTITY_QUERY_RESERVE", "10")))
+        return max(0, int(resolve("PG_SUBENTITY_QUERY_RESERVE")))
     except ValueError:
         return 10
 

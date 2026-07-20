@@ -20,13 +20,14 @@ import tempfile
 from typing import Any
 
 from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
 # LAW VI: Configuration from env
-PG_ANALYSIS_SCRIPT_TIMEOUT = int(os.getenv("PG_ANALYSIS_SCRIPT_TIMEOUT", "30"))
-PG_CHART_DPI = int(os.getenv("PG_CHART_DPI", "150"))
-PG_CHART_MAX_WIDTH = int(os.getenv("PG_CHART_MAX_WIDTH", "800"))
+PG_ANALYSIS_SCRIPT_TIMEOUT = int(resolve("PG_ANALYSIS_SCRIPT_TIMEOUT"))
+PG_CHART_DPI = int(resolve("PG_CHART_DPI"))
+PG_CHART_MAX_WIDTH = int(resolve("PG_CHART_MAX_WIDTH"))
 
 
 async def analyze_structured_data(
