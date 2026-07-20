@@ -1,0 +1,892 @@
+---ALL getenv/environ sites with file:line---
+src/polaris_graph/pipeline_a_ui_adapter.py:245:    out_root = Path(os.getenv(
+src/polaris_graph/agents/source_confidence.py:152:    api_key = os.getenv("OPEN_PAGERANK_API_KEY", "")
+src/polaris_graph/config_loader.py:57:    config_path = Path(os.getenv("PG_DOMAIN_CONFIG_PATH", str(_DEFAULT_CONFIG_PATH)))
+src/polaris_graph/settings.py:3:This module replaces scattered ``os.getenv`` reads with one typed settings object. Phase 1 migrates
+src/polaris_graph/settings.py:10:``os.getenv(KEY, default)`` — both unset (default) and set (override).
+src/polaris_graph/settings.py:28:    ``validation_alias``), matching ``os.getenv("PG_...")`` byte-for-byte — an ``env_prefix`` +
+src/polaris_graph/settings.py:49:# test iterates this to prove byte-identical parity with today's os.getenv resolution.
+src/polaris_graph/settings.py:69:    **Byte-identical migration contract.** ``os.getenv`` reads the current environment on *every*
+src/polaris_graph/settings.py:71:    migrated call site must replace ``os.getenv("PG_X", default)`` with ``get_model_settings().x``
+src/polaris_graph/settings.py:75:    mid-run, so a fresh read at the call site is exactly equivalent to the original ``os.getenv``.
+src/polaris_graph/settings.py:83:# byte-identical alternative to scattered os.getenv. Typed accessors (like ModelSettings) are layered
+src/polaris_graph/settings.py:89:    """Return ``os.getenv(key, CONFIG_DEFAULTS[key])`` — byte-identical to the original call site.
+src/polaris_graph/settings.py:91:    A migrated call site replaces ``os.getenv("PG_X", "<lit>")`` with ``resolve("PG_X")`` where the
+src/polaris_graph/settings.py:92:    registry already holds ``"<lit>"``. Reads the CURRENT environment on every call (like os.getenv).
+src/polaris_graph/settings.py:98:    return os.getenv(key, CONFIG_DEFAULTS[key])
+src/polaris_graph/pipeline_definition.py:347:TEMPLATES_DIR = Path(os.getenv(
+src/polaris_graph/document_ingester.py:55:TESSERACT_CMD = os.getenv(
+src/polaris_graph/document_ingester.py:64:WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+src/polaris_graph/document_ingester.py:65:FFMPEG_PATH = os.getenv("FFMPEG_PATH", r"C:\Windows\ffmpeg.exe")
+src/polaris_graph/document_ingester.py:68:ANTIWORD_CMD = os.getenv("ANTIWORD_CMD", "antiword")
+src/polaris_graph/document_ingester.py:942:                os.environ.setdefault("PATH", "")
+src/polaris_graph/document_ingester.py:944:                if ffmpeg_dir not in os.environ["PATH"]:
+src/polaris_graph/document_ingester.py:945:                    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ["PATH"]
+src/polaris_graph/v30_sweep_integration.py:96:    return os.environ.get(_ENABLED_ENV, "0").strip() in ("1", "true", "True")
+src/polaris_graph/checkpoint_manager.py:479:            os.getenv("PG_REWIND_MAX_MINUTES", resolve("PG_MAX_EXECUTION_MINUTES"))
+src/polaris_graph/config_defaults.py:4:extracted from its os.getenv call sites. `settings.resolve(key)` returns
+src/polaris_graph/config_defaults.py:5:`os.getenv(key, CONFIG_DEFAULTS[key])` -> byte-identical to the original by construction
+src/polaris_graph/graph_v3.py:739:    os.environ["PG_V3_TOTAL_BUDGET_SECONDS"] = str(max_execution_minutes * 60)
+src/polaris_graph/graph_v3.py:752:            "budget_usd": float(os.getenv("OPENROUTER_BUDGET_USD", "50")),
+src/polaris_graph/api/generation_route.py:145:    require_contract = os.environ.get("POLARIS_REQUIRE_CONTRACT", "0").strip() == "1"
+src/polaris_graph/graph_v2.py:63:FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "10"))
+src/polaris_graph/graph_v2.py:64:FETCH_TIMEOUT = int(os.getenv("PG_FETCH_TIMEOUT", "20"))
+src/polaris_graph/state.py:45:MAX_WORDS_PER_SECTION = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "2000"))
+src/polaris_graph/state.py:48:MIN_TOTAL_WORDS = int(os.getenv("PG_MIN_TOTAL_WORDS", "0"))
+src/polaris_graph/state.py:49:TARGET_TOTAL_WORDS = int(os.getenv("PG_TARGET_TOTAL_WORDS", "8000"))
+src/polaris_graph/state.py:85:PG_MAX_TOTAL_ACADEMIC = int(os.getenv("PG_MAX_TOTAL_ACADEMIC", "500"))
+src/polaris_graph/state.py:89:PG_CONTENT_PER_SOURCE = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
+src/polaris_graph/state.py:93:PG_ANALYSIS_BATCH_TIMEOUT = float(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "240.0"))
+src/polaris_graph/state.py:94:PG_FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "5"))
+src/polaris_graph/state.py:103:PG_SECTION_WRITER_MAX_TOKENS = int(os.getenv("PG_SECTION_WRITER_MAX_TOKENS", "16384"))
+src/polaris_graph/state.py:106:PG_SECTION_CONTINUATION_MAX_TOKENS = int(os.getenv("PG_SECTION_CONTINUATION_MAX_TOKENS", "8192"))
+src/polaris_graph/state.py:111:PG_SYNTHESIS_STRUCTURED_MAX_TOKENS = int(os.getenv("PG_SYNTHESIS_STRUCTURED_MAX_TOKENS", "16384"))
+src/polaris_graph/state.py:130:PG_MAX_CROSS_SOURCE_PAIRS = int(os.getenv("PG_MAX_CROSS_SOURCE_PAIRS", "50"))
+src/polaris_graph/state.py:150:PG_MIN_EVIDENCE_UTILIZATION = float(os.getenv("PG_MIN_EVIDENCE_UTILIZATION", "0.40"))
+src/polaris_graph/state.py:195:    for d in os.getenv(
+src/polaris_graph/state.py:208:FIRECRAWL_MIN_INTERVAL_SECONDS = float(os.getenv("FIRECRAWL_MIN_INTERVAL_SECONDS", "6.0"))
+src/polaris_graph/state.py:209:FIRECRAWL_MONTHLY_QUOTA = int(os.getenv("FIRECRAWL_MONTHLY_QUOTA", "500"))
+src/polaris_graph/state.py:210:FIRECRAWL_WARN_THRESHOLD_PCT = float(os.getenv("FIRECRAWL_WARN_THRESHOLD_PCT", "0.80"))
+src/polaris_graph/state.py:217:PG_REFINER_MAX_TOKENS = int(os.getenv("PG_REFINER_MAX_TOKENS", "4096"))
+src/polaris_graph/state.py:221:PG_AGENTIC_MAX_ROUNDS = int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "12"))
+src/polaris_graph/state.py:229:PG_AGENTIC_WEB_PER_ROUND = int(os.getenv("PG_AGENTIC_WEB_PER_ROUND", resolve("PG_WEB_PER_ROUND")))
+src/polaris_graph/state.py:236:PG_AGENTIC_REFINER_MAX_TOKENS = int(os.getenv("PG_AGENTIC_REFINER_MAX_TOKENS", "4096"))
+src/polaris_graph/state.py:243:PG_AGENTIC_SUMMARY_MAX_TOKENS = int(os.getenv("PG_AGENTIC_SUMMARY_MAX_TOKENS", "2048"))
+src/polaris_graph/state.py:256:    for d in os.getenv(
+src/polaris_graph/state.py:274:PG_SECTION_TOKEN_BUDGET = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000"))
+src/polaris_graph/graph.py:936:            min_words = int(os.getenv("PG_MIN_TOTAL_WORDS", "10000"))
+src/polaris_graph/agents/citation_agent.py:29:PG_CITATION_AGENT_MAX_TOKENS = int(os.getenv("PG_CITATION_AGENT_MAX_TOKENS", "8192"))
+src/polaris_graph/agents/searcher.py:979:    api_key = os.getenv("EXA_API_KEY", "")
+src/polaris_graph/agents/searcher.py:1814:        max_total_academic = int(os.getenv("PG_MAX_TOTAL_ACADEMIC", "100"))
+src/polaris_graph/agents/searcher.py:2290:    s2_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+src/polaris_graph/agents/nli_verifier.py:37:PG_NLI_MODEL = get_model_settings().nli_model  # was os.getenv("PG_NLI_MODEL", "flan-t5-large")
+src/polaris_graph/agents/nli_verifier.py:67:PG_FAITHLENS_MODEL = get_model_settings().faithlens_model  # was os.getenv("PG_FAITHLENS_MODEL", "ssz1111/FaithLens")
+src/polaris_graph/agents/nli_verifier.py:348:PG_MAX_CROSS_SOURCE_PAIRS = int(os.getenv("PG_MAX_CROSS_SOURCE_PAIRS", "200"))
+src/polaris_graph/agents/nli_verifier.py:825:    _nli_faith_threshold = float(os.getenv("PG_FAITHFULNESS_NLI_THRESHOLD", "0.65"))
+src/polaris_graph/audit_ir/parallel_fetch.py:360:    env_raw = os.environ.get(PG_PARALLEL_FETCH_BATCH_BUDGET_SECONDS_ENV)
+src/polaris_graph/agents/evidence_deepener.py:133:    s2_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+src/polaris_graph/agents/evidence_deepener.py:333:            max_tokens=int(os.getenv("PG_DEEPENER_EXTRACT_MAX_TOKENS", "32768")),
+src/polaris_graph/agents/evidence_deepener.py:858:            max_tokens=int(os.getenv("PG_DEEPENER_MECHANISM_MAX_TOKENS", "32768")),
+src/polaris_graph/audit_ir/run_diff.py:138:    raw = os.environ.get("PG_RUN_DIFF_TIER_PP")
+src/polaris_graph/audit/source_necessity_disclosure.py:62:    return os.getenv(_ENV_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/api/intake.py:140:    if _os.getenv("PG_USE_SAFETY_REFUSAL", "0").strip() in ("1", "true", "True"):
+src/polaris_graph/agents/analyzer.py:42:    _short_cache = os.getenv("PG_ST_CACHE_PATH", r"C:\st_cache")
+src/polaris_graph/agents/analyzer.py:43:    os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _short_cache)
+src/polaris_graph/agents/analyzer.py:44:    os.environ.setdefault("HF_HOME", _short_cache)
+src/polaris_graph/agents/analyzer.py:93:PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "15"))
+src/polaris_graph/agents/analyzer.py:586:            max_tokens=int(os.getenv("PG_STRUCTURED_DATA_MAX_TOKENS", "4096")),
+src/polaris_graph/agents/analyzer.py:678:                max_tokens=int(os.getenv("PG_STRUCTURED_DATA_MAX_TOKENS", "4096")),
+src/polaris_graph/agents/analyzer.py:1075:                            max_tokens=int(os.getenv("PG_GRADE_MAX_TOKENS", "4096")),
+src/polaris_graph/agents/analyzer.py:2079:            max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
+src/polaris_graph/agents/analyzer.py:2080:            timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
+src/polaris_graph/agents/analyzer.py:2084:            reasoning_max_tokens=int(os.getenv("PG_EXTRACTION_REASONING_MAX_TOKENS", "2048")),
+src/polaris_graph/agents/analyzer.py:2242:                max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
+src/polaris_graph/agents/analyzer.py:2243:                timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
+src/polaris_graph/agents/analyzer.py:2245:                reasoning_max_tokens=int(os.getenv("PG_EXTRACTION_REASONING_MAX_TOKENS", "2048")),
+src/polaris_graph/agents/analyzer.py:2402:                short_cache = os.getenv(
+src/polaris_graph/agents/analyzer.py:2410:                os.environ["SENTENCE_TRANSFORMERS_HOME"] = short_cache
+src/polaris_graph/agents/analyzer.py:3152:            short_cache = os.getenv("PG_ST_CACHE_PATH", r"C:\st_cache")
+src/polaris_graph/agents/analyzer.py:3158:            os.environ["SENTENCE_TRANSFORMERS_HOME"] = short_cache
+src/polaris_graph/agents/synthesizer.py:545:        max_tokens=int(os.getenv("PG_OUTLINE_MAX_TOKENS", "2048")),
+src/polaris_graph/agents/synthesizer.py:710:            max_tokens=int(os.getenv("PG_EVIDENCE_ASSIGN_MAX_TOKENS", "2048")),
+src/polaris_graph/agents/synthesizer.py:861:    _max_tokens = int(os.getenv("PG_CLUSTER_SUMMARY_MAX_TOKENS", "512"))
+src/polaris_graph/agents/synthesizer.py:998:    _min_ev_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5"))
+src/polaris_graph/agents/synthesizer.py:1157:                    max_tokens=int(os.getenv("PG_OUTLINE_CRITIQUE_MAX_TOKENS", "2048")),
+src/polaris_graph/agents/synthesizer.py:1289:    _max_tokens = int(os.getenv("PG_SECTION_QUESTION_MAX_TOKENS", "1024"))
+src/polaris_graph/agents/synthesizer.py:1374:    _max_tokens = int(os.getenv("PG_FOCUSED_EXTRACTION_MAX_TOKENS", "2048"))
+src/polaris_graph/agents/synthesizer.py:1410:            _content_cap = int(os.getenv("PG_CONTENT_PER_SOURCE", "10000"))
+src/polaris_graph/agents/synthesizer.py:1559:    _max_tokens = int(os.getenv("PG_REVIEW_SECTION_MAX_TOKENS", "2048"))
+src/polaris_graph/agents/synthesizer.py:3348:                    max_tokens=int(os.getenv("PG_COHERENCE_PASS_MAX_TOKENS", "1024")),
+src/polaris_graph/agents/synthesizer.py:3527:    min_utilization = float(os.getenv("PG_MIN_EVIDENCE_UTILIZATION", "0.30"))
+src/polaris_graph/agents/synthesizer.py:3544:    target_total = int(os.getenv("PG_TARGET_TOTAL_WORDS", "12000"))
+src/polaris_graph/agents/synthesizer.py:4100:                            max_tokens=int(os.getenv("PG_POLISH_MAX_TOKENS", "16384")),
+src/polaris_graph/agents/synthesizer.py:4600:            max_tokens=int(os.getenv("PG_GAP_ANALYSIS_MAX_TOKENS", "4096")),
+src/polaris_graph/agents/synthesizer.py:4820:            cluster_batch_timeout = int(os.getenv("PG_CLUSTER_BATCH_TIMEOUT", "600"))
+src/polaris_graph/agents/synthesizer.py:5157:            timeout=int(os.getenv("PG_CLUSTER_BATCH_TIMEOUT", "300")),
+src/polaris_graph/authority/credibility_skill.py:94:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/authority/credibility_skill.py:99:        return float(os.environ.get(name, "") or default)
+src/polaris_graph/authority/credibility_skill.py:106:        return int(os.environ.get(name, "") or default)
+src/polaris_graph/authority/credibility_skill.py:198:    raw = os.environ.get(_ENV_HYBRID_SKIP_TIERS, "").strip()
+src/polaris_graph/authority/credibility_skill.py:383:            os.environ.get(_ENV_JUDGE_CONCURRENCY, _DEFAULT_JUDGE_CONCURRENCY) or _DEFAULT_JUDGE_CONCURRENCY
+src/polaris_graph/authority/credibility_skill.py:416:        _progress_every = max(0, int(os.environ.get(_ENV_PROGRESS_EVERY, "0") or "0"))
+src/polaris_graph/agents/storm_interviews.py:47:PG_STORM_QUESTIONS_MAX_TOKENS = int(os.getenv("PG_STORM_QUESTIONS_MAX_TOKENS", "1024"))
+src/polaris_graph/agents/storm_interviews.py:48:PG_STORM_ANSWER_MAX_TOKENS = int(os.getenv("PG_STORM_ANSWER_MAX_TOKENS", "2048"))
+src/polaris_graph/agents/storm_interviews.py:136:PG_STORM_OUTLINE_MAX_TOKENS = int(os.getenv("PG_STORM_OUTLINE_MAX_TOKENS", "64000"))
+src/polaris_graph/agents/storm_interviews.py:137:PG_STORM_PERSONA_MAX_TOKENS = int(os.getenv("PG_STORM_PERSONA_MAX_TOKENS", "2048"))
+src/polaris_graph/audit_ir/inspector_router.py:198:    raw = os.environ.get("PG_PRIVATE_CORPUS_DB_PATH")
+src/polaris_graph/audit_ir/inspector_router.py:223:    return os.environ.get(
+src/polaris_graph/audit_ir/inspector_router.py:241:    raw = os.environ.get("PG_SUPPORT_TICKET_DB_PATH")
+src/polaris_graph/audit_ir/inspector_router.py:266:    return os.environ.get(
+src/polaris_graph/audit_ir/inspector_router.py:281:    raw = os.environ.get("PG_CONTRACT_DRAFT_DB_PATH")
+src/polaris_graph/audit_ir/inspector_router.py:312:    return os.environ.get(
+src/polaris_graph/audit_ir/inspector_router.py:319:    raw = os.environ.get("PG_DECISION_DB_PATH")
+src/polaris_graph/audit_ir/inspector_router.py:363:    if os.environ.get("PG_RECORD_DECISIONS", "1") == "0":
+src/polaris_graph/audit_ir/inspector_router.py:883:    return os.environ.get("PG_USE_SLIDE_DECK_ENDPOINT", "1") != "0"
+src/polaris_graph/audit_ir/inspector_router.py:2631:    return os.environ.get(
+src/polaris_graph/audit_ir/inspector_router.py:2645:    raw = os.environ.get("PG_FRESHNESS_DB_PATH")
+src/polaris_graph/audit_ir/inspector_router.py:2972:    return os.environ.get("PG_USE_METRICS_ENDPOINT", "1") != "0"
+src/polaris_graph/audit_ir/beat_both_scoring.py:677:    raw = os.environ.get(_env_var_for(dimension))
+src/polaris_graph/agents/verifier.py:154:    # NOTE: Use os.getenv() directly (NOT imported constant) so the recursion
+src/polaris_graph/agents/verifier.py:156:    # time and won't reflect os.environ changes.
+src/polaris_graph/agents/verifier.py:161:    _nli_faith_threshold_merge = float(os.getenv("PG_FAITHFULNESS_NLI_THRESHOLD", "0.75"))
+src/polaris_graph/agents/verifier.py:1051:    _nli_faith_threshold = float(os.getenv("PG_FAITHFULNESS_NLI_THRESHOLD", "0.75"))
+src/polaris_graph/agents/verifier.py:1066:                max_tokens=int(os.getenv("PG_VERIFY_MAX_TOKENS", "8192")),
+src/polaris_graph/agents/verifier.py:1110:                _require_nli = os.getenv(
+src/polaris_graph/agents/verifier.py:1582:        model_name = os.getenv(
+src/polaris_graph/agents/verifier.py:1639:        os.getenv("PG_CONTRADICTION_SIM_THRESHOLD", str(similarity_threshold))
+src/polaris_graph/agents/verifier.py:1642:        os.getenv("PG_CONTRADICTION_NLI_THRESHOLD", str(contradiction_threshold))
+src/polaris_graph/api/disambiguation_route.py:53:        _floor = int(os.environ.get("PG_DISAMBIG_LABEL_MAX_TOKENS", "16384") or "16384")
+src/polaris_graph/api/disambiguation_route.py:58:                "reasoning": {"effort": os.environ.get("PG_DISAMBIG_REASONING_EFFORT", "high") or "high"}}
+src/polaris_graph/api/disambiguation_route.py:72:    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+src/polaris_graph/api/disambiguation_route.py:75:    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
+src/polaris_graph/audit_ir/auth_store.py:71:    raw = os.environ.get("PG_BCRYPT_ROUNDS")
+src/polaris_graph/audit_ir/auth_store.py:81:    return os.environ.get("PG_API_KEY_PREFIX", DEFAULT_API_KEY_PREFIX)
+src/polaris_graph/audit_ir/auth_middleware.py:132:    return os.environ.get("PG_AUTH_TRUSTED_TEST_HEADER") not in (
+src/polaris_graph/authority/supersession.py:28:    for t in os.getenv(
+src/polaris_graph/authority/supersession.py:37:    raw = os.getenv(name)
+src/polaris_graph/authority/supersession.py:47:    raw = os.getenv(name)
+src/polaris_graph/authority/supersession.py:58:    return os.getenv(_FLAG, "0") == "1"
+src/polaris_graph/audit_bundle/gpg_signer.py:49:    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip()
+src/polaris_graph/audit_bundle/gpg_signer.py:56:    passphrase = os.environ.get("POLARIS_GPG_PASSPHRASE", "").strip() or None
+src/polaris_graph/audit_bundle/gpg_signer.py:57:    gnupghome = os.environ.get("GNUPGHOME", "").strip() or None
+src/polaris_graph/audit_ir/pin_trends.py:182:    raw = os.environ.get("PG_PIN_TREND_STABLE_THRESHOLD")
+src/polaris_graph/audit_ir/pin_trends.py:187:    raw = os.environ.get("PG_PIN_TREND_UNSTABLE_THRESHOLD")
+src/polaris_graph/audit_ir/pin_replay.py:28:1. **Single-threaded — enforced.** os.environ mutation is
+src/polaris_graph/audit_ir/pin_replay.py:92:# Module-level non-reentrant lock guarding os.environ mutation.
+src/polaris_graph/audit_ir/pin_replay.py:130:    active in the process. os.environ is process-global;
+src/polaris_graph/audit_ir/pin_replay.py:153:      - "set": os.environ[name] = value (value is a str,
+src/polaris_graph/audit_ir/pin_replay.py:155:      - "delete": os.environ.pop(name, None)
+src/polaris_graph/audit_ir/pin_replay.py:195:    Pure: reads `pin` + current `os.environ`, returns a plan.
+src/polaris_graph/audit_ir/pin_replay.py:215:        #           int(os.getenv("X", "default")) returns
+src/polaris_graph/audit_ir/pin_replay.py:279:            prior[mut.name] = os.environ.get(mut.name)
+src/polaris_graph/audit_ir/pin_replay.py:285:                    os.environ.pop(mut.name, None)
+src/polaris_graph/audit_ir/pin_replay.py:292:                    os.environ[mut.name] = mut.value
+src/polaris_graph/audit_ir/pin_replay.py:304:                    os.environ.pop(name, None)
+src/polaris_graph/audit_ir/pin_replay.py:306:                    os.environ[name] = prior_value
+src/polaris_graph/audit_ir/parser_runner.py:123:        raw = os.environ.get("PG_TEXT_CHUNK_CHARS")
+src/polaris_graph/audit_ir/model_pin.py:50:    Many call sites read numeric vars via `int(os.getenv("X",
+src/polaris_graph/audit_ir/model_pin.py:56:    (verified against actual `os.getenv` call sites).
+src/polaris_graph/audit_ir/model_pin.py:96:# Names verified against actual `os.getenv` call sites in the
+src/polaris_graph/audit_ir/model_pin.py:245:    fallback (`int(os.getenv("X", "8192"))`) — re-setting to ""
+src/polaris_graph/audit_ir/model_pin.py:256:        snapshot[clean] = os.environ.get(clean)
+src/polaris_graph/audit_ir/model_pin.py:368:    `os.environ`. If neither is passed, env_snapshot is empty.
+src/polaris_graph/audit_ir/regression_alerts.py:135:    raw = os.environ.get(key)
+src/polaris_graph/audit_ir/scope_classifier.py:93:    raw = os.environ.get("PG_SCOPE_GATE_CONFIDENCE_THRESHOLD")
+src/polaris_graph/audit_ir/workspace_store.py:64:    raw = os.environ.get("PG_WORKSPACE_MAX_DOCS")
+src/polaris_graph/authority/credibility_judge_caller.py:162:        value = int(os.environ.get(name, "") or default)
+src/polaris_graph/authority/credibility_judge_caller.py:170:        value = float(os.environ.get(name, "") or default)
+src/polaris_graph/authority/credibility_judge_caller.py:187:    return os.environ.get(_ENV_JUDGE_PROVIDER_ROTATE, "").strip().lower() in (
+src/polaris_graph/authority/credibility_judge_caller.py:212:    return os.environ.get(_ENV_MODEL, "").strip() or _DEFAULT_MODEL
+src/polaris_graph/authority/credibility_judge_caller.py:239:    reasoning_effort = (os.environ.get(_ENV_REASONING_EFFORT, "").strip().lower() or _DEFAULT_REASONING_EFFORT)
+src/polaris_graph/authority/credibility_judge_caller.py:243:        retries = max(0, int(os.environ.get(_ENV_RETRIES, _DEFAULT_RETRIES) or _DEFAULT_RETRIES))
+src/polaris_graph/authority/credibility_judge_caller.py:254:        _td_retries_raw = max(0, int(os.environ.get(_ENV_TOTAL_DEADLINE_RETRIES, retries) or retries))
+src/polaris_graph/authority/credibility_judge_caller.py:266:        os.environ.get("PG_CREDIBILITY_JUDGE_BASE_URL", "").strip()
+src/polaris_graph/authority/credibility_judge_caller.py:267:        or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+src/polaris_graph/authority/credibility_judge_caller.py:272:        os.environ.get("PG_CREDIBILITY_JUDGE_API_KEY", "").strip()
+src/polaris_graph/authority/credibility_judge_caller.py:273:        or os.environ.get("OPENROUTER_API_KEY", "").strip()
+src/polaris_graph/authority/credibility_judge_caller.py:323:        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+src/polaris_graph/audit_ir/template_classifier.py:131:            high = float(os.environ.get("PG_TEMPLATE_ROUTER_FLOOR_HIGH", DEFAULT_FLOOR_HIGH))
+src/polaris_graph/audit_ir/template_classifier.py:135:            review = float(os.environ.get("PG_TEMPLATE_ROUTER_FLOOR_REVIEW", DEFAULT_FLOOR_REVIEW))
+src/polaris_graph/audit_ir/template_classifier.py:139:            tie_margin = float(os.environ.get(
+src/polaris_graph/audit_ir/v30_sweep_job_runner.py:155:    raw = os.environ.get(name)
+src/polaris_graph/audit_ir/v30_sweep_job_runner.py:207:        env = dict(os.environ)
+src/polaris_graph/generator/boundary_conditions.py:58:    return os.environ.get(_ENV_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/boundary_conditions.py:63:        return max(1, int(os.environ.get(_MIN_OVERLAP_ENV, str(_DEFAULT_MIN_OVERLAP)).strip()))
+src/polaris_graph/generator/boundary_conditions.py:69:    raw = os.environ.get("PG_SECTION_BOUNDARY_MARKERS", "").strip()
+src/polaris_graph/benchmark/benchmark_gate_runner.py:80:            os.getenv("PG_GENERATOR_MODEL")
+src/polaris_graph/benchmark/benchmark_gate_runner.py:81:            or os.getenv("OPENROUTER_DEFAULT_MODEL")
+src/polaris_graph/benchmark/benchmark_gate_runner.py:85:    return (os.getenv(env_name) or default).strip()
+src/polaris_graph/generator/cross_section_repetition_guard.py:109:    raw = os.environ.get(_ENV_ENABLED)
+src/polaris_graph/generator/cross_section_repetition_guard.py:118:    raw = os.environ.get(_ENV_MIN_WORDS, "")
+src/polaris_graph/clinical_generator/strict_verify.py:103:    raw = os.environ.get("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "")
+src/polaris_graph/clinical_generator/strict_verify.py:149:    v = os.environ.get("PG_PROVENANCE_PERCENT_ROLE_MATCH", "1").strip().lower()
+src/polaris_graph/clinical_generator/strict_verify.py:218:    v = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_RETENTION", "1").strip().lower()
+src/polaris_graph/clinical_generator/strict_verify.py:227:    raw = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_PROXIMITY_TOKENS", "").strip()
+src/polaris_graph/clinical_generator/strict_verify.py:238:    raw = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_LEXICON", "").strip()
+src/polaris_graph/clinical_generator/strict_verify.py:369:    raw = os.environ.get("PG_STRICT_VERIFY_ENTAILMENT", _DEFAULT_MODE).lower().strip()
+src/polaris_graph/clinical_generator/strict_verify.py:554:                _je_release = os.environ.get(
+src/polaris_graph/generator/analyst_synthesis.py:61:PG_SECTION_MAX_TOKENS: int = int(os.getenv("PG_SECTION_MAX_TOKENS", "24000"))
+src/polaris_graph/generator/analyst_synthesis.py:468:            os.environ.get("PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED", "0").strip().lower()
+src/polaris_graph/generator/analyst_synthesis.py:600:        os.environ.get(_RENDER_CLEAN_ENV, "1").strip().lower()
+src/polaris_graph/generator/analyst_synthesis.py:686:    if os.environ.get(
+src/polaris_graph/generator/analyst_synthesis.py:746:                os.getenv("PG_ANALYST_SYNTHESIS_REASONING_MAX_TOKENS", "32768")
+src/polaris_graph/clinical_retrieval/real_fetcher.py:66:    serper = os.environ.get("SERPER_API_KEY", "").strip()
+src/polaris_graph/clinical_retrieval/real_fetcher.py:74:    s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip() or None
+src/polaris_graph/generator/key_findings.py:218:    return os.getenv(_FF3_TRUNC_SEM_ENV, "0").strip().lower() in _TRUNC_GUARD_ON_TOKENS
+src/polaris_graph/generator/key_findings.py:578:    raw = os.getenv("PG_KEY_FINDINGS_MAX_MARKERS", "").strip()
+src/polaris_graph/generator/key_findings.py:606:    return os.getenv("PG_SWEEP_KEY_FINDINGS", "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/key_findings.py:721:    return os.getenv(_U13_SUBJECT_ANCHOR_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+src/polaris_graph/generator/key_findings.py:1022:    return os.getenv(_DEPTH_LAYER_ENV, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/clinical_generator/real_completion.py:44:_OPENROUTER_BASE_URL = os.environ.get(
+src/polaris_graph/clinical_generator/real_completion.py:52:DEFAULT_MAX_TOKENS = int(os.environ.get("PG_REAL_COMPLETION_MAX_TOKENS", "16384") or "16384")
+src/polaris_graph/clinical_generator/real_completion.py:74:    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+src/polaris_graph/clinical_generator/real_completion.py:82:    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "deepseek/deepseek-v4-pro"
+src/polaris_graph/clinical_generator/real_completion.py:192:                "effort": os.environ.get("PG_REAL_COMPLETION_REASONING_EFFORT", "high") or "high"
+src/polaris_graph/generator/evidence_value_extractor.py:32:_MAX_SCAN_CHARS = max(1000, int(_os.getenv("PG_ALLOW_LIST_MAX_SCAN_CHARS", "100000")))
+src/polaris_graph/evaluator/evaluator_gate.py:46:    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
+src/polaris_graph/evaluator/external_evaluator.py:513:    return os.getenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", "").strip().lower() in (
+src/polaris_graph/generator/span_quality_gate.py:161:    return os.environ.get(_ENV_FLAG, "").strip().lower() in ("1", "true", "yes", "on")
+src/polaris_graph/generator/span_quality_gate.py:167:        n = int(os.environ.get(_ENV_WORKERS, str(_DEFAULT_WORKERS)))
+src/polaris_graph/generator/span_quality_gate.py:176:        v = float(os.environ.get(_ENV_ESCALATE_BELOW, str(_DEFAULT_ESCALATE_BELOW)))
+src/polaris_graph/generator/span_quality_gate.py:183:    return os.environ.get(_ENV_PRIMARY_MODEL, "").strip() or _DEFAULT_PRIMARY_MODEL
+src/polaris_graph/generator/span_quality_gate.py:187:    return os.environ.get(_ENV_ESCALATION_MODEL, "").strip() or _DEFAULT_ESCALATION_MODEL
+src/polaris_graph/generator/outline_digest.py:71:        return int(os.getenv(name, default))
+src/polaris_graph/generator/cross_source_synthesis.py:247:    return os.getenv(_ENV_EXTENSION_FLAG, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/cross_source_synthesis.py:265:    return os.getenv(_ENV_AGREEMENT_FLAG, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/cross_source_synthesis.py:307:    return os.getenv(_ENV_NO_UNRELATED_GLUE, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/cross_source_synthesis.py:315:    raw = os.getenv(_ENV_NO_GLUE_MIN_OVERLAP, "").strip()
+src/polaris_graph/generator/cross_source_synthesis.py:640:    return os.getenv(_ENV_CROSS_SOURCE_BODY, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/cross_source_synthesis.py:663:    return os.getenv(_ENV_THREAD_CONSOLIDATION, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/block_page_chrome_scrub.py:80:    raw = os.environ.get(_SCRUB_ENV)
+src/polaris_graph/generator/block_page_chrome_scrub.py:89:    raw = os.environ.get(_SHARED_DETECTOR_ENV)
+src/polaris_graph/generator/abstract_conclusion.py:79:    raw = os.getenv(_MAX_SUMMARY_MARKERS_ENV, "").strip()
+src/polaris_graph/generator/abstract_conclusion.py:96:    return os.getenv(_ENABLED_ENV, "0").strip().lower() in _TRUE_VALUES
+src/polaris_graph/generator/analytical_depth.py:46:    return os.getenv(_COUNT_ATX_KEY_FINDINGS_ENV, "1").strip().lower() not in _DEPTH_OFF_VALUES
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:158:    promote_on = os.environ.get(_ENV_PROMOTE_GROUNDED, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:172:    on = os.environ.get(_ENV_BASKET_MODE, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:187:    return os.environ.get(_ENV_BASKET_FULLTEXT, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:203:    return os.environ.get(_ENV_DISCLOSED_ANALYST, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:313:    fine_on = os.environ.get(_ENV_ENABLED, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:314:    coarse_on = os.environ.get(_ENV_ANALYST_KILL, "1").strip() in ("1", "true", "True")
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:320:        value = int(os.environ.get(_ENV_MAX_INFLIGHT, _DEFAULT_MAX_INFLIGHT) or _DEFAULT_MAX_INFLIGHT)
+src/polaris_graph/generator/analyst_synthesis_deviation_check.py:328:        value = float(os.environ.get(_ENV_DEADLINE_S, _DEFAULT_DEADLINE_S) or _DEFAULT_DEADLINE_S)
+src/polaris_graph/export/docx_exporter.py:46:DOCX_BODY_FONT = os.getenv("POLARIS_DOCX_FONT", "Calibri")
+src/polaris_graph/export/docx_exporter.py:47:DOCX_BODY_FONT_SIZE_PT = int(os.getenv("POLARIS_DOCX_FONT_SIZE", "11"))
+src/polaris_graph/export/docx_exporter.py:48:DOCX_HEADING_FONT = os.getenv("POLARIS_DOCX_HEADING_FONT", "Calibri")
+src/polaris_graph/export/docx_exporter.py:49:DOCX_HEADING1_SIZE_PT = int(os.getenv("POLARIS_DOCX_HEADING1_SIZE", "18"))
+src/polaris_graph/export/docx_exporter.py:50:DOCX_HEADING2_SIZE_PT = int(os.getenv("POLARIS_DOCX_HEADING2_SIZE", "14"))
+src/polaris_graph/export/docx_exporter.py:51:DOCX_HEADING3_SIZE_PT = int(os.getenv("POLARIS_DOCX_HEADING3_SIZE", "12"))
+src/polaris_graph/export/docx_exporter.py:52:DOCX_TITLE_SIZE_PT = int(os.getenv("POLARIS_DOCX_TITLE_SIZE", "26"))
+src/polaris_graph/export/docx_exporter.py:53:DOCX_MARGIN_CM = float(os.getenv("POLARIS_DOCX_MARGIN_CM", "2.54"))
+src/polaris_graph/export/docx_exporter.py:54:DOCX_ACCENT_COLOR = os.getenv("POLARIS_DOCX_ACCENT_COLOR", "1F4E79")
+src/polaris_graph/export/docx_exporter.py:55:DOCX_PIPELINE_VERSION = os.getenv("POLARIS_PIPELINE_VERSION", "polaris-graph-v1")
+src/polaris_graph/export/docx_exporter.py:56:DOCX_LINE_SPACING = float(os.getenv("POLARIS_DOCX_LINE_SPACING", "1.15"))
+src/polaris_graph/generator/presentation_tables.py:90:    return os.environ.get(_ENABLE_FLAG, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/generation_snapshot.py:186:    raw = os.getenv(GENERATION_SNAPSHOT_ENV)
+src/polaris_graph/generator/generation_snapshot.py:198:    return {name: os.environ.get(name, "") for name in GENERATION_AFFECTING_ENV_FLAGS}
+src/polaris_graph/generator/generation_snapshot.py:512:    mode = os.environ.get(ATOM_REFUSAL_MODE_ENV, ATOM_REFUSAL_MODE_OFF).strip().lower()
+src/polaris_graph/generator/junk_deletion_gate.py:76:    return os.getenv(_CHROME_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/junk_deletion_gate.py:82:    return os.getenv(_OFFTOPIC_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/junk_deletion_gate.py:92:    return os.getenv(_TOPIC_JUDGE_ONLY_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/junk_deletion_gate.py:102:    return os.getenv(_FRESH_VERDICT_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/abstractive_writer.py:141:    return os.getenv(name, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/abstractive_writer.py:248:    return os.getenv(_ENV_ENABLE, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/abstractive_writer.py:252:    raw = os.getenv(name, "").strip()
+src/polaris_graph/generator/abstractive_writer.py:263:    raw = os.getenv(name, "").strip()
+src/polaris_graph/generator/abstractive_writer.py:278:    override = os.getenv(_ENV_MODEL, "").strip()
+src/polaris_graph/generator/abstractive_writer.py:281:    gen = os.getenv("PG_GENERATOR_MODEL", "").strip()
+src/polaris_graph/generator/compose_config_guard.py:77:    env = os.environ if env is None else env
+src/polaris_graph/generator/depth_synthesis.py:135:    return os.getenv(_ENV_SPANJOIN_FALLBACK, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/depth_synthesis.py:141:    return os.getenv(_ENV_BODY_DUP_HARD_ASSERT, "0").strip().lower() in ("1", "true", "on", "yes")
+src/polaris_graph/generator/depth_synthesis.py:183:    raw = os.getenv(name, "").strip()
+src/polaris_graph/generator/depth_synthesis.py:194:    raw = os.getenv(name, "").strip()
+src/polaris_graph/generator/depth_synthesis.py:229:    return os.getenv(_ENV_SYNTH_ENTAILMENT_VERIFY, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/depth_synthesis.py:234:    return os.getenv(_ENV_SYNTH_SINGLE_SOURCE, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/depth_synthesis.py:247:    return os.getenv(_ENV_SYNTH_D8_PROMOTE, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/depth_synthesis.py:263:    return os.getenv(_ENV_D8_GATE, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/depth_synthesis.py:390:    return os.getenv(_ENV_DECHROME_MEMBERS, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/depth_synthesis.py:473:    dtw = os.environ.get("PG_DOCUMENT_TYPE_WEIGHT", "").strip().lower() in ("1", "true", "on", "yes")
+src/polaris_graph/generator/depth_synthesis.py:474:    rerank = os.environ.get(_DEPTH_RECENCY_RERANK_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+src/polaris_graph/generator/sentence_repair.py:80:    return os.environ.get(_ENV_MARKER_PRUNE_ENABLED, "1").strip().lower() in (
+src/polaris_graph/generator/sentence_repair.py:291:                max_tokens, int(os.getenv("PG_REPAIR_MIN_MAX_TOKENS", "4096"))
+src/polaris_graph/generator/sentence_repair.py:295:                os.getenv("PG_REPAIR_REASONING_MAX_TOKENS", "2048")
+src/polaris_graph/generator/sentence_repair.py:345:    raw = os.environ.get("PG_REPAIR_LOOP_ENABLED", "true").lower().strip()
+src/polaris_graph/generator/sentence_repair.py:350:    raw = os.environ.get(
+src/polaris_graph/generator/citation_set_minimizer.py:81:    return os.getenv(ENV_FLAG, "0").strip().lower() not in _FALSEY
+src/polaris_graph/generator/citation_set_minimizer.py:86:    return os.getenv(ENV_PRUNE, "1").strip().lower() not in _FALSEY
+src/polaris_graph/generator/citation_set_minimizer.py:94:    raw = os.getenv(ENV_MAX_INLINE, str(_DEFAULT_MAX_INLINE)).strip()
+src/polaris_graph/generator/citation_set_minimizer.py:105:    raw = os.getenv(ENV_MARGIN, "").strip()
+src/polaris_graph/llm/token_limit_resolver.py:91:_MODELS_URL = os.getenv(
+src/polaris_graph/llm/token_limit_resolver.py:97:    return os.getenv(_ENABLED_ENV, "1") == "1"
+src/polaris_graph/llm/token_limit_resolver.py:102:        return max(0, int(os.getenv(_SAFETY_MARGIN_ENV, str(_DEFAULT_SAFETY_MARGIN))))
+src/polaris_graph/llm/token_limit_resolver.py:181:    if os.getenv(_ALLOW_FETCH_ENV, "1") != "1":
+src/polaris_graph/llm/token_limit_resolver.py:233:        ttl = int(os.getenv(_MODELS_TTL_ENV, str(_DEFAULT_MODELS_TTL)))
+src/polaris_graph/generator/citation_layer_policy.py:83:    raw = os.getenv(_TWO_LAYER_ENV, "1").strip().lower()
+src/polaris_graph/generator/citation_layer_policy.py:92:    raw = os.getenv(_LAYER1_MAX_ENV, str(_DEFAULT_LAYER1_MAX)).strip()
+src/polaris_graph/generator/citation_layer_policy.py:308:    raw = os.getenv(_APPENDIX_KINDS_ENV, "").strip()
+src/polaris_graph/generator/quantified_analysis.py:48:_CALC_CONFLICT_REL_TOL = float(os.environ.get("PG_CALC_CONFLICT_REL_TOL", "0.05"))
+src/polaris_graph/generator/quantified_analysis.py:67:_TYPED_STATUS_ENABLED = os.environ.get("PG_QUANTIFIED_TYPED_STATUS", "1").strip().lower() not in (
+src/polaris_graph/generator/quantified_analysis.py:74:_SPEC_PROVIDER_RETRIES = max(0, int(os.environ.get("PG_QUANTIFIED_SPEC_RETRIES", "1")))
+src/polaris_graph/generator/quantified_analysis.py:84:_FILLER_SUPPRESS_ENABLED = os.environ.get(
+src/polaris_graph/generator/quantified_analysis.py:89:    2, int(os.environ.get("PG_QUANTIFIED_FILLER_MIN_SOURCED", "2"))
+src/polaris_graph/generator/quantified_analysis.py:111:_SHORTLIST_CLEAN_ENABLED = os.environ.get(
+src/polaris_graph/generator/quantified_analysis.py:119:_SHORTLIST_MAX_PCT = float(os.environ.get("PG_QUANTIFIED_SHORTLIST_MAX_PCT", "1000"))
+src/polaris_graph/generator/quantified_analysis.py:246:_UNIT_COMPAT_ENABLED = os.environ.get(
+src/polaris_graph/generator/contract_section_runner.py:1334:        return os.getenv(name, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/contract_section_runner.py:1896:                _os.environ.get("PG_USE_NARRATIVE_PARAGRAPH", "1") != "0"
+src/polaris_graph/generator/debate_consolidation.py:39:    return os.environ.get(_ENV_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/fact_dedup.py:214:    return os.getenv(PROSE_DEDUP_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/fact_dedup.py:220:    raw = os.environ.get(PROSE_JACCARD_ENV, "").strip() or _PROSE_JACCARD_DEFAULT
+src/polaris_graph/generator/fact_dedup.py:411:    raw = os.environ.get("PG_CONSOLIDATION_NLI_MAX_SENTENCES", "").strip() or "200"
+src/polaris_graph/generator/fact_dedup.py:680:    return os.environ.get(_ENV_FACT_DEDUP_EXACT_INTRASECTION, "1").strip().lower() not in (
+src/polaris_graph/generator/numeric_comparator.py:100:    return os.getenv(_ENV_NUMERIC_COMPARATOR, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/numeric_comparator.py:108:    return os.getenv(_ENV_CONSTRUCT_COMPARISON, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/llm/judge_concurrency.py:93:    raw = os.environ.get(ENV_SIDE_JUDGE_MAX_CONCURRENCY, "").strip()
+src/polaris_graph/generator/evidence_distiller.py:84:    raw = os.environ.get(name)
+src/polaris_graph/generator/markdown_table_normalizer.py:112:        os.environ.get(_NORMALIZE_FLAG, "").strip().lower()
+src/polaris_graph/memory/campaign_store.py:30:_DB_PATH = Path(os.getenv("PG_CAMPAIGN_DB_PATH", str(_DB_DIR / "pg_campaigns.sqlite")))
+src/polaris_graph/generator/outline_revise.py:49:        return int(os.getenv(name, default))
+src/polaris_graph/generator/relational_quantifier_guard.py:82:    raw = os.environ.get(_ENV_AGREEMENT_MIN, "").strip()
+src/polaris_graph/generator/retraction_gate.py:63:    return os.getenv(_ENV_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/nodes/synthesize.py:42:_CONTEXT_MAX_TOKENS = int(os.getenv("PG_V3_CONTEXT_MAX_TOKENS", "4000"))
+src/polaris_graph/memory/local_document_rag.py:46:CHARS_PER_TOKEN = int(os.getenv("PG_DOC_RAG_CHARS_PER_TOKEN", "4"))
+src/polaris_graph/generator/script_aware_grounding.py:116:    return os.getenv(_ENV_SCRIPT_AWARE, "0").strip().lower() in (
+src/polaris_graph/nodes/corpus_adequacy_gate.py:109:    raw = os.getenv(_ENV_RELEVANCE_FLOOR, "").strip()
+src/polaris_graph/generator/provenance_generator.py:449:    v = os.getenv("PG_PROVENANCE_TOKEN_HONEST_DROP", "1").strip().lower()
+src/polaris_graph/generator/provenance_generator.py:2029:    return os.getenv(_AUTHOR_METADATA_BIND_ENV, "1").strip().lower() not in (
+src/polaris_graph/generator/provenance_generator.py:3542:    mode = os.getenv(_CHROME_CANARY_ENV, "warn").strip().lower()
+src/polaris_graph/generator/provenance_generator.py:4045:    return os.getenv("PG_CITATION_NLI_PURITY", _CITATION_NLI_PURITY_DEFAULT).strip().lower() \
+src/polaris_graph/generator/summary_table.py:397:    return os.environ.get(_ENABLE_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/summary_table.py:682:    raw = os.environ.get(_CONSOLIDATE_JACCARD_ENV)
+src/polaris_graph/generator/summary_table.py:707:    raw = os.environ.get(_NUMBERLESS_JACCARD_ENV)
+src/polaris_graph/generator/summary_table.py:728:    return os.environ.get(_SOURCE_CONSOLIDATE_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/summary_table.py:869:    return os.environ.get(_ENV_LABEL_REGROUP, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/summary_table.py:1321:    return os.environ.get(_ENV_TOPICAL_GATE, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/generator/summary_table.py:1386:    return os.environ.get(_ENV_ANCHOR_SECTION, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/nodes/weighted_corpus_gate.py:66:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/nodes/journal_only_filter.py:64:    return os.getenv(JOURNAL_ONLY_FLAG, "0") == "1"
+src/polaris_graph/generator/slot_fill.py:622:    raw = os.getenv(name, "").strip()
+src/polaris_graph/llm/side_judge_guard.py:55:        n = int(os.environ.get(_ENV_RETRIES, "") or _DEFAULT_RETRIES)
+src/polaris_graph/planning/research_planning_gate.py:136:    os.getenv("PG_PLANNING_GATE_MAX_TOKENS", "32768")
+src/polaris_graph/planning/research_planning_gate.py:139:    os.getenv("PG_PLANNING_GATE_MAX_TOKENS", "32768")
+src/polaris_graph/planning/research_planning_gate.py:146:    os.getenv("PG_PLANNING_GATE_REASONING_MAX_TOKENS", "16384")
+src/polaris_graph/generator/weighted_enrichment.py:127:    return os.environ.get("PG_OFFTOPIC_CITE_SUPPRESS", "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:138:    return os.environ.get("PG_OFFTOPIC_RELEVANCE_OVERRIDE", "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:211:    return os.environ.get(_ENV_QUARANTINE_UNJUDGED, "").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:221:    raw = os.environ.get(_ENV_QUARANTINE_MAX_FRACTION)
+src/polaris_graph/generator/weighted_enrichment.py:236:    return os.environ.get(_ENV_TOPIC_JUDGE_RAN, "").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:359:    return os.environ.get(_ENV_BREADTH_ENRICHMENT, "").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:422:    return os.environ.get(_ENV_PROMOTION_TOPICAL_GATE, "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:450:    return os.environ.get(_ENV_PROMOTION, "1").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:602:    dtw = os.environ.get("PG_DOCUMENT_TYPE_WEIGHT", "").strip().lower() in ("1", "true", "on", "yes")
+src/polaris_graph/generator/weighted_enrichment.py:603:    comp = os.environ.get(_COMPOSITION_RECENCY_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+src/polaris_graph/generator/weighted_enrichment.py:686:    return os.environ.get(_ENV_TOPICAL_RELEVANCE_WEIGHT, "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:696:    raw = os.environ.get(_ENV_TOPICAL_RELEVANCE_FLOOR)
+src/polaris_graph/generator/weighted_enrichment.py:799:    return os.environ.get(_ENV_OFFTOPIC_SPAN_SUPPRESS, "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:806:    raw = os.environ.get(name)
+src/polaris_graph/generator/weighted_enrichment.py:979:    relevance_floor = parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+src/polaris_graph/generator/weighted_enrichment.py:1180:        min_w = _parse_promotion_min_weight(os.environ.get(_ENV_PROMOTION_MIN_WEIGHT))
+src/polaris_graph/generator/weighted_enrichment.py:1181:        min_c = _parse_promotion_min_corroboration(os.environ.get(_ENV_PROMOTION_MIN_CORROBORATION))
+src/polaris_graph/generator/weighted_enrichment.py:1184:            os.environ.get(_ENV_PROMOTION_MIN_TOPICAL_OVERLAP)
+src/polaris_graph/generator/weighted_enrichment.py:1373:    return os.environ.get(_ENV_ENRICHMENT_FACET_ROUTE, "0").strip().lower() in ("1", "true", "on", "yes")
+src/polaris_graph/generator/weighted_enrichment.py:1670:    return os.environ.get(_ENV_RENDER_VERIFIED_SPANS, "").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:1682:    raw = os.environ.get(_ENV_SPANS_PER_SOURCE)
+src/polaris_graph/generator/weighted_enrichment.py:1703:    raw = os.environ.get(_ENV_MAX_UNIT_CHARS)
+src/polaris_graph/generator/weighted_enrichment.py:1852:    return os.environ.get(_ENV_ISSN_CHROME, "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:1889:    return os.environ.get(_ENV_CHART_ALT_CHROME, "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:3068:    return os.environ.get(_RENDER_CHROME_SCREEN_ENV, "1").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:3117:    return os.environ.get("PG_RENDER_CHROME_NARRATION", "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/weighted_enrichment.py:3541:    return os.getenv(_INLINE_FURNITURE_STRIP_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/weighted_enrichment.py:3609:    return os.getenv(_INLINE_MARKUP_STRIP_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/weighted_enrichment.py:3656:    return os.getenv(_SHELL_SOURCE_INPUT_SCREEN_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/weighted_enrichment.py:3713:    return os.getenv(_EVIDENCE_BASE_FINDING_PREFERENCE_ENV, "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:3857:    return os.environ.get(_ENV_LOW_RELEVANCE_LEDGER, "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:3871:        return parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+src/polaris_graph/generator/weighted_enrichment.py:4073:    raw = os.environ.get(_RENDER_CANARY_MODE_ENV)
+src/polaris_graph/generator/weighted_enrichment.py:4088:    raw = os.environ.get(_RENDER_CANARY_FLOOR_ENV)
+src/polaris_graph/generator/weighted_enrichment.py:4123:    return os.environ.get(_RENDER_CANARY_PROSE_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+src/polaris_graph/generator/weighted_enrichment.py:4229:    return os.environ.get(_ENV_EMPTY_BULLET_DROP, "1").strip().lower() not in (
+src/polaris_graph/generator/weighted_enrichment.py:4341:    return os.environ.get(_RENDER_SEAM_REF_STRIP_ENV, "1").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:4349:    return os.environ.get(_CWF_SPLIT_FINDINGS_ENV, "1").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:4426:    return os.environ.get(_RENDER_SEAM_SANITIZE_ENV, "1").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:4434:    return os.environ.get(_CORROBORATION_SANITIZE_ENV, "1").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:4456:    return os.environ.get(_KEY_FINDINGS_WHOLE_UNIT_ENV, "1").strip().lower() in (
+src/polaris_graph/generator/weighted_enrichment.py:4510:    raw = os.environ.get(_RENDER_SEAM_KNOWN_WORD_FLOOR_ENV, "").strip()
+src/polaris_graph/generator/weighted_enrichment.py:5319:    return os.environ.get(_ENV_EVIDENCE_BASE_SECTION, "1").strip().lower() not in (
+src/polaris_graph/retrieval/deepener_sweep_adapter.py:25:DEEPENER_LLM_MODEL = get_model_settings().sweep_deepener_model  # was os.getenv("PG_SWEEP_DEEPENER_MODEL", "deepseek/deepseek-v4-pro")
+src/polaris_graph/retrieval/deepener_sweep_adapter.py:174:            return int(os.getenv(name, str(default)))
+src/polaris_graph/retrieval/deepener_sweep_adapter.py:180:            return float(os.getenv(name, str(default)))
+src/polaris_graph/llm/judge_burst_spread.py:48:    raw = os.environ.get(ENV_JUDGE_BURST_SPREAD, "").strip().lower()
+src/polaris_graph/retrieval/dissent_recall_builder.py:44:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/dissent_recall_builder.py:49:        return int(os.environ.get(name, "") or default)
+src/polaris_graph/outline/outline_agent.py:76:    raw = os.getenv(name, "1" if default_on else "0")
+src/polaris_graph/outline/outline_agent.py:82:        return int(os.getenv(name, str(default)))
+src/polaris_graph/outline/outline_agent.py:89:        return float(os.getenv(name, str(default)))
+src/polaris_graph/outline/outline_agent.py:160:    return get_model_settings().outliner_agent_model  # was os.getenv("PG_OUTLINER_AGENT_MODEL", PG_OUTLINE_AGENT_MODEL_DEFAULT)
+src/polaris_graph/outline/outline_agent.py:166:    return get_model_settings().outliner_code_model  # was os.getenv("PG_OUTLINER_CODE_MODEL", PG_OUTLINER_CODE_MODEL_DEFAULT)
+src/polaris_graph/outline/outline_agent.py:250:        return float(os.getenv(
+src/polaris_graph/generator/multi_section_generator.py:324:        return int(os.getenv(
+src/polaris_graph/generator/multi_section_generator.py:579:        val = int(os.getenv("PG_SECTION_EV_CHAR_BUDGET", PG_SECTION_EV_CHAR_BUDGET_DEFAULT))
+src/polaris_graph/generator/multi_section_generator.py:694:PG_SECTION_MAX_TOKENS: int = int(os.getenv("PG_SECTION_MAX_TOKENS", "64000"))
+src/polaris_graph/generator/multi_section_generator.py:702:    os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
+src/polaris_graph/generator/multi_section_generator.py:747:    os.getenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", "2048")
+src/polaris_graph/generator/multi_section_generator.py:773:PG_NARRATIVE_PROSE_SYSTEM_MESSAGE: str = os.getenv(
+src/polaris_graph/generator/multi_section_generator.py:906:    return os.getenv(_FACET_OUTLINE_ENV, "0").strip().lower() not in (
+src/polaris_graph/generator/multi_section_generator.py:936:    return os.getenv(_FACET_SKELETON_ENV, "0").strip().lower() not in (
+src/polaris_graph/generator/multi_section_generator.py:958:        v = int(os.getenv(_FACET_OUTLINE_MAX_SECTIONS_ENV, _FACET_OUTLINE_MAX_SECTIONS_DEFAULT))
+src/polaris_graph/generator/multi_section_generator.py:968:        v = int(os.getenv(_FACET_OUTLINE_MIN_SECTIONS_ENV, _FACET_OUTLINE_MIN_SECTIONS_DEFAULT))
+src/polaris_graph/generator/multi_section_generator.py:1138:_SECTION_PROMPTS_REGISTRY_PATH = os.getenv(
+src/polaris_graph/generator/multi_section_generator.py:2428:    return os.getenv(_ASPECT_OFFTOPIC_SLOT_GUARD_ENV, "1").strip().lower() not in (
+src/polaris_graph/generator/multi_section_generator.py:2443:    return os.getenv(_LEGACY_OUTLINE_OFFTOPIC_STRIP_ENV, "0").strip().lower() in (
+src/polaris_graph/generator/multi_section_generator.py:2837:    return os.getenv(_STORM_OUTLINE_SECTIONS_ENV, "0").strip().lower() not in (
+src/polaris_graph/generator/multi_section_generator.py:3074:        _outline_max_ev = int(os.getenv("PG_OUTLINE_MAX_EV", PG_OUTLINE_MAX_EV_DEFAULT))
+src/polaris_graph/generator/multi_section_generator.py:3238:        max_tokens, int(os.getenv("PG_OUTLINE_MIN_MAX_TOKENS", "16384"))
+src/polaris_graph/generator/multi_section_generator.py:3245:        os.getenv("PG_OUTLINE_REASONING_MAX_TOKENS", "32768")
+src/polaris_graph/generator/multi_section_generator.py:4370:            os.getenv("PG_SECTION_REASONING_MAX_TOKENS", "16384")
+src/polaris_graph/generator/multi_section_generator.py:4375:            + int(os.getenv("PG_SECTION_CONTENT_HEADROOM_TOKENS", "8192")),
+src/polaris_graph/generator/multi_section_generator.py:4468:        os.getenv(_ENV_COMPARATIVE_RECOVERY, "on").strip().lower()
+src/polaris_graph/generator/multi_section_generator.py:4543:    return os.getenv(_REQUIRE_NUMBER_MATCH_ENV, "1").strip().lower() not in (
+src/polaris_graph/generator/multi_section_generator.py:4696:    raw = os.getenv(_ENV_BASKET_REPAIR_ENABLED, "").strip().lower()
+src/polaris_graph/generator/multi_section_generator.py:4710:    raw = os.getenv(
+src/polaris_graph/generator/multi_section_generator.py:5121:    raw = os.environ.get(_COMPOSE_RELEVANCE_FLOOR_ENV)
+src/polaris_graph/generator/multi_section_generator.py:5153:    return os.environ.get(_ENV_COMPOSE_RELEVANCE_WEIGHT, "1").strip().lower() not in (
+src/polaris_graph/generator/multi_section_generator.py:5328:    raw = os.environ.get(_NUMERIC_CITE_ENFORCE_ENV)
+src/polaris_graph/generator/multi_section_generator.py:5418:    raw = os.environ.get(_RENDER_CHROME_PROSE_SCREEN_ENV)
+src/polaris_graph/generator/multi_section_generator.py:5703:    return os.getenv(_TWO_SIDED_DEBATE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/multi_section_generator.py:6907:    return os.environ.get("PG_SWEEP_TABLE_CELL_VERIFY", "").strip().lower() not in {
+src/polaris_graph/generator/multi_section_generator.py:7505:                max_tokens, int(os.getenv("PG_TRIAL_TABLE_MIN_MAX_TOKENS", "6000"))
+src/polaris_graph/generator/multi_section_generator.py:7509:                os.getenv("PG_TRIAL_TABLE_REASONING_MAX_TOKENS", "2048")
+src/polaris_graph/generator/multi_section_generator.py:7630:                max_tokens, int(os.getenv("PG_M50_MIN_MAX_TOKENS", "6000"))
+src/polaris_graph/generator/multi_section_generator.py:7634:                os.getenv("PG_M50_REASONING_MAX_TOKENS", "2048")
+src/polaris_graph/generator/multi_section_generator.py:7778:                max_tokens, int(os.getenv("PG_LIMITATIONS_MIN_MAX_TOKENS", "6000"))
+src/polaris_graph/generator/multi_section_generator.py:7782:                os.getenv("PG_LIMITATIONS_REASONING_MAX_TOKENS", "2048")
+src/polaris_graph/generator/multi_section_generator.py:7956:    return os.environ.get(_ENV_SECTION_DEDUP_ENABLED, "1").strip().lower() not in (
+src/polaris_graph/generator/multi_section_generator.py:7964:    raw = os.environ.get(_ENV_SECTION_DEDUP_SIMILARITY, "")
+src/polaris_graph/generator/multi_section_generator.py:8047:        os.environ.get("PG_COMPOSE_NUMERIC_CITE_GUARANTEE", "1").strip().lower()
+src/polaris_graph/generator/multi_section_generator.py:8106:        os.environ.get("PG_SYNTH_BODY_LEAD", "1").strip().lower()
+src/polaris_graph/generator/multi_section_generator.py:10268:    if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "on").strip().lower() not in ("", "0", "false", "off", "no"):
+src/polaris_graph/generator/multi_section_generator.py:11070:                            int(os.getenv("PG_FACT_DEDUP_MAX_TOKENS", "2048")),
+src/polaris_graph/generator/multi_section_generator.py:11071:                            int(os.getenv("PG_FACT_DEDUP_MIN_MAX_TOKENS", "6000")),
+src/polaris_graph/generator/multi_section_generator.py:11075:                            os.getenv("PG_FACT_DEDUP_REASONING_MAX_TOKENS", "2048")
+src/polaris_graph/generator/multi_section_generator.py:11728:    _atom_mode = os.environ.get("PG_ATOM_REFUSAL_MODE", "off").lower().strip()
+src/polaris_graph/llm/judge_reasoning_block.py:60:        value = int(os.environ.get(name, "") or default)
+src/polaris_graph/llm/judge_verdict_cache.py:77:    raw = os.environ.get(_ENV_ENABLED, "").strip().lower()
+src/polaris_graph/llm/judge_verdict_cache.py:86:        v = int(os.environ.get(_ENV_MAX, "").strip() or _DEFAULT_MAX)
+src/polaris_graph/retrieval/qualitative_conflict_detector.py:63:    path = Path(os.getenv("PG_QUALITATIVE_CONFLICT_LEXICON", str(_DEFAULT_LEXICON_PATH)))
+src/polaris_graph/generator/relevance_judge.py:178:    v = os.getenv(_ENV_FLAG, "0").strip().lower()
+src/polaris_graph/generator/relevance_judge.py:183:    v = os.getenv(_ENV_ALLOW_SAME_FAMILY, "0").strip().lower()
+src/polaris_graph/generator/relevance_judge.py:305:        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+src/polaris_graph/generator/relevance_judge.py:311:        base_url = os.environ.get(
+src/polaris_graph/generator/relevance_judge.py:315:        self._model = os.environ.get(_ENV_MODEL, _DEFAULT_MODEL)
+src/polaris_graph/generator/relevance_judge.py:331:            self._timeout_s = float(os.environ.get(_ENV_TIMEOUT_S, _DEFAULT_TIMEOUT_S))
+src/polaris_graph/generator/relevance_judge.py:349:            return max(0, int(os.environ.get(_ENV_DNS_RETRY_ATTEMPTS, _DEFAULT_DNS_RETRY_ATTEMPTS)))
+src/polaris_graph/generator/relevance_judge.py:357:            base = float(os.environ.get(_ENV_DNS_RETRY_BACKOFF_S, _DEFAULT_DNS_RETRY_BACKOFF_S))
+src/polaris_graph/generator/relevance_judge.py:361:            cap = float(os.environ.get(_ENV_DNS_RETRY_BACKOFF_CAP_S, _DEFAULT_DNS_RETRY_BACKOFF_CAP_S))
+src/polaris_graph/generator/relevance_judge.py:374:        effort = (os.environ.get(_ENV_REASONING_EFFORT, "").strip().lower()
+src/polaris_graph/generator/relevance_judge.py:379:            max_tokens = max(64, int(os.environ.get(_ENV_MAX_TOKENS, _DEFAULT_MAX_TOKENS)
+src/polaris_graph/retrieval/semantic_conflict_detector.py:242:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/semantic_conflict_detector.py:247:        return int(os.environ.get(name, "") or default)
+src/polaris_graph/retrieval/semantic_conflict_detector.py:254:        return float(os.environ.get(name, "") or default)
+src/polaris_graph/retrieval/semantic_conflict_detector.py:271:    return os.environ.get(_ENV_JUDGE_PROVIDER_ROTATE, "").strip().lower() in (
+src/polaris_graph/retrieval/semantic_conflict_detector.py:684:        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+src/polaris_graph/retrieval/semantic_conflict_detector.py:688:        base_url = os.environ.get(
+src/polaris_graph/retrieval/semantic_conflict_detector.py:692:        self._model = os.environ.get("PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL)
+src/polaris_graph/retrieval/semantic_conflict_detector.py:742:        _sc_effort = (os.environ.get("PG_SEMANTIC_CONFLICT_REASONING_EFFORT", "").strip().lower()
+src/polaris_graph/retrieval/semantic_conflict_detector.py:750:            _sc_maxtok = max(256, int(os.environ.get("PG_SEMANTIC_CONFLICT_MAX_TOKENS", _DEFAULT_CONFLICT_MAX_TOKENS)
+src/polaris_graph/retrieval/semantic_conflict_detector.py:785:        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+src/polaris_graph/nodes/intent_frame.py:154:    return os.getenv(_ENV_FLAG, "1").strip().lower() not in {
+src/polaris_graph/nodes/intent_frame.py:161:    raw = os.getenv(_ENV_MAX_QUESTIONS, "").strip()
+src/polaris_graph/nodes/intent_frame.py:177:    raw = os.getenv(_ENV_MAX_CLARIFICATIONS, "").strip()
+src/polaris_graph/nodes/intent_frame.py:193:    raw = os.getenv(_ENV_MAX_CONSTRAINTS, "").strip()
+src/polaris_graph/retrieval/constraint_enforcement.py:49:    return os.getenv(_ENFORCE_FLAG, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/winner_firing_gate.py:72:    return os.getenv(name, default).strip().lower() in _ON_VALUES
+src/polaris_graph/retrieval/winner_firing_gate.py:101:    ``bool(os.getenv(...).strip())`` style: requested iff PG_RERANKER_MODEL is a
+src/polaris_graph/retrieval/winner_firing_gate.py:107:    value = os.environ.get("PG_RERANKER_MODEL", "").strip().lower()
+src/polaris_graph/nodes/corpus_approval_gate.py:427:    return _is_truthy(os.getenv(PG_CORPUS_TIER_DISCLOSURE_MODE_ENV))
+src/polaris_graph/nodes/corpus_approval_gate.py:534:    if not _is_truthy(os.getenv(PG_AUTHORIZED_SWEEP_APPROVAL_ENV)):
+src/polaris_graph/nodes/corpus_approval_gate.py:538:            os.getenv(PG_AUTHORIZED_SWEEP_APPROVED_BY_ENV)
+src/polaris_graph/retrieval/expert_facet_planner.py:69:    n = int(os.getenv("PG_EXPERT_FACET_ANGLES", str(len(_ANGLE_LENSES))))
+src/polaris_graph/nodes/outline.py:102:                max_tokens=int(os.getenv("PG_V3_OUTLINE_MAX_TOKENS", "8192")),
+src/polaris_graph/nodes/outline.py:188:            max_tokens=int(os.getenv("PG_V3_OUTLINE_MAX_TOKENS", "8192")),
+src/polaris_graph/llm/openrouter_client.py:60:OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+src/polaris_graph/llm/openrouter_client.py:61:OPENROUTER_BASE_URL = os.getenv(
+src/polaris_graph/llm/openrouter_client.py:66:OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "z-ai/glm-5.2")
+src/polaris_graph/llm/openrouter_client.py:67:OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
+src/polaris_graph/llm/openrouter_client.py:581:PG_GENERATOR_MODEL = os.getenv(
+src/polaris_graph/llm/openrouter_client.py:607:PG_SENTINEL_MODEL = get_model_settings().sentinel_model  # was os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
+src/polaris_graph/llm/openrouter_client.py:616:PG_JUDGE_MODEL = get_model_settings().judge_model  # was os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
+src/polaris_graph/llm/openrouter_client.py:716:    if gen_family == eval_family and os.getenv(
+src/polaris_graph/llm/openrouter_client.py:840:INPUT_COST_PER_M = float(os.getenv("OPENROUTER_INPUT_COST_PER_M", "0.26"))
+src/polaris_graph/llm/openrouter_client.py:841:OUTPUT_COST_PER_M = float(os.getenv("OPENROUTER_OUTPUT_COST_PER_M", "1.56"))
+src/polaris_graph/llm/openrouter_client.py:893:    low ``PG_GENERATOR_LLM_TIMEOUT_SECONDS`` in ``.env`` cannot be fixed by the slate setting ``os.environ``
+src/polaris_graph/llm/openrouter_client.py:972:        raw = os.getenv(name, "").strip()
+src/polaris_graph/llm/openrouter_client.py:982:        raw = os.getenv(name, "").strip()
+src/polaris_graph/llm/openrouter_client.py:1005:    return os.getenv(_ENV_OPENROUTER_FRESH_CONN_ON_DISCONNECT, "0").strip().lower() not in (
+src/polaris_graph/llm/openrouter_client.py:1015:    return os.getenv(_ENV_GENERATOR_PROVIDER_FANOUT, "0").strip().lower() in ("1", "true", "on", "yes")
+src/polaris_graph/llm/openrouter_client.py:1283:    return os.environ.get("PG_COT_PREAMBLE_STRIP", "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/llm/openrouter_client.py:1971:            _min_tokens = int(os.getenv("PG_GLM5_MIN_MAX_TOKENS", "4096"))
+src/polaris_graph/llm/openrouter_client.py:1993:                _rf_min = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "32768"))
+src/polaris_graph/llm/openrouter_client.py:2035:            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "32768"))
+src/polaris_graph/llm/openrouter_client.py:2114:        provider_order_str = os.getenv("OPENROUTER_PROVIDER_ORDER", "")
+src/polaris_graph/llm/openrouter_client.py:2116:        allow_fb = os.getenv("OPENROUTER_ALLOW_FALLBACKS", "true").lower() == "true"
+src/polaris_graph/llm/openrouter_client.py:2117:        require_params = os.getenv("OPENROUTER_REQUIRE_PARAMETERS", "true").lower() == "true"
+src/polaris_graph/llm/entailment_judge.py:289:    return os.environ.get(_ENV_JUDGE_PROVIDER_ROTATE, "").strip().lower() in (
+src/polaris_graph/llm/entailment_judge.py:383:        extra = os.environ.get("PG_ENTAILMENT_TRANSPORT_POISON_MARKERS", "").strip()
+src/polaris_graph/llm/entailment_judge.py:402:        extra = os.environ.get("PG_ENTAILMENT_TRANSPORT_POISON_MARKERS", "").strip()
+src/polaris_graph/llm/entailment_judge.py:611:    return os.environ.get("PG_ENTAILMENT_PROMPT_VARIANT", "baseline").strip().lower()
+src/polaris_graph/llm/entailment_judge.py:649:        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+src/polaris_graph/llm/entailment_judge.py:659:        base_url = os.environ.get(
+src/polaris_graph/llm/entailment_judge.py:663:        self._model = os.environ.get(
+src/polaris_graph/llm/entailment_judge.py:818:        _ent_effort = (os.environ.get(_ENV_ENTAILMENT_REASONING_EFFORT, "").strip().lower()
+src/polaris_graph/llm/entailment_judge.py:823:            _ent_maxtok = max(256, int(os.environ.get(_ENV_ENTAILMENT_MAX_TOKENS, _DEFAULT_ENTAILMENT_MAX_TOKENS)
+src/polaris_graph/llm/entailment_judge.py:846:        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+src/polaris_graph/llm/entailment_judge.py:950:        _retries = max(0, int(os.environ.get("PG_ENTAILMENT_RETRIES", _DEFAULT_ENTAILMENT_RETRIES)))
+src/polaris_graph/llm/entailment_judge.py:956:            max(0, int(os.environ.get(
+src/polaris_graph/llm/entailment_judge.py:962:            float(os.environ.get(
+src/polaris_graph/llm/entailment_judge.py:971:            _rl_retries = max(0, int(os.environ.get(
+src/polaris_graph/llm/entailment_judge.py:977:            _rl_floor = max(0.0, float(os.environ.get(
+src/polaris_graph/llm/entailment_judge.py:983:            _rl_cap = max(_rl_floor, float(os.environ.get(
+src/polaris_graph/generator/verified_compose.py:221:    return os.getenv(_VERIFIED_COMPOSE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:230:    return os.getenv(_MULTICITED_COMPOSE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:239:    raw = os.getenv(_COMPOSE_BASKET_WORKERS_ENV, "1").strip()
+src/polaris_graph/generator/verified_compose.py:262:    return os.getenv(_CROSS_SOURCE_SYNTHESIS_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:466:    return os.getenv(_ENV_SNAP_SPAN_SENTENCE, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:558:        max_extend = int(os.getenv(_ENV_SNAP_MAX_EXTEND_CHARS, "").strip() or _DEFAULT_SNAP_MAX_EXTEND_CHARS)
+src/polaris_graph/generator/verified_compose.py:594:    return os.getenv(_ENV_FULL_QUOTE_WINDOW_SNAP, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:649:    return os.getenv(_COMPANION_FIGURE_COMPOSE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:671:    return os.getenv(_SUBTOPIC_ADDITIVE_FACTS_ENV, "0").strip().lower() in ("1", "true", "on", "yes")
+src/polaris_graph/generator/verified_compose.py:689:    return os.getenv(_QUALIFIER_ELABORATION_ENV, "0").strip().lower() in ("1", "true", "on", "yes")
+src/polaris_graph/generator/verified_compose.py:745:    return os.getenv(_DEGRADED_VERIFY_DISCLOSURE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:754:    return os.getenv(_SNAP_MEMBER_BOUNDARY_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:922:    raw = os.environ.get(_COMPOSE_SPAN_TOPICALITY_ENV)
+src/polaris_graph/generator/verified_compose.py:1056:    raw = os.environ.get(_SUBTOPIC_DECOMP_ENV)
+src/polaris_graph/generator/verified_compose.py:1064:    raw = os.environ.get(_SUBTOPIC_MAX_FACTS_ENV, "")
+src/polaris_graph/generator/verified_compose.py:1356:    return os.getenv(_ENV_UNCOVERED_DISCLOSURE_REFORMAT, "1").strip().lower() not in (
+src/polaris_graph/generator/verified_compose.py:1489:    raw = os.environ.get(_COMPOSE_CHROME_SCREEN_ENV)
+src/polaris_graph/generator/verified_compose.py:1557:    raw = str(os.environ.get(_SYNTH_PRIMARY_ENV, "")).strip().lower()
+src/polaris_graph/generator/verified_compose.py:1565:    raw = str(os.environ.get(_WRITER_REPAIR_MAX_ENV, "")).strip()
+src/polaris_graph/generator/verified_compose.py:1712:    return os.getenv(_ENV_UNCOVERED_SUBJECT_HYGIENE, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:1747:    return os.getenv(_ENV_UNCOVERED_FACT_SUBJECT_GATE, "1").strip().lower() not in ("0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:1755:        v = int(os.getenv(_ENV_UNCOVERED_FACT_MIN_SUBJECT_WORDS, "").strip())
+src/polaris_graph/generator/verified_compose.py:1766:        v = int(os.getenv(_ENV_UNCOVERED_FACT_MIN_SPAN_WORDS, "").strip())
+src/polaris_graph/generator/verified_compose.py:3248:    return os.getenv(_COMPOSE_OFFTOPIC_SCREEN_ENV, "").strip().lower() in ("1", "true", "on", "yes")
+src/polaris_graph/generator/verified_compose.py:3427:    return os.getenv(_NO_TOKEN_REPAIR_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:3457:    return os.getenv(_NO_TOKEN_SPAN_GROUNDING_ENV, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/generator/verified_compose.py:3464:        v = int(os.getenv(_SPAN_GROUNDING_MAX_SOURCES_ENV, "").strip())
+src/polaris_graph/generator/verified_compose.py:3474:        v = int(os.getenv(_SPAN_GROUNDING_MAX_CANDIDATES_ENV, "").strip())
+src/polaris_graph/generator/verified_compose.py:3733:    return os.getenv(_ROUTE_ALL_BASKETS_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/retrieval/credibility_llm_tiering.py:284:    return os.environ.get(
+src/polaris_graph/retrieval/credibility_llm_tiering.py:331:    return os.environ.get(
+src/polaris_graph/retrieval/credibility_llm_tiering.py:373:        n = int(os.environ.get(_ENV_TIER_LLM_WORKERS, str(_DEFAULT_TIER_LLM_WORKERS)))
+src/polaris_graph/retrieval/credibility_llm_tiering.py:443:    return os.environ.get(
+src/polaris_graph/retrieval/credibility_llm_tiering.py:477:    return os.getenv(_ENV_DOMAIN_AUTHORITY_CACHE, "0").strip().lower() in (
+src/polaris_graph/retrieval/contradiction_detector.py:286:        os.environ.get(_DROP_YEAR_NOISE_FLAG, "").strip().lower()
+src/polaris_graph/retrieval/contradiction_detector.py:1107:# Read at CALL time (never import-time) so tests can monkeypatch os.environ and
+src/polaris_graph/retrieval/contradiction_detector.py:1118:        os.environ.get(_CRED_REDESIGN_FLAG, "").strip().lower()
+src/polaris_graph/retrieval/contradiction_detector.py:1683:    Read at CALL time so tests can monkeypatch os.environ. Defaults ON because a
+src/polaris_graph/retrieval/contradiction_detector.py:1688:        os.environ.get(_NOISE_GUARD_FLAG, "").strip().lower()
+src/polaris_graph/retrieval/contradiction_detector.py:1765:    byte-identical. Read at CALL time so tests can monkeypatch os.environ. Pure."""
+src/polaris_graph/retrieval/contradiction_detector.py:1767:        os.environ.get(_SCOPE_MISMATCH_GUARD_FLAG, "").strip().lower()
+src/polaris_graph/retrieval/contradiction_detector.py:1870:    Read at CALL time so tests can monkeypatch os.environ. Defaults ON because
+src/polaris_graph/retrieval/contradiction_detector.py:1875:        os.environ.get(_A17_GUARD_FLAG, "").strip().lower()
+src/polaris_graph/retrieval/contradiction_detector.py:2446:        os.environ.get(_SUPPRESS_METRIC_MISMATCH_FLAG, "").strip().lower()
+src/polaris_graph/roles/coverage_binder.py:76:    return os.environ.get(_ENV_S0_COVERAGE_BINDER, "").strip().lower() in _ON_VALUES
+src/polaris_graph/nodes/completeness_checker.py:128:    raw = os.getenv(_CORPUS_INTERVENTION_ENABLED_ENV)
+src/polaris_graph/nodes/completeness_checker.py:165:    raw = os.getenv(_DRUG_DETECTOR_ENABLED_ENV)
+src/polaris_graph/nodes/completeness_checker.py:207:    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
+src/polaris_graph/nodes/completeness_checker.py:237:    raw = os.getenv(_COVERAGE_AGAINST_OUTPUT_ENV)
+src/polaris_graph/roles/role_pipeline.py:117:    primary = os.getenv(_ROLE_TRANSPORT_DEGRADE_ENV)
+src/polaris_graph/roles/role_pipeline.py:120:    alias = os.getenv(_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV)
+src/polaris_graph/nodes/scope.py:127:                max_tokens=int(os.getenv("PG_V3_SCOPE_MAX_TOKENS", "8192")),
+src/polaris_graph/nodes/scope.py:161:                    max_tokens=int(os.getenv("PG_V3_SCOPE_MAX_TOKENS", "8192")),
+src/polaris_graph/retrieval/document_type_classifier.py:478:    return os.getenv(JOURNAL_DOC_WEIGHT_FLAG, "0").strip().lower() in (
+src/polaris_graph/retrieval/language_profile.py:131:    raw = os.getenv(_MAX_QUERIES_ENV, "").strip()
+src/polaris_graph/retrieval/pooled_embedder.py:43:MAX_SEQ_TOKENS = int(os.getenv("PG_EMBED_MAX_SEQ_TOKENS", "256"))
+src/polaris_graph/retrieval/content_relevance_judge.py:106:        raw = os.getenv(name, "").strip()
+src/polaris_graph/retrieval/content_relevance_judge.py:136:        return max(1, int(os.getenv("PG_CONTENT_RELEVANCE_WORKERS", str(_DEFAULT_WORKERS))))
+src/polaris_graph/retrieval/content_relevance_judge.py:153:        return max(1, int(os.getenv("PG_CONTENT_RELEVANCE_MAX_WINDOWS", str(_DEFAULT_MAX_WINDOWS))))
+src/polaris_graph/retrieval/content_relevance_judge.py:298:    return os.getenv(
+src/polaris_graph/retrieval/intake_constraint_extractor.py:133:    return os.getenv(_ENV_FLAG, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/intake_constraint_extractor.py:509:    return os.getenv(_ENV_INSTRUCTION_SLOTS_FLAG, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/intake_constraint_extractor.py:785:    return os.getenv(_ENV_SCOPE_FLAG, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/live_retriever.py:346:    return os.environ.get(_ENV_CITATION_SHELL_REFETCH, "").strip().lower() in (
+src/polaris_graph/retrieval/live_retriever.py:430:        return int(os.getenv("PG_REFETCH_PER_URL_CAP", str(_REFETCH_CAP_DEFAULT)))
+src/polaris_graph/retrieval/live_retriever.py:502:    return os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() in (
+src/polaris_graph/retrieval/live_retriever.py:518:        return float(os.getenv("PG_DOWN_WEIGHT_RETRIEVAL", str(_DOWN_WEIGHT_RETRIEVAL_DEFAULT)))
+src/polaris_graph/retrieval/live_retriever.py:825:    api_key = os.getenv("SERPER_API_KEY", "").strip()
+src/polaris_graph/retrieval/live_retriever.py:851:        _total = max(per_page, int(os.getenv("PG_SERPER_TOTAL_PER_QUERY", str(per_page))))
+src/polaris_graph/retrieval/live_retriever.py:926:    api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+src/polaris_graph/retrieval/live_retriever.py:1939:        value = float(os.getenv(name, str(default)))
+src/polaris_graph/retrieval/live_retriever.py:1948:        value = int(os.getenv(name, str(default)))
+src/polaris_graph/retrieval/live_retriever.py:2009:    raw = os.getenv(PG_MIN_FETCH_YIELD_ENV)
+src/polaris_graph/retrieval/live_retriever.py:2046:    raw = os.getenv(PG_MIN_FETCH_YIELD_MIN_ATTEMPTS_ENV)
+src/polaris_graph/retrieval/live_retriever.py:2335:    return os.environ.get(_ENV_POST_FETCH_ENRICH_PARALLEL, "").strip().lower() in (
+src/polaris_graph/retrieval/live_retriever.py:2370:    raw = os.getenv(_ENV_POST_FETCH_ENRICH_WALL_FRACTION)
+src/polaris_graph/retrieval/live_retriever.py:2394:    raw = os.getenv(_ENV_WALL_RESCUE_WEIGHT, "").strip()
+src/polaris_graph/retrieval/live_retriever.py:2413:    return os.environ.get(_ENV_WALL_CLASSIFY_RESCUE, "").strip().lower() in (
+src/polaris_graph/retrieval/live_retriever.py:2829:    mode = os.getenv(PG_HTML_EXTRACTOR_ENV, _HTML_EXTRACTOR_DEFAULT).strip().lower()
+src/polaris_graph/retrieval/live_retriever.py:2981:    if _is_paywall_pub and not os.getenv("ZYTE_API_KEY"):
+src/polaris_graph/retrieval/live_retriever.py:3195:    return os.environ.get("PG_REFETCH_FULL_BODY", "1").strip().lower() not in (
+src/polaris_graph/retrieval/live_retriever.py:3532:    raw = os.getenv(PG_OA_RECOVERY_DEADLINE_ENV)
+src/polaris_graph/retrieval/live_retriever.py:3642:    return os.environ.get(_ENV_REFETCH_DEGRADED, "").strip().lower() in (
+src/polaris_graph/retrieval/live_retriever.py:3731:    if not os.getenv("ZYTE_API_KEY"):
+src/polaris_graph/retrieval/live_retriever.py:3766:        email = os.getenv("PG_UNPAYWALL_EMAIL", _UNPAYWALL_PLACEHOLDER_EMAIL).strip()
+src/polaris_graph/retrieval/live_retriever.py:4424:        if _is_paywall_pub and not os.getenv("ZYTE_API_KEY"):
+src/polaris_graph/retrieval/live_retriever.py:4575:    return os.getenv(_ENV_SPAN_WINDOW_LINK_SNAP, "1") != "0"
+src/polaris_graph/retrieval/live_retriever.py:4632:    return os.environ.get("PG_FETCH_SHELL_VOCAB_GATE", "1").strip().lower() not in {
+src/polaris_graph/retrieval/live_retriever.py:5121:    raw = os.environ.get("PG_RETRIEVAL_RELEVANCE_GATE", "1").strip().lower()
+src/polaris_graph/retrieval/live_retriever.py:5142:    return parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+src/polaris_graph/retrieval/live_retriever.py:5157:    raw = os.environ.get("PG_RELEVANCE_FETCH_ALL_RELEVANT", "1").strip().lower()
+src/polaris_graph/retrieval/live_retriever.py:5849:        if os.getenv("PG_S2_KEYWORD_DISTILL", "1") != "0":
+src/polaris_graph/retrieval/live_retriever.py:5850:            _kw = distill_keywords(q, max_terms=int(os.getenv("PG_S2_KEYWORD_MAX_TERMS", "8")))
+src/polaris_graph/retrieval/live_retriever.py:6306:    _llm_tiering_on = os.environ.get(
+src/polaris_graph/retrieval/live_retriever.py:6343:    use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
+src/polaris_graph/retrieval/live_retriever.py:6403:        _explicit_workers = os.environ.get("PG_LIVE_RETRIEVER_MAX_WORKERS")
+src/polaris_graph/retrieval/live_retriever.py:6418:            per_task_timeout = float(os.environ.get(
+src/polaris_graph/retrieval/verify_context.py:34:VERIFY_MAX_TOKENS = int(os.getenv("PG_VERIFY_MAX_TOKENS", "6000"))
+src/polaris_graph/retrieval/fetch_limiter.py:27:FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "5"))
+src/polaris_graph/retrieval/fetch_limiter.py:35:FETCH_TIMEOUT_SECONDS = int(os.getenv("PG_FETCH_TIMEOUT", "30"))
+src/polaris_graph/planning/gate_flags.py:5:(``fs_researcher_enabled`` etc.): a single ``os.getenv`` read, truthy on
+src/polaris_graph/synthesis/disclosure_population.py:122:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/disclosure_population.py:127:        return float(os.environ.get(name, "") or default)
+src/polaris_graph/synthesis/disclosure_population.py:134:        return int(os.environ.get(name, "") or default)
+src/polaris_graph/retrieval/sub_entity_query_expander.py:80:        n = int(os.getenv("PG_SUBENTITY_MAX_PERSPECTIVES", str(len(_PERSPECTIVE_LENSES))))
+src/polaris_graph/retrieval/required_entity_retrieval.py:167:    return os.getenv(_LANE_ENABLED_ENV, "0").strip() in ("1", "true", "True")
+src/polaris_graph/retrieval/required_entity_retrieval.py:172:        return int(os.getenv(_MIN_VERIFIABLE_SPAN_ENV, str(_DEFAULT_MIN_VERIFIABLE_SPAN_CHARS)))
+src/polaris_graph/retrieval/required_entity_retrieval.py:180:        value = int(os.getenv(name, str(default)))
+src/polaris_graph/retrieval/required_entity_retrieval.py:233:    raw = os.getenv(_REQUIRED_ENTITY_DOMAINS_ENV)
+src/polaris_graph/retrieval/required_entity_retrieval.py:663:    return (os.getenv(_COVERAGE_L5_ENABLED_ENV, "1") or "1").strip().lower() not in (
+src/polaris_graph/retrieval/nli_benchmark_annotator.py:83:            os.environ.get(_ENV_NLI_JUDGE_CONCURRENCY, _DEFAULT_NLI_JUDGE_CONCURRENCY)
+src/polaris_graph/retrieval/nli_benchmark_annotator.py:241:    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+src/polaris_graph/synthesis/source_necessity.py:53:    return os.environ.get(_QUARANTINE_ENV, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/resume_refetch.py:58:    return os.environ.get(_ENV_RESUME_REFETCH, "").strip().lower() in (
+src/polaris_graph/retrieval/resume_refetch.py:199:        return int(os.environ.get(_ENV_MIN_VERIFIABLE_SPAN_CHARS, "50"))
+src/polaris_graph/retrieval/scope_facet_classifier.py:63:    env = os.getenv(_ONTOLOGY_ENV, "").strip()
+src/polaris_graph/retrieval/blocked_reference_registry.py:277:    return os.getenv(_DENYLIST_FLAG, "1").strip().lower() not in _OFF_TOKENS
+src/polaris_graph/retrieval/shell_detector.py:279:    return os.environ.get(_ENV_ENABLED, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/shell_detector.py:287:        value = int(os.environ.get(name, default) or default)
+src/polaris_graph/retrieval/shell_detector.py:476:    return os.environ.get(_ENV_FURNITURE_DENSITY_SCREEN, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/shell_detector.py:482:    return os.environ.get(_ENV_FURNITURE_REFETCH, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/shell_detector.py:488:    return os.environ.get(_ENV_SPAN_SELECT_FURNITURE_AWARE, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/shell_detector.py:495:    raw = os.environ.get(_ENV_FURNITURE_DENSITY_THRESHOLD, "").strip()
+src/polaris_graph/retrieval/shell_detector.py:700:    return os.environ.get(_ENV_SPAN_CITED_WORK_SCREEN, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/memory/cross_vector.py:56:        persist_dir = Path(os.getenv("CHROMA_PERSIST_DIR", "data/chroma_db"))
+src/polaris_graph/retrieval/topic_relevance_gate.py:68:    raw = os.environ.get("PG_SCOPE_TOPIC_GATE", "1").strip().lower()
+src/polaris_graph/retrieval/topic_relevance_gate.py:82:    raw = os.environ.get("PG_RESUME_RUN_TOPIC_JUDGE", "").strip().lower()
+src/polaris_graph/retrieval/topic_relevance_gate.py:95:    os.environ["PG_TOPIC_JUDGE_RAN"] = "1"
+src/polaris_graph/retrieval/topic_relevance_gate.py:109:    raw = os.environ.get("PG_SCOPE_TOPIC_GATE_HARD_DROP", "0").strip().lower()
+src/polaris_graph/retrieval/topic_relevance_gate.py:127:    raw = os.environ.get("PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT", "1").strip().lower()
+src/polaris_graph/retrieval/topic_relevance_gate.py:140:    raw = os.environ.get("PG_JUNK_CHROME_BEFORE_OFFTOPIC", "1").strip().lower()
+src/polaris_graph/retrieval/topic_relevance_gate.py:184:    raw = os.environ.get("PG_SCOPE_TOPIC_BATCH", "").strip()
+src/polaris_graph/retrieval/topic_relevance_gate.py:584:    rescue_on_stamp = os.environ.get("PG_TOPIC_GATE_RESCUE_ON_STAMP", "1").strip().lower() not in (
+src/polaris_graph/synthesis/smart_art_generator.py:33:_ANALYSIS_MAX_TOKENS: int = int(os.getenv("PG_SMART_ART_ANALYSIS_MAX_TOKENS", "4096"))
+src/polaris_graph/synthesis/smart_art_generator.py:34:_MERMAID_MAX_TOKENS: int = int(os.getenv("PG_SMART_ART_MERMAID_MAX_TOKENS", "4096"))
+src/polaris_graph/retrieval/title_body_consistency.py:59:    return os.getenv(_ENV_FLAG, "0").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/title_body_consistency.py:72:        return max(64, int(os.getenv(_ENV_BODY_CHARS, str(_DEFAULT_BODY_CHARS))))
+src/polaris_graph/retrieval/title_body_consistency.py:78:    raw = os.getenv(name, "").strip()
+src/polaris_graph/telemetry/tool_tracer.py:55:    return os.environ.get(TOOL_TRACKER_ENV, "1").strip() in _TOOL_TRACKER_TRUTHY
+src/polaris_graph/roles/adaptive_concurrency.py:82:    return os.getenv(_ENABLE_ENV, _ENABLE_DEFAULT).strip().lower() not in ("0", "false", "no", "off")
+src/polaris_graph/roles/adaptive_concurrency.py:90:    raw = os.getenv(role_env) or os.getenv(generic_env) or default
+src/polaris_graph/roles/adaptive_concurrency.py:102:    raw = os.getenv(role_env) or os.getenv(generic_env) or default
+src/polaris_graph/retrieval/frame_fetcher.py:242:    for t in os.getenv(
+src/polaris_graph/retrieval/frame_fetcher.py:293:_POLARIS_UA = os.getenv(
+src/polaris_graph/retrieval/frame_fetcher.py:857:    key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+src/polaris_graph/nodes/crag_adequacy_loop.py:141:    return os.getenv(FLAG_ENV, "").strip().lower() in _ON_VALUES
+src/polaris_graph/nodes/crag_adequacy_loop.py:150:    raw = os.getenv(MAX_LOOPS_ENV, "").strip()
+src/polaris_graph/nodes/crag_adequacy_loop.py:162:    raw = os.getenv(MAX_GAP_QUERIES_ENV, "").strip()
+src/polaris_graph/nodes/crag_adequacy_loop.py:173:    raw = os.getenv(CRAG_RENDER_CAP_ENV, "").strip()
+src/polaris_graph/nodes/crag_adequacy_loop.py:183:    return os.getenv(CRAG_MODEL_ENV, "").strip() or _DEFAULT_CRAG_MODEL
+src/polaris_graph/nodes/crag_adequacy_loop.py:187:    raw = os.getenv(CRAG_MAX_TOKENS_ENV, "").strip()
+src/polaris_graph/nodes/crag_adequacy_loop.py:427:    raw = os.getenv(CRAG_YIELD_EPS_ENV, "").strip()
+src/polaris_graph/nodes/crag_adequacy_loop.py:446:    raw = os.getenv(CRAG_MAX_SATURATION_LOOPS_ENV, "").strip()
+src/polaris_graph/nodes/crag_adequacy_loop.py:641:    raw = os.getenv(CORRECTIVE_RESERVE_ENV, "").strip()
+src/polaris_graph/nodes/crag_adequacy_loop.py:768:    raw = os.getenv(QUERY_MAX_WORDS_ENV, "").strip()
+src/polaris_graph/tools/numeric_sanitizer.py:43:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/retrieval/evidence_selector.py:74:# run_live_honest_cycle) read ``int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))`` — a hardcoded
+src/polaris_graph/retrieval/evidence_selector.py:104:    raw = os.getenv(_MAX_EV_TO_GEN_ENV)
+src/polaris_graph/retrieval/evidence_selector.py:232:    raw = os.environ.get("PG_M41D_HC_QUOTA", "")
+src/polaris_graph/retrieval/evidence_selector.py:541:    raw = os.environ.get("PG_SELECT_SUBQUERY_FLOOR", "").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:619:    return os.environ.get("PG_RELEVANCE_SCORER", "lexical").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:634:    raw = os.environ.get("PG_RELEVANCE_DROP_LEDGER", "1").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:686:        raw = int(os.environ.get("PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES", "3"))
+src/polaris_graph/retrieval/evidence_selector.py:878:    raw = os.environ.get(_ENV_DATE_DEMOTE_WEIGHT, "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:1059:    raw = os.environ.get("PG_SELECT_RECENCY_TIEBREAK", "1").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:1066:    raw = os.environ.get("PG_SELECT_RECENCY_EPSILON", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:1157:    return os.environ.get(name, "1").strip().lower() not in ("0", "false", "no", "off")
+src/polaris_graph/retrieval/evidence_selector.py:1162:    raw = os.environ.get("PG_SELECT_SUBQUERY_K", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:1172:    raw = os.environ.get("PG_SELECT_DOMAIN_CAP_FRAC", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:1211:    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE", "0").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:1219:    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE_FRAC", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:1235:    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE_CEILING", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:1436:    raw = os.environ.get("PG_GREEDY_AXES", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:1470:    raw = os.environ.get("PG_SELECT_CONSTRAINED_GREEDY", "0").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:1472:    raw_n = os.environ.get("PG_GREEDY_MAX_SWAPS", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:1882:    raw = os.environ.get("PG_RELEVANCE_HONEST_DROP", "1").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:1891:    raw = os.environ.get("PG_RELEVANCE_PRESERVE_ANCHORS", "0").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:1904:    raw = os.environ.get("PG_SELECT_KEEP_DEGENERATE_FETCH", "1").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:1916:    raw = os.environ.get("PG_SELECT_DEGENERATE_MIN_CHARS", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:2031:    raw = os.environ.get("PG_SCOPE_DENYLIST_DOMAINS", "").strip()
+src/polaris_graph/retrieval/evidence_selector.py:2135:    raw = os.environ.get("PG_SCOPE_PREFER_JOURNAL", "0").strip().lower()
+src/polaris_graph/retrieval/evidence_selector.py:2220:    return os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "on").strip().lower() not in (
+src/polaris_graph/retrieval/evidence_selector.py:2673:    return os.environ.get("PG_RERANKER_MODEL", "").strip().lower() in _RERANKER_ON_VALUES
+src/polaris_graph/retrieval/prefetch_offtopic_filter.py:107:    return (get_model_settings().embed_model.strip()  # was os.getenv("PG_EMBED_MODEL", _DEFAULT_EMBED_MODEL)
+src/polaris_graph/roles/report_redactor.py:987:    return os.getenv(_ENV_RENDER_VERDICT_GATE, "1").strip().lower() not in (
+src/polaris_graph/roles/report_redactor.py:997:    return os.getenv(_ENV_RENDER_VERDICT_GATE_ADMIT_PARTIAL, "0").strip().lower() in (
+src/polaris_graph/telemetry/run_status_heartbeat.py:40:    return os.environ.get(HEARTBEAT_ENABLED_ENV, "").strip().lower() not in _DISABLED_VALUES
+src/polaris_graph/telemetry/run_status_heartbeat.py:51:        Path(os.environ.get(RUN_STATUS_PATH_ENV, _DEFAULT_MIRROR_PATH)),
+src/polaris_graph/retrieval/scope_query_validator.py:151:    raw = os.getenv(_KEEP_BEST_N_ENV, "").strip()
+src/polaris_graph/retrieval/scope_query_validator.py:168:    raw = os.getenv("PG_SCOPE_SIM_MEASURE", _DEFAULT_SIM_MEASURE).strip().lower()
+src/polaris_graph/retrieval/scope_query_validator.py:272:    return os.getenv(_DIRECTIVE_FLAG, "1").strip().lower() not in _DIRECTIVE_OFF
+src/polaris_graph/retrieval/scope_query_validator.py:382:    return os.getenv(_META_STATUS_FLAG, "1").strip().lower() not in _DIRECTIVE_OFF
+src/polaris_graph/retrieval/scope_query_validator.py:557:        floor = float(os.getenv("PG_AMPLIFIER_SCOPE_FLOOR", str(_DEFAULT_SCOPE_FLOOR)))
+src/polaris_graph/roles/sweep_integration.py:264:_RESERVE_CONTEXT_TOKENS = max(1, int(os.getenv("PG_FOUR_ROLE_RESERVE_CONTEXT_TOKENS", "400000")))
+src/polaris_graph/roles/sweep_integration.py:1111:    _redaction_active = os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+src/polaris_graph/roles/judge_adapter.py:64:    primary = os.getenv(_ROLE_TRANSPORT_DEGRADE_ENV)
+src/polaris_graph/roles/judge_adapter.py:67:    alias = os.getenv(_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV)
+src/polaris_graph/roles/judge_adapter.py:127:    return os.getenv(_RUBRIC_PROMPT_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
+src/polaris_graph/roles/judge_adapter.py:159:    return os.getenv(_SENTINEL_ATOMS_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
+src/polaris_graph/roles/judge_adapter.py:234:    return os.getenv(_ENUM_RESPONSE_FORMAT_FLAG, "1").strip().lower() not in (
+src/polaris_graph/roles/judge_adapter.py:296:    return os.getenv(_RETRY_BEFORE_DEGRADE_FLAG, "1").strip().lower() not in (
+src/polaris_graph/roles/judge_adapter.py:306:    raw = os.getenv(_RETRY_MAX_ATTEMPTS_ENV)
+src/polaris_graph/roles/judge_adapter.py:335:    return os.getenv(_OFFENUM_PROVIDER_ROTATE_FLAG, "1").strip().lower() not in (
+src/polaris_graph/roles/judge_adapter.py:356:    return os.getenv(_VERDICT_IDEMPOTENCY_FLAG, "1").strip().lower() not in (
+src/polaris_graph/roles/native_gate_b_inputs.py:401:        os.environ.get(_ENV_ENTITY_COVERAGE_CITATION_CREDIT, "").strip().lower()
+src/polaris_graph/roles/native_gate_b_inputs.py:562:    return os.environ.get(_ENV_SEMANTIC_CONTRAINDICATION, "").strip().lower() not in _SEMANTIC_OFF_VALUES
+src/polaris_graph/roles/native_gate_b_inputs.py:577:        os.environ.get(_ENV_S0_COVERAGE_BINDER, "").strip().lower()
+src/polaris_graph/roles/native_gate_b_inputs.py:724:    return os.getenv(_GATE_B_SPAN_NORMALIZE_ENV, "0").strip() == "1"
+src/polaris_graph/roles/native_gate_b_inputs.py:779:    return os.getenv(_GATE_B_WHOLE_BASKET_ENV, "1").strip().lower() not in _WHOLE_BASKET_OFF_TOKENS
+src/polaris_graph/roles/native_gate_b_inputs.py:861:    if os.getenv(_GATE_B_CITED_SPAN_ENV, "0").strip() != "1":
+src/polaris_graph/roles/native_gate_b_inputs.py:871:        window = int(os.getenv(_GATE_B_SPAN_WINDOW_ENV, str(_GATE_B_SPAN_WINDOW_DEFAULT)))
+src/polaris_graph/retrieval/ttddr_loop.py:89:    return os.environ.get(_ENV_TTDDR_ENABLED, "").strip().lower() in _ENABLE_ON_VALUES
+src/polaris_graph/retrieval/ttddr_loop.py:102:    raw = os.environ.get(_ENV_TTDDR_SATURATION_EPS, "").strip()
+src/polaris_graph/roles/provider_routing.py:62:    return os.getenv(_ENABLE_ENV, "1").strip().lower() in ("1", "true", "yes", "on")
+src/polaris_graph/roles/provider_routing.py:66:    path = os.getenv(_CONFIG_PATH_ENV, _DEFAULT_CONFIG_PATH)
+src/polaris_graph/roles/provider_routing.py:105:    raw = os.getenv(_ENV_UNHEALTHY_PROVIDERS, "").strip()
+src/polaris_graph/roles/role_transport_deadline.py:47:        return float(os.getenv(_ROLE_TRANSPORT_TOTAL_S_ENV, _ROLE_TRANSPORT_TOTAL_S_DEFAULT))
+src/polaris_graph/retrieval/domain_backends.py:341:    api_key = os.getenv("SERPER_API_KEY", "").strip()
+src/polaris_graph/retrieval/domain_backends.py:404:    api_key = os.getenv("SERPER_API_KEY", "").strip()
+src/polaris_graph/retrieval/domain_backends.py:717:    api_key = os.getenv("PG_OPENALEX_API_KEY", "").strip()
+src/polaris_graph/synthesis/cross_section_reflector.py:114:                    prompt, max_tokens=int(os.getenv("PG_REFLECTOR_MAX_TOKENS", "8192")),
+src/polaris_graph/synthesis/cross_section_reflector.py:363:            prompt, max_tokens=int(os.getenv("PG_REDUNDANCY_REWRITE_MAX_TOKENS", "8192")),
+src/polaris_graph/roles/openai_compatible_transport.py:162:    base_url = os.getenv(_BASE_URL_ENV_TEMPLATE.format(role=role_token))
+src/polaris_graph/roles/openai_compatible_transport.py:170:    api_key = os.getenv(_API_KEY_ENV_TEMPLATE.format(role=role_token), "")
+src/polaris_graph/wiki/wiki_crawl.py:28:S2_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+src/polaris_graph/roles/openrouter_role_transport.py:282:    return os.getenv(_BENCHMARK_LINEUP_ENV[role], _BENCHMARK_LINEUP_DEFAULT_SLUG[role])
+src/polaris_graph/roles/openrouter_role_transport.py:493:    if role == "sentinel" and os.getenv(f"PG_{role.upper()}_REASONING") is None:
+src/polaris_graph/roles/openrouter_role_transport.py:499:    override = os.getenv(f"PG_{role.upper()}_REASONING")
+src/polaris_graph/roles/openrouter_role_transport.py:626:    raw = os.getenv(env_name) if env_name else None
+src/polaris_graph/roles/openrouter_role_transport.py:663:        raw = os.getenv(per_role_env)
+src/polaris_graph/roles/openrouter_role_transport.py:673:        generic = float(os.getenv("PG_ROLE_TRANSPORT_TOTAL_S", generic_default))
+src/polaris_graph/roles/openrouter_role_transport.py:805:    raw = os.getenv(_ENV_ROLE_MIN_TPS, "0").strip()
+src/polaris_graph/roles/openrouter_role_transport.py:816:        return max(0, int(os.getenv(_ENV_ROLE_MIN_TPS_MAX_ROTATIONS, _ROLE_MIN_TPS_MAX_ROTATIONS_DEFAULT)))
+src/polaris_graph/roles/openrouter_role_transport.py:860:    return os.getenv(_ENV_FORCE_CLOSE_PROVIDER_ROTATE, "1").strip().lower() in (
+src/polaris_graph/roles/openrouter_role_transport.py:917:    token = os.getenv(_ROLE_BLANK_WATCHDOG_ENV, "1").strip().lower()
+src/polaris_graph/roles/openrouter_role_transport.py:927:    return max(0, int(os.getenv(_ROLE_BLANK_MAX_RETRIES_ENV, _ROLE_BLANK_MAX_RETRIES_DEFAULT)))
+src/polaris_graph/roles/openrouter_role_transport.py:936:    raw = os.getenv(_ROLE_CALL_TIMEOUT_S_ENV, _ROLE_CALL_TIMEOUT_S_DEFAULT)
+src/polaris_graph/roles/openrouter_role_transport.py:1096:    raw = os.getenv(_JUDGE_CONCURRENCY_ENV, _JUDGE_CONCURRENCY_DEFAULT)
+src/polaris_graph/roles/openrouter_role_transport.py:1144:    raw = os.getenv(_SENTINEL_CONCURRENCY_ENV, _SENTINEL_CONCURRENCY_DEFAULT)
+src/polaris_graph/roles/openrouter_role_transport.py:1238:    return os.getenv(_BASE_URL_ENV, _BASE_URL_DEFAULT).rstrip("/")
+src/polaris_graph/roles/openrouter_role_transport.py:1248:    key = os.getenv(_API_KEY_ENV, "")
+src/polaris_graph/roles/openrouter_role_transport.py:1386:            decomp_budget = int(os.getenv("PG_SENTINEL_DECOMPOSITION_MAX_TOKENS", "131072"))
+src/polaris_graph/roles/openrouter_role_transport.py:1411:            reasoning_cap = int(os.getenv("PG_MIRROR_REASONING_MAX_TOKENS", "100000"))
+src/polaris_graph/roles/openrouter_role_transport.py:1418:                max(int(os.getenv("PG_MIRROR_MAX_TOKENS", "131072")), reasoning_cap + 4000),
+src/polaris_graph/roles/openrouter_role_transport.py:1447:                verdict_budget = int(os.getenv("PG_D8_VERDICT_MAX_TOKENS", "16384"))
+src/polaris_graph/roles/openrouter_role_transport.py:1459:            int(os.getenv("PG_SENTINEL_MAX_TOKENS", "4096")), _SENTINEL_MAX_TOKENS_CHAIN_MIN
+src/polaris_graph/roles/openrouter_role_transport.py:1535:    return os.getenv(_THINK_LEAK_STRIP_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+src/polaris_graph/roles/openrouter_role_transport.py:1901:                    int(os.getenv("PG_ROLE_HTTP_RETRY_MAX", _ROLE_HTTP_RETRY_MAX_DEFAULT)),
+src/polaris_graph/roles/openrouter_role_transport.py:1905:                    for s in os.getenv(
+src/polaris_graph/roles/openrouter_role_transport.py:1911:                    os.getenv(
+src/polaris_graph/roles/openrouter_role_transport.py:1917:                    os.getenv(
+src/polaris_graph/roles/openrouter_role_transport.py:1940:                            max(0, int(os.getenv(
+src/polaris_graph/synthesis/citation_mapper.py:438:        max_frequency = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "5"))
+src/polaris_graph/synthesis/evidence_explorer.py:276:            prompt, max_tokens=int(os.getenv("PG_EVIDENCE_ENRICH_MAX_TOKENS", "8192")),
+src/polaris_graph/synthesis/section_writer.py:664:        _min_ev_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5"))
+src/polaris_graph/synthesis/section_writer.py:667:    target_words = int(os.getenv('PG_TARGET_TOTAL_WORDS', '8000'))
+src/polaris_graph/synthesis/section_writer.py:1006:        os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "3")
+src/polaris_graph/synthesis/section_writer.py:1306:    _token_budget_enabled = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
+src/polaris_graph/synthesis/section_writer.py:1596:    _max_section_words = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "1500"))
+src/polaris_graph/synthesis/section_writer.py:1718:    _kf_enabled = os.getenv("PG_KEY_FINDINGS_ENFORCEMENT", "1") == "1"
+src/polaris_graph/synthesis/section_writer.py:1743:                max_tokens=int(os.getenv("PG_KEY_FINDINGS_MAX_TOKENS", "1024")),
+src/polaris_graph/synthesis/section_writer.py:1984:    max_citation_freq = int(os.getenv("PG_MAX_CITATION_FREQUENCY", "8"))
+src/polaris_graph/synthesis/section_writer.py:2011:        int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8")),
+src/polaris_graph/synthesis/section_writer.py:2055:            _tb_enabled = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
+src/polaris_graph/synthesis/section_writer.py:2103:            int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8")),
+src/polaris_graph/synthesis/section_writer.py:2129:            _min_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8"))
+src/polaris_graph/synthesis/section_writer.py:2168:            _tb_enabled_b = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
+src/polaris_graph/synthesis/content_dedup_consolidate.py:71:    return os.getenv(_ENV_FLAG, "1").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/content_dedup_consolidate.py:75:    raw = os.getenv(_ENV_SIM, "").strip()
+src/polaris_graph/synthesis/content_dedup_consolidate.py:86:        return max(0, int(os.getenv(_ENV_MIN_BODY_CHARS, str(_DEFAULT_MIN_BODY_CHARS))))
+src/polaris_graph/synthesis/synthesis_entailment_verify.py:81:    return os.getenv(_ENV_ENTAILMENT_VERIFY, "1").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/synthesis/finding_dedup.py:104:    return os.getenv(_NONCLINICAL_SUBJECT_FOLD_ENV, "1").strip().lower() not in (
+src/polaris_graph/synthesis/finding_dedup.py:427:    return os.getenv(_SAMEWORK_URL_LEG_ENV, "1").strip().lower() not in (
+src/polaris_graph/synthesis/finding_dedup.py:1059:    return os.getenv(_QUAL_BASKET_ENV, "1").strip().lower() not in (
+src/polaris_graph/synthesis/finding_dedup.py:1077:    return os.getenv(_QUAL_NLI_ENV, "1").strip().lower() not in (
+src/polaris_graph/synthesis/finding_dedup.py:1089:    return os.getenv(_FINDING_DEDUP_NLI_ENV, "0").strip().lower() not in (
+src/polaris_graph/synthesis/finding_dedup.py:1098:    raw = os.environ.get(_FINDING_DEDUP_NLI_WORKERS_ENV, "").strip() or _FINDING_DEDUP_NLI_WORKERS_DEFAULT
+src/polaris_graph/synthesis/finding_dedup.py:1114:    raw = os.environ.get(_FINDING_DEDUP_NLI_MAX_PAIRS_ENV, "").strip() or _FINDING_DEDUP_NLI_MAX_PAIRS_DEFAULT
+src/polaris_graph/synthesis/finding_dedup.py:1133:    raw = os.environ.get(_FINDING_DEDUP_NLI_WALL_SECONDS_ENV, "").strip() or _FINDING_DEDUP_NLI_WALL_SECONDS_DEFAULT
+src/polaris_graph/synthesis/finding_dedup.py:1152:    raw = os.environ.get(_QUAL_JACCARD_ENV, "").strip() or _QUAL_JACCARD_DEFAULT
+src/polaris_graph/synthesis/finding_dedup.py:1355:    return os.getenv(_QUAL_NOMINATE_ENV, "1").strip().lower() not in (
+src/polaris_graph/synthesis/finding_dedup.py:1363:    raw = os.environ.get(_QUAL_NOMINATE_CONTAINMENT_ENV, "").strip() or _QUAL_NOMINATE_CONTAINMENT_DEFAULT
+src/polaris_graph/synthesis/finding_dedup.py:1384:    raw = os.environ.get(_QUAL_NOMINATE_MAX_PAIRS_ENV, "").strip() or _QUAL_NOMINATE_MAX_PAIRS_DEFAULT
+src/polaris_graph/roles/sentinel_adapter.py:120:    raw = os.getenv(_SENTINEL_BLANK_RETRIES_ENV, "0").strip()
+src/polaris_graph/roles/sentinel_adapter.py:141:    primary = os.getenv(_ROLE_TRANSPORT_DEGRADE_ENV)
+src/polaris_graph/roles/sentinel_adapter.py:144:    alias = os.getenv(_SENTINEL_TRANSPORT_DEGRADE_ALIAS_ENV)
+src/polaris_graph/roles/sentinel_adapter.py:165:    return os.getenv("PG_SENTINEL_MODEL") or getattr(_orc, "PG_SENTINEL_MODEL", "") or ""
+src/polaris_graph/roles/sentinel_adapter.py:191:    transport = os.getenv(_FOUR_ROLE_TRANSPORT_ENV, "").strip().lower()
+src/polaris_graph/roles/sentinel_adapter.py:209:    override = os.getenv(_GROUNDEDNESS_MODE_ENV)
+src/polaris_graph/synthesis/weight_mass.py:42:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/roles/release_policy.py:480:    return os.environ.get(_ENV_ALWAYS_RELEASE, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/roles/release_policy.py:904:    raw = os.environ.get(name, "").strip()
+src/polaris_graph/roles/sentinel_contract.py:450:    return os.getenv(_ATOM_COVERAGE_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
+src/polaris_graph/synthesis/report_assembler.py:68:    return os.getenv(_RENDER_CREDIBILITY_FLAG, "0").strip().lower() in (
+src/polaris_graph/synthesis/report_assembler.py:479:        os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.65")
+src/polaris_graph/synthesis/report_assembler.py:583:        threshold = float(os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.45"))
+src/polaris_graph/synthesis/report_assembler.py:2095:        os.getenv("PG_MAX_CITATION_FREQUENCY", "5")
+src/polaris_graph/scale/local_corpus_backend.py:81:    raw = os.getenv(name, "").strip()
+src/polaris_graph/scale/local_corpus_backend.py:93:    raw = os.getenv(name, "").strip()
+src/polaris_graph/scale/local_corpus_backend.py:179:            default_class=os.getenv(
+src/polaris_graph/synthesis/tradeoff_modeler.py:63:    return os.getenv(_LITERAL_SPAN_ENFORCE_ENV, "1").strip().lower() not in (
+src/polaris_graph/synthesis/tradeoff_modeler.py:92:    return os.getenv(_DUAL_TAG_FAILSOFT_ENV, "1").strip().lower() not in (
+src/polaris_graph/synthesis/tradeoff_modeler.py:116:    return os.getenv(_PRUNE_UNREFERENCED_SOURCED_ENV, "1").strip().lower() not in (
+src/polaris_graph/synthesis/claim_graph.py:83:# (never import-time) so tests can monkeypatch os.environ per-invocation. Inlined
+src/polaris_graph/synthesis/claim_graph.py:119:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/claim_graph.py:132:    return os.environ.get(_CRED_REDESIGN_FLAG, "on").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/claim_graph.py:137:        return int(os.environ.get(name, "") or default)
+src/polaris_graph/synthesis/claim_graph.py:144:        return float(os.environ.get(name, "") or default)
+src/polaris_graph/scale/mineru_vllm_config.py:158:        env = dict(base_env if base_env is not None else os.environ)
+src/polaris_graph/scale/mineru_vllm_config.py:192:    env = os.environ if env is None else env
+src/polaris_graph/synthesis/both_sides.py:34:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/verifier.py:56:REWRITE_MAX_TOKENS = int(os.getenv("PG_V2_REWRITE_MAX_TOKENS", "4096"))
+src/polaris_graph/tools/openalex_client.py:44:POLITE_EMAIL = os.getenv("OPENALEX_EMAIL", "")
+src/polaris_graph/tools/openalex_client.py:45:CACHE_DB = Path(os.getenv("OPENALEX_CACHE_DB", "cache/openalex.sqlite"))
+src/polaris_graph/tools/openalex_client.py:46:TIMEOUT = float(os.getenv("OPENALEX_TIMEOUT", "10"))
+src/polaris_graph/synthesis/consolidation_nli.py:178:    return os.getenv(ENV_FLAG, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/synthesis/consolidation_nli.py:182:    raw = os.environ.get(env, "").strip() or default
+src/polaris_graph/synthesis/consolidation_nli.py:192:    raw = os.environ.get(env, "").strip() or default
+src/polaris_graph/synthesis/consolidation_nli.py:227:    raw = os.environ.get(ENV_WALL_SECONDS, "").strip() or _DEFAULT_WALL_SECONDS
+src/polaris_graph/synthesis/consolidation_nli.py:245:    raw = os.environ.get(ENV_DEVICE, "").strip()
+src/polaris_graph/synthesis/consolidation_nli.py:269:    return os.getenv(ENV_SUBBUCKET, "0").strip().lower() not in ("", "0", "false", "off", "no")
+src/polaris_graph/synthesis/consolidation_nli.py:409:        model_id = os.environ.get(ENV_MODEL, "").strip() or _DEFAULT_MODEL
+src/polaris_graph/synthesis/consolidation_nli.py:442:        model_id = os.environ.get(ENV_MODEL, "").strip() or _DEFAULT_MODEL
+src/polaris_graph/synthesis/calibration_metrics.py:32:        value = int(os.environ.get(name, "") or default)
+src/polaris_graph/synthesis/institutional_authority.py:189:    return os.environ.get("PG_INSTITUTIONAL_AUTHORITY_WEIGHT", "on").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/institutional_authority.py:208:    raw = os.environ.get(_ENV_BANDS, "").strip()
+src/polaris_graph/synthesis/institutional_authority.py:227:    raw = os.environ.get(_ENV_REGISTRY, "").strip()
+src/polaris_graph/synthesis/token_budget.py:28:PG_SECTION_TOKEN_BUDGET = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000"))
+src/polaris_graph/synthesis/section_synthesizer_parallel.py:36:MAX_SECTION_TOKENS = int(os.getenv("PG_V2_MAX_SECTION_TOKENS", "8192"))
+src/polaris_graph/synthesis/credibility_pass.py:77:    return os.environ.get(_ENV_BASKET_CONSUME_FINDING_DEDUP, "").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/credibility_pass.py:109:    raw = os.environ.get(_ENV_PHASE_A_BUDGET_FRAC, "").strip()
+src/polaris_graph/synthesis/credibility_pass.py:127:            os.environ.get(_ENV_PASS_MAX_INFLIGHT, _DEFAULT_PASS_MAX_INFLIGHT)
+src/polaris_graph/synthesis/credibility_pass.py:214:    return os.environ.get(_ENV_INSTITUTIONAL_TIER, "on").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/credibility_pass.py:228:    return os.environ.get(_ENV_TIER_AUTHORITY_JOIN, "on").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/credibility_pass.py:234:    raw = os.environ.get(_ENV_TIER_AUTHORITY_PRIOR, "").strip()
+src/polaris_graph/synthesis/credibility_pass.py:388:    if os.environ.get(_ENV_REQUIRE_NONZERO_AUTHORITY, "").strip().lower() in ("1", "true", "yes", "on"):
+src/polaris_graph/synthesis/credibility_pass.py:405:    return os.environ.get(_MASTER_FLAG, "on").strip().lower() not in _OFF_VALUES
+src/polaris_graph/synthesis/credibility_pass.py:469:    return os.environ.get(_ENV_BASKET_CHROME_SCREEN, "1").strip().lower() not in (
+src/polaris_graph/synthesis/credibility_pass.py:546:    return os.environ.get(_ENV_CORROBORATION_JUDGE_MODEL, "").strip() or _DEFAULT_CORROBORATION_JUDGE_MODEL
+src/polaris_graph/synthesis/credibility_pass.py:559:    override = os.environ.get(_ENV_ACTIVE_ENTAILMENT_MODEL, "").strip()
+src/polaris_graph/synthesis/credibility_pass.py:579:    raw = os.environ.get(_ENV_JUDGE_UNAVAILABLE_MAX_FRAC, "").strip().lower()
+src/polaris_graph/wiki/mesh/claim_extract.py:119:PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "5"))
+src/polaris_graph/wiki/mesh/claim_extract.py:121:PG_CONTENT_PER_SOURCE = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
+src/polaris_graph/wiki/mesh/claim_extract.py:122:PG_EXTRACTION_MAX_TOKENS = int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384"))
+src/polaris_graph/wiki/wiki_composer.py:28:COMPOSE_MAX_TOKENS = int(os.getenv("PG_WIKI_COMPOSE_MAX_TOKENS", "8192"))
+src/polaris_graph/wiki/wiki_composer.py:29:ABSTRACT_MAX_TOKENS = int(os.getenv("PG_WIKI_ABSTRACT_MAX_TOKENS", "1536"))
+src/polaris_graph/wiki/wiki_composer.py:491:        search_rounds=int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "2")),
+src/polaris_graph/synthesis/token_accounting.py:18:PG_TOKEN_ACCOUNTING_ENABLED = os.getenv("PG_TOKEN_ACCOUNTING_ENABLED", "1") == "1"
+src/polaris_graph/synthesis/token_accounting.py:20:    os.getenv("PG_TOKEN_ACCOUNTING_WARN_THRESHOLD", "0.85")
+src/polaris_graph/synthesis/token_accounting.py:24:_CONTEXT_WINDOW = int(os.getenv("PG_CONTEXT_WINDOW_TOKENS", "128000"))
+src/polaris_graph/tools/code_executor.py:862:        val = os.environ.get(key)
+src/polaris_graph/tools/package_installer.py:28:    os.getenv("PG_APPROVED_PACKAGES", _DEFAULT_WHITELIST).split(",")
+src/polaris_graph/tools/analysis_notebook.py:25:    raw = os.getenv(
+src/polaris_graph/wiki/source_quality.py:259:_RETRACTION_WATCH_PATH = Path(os.getenv(
+src/polaris_graph/wiki/mesh/compose/composer.py:35:COMPOSE_MAX_TOKENS = int(os.getenv("PG_MESH_COMPOSE_MAX_TOKENS", "4096"))
+src/polaris_graph/tools/react_agent.py:49:_INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "240"))
+src/polaris_graph/tools/react_agent.py:52:_ANALYSIS_PIPELINE = os.getenv("PG_ANALYSIS_PIPELINE", "8phase")
+src/polaris_graph/tools/react_agent.py:76:_CITEFIX_KEYWORD_MIN = int(os.getenv("PG_CITEFIX_KEYWORD_MIN", "3"))
+src/polaris_graph/tools/react_agent.py:91:_GTA_KEYWORD_MIN = int(os.getenv("PG_ATTRIBUTION_KEYWORD_MIN", "3"))
+src/polaris_graph/tools/react_agent.py:675:            self._mode = os.getenv("PG_ANALYSIS_PIPELINE", "") or "8phase"
+src/polaris_graph/tools/react_agent.py:3560:            os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"),
+src/polaris_graph/tools/react_agent.py:5931:                    effort=os.environ.get("PG_CRITIQUE_REASONING_EFFORT", "high") or "high",
+src/polaris_graph/tools/react_agent.py:5934:                    max_tokens=int(os.environ.get("PG_AUDIT_CRITIQUE_MAX_TOKENS", "2048")),
+src/polaris_graph/tools/react_agent.py:8165:        interpret_timeout = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"))
