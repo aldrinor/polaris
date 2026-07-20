@@ -104,6 +104,23 @@ from src.polaris_graph.settings import resolve
 logger = logging.getLogger("polaris_graph.multi_section")
 
 
+def _strict_verify_off_enabled() -> bool:
+    """Master faithfulness kill-switch (PG_STRICT_VERIFY_OFF, DEFAULT OFF/empty).
+
+    Mirrors ``provenance_generator._strict_verify_off_enabled`` (read locally to avoid
+    a cross-module import cycle). When TRUTHY, the raw-A scoring experiment
+    (scripts/run_raw_a.sh) turns faithfulness FULLY off: on top of the
+    verify_sentence_provenance top-level bypass, the composer's POST-VERIFY sentence-
+    removal stages (M-41c under-framed-trial filter, PT11 uncited-decimal suppression)
+    become no-ops so NO composed sentence is dropped. DEFAULT-OFF => unset/empty/'0'/
+    'false'/'off'/'no' returns False and every stage runs BYTE-IDENTICALLY to today.
+    Read at call time so a run recipe toggles it without re-import.
+    """
+    return resolve("PG_STRICT_VERIFY_OFF").strip().lower() in (
+        "1", "true", "yes", "on", "enabled",
+    )
+
+
 # I-arch-005 B2/B3 (#1257): run-scoped tail-drop telemetry sink for the per-section
 # character-budget trim. A ContextVar (NOT a module-global list) so concurrent runs do not
 # cross-contaminate and so it auto-resets per run. ``generate_multi_section_report`` binds a
@@ -628,6 +645,11 @@ def _budget_trim_ev_ids(
     drop is still logged at WARNING."""
     if not ev_ids:
         return ev_ids
+    # MASTER FAITHFULNESS KILL-SWITCH (PG_STRICT_VERIFY_OFF): keep EVERY row, no char-budget
+    # tail-drop, so nothing is removed for the faithfulness-off scoring experiment. Default-off
+    # (unset => this guard is inert and the original budget trim below runs, byte-identical).
+    if _strict_verify_off_enabled():
+        return list(ev_ids)
     kept: list[str] = []
     used = 0
     for idx, eid in enumerate(ev_ids):
@@ -5042,7 +5064,13 @@ def filter_underframed_trial_sentences(
     code-level enforcement of the M-38 prompt rule: the prompt asks
     the LLM to drop the short-name attribution; if the LLM doesn't,
     M-41c removes the sentence post-verify.
+
+    MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): when set truthy (raw-A
+    scoring experiment), this filter is a no-op — EVERY input sentence is kept and
+    NONE is dropped, so faithfulness-driven survival is 100%. UNSET => byte-identical.
     """
+    if _strict_verify_off_enabled():
+        return list(sentences), []
     kept: list[Any] = []
     dropped: list[Any] = []
     for i, sv in enumerate(sentences):
@@ -5338,8 +5366,14 @@ def _screen_uncited_numeric_sentences(verified_text: str) -> str:
     no in-prose decimal, or with a decimal AND a citation marker ([N] / [#ev:...]), is kept
     unchanged; a sentence with a decimal and no marker is removed. FAIL-SAFE: empty/blank
     input, the flag off, an unsplittable draft, or an all-dropped result all return the input
-    UNCHANGED so a real verified section is never blanked on a boundary disagreement."""
+    UNCHANGED so a real verified section is never blanked on a boundary disagreement.
+
+    MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): when set truthy (raw-A scoring
+    experiment) this render screen is a no-op — the text is returned UNCHANGED and no sentence
+    is removed for lacking an in-sentence citation. UNSET => byte-identical."""
     if not verified_text or not verified_text.strip():
+        return verified_text
+    if _strict_verify_off_enabled():
         return verified_text
     if not _numeric_cite_enforce_enabled():
         return verified_text
@@ -5459,8 +5493,14 @@ def _screen_render_chrome_prose(verified_text: str) -> str:
     normalized input) returns the input UNCHANGED (never risk corrupting real prose on a splitter
     miss); nothing-dropped returns the input byte-identically; an ALL-dropped section returns "" so
     the caller (_run_section) renders an explicit disclosed gap stub (BB5-C07), never a blanked
-    verified section."""
+    verified section.
+
+    MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): when set truthy (raw-A scoring
+    experiment) this render screen is a no-op — the text is returned UNCHANGED and no unit is
+    withheld. UNSET => byte-identical."""
     if not verified_text or not verified_text.strip():
+        return verified_text
+    if _strict_verify_off_enabled():
         return verified_text
     if not _render_chrome_prose_screen_enabled():
         return verified_text
@@ -6721,7 +6761,10 @@ async def _run_section(
     # carve-out keeps a same-span sentence that states a genuinely NEW statistic. DEFAULT-ON; set
     # PG_COMPOSE_SAME_SPAN_DEDUP=0 for byte-identical legacy behavior.
     _same_span_collapsed: list = []
-    if resolve("PG_COMPOSE_SAME_SPAN_DEDUP").strip().lower() not in ("", "0", "false", "off", "no"):
+    if (
+        not _strict_verify_off_enabled()
+        and resolve("PG_COMPOSE_SAME_SPAN_DEDUP").strip().lower() not in ("", "0", "false", "off", "no")
+    ):
         _dd_kept, _same_span_collapsed = dedup_same_span_sentences(report.kept_sentences)
         if _same_span_collapsed:
             report.kept_sentences = _dd_kept
@@ -8001,7 +8044,13 @@ _SECTION_DEDUP_WS_RE = re.compile(r"\s+")
 
 def section_dedup_enabled() -> bool:
     """Kill-switch ``PG_SECTION_DEDUP_ENABLED`` (default ON). OFF => near-duplicate sections are
-    NOT collapsed => byte-identical legacy output (both sections render)."""
+    NOT collapsed => byte-identical legacy output (both sections render).
+
+    MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): when set truthy (raw-A scoring
+    experiment) section dedup is forced OFF so an already-verified near-duplicate section body
+    is never suppressed — nothing composed is dropped. UNSET => byte-identical to the flag alone."""
+    if _strict_verify_off_enabled():
+        return False
     return os.environ.get(_ENV_SECTION_DEDUP_ENABLED, "1").strip().lower() not in (
         "0", "false", "no", "off",
     )
@@ -8109,8 +8158,17 @@ def _suppress_uncited_decimal_sentences(text: str) -> "tuple[str, list[str]]":
     count as cited). Pure, no-network, faithfulness-neutral. Returns the input UNCHANGED (and an empty
     removed list) when nothing qualifies. Fail-safe: if the boundary helper cannot be imported, the text
     is returned untouched (never blind-drop). OFF (``PG_COMPOSE_NUMERIC_CITE_GUARANTEE``) => the input
-    is returned unchanged (byte-identical) regardless of content."""
-    if not text or not text.strip() or not _compose_numeric_cite_guarantee_enabled():
+    is returned unchanged (byte-identical) regardless of content.
+
+    MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): when set truthy (raw-A scoring
+    experiment) this suppression is a no-op — the text is returned UNCHANGED and NO sentence is
+    removed, so no composed sentence is dropped for lacking a citation. UNSET => byte-identical."""
+    if (
+        not text
+        or not text.strip()
+        or not _compose_numeric_cite_guarantee_enabled()
+        or _strict_verify_off_enabled()
+    ):
         return text, []
     try:
         from src.polaris_graph.evaluator.external_evaluator import (  # noqa: PLC0415
@@ -11103,8 +11161,13 @@ async def generate_multi_section_report(
         # sections is consolidated into ONE primary + cross-references that KEEP every
         # source's citation (§-1.3 CONSOLIDATE-keep-all). Explicit PG_ANTI_RESTATEMENT=0
         # skips the pass => restated prose passes through untouched (all sources kept).
+        # MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): the raw-A scoring experiment
+        # keeps EVERY composed sentence, so the anti-restatement CONSOLIDATION pass (which rewrites
+        # a cross-section restated fact into ONE primary + back-references, removing the restated
+        # originals) is skipped entirely. UNSET => the pass runs BYTE-IDENTICALLY.
         if (
-            _anti_restatement_enabled()
+            not _strict_verify_off_enabled()
+            and _anti_restatement_enabled()
             and sum(len(v) for v in sections_for_dedup.values()) >= 2
         ):
             from src.polaris_graph.llm.openrouter_client import (

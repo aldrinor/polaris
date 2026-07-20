@@ -3,13 +3,18 @@
 # compose_agentic_report_s3gear329.py over the frozen cp4 corpus, GLM 5.2), with
 # every fragile knob captured so a run is never a coin flip.
 #
-# FAITHFULNESS / ENTAILMENT IS TURNED OFF HERE (operator decision, 2026-07-20):
-#   PG_STRICT_VERIFY_ENTAILMENT=off  -> the NLI entailment gate does not run, so
-#   sentences are no longer dropped for "NEUTRAL" (the tail-gate ghost that was
-#   cutting ~half the composed sentences, most of them true cross-source
-#   synthesis, not false claims). Set it back to "enforce" to restore the gate.
-#   NOTE: this is scoped to THIS run recipe only — it does not touch .env or the
-#   code default, so other pipelines and concurrent bots keep entailment ON.
+# FAITHFULNESS IS TURNED FULLY OFF HERE (operator decision, 2026-07-20 — scoring experiment):
+#   PG_STRICT_VERIFY_OFF=1           -> the MASTER kill-switch. verify_sentence_provenance
+#   short-circuits at the TOP and returns EVERY composed sentence as VERIFIED with no drop:
+#   NO drop path runs (no_provenance_token, span-bounds, number/integer/percent-not-in-span,
+#   binding_qualifier_dropped, no_content_word_overlap, trial_name_mismatch, entailment_failed,
+#   the B16 overstatement guards, judge-error fail-closed). 100% of composed sentences survive.
+#   PG_STRICT_VERIFY_ENTAILMENT=off  -> kept for belt-and-braces (the NLI entailment gate is a
+#   subset of what the master switch already bypasses); with the master switch on it is redundant.
+#   Set PG_STRICT_VERIFY_OFF back to empty/0 (and entailment back to "enforce") to restore the gate.
+#   NOTE: this is scoped to THIS run recipe only — it does NOT touch .env or the code default
+#   (PG_STRICT_VERIFY_OFF defaults OFF/empty), so other pipelines and concurrent bots keep
+#   faithfulness fully ON. The switch is default-off => unset == today's byte-identical behavior.
 #
 # Usage: scripts/run_raw_a.sh [--corpus PATH] [--rq-drb-task N] [--out-dir DIR]
 set -uo pipefail
@@ -39,7 +44,8 @@ export PG_CONTENT_RELEVANCE_SCORE_CHUNK=16      # chunk the reranker so it fits 
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export PG_OUTLINE_MAX_TOKENS=131072             # prevents the deepseek truncation crash
 export PG_OUTLINE_REASONING_MAX_TOKENS=32768
-export PG_STRICT_VERIFY_ENTAILMENT=off          # <-- ENTAILMENT OFF (see header)
+export PG_STRICT_VERIFY_OFF=1                    # <-- MASTER FAITHFULNESS KILL-SWITCH (see header): drops NOTHING
+export PG_STRICT_VERIFY_ENTAILMENT=off          # <-- ENTAILMENT OFF (redundant under the master switch; see header)
 
 # --- API keys via dotenv (NEVER bash-source .env: line 304 breaks bash) ---
 export OPENROUTER_API_KEY="$("$PY" -c "from dotenv import dotenv_values; print(dotenv_values('/workspace/POLARIS/.env')['OPENROUTER_API_KEY'])")"
@@ -49,6 +55,6 @@ unset PYTHONPATH
 export PYTHONUNBUFFERED=1
 mkdir -p "$OUT"
 
-echo "run_raw_a: entailment=$PG_STRICT_VERIFY_ENTAILMENT corpus=$CORPUS task=$TASK out=$OUT"
+echo "run_raw_a: strict_verify_off=$PG_STRICT_VERIFY_OFF entailment=$PG_STRICT_VERIFY_ENTAILMENT corpus=$CORPUS task=$TASK out=$OUT"
 exec "$PY" scripts/compose_agentic_report_s3gear329.py \
   --corpus "$CORPUS" --rq-drb-task "$TASK" --out-dir "$OUT"
