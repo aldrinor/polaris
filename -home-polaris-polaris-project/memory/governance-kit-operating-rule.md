@@ -7,9 +7,11 @@ metadata:
   originSessionId: 21e87760-8436-4090-870d-99ef2121882e
 ---
 
-The operator requires that **all agent work runs within the governance kit** (branch `bot/repo-knowledge-base`, `docs/agent_environment/` + `gov/` + `tools/`). Work in disciplined, enforced order — the operator is BLIND and reads every message by ear, once.
+The operator requires that **all agent work runs within the governance kit**. The kit lives on **`gate-inversion`** (merged via PR #1408: `gov/` + `tools/` + `docs/agent_environment/`); wiring added in `878de86`. Work in disciplined, enforced order — the operator is BLIND and reads every message by ear, once.
 
 **Why:** five repeating failures (drip-fed partial answers, tunnel-vision one-spot fixes, git/doc drift, long jargon-y messages, dumping context-heavy decisions on the operator). Each checker mechanically blocks one.
+
+**HARD BINDING (this fixed the twice-slipped bug): NEVER run `gh issue create` or `gh pr create` until `python3 tools/check_pr_body.py <body>` (add `--issue` for issues) has exited 0 on that exact body file.** Check first, create only on pass — do not create-then-fix. Same for operator messages: lint BEFORE sending, never after.
 
 **How to apply — every time, no exceptions:**
 - **Operator messages:** run through `tools/lint_operator_message.py` before sending. Max 5 sentences, flat lists only (no nesting — indentation is silent by ear), no emoji, no jargon (banned list lives in `gov/operator_voice.md`), max 35 words/sentence. Pasted command output goes in a real fenced block (skipped by the linter).
@@ -20,7 +22,7 @@ The operator requires that **all agent work runs within the governance kit** (br
 - **Decisions:** follow `gov/decision_protocol.md` — either DECIDE and say (what / why / what-would-make-it-wrong), or ask exactly ONE question with your recommendation marked and one plain line per option. Never hand the operator a decision needing context they lack.
 - **Measure, don't estimate.** Every number comes from a command you ran and paste. Blocking is proof; existence is not.
 
-**Wiring (installed 2026-07-20):** `.githooks/pre-commit` runs the 3 checkers on staged governance files only (`core.hooksPath=.githooks`, relative → safe no-op in worktrees without it); `.github/workflows/govkit_checks.yml` runs report-only on every PR (proven firing green on PR #1405, run 29724326021). Branch protection unchanged (4 workflows red; a required check would block every merge). NOT yet merged to main (unrelated histories).
+**Wiring (on gate-inversion, commit 878de86, 2026-07-20):** `.githooks/pre-commit` runs the 3 checkers on staged governance files only (`core.hooksPath=.githooks`, relative → safe no-op in worktrees without it); proven to block a bad operator message, a bad payload, and a bad PR body. `.github/workflows/govkit_checks.yml` runs report-only on every PR. **Do NOT target `main`** — it holds 2 files and shares no history with the codebase; nobody works from it. `gate-inversion` is the real 10,017-file tree, is UNPROTECTED (direct push OK, no approval needed), and is where PRs target. Do not ask the operator to approve/click/grant anything.
 
 Self-tests: `validate_agent_payload` 33/33, `lint_operator_message` 32/32, `check_pr_body` 32/32, all exit 0.
 
