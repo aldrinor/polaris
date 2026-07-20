@@ -446,7 +446,7 @@ def _token_honest_drop_enabled() -> bool:
     silently vanishes (byte-identical to pre-#1240). Read at call time so tests
     can toggle without re-import.
     """
-    v = os.getenv("PG_PROVENANCE_TOKEN_HONEST_DROP", "1").strip().lower()
+    v = resolve('PG_PROVENANCE_TOKEN_HONEST_DROP').strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 

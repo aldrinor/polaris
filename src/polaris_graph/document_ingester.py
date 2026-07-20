@@ -62,10 +62,10 @@ OCR_MIN_TEXT_CHARS = int(resolve("PG_OCR_MIN_TEXT_CHARS"))
 
 # Audio transcription configuration
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
-FFMPEG_PATH = os.getenv("FFMPEG_PATH", r"C:\Windows\ffmpeg.exe")
+FFMPEG_PATH = resolve('FFMPEG_PATH')
 
 # Legacy .doc parsing: path to antiword binary (if available)
-ANTIWORD_CMD = os.getenv("ANTIWORD_CMD", "antiword")
+ANTIWORD_CMD = resolve('ANTIWORD_CMD')
 
 # Image extensions (OCR via pytesseract)
 _IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})

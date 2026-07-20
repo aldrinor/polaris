@@ -699,7 +699,7 @@ PG_SECTION_MAX_TOKENS: int = int(os.getenv("PG_SECTION_MAX_TOKENS", "64000"))
 # floor). Named per LAW VI; openrouter_client still clamps reasoning-first to
 # PG_REASONING_FIRST_HARD_CAP.
 PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
-    os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
+    resolve('PG_CONTRACT_SLOT_MIN_MAX_TOKENS')
 )
 
 # I-arch-004 F02 (#1255) — contract-slot reasoning + stall budgets.
@@ -744,7 +744,7 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
 # ("reasoning always max") is served per-call: max where the work is full prose,
 # tight where the work is a 3-sentence slot. Faithfulness gates are untouched here.
 PG_CONTRACT_SLOT_REASONING_MAX_TOKENS: int = int(
-    os.getenv("PG_CONTRACT_SLOT_REASONING_MAX_TOKENS", "2048")
+    resolve('PG_CONTRACT_SLOT_REASONING_MAX_TOKENS')
 )
 PG_CONTRACT_SLOT_STALL_TIMEOUT_S: float = float(
     resolve("PG_CONTRACT_SLOT_STALL_TIMEOUT_S")
@@ -3235,14 +3235,14 @@ async def _call_outline(
     # guarantees the model reaches the content phase. LAW VI: env-tunable, default-safe (generous);
     # read at CALL time (per this file's outline-cap convention) so it is unit-testable via monkeypatch.
     _outline_content_max_tokens = max(
-        max_tokens, int(os.getenv("PG_OUTLINE_MIN_MAX_TOKENS", "16384"))
+        max_tokens, int(resolve('PG_OUTLINE_MIN_MAX_TOKENS'))
     )
     # W0 un-starve (docs/fsr_build_plan.md "AGENTIC OUTLINER LOOP" section, §9.1.8): raise
     # the reasoning-pool default from 6144 -> 32768 so a reasoning-first model (GLM-5.x) has real
     # room to think before the closing JSON, on TOP of the raised content ceiling above. Unset env
     # keeps behavior at the new default (previously 6144); explicit env override still honored.
     _outline_reasoning_max_tokens = int(
-        os.getenv("PG_OUTLINE_REASONING_MAX_TOKENS", "32768")
+        resolve('PG_OUTLINE_REASONING_MAX_TOKENS')
     )
     try:
         # I-gen-004 (#496): tag the outline call for the reasoning-trace sink.
@@ -4367,12 +4367,12 @@ async def _call_section(
         # UNCHANGED (max() keeps the larger value). Faithfulness-neutral: strict_verify is unchanged.
         # LAW VI env-tunable.
         _section_reasoning_max_tokens = int(
-            os.getenv("PG_SECTION_REASONING_MAX_TOKENS", "16384")
+            resolve('PG_SECTION_REASONING_MAX_TOKENS')
         )
         _section_content_max_tokens = max(
             max_tokens,
             _section_reasoning_max_tokens
-            + int(os.getenv("PG_SECTION_CONTENT_HEADROOM_TOKENS", "8192")),
+            + int(resolve('PG_SECTION_CONTENT_HEADROOM_TOKENS')),
         )
         response = await client.generate(
             prompt=prompt,
@@ -6953,7 +6953,7 @@ _CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 def _table_cell_verify_enabled() -> bool:
     """I-ready-015 (#1084): cell-decimal faithfulness gate. Default OFF -> byte-identical;
     turned ON + preflighted in the full-capability benchmark slate after audit."""
-    return os.environ.get("PG_SWEEP_TABLE_CELL_VERIFY", "").strip().lower() not in {
+    return resolve('PG_SWEEP_TABLE_CELL_VERIFY').strip().lower() not in {
         "", "0", "false", "off", "no",
     }
 
@@ -7551,11 +7551,11 @@ async def _call_trial_summary_table(
             # PG_GLM5_MIN_MAX_TOKENS=4096; raise CONTENT to a generous floor and BOUND the GLM-5.2
             # reasoning pool so the table never gets starved to empty by an effort=high prelude.
             max_tokens=max(
-                max_tokens, int(os.getenv("PG_TRIAL_TABLE_MIN_MAX_TOKENS", "6000"))
+                max_tokens, int(resolve('PG_TRIAL_TABLE_MIN_MAX_TOKENS'))
             ),
             temperature=temperature,
             reasoning_max_tokens=int(
-                os.getenv("PG_TRIAL_TABLE_REASONING_MAX_TOKENS", "2048")
+                resolve('PG_TRIAL_TABLE_REASONING_MAX_TOKENS')
             ),
         )
         raw = (response.content or "").strip()
@@ -7676,11 +7676,11 @@ async def _call_m50_per_trial_subsection(
             # raise CONTENT and BOUND the GLM-5.2 reasoning pool so the per-trial subsection has
             # room AFTER reasoning and is never starved to empty.
             max_tokens=max(
-                max_tokens, int(os.getenv("PG_M50_MIN_MAX_TOKENS", "6000"))
+                max_tokens, int(resolve('PG_M50_MIN_MAX_TOKENS'))
             ),
             temperature=temperature,
             reasoning_max_tokens=int(
-                os.getenv("PG_M50_REASONING_MAX_TOKENS", "2048")
+                resolve('PG_M50_REASONING_MAX_TOKENS')
             ),
         )
         text = (response.content or "").strip()
@@ -7824,11 +7824,11 @@ async def _call_limitations(
             # CONTENT and BOUND the GLM-5.2 reasoning pool so the Limitations paragraph has room
             # AFTER reasoning and is never starved to empty by an effort=high prelude.
             max_tokens=max(
-                max_tokens, int(os.getenv("PG_LIMITATIONS_MIN_MAX_TOKENS", "6000"))
+                max_tokens, int(resolve('PG_LIMITATIONS_MIN_MAX_TOKENS'))
             ),
             temperature=temperature,
             reasoning_max_tokens=int(
-                os.getenv("PG_LIMITATIONS_REASONING_MAX_TOKENS", "2048")
+                resolve('PG_LIMITATIONS_REASONING_MAX_TOKENS')
             ),
         )
         text = (response.content or "").strip()
@@ -8093,7 +8093,7 @@ _PT11_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
 def _compose_numeric_cite_guarantee_enabled() -> bool:
     """PT11 kill-switch (``PG_COMPOSE_NUMERIC_CITE_GUARANTEE``). Default-ON; OFF only for an off-value."""
     return (
-        os.environ.get("PG_COMPOSE_NUMERIC_CITE_GUARANTEE", "1").strip().lower()
+        resolve('PG_COMPOSE_NUMERIC_CITE_GUARANTEE').strip().lower()
         not in ("0", "false", "off", "no")
     )
 
@@ -8152,7 +8152,7 @@ def _suppress_uncited_decimal_sentences(text: str) -> "tuple[str, list[str]]":
 def _body_lead_enabled() -> bool:
     """C4 kill-switch (``PG_SYNTH_BODY_LEAD``). Default-ON; OFF only for an explicit off-value."""
     return (
-        os.environ.get("PG_SYNTH_BODY_LEAD", "1").strip().lower()
+        resolve('PG_SYNTH_BODY_LEAD').strip().lower()
         not in ("0", "false", "off", "no")
     )
 
@@ -11131,12 +11131,12 @@ async def generate_multi_section_report(
                         prompt=prompt,
                         system=system,
                         max_tokens=max(
-                            int(os.getenv("PG_FACT_DEDUP_MAX_TOKENS", "2048")),
-                            int(os.getenv("PG_FACT_DEDUP_MIN_MAX_TOKENS", "6000")),
+                            int(resolve('PG_FACT_DEDUP_MAX_TOKENS')),
+                            int(resolve('PG_FACT_DEDUP_MIN_MAX_TOKENS')),
                         ),
                         temperature=0.2,
                         reasoning_max_tokens=int(
-                            os.getenv("PG_FACT_DEDUP_REASONING_MAX_TOKENS", "2048")
+                            resolve('PG_FACT_DEDUP_REASONING_MAX_TOKENS')
                         ),
                     )
                 finally:
@@ -11789,7 +11789,7 @@ async def generate_multi_section_report(
     #   strict    — run validator, write gap_records AND replace
     #               verified_text with rendered_text from validator
     #               (refusal blocks inline) AND recompute total_words
-    _atom_mode = os.environ.get("PG_ATOM_REFUSAL_MODE", "off").lower().strip()
+    _atom_mode = resolve('PG_ATOM_REFUSAL_MODE').lower().strip()
     # I-gen-005 Step 3b + F26 (I-arch-004 A3): post-hoc atom-refusal validation.
     # Extracted into _apply_atom_refusal_validation so the strict-mode
     # fail-CLOSED path (empty catalog / validator raise -> section marked

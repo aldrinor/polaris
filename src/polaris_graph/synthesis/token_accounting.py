@@ -6,6 +6,7 @@ Warns when evidence or total tokens approach context window limits.
 """
 
 import logging
+from src.polaris_graph.settings import resolve
 import os
 
 from dotenv import load_dotenv
@@ -15,13 +16,13 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Configuration (LAW VI)
-PG_TOKEN_ACCOUNTING_ENABLED = os.getenv("PG_TOKEN_ACCOUNTING_ENABLED", "1") == "1"
+PG_TOKEN_ACCOUNTING_ENABLED = resolve('PG_TOKEN_ACCOUNTING_ENABLED') == "1"
 PG_TOKEN_ACCOUNTING_WARN_THRESHOLD = float(
-    os.getenv("PG_TOKEN_ACCOUNTING_WARN_THRESHOLD", "0.85")
+    resolve('PG_TOKEN_ACCOUNTING_WARN_THRESHOLD')
 )
 
 # Qwen 3.5 Plus context window (1M tokens input, conservative default 128K)
-_CONTEXT_WINDOW = int(os.getenv("PG_CONTEXT_WINDOW_TOKENS", "128000"))
+_CONTEXT_WINDOW = int(resolve('PG_CONTEXT_WINDOW_TOKENS'))
 
 
 def _estimate_tokens(text: str) -> int:

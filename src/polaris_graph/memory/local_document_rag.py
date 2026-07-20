@@ -43,7 +43,7 @@ COLLECTION_PREFIX = "docs_"
 # Approximate characters per token for whitespace-split tokenisation.
 # sentence-transformers uses a WordPiece tokenizer; 1 token ~ 4 chars is a
 # reasonable approximation for English prose.
-CHARS_PER_TOKEN = int(os.getenv("PG_DOC_RAG_CHARS_PER_TOKEN", "4"))
+CHARS_PER_TOKEN = int(resolve('PG_DOC_RAG_CHARS_PER_TOKEN'))
 
 # Maximum batch size for ChromaDB upsert to avoid memory pressure.
 UPSERT_BATCH_SIZE = int(resolve("PG_DOC_RAG_UPSERT_BATCH"))

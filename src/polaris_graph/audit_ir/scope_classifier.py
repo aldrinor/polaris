@@ -52,6 +52,7 @@ See `docs/md5_phase1_threat_model.md` for boundaries.
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import os
 import unicodedata
@@ -90,7 +91,7 @@ DEFAULT_CONFIDENCE_THRESHOLD = 0.70
 
 
 def _read_threshold_from_env() -> float:
-    raw = os.environ.get("PG_SCOPE_GATE_CONFIDENCE_THRESHOLD")
+    raw = resolve('PG_SCOPE_GATE_CONFIDENCE_THRESHOLD')
     if raw is None or raw == "":
         return DEFAULT_CONFIDENCE_THRESHOLD
     try:

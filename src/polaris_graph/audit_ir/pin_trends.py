@@ -62,6 +62,7 @@ See `docs/md11_phase2_v2_threat_model.md` for boundaries.
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import os
 from dataclasses import dataclass, field
@@ -179,12 +180,12 @@ DEFAULT_UNSTABLE_THRESHOLD = 0.5
 
 
 def _read_stable_threshold_from_env() -> float:
-    raw = os.environ.get("PG_PIN_TREND_STABLE_THRESHOLD")
+    raw = resolve('PG_PIN_TREND_STABLE_THRESHOLD')
     return _coerce_threshold(raw, DEFAULT_STABLE_THRESHOLD)
 
 
 def _read_unstable_threshold_from_env() -> float:
-    raw = os.environ.get("PG_PIN_TREND_UNSTABLE_THRESHOLD")
+    raw = resolve('PG_PIN_TREND_UNSTABLE_THRESHOLD')
     return _coerce_threshold(raw, DEFAULT_UNSTABLE_THRESHOLD)
 
 

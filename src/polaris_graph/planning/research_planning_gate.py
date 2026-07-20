@@ -133,17 +133,17 @@ _DEFAULT_POLICY_MODEL = "z-ai/glm-5.2"
 # so this can never over-request. Env-tunable; the fail-soft conservative-contract
 # fallback stays the backstop when the compile still fails.
 _CONTRACT_MAX_TOKENS = int(
-    os.getenv("PG_PLANNING_GATE_MAX_TOKENS", "32768")
+    resolve('PG_PLANNING_GATE_MAX_TOKENS')
 )
 _PLAN_MAX_TOKENS = int(
-    os.getenv("PG_PLANNING_GATE_MAX_TOKENS", "32768")
+    resolve('PG_PLANNING_GATE_MAX_TOKENS')
 )
 # Bound the reasoning-first pool so the model always reaches the closing JSON:
 # reserve the remainder of the budget for content. glm-5.2 branch-1 honors a
 # caller-passed reasoning.max_tokens (openrouter_client ~line 1958), so this
 # guarantees content headroom = max_tokens - this pool. Env-tunable (LAW VI).
 _PLANNING_GATE_REASONING_MAX_TOKENS = int(
-    os.getenv("PG_PLANNING_GATE_REASONING_MAX_TOKENS", "16384")
+    resolve('PG_PLANNING_GATE_REASONING_MAX_TOKENS')
 )
 
 

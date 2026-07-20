@@ -3192,7 +3192,7 @@ def _refetch_full_body_enabled() -> bool:
     truncated and any deep number was thrown away). ``PG_REFETCH_FULL_BODY=0`` (or
     off/false/no/disabled) ⇒ the FETCH is capped at ``max_chars`` exactly as before ⇒
     byte-identical. Read at call time (LAW VI)."""
-    return os.environ.get("PG_REFETCH_FULL_BODY", "1").strip().lower() not in (
+    return resolve('PG_REFETCH_FULL_BODY').strip().lower() not in (
         "0", "false", "off", "no", "disabled",
     )
 
@@ -4629,7 +4629,7 @@ def _fetch_shell_vocab_gate_enabled() -> bool:
     pre-fix control flow (the shell probe/reroute is never entered). Read at call time
     so tests toggle without re-import. A refused shell is a FAILED fetch (a chrome
     non-source per §-1.3.1a), never a deleted credible source."""
-    return os.environ.get("PG_FETCH_SHELL_VOCAB_GATE", "1").strip().lower() not in {
+    return resolve('PG_FETCH_SHELL_VOCAB_GATE').strip().lower() not in {
         "0", "false", "off", "no", "disabled",
     }
 
@@ -5118,7 +5118,7 @@ def _relevance_gate_enabled() -> bool:
     demoted_tail), never lost. Set `PG_RETRIEVAL_RELEVANCE_GATE=0` (or off/false/no)
     to revert to the byte-identical legacy count-cut (the semantic embedder is then
     never imported, preserving `test_no_embedder_model_loaded` on the OFF path)."""
-    raw = os.environ.get("PG_RETRIEVAL_RELEVANCE_GATE", "1").strip().lower()
+    raw = resolve('PG_RETRIEVAL_RELEVANCE_GATE').strip().lower()
     return raw not in ("0", "false", "no", "off", "disabled", "")
 
 
@@ -5139,7 +5139,7 @@ def _relevance_gate_threshold() -> float:
     import is lazy so the OFF path never imports evidence_selector."""
     from src.polaris_graph.retrieval.evidence_selector import parse_relevance_floor
 
-    return parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+    return parse_relevance_floor(resolve('PG_RELEVANCE_FLOOR'))
 
 
 def _relevance_fetch_all_relevant_enabled() -> bool:
@@ -5154,7 +5154,7 @@ def _relevance_fetch_all_relevant_enabled() -> bool:
     budget bounds the WHOLE ordered list (above-floor beyond the budget lands in the
     recorded-but-unfetched relevant tail) — an EMERGENCY rollback only; that path drops
     credible relevant sources pre-fetch and must not be used in production."""
-    raw = os.environ.get("PG_RELEVANCE_FETCH_ALL_RELEVANT", "1").strip().lower()
+    raw = resolve('PG_RELEVANCE_FETCH_ALL_RELEVANT').strip().lower()
     return raw not in ("0", "false", "no", "off", "disabled", "")
 
 
@@ -5846,8 +5846,8 @@ def run_live_retrieval(
         # distillation falls back to the NL `q` (never an empty search). The candidate's `query_origin`
         # stays the NL `q` so the per-sub-query rerank reservation + plan-sufficiency are unchanged.
         _s2_query = q
-        if os.getenv("PG_S2_KEYWORD_DISTILL", "1") != "0":
-            _kw = distill_keywords(q, max_terms=int(os.getenv("PG_S2_KEYWORD_MAX_TERMS", "8")))
+        if resolve('PG_S2_KEYWORD_DISTILL') != "0":
+            _kw = distill_keywords(q, max_terms=int(resolve('PG_S2_KEYWORD_MAX_TERMS')))
             if _kw:
                 _s2_query = _kw
         logger.info("[live_retriever] S2 q=%r", _s2_query[:80])
@@ -6340,7 +6340,7 @@ def run_live_retrieval(
     # that stashes the full 5-tuple in a side dict keyed by URL,
     # then post-process serially using the side dict. Diff-gate P1-C: the 5th
     # element is the raw ld+json captured before _strip_html (Signal C input).
-    use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
+    use_parallel = resolve('PG_USE_PARALLEL_FETCH') != "0"
     fetched_side: dict[str, tuple[str, bool, str, str, str]] = {}
     # I-fetch-003 (#1175 / AC3): retrieval-throughput diagnostics. Stay None on
     # the serial fallback / no-candidates path (no parallel_fetch report).
@@ -6400,7 +6400,7 @@ def run_live_retrieval(
         # constants (LAW VI — no magic numbers). With the I-fetch-lock ceiling
         # of 14 a large corpus lands at 14 workers (band 14-16); small corpora
         # stay at the floor of 8.
-        _explicit_workers = os.environ.get("PG_LIVE_RETRIEVER_MAX_WORKERS")
+        _explicit_workers = resolve('PG_LIVE_RETRIEVER_MAX_WORKERS')
         if _explicit_workers is not None:
             try:
                 max_workers = max(1, int(_explicit_workers))

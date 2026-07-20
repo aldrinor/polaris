@@ -39,7 +39,7 @@ from src.polaris_graph.settings import resolve
 # FIX-I1: Pre-set short cache path on Windows BEFORE any embedding import.
 # sentence-transformers cache path too long for Windows 260-char limit -> [Errno 22].
 if platform.system() == "Windows":
-    _short_cache = os.getenv("PG_ST_CACHE_PATH", r"C:\st_cache")
+    _short_cache = resolve('PG_ST_CACHE_PATH')
     os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _short_cache)
     os.environ.setdefault("HF_HOME", _short_cache)
     os.makedirs(_short_cache, exist_ok=True)
@@ -583,7 +583,7 @@ async def _extract_structured_data(
             prompt=prompt,
             schema=StructuredDataExtraction,
             system=_STRUCTURED_DATA_SYSTEM,
-            max_tokens=int(os.getenv("PG_STRUCTURED_DATA_MAX_TOKENS", "4096")),
+            max_tokens=int(resolve('PG_STRUCTURED_DATA_MAX_TOKENS')),
             timeout=_sd_timeout,
             reasoning_enabled=False,
         )
@@ -675,7 +675,7 @@ async def _enrich_evidence_cards(
                 prompt=f"Enrich these {len(batch)} evidence pieces:\n\n{batch_text}",
                 schema=EvidenceCardBatch,
                 system=system,
-                max_tokens=int(os.getenv("PG_STRUCTURED_DATA_MAX_TOKENS", "4096")),
+                max_tokens=int(resolve('PG_STRUCTURED_DATA_MAX_TOKENS')),
                 timeout=int(resolve("PG_V3_CARD_TIMEOUT")),
             )
 
@@ -1072,7 +1072,7 @@ async def analyze_sources(
                             # effort=low + 500 tok; raised to high + 4096 so high-effort reasoning completes
                             # AND emits the ratings (a starved budget would truncate). Env-overridable.
                             effort=resolve("PG_GRADE_REASONING_EFFORT"),
-                            max_tokens=int(os.getenv("PG_GRADE_MAX_TOKENS", "4096")),
+                            max_tokens=int(resolve('PG_GRADE_MAX_TOKENS')),
                         )
                         if _grade_resp.content.strip():
                             break
@@ -2076,12 +2076,12 @@ Sources:
             prompt=prompt,
             schema=SourceAnalysisBatch,
             system=ANALYSIS_SYSTEM,
-            max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
+            max_tokens=int(resolve('PG_EXTRACTION_MAX_TOKENS')),
             timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
             reasoning_enabled=False,  # FIX-I2b: Evidence extraction is pattern-matching, not reasoning
             # W1.4 (S3 diagnosis): cap reasoning on GLM-5.1 (server always reasons even with
             # reasoning_enabled=False). Caps runaway reasoning observed at 10,813 tokens per batch.
-            reasoning_max_tokens=int(os.getenv("PG_EXTRACTION_REASONING_MAX_TOKENS", "2048")),
+            reasoning_max_tokens=int(resolve('PG_EXTRACTION_REASONING_MAX_TOKENS')),
         )
 
         evidence: list[EvidencePiece] = []
@@ -2239,10 +2239,10 @@ Sources:
                 prompt=prompt,
                 schema=SourceAnalysisBatch,
                 system=ANALYSIS_SYSTEM,
-                max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
+                max_tokens=int(resolve('PG_EXTRACTION_MAX_TOKENS')),
                 timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
                 reasoning_enabled=False,
-                reasoning_max_tokens=int(os.getenv("PG_EXTRACTION_REASONING_MAX_TOKENS", "2048")),
+                reasoning_max_tokens=int(resolve('PG_EXTRACTION_REASONING_MAX_TOKENS')),
             )
             evidence_retry: list[EvidencePiece] = []
             for analysis in parsed.analyses:
@@ -3149,7 +3149,7 @@ async def _unified_embedding_pass(
     except OSError as os_err:
         if os_err.errno == errno.EINVAL:
             # FIX-F1: Windows errno 22 — try short cache path and retry
-            short_cache = os.getenv("PG_ST_CACHE_PATH", r"C:\st_cache")
+            short_cache = resolve('PG_ST_CACHE_PATH')
             logger.warning(
                 "[polaris graph] FIX-F1: OSError errno 22. "
                 "Setting SENTENCE_TRANSFORMERS_HOME=%s, falling back to LLM scores.",

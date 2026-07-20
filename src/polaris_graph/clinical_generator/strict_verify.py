@@ -40,6 +40,7 @@ Tunables (read at call time so tests can override):
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import functools
 import json
@@ -146,7 +147,7 @@ def _percent_role_match_enabled() -> bool:
     Strictly faithfulness-TIGHTENING and strictly ADDITIVE — it can only ADD a
     drop, never relax the decimal/overlap/entailment checks. Kill-switch
     PG_PROVENANCE_PERCENT_ROLE_MATCH=0 reverts BYTE-IDENTICAL. Read at call time."""
-    v = os.environ.get("PG_PROVENANCE_PERCENT_ROLE_MATCH", "1").strip().lower()
+    v = resolve('PG_PROVENANCE_PERCENT_ROLE_MATCH').strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 
@@ -215,7 +216,7 @@ def _qualifier_retention_enabled() -> bool:
     (it can only ADD a ``binding_qualifier_dropped`` drop). Kill-switch
     PG_STRICT_VERIFY_QUALIFIER_RETENTION=0 reverts BYTE-IDENTICAL. Read at call
     time so tests can override."""
-    v = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_RETENTION", "1").strip().lower()
+    v = resolve('PG_STRICT_VERIFY_QUALIFIER_RETENTION').strip().lower()
     return v in ("1", "true", "yes", "on", "enabled")
 
 
@@ -224,7 +225,7 @@ def _qualifier_proximity_tokens() -> int:
     to a numeral. PG_STRICT_VERIFY_QUALIFIER_PROXIMITY_TOKENS (default 12). An
     unset / non-integer value falls back to the default; a negative value clamps to
     0 (the tightest window). 0 = same-token only."""
-    raw = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_PROXIMITY_TOKENS", "").strip()
+    raw = resolve('PG_STRICT_VERIFY_QUALIFIER_PROXIMITY_TOKENS').strip()
     try:
         return max(0, int(raw))
     except ValueError:
@@ -235,7 +236,7 @@ def _qualifier_lexicon() -> tuple[str, ...]:
     """The active epistemic-marker lexicon. LAW VI: PG_STRICT_VERIFY_QUALIFIER_LEXICON
     (comma-separated) overrides the curated default; an empty / all-blank override
     falls back to the default rather than disabling the gate silently."""
-    raw = os.environ.get("PG_STRICT_VERIFY_QUALIFIER_LEXICON", "").strip()
+    raw = resolve('PG_STRICT_VERIFY_QUALIFIER_LEXICON').strip()
     if not raw:
         return _DEFAULT_QUALIFIER_LEXICON
     items = tuple(part.strip().lower() for part in raw.split(",") if part.strip())

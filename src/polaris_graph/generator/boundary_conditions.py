@@ -66,7 +66,7 @@ def _min_overlap() -> int:
 
 
 def _markers() -> tuple:
-    raw = os.environ.get("PG_SECTION_BOUNDARY_MARKERS", "").strip()
+    raw = resolve('PG_SECTION_BOUNDARY_MARKERS').strip()
     if raw:
         return tuple(m.strip().lower() for m in raw.split(",") if m.strip())
     return _DEFAULT_MARKERS

@@ -229,7 +229,7 @@ def _m42d_hc_quota() -> int:
     Defaults to 2. Values <1 clamp to 1 (legacy M-41d behavior).
     Invalid strings fall back to default.
     """
-    raw = os.environ.get("PG_M41D_HC_QUOTA", "")
+    raw = resolve('PG_M41D_HC_QUOTA')
     if not raw:
         return _M42D_HC_QUOTA_DEFAULT
     try:
@@ -538,7 +538,7 @@ def _subquery_floor_enabled() -> bool:
 
     Explicit `PG_SELECT_SUBQUERY_FLOOR=0` (off/false/no) forces it OFF even under the
     redesign — the legacy whole-question denominator — for audit/reversal."""
-    raw = os.environ.get("PG_SELECT_SUBQUERY_FLOOR", "").strip().lower()
+    raw = resolve('PG_SELECT_SUBQUERY_FLOOR').strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False  # explicit OFF wins (audit/reversal)
     if raw != "":
@@ -616,7 +616,7 @@ def _relevance_scorer_mode() -> str:
     """Read `PG_RELEVANCE_SCORER` (default "lexical"). "semantic_v2" => the
     embedding-cosine scorer + restored relevance filter; anything else (incl.
     unset) => the legacy lexical `_row_relevance_facet` scorer, byte-identical."""
-    return os.environ.get("PG_RELEVANCE_SCORER", "lexical").strip().lower()
+    return resolve('PG_RELEVANCE_SCORER').strip().lower()
 
 
 def _semantic_scorer_enabled() -> bool:
@@ -631,7 +631,7 @@ def _relevance_drop_ledger_enabled() -> bool:
     the operator can audit the filter. Telemetry-only — never changes the keep
     set. Default-ON is harmless when the semantic scorer is OFF (no drops are made
     by the semantic filter on the legacy path)."""
-    raw = os.environ.get("PG_RELEVANCE_DROP_LEDGER", "1").strip().lower()
+    raw = resolve('PG_RELEVANCE_DROP_LEDGER').strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
@@ -683,7 +683,7 @@ def _semantic_embedder_max_load_retries() -> int:
     genuinely-persistent failure). Env `PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES`
     (default 3). Clamped to >= 1 so at least one retry is always allowed."""
     try:
-        raw = int(os.environ.get("PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES", "3"))
+        raw = int(resolve('PG_SEMANTIC_EMBEDDER_MAX_LOAD_RETRIES'))
     except (TypeError, ValueError):
         raw = 3
     return max(1, raw)
@@ -1056,14 +1056,14 @@ def _partition_out_of_scope_last(
 def _recency_enabled() -> bool:
     """Kill-switch `PG_SELECT_RECENCY_TIEBREAK` (default ON). OFF →
     byte-identical prior ordering AND no recency telemetry."""
-    raw = os.environ.get("PG_SELECT_RECENCY_TIEBREAK", "1").strip().lower()
+    raw = resolve('PG_SELECT_RECENCY_TIEBREAK').strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def _recency_epsilon() -> float:
     """Relevance band width `PG_SELECT_RECENCY_EPSILON` (default 0.05).
     epsilon <= 0 → exact-score-tie mode (band = raw score)."""
-    raw = os.environ.get("PG_SELECT_RECENCY_EPSILON", "").strip()
+    raw = resolve('PG_SELECT_RECENCY_EPSILON').strip()
     if not raw:
         return _RECENCY_EPSILON_DEFAULT
     try:
@@ -1159,7 +1159,7 @@ def _env_flag_on(name: str) -> bool:
 
 def _subquery_reserve_config() -> tuple[bool, int]:
     enabled = _env_flag_on("PG_SELECT_SUBQUERY_RESERVE")
-    raw = os.environ.get("PG_SELECT_SUBQUERY_K", "").strip()
+    raw = resolve('PG_SELECT_SUBQUERY_K').strip()
     try:
         k = int(raw) if raw else _SUBQUERY_K_DEFAULT
     except (ValueError, TypeError):
@@ -1169,7 +1169,7 @@ def _subquery_reserve_config() -> tuple[bool, int]:
 
 def _domain_cap_config() -> tuple[bool, float]:
     enabled = _env_flag_on("PG_SELECT_DOMAIN_CAP")
-    raw = os.environ.get("PG_SELECT_DOMAIN_CAP_FRAC", "").strip()
+    raw = resolve('PG_SELECT_DOMAIN_CAP_FRAC').strip()
     try:
         frac = float(raw) if raw else _DOMAIN_CAP_FRAC_DEFAULT
     except (ValueError, TypeError):
@@ -1208,7 +1208,7 @@ def _selection_scale_enabled() -> bool:
     """Flag `PG_SWEEP_SELECTION_SCALE` (default OFF). ON only on explicit
     truthy ('1'/'true'/'yes'/'on'). OFF → byte-identical prior selection AND
     no scaling telemetry. Inverse default of `_env_flag_on` ON-by-default."""
-    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE", "0").strip().lower()
+    raw = resolve('PG_SWEEP_SELECTION_SCALE').strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
@@ -1216,7 +1216,7 @@ def _selection_scale_frac() -> float:
     """Budget-per-pool-row fraction `PG_SWEEP_SELECTION_SCALE_FRAC`
     (default 0.30). Non-positive / unparseable → default (FAIL SOFT to a sane
     positive fraction; a 0 frac would make scaling a no-op via the floor)."""
-    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE_FRAC", "").strip()
+    raw = resolve('PG_SWEEP_SELECTION_SCALE_FRAC').strip()
     if not raw:
         return _SELECTION_SCALE_FRAC_DEFAULT
     try:
@@ -1232,7 +1232,7 @@ def _selection_scale_ceiling() -> int:
     """Optional absolute ceiling `PG_SWEEP_SELECTION_SCALE_CEILING`
     (default 0 = no ceiling). Clamps the scaled budget so an enormous pool can't
     overshoot an operator cap. Values <= 0 / unparseable → no ceiling."""
-    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE_CEILING", "").strip()
+    raw = resolve('PG_SWEEP_SELECTION_SCALE_CEILING').strip()
     if not raw:
         return _SELECTION_SCALE_CEILING_DEFAULT
     try:
@@ -1433,7 +1433,7 @@ def _greedy_match_category(
 def _greedy_active_axes() -> tuple[str, ...]:
     """Call-time active axis set (env override PG_GREEDY_AXES, default safety/class/
     jurisdiction). Unknown axis names are ignored; empty/invalid -> the default."""
-    raw = os.environ.get("PG_GREEDY_AXES", "").strip()
+    raw = resolve('PG_GREEDY_AXES').strip()
     if not raw:
         return _GREEDY_AXES_DEFAULT
     axes = tuple(a for a in (x.strip() for x in raw.split(",")) if a in _GREEDY_VALID_AXES)
@@ -1467,9 +1467,9 @@ def _constrained_greedy_config() -> tuple[bool, int]:
     `_env_flag_on`, which defaults ON — Codex design-gate iter-2 P2.3) -> when unset
     the pass never runs and selected/notes/to_dict stay byte-identical. Returns
     (enabled, max_swaps)."""
-    raw = os.environ.get("PG_SELECT_CONSTRAINED_GREEDY", "0").strip().lower()
+    raw = resolve('PG_SELECT_CONSTRAINED_GREEDY').strip().lower()
     enabled = raw in ("1", "true", "yes", "on")
-    raw_n = os.environ.get("PG_GREEDY_MAX_SWAPS", "").strip()
+    raw_n = resolve('PG_GREEDY_MAX_SWAPS').strip()
     try:
         n = int(raw_n) if raw_n else _GREEDY_MAX_SWAPS_DEFAULT
     except (ValueError, TypeError):
@@ -1879,7 +1879,7 @@ def _relevance_honest_drop_enabled() -> bool:
     relevance-floor selection logs the ACTUAL number of rows cut by the floor.
     `=0`/`false`/`off`/`no` reverts to the prior no-log behavior. Telemetry-only:
     NEVER changes which rows are kept or the returned `dropped_count`."""
-    raw = os.environ.get("PG_RELEVANCE_HONEST_DROP", "1").strip().lower()
+    raw = resolve('PG_RELEVANCE_HONEST_DROP').strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
@@ -1888,7 +1888,7 @@ def _relevance_preserve_anchors_enabled() -> bool:
     marquee / required-entity row is floor-EXEMPT (kept even below the floor),
     extending the existing primary-anchor exemption to the distinct marquee marker
     set. OFF => byte-identical keep set (the prior behavior)."""
-    raw = os.environ.get("PG_RELEVANCE_PRESERVE_ANCHORS", "0").strip().lower()
+    raw = resolve('PG_RELEVANCE_PRESERVE_ANCHORS').strip().lower()
     return raw not in ("0", "false", "no", "off", "")
 
 
@@ -1901,7 +1901,7 @@ def _keep_degenerate_fetch_enabled() -> bool:
     correct behavior is the DEFAULT; the flag exists only so the exemption is
     auditable / reversible. `=0`/`false`/`off`/`no` reverts to the prior hard-drop
     (byte-identical legacy floor filter)."""
-    raw = os.environ.get("PG_SELECT_KEEP_DEGENERATE_FETCH", "1").strip().lower()
+    raw = resolve('PG_SELECT_KEEP_DEGENERATE_FETCH').strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
@@ -1913,7 +1913,7 @@ def _select_degenerate_min_chars() -> int:
     conclusion (BUG-14, GH #1262). Env-driven per LAW VI; a non-positive / malformed
     value falls back to the default rather than disabling the direct-content guard
     (fail-safe: an UNKNOWN-relevance row must never be silently dropped)."""
-    raw = os.environ.get("PG_SELECT_DEGENERATE_MIN_CHARS", "").strip()
+    raw = resolve('PG_SELECT_DEGENERATE_MIN_CHARS').strip()
     try:
         val = int(raw)
     except (TypeError, ValueError):
@@ -2028,7 +2028,7 @@ def _scope_denylist_domains() -> tuple[str, ...]:
     """Parse `PG_SCOPE_DENYLIST_DOMAINS` (comma-separated, default empty = OFF).
     Each entry is lowercased + stripped; blank entries dropped. Empty env =>
     `()` => the denylist gate is a byte-identical no-op."""
-    raw = os.environ.get("PG_SCOPE_DENYLIST_DOMAINS", "").strip()
+    raw = resolve('PG_SCOPE_DENYLIST_DOMAINS').strip()
     if not raw:
         return ()
     return tuple(
@@ -2132,7 +2132,7 @@ def _apply_scope_denylist(
 def _prefer_journal_enabled() -> bool:
     """Kill-switch `PG_SCOPE_PREFER_JOURNAL` (default OFF). When ON, an arXiv
     twin of a journal/DOI row is dropped in favor of the published version."""
-    raw = os.environ.get("PG_SCOPE_PREFER_JOURNAL", "0").strip().lower()
+    raw = resolve('PG_SCOPE_PREFER_JOURNAL').strip().lower()
     return raw not in ("0", "false", "no", "off", "")
 
 

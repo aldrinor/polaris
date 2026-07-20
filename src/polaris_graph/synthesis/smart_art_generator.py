@@ -30,8 +30,8 @@ PG_MAX_SMART_ART: int = int(resolve("PG_MAX_SMART_ART"))
 PG_SMART_ART_ENABLED: bool = resolve("PG_SMART_ART_ENABLED") == "1"
 
 # LLM call parameters — configurable via environment
-_ANALYSIS_MAX_TOKENS: int = int(os.getenv("PG_SMART_ART_ANALYSIS_MAX_TOKENS", "4096"))
-_MERMAID_MAX_TOKENS: int = int(os.getenv("PG_SMART_ART_MERMAID_MAX_TOKENS", "4096"))
+_ANALYSIS_MAX_TOKENS: int = int(resolve('PG_SMART_ART_ANALYSIS_MAX_TOKENS'))
+_MERMAID_MAX_TOKENS: int = int(resolve('PG_SMART_ART_MERMAID_MAX_TOKENS'))
 _ANALYSIS_TEMPERATURE: float = float(resolve("PG_SMART_ART_ANALYSIS_TEMP"))
 _MERMAID_TEMPERATURE: float = float(resolve("PG_SMART_ART_MERMAID_TEMP"))
 _ANALYSIS_TIMEOUT: float = float(resolve("PG_SMART_ART_ANALYSIS_TIMEOUT"))

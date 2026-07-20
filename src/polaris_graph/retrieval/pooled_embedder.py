@@ -29,6 +29,7 @@ pass texts through unchanged (no performance penalty).
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import logging
 import os
@@ -40,7 +41,7 @@ logger = logging.getLogger("polaris_graph")
 
 # Model's max sequence length in tokens — verified for all-MiniLM-L6-v2
 # Override via env var if using a different model
-MAX_SEQ_TOKENS = int(os.getenv("PG_EMBED_MAX_SEQ_TOKENS", "256"))
+MAX_SEQ_TOKENS = int(resolve('PG_EMBED_MAX_SEQ_TOKENS'))
 
 # Conservative chars-per-token ratio (English prose ≈ 4 chars/token)
 # We use 3.5 to be safe — better to sub-chunk unnecessarily than to truncate

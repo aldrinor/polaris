@@ -29,6 +29,7 @@ Mirrors M-8 JobQueue patterns:
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import json
 import os
@@ -61,7 +62,7 @@ DEFAULT_MAX_DOCS_PER_WORKSPACE = 50
 def _env_max_docs() -> int:
     """Read PG_WORKSPACE_MAX_DOCS at call time (not import time) so
     tests can monkeypatch."""
-    raw = os.environ.get("PG_WORKSPACE_MAX_DOCS")
+    raw = resolve('PG_WORKSPACE_MAX_DOCS')
     if raw is None:
         return DEFAULT_MAX_DOCS_PER_WORKSPACE
     try:

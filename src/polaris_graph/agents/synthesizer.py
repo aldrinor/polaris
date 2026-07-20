@@ -542,7 +542,7 @@ Do NOT include chain-of-thought or planning text."""
     response = await client.generate(
         prompt=prompt,
         system=system,
-        max_tokens=int(os.getenv("PG_OUTLINE_MAX_TOKENS", "2048")),
+        max_tokens=int(resolve('PG_OUTLINE_MAX_TOKENS')),
         temperature=0.5,
         reasoning_exclude=True,  # S1 (W1.3): prevent CoT leakage into prose
     )
@@ -707,7 +707,7 @@ Your JSON response MUST include ALL of these fields:
                 "only recommend FULL_SECTION when there are 3+ distinct, citable "
                 "claims with real evidence backing them."
             ),
-            max_tokens=int(os.getenv("PG_EVIDENCE_ASSIGN_MAX_TOKENS", "2048")),
+            max_tokens=int(resolve('PG_EVIDENCE_ASSIGN_MAX_TOKENS')),
             timeout=int(resolve("PG_EVIDENCE_ASSIGN_TIMEOUT")),
         )
         return {
@@ -858,7 +858,7 @@ async def _summarize_evidence_clusters(
             ev_by_id[eid] = ev
 
     _timeout = int(resolve("PG_CLUSTER_SUMMARY_TIMEOUT"))
-    _max_tokens = int(os.getenv("PG_CLUSTER_SUMMARY_MAX_TOKENS", "512"))
+    _max_tokens = int(resolve('PG_CLUSTER_SUMMARY_MAX_TOKENS'))
     _concurrency = int(resolve("PG_CLUSTER_SUMMARY_CONCURRENCY"))
     _sem = asyncio.Semaphore(_concurrency)
 
@@ -1154,7 +1154,7 @@ For each problem found, state:
                         "confirm the outline. Your job is to BREAK it. Find structural "
                         "weaknesses that will produce a bad report. Be harsh but specific."
                     ),
-                    max_tokens=int(os.getenv("PG_OUTLINE_CRITIQUE_MAX_TOKENS", "2048")),
+                    max_tokens=int(resolve('PG_OUTLINE_CRITIQUE_MAX_TOKENS')),
                     temperature=0.8,  # Different temperature for diversity
                 ),
                 timeout=int(resolve("PG_OUTLINE_CRITIQUE_TIMEOUT")),
@@ -1286,7 +1286,7 @@ async def _generate_section_questions(
     """
     section_questions: dict[str, list[str]] = {}
     _timeout = int(resolve("PG_SECTION_QUESTION_TIMEOUT"))
-    _max_tokens = int(os.getenv("PG_SECTION_QUESTION_MAX_TOKENS", "1024"))
+    _max_tokens = int(resolve('PG_SECTION_QUESTION_MAX_TOKENS'))
     _concurrency = int(resolve("PG_SECTION_QUESTION_CONCURRENCY"))
     _sem = asyncio.Semaphore(_concurrency)
 
@@ -1371,7 +1371,7 @@ async def _focused_reextraction(
     """
     _concurrency = int(resolve("PG_FOCUSED_EXTRACTION_CONCURRENCY"))
     _timeout = int(resolve("PG_FOCUSED_EXTRACTION_TIMEOUT"))
-    _max_tokens = int(os.getenv("PG_FOCUSED_EXTRACTION_MAX_TOKENS", "2048"))
+    _max_tokens = int(resolve('PG_FOCUSED_EXTRACTION_MAX_TOKENS'))
     _max_sources_per_section = int(resolve("PG_FOCUSED_MAX_SOURCES_PER_SECTION"))
     _max_evidence_per_section = int(resolve("PG_FOCUSED_MAX_EVIDENCE_PER_SECTION"))
 
@@ -1556,7 +1556,7 @@ async def _review_sections(
     issues with CRITICAL/ADVISORY classification.
     """
     _timeout = int(resolve("PG_REVIEW_SECTION_TIMEOUT"))
-    _max_tokens = int(os.getenv("PG_REVIEW_SECTION_MAX_TOKENS", "2048"))
+    _max_tokens = int(resolve('PG_REVIEW_SECTION_MAX_TOKENS'))
     _concurrency = int(resolve("PG_REVIEW_CONCURRENCY"))
 
     ev_by_id = {e.get("evidence_id", ""): e for e in evidence}
@@ -3345,7 +3345,7 @@ async def synthesize_report(
                 client.generate(
                     prompt=_coherence_prompt,
                     system="You are a research report editor. Write smooth transitions between sections. Output ONLY the transition sentences.",
-                    max_tokens=int(os.getenv("PG_COHERENCE_PASS_MAX_TOKENS", "1024")),
+                    max_tokens=int(resolve('PG_COHERENCE_PASS_MAX_TOKENS')),
                     temperature=0.5,
                 ),
                 timeout=_coherence_timeout,
@@ -4097,7 +4097,7 @@ async def synthesize_report(
                         # (logged), content to Pool 2 (used for polished text).
                         _polish_resp = await client.generate(
                             prompt=_polish_prompt,
-                            max_tokens=int(os.getenv("PG_POLISH_MAX_TOKENS", "16384")),
+                            max_tokens=int(resolve('PG_POLISH_MAX_TOKENS')),
                         )
                         _polished_sec = _polish_resp.content.strip()
                         if _polished_sec:
@@ -4597,7 +4597,7 @@ Limit to 10 highest-priority gap queries."""
             prompt=prompt,
             schema=GapAnalysis,
             system=GAP_ANALYSIS_SYSTEM,
-            max_tokens=int(os.getenv("PG_GAP_ANALYSIS_MAX_TOKENS", "4096")),
+            max_tokens=int(resolve('PG_GAP_ANALYSIS_MAX_TOKENS')),
             timeout=int(resolve("PG_GAP_ANALYSIS_TIMEOUT")),
         )
 

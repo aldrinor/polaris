@@ -1,6 +1,7 @@
 """F2 disambiguation route (I-f2-003): cluster + label candidate snippets."""
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import os
 from datetime import datetime, timezone
@@ -50,12 +51,12 @@ class _OpenRouterLabelClient:
         # I-arch-003 (#1253): self.model is reasoning-first (deepseek); the old 50-token default truncated
         # mid-reasoning -> empty content -> RuntimeError. Un-starve to the reasoning-first floor + reasoning ON
         # at max effort (env-overridable). The label output is short; max_tokens is a cap billed by usage.
-        _floor = int(os.environ.get("PG_DISAMBIG_LABEL_MAX_TOKENS", "16384") or "16384")
+        _floor = int(resolve('PG_DISAMBIG_LABEL_MAX_TOKENS') or "16384")
         if max_tokens is None or max_tokens < _floor:
             max_tokens = _floor
         body = {"model": self.model, "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0, "max_tokens": max_tokens,
-                "reasoning": {"effort": os.environ.get("PG_DISAMBIG_REASONING_EFFORT", "high") or "high"}}
+                "reasoning": {"effort": resolve('PG_DISAMBIG_REASONING_EFFORT') or "high"}}
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json",
                    "HTTP-Referer": "https://polaris-canada.local",
                    "X-Title": "POLARIS F2 Disambiguation"}

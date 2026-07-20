@@ -330,7 +330,7 @@ async def _extract_named_studies(
             # study list -> silent snowball loss. Floored to the reasoning-first minimum; the
             # openrouter_client branch-2 floor now also backstops this, but the explicit value documents
             # intent and protects a non-reasoning-first PG_SWEEP_DEEPENER_MODEL override (LAW VI).
-            max_tokens=int(os.getenv("PG_DEEPENER_EXTRACT_MAX_TOKENS", "32768")),
+            max_tokens=int(resolve('PG_DEEPENER_EXTRACT_MAX_TOKENS')),
         )
         text = result.content.strip()
 
@@ -855,7 +855,7 @@ async def _mechanism_search(
             # old max_tokens=500 was the MOST starved site on the live path (500 total vs ~17-18k V4-Pro
             # reasoning -> guaranteed empty -> silent fallback to deterministic mechanism queries).
             # Floored to the reasoning-first minimum (LAW VI; branch-2 floor backstops too).
-            max_tokens=int(os.getenv("PG_DEEPENER_MECHANISM_MAX_TOKENS", "32768")),
+            max_tokens=int(resolve('PG_DEEPENER_MECHANISM_MAX_TOKENS')),
         )
         text = result.content.strip()
     except Exception as exc:

@@ -38,6 +38,7 @@ Per LAW II:
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import re
 from dataclasses import dataclass, field, asdict
@@ -135,7 +136,7 @@ def _tier_shift_threshold_pp() -> float:
     """Return the percentage-point threshold above which a tier
     mix shift counts as material. Env: PG_RUN_DIFF_TIER_PP
     (default 10.0). LAW VI."""
-    raw = os.environ.get("PG_RUN_DIFF_TIER_PP")
+    raw = resolve('PG_RUN_DIFF_TIER_PP')
     if raw is None:
         return 10.0
     try:

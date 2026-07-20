@@ -465,7 +465,7 @@ def _promote_mode_active() -> bool:
     except Exception:
         _off_values = {"", "0", "false", "off", "no", "disabled"}
         return (
-            os.environ.get("PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED", "0").strip().lower()
+            resolve('PG_ANALYST_SYNTHESIS_PROMOTE_GROUNDED').strip().lower()
             not in _off_values
         )
 
@@ -743,7 +743,7 @@ async def generate_analyst_synthesis(
             # reasoning -> empty content"), raise the DEFAULT slice 16384 -> 32768 (a CAP, not a target,
             # billed by actual usage -> generous cap is free insurance). Still LAW VI env-overridable.
             reasoning_max_tokens=int(
-                os.getenv("PG_ANALYST_SYNTHESIS_REASONING_MAX_TOKENS", "32768")
+                resolve('PG_ANALYST_SYNTHESIS_REASONING_MAX_TOKENS')
             ),
         )
         text = (response.content or "").strip()

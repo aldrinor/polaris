@@ -38,6 +38,7 @@ Per LAW VI — env-configurable:
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import os
 import re
@@ -68,7 +69,7 @@ DEFAULT_API_KEY_PREFIX = "polaris_"
 def _bcrypt_rounds() -> int:
     """Read PG_BCRYPT_ROUNDS at call time (LAW VI). Garbage values
     fall back to default."""
-    raw = os.environ.get("PG_BCRYPT_ROUNDS")
+    raw = resolve('PG_BCRYPT_ROUNDS')
     if raw is None:
         return DEFAULT_BCRYPT_ROUNDS
     try:

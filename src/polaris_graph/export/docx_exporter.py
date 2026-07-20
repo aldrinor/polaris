@@ -13,6 +13,7 @@ LAW V:  snake_case throughout, one-responsibility module.
 """
 
 import base64
+from src.polaris_graph.settings import resolve
 import hashlib
 import io
 import json
@@ -43,17 +44,17 @@ logger = logging.getLogger(__name__)
 # Configuration from environment (LAW VI)
 # ---------------------------------------------------------------------------
 
-DOCX_BODY_FONT = os.getenv("POLARIS_DOCX_FONT", "Calibri")
-DOCX_BODY_FONT_SIZE_PT = int(os.getenv("POLARIS_DOCX_FONT_SIZE", "11"))
-DOCX_HEADING_FONT = os.getenv("POLARIS_DOCX_HEADING_FONT", "Calibri")
-DOCX_HEADING1_SIZE_PT = int(os.getenv("POLARIS_DOCX_HEADING1_SIZE", "18"))
-DOCX_HEADING2_SIZE_PT = int(os.getenv("POLARIS_DOCX_HEADING2_SIZE", "14"))
-DOCX_HEADING3_SIZE_PT = int(os.getenv("POLARIS_DOCX_HEADING3_SIZE", "12"))
-DOCX_TITLE_SIZE_PT = int(os.getenv("POLARIS_DOCX_TITLE_SIZE", "26"))
-DOCX_MARGIN_CM = float(os.getenv("POLARIS_DOCX_MARGIN_CM", "2.54"))
-DOCX_ACCENT_COLOR = os.getenv("POLARIS_DOCX_ACCENT_COLOR", "1F4E79")
-DOCX_PIPELINE_VERSION = os.getenv("POLARIS_PIPELINE_VERSION", "polaris-graph-v1")
-DOCX_LINE_SPACING = float(os.getenv("POLARIS_DOCX_LINE_SPACING", "1.15"))
+DOCX_BODY_FONT = resolve('POLARIS_DOCX_FONT')
+DOCX_BODY_FONT_SIZE_PT = int(resolve('POLARIS_DOCX_FONT_SIZE'))
+DOCX_HEADING_FONT = resolve('POLARIS_DOCX_HEADING_FONT')
+DOCX_HEADING1_SIZE_PT = int(resolve('POLARIS_DOCX_HEADING1_SIZE'))
+DOCX_HEADING2_SIZE_PT = int(resolve('POLARIS_DOCX_HEADING2_SIZE'))
+DOCX_HEADING3_SIZE_PT = int(resolve('POLARIS_DOCX_HEADING3_SIZE'))
+DOCX_TITLE_SIZE_PT = int(resolve('POLARIS_DOCX_TITLE_SIZE'))
+DOCX_MARGIN_CM = float(resolve('POLARIS_DOCX_MARGIN_CM'))
+DOCX_ACCENT_COLOR = resolve('POLARIS_DOCX_ACCENT_COLOR')
+DOCX_PIPELINE_VERSION = resolve('POLARIS_PIPELINE_VERSION')
+DOCX_LINE_SPACING = float(resolve('POLARIS_DOCX_LINE_SPACING'))
 
 
 # ---------------------------------------------------------------------------

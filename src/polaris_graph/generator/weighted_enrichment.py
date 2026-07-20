@@ -124,7 +124,7 @@ _CONFIRMED_OFFTOPIC_LABELS = frozenset({"demoted", "escalated_demoted"})
 def offtopic_cite_suppress_enabled() -> bool:
     """Kill-switch ``PG_OFFTOPIC_CITE_SUPPRESS`` (default ON). OFF => the cite
     surface is byte-identical to the legacy keep-all-and-cite behaviour."""
-    return os.environ.get("PG_OFFTOPIC_CITE_SUPPRESS", "1").strip().lower() not in (
+    return resolve('PG_OFFTOPIC_CITE_SUPPRESS').strip().lower() not in (
         "0", "false", "no", "off",
     )
 
@@ -135,7 +135,7 @@ _POSITIVE_RELEVANCE_LABELS = frozenset({"relevant", "escalated_relevant"})
 def _offtopic_relevance_override_enabled() -> bool:
     """Kill-switch ``PG_OFFTOPIC_RELEVANCE_OVERRIDE`` (default ON). OFF => the
     legacy byte-identical ``_is_confirmed_offtopic`` (topic-flag wins)."""
-    return os.environ.get("PG_OFFTOPIC_RELEVANCE_OVERRIDE", "1").strip().lower() not in (
+    return resolve('PG_OFFTOPIC_RELEVANCE_OVERRIDE').strip().lower() not in (
         "0", "false", "no", "off",
     )
 
@@ -599,7 +599,7 @@ _WE_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 def _composition_recency_enabled() -> bool:
     """Journal-class gate: the composition recency leg fires only when PG_DOCUMENT_TYPE_WEIGHT is ON (the
     journal-class run signal) AND PG_COMPOSITION_RECENCY is not disabled (default-ON)."""
-    dtw = os.environ.get("PG_DOCUMENT_TYPE_WEIGHT", "").strip().lower() in ("1", "true", "on", "yes")
+    dtw = resolve('PG_DOCUMENT_TYPE_WEIGHT').strip().lower() in ("1", "true", "on", "yes")
     comp = os.environ.get(_COMPOSITION_RECENCY_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
     return dtw and comp
 
@@ -976,7 +976,7 @@ def diagnose_unbound_supports_selection(
     # validation. Lazy import (reading, not a cross-module edit) mirrors live_retriever.py:3186.
     from src.polaris_graph.retrieval.evidence_selector import parse_relevance_floor
 
-    relevance_floor = parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+    relevance_floor = parse_relevance_floor(resolve('PG_RELEVANCE_FLOOR'))
 
     # Per-eid: the HIGHEST basket weight_mass it appears under (ordering only, never a filter) and
     # its topicality score for the relevance-first ordering.
@@ -3114,7 +3114,7 @@ _MASTHEAD_NO_ORCID_RE = re.compile(
 def _render_chrome_narration_enabled() -> bool:
     """Kill-switch ``PG_RENDER_CHROME_NARRATION`` (default ON). Only an explicit 0/false/off/no
     disables; an EMPTY string stays ON."""
-    return os.environ.get("PG_RENDER_CHROME_NARRATION", "1").strip().lower() not in ("0", "false", "off", "no")
+    return resolve('PG_RENDER_CHROME_NARRATION').strip().lower() not in ("0", "false", "off", "no")
 
 
 # I-deepfix-001 (#1369) iter2/iter3 (Codex + Fable P1, WEIGHT-NOT-FILTER / no-drop): a REAL finding that
@@ -3868,7 +3868,7 @@ def _ledger_relevance_floor() -> float:
         from src.polaris_graph.retrieval.evidence_selector import (  # noqa: PLC0415
             parse_relevance_floor,
         )
-        return parse_relevance_floor(os.environ.get("PG_RELEVANCE_FLOOR"))
+        return parse_relevance_floor(resolve('PG_RELEVANCE_FLOOR'))
     except Exception:  # noqa: BLE001 — fail-safe default; a broken import must never crash placement
         return 0.30
 

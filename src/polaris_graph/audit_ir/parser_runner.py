@@ -15,6 +15,7 @@ the inspector_router for Phase B.
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -120,7 +121,7 @@ class TextParser(ParserRunner):
     @staticmethod
     def _env_chunk_chars() -> int:
         import os
-        raw = os.environ.get("PG_TEXT_CHUNK_CHARS")
+        raw = resolve('PG_TEXT_CHUNK_CHARS')
         if raw is None:
             return DEFAULT_TEXT_CHUNK_CHARS
         try:

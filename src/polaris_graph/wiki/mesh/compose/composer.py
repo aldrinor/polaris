@@ -32,7 +32,7 @@ from src.polaris_graph.settings import resolve
 
 logger = logging.getLogger(__name__)
 
-COMPOSE_MAX_TOKENS = int(os.getenv("PG_MESH_COMPOSE_MAX_TOKENS", "4096"))
+COMPOSE_MAX_TOKENS = int(resolve('PG_MESH_COMPOSE_MAX_TOKENS'))
 COMPOSE_TIMEOUT = int(resolve("PG_MESH_COMPOSE_TIMEOUT"))
 MAX_CLAIMS_FOR_PROMPT = int(resolve("PG_MESH_MAX_CLAIMS_PROMPT"))
 

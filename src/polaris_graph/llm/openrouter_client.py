@@ -837,8 +837,8 @@ _REASONING_FIRST_MODELS = frozenset({
 # Pricing per million tokens (configurable per LAW VI)
 # Qwen 3.5 Plus: $0.26 input, $1.56 output
 # Use API-reported cost when available (FIX-C1)
-INPUT_COST_PER_M = float(os.getenv("OPENROUTER_INPUT_COST_PER_M", "0.26"))
-OUTPUT_COST_PER_M = float(os.getenv("OPENROUTER_OUTPUT_COST_PER_M", "1.56"))
+INPUT_COST_PER_M = float(resolve('OPENROUTER_INPUT_COST_PER_M'))
+OUTPUT_COST_PER_M = float(resolve('OPENROUTER_OUTPUT_COST_PER_M'))
 
 # Timeouts — FIX-SCHEMA-5: reduced from 180/300 to 90/180.
 # Qwen 3.5 Plus typically responds in 10-60s. 3+ min means the API is hung.
@@ -1280,7 +1280,7 @@ _COT_PREAMBLE_RE = re.compile(
 
 
 def _cot_preamble_strip_enabled() -> bool:
-    return os.environ.get("PG_COT_PREAMBLE_STRIP", "1").strip().lower() not in ("0", "false", "off", "no")
+    return resolve('PG_COT_PREAMBLE_STRIP').strip().lower() not in ("0", "false", "off", "no")
 
 
 def _strip_cot_preamble(text: str) -> str:
@@ -1968,7 +1968,7 @@ class OpenRouterClient:
             # Enforce minimum max_tokens so reasoning doesn't starve content.
             # At max_tokens<2000, GLM-5 spends entire budget on reasoning,
             # leaving content empty. Tested: 2000 → 1313 chars content.
-            _min_tokens = int(os.getenv("PG_GLM5_MIN_MAX_TOKENS", "4096"))
+            _min_tokens = int(resolve('PG_GLM5_MIN_MAX_TOKENS'))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
         elif reasoning_enabled:
@@ -1990,7 +1990,7 @@ class OpenRouterClient:
             # branch 2 (branch 1 catches it), so this targets exactly the deepseek reasoning-first set and
             # leaves GLM's 4096 floor untouched. Env knobs shared with branch 3 (LAW VI).
             if self.model in _REASONING_FIRST_MODELS:
-                _rf_min = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "32768"))
+                _rf_min = int(resolve('PG_REASONING_FIRST_MIN_MAX_TOKENS'))
                 if body.get("max_tokens", 0) < _rf_min:
                     body["max_tokens"] = _rf_min
                 _rf_cap = int(resolve("PG_REASONING_FIRST_HARD_CAP"))
@@ -2032,7 +2032,7 @@ class OpenRouterClient:
             # FULL-CAP providers (WandB/Parasail 1,048,576; rest >= 384,000) with require_parameters:true, so
             # the reasoning-first model gets real headroom. Floor raised 16384 -> 32768 so V4 Pro's ~17-18k
             # reasoning tokens + content never truncate (the old 16384 starved content on long sections).
-            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "32768"))
+            _min_tokens = int(resolve('PG_REASONING_FIRST_MIN_MAX_TOKENS'))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
             # Hard ceiling at DeepInfra's verified cap for deepseek-v4-pro. The runner's
@@ -2111,10 +2111,10 @@ class OpenRouterClient:
                 body["stream"] = False
 
         # Provider routing from env; empty = let OpenRouter auto-route
-        provider_order_str = os.getenv("OPENROUTER_PROVIDER_ORDER", "")
+        provider_order_str = resolve('OPENROUTER_PROVIDER_ORDER')
         provider_order = [p.strip() for p in provider_order_str.split(",") if p.strip()]
-        allow_fb = os.getenv("OPENROUTER_ALLOW_FALLBACKS", "true").lower() == "true"
-        require_params = os.getenv("OPENROUTER_REQUIRE_PARAMETERS", "true").lower() == "true"
+        allow_fb = resolve('OPENROUTER_ALLOW_FALLBACKS').lower() == "true"
+        require_params = resolve('OPENROUTER_REQUIRE_PARAMETERS').lower() == "true"
         provider_block: dict[str, Any] = {
             "allow_fallbacks": allow_fb,
             "require_parameters": require_params,

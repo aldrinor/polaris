@@ -73,7 +73,7 @@ _SELF_REFINE_MAX_ITERATIONS = int(
 
 # WS-5: CiteFix post-processing (ACL 2025 Industry)
 _CITEFIX_ENABLED = resolve("PG_CITEFIX_ENABLED") == "1"
-_CITEFIX_KEYWORD_MIN = int(os.getenv("PG_CITEFIX_KEYWORD_MIN", "3"))
+_CITEFIX_KEYWORD_MIN = int(resolve('PG_CITEFIX_KEYWORD_MIN'))
 _CITEFIX_SEMANTIC_THRESHOLD = float(
     resolve("PG_CITEFIX_SEMANTIC_THRESHOLD"),
 )
@@ -88,7 +88,7 @@ _GTA_THRESHOLD = float(resolve("PG_ATTRIBUTION_THRESHOLD"))
 _GTA_MAX_PER_SENTENCE = int(
     resolve("PG_ATTRIBUTION_MAX_PER_SENTENCE"),
 )
-_GTA_KEYWORD_MIN = int(os.getenv("PG_ATTRIBUTION_KEYWORD_MIN", "3"))
+_GTA_KEYWORD_MIN = int(resolve('PG_ATTRIBUTION_KEYWORD_MIN'))
 
 # Hybrid Evidence: numbered source passages instead of claim questions
 # STORM/OpenScholar/Attribute-First pattern (ACL 2024-2026).
@@ -5928,10 +5928,10 @@ class ReactAnalysisAgent:
                     schema=InterpretationCritique,
                     # I-arch-003 (#1253): reasoning effort to MAX (was medium). max_tokens routes through
                     # openrouter_client so the reasoning-first floor (>=4096/16384) applies.
-                    effort=os.environ.get("PG_CRITIQUE_REASONING_EFFORT", "high") or "high",
+                    effort=resolve('PG_CRITIQUE_REASONING_EFFORT') or "high",
                     # F23 (I-arch-004 A3): env-overridable audit-critique cap; default keeps the
                     # historical literal 2048 (byte-identical when unset). CAP not target (§9.1.8).
-                    max_tokens=int(os.environ.get("PG_AUDIT_CRITIQUE_MAX_TOKENS", "2048")),
+                    max_tokens=int(resolve('PG_AUDIT_CRITIQUE_MAX_TOKENS')),
                     timeout=_CRITIQUE_TIMEOUT,
                 ),
                 timeout=_CRITIQUE_TIMEOUT + 15,

@@ -41,9 +41,9 @@ from src.polaris_graph.settings import resolve
 logger = logging.getLogger(__name__)
 
 OPENALEX_BASE = "https://api.openalex.org"
-POLITE_EMAIL = os.getenv("OPENALEX_EMAIL", "")
-CACHE_DB = Path(os.getenv("OPENALEX_CACHE_DB", "cache/openalex.sqlite"))
-TIMEOUT = float(os.getenv("OPENALEX_TIMEOUT", "10"))
+POLITE_EMAIL = resolve('OPENALEX_EMAIL')
+CACHE_DB = Path(resolve('OPENALEX_CACHE_DB'))
+TIMEOUT = float(resolve('OPENALEX_TIMEOUT'))
 ENABLED = resolve("PG_OPENALEX_ENABLED") == "1"
 
 

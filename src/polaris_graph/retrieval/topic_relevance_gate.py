@@ -36,6 +36,7 @@ A marquee / required-entity anchor is NEVER dropped, regardless of verdict.
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import logging
 import os
@@ -65,7 +66,7 @@ def topic_gate_enabled() -> bool:
     sidecar), so turning it ON adds a disclosed WEIGHT, never a hard filter. Set
     ``PG_SCOPE_TOPIC_GATE=0`` to restore the byte-identical legacy (gate never
     called) behaviour."""
-    raw = os.environ.get("PG_SCOPE_TOPIC_GATE", "1").strip().lower()
+    raw = resolve('PG_SCOPE_TOPIC_GATE').strip().lower()
     return raw not in ("0", "false", "no", "off", "")
 
 
@@ -79,7 +80,7 @@ def resume_run_topic_judge_enabled() -> bool:
     :func:`classify_topic_relevance` on a resume, so the reloaded rows get a topic verdict
     stamped. Default OFF => the ``not _resume_active`` short-circuit holds => byte-identical
     (the judge is not run on a resume, exactly as before)."""
-    raw = os.environ.get("PG_RESUME_RUN_TOPIC_JUDGE", "").strip().lower()
+    raw = resolve('PG_RESUME_RUN_TOPIC_JUDGE').strip().lower()
     return raw in ("1", "true", "on", "yes", "enabled")
 
 
@@ -106,7 +107,7 @@ def topic_gate_hard_drop_enabled() -> bool:
     4-role faithfulness engine is the only gate. Set this flag truthy ONLY to
     restore the pre-I-deepfix-001 hard-drop (audit / reversal); the default
     keep-all + demote is the §-1.3-correct behavior."""
-    raw = os.environ.get("PG_SCOPE_TOPIC_GATE_HARD_DROP", "0").strip().lower()
+    raw = resolve('PG_SCOPE_TOPIC_GATE_HARD_DROP').strip().lower()
     return raw not in ("0", "false", "no", "off", "")
 
 
@@ -124,7 +125,7 @@ def topic_gate_subject_aspect_split_enabled() -> bool:
     A legacy plain ``OFF`` parses as OFF_ASPECT (conservative — never delete on the old
     verdict form). Set ``PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT=0`` to restore the
     byte-identical legacy ON/OFF prompt + parser (no ``topic_off_subject`` stamp)."""
-    raw = os.environ.get("PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT", "1").strip().lower()
+    raw = resolve('PG_TOPIC_GATE_SUBJECT_ASPECT_SPLIT').strip().lower()
     return raw not in ("0", "false", "no", "off", "")
 
 
@@ -137,7 +138,7 @@ def junk_chrome_before_offtopic_enabled() -> bool:
     leg) and is NEVER stamped ``topic_off_subject`` / ``topic_offtopic_demoted``, so a garbled
     body + a chrome title can never be mislabeled ``confirmed_offtopic`` (Cause 3). OFF =>
     byte-identical legacy (every non-exempt row with judgeable text is judged)."""
-    raw = os.environ.get("PG_JUNK_CHROME_BEFORE_OFFTOPIC", "1").strip().lower()
+    raw = resolve('PG_JUNK_CHROME_BEFORE_OFFTOPIC').strip().lower()
     return raw not in ("0", "false", "no", "off", "")
 
 
@@ -181,7 +182,7 @@ def topic_batch_size() -> int:
     """``PG_SCOPE_TOPIC_BATCH`` (default 25), the max sources per LLM call.
     A non-positive / unparseable value falls back to the default (FAIL-SAFE:
     a garbage batch size must never produce a zero-size loop)."""
-    raw = os.environ.get("PG_SCOPE_TOPIC_BATCH", "").strip()
+    raw = resolve('PG_SCOPE_TOPIC_BATCH').strip()
     if not raw:
         return _DEFAULT_TOPIC_BATCH
     try:
@@ -581,7 +582,7 @@ def classify_topic_relevance(
     # ``PG_SCOPE_TOPIC_GATE_HARD_DROP`` (audit / reversal). Order is unchanged in
     # BOTH modes (no tail-partition), so a demoted row stays best-first-ranked.
     hard_drop = topic_gate_hard_drop_enabled()
-    rescue_on_stamp = os.environ.get("PG_TOPIC_GATE_RESCUE_ON_STAMP", "1").strip().lower() not in (
+    rescue_on_stamp = resolve('PG_TOPIC_GATE_RESCUE_ON_STAMP').strip().lower() not in (
         "0", "false", "no", "off",
     )
     # I-deepfix-003 #1374 Fix 3: split the OFF verdict into OFF_ASPECT (demote-keep) vs

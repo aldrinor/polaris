@@ -470,7 +470,7 @@ def _depth_recency_rerank_enabled() -> bool:
     """Journal-class gate: the depth-synthesis recency re-rank fires only when ``PG_DOCUMENT_TYPE_WEIGHT``
     is ON (the journal-class run signal, same gate as the bibliography + composition legs) AND
     ``PG_DEPTH_RECENCY_RERANK`` is not disabled (default-ON kill-switch)."""
-    dtw = os.environ.get("PG_DOCUMENT_TYPE_WEIGHT", "").strip().lower() in ("1", "true", "on", "yes")
+    dtw = resolve('PG_DOCUMENT_TYPE_WEIGHT').strip().lower() in ("1", "true", "on", "yes")
     rerank = os.environ.get(_DEPTH_RECENCY_RERANK_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
     return dtw and rerank
 

@@ -124,7 +124,7 @@ async def run_scope(
                 prompt=prompt,
                 schema=ScopeOutput,
                 system=_SCOPE_SYSTEM_PROMPT,
-                max_tokens=int(os.getenv("PG_V3_SCOPE_MAX_TOKENS", "8192")),
+                max_tokens=int(resolve('PG_V3_SCOPE_MAX_TOKENS')),
                 timeout=int(resolve("PG_V3_SCOPE_TIMEOUT")),
             )
             if scope_output and len(scope_output.sub_questions) >= 3:
@@ -158,7 +158,7 @@ async def run_scope(
                     "effectiveness, comparison, limitations, economics.",
                     schema=ScopeOutput,
                     system=_SCOPE_SYSTEM_PROMPT,
-                    max_tokens=int(os.getenv("PG_V3_SCOPE_MAX_TOKENS", "8192")),
+                    max_tokens=int(resolve('PG_V3_SCOPE_MAX_TOKENS')),
                     timeout=int(resolve("PG_V3_SCOPE_TIMEOUT")),
                 )
                 if not scope_output or len(scope_output.sub_questions) < 3:

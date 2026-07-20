@@ -111,7 +111,7 @@ async def reflect_across_sections(
                 )
 
                 resp = await client.generate(
-                    prompt, max_tokens=int(os.getenv("PG_REFLECTOR_MAX_TOKENS", "8192")),
+                    prompt, max_tokens=int(resolve('PG_REFLECTOR_MAX_TOKENS')),
                 )
                 content = getattr(resp, 'content', '') or ''
 
@@ -360,7 +360,7 @@ async def _revise_with_reflection(
 
     try:
         resp = await client.generate(
-            prompt, max_tokens=int(os.getenv("PG_REDUNDANCY_REWRITE_MAX_TOKENS", "8192")),
+            prompt, max_tokens=int(resolve('PG_REDUNDANCY_REWRITE_MAX_TOKENS')),
         )
         revised_content = getattr(resp, 'content', '') or ''
         if not revised_content or len(revised_content) < 50:

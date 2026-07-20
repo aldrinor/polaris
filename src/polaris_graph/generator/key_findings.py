@@ -575,7 +575,7 @@ def _is_render_chrome_claim(sentence: str) -> bool:
 def _max_key_findings_markers() -> int:
     """Per-run citation cap for the Key-Findings summary (LAW VI). Floored at 1; fail-soft on a
     non-int (the summary must never be silently emptied of citations)."""
-    raw = os.getenv("PG_KEY_FINDINGS_MAX_MARKERS", "").strip()
+    raw = resolve('PG_KEY_FINDINGS_MAX_MARKERS').strip()
     if not raw:
         return _DEFAULT_MAX_MARKERS
     try:
@@ -603,7 +603,7 @@ def cap_citation_marker_runs(sentence: str, max_markers: int) -> str:
 
 def key_findings_enabled() -> bool:
     """Default ON. `PG_SWEEP_KEY_FINDINGS=0` ships the report without the exec-summary block (cold-open)."""
-    return os.getenv("PG_SWEEP_KEY_FINDINGS", "1").strip().lower() not in _OFF_VALUES
+    return resolve('PG_SWEEP_KEY_FINDINGS').strip().lower() not in _OFF_VALUES
 
 
 def _strip_leading_markdown_headers(text: str) -> str:

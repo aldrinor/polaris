@@ -25,8 +25,8 @@ MAX_CLAIMS_PER_SECTION = int(resolve("PG_WIKI_MAX_CLAIMS_PER_SECTION"))
 THIN_SECTION_THRESHOLD = int(resolve("PG_WIKI_THIN_THRESHOLD"))
 TARGET_WORDS_DEFAULT = int(resolve("PG_WIKI_TARGET_WORDS"))
 COMPOSE_TIMEOUT = int(resolve("PG_WIKI_COMPOSE_TIMEOUT"))
-COMPOSE_MAX_TOKENS = int(os.getenv("PG_WIKI_COMPOSE_MAX_TOKENS", "8192"))
-ABSTRACT_MAX_TOKENS = int(os.getenv("PG_WIKI_ABSTRACT_MAX_TOKENS", "1536"))
+COMPOSE_MAX_TOKENS = int(resolve('PG_WIKI_COMPOSE_MAX_TOKENS'))
+ABSTRACT_MAX_TOKENS = int(resolve('PG_WIKI_ABSTRACT_MAX_TOKENS'))
 
 # 5-lens analytical scaffold (from v3 react_agent.py)
 # Adds structural depth to section composition: Evidence/Mechanism/

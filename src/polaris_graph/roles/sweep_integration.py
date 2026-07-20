@@ -261,7 +261,7 @@ _BUDGET_RESERVE_ENABLED = resolve("PG_FOUR_ROLE_BUDGET_RESERVE") != "0"
 # prompt could exceed). Default 400_000 covers the largest pinned context window (deepseek-v4-pro
 # 384_000 per §9.1.8 / OpenRouter `/api/v1/models`); LAW VI override for a re-pin to a larger-context
 # verifier. This is a CAP on the reservation, not a token starvation — it never lowers any max_tokens.
-_RESERVE_CONTEXT_TOKENS = max(1, int(os.getenv("PG_FOUR_ROLE_RESERVE_CONTEXT_TOKENS", "400000")))
+_RESERVE_CONTEXT_TOKENS = max(1, int(resolve('PG_FOUR_ROLE_RESERVE_CONTEXT_TOKENS')))
 
 
 def _anticipated_claim_cost(model_slugs: dict[str, str]) -> float:
@@ -1108,7 +1108,7 @@ def run_four_role_evaluation(
     # "0"/"false"/"False" for offline-test isolation only — same predicate as the runner at the
     # reconcile_report_against_verdicts call site). When redaction is OFF, FABRICATED stays a hard
     # block (is_hard_block) so a fabricated claim can never ship as asserted prose.
-    _redaction_active = os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+    _redaction_active = resolve('PG_REDACT_HELD_UNSUPPORTED').strip() not in (
         "0", "false", "False",
     )
     release_outcome = compute_release_outcome(

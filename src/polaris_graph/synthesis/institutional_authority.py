@@ -29,6 +29,7 @@ Everything is env-overridable (LAW VI):
                                               default registry (extend/override any institution).
 """
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import json
 import os
@@ -186,7 +187,7 @@ def institutional_authority_enabled() -> bool:
     """W1 kill-switch ``PG_INSTITUTIONAL_AUTHORITY_WEIGHT`` (default ON). OFF => the registry is
     inert (``institutional_authority_for_url`` always returns None) => byte-identical legacy
     weighting."""
-    return os.environ.get("PG_INSTITUTIONAL_AUTHORITY_WEIGHT", "on").strip().lower() not in _OFF_VALUES
+    return resolve('PG_INSTITUTIONAL_AUTHORITY_WEIGHT').strip().lower() not in _OFF_VALUES
 
 
 def _clamp01(value: object) -> float | None:

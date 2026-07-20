@@ -20,6 +20,7 @@ so resolve_provenance_to_citations cites the inputs).
 SPEND-FREE: deterministic render + sandbox execution of FIXED Python; no network.
 """
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import ast
 import json
@@ -45,7 +46,7 @@ _CALC_PLACEHOLDER_RE = re.compile(r"\{\{calc:(?P<field>[^}]+)\}\}")
 # Two extracted datapoints describing the SAME quantity (same label + unit) whose
 # values disagree by more than this are a sourced-input conflict — surfaced in
 # manifest telemetry so the operator sees the corpus contradiction (named, Law VI).
-_CALC_CONFLICT_REL_TOL = float(os.environ.get("PG_CALC_CONFLICT_REL_TOL", "0.05"))
+_CALC_CONFLICT_REL_TOL = float(resolve('PG_CALC_CONFLICT_REL_TOL'))
 
 # I-pipe-012 (#1237): typed-status discrimination for the quantified differentiator.
 # The pre-fix function returned a bare ``None`` at three distinct death points
@@ -64,14 +65,14 @@ QUANTIFIED_STATUS_PARSE_ERROR = "parse_error"     # spec_provider RAISED, or emi
 # Kill-switch (LAW VI): default-ON typed-status + bounded transient retry. Set to
 # "0"/"false" to REVERT to the pre-fix behavior — a bare ``None`` return with NO
 # ``quantified_status`` key added to telem and a SINGLE spec_provider call (no retry).
-_TYPED_STATUS_ENABLED = os.environ.get("PG_QUANTIFIED_TYPED_STATUS", "1").strip().lower() not in (
+_TYPED_STATUS_ENABLED = resolve('PG_QUANTIFIED_TYPED_STATUS').strip().lower() not in (
     "0", "false", "no", "off",
 )
 
 # Bounded retries for a TRANSIENT spec_provider transport/parse failure (the RAISED
 # path only — a non-dict return is a Writer DECLINE, never retried; re-billing a
 # decline is waste). Total attempts = 1 + retries. Default 1 retry (2 attempts).
-_SPEC_PROVIDER_RETRIES = max(0, int(os.environ.get("PG_QUANTIFIED_SPEC_RETRIES", "1")))
+_SPEC_PROVIDER_RETRIES = max(0, int(resolve('PG_QUANTIFIED_SPEC_RETRIES')))
 
 # FIX-2 (#1344) — quantified filler suppression (LAW VI kill-switch, default-ON).
 # Withholds invented unit-free scalar OUTPUTS that merely relate >=2 distinct sourced
@@ -86,7 +87,7 @@ _FILLER_SUPPRESS_ENABLED = os.environ.get(
 ).strip().lower() not in ("0", "false", "no", "off")
 _DIMENSIONLESS_DISPLAY_KINDS = frozenset({"number", "ratio"})
 _FILLER_MIN_SOURCED_INPUTS = max(
-    2, int(os.environ.get("PG_QUANTIFIED_FILLER_MIN_SOURCED", "2"))
+    2, int(resolve('PG_QUANTIFIED_FILLER_MIN_SOURCED'))
 )
 
 
@@ -116,7 +117,7 @@ _SHORTLIST_CLEAN_ENABLED = os.environ.get(
 # parse as 5-6 digit "percentages" (204669%, 82972%, 206921%); real clinical/economic
 # percentages sit far below this generous cap (the clean drb_78 max is 99%). LAW VI
 # env-tunable — a CAP, not a target; it only ever REMOVES a garbage candidate.
-_SHORTLIST_MAX_PCT = float(os.environ.get("PG_QUANTIFIED_SHORTLIST_MAX_PCT", "1000"))
+_SHORTLIST_MAX_PCT = float(resolve('PG_QUANTIFIED_SHORTLIST_MAX_PCT'))
 
 # Substrings whose presence in a datapoint's label OR context marks it as scrape
 # chrome / binary / markup garbage rather than a modelable clinical/economic number:

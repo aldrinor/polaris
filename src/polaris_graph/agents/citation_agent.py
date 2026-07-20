@@ -26,7 +26,7 @@ from src.polaris_graph.settings import resolve
 logger = logging.getLogger(__name__)
 
 PG_CITATION_AGENT_ENABLED = resolve("PG_CITATION_AGENT_ENABLED") == "1"
-PG_CITATION_AGENT_MAX_TOKENS = int(os.getenv("PG_CITATION_AGENT_MAX_TOKENS", "8192"))
+PG_CITATION_AGENT_MAX_TOKENS = int(resolve('PG_CITATION_AGENT_MAX_TOKENS'))
 
 CITATION_SYSTEM = """You are a precision citation specialist for academic research reports.
 Your ONLY job is to insert inline citations [N] into text.

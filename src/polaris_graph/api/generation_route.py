@@ -12,6 +12,7 @@ Mount:
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 from datetime import datetime, timezone
 from typing import Any
@@ -142,7 +143,7 @@ def post_generation(
     """Run an EvidencePool through generator + strict-verify."""
     import os
 
-    require_contract = os.environ.get("POLARIS_REQUIRE_CONTRACT", "0").strip() == "1"
+    require_contract = resolve('POLARIS_REQUIRE_CONTRACT').strip() == "1"
     if require_contract:
         try:
             assert_generation_has_contract(req.contract, report_id=None)

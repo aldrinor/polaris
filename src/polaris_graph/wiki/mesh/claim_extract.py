@@ -119,7 +119,7 @@ MESH_SYSTEM = ANALYSIS_SYSTEM + (
 PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "5"))
 PG_MIN_STATEMENT_LEN = int(resolve("PG_MIN_STATEMENT_LEN"))
 PG_CONTENT_PER_SOURCE = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
-PG_EXTRACTION_MAX_TOKENS = int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384"))
+PG_EXTRACTION_MAX_TOKENS = int(resolve('PG_EXTRACTION_MAX_TOKENS'))
 PG_EXTRACTION_TIMEOUT = int(resolve("PG_EXTRACTION_TIMEOUT"))
 
 # Sentinel char span for claims whose direct_quote could not be located

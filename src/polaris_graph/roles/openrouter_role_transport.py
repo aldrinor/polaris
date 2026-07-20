@@ -1383,7 +1383,7 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
             # never approaches it). max_tokens is a usage-billed cap, so the generous budget never
             # starves output. Hard-floored at the certified minimum so an env override can't
             # re-introduce the run-12 truncation.
-            decomp_budget = int(os.getenv("PG_SENTINEL_DECOMPOSITION_MAX_TOKENS", "131072"))
+            decomp_budget = int(resolve('PG_SENTINEL_DECOMPOSITION_MAX_TOKENS'))
             # floor at the certified minimum, ceiling at the chain min (I-arch-003 hardening).
             body["max_tokens"] = min(
                 max(decomp_budget, _SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS),
@@ -1408,14 +1408,14 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
             # max_tokens=131072 returned 3/3 clean (0 blank, finish=stop, ~6-9s) on ALL of
             # atlas-cloud/z-ai/baidu/novita/gmicloud — the cap is a CEILING GLM does not exhaust, so it
             # never re-blanks. Do NOT collapse the gap (reasoning_cap toward max_tokens) — that re-breaks it.
-            reasoning_cap = int(os.getenv("PG_MIRROR_REASONING_MAX_TOKENS", "100000"))
+            reasoning_cap = int(resolve('PG_MIRROR_REASONING_MAX_TOKENS'))
             # I-arch-003 hardening: keep reasoning_cap strictly below the chain-min ceiling so the total
             # (>= reasoning_cap + 4000) still fits the provider cap; a runaway reasoning override can no
             # longer push the total past the 400 boundary, and the invariant reasoning_cap << total holds.
             reasoning_cap = min(reasoning_cap, _MIRROR_MAX_TOKENS_CHAIN_MIN - 4000)
             body["reasoning"] = {"max_tokens": reasoning_cap}
             body["max_tokens"] = min(
-                max(int(os.getenv("PG_MIRROR_MAX_TOKENS", "131072")), reasoning_cap + 4000),
+                max(int(resolve('PG_MIRROR_MAX_TOKENS')), reasoning_cap + 4000),
                 _MIRROR_MAX_TOKENS_CHAIN_MIN,
             )
         else:
@@ -1444,7 +1444,7 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
             # back to the proven 16384. LAW VI: env-overridable + parse-guarded; a non-positive override
             # falls back to the default; still clamped to the Judge chain min as a 400-proof backstop.
             try:
-                verdict_budget = int(os.getenv("PG_D8_VERDICT_MAX_TOKENS", "16384"))
+                verdict_budget = int(resolve('PG_D8_VERDICT_MAX_TOKENS'))
             except (TypeError, ValueError):
                 verdict_budget = 16384
             if verdict_budget <= 0:
@@ -1456,7 +1456,7 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         # raised 256 -> 4096 so a slightly verbose label can never truncate (still tiny, well within
         # every Sentinel provider's cap; usage-billed so the headroom costs nothing when unused).
         body["max_tokens"] = min(
-            int(os.getenv("PG_SENTINEL_MAX_TOKENS", "4096")), _SENTINEL_MAX_TOKENS_CHAIN_MIN
+            int(resolve('PG_SENTINEL_MAX_TOKENS')), _SENTINEL_MAX_TOKENS_CHAIN_MIN
         )
         # I-run11-007 (#1051): pin the non-reasoning role to its ranked HEALTHY provider chain too
         # (NO require_parameters — its slug does not advertise reasoning, so require_parameters would

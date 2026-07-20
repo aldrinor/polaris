@@ -25,7 +25,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Configuration (LAW VI: from env vars)
-PG_SECTION_TOKEN_BUDGET = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000"))
+PG_SECTION_TOKEN_BUDGET = int(resolve('PG_SECTION_TOKEN_BUDGET'))
 PG_EVIDENCE_FORMAT_TOP_FULL = int(resolve("PG_EVIDENCE_FORMAT_TOP_FULL"))
 PG_EVIDENCE_CANDIDATE_POOL = int(resolve("PG_EVIDENCE_CANDIDATE_POOL"))
 PG_EVIDENCE_L0_MAX_CHARS = int(resolve("PG_EVIDENCE_L0_MAX_CHARS"))

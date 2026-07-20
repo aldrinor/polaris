@@ -53,7 +53,7 @@ MAX_REWRITES_PER_SECTION = int(
 )
 
 # Max tokens for surgical rewrite
-REWRITE_MAX_TOKENS = int(os.getenv("PG_V2_REWRITE_MAX_TOKENS", "4096"))
+REWRITE_MAX_TOKENS = int(resolve('PG_V2_REWRITE_MAX_TOKENS'))
 
 
 # ---------------------------------------------------------------------------

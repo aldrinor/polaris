@@ -53,7 +53,7 @@ def _get_chroma_manager():
         import chromadb
         from chromadb.config import Settings
 
-        persist_dir = Path(os.getenv("CHROMA_PERSIST_DIR", "data/chroma_db"))
+        persist_dir = Path(resolve('CHROMA_PERSIST_DIR'))
         persist_dir.mkdir(parents=True, exist_ok=True)
         client = chromadb.PersistentClient(
             path=str(persist_dir),

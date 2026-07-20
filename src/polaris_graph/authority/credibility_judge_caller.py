@@ -15,6 +15,7 @@ open-weight model only (env `PG_CREDIBILITY_JUDGE_MODEL`). Runs ONLY when the ru
 master slate (operator-gated). Offline tests inject a stub caller and never reach this module.
 """
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import concurrent.futures
 import os
@@ -263,8 +264,8 @@ def make_openrouter_credibility_caller(
     # below is skipped (it would 400 a native endpoint); the operator sets PG_CREDIBILITY_JUDGE_MODEL to
     # that endpoint's slug. LAW VI: env-driven, no hardcoded key/endpoint.
     base = (
-        os.environ.get("PG_CREDIBILITY_JUDGE_BASE_URL", "").strip()
-        or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        resolve('PG_CREDIBILITY_JUDGE_BASE_URL').strip()
+        or resolve('OPENROUTER_BASE_URL')
     ).rstrip("/")
     endpoint = base + "/chat/completions"
     _is_openrouter_endpoint = "openrouter.ai" in base
@@ -320,7 +321,7 @@ def make_openrouter_credibility_caller(
         # (py-spy root cause). When PG_ROLE_ALLOW_FALLBACKS is set, SKIP the single-provider pin so
         # OpenRouter free-routes the model to its fastest available provider (sidesteps a slow pin
         # entirely — better than allow_fallbacks=True, which only fails over on ERROR, not slowness).
-        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+        _free_route = resolve('PG_ROLE_ALLOW_FALLBACKS').strip().lower() in (
             "1", "true", "yes", "on",
         )
         # I-arch-011: provider-rotation chain (advisory latency fix — see module header). Codex diff-gate

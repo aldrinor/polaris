@@ -99,7 +99,7 @@ async def generate_outline(
                 prompt=prompt,
                 schema=LiveOutline,
                 system=_OUTLINE_SYSTEM_PROMPT,
-                max_tokens=int(os.getenv("PG_V3_OUTLINE_MAX_TOKENS", "8192")),
+                max_tokens=int(resolve('PG_V3_OUTLINE_MAX_TOKENS')),
                 timeout=int(resolve("PG_V3_OUTLINE_TIMEOUT")),
             )
             if outline and len(outline.sections) >= 1:
@@ -185,7 +185,7 @@ async def refine_outline(
             prompt=prompt,
             schema=LiveOutline,
             system=_OUTLINE_SYSTEM_PROMPT,
-            max_tokens=int(os.getenv("PG_V3_OUTLINE_MAX_TOKENS", "8192")),
+            max_tokens=int(resolve('PG_V3_OUTLINE_MAX_TOKENS')),
             timeout=int(resolve("PG_V3_OUTLINE_TIMEOUT")),
         )
         if refined:

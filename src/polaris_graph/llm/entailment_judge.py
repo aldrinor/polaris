@@ -380,7 +380,7 @@ def _is_transport_poison(exc: BaseException) -> bool:
             # transport poison.
             return False
         markers = list(_TRANSPORT_POISON_SUBSTRINGS)
-        extra = os.environ.get("PG_ENTAILMENT_TRANSPORT_POISON_MARKERS", "").strip()
+        extra = resolve('PG_ENTAILMENT_TRANSPORT_POISON_MARKERS').strip()
         if extra:
             markers.extend(m.strip().lower() for m in extra.split(",") if m.strip())
         haystack = f"{type(exc).__name__}: {exc}".lower()
@@ -399,7 +399,7 @@ def _is_transport_poison_reason(reason: str) -> bool:
     """
     try:
         markers = list(_TRANSPORT_POISON_SUBSTRINGS)
-        extra = os.environ.get("PG_ENTAILMENT_TRANSPORT_POISON_MARKERS", "").strip()
+        extra = resolve('PG_ENTAILMENT_TRANSPORT_POISON_MARKERS').strip()
         if extra:
             markers.extend(m.strip().lower() for m in extra.split(",") if m.strip())
         haystack = str(reason).lower()
@@ -608,7 +608,7 @@ def _active_prompt_variant() -> str:
     process. Single source of truth shared by ``_select_entailment_prompt`` (which template) AND the I3
     verdict-cache key (so a same-process bakeoff never serves one variant's verdict for another variant's
     prompt — the I3 P1 fix, Fable gate iter1)."""
-    return os.environ.get("PG_ENTAILMENT_PROMPT_VARIANT", "baseline").strip().lower()
+    return resolve('PG_ENTAILMENT_PROMPT_VARIANT').strip().lower()
 
 
 def _select_entailment_prompt() -> str:
@@ -843,7 +843,7 @@ class _EntailmentJudge:
         # I-arch-002 (#1250): operator-directed — skip the single-provider pin when
         # PG_ROLE_ALLOW_FALLBACKS is set so the open-weight evaluator model free-routes to its
         # fastest provider (the model is the sovereign unit; hosting provider may be US/China).
-        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+        _free_route = resolve('PG_ROLE_ALLOW_FALLBACKS').strip().lower() in (
             "1", "true", "yes", "on",
         )
         # I-arch-011: provider-rotation chain. When rotation is enabled, the mirror `order`

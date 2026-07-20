@@ -408,7 +408,7 @@ def _consolidation_nli_enabled_factdedup() -> bool:
 def _read_nli_max_sentences() -> int:
     """`PG_CONSOLIDATION_NLI_MAX_SENTENCES` (default 200) — bounds the prose-path O(n^2)
     pairwise NLI. Malformed/out-of-range => default (logged, never raised)."""
-    raw = os.environ.get("PG_CONSOLIDATION_NLI_MAX_SENTENCES", "").strip() or "200"
+    raw = resolve('PG_CONSOLIDATION_NLI_MAX_SENTENCES').strip() or "200"
     try:
         value = int(raw)
     except (ValueError, TypeError):

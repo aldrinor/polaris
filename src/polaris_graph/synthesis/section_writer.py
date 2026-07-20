@@ -1303,7 +1303,7 @@ async def write_section(
 
     # FIX-107I: Apply per-section embedding-based evidence filtering.
     # TIER-3 Stage 3: Use wider candidate pool when token budget is enabled.
-    _token_budget_enabled = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
+    _token_budget_enabled = int(resolve('PG_SECTION_TOKEN_BUDGET')) > 0
     _candidate_pool = int(resolve("PG_EVIDENCE_CANDIDATE_POOL")) if _token_budget_enabled else PG_SECTION_EVIDENCE_TOP_K
     section_evidence = _filter_evidence_for_section(
         evidence=section_evidence,
@@ -1715,7 +1715,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     # KEY-FINDINGS ENFORCEMENT: Detect missing Key Findings and inject via LLM.
     # The system prompt instructs "End each section with a **Key Findings** subsection"
     # but LLMs frequently skip it. This code-level enforcement guarantees it.
-    _kf_enabled = os.getenv("PG_KEY_FINDINGS_ENFORCEMENT", "1") == "1"
+    _kf_enabled = resolve('PG_KEY_FINDINGS_ENFORCEMENT') == "1"
     _has_key_findings = bool(re.search(
         r'(\*\*Key Findings\*\*|##+ Key Findings)', content, re.IGNORECASE
     ))
@@ -1740,7 +1740,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
             _kf_resp = await client.generate(
                 prompt=_kf_prompt,
                 system="Extract key findings from the section. Output ONLY the bullet list.",
-                max_tokens=int(os.getenv("PG_KEY_FINDINGS_MAX_TOKENS", "1024")),
+                max_tokens=int(resolve('PG_KEY_FINDINGS_MAX_TOKENS')),
                 temperature=0.3,
                 reasoning_exclude=True,  # S1 (W1.3)
             )
@@ -2052,7 +2052,7 @@ async def write_all_sections(
 
             # Final top-k filter — use wider pool when token budget enabled
             # FIX-CITE-3/REDIST: Cap to fair share (Path A)
-            _tb_enabled = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
+            _tb_enabled = int(resolve('PG_SECTION_TOKEN_BUDGET')) > 0
             _pool_k = int(resolve("PG_EVIDENCE_CANDIDATE_POOL")) if _tb_enabled else PG_SECTION_EVIDENCE_TOP_K
             _effective_k_a = min(_pool_k, _fair_share_a) if _hard_dedup_a else _pool_k
             filtered = _filter_evidence_for_section(
@@ -2165,7 +2165,7 @@ async def write_all_sections(
 
             # Then apply embedding-based filtering on the combined pool
             # FIX-CITE-3/REDIST: Cap to fair share to prevent first-come hoarding
-            _tb_enabled_b = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
+            _tb_enabled_b = int(resolve('PG_SECTION_TOKEN_BUDGET')) > 0
             _pool_k_b = int(resolve("PG_EVIDENCE_CANDIDATE_POOL")) if _tb_enabled_b else PG_SECTION_EVIDENCE_TOP_K
             _effective_k = min(_pool_k_b, _fair_share) if _hard_dedup else _pool_k_b
             filtered = _filter_evidence_for_section(

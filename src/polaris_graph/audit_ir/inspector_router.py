@@ -19,6 +19,7 @@ Trust boundary (Codex M-2 review correction):
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import json
 from pathlib import Path
@@ -195,7 +196,7 @@ _PRIVATE_CORPUS_SYNC_STORE_LOCK = threading.Lock()
 
 
 def _private_corpus_db_path() -> Path:
-    raw = os.environ.get("PG_PRIVATE_CORPUS_DB_PATH")
+    raw = resolve('PG_PRIVATE_CORPUS_DB_PATH')
     if raw:
         return Path(raw)
     base = Path(__file__).resolve().parents[3] / "state"
@@ -238,7 +239,7 @@ _SUPPORT_TICKET_STORE_LOCK = threading.Lock()
 
 
 def _support_ticket_db_path() -> Path:
-    raw = os.environ.get("PG_SUPPORT_TICKET_DB_PATH")
+    raw = resolve('PG_SUPPORT_TICKET_DB_PATH')
     if raw:
         return Path(raw)
     base = Path(__file__).resolve().parents[3] / "state"
@@ -278,7 +279,7 @@ async def _require_support_ticket_endpoint_enabled() -> None:
 
 def _contract_draft_db_path() -> Path:
     """Contract draft SQLite path. Per LAW VI: env-overridable."""
-    raw = os.environ.get("PG_CONTRACT_DRAFT_DB_PATH")
+    raw = resolve('PG_CONTRACT_DRAFT_DB_PATH')
     if raw:
         return Path(raw)
     base = Path(__file__).resolve().parents[3] / "state"
@@ -316,7 +317,7 @@ def _contract_draft_endpoint_enabled() -> bool:
 
 def _decision_db_path() -> Path:
     """Decision-telemetry SQLite path. Per LAW VI: env-overridable."""
-    raw = os.environ.get("PG_DECISION_DB_PATH")
+    raw = resolve('PG_DECISION_DB_PATH')
     if raw:
         return Path(raw)
     base = Path(__file__).resolve().parents[3] / "state"
@@ -360,7 +361,7 @@ def _record_scope_gate_decision(
     org's scope-gate calls). Anonymous calls (workspace_id=None)
     skip telemetry silently.
     """
-    if os.environ.get("PG_RECORD_DECISIONS", "1") == "0":
+    if resolve('PG_RECORD_DECISIONS') == "0":
         return
     if not workspace_id:
         return
@@ -880,7 +881,7 @@ async def get_run_citation_health(slug: str) -> dict:
 
 
 def _slide_deck_endpoint_enabled() -> bool:
-    return os.environ.get("PG_USE_SLIDE_DECK_ENDPOINT", "1") != "0"
+    return resolve('PG_USE_SLIDE_DECK_ENDPOINT') != "0"
 
 
 @router.get("/api/inspector/runs/{slug}/slide-deck")
@@ -2642,7 +2643,7 @@ async def _require_operator_dashboard_endpoint_enabled() -> None:
 
 
 def _freshness_db_path() -> Path:
-    raw = os.environ.get("PG_FRESHNESS_DB_PATH")
+    raw = resolve('PG_FRESHNESS_DB_PATH')
     if raw:
         return Path(raw)
     base = Path(__file__).resolve().parents[3] / "state"
@@ -2969,7 +2970,7 @@ def _percentile_ns(values: list[int], q: float) -> int:
 
 
 def _metrics_endpoint_enabled() -> bool:
-    return os.environ.get("PG_USE_METRICS_ENDPOINT", "1") != "0"
+    return resolve('PG_USE_METRICS_ENDPOINT') != "0"
 
 
 async def _require_metrics_endpoint_enabled() -> None:

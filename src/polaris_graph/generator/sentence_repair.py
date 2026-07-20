@@ -36,6 +36,7 @@ Key design points:
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import asyncio
 import logging
@@ -288,11 +289,11 @@ async def repair_sentence(
             # LAW VI env-tunable; faithfulness-neutral (every repaired sentence is re-verified by
             # the UNCHANGED strict_verify downstream).
             max_tokens=max(
-                max_tokens, int(os.getenv("PG_REPAIR_MIN_MAX_TOKENS", "4096"))
+                max_tokens, int(resolve('PG_REPAIR_MIN_MAX_TOKENS'))
             ),
             temperature=temperature,
             reasoning_max_tokens=int(
-                os.getenv("PG_REPAIR_REASONING_MAX_TOKENS", "2048")
+                resolve('PG_REPAIR_REASONING_MAX_TOKENS')
             ),
         )
         text = (response.content or "").strip()
@@ -342,7 +343,7 @@ class RepairTelemetry:
 
 
 def _repair_loop_enabled() -> bool:
-    raw = os.environ.get("PG_REPAIR_LOOP_ENABLED", "true").lower().strip()
+    raw = resolve('PG_REPAIR_LOOP_ENABLED').lower().strip()
     return raw in ("true", "1", "yes", "on")
 
 

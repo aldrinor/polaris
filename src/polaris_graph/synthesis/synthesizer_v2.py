@@ -13,6 +13,7 @@ writes independently. Results merge via merge_sections_reducer (Fix R5-#1).
 """
 
 from __future__ import annotations
+from src.polaris_graph.settings import resolve
 
 import logging
 import os
@@ -33,7 +34,7 @@ from src.polaris_graph.state import ReportSection
 logger = logging.getLogger("polaris_graph")
 
 # Max tokens per section generation call
-MAX_SECTION_TOKENS = int(os.getenv("PG_V2_MAX_SECTION_TOKENS", "8192"))
+MAX_SECTION_TOKENS = int(resolve('PG_V2_MAX_SECTION_TOKENS'))
 
 
 # ---------------------------------------------------------------------------

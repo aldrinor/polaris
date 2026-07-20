@@ -739,7 +739,7 @@ class _SemanticContradictionJudge:
         # reasoning -> EMPTY content -> json.loads(None) NoneType -> fail-open neutral (silently misses real
         # conflicts). Operator 2026-06-13: reasoning stays MAX. Un-starve so high-effort reasoning completes
         # AND emits the JSON verdict; any sub-max/off effort is coerced UP to high. Env-overridable (LAW VI).
-        _sc_effort = (os.environ.get("PG_SEMANTIC_CONFLICT_REASONING_EFFORT", "").strip().lower()
+        _sc_effort = (resolve('PG_SEMANTIC_CONFLICT_REASONING_EFFORT').strip().lower()
                       or "high")
         if _sc_effort not in ("high", "xhigh"):
             _sc_effort = "high"
@@ -782,7 +782,7 @@ class _SemanticContradictionJudge:
         # I-arch-002 (#1250): operator-directed — skip the single-provider pin when
         # PG_ROLE_ALLOW_FALLBACKS is set so the open-weight evaluator model free-routes to its
         # fastest provider (the model is the sovereign unit; hosting provider may be US/China).
-        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+        _free_route = resolve('PG_ROLE_ALLOW_FALLBACKS').strip().lower() in (
             "1", "true", "yes", "on",
         )
         # I-wire-008 (#1322): provider-rotation chain (the side-judge had none). When enabled,

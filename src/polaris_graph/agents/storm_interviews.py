@@ -44,8 +44,8 @@ PG_STORM_ENABLED = resolve("PG_STORM_ENABLED") == "1"
 PG_STORM_PERSPECTIVES_COUNT = int(resolve("PG_STORM_PERSPECTIVES_COUNT"))
 PG_STORM_ROUNDS_PER_PERSPECTIVE = int(resolve("PG_STORM_ROUNDS_PER_PERSPECTIVE"))
 PG_STORM_MAX_TIME_SECONDS = int(resolve("PG_STORM_MAX_TIME_SECONDS"))
-PG_STORM_QUESTIONS_MAX_TOKENS = int(os.getenv("PG_STORM_QUESTIONS_MAX_TOKENS", "1024"))
-PG_STORM_ANSWER_MAX_TOKENS = int(os.getenv("PG_STORM_ANSWER_MAX_TOKENS", "2048"))
+PG_STORM_QUESTIONS_MAX_TOKENS = int(resolve('PG_STORM_QUESTIONS_MAX_TOKENS'))
+PG_STORM_ANSWER_MAX_TOKENS = int(resolve('PG_STORM_ANSWER_MAX_TOKENS'))
 
 # I-arch-004 F20 (#1255): historical per-interview wall (FIX-058F) — the floor the
 # generator-sized default can only grow above, never regress below.
@@ -133,8 +133,8 @@ def _resolve_outline_time_reserve() -> float:
 # that forgets the .env override is not silently starved per §9.1.8 (never starve a reasoning-first
 # call). The resolver clamp (_call_impl) still reconciles DOWN to the served model's real cap, so the
 # generous budget is honored only up to that cap — a CAP, not a target (billed by actual usage).
-PG_STORM_OUTLINE_MAX_TOKENS = int(os.getenv("PG_STORM_OUTLINE_MAX_TOKENS", "64000"))
-PG_STORM_PERSONA_MAX_TOKENS = int(os.getenv("PG_STORM_PERSONA_MAX_TOKENS", "2048"))
+PG_STORM_OUTLINE_MAX_TOKENS = int(resolve('PG_STORM_OUTLINE_MAX_TOKENS'))
+PG_STORM_PERSONA_MAX_TOKENS = int(resolve('PG_STORM_PERSONA_MAX_TOKENS'))
 PG_STORM_SEARCH_QUERIES_PER_QUESTION = int(resolve("PG_STORM_SEARCH_QUERIES_PER_QUESTION"))
 PG_STORM_WEB_RESULTS_PER_QUERY = int(resolve("PG_STORM_WEB_RESULTS_PER_QUERY"))
 
