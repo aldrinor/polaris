@@ -2,3 +2,5 @@
 - [Investigate then consult](investigate-then-consult.md) — no rough judgments; deeply investigate any finding, then consult the user before acting
 - [Research Planning Gate](research-planning-gate.md) — deep-research gate initiative; branch gate-s0-s5; two absolute rules (faithfulness frozen, scope-at-retrieval)
 - [Code Review Readiness](code-review-readiness.md) — Telus review initiative; plan v4 (codex-approved); Phase 0 done; box-3 GPU fix (pipeline-env→conda_cu128); deterministic oracle Layer 1; branch chore/review-readiness-phase0
+- [RACE champion config](race-champion-config.md) — champion 0.4447 = raw-A compose (NOT gated v4); the confound trap; renames exonerated; live-run env facts
+- [Codex sol max reasoning](codex-sol-max-reasoning.md) — standing rule: all Codex gates run gpt-5.6-sol at max reasoning via CLI (bypass flag, reads files line-by-line)

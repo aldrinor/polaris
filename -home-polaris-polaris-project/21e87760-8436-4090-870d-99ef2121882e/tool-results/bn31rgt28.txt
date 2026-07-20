@@ -1,0 +1,392 @@
+101:    # I-pipe-015 (#1240): per-run reset + snapshot of the module-global token-honesty
+104:    # gates the snapshot so a PG_PROVENANCE_TOKEN_HONEST_DROP=0 run keeps a byte-identical manifest.
+108:    # I-deepfix-001 Wave-3a (#1344): per-run reset + snapshot of the re-anchor counters so the
+110:    # reanchor_enabled` gates reset/snapshot/emit so a PG_PROVENANCE_REANCHOR=0 run stays byte-identical.
+1220:    """I-deepfix-001 B1 (wave-2 RESUME WIRING) — furniture-degraded verdict for ONE banked
+1221:    resume row, for the A15 degraded-detector.
+1648:    PURE env read; raises or returns None. Re-run on --resume too (a strict run must not
+1649:    resume into a non-strict env)."""
+5176:    **Budget / cost.** The worker runs under a SNAPSHOT of the parent task context
+5189:    # bills against. copy_context() also snapshots _CURRENT_RUN_ID_CTX so the ledger session id carries.
+5757:        # iter-1 P1: read the FROZEN `extraction_finding_rows` snapshot, NOT
+5767:            # snapshot (counted at run_live_retrieval return, BEFORE the additive
+7047:# A12 (iarch006 epic-failure): intermediate DATA-ONLY checkpoints for the two genuinely missing
+7048:# stages — post-generation and post-verification. The post-fetch (fetch_snapshot.json, #1259) and
+7049:# post-selection (corpus_snapshot.json, F04) checkpoints already exist; these two fill the gap so a
+7052:# HARD INVARIANT (CLAUDE.md §-1.3, ABSOLUTE — mirrors corpus_snapshot.py): a checkpoint stores DATA
+7054:# faithfulness verdict, NO release_outcome, NO "verified"/"released" flag, NO D8 decision. A resume
+7058:_A12_POSTGEN_CHECKPOINT = "postgen_checkpoint.json"
+7059:_A12_POSTVERIFY_CHECKPOINT = "postverify_checkpoint.json"
+7066:    except Exception:  # noqa: BLE001 — a fingerprint must never abort a checkpoint
+7071:def write_postgen_checkpoint(
+7081:    """A12 post-generation checkpoint (DATA ONLY). Stores the raw section drafts + identity hashes so
+7082:    a resume can re-enter BEFORE verification. Stores NO verdict. Best-effort: a write failure must
+7097:                "DATA ONLY; no verdict/release_outcome stored; a resume MUST re-run every gate."
+7100:        _path = Path(run_dir) / _A12_POSTGEN_CHECKPOINT
+7105:    except Exception:  # noqa: BLE001 — checkpoint is best-effort durability, never a run blocker
+7109:def write_postverify_checkpoint(
+7117:    """A12 post-verification checkpoint (DATA ONLY). Stores the per-sentence verification DATA
+7118:    (verif_details) so a resume can re-enter RIGHT BEFORE the judge seam and re-run only the
+7120:    strict_verify-assembled on disk; a resume STILL re-runs the 4-role/D8 judge from scratch (no
+7133:                "DATA ONLY; no D8/release verdict stored; a resume MUST re-run the 4-role/D8 judge."
+7136:        _path = Path(run_dir) / _A12_POSTVERIFY_CHECKPOINT
+7141:    except Exception:  # noqa: BLE001 — checkpoint is best-effort durability, never a run blocker
+7145:# A12 (iarch007 P1): the verdict tokens a DATA-ONLY checkpoint may NEVER contain. A resume
+7147:# If any of these keys appear at the TOP LEVEL of a checkpoint payload, a verdict leaked in and the
+7163:def load_a12_checkpoint(run_dir: "Path", checkpoint_name: str) -> "dict | None":
+7164:    """A12 RESUME LOADER (iarch007 P1). Read a post-generation / post-verification checkpoint as
+7165:    DATA ONLY for a --resume. Returns the payload dict, or None if the checkpoint is absent.
+7167:    FAIL-LOUD §-1.3 enforcement: a checkpoint that smuggled a release verdict / "verified"/"released"
+7169:    makes "replay a stored verdict" structurally impossible: the only thing a resume can re-enter
+7173:    _path = Path(run_dir) / checkpoint_name
+7179:        raise ValueError(f"A12 checkpoint {checkpoint_name} is not a JSON object: {_path}")
+7183:            f"A12 checkpoint {checkpoint_name} contains FORBIDDEN verdict key(s) {_leaked} — a "
+7184:            "checkpoint stores DATA ONLY (§-1.3); a resume re-runs every gate and can NEVER replay "
+7190:# I-beatboth-008 (#1285) commit-2 build B: STORM-outline resume durability.
+7191:# A --resume re-enters at the post-selection corpus_snapshot (or the post-fetch
+7192:# fetch_snapshot), which is AFTER the STORM interview phase. The STORM block at
+7193:# ~L5326 is guarded by `not _resume_active and not _resume_from_fetch`, so a resume
+7195:# scaffold never fires on a resume (the bug). These two helpers persist the captured
+7196:# outline on the fresh run and restore it on the resume so the scaffold survives.
+7200:# A resume STILL re-runs every faithfulness gate (strict_verify / NLI / 4-role / D8);
+7202:_STORM_OUTLINE_CHECKPOINT = "storm_outline.json"
+7212:# DELIBERATELY EXCLUDED — they are never written, so a resume can never replay STORM prose as a
+7235:def write_storm_outline_checkpoint(
+7238:    """Persist the captured STORM outline (post-interview) so a --resume can restore the
+7261:                "NEVER persisted); a resume re-runs every faithfulness gate."
+7264:        _path = Path(run_dir) / _STORM_OUTLINE_CHECKPOINT
+7272:    except Exception:  # noqa: BLE001 — FAIL-OPEN: checkpoint is best-effort, never a run blocker
+7276:def load_storm_outline_checkpoint(run_dir: "Path") -> "list | None":
+7277:    """RESUME LOADER for the STORM outline. Returns a list of `StormOutlineSection`
+7278:    objects if the checkpoint is PRESENT-and-valid, or None ONLY if the file is ABSENT.
+7286:    resume STORM no-op this checkpoint exists to prevent. An EMPTY-but-valid outline
+7289:    _path = Path(run_dir) / _STORM_OUTLINE_CHECKPOINT
+7291:        return None  # ABSENT — the ONLY None case (fresh run / no snapshot)
+7297:            f"STORM outline checkpoint is not a JSON object: {_path}"
+7302:            f"STORM outline checkpoint schema_version {_ver!r} != expected "
+7309:            f"STORM outline checkpoint stage {_stage!r} != expected "
+7314:            f"STORM outline checkpoint is missing the required 'storm_outline' key "
+7321:            f"STORM outline checkpoint 'storm_outline' is not a list: {_path}"
+7329:    # titles are dropped) — the exact resume STORM no-op this checkpoint exists to prevent.
+7334:                f"STORM outline checkpoint section {_i} is not a dict "
+7341:                f"STORM outline checkpoint section {_i} has a missing/blank scaffold 'title' "
+7344:                f"restore a no-op scaffold (the P1-3 resume no-op this checkpoint prevents): "
+7452:    # rendered"). Self-correcting on --resume: a later real render overwrites report.md and the
+8679:    INSIDE it; this helper covers the ENTRY-SETUP region BEFORE that try (corrupt-snapshot resume
+8737:    """I-rdy-011 (#507): cooperative cancel checkpoint for a v6 run.
+8868:    sweep snapshots `base` at the run boundary and never resets the global counters.
+8953:    owner's ``generation_snapshot`` and resolve the generator's cached-draft re-entry callable.
+8956:      * ``(True, callable)`` — the snapshot loaded, the generation-affecting flag slate matched,
+8962:      * ``generation_snapshot.GenerationSnapshotError`` from ``load_generation_snapshot`` /
+8965:        flag-slate-mismatch snapshot). These ARE the corpus + generation identity guarantee — a
+8976:    from src.polaris_graph.generator import generation_snapshot as _gen_snapshot
+8979:    payload = _gen_snapshot.load_generation_snapshot(run_dir)  # fail-loud-validates everything
+8980:    _gen_snapshot.assert_generation_flags_match(payload)       # identity: writer + flag slate
+8981:    reused_outline = _gen_snapshot.reconstruct_outline(payload)
+8989:            "ITEM 5 postgen-resume reuse FAILED LOUD: PG_RESUME_REUSE_POSTGEN is ON and the "
+8990:            "generation_snapshot loaded + validated, but the generator's cached-draft re-entry "
+8995:            "to silently re-generate — clear PG_RESUME_REUSE_POSTGEN to re-generate from "
+8996:            "corpus_snapshot, or land the generator-side hook (ITEM 5a generator deferral)."
+9000:        "[resume]      ITEM 5 postgen reuse ACTIVE: generation_snapshot loaded + flag-slate "
+9219:    resume: bool = False,
+9278:    # when the honest-drop path is off the counters stay 0, so reset/snapshot are no-ops. The
+9279:    # snapshot into manifest['token_honesty'] happens at report assembly. Best-effort import.
+9312:    # `error_<phase>` with the real phase reached — e.g. a corrupt-snapshot resume load that
+9346:    # BUG-21 (#1262): TOP-LEVEL catch-all over the run ENTRY SETUP (imports, resume-snapshot
+9349:    # BEFORE it - e.g. a corrupt --resume snapshot that `_load_corpus_snapshot` fails loud on, or
+9457:        # I-arch-004 F04 (#539/#629) + GH #1259 (FIX B): resume-state load with
+9458:        # RESUME-FROM-NEAREST across two staged checkpoints.
+9460:        # Two checkpoints exist, in stage order (earlier -> later):
+9461:        #   1. fetch_snapshot.json  (POST-FETCH, GH #1259): the raw fetched+merged corpus,
+9464:        #   2. corpus_snapshot.json (POST-SELECTION, F04): the final billed evidence_for_gen,
+9466:        #      the snapshot's pool) and re-enters straight at generation.
+9469:        # --resume every faithfulness gate (strict_verify / NLI / 4-role / D8) RE-RUNS on the
+9470:        # reloaded data. RESUME-FROM-NEAREST picks the LATER checkpoint when both exist (it
+9472:        # (the kill landed mid-rerank, before selection completed). A missing snapshot under
+9473:        # --resume is NOT an error for THIS query (it simply runs fresh — the kill may have
+9474:        # landed before ANY snapshot was written); a CORRUPT/version-mismatched snapshot FAILS
+9476:        # every downstream `_resume_active`/`not _resume_active` guard keeps its EXACT existing
+9477:        # semantics (= "resumed from corpus_snapshot"); `_resume_from_fetch` only gates the
+9478:        # pre-fetch network lanes + the retrieval reconstruct. OFF (no --resume) keeps every
+9479:        # branch byte-identical EXCEPT the INTENTIONAL additive post-fetch checkpoint: a fresh
+9480:        # run now writes `fetch_snapshot.json` (the new resume-from-nearest artifact) and emits
+9481:        # one `[checkpoint]` log line at the post-fetch seam (~L5116). That artifact + log line
+9484:        from src.polaris_graph.generator.corpus_snapshot import (
+9485:            CorpusSnapshotError as _CorpusSnapshotError,
+9486:            load_corpus_snapshot as _load_corpus_snapshot,
+9487:            save_corpus_snapshot as _save_corpus_snapshot,
+9488:            snapshot_path as _snapshot_path,
+9490:        from src.polaris_graph.generator.fetch_snapshot import (
+9491:            FetchSnapshotError as _FetchSnapshotError,
+9492:            fetch_snapshot_path as _fetch_snapshot_path,
+9493:            load_fetch_snapshot as _load_fetch_snapshot,
+9494:            save_fetch_snapshot as _save_fetch_snapshot,
+9496:        _resume_active = False          # resumed from the POST-SELECTION corpus_snapshot
+9497:        _resume_from_fetch = False      # resumed from the POST-FETCH fetch_snapshot
+9498:        _resume_payload: dict | None = None        # corpus_snapshot payload (post-selection)
+9499:        _resume_fetch_payload: dict | None = None  # fetch_snapshot payload (post-fetch)
+9501:        # to None HERE — BEFORE `if resume:` — so it is defined on the FRESH path too (the
+9502:        # clobber-fix seed at ~L5325 reads it unconditionally; a fresh run skips `if resume:`
+9504:        # [] -> STORM populates. Resume: load_storm_outline_checkpoint restores it below.
+9505:        _resumed_storm_outline: "list | None" = None
+9506:        # A12 (iarch007 P1): the post-generation / post-verification checkpoints. These are loaded
+9507:        # for OBSERVABILITY + DATA carry on a --resume — they are NOT a re-entry point that replays
+9508:        # a verdict. The §-1.3 ABSOLUTE invariant is enforced here: a checkpoint that smuggled a
+9509:        # release verdict / "verified" flag is a fail-loud abort (load_a12_checkpoint raises). The
+9510:        # corpus_snapshot path below is the actual re-entry (it RE-RUNS generation + every gate);
+9511:        # these payloads ride alongside so a resume that lands on the post-selection snapshot can
+9512:        # SURFACE that a later post-gen/post-verify checkpoint exists (a future cents-cost judge-only
+9516:        if resume:
+9517:            # GATE0-RESUME (I-qgen-001 #1291, Codex iter-2 P1): a snapshot built for a DIFFERENT
+9520:            # corpus/report lineage GATE0 exists to prevent. Both snapshots store "question";
+9522:            from scripts.dr_benchmark.gate0_lineage import sha256_text as _gate0_sha_resume
+9524:            def _assert_snapshot_question(_payload: "dict | None", _kind: str) -> None:
+9527:                if _snap_q is not None and _gate0_sha_resume(_snap_q) != _gate0_sha_resume(
+9531:                        f"[GATE0-RESUME] {_kind} snapshot in {run_dir} was built for a DIFFERENT "
+9532:                        f"question than this run's canonical question — refusing to resume on a "
+9534:                        f"  snapshot(sha)={_gate0_sha_resume(_snap_q)[:16]} : {_snap_q[:90]!r}\n"
+9535:                        f"  run(sha)={_gate0_sha_resume(_run_q)[:16]} : "
+9539:            # RESUME-FROM-NEAREST: prefer the LATER (post-selection) checkpoint; fall back to
+9541:            if _snapshot_path(run_dir).exists():
+9542:                _resume_payload = _load_corpus_snapshot(run_dir)  # raises -> fail loud on corrupt
+9543:                _assert_snapshot_question(_resume_payload, "corpus")
+9544:                _resume_active = True
+9545:            elif _fetch_snapshot_path(run_dir).exists():
+9546:                _resume_fetch_payload = _load_fetch_snapshot(run_dir)  # raises -> fail loud on corrupt
+9547:                _assert_snapshot_question(_resume_fetch_payload, "fetch")
+9548:                _resume_from_fetch = True
+9549:            # A12 checkpoints are additive DATA — load whichever exist (verdict-free; raises if a
+9551:            _a12_postgen_payload = load_a12_checkpoint(run_dir, _A12_POSTGEN_CHECKPOINT)
+9552:            _a12_postverify_payload = load_a12_checkpoint(run_dir, _A12_POSTVERIFY_CHECKPOINT)
+9553:            # I-beatboth-008 (#1285) commit-2 build B: restore the STORM outline so a --resume
+9555:            # `if resume:` (applies to BOTH _resume_active and _resume_from_fetch): STORM runs
+9556:            # BEFORE fetch, so storm_outline.json exists on either snapshot. FAIL-LOUD on corrupt
+9559:            _resumed_storm_outline = load_storm_outline_checkpoint(run_dir)
+9562:        # I-arch-004 F04 + GH #1259: on EITHER resume mode, APPEND so the pre-kill artifacts
+9565:        log_f = log_path.open("a" if (_resume_active or _resume_from_fetch) else "w", encoding="utf-8")
+9911:        # I-rdy-011 (#507): cooperative cancel checkpoint — before the
+10225:                # `_RUN_COST_CTX` only inside the worker snapshot and was LOST
+10232:                # snapshot via `parent_ctx.run()` (READ visibility), THEN apply
+10255:                        # Capture the worker snapshot's accumulated cost even
+10420:        # would overwrite the resume-restore done at ~L4685 and the STORM scaffold would silently
+10421:        # no-op on every resume. Fresh: None -> [] -> the STORM block below populates it. Resume:
+10422:        # the producer block below is skipped (resume guard), so this restored value survives
+10424:        _storm_outline: list = list(_resumed_storm_outline or [])
+10425:        if (not _resume_active) and (not _resume_from_fetch) and os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
+10508:            # FAIL-OPEN) so a later --resume can restore the STORM scaffold (the resume re-enters
+10509:            # AFTER this producer block, which is `not _resume_active and not _resume_from_fetch`-
+10511:            # no STORM prose, no verdict — a resume still re-runs every faithfulness gate.
+10512:            _storm_outline_ckpt_path = write_storm_outline_checkpoint(run_dir, _storm_outline)
+10516:                    f"(resume would skip the STORM scaffold) (slug={q['slug']})"
+10618:        # I-arch-004 F04 (#539/#629): on resume, RECONSTRUCT the corpus from the snapshot
+10624:        # are network lanes guarded by `and not _resume_active` below, and selection loads
+10625:        # evidence_for_gen from the snapshot — so NO re-retrieval happens on resume. OFF-path
+10626:        # (no resume) is byte-identical: this branch is skipped entirely.
+10627:        if _resume_active or _resume_from_fetch:
+10628:            # I-arch-004 F04 + GH #1259 (FIX B): on EITHER resume mode reconstruct the
+10629:            # corpus from the snapshot instead of re-running the (expensive, network-bound)
+10630:            # live retrieval. The retrieval payload shape is IDENTICAL in both snapshots, so
+10632:            # post-fetch (fetch_snapshot) corpus is already POST-MERGE, so the deepener/
+10634:            # `not _resume_from_fetch` below) and selection RE-RUNS on the reloaded corpus.
+10635:            from src.polaris_graph.generator.corpus_snapshot import (
+10638:            _active_payload = _resume_payload if _resume_active else _resume_fetch_payload
+10641:            # sidecar onto the reconstructed corpus on a POST-FETCH resume ONLY. The shared
+10644:            # exp/deep/agentic handles are None on resume — and reject every reconstructed row
+10645:            # as `no_journal_metadata`, ABORTING a real journal_only fetch-resume. Setting it
+10648:            # identically to a fresh run. Scoped to `_resume_from_fetch`: the corpus-resume
+10649:            # path (`_resume_active`) is left byte-identical. (The fetch_snapshot loader
+10651:            # unchanged.) NOTE: corpus-resume + journal_only shares this same empty-sidecar
+10652:            # root cause (corpus_snapshot does not persist the sidecar either) — a PRE-EXISTING
+10654:            if _resume_from_fetch:
+10656:                    (_resume_fetch_payload or {}).get("journal_metadata_sidecar") or {}
+10658:            _resume_stage = "corpus_snapshot (post-selection)" if _resume_active else "fetch_snapshot (post-fetch)"
+10660:                f"[resume]      reloaded {_resume_stage}: "
+10663:                f"{'selection + ' if _resume_from_fetch else ''}all faithfulness gates "
+10666:            # A12 (iarch007 P1): surface that a later post-gen / post-verify checkpoint exists. The
+10668:            # payloads are verdict-free DATA (load_a12_checkpoint already fail-loud-validated them).
+10679:                    "[resume]      A12 checkpoint(s) present (DATA ONLY; verdict-free): "
+10725:                    #    accumulated only in the worker snapshot and was LOST to the parent run cost /
+11229:            # Resume runs replay a banked corpus and MUST NOT fire live
+11230:            # retrieval; on resume the loop-back is skipped (loops_fired=0).
+11231:            _crag_loop_enabled = not _resume_active and not _resume_from_fetch
+11365:                # I-deepfix-001 #1367: snapshot the corpus BEFORE this round merges
+11367:                # arbitration). Must be taken pre-merge — a post-merge snapshot would
+11575:        if (not _resume_active and not _resume_from_fetch and enable_expansion
+11683:        if ((not _resume_active) and (not _resume_from_fetch)
+11813:        if ((not _resume_active) and (not _resume_from_fetch)
+12015:        # I-arch-004 F04: skip the STORM URL-fetch lane on resume (network retrieval).
+12016:        if (not _resume_active) and (not _resume_from_fetch) and _storm_seed_urls:
+12083:        # GH #1259 (FIX B): POST-FETCH checkpoint. This is the single seam where STORM +
+12087:        # mid-fetch / mid-rerank landed HERE — before F04's single post-selection checkpoint
+12088:        # — so a 72-minute fetch was lost. This checkpoint carries DATA ONLY (the fetched
+12090:        # has not run). A --resume reload re-enters BELOW (reconstruct retrieval, skip
+12091:        # fetch/merge, RE-RUN selection + every faithfulness gate). Best-effort: a snapshot
+12093:        # resume mode the corpus is already loaded, so re-writing the same data is skipped).
+12094:        if (not _resume_active) and (not _resume_from_fetch):
+12097:                # sidecar so a journal_only fetch-resume reconstructs the SAME per-source
+12099:                # sidecars of ALL four retrieval stages; on resume the exp/deep/agentic
+12104:                # verdict). Computed only for the snapshot write; the live filter path is
+12111:                _fetch_snap_path = _save_fetch_snapshot(
+12120:                _log(f"[checkpoint]  post-fetch snapshot saved: {_fetch_snap_path.name} "
+12123:                     f"journal_sidecar={len(_fetch_snap_sidecar)}; --resume re-runs "
+12125:            except Exception as _fetch_snap_exc:  # noqa: BLE001 — checkpoint is best-effort
+12126:                _log(f"[checkpoint]  post-fetch snapshot save skipped (fail-open): {_fetch_snap_exc}")
+12134:        # resume, so a starved resume checkpoint is REFUSED rather than re-composed into a
+12135:        # deficient report (box 2's resume would have halted here instead of shipping junk).
+12138:        # counts (total<=0, e.g. a lean resume reconstruct) => rate 1.0 => pass, never a
+12177:        # fresh/resume branch reconcile, but BEFORE selection / the approval gate /
+12187:        # runs in BOTH fresh and replay (it sits after the resume reconstruct, like
+13092:        # actually fired in THIS process. On a --resume the corpus is RECONSTRUCTED from a
+13093:        # snapshot (no live retrieval ran here), so the gate is N/A — the winners fired (or
+13094:        # not) in the ORIGINAL run, frozen in the snapshot, and `retrieval.content_relevance`
+13095:        # is necessarily None on the rebuilt object. Checking it false-aborts EVERY resume
+13096:        # ("the judge never ran") even though the resume only re-does generation -> verify ->
+13097:        # render. Skipping it on resume is honest: the faithfulness engine (strict_verify +
+13098:        # 4-role D8 + span-grounding) STILL runs on the resumed corpus; only the (inapplicable)
+13099:        # live-retrieval firing check is skipped. A fresh (non-resume) run keeps the gate ON.
+13103:            and not _resume_active
+13104:            and not _resume_from_fetch
+13358:        # I-arch-004 F04 (#539/#629): on resume, the snapshot already holds the FINAL,
+13365:        # SKIPPED on resume (their rows are already baked into the snapshot pool) via the
+13366:        # `not _resume_active` guards below; the V30 contract COMPILE re-fires to rebuild the
+13368:        # snapshot span and is dropped fail-closed). OFF-path is byte-identical.
+13369:        if _resume_active:
+13373:            evidence_for_gen = list(_resume_payload.get("evidence_for_gen") or [])
+13374:            # I-beatboth-011 junk-SOURCE screen (#1289) — RESUME path. On a post-selection
+13375:            # corpus_snapshot resume, selection is SKIPPED and the snapshot's billed
+13379:            # the snapshot before this fix (a Chegg homework row, a JS-error-shell row)
+13418:                        f"[junk_screen] resume evidence_for_gen junk dropped: "
+13422:            # A15 (iarch006 epic-failure): resume-snapshot REFRESH detector + RE-FETCH. drb_90's first
+13423:            # run crashed on a 402 with degraded retrieval; the RESUME reloaded the frozen corpus with
+13429:            # FLAGs the degraded rows (auditable). Step 2 (env-gated PG_RESUME_REFETCH_DEGRADED, default
+13437:            # resume (that row stays flagged).
+13444:                from src.polaris_graph.retrieval.resume_refetch import (  # noqa: PLC0415
+13445:                    refetch_degraded_resume_rows as _a15_refetch_rows,
+13446:                    resume_refetch_enabled as _a15_refetch_enabled,
+13448:                # I-deepfix-001 B1 (wave-2 RESUME WIRING, 2026-07-08) — extend the A15 degraded
+13468:                # I-deepfix-004 D (RESUME WIRING, 2026-07-09) — extend the A15 degraded
+13542:                        _row["resume_refresh_pending"] = True
+13552:                        f"[resume]      A15 refresh: {len(_a15_stale_rows)} reloaded row(s) are "
+13570:                            "[resume]      A15 RE-FETCH complete: "
+13585:                        # v30_entity_id) so the resumed contract run renders the real anchor instead
+13591:                                "[resume]      A15 NOTE (P6 landed): recovered spans reach "
+13594:                                "v30_entity_id) — a resumed contract run now renders the real anchor, "
+13599:                            "[resume]      A15 re-fetch DISABLED "
+13600:                            "(PG_RESUME_REFETCH_DEGRADED off) — detection-only, rows stay flagged"
+13602:            except Exception as _a15_exc:  # noqa: BLE001 — A15 is best-effort, never aborts resume
+13604:                _log(f"[resume]      A15 refresh/re-fetch skipped (fail-open): {_a15_exc}")
+13610:                selection_strategy="resume_snapshot",
+13611:                notes=["I-arch-004 F04: reloaded from corpus_snapshot.json (no re-selection)"],
+13647:            not _resume_active  # I-arch-004 F04: snapshot is already post-dedup
+13671:        # `_selection_base_rows` PRE-INJECTION snapshot below — so a dropped row
+13673:        # contract/upload prepends after the snapshot are marquee/anchor rows
+13680:            resume_run_topic_judge_enabled,
+13694:        # I-deepfix-001 wave-2 (PG_RESUME_RUN_TOPIC_JUDGE, default OFF): a resume normally
+13695:        # SKIPS the topic judge (the `not _resume_active` guard), leaving every reloaded row
+13697:        # set, the EXISTING classify_topic_relevance ALSO runs on a resume so the reloaded
+13699:        # _resume_active` => the condition is byte-identical to the prior behaviour.
+13700:        _run_topic_judge = (not _resume_active) or resume_run_topic_judge_enabled()
+13703:        # in this set — a STALE OFF_SUBJECT stamp reloaded from an earlier run's corpus_snapshot
+13704:        # (topic judge did NOT re-run, e.g. a plain --resume) yields an EMPTY set => every stale
+13784:            # PG_RESUME_RUN_TOPIC_JUDGE resume path) — set the run-scoped signal the
+13791:            # snapshot stamp can never delete on a re-entered resume corpus.
+13816:        if (not _resume_active) and _prefer_journal_enabled() and evidence_for_gen:
+13826:        # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
+13828:        # :2841) is a PREPEND, so this snapshot stays the contiguous SUFFIX of
+13894:                    # I-deepfix-001 P6 (#1344) — A15 resume-recovery propagation to the V30 contract
+13895:                    # slot generator. On a --resume the A15 re-fetch (above, ~:11578) re-grounds a
+13898:                    # re-fetched FRESH here by fetch_compiled_frame, which on a --resume can come back
+13902:                    # entity_id) into any HOLLOW FrameRow so the resumed contract run renders the real
+13905:                    # flow through the UNCHANGED strict_verify. RESUME-ONLY + HOLLOW-ONLY => a fresh
+13908:                    if _resume_active:
+13909:                        from src.polaris_graph.retrieval.resume_refetch import (  # noqa: PLC0415
+13924:                        # CONTENT regardless of flag-state. The resume degraded-detector (~:11559) only
+13926:                        # registry/error page (e.g. a doi.org "DOI Not Found" reloaded from the snapshot)
+13942:                                    "[resume]      A15 P6: propagated recovered spans into "
+13945:                                    "(resumed contract run renders the real anchor, not hollow; "
+13981:                    # resume (it networks search+fetch). Its rows are already merged into the
+13982:                    # snapshot corpus, so the reloaded evidence_for_gen carries them.
+13983:                    if (not _resume_active) and _req_lane_enabled() and not _jo_active:
+14030:                        # (snapshot :4641) must stay the contiguous SUFFIX, and
+14065:                    # (PG_COVERAGE_L5_REQUIRED_ENTITY); SAME resume + journal_only
+14066:                    # skips as the clinical lane (rows already in the snapshot on
+14067:                    # resume; journal_only prunes non-journal rows / would trip the
+14083:                    if (not _resume_active) and _l5_enabled() and not _jo_active:
+14336:                    # I-arch-004 F04: on resume the snapshot evidence_for_gen ALREADY contains
+14338:                    # final snapshot), so re-prepending here would DOUBLE them. The V30 plans are
+14341:                    if not _resume_active:
+14349:                        + (" (resume: rows already in snapshot, not re-prepended)"
+14350:                           if _resume_active else "")
+14403:            # I-arch-004 F04: on resume the uploaded rows are already in the snapshot
+14405:            if _upload_rows and not _resume_active:
+14410:                + (" (resume: already in snapshot, not re-prepended)" if _resume_active else "")
+14934:            # I-arch-004 F04: on resume the snapshot corpus is ALREADY post-saturation, so
+14937:            if (not _resume_active) and _suff.verdict != "proceed":
+15062:                    # Snapshot the corpus BEFORE the merge: this is the novelty
+15321:                # at the post-deepener checkpoint (mirrors the legacy abort at
+15383:        # I-rdy-011 (#507): cooperative cancel checkpoint — before the
+15607:        # evidence_for_gen is fully constructed and re-entered on --resume, so cleaning HERE
+15609:        # (multi_section generator, quantified _q_ev_pool, AND the resume corpus snapshot). The
+15622:                "grounding pool (generator + quantified + snapshot); disclosed in manifest: "
+15632:        # topic judge + re-tier, before the snapshot save + generator — excludes the junk
+15643:        #   3. SKIP any row A15 GENUINELY recovered (resume_refetch.is_row_genuinely_recovered) —
+15658:                from src.polaris_graph.retrieval.resume_refetch import (  # noqa: PLC0415
+15764:                # deletable; a stale snapshot stamp (empty set on a plain resume) demote-KEEPs.
+15818:        # I-arch-004 F04 (#539/#629): persist the pre-generation corpus snapshot HERE — the
+15821:        # it before the generator bills at the call below. The snapshot carries DATA ONLY (the
+15823:        # verdict (HARD INVARIANT §-1.3). A --resume reload re-enters at THIS point and re-runs
+15825:        # this writes the checkpoint; on resume we already loaded it, so re-writing the same
+15826:        # data is skipped. Best-effort: a snapshot write failure must NOT abort the paid run
+15827:        # (the run still completes; resume just won't be available for it).
+15828:        if not _resume_active:
+15830:                _snap_path = _save_corpus_snapshot(
+15839:                _log(f"[checkpoint]  corpus snapshot saved: {_snap_path.name} "
+15840:                     f"(evidence_for_gen={len(evidence_for_gen)} rows; --resume re-runs all gates)")
+15841:            except Exception as _snap_exc:  # noqa: BLE001 — checkpoint is best-effort
+15842:                _log(f"[checkpoint]  snapshot save skipped (fail-open): {_snap_exc}")
+15845:        # credibility-redesign slate. drb_90 was a resume whose run artifacts NEVER recorded whether
+15872:        # ITEM 5 (I-arch-007 death-forensic): POST-GENERATION RESUME REUSE pre-decision.
+15873:        # When PG_RESUME_REUSE_POSTGEN is ON and a --resume found the SLATE owner's
+15874:        # generation_snapshot, REUSE the verdict-free section RAW DRAFTS + the section/atom
+15884:        # owner's model, NOT a parallel hash. load_generation_snapshot fail-loud-validates the
+15893:        if _env_flag("PG_RESUME_REUSE_POSTGEN", default=False) and resume:
+15909:        # I-deepfix-001 Wave-3a (#1344): zero the re-anchor counters BEFORE generation so the snapshot
+15958:                # default path (PG_RESUME_REUSE_POSTGEN OFF) — byte-identical to today. The
+16137:        # _log tee sink). Emitted ONLY when PG_PROVENANCE_REANCHOR is ON (OFF => no reset/snapshot/line =>
+16163:        # A12 (iarch006 epic-failure): post-GENERATION checkpoint — DATA ONLY (raw drafts + identity
+16164:        # hashes), written right after generation completes and BEFORE verification, so a resume can
+16165:        # re-enter before the verify/judge stages. Stores NO verdict; a resume re-runs every gate.
+16166:        # Best-effort: a checkpoint write failure must NOT abort the paid run.
+16172:            _a12_postgen_path = write_postgen_checkpoint(
+16188:                # checkpoint's model_pin (was {}), so the post-gen provenance names the real model.
+16193:                    f"[checkpoint]  post-generation snapshot saved: {_a12_postgen_path.name} "
+16194:                    "(DATA ONLY; --resume re-runs all gates)"
+16196:        except Exception as _a12_pg_exc:  # noqa: BLE001 — checkpoint is best-effort
+16197:            _log(f"[checkpoint]  post-generation snapshot skipped (fail-open): {_a12_pg_exc}")
+18442:        # A12 (iarch006 epic-failure): post-VERIFICATION checkpoint — DATA ONLY (per-sentence
+18444:        # 4-role/D8 judge seam, so a resume can re-enter right before the judge and re-run only the
+18445:        # cents-cost judge instead of a fresh ~$2.79 run. Stores NO D8/release verdict; a resume
+18448:            _a12_postverify_path = write_postverify_checkpoint(
+18460:                    f"[checkpoint]  post-verification snapshot saved: {_a12_postverify_path.name} "
+18461:                    "(DATA ONLY; --resume re-runs the 4-role/D8 judge)"
+18463:        except Exception as _a12_pv_exc:  # noqa: BLE001 — checkpoint is best-effort
+18464:            _log(f"[checkpoint]  post-verification snapshot skipped (fail-open): {_a12_pv_exc}")
+18562:        # I-rdy-011 (#507): cooperative cancel checkpoint — after generation,
+19443:                # release_disclosure is the D8 LABEL snapshot. It deliberately does NOT carry a
+20473:        # I-meta-008 (#1015): `run_cost` was snapshotted (line ~4250) BEFORE the 4-role seam,
+21287:        # (skips when the banner marker is already present) so a resume/re-finalize never stacks
+21731:        "--resume", action="store_true",
+21733:            "I-arch-004 F04 (#539/#629) + GH #1259 (FIX B): resume an interrupted run on a "
+21734:            "deterministic --out-root, RESUMING FROM THE NEAREST checkpoint. Each query's "
+21735:            "run_dir may hold up to two staged checkpoints (stage order: post-fetch "
+21736:            "fetch_snapshot.json < post-selection corpus_snapshot.json). --resume prefers the "
+21737:            "LATER one when both exist: corpus_snapshot RELOADs the selected EVIDENCE and "
+21738:            "re-enters at generation; fetch_snapshot RELOADs the fetched corpus, SKIPS "
+21741:            "(checkpoints carry DATA, never a verdict). A query with no snapshot runs fresh. "
+21742:            "The resumed run_log is appended, not clobbered."
+21760:    #   * The ONLY sanctioned PAID benchmark launcher is `run_gate_b.py --only <slug> [--resume]`.
+21780:            "pin's env_snapshot is restored under a context manager "
+21832:    # detector ON + entailment model == locked mirror). Runs on BOTH a fresh run AND --resume
+21833:    # (a strict run must never resume into a non-strict env). No-op when strict gates are off.
+21893:    # the prior env snapshot on exit, so this whole sweep is
+22058:                        run_one_query(q, out_root, resume=args.resume),
