@@ -20,8 +20,17 @@ runs clean end-to-end and the champion result was replicated.
 
 Faithfulness OFF beats the old champion and far outscores the faithfulness-on runs — the
 over-strict verifier was dropping ~half the (mostly true, NEUTRAL-not-false) synthesis, which is
-what held the score down. The `RACE`-vs-`FACT` tradeoff (citation-support rate with faithfulness
-off) is not yet measured — it needs a working-browser box to scrape the 147 cited sources.
+what held the score down.
+
+## FACT (citation trustworthiness) — MEASURED 2026-07-20
+The RACE-vs-FACT tradeoff is no longer a worry. The official DeepResearch Bench FACT pipeline
+(scrape via Jina + openai/gpt-5.4-mini judge, run by `scripts/score_report_fact.sh`) scored the
+**faith-OFF** report at **citation accuracy (valid_rate) = 1.0 — 11/11 judged citations supported**
+(robust: 9/9 even after discarding 2 that failed to scrape). So **faith-OFF costs NOTHING on
+citation accuracy** — it wins RACE *and* nails FACT. The verifier is dead weight. The real, separate
+gap is citation **volume** (11 vs leaders' ~100+ effective citations) — an ADDITIVE lever in
+outline/compose/fetch/search, NOT a deletion filter. The frozen proof lives in
+`foundation_faithoff_v1/` (report + RACE + FACT), tag `foundation-faithoff-v1`.
 
 ## The five foundation fixes (all codex-sol(max) approved, on gate-inversion)
 1. **Config consolidated** — `CONFIG-CONSOLIDATED`: settings.py + `resolve()` + 833 migrated
