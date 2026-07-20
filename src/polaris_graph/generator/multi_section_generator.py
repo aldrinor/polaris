@@ -5903,6 +5903,14 @@ async def _run_section(
     research_question: str = "",  # I-arch-004 F21 (#1255): framing-only; "" => byte-identical
     quantified_models: "dict[tuple[str, str], Any] | None" = None,  # MOAT: agentic verified-compute registry; None => byte-identical
     calc_claims: "dict[str, list[str]] | None" = None,  # MOAT EMISSION: per-section [#calc:] sentences; None => byte-identical
+    # ITEM 5 (postgen-resume reuse): the section's RAW DRAFT reloaded from the DATA-ONLY
+    # postgen_checkpoint.json on a --resume. When non-None AND non-empty, this section SKIPS the
+    # section-draft LLM call (_call_section) and the distill LLM step, injecting the cached draft
+    # straight into the UNCHANGED _rewrite_draft_with_spans + repair + strict_verify tail — so
+    # every faithfulness gate RE-RUNS on the reused draft (no stored verdict; §-1.3). None (the
+    # default, and every other caller) => byte-identical: the draft is generated fresh. FAIL-OPEN:
+    # an absent/blank cached draft falls through to full regeneration.
+    reused_raw_draft: str | None = None,
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -6025,8 +6033,15 @@ async def _run_section(
     # accounted into the section totals.
     # FIX K: distill is an LLM step that re-writes prose — skip it for the
     # deterministic verified-span render so the source's own quote is preserved.
+    # ITEM 5 (postgen-resume reuse): a usable cached draft means we SKIP every generation LLM call
+    # for this section — including the distill MAP step (an LLM prose rewrite). The reused draft was
+    # produced under the SAME flag slate on the fresh run, so it already reflects whatever distill /
+    # reduce markers that run emitted; re-running distill here would spend tokens AND could rebind the
+    # draft against a freshly-distilled ledger. Skip it (fail-open: below, a blank/absent reused draft
+    # falls through to full regeneration, which re-enables distill on the fresh path).
+    _reuse_draft_active = bool(reused_raw_draft is not None and reused_raw_draft.strip())
     distillate = None
-    if _section_distill_enabled() and not _evsr:
+    if _section_distill_enabled() and not _evsr and not _reuse_draft_active:
         from src.polaris_graph.generator.evidence_distiller import (
             distill_section_evidence,
         )
@@ -6058,7 +6073,28 @@ async def _run_section(
     # B2 (I-deepfix-001 #1344): the section baskets captured for the boundary-conditions line (below) are
     # resolved ONCE at the top of this function (the hoist above, Fable P2) — [] on every branch that
     # never enters verified-compose, so the append below stays a safe no-op.
-    if _evsr:
+    if _reuse_draft_active:
+        # ITEM 5 (postgen-resume reuse): inject the RAW DRAFT reloaded from the DATA-ONLY
+        # postgen_checkpoint.json instead of calling _call_section (the section-draft LLM step).
+        # `_draft_directly_tokened` stays False so the reused draft takes the SAME post-draft path
+        # the LLM `else`-branch below takes: the REDUCE-marker filter is a no-op here (distillate is
+        # None on reuse), then _rewrite_draft_with_spans + _repair_llm_draft_untokened + strict_verify
+        # (+ NLI-repair + the dedup re-verify + 4-role/D8 downstream) ALL RE-RUN from scratch on the
+        # reused prose. NO stored verdict is consulted — only verdict-free draft DATA is reused
+        # (§-1.3 no-verdict-replay). in/out tokens are 0 (no generation spend); the atom catalog is
+        # empty (the fresh atom catalog is a generation artifact, not a faithfulness input to the
+        # rewrite+verify tail — an empty catalog is exactly what the deterministic render branches
+        # above also pass, and _repair_llm_draft_untokened tolerates it).
+        raw = str(reused_raw_draft)
+        in_tok = out_tok = 0
+        section_atom_catalog = {}
+        _draft_directly_tokened = False
+        logger.info(
+            "[multi_section] %s POSTGEN-REUSE: reused cached raw draft (chars=%d) — SKIP draft "
+            "LLM call + distill; re-run rewrite + strict_verify on the reused draft",
+            section.title, len(raw),
+        )
+    elif _evsr:
         # FIX K: deterministic verbatim-span draft — NO LLM. Each source's own
         # sentence-units (legacy [ev_id]-tagged per unit) feed the UNCHANGED
         # _rewrite_draft_with_spans + strict_verify tail below, exactly like a
@@ -6417,7 +6453,14 @@ async def _run_section(
     # prose — defeating K's core "every citation is the source's OWN verbatim words"
     # traceability property — and re-introduces an LLM call. A unit the span-finder
     # could not bind stays dropped, never reworded; report stays as strict_verify left it.
-    if not _evsr:
+    # ITEM 5 (postgen-resume reuse): SKIP this verifier-driven repair loop on reuse too — it calls
+    # repair_sentence -> a fresh generator LLM `generate`, exactly the generation spend a --resume
+    # reuse must skip (the LAST generation leak on the reuse path). Faithfulness-SAFE and STRICTLY
+    # MORE CONSERVATIVE: the loop only RE-ADDS a dropped sentence that re-passes the UNCHANGED
+    # strict_verify chain, so skipping it can only keep FEWER sentences, never more — it never
+    # relaxes a gate. strict_verify itself (above) is untouched; the report "stays as strict_verify
+    # left it" — the SAME precedent the FIX-K deterministic path (`not _evsr`) already sets here.
+    if not _evsr and not _reuse_draft_active:
       try:
         from src.polaris_graph.generator.sentence_repair import (
             repair_dropped_section_sentences,
@@ -6493,6 +6536,12 @@ async def _run_section(
         and not _evsr  # FIX K: the verified-span draft is deterministic; an LLM
                        # tighter-retry would re-introduce un-verified generated
                        # prose. Survivors come only from the source's own spans.
+        # ITEM 5 (postgen-resume reuse): a REUSED draft must NEVER regenerate. This
+        # tighter_retry calls _call_section (a fresh section-draft LLM call) — exactly
+        # the spend a --resume reuse is meant to skip. On reuse the cached draft stands
+        # as strict_verify left it (the gate already re-ran on it above); a low kept
+        # fraction is the fresh run's own outcome, not grounds to re-bill generation.
+        and not _reuse_draft_active
         and post_filter_fraction < min_kept_fraction
         and report.total_in > 0
     ):
@@ -9774,6 +9823,13 @@ async def generate_multi_section_report(
     # IDENTICALLY (other callers, e.g. graph.py, pass nothing). STRUCTURE-ONLY: no
     # STORM-authored text reaches the plan / verified_text.
     storm_outline: list[Any] | None = None,
+    # ITEM 5 (postgen-resume reuse): section-title -> RAW DRAFT map reloaded from the DATA-ONLY
+    # postgen_checkpoint.json on a --resume. None/empty (the default, and every non-resume caller)
+    # => every section is generated fresh (byte-identical). When provided, a legacy section whose
+    # title has a non-blank cached draft SKIPS its section-draft LLM call + distill and re-runs the
+    # UNCHANGED rewrite + strict_verify + NLI + 4-role/D8 tail on the reused draft (no stored verdict
+    # replayed; §-1.3). A section with no cached entry regenerates normally (fail-open, per-section).
+    reused_section_raw_drafts: dict[str, str] | None = None,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -10976,6 +11032,14 @@ async def generate_multi_section_report(
                 # MOAT DETERMINISTIC EMISSION: the per-section render-ready [#calc:] sentences,
                 # appended into the section body before strict_verify (None => byte-identical).
                 calc_claims=_outline_calc_claims,
+                # ITEM 5 (postgen-resume reuse): this section's cached RAW DRAFT (by title) from the
+                # DATA-ONLY postgen_checkpoint. None when no map is threaded or this title has no
+                # entry => the section regenerates fresh (fail-open). When present + non-blank, the
+                # section-draft LLM call + distill are skipped and rewrite+strict_verify re-run on it.
+                reused_raw_draft=(
+                    (reused_section_raw_drafts or {}).get(plan.title)
+                    if reused_section_raw_drafts else None
+                ),
             )
 
     # V33 unified dispatch helper for downstream (M-44 regen) callers

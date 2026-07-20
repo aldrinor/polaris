@@ -15890,10 +15890,60 @@ async def run_one_query(
         # reusing a draft produced under a different writer/flag config is refused at the source.
         _reuse_postgen_active = False
         _reuse_postgen_reentry = None
+        # ITEM 5 (postgen-resume reuse), DATA-ONLY re-entry via the postgen_checkpoint.json drafts.
+        # The heavy generation_snapshot re-entry (`_load_postgen_reuse_reentry`) is still DEFERRED —
+        # its generator hook (`generate_multi_section_report_from_reused_drafts`) does not exist and
+        # `save_generation_snapshot` is never called in this sweep, so invoking it would FAIL LOUD.
+        # Instead, reuse the ALREADY-WRITTEN, verdict-free postgen_checkpoint drafts (loaded above as
+        # `_a12_postgen_payload`): thread section-title -> raw_draft into the generator so a --resume
+        # SKIPS the per-section draft LLM calls + distill and re-runs the UNCHANGED rewrite +
+        # strict_verify + NLI + 4-role/D8 tail on every reused draft. §-1.3: the checkpoint stores NO
+        # verdict (`load_a12_checkpoint` fails loud if one ever leaked in) and every faithfulness gate
+        # re-runs from scratch on the reused prose — only the generation LLM spend is skipped.
+        # FAIL-OPEN: any error, or a checkpoint whose question drifted, leaves the map empty => full
+        # regeneration. A per-section title with no cached draft also regenerates (per-section fail-open).
+        _reused_section_raw_drafts: "dict[str, str] | None" = None
         if _env_flag("PG_RESUME_REUSE_POSTGEN", default=False) and resume:
-            _reuse_postgen_active, _reuse_postgen_reentry = _load_postgen_reuse_reentry(
-                run_dir=run_dir, log=_log,
-            )
+            try:
+                _pg_payload = _a12_postgen_payload  # loaded verdict-free at the resume seam above
+                if isinstance(_pg_payload, dict):
+                    # GATE0-RESUME: refuse a checkpoint built for a DRIFTED question (mirrors the
+                    # corpus/fetch snapshot guard) — reusing wrong-question drafts is a split-brain.
+                    _pg_snap_q = _pg_payload.get("question")
+                    if _pg_snap_q is not None and _gate0_sha_resume(str(_pg_snap_q)) != (
+                        _gate0_sha_resume(q["question"])
+                    ):
+                        _log(
+                            "[resume]      ITEM 5 postgen reuse SKIPPED (fail-open): checkpoint "
+                            "question drifted from this run's canonical question — regenerating."
+                        )
+                    else:
+                        _raw = _pg_payload.get("raw_drafts")
+                        if isinstance(_raw, dict):
+                            _reused_section_raw_drafts = {
+                                str(_k): str(_v or "")
+                                for _k, _v in _raw.items()
+                                if isinstance(_v, str) and _v.strip()
+                            } or None
+                if _reused_section_raw_drafts:
+                    _log(
+                        "[resume]      ITEM 5 postgen reuse ACTIVE (DATA-ONLY): reusing "
+                        f"{len(_reused_section_raw_drafts)} cached section draft(s) from "
+                        "postgen_checkpoint.json — SKIP per-section draft LLM calls + distill; "
+                        "re-run rewrite + strict_verify + NLI + 4-role/D8 on the reused drafts "
+                        "(every faithfulness gate re-runs; no stored verdict)."
+                    )
+                else:
+                    _log(
+                        "[resume]      ITEM 5 postgen reuse: no usable cached drafts in "
+                        "postgen_checkpoint.json (fail-open) — regenerating all sections."
+                    )
+            except Exception as _pg_reuse_exc:  # noqa: BLE001 — reuse is best-effort; never break the run
+                _reused_section_raw_drafts = None
+                _log(
+                    "[resume]      ITEM 5 postgen reuse SKIPPED (fail-open): "
+                    f"{_pg_reuse_exc} — regenerating all sections."
+                )
 
         _pathb_gen_tok = _pathb.set_role("generator")
         _hb("generation_started")  # GH #1258 PART 2: stage-tick before the multi-section generator
@@ -16114,6 +16164,12 @@ async def run_one_query(
             compose_projection=_compose_proj,
             deliverable_spec=_deliverable_spec,
             scope_spec=_scope_spec,
+            # ITEM 5 (postgen-resume reuse): section-title -> cached RAW DRAFT from the
+            # DATA-ONLY postgen_checkpoint (None unless PG_RESUME_REUSE_POSTGEN + --resume
+            # + usable drafts). A section with a cached draft SKIPS its draft LLM call +
+            # distill; rewrite + strict_verify + NLI + 4-role/D8 STILL re-run on the reused
+            # draft (no stored verdict; §-1.3). None => every section generated fresh.
+            reused_section_raw_drafts=_reused_section_raw_drafts,
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)
