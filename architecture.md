@@ -29,7 +29,7 @@ report with per-sentence provenance verification, external-evaluator
 review, and a cost ledger.
 
 **Entry**: `python -m scripts.run_honest_sweep_r3` (also
-`scripts/run_r6_validation.py` for a 4-query validation slice).
+`scripts/run_gap_fix_validation.py` for a 4-query validation slice).
 
 **Active modules** (23 files under `src/polaris_graph/`):
 
@@ -63,7 +63,7 @@ src/polaris_graph/
 ```
 
 **Plus**: `src/providers/llm_provider.py`, `scripts/run_honest_sweep_r3.py`,
-`scripts/run_r6_validation.py`, `scripts/codex_loop_parse.py`,
+`scripts/run_gap_fix_validation.py`, `scripts/codex_loop_parse.py`,
 `scripts/audit_live_code.py`.
 
 **Data flow**:

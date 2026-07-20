@@ -76,7 +76,7 @@ APPROVE'd; Gate-A green (334 tests). This brief designs M3 (iter 2).
   `run_four_role_evaluation(...)`; then OVERRIDES `manifest['release_allowed']` + `manifest['status']`
   from D8 and demotes the legacy gate to advisory.
 - Callers pass NEITHER arg: `run_honest_sweep_r3.py:3634`, `run_r5_rerun.py:39`,
-  `run_r6_validation.py:41`. Scope resolved inside via `load_scope_template(q["domain"])` → `_template`;
+  `run_gap_fix_validation.py:41`. Scope resolved inside via `load_scope_template(q["domain"])` → `_template`;
   `q["slug"]`/`q["domain"]` identify the question.
 - `FourRoleClaim(claim_id, claim_text, evidence_documents:list[EvidenceDocument], severity:str,
   s0_categories:list[str]=[], covered_element_ids:list[str]=[])` (`sweep_integration.py:62-77`).

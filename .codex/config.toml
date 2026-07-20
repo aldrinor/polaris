@@ -26,7 +26,7 @@ points:
                                       multi_section_generator)
   src/polaris_graph/evaluator/       (external_evaluator, live_qwen_judge)
   scripts/run_honest_sweep_r3.py     (live 8-query sweep orchestrator)
-  scripts/run_r6_validation.py       (4-query re-run with all R-6 gates)
+  scripts/run_gap_fix_validation.py       (4-query re-run with all R-6 gates)
   tests/polaris_graph/               (220 passing tests, 0 xfail, 0 fail)
   outputs/honest_sweep_r6_validation/ (most recent live run artifacts)
 

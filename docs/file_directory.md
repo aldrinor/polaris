@@ -97,7 +97,7 @@ were restored immediately).
 | Script | Role | Pipeline |
 |--------|------|----------|
 | `run_honest_sweep_r3.py` | 8-query sweep orchestrator (main entry) | A |
-| `run_r6_validation.py` | 4-query revalidation slice | A |
+| `run_gap_fix_validation.py` | 4-query revalidation slice | A |
 | `run_honest_on_prerebuild_corpus.py` | Sweep against historical corpora | A |
 | `run_live_honest_cycle.py` | Single-cycle driver | A |
 | `run_honest_full_cycle.py` | Full-cycle driver | A |

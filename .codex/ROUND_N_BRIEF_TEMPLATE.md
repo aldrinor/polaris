@@ -91,7 +91,7 @@ Test state after Claude's work:
 Read only files under:
 - `src/polaris_graph/nodes/`, `src/polaris_graph/retrieval/`,
   `src/polaris_graph/generator/`, `src/polaris_graph/evaluator/`
-- `scripts/run_honest_sweep_r3.py`, `scripts/run_r6_validation.py`,
+- `scripts/run_honest_sweep_r3.py`, `scripts/run_gap_fix_validation.py`,
   `scripts/run_honest_on_prerebuild_corpus.py`, `scripts/codex_loop_parse.py`
 - `config/scope_templates/`, `config/completeness_checklists/`
 - `tests/polaris_graph/`

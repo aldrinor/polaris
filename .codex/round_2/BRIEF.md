@@ -154,7 +154,7 @@ Specifically probe:
 
 Read-only access to:
 - `src/polaris_graph/` (all)
-- `scripts/run_honest_sweep_r3.py`, `scripts/run_r6_validation.py`,
+- `scripts/run_honest_sweep_r3.py`, `scripts/run_gap_fix_validation.py`,
   `scripts/codex_loop_parse.py`
 - `config/`, `tests/polaris_graph/`
 - `outputs/codex_findings/round_1/`

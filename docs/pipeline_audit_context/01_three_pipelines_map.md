@@ -36,7 +36,7 @@ scripts/run_honest_sweep_r3.py
 ```
 
 Also included in pipeline A's 23 live files:
-- `scripts/run_r6_validation.py` — 4-query revalidation
+- `scripts/run_gap_fix_validation.py` — 4-query revalidation
 - `scripts/codex_loop_parse.py` — Codex verdict frontmatter parser
 - `scripts/audit_live_code.py` — import-closure analysis (this audit's tool)
 

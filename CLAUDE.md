@@ -365,7 +365,7 @@ POLARIS/
 │
 ├── scripts/
 │   ├── run_honest_sweep_r3.py    # Pipeline A main entry
-│   ├── run_r6_validation.py      # Pipeline A 4-query revalidation
+│   ├── run_gap_fix_validation.py      # Pipeline A 4-query revalidation
 │   ├── live_server.py            # Pipeline B FastAPI UI (Docker default)
 │   ├── full_cycle.py             # Pipeline C (FROZEN, has broken imports)
 │   ├── audit_live_code.py        # Static import-closure analysis

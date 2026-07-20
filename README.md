@@ -189,7 +189,7 @@ POLARIS/
 │
 ├── scripts/
 │   ├── run_honest_sweep_r3.py   — pipeline A entry (active)
-│   ├── run_r6_validation.py     — 4-query revalidation
+│   ├── run_gap_fix_validation.py     — 4-query revalidation
 │   ├── live_server.py           — pipeline B FastAPI (active)
 │   ├── full_cycle.py            — pipeline C (frozen)
 │   ├── audit_live_code.py       — static import-closure audit

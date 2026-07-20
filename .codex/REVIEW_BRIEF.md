@@ -12,7 +12,7 @@ Focus exclusively on the honest-rebuild pipeline. Ignore archived code under `ar
 - `src/polaris_graph/generator/` — provenance_generator, live_deepseek_generator, multi_section_generator
 - `src/polaris_graph/evaluator/` — external_evaluator, live_qwen_judge
 - `scripts/run_honest_sweep_r3.py` — the orchestrator that stitches it together
-- `scripts/run_r6_validation.py` — re-run script
+- `scripts/run_gap_fix_validation.py` — re-run script
 - Tests in `tests/polaris_graph/test_*_r5_*`, `test_*_r6_*`, `test_regression_pg_lb_sa_02_defects.py`, `test_corpus_adequacy_r6_gap1.py`, `test_completeness_r6_gap3.py`, `test_domain_backends_r6_gap2.py`, `test_multi_section_limitations_r1.py`, `test_budget_cap_r2.py`, `test_hedging_gap2.py`, `test_limitations_gap3.py`, `test_multi_section_gap4.py`, `test_url_normalize_gap1.py`
 - Live artifacts in `outputs/honest_sweep_r6_validation/` (4 queries, most recent run)
 
