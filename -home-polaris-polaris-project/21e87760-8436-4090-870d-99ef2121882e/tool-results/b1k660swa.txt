@@ -1,0 +1,476 @@
+7:- reason(): reasoning ON, returned separately in reasoning_details
+8:- generate(): reasoning OFF, clean prose output only
+75:# ($0.005-$0.01/run). DeepSeek V4 Pro is reasoning-first — it emits
+76:# ~3x the tokens (huge reasoning traces: ~5000 reasoning tokens/call
+122:# I-gen-004 (#496): run-scoped reasoning-trace capture. The generator wires a
+123:# ReasoningTraceCollector as the sink (set_reasoning_sink); the client records
+124:# each raw completed provider response to it (_capture_reasoning_trace) BEFORE
+128:# supplied separately by the caller via set_reasoning_call_context; capture is
+139:def set_reasoning_sink(sink: object | None) -> None:
+140:    """Register (or clear, with None) the run-scoped reasoning-trace sink — a
+146:def current_reasoning_sink() -> object | None:
+150:def set_reasoning_call_context(**ctx: object) -> None:
+158:def current_reasoning_call_context() -> dict | None:
+180:def _capture_reasoning_trace(
+183:    reasoning: Optional[str],
+188:    reasoning-trace sink, if one is registered AND the caller set a generator
+190:    generate()/reason() finalize it (promoted_from_reasoning /
+191:    extracted_from_reasoning) via the sink's update() using
+193:    logged loud but never breaks the LLM call (reasoning trace is process
+195:    sink = current_reasoning_sink()
+196:    ctx = current_reasoning_call_context()
+209:            reasoning_text=reasoning or "",
+213:            reasoning_tokens=result.reasoning_tokens,
+217:            "[polaris graph] I-gen-004: reasoning-trace capture failed "
+224:def _finalize_reasoning_trace(call_id: Optional[str], **patch: object) -> None:
+225:    """I-gen-004 (#496): patch an already-captured reasoning-trace record once
+227:    extraction / retry / truncation — e.g. content_source=promoted_from_reasoning
+232:    sink = current_reasoning_sink()
+239:            "[polaris graph] I-gen-004: reasoning-trace finalize failed "
+252:    parameters (e.g. forced reasoning + strict json_schema with provider require_parameters)
+260:    """I-bug-089 / I-gen-003: a reasoning-first model (DeepSeek V4 Pro/
+262:    empty and reasoning_content has no provenance markers and ends
+368:    reasoning_tokens: int = 0,
+394:            "reasoning_tokens": int(reasoning_tokens),
+450:    reasoning_tokens: int,
+466:    reasoning_tokens = max(0, int(reasoning_tokens))
+467:    if input_tokens == 0 and output_tokens == 0 and reasoning_tokens == 0:
+477:        + ((output_tokens + reasoning_tokens) / 1_000_000.0) * output_rate
+531:# 2026-04-17 after multi-axis reasoning; generator default upgraded to V4
+590:    # because V4 Pro is reasoning-first and exhausted max_tokens mid-planning; I-gen-003
+592:    # PG_REASONING_FIRST_MIN_MAX_TOKENS floor. glm-5.2 is also reasoning-first (same lineage as
+593:    # glm-5.1), so it is registered in _ALWAYS_REASON_MODELS below; the 40%-reasoning-cap keeps
+803:# FIX-GLM5: Models that always route output to reasoning_content.
+804:# These need reasoning_enabled=True for all calls, and generate() must
+805:# use reasoning as content directly (no </think> tag extraction).
+808:# routes generate() and reason() output into reasoning_content (content
+813:# I-cd-010 / GH#625: this is INTENTIONAL reasoning-first registry for
+816:# of "stale model ref" — it's needed for the reasoning-first branch.
+817:# I-beatboth-008 (#1285, 2026-06-20): z-ai/glm-5.2 added — same reasoning-first lineage as
+818:# glm-5.1, so under xhigh + large generator prompts it routes output to reasoning_content. Adding
+820:# 40%-reasoning-cap so xhigh does not starve content (the glm-5.1 xhigh-blank class).
+825:# I-bug-089 (2026-05-09): models that route to reasoning_content even when
+826:# the caller passes reasoning_enabled=False. Used by _call() to cap
+827:# reasoning.max_tokens at 40% of budget so 60% remains for content,
+828:# preventing token-starvation that leaves content="" + reasoning=full
+848:# I-meta-008 FULL-POWER: the DeepSeek V4 Pro reasoning-first GENERATOR needs minutes per section
+862:# caller running a genuinely large reasoning-first section MUST raise PG_GENERATOR_LLM_TIMEOUT_SECONDS
+872:# timer on ANY received bytes, and OpenRouter trickles keep-alive comments while a reasoning model thinks,
+873:# so a tight read-stall fires ONLY on genuine socket silence — slow reasoning is UNAFFECTED (CLAUDE.md
+904:    nonreasoning_floor: float,
+907:    reasoning-first models, instead of a small per-method default that SHADOWS it.
+911:    fallback. A reasoning-first model (DeepSeek V4 Pro, GLM-5.1, MiniMax-M2 — :data:`_REASONING_FIRST_MODELS`)
+913:    finished reasoning -> truncated/empty content. ``generate()`` already passes ``None`` through
+915:    ``generate_structured()`` the SAME generous derivation WITHOUT regressing the non-reasoning
+916:    floor (each method keeps its own ``nonreasoning_floor`` — LONG for reason, DEFAULT for
+919:    Resolution order (CLAUDE.md §9.1.8 — never starve a reasoning-first call):
+924:      3. Otherwise (non-reasoning-first, no explicit) -> the method's existing floor
+933:    return nonreasoning_floor
+1059:    total_reasoning_tokens: int = 0
+1104:        reasoning_tokens: int = 0,
+1112:        self.total_reasoning_tokens += reasoning_tokens
+1159:                "reasoning_tokens": reasoning_tokens,
+1168:            "reasoning_tokens": reasoning_tokens,
+1194:            "total_reasoning_tokens": self.total_reasoning_tokens,
+1205:    reasoning: Optional[str] = None
+1208:    reasoning_tokens: int = 0
+1212:    # I-gen-004 (#496): id of the reasoning-trace record this response was
+1213:    # captured into (set by _capture_reasoning_trace when a run-scoped sink
+1218:    # signal). The reasoning->content promotion guard refuses to promote when finish_reason=="length"
+1288:    paragraph.", "Okay, I'll write...", "Here's the section:") a reasoning-first model glues to the front
+1303:def _extract_answer_from_reasoning(reasoning: str) -> Optional[str]:
+1304:    """COT-4: Extract the actual answer from reasoning that contains both CoT and answer.
+1307:    reasoning_content field, leaving content empty. The answer typically
+1315:    if not reasoning:
+1319:    parts = re.split(r"</think>", reasoning, maxsplit=1, flags=re.IGNORECASE)
+1335:    When providers put both chain-of-thought reasoning AND JSON output
+1336:    into the reasoning field, this function finds the JSON portion.
+1338:    since the JSON output typically comes after the CoT reasoning.
+1527:    - reason(): Extended reasoning ON. CoT returned in reasoning field, not content.
+1612:        Returns (content, reasoning_content, usage_data, served_identity), where
+1617:        - ``data: {JSON}`` — delta chunks with content/reasoning_content
+1626:        reasoning_parts: list[str] = []
+1637:        reasoning_bytes = 0
+1641:        # the reasoning->content promotion guard can refuse promotion of a "length"-truncated trace.
+1711:                # Check both reasoning_content and reasoning (provider-dependent)
+1712:                rc = delta.get("reasoning_content") or delta.get("reasoning")
+1714:                    reasoning_parts.append(rc)
+1715:                    reasoning_bytes += len(rc.encode("utf-8"))
+1723:        reasoning_text = "".join(reasoning_parts)
+1728:                "content=%d bytes (%d chars), reasoning=%d bytes (%d chars), "
+1733:                reasoning_bytes,
+1734:                len(reasoning_text),
+1750:        return content_text, reasoning_text, usage_data, served
+1758:        the accumulated (content, reasoning_content, usage) tuple.
+1764:          the provider doesn't support streaming for reasoning models)
+1771:        OpenRouter keep-alive comments reset the read timer, so slow reasoning
+1792:                content, reasoning, usage, served = await self._accumulate_sse(response)
+1796:                if not content and not reasoning and not usage:
+1799:                        "reasoning, or usage. Content-Type: %s",
+1803:                return content, reasoning, usage, served
+1838:                "content=%d chars, reasoning=%d chars",
+1841:                len(message.get("reasoning_content", "") or ""),
+1846:            # stream:true) into the usage dict, so the downstream reasoning->content promotion
+1854:                message.get("reasoning_content", "")
+1855:                or message.get("reasoning", "")
+1875:        reasoning_enabled: bool = True,
+1876:        reasoning_effort: str = "high",
+1881:        reasoning_max_tokens: Optional[int] = None,
+1882:        reasoning_exclude: Optional[bool] = None,
+1895:                messages, call_type, reasoning_enabled, reasoning_effort,
+1897:                reasoning_max_tokens, reasoning_exclude,
+1904:        reasoning_enabled: bool = True,
+1905:        reasoning_effort: str = "high",
+1910:        reasoning_max_tokens: Optional[int] = None,
+1911:        reasoning_exclude: Optional[bool] = None,
+1933:        # K2-3: Filter reasoning_content: null from messages to prevent
+1949:        # Pool 1 (reasoning field): reasoning tokens → logged for monitoring
+1952:        #   max_tokens=2000 → 1313 chars content + 5868 chars reasoning).
+1953:        # CRITICAL: Never merge reasoning into content. Never disable reasoning.
+1957:            # Caller-passed reasoning_max_tokens / reasoning_exclude now reach the API.
+1958:            reasoning_dict: dict[str, Any] = {"exclude": False}
+1959:            if reasoning_exclude is not None:
+1960:                reasoning_dict["exclude"] = reasoning_exclude
+1961:            if reasoning_max_tokens is not None:
+1963:                reasoning_dict["max_tokens"] = reasoning_max_tokens
+1965:                reasoning_dict["effort"] = reasoning_effort or "high"
+1966:            body["reasoning"] = reasoning_dict
+1968:            # Enforce minimum max_tokens so reasoning doesn't starve content.
+1969:            # At max_tokens<2000, GLM-5 spends entire budget on reasoning,
+1974:        elif reasoning_enabled:
+1975:            reasoning_dict = {"effort": reasoning_effort, "enabled": True}
+1976:            if reasoning_max_tokens is not None:
+1977:                reasoning_dict.pop("effort", None)
+1978:                reasoning_dict["max_tokens"] = reasoning_max_tokens
+1979:            if reasoning_exclude is not None:
+1980:                reasoning_dict["exclude"] = reasoning_exclude
+1981:            body["reasoning"] = reasoning_dict
+1982:            # I-arch-003 (#1253): ROOT-CAUSE floor for the reasoning-ON path. This elif chain means a
+1983:            # reasoning-first model (deepseek-v4-pro/flash) reaching branch 2 via reason() or
+1984:            # generate_structured(reasoning_enabled=True) SKIPS the 32768 floor that branch 3 applies on
+1985:            # the generate()/reasoning-off path. deepseek-v4-pro emits ~5-18k reasoning tokens BEFORE
+1987:            # (deepener 2000/500, STORM outline 4096) is consumed entirely by reasoning -> empty content
+1989:            # here so the explicit-reasoning path is protected too. GLM (_ALWAYS_REASON) never reaches
+1990:            # branch 2 (branch 1 catches it), so this targets exactly the deepseek reasoning-first set and
+2000:            # I-bug-089: caller wants reasoning_enabled=False but this model
+2001:            # (e.g. DeepSeek V4 Pro/Flash) routes to reasoning_content anyway.
+2002:            # Cap reasoning at 40% of max_tokens so 60% is reserved for content,
+2005:            # reasoning_max_tokens / reasoning_exclude still take precedence.
+2006:            reasoning_dict = {"exclude": False}
+2007:            if reasoning_exclude is not None:
+2008:                reasoning_dict["exclude"] = reasoning_exclude
+2009:            if reasoning_max_tokens is not None:
+2010:                reasoning_dict["max_tokens"] = reasoning_max_tokens
+2012:                reasoning_dict["max_tokens"] = max(int(max_tokens * 0.4), 100)
+2013:            body["reasoning"] = reasoning_dict
+2015:            # reasoning.max_tokens for V4 Pro on the provider side — the
+2017:            # The I-bug-090 estimate of "~2500 reasoning tokens" was wrong:
+2019:            # 21284 chars (~5300+ tokens) of reasoning and STILL truncate
+2022:            # write the cited paragraph. 20000 floor → ~5-8k reasoning +
+2033:            # the reasoning-first model gets real headroom. Floor raised 16384 -> 32768 so V4 Pro's ~17-18k
+2034:            # reasoning tokens + content never truncate (the old 16384 starved content on long sections).
+2046:            # 16384; 16385 -> 404 "No endpoints found"). deepseek-v4-pro is reasoning-first
+2047:            # and emits ~17-18k reasoning tokens before content on some sections, so a 16384
+2058:            # change behavior for EVERY reasoning-first model — both forbidden. Jurisdiction
+2081:        # re-apply the reasoning-first floor after this clamp (re-flooring would
+2091:            # The provider-pinned reasoning-first GENERATOR family (#1253: Novita/
+2096:            # bound applies to them; the judge/verifier roles (NOT reasoning-first)
+2110:            if response_format.get("type") == "json_object" and not reasoning_enabled:
+2163:                # I-meta-008 FULL-POWER: a reasoning-first GENERATOR (DeepSeek V4 Pro) needs minutes
+2167:                # the clock, is the spend backstop. Non-reasoning-first models keep the standard default.
+2193:                            reasoning_text,
+2202:                                "reasoning_content": reasoning_text,
+2207:                            # token-ceiling truncation is visible to the reasoning->content
+2297:                #   - the </think>-recoverable misroute (content empty, reasoning present, usage
+2301:                # reason()'s reasoning-only output carries valid usage + finish_reason, so this
+2443:                #   (a) STRUCTURAL "No endpoints found": the requested params (e.g. forced reasoning
+2631:        # Extract reasoning — OpenRouter returns it in reasoning_content
+2632:        # or in reasoning_details array depending on provider
+2633:        reasoning = None
+2634:        reasoning_tokens = 0
+2636:        if "reasoning_content" in message and message["reasoning_content"]:
+2637:            reasoning = message["reasoning_content"]
+2638:        elif "reasoning" in message and message["reasoning"]:
+2639:            # Some providers return it as 'reasoning'
+2640:            reasoning = message["reasoning"]
+2659:        reasoning_tokens = usage_data.get("reasoning_tokens", 0)
+2660:        # FIX-QM11b: OpenRouter nests reasoning_tokens inside
+2662:        if not reasoning_tokens:
+2665:                reasoning_tokens = ctd.get("reasoning_tokens", 0)
+2679:                self.model, input_tokens, output_tokens, reasoning_tokens,
+2685:                    "(in=%d out=%d reasoning=%d). Budget guard uses the "
+2689:                    reasoning_tokens,
+2705:            reasoning_tokens=reasoning_tokens,
+2710:        # COT-1: Strict separation — NEVER mix reasoning into content.
+2711:        # The API separates content and reasoning_content correctly.
+2714:        # FIX-H2: Explicit warning and raise when BOTH content and reasoning are empty.
+2717:        if not content and not reasoning:
+2720:                "reasoning_content for %s (model=%s, %d input tokens)",
+2725:            # I-obs-001 #1141 AC3: FIX-H2 empty-content+empty-reasoning capture (the drb_72-class
+2743:        if not content and reasoning:
+2745:                "[polaris graph] COT-1: Content empty for %s, reasoning has "
+2746:                "%d chars (reasoning_enabled=%s, response_format=%s). "
+2749:                len(reasoning),
+2750:                reasoning_enabled,
+2758:        # finish_reason was ever reported -> the reasoning->content promotion guard falls back to
+2766:            reasoning=reasoning,
+2769:            reasoning_tokens=reasoning_tokens,
+2777:        # run-scoped reasoning-trace sink BEFORE any caller-level promotion /
+2779:        _capture_reasoning_trace(result, content, reasoning)
+2819:            "[polaris graph] %s completed: %d in/%d out/%d reasoning tokens, "
+2824:            reasoning_tokens,
+2841:                reasoning_tokens=reasoning_tokens,
+2855:        # OBS-REASONING: Persist reasoning to trace JSONL
+2856:        if reasoning and isinstance(reasoning, str) and len(reasoning) > 10:
+2859:                _obs_tracer.reasoning_capture(
+2862:                    reasoning_text=reasoning,
+2866:                    reasoning_tokens=reasoning_tokens,
+2870:        # Every _call() emits complete prompt messages, response, reasoning,
+2886:                "reasoning_enabled": reasoning_enabled,
+2893:                "response_reasoning": result.reasoning or "",
+2896:                "reasoning_tokens": result.reasoning_tokens,
+2915:        reasoning_max_tokens: Optional[int] = None,
+2916:        reasoning_exclude: Optional[bool] = None,
+2919:        Analysis/planning call — reasoning ON, returned separately.
+2924:        Reasoning appears in response.reasoning, NOT in response.content.
+2945:            reasoning_enabled=True,
+2946:            reasoning_effort=effort,
+2950:            # I-arch-004 F20 (#1255): a reasoning-first model gets the generous generator
+2951:            # budget here instead of the 180s LONG default that used to kill it mid-reasoning;
+2952:            # non-reasoning-first verifier/judge calls keep the LONG floor (no regression).
+2954:            reasoning_max_tokens=reasoning_max_tokens,
+2955:            reasoning_exclude=reasoning_exclude,
+2962:        # For free-form reason() (no schema), extract answer from reasoning.
+2965:        if not result.content.strip() and result.reasoning:
+2966:            extracted = _extract_answer_from_reasoning(result.reasoning)
+2970:                    "reasoning via </think> split (schema=%s)",
+2976:                    reasoning=result.reasoning,
+2979:                    reasoning_tokens=result.reasoning_tokens,
+2988:                # the reasoning IS the answer — use it directly without retry.
+2993:                _reason_content = result.reasoning
+3029:                    "reasoning as content (%d chars, no schema to parse)",
+3034:                    reasoning=result.reasoning,
+3037:                    reasoning_tokens=result.reasoning_tokens,
+3048:                    "in reasoning (%d chars). Retrying once (schema=%s).",
+3049:                    len(result.reasoning),
+3055:                    reasoning_enabled=True,
+3056:                    reasoning_effort=effort,
+3060:                    # I-arch-004 F20 (#1255): generator-sized timeout for reasoning-first models.
+3065:                if not result.content.strip() and result.reasoning:
+3066:                    extracted = _extract_answer_from_reasoning(result.reasoning)
+3070:                            reasoning=result.reasoning,
+3073:                            reasoning_tokens=result.reasoning_tokens,
+3082:                        # the reasoning IS the answer. Use it as content.
+3085:                        # reasoning output is the desired result.
+3088:                            "reasoning as content (%d chars, no schema to parse)",
+3089:                            len(result.reasoning),
+3092:                            content=result.reasoning,
+3093:                            reasoning=result.reasoning,
+3096:                            reasoning_tokens=result.reasoning_tokens,
+3106:                        # reasoning (same pattern as generate_structured()).
+3107:                        json_extracted = _extract_json_from_text(result.reasoning)
+3111:                                "extracted %d chars JSON from reasoning for %s",
+3117:                                reasoning=result.reasoning,
+3120:                                reasoning_tokens=result.reasoning_tokens,
+3131:                                "reasoning (%d chars). Schema parsing will skip.",
+3133:                                len(result.reasoning),
+3158:                    reasoning_enabled=True,
+3159:                    reasoning_effort=effort,
+3163:                    # I-arch-004 F20 (#1255): generator-sized timeout for reasoning-first models.
+3173:    def _refuse_if_truncated_reasoning_promotion(
+3182:        EVERY generate() branch that copies reasoning-derived text into content — raw-reasoning
+3188:        guarded only the raw-promotion site was confounded by the reasoning-first ``max_tokens``
+3204:            _finalize_reasoning_trace(trace_id, status="truncated")
+3206:                f"I-bug-089/FX-01: reasoning-first model {self.model} truncated at promotion "
+3209:                f"heuristic_fallback={heuristic_fallback}). Promoting truncated reasoning-derived "
+3221:        reasoning_max_tokens: Optional[int] = None,
+3222:        reasoning_exclude: Optional[bool] = None,
+3228:        reasoning-trace generator context in a ``finally``, so each
+3241:                reasoning_max_tokens=reasoning_max_tokens,
+3242:                reasoning_exclude=reasoning_exclude,
+3249:            set_reasoning_call_context()
+3258:        reasoning_max_tokens: Optional[int] = None,
+3259:        reasoning_exclude: Optional[bool] = None,
+3263:        Prose/output call — reasoning OFF, clean output only.
+3267:        No CoT in the output. No reasoning field. Just clean text.
+3269:        COT-2: If content is empty but reasoning has substance, try to
+3270:        extract the answer from reasoning (provider misroute). If that
+3281:            reasoning_enabled=False,
+3287:            # for reasoning-first writers (DeepSeek V4 Pro). Substituting
+3291:            reasoning_max_tokens=reasoning_max_tokens,
+3292:            reasoning_exclude=reasoning_exclude,
+3300:        # Log reasoning for monitoring but NEVER merge into content.
+3301:        if result.reasoning and self.model in _ALWAYS_REASON_MODELS:
+3303:                "[polaris graph] POOL-1: Reasoning logged (%d chars) for generate()",
+3304:                len(result.reasoning),
+3311:        # Try </think> extraction from reasoning as last resort.
+3312:        if result.reasoning:
+3313:            extracted = _extract_answer_from_reasoning(result.reasoning)
+3316:                # reasoning-derived text into content — refuse if the trace was length-truncated
+3318:                self._refuse_if_truncated_reasoning_promotion(
+3326:                    "recovered %d chars from reasoning via </think> split",
+3331:                    reasoning=result.reasoning,
+3334:                    reasoning_tokens=result.reasoning_tokens,
+3340:                _finalize_reasoning_trace(
+3342:                    content_source="extracted_from_reasoning",
+3347:                # Use reasoning directly as content (same as COT-3 free-form).
+3348:                # FIX-GLM5-COT: Strip chain-of-thought markers from reasoning
+3351:                _cleaned_reasoning = result.reasoning
+3355:                _cleaned_reasoning = _strip_cot_preamble(_cleaned_reasoning)
+3362:                    _cleaned_reasoning,
+3369:                        _cleaned_reasoning,
+3384:                        _cleaned_reasoning,
+3388:                    _cleaned_reasoning = _cleaned_reasoning[_thinking_block.start():].lstrip()
+3391:                        "from generate() reasoning",
+3395:                # reasoning-derived text into content — refuse a length-truncated trace before
+3396:                # promoting (heuristic checks the CLEANED reasoning actually being promoted).
+3397:                self._refuse_if_truncated_reasoning_promotion(
+3398:                    candidate_text=_cleaned_reasoning,
+3404:                    "[polaris graph] FIX-GLM5: generate() using reasoning as "
+3406:                    self.model, len(_cleaned_reasoning),
+3409:                    content=_cleaned_reasoning,
+3410:                    reasoning=result.reasoning,
+3413:                    reasoning_tokens=result.reasoning_tokens,
+3419:                _finalize_reasoning_trace(
+3421:                    content_source="promoted_from_reasoning",
+3424:            elif len(result.reasoning.strip()) >= 100:
+3426:                # reasoning-first models (e.g. DeepSeek V4 Pro) that route
+3427:                # ALL assistant tokens to reasoning_content, leave content
+3430:                # on retry. Use raw reasoning as the answer; raw is preserved
+3431:                # in result.reasoning for tracing. Threshold of 100 chars
+3432:                # guards against treating a near-empty reasoning blip as a
+3436:                # ran out of budget mid-planning. If reasoning has no
+3441:                # raw-reasoning promotion — the exact drb_72 scratchpad-as-verified-prose failure.
+3442:                # Centralized guard (see _refuse_if_truncated_reasoning_promotion):
+3445:                # param-ceiling was confounded by the 16384 reasoning-first max_tokens floor.
+3446:                self._refuse_if_truncated_reasoning_promotion(
+3447:                    candidate_text=result.reasoning,
+3454:                    "reasoning has %d chars and no </think> tag. Model %s is "
+3455:                    "reasoning-first — using reasoning as content directly.",
+3456:                    len(result.reasoning), self.model,
+3459:                    content=result.reasoning,
+3460:                    reasoning=result.reasoning,
+3463:                    reasoning_tokens=result.reasoning_tokens,
+3469:                _finalize_reasoning_trace(
+3471:                    content_source="promoted_from_reasoning",
+3479:                    "reasoning sparse (%d chars). Retrying once.",
+3480:                    len(result.reasoning),
+3483:                _finalize_reasoning_trace(_primary_trace_id, status="retry")
+3487:                    reasoning_enabled=False,
+3492:                    # retry leg of a reasoning-first writer also gets the generous
+3495:                    # I-wire-009 (#1323) P1-2: forward the caller's reasoning budget into the COT-2
+3496:                    # retry, identical to the primary _call above. A reasoning-first writer that is
+3498:                    # generator) can reach this retry with empty content + sparse (<100-char) reasoning;
+3499:                    # the request-side switch then forces a reasoning block, and WITHOUT these params it
+3503:                    reasoning_max_tokens=reasoning_max_tokens,
+3504:                    reasoning_exclude=reasoning_exclude,
+3510:                _finalize_reasoning_trace(
+3516:                if not result.content.strip() and result.reasoning:
+3517:                    extracted = _extract_answer_from_reasoning(result.reasoning)
+3520:                        # copies reasoning-derived text into content — refuse if length-truncated.
+3521:                        self._refuse_if_truncated_reasoning_promotion(
+3529:                            reasoning=result.reasoning,
+3532:                            reasoning_tokens=result.reasoning_tokens,
+3538:                        _finalize_reasoning_trace(
+3540:                            content_source="extracted_from_reasoning",
+3543:                    elif len(result.reasoning.strip()) >= 100:
+3545:                        # retry. If retry still produces reasoning-only output
+3546:                        # with substance, treat reasoning as the answer.
+3550:                        # deeper). Centralized guard (see _refuse_if_truncated_reasoning_promotion).
+3551:                        self._refuse_if_truncated_reasoning_promotion(
+3552:                            candidate_text=result.reasoning,
+3558:                            "[polaris graph] I-bug-088: retry still reasoning-"
+3560:                            len(result.reasoning),
+3563:                            content=result.reasoning,
+3564:                            reasoning=result.reasoning,
+3567:                            reasoning_tokens=result.reasoning_tokens,
+3573:                        _finalize_reasoning_trace(
+3575:                            content_source="promoted_from_reasoning",
+3581:                        _finalize_reasoning_trace(_retry_trace_id, status="error")
+3584:                            f"Reasoning has {len(result.reasoning)} chars but "
+3597:        reasoning_enabled: bool = False,
+3598:        reasoning_effort: str = "high",
+3599:        reasoning_max_tokens: Optional[int] = None,
+3600:        reasoning_exclude: Optional[bool] = None,
+3603:        Structured output call — reasoning OFF by default, returns parsed schema.
+3605:        When reasoning is DISABLED and PG_STRICT_JSON_SCHEMA=1 (default),
+3609:        When reasoning is ENABLED, relies on prompt-based JSON extraction
+3612:        FIX-QM1: When reasoning IS explicitly enabled, checks both content
+3613:        and reasoning_content for JSON (some models put JSON in reasoning).
+3615:        # Use strict:true JSON schema when reasoning is disabled and env allows.
+3618:        # When reasoning is enabled, skip — thinking + json_schema are incompatible.
+3621:        # reasoning is forced ON by _call() regardless of this parameter. Without
+3623:        # AND reasoning=enabled, which causes complex-schema calls (StormOutlinePlan,
+3625:        # reasoning_content with content="" (empty). Symptom in PG_TEST_090 trace:
+3626:        # "Content empty for structured:StormOutlinePlan, reasoning has 17958 chars".
+3632:        # (GLM-only). But _call()'s REQUEST-side switch (line ~1474) forces a reasoning block
+3633:        # for the WIDER _REASONING_FIRST_MODELS set, which also includes the reasoning-first
+3634:        # deepseek default (deepseek-v4-pro / -v4-flash). For those models _effective_reasoning
+3636:        # WHILE _call() forced reasoning -> with provider require_parameters:true + the generator
+3641:        # same prompt-based-JSON / reasoning-extraction path GLM uses (the recovery at ~2650 is
+3645:        _effective_reasoning = reasoning_enabled or (self.model in _REASONING_FIRST_MODELS)
+3646:        if not _effective_reasoning and strict_schema_enabled:
+3687:            reasoning_enabled=reasoning_enabled,
+3688:            reasoning_effort=reasoning_effort,
+3692:            # I-arch-004 F20 (#1255): a reasoning-first model (incl. those where _call forces
+3693:            # reasoning ON regardless of reasoning_enabled) gets the generous generator budget
+3694:            # instead of the 90s DEFAULT that used to truncate its structured-output reasoning;
+3695:            # non-reasoning-first calls keep the DEFAULT floor (no regression).
+3697:            reasoning_max_tokens=reasoning_max_tokens,
+3698:            reasoning_exclude=reasoning_exclude,
+3701:        # FIX-QM1 + FIX-QM11c + FIX-V6: Extract JSON from reasoning when content
+3703:        # reasoning field. FIX-V6: LLM sometimes returns verifications as
+3705:        # pattern and fall back to reasoning extraction.
+3719:                                "(key=%s, value=%s) — trying reasoning fallback",
+3726:            if result.reasoning and result.reasoning.strip():
+3728:                extracted = _extract_json_from_text(result.reasoning)
+3732:                        "[polaris graph] FIX-V6: JSON recovered from reasoning "
+3733:                        "for %s (%d chars from %d char reasoning, stub=%s)",
+3736:                        len(result.reasoning),
+3740:                    # Original FIX-QM1 fallback: use full reasoning as JSON source
+3741:                    json_source = result.reasoning
+3743:                        "[polaris graph] FIX-QM1: Using full reasoning as JSON "
+3749:        # FIX-SCHEMA-4: Handle prose-prefix before JSON even with reasoning OFF.
+3764:            elif not reasoning_enabled and result.reasoning and result.reasoning.strip():
+3765:                # Provider misrouted: output in reasoning despite reasoning=OFF
+3766:                extracted_r = _extract_json_from_text(result.reasoning)
+3770:                        "reasoning (misrouted, reasoning=OFF) for %s",
+3807:            # FIX-CA1: If ClusterAssessment has empty reasoning/claims but
+3808:            # reasoning_content is available, extract from there.
+3811:                and result.reasoning
+3812:                and len(result.reasoning) > 100
+3814:                if not getattr(parsed, "reasoning", "") or not getattr(parsed, "key_claims", []):
+3816:                    r_text = result.reasoning
+3817:                    # Try to extract reasoning summary
+3818:                    if not parsed.reasoning:
+3819:                        # Take first 2-3 sentences from reasoning
+3821:                        parsed.reasoning = " ".join(_sentences[:3]).strip()
+3824:                        # Look for bullet points or numbered items in reasoning
+3896:                reasoning_enabled=reasoning_enabled,
+3897:                reasoning_effort=reasoning_effort,
+3901:                # I-arch-004 F20 (#1255): generator-sized timeout for reasoning-first models.
+3905:            # FIX-QM1 + FIX-QM11c + FIX-V6: Extract JSON from reasoning on retry too
+3917:                                    "(key=%s) — trying reasoning fallback",
+3923:            if (not json_source.strip() or _is_stub_retry) and reasoning_enabled:
+3924:                if result.reasoning and result.reasoning.strip():
+3925:                    extracted = _extract_json_from_text(result.reasoning)
+3929:                            "[polaris graph] FIX-V6: JSON recovered from reasoning "
+3936:                        json_source = result.reasoning
+3938:                            "[polaris graph] FIX-QM1: Using full reasoning as JSON "
+3950:                elif not reasoning_enabled and result.reasoning and result.reasoning.strip():
+3951:                    extracted_r = _extract_json_from_text(result.reasoning)
+3963:    async def validate_reasoning(self) -> bool:
+3964:        """Quick check that reasoning tokens are produced. Returns True if working."""
+3968:                call_type="validate_reasoning",
+3969:                reasoning_enabled=True,
+3970:                reasoning_effort="low",
+3975:            # FIX-QM11c: Check both reasoning_tokens AND reasoning content.
+3976:            # Some providers (e.g., DeepInfra) produce reasoning output
+3978:            has_reasoning_tokens = result.reasoning_tokens > 0
+3979:            has_reasoning_content = bool(result.reasoning and len(result.reasoning) > 10)
+3981:            if has_reasoning_tokens or has_reasoning_content:
+3984:                    "(tokens=%d, reasoning_content=%d chars)",
+3985:                    result.reasoning_tokens,
+3986:                    len(result.reasoning or ""),
+3991:                "(0 reasoning tokens, no reasoning content). "
+3992:                "Provider may not support reasoning.",
