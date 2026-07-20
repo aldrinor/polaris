@@ -1,0 +1,197 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "gov/agent_payload.schema.json",
+  "title": "agent_payload",
+  "description": "The one-shot payload every sub-agent returns. One reply, everything in it. There is no follow-up round, so anything the agent could not cover must be written down in not_covered. Enforced by tools/validate_agent_payload.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "agent_id",
+    "task_id",
+    "model",
+    "status",
+    "summary",
+    "findings",
+    "work_done",
+    "not_covered",
+    "blockers",
+    "metrics",
+    "next_action",
+    "confidence"
+  ],
+  "properties": {
+    "schema": {
+      "description": "Contract version. Must be this exact string.",
+      "const": "agent_payload/v1"
+    },
+    "agent_id": {
+      "description": "Who ran. Example: claude_reviewer_01.",
+      "type": "string",
+      "minLength": 1
+    },
+    "task_id": {
+      "description": "The task or issue this payload answers. Example: I-gov-001.",
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "description": "Model name that produced this payload. Example: claude-opus-4-8.",
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "description": "DONE is not a word an agent may simply assert. The checker derives it: DONE is only allowed when not_covered holds a single FULL_COVERAGE entry carrying proof, and blockers is empty. Naming work you left out, or naming a blocker, means PARTIAL or BLOCKED. FAILED means it ran and did not work.",
+      "type": "string",
+      "enum": ["DONE", "PARTIAL", "BLOCKED", "FAILED"]
+    },
+    "summary": {
+      "description": "Three sentences at most. Plain words. Read it aloud once and it should make sense.",
+      "type": "string",
+      "minLength": 1,
+      "x_max_sentences": 3
+    },
+    "findings": {
+      "description": "What the agent found. May be empty if it found nothing. Every finding needs a real quote from a real file.",
+      "type": "array",
+      "items": {"$ref": "#/definitions/finding"}
+    },
+    "work_done": {
+      "description": "What the agent actually did, one line per action. At least one line.",
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "not_covered": {
+      "description": "THE ANTI-DRIP RULE. This list can never be empty. Every part of the scope the agent did not reach goes here, now, in this reply. If the agent did cover the whole scope it writes one entry with area set to FULL_COVERAGE, and that entry must be the ONLY entry and must carry proof. Claiming full coverage while also naming work left out is rejected, and so is a lookalike spelling of FULL_COVERAGE.",
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/definitions/not_covered_entry"}
+    },
+    "blockers": {
+      "description": "What stopped the agent. Must have at least one line when status is PARTIAL, BLOCKED or FAILED. Must be empty when status is DONE, because a thing that stopped you means the task is not done.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "metrics": {"$ref": "#/definitions/metrics"},
+    "next_action": {
+      "description": "The single next thing to do. One sentence.",
+      "type": "string",
+      "minLength": 1
+    },
+    "confidence": {
+      "description": "How sure the agent is about its own summary and findings.",
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    }
+  },
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "claim", "evidence", "recommendation"],
+      "properties": {
+        "id": {
+          "description": "Short handle for this finding. Example: F1.",
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "description": "1 is worst and blocks the work. 2 is real but not blocking. 3 is minor or cosmetic.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "claim": {
+          "description": "What is wrong, in one plain sentence.",
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {"$ref": "#/definitions/evidence"},
+        "recommendation": {
+          "description": "What to do about it, in one plain sentence.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "lines", "quote"],
+      "properties": {
+        "path": {
+          "description": "File path or web address the quote came from. A file path is opened by the checker and read. A path that does not exist is rejected.",
+          "type": "string",
+          "minLength": 1
+        },
+        "lines": {
+          "description": "Line number or line range, like 42 or 10-20. The range must run forwards and must fit inside the file. Use n/a only for a web address, because a file has lines.",
+          "type": "string",
+          "pattern": "^([0-9]+(-[0-9]+)?|n/a)$"
+        },
+        "quote": {
+          "description": "The real text copied from that place. The checker opens the file and looks for this text at those lines. Text that is not there is rejected, so a quote written from memory does not pass.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "not_covered_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["area", "reason"],
+      "properties": {
+        "area": {
+          "description": "The part of the scope not reached. Use the exact word FULL_COVERAGE when nothing was left out.",
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "description": "Why it was not reached, in plain words.",
+          "type": "string",
+          "minLength": 1
+        },
+        "proof": {
+          "description": "Required when area is FULL_COVERAGE. A command that was run and what it printed, showing the whole scope was reached. The checker requires a line that starts with a shell prompt and a real number in the output. A claim of full coverage with no proof, or with proof that shows no command, is rejected. The checker cannot tell whether the command was really run, so this is a shape check, not a truth check.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokens_in", "tokens_out", "wall_seconds"],
+      "properties": {
+        "tokens_in": {"type": "integer", "minimum": 0},
+        "tokens_out": {"type": "integer", "minimum": 0},
+        "wall_seconds": {"type": "number", "minimum": 0}
+      }
+    }
+  },
+  "x_rules_enforced_by_validator": [
+    "not_covered can never be empty",
+    "an area of FULL_COVERAGE requires a proof that shows a command and a number",
+    "an area of FULL_COVERAGE must be the only entry in the list",
+    "a lookalike spelling of FULL_COVERAGE is rejected, not silently skipped",
+    "status DONE requires FULL_COVERAGE and an empty blockers list",
+    "status PARTIAL, BLOCKED or FAILED requires at least one blocker",
+    "every finding needs a non-empty evidence.quote",
+    "a quoted file is opened and the quote must really be at those lines",
+    "a quoted file path that does not exist is rejected",
+    "a line range that runs backwards or past the end of the file is rejected",
+    "finding ids must be unique",
+    "summary is at most 3 sentences, claim and recommendation and next_action are one",
+    "work_done and blockers entries are one line each",
+    "invisible and reordering characters are rejected in every text field",
+    "duplicate JSON keys and numbers that are not real numbers are rejected",
+    "no keys outside this schema, at any level"
+  ],
+  "x_rules_the_validator_cannot_check": [
+    "whether the proof command was really run, or its output invented",
+    "whether a web address exists or says what the quote claims",
+    "whether the agent held back a finding it already knew",
+    "whether the file checked is the reply the agent actually sent, unless the caller passes --expect-sha256"
+  ]
+}

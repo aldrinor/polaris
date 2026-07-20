@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# govkit pre-commit hook.
+# Runs the three governance checkers on STAGED files only, by naming convention,
+# so ordinary code commits are never touched — a commit is blocked only when a
+# governance artifact it stages fails its checker.
+#
+# Conventions (a file is checked only if its staged path matches):
+#   *.payload.json            -> tools/validate_agent_payload.py   (sub-agent payload)
+#   gov/outbox/*.md, *.operator.md -> tools/lint_operator_message.py (operator message)
+#   *.pr.md, */pr_body*.md     -> tools/check_pr_body.py            (pull request body)
+#   *.issue.md                 -> tools/check_pr_body.py --issue    (issue body)
+#
+# Exit non-zero blocks the commit. That non-zero on bad input is the whole point.
+set -u
+ROOT="$(git rev-parse --show-toplevel)"
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+fail=0
+checked=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  path="$ROOT/$f"
+  [ -f "$path" ] || continue
+  case "$f" in
+    *.payload.json)
+      checked=$((checked+1)); python3 "$ROOT/tools/validate_agent_payload.py" "$path" || fail=1 ;;
+    gov/outbox/*.md|*.operator.md)
+      checked=$((checked+1)); python3 "$ROOT/tools/lint_operator_message.py" "$path" || fail=1 ;;
+    *.pr.md|*/pr_body*.md)
+      checked=$((checked+1)); python3 "$ROOT/tools/check_pr_body.py" "$path" || fail=1 ;;
+    *.issue.md)
+      checked=$((checked+1)); python3 "$ROOT/tools/check_pr_body.py" "$path" --issue || fail=1 ;;
+  esac
+done <<< "$staged"
+if [ "$fail" -ne 0 ]; then
+  echo "govkit pre-commit: a staged governance file failed its checker. Commit blocked." >&2
+  exit 1
+fi
+exit 0
