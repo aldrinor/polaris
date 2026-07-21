@@ -10,3 +10,4 @@
 - [Two-way iteration rule](two-way-iteration-rule.md) — claude-codex-K3 is bidirectional; when I disagree/hit a judgment call, consult the model with my position + demand evidence, never gate-obey or silently overrule
 - [RACE-maxing audit](race-maxing-audit.md) — 3-model line-by-line audit; diagnosis (flat-wall composition, not under-citing) + 4-gate fix plan awaiting operator gate; codex/sol operating lesson
 - [Batch 1 evidence substrate result](batch1-evidence-substrate-result.md) — B/E/F shipped+scored; RACE flat, FACT +15 supported cites, rate drop is a measurement artifact
+- [K3 generator RACE win](k3-generator-race-win.md) — GLM-5.2->kimi-k3 generator = RACE +0.030 (0.4605->0.4903), biggest lever; complementary with structure
