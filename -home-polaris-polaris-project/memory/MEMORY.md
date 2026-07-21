@@ -7,4 +7,5 @@
 - [Governance kit operating rule](governance-kit-operating-rule.md) — all agent work runs inside govkit (bot/repo-knowledge-base); operator is blind, lint every message, use templates + payload schema
 - [Baseline next step](baseline-next-step.md) — before improvement work, run baseline_triple.sh to measure the scoreboard noise floor; foundation on gate-inversion (15fcdda)
 - [Background task lifecycle rule](background-task-lifecycle-rule.md) — never leave a background task loose; own its lifecycle, self-terminating only, TaskStop when done, none open at session end
+- [Two-way iteration rule](two-way-iteration-rule.md) — claude-codex-K3 is bidirectional; when I disagree/hit a judgment call, consult the model with my position + demand evidence, never gate-obey or silently overrule
 - [RACE-maxing audit](race-maxing-audit.md) — 3-model line-by-line audit; diagnosis (flat-wall composition, not under-citing) + 4-gate fix plan awaiting operator gate; codex/sol operating lesson
