@@ -91,6 +91,34 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _coverage_spine_enabled() -> bool:
+    """LEVER 3 (PG_COVERAGE_SPINE, default off). When on, the self-review prompt gains an ADDITIVE
+    coverage-spine directive. Off => the prompt is byte-identical to today."""
+    return _env_flag("PG_COVERAGE_SPINE", False)
+
+
+def _coverage_spine_block() -> str:
+    """Return the additive coverage-spine directive for the self-review prompt, or '' when the lever is
+    off (byte-identical). RQ-GENERAL: it names no concept itself — it instructs the model to thread the
+    concepts the QUESTION already names, using the SAME existing-section + verbatim-quote machinery. It
+    never removes/renames/invents a section and never permits an uncited assertion (faithfulness-safe)."""
+    if not _coverage_spine_enabled():
+        return ""
+    return (
+        "COVERAGE SPINE (additive — obey ALL rules above; this only ADDS deficiency lines, it NEVER "
+        "removes, renames, or invents a section): for every concept the QUESTION explicitly names as a "
+        "framing idea, key driver, scope term, or cross-cutting theme, ensure it is threaded across the "
+        "report with ONE distinct analytical role rather than being confined to a single section or the "
+        "introduction. The roles are: framing, mechanism, cross-context comparison, synthesis, and "
+        "implication. When such a concept is central to the QUESTION but is currently addressed in only "
+        "one place, list a deficiency line (with its verbatim QUESTION quote, per the STRICT GROUNDING "
+        "RULE) that assigns the concept's analysis to whichever EXISTING section is topically closest, "
+        "so that section ties its findings back to the concept as CITED synthesis. Do NOT parrot the "
+        "concept in every section, do NOT add any uncited assertion, and do NOT create a new section for "
+        "it.\n\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Seat + knobs (LAW VI — zero hard-coding; every knob is env-tunable)
 # ---------------------------------------------------------------------------
@@ -1451,7 +1479,8 @@ class OutlineAgent:
             "Example of what NOT to do: inventing 'engineering mechanisms' or 'other tall "
             "structures' for a question that only asks a completion year — WRONG, do not do "
             "this.\n\n"
-            f"QUESTION:\n{self.workspace.research_question}\n\nSECTIONS:\n{section_block}"
+            + _coverage_spine_block()
+            + f"QUESTION:\n{self.workspace.research_question}\n\nSECTIONS:\n{section_block}"
         )
         checklist_max_tokens = _env_int(
             "PG_OUTLINE_CHECKLIST_MAX_TOKENS", PG_OUTLINE_CHECKLIST_MAX_TOKENS_DEFAULT,

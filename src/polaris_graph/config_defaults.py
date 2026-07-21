@@ -806,6 +806,14 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # (mirrors PG_SCOPE_DEMOTE_WEIGHT / the date-window demote). Clamped to (0,1);
     # empty => the module default. Only consulted when the enforce flag is on.
     'PG_RQ_SOURCE_ELIGIBILITY_DEMOTE_WEIGHT': '',
+    # LEVER 4 (source routing): when on, `_row_language` gains an OFFLINE, no-network
+    # language-detection FALLBACK used ONLY when a row carries no language sidecar (today
+    # that path fails open => unknown => assumed eligible, so a non-English source with an
+    # English-only RQ constraint silently survives). Detection returns a confident ISO-639-1
+    # code (non-Latin script signal, or a strong Latin stopword ratio) or None (stays
+    # fail-open when not confident). Default '' = off => `_row_language` is byte-identical
+    # (sidecar-only, no detection). Feeds the existing demote-and-retain path (never deletes).
+    'PG_SOURCE_ROUTING': '',
     'PG_RUN_DIFF_TIER_PP': None,
     'PG_S2_KEYWORD_DISTILL': '1',
     'PG_S2_KEYWORD_MAX_TERMS': '8',
@@ -844,6 +852,21 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # section to one blob. Render + prompt text only (strict_verify untouched). If PG_SECTION_STRUCTURE
     # is also ON it wins (structure variant supersedes). Default '' = off => flat render => byte-identical.
     'PG_RENDER_BLOCKS': '',
+    # LEVER 2 (typed cross-study synthesis matrix). When ON, after a section's prose is strict-verified
+    # and resolved, an LLM renders a comparison TABLE from THAT verified prose only (reuse [N] markers,
+    # never invent, "—" for unstated), suppressed unless >= PG_SYNTHESIS_MATRIX_MIN_ROWS comparable rows
+    # survive. The table is APPENDED as a block (prose untouched => faithfulness + claim-coverage hold).
+    # Render-only augmentation; strict_verify untouched. Default '' = off => byte-identical (no table).
+    'PG_SYNTHESIS_MATRIX': '',
+    'PG_SYNTHESIS_MATRIX_MIN_ROWS': '3',
+    # LEVER 3 (coverage spine). When ON, the outline self-review is given an ADDITIVE directive to thread
+    # each concept the QUESTION names across the report with ONE distinct analytical role (framing /
+    # mechanism / cross-context comparison / synthesis / implication) instead of confining a framing
+    # concept to the introduction — routed ONLY into EXISTING sections (never invents/drops/renames one,
+    # honoring the outline invariants) and only as CITED synthesis (no uncited assertion, no fabricated
+    # section). Prompt text only; strict_verify + section add/drop logic untouched. Default '' = off =>
+    # byte-identical self-review prompt. Concepts come from the QUESTION text, so it is RQ-general.
+    'PG_COVERAGE_SPINE': '',
     'PG_SECTION_EVIDENCE_TOP_K': '100',
     'PG_SECTION_GINI_THRESHOLD': '0.30',
     'PG_SECTION_PER_SOURCE_SPAN_CAP': '0',

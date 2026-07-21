@@ -150,10 +150,85 @@ def _row_year(row: "Any") -> "int | None":
     return None
 
 
+_SOURCE_ROUTING_FLAG = "PG_SOURCE_ROUTING"
+
+
+def source_routing_enabled() -> bool:
+    """LEVER 4 kill-switch (``PG_SOURCE_ROUTING``). DEFAULT OFF (empty => off). OFF => ``_row_language``
+    is byte-identical (sidecar-only, NO offline detection)."""
+    return (resolve(_SOURCE_ROUTING_FLAG) or "").strip().lower() not in _OFF_VALUES
+
+
+# ── LEVER 4: OFFLINE language detection (no network, no task literals, general). Two CONFIDENT signals
+# only; anything ambiguous returns None so the caller stays FAIL-OPEN (unknown => never punished). ──
+# (1) SCRIPT signal: letters dominated by a non-Latin Unicode block => that language family.
+# (2) Latin-script STOPWORD signal: a strong ratio of one language's function words (and not English).
+_SCRIPT_RANGES: "tuple[tuple[int, int, str], ...]" = (
+    (0x0600, 0x06FF, "ar"), (0x0750, 0x077F, "ar"),   # Arabic (+ supplement)
+    (0x0400, 0x04FF, "ru"),                             # Cyrillic
+    (0x0370, 0x03FF, "el"),                             # Greek
+    (0x0590, 0x05FF, "he"),                             # Hebrew
+    (0x0900, 0x097F, "hi"),                             # Devanagari
+    (0x0E00, 0x0E7F, "th"),                             # Thai
+    (0xAC00, 0xD7AF, "ko"),                             # Hangul
+    (0x3040, 0x30FF, "ja"),                             # Hiragana + Katakana
+    (0x4E00, 0x9FFF, "zh"),                             # CJK Unified (kana above disambiguates ja)
+)
+_STOPWORDS: "dict[str, frozenset[str]]" = {
+    "en": frozenset({"the", "of", "and", "in", "to", "for", "on", "with", "an", "is", "are", "from", "by"}),
+    "es": frozenset({"el", "la", "los", "las", "de", "y", "en", "para", "con", "una", "del", "por", "que"}),
+    "fr": frozenset({"le", "la", "les", "des", "et", "dans", "pour", "avec", "une", "du", "sur", "que", "au"}),
+    "de": frozenset({"der", "die", "das", "und", "für", "mit", "eine", "ein", "von", "den", "im", "auf", "zur"}),
+    "it": frozenset({"il", "la", "le", "dei", "di", "e", "per", "con", "una", "del", "sul", "che", "gli"}),
+    "pt": frozenset({"o", "os", "as", "de", "em", "para", "com", "uma", "um", "do", "da", "no", "na"}),
+    "pl": frozenset({"i", "w", "na", "z", "do", "dla", "oraz", "jest", "się", "nie", "przez", "który"}),
+}
+
+
+def detect_language_offline(text: "str | None") -> "str | None":
+    """CONFIDENT ISO-639-1 code for ``text`` (a row title/snippet) or None. Offline, no network,
+    general (any language via script/stopwords), NO task literals. Conservative: returns None unless
+    a signal is strong, so an ambiguous row stays fail-open (unknown => never punished)."""
+    if not text:
+        return None
+    s = str(text)
+    letters = [ch for ch in s if ch.isalpha()]
+    if len(letters) < 4:
+        return None
+    counts: "dict[str, int]" = {}
+    latin = 0
+    for ch in letters:
+        cp = ord(ch)
+        if cp < 0x0250 or (0x1E00 <= cp <= 0x1EFF):   # Basic/Extended Latin => Latin-script
+            latin += 1
+            continue
+        for lo, hi, code in _SCRIPT_RANGES:
+            if lo <= cp <= hi:
+                counts[code] = counts.get(code, 0) + 1
+                break
+    if counts:
+        top = max(counts, key=counts.get)
+        if counts[top] >= 0.35 * len(letters):        # decisive non-Latin script
+            return top
+    if latin < 0.5 * len(letters):
+        return None
+    words = re.findall(r"[^\W\d_]+", s.lower(), re.UNICODE)
+    if len(words) < 5:
+        return None
+    hits = {lang: sum(1 for w in words if w in sw) for lang, sw in _STOPWORDS.items()}
+    en = hits.get("en", 0)
+    best_lang, best = max(hits.items(), key=lambda kv: kv[1])
+    if best_lang != "en" and best >= 3 and best > en * 2:   # clear non-English lead
+        return best_lang
+    return None
+
+
 def _row_language(row: "Any") -> "str | None":
     """Best-effort ISO-639-1 language of a row, or None (unknown => fail-open). Reads a row's
-    own ``language``/``lang`` sidecar (or ``metadata.language``); NO network, NO detection —
-    an absent signal is treated as UNKNOWN, never as a violation."""
+    own ``language``/``lang`` sidecar (or ``metadata.language``). LEVER 4 (``PG_SOURCE_ROUTING``, off
+    by default): when NO sidecar is present, an OFFLINE detector (no network) supplies a CONFIDENT
+    code as a fallback; a low-confidence row still returns None (stays fail-open). OFF => sidecar-only,
+    byte-identical."""
     for key in ("language", "lang"):
         v = _field(row, key)
         if v:
@@ -167,6 +242,14 @@ def _row_language(row: "Any") -> "str | None":
             s = str(v).strip().lower()
             if s:
                 return s[:2]
+    # LEVER 4: offline detection fallback — ONLY when the sidecar is absent AND source routing is on.
+    if source_routing_enabled():
+        text = " ".join(
+            str(_field(row, k) or "") for k in ("title", "snippet", "text", "abstract")
+        ).strip()
+        code = detect_language_offline(text)
+        if code:
+            return code
     return None
 
 
