@@ -280,6 +280,43 @@ def _basket_supports_members(basket: Any) -> list[Any]:
     return supports
 
 
+def _maybe_reanchor_basket_members(basket: Any, evidence_pool: dict) -> None:
+    """LEVER B (citation re-anchoring): BEFORE the draft is built (and thus BEFORE strict_verify
+    re-checks it), re-point each SUPPORTS member's ``evidence_id`` from a SECONDARY row to a
+    strictly-MORE-PRIMARY pool row that grounds the SAME fact AND literally CONTAINS the member's
+    verbatim ``direct_quote`` (so the re-derived span still resolves and strict_verify still passes).
+
+    Gated on ``PG_CITATION_REANCHOR_PRIMARY`` (default OFF => no-op => the ``[#ev]`` tokens are
+    byte-identical). Pure grounding-SOURCE selection: it never drops a member, never edits prose,
+    never touches the verify logic — it swaps ONE evidence_id for a stronger-primary one carrying
+    the identical quoted span. Fail-open on any error."""
+    try:
+        from src.polaris_graph.planning.citation_reanchor import (  # noqa: PLC0415
+            reanchor_citation,
+            reanchor_enabled,
+        )
+        if not reanchor_enabled():
+            return
+        pool = evidence_pool or {}
+        for m in list(getattr(basket, "supporting_members", None) or []):
+            if str(getattr(m, "span_verdict", "") or "").upper() != "SUPPORTS":
+                continue
+            eid = str(getattr(m, "evidence_id", "") or "")
+            quote = str(getattr(m, "direct_quote", "") or "")
+            if not eid or not quote or eid not in pool:
+                continue
+            new_eid = reanchor_citation(
+                sentence=quote,
+                current_ev_id=eid,
+                evidence_pool=pool,
+                required_substring=quote,
+            )
+            if new_eid and str(new_eid) != eid:
+                m.evidence_id = str(new_eid)
+    except Exception:  # noqa: BLE001 - fail-open: re-anchor never aborts composition
+        return
+
+
 def _distinct_origin_supports(basket: Any) -> list[Any]:
     """The basket's SUPPORTS members deduped to ONE per distinct ORIGIN (highest credibility weight
     kept), so a multi-cited sentence corroborates across DISTINCT sources and never re-cites the SAME
@@ -806,6 +843,7 @@ def build_verified_span_draft(basket: Any, evidence_pool: dict) -> Optional[str]
     this PRODUCER path screens out mid-word span cuts and subjectless fragments before they ship —
     previously the screen ran without these, so those legs were inert and the render seam was the
     only net. Suppress-only: faithfulness verdicts are untouched."""
+    _maybe_reanchor_basket_members(basket, evidence_pool)
     known_words = _known_words_for_compose(evidence_pool)
     # I-deepfix-001 P1_chrome_gate (#1344): make the ALL-CHROME-basket drop LOUD. When a member
     # resolves a verified span but EVERY one of its sentence units is screened out as chrome, the
@@ -977,6 +1015,7 @@ def build_short_member_sentence(basket: Any, evidence_pool: dict, research_quest
     an otherwise-on-topic source from citation (``_apply_compose_offtopic_screen``). Fail-open + gated by
     PG_COMPOSE_SPAN_TOPICALITY (default ON); ``research_question=""`` OR the switch OFF => byte-identical.
     Faithfulness-neutral (chooses WHICH verbatim span is surfaced; the source stays in the pool)."""
+    _maybe_reanchor_basket_members(basket, evidence_pool)
     screen_ctx = _prepare_compose_offtopic_screen(research_question, evidence_pool)
     for m in _basket_supports_members(basket):
         eid = str(getattr(m, "evidence_id", "") or "")
@@ -1093,6 +1132,7 @@ def build_multi_member_sentences(basket: Any, evidence_pool: dict, research_ques
     is byte-identical to ``build_short_member_sentence`` (single headline)."""
     if not _subtopic_decomposition_enabled():
         return build_short_member_sentence(basket, evidence_pool, research_question=research_question)
+    _maybe_reanchor_basket_members(basket, evidence_pool)
     known_words = _known_words_for_compose(evidence_pool)
     # I-deepfix-003 (#1374) STEP 5: per-section off-topic span-screen context (None => OFF/empty
     # question => byte-identical; fail-open; faithfulness-neutral).
@@ -1144,6 +1184,7 @@ def build_verified_span_draft_multi(basket: Any, evidence_pool: dict, research_q
     member yields a real verified unit (caller emits the insufficient-evidence disclosure). Each unit is
     a verbatim span carrying its member's own provenance token → re-passes strict_verify trivially
     (faithfulness UNCHANGED). Bounded by the PG_SUBTOPIC_MAX_FACTS ceiling."""
+    _maybe_reanchor_basket_members(basket, evidence_pool)
     known_words = _known_words_for_compose(evidence_pool)
     # I-deepfix-003 (#1374) STEP 5: per-section off-topic span-screen context (None => OFF/empty
     # question => byte-identical; fail-open; faithfulness-neutral).
@@ -1944,6 +1985,17 @@ def _compose_one_basket(
     ``redraft_fn`` (the primary path), delegate to ``_compose_one_basket_synth_primary`` (compose-then-
     verify + bounded repair + separate labeled fallback). When OFF or no ``redraft_fn`` is threaded the
     legacy body below runs UNCHANGED — byte-identical."""
+    # LEVER B (#4): re-anchor the basket's members BEFORE building the scoped pool + member regions.
+    # ``_maybe_reanchor_basket_members`` may swap a member's ``evidence_id`` to a stronger-primary
+    # row; the scoped pool and the per-basket acceptance regions are BOTH keyed off those ids, so
+    # they MUST be rebuilt from the re-anchored members — else the writer-draft verify at
+    # ``verify_fn(sentence, scoped_pool)`` below runs against STALE ids/regions, the re-anchored
+    # token falls outside the scoped pool, and it fails closed to the K-span (bypassing the intended
+    # per-basket region pass). DEFAULT OFF (PG_CITATION_REANCHOR_PRIMARY unset) => no id changes =>
+    # scoped_pool/regions are byte-identical to today. The K-span/subtopic fallbacks re-anchor at
+    # their own heads too; re-anchoring here is idempotent (a member already pointing at the stronger
+    # primary is left unchanged).
+    _maybe_reanchor_basket_members(basket, evidence_pool)
     scoped_pool = _basket_scoped_pool(basket, evidence_pool)
     regions = _basket_member_regions(basket, evidence_pool)
     if redraft_fn is not None and _synth_primary_enabled():

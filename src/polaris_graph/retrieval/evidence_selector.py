@@ -2234,6 +2234,7 @@ def _relevance_floor_selection(
     url_to_content_relevance_weight: dict[str, float] | None = None,
     url_to_date_weight: dict[str, float] | None = None,
     url_to_scope_weight: dict[str, float] | None = None,
+    url_to_eligibility_weight: dict[str, float] | None = None,
     url_to_must_include: set[str] | None = None,
 ) -> EvidenceSelection:
     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
@@ -2349,6 +2350,22 @@ def _relevance_floor_selection(
             return 1.0
         url = row.get("source_url") or row.get("url") or ""
         w = _scope_map.get(str(url))
+        return 1.0 if w is None else float(w)
+
+    # LEVER B: per-row RQ-SOURCE-ELIGIBILITY weight, joined by URL. It multiplies the ranking
+    # score EXACTLY like `_scope_weight` — an RQ-ineligible source (wrong source-type / non-
+    # English / out-of-recency, per the RQ's OWN stated constraints) sinks LAST in the SELECTED
+    # set while staying KEPT (the floor comparison uses the RAW relevance, never this weight —
+    # §-1.3 WEIGHT-not-FILTER). The map holds ONLY non-default (< 1.0) weights, so when the RQ
+    # states no such constraint (or the enforce flag is OFF) it is empty, this returns 1.0 for
+    # every row, and the sort is BYTE-IDENTICAL. The faithfulness engine is downstream + untouched.
+    _elig_map = url_to_eligibility_weight or {}
+
+    def _eligibility_weight(row: dict[str, Any]) -> float:
+        if not _elig_map:
+            return 1.0
+        url = row.get("source_url") or row.get("url") or ""
+        w = _elig_map.get(str(url))
         return 1.0 if w is None else float(w)
 
     # I-scope-001 P1 fix: the set of URLs the user explicitly INCLUDED (op='include' /
@@ -2508,7 +2525,7 @@ def _relevance_floor_selection(
                 _include_rank(s[3]),
                 -(s[1] * _authority(s[3]) * _retrieval_weight(s[3])
                   * _content_relevance_weight(s[3]) * _date_window_weight(s[3])
-                  * _scope_weight(s[3])),
+                  * _scope_weight(s[3]) * _eligibility_weight(s[3])),
                 _TIER_PRIORITY.get(s[2], 9),
                 s[0],
             )
@@ -2518,7 +2535,8 @@ def _relevance_floor_selection(
             key=lambda s: (
                 _include_rank(s[3]),
                 -(s[1] * _authority(s[3]) * _content_relevance_weight(s[3])
-                  * _date_window_weight(s[3]) * _scope_weight(s[3])),
+                  * _date_window_weight(s[3]) * _scope_weight(s[3])
+                  * _eligibility_weight(s[3])),
                 _TIER_PRIORITY.get(s[2], 9),
                 s[0],
             )
@@ -3039,6 +3057,73 @@ def _select_evidence_for_generation_impl(
         _oos_urls = set()
         _must_include_urls = set()
 
+    # LEVER B: build the per-URL RQ-SOURCE-ELIGIBILITY demote map — the task-derived
+    # generalization of the scope/date WEIGHT seam above, driven by the constraints the RQ
+    # ITSELF stated (source_types / languages / recency, parsed generically by
+    # constraint_extractor and cached on protocol['_rq_constraints']). Gated
+    # PG_RQ_SOURCE_ELIGIBILITY_ENFORCE (default OFF) inside build_rq_eligibility => an empty
+    # plan => `url_to_eligibility_weight` empty + `_ineligible_urls` empty => the sort key +
+    # tail partition are BYTE-IDENTICAL. An RQ-ineligible source (wrong source-type / non-English
+    # / out-of-recency) is DEMOTED and sinks LAST while staying KEPT (§-1.3 WEIGHT-not-FILTER);
+    # unresolved rows (unknown genre/language/date) are fail-open (weight 1.0) + flagged for
+    # fetch recovery. No post-generation gate is added (upstream-only).
+    url_to_eligibility_weight: dict[str, float] = {}
+    _ineligible_urls: set[str] = set()
+    _elig_recovery_urls: set[str] = set()
+    _elig_records: list[dict[str, Any]] = []
+    try:
+        from src.polaris_graph.retrieval.rq_eligibility import (  # noqa: PLC0415
+            build_rq_eligibility,
+        )
+        _elig_plan = build_rq_eligibility(protocol, evidence_rows, research_question)
+        url_to_eligibility_weight = dict(_elig_plan.url_to_eligibility_weight)
+        _ineligible_urls = set(_elig_plan.ineligible_urls)
+        # LEVER B recovery/disclosure surface: an UNRESOLVED row (unknown genre/language/date) is
+        # KEPT at full weight but flagged so the operator can fetch-recover the missing signal;
+        # the per-source demote records disclose exactly why each ineligible row was demoted.
+        # These are consumed on EVERY selection path below (floor + capped), including the
+        # unresolved-ONLY plan (no demotes, but recovery flags present).
+        _elig_recovery_urls = set(_elig_plan.fetch_recovery_urls)
+        _elig_records = list(_elig_plan.eligibility_records)
+        if url_to_eligibility_weight:
+            _LOGGER.info(
+                "[select] LEVER B: DEMOTED %d RQ-ineligible source(s) "
+                "(kept, sorted last — §-1.3 disclose, NOT dropped); reasons=%s",
+                len(url_to_eligibility_weight),
+                [r.get("reasons") for r in _elig_records][:10],
+            )
+        if _elig_recovery_urls:
+            _LOGGER.info(
+                "[select] LEVER B: FLAGGED %d source(s) for fetch-recovery "
+                "(unknown genre/language/date — KEPT at full weight, disclosure only)",
+                len(_elig_recovery_urls),
+            )
+    except Exception as _elig_exc:  # noqa: BLE001 - fail-open: eligibility never aborts selection
+        _LOGGER.warning("[select] RQ eligibility skipped (%s)", _elig_exc)
+        url_to_eligibility_weight = {}
+        _ineligible_urls = set()
+        _elig_recovery_urls = set()
+        _elig_records = []
+
+    def _disclose_eligibility(_sel: "EvidenceSelection") -> "EvidenceSelection":
+        """Append LEVER B eligibility notes (demote + fetch-recovery) to a selection, KEEPING
+        every row. Adds NOTHING when the plan is empty (no demotes and no recovery flags) =>
+        byte-identical. Consumed on EVERY selection path (floor, short-pool, capped)."""
+        _notes: list[str] = []
+        if url_to_eligibility_weight:
+            _notes.append(
+                f"LEVER B eligibility: {len(url_to_eligibility_weight)} RQ-ineligible "
+                f"source(s) DEMOTED (kept, sorted last — §-1.3 disclose, NOT dropped)"
+            )
+        if _elig_recovery_urls:
+            _notes.append(
+                f"LEVER B eligibility: {len(_elig_recovery_urls)} source(s) FLAGGED for "
+                f"fetch-recovery (unknown genre/language/date — KEPT, disclosure only)"
+            )
+        if not _notes:
+            return _sel
+        return replace(_sel, notes=list(_sel.notes) + _notes)
+
     # Compute relevance tokens from research question + protocol anchors.
     question_tokens = _content_tokens(research_question or "")
     protocol_tokens: set[str] = set()
@@ -3141,6 +3226,22 @@ def _select_evidence_for_generation_impl(
             for (idx, score, tier, row) in scored
         ]
 
+    # LEVER B (capped-path eligibility demotion): mirror the scope capped-path demotion so a
+    # capped slot prefers RQ-ELIGIBLE rows. Applied ONLY on the capped path (same reason as the
+    # scope/date blocks); the floor path carries `_eligibility_weight` in its sort instead. Rows
+    # are KEPT in `scored`; only their quota rank drops. Empty map => byte-identical.
+    if relevance_floor is None and url_to_eligibility_weight:
+        scored = [
+            (
+                idx,
+                (score * url_to_eligibility_weight.get(
+                    str(row.get("source_url") or row.get("url") or ""), 1.0)),
+                tier,
+                row,
+            )
+            for (idx, score, tier, row) in scored
+        ]
+
     # I-scope-001 P1 (capped-path include PIN): the ADDITIVE mirror of the demote block
     # above — a user-INCLUDED source is boosted ABOVE every non-included row so a capped
     # quota slot keeps it (an included low-relevance source would otherwise be truncated).
@@ -3205,6 +3306,11 @@ def _select_evidence_for_generation_impl(
             # SAME floor-path SORT key so an out-of-scope source sinks LAST while staying
             # KEPT (§-1.3 WEIGHT-not-FILTER).
             url_to_scope_weight=url_to_scope_weight,
+            # LEVER B: per-URL RQ-source-eligibility demotion map (empty when the RQ states no
+            # source/language/recency constraint OR PG_RQ_SOURCE_ELIGIBILITY_ENFORCE OFF =>
+            # byte-identical sort). Multiplied into the SAME floor-path SORT key so an RQ-
+            # ineligible source sinks LAST while staying KEPT (§-1.3 WEIGHT-not-FILTER).
+            url_to_eligibility_weight=url_to_eligibility_weight,
             # I-scope-001 P1 fix: user-INCLUDED URLs get an ADDITIVE PIN (front of the
             # sort + floor-exempt) into the SELECTED set — never demoting a non-matching
             # source. Empty when no include facet OR enforce-OFF => byte-identical.
@@ -3250,6 +3356,11 @@ def _select_evidence_for_generation_impl(
                     f"source(s) DEMOTED (kept, sorted last — §-1.3 disclose, NOT dropped)"
                 ],
             )
+        # LEVER B: disclose the RQ-eligibility demotion AND the fetch-recovery flags in the
+        # selection notes (fires when ≥1 row was demoted OR ≥1 unresolved row was flagged for
+        # recovery => the no-constraint / OFF run adds no note => byte-identical). This is the
+        # unresolved-ONLY plan surface too (recovery flags with zero demotes).
+        _floor_selection = _disclose_eligibility(_floor_selection)
         _floor_reranked = _maybe_rerank_selection(
             _floor_selection.selected_rows, research_question
         )
@@ -3262,7 +3373,7 @@ def _select_evidence_for_generation_impl(
         # sunk to the tail even if it also matched an out-of-scope demote — include wins
         # over demote for the SAME source (include != prefer), so subtract the pins.
         _final_rows = _partition_out_of_scope_last(
-            _floor_reranked, (_oow_urls | _oos_urls) - _must_include_urls
+            _floor_reranked, (_oow_urls | _oos_urls | _ineligible_urls) - _must_include_urls
         )
         if _final_rows is _floor_selection.selected_rows:
             # OFF / single-row / loud-fallback + no date window → byte-identical.
@@ -3306,7 +3417,8 @@ def _select_evidence_for_generation_impl(
         # truncate into this keep-everything short-pool branch.
         if _selection_scale_note is not None:
             _short.notes.append(_selection_scale_note)
-        return _short
+        # LEVER B: disclose eligibility demote/recovery on the short-pool (capped) path too.
+        return _disclose_eligibility(_short)
 
     # Floors: reserve at least 1 slot for each present T1, T2, T3
     # (high-value tiers) if pool has any.
@@ -3862,6 +3974,19 @@ def _select_evidence_for_generation_impl(
         notes.append(
             f"could not fill max_rows={max_rows}; "
             f"selected {sum(selected_counts.values())}"
+        )
+    # LEVER B: disclose eligibility demote/recovery on the tier-balanced TRUNCATING path too
+    # (empty plan => no note => byte-identical). The capped path also has the eligibility note
+    # here (the demote already reordered `scored` above via url_to_eligibility_weight).
+    if url_to_eligibility_weight:
+        notes.append(
+            f"LEVER B eligibility: {len(url_to_eligibility_weight)} RQ-ineligible "
+            f"source(s) DEMOTED (kept, sorted last — §-1.3 disclose, NOT dropped)"
+        )
+    if _elig_recovery_urls:
+        notes.append(
+            f"LEVER B eligibility: {len(_elig_recovery_urls)} source(s) FLAGGED for "
+            f"fetch-recovery (unknown genre/language/date — KEPT, disclosure only)"
         )
 
     return EvidenceSelection(

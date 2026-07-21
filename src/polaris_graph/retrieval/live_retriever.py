@@ -203,6 +203,126 @@ def _fetch_min_body_chars() -> int:
     except ValueError:
         return 0
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LEVER E (fetch-until-usable): stub-salvage lane.
+#
+# The F14 min-body gate above only fires when PG_FETCH_MIN_BODY_CHARS > 0 (its
+# default is 0 = OFF). LEVER E adds a SECOND, independently-flagged floor +
+# recovery lane so a sub-floor stub row that carries a DOI or PMID is routed
+# through the SHARED deterministic metadata-API salvage chain
+# (frame_fetcher.salvage_stub_span: CrossRef -> OpenAlex -> PubMed -> S2 richest
+# abstract) to recover a citable span BEFORE it is admitted as a stub. This is a
+# GENERALIZATION of the V30-contract-scoped frame salvage to any stub row.
+#
+# It reuses the existing frame_fetcher clients/parsers (no new LLM call) and adds
+# NO post-generation gate — recovery only ADDS content (§-1.3: never drops a
+# row). DEFAULT OFF ('' unset) => the lane is never entered => byte-identical.
+# Read at CALL time (LAW VI — env-overridable per run).
+def _stub_salvage_enabled() -> bool:
+    """LEVER E: True iff PG_FETCH_STUB_SALVAGE is set to a truthy value. Default
+    '' (unset) => OFF => byte-identical to today (the lane is never entered)."""
+    return resolve("PG_FETCH_STUB_SALVAGE").strip().lower() not in (
+        "", "0", "false", "no", "off",
+    )
+
+
+def _stub_salvage_min_body_chars() -> int:
+    """LEVER E: the effective min-body floor that DEFINES a stub for the salvage
+    lane. Consulted ONLY when _stub_salvage_enabled(); does NOT touch
+    PG_FETCH_MIN_BODY_CHARS (which stays off), so default-off is byte-identical.
+    A malformed value falls back to the registered central default (~800)."""
+    try:
+        return int(resolve("PG_FETCH_STUB_SALVAGE_MIN_BODY_CHARS"))
+    except ValueError:
+        return 800
+
+
+def _stub_salvage_max_sources() -> int:
+    """LEVER E: bounded number of deterministic metadata sources the salvage lane
+    consults per stub row (CAP, LAW-VI). Malformed => 4."""
+    try:
+        return int(resolve("PG_FETCH_STUB_SALVAGE_MAX_SOURCES"))
+    except ValueError:
+        return 4
+
+
+def _try_stub_salvage(
+    *,
+    url: str,
+    doi_hint: str = "",
+    pmid_hint: str = "",
+) -> tuple[str, str]:
+    """LEVER E: run the shared deterministic salvage lane for a stub row.
+
+    Resolves a DOI (carried hint or embedded in the URL) and/or a PMID hint,
+    then delegates to ``frame_fetcher.salvage_stub_span`` to recover a citable
+    span from the metadata APIs. Fail-SAFE: any error/miss returns ("", "none")
+    so the caller keeps its existing stub behavior. Never raises."""
+    if not _stub_salvage_enabled():
+        return "", "none"
+    doi = (doi_hint or "").strip() or _extract_doi_from_url(url)
+    pmid = (pmid_hint or "").strip()
+    if not doi and not pmid:
+        return "", "none"
+    try:
+        from src.polaris_graph.retrieval.frame_fetcher import salvage_stub_span
+        return salvage_stub_span(
+            doi=doi, pmid=pmid, max_sources=_stub_salvage_max_sources(),
+        )
+    except Exception as exc:  # noqa: BLE001 — fail-SAFE, never break retrieval
+        logger.debug(
+            "[live_retriever] stub_salvage error for doi=%s pmid=%s url=%r: %s",
+            doi or "-", pmid or "-", url[:80], exc,
+        )
+        return "", "none"
+
+
+def _salvage_before_stub_exit(
+    *,
+    url: str,
+    doi_hint: str,
+    pmid_hint: str,
+    method: str,
+    t0: float,
+    reason: str,
+) -> "tuple[str, bool, str, str, str] | None":
+    """LEVER E: run the shared deterministic salvage lane at a HARD-MISS / EMPTY-EXTRACT stub
+    exit (where there is NO usable body to gate on, so the min-body salvage path above never
+    fires). On a hit, returns the upgraded ``(span, True, "", "", "")`` fetch tuple; on a miss (or
+    when the lane is OFF / no identifiers) returns ``None`` so the caller keeps its existing stub
+    return. DEFAULT OFF => always None => byte-identical. Recovery only ADDS content (§-1.3: never
+    drops); no post-generation gate, no new LLM call. Fail-safe; never raises."""
+    try:
+        if not _stub_salvage_enabled():
+            return None
+        _sv_floor = _stub_salvage_min_body_chars()
+        _sv_span, _sv_src = _try_stub_salvage(
+            url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
+        )
+        if _sv_span and (_sv_floor <= 0 or len(_sv_span) >= _sv_floor):
+            logger.info(
+                "[live_retriever] fetch_stub_salvage %s (method=%s exit=%s -> "
+                "salvage_span=%d source=%s) — hard-miss/empty-extract stub upgraded to a "
+                "citable span via the shared salvage lane",
+                url[:80], method, reason, len(_sv_span), _sv_src,
+            )
+            _m45_record_fetch_telemetry(url, "stub_salvage", _sv_src)
+            _trace_tool(
+                "fetch_content", target=url, status="ok",
+                latency_ms=(time.time() - t0) * 1000.0,
+                backend_used="stub_salvage",
+                bytes_received=len(_sv_span),
+                content_length=len(_sv_span),
+            )
+            return _sv_span, True, "", "", ""
+    except Exception as exc:  # noqa: BLE001 — fail-SAFE, never break retrieval
+        logger.debug(
+            "[live_retriever] salvage_before_stub_exit error url=%r: %s", url[:80], exc,
+        )
+    return None
+
+
 # F14: publisher hosts that overwhelmingly serve paywalled article bodies via
 # the free fetch chain (the free backends 403 / return a few-hundred-char
 # abstract shell). When ZYTE_API_KEY is present, these are routed to Zyte FIRST
@@ -2944,6 +3064,28 @@ def _apply_min_body_stub_gate(
     """
     if not ok:
         return content, ok, extracted_title, body_type, jsonld
+    # LEVER E (fetch-until-usable): independently-flagged stub-salvage lane. When
+    # PG_FETCH_STUB_SALVAGE is on and this body is below the salvage floor, route
+    # it through the SHARED deterministic metadata-API salvage
+    # (frame_fetcher.salvage_stub_span) BEFORE the F14 logic below. On a hit the
+    # recovered citable span REPLACES the short shell (ok=True); on a miss we fall
+    # through UNCHANGED. DEFAULT OFF ('' unset) => this block is a no-op =>
+    # byte-identical. Recovery only ADDS content (§-1.3: never drops).
+    if _stub_salvage_enabled():
+        _sv_floor = _stub_salvage_min_body_chars()
+        if _sv_floor > 0 and len(content) < _sv_floor:
+            _sv_span, _sv_src = _try_stub_salvage(
+                url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
+            )
+            if _sv_span and len(_sv_span) >= _sv_floor:
+                logger.info(
+                    "[live_retriever] fetch_stub_salvage %s (naive-path "
+                    "short_body=%d -> salvage_span=%d source=%s) — sub-floor "
+                    "stub upgraded to a citable span via the shared salvage lane",
+                    url[:80], len(content), len(_sv_span), _sv_src,
+                )
+                _m45_record_fetch_telemetry(url, "stub_salvage", _sv_src)
+                return _sv_span, True, extracted_title, body_type, jsonld
     _min_body = _fetch_min_body_chars()
     if _min_body <= 0 or len(content) >= _min_body:
         return content, ok, extracted_title, body_type, jsonld
@@ -2997,11 +3139,16 @@ def _apply_min_body_stub_gate(
 
 
 def _fetch_content_httpx_naive(
-    url: str, max_chars: int
+    url: str, max_chars: int, doi_hint: str = "", pmid_hint: str = "",
 ) -> tuple[str, bool, str, str, str]:
     """Legacy naive httpx fetcher. Kept as emergency fallback when
     AccessBypass is unavailable (tests that don't want Crawl4AI browser
     spawning, or sandboxes without Playwright).
+
+    ``doi_hint`` / ``pmid_hint`` are threaded through to the min-body stub gate so
+    the LEVER E salvage lane can recover a citable span for a sub-floor shell on
+    THIS fallback path too (previously these were dropped here, starving salvage
+    of the identifiers it needs). Empty hints => byte-identical to before.
 
     Returns (content, ok, title, body_type, jsonld). Diff-gate P1-C: `jsonld`
     is the raw ld+json <script> block contents extracted from the RAW HTML
@@ -3024,6 +3171,15 @@ def _fetch_content_httpx_naive(
         ) as c:
             r = c.get(url)
         if r.status_code != 200:
+            # LEVER E: hard-miss stub exit on the naive path — try the shared salvage lane before
+            # giving up (DOI/PMID hints now threaded here). DEFAULT OFF => None => byte-identical.
+            _sv_exit = _salvage_before_stub_exit(
+                url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
+                method="httpx_naive", t0=time.time(),
+                reason=f"http_{r.status_code}",
+            )
+            if _sv_exit is not None:
+                return _sv_exit
             return "", False, "", "", ""
         ctype = (r.headers.get("content-type", "") or "").lower()
         raw = r.text if "text" in ctype or "html" in ctype or "json" in ctype else ""
@@ -3065,6 +3221,21 @@ def _fetch_content_httpx_naive(
             _m45_record_fetch_telemetry(
                 url, "httpx_naive", "fetched_200_but_empty_extract",
             )
+        # LEVER E: an EMPTY extraction (a 200 whose body collapsed to nothing) has NO usable body
+        # to gate on, so _apply_min_body_stub_gate below returns IMMEDIATELY on ok=False (its first
+        # line) BEFORE the salvage lane inside it can fire. Route the empty-extract stub through the
+        # shared DOI/PMID salvage lane HERE, ahead of that early return (mirrors the http_!=200 and
+        # exception exits above). On a hit the recovered span REPLACES the empty body (ok=True); on
+        # a miss / OFF => None => fall through UNCHANGED. DEFAULT OFF => byte-identical. Recovery
+        # only ADDS content (§-1.3: never drops).
+        if not content:
+            _sv_exit = _salvage_before_stub_exit(
+                url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
+                method="httpx_naive", t0=time.time(),
+                reason="fetched_200_but_empty_extract",
+            )
+            if _sv_exit is not None:
+                return _sv_exit
         # FIX #2 (I-deepfix-001): apply the SAME F14 min-body stub gate the
         # PRIMARY branch applies. Sub-floor fallback bodies (paywall shells,
         # 'Just a moment...' interstitials) are LABELED stub/ok=False (content
@@ -3079,11 +3250,21 @@ def _fetch_content_httpx_naive(
             extracted_title=extracted_title,
             body_type=body_type,
             jsonld=jsonld,
+            doi_hint=doi_hint,
+            pmid_hint=pmid_hint,
         )
     except Exception as exc:
         logger.debug(
             "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
         )
+        # LEVER E: network-failure stub exit — salvage works from DOI/PMID with no fetched body.
+        # DEFAULT OFF => None => byte-identical.
+        _sv_exit = _salvage_before_stub_exit(
+            url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
+            method="httpx_naive", t0=time.time(), reason="naive_fetch_exception",
+        )
+        if _sv_exit is not None:
+            return _sv_exit
         return "", False, "", "", ""
 
 
@@ -3092,6 +3273,8 @@ def _fallback_naive_fetch(
     max_chars: int,
     t0: float,
     primary_reason: str,
+    doi_hint: str = "",
+    pmid_hint: str = "",
 ) -> tuple[str, bool, str, str, str]:
     """Run the naive-httpx fallback and record its FINAL outcome (I-meta-007b P2a).
 
@@ -3113,7 +3296,15 @@ def _fallback_naive_fetch(
     fail-safe (``_trace_tool`` swallows its own errors); returns the naive
     fetcher's tuple unchanged so retrieval behavior is identical to before.
     """
-    result = _fetch_content_httpx_naive(url, max_chars)
+    # Thread the identifier hints ONLY when present, so a caller/monkeypatch with the legacy
+    # (url, max_chars) naive-fetcher signature is unaffected (byte-identical) — the salvage lane
+    # is default-OFF anyway, so an empty-hint call has nothing to thread.
+    if doi_hint or pmid_hint:
+        result = _fetch_content_httpx_naive(
+            url, max_chars, doi_hint=doi_hint, pmid_hint=pmid_hint,
+        )
+    else:
+        result = _fetch_content_httpx_naive(url, max_chars)
     content, ok = result[0], result[1]
     _trace_tool(
         "fetch_content",
@@ -3960,7 +4151,8 @@ def _fetch_content(
         # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail), not the
         # pre-fallback "fail" — a successful naive fetch must be recorded ok.
         return _fallback_naive_fetch(
-            url, max_chars, _t0, "pg_disable_access_bypass=1"
+            url, max_chars, _t0, "pg_disable_access_bypass=1",
+            doi_hint=doi_hint, pmid_hint=pmid_hint,
         )
     try:
         from src.tools.access_bypass import AccessBypass
@@ -3974,7 +4166,8 @@ def _fetch_content(
         )
         # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
         return _fallback_naive_fetch(
-            url, max_chars, _t0, f"access_bypass_import_failed: {exc}"
+            url, max_chars, _t0, f"access_bypass_import_failed: {exc}",
+            doi_hint=doi_hint, pmid_hint=pmid_hint,
         )
 
     # Run AccessBypass in a dedicated thread so each call gets its own
@@ -4204,7 +4397,8 @@ def _fetch_content(
         # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail). The
         # backend that actually ran is httpx_naive, not access_bypass.
         return _fallback_naive_fetch(
-            url, max_chars, _t0, f"access_bypass_timeout_{int(deadline)}s"
+            url, max_chars, _t0, f"access_bypass_timeout_{int(deadline)}s",
+            doi_hint=doi_hint, pmid_hint=pmid_hint,
         )
 
     if "error" in result_holder:
@@ -4219,7 +4413,8 @@ def _fetch_content(
         )
         # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
         return _fallback_naive_fetch(
-            url, max_chars, _t0, f"access_bypass_raised_{type(exc).__name__}"
+            url, max_chars, _t0, f"access_bypass_raised_{type(exc).__name__}",
+            doi_hint=doi_hint, pmid_hint=pmid_hint,
         )
     if "value" not in result_holder:
         logger.warning(
@@ -4231,7 +4426,8 @@ def _fetch_content(
         )
         # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
         return _fallback_naive_fetch(
-            url, max_chars, _t0, "access_bypass_no_result"
+            url, max_chars, _t0, "access_bypass_no_result",
+            doi_hint=doi_hint, pmid_hint=pmid_hint,
         )
     result = result_holder["value"]
 
@@ -4312,6 +4508,15 @@ def _fetch_content(
                         content_length=len(oa_content),
                     )
                     return oa_content, True, "", "", ""
+        # LEVER E: hard-miss stub exit — try the shared salvage lane BEFORE giving up (the OA
+        # resolver above only fires when a DOI is embedded/hinted AND its own fetch succeeds;
+        # salvage also consults CrossRef/OpenAlex/PubMed/S2 abstracts and works PMID-only).
+        _sv_exit = _salvage_before_stub_exit(
+            url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
+            method=method, t0=_t0, reason=str(reason or "no_content"),
+        )
+        if _sv_exit is not None:
+            return _sv_exit
         _trace_tool(
             "fetch_content", target=url, status="stub",
             latency_ms=(time.time() - _t0) * 1000.0,
@@ -4368,6 +4573,16 @@ def _fetch_content(
         _m45_record_fetch_telemetry(
             url, method, "fetched_200_but_empty_extract",
         )
+        # LEVER E: empty-extract stub exit — the body collapsed below the usable floor, so the
+        # min-body salvage lane below (gated on len(content) < floor with a NON-empty body) may
+        # still fire; but an EMPTY extraction bypasses it via this early return. Try salvage here
+        # first so an empty-extract row is not stranded. DEFAULT OFF => None => byte-identical.
+        _sv_exit = _salvage_before_stub_exit(
+            url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
+            method=method, t0=_t0, reason="fetched_200_but_empty_extract",
+        )
+        if _sv_exit is not None:
+            return _sv_exit
         _trace_tool(
             "fetch_content", target=url, status="empty_extract",
             latency_ms=(time.time() - _t0) * 1000.0,
@@ -4376,6 +4591,39 @@ def _fetch_content(
             error="fetched_200_but_empty_extract",
         )
         return content, bool(content), extracted_title, body_type, jsonld
+    # ──────────────────────────────────────────────────────────────────────
+    # LEVER E (fetch-until-usable): independently-flagged stub-salvage lane on
+    # the PRIMARY branch (mirrors the naive-path helper). When PG_FETCH_STUB_
+    # SALVAGE is on and the extracted body is below the salvage floor, route it
+    # through the SHARED deterministic metadata-API salvage
+    # (frame_fetcher.salvage_stub_span: CrossRef -> OpenAlex -> PubMed -> S2
+    # richest abstract) to recover a citable span BEFORE the F14 logic below.
+    # On a hit the recovered span REPLACES the shell (ok=True, status="ok"); on a
+    # miss we fall through UNCHANGED into F14. DEFAULT OFF ('' unset) => this
+    # block is a no-op => byte-identical. Recovery only ADDS content (§-1.3:
+    # never drops); no post-generation gate, no new LLM call.
+    if _stub_salvage_enabled():
+        _sv_floor = _stub_salvage_min_body_chars()
+        if _sv_floor > 0 and len(content) < _sv_floor:
+            _sv_span, _sv_src = _try_stub_salvage(
+                url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
+            )
+            if _sv_span and len(_sv_span) >= _sv_floor:
+                logger.info(
+                    "[live_retriever] fetch_stub_salvage %s (method=%s "
+                    "short_body=%d -> salvage_span=%d source=%s) — sub-floor "
+                    "stub upgraded to a citable span via the shared salvage lane",
+                    url[:80], method, len(content), len(_sv_span), _sv_src,
+                )
+                _m45_record_fetch_telemetry(url, "stub_salvage", _sv_src)
+                _trace_tool(
+                    "fetch_content", target=url, status="ok",
+                    latency_ms=(time.time() - _t0) * 1000.0,
+                    backend_used="stub_salvage",
+                    bytes_received=len(_sv_span),
+                    content_length=len(_sv_span),
+                )
+                return _sv_span, True, extracted_title, body_type, jsonld
     # ──────────────────────────────────────────────────────────────────────
     # F14 (GH #1245 / D9, D10): paywall-stub min-body gate. A backend that
     # returns success=True with a SHORT body (a paywall/abstract shell) was

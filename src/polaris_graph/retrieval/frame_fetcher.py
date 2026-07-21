@@ -1275,6 +1275,184 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
 # ─────────────────────────────────────────────────────────────────────
 # Layer 4 — Orchestrator
 # ─────────────────────────────────────────────────────────────────────
+def salvage_stub_span(
+    *,
+    doi: str = "",
+    pmid: str = "",
+    client: httpx.Client | None = None,
+    max_sources: int = 4,
+) -> tuple[str, str]:
+    """LEVER E (fetch-until-usable) — SHARED deterministic salvage lane.
+
+    GENERALIZED extraction of the DOI/PMID abstract-recovery chain that already
+    powers ``_fetch_frame_entity_inner`` for V30 contract entities, exposed as a
+    standalone helper so ANY stub fetch row that carries a DOI or PMID (not just
+    a compiled ``EvidenceBinding``) can recover a CITABLE span — full text or a
+    sufficiently-informative abstract — from the deterministic metadata APIs.
+
+    Consults, in bounded priority order and REUSING the module's existing
+    clients/parsers (no new HTTP surface, no LLM call):
+
+      1. CrossRef  ``/works/{doi}``           — abstract (+ title anchor)
+      2. OpenAlex  ``/works/{doi}``           — inverted-index abstract
+      3. PubMed    EFetch ``{pmid}``          — deterministic abstract XML
+      4. Semantic Scholar ``/paper/DOI:{doi}`` — abstract
+
+    then returns the RICHEST abstract via ``_pick_richest_abstract`` (the SAME
+    deterministic longest-wins selection the frame path uses). At most
+    ``max_sources`` DOI-keyed sources are consulted (a CAP, LAW-VI bounded).
+
+    Unlike the live_retriever OA resolver (Unpaywall-URL scrape + PubMed, DOI
+    REQUIRED), this lane:
+      * works for a PMID-ONLY row (no DOI) via the PubMed abstract, and
+      * consults CrossRef / OpenAlex / S2, which the OA resolver never does.
+
+    Returns ``(span, source_label)`` where ``source_label`` is one of the
+    ``_pick_richest_abstract`` labels (``crossref_abstract`` / ``openalex_abstract``
+    / ``pubmed_abstract`` / ``s2_abstract``), or ``("", "none")`` when every
+    source misses. Fail-SAFE by contract: every internal error is swallowed and
+    yields ``("", "none")`` so the caller falls through to its existing stub
+    behavior. Deterministic given upstream API state — no randomness, no
+    wall-clock in the returned span.
+
+    Recovery only ADDS content (§-1.3: never drops a row). This is an UPSTREAM
+    fetch-layer helper — it contains NO entailment / verification / sentence-
+    dropping / filtering gate.
+    """
+    doi = (doi or "").strip()
+    pmid = (pmid or "").strip()
+    if not doi and not pmid:
+        return "", "none"
+
+    owns_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=_DEFAULT_TIMEOUT)
+    try:
+        abstract_crossref: str | None = None
+        abstract_openalex: str | None = None
+        abstract_pubmed: str | None = None
+        abstract_s2: str | None = None
+        cr_title: str | None = None
+        sources_used = 0
+        cap = max(0, int(max_sources))
+
+        # DOI-consistency guard, ported from the original fetch chain (Steps 3-5): when the bound
+        # entity carries a DOI, require each source's OWN returned DOI to ROUND-TRIP — be PRESENT
+        # and MATCH it (case-insensitive) — before accepting that source's abstract. A silent
+        # DOI↔PMID mismatch otherwise selects the longest abstract from the WRONG work, and a
+        # source that returns NO identifier is an UNCONFIRMED match (it could be any work), so it
+        # is NOT accepted either (the re-gate bug: a missing returned DOI was accepted as a match).
+        # Parsers lowercase the returned DOI, so compare to the lowercased bound DOI.
+        #
+        # CAP semantics: ``sources_used`` is consumed when an attempt STARTS (before the call),
+        # not only on success — so with ``max_sources=1`` a single attempt (even one that raises)
+        # exhausts the cap and the later sources are NOT consulted (the re-gate bug: incrementing
+        # only after a successful call let exceptions consult CrossRef+OpenAlex+S2 under a 1-cap).
+        bound_doi_l = (doi or "").lower()
+
+        # 1. CrossRef abstract (DOI-keyed). CrossRef is queried BY the bound DOI, so its returned
+        # DOI must round-trip to the bound DOI (present AND equal) to confirm the work.
+        if doi and sources_used < cap:
+            sources_used += 1
+            try:
+                cr_data, _a, _t = _call_crossref(client, doi)
+                if cr_data is not None:
+                    parsed = _parse_crossref_response(cr_data)
+                    cr_doi = (parsed.get("doi") or "").lower()
+                    if cr_doi and cr_doi == bound_doi_l:
+                        abstract_crossref = parsed.get("abstract")
+                        cr_title = parsed.get("title")
+                    else:
+                        logger.info(
+                            "[frame_fetcher] salvage DOI-round-trip REJECT crossref "
+                            "bound=%s returned=%s", bound_doi_l, cr_doi or "-",
+                        )
+            except Exception:  # noqa: BLE001 — fail-SAFE, never break fetch
+                pass
+
+        # 2. OpenAlex inverted-index abstract (DOI-keyed).
+        if doi and sources_used < cap:
+            sources_used += 1
+            try:
+                oa_data, _a, _t = _call_openalex(client, doi)
+                if oa_data is not None:
+                    parsed_oa = _parse_openalex_response(oa_data)
+                    oa_doi = (parsed_oa.get("doi") or "").lower()
+                    if oa_doi and oa_doi == bound_doi_l:
+                        abstract_openalex = parsed_oa.get("abstract")
+                    else:
+                        logger.info(
+                            "[frame_fetcher] salvage DOI-round-trip REJECT openalex "
+                            "bound=%s returned=%s", bound_doi_l, oa_doi or "-",
+                        )
+            except Exception:  # noqa: BLE001
+                pass
+
+        # 3. PubMed EFetch abstract (PMID-keyed — the PMID-only recovery path). PubMed is queried
+        # BY the bound PMID, so the returned PMID must round-trip (present AND equal). When the
+        # bound entity ALSO carries a DOI, the returned DOI (if any) must not CONTRADICT it — but a
+        # PubMed record legitimately omitting a DOI is still a confirmed match on the PMID round-trip.
+        if pmid and sources_used < cap:
+            sources_used += 1
+            try:
+                pm_body, _a, _t = _call_pubmed(client, pmid)
+                if pm_body is not None:
+                    parsed_pm = _parse_pubmed_xml(pm_body)
+                    pm_doi = (parsed_pm.get("doi") or "").lower()
+                    pm_pmid = str(parsed_pm.get("pmid") or "").strip()
+                    pmid_ok = bool(pm_pmid) and (pm_pmid == pmid)  # PMID must round-trip
+                    doi_ok = (not doi) or (not pm_doi) or (pm_doi == bound_doi_l)
+                    if pmid_ok and doi_ok:
+                        abstract_pubmed = parsed_pm.get("abstract")
+                    else:
+                        logger.info(
+                            "[frame_fetcher] salvage identifier-round-trip REJECT pubmed "
+                            "bound_doi=%s returned_doi=%s bound_pmid=%s returned_pmid=%s",
+                            bound_doi_l, pm_doi or "-", pmid, pm_pmid or "-",
+                        )
+            except Exception:  # noqa: BLE001
+                pass
+
+        # 4. Semantic Scholar abstract (DOI-keyed).
+        if doi and sources_used < cap:
+            sources_used += 1
+            try:
+                s2_data, _a, _t = _call_s2(client, doi)
+                if s2_data is not None:
+                    parsed_s2 = _parse_s2_response(s2_data)
+                    s2_doi = (parsed_s2.get("doi") or "").lower()
+                    if s2_doi and s2_doi == bound_doi_l:
+                        abstract_s2 = parsed_s2.get("abstract")
+                    else:
+                        logger.info(
+                            "[frame_fetcher] salvage DOI-round-trip REJECT s2 "
+                            "bound=%s returned=%s", bound_doi_l, s2_doi or "-",
+                        )
+            except Exception:  # noqa: BLE001
+                pass
+
+        span, source_label = _pick_richest_abstract(
+            crossref=abstract_crossref,
+            openalex=abstract_openalex,
+            pubmed=abstract_pubmed,
+            s2=abstract_s2,
+        )
+        if span:
+            logger.info(
+                "[frame_fetcher] salvage_stub_span HIT doi=%s pmid=%s "
+                "source=%s chars=%d — recovered a citable span from the "
+                "deterministic metadata APIs (title=%r)",
+                doi or "-", pmid or "-", source_label, len(span),
+                (cr_title or "")[:60],
+            )
+        return span, source_label
+    except Exception:  # noqa: BLE001 — fail-SAFE at the outer boundary
+        return "", "none"
+    finally:
+        if owns_client:
+            client.close()
+
+
 def fetch_frame_entity(
     binding: EvidenceBinding,
     *,

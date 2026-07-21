@@ -113,6 +113,30 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # cleanly. Digit-anchored on both sides, so code/JSON 'a[3].[i]' is untouched.
     # Default '0' = leave the '].[' glue as-is = today's byte-identical render.
     'PG_CITATION_INLINE_GLUE_COLLAPSE': '0',
+    # LEVER B (citation re-anchoring): when truthy, a claim sentence whose cited
+    # [#ev] token points at a SECONDARY source is UPSTREAM re-pointed to a PRIMARY
+    # row (same normalized finding/numbers, higher tier, and a primary scholarly
+    # genre or a non-contradictory is_journal_article sidecar — never a bare DOI)
+    # BEFORE strict_verify runs — a grounding-SOURCE selection, never a sentence
+    # drop/filter. Default '' = off => the [#ev] tokens are byte-identical.
+    'PG_CITATION_REANCHOR_PRIMARY': '',
+    # LEVER F (canonicalize works): when truthy, the GLOBAL bibliography unit
+    # becomes the CANONICAL WORK instead of the raw evidence_id. Upstream rows
+    # already carry same_work grouping, but the
+    # global bibliography (_merge_bibliographies) dedups only by evidence_id, so
+    # ONE work fetched from several mirror URLs / manifestations appears as
+    # [5][6][7]. When on, every member evidence_id of a work (identified by the
+    # SHARED deterministic same-work key: the normalized DOI, else source URL,
+    # else folded title + discriminator — parsed generically from the row's OWN
+    # locators, NO task literals) folds to a SINGLE canonical [N], preferring the
+    # DOI/primary manifestation for the surviving entry. The remap runs through
+    # the existing _remap_section_markers_to_global path and collapses resulting
+    # adjacent duplicate markers ('[5][5]' -> '[5]'). Pure deterministic
+    # identity + numbering — NO model, NO network, NO sentence drop/filter (a
+    # remapped-away entry's evidence_id still resolves, it just shares a number).
+    # Default '' = off => one bibliography entry per evidence_id as today =>
+    # byte-identical bibliography + inline markers.
+    'PG_CANONICAL_WORK_BIBLIOGRAPHY': '',
     'PG_CITEFIX_ENABLED': '0',
     'PG_CITEFIX_KEYWORD_MIN': '3',
     'PG_CITEFIX_SEMANTIC_THRESHOLD': '0.50',
@@ -349,6 +373,33 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_FETCH_MAX_RETRIES': '3',
     'PG_FETCH_MIN_BODY_CHARS': '0',
     'PG_FETCH_NONEMPTY_RAW_FLOOR': '200',
+    # LEVER E (fetch-until-usable): when truthy, a fetched row that comes back a
+    # STUB (extracted body below the salvage floor) AND carries a DOI or PMID is
+    # routed through the shared deterministic metadata-API salvage lane
+    # (frame_fetcher CrossRef -> OpenAlex -> PubMed -> Semantic Scholar richest
+    # abstract, an OA-URL scrape via the existing OA resolver) to recover full
+    # text or a sufficiently-informative abstract — a CITABLE span — BEFORE the
+    # row is labeled `stub`. On a salvage hit the body is upgraded to ok=True; on
+    # a miss the row keeps its `stub` verdict (retained for disclosure, not
+    # citation — §-1.3 label-not-drop). This RUNS ONLY as an upstream fetch-layer
+    # recovery — it adds NO post-generation entailment / verification / filtering
+    # gate, and reuses the existing frame_fetcher clients (no new LLM call).
+    # Default '' = OFF => the salvage lane is never entered => byte-identical to
+    # today (the min-body gate itself stays off because PG_FETCH_MIN_BODY_CHARS
+    # is unchanged at '0'). Read at CALL time (env-overridable per run).
+    'PG_FETCH_STUB_SALVAGE': '',
+    # LEVER E: the effective min-body floor (chars) that DEFINES a "stub" for the
+    # salvage lane ABOVE. A real journal body is tens of thousands of chars; a
+    # paywall / abstract shell is a few hundred, so ~800 chars cleanly separates a
+    # citable span from a dead shell. This floor is consulted ONLY when
+    # PG_FETCH_STUB_SALVAGE is truthy — it does NOT touch PG_FETCH_MIN_BODY_CHARS
+    # (which stays '0'/off), so default-off remains byte-identical. Overridable.
+    'PG_FETCH_STUB_SALVAGE_MIN_BODY_CHARS': '800',
+    # LEVER E: bounded number of distinct deterministic metadata sources the
+    # salvage lane will consult per stub row (CrossRef, OpenAlex, PubMed, S2 = 4).
+    # A CAP, never a target — keeps the recovery bounded per LAW-VI. Consulted
+    # only when PG_FETCH_STUB_SALVAGE is truthy.
+    'PG_FETCH_STUB_SALVAGE_MAX_SOURCES': '4',
     'PG_FETCH_RETRY_BASE': '2.0',
     'PG_FETCH_RETRY_MAX': '30.0',
     'PG_FETCH_SHELL_VOCAB_GATE': '1',
@@ -722,6 +773,17 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_RISK_QUORUM_MIN': '2',
     'PG_ROLE_ALLOW_FALLBACKS': '',
     'PG_ROLE_TRANSPORT_RETRIES': '2',
+    # LEVER B (source eligibility): when truthy, the RQ's OWN stated constraints
+    # (source_types / languages / recency — parsed generically from the prompt and
+    # cached in protocol['_rq_constraints']) DEMOTE ineligible citable rows at the
+    # generation-pool boundary (weight in (0,1), tail-partitioned, KEPT + disclosed
+    # — WEIGHT-not-DROP). Default '' = off => the eligibility map is empty =>
+    # selection sort key + tail partition are byte-identical.
+    'PG_RQ_SOURCE_ELIGIBILITY_ENFORCE': '',
+    # LEVER B: the multiplicative ranking demote applied to an RQ-INELIGIBLE row
+    # (mirrors PG_SCOPE_DEMOTE_WEIGHT / the date-window demote). Clamped to (0,1);
+    # empty => the module default. Only consulted when the enforce flag is on.
+    'PG_RQ_SOURCE_ELIGIBILITY_DEMOTE_WEIGHT': '',
     'PG_RUN_DIFF_TIER_PP': None,
     'PG_S2_KEYWORD_DISTILL': '1',
     'PG_S2_KEYWORD_MAX_TERMS': '8',

@@ -8059,6 +8059,151 @@ async def _call_limitations(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# LEVER F (canonicalize works): when ``PG_CANONICAL_WORK_BIBLIOGRAPHY`` is truthy the GLOBAL
+# bibliography unit becomes the CANONICAL WORK (identified by the SHARED deterministic same-work
+# key) instead of the raw evidence_id — so ONE work fetched from several mirror URLs /
+# manifestations folds to a SINGLE ``[N]`` (a paper cited as ``[5][6][7]`` becomes ``[5]``),
+# with every member evidence_id remapping to that canonical number and the resulting adjacent
+# duplicate markers collapsed. Default OFF => one entry per evidence_id => byte-identical.
+_ENV_CANONICAL_WORK_BIBLIOGRAPHY = "PG_CANONICAL_WORK_BIBLIOGRAPHY"
+
+
+def _canonical_work_bibliography_enabled() -> bool:
+    """LEVER F kill switch (``PG_CANONICAL_WORK_BIBLIOGRAPHY``). Default OFF => the global
+    bibliography carries one entry per evidence_id (today's behavior) => byte-identical output."""
+    return resolve(_ENV_CANONICAL_WORK_BIBLIOGRAPHY).strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _biblio_work_key(entry: dict[str, Any]) -> str:
+    """The same-work identity of a bibliography entry (LEVER F) — DOI-FIRST.
+
+    The bibliography canonicalizes MANIFESTATIONS of one work: the same paper fetched from
+    several URLs (a publisher landing page, a PMC mirror, a PDF) must render as ONE ``[N]``. A
+    resolved DOI is the strongest manifestation-agnostic identity — two rows carrying the SAME
+    normalized DOI are the SAME work REGARDLESS of their (different) URLs. So this keys on the
+    normalized DOI FIRST; only a DOI-less entry falls through to the shared
+    ``finding_dedup._same_work_key`` (normalized URL, else folded title + discriminator).
+
+    This DOI-first order is INTENTIONALLY stronger-precedence than the shared corroboration-side
+    ``_same_work_key`` (which is URL-first under the default ``PG_SAMEWORK_URL_LEG``): the
+    render-side bibliography must fold same-DOI mirrors at different URLs, which URL-first keying
+    would split into separate numbers. This helper is reached ONLY on the default-OFF
+    ``PG_CANONICAL_WORK_BIBLIOGRAPHY`` path, so the shared same-work contract used elsewhere is
+    untouched (byte-identical). Reads the entry's OWN locators generically (no task literals).
+
+    A blank key (no usable DOI/URL/title+discriminator) means "own singleton work": we fall back
+    to the evidence_id so an un-keyable entry is NEVER merged into another work.
+
+    The biblio entry stores its URL under ``url`` (``_num_for`` in provenance_generator); the
+    shared key reads ``source_url`` OR ``url``, so passing the entry directly is correct.
+    """
+    from src.polaris_graph.synthesis.finding_dedup import (  # noqa: PLC0415
+        _normalize_doi,
+        _same_work_key,
+    )
+
+    doi = _normalize_doi(entry.get("doi"))
+    if doi:
+        return "doi:" + doi
+    key = _same_work_key(entry)
+    if key:
+        return key
+    return "ev:" + str(entry.get("evidence_id", "") or id(entry))
+
+
+def _entry_locator_rank(entry: dict[str, Any]) -> tuple[int, int, int]:
+    """Preference rank for choosing the CANONICAL manifestation within a same-work group
+    (LEVER F). LOWER sorts first => becomes the surviving canonical entry.
+
+    Prefers, in order: a DOI-bearing (primary/citable) manifestation, then a PMID-bearing one,
+    then a URL-bearing one — the primary/DOI/English manifestation for claim support. Pure
+    metadata-presence tie-break; no model, no network.
+    """
+    has_doi = 1 if str(entry.get("doi", "") or "").strip() else 0
+    has_pmid = 1 if str(entry.get("pmid", "") or "").strip() else 0
+    has_url = 1 if str(entry.get("url", "") or "").strip() else 0
+    # Negate presence flags so a present locator sorts BEFORE an absent one under ascending sort.
+    return (-has_doi, -has_pmid, -has_url)
+
+
+def _canonicalize_work_bibliography(
+    biblio: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Collapse a per-evidence_id bibliography into a per-WORK bibliography (LEVER F).
+
+    Groups entries by their SHARED same-work key, elects ONE canonical entry per group
+    (``_entry_locator_rank``: DOI > PMID > URL manifestation), renumbers the canonical entries
+    contiguously in FIRST-APPEARANCE order (stable — the first evidence_id of each work keeps
+    the low number the reader already saw), and returns:
+      * the canonical bibliography (one entry per work, ``num`` reassigned), and
+      * an ``evidence_id -> canonical_num`` map covering EVERY member evidence_id (the elected
+        canonical AND its folded mirrors), so the inline-marker remap can point every member's
+        ``[N]`` at the one canonical number.
+
+    Keep-all: no entry is DROPPED from the world — a folded mirror's evidence_id still resolves
+    to its work's number; it simply shares the canonical ``[N]`` instead of getting its own.
+    The canonical entry additionally carries ``same_work_member_evidence_ids`` (all member ids)
+    for any downstream breadth/coverage consumer, WITHOUT changing which [N] renders.
+    """
+    # Preserve first-appearance order of works; collect members per work.
+    work_order: list[str] = []
+    members_by_work: dict[str, list[dict[str, Any]]] = {}
+    for entry in biblio:
+        wkey = _biblio_work_key(entry)
+        if wkey not in members_by_work:
+            members_by_work[wkey] = []
+            work_order.append(wkey)
+        members_by_work[wkey].append(entry)
+
+    canonical_biblio: list[dict[str, Any]] = []
+    ev_to_canonical_num: dict[str, int] = {}
+    for new_num, wkey in enumerate(work_order, 1):
+        members = members_by_work[wkey]
+        # Elect the canonical manifestation: best locator rank, ties broken by the entry's
+        # ORIGINAL number so the choice is deterministic and prefers the earlier-seen row.
+        canonical_entry = min(
+            members,
+            key=lambda e: (_entry_locator_rank(e), int(e.get("num", 0) or 0)),
+        )
+        new_entry = dict(canonical_entry)
+        new_entry["num"] = new_num
+        member_ev_ids = [
+            str(m.get("evidence_id", "") or "") for m in members
+            if str(m.get("evidence_id", "") or "")
+        ]
+        new_entry["same_work_member_evidence_ids"] = member_ev_ids
+        canonical_biblio.append(new_entry)
+        # Map EVERY member evidence_id (canonical + mirrors) to this one canonical number.
+        for m in members:
+            m_ev = str(m.get("evidence_id", "") or "")
+            if m_ev:
+                ev_to_canonical_num[m_ev] = new_num
+    return canonical_biblio, ev_to_canonical_num
+
+
+# LEVER F: two adjacent numeric citation markers that (after canonical remap) resolve to the SAME
+# number are a mirror double-cite of ONE work — collapse '[5][5]' -> '[5]'. Only fires on the
+# canonicalized path; the legacy per-evidence_id path never produces adjacent identical markers.
+_ADJACENT_DUP_MARKER_RE = re.compile(r"\[(\d+)\](?=\[\1\])")
+
+
+def _collapse_adjacent_duplicate_markers(text: str) -> str:
+    """Collapse runs of the SAME numeric citation marker to a single marker (LEVER F).
+
+    ``[5][5][5]`` -> ``[5]``. Only IDENTICAL adjacent numbers are collapsed (a genuine
+    ``[5][6]`` multi-cite is untouched), so no distinct citation is ever lost.
+    """
+    prev = None
+    out = text
+    # Iterate to a fixed point so runs of 3+ identical markers fully collapse.
+    while out != prev:
+        prev = out
+        out = _ADJACENT_DUP_MARKER_RE.sub("", out)
+    return out
+
+
 def _merge_bibliographies(
     section_slices: list[list[dict[str, Any]]],
 ) -> list[dict[str, Any]]:
@@ -8089,6 +8234,12 @@ def _merge_bibliographies(
         new_entry = dict(entry)
         new_entry["num"] = i
         final.append(new_entry)
+    # LEVER F (canonicalize works): OFF => return the per-evidence_id bibliography above
+    # (byte-identical). ON => fold same-work mirror entries into ONE canonical entry per work
+    # so a paper fetched from several URLs / manifestations renders as a single [N] (the remap
+    # in _remap_section_markers_to_global points every member ev_id at that canonical number).
+    if _canonical_work_bibliography_enabled():
+        final, _ = _canonicalize_work_bibliography(final)
     return final
 
 
@@ -8103,8 +8254,26 @@ def _remap_section_markers_to_global(
     I-deepfix-002 (#1363): this NEVER drops a marker. Every [N] in already
     strict_verify-PASSED section prose maps to its global number; off-topic
     cite-suppression is handled upstream at the enrichment selection only, so a
-    verified section citation is never orphaned here."""
-    ev_to_global = {b["evidence_id"]: b["num"] for b in global_biblio}
+    verified section citation is never orphaned here.
+
+    LEVER F (canonicalize works): when the canonical-work bibliography is on, a canonical
+    entry carries ``same_work_member_evidence_ids`` — the evidence_ids of every mirror
+    manifestation that folded into it. We map EACH of those member ev_ids to the canonical
+    entry's number, so a section that cited two mirrors of ONE work points both markers at the
+    single canonical [N]; the resulting adjacent duplicate markers ('[5][5]') are then collapsed.
+    OFF => the canonical members list is absent, ``ev_to_global`` is the plain per-evidence_id
+    map, and no collapse runs => byte-identical."""
+    _canonical_on = _canonical_work_bibliography_enabled()
+    ev_to_global: dict[str, int] = {}
+    for b in global_biblio:
+        num = b["num"]
+        ev_to_global[b["evidence_id"]] = num
+        if _canonical_on:
+            # Fold every member ev_id of this work onto its canonical number, so a marker that
+            # points at a mirror manifestation still resolves to the single canonical [N].
+            for member_ev in (b.get("same_work_member_evidence_ids") or []):
+                if member_ev:
+                    ev_to_global[member_ev] = num
     remapped: list[str] = []
     for sect in section_results:
         if not sect.verified_text:
@@ -8128,6 +8297,10 @@ def _remap_section_markers_to_global(
             return f"[{g}]" if g else match.group(0)
 
         text = re.sub(r"\[(\d+)\]", _replace, text)
+        # LEVER F: two mirror manifestations of ONE work now share a number, so the prose may
+        # carry '[5][5]' — collapse identical adjacent markers to a single [5]. OFF => no-op.
+        if _canonical_on:
+            text = _collapse_adjacent_duplicate_markers(text)
         remapped.append(text)
     return remapped
 
@@ -8456,12 +8629,57 @@ def _append_evidence_base_section(
     # The section is appended AFTER the global bibliography remap, so map the resolver's LOCAL [N]
     # onto the GLOBAL numbering here; extend global_biblio for any newly-surfaced work (§-1.3 keep-all,
     # never drops a source).
+    _canonical_on = _canonical_work_bibliography_enabled()
     ev_to_gnum: dict[str, int] = {
         str(b.get("evidence_id", "")): b.get("num")
         for b in (global_biblio or [])
         if b.get("evidence_id")
     }
+    # LEVER F append-path fix: when canonical-work folding is ON, _merge_bibliographies collapsed
+    # every same-work mirror into ONE canonical entry (carrying same_work_member_evidence_ids). The
+    # resolver's local_biblio still keys off the RAW per-source ev_ids (which include folded mirrors),
+    # so a mirror ev_id would miss the per-evidence_id map above and mint a duplicate [N] + dangling
+    # bibliography row for a work Lever F already collapsed. Expand each canonical entry's member
+    # ev_ids onto its number here so a folded mirror resolves to the single canonical [N]. OFF =>
+    # same_work_member_evidence_ids is absent => this loop adds nothing => byte-identical.
+    if _canonical_on:
+        for b in (global_biblio or []):
+            gnum = b.get("num")
+            if gnum is None:
+                continue
+            for member_ev in (b.get("same_work_member_evidence_ids") or []):
+                if member_ev:
+                    ev_to_gnum[str(member_ev)] = gnum
     next_gnum = [max((int(b.get("num", 0) or 0) for b in (global_biblio or [])), default=0) + 1]
+    # LEVER F newly-surfaced-work canonicalization: a work that the Evidence-base surface introduces
+    # is not yet in global_biblio, so it mints a NEW number below. Keyed by RAW evidence_id, two
+    # mirror manifestations of ONE such work (same DOI, different URL) would each mint a separate
+    # number + a separate dangling bibliography row omitting DOI/PMID/canonical-member metadata. When
+    # canonical folding is ON, key the newly-minted numbers by the SHARED same-work key (the SAME
+    # _biblio_work_key the main _canonicalize_work_bibliography path uses) so mirrors fold to ONE
+    # canonical [N], electing the DOI>PMID>URL manifestation and carrying the full DOI/PMID +
+    # same_work_member_evidence_ids metadata. OFF => work_key path is skipped => raw-ev_id keying =>
+    # byte-identical.
+    work_key_to_gnum: dict[str, int] = {}
+    gnum_to_biblio_entry: dict[int, dict[str, Any]] = {}
+    # LEVER F duplicate-number fix: SEED the work-key and gnum->entry maps from the entries
+    # ALREADY in global_biblio (the works the main sections cited). Without this seed both maps
+    # start EMPTY and a newly-surfaced mirror of a work already numbered globally would miss the
+    # per-evidence_id ev_to_gnum map (its evidence_id is new) AND the empty work_key map, minting
+    # a DUPLICATE [N] for a work that already has one. Seeding folds such a mirror onto the
+    # existing canonical number instead. OFF => this loop is skipped => byte-identical (the raw-
+    # ev_id ev_to_gnum map above is the only index, exactly as before).
+    if _canonical_on:
+        for b in (global_biblio or []):
+            gnum = b.get("num")
+            if gnum is None:
+                continue
+            gnum_i = int(gnum)
+            gnum_to_biblio_entry[gnum_i] = b
+            wkey = _biblio_work_key(b)
+            # First-appearance wins so the lowest existing number survives for a work.
+            if wkey not in work_key_to_gnum:
+                work_key_to_gnum[wkey] = gnum_i
     local_to_global: dict[int, int] = {}
     for row in (local_biblio or []):
         eid = str(row.get("evidence_id", ""))
@@ -8469,17 +8687,59 @@ def _append_evidence_base_section(
         if lnum is None or not eid:
             continue
         gnum = ev_to_gnum.get(eid)
+        if gnum is None and _canonical_on:
+            # Fold a newly-surfaced mirror onto its work's already-minted canonical number (a
+            # number newly minted in THIS loop OR one seeded from global_biblio above).
+            wkey = _biblio_work_key(row)
+            gnum = work_key_to_gnum.get(wkey)
+            if gnum is not None:
+                ev_to_gnum[eid] = gnum
+                _canon_entry = gnum_to_biblio_entry.get(gnum)
+                if _canon_entry is not None:
+                    # Record this manifestation as a member (keep-all) and prefer the DOI/PMID-
+                    # bearing manifestation as the surviving canonical row (via _entry_locator_rank).
+                    _members = _canon_entry.setdefault("same_work_member_evidence_ids", [])
+                    # Keep-all: the canonical entry's CURRENT evidence_id must stay folded so that
+                    # electing a stronger manifestation below never drops it from the member set.
+                    _cur_eid = str(_canon_entry.get("evidence_id", "") or "")
+                    if _cur_eid and _cur_eid not in _members:
+                        _members.append(_cur_eid)
+                    if eid not in _members:
+                        _members.append(eid)
+                    if _entry_locator_rank(row) < _entry_locator_rank(_canon_entry):
+                        # Elect this stronger manifestation as the canonical row IN PLACE (the
+                        # dict is the live global_biblio entry). Update the COMPLETE row —
+                        # INCLUDING evidence_id — so the canonical [N] renders the elected
+                        # manifestation's locators and its evidence_id keys the resolver map; the
+                        # displaced evidence_id stays folded via same_work_member_evidence_ids.
+                        _canon_entry["evidence_id"] = eid
+                        _canon_entry["url"] = row.get("url", "")
+                        _canon_entry["doi"] = row.get("doi", "")
+                        _canon_entry["pmid"] = row.get("pmid", "")
+                        _canon_entry["tier"] = row.get("tier", "")
+                        _canon_entry["statement"] = row.get("statement", "")
         if gnum is None:
             gnum = next_gnum[0]
             next_gnum[0] += 1
             ev_to_gnum[eid] = gnum
-            global_biblio.append({
+            _new_entry: dict[str, Any] = {
                 "num": gnum,
                 "evidence_id": eid,
                 "url": row.get("url", ""),
                 "tier": row.get("tier", ""),
                 "statement": row.get("statement", ""),
-            })
+            }
+            if _canonical_on:
+                # Carry DOI/PMID + canonical-member metadata (consistent with the main
+                # _canonicalize_work_bibliography path) so a folded mirror resolves and a URL-less-
+                # but-DOI-bearing primary keeps a resolvable locator. Added ONLY on the canonical
+                # path so the OFF/legacy append stays the byte-identical 5-key dict.
+                _new_entry["doi"] = row.get("doi", "")
+                _new_entry["pmid"] = row.get("pmid", "")
+                _new_entry["same_work_member_evidence_ids"] = [eid]
+                work_key_to_gnum[_biblio_work_key(row)] = gnum
+                gnum_to_biblio_entry[gnum] = _new_entry
+            global_biblio.append(_new_entry)
         local_to_global[int(lnum)] = gnum
 
     def _local_to_global_marker(match: "re.Match") -> str:
@@ -8489,6 +8749,14 @@ def _append_evidence_base_section(
     body = re.sub(r"\[(\d+)\]", _local_to_global_marker, local_text).strip()
     if not body:
         return False
+
+    # LEVER F: two mirror manifestations of ONE work now resolve to the SAME canonical number, so
+    # the appended span prose may carry '[5][5]' — collapse identical adjacent markers to a single
+    # [5], exactly as the main-section remap does. OFF => no-op (no mirrors were folded).
+    if _canonical_on:
+        body = _collapse_adjacent_duplicate_markers(body).strip()
+        if not body:
+            return False
 
     # I-deepfix-006 PT11 (PG_COMPOSE_NUMERIC_CITE_GUARANTEE, default ON): compose-time numeric-citation
     # guarantee for the verbatim-span breadth surface (Evidence base + low-relevance ledger — both routed
