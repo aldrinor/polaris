@@ -12,3 +12,4 @@
 - [Batch 1 evidence substrate result](batch1-evidence-substrate-result.md) — B/E/F shipped+scored; RACE flat, FACT +15 supported cites, rate drop is a measurement artifact
 - [K3 generator RACE win](k3-generator-race-win.md) — GLM-5.2->kimi-k3 generator = RACE +0.030 (0.4605->0.4903), biggest lever; complementary with structure
 - [RACE climb ladder + architecture](race-climb-ladder-and-architecture.md) — 0.4605->0.5084 gated ladder; champion=_call_section path; structure render-replay design
+- [RACE scoring mechanics + 4-dim plan](race-scoring-mechanics.md) — RACE is comparative + prose-only (biblio stripped before judging); task-72 weights Insight.32/Comp.29/IF.25/Read.14; 6-step plan (doc committed)
