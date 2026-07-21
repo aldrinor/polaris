@@ -35,6 +35,14 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# STEP-1 render cleanups read their config flags through the CENTRAL layer (settings.resolve
+# over config_defaults), never bare os.getenv literals, so other pipelines/bots stay
+# byte-identical unless a flag is set.
+from src.polaris_graph.settings import resolve  # noqa: E402
+from src.polaris_graph.generator.weighted_enrichment import (  # noqa: E402
+    _ENRICHMENT_RESIDUAL_TITLE,
+)
+
 DRB_QUERY = ROOT / "third_party" / "deep_research_bench" / "data" / "prompt_data" / "query.jsonl"
 
 # STEP 2 (wheel: topic-driven structure) — the section headings are now produced TOPIC-DRIVEN by
@@ -420,6 +428,16 @@ async def main() -> int:
             sr for sr in multi.sections
             if not sr.dropped_due_to_failure and sr.verified_text
         ]
+        # STEP-1 render cleanup (change #6): optionally omit the residual enrichment
+        # section ("Additional Corroborated Findings") from the RENDERED body. This is a
+        # render-only filter over the assembly list — the section's evidence stays in
+        # multi.sections and rides into the archive/checkpoint (bibliography.json etc.),
+        # so no data is dropped. Default '1' (include) => byte-identical to today's body.
+        if resolve("PG_INCLUDE_RESIDUAL_SECTION") == "0":
+            _verified = [
+                sr for sr in _verified
+                if (sr.title or "").strip() != _ENRICHMENT_RESIDUAL_TITLE
+            ]
         # S4 contract-aware order: when the render plan names required section titles
         # in order, place matching verified sections FIRST in that order; every other
         # verified section keeps its original relative order AFTER them. This ORDERS
@@ -441,10 +459,16 @@ async def main() -> int:
         # and does not renumber in-prose markers. No gate artifact => biblio unchanged.
         _dedup_by_work = bool(_render_plan.get("references_dedup_by_work")) if _render_plan else False
         biblio_render = _dedup_biblio_by_work(biblio) if _dedup_by_work else biblio
+        # STEP-1 render cleanup (change #3): the trailing '(tier X)' label on each
+        # References entry is cosmetic. When PG_REFERENCE_TIER_LABELS='0' it is omitted
+        # from the rendered References block (the tier still rides in bibliography.json).
+        # Default '1' = keep the tier label = today's byte-identical References render.
+        _keep_tier_labels = resolve("PG_REFERENCE_TIER_LABELS") != "0"
         biblio_section = "\n\n## References\n"
         for b in biblio_render:
+            _tier_suffix = f" (tier {b.get('tier','')})" if _keep_tier_labels else ""
             biblio_section += (f"[{b.get('num')}] {str(b.get('statement',''))[:200]} — "
-                               f"{b.get('url','')} (tier {b.get('tier','')})\n")
+                               f"{b.get('url','')}{_tier_suffix}\n")
 
         final_report = (f"# {title}\n\n{intro}\n\n{sections_concat}{biblio_section}")
         (run_dir / "report.md").write_text(final_report, encoding="utf-8")

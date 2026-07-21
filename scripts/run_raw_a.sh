@@ -47,6 +47,18 @@ export PG_OUTLINE_REASONING_MAX_TOKENS=32768
 export PG_STRICT_VERIFY_OFF=1                    # <-- MASTER FAITHFULNESS KILL-SWITCH (see header): drops NOTHING
 export PG_STRICT_VERIFY_ENTAILMENT=off          # <-- ENTAILMENT OFF (redundant under the master switch; see header)
 
+# --- STEP-1 render/format cleanups (RENDER ONLY — no faithfulness surface touched) ---
+# Each flag is central-config-gated (config_defaults.py) and DEFAULTS to today's behavior;
+# these lines OPT THIS RECIPE into the cleaner render. Faithfulness engine is untouched.
+export PG_MIRROR_CITE_COLLAPSE=0                 # #1 fold same-origin mirror cites to clean [11][12], drop the "(also mirrored)" note
+export PG_ANTI_VERBOSITY=on                      # #2 concise-writing mode ON (denser prose)
+export PG_REFERENCE_TIER_LABELS=0                # #3 omit the "(tier X)" label from the References block
+export PG_CITATION_INLINE_GLUE_COLLAPSE=1        # #4 collapse the malformed "].[" citation glue -> "]["
+export PG_INCLUDE_RESIDUAL_SECTION=0             # #5 drop the "Additional Corroborated Findings" residual dump from the judged body
+# Token-repair OFF: with strict-verify off, _repair_llm_draft_untokened misfires and 4 sections start
+# mid-word / with BibTeX; '0' disables the repair so those sections render cleanly (Sol token fix).
+export PG_NO_TOKEN_SENTENCE_REPAIR=0
+
 # --- API keys via dotenv (NEVER bash-source .env: line 304 breaks bash) ---
 export OPENROUTER_API_KEY="$("$PY" -c "from dotenv import dotenv_values; print(dotenv_values('/workspace/POLARIS/.env')['OPENROUTER_API_KEY'])")"
 export SERPER_API_KEY="$("$PY" -c "from dotenv import dotenv_values; print(dotenv_values('/workspace/POLARIS/.env').get('SERPER_API_KEY',''))")"

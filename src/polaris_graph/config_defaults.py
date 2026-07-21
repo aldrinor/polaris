@@ -107,6 +107,12 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_CITATION_CHASE_ENABLED': '1',
     'PG_CITATION_CHASE_MAX': '10',
     'PG_CITATION_CHASE_MIN_RELEVANCE': '0.3',
+    # STEP-1 render cleanup (change #4): when '1', _normalize_citation_punctuation
+    # also collapses the malformed inline glue between two adjacent numeric citation
+    # clusters ('...world.[8].[9]' -> '...world.[8][9]') so adjacent markers render
+    # cleanly. Digit-anchored on both sides, so code/JSON 'a[3].[i]' is untouched.
+    # Default '0' = leave the '].[' glue as-is = today's byte-identical render.
+    'PG_CITATION_INLINE_GLUE_COLLAPSE': '0',
     'PG_CITEFIX_ENABLED': '0',
     'PG_CITEFIX_KEYWORD_MIN': '3',
     'PG_CITEFIX_SEMANTIC_THRESHOLD': '0.50',
@@ -391,6 +397,11 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_HEDGING_MAX_PER_PARAGRAPH': '2',
     'PG_HIGH_IMPACT_ZSCORE': '1.5',
     'PG_HYBRID_EVIDENCE': '0',
+    # STEP-1 render cleanup (change #6): when '1', the composed report body includes
+    # the residual enrichment section ('Additional Corroborated Findings'); when '0',
+    # that section is omitted from the RENDERED body only (its evidence stays in the
+    # archive/checkpoint — no data is dropped). Default '1' = include = today's body.
+    'PG_INCLUDE_RESIDUAL_SECTION': '1',
     'PG_INITIAL_QUERY_PCT': '0.30',
     'PG_INSTITUTIONAL_AUTHORITY_WEIGHT': 'on',
     'PG_INTERRUPT_AFTER': '',
@@ -543,6 +554,10 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_NLI_ENABLED': '0',
     'PG_NLI_FAITHFULNESS_FLOOR': '0.15',
     'PG_NLI_MODEL': 'flan-t5-large',
+    # Kill-switch for the untokened-sentence repair (verified_compose.no_token_sentence_repair_enabled).
+    # Default '1' = repair ON = today's behavior (byte-identical). '0' = the untokened sentence is
+    # NOT repaired (legacy silent drop); run_raw_a sets this to '0' to disable the misfiring repair.
+    'PG_NO_TOKEN_SENTENCE_REPAIR': '1',
     'PG_NUMERIC_COMPARATOR': '0',
     'PG_OA_FULLTEXT_MIN_CHARS': '1200',
     'PG_OCR_DPI': '300',
@@ -666,6 +681,11 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_REDUNDANCY_EMBEDDING_THRESHOLD': '0.85',
     'PG_REDUNDANCY_MIN_SENTENCE_WORDS': '5',
     'PG_REDUNDANCY_REWRITE_MAX_TOKENS': '8192',
+    # STEP-1 render cleanup (change #3): when '1', the References block appends the
+    # '(tier X)' label to each entry; when '0', the tier label is omitted from the
+    # rendered References (cosmetic only — the tier still rides in bibliography.json).
+    # Default '1' = keep the tier label = today's byte-identical References render.
+    'PG_REFERENCE_TIER_LABELS': '1',
     'PG_REFETCH_FULL_BODY': '1',
     'PG_REFINEMENT_QUERIES': '10',
     'PG_REFINER_ENABLED': '1',

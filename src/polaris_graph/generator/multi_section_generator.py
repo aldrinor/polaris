@@ -5103,6 +5103,13 @@ def filter_underframed_trial_sentences(
 # marker or an evidence ID — only punctuation/whitespace AROUND already-
 # resolved markers. The provenance invariant (§9.1) is untouched.
 _CITE_MARKER_RE_FRAG = r"(?:\[\d+\]|\[#ev:[^\]]+\])"
+# STEP-1 render cleanup (change #4): the malformed '].[' glue between two ADJACENT
+# numeric citation clusters ('...world.[8].[9]' -> '...world.[8][9]'). The spurious
+# period is DIGIT-ANCHORED on both sides (lookbehind '\d]' / lookahead '\[\d') so a
+# plain '].[' in code/array/JSON prose ('a[3].[i]') is left untouched. Deleting the
+# lone period merges the trailing clusters onto the same sentence — attribution is
+# byte-preserved (no marker/evidence-id added, removed, or renumbered).
+_INLINE_CITE_GLUE_RE = re.compile(r"(?<=\d\])\.(?=\[\d)")
 _MISSING_TERMINATOR_RE = re.compile(
     # <non-terminator char> <optional ws> <one+ citation markers>
     # <ws> <Capital letter starting the next sentence>
@@ -5115,10 +5122,123 @@ def _normalize_citation_punctuation(text: str) -> str:
     """Insert a missing sentence-terminal period before citation
     marker(s) at a genuine sentence boundary, and normalize the marker
     to a single trailing space. Cosmetic only — markers and evidence
-    IDs are byte-preserved. See the module comment above for rationale."""
+    IDs are byte-preserved. See the module comment above for rationale.
+
+    STEP-1 render cleanup (change #4): when PG_CITATION_INLINE_GLUE_COLLAPSE='1', also
+    collapse the '].[' glue between two adjacent numeric citation clusters so they
+    render cleanly ('[8][9]'). Default '0' leaves the glue untouched = today's render."""
     if not text:
         return text
-    return _MISSING_TERMINATOR_RE.sub(lambda m: "." + m.group(2) + " ", text)
+    text = _MISSING_TERMINATOR_RE.sub(lambda m: "." + m.group(2) + " ", text)
+    if resolve("PG_CITATION_INLINE_GLUE_COLLAPSE") == "1":
+        text = _collapse_inline_cite_glue_outside_code(text)
+    return text
+
+
+# STEP-1 render cleanup (change #4, gate fix #4 rev2): the report body is MARKDOWN, so the
+# glue-collapse must NOT run inside code regions — a fenced block or inline code span may
+# legitimately hold '].[' in quoted code/JSON ('a[3].[4]') that MUST be byte-preserved. A
+# single regex cannot parse code regions safely (matching delimiter lengths), so this is a
+# small hand scanner honoring CommonMark delimiter rules: a fenced block opens with a
+# line-start run of >=3 of ` or ~ and closes at a line whose leading run of the SAME char
+# is >= the opening run; an inline span opens with a run of N backticks and closes at the
+# next run of EXACTLY N backticks. Unclosed openers are treated as prose.
+def _iter_md_code_spans(text: str) -> "list[tuple[int, int]]":
+    """Return (start, end) offsets of markdown code regions (fenced blocks + inline code
+    spans), matching-delimiter aware, so the citation-glue collapse stays out of code."""
+    spans: list[tuple[int, int]] = []
+    n = len(text)
+    i = 0
+    while i < n:
+        c = text[i]
+        at_line_start = (i == 0) or text[i - 1] == "\n"
+        # Fenced code block: 0-3 leading spaces, then a run of >=3 of ` or ~ (CommonMark
+        # gate fix: indented fences + closer lines with only spaces/tabs after the run).
+        if at_line_start:
+            _ind = 0
+            while _ind < 3 and (i + _ind) < n and text[i + _ind] == " ":
+                _ind += 1
+            fpos = i + _ind
+            fc = text[fpos] if fpos < n else ""
+            if fc == "`" or fc == "~":
+                j = fpos
+                while j < n and text[j] == fc:
+                    j += 1
+                run = j - fpos
+                if run >= 3:
+                    k = j
+                    end = n
+                    while k < n:
+                        nl = text.find("\n", k)
+                        ls = (nl + 1) if nl != -1 else n
+                        if ls >= n:
+                            break
+                        q = ls                       # closing line: 0-3 leading spaces
+                        _cind = 0
+                        while _cind < 3 and q < n and text[q] == " ":
+                            q += 1
+                            _cind += 1
+                        p = q
+                        while p < n and text[p] == fc:
+                            p += 1
+                        eol = text.find("\n", p)
+                        line_end = eol if eol != -1 else n
+                        # closer: run >= opener AND only spaces/tabs after (NOT .strip(),
+                        # which would accept NBSP / other Unicode whitespace)
+                        if p - q >= run and all(ch in " \t" for ch in text[p:line_end]):
+                            end = (eol + 1) if eol != -1 else n
+                            break
+                        if nl == -1:
+                            break
+                        k = ls
+                    spans.append((i, end))
+                    i = end
+                    continue
+        # Inline code span: a run of N backticks closed by a MAXIMAL run of EXACTLY N
+        # (CommonMark — the closer must not be part of a longer backtick run).
+        if c == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            run = j - i
+            k = j
+            end = -1
+            while k < n:
+                idx = text.find("`", k)
+                if idx == -1:
+                    break
+                r_end = idx                       # measure the maximal backtick run at idx
+                while r_end < n and text[r_end] == "`":
+                    r_end += 1
+                if r_end - idx == run:            # exact-length maximal run -> the closer
+                    end = r_end
+                    break
+                k = r_end                         # different-length run; skip past it
+            if end != -1:
+                spans.append((i, end))
+                i = end
+                continue
+        i += 1
+    return spans
+
+
+def _collapse_inline_cite_glue_outside_code(text: str) -> str:
+    """Apply _INLINE_CITE_GLUE_RE only to prose OUTSIDE markdown code regions.
+
+    Uses _iter_md_code_spans (matching-delimiter aware) to keep fenced blocks and inline
+    code spans opaque; the '].[' citation glue collapses only in the intervening prose.
+    Quoted code/JSON is therefore never rewritten."""
+    spans = _iter_md_code_spans(text)
+    if not spans:
+        return _INLINE_CITE_GLUE_RE.sub("", text)
+    out: list[str] = []
+    pos = 0
+    for start, end in spans:
+        out.append(_INLINE_CITE_GLUE_RE.sub("", text[pos:start]))  # prose before
+        out.append(text[start:end])                               # code region verbatim
+        pos = end
+    out.append(_INLINE_CITE_GLUE_RE.sub("", text[pos:]))
+    return "".join(out)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
