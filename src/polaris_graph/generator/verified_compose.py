@@ -3780,9 +3780,11 @@ _RESIDUAL_COVERAGE_TITLE = "Additional Corroborated Findings"
 
 
 def route_all_baskets_enabled() -> bool:
-    """Kill-switch ``PG_ROUTE_ALL_BASKETS`` (default OFF). OFF =>
-    ``route_orphan_baskets_to_section_plans`` returns the plan list unchanged => byte-identical."""
-    return os.getenv(_ROUTE_ALL_BASKETS_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+    """Kill-switch ``PG_ROUTE_ALL_BASKETS`` (default OFF, now registered in config_defaults and read
+    via ``resolve`` — central-config compliant). OFF => ``route_orphan_baskets_to_section_plans``
+    returns the plan list unchanged => byte-identical. resolve() returns ``os.getenv(key, '0')``, so
+    the default + off-token semantics are unchanged."""
+    return (resolve(_ROUTE_ALL_BASKETS_ENV) or "0").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def _basket_member_ev_ids(basket: Any) -> list[str]:

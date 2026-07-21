@@ -778,6 +778,13 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_RISK_QUORUM_MIN': '2',
     'PG_ROLE_ALLOW_FALLBACKS': '',
     'PG_ROLE_TRANSPORT_RETRIES': '2',
+    # LEVER C (coverage): when truthy, route_orphan_baskets_to_section_plans routes EVERY orphan
+    # (home-less) consolidated basket + unassigned high-tier singleton to the section whose
+    # title+focus shares the most topical content words with it (off-topic-judge-confirmed baskets
+    # deleted, fail-open) — so no relevant verified source is stranded and the section writer sees
+    # more relevant evidence (broader per-section coverage). Default '0' = off => plans unchanged
+    # (byte-identical). Placement only; the frozen faithfulness engine re-verifies every clause.
+    'PG_ROUTE_ALL_BASKETS': '0',
     # LEVER B (source eligibility): when truthy, the RQ's OWN stated constraints
     # (source_types / languages / recency — parsed generically from the prompt and
     # cached in protocol['_rq_constraints']) DEMOTE ineligible citable rows at the
@@ -817,7 +824,7 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # Batch 2 (structure): when truthy, the section writer's prompt rule 7 flips from
     # flat-paragraph-only to "organize the body with ### sub-headings, markdown comparison
     # tables (>=3 sources on the same metric), and bullet lists" — while KEEPING the
-    # [ev_XXX]-marker-per-unit citation contract. Targets RACE Readability. Prompt-text change
+    # [ev_XXX]-marker-per-unit citation contract. Improves rendered-prose structure. Prompt-text change
     # only (strict_verify untouched). Default '' = off => flat-prose rule 7 => byte-identical.
     'PG_SECTION_STRUCTURE': '',
     'PG_SECTION_EVIDENCE_TOP_K': '100',
