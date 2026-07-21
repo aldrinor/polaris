@@ -242,15 +242,19 @@ async def main() -> int:
     # across the [ev]-backed body figures (enrich its evidence + directive). GENERAL structural
     # lever — role detected structurally, no topic/title hardcoded; strict_verify unchanged.
     os.environ.setdefault("PG_SYNTHESIS_QUANT_DIRECTIVE", "1")
-    # STEP 4 (UTILIZATION — the basket under-utilization ghost): the live LLM outline lists only a
-    # handful of ev_ids per section, so ~90% of the consolidated baskets reach NO section and never
-    # compose a cited claim (measured 31/329 rendered; scripts/measure_utilization_route_all.py). Route
-    # every ORPHAN basket to its best-matching thematic section by claim-vs-title content overlap (else a
-    # single keep-all residual section). GENERAL, faithfulness-neutral: pure CONSOLIDATE placement —
-    # drops no source, caps nothing; every routed basket's rendered sentence re-passes the UNCHANGED
-    # strict_verify per clause. Deterministic A/B proved 31->328 baskets rendered. Also drop the
-    # PG_MAX_EV_PER_SECTION row-cap ceiling so a facet keeps its full matched payload.
-    os.environ.setdefault("PG_ROUTE_ALL_BASKETS", "1")
+    # STEP 4 (UTILIZATION): keep a facet's full matched payload by dropping the PG_MAX_EV_PER_SECTION
+    # row-cap ceiling.
+    #
+    # PG_ROUTE_ALL_BASKETS IS NO LONGER FORCED ON HERE (2026-07-21, three-model audit Sol+Fable+K3,
+    # full repo access + web search). A prior ``setdefault("PG_ROUTE_ALL_BASKETS","1")`` silently
+    # overrode the central-config default (0 = off) for EVERY run through this entry point, so every
+    # route-all A/B was invalid (both arms were on) and every reported score was route-all-ON. The
+    # audit found that force-routing every home-less basket by shallow content-word overlap DILUTES a
+    # quality-judged report: a bigger, noisier writer menu yields FEWER distinct facts and fewer
+    # distinct cited sources, and a large fraction of the routed evidence lands in a residual section
+    # the render then drops. Route-all now defaults OFF via config_defaults; enable it only by an
+    # explicit env/config value. If orphan coverage is revisited, build a relevance +
+    # marginal-novelty router (never force-all). See docs/ROUND2_ROLLOUT.md.
     os.environ.setdefault("PG_EV_BUDGET_TRACKS_PAYLOAD", "1")
 
     corpus_path = Path(args.corpus)

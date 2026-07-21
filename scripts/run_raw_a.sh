@@ -46,6 +46,11 @@ export PG_OUTLINE_MAX_TOKENS=131072             # prevents the deepseek truncati
 export PG_OUTLINE_REASONING_MAX_TOKENS=32768
 export PG_STRICT_VERIFY_OFF=1                    # <-- MASTER FAITHFULNESS KILL-SWITCH (see header): drops NOTHING
 export PG_STRICT_VERIFY_ENTAILMENT=off          # <-- ENTAILMENT OFF (redundant under the master switch; see header)
+# HERMETIC route-all guard (2026-07-21, three-model audit Sol+Fable+K3): the compose script used to
+# force PG_ROUTE_ALL_BASKETS=1 (now removed), which silently contaminated every measurement. Pin it
+# OFF here so a stray inherited PG_ROUTE_ALL_BASKETS=1 can never re-contaminate a run. To genuinely
+# test route-all, override this line explicitly; otherwise force-routing stays OFF (audit: dilutive).
+export PG_ROUTE_ALL_BASKETS=0
 
 # --- STEP-1 render/format cleanups (RENDER ONLY — no faithfulness surface touched) ---
 # Each flag is central-config-gated (config_defaults.py) and DEFAULTS to today's behavior;
