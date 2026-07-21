@@ -3789,6 +3789,52 @@ def route_all_baskets_enabled() -> bool:
     return (resolve(_ROUTE_ALL_BASKETS_ENV) or "0").strip().lower() not in ("", "0", "false", "off", "no")
 
 
+def _route_min_overlap() -> int:
+    """LEVER C+ minimum best-section content-word overlap for an orphan to route (else residual).
+    Default 1 == legacy 'route to any >=1-word match'. Read at CALL time; fail-safe to 1."""
+    try:
+        return max(1, int((resolve("PG_ROUTE_MIN_OVERLAP") or "1").strip()))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _route_margin() -> int:
+    """LEVER C+ minimum (best - runner-up) overlap so a near-tie orphan is not arbitrarily forced
+    into the first section. Default 0 == legacy (no margin). Read at CALL time; fail-safe to 0."""
+    try:
+        return max(0, int((resolve("PG_ROUTE_MARGIN") or "0").strip()))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _best_route_target(
+    words: set, plan_words: list, min_overlap: int, margin: int
+) -> "Any":
+    """Return the plan with the highest content-word overlap with ``words`` subject to the
+    marginal-coverage gate: the best overlap must be >= ``min_overlap`` AND exceed the runner-up by
+    >= ``margin``. Returns ``None`` (=> caller routes the orphan to the keep-all residual) when the
+    gate is not met. With the defaults (min_overlap=1, margin=0) this is EXACTLY the legacy
+    'route to the max-overlap section when best_overlap >= 1' behavior (byte-identical). Pure."""
+    best_plan = None
+    best_overlap = 0
+    second_overlap = 0
+    for p, pw in plan_words:
+        overlap = len(words & pw)
+        if overlap > best_overlap:
+            second_overlap = best_overlap
+            best_overlap = overlap
+            best_plan = p
+        elif overlap > second_overlap:
+            second_overlap = overlap
+    if (
+        best_plan is not None
+        and best_overlap >= min_overlap
+        and (best_overlap - second_overlap) >= margin
+    ):
+        return best_plan
+    return None
+
+
 def _basket_member_ev_ids(basket: Any) -> list[str]:
     """The evidence_ids of the basket's ``supporting_members`` (order-preserving, deduped, non-empty).
     These are the ids ``_section_baskets_for_compose`` matches on, so appending one to a plan's
@@ -3895,6 +3941,9 @@ def route_orphan_baskets_to_section_plans(
         claimed |= _section_assigned_ev_ids(p)
 
     plan_words = [(p, _plan_topic_words(p)) for p in plans]
+    # LEVER C+ marginal-coverage gate thresholds (read ONCE; defaults 1/0 = legacy byte-identical).
+    _min_overlap = _route_min_overlap()
+    _margin = _route_margin()
     residual_plan = None
     routed = 0
     deleted_offtopic = 0
@@ -3914,14 +3963,8 @@ def route_orphan_baskets_to_section_plans(
             deleted_offtopic_members.extend(member_ids)
             continue
         bw = _basket_topic_words(basket)
-        best_plan = None
-        best_overlap = 0
-        for p, pw in plan_words:
-            overlap = len(bw & pw)
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_plan = p
-        if best_plan is not None and best_overlap >= 1:
+        best_plan = _best_route_target(bw, plan_words, _min_overlap, _margin)
+        if best_plan is not None:
             _extend_plan_ev_ids(best_plan, member_ids)
         else:
             if residual_plan is None:
@@ -3948,14 +3991,8 @@ def route_orphan_baskets_to_section_plans(
             deleted_offtopic_members.append(eid)
             continue  # judge-confirmed off-topic singleton — DELETED before routing (disclosed)
         cw = _repair_content_words(str(cand.get("text", "") or ""))
-        best_plan = None
-        best_overlap = 0
-        for p, pw in plan_words:
-            overlap = len(cw & pw)
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_plan = p
-        if best_plan is not None and best_overlap >= 1:
+        best_plan = _best_route_target(cw, plan_words, _min_overlap, _margin)
+        if best_plan is not None:
             _extend_plan_ev_ids(best_plan, [eid])
         else:
             if residual_plan is None:

@@ -785,6 +785,16 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # more relevant evidence (broader per-section coverage). Default '0' = off => plans unchanged
     # (byte-identical). Placement only; the frozen faithfulness engine re-verifies every clause.
     'PG_ROUTE_ALL_BASKETS': '0',
+    # LEVER C+ (marginal-coverage router): tighten route_orphan_baskets_to_section_plans' placement
+    # so an orphan is only routed into a section when its content-word overlap with that section is
+    # STRONG enough, not a single generic shared word. PG_ROUTE_MIN_OVERLAP = the minimum best-section
+    # overlap to route (else the orphan goes to the keep-all residual); PG_ROUTE_MARGIN = the minimum
+    # (best - runner-up) overlap so an orphan that matches several sections about equally is not
+    # arbitrarily forced into the first. Defaults ('1','0') reproduce the legacy "route to any >=1-word
+    # match" behavior EXACTLY (byte-identical). Raising them keeps the high-value coverage and prunes
+    # the shallow/off-topic orphans the audit flagged. Deterministic; no model; no task literals.
+    'PG_ROUTE_MIN_OVERLAP': '1',
+    'PG_ROUTE_MARGIN': '0',
     # LEVER B (source eligibility): when truthy, the RQ's OWN stated constraints
     # (source_types / languages / recency — parsed generically from the prompt and
     # cached in protocol['_rq_constraints']) DEMOTE ineligible citable rows at the
