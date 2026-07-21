@@ -419,14 +419,27 @@ async def main() -> int:
         #    numbers — pure presentation). The report's substantive framing lives in the generated
         #    Introduction section; this line only states the organizing method. The tripwire re-audits.
         title = args.title or _derive_title(rq)
-        intro = (
-            "This report synthesizes the retrieved research evidence on the question above. It is "
-            "organized as a coherent review: an introduction that frames the scope, thematic sections "
-            "that group the evidence by sub-topic, a cross-study synthesis that surfaces where the "
-            "findings agree and conflict, and a closing discussion of conclusions and open research "
-            "gaps. Every quantitative claim is span-grounded to a cited source; claims that could not "
-            "be verified against the underlying evidence were removed rather than paraphrased."
-        )
+        # Lever 6 (preamble register): default OFF keeps the original framing sentence verbatim. When
+        # PG_REPORT_PREAMBLE_REGISTER is on, use a scholarly organizational-map sentence WITHOUT internal
+        # pipeline vocabulary ("span-grounded", "removed rather than paraphrased") — register translation
+        # only; the faithfulness behaviour it described is unchanged, just not narrated to the reader.
+        if resolve("PG_REPORT_PREAMBLE_REGISTER").strip().lower() in ("1", "true", "yes", "on", "reader"):
+            intro = (
+                "This review synthesizes the retrieved research evidence on the question above. It is "
+                "organized as a coherent review: an introduction that frames the scope, thematic sections "
+                "that group the evidence by sub-topic, a cross-study synthesis that surfaces where the "
+                "findings agree and conflict, and a closing discussion of conclusions and open research "
+                "gaps."
+            )
+        else:
+            intro = (
+                "This report synthesizes the retrieved research evidence on the question above. It is "
+                "organized as a coherent review: an introduction that frames the scope, thematic sections "
+                "that group the evidence by sub-topic, a cross-study synthesis that surfaces where the "
+                "findings agree and conflict, and a closing discussion of conclusions and open research "
+                "gaps. Every quantitative claim is span-grounded to a cited source; claims that could not "
+                "be verified against the underlying evidence were removed rather than paraphrased."
+            )
         # Verified section bodies (VERIFIED text only — never dropped/edited here).
         _verified = [
             sr for sr in multi.sections

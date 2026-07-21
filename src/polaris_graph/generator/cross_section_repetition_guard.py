@@ -286,6 +286,29 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
                 "new": _backref_sentence(richest_title, units[m]["citations"]),
             })
 
+    # NO-ROLLBACK RUNTIME GUARD (coverage can never regress): capture the multiset of numeric [N]
+    # citation markers across ALL in-scope section bodies BEFORE mutation, and the pre-mutation text of
+    # each section for a possible revert. A back-reference carries the recycled instance's OWN markers
+    # (line ~286) and the richest instance is kept verbatim, so the multiset is preserved BY
+    # CONSTRUCTION — this is a self-protecting assertion: if any future change to the swap/back-reference
+    # logic ever dropped or duplicated a marker, we REVERT every section to its pre-consolidation text
+    # (ship the redundant original rather than a citation-loss). Faithfulness engine untouched.
+    def _cite_multiset(secs: "list[dict[str, Any] | None]") -> "dict[str, int]":
+        counts: dict[str, int] = {}
+        for s in secs:
+            if s is None:
+                continue
+            for mk in re.findall(r"\[\d+\]", s["sr"].verified_text or ""):
+                counts[mk] = counts.get(mk, 0) + 1
+        return counts
+
+    _pre_texts: dict[int, str] = {
+        i: sec["sr"].verified_text
+        for i, sec in enumerate(sections)
+        if sec is not None
+    }
+    _pre_markers = _cite_multiset(sections)
+
     # Apply the swaps in place, one section at a time. Each swap targets EXACTLY one occurrence; a
     # unit that is absent or ambiguous (count != 1) in the current body is skipped (fail-safe).
     for sec_pos, swaps in replacements.items():
@@ -303,6 +326,19 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
             consolidated += 1
         if changed:
             sec["sr"].verified_text = text
+
+    # Enforce the no-rollback guard: if the citation multiset changed, REVERT everything and keep the
+    # legacy (redundant) output — coverage is never traded for de-duplication.
+    if consolidated and _cite_multiset(sections) != _pre_markers:
+        for i, txt in _pre_texts.items():
+            if sections[i] is not None:
+                sections[i]["sr"].verified_text = txt  # type: ignore[index]
+        logger.warning(
+            "[cross_section_repetition_guard] no-rollback guard TRIPPED (citation multiset changed) "
+            "— reverted all %d consolidation(s); kept redundant originals (no coverage loss)",
+            consolidated,
+        )
+        return {"clusters": clusters, "consolidated": 0, "reverted": True}
 
     if consolidated:
         logger.info(
