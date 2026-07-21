@@ -491,6 +491,11 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_LLM_LONG_TIMEOUT_SECONDS': '180',
     'PG_LLM_MAX_RETRIES': '5',
     'PG_LLM_RETRY_BASE': '3.0',
+    # Ceiling (seconds) on a single transient-retry backoff wait, so a large PG_LLM_MAX_RETRIES
+    # budget for a flaky single-provider model never turns exponential backoff into minute-long
+    # sleeps (overloaded providers recover in seconds). Default 15 barely touches the small-retry
+    # path (waits stay under it) — it only clamps the tail of a large retry budget.
+    'PG_TRANSIENT_RETRY_WAIT_CAP_S': '15.0',
     'PG_LLM_RETRY_MAX': '60.0',
     'PG_LLM_TIMEOUT_SECONDS': '90',
     'PG_LOCAL_CORPUS_DEFAULT_CLASS': 'unclassified_internal',
@@ -809,6 +814,12 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_SECTION_CONTENT_HEADROOM_TOKENS': '8192',
     'PG_SECTION_CONTINUATION_MAX_TOKENS': '8192',
     'PG_SECTION_DISTILL': '',
+    # Batch 2 (structure): when truthy, the section writer's prompt rule 7 flips from
+    # flat-paragraph-only to "organize the body with ### sub-headings, markdown comparison
+    # tables (>=3 sources on the same metric), and bullet lists" — while KEEPING the
+    # [ev_XXX]-marker-per-unit citation contract. Targets RACE Readability. Prompt-text change
+    # only (strict_verify untouched). Default '' = off => flat-prose rule 7 => byte-identical.
+    'PG_SECTION_STRUCTURE': '',
     'PG_SECTION_EVIDENCE_TOP_K': '100',
     'PG_SECTION_GINI_THRESHOLD': '0.30',
     'PG_SECTION_PER_SOURCE_SPAN_CAP': '0',

@@ -3852,6 +3852,38 @@ def _build_concise_variant(template: str) -> str:
     return _FRONT_LOADING_DIRECTIVE + out
 
 
+# Batch 2 (structure): the STRUCTURE-ENABLED rule 7 — replaces the flat-prose rule 7 with a
+# directive to organize the body using ### sub-headings, markdown comparison tables, and bullet
+# lists, KEEPING the [ev_XXX]-marker-per-unit citation contract so FACT extraction still resolves.
+_STRUCTURE_RULE_7 = (
+    "7. STRUCTURE THE BODY FOR READABILITY (do NOT write the top-level section title — it is "
+    "added for you): group related findings under short ``###`` sub-headings (a 3-6 word noun "
+    "phrase each); when THREE OR MORE sources report the SAME metric across different entities, "
+    "periods, or places, render them as a compact GitHub-flavored markdown TABLE (a header row, "
+    "then one row per entity, every data cell ending with its [ev_XXX] marker); use a ``-`` "
+    "bulleted list for a set of parallel enumerable findings. Every prose sentence, every table "
+    "data row, and every bullet still ends with at least one [ev_XXX] marker."
+)
+
+
+def _build_structured_variant(template: str) -> str:
+    """Batch 2 (structure): derive the STRUCTURE-ENABLED variant of a section system-prompt
+    template. Replaces the flat-prose rule 7 ('Do not write a section heading ... Just the
+    paragraph body') with a directive to organize the body using ``###`` sub-headings, markdown
+    comparison tables, and bullet lists — while KEEPING the [ev_XXX]-marker-per-unit citation
+    contract. Pure text transform; FAILS LOUD if the rule-7 anchor drifts (I-cap-005 lesson). No
+    env read, no faithfulness-gate touch (strict_verify unchanged; only the writer's prose shape)."""
+    anchor = ("7. Do not write a section heading, section title, or preamble. "
+              "Just the paragraph body.")
+    out = template.replace(anchor, _STRUCTURE_RULE_7)
+    if out == template:
+        raise RuntimeError(
+            "structure transform anchor drifted: section-prompt rule 7 not found verbatim; "
+            "update _build_structured_variant."
+        )
+    return out
+
+
 # Concise variants built ONCE at module load (static, no env read at import).
 SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE = _build_concise_variant(
     SECTION_SYSTEM_PROMPT_TEMPLATE
@@ -3869,6 +3901,13 @@ def _anti_verbosity_enabled() -> bool:
     return resolve("PG_ANTI_VERBOSITY").strip().lower() in (
         "1", "true", "yes", "on",
     )
+
+
+def _section_structure_enabled() -> bool:
+    """Batch 2 structure flag (`PG_SECTION_STRUCTURE`), read at CALL TIME (never at import — the
+    I-cap-005 import-time-cache class of bug). Default OFF: any unset / empty / "0" / "false" /
+    "off" / "no" keeps the flat-prose rule 7 => byte-identical section output."""
+    return resolve("PG_SECTION_STRUCTURE").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _section_distill_enabled() -> bool:
@@ -3922,12 +3961,19 @@ def _select_section_system_prompt(
     same object identity as before this change, so the locked benchmark is
     byte-identical until the flag is set."""
     if anti_verbosity:
-        if use_field_agnostic:
-            return SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC_CONCISE
-        return SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE
-    if use_field_agnostic:
-        return SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC
-    return SECTION_SYSTEM_PROMPT_TEMPLATE
+        base = (
+            SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC_CONCISE
+            if use_field_agnostic else SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE
+        )
+    elif use_field_agnostic:
+        base = SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC
+    else:
+        base = SECTION_SYSTEM_PROMPT_TEMPLATE
+    # Batch 2 (structure): when PG_SECTION_STRUCTURE is on, flip rule 7 to the ###/table/bullet
+    # directive (composes on top of whichever base was selected). Default OFF => base unchanged.
+    if _section_structure_enabled():
+        base = _build_structured_variant(base)
+    return base
 
 
 async def _call_section(
