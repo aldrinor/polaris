@@ -1017,6 +1017,12 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_V3_SYNTH_BUDGET_PCT': '40',
     'PG_V3_TOTAL_BUDGET_SECONDS': '3600',
     'PG_VERIFICATION_MODE': 'off',
+    # LEVER C (multi-citation): when truthy, a basket carrying >=2 corroborating isolated-SUPPORTS
+    # members from DISTINCT origins is composed as ONE sentence that cites ALL of them (per-clause
+    # verified), instead of a single-source K-span. Grounds a cross-source synthesis claim to every
+    # source it draws on (recovers citation support for synthesis sentences). Default '0' = off =>
+    # the single-basket path => byte-identical. Faithfulness untouched (each clause re-verified).
+    'PG_VERIFIED_COMPOSE_MULTICITED': '0',
     'PG_VERIFIER_CONTENT_CAP': '25000',
     'PG_VERIFIER_LLM_TIMEOUT_SECONDS': '900',
     'PG_VERIFIER_SEED': '',

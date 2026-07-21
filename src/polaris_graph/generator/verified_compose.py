@@ -226,8 +226,10 @@ def _multicited_compose_enabled() -> bool:
     synthesis producer is never invoked and the module behaves byte-identically to the single-basket
     path; ON => the caller MAY compose a multi-cited synthesized sentence via
     ``compose_multicited_sentence``. Independent of ``PG_VERIFIED_COMPOSE`` so the multi-cited path
-    is a SEPARATE, explicitly-opted increment (no implicit activation)."""
-    return os.getenv(_MULTICITED_COMPOSE_ENV, "0").strip().lower() not in ("", "0", "false", "off", "no")
+    is a SEPARATE, explicitly-opted increment (no implicit activation). Now registered in
+    config_defaults and read via ``resolve`` (central-config compliant); resolve() returns
+    ``os.getenv(key, '0')`` so the default + off-token semantics are byte-identical."""
+    return (resolve(_MULTICITED_COMPOSE_ENV) or "0").strip().lower() not in ("", "0", "false", "off", "no")
 
 
 def _compose_basket_workers() -> int:

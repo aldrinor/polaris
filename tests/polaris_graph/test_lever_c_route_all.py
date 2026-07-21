@@ -45,3 +45,24 @@ def test_off_returns_plans_unchanged(monkeypatch):
         plans, _Cred(), section_plan_cls=object
     )
     assert out is plans  # unchanged identity on the OFF path
+
+
+# ── Lever C — multi-citation (PG_VERIFIED_COMPOSE_MULTICITED) registration ──────────────
+
+
+def test_multicited_registered_and_default_off(monkeypatch):
+    monkeypatch.delenv("PG_VERIFIED_COMPOSE_MULTICITED", raising=False)
+    assert resolve("PG_VERIFIED_COMPOSE_MULTICITED") == "0"
+    assert vc._multicited_compose_enabled() is False
+
+
+@pytest.mark.parametrize("val", ["1", "true", "on", "yes"])
+def test_multicited_truthy_arms(monkeypatch, val):
+    monkeypatch.setenv("PG_VERIFIED_COMPOSE_MULTICITED", val)
+    assert vc._multicited_compose_enabled() is True
+
+
+@pytest.mark.parametrize("val", ["", "0", "false", "off", "no"])
+def test_multicited_off_tokens_stay_off(monkeypatch, val):
+    monkeypatch.setenv("PG_VERIFIED_COMPOSE_MULTICITED", val)
+    assert vc._multicited_compose_enabled() is False
