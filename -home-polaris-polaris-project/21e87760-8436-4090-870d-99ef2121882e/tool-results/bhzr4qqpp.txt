@@ -1,0 +1,723 @@
+diff --git a/src/polaris_graph/config_defaults.py b/src/polaris_graph/config_defaults.py
+index 33d0bd1..6e24486 100644
+--- a/src/polaris_graph/config_defaults.py
++++ b/src/polaris_graph/config_defaults.py
+@@ -113,6 +113,29 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
+     # cleanly. Digit-anchored on both sides, so code/JSON 'a[3].[i]' is untouched.
+     # Default '0' = leave the '].[' glue as-is = today's byte-identical render.
+     'PG_CITATION_INLINE_GLUE_COLLAPSE': '0',
++    # LEVER B (citation re-anchoring): when truthy, a claim sentence whose cited
++    # [#ev] token points at a SECONDARY source is UPSTREAM re-pointed to a PRIMARY
++    # row (same normalized finding/numbers, higher tier, journal/DOI) BEFORE
++    # strict_verify runs — a grounding-SOURCE selection, never a sentence drop/
++    # filter. Default '' = off => the [#ev] tokens are byte-identical.
++    'PG_CITATION_REANCHOR_PRIMARY': '',
++    # LEVER F (canonicalize works): when truthy, the GLOBAL bibliography unit
++    # becomes the CANONICAL WORK instead of the raw evidence_id. Upstream rows
++    # already carry same_work grouping (55 same_work_groups on task-72), but the
++    # global bibliography (_merge_bibliographies) dedups only by evidence_id, so
++    # ONE work fetched from several mirror URLs / manifestations appears as
++    # [5][6][7]. When on, every member evidence_id of a work (identified by the
++    # SHARED deterministic same-work key: normalized source URL, else DOI, else
++    # folded title + discriminator — parsed generically from the row's OWN
++    # locators, NO task literals) folds to a SINGLE canonical [N], preferring the
++    # DOI/primary manifestation for the surviving entry. The remap runs through
++    # the existing _remap_section_markers_to_global path and collapses resulting
++    # adjacent duplicate markers ('[5][5]' -> '[5]'). Pure deterministic
++    # identity + numbering — NO model, NO network, NO sentence drop/filter (a
++    # remapped-away entry's evidence_id still resolves, it just shares a number).
++    # Default '' = off => one bibliography entry per evidence_id as today =>
++    # byte-identical bibliography + inline markers.
++    'PG_CANONICAL_WORK_BIBLIOGRAPHY': '',
+     'PG_CITEFIX_ENABLED': '0',
+     'PG_CITEFIX_KEYWORD_MIN': '3',
+     'PG_CITEFIX_SEMANTIC_THRESHOLD': '0.50',
+@@ -349,6 +372,33 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
+     'PG_FETCH_MAX_RETRIES': '3',
+     'PG_FETCH_MIN_BODY_CHARS': '0',
+     'PG_FETCH_NONEMPTY_RAW_FLOOR': '200',
++    # LEVER E (fetch-until-usable): when truthy, a fetched row that comes back a
++    # STUB (extracted body below the salvage floor) AND carries a DOI or PMID is
++    # routed through the shared deterministic metadata-API salvage lane
++    # (frame_fetcher CrossRef -> OpenAlex -> PubMed -> Semantic Scholar richest
++    # abstract, an OA-URL scrape via the existing OA resolver) to recover full
++    # text or a sufficiently-informative abstract — a CITABLE span — BEFORE the
++    # row is labeled `stub`. On a salvage hit the body is upgraded to ok=True; on
++    # a miss the row keeps its `stub` verdict (retained for disclosure, not
++    # citation — §-1.3 label-not-drop). This RUNS ONLY as an upstream fetch-layer
++    # recovery — it adds NO post-generation entailment / verification / filtering
++    # gate, and reuses the existing frame_fetcher clients (no new LLM call).
++    # Default '' = OFF => the salvage lane is never entered => byte-identical to
++    # today (the min-body gate itself stays off because PG_FETCH_MIN_BODY_CHARS
++    # is unchanged at '0'). Read at CALL time (env-overridable per run).
++    'PG_FETCH_STUB_SALVAGE': '',
++    # LEVER E: the effective min-body floor (chars) that DEFINES a "stub" for the
++    # salvage lane ABOVE. A real journal body is tens of thousands of chars; a
++    # paywall / abstract shell is a few hundred, so ~800 chars cleanly separates a
++    # citable span from a dead shell. This floor is consulted ONLY when
++    # PG_FETCH_STUB_SALVAGE is truthy — it does NOT touch PG_FETCH_MIN_BODY_CHARS
++    # (which stays '0'/off), so default-off remains byte-identical. Overridable.
++    'PG_FETCH_STUB_SALVAGE_MIN_BODY_CHARS': '800',
++    # LEVER E: bounded number of distinct deterministic metadata sources the
++    # salvage lane will consult per stub row (CrossRef, OpenAlex, PubMed, S2 = 4).
++    # A CAP, never a target — keeps the recovery bounded per LAW-VI. Consulted
++    # only when PG_FETCH_STUB_SALVAGE is truthy.
++    'PG_FETCH_STUB_SALVAGE_MAX_SOURCES': '4',
+     'PG_FETCH_RETRY_BASE': '2.0',
+     'PG_FETCH_RETRY_MAX': '30.0',
+     'PG_FETCH_SHELL_VOCAB_GATE': '1',
+@@ -722,6 +772,17 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
+     'PG_RISK_QUORUM_MIN': '2',
+     'PG_ROLE_ALLOW_FALLBACKS': '',
+     'PG_ROLE_TRANSPORT_RETRIES': '2',
++    # LEVER B (source eligibility): when truthy, the RQ's OWN stated constraints
++    # (source_types / languages / recency — parsed generically from the prompt and
++    # cached in protocol['_rq_constraints']) DEMOTE ineligible citable rows at the
++    # generation-pool boundary (weight in (0,1), tail-partitioned, KEPT + disclosed
++    # — WEIGHT-not-DROP). Default '' = off => the eligibility map is empty =>
++    # selection sort key + tail partition are byte-identical.
++    'PG_RQ_SOURCE_ELIGIBILITY_ENFORCE': '',
++    # LEVER B: the multiplicative ranking demote applied to an RQ-INELIGIBLE row
++    # (mirrors PG_SCOPE_DEMOTE_WEIGHT / the date-window demote). Clamped to (0,1);
++    # empty => the module default. Only consulted when the enforce flag is on.
++    'PG_RQ_SOURCE_ELIGIBILITY_DEMOTE_WEIGHT': '',
+     'PG_RUN_DIFF_TIER_PP': None,
+     'PG_S2_KEYWORD_DISTILL': '1',
+     'PG_S2_KEYWORD_MAX_TERMS': '8',
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 684a60e..b4e1208 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -8059,6 +8059,135 @@ async def _call_limitations(
+ # ─────────────────────────────────────────────────────────────────────────────
+ 
+ 
++# LEVER F (canonicalize works): when ``PG_CANONICAL_WORK_BIBLIOGRAPHY`` is truthy the GLOBAL
++# bibliography unit becomes the CANONICAL WORK (identified by the SHARED deterministic same-work
++# key) instead of the raw evidence_id — so ONE work fetched from several mirror URLs /
++# manifestations folds to a SINGLE ``[N]`` (a paper cited as ``[5][6][7]`` becomes ``[5]``),
++# with every member evidence_id remapping to that canonical number and the resulting adjacent
++# duplicate markers collapsed. Default OFF => one entry per evidence_id => byte-identical.
++_ENV_CANONICAL_WORK_BIBLIOGRAPHY = "PG_CANONICAL_WORK_BIBLIOGRAPHY"
++
++
++def _canonical_work_bibliography_enabled() -> bool:
++    """LEVER F kill switch (``PG_CANONICAL_WORK_BIBLIOGRAPHY``). Default OFF => the global
++    bibliography carries one entry per evidence_id (today's behavior) => byte-identical output."""
++    return resolve(_ENV_CANONICAL_WORK_BIBLIOGRAPHY).strip().lower() in (
++        "1", "true", "yes", "on",
++    )
++
++
++def _biblio_work_key(entry: dict[str, Any]) -> str:
++    """The SHARED same-work identity of a bibliography entry (LEVER F).
++
++    Reuses ``finding_dedup._same_work_key`` — the SINGLE deterministic identity contract
++    (normalized source URL first, else normalized DOI, else folded title + discriminator) that
++    the upstream same-work consolidators already key on — so the bibliography folds EXACTLY the
++    works upstream grouped. Reads the entry's OWN locators generically (no task literals). A
++    blank key (no usable URL/DOI/title+discriminator) means "own singleton work": we fall back
++    to the evidence_id so an un-keyable entry is NEVER merged into another work.
++
++    The biblio entry stores its URL under ``url`` (``_num_for`` in provenance_generator); the
++    shared key reads ``source_url`` OR ``url``, so passing the entry directly is correct.
++    """
++    from src.polaris_graph.synthesis.finding_dedup import _same_work_key  # noqa: PLC0415
++
++    key = _same_work_key(entry)
++    if key:
++        return key
++    return "ev:" + str(entry.get("evidence_id", "") or id(entry))
++
++
++def _entry_locator_rank(entry: dict[str, Any]) -> tuple[int, int, int]:
++    """Preference rank for choosing the CANONICAL manifestation within a same-work group
++    (LEVER F). LOWER sorts first => becomes the surviving canonical entry.
++
++    Prefers, in order: a DOI-bearing (primary/citable) manifestation, then a PMID-bearing one,
++    then a URL-bearing one — the primary/DOI/English manifestation for claim support. Pure
++    metadata-presence tie-break; no model, no network.
++    """
++    has_doi = 1 if str(entry.get("doi", "") or "").strip() else 0
++    has_pmid = 1 if str(entry.get("pmid", "") or "").strip() else 0
++    has_url = 1 if str(entry.get("url", "") or "").strip() else 0
++    # Negate presence flags so a present locator sorts BEFORE an absent one under ascending sort.
++    return (-has_doi, -has_pmid, -has_url)
++
++
++def _canonicalize_work_bibliography(
++    biblio: list[dict[str, Any]],
++) -> tuple[list[dict[str, Any]], dict[str, int]]:
++    """Collapse a per-evidence_id bibliography into a per-WORK bibliography (LEVER F).
++
++    Groups entries by their SHARED same-work key, elects ONE canonical entry per group
++    (``_entry_locator_rank``: DOI > PMID > URL manifestation), renumbers the canonical entries
++    contiguously in FIRST-APPEARANCE order (stable — the first evidence_id of each work keeps
++    the low number the reader already saw), and returns:
++      * the canonical bibliography (one entry per work, ``num`` reassigned), and
++      * an ``evidence_id -> canonical_num`` map covering EVERY member evidence_id (the elected
++        canonical AND its folded mirrors), so the inline-marker remap can point every member's
++        ``[N]`` at the one canonical number.
++
++    Keep-all: no entry is DROPPED from the world — a folded mirror's evidence_id still resolves
++    to its work's number; it simply shares the canonical ``[N]`` instead of getting its own.
++    The canonical entry additionally carries ``same_work_member_evidence_ids`` (all member ids)
++    for any downstream breadth/coverage consumer, WITHOUT changing which [N] renders.
++    """
++    # Preserve first-appearance order of works; collect members per work.
++    work_order: list[str] = []
++    members_by_work: dict[str, list[dict[str, Any]]] = {}
++    for entry in biblio:
++        wkey = _biblio_work_key(entry)
++        if wkey not in members_by_work:
++            members_by_work[wkey] = []
++            work_order.append(wkey)
++        members_by_work[wkey].append(entry)
++
++    canonical_biblio: list[dict[str, Any]] = []
++    ev_to_canonical_num: dict[str, int] = {}
++    for new_num, wkey in enumerate(work_order, 1):
++        members = members_by_work[wkey]
++        # Elect the canonical manifestation: best locator rank, ties broken by the entry's
++        # ORIGINAL number so the choice is deterministic and prefers the earlier-seen row.
++        canonical_entry = min(
++            members,
++            key=lambda e: (_entry_locator_rank(e), int(e.get("num", 0) or 0)),
++        )
++        new_entry = dict(canonical_entry)
++        new_entry["num"] = new_num
++        member_ev_ids = [
++            str(m.get("evidence_id", "") or "") for m in members
++            if str(m.get("evidence_id", "") or "")
++        ]
++        new_entry["same_work_member_evidence_ids"] = member_ev_ids
++        canonical_biblio.append(new_entry)
++        # Map EVERY member evidence_id (canonical + mirrors) to this one canonical number.
++        for m in members:
++            m_ev = str(m.get("evidence_id", "") or "")
++            if m_ev:
++                ev_to_canonical_num[m_ev] = new_num
++    return canonical_biblio, ev_to_canonical_num
++
++
++# LEVER F: two adjacent numeric citation markers that (after canonical remap) resolve to the SAME
++# number are a mirror double-cite of ONE work — collapse '[5][5]' -> '[5]'. Only fires on the
++# canonicalized path; the legacy per-evidence_id path never produces adjacent identical markers.
++_ADJACENT_DUP_MARKER_RE = re.compile(r"\[(\d+)\](?=\[\1\])")
++
++
++def _collapse_adjacent_duplicate_markers(text: str) -> str:
++    """Collapse runs of the SAME numeric citation marker to a single marker (LEVER F).
++
++    ``[5][5][5]`` -> ``[5]``. Only IDENTICAL adjacent numbers are collapsed (a genuine
++    ``[5][6]`` multi-cite is untouched), so no distinct citation is ever lost.
++    """
++    prev = None
++    out = text
++    # Iterate to a fixed point so runs of 3+ identical markers fully collapse.
++    while out != prev:
++        prev = out
++        out = _ADJACENT_DUP_MARKER_RE.sub("", out)
++    return out
++
++
+ def _merge_bibliographies(
+     section_slices: list[list[dict[str, Any]]],
+ ) -> list[dict[str, Any]]:
+@@ -8089,6 +8218,12 @@ def _merge_bibliographies(
+         new_entry = dict(entry)
+         new_entry["num"] = i
+         final.append(new_entry)
++    # LEVER F (canonicalize works): OFF => return the per-evidence_id bibliography above
++    # (byte-identical). ON => fold same-work mirror entries into ONE canonical entry per work
++    # so a paper fetched from several URLs / manifestations renders as a single [N] (the remap
++    # in _remap_section_markers_to_global points every member ev_id at that canonical number).
++    if _canonical_work_bibliography_enabled():
++        final, _ = _canonicalize_work_bibliography(final)
+     return final
+ 
+ 
+@@ -8103,8 +8238,26 @@ def _remap_section_markers_to_global(
+     I-deepfix-002 (#1363): this NEVER drops a marker. Every [N] in already
+     strict_verify-PASSED section prose maps to its global number; off-topic
+     cite-suppression is handled upstream at the enrichment selection only, so a
+-    verified section citation is never orphaned here."""
+-    ev_to_global = {b["evidence_id"]: b["num"] for b in global_biblio}
++    verified section citation is never orphaned here.
++
++    LEVER F (canonicalize works): when the canonical-work bibliography is on, a canonical
++    entry carries ``same_work_member_evidence_ids`` — the evidence_ids of every mirror
++    manifestation that folded into it. We map EACH of those member ev_ids to the canonical
++    entry's number, so a section that cited two mirrors of ONE work points both markers at the
++    single canonical [N]; the resulting adjacent duplicate markers ('[5][5]') are then collapsed.
++    OFF => the canonical members list is absent, ``ev_to_global`` is the plain per-evidence_id
++    map, and no collapse runs => byte-identical."""
++    _canonical_on = _canonical_work_bibliography_enabled()
++    ev_to_global: dict[str, int] = {}
++    for b in global_biblio:
++        num = b["num"]
++        ev_to_global[b["evidence_id"]] = num
++        if _canonical_on:
++            # Fold every member ev_id of this work onto its canonical number, so a marker that
++            # points at a mirror manifestation still resolves to the single canonical [N].
++            for member_ev in (b.get("same_work_member_evidence_ids") or []):
++                if member_ev:
++                    ev_to_global[member_ev] = num
+     remapped: list[str] = []
+     for sect in section_results:
+         if not sect.verified_text:
+@@ -8128,6 +8281,10 @@ def _remap_section_markers_to_global(
+             return f"[{g}]" if g else match.group(0)
+ 
+         text = re.sub(r"\[(\d+)\]", _replace, text)
++        # LEVER F: two mirror manifestations of ONE work now share a number, so the prose may
++        # carry '[5][5]' — collapse identical adjacent markers to a single [5]. OFF => no-op.
++        if _canonical_on:
++            text = _collapse_adjacent_duplicate_markers(text)
+         remapped.append(text)
+     return remapped
+ 
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index 6da9230..bdc0f54 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -2234,6 +2234,7 @@ def _relevance_floor_selection(
+     url_to_content_relevance_weight: dict[str, float] | None = None,
+     url_to_date_weight: dict[str, float] | None = None,
+     url_to_scope_weight: dict[str, float] | None = None,
++    url_to_eligibility_weight: dict[str, float] | None = None,
+     url_to_must_include: set[str] | None = None,
+ ) -> EvidenceSelection:
+     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
+@@ -2351,6 +2352,22 @@ def _relevance_floor_selection(
+         w = _scope_map.get(str(url))
+         return 1.0 if w is None else float(w)
+ 
++    # LEVER B: per-row RQ-SOURCE-ELIGIBILITY weight, joined by URL. It multiplies the ranking
++    # score EXACTLY like `_scope_weight` — an RQ-ineligible source (wrong source-type / non-
++    # English / out-of-recency, per the RQ's OWN stated constraints) sinks LAST in the SELECTED
++    # set while staying KEPT (the floor comparison uses the RAW relevance, never this weight —
++    # §-1.3 WEIGHT-not-FILTER). The map holds ONLY non-default (< 1.0) weights, so when the RQ
++    # states no such constraint (or the enforce flag is OFF) it is empty, this returns 1.0 for
++    # every row, and the sort is BYTE-IDENTICAL. The faithfulness engine is downstream + untouched.
++    _elig_map = url_to_eligibility_weight or {}
++
++    def _eligibility_weight(row: dict[str, Any]) -> float:
++        if not _elig_map:
++            return 1.0
++        url = row.get("source_url") or row.get("url") or ""
++        w = _elig_map.get(str(url))
++        return 1.0 if w is None else float(w)
++
+     # I-scope-001 P1 fix: the set of URLs the user explicitly INCLUDED (op='include' /
+     # named-include). Unlike `_scope_map` (a DEMOTE of non-matching sources under
+     # 'prefer'), an INCLUDE is an ADDITIVE BOOST / PIN of the matching source that does
+@@ -2508,7 +2525,7 @@ def _relevance_floor_selection(
+                 _include_rank(s[3]),
+                 -(s[1] * _authority(s[3]) * _retrieval_weight(s[3])
+                   * _content_relevance_weight(s[3]) * _date_window_weight(s[3])
+-                  * _scope_weight(s[3])),
++                  * _scope_weight(s[3]) * _eligibility_weight(s[3])),
+                 _TIER_PRIORITY.get(s[2], 9),
+                 s[0],
+             )
+@@ -2518,7 +2535,8 @@ def _relevance_floor_selection(
+             key=lambda s: (
+                 _include_rank(s[3]),
+                 -(s[1] * _authority(s[3]) * _content_relevance_weight(s[3])
+-                  * _date_window_weight(s[3]) * _scope_weight(s[3])),
++                  * _date_window_weight(s[3]) * _scope_weight(s[3])
++                  * _eligibility_weight(s[3])),
+                 _TIER_PRIORITY.get(s[2], 9),
+                 s[0],
+             )
+@@ -3039,6 +3057,36 @@ def _select_evidence_for_generation_impl(
+         _oos_urls = set()
+         _must_include_urls = set()
+ 
++    # LEVER B: build the per-URL RQ-SOURCE-ELIGIBILITY demote map — the task-derived
++    # generalization of the scope/date WEIGHT seam above, driven by the constraints the RQ
++    # ITSELF stated (source_types / languages / recency, parsed generically by
++    # constraint_extractor and cached on protocol['_rq_constraints']). Gated
++    # PG_RQ_SOURCE_ELIGIBILITY_ENFORCE (default OFF) inside build_rq_eligibility => an empty
++    # plan => `url_to_eligibility_weight` empty + `_ineligible_urls` empty => the sort key +
++    # tail partition are BYTE-IDENTICAL. An RQ-ineligible source (wrong source-type / non-English
++    # / out-of-recency) is DEMOTED and sinks LAST while staying KEPT (§-1.3 WEIGHT-not-FILTER);
++    # unresolved rows (unknown genre/language/date) are fail-open (weight 1.0) + flagged for
++    # fetch recovery. No post-generation gate is added (upstream-only).
++    url_to_eligibility_weight: dict[str, float] = {}
++    _ineligible_urls: set[str] = set()
++    try:
++        from src.polaris_graph.retrieval.rq_eligibility import (  # noqa: PLC0415
++            build_rq_eligibility,
++        )
++        _elig_plan = build_rq_eligibility(protocol, evidence_rows)
++        url_to_eligibility_weight = dict(_elig_plan.url_to_eligibility_weight)
++        _ineligible_urls = set(_elig_plan.ineligible_urls)
++        if url_to_eligibility_weight:
++            _LOGGER.info(
++                "[select] LEVER B: DEMOTED %d RQ-ineligible source(s) "
++                "(kept, sorted last — §-1.3 disclose, NOT dropped)",
++                len(url_to_eligibility_weight),
++            )
++    except Exception as _elig_exc:  # noqa: BLE001 - fail-open: eligibility never aborts selection
++        _LOGGER.warning("[select] RQ eligibility skipped (%s)", _elig_exc)
++        url_to_eligibility_weight = {}
++        _ineligible_urls = set()
++
+     # Compute relevance tokens from research question + protocol anchors.
+     question_tokens = _content_tokens(research_question or "")
+     protocol_tokens: set[str] = set()
+@@ -3141,6 +3189,22 @@ def _select_evidence_for_generation_impl(
+             for (idx, score, tier, row) in scored
+         ]
+ 
++    # LEVER B (capped-path eligibility demotion): mirror the scope capped-path demotion so a
++    # capped slot prefers RQ-ELIGIBLE rows. Applied ONLY on the capped path (same reason as the
++    # scope/date blocks); the floor path carries `_eligibility_weight` in its sort instead. Rows
++    # are KEPT in `scored`; only their quota rank drops. Empty map => byte-identical.
++    if relevance_floor is None and url_to_eligibility_weight:
++        scored = [
++            (
++                idx,
++                (score * url_to_eligibility_weight.get(
++                    str(row.get("source_url") or row.get("url") or ""), 1.0)),
++                tier,
++                row,
++            )
++            for (idx, score, tier, row) in scored
++        ]
++
+     # I-scope-001 P1 (capped-path include PIN): the ADDITIVE mirror of the demote block
+     # above — a user-INCLUDED source is boosted ABOVE every non-included row so a capped
+     # quota slot keeps it (an included low-relevance source would otherwise be truncated).
+@@ -3205,6 +3269,11 @@ def _select_evidence_for_generation_impl(
+             # SAME floor-path SORT key so an out-of-scope source sinks LAST while staying
+             # KEPT (§-1.3 WEIGHT-not-FILTER).
+             url_to_scope_weight=url_to_scope_weight,
++            # LEVER B: per-URL RQ-source-eligibility demotion map (empty when the RQ states no
++            # source/language/recency constraint OR PG_RQ_SOURCE_ELIGIBILITY_ENFORCE OFF =>
++            # byte-identical sort). Multiplied into the SAME floor-path SORT key so an RQ-
++            # ineligible source sinks LAST while staying KEPT (§-1.3 WEIGHT-not-FILTER).
++            url_to_eligibility_weight=url_to_eligibility_weight,
+             # I-scope-001 P1 fix: user-INCLUDED URLs get an ADDITIVE PIN (front of the
+             # sort + floor-exempt) into the SELECTED set — never demoting a non-matching
+             # source. Empty when no include facet OR enforce-OFF => byte-identical.
+@@ -3250,6 +3319,16 @@ def _select_evidence_for_generation_impl(
+                     f"source(s) DEMOTED (kept, sorted last — §-1.3 disclose, NOT dropped)"
+                 ],
+             )
++        # LEVER B: disclose the RQ-eligibility demotion in the selection notes too (only when
++        # ≥1 row was demoted => the no-constraint / OFF run is byte-identical).
++        if url_to_eligibility_weight:
++            _floor_selection = replace(
++                _floor_selection,
++                notes=list(_floor_selection.notes) + [
++                    f"LEVER B eligibility: {len(url_to_eligibility_weight)} RQ-ineligible "
++                    f"source(s) DEMOTED (kept, sorted last — §-1.3 disclose, NOT dropped)"
++                ],
++            )
+         _floor_reranked = _maybe_rerank_selection(
+             _floor_selection.selected_rows, research_question
+         )
+@@ -3262,7 +3341,7 @@ def _select_evidence_for_generation_impl(
+         # sunk to the tail even if it also matched an out-of-scope demote — include wins
+         # over demote for the SAME source (include != prefer), so subtract the pins.
+         _final_rows = _partition_out_of_scope_last(
+-            _floor_reranked, (_oow_urls | _oos_urls) - _must_include_urls
++            _floor_reranked, (_oow_urls | _oos_urls | _ineligible_urls) - _must_include_urls
+         )
+         if _final_rows is _floor_selection.selected_rows:
+             # OFF / single-row / loud-fallback + no date window → byte-identical.
+diff --git a/src/polaris_graph/retrieval/frame_fetcher.py b/src/polaris_graph/retrieval/frame_fetcher.py
+index 21854f7..a1b41f7 100644
+--- a/src/polaris_graph/retrieval/frame_fetcher.py
++++ b/src/polaris_graph/retrieval/frame_fetcher.py
+@@ -1275,6 +1275,133 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
+ # ─────────────────────────────────────────────────────────────────────
+ # Layer 4 — Orchestrator
+ # ─────────────────────────────────────────────────────────────────────
++def salvage_stub_span(
++    *,
++    doi: str = "",
++    pmid: str = "",
++    client: httpx.Client | None = None,
++    max_sources: int = 4,
++) -> tuple[str, str]:
++    """LEVER E (fetch-until-usable) — SHARED deterministic salvage lane.
++
++    GENERALIZED extraction of the DOI/PMID abstract-recovery chain that already
++    powers ``_fetch_frame_entity_inner`` for V30 contract entities, exposed as a
++    standalone helper so ANY stub fetch row that carries a DOI or PMID (not just
++    a compiled ``EvidenceBinding``) can recover a CITABLE span — full text or a
++    sufficiently-informative abstract — from the deterministic metadata APIs.
++
++    Consults, in bounded priority order and REUSING the module's existing
++    clients/parsers (no new HTTP surface, no LLM call):
++
++      1. CrossRef  ``/works/{doi}``           — abstract (+ title anchor)
++      2. OpenAlex  ``/works/{doi}``           — inverted-index abstract
++      3. PubMed    EFetch ``{pmid}``          — deterministic abstract XML
++      4. Semantic Scholar ``/paper/DOI:{doi}`` — abstract
++
++    then returns the RICHEST abstract via ``_pick_richest_abstract`` (the SAME
++    deterministic longest-wins selection the frame path uses). At most
++    ``max_sources`` DOI-keyed sources are consulted (a CAP, LAW-VI bounded).
++
++    Unlike the live_retriever OA resolver (Unpaywall-URL scrape + PubMed, DOI
++    REQUIRED), this lane:
++      * works for a PMID-ONLY row (no DOI) via the PubMed abstract, and
++      * consults CrossRef / OpenAlex / S2, which the OA resolver never does.
++
++    Returns ``(span, source_label)`` where ``source_label`` is one of the
++    ``_pick_richest_abstract`` labels (``crossref_abstract`` / ``openalex_abstract``
++    / ``pubmed_abstract`` / ``s2_abstract``), or ``("", "none")`` when every
++    source misses. Fail-SAFE by contract: every internal error is swallowed and
++    yields ``("", "none")`` so the caller falls through to its existing stub
++    behavior. Deterministic given upstream API state — no randomness, no
++    wall-clock in the returned span.
++
++    Recovery only ADDS content (§-1.3: never drops a row). This is an UPSTREAM
++    fetch-layer helper — it contains NO entailment / verification / sentence-
++    dropping / filtering gate.
++    """
++    doi = (doi or "").strip()
++    pmid = (pmid or "").strip()
++    if not doi and not pmid:
++        return "", "none"
++
++    owns_client = client is None
++    if client is None:
++        client = httpx.Client(timeout=_DEFAULT_TIMEOUT)
++    try:
++        abstract_crossref: str | None = None
++        abstract_openalex: str | None = None
++        abstract_pubmed: str | None = None
++        abstract_s2: str | None = None
++        cr_title: str | None = None
++        sources_used = 0
++        cap = max(0, int(max_sources))
++
++        # 1. CrossRef abstract (DOI-keyed).
++        if doi and sources_used < cap:
++            try:
++                cr_data, _a, _t = _call_crossref(client, doi)
++                sources_used += 1
++                if cr_data is not None:
++                    parsed = _parse_crossref_response(cr_data)
++                    abstract_crossref = parsed.get("abstract")
++                    cr_title = parsed.get("title")
++            except Exception:  # noqa: BLE001 — fail-SAFE, never break fetch
++                pass
++
++        # 2. OpenAlex inverted-index abstract (DOI-keyed).
++        if doi and sources_used < cap:
++            try:
++                oa_data, _a, _t = _call_openalex(client, doi)
++                sources_used += 1
++                if oa_data is not None:
++                    abstract_openalex = _parse_openalex_response(oa_data).get(
++                        "abstract"
++                    )
++            except Exception:  # noqa: BLE001
++                pass
++
++        # 3. PubMed EFetch abstract (PMID-keyed — the PMID-only recovery path).
++        if pmid and sources_used < cap:
++            try:
++                pm_body, _a, _t = _call_pubmed(client, pmid)
++                sources_used += 1
++                if pm_body is not None:
++                    abstract_pubmed = _parse_pubmed_xml(pm_body).get("abstract")
++            except Exception:  # noqa: BLE001
++                pass
++
++        # 4. Semantic Scholar abstract (DOI-keyed).
++        if doi and sources_used < cap:
++            try:
++                s2_data, _a, _t = _call_s2(client, doi)
++                sources_used += 1
++                if s2_data is not None:
++                    abstract_s2 = _parse_s2_response(s2_data).get("abstract")
++            except Exception:  # noqa: BLE001
++                pass
++
++        span, source_label = _pick_richest_abstract(
++            crossref=abstract_crossref,
++            openalex=abstract_openalex,
++            pubmed=abstract_pubmed,
++            s2=abstract_s2,
++        )
++        if span:
++            logger.info(
++                "[frame_fetcher] salvage_stub_span HIT doi=%s pmid=%s "
++                "source=%s chars=%d — recovered a citable span from the "
++                "deterministic metadata APIs (title=%r)",
++                doi or "-", pmid or "-", source_label, len(span),
++                (cr_title or "")[:60],
++            )
++        return span, source_label
++    except Exception:  # noqa: BLE001 — fail-SAFE at the outer boundary
++        return "", "none"
++    finally:
++        if owns_client:
++            client.close()
++
++
+ def fetch_frame_entity(
+     binding: EvidenceBinding,
+     *,
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index a951bab..deb7200 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -203,6 +203,80 @@ def _fetch_min_body_chars() -> int:
+     except ValueError:
+         return 0
+ 
++
++# ─────────────────────────────────────────────────────────────────────────────
++# LEVER E (fetch-until-usable): stub-salvage lane.
++#
++# The F14 min-body gate above only fires when PG_FETCH_MIN_BODY_CHARS > 0 (its
++# default is 0 = OFF). LEVER E adds a SECOND, independently-flagged floor +
++# recovery lane so a sub-floor stub row that carries a DOI or PMID is routed
++# through the SHARED deterministic metadata-API salvage chain
++# (frame_fetcher.salvage_stub_span: CrossRef -> OpenAlex -> PubMed -> S2 richest
++# abstract) to recover a citable span BEFORE it is admitted as a stub. This is a
++# GENERALIZATION of the V30-contract-scoped frame salvage to any stub row.
++#
++# It reuses the existing frame_fetcher clients/parsers (no new LLM call) and adds
++# NO post-generation gate — recovery only ADDS content (§-1.3: never drops a
++# row). DEFAULT OFF ('' unset) => the lane is never entered => byte-identical.
++# Read at CALL time (LAW VI — env-overridable per run).
++def _stub_salvage_enabled() -> bool:
++    """LEVER E: True iff PG_FETCH_STUB_SALVAGE is set to a truthy value. Default
++    '' (unset) => OFF => byte-identical to today (the lane is never entered)."""
++    return resolve("PG_FETCH_STUB_SALVAGE").strip().lower() not in (
++        "", "0", "false", "no", "off",
++    )
++
++
++def _stub_salvage_min_body_chars() -> int:
++    """LEVER E: the effective min-body floor that DEFINES a stub for the salvage
++    lane. Consulted ONLY when _stub_salvage_enabled(); does NOT touch
++    PG_FETCH_MIN_BODY_CHARS (which stays off), so default-off is byte-identical.
++    A malformed value falls back to the registered central default (~800)."""
++    try:
++        return int(resolve("PG_FETCH_STUB_SALVAGE_MIN_BODY_CHARS"))
++    except ValueError:
++        return 800
++
++
++def _stub_salvage_max_sources() -> int:
++    """LEVER E: bounded number of deterministic metadata sources the salvage lane
++    consults per stub row (CAP, LAW-VI). Malformed => 4."""
++    try:
++        return int(resolve("PG_FETCH_STUB_SALVAGE_MAX_SOURCES"))
++    except ValueError:
++        return 4
++
++
++def _try_stub_salvage(
++    *,
++    url: str,
++    doi_hint: str = "",
++    pmid_hint: str = "",
++) -> tuple[str, str]:
++    """LEVER E: run the shared deterministic salvage lane for a stub row.
++
++    Resolves a DOI (carried hint or embedded in the URL) and/or a PMID hint,
++    then delegates to ``frame_fetcher.salvage_stub_span`` to recover a citable
++    span from the metadata APIs. Fail-SAFE: any error/miss returns ("", "none")
++    so the caller keeps its existing stub behavior. Never raises."""
++    if not _stub_salvage_enabled():
++        return "", "none"
++    doi = (doi_hint or "").strip() or _extract_doi_from_url(url)
++    pmid = (pmid_hint or "").strip()
++    if not doi and not pmid:
++        return "", "none"
++    try:
++        from src.polaris_graph.retrieval.frame_fetcher import salvage_stub_span
++        return salvage_stub_span(
++            doi=doi, pmid=pmid, max_sources=_stub_salvage_max_sources(),
++        )
++    except Exception as exc:  # noqa: BLE001 — fail-SAFE, never break retrieval
++        logger.debug(
++            "[live_retriever] stub_salvage error for doi=%s pmid=%s url=%r: %s",
++            doi or "-", pmid or "-", url[:80], exc,
++        )
++        return "", "none"
++
+ # F14: publisher hosts that overwhelmingly serve paywalled article bodies via
+ # the free fetch chain (the free backends 403 / return a few-hundred-char
+ # abstract shell). When ZYTE_API_KEY is present, these are routed to Zyte FIRST
+@@ -2944,6 +3018,28 @@ def _apply_min_body_stub_gate(
+     """
+     if not ok:
+         return content, ok, extracted_title, body_type, jsonld
++    # LEVER E (fetch-until-usable): independently-flagged stub-salvage lane. When
++    # PG_FETCH_STUB_SALVAGE is on and this body is below the salvage floor, route
++    # it through the SHARED deterministic metadata-API salvage
++    # (frame_fetcher.salvage_stub_span) BEFORE the F14 logic below. On a hit the
++    # recovered citable span REPLACES the short shell (ok=True); on a miss we fall
++    # through UNCHANGED. DEFAULT OFF ('' unset) => this block is a no-op =>
++    # byte-identical. Recovery only ADDS content (§-1.3: never drops).
++    if _stub_salvage_enabled():
++        _sv_floor = _stub_salvage_min_body_chars()
++        if _sv_floor > 0 and len(content) < _sv_floor:
++            _sv_span, _sv_src = _try_stub_salvage(
++                url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
++            )
++            if _sv_span and len(_sv_span) >= _sv_floor:
++                logger.info(
++                    "[live_retriever] fetch_stub_salvage %s (naive-path "
++                    "short_body=%d -> salvage_span=%d source=%s) — sub-floor "
++                    "stub upgraded to a citable span via the shared salvage lane",
++                    url[:80], len(content), len(_sv_span), _sv_src,
++                )
++                _m45_record_fetch_telemetry(url, "stub_salvage", _sv_src)
++                return _sv_span, True, extracted_title, body_type, jsonld
+     _min_body = _fetch_min_body_chars()
+     if _min_body <= 0 or len(content) >= _min_body:
+         return content, ok, extracted_title, body_type, jsonld
+@@ -4377,6 +4473,39 @@ def _fetch_content(
+         )
+         return content, bool(content), extracted_title, body_type, jsonld
+     # ──────────────────────────────────────────────────────────────────────
++    # LEVER E (fetch-until-usable): independently-flagged stub-salvage lane on
++    # the PRIMARY branch (mirrors the naive-path helper). When PG_FETCH_STUB_
++    # SALVAGE is on and the extracted body is below the salvage floor, route it
++    # through the SHARED deterministic metadata-API salvage
++    # (frame_fetcher.salvage_stub_span: CrossRef -> OpenAlex -> PubMed -> S2
++    # richest abstract) to recover a citable span BEFORE the F14 logic below.
++    # On a hit the recovered span REPLACES the shell (ok=True, status="ok"); on a
++    # miss we fall through UNCHANGED into F14. DEFAULT OFF ('' unset) => this
++    # block is a no-op => byte-identical. Recovery only ADDS content (§-1.3:
++    # never drops); no post-generation gate, no new LLM call.
++    if _stub_salvage_enabled():
++        _sv_floor = _stub_salvage_min_body_chars()
++        if _sv_floor > 0 and len(content) < _sv_floor:
++            _sv_span, _sv_src = _try_stub_salvage(
++                url=url, doi_hint=doi_hint, pmid_hint=pmid_hint,
++            )
++            if _sv_span and len(_sv_span) >= _sv_floor:
++                logger.info(
++                    "[live_retriever] fetch_stub_salvage %s (method=%s "
++                    "short_body=%d -> salvage_span=%d source=%s) — sub-floor "
++                    "stub upgraded to a citable span via the shared salvage lane",
++                    url[:80], method, len(content), len(_sv_span), _sv_src,
++                )
++                _m45_record_fetch_telemetry(url, "stub_salvage", _sv_src)
++                _trace_tool(
++                    "fetch_content", target=url, status="ok",
++                    latency_ms=(time.time() - _t0) * 1000.0,
++                    backend_used="stub_salvage",
++                    bytes_received=len(_sv_span),
++                    content_length=len(_sv_span),
++                )
++                return _sv_span, True, extracted_title, body_type, jsonld
++    # ──────────────────────────────────────────────────────────────────────
+     # F14 (GH #1245 / D9, D10): paywall-stub min-body gate. A backend that
+     # returns success=True with a SHORT body (a paywall/abstract shell) was
+     # previously logged status="ok" — a dead fetch masquerading as a good

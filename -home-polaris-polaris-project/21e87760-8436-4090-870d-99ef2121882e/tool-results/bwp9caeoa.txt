@@ -1,0 +1,185 @@
+=== task-72 / clinical literals in new+changed files ===
+src/polaris_graph/retrieval/rq_eligibility.py:17:task-72 literals (no "journal-only pre-2023", no clinical/AI-labor branches). The source-type
+src/polaris_graph/retrieval/frame_fetcher.py:228:# the M-66b-T clinical full-text path (multi-field trial rosters live in
+src/polaris_graph/retrieval/frame_fetcher.py:234:# Entity types whose contract fields live in full-text TABLES (clinical trial
+src/polaris_graph/retrieval/frame_fetcher.py:236:# so Gate-B gold-rubric coverage for clinical questions is preserved (dual-audit
+src/polaris_graph/retrieval/frame_fetcher.py:244:        "pivotal_trial,clinical_trial,rct,systematic_review,meta_analysis",
+src/polaris_graph/retrieval/frame_fetcher.py:998:    # no real abstract resolved. Per §-1.1 clinical-safety (dual-audit
+src/polaris_graph/retrieval/frame_fetcher.py:1218:            # clinical product — legal + provenance (#1034 dual-audit P1).
+src/polaris_graph/retrieval/frame_fetcher.py:1561:    # (clinical trial rosters) keeps the full-text path so Gate-B coverage
+src/polaris_graph/retrieval/frame_fetcher.py:1741:    # a clinical entity with real OA full text still skips OpenAlex (full text wins),
+src/polaris_graph/retrieval/frame_fetcher.py:1865:        # M-58's multi-field extractions (default path; clinical rosters).
+src/polaris_graph/retrieval/frame_fetcher.py:1901:    # "GLP-1") and multilingual prose preserved byte-for-byte; faithfulness FROZEN.
+src/polaris_graph/retrieval/live_retriever.py:130:# cap of 25000 chars cut 75-87% of long clinical papers mid-body (a full
+src/polaris_graph/retrieval/live_retriever.py:647:    clinical-safety retraction gate, not any faithfulness check. Fail-open: on any missing
+src/polaris_graph/retrieval/live_retriever.py:1181:# OR the X-year-old patient opener together with PATIENT-centered framing.
+src/polaris_graph/retrieval/live_retriever.py:1187:    # "we report a X-year-old patient" (opener)
+src/polaris_graph/retrieval/live_retriever.py:1189:    # Patient opener at very beginning of abstract (first 300 chars)
+src/polaris_graph/retrieval/live_retriever.py:1194:# M-17c (Codex pass 4): tightened. Previously "this (clinical
+src/polaris_graph/retrieval/live_retriever.py:1198:# Now requires the fetched article to EITHER say "this clinical
+src/polaris_graph/retrieval/live_retriever.py:1202:# M-17d (Codex pass 5): the unanchored "(clinical practice )?
+src/polaris_graph/retrieval/live_retriever.py:1204:# "The 2025 clinical practice guideline recommends...". Now requires
+src/polaris_graph/retrieval/live_retriever.py:1211:# external guidelines. The bare "this clinical practice guideline"
+src/polaris_graph/retrieval/live_retriever.py:1215:    # "This clinical practice guideline" at sentence start — must be
+src/polaris_graph/retrieval/live_retriever.py:1217:    r'(?:^|[.!?]\s+|\n\s*)this\s+clinical\s+practice\s+guideline\b',
+src/polaris_graph/retrieval/live_retriever.py:1218:    # "This (clinical practice) guideline ... <verb>" — must be "this"
+src/polaris_graph/retrieval/live_retriever.py:1221:    r'this\s+(clinical\s+practice\s+)?guideline\s+'
+src/polaris_graph/retrieval/live_retriever.py:1237:    # Declarative: "we developed this clinical/practical guidance"
+src/polaris_graph/retrieval/live_retriever.py:1238:    r'we\s+(developed|provide)\s+(this\s+)?(clinical|practical)\s+guidance',
+src/polaris_graph/retrieval/live_retriever.py:1334:    # "X-year-old patient" opener as first significant content in abstract
+src/polaris_graph/retrieval/live_retriever.py:1338:        r'^\s*(a|this)\s+\d+[- ]year[- ]old\s+(man|woman|male|female|patient)\s+(presented|was\s+admitted|with)',
+src/polaris_graph/retrieval/live_retriever.py:1352:        r'\s+(?:the\s+)?(?:\d{4}\s+)?(?:[a-z]+\s+)?(?:clinical\s+practice\s+)?'
+src/polaris_graph/retrieval/live_retriever.py:2738:# verify the loose decimals that survive in prose, under-verifying the richest clinical data (results tables).
+src/polaris_graph/retrieval/live_retriever.py:4001:    clinical_tirzepatide_t2dm showed 19/20 candidates failed via the
+src/polaris_graph/retrieval/live_retriever.py:4920:    # intra-word hyphen ("co-author", "GLP-1") and multilingual prose are preserved
+src/polaris_graph/retrieval/live_retriever.py:5580:        domain: Optional scope-template domain name (clinical / policy /
+src/polaris_graph/retrieval/live_retriever.py:5757:    # ── U11 (I-deepfix-001): clinical evidence-type query expansion ──────
+src/polaris_graph/retrieval/live_retriever.py:5758:    # Clinical T1/T2 (RCT / systematic-review / meta-analysis / guideline)
+src/polaris_graph/retrieval/live_retriever.py:5767:    # on clinical-domain runs (domain=='clinical') so non-clinical runs are
+src/polaris_graph/retrieval/live_retriever.py:5777:            clinical=(isinstance(domain, str) and domain.strip().lower() == "clinical"),
+src/polaris_graph/retrieval/live_retriever.py:5782:                f"evidence_type_query_expansion: +{_n_expanded} clinical "
+src/polaris_graph/retrieval/live_retriever.py:6126:    #     for policy, Europe PMC for clinical).
+src/polaris_graph/retrieval/live_retriever.py:6167:                    # (e.g. clinicaltrials / openfda). OFF = byte-identical inline dedup.
+src/polaris_graph/generator/multi_section_generator.py:708:# 24000 -> 64000 so long clinical sections get ~46k content room on top of V4 Pro's ~18k
+src/polaris_graph/generator/multi_section_generator.py:752:# legitimate clinical regulatory slot would false-time-out → degrade to not_extractable → MISSING
+src/polaris_graph/generator/multi_section_generator.py:753:# FDA-label content in the clinical cert report (a §-1.1 completeness regression). The harness-level
+src/polaris_graph/generator/multi_section_generator.py:797:    "You are a clinical Deep Research writer. Write ONE flowing narrative "
+src/polaris_graph/generator/multi_section_generator.py:858:# OFF-PATH ONLY (legacy clinical path, retained byte-identically for the true
+src/polaris_graph/generator/multi_section_generator.py:873:# I-ready-009 (#1081): domain-neutral OFF-mode outline for NON-clinical questions. The clinical
+src/polaris_graph/generator/multi_section_generator.py:874:# `_ALLOWED_SECTIONS` above (Efficacy/Safety/...) is correct for clinical questions but wrong for an
+src/polaris_graph/generator/multi_section_generator.py:877:# LABELS change, and only for non-clinical domains. Clinical/unknown stay byte-identical.
+src/polaris_graph/generator/multi_section_generator.py:889:    """Clinical/unknown -> the proven clinical `_ALLOWED_SECTIONS` (byte-identical). Any other domain
+src/polaris_graph/generator/multi_section_generator.py:893:        if str(domain or "").strip().lower() in ("", "clinical")
+src/polaris_graph/generator/multi_section_generator.py:898:# O1 (I-deepfix-001 #1344 — facet-driven outline): the live non-clinical outline was
+src/polaris_graph/generator/multi_section_generator.py:903:# the NON-clinical path only: section TITLES and COUNT emerge from the evidence's real facet
+src/polaris_graph/generator/multi_section_generator.py:906:# REMOVED, not a knob being added; breadth EMERGES. Clinical/unknown stay byte-identical
+src/polaris_graph/generator/multi_section_generator.py:907:# regardless of this flag (the proven Efficacy/Safety/... set governs clinical safety).
+src/polaris_graph/generator/multi_section_generator.py:927:    non-clinical outline to topical facet sections; clinical/unknown is byte-identical."""
+src/polaris_graph/generator/multi_section_generator.py:935:    non-clinical (clinical/unknown always keep the proven fixed section set)."""
+src/polaris_graph/generator/multi_section_generator.py:938:    return str(domain or "").strip().lower() not in ("", "clinical")
+src/polaris_graph/generator/multi_section_generator.py:947:# applies to ANY non-clinical topic (AI/labor, finance, ecology, ...); it hardcodes NO topic,
+src/polaris_graph/generator/multi_section_generator.py:957:    Only takes effect where facet mode is already active (non-clinical); clinical stays untouched."""
+src/polaris_graph/generator/multi_section_generator.py:1000:# clinical-safety question a planned "Safety" section could disappear with no trace (drb_75). This
+src/polaris_graph/generator/multi_section_generator.py:1014:# in the pool at all (a starved corpus can route even a clinical Safety section here), the legacy
+src/polaris_graph/generator/multi_section_generator.py:1124:# These TAGS are the on-path control-flow key — a non-clinical question gets a
+src/polaris_graph/generator/multi_section_generator.py:1126:# (M-44 / M-47) consults the tag, never a clinical title literal. The set is
+src/polaris_graph/generator/multi_section_generator.py:1155:# mapping. This is the ONLY clinical-prose seam, and it is NOT a control value:
+src/polaris_graph/generator/multi_section_generator.py:1159:# "clinical"` literal in this code.
+src/polaris_graph/generator/multi_section_generator.py:1170:    registered. Pure config lookup — no clinical literal as a control value;
+src/polaris_graph/generator/multi_section_generator.py:1176:    (Phase 1, currently unmapped), then `default`. So clinical writing guidance
+src/polaris_graph/generator/multi_section_generator.py:1177:    is appended ONLY for a clinical answer_type — a non-clinical empirical
+src/polaris_graph/generator/multi_section_generator.py:1225:    # tag here so M-44/M-47 route on archetype, not on a clinical title.
+src/polaris_graph/generator/multi_section_generator.py:1316:    # (not from a clinical title literal). Default "" so OFF is unchanged —
+src/polaris_graph/generator/multi_section_generator.py:1372:    # bibliography. Empty string when the prose names no clinical
+src/polaris_graph/generator/multi_section_generator.py:1558:- [T1] = primary peer-reviewed RCTs / primary clinical trials (NEJM, Lancet, JAMA, Diabetes Care, etc.). USE FIRST for core factual claims about efficacy, safety, dose-response.
+src/polaris_graph/generator/multi_section_generator.py:1559:- [T2] = systematic reviews, meta-analyses, authoritative clinical guidelines. USE for integration, consensus, pooled estimates.
+src/polaris_graph/generator/multi_section_generator.py:1573:# I-ready-009 (#1081): domain-NEUTRAL OFF-mode outline prompt for non-clinical questions. The clinical
+src/polaris_graph/generator/multi_section_generator.py:1574:# OUTLINE_SYSTEM_PROMPT above names clinical sections in its rules (M-40 Mechanism / SURPASS / Efficacy
+src/polaris_graph/generator/multi_section_generator.py:1577:# hierarchy, primary-source-over-derivative, injection-as-data) but drops every clinical-specific
+src/polaris_graph/generator/multi_section_generator.py:1608:# O1 (I-deepfix-001 #1344): facet-driven outline prompt for the NON-clinical path. Unlike the
+src/polaris_graph/generator/multi_section_generator.py:1697:    """Clinical/unknown -> the clinical OUTLINE_SYSTEM_PROMPT (byte-identical); else the domain-neutral
+src/polaris_graph/generator/multi_section_generator.py:1699:    non-clinical domain, use the facet-driven prompt so section titles/count emerge from the evidence."""
+src/polaris_graph/generator/multi_section_generator.py:1709:        if str(domain or "").strip().lower() in ("", "clinical")
+src/polaris_graph/generator/multi_section_generator.py:1743:    the clinical `_ALLOWED_SECTIONS`); titles outside it are dropped.
+src/polaris_graph/generator/multi_section_generator.py:1745:    O1 (I-deepfix-001 #1344): when ``facet_titles`` is True (the non-clinical
+src/polaris_graph/generator/multi_section_generator.py:2226:    I-ready-009 (#1081): clinical/unknown uses the clinical titles
+src/polaris_graph/generator/multi_section_generator.py:2227:    (byte-identical); non-clinical uses domain-neutral titles so the
+src/polaris_graph/generator/multi_section_generator.py:2228:    fallback does not stamp clinical headers on an economics/policy report.
+src/polaris_graph/generator/multi_section_generator.py:2236:    if str(domain or "").strip().lower() in ("", "clinical"):
+src/polaris_graph/generator/multi_section_generator.py:2990:    invariant — contains no clinical title literal. Returns [] when evidence is
+src/polaris_graph/generator/multi_section_generator.py:3044:    `domain` selects the clinical (byte-identical) or generic outline
+src/polaris_graph/generator/multi_section_generator.py:3057:    # O1 (#1344): facet mode governs the non-clinical outline title/count parsing.
+src/polaris_graph/generator/multi_section_generator.py:3071:    # domain-selected clinical/generic/facet prompt stands).
+src/polaris_graph/generator/multi_section_generator.py:3345:            elif str(domain or "").strip().lower() in ("", "clinical"):
+src/polaris_graph/generator/multi_section_generator.py:3346:                # Clinical / unknown — BYTE-IDENTICAL to the prior retry behavior.
+src/polaris_graph/generator/multi_section_generator.py:3371:                # prompt + generic hard requirements, so a non-clinical retry does NOT re-inject
+src/polaris_graph/generator/multi_section_generator.py:3372:                # clinical section names (Efficacy/Safety/Regulatory) only to have them parsed out
+src/polaris_graph/generator/multi_section_generator.py:3512:The input is VERIFIED PROSE already assembled from evidence, with [N] citation markers that index into the bibliography. Your job is to EXTRACT a tabular view of named clinical trials mentioned in the prose — nothing more.
+src/polaris_graph/generator/multi_section_generator.py:3518:- Trial: a named phase-3 (or phase-2) clinical trial (e.g., SURPASS-1, SURMOUNT-2, SELECT, LEADER). Name must appear LITERALLY in the verified prose.
+src/polaris_graph/generator/multi_section_generator.py:3521:- Comparator: comparator or control arm as stated (e.g., "placebo", "semaglutide 1 mg", "insulin glargine") or "—".
+src/polaris_graph/generator/multi_section_generator.py:3532:6. Emit the header row + separator row + at least 1 data row. If the verified prose names NO clinical trials, output a single line: `NO_TRIALS_NAMED` (so the caller can suppress the table entirely).
+src/polaris_graph/generator/multi_section_generator.py:3539:| TRIAL-B | 1879 | HbA1c 8.3% | semaglutide 1 mg | HbA1c change at week 40 | −2.3 pp | [5] |
+src/polaris_graph/generator/multi_section_generator.py:3571:8. Target 10-18 sentences of source-anchored prose. Top-tier Deep Research reports (GPT-5.4 DR / Gemini 3.1 Pro DR) routinely reach this density for clinical sections — match that depth. Do NOT pad, but do NOT stop at 6-8 sentences when the evidence supports more specific quantitative claims.
+src/polaris_graph/generator/multi_section_generator.py:3573:10. **Multi-source citation (M-27, for DR-grade citation density)**: When MULTIPLE evidence rows independently support the same claim, cite ALL of them, not just one. Example: "Tirzepatide reduced HbA1c 2.0-2.4% vs placebo across phase 3 trials [ev_012][ev_034][ev_055][ev_088]." rather than citing one ev_id. This raises citation density from ~1 per sentence to 2-4 per sentence where evidence supports it — top-tier DR (GPT-5.4 DR / Gemini 3.1 Pro DR) routinely reaches 50-200 citations for a clinical question by synthesizing multiple converging sources into each sentence, not by writing more sentences.
+src/polaris_graph/generator/multi_section_generator.py:3576:12. **Primary-study framing (M-32, for claim-frame rigor)**: When you name a primary study, trial, cohort, experiment, or any individually identifiable empirical data source, and the cited evidence rows contain the structured metadata, provide the study's FULL FRAME in the FIRST sentence that introduces it: (a) sample size or cohort size (e.g. N=1879), (b) baseline value of the outcome being discussed (e.g. mean baseline [PRIMARY_METRIC]=[VALUE], baseline [SECONDARY_METRIC]=[VALUE]), (c) comparator / control / background condition (e.g. versus [COMPARATOR], versus placebo on [BACKGROUND], versus standard [REFERENCE_CONDITION]), and (d) the primary endpoint + timepoint (e.g. [ENDPOINT] change at [TIMEPOINT], [N-YEAR] [OUTCOME_TYPE], cycle-life to [THRESHOLD] retention). If the evidence row carries this structured metadata, you MUST emit it in that first sentence — do not compress N/baseline/endpoint into a single percent-reduction when the evidence carries the full frame. This is what distinguishes a research-grade deep synthesis from a news-style summary. Example template: "In [STUDY NAME], [STUDY_DESIGN_SUMMARY] randomized N=[SAMPLE_SIZE] participants with baseline [OUTCOME]=[BASELINE_VALUE] to [INTERVENTION] versus [COMPARATOR]; [PRIMARY_ENDPOINT] at [TIMEPOINT] was [RESULT] [ev_X]." Subsequent sentences about the same study may reference it by short name without re-framing. Generalizable beyond clinical: a materials paper gets composition + baseline performance + test condition + measured outcome; a cohort study gets population + baseline metric + intervention + outcome; a financial filing gets period + baseline metric + policy/benchmark + reported outcome.
+src/polaris_graph/generator/multi_section_generator.py:3577:12b. **Claim-frame hard constraint (M-38, eliminating under-framed study mentions)**: Rule #12 is asymmetric and STRICT — when you name a specific study, trial, cohort, or experiment by its short name (phase-N trial identifier in clinical; long-run battery cycling test in materials; named longitudinal cohort in epidemiology; named regulatory docket in policy), that sentence — or the IMMEDIATELY PRECEDING sentence in the same paragraph — MUST carry at LEAST THREE frame elements drawn from: sample size / cohort N; baseline value; comparator / control arm; specific dose or intervention level; primary endpoint; timepoint; effect size WITH uncertainty (CI, SD, or p-value). If you cannot produce three of those elements from the cited evidence, DO NOT name the study by its short name — phrase the sentence generically as "one randomized trial showed ... [ev_X]" or "a prospective cohort in the target population reported ... [ev_X]" or "one pooled analysis found ... [ev_X]" or "a long-run cycling test reported ... [ev_X]" instead. This hard floor prevents the failure mode where a sentence names a specific study but gives only a single effect-size number without N, baseline, or comparator — producing a news-style summary mis-labelled with a primary-study name. Concrete templates (use placeholders): GOOD: "In [STUDY NAME] (N=[SAMPLE_SIZE], baseline [PRIMARY_METRIC]=[BASELINE_VALUE]), [INTERVENTION_ARM] reduced [ENDPOINT] by [EFFECT_SIZE] versus [COMPARATOR_ARM] at [TIMEPOINT] [ev_X]." GOOD (generic when frame is unavailable): "A pre-planned pooled analysis of two phase-3 trials reported [ENDPOINT]=[VALUE] at [TIMEPOINT] [ev_X]." — no short-name attribution because pooled data lack per-trial N. BAD (under-framed, must be rewritten): "[STUDY NAME] showed that [INTERVENTION] reduced [ENDPOINT] more than [COMPARATOR] [ev_X]." — names the study with only one frame element (effect direction); rewrite as "A head-to-head trial of [INTERVENTION] versus [COMPARATOR] reported greater [ENDPOINT] reduction with [INTERVENTION] [ev_X]" which drops the study name because the frame is too thin. BAD (under-framed, must be rewritten): "[STUDY NAME] found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]." — names study with only endpoint + effect; rewrite as "One pooled analysis of two phase-3 trials found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]" ONLY if the cited evidence confirms pooled data across two trials. This rule is what converts a LOSE_BOTH on Claim frames into a competitive synthesis.
+src/polaris_graph/generator/multi_section_generator.py:3595:Tmax; receptor-affinity ratio (GIP vs GLP-1, or analog); clamp
+src/polaris_graph/generator/multi_section_generator.py:3653:- [T4]-[T7] are SUPPORTIVE at best. For any core clinical claim, if T1/T2/T3 evidence is available in this section's evidence subset, cite THAT — do not cite T5/T6/T7 press releases, trade news, or conference abstracts as the lead citation for a pivotal trial finding.
+src/polaris_graph/generator/multi_section_generator.py:3700:# bakes clinical guidance ("clinical sections", a tirzepatide/HbA1c worked
+src/polaris_graph/generator/multi_section_generator.py:3701:# example, "named trial", "guideline recommendation", "clinical question"),
+src/polaris_graph/generator/multi_section_generator.py:3702:# which is wrong for a non-clinical question (physics, ag-policy, finance).
+src/polaris_graph/generator/multi_section_generator.py:3706:# ZERO clinical/RCT/drug literal. Selected on-mode by
+src/polaris_graph/generator/multi_section_generator.py:3707:# `_select_section_system_prompt`. OFF: the unchanged clinical template.
+src/polaris_graph/generator/multi_section_generator.py:3816:        # Rule #10 (clinical only) length-bias tail: drop the em-dash + "top-tier
+src/polaris_graph/generator/multi_section_generator.py:3824:        # Mechanism depth rule (clinical only): drop ALL sentence-count bias — Codex iter-1 P1
+src/polaris_graph/generator/multi_section_generator.py:3916:    template; OFF-mode returns the unchanged clinical template (byte-
+src/polaris_graph/generator/multi_section_generator.py:4074:    # `research_plan is not None`); OFF uses the unchanged clinical template.
+src/polaris_graph/generator/multi_section_generator.py:4092:    # domain advisory above) so it reaches clinical / blank / facet paths alike.
+src/polaris_graph/generator/multi_section_generator.py:4102:    # fabricates plausible-sounding clinical values; the allow-list
+src/polaris_graph/generator/multi_section_generator.py:4205:                "  - '82% of tirzepatide-5mg patients achieved HbA1c<7.0% (atom_031) [ev_000].'\n"
+src/polaris_graph/generator/multi_section_generator.py:4207:                "    with semaglutide (atom_003, atom_004) [ev_001].'\n"
+src/polaris_graph/generator/multi_section_generator.py:4210:                "  - 'SURPASS-2 randomized patients to tirzepatide 5, 10, or 15 mg or\n"
+src/polaris_graph/generator/multi_section_generator.py:4211:                "    semaglutide 1 mg for 40 weeks [ev_000].'\n"
+src/polaris_graph/generator/multi_section_generator.py:4320:                "percentage points versus semaglutide 1 mg [ev_001]. The "
+src/polaris_graph/generator/multi_section_generator.py:4657:#     verified sibling — a wrong-claim citation (lethal in clinical context).
+src/polaris_graph/generator/multi_section_generator.py:4767:    from src.polaris_graph.clinical_generator.strict_verify import (
+src/polaris_graph/generator/multi_section_generator.py:4912:# Trial short-name pattern. Generalizable across clinical trial programs —
+src/polaris_graph/generator/multi_section_generator.py:4920:# identifiers, not named clinical trials, and dropping sentences that
+src/polaris_graph/generator/multi_section_generator.py:4941:# Keep each class regex domain-agnostic; clinical-specific keywords
+src/polaris_graph/generator/multi_section_generator.py:4949:            r"|\b\d{2,}\s+(?:patients|participants|adults|subjects|"
+src/polaris_graph/generator/multi_section_generator.py:5036:    7). A sentence with N=1879, baseline HbA1c 8.28%, vs semaglutide,
+src/polaris_graph/generator/multi_section_generator.py:5098:# ("...insulin secretion[1] GLP-1 receptor activation enhances...").
+src/polaris_graph/generator/multi_section_generator.py:5252:# case for a clinical question) because relevance is computed but not enforced at compose.
+src/polaris_graph/generator/multi_section_generator.py:5447:# unsupported numeric claim the pipeline must not ship (§-1.1 clinical: a wrong dose /
+src/polaris_graph/generator/multi_section_generator.py:5519:        # exactly the clinical hazard §-1.1 forbids (a wrong dose / percentage that
+src/polaris_graph/generator/multi_section_generator.py:6951:    # planned clinical-safety section could disappear with no trace (drb_75 "Safety" vanished).
+src/polaris_graph/generator/multi_section_generator.py:7190:        from src.polaris_graph.clinical_generator.strict_verify import _decimals as _sv_decimals
+src/polaris_graph/generator/multi_section_generator.py:7273:    r"\bN\s*=\s*(\d{2,})\b|\b(\d{2,})\s+(?:patients|participants|"
+src/polaris_graph/generator/multi_section_generator.py:7329:       with type"). Legitimate comparators like "semaglutide 1 mg"
+src/polaris_graph/generator/multi_section_generator.py:7700:        "that appear above; do not invent numbers. If no clinical trials "
+src/polaris_graph/generator/multi_section_generator.py:7769:_M50_SUBSECTION_SYSTEM_PROMPT = """You are writing one PER-TRIAL SUBSECTION for a clinical research report.
+src/polaris_graph/generator/multi_section_generator.py:8783:# matters) are field-invariant tags — NOT clinical title literals — so the
+src/polaris_graph/generator/multi_section_generator.py:8784:# zero-clinical-literal guard (P1-10) whitelists them.
+src/polaris_graph/generator/multi_section_generator.py:9163:    NOT on clinical title/focus matching. There is no field-agnostic notion
+src/polaris_graph/generator/multi_section_generator.py:9175:        # ON-mode: eligible archetype -> inject (no clinical anchor-category
+src/polaris_graph/generator/multi_section_generator.py:9269:        # archetype tag on-mode (dual-path helper), NOT on the clinical title.
+src/polaris_graph/generator/multi_section_generator.py:9569:    (r"(\d{2,})\s+(?:participants?|subjects?|patients?)\s+(?:underwent|enrolled|received)", "clamp_n"),
+src/polaris_graph/generator/multi_section_generator.py:9570:    # Receptor affinity ratio (GIP:GLP-1 or similar)
+src/polaris_graph/generator/multi_section_generator.py:9645:    "clamp_n": ("participants", "subjects", "patients",
+src/polaris_graph/generator/multi_section_generator.py:10145:    # clinical/benchmark paths without turning on the planner or changing
+src/polaris_graph/generator/multi_section_generator.py:10147:    # non-clinical/off-mode behavior unchanged; caller-owned True omits the
+src/polaris_graph/generator/multi_section_generator.py:10151:    # (clinical/unknown = clinical _ALLOWED_SECTIONS byte-identical; else the domain-neutral generic
+src/polaris_graph/generator/multi_section_generator.py:10152:    # set) so a non-clinical report is not forced into clinical "Efficacy/Safety" headers. The planner,
+src/polaris_graph/generator/multi_section_generator.py:10209:    # B9 domain-generalization (SG3 — clinical few-shot leakage): a NON-clinical
+src/polaris_graph/generator/multi_section_generator.py:10210:    # run must NOT receive the clinical few-shot exemplars baked into the legacy
+src/polaris_graph/generator/multi_section_generator.py:10213:    # clinical literal. Historically it was selected ONLY when the planner ran
+src/polaris_graph/generator/multi_section_generator.py:10214:    # (`research_plan is not None`), so a non-clinical OFF-mode run still leaked
+src/polaris_graph/generator/multi_section_generator.py:10215:    # clinical exemplars. Derive the deterministic is_clinical signal from the
+src/polaris_graph/generator/multi_section_generator.py:10216:    # domain here and force field-agnostic for non-clinical runs. CLINICAL runs
+src/polaris_graph/generator/multi_section_generator.py:10219:    # clinical-unknown by is_clinical_domain (returns False over no evidence), so
+src/polaris_graph/generator/multi_section_generator.py:10220:    # to preserve the legacy clinical-default OFF behavior we only force field-
+src/polaris_graph/generator/multi_section_generator.py:10221:    # agnostic on a POSITIVELY non-clinical domain token.
+src/polaris_graph/generator/multi_section_generator.py:10223:        CLINICAL_DOMAIN as _B9_CLINICAL,
+src/polaris_graph/generator/multi_section_generator.py:10228:    # NON-clinical token. A blank/"general" domain with no positive signal stays
+src/polaris_graph/generator/multi_section_generator.py:10229:    # on the legacy selection (research_plan-gated) so the locked clinical
+src/polaris_graph/generator/multi_section_generator.py:10231:    _b9_force_field_agnostic = bool(domain) and (_b9_domain != _B9_CLINICAL)
+src/polaris_graph/generator/multi_section_generator.py:10252:    # clinical / blank / facet paths alike). compose_projection is None (default)
+src/polaris_graph/generator/multi_section_generator.py:10310:    # O1 (#1344): facet-driven outline is active when the flag is ON for a non-clinical domain
+src/polaris_graph/generator/multi_section_generator.py:10512:    # retracted RCT can PASS the faithfulness gate yet be clinically wrong. Exclude
+src/polaris_graph/generator/multi_section_generator.py:10613:            # archetype, not clinical title/focus. OFF: use_archetype=False
+src/polaris_graph/generator/multi_section_generator.py:10761:                            # claim graph's fail-closed dispatch can consolidate equal clinical atoms
+src/polaris_graph/generator/multi_section_generator.py:11342:                # research_plan is None -> the unchanged clinical template.
+src/polaris_graph/generator/multi_section_generator.py:11343:                # B9 SG3: ALSO force field-agnostic for a positively non-clinical
+src/polaris_graph/generator/multi_section_generator.py:11344:                # domain so clinical few-shots never leak into non-clinical prose
+src/polaris_graph/generator/multi_section_generator.py:11345:                # (clinical / blank stay on the unchanged research_plan gate).
+src/polaris_graph/generator/multi_section_generator.py:11667:    # invariant archetype tag carried on each SectionResult, NOT on a clinical
+src/polaris_graph/generator/multi_section_generator.py:11688:    # titles are not in the M-44 clinical-eligible set / are not "mechanism"), so no regression.
+src/polaris_graph/generator/multi_section_generator.py:12205:    # surface (clinical/benchmark). partial_mode already disables it.
+=== check: are new flags registered in config_defaults? ===
+PG_CITATION_REANCHOR_PRIMARY -> 1
+PG_CANONICAL_WORK_BIBLIOGRAPHY -> 1
+PG_FETCH_STUB_SALVAGE -> 1
+PG_FETCH_STUB_SALVAGE_MIN_BODY_CHARS -> 1
+PG_FETCH_STUB_SALVAGE_MAX_SOURCES -> 1
+PG_RQ_SOURCE_ELIGIBILITY_ENFORCE -> 1
+PG_RQ_SOURCE_ELIGIBILITY_DEMOTE_WEIGHT -> 1
