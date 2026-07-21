@@ -3038,6 +3038,74 @@ def _sentence_split_symbol_boundary_enabled() -> bool:
     )
 
 
+def _render_blocks_enabled() -> bool:
+    """LEVER 1 (PG_RENDER_BLOCKS, default OFF). When ON the resolver preserves the writer's blank-line
+    paragraph breaks instead of flattening a section to one blob. OFF / empty => byte-identical flat render."""
+    return resolve("PG_RENDER_BLOCKS").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _render_block_norm_key(text: str) -> str:
+    """COMPLETE normalization key for matching a rendered/verified sentence back to its source-paragraph
+    sentence: drop provenance/calc/bogus/numbered markers, then Unicode-NFKC-normalize, case-fold, and
+    keep the FULL alphanumeric run (no truncation). Matching is EXACT-EQUALITY only (a prefix key could
+    collide two sentences and let a break shift into a paragraph — Sol gate). Empty key => unusable."""
+    t = _PROVENANCE_TOKEN_RE.sub(" ", text or "")
+    t = _CALC_TOKEN_RE.sub(" ", t)
+    t = _BOGUS_EV_MARKER_RE.sub(" ", t)
+    t = re.sub(r"\[\d+\]", " ", t)  # numbered citation markers
+    t = unicodedata.normalize("NFKC", t).casefold()
+    return "".join(ch for ch in t if ch.isalnum())
+
+
+def _paragraph_block_index_by_position(
+    source_text: str, kept_sentences: "list[SentenceVerification]"
+) -> list[int | None]:
+    """Return, per ``kept_sentences`` entry (in order), the 0-based source PARAGRAPH-block index it came
+    from, or ``None`` when the match is UNCERTAIN. Blocks = source split on blank lines (non-empty blocks
+    get a contiguous index). A kept sentence maps to a block ONLY on an EXACT full-key match found at/after
+    a forward-advancing pointer; a key that is DUPLICATED anywhere in the source sequence is AMBIGUOUS and
+    a no-exact-match sentence is UNMATCHED — both return ``None`` (the caller's uncertainty-latch flattens
+    that boundary rather than risk shifting it). Fewer than 2 non-empty blocks => all zeros (nothing to
+    preserve). NEVER invents or moves a break."""
+    blocks = re.split(r"\n\s*\n+", source_text or "")
+    seq: list[tuple[str, int]] = []  # (norm_key, contiguous_block_idx)
+    bi = 0
+    for blk in blocks:
+        if not blk.strip():
+            continue
+        added = False
+        for s in split_into_sentences(blk):
+            k = _render_block_norm_key(s)
+            if k:
+                seq.append((k, bi))
+                added = True
+        if added:
+            bi += 1
+    if bi < 2:
+        return [0] * len(kept_sentences)
+    # A key that occurs more than once in the source is AMBIGUOUS — any kept sentence matching it is
+    # uncertain (we cannot know which occurrence it is), so it resolves to None.
+    _key_counts: dict[str, int] = {}
+    for k, _ in seq:
+        _key_counts[k] = _key_counts.get(k, 0) + 1
+    out: list[int | None] = []
+    ptr = 0
+    for sv in kept_sentences:
+        k = _render_block_norm_key(sv.sentence)
+        block: int | None = None
+        if k and _key_counts.get(k, 0) == 1:
+            j = ptr
+            while j < len(seq):
+                if seq[j][0] == k:
+                    block = seq[j][1]
+                    ptr = j + 1
+                    break
+                j += 1
+            # not found from ptr onward => leave block None (unmatched), do not move ptr
+        out.append(block)
+    return out
+
+
 def split_into_sentences(text: str) -> list[str]:
     """Lightweight sentence splitter. Good enough for our generator output.
 
@@ -4598,6 +4666,7 @@ def resolve_provenance_to_citations_with_count(
     baskets: list | None = None,
     cluster_id_by_evidence: dict[str, list[str]] | None = None,
     relevance_judge_fn=None,
+    section_source_text: str | None = None,
 ) -> tuple[str, list[dict[str, Any]], int]:
     """Strip [#ev:...] tokens, replace with numbered citations, AND return the
     count of sentences ACTUALLY emitted into the rendered text.
@@ -4789,13 +4858,28 @@ def resolve_provenance_to_citations_with_count(
 
     findings_lines: list[str] = []
     limitations_lines: list[str] = []
+    # LEVER 1 (PG_RENDER_BLOCKS): per findings-line flag — True when the line starts a new source
+    # paragraph block, so the final join emits a blank line before it. Empty/all-False => byte-identical
+    # flat render. Only computed when the flag is on AND the caller threaded the raw section draft.
+    findings_block_start: list[bool] = []
+    _render_blocks = _render_blocks_enabled() and bool(section_source_text)
+    _block_idx_by_pos: list[int | None] = (
+        _paragraph_block_index_by_position(section_source_text or "", kept_sentences)
+        if _render_blocks
+        else []
+    )
+    # Uncertainty-latch state (Sol gate): the block of the last CONFIDENTLY-placed findings-line, and a
+    # one-shot flag that swallows the NEXT boundary after an uncertain sentence — so uncertainty FLATTENS
+    # a boundary (omits the break) and can NEVER shift it forward into a paragraph.
+    _last_known_block: int | None = None
+    _suppress_next_break = False
     # MASTER KILL-SWITCH (PG_STRICT_VERIFY_OFF, DEFAULT OFF): the raw-A scoring experiment turns
     # faithfulness FULLY off, so the two render-time survival drops below (F31 bogus-only span-
     # grounding + BUG-M-8 degenerate-fragment floor) must NOT remove any sentence. Bogus bracketed
     # markers are still STRIPPED from the rendered `stripped` (no literal leak), only the sentence-
     # DROP is bypassed. UNSET => both drops run BYTE-IDENTICALLY.
     _resolve_verify_off = _strict_verify_off_enabled()
-    for sv in kept_sentences:
+    for _sv_pos, sv in enumerate(kept_sentences):
         # F31 (I-arch-004 A3): does this sentence carry a VALID grounding token —
         # a parsed `[#ev:...]` whose evidence-id is a real pool row? strict_verify
         # populates sv.tokens ONLY from canonical `[#ev:...]` tokens, so a sentence
@@ -5110,6 +5194,26 @@ def resolve_provenance_to_citations_with_count(
         if any("limitations_paragraph_pass_through" in w for w in sv.soft_warnings):
             limitations_lines.append(sentence_out)
         else:
+            # LEVER 1 (uncertainty-latch): mark this findings-line as starting a new paragraph ONLY when
+            # its source block is KNOWN and differs from the last confidently-placed line's block. An
+            # uncertain (None) position suppresses its own break AND the next boundary, so a mis-located
+            # or reordered sentence flattens the boundary instead of shifting the break into a paragraph.
+            if _render_blocks:
+                _blk = _block_idx_by_pos[_sv_pos] if _sv_pos < len(_block_idx_by_pos) else None
+                if _blk is None:
+                    findings_block_start.append(False)
+                    _suppress_next_break = True
+                    # block unknown => do NOT advance _last_known_block
+                else:
+                    if _suppress_next_break:
+                        _starts = False
+                        _suppress_next_break = False
+                    elif _last_known_block is None:
+                        _starts = False
+                    else:
+                        _starts = _blk != _last_known_block
+                    findings_block_start.append(_starts)
+                    _last_known_block = _blk
             findings_lines.append(sentence_out)
 
     # F10 (I-arch-004 A3): the count of sentences ACTUALLY emitted into the
@@ -5118,7 +5222,21 @@ def resolve_provenance_to_citations_with_count(
     # degenerate fragments + F31 bogus-only sentences).
     emitted_count = len(findings_lines) + len(limitations_lines)
 
-    findings_para = " ".join(findings_lines)
+    # LEVER 1 (PG_RENDER_BLOCKS): re-insert the writer's paragraph breaks — a blank line before every
+    # findings-line that starts a new source block, single space otherwise. When the flag is off, no
+    # block starts (list empty) => the join is byte-identical to the legacy `" ".join(findings_lines)`.
+    if _render_blocks and any(findings_block_start):
+        _parts: list[str] = []
+        for _i, _line in enumerate(findings_lines):
+            if _i == 0:
+                _parts.append(_line)
+            elif _i < len(findings_block_start) and findings_block_start[_i]:
+                _parts.append("\n\n" + _line)
+            else:
+                _parts.append(" " + _line)
+        findings_para = "".join(_parts)
+    else:
+        findings_para = " ".join(findings_lines)
     if limitations_lines:
         limitations_para = " ".join(limitations_lines)
         return (findings_para + "\n\n" + limitations_para, biblio, emitted_count)

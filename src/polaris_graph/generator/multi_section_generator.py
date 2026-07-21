@@ -3884,6 +3884,33 @@ def _build_structured_variant(template: str) -> str:
     return out
 
 
+# LEVER 1 (PG_RENDER_BLOCKS): the PARAGRAPHS-ONLY rule 7 — asks the writer for blank-line-separated
+# paragraphs (no ###/tables/bullets, so it never conflicts with the base/retry/user prompts the way the
+# richer _STRUCTURE_RULE_7 can). Keeps the flat-prose "no heading/title/preamble" clause; every other
+# rule (density, cite-all) is untouched. Pairs with the resolver's block-preserving join.
+_RENDER_BLOCKS_RULE_7 = (
+    "7. Do not write a section heading, section title, or preamble. Organize the body into "
+    "paragraphs of 3 to 6 sentences, each paragraph developing ONE theme, separated by a blank "
+    "line. Do NOT use headings, bullet lists, or tables — paragraphs only."
+)
+
+
+def _build_paragraph_variant(template: str) -> str:
+    """LEVER 1 (structure-preserving render): derive the PARAGRAPHS-ONLY variant of a section
+    system-prompt template — replaces the flat-prose rule 7 with the blank-line-paragraph directive,
+    leaving every other rule byte-identical. Pure text transform; FAILS LOUD if the anchor drifts. No
+    env read, no faithfulness-gate touch (strict_verify unchanged; only the writer's paragraph shape)."""
+    anchor = ("7. Do not write a section heading, section title, or preamble. "
+              "Just the paragraph body.")
+    out = template.replace(anchor, _RENDER_BLOCKS_RULE_7)
+    if out == template:
+        raise RuntimeError(
+            "paragraph transform anchor drifted: section-prompt rule 7 not found verbatim; "
+            "update _build_paragraph_variant."
+        )
+    return out
+
+
 # Concise variants built ONCE at module load (static, no env read at import).
 SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE = _build_concise_variant(
     SECTION_SYSTEM_PROMPT_TEMPLATE
@@ -3908,6 +3935,13 @@ def _section_structure_enabled() -> bool:
     I-cap-005 import-time-cache class of bug). Default OFF: any unset / empty / "0" / "false" /
     "off" / "no" keeps the flat-prose rule 7 => byte-identical section output."""
     return resolve("PG_SECTION_STRUCTURE").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _render_blocks_enabled() -> bool:
+    """LEVER 1 (`PG_RENDER_BLOCKS`), read at CALL TIME. Default OFF => flat-prose rule 7 =>
+    byte-identical section output. When ON (and PG_SECTION_STRUCTURE is OFF, which wins if both set)
+    the writer gets the paragraphs-only rule 7 and the resolver preserves the blank-line breaks."""
+    return resolve("PG_RENDER_BLOCKS").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _section_distill_enabled() -> bool:
@@ -3973,6 +4007,10 @@ def _select_section_system_prompt(
     # directive (composes on top of whichever base was selected). Default OFF => base unchanged.
     if _section_structure_enabled():
         base = _build_structured_variant(base)
+    # LEVER 1 (render-blocks): when PG_RENDER_BLOCKS is on AND structure is OFF (structure wins if both
+    # set), flip rule 7 to the paragraphs-only directive. Default OFF => base unchanged.
+    elif _render_blocks_enabled():
+        base = _build_paragraph_variant(base)
     return base
 
 
@@ -4341,7 +4379,43 @@ async def _call_section(
         from src.polaris_graph.llm.openrouter_client import (
             _REASONING_FIRST_MODELS,
         )
-        if model in _REASONING_FIRST_MODELS:
+        if model in _REASONING_FIRST_MODELS and _render_blocks_enabled():
+            # LEVER 1 (render-blocks): paragraphs-only variant of the retry contract — same anti-
+            # deliberation + every-sentence-cited rules, but asks for MULTIPLE blank-line-separated
+            # paragraphs instead of "one finished paragraph". Reached only when the flag is on.
+            system += (
+                "\n\nHARD OUTPUT CONTRACT (reasoning-first model, RETRY):\n"
+                "Your previous draft was rejected because it contained "
+                "planning text, deliberation, or thinking-out-loud instead "
+                "of the final cited section body.\n"
+                "FORBIDDEN OPENERS (do not start any sentence with any of "
+                "these): 'Let me', 'First, I', 'Looking at', 'I need to', "
+                "'The evidence shows', 'Let us', 'We can', 'Sentence 1:', "
+                "'Sentence 2:', 'Step 1:', 'Step 2:'.\n"
+                "FORBIDDEN STRUCTURE: numbered lists of sentences, "
+                "meta-commentary about how you will write, restating the "
+                "task. Output ONLY the finished section body, organized as "
+                "paragraphs of 3 to 6 sentences each, separated by a blank "
+                "line (no headings, bullets, or tables).\n"
+                "EVERY sentence (no exception) ends with at least one "
+                "[ev_XXX] marker that exists in the evidence blocks above. "
+                "If a sentence cannot carry a real [ev_XXX] marker, do not "
+                "write that sentence.\n"
+                "Start your response with the first word of the first "
+                "paragraph. End it with the last [ev_XXX] marker. Nothing "
+                "before, nothing after.\n"
+                "EXAMPLE of the required per-paragraph format (2 sentences "
+                "shown; write MULTIPLE such paragraphs, each separated by a "
+                "blank line):\n"
+                "\"Tirzepatide 15 mg reduced HbA1c by an additional 0.45 "
+                "percentage points versus semaglutide 1 mg [ev_001]. The "
+                "treatment difference of 0.45 percentage points was "
+                "statistically significant (95% CI -0.57 to -0.32, P<0.001) "
+                "[ev_001].\"\n"
+                "Note how every sentence ends with [ev_XXX]. Do this for "
+                "every paragraph."
+            )
+        elif model in _REASONING_FIRST_MODELS:
             system += (
                 "\n\nHARD OUTPUT CONTRACT (reasoning-first model, RETRY):\n"
                 "Your previous draft was rejected because it contained "
@@ -4394,11 +4468,20 @@ async def _call_section(
         if _rq
         else "Research question context: (see overall corpus)\n\n"
     )
+    # LEVER 1 (render-blocks): the first-pass instruction says "paragraph" (singular); when the flag is
+    # on ask for blank-line-separated paragraphs so the draft actually carries breaks. OFF => exact
+    # original string, byte-identical.
+    _final_write_line = (
+        f"Write the {section.title} section now, organizing the body into paragraphs of 3 to 6 "
+        f"sentences separated by a blank line, following the rules."
+        if _render_blocks_enabled()
+        else f"Write the {section.title} paragraph now, following the rules."
+    )
     prompt = (
         f"{_rq_line}"
         f"Evidence available for this section ({len(evidence_subset)} rows):\n\n"
         f"{evidence_section}\n\n"
-        f"Write the {section.title} paragraph now, following the rules."
+        f"{_final_write_line}"
     )
 
     client = OpenRouterClient(model=model)
@@ -5543,6 +5626,16 @@ def _screen_uncited_numeric_sentences(verified_text: str) -> str:
         return verified_text
     if not _numeric_cite_enforce_enabled():
         return verified_text
+    # LEVER 1 (render-blocks): this screen flattens with `" ".join` below. When render-blocks is on and
+    # the text carries paragraph breaks (strict-verify-ON path only — the champion recipe short-circuits
+    # above), screen each block independently and rejoin with the ORIGINAL separators so breaks survive.
+    if _render_blocks_enabled() and "\n\n" in verified_text:
+        _segs = re.split(r"(\n\s*\n+)", verified_text)
+        return "".join(
+            seg if (not seg.strip() or re.fullmatch(r"\n\s*\n+", seg))
+            else _screen_uncited_numeric_sentences(seg)
+            for seg in _segs
+        )
     sentences = split_into_sentences(verified_text)
     if not sentences:
         return verified_text
@@ -5670,6 +5763,15 @@ def _screen_render_chrome_prose(verified_text: str) -> str:
         return verified_text
     if not _render_chrome_prose_screen_enabled():
         return verified_text
+    # LEVER 1 (render-blocks): same block-aware guard as _screen_uncited_numeric_sentences — preserve
+    # paragraph breaks by screening per block (strict-verify-ON path only; champion short-circuits above).
+    if _render_blocks_enabled() and "\n\n" in verified_text:
+        _segs = re.split(r"(\n\s*\n+)", verified_text)
+        return "".join(
+            seg if (not seg.strip() or re.fullmatch(r"\n\s*\n+", seg))
+            else _screen_render_chrome_prose(seg)
+            for seg in _segs
+        )
     sentences = split_into_sentences(verified_text)
     if not sentences:
         return verified_text
@@ -6966,6 +7068,13 @@ async def _run_section(
             report.kept_sentences, evidence_pool,
             baskets=_baskets,
             cluster_id_by_evidence=_cluster_id_by_evidence,
+            # LEVER 1 (render-blocks): `raw` is the writer draft that produced these kept_sentences
+            # (reassigned to the retry draft at the `raw, rewritten, report = raw2, ...` site above), so
+            # its blank-line paragraph structure aligns with the sentence sequence. DISTILL/REDUCE mode
+            # rewrites `raw` (filter_and_strip_reduce_markers -> evidence_distiller join) and destroys the
+            # block structure, so pass None there => that section renders FLAT (safe: no break, never a
+            # shifted break). None-safe when the flag is off too => byte-identical flat render.
+            section_source_text=(None if distillate is not None else raw),
         )
     )
     # I-gen-003: cosmetic citation/punctuation normalization on the
@@ -11745,6 +11854,13 @@ async def generate_multi_section_report(
                     cluster_id_by_evidence=getattr(
                         credibility_analysis, "cluster_id_by_evidence", None
                     ),
+                    # LEVER 1 (render-blocks) SITE 2: the cross-section fact-dedup re-resolve rebuilds
+                    # `final_svs` (originals + re-verified rewrites) with no per-section raw draft in
+                    # scope to reconstruct blocks from — so pass None => this re-resolved section renders
+                    # FLAT (safe: never shifts a break). Only fires when a duplicate was rewritten AND
+                    # credibility redesign is active (off the champion path). Durable block metadata is
+                    # follow-up work; flatten-safe is correct for now.
+                    section_source_text=None,
                 )
                 sr.verified_text = new_text
                 sr.biblio_slice = new_biblio

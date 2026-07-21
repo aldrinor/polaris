@@ -837,6 +837,13 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # [ev_XXX]-marker-per-unit citation contract. Improves rendered-prose structure. Prompt-text change
     # only (strict_verify untouched). Default '' = off => flat-prose rule 7 => byte-identical.
     'PG_SECTION_STRUCTURE': '',
+    # LEVER 1 (structure-preserving render). When ON: (a) the section writer's rule 7 flips from
+    # flat-paragraph-only to "organize the body into paragraphs of 3-6 sentences separated by a blank
+    # line" (paragraphs ONLY — no headings/tables/bullets, avoiding the PG_SECTION_STRUCTURE prompt
+    # conflict), and (b) the resolver preserves those blank-line breaks instead of flattening the
+    # section to one blob. Render + prompt text only (strict_verify untouched). If PG_SECTION_STRUCTURE
+    # is also ON it wins (structure variant supersedes). Default '' = off => flat render => byte-identical.
+    'PG_RENDER_BLOCKS': '',
     'PG_SECTION_EVIDENCE_TOP_K': '100',
     'PG_SECTION_GINI_THRESHOLD': '0.30',
     'PG_SECTION_PER_SOURCE_SPAN_CAP': '0',
