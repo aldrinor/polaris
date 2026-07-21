@@ -46,11 +46,20 @@ export PG_OUTLINE_MAX_TOKENS=131072             # prevents the deepseek truncati
 export PG_OUTLINE_REASONING_MAX_TOKENS=32768
 export PG_STRICT_VERIFY_OFF=1                    # <-- MASTER FAITHFULNESS KILL-SWITCH (see header): drops NOTHING
 export PG_STRICT_VERIFY_ENTAILMENT=off          # <-- ENTAILMENT OFF (redundant under the master switch; see header)
-# HERMETIC route-all guard (2026-07-21, three-model audit Sol+Fable+K3): the compose script used to
-# force PG_ROUTE_ALL_BASKETS=1 (now removed), which silently contaminated every measurement. Pin it
-# OFF here so a stray inherited PG_ROUTE_ALL_BASKETS=1 can never re-contaminate a run. To genuinely
-# test route-all, override this line explicitly; otherwise force-routing stays OFF (audit: dilutive).
-export PG_ROUTE_ALL_BASKETS=0
+# ROUTE-ALL — EXPLICIT, ON (2026-07-21). The compose script used to force this via a silent
+# `setdefault(...,"1")` (now REMOVED so central config governs, no hidden force). A clean route-all-OFF
+# run then settled the question the three-model audit could not — because every run it saw was
+# route-all-ON: route-all is LOAD-BEARING, not noise. MEASUREMENT (honest scope): ONE generator output
+# per arm, each rescored 3x by the RACE judge (NOT 3 independent generator draws — draws 2-3 were not
+# completed). K3+B/E/F route-all-ON = RACE 0.5084; route-all-OFF = 0.4722 (judge draws 0.4765/0.4703/
+# 0.4698, tight). The +0.036 direction is unambiguous — it craters Comprehensiveness (0.521->0.478) and
+# Insight (0.524->0.478) across every judge draw (far beyond ~0.007 judge noise) and the report
+# collapses 9438w/144cites -> 5081w/21cites (without routing ~90% of the corpus never reaches a
+# section). Magnitude has some uncontrolled GENERATOR variance (single draw/arm); the DIRECTION does
+# not. So the champion recipe EXPLICITLY chooses route-all on. The audit's valid residual point
+# (routing is indiscriminate -> some off-topic orphans) is the target of a follow-up
+# relevance+marginal-novelty router, which KEEPS this coverage and drops only the junk.
+export PG_ROUTE_ALL_BASKETS=1
 
 # --- STEP-1 render/format cleanups (RENDER ONLY — no faithfulness surface touched) ---
 # Each flag is central-config-gated (config_defaults.py) and DEFAULTS to today's behavior;
