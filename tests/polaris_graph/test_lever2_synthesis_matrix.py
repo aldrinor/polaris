@@ -40,11 +40,11 @@ def test_flag_on(msg, monkeypatch):
 
 
 def test_extract_valid_three_rows(msg):
-    # Every cell's words/numbers appear in the SAME sentence that carries the row's [N] -> grounded.
+    # Every cell is a verbatim span of the SINGLE clause carrying the row's [N] (no comma inside it).
     prose = (
-        "In a firm deployment in customer support, productivity rose 14% [1]. "
-        "In a randomized experiment on writing, productivity rose 34% [2]. "
-        "In a randomized experiment on coding, productivity rose 56% [3]."
+        "A firm deployment in customer support raised productivity 14% [1]. "
+        "A randomized experiment in writing raised productivity 34% [2]. "
+        "A randomized experiment in coding raised productivity 56% [3]."
     )
     raw = _table([
         "| customer support | customer support | productivity | 14% | firm deployment | [1] |",

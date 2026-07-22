@@ -8021,66 +8021,104 @@ def _synthesis_matrix_min_rows() -> int:
         return 3
 
 
+import unicodedata as _unicodedata
+
+
 def _synthesis_ws_norm(text: str) -> str:
-    """Normalize ONLY case + whitespace (nothing else). Signs (+/-), comparators (</>/=), percent, and
-    polarity words (no/not/without/fewer/higher...) are PRESERVED so a cell must match its cited
-    sentence verbatim up to case/spacing — the robust anti-fabrication rule (Sol integrated re-gate)."""
+    """Normalize ONLY case + whitespace (nothing else). Signs (+/-), comparators (</>/=/≤/≥), percent,
+    currency, and polarity words are PRESERVED so a cell must match its cited clause verbatim up to
+    case/spacing — the robust anti-fabrication rule (Sol integrated re-gate)."""
     return re.sub(r"\s+", " ", text.strip().lower())
 
 
-# A row's Ref cell must be ONLY citation markers (nothing else may ride in it).
-_SYNTHESIS_REF_CELL_RE = re.compile(r"(?:\[\d+\]\s*)+")
-# Characters that CONTINUE a token, so a boundary is a real token edge: alphanumerics PLUS signs,
-# comparators, hyphens (ASCII + Unicode), apostrophes, percent, slash, and dot. This makes "-14%" one
-# token distinct from "14%", "non-randomized" distinct from "randomized", and "worker's" from "worker".
-_SYNTHESIS_TOKEN_CONT = r"0-9A-Za-z\-+<>=%'’/.‐-―−"
+# CANONICAL citation markers only: ASCII "[N]" with N a bare positive integer (no leading zero, no
+# inner spaces). "[01]", "[ 1]", "[1 ]" are NON-canonical and never match prose "[1]" (Sol A3).
+_CANON_MARKER_RE = re.compile(r"\[[1-9][0-9]*\]")
+# A row's Ref cell must be ONLY canonical citation markers (nothing else may ride in it).
+_SYNTHESIS_REF_CELL_RE = re.compile(r"(?:\[[1-9][0-9]*\]\s*)+")
+# Clause delimiters: semicolon, a NON-numeric comma (a comma between two digits is a thousands
+# separator, not a clause break), and the strong contrastive conjunctions. Splitting on these isolates
+# "Study Alpha … 14%" from "whereas Study Beta … 99% [1]" so a row cannot borrow across clauses.
+_CLAUSE_SPLIT_RE = re.compile(
+    r";|(?<!\d),(?!\d)|\bwhereas\b|\bwhile\b|\bbut\b|\bhowever\b", re.IGNORECASE
+)
 
 
-def _synthesis_cited_sentence(nums: list[int], sentences: list[str]) -> str | None:
-    """Return the ONE verified-prose sentence whose citation set EQUALS the row's Ref set exactly, or
-    None if zero or more-than-one such sentence exists (fail closed). Equality (not subset) blocks a row
-    citing only [1] from copying a value out of a "…[1]; …[9]" merged unit — the [9] clause makes the
-    unit's set {1,9} != {1}, so it never grounds that row."""
-    if not nums:
-        return None
-    target = set(nums)
-    matches = [
-        s for s in sentences
-        if {int(m.group(1)) for m in _CITATION_MARKER_RE.finditer(s)} == target
-    ]
-    return matches[0] if len(matches) == 1 else None
+def _synthesis_token_internal(ch: str) -> bool:
+    """True iff ``ch`` CONTINUES a token (so a substring flanked by it is NOT a real token edge).
+    Unicode-aware + fail-closed: Letter/Number/Mark, Connector (Pc, e.g. '_'), Dash (Pd, incl Unicode
+    hyphens), Math (Sm, incl ≤ ≥ ≈ ± < > =), Currency (Sc, incl $), plus percent and apostrophes. A
+    numeric grouping/ratio/decimal separator (, . : /) is handled contextually by the caller."""
+    if ch in "%'’‘`":
+        return True
+    cat = _unicodedata.category(ch)
+    return cat[0] in ("L", "N", "M") or cat in ("Pc", "Pd", "Sm", "Sc")
 
 
-def _synthesis_cell_grounded(cell: str, sent_norm: str) -> bool:
-    """A content cell must be a case-insensitive, whitespace-normalized, TOKEN-BOUNDARY span of the
-    row's single cited sentence. ONLY a literal em-dash "—" (or a truly empty cell) counts as
-    not-reported; "none"/"-"/"n/r"/"na" are content and must ground or the row drops. The boundary uses
-    the token-continuation class so signs/comparators/hyphens/apostrophes/percent are token-internal:
-    '14%' does NOT match inside '-14%'/'<5%', 'randomized' not inside 'non-randomized', 'worker' not
-    inside "worker's". Signs and polarity are preserved (no fuzzy/prefix/bag matching)."""
+def _synthesis_boundary_ok(hay: str, pos: int, needle: str, *, left: bool) -> bool:
+    """Is the neighbour char at ``pos`` a TOKEN BOUNDARY (not token-internal)? String edges are
+    boundaries. Numeric separators (, . : /) are token-internal ONLY between digits (so '5' is not a
+    boundary-match inside '5,000'/'5.5' but 'trial' is a match before 'trial, output')."""
+    if pos < 0 or pos >= len(hay):
+        return True
+    ch = hay[pos]
+    if ch.isspace():
+        return True
+    if _synthesis_token_internal(ch):
+        return False
+    if ch in ",.:/":
+        inner_digit = (needle[:1] if left else needle[-1:]).isdigit()
+        outer = hay[pos - 1] if (left and pos - 1 >= 0) else (hay[pos + 1] if (not left and pos + 1 < len(hay)) else "")
+        return not (inner_digit and outer.isdigit())  # numeric separator => internal => not a boundary
+    return True  # other punctuation ( ) [ ] etc. => boundary
+
+
+def _synthesis_cell_grounded(cell: str, clause_norm: str) -> bool:
+    """A content cell must be a case/whitespace-normalized, TOKEN-BOUNDARY substring of the row's single
+    cited CLAUSE. ONLY a literal em-dash "—" (or empty) is 'not reported'; 'none'/'-'/'n/r' are content
+    and must ground. Boundaries are Unicode-category based so the complete numeric lexeme is compared:
+    '5%' is not grounded by '≤5%'/'≥5%'/'±5%'/'$5'/'5,000'; 'worker' not by "worker's"/'workeré'/
+    'worker_id'; 'randomized' not by 'non-randomized'."""
     c = cell.strip()
     if c in ("", "—"):
-        return True  # only the em-dash (or an empty cell) is 'not reported'
+        return True
     needle = _synthesis_ws_norm(c)
     if not needle:
         return True
-    pat = (
-        r"(?<![" + _SYNTHESIS_TOKEN_CONT + r"])"
-        + re.escape(needle)
-        + r"(?![" + _SYNTHESIS_TOKEN_CONT + r"])"
-    )
-    return re.search(pat, sent_norm) is not None
+    start = 0
+    while True:
+        i = clause_norm.find(needle, start)
+        if i < 0:
+            return False
+        if (_synthesis_boundary_ok(clause_norm, i - 1, needle, left=True)
+                and _synthesis_boundary_ok(clause_norm, i + len(needle), needle, left=False)):
+            return True
+        start = i + 1
 
 
-def _synthesis_row_grounded(cells: list[str], nums: list[int], sentences: list[str]) -> bool:
-    """FAIL-CLOSED: the row's five content cells (Study|Context|Measure|Finding|Design; not Ref) must
-    EACH be a verbatim token-boundary span of the SINGLE verified-prose sentence carrying all the row's
-    [N]. No single coherent grounding sentence, or any cell not a clean span of it => drop the row."""
-    sent = _synthesis_cited_sentence(nums, sentences)
-    if sent is None:
+def _synthesis_grounding_clause(ref_markers: "frozenset[str]", sentences: list[str]) -> str | None:
+    """The ONE citation-bearing CLAUSE (across all prose sentences) whose canonical marker set EQUALS
+    the row's Ref set. Zero or >1 such clause => None (ambiguous => fail closed). Grounding at clause
+    (not sentence) level blocks cross-clause fabrication (assigning clause B's value to clause A)."""
+    matching: list[str] = []
+    for sent in sentences:
+        for clause in _CLAUSE_SPLIT_RE.split(sent):
+            if frozenset(_CANON_MARKER_RE.findall(clause)) == ref_markers:
+                matching.append(clause)
+    return matching[0] if len(matching) == 1 else None
+
+
+def _synthesis_row_grounded(cells: list[str], ref_markers: "frozenset[str]", sentences: list[str]) -> bool:
+    """FAIL-CLOSED: every content cell (Study|Context|Measure|Finding|Design; not Ref) must be a verbatim
+    token-boundary span of the SINGLE cited CLAUSE whose canonical markers equal the row's Ref set. No
+    unambiguous clause, or any cell not a clean span of it => drop the row."""
+    if not ref_markers:
         return False
-    sent_norm = _synthesis_ws_norm(sent)
-    return all(_synthesis_cell_grounded(cell, sent_norm) for cell in cells[:5])
+    clause = _synthesis_grounding_clause(ref_markers, sentences)
+    if clause is None:
+        return False
+    clause_norm = _synthesis_ws_norm(clause)
+    return all(_synthesis_cell_grounded(cell, clause_norm) for cell in cells[:5])
 
 
 def _extract_synthesis_matrix(
@@ -8135,6 +8173,9 @@ def _extract_synthesis_matrix(
     # FAIL-CLOSED cell grounding (Sol integrated re-gate): each row must be a verbatim token-boundary
     # summary of the SINGLE verified-prose sentence carrying all its [N]. Without prose => no table.
     _prose_sentences = split_into_sentences(verified_prose) if verified_prose.strip() else []
+    # Canonical marker STRINGS present in prose — compared as strings (never int()), so "[01]" can
+    # never satisfy a row against prose "[1]" (Sol A3).
+    _prose_markers = set(_CANON_MARKER_RE.findall(verified_prose))
     kept_rows: list[str] = []
     for line in lines_after[2:]:
         stripped = line.strip()
@@ -8142,23 +8183,23 @@ def _extract_synthesis_matrix(
             break
         if not stripped.startswith("|"):
             break
-        # Parse the six cells FIRST; the Ref column must be ONLY citation markers, and the row's [N]
-        # are derived from Ref alone (never from the whole line — else prose in a content cell could
-        # smuggle a citation). A content cell carrying a stray [N] drops the row (Sol re-gate fix).
+        # Parse the six cells FIRST; the Ref column must be ONLY canonical citation markers, and the
+        # row's markers are derived from Ref alone (never the whole line — else prose in a content cell
+        # could smuggle a citation). A content cell carrying any bracketed citation drops the row.
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) != 6:
             continue  # not a canonical 6-cell row => drop (cannot ground per-cell)
         if not _SYNTHESIS_REF_CELL_RE.fullmatch(cells[5]):
-            continue  # Ref must be exactly [N] markers, nothing else
-        if any(_CITATION_MARKER_RE.search(c) for c in cells[:5]):
-            continue  # a citation marker inside a content cell => drop
-        nums = [int(m.group(1)) for m in _CITATION_MARKER_RE.finditer(cells[5])]
-        if not nums:
+            continue  # Ref must be exactly canonical [N] markers, nothing else
+        if any(re.search(r"\[\s*\d", c) for c in cells[:5]):
+            continue  # a citation-like marker inside a content cell => drop
+        ref_markers = frozenset(_CANON_MARKER_RE.findall(cells[5]))
+        if not ref_markers:
             continue  # rule 2: every row must cite
-        if any(n not in valid_citation_nums for n in nums):
-            continue  # out-of-range/invented citation => drop the row
-        if not _synthesis_row_grounded(cells, nums, _prose_sentences):
-            continue  # a cell is not a verbatim span of its OWN cited sentence => fabrication => drop
+        if not ref_markers.issubset(_prose_markers):
+            continue  # a marker string absent from the prose => drop (exact-string, no int normalization)
+        if not _synthesis_row_grounded(cells, ref_markers, _prose_sentences):
+            continue  # a cell is not a verbatim span of its OWN single cited clause => fabrication => drop
         if _cell_verify:
             from src.polaris_graph.clinical_generator.strict_verify import (
                 _decimals as _sv_decimals,
@@ -8262,12 +8303,16 @@ def _attach_synthesis_matrix(verified_text: str, table: str) -> str:
     when there is no table."""
     if not table:
         return verified_text
-    before = set(_CITATION_MARKER_RE.findall(verified_text))
+    before = set(_CANON_MARKER_RE.findall(verified_text))
+    table_markers = set(_CANON_MARKER_RE.findall(table))
     result = verified_text.rstrip() + "\n\n" + table.strip()
-    after = set(_CITATION_MARKER_RE.findall(result))
-    # Coverage: no prose marker may be lost; the table only reuses prose markers.
-    assert before.issubset(after), (
-        "synthesis-matrix attach dropped a prose citation marker"
+    # A3 (Sol): the table may introduce NO marker lexeme absent from the prose (exact canonical
+    # strings), must carry no non-canonical marker ("[01]"), and must not alter the prose.
+    assert not re.search(r"\[\s*0", table), (
+        "synthesis-matrix attach: table carries a non-canonical citation marker"
+    )
+    assert table_markers.issubset(before), (
+        "synthesis-matrix attach: table introduced a citation marker absent from the prose"
     )
     assert result.startswith(verified_text.rstrip()), (
         "synthesis-matrix attach altered the section prose"
@@ -8457,51 +8502,83 @@ def _m50_select_candidate_trials(
     return candidates
 
 
-# Canonical tier taxonomy (honest_pipeline.py): T1 peer-reviewed primary, T2 SR/MA, T3 regulatory,
-# T4 narrative review, T5 industry, T6 commentary/news, T7 other. Reader-facing labels — NO raw codes.
+# Reader-facing labels aligned EXACTLY to the canonical taxonomy (retrieval/tier_classifier.py:31):
+# T1 primary study, T2 systematic review/meta-analysis, T3 government/regulatory, T4 narrative
+# review/commentary, T5 industry-funded report, T6 news/non-peer-reviewed web, T7 abstract-only/stub,
+# UNKNOWN unclassified. Raw T1-T7/UNKNOWN codes must NEVER reach reader prose.
 _TIER_READER_LABEL = {
-    "1": "primary studies",
-    "2": "evidence syntheses (systematic reviews and meta-analyses)",
-    "3": "regulatory and official sources",
-    "4": "narrative reviews",
-    "5": "industry sources",
-    "6": "commentary and news",
-    "7": "other or unclassified sources",
+    "T1": "primary studies",
+    "T2": "evidence syntheses (systematic reviews and meta-analyses)",
+    "T3": "government and regulatory sources",
+    "T4": "narrative reviews and commentary",
+    "T5": "industry-funded reports",
+    "T6": "news and non-peer-reviewed web content",
+    "T7": "abstract-only or stub sources",
+    "UNKNOWN": "unclassified sources",
 }
-_TIER_PCT_RE = re.compile(r"\bT([1-7])\b\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*%?", re.IGNORECASE)
-_RAW_TIER_TOKEN_RE = re.compile(r"\bT[1-7]\b", re.IGNORECASE)
+# A single override entry: KEY = <plain int/decimal> % — mandatory percent, no exponent, nothing else.
+_TIER_OVERRIDE_ENTRY_RE = re.compile(
+    r"\s*(UNKNOWN|T[1-7])\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*", re.IGNORECASE
+)
+# Raw tier tokens + internal-marker vocabulary that must never appear in reader prose.
+_RAW_TIER_TOKEN_RE = re.compile(r"\bT[1-7]\b|\bUNKNOWN\b", re.IGNORECASE)
+_INTERNAL_MARKER_RE = re.compile(
+    r"\[(?:not_comparable|possible_metric_mismatch)\]|\btelemetry\b|\bpipeline\b", re.IGNORECASE
+)
+
+
+def _parse_tier_override(override: str) -> "list[tuple[str, str]] | None":
+    """FULL-PARSE (all-or-nothing) a canonical override like "T1=4%, T2=1%, UNKNOWN=95%". Every
+    comma-separated entry must be exactly KEY=<number>% with a known key (T1-T7 or UNKNOWN), a plain
+    integer/decimal percentage (no exponent), unique keys, and ZERO unconsumed text. Returns the ordered
+    (KEY, pct) pairs, or None if ANYTHING does not cleanly parse (=> the caller discards the override)."""
+    entries = [e for e in override.split(",")]
+    if not entries or any(not e.strip() for e in entries):
+        return None
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for e in entries:
+        m = _TIER_OVERRIDE_ENTRY_RE.fullmatch(e)
+        if not m:
+            return None  # malformed / extra text / missing % / exponent => discard whole override
+        key = m.group(1).upper()
+        if key in seen:
+            return None  # duplicate key => discard
+        seen.add(key)
+        out.append((key, m.group(2)))
+    return out
+
+
+def _reader_field_safe(value: Any) -> bool:
+    """True iff a free-text field is safe to place in reader prose — no raw tier token (T1-T7/UNKNOWN)
+    and no internal-marker vocabulary. Unsafe fields are dropped, never leaked (Sol C screening)."""
+    s = str(value)
+    return not _RAW_TIER_TOKEN_RE.search(s) and not _INTERNAL_MARKER_RE.search(s)
 
 
 def _reader_tier_sentence(
     tier_disclosure_override: str | None,
     tier_fractions: dict[str, float] | None,
 ) -> str:
-    """Build the reader-register corpus-composition sentence. A canonical override like
-    "T1=4%, T2=1%" is TRANSLATED into reader labels while preserving its rounded percentages — raw
-    T1-T7 tokens must NEVER reach reader prose (Sol re-gate: the production caller supplies tier codes).
-    With no override, derive from tier_fractions (T1=primary, T2=evidence syntheses)."""
+    """Build the reader-register corpus-composition sentence ONLY from structured numbers via canonical
+    labels. A canonical override is FULLY parsed and translated (percentages preserved, no raw codes);
+    if it does not cleanly parse it is DISCARDED (never echoed) and we fall back to tier_fractions."""
     if tier_disclosure_override and str(tier_disclosure_override).strip():
-        ov = str(tier_disclosure_override).strip()
-        pairs = _TIER_PCT_RE.findall(ov)
-        if pairs:
+        parsed = _parse_tier_override(str(tier_disclosure_override).strip())
+        if parsed:
             segs = [
-                f"approximately {pct}% {_TIER_READER_LABEL.get(code, 'other or unclassified sources')}"
-                for code, pct in pairs
+                f"approximately {pct}% {_TIER_READER_LABEL[key]}" for key, pct in parsed
             ]
             return "Of the retrieved corpus, " + ", ".join(segs) + "."
-        if _RAW_TIER_TOKEN_RE.search(ov):
-            return ""  # contains raw tier codes we could not parse => do NOT leak them; drop
-        return ov  # override carries no tier codes => safe to use verbatim
+        # not cleanly parseable => discard the override entirely and fall through to fractions
     if tier_fractions:
         t1 = tier_fractions.get("T1", 0.0) * 100
         t2 = tier_fractions.get("T2", 0.0) * 100
         seg: list[str] = []
         if t1 > 0:
-            seg.append(f"approximately {t1:.0f}% primary studies")
+            seg.append(f"approximately {t1:.0f}% {_TIER_READER_LABEL['T1']}")
         if t2 > 0:
-            seg.append(
-                f"approximately {t2:.0f}% evidence syntheses (systematic reviews and meta-analyses)"
-            )
+            seg.append(f"approximately {t2:.0f}% {_TIER_READER_LABEL['T2']}")
         if seg:
             return (
                 "Of the retrieved corpus, " + " and ".join(seg)
@@ -8564,13 +8641,16 @@ def _deterministic_reader_limitations(
     if isinstance(date_range, dict):
         _start = date_range.get("start") or date_range.get("min") or date_range.get("from")
         _end = date_range.get("end") or date_range.get("max") or date_range.get("to")
-        if _start and _end:
+        # Screen the raw date values: only emit when both are safe (no leaked tier/internal tokens).
+        if _start and _end and _reader_field_safe(_start) and _reader_field_safe(_end):
             parts.append(
                 f"The literature surveyed spans {_start}-{_end}; developments after this window may "
                 f"not be reflected."
             )
     if uncovered_topics:
-        _named = ", ".join(str(t) for t in uncovered_topics[:5] if t)
+        # Screen each topic; a topic carrying a raw tier code or internal marker is dropped, not leaked.
+        _safe_topics = [str(t) for t in uncovered_topics[:5] if t and _reader_field_safe(t)]
+        _named = ", ".join(_safe_topics)
         if _named:
             parts.append(f"Some aspects received limited coverage in the retrieved evidence: {_named}.")
     if len(parts) == 1:
