@@ -1,0 +1,395 @@
+# Independent verdict
+
+Read-only audit complete; I made no repository changes.
+
+The run is genuinely flat. Its three overall scores were 0.5112, 0.5072, and 0.5073, for a 0.50857 mean versus the 0.5084 baseline: **+0.00017**, roughly forty times smaller than the stated ±0.007 judge noise ([R1](/home/polaris/wt/faithoff/outputs/all_levers_run.race_r1.log:16), [R2](/home/polaris/wt/faithoff/outputs/all_levers_run.race_r2.log:16), [R3](/home/polaris/wt/faithoff/outputs/all_levers_run.race_r3.log:17), [baseline](/home/polaris/wt/faithoff/docs/race_4dim_action_plan.md:3)). Approximate dimension changes were:
+
+| Dimension | Baseline | All-levers mean | Change |
+|---|---:|---:|---:|
+| Comprehensiveness | 0.521 | 0.5197 | −0.0013 |
+| Insight | 0.524 | 0.5235 | −0.0005 |
+| Instruction following | 0.499 | 0.4996 | +0.0006 |
+| Readability | 0.457 | 0.4629 | +0.0059 |
+
+Only Readability moved perceptibly, and even that remained below noise.
+
+The three central findings are:
+
+1. **The smart source/scope gate did not function end to end.** Prompt understanding exists, but no hard source-type/language eligibility contract reaches all search/fetch paths. The audited acquisition applied a topic-relevance demotion after fetching, then the compose path explicitly bypassed scope evaluation.
+2. **K3 was catastrophically underbudgeted for the synthesis matrix, but the main section writer was not observed truncating.** More subtly, the nominal 2K/16K K3 reasoning caps were not transmitted at all because K3 is absent from the client’s reasoning-first registry.
+3. **No judge-visible artifact rendered.** `chart_alt_chrome: fired=1` is a suppression detector, not chart generation. Tables failed or were unwired; bullet/bold emitters were bypassed; the final report was ten enormous flat sections.
+
+## Area 1 — source/scope gate
+
+### End-to-end finding
+
+The actual path was:
+
+```text
+Task prompt
+  → constraint-extraction capability recognizes journal/English requirements
+  → retrieval projection adds scholarly-looking queries/routes
+  ╳ hard typed eligibility policy is not propagated through every caller
+  → Serper + Semantic Scholar + additive OpenAlex candidates
+  → body fetch occurs
+  → topic/content relevance demotes but keeps
+  → source-type classification occurs after fetch
+  ╳ source-quality/RQ eligibility not called by audited compose
+  → prebuilt corpus loaded directly
+  → all retained section prose + all bibliography rows assembled
+  → non-journal sources reach report
+```
+
+### 1. Constraint understanding exists, but the seed overstates what was run
+
+Task 72 unambiguously says to cite only high-quality, English-language journal articles ([task prompt](/home/polaris/wt/outline_agent/third_party/deep_research_bench/data/prompt_data/query_task72.jsonl:1)). The generic standalone extractor has journal aliases and language handling ([source aliases](/home/polaris/wt/faithoff/src/polaris_graph/instruction/constraint_extractor.py:69), [languages](/home/polaris/wt/faithoff/src/polaris_graph/instruction/constraint_extractor.py:97)), while the newer intake adapter can deterministically compile the exact prompt into a hard `peer_reviewed_journal` restriction ([test](/home/polaris/wt/faithoff/tests/planning/test_candidate_adapter.py:62), [merge logic](/home/polaris/wt/faithoff/src/polaris_graph/planning/candidate_adapter.py:745)).
+
+The run’s outline also understood the requirement semantically: its first checklist names the gap as evidence “limited to high-quality, English-language journal articles” ([gen.log:17](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:17)).
+
+But that does **not** prove the typed intake contract was bound to this acquisition. The standalone LLM extractor is explicitly a standalone component, its live call defaults off, and the run emits no acquisition-contract receipt showing that a hard journal/language constraint reached retrieval ([extractor declaration](/home/polaris/wt/faithoff/src/polaris_graph/instruction/constraint_extractor.py:3), [live default](/home/polaris/wt/faithoff/src/polaris_graph/instruction/constraint_extractor.py:364)).
+
+**Verdict:** extraction capability is not the primary defect. Binding and enforcement are.
+
+### 2. Query generation biases; it does not exclude
+
+`retrieval_projection.py` maps journal-like requirements toward `primary_literature`, but describes the projection as additive routing and query amplification rather than a mandatory eligibility filter ([policy model](/home/polaris/wt/faithoff/src/polaris_graph/planning/retrieval_projection.py:1), [source mapping](/home/polaris/wt/faithoff/src/polaris_graph/planning/retrieval_projection.py:82), [query amplification](/home/polaris/wt/faithoff/src/polaris_graph/planning/retrieval_projection.py:488)). Hard source restrictions are default-off/degradable, and conversion to the older retrieval protocol can downgrade allowed source kinds to a preference ([hard restriction](/home/polaris/wt/faithoff/src/polaris_graph/planning/retrieval_projection.py:62), [downgrade](/home/polaris/wt/faithoff/src/polaris_graph/planning/retrieval_projection.py:329)).
+
+FS-researcher can prepend constraint-oriented queries, but is default-off and passes a `retrieval_policy` into a wrapper that accepts arbitrary keyword arguments and then does not forward the policy to the live retriever ([FS default](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/fs_researcher_query_gen.py:44), [query construction](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/fs_researcher_query_gen.py:970), [discarding wrapper](/home/polaris/wt/faithoff/scripts/run_honest_sweep_r3.py:10800)). IterResearch has no equivalent typed policy parameter ([IterResearch interface](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/iterresearch_query_gen.py:57)).
+
+The audited retrieval was driven by the outline gap tool. That call forwards frame/protocol information but no typed `retrieval_policy` ([gap retrieval call](/home/polaris/wt/faithoff/src/polaris_graph/outline/outline_agent.py:799)). Thus “primary literature” could influence which backends were added, but nothing required every returned item to be a journal article.
+
+### 3. Search and fetch do not enforce source type
+
+The live retriever accepts `retrieval_policy`, but its concrete policy application is essentially an OpenAlex date window ([signature](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/live_retriever.py:5666), [date application](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/live_retriever.py:5942)). It then runs:
+
+- Serper generally ([live_retriever.py:6072](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/live_retriever.py:6072));
+- Semantic Scholar generally ([live_retriever.py:6091](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/live_retriever.py:6091));
+- OpenAlex additively ([live_retriever.py:6118](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/live_retriever.py:6118)).
+
+Actual run evidence matches that path: Serper and Semantic Scholar returned 29 candidates ([gen.log:25](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:25)); the TechJournal blog was queued ([gen.log:39](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:39)) and successfully fetched by Trafilatura with 7,871 characters ([gen.log:65](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:65)).
+
+Document/source-type classification occurs only after body retrieval ([live_retriever.py:7287](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/live_retriever.py:7287)). There is no pre-fetch test that says “the prompt requires journal articles; this candidate is a blog; do not fetch or admit it.”
+
+### 4. The gate that fired was topic relevance, and it kept failures
+
+The live retriever ranks candidates for relevance and explicitly implements a demote-not-drop path ([selection](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/live_retriever.py:6455), [demotion](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/live_retriever.py:6495)). The log is conclusive:
+
+- “fetched all 29; demote-not-drop” ([gen.log:35](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:35));
+- 29 successful fetches ([gen.log:1185](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:1185));
+- content-relevance demotion with no deletion ([gen.log:1189](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:1189));
+- topic gate “DEMOTED(kept, disclosed) 23” and deleted zero ([gen.log:1230](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:1230)).
+
+That is a topicality control, not a source-eligibility control.
+
+### 5. The nominal source-quality gates are post-fetch and bypassed
+
+`rq_eligibility.py` describes itself as a citable-generation eligibility demotion layer, defaults off, and treats unknown metadata as fail-open ([module contract](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/rq_eligibility.py:1), [defaults](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/rq_eligibility.py:76), [unknown language/date](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/rq_eligibility.py:486)). Even known mismatches receive `demoted_ineligible_kept`, not exclusion ([rq_eligibility.py:511](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/rq_eligibility.py:511)). Its only substantive consumer is the post-retrieval evidence selector, where it changes sorting weights rather than membership ([evidence_selector.py:3060](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/evidence_selector.py:3060), [weighted sort](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/evidence_selector.py:3229)).
+
+`quality_eligibility.py` is also post-fetch ([module contract](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/quality_eligibility.py:1)). Its source-kind mask arms only when a hard flag, force flag, adequacy threshold, and matching acquisition receipt all exist ([mask condition](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/quality_eligibility.py:674)); otherwise it degrades to preference and disclosure ([degradation](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/quality_eligibility.py:701)). Production currently reads a future/local `_acquisition_receipt`, but no production assignment exists on the traced path ([runner seam](/home/polaris/wt/faithoff/scripts/run_honest_sweep_r3.py:14760)).
+
+Its tier bands and named-host rules also are not the general prompt-digesting design requested here ([quality bands](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/quality_eligibility.py:132), [host patterns](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/quality_eligibility.py:139)).
+
+### 6. Compose explicitly bypasses retrieval/scope enforcement
+
+The audited driver identifies itself as composition from a prebuilt corpus “minus retrieval/scope machinery” ([driver header](/home/polaris/wt/faithoff/scripts/compose_agentic_report_s3gear329.py:2)). It directly loads the corpus ([compose driver:260](/home/polaris/wt/faithoff/scripts/compose_agentic_report_s3gear329.py:260)), passes it to the multi-section generator ([compose driver:374](/home/polaris/wt/faithoff/scripts/compose_agentic_report_s3gear329.py:374)), assembles the kept section strings ([compose driver:443](/home/polaris/wt/faithoff/scripts/compose_agentic_report_s3gear329.py:443)), and writes every bibliography row ([compose driver:471](/home/polaris/wt/faithoff/scripts/compose_agentic_report_s3gear329.py:471)).
+
+The resulting summary explicitly reports `retrieval_scope_status="not_evaluated_prebuilt_corpus"` ([compose_summary.json:39](/home/polaris/wt/faithoff/outputs/all_levers_run/compose_summary.json:39)). This is not merely missing telemetry: the relevant selector/gates were not in the compose path.
+
+The consequences are visible:
+
+- The prose claims to be “privileging high-quality English-language journal articles” ([report.md:9](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:9)).
+- The references include a Bipartisan Policy Center issue brief, SSRN, OECD webpages/reports, Wikipedia, MIT PubPub, an SHRM report, and a CaixaBank blog ([report.md:119](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:119), [Wikipedia](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:122), [MIT](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:125), [SHRM](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:129), [CaixaBank](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:134)).
+- Non-journal material influenced body claims, not merely an unused bibliography; for example OECD and SSRN projections appear directly in the opening synthesis ([report.md:7](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:7), [report.md:11](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:11)).
+
+### 7. Did journal filtering ever work?
+
+**Yes, but not the intended smart fetch-time design.**
+
+Git history shows:
+
+- `2b42bc5f` on 2026-07-07 introduced the old journal-only hard filter;
+- `b67506a3` on 2026-07-17 generalized/retired it;
+- `3d891790` on 2026-07-21 added the newer evidence-substrate eligibility levers.
+
+The current `journal_only_filter.py` is deliberately retired and returns inactive/identity behavior ([retirement](/home/polaris/wt/faithoff/src/polaris_graph/nodes/journal_only_filter.py:76), [identity filter](/home/polaris/wt/faithoff/src/polaris_graph/nodes/journal_only_filter.py:293)). Historical logs show it reducing 59 items to 11, excluding 48, then aborting because only five journal sources remained against a twelve-source adequacy floor ([session_log.md:5144](/home/polaris/wt/faithoff/logs/session_log.md:5144)). The ensuing review rejected that tunnel-vision/starvation behavior ([session_log.md:5155](/home/polaris/wt/faithoff/logs/session_log.md:5155)). A prior audit nevertheless confirms that the old mask really removed 15 of 23 non-journal sources ([journal audit](/home/polaris/wt/faithoff/outputs/audits/I-ready-017/journal_only_s11_audit.md:14)).
+
+Therefore:
+
+- A narrow **post-fetch journal-only mask** once worked and caused evidence collapse.
+- The intended **prompt-derived, general, fetch/search-stage eligibility system** has never been fully wired on this path.
+- The current behavior is not a regression from a working smart gate; it is an incomplete replacement for the retired narrow filter.
+
+### Correct general fix
+
+The fix must be an acquisition contract, not another report-time screen:
+
+1. **Compile one typed `AcquisitionContract` from the task.** It should represent source type, language, date interval, geographic/entity scope, publication status, and requested quality semantics as `{operator, strength, normalized value, exact prompt span}`. Deterministic parsing handles explicit clauses; an LLM fallback interprets genuinely opaque constraints. No task numbers, industry lists, journal lists, or fixed descriptive-word lists.
+
+2. **Make the contract mandatory on every acquisition route.** The same contract/hash must reach primary retrieval, outline-gap retrieval, FS-researcher, IterResearch, CRAG/deepeners, recovery/refetch, and resume. A caller without it must fail acquisition for a constrained task rather than silently issue unscoped searches.
+
+3. **Select backends by required metadata capability.** For a hard journal-article constraint, use scholarly indexes and metadata resolution as the admission path. Generic web search may discover a DOI or canonical record, but the web page itself is not corpus-eligible.
+
+4. **Apply metadata eligibility before body fetch.** Definite source-type, language, or date mismatches are rejected before download. Unknowns enter metadata resolution—not the corpus—until publication type, canonical version, language, and date are resolved.
+
+5. **Validate at corpus admission.** If body-language inspection or canonical metadata contradicts the pre-fetch record, reject that candidate before corpus commit and immediately backfill it. This is acquisition-stage eligibility, not post-generation content removal.
+
+6. **Define quality from prompt semantics plus observable source-independent features.** Use publication status, document type, peer-review evidence where available, retraction/version state, stable bibliographic identity, and task relevance. Do not encode named venues or word lists as proxies.
+
+7. **Backfill by prompt-derived coverage facets.** Continue retrieval until qualified evidence covers the task’s requested dimensions. Filtering without replacement repeats the historical 59→11 failure and damages Comprehensiveness.
+
+8. **Emit an acquisition receipt.** It must contain the prompt-contract hash, backend filters, candidate decisions and reasons, unresolved count, qualified count per facet, and canonical-version substitutions. Prebuilt compose must require a matching receipt or rebuild the corpus; `not_evaluated_prebuilt_corpus` cannot be accepted for a constrained run.
+
+9. **Test generality metamorphically.** Paraphrase source, language, and date constraints; test mixed hard/soft requirements and prompts with no source constraint. The invariant is that the task’s own contract controls acquisition, while unconstrained tasks remain broad.
+
+### Expected RACE effect
+
+The gate directly targets the 0.25 Instruction-Following dimension. Task 72 assigns 0.15 of that dimension to journal-only compliance and 0.10 to English-only compliance ([criteria](/home/polaris/wt/outline_agent/third_party/deep_research_bench/data/criteria_data/criteria.jsonl:72)). It also affects the Comprehensiveness criterion for depth and representativeness of qualified literature.
+
+But there are two important limits:
+
+- The RACE cleaner removes citation markers and the entire references section, so the judge cannot directly inspect most source identities. Direct IF gains from cleaner bibliography compliance may therefore be muted.
+- Filtering alone can reduce Comprehensiveness. Only replacement with broader, stronger qualified evidence can improve both dimensions.
+
+My estimate is **0 to +0.005 for the gate alone**, likely sub-noise; **+0.007 to +0.015 when it also replaces weak sources with broad, higher-value journal evidence**. A +0.02 move requires that improved evidence materially changes the synthesis, not merely the bibliography.
+
+## Area 2 — K3 reasoning and completion budgets
+
+### Critical correction to the seed finding
+
+The configured 2K/16K K3 reasoning caps are mostly **not effective K3 caps**.
+
+`OpenRouterClient.generate()` calls the internal request path with `reasoning_enabled=False` ([client generate](/home/polaris/wt/faithoff/src/polaris_graph/llm/openrouter_client.py:3357)). The client sends a reasoning configuration only for `_ALWAYS_REASON_MODELS`, explicitly enabled calls, or `_REASONING_FIRST_MODELS` ([request branches](/home/polaris/wt/faithoff/src/polaris_graph/llm/openrouter_client.py:2010)). That registry contains GLM and DeepSeek models but **not** `moonshotai/kimi-k3` ([registry](/home/polaris/wt/faithoff/src/polaris_graph/llm/openrouter_client.py:821)).
+
+Consequently:
+
+- `reasoning_max_tokens=2048` or `16384` supplied by these callers is ignored for K3.
+- K3 uses the provider’s default always-thinking behavior.
+- The enclosing `max_tokens` is the effective combined reasoning-plus-visible-output ceiling.
+- That explains matrix responses with 5,997 reasoning tokens inside a 6,000-token total ceiling.
+
+The existing globals `PG_REASONING_FIRST_MIN_MAX_TOKENS=32768` and `PG_REASONING_FIRST_HARD_CAP=384000` do not protect K3 because it is absent from that registry ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:744)). The token-limit resolver’s static model table also omits K3 ([resolver](/home/polaris/wt/faithoff/src/polaris_graph/llm/token_limit_resolver.py:129)).
+
+### Call-by-call audit
+
+| Call class | Configured intent | Effective audited behavior | Verdict |
+|---|---|---|---|
+| Outline | Script total 131,072; reasoning 32,768 ([script](/home/polaris/wt/faithoff/scripts/run_raw_a.sh:45)) | Used DeepSeek, not K3; completed with 9,071 output tokens ([log](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:11)) | Not a K3 problem |
+| Main multi-section writer | `PG_SECTION_REASONING_MAX_TOKENS=16384`, headroom 8192 ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:851), [reasoning](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:888)) | Driver supplied 2,400; code raised total to `16384+8192=24576` ([writer call](/home/polaris/wt/faithoff/src/polaris_graph/generator/multi_section_generator.py:4568)); nominal 16K reasoning limit ignored for K3 | Constrained but not observed truncating |
+| Legacy section writer | `PG_SECTION_WRITER_MAX_TOKENS=16384` ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:893)) | Used by legacy synthesizer/section-writer paths, not audited `_call_section` | Seed incorrectly attributes it to champion call |
+| Synthesis matrix | `PG_TRIAL_TABLE_MIN_MAX_TOKENS=6000`, reasoning 2048 ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:1023)) | Effective combined cap 6,000; six calls consumed essentially all of it in reasoning and returned zero content | Critically broken |
+| Trial summary table | Same 6K/2K path ([call](/home/polaris/wt/faithoff/src/polaris_graph/generator/multi_section_generator.py:7929)) | No primary-trial quotes; no K3 call ([log](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4765)) | Correctly inapplicable to this nonclinical task |
+| Contract-slot | Minimum total 6K; reasoning 2K ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:190)) | Potential K3 starvation if invoked; no audited K3 call | Latent defect |
+| Extraction | Total 16K; reasoning 2K ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:355)) | Potential defect; not one of the audited 20 K3 calls | Latent |
+| Fact dedup | Effective total 6K; reasoning 2K ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:363)) | Disabled under strict-off path; no audited K3 call | Not causal here |
+| Limitations | Minimum total 6K; reasoning 2K ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:482)) | No additional audited K3 call | Latent |
+| M50 | Minimum total 6K; reasoning 2K ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:529)) | Not observed | Latent |
+| Sentence repair | Minimum total 4K; reasoning 2K ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:775)) | Not observed | Latent |
+| Analyst synthesis | Reasoning 32K ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:73)) | Emitter refused to render because its promotion gate was off ([log](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4764)) | Current implementation is ineligible under the operator’s post-generation-drop ban |
+
+### Matrix failure was total
+
+Ten matrix calls were made:
+
+- Six hit exactly 6,000 output tokens, with 5,997 reasoning tokens and zero visible content; representative failures are at [4685–4689](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4685), [4692–4696](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4692), [4721–4725](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4721), [4738–4742](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4738), [4751–4755](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4751), and [4757–4761](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4757).
+- Their reasoning outputs were 23,599–26,631 characters and `finish_reason='length'`.
+- The other four returned only 647, 685, 733, and 21 content characters, then were suppressed ([first](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4680), [second](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4705), [third](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4713), [fourth](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4728)).
+- Every matrix trace record was also lost because `synthesis_matrix` is absent from the reasoning-trace call-type allowlist ([log](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4681)).
+
+Budget is only half the matrix defect. The parser requires a canonical six-cell row, a citation-only reference cell, no citations in content cells, and each substantive cell to be a verbatim span attributable to one cited clause ([validator](/home/polaris/wt/faithoff/src/polaris_graph/generator/multi_section_generator.py:8186)). That specification is hostile to real cross-study synthesis. Even completed tables were rejected.
+
+The correct response is not another silent suppression layer. Construct rows from typed pre-generation facts so they are valid by construction, retry a truncated artifact call, and fail the artifact acceptance test loudly if it still produces no table.
+
+### Main sections were not demonstrably budget-starved
+
+The ten main K3 section calls produced 6,986–14,632 total output tokens, with 5,931–11,331 reasoning tokens, all below the effective 24,576 ceiling. Representative completed calls are [4671–4672](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4671), [4702–4703](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4702), and [4744–4745](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4744).
+
+The largest call consumed 559,536 input tokens, emitted 14,632 total output tokens, took 370.5 seconds, and cost $1.8981 ([gen.log:4745](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4745)). That is evidence of an unfocused evidence pack, not an output ceiling collision. Merely raising the cap does not force denser synthesis.
+
+The final user instruction also says “Write the … paragraph” when block rendering is off ([multi_section_generator.py:4522](/home/polaris/wt/faithoff/src/polaris_graph/generator/multi_section_generator.py:4522)). The model was therefore being asked for flat prose, not maximally structured cross-study analysis.
+
+### Correct K3 policy
+
+Current official metadata identifies K3 as a reasoning model with a 1,048,576-token context window, reasoning enabled by default, supported reasoning effort up to `max`, and pricing of $3/M input and $15/M output; OpenRouter currently reports no published top-provider completion cap rather than an unlimited cap ([OpenRouter model API](https://openrouter.ai/api/v1/models), [K3 model page](https://openrouter.ai/moonshotai/kimi-k3-20260715)). Moonshot’s own configuration identifies K3 as `always_thinking` and supports `max` reasoning effort ([Moonshot configuration](https://moonshotai.github.io/kimi-code/en/configuration/config-files.html)).
+
+I recommend:
+
+- **Client capability:** recognize K3 through provider/model capability metadata, not only a hardcoded slug set. Send `reasoning.effort="max"` explicitly and register all K3 call types in tracing.
+- **Preflight:** query model and endpoint metadata, then run a completion-cap smoke. Treat a null published cap as unknown, not unlimited.
+- **Main sections:** request a **64K combined completion ceiling**, effort `max`, with a context-aware bound of `validated_provider_cap` and `context − input − safety margin`. This is insurance; the audited sections did not hit 24,576.
+- **Synthesis matrix:** use at least **32K**, preferably **64K**, because a prior direct K3 audit used 28,862 completion tokens—23,739 reasoning plus roughly 5,123 visible content ([K3 audit](/home/polaris/wt/faithoff/research/audits/deepaudit_kimi.md:1)). Retry from scratch on `finish_reason=length`, increasing to the validated cap. Never silently omit all matrices.
+- **Compact K3 side calls:** 32K combined with effort `max` if K3 remains the selected model. Better still, make deterministic extraction and rendering handle tasks that do not benefit from long-form reasoning.
+- **No blanket global-max rewrite:** use per-call-class K3 policy. A universal 384K request would worsen latency/capacity without improving terse tasks.
+
+There is no pricing tier cliff. The real cliff is architectural: when K3’s reasoning fills the shared completion ceiling, visible content drops to zero. Reasoning is billed as output at $15/M. Fully consuming 64K costs approximately $0.96 per call, or $9.60 for ten matrix calls; actual usage, not the cap, is billed. Latency and the current single-provider/capacity situation are the practical downsides. The audited sections already took roughly 276–440 seconds each ([first](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4672), [last](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4748)).
+
+**Magnitude:** fixing matrix truncation is necessary. Raising the main cap alone is likely **0 to +0.003**, sub-noise. Combining correct K3 handling with focused high-value evidence and an explicit synthesis prompt is plausibly **+0.010 to +0.020**.
+
+## Area 3 — artifact inventory
+
+The complete report is 288 lines and 13,151 words with 171 bibliography entries ([report start](/home/polaris/wt/faithoff/outputs/all_levers_run/report.md:1), [compose summary](/home/polaris/wt/faithoff/outputs/all_levers_run/compose_summary.json:19)). A full Markdown scan found:
+
+- zero pipe-table rows;
+- zero bullet/list lines;
+- zero `**bold**` markers;
+- zero image/chart Markdown;
+- only headings and very long paragraphs.
+
+### Judge-visible producers
+
+| Mechanism | What exists | Audited-run status | Cause / verdict |
+|---|---|---|---|
+| Native section structure | `PG_SECTION_STRUCTURE` can ask K3 for subheadings, comparison tables, and bullets ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:854), [prompt rule](/home/polaris/wt/faithoff/src/polaris_graph/generator/multi_section_generator.py:3904)) | Did not render | Default off in recipe; final instruction still asks for one paragraph when block rendering is off |
+| Paragraph blocks | `PG_RENDER_BLOCKS` requests 3–6 sentence paragraphs and preserves blank lines ([config](/home/polaris/wt/faithoff/src/polaris_graph/config_defaults.py:860)) | Did not render | Not enabled; report sections are flat |
+| Synthesis matrix | General six-column cross-study table generator ([multi_section_generator.py:7970](/home/polaris/wt/faithoff/src/polaris_graph/generator/multi_section_generator.py:7970)) | Ten calls, zero tables | Six truncated; four rejected by validator |
+| Clinical trial table/timeline | Deterministic and LLM fallback table paths ([builder](/home/polaris/wt/faithoff/src/polaris_graph/generator/multi_section_generator.py:7831), [LLM call](/home/polaris/wt/faithoff/src/polaris_graph/generator/multi_section_generator.py:7875)) | Correctly did not fire | Zero clinical trial frames and no direct trial quotes ([log](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4667)) |
+| Numeric presentation tables | Deterministic same-measure/unit comparison renderer ([module](/home/polaris/wt/faithoff/src/polaris_graph/generator/presentation_tables.py:1), [public entry](/home/polaris/wt/faithoff/src/polaris_graph/generator/presentation_tables.py:247)) | Did not fire | Default off and explicitly “module only”; no caller exists |
+| Prompt-requested summary table | Parses requested columns and renders a GFM table ([parser](/home/polaris/wt/faithoff/src/polaris_graph/generator/summary_table.py:418), [renderer](/home/polaris/wt/faithoff/src/polaris_graph/generator/summary_table.py:1418)) | Did not fire | Task 72 does not request a table; compose also does not call it |
+| Key Findings | H2 plus `- **Section.** sentence` bullets ([builder](/home/polaris/wt/faithoff/src/polaris_graph/generator/key_findings.py:903)) | Did not fire | Module defaults on, but audited compose never assembles it |
+| Analytical depth block | Headings, bullets, and bold synthesis ([depth builder](/home/polaris/wt/faithoff/src/polaris_graph/generator/key_findings.py:1025)) | Did not fire | Depends on generator-phrased findings that are re-grounded/dropped; ineligible under the permanent ban |
+| Cross-jurisdiction block | Bold convergence paragraphs and bold divergence bullets ([convergence](/home/polaris/wt/faithoff/src/polaris_graph/generator/cross_jurisdiction_synthesizer.py:500), [divergence](/home/polaris/wt/faithoff/src/polaris_graph/generator/cross_jurisdiction_synthesizer.py:538)) | Did not fire | No production callers; task not jurisdiction-constrained |
+| Coverage-gaps list | H2 plus bold bullet disclosures ([renderer](/home/polaris/wt/faithoff/src/polaris_graph/generator/required_entity_ledger.py:235)) | Did not fire | Honest-sweep assembly only; compose bypasses it |
+| Evidence-base numbered list | Numbered source/finding surface ([builder](/home/polaris/wt/faithoff/src/polaris_graph/generator/weighted_enrichment.py:5324)) | Did not fire | Breadth enrichment explicitly disabled ([log](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4665)) |
+| Weighted-enrichment bullets/bold | Can split glued findings into bullets and render bold corroboration headers ([bullet seam](/home/polaris/wt/faithoff/src/polaris_graph/generator/weighted_enrichment.py:4379), [bold header](/home/polaris/wt/faithoff/src/polaris_graph/generator/weighted_enrichment.py:4488)) | Did not fire | Audited compose does not use the final enrichment/render seam; current implementation also contains forbidden post-generation removal paths |
+| Analyst synthesis | Long comparison prose with `###` subheads ([prompt](/home/polaris/wt/faithoff/src/polaris_graph/generator/analyst_synthesis.py:123)) | No block rendered | Emitter refused it ([log](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4764)); current promotion/deviation machinery is ineligible |
+| Quantified trade-off | `### Quantified Trade-off` prose block ([renderer](/home/polaris/wt/faithoff/src/polaris_graph/generator/quantified_analysis.py:797), [heading](/home/polaris/wt/faithoff/src/polaris_graph/generator/quantified_analysis.py:1125)) | Did not fire | `quantified_analysis_models=0` ([compose summary](/home/polaris/wt/faithoff/outputs/all_levers_run/compose_summary.json:45)); not wired into compose |
+| Boundary condition emphasis | Bold “Boundary conditions / counter-evidence” paragraph ([renderer](/home/polaris/wt/faithoff/src/polaris_graph/generator/boundary_conditions.py:252)) | Did not fire | No corresponding assembly path or output |
+| Cross-source comparison sentences | Deterministic connective composer, including numeric comparison ([composer](/home/polaris/wt/faithoff/src/polaris_graph/generator/cross_source_synthesis.py:964)) | No activation evidence | A genuine fire logs a composed-count line ([log site](/home/polaris/wt/faithoff/src/polaris_graph/generator/cross_source_synthesis.py:1047)); none appears in the run. Several current relation paths use banned entailment/NLI and must not be revived |
+| Cross-trial comparison | Adds prompt-context bullets describing patterns ([renderer](/home/polaris/wt/faithoff/src/polaris_graph/generator/cross_trial_synthesis.py:323)) | Zero | No trial frames; these are internal prompt bullets, not direct report artifacts |
+| Regulatory synthesizer | Internal prompt bullets; final renderer is flat prose ([prompt](/home/polaris/wt/faithoff/src/polaris_graph/generator/regulatory_synthesizer.py:283), [renderer](/home/polaris/wt/faithoff/src/polaris_graph/generator/regulatory_synthesizer.py:511)) | Did not fire | Not a report list/table generator and not applicable |
+| Table normalizer | Repairs malformed GFM tables without generating them ([normalizer](/home/polaris/wt/faithoff/src/polaris_graph/generator/markdown_table_normalizer.py:196)) | No-op | No table existed; audited compose does not invoke honest-sweep normalization |
+| Retrieval table preservation | CRAG preserves source tables as intact chunks and repeats headers on large splits ([chunker](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/crag_retriever.py:143), [large-table split](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/crag_retriever.py:412)) | No final artifact | Preserves evidence shape only; it does not insert tables into reports |
+| Legacy retrieval writing prompt | Requests tables for three comparable points and bold Key Findings bullets ([table rule](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/synthesis_prompts.py:118), [bullets](/home/polaris/wt/faithoff/src/polaris_graph/retrieval/synthesis_prompts.py:219)) | Did not fire | Champion `multi_section_generator` does not use this legacy prompt |
+
+Two additional adversarial findings:
+
+- `summary_table.py` claims task 72 explicitly requests named table columns ([module header](/home/polaris/wt/faithoff/src/polaris_graph/generator/summary_table.py:3)); the actual task prompt contains no table request. That documentation is stale. The module also relies on curated field vocabularies, so it is not the general prompt-digesting solution requested here.
+- Internal outline bullets, evidence-menu lists, JSON slot fields, and table-aware retrieval chunks are not report artifacts. Counting them would repeat the “machinery exists” mistake.
+
+### The alleged chart path is not chart generation
+
+`chart_alt_chrome` is explicitly a regex that recognizes screen-reader axis narration and returns `True` to suppress it ([definition](/home/polaris/wt/faithoff/src/polaris_graph/generator/weighted_enrichment.py:1871), [activation](/home/polaris/wt/faithoff/src/polaris_graph/generator/weighted_enrichment.py:3053)). Therefore [gen.log:4593](/home/polaris/wt/faithoff/outputs/all_levers_run.gen.log:4593) proves that chart-like scraped text was detected, not that a chart was created.
+
+Actual chart renderers live outside the requested directories in legacy paths:
+
+- Matplotlib/chart Markdown in [`agents/synthesizer.py`](/home/polaris/wt/faithoff/src/polaris_graph/agents/synthesizer.py:564);
+- base64 PNG output in [`nodes/synthesize.py`](/home/polaris/wt/faithoff/src/polaris_graph/nodes/synthesize.py:148);
+- an explicitly unwired visual tool in [`visual_generator.py`](/home/polaris/wt/faithoff/src/polaris_graph/tools/visual_generator.py:6).
+
+None is called by the champion compose path.
+
+### What the RACE cleaner preserves
+
+The cleaner removes citation markers, footnotes, and reference-only material, then retains the other article content ([cleaner](/home/polaris/wt/outline_agent/third_party/deep_research_bench/prompt/clean_prompt.py:28)). The scorer interpolates the cleaned article as text; it does not render or inspect images ([scorer](/home/polaris/wt/outline_agent/third_party/deep_research_bench/deepresearch_bench_race.py:84)).
+
+Mechanical raw-versus-cleaned comparisons confirm that:
+
+- GFM pipe tables survive;
+- bullets survive;
+- bold markers survive;
+- ordinary headings survive;
+- citations and the References heading/body disappear.
+
+Therefore textual tables, bullets, and bold are worth testing. A PNG/image-only chart is effectively invisible to this judge. A chart would need an accompanying textual table or data summary, making the image itself nearly zero-EV.
+
+### Correct deterministic artifact design
+
+1. Introduce a common `ReportBlock` representation: `paragraph`, `subheading`, `bullet_list`, and `gfm_table`. Carry blocks through section writing, resolution, assembly, and cleaner canaries instead of flattening everything into strings.
+
+2. Build comparison facts before generation from the qualified evidence substrate using a general schema such as construct, value, unit, context/population, time horizon, method/design, boundary condition, and source ID.
+
+3. Render comparison tables deterministically from comparable fact groups. Do not ask K3 to invent Markdown and then silently discard invalid rows. Non-comparable findings remain in prose; no generated content is removed.
+
+4. Wire artifact blocks into the audited/champion compose assembly. A `MultiSectionResult` table or block that is not inserted into `report.md` is not a fired feature.
+
+5. Reconcile the prompts: when structured output is active, remove the contradictory final “write one paragraph” instruction. Preserve section-native Markdown regardless of whether the simpler paragraph-spacing lever is active.
+
+6. Add a neutral, deterministic Key Findings block by copying selected body sentences. Remove the false “strict_verify-passed” label when strict verification is off ([current label](/home/polaris/wt/faithoff/src/polaris_graph/generator/key_findings.py:975)).
+
+7. Use bullets only for parallel enumerable findings and bold only for short labels. Dense literature synthesis should remain prose plus selective tables, not become a slide deck.
+
+8. Require behavioral output assertions: if comparable cross-study data exists, `report.md` and the cleaned RACE article must contain a valid table with nonzero rows; if a parallel findings block is requested, bullet and bold counts must be nonzero. No “call completed” or “flag enabled” surrogate.
+
+9. Defer image charts until a judge-path experiment proves image visibility. Under the current text-only scorer, prioritize tables.
+
+## Complete forward plan, ranked by expected value
+
+| Rank | Work package | Acceptance test | Expected RACE delta |
+|---:|---|---|---:|
+| 1 | **Qualified evidence replacement + denser K3 synthesis** | Prompt-derived facets receive broad qualified evidence; sections explicitly compare agreement, disagreement, methods, contexts, mechanisms, and boundary conditions | **+0.015 to +0.030 combined**; only credible standalone +0.02-class package |
+| 2 | **End-to-end acquisition contract with qualified backfill** | Every acquisition path presents a matching receipt; no hard-mismatch candidate enters the corpus; coverage does not fall | Gate alone 0 to +0.005; with replacement **+0.007 to +0.015** |
+| 3 | **Deterministic cross-study tables and `ReportBlock` wiring** | Comparable evidence produces visible, valid tables in raw and cleaned articles; no silent zero-table outcome | **+0.004 to +0.012** |
+| 4 | **Correct K3 capability and budgets** | Explicit effort=max; no `finish_reason=length`; matrix visible; content/reasoning usage traced for every call | Budget alone 0 to +0.003; matrix recovery roughly **+0.002 to +0.008** |
+| 5 | **Paragraphing, selective bullets, bold labels** | No giant single-paragraph sections; Key Findings visible; clean article retains formatting | **+0.002 to +0.006**, sub-noise alone |
+| 6 | **Charts/images** | Only pursue if scorer demonstrably consumes pixels | **0 to +0.002** |
+| 7 | **Reference/citation cosmetic cleanup** | N/A—the cleaner removes them | Approximately **0** to RACE |
+
+These ranges are hypotheses, not additive guarantees.
+
+### Implementation sequence
+
+1. **Create the behavioral baseline.**
+   - Freeze the audited corpus and cleaned article.
+   - Record qualified-source share, source/language/date unknown rates, prompt-facet coverage, K3 finish reasons, reasoning/content tokens, visible artifact counts, and all four RACE dimensions.
+   - Preserve separate same-corpus and fresh-retrieval test arms.
+
+2. **Compile and bind the acquisition contract.**
+   - Implement the typed prompt-derived contract once.
+   - Thread it through outline-gap, primary, FS, IterResearch, CRAG/deepener, recovery, and resume.
+   - Add backend capability routing and pre-fetch metadata eligibility.
+   - Add canonical-version recovery, corpus-admission validation, backfill, and receipts.
+   - Require receipt compatibility when composing a prebuilt corpus.
+
+3. **Build a genuinely higher-value evidence substrate.**
+   - Retain the entire qualified corpus, but create per-section packs by marginal prompt-facet coverage rather than dumping 559K input tokens into one call.
+   - Prefer evidence that exposes method, design, context, measure/unit, magnitude, uncertainty, and boundary conditions.
+   - Ensure requested dimensions—not a fixed task-specific list—receive multiple independent qualified sources.
+   - Backfill weak facets before generation.
+
+4. **Fix K3 as a reasoning-first capability.**
+   - Send explicit effort `max`.
+   - Add K3 to capability-aware token and response handling.
+   - Use 64K section and matrix ceilings within live provider limits.
+   - Raise compact K3 tasks to 32K where retained.
+   - Add `synthesis_matrix` and every other actual call type to reasoning traces.
+   - Retry truncations rather than accepting zero-content output.
+
+5. **Rewrite the synthesis task, not just its budget.**
+   - Remove “write one paragraph.”
+   - Ask each section to integrate evidence around prompt-derived mechanisms and comparisons.
+   - Require explicit cross-source convergence, disagreement, methodological reasons for divergence, context/industry boundaries, and implications where supported by the evidence pack.
+   - Give K3 structured evidence cards rather than a maximally long undifferentiated dump.
+
+6. **Replace the current matrix with construction-by-validity.**
+   - Group pre-generation facts by comparable construct/unit/context.
+   - Render tables deterministically from those groups.
+   - Use K3 only to choose an explanatory framing or prose synthesis, not to manufacture table syntax or facts.
+   - Insert table blocks into the champion compose result.
+
+7. **Wire the rest of the presentation layer.**
+   - Preserve paragraphs and GFM blocks through assembly.
+   - Insert extractive Key Findings with a truthful neutral label.
+   - Use selective bullets and bold field labels.
+   - Run table normalization as repair of syntax, not as an artifact producer.
+   - Confirm the cleaned article retains every intended block.
+
+8. **Replay and isolate causality.**
+   - Arm A: current output.
+   - Arm B: same corpus, K3/prompt changes only.
+   - Arm C: same prose, artifact rendering only.
+   - Arm D: fresh scoped retrieval with old generation.
+   - Arm E: fresh scoped retrieval plus dense generation and artifacts.
+   - This distinguishes bibliography compliance from evidence-quality, generation, and presentation effects.
+
+9. **Test generality across the benchmark distribution.**
+   - Include paraphrased hard/soft source constraints, language/date constraints, mixed constraints, and unconstrained prompts.
+   - Assert no over-filtering on prompts that allow broad sources.
+   - Assert the compiled contract—not a task identifier or fixed venue/domain vocabulary—explains every acquisition decision.
+
+10. **Use a noise-aware promotion rule.**
+    - Run paired multi-draw RACE evaluations.
+    - Treat ≤0.007 as noise.
+    - Treat +0.008 to +0.014 as promising but needing replication.
+    - Call a lever a real mover only when its replicated mean exceeds roughly +0.014 or its uncertainty excludes +0.007.
+    - The combined evidence-plus-generation-plus-table package is the only package I would presently target for a credible **+0.02** result.
+
+The strategic conclusion is that the run did not fail because one flag was missing. It combined an unbound acquisition constraint, an unproductive 6K K3 matrix call, an overly restrictive matrix validator, and an assembly path that ignored nearly every artifact producer. The highest-EV correction is to make the prompt govern acquisition, replace weak evidence without losing breadth, give K3 focused high-value material and a real completion budget, and render comparisons by construction.
