@@ -1020,8 +1020,14 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_TRANSFORM_B_ENABLED': '0',
     'PG_TRANSITION_CAP_PER_10K': '60',
     'PG_TRANSITION_MAX_DENSITY': '150',
-    'PG_TRIAL_TABLE_MIN_MAX_TOKENS': '6000',
-    'PG_TRIAL_TABLE_REASONING_MAX_TOKENS': '2048',
+    # RACE-fix (2026-07-22): 6000 total / 2048 reasoning starved the reasoning-first generator
+    # (kimi-k3) on the synthesis-matrix/trial-table call — it spent the whole budget on reasoning
+    # and emitted content="" (finish_reason='length'), so every table truncated (0 shipped). Sized
+    # to the model's observed need (~6K reasoning) + content headroom, matching the section floor
+    # (PG_SECTION_REASONING_MAX_TOKENS 16384 + headroom). With kimi-k3 now reasoning-first, the 40%
+    # cap also protects content. Capability fix, not a target-forcing number.
+    'PG_TRIAL_TABLE_MIN_MAX_TOKENS': '24576',
+    'PG_TRIAL_TABLE_REASONING_MAX_TOKENS': '16384',
     'PG_TWO_SIDED_DEBATE': '0',
     'PG_UNIT_CONFLATION_GUARD': '1',
     'PG_UNPAYWALL_EMAIL': 'polaris@example.org',

@@ -832,6 +832,14 @@ _REASONING_FIRST_MODELS = frozenset({
     *_ALWAYS_REASON_MODELS,
     "deepseek/deepseek-v4-pro",
     "deepseek/deepseek-v4-flash",
+    # RACE-fix (2026-07-22): kimi-k3 is reasoning-first — the run log shows it routing output to
+    # reasoning_content (5997 reasoning tokens, content="", finish_reason='length') on the synthesis-
+    # matrix call, so without the 40% reasoning-cap it burns the whole max_tokens on reasoning and
+    # emits zero content (every matrix call truncated -> 0 tables). Placed HERE (request-side 40% cap),
+    # NOT in _ALWAYS_REASON_MODELS, because that set is checked first and applies GLM-specific
+    # temperature/CoT-stripping that does not fit K3 (OpenRouter: K3 reasoning is default-on but
+    # optional, not always-reason mandatory). Evidence-based response-shape classification.
+    "moonshotai/kimi-k3",
 })
 
 # Pricing per million tokens (configurable per LAW VI)

@@ -44,6 +44,11 @@ CALL_TYPES = frozenset(
         # with "unknown reasoning-trace call_type: 'section_reduce'" — a
         # telemetry loss only (no claim/verdict path touched).
         "section_reduce",
+        # RACE-fix (2026-07-22): the cross-study comparison-table LLM call
+        # (multi_section_generator synthesis-matrix site, call_type="synthesis_matrix").
+        # Without this the trace record is dropped with "unknown reasoning-trace call_type:
+        # 'synthesis_matrix'" (telemetry loss only) — which hid every truncated matrix call.
+        "synthesis_matrix",
         "repair",
         "regen",
         "limitations",
