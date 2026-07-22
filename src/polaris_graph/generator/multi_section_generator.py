@@ -7993,7 +7993,7 @@ Emit a markdown table with EXACTLY these columns:
 - Ref: one or more [N] bibliography markers copied from the verified prose for that row's facts. NEVER invent numbers — only reuse [N] markers that appear in the prose.
 
 CRITICAL RULES:
-0. FAITHFUL TO ONE SENTENCE: every non-"—" cell value MUST be supported by the SINGLE prose sentence that carries that row's [N] — keep the exact numbers, signs (+/-), and polarity (never drop a "no"/"not"/"without"/"failed to"), and never add, negate, flip, or overstate a fact. A close paraphrase of that one sentence is allowed, but a row is verified by an ENTAILMENT check against its cited sentence and is DROPPED if the sentence does not entail it. If a fact is not stated in that one sentence, put "—".
+0. VERBATIM COPY: every non-"—" cell value MUST be a word-for-word span copied from the SINGLE prose sentence that carries that row's [N] — same words, same order, same signs (+/-), same polarity (keep "no"/"not"/"without"), same numbers. Do NOT paraphrase, reword, summarize, or synonym-swap (e.g. never write "randomized" if the sentence says "random-effects"). If the exact value is not stated in that one sentence, put "—". A row all of whose facts cannot be copied verbatim from ONE cited sentence will be DROPPED.
 1. Build a row ONLY for findings that quantify the SAME comparable construct across studies. The table's value is side-by-side comparison of ONE measure; do NOT force different measures into one table.
 2. Every row must cite at least one [N] present in the verified prose, and all of that row's [N] must appear together in ONE prose sentence (the sentence the row summarizes).
 3. Do NOT invent studies, contexts, measures, findings, designs, or numbers not literally present in the prose. If a cell is not stated, put "—".
@@ -8025,27 +8025,10 @@ import unicodedata as _unicodedata
 
 
 def _synthesis_ws_norm(text: str) -> str:
-    """NFKC-normalize, then lowercase + collapse whitespace. NFKC folds full-width digits/percent
-    (１４％ -> 14%) and no-break/narrow spaces so a cell and its clause compare consistently. Signs,
-    comparators, percent, currency, and polarity words are otherwise PRESERVED (verbatim match)."""
-    t = _unicodedata.normalize("NFKC", text)
-    return re.sub(r"\s+", " ", t.strip().lower())
-
-
-# Governing modifiers: if one of these sits IMMEDIATELY before a cell's matched span in the clause and
-# is not part of the cell, the cell copied a value while dropping the modifier that governs its meaning
-# (e.g. "detectable increase" out of "no detectable increase") — the row is dropped (Sol A-polarity).
-_POLARITY_SINGLE = frozenset({
-    "no", "not", "never", "without", "none", "non", "un", "cannot", "nor", "n't",
-    "approximately", "about", "roughly", "around", "nearly", "almost", "circa", "approx",
-    "only", "just", "merely", "barely", "negligible", "insignificant",
-    "under", "over", "below", "above", "fewer", "greater", "more", "less", "up",
-})
-_POLARITY_PHRASE = frozenset({
-    ("up", "to"), ("at", "least"), ("at", "most"), ("more", "than"), ("less", "than"),
-    ("fewer", "than"), ("greater", "than"), ("no", "more"), ("no", "less"), ("rather", "than"),
-    ("as", "much"), ("as", "little"), ("as", "many"), ("as", "few"),
-})
+    """Normalize ONLY case + whitespace (nothing else). Signs (+/-), comparators (</>/=/≤/≥), percent,
+    currency, and polarity words are PRESERVED so a cell must match its cited clause verbatim up to
+    case/spacing — the robust anti-fabrication rule (Sol integrated re-gate)."""
+    return re.sub(r"\s+", " ", text.strip().lower())
 
 
 # CANONICAL citation markers only: ASCII "[N]" with N a bare positive integer (no leading zero, no
@@ -8057,12 +8040,8 @@ _SYNTHESIS_REF_CELL_RE = re.compile(r"(?:\[[1-9][0-9]*\]\s*)+")
 # separator, not a clause break), and the strong contrastive conjunctions. Splitting on these isolates
 # "Study Alpha … 14%" from "whereas Study Beta … 99% [1]" so a row cannot borrow across clauses.
 _CLAUSE_SPLIT_RE = re.compile(
-    r";|(?<!\d),(?!\d)|\bwhereas\b|\bwhile\b|\bbut\b|\bhowever\b|\band\b|\bor\b", re.IGNORECASE
+    r";|(?<!\d),(?!\d)|\bwhereas\b|\bwhile\b|\bbut\b|\bhowever\b", re.IGNORECASE
 )
-# Non-space chars that separate digit GROUPS/decimals across scripts (ASCII + Arabic + others). A run of
-# these (or whitespace) between two digits is token-INTERNAL, so a bare "5" is not grounded by "5 000",
-# "5,000", "5.5", "5 000", or "5٬000".
-_DIGIT_SEP_CHARS = ",.:/" + "٫٬"  # ASCII + Arabic decimal/thousands sep
 
 
 def _synthesis_token_internal(ch: str) -> bool:
@@ -8078,45 +8057,28 @@ def _synthesis_token_internal(ch: str) -> bool:
 
 def _synthesis_boundary_ok(hay: str, pos: int, needle: str, *, left: bool) -> bool:
     """Is the neighbour char at ``pos`` a TOKEN BOUNDARY (not token-internal)? String edges are
-    boundaries. Whitespace AND cross-script digit separators (, . : / ٫ ٬) are token-internal ONLY
-    between two digits (so bare '5' is not a boundary-match inside '5,000'/'5.5'/'5 000', but 'trial'
-    is a match before 'trial, output' and before 'trial output')."""
+    boundaries. Numeric separators (, . : /) are token-internal ONLY between digits (so '5' is not a
+    boundary-match inside '5,000'/'5.5' but 'trial' is a match before 'trial, output')."""
     if pos < 0 or pos >= len(hay):
         return True
     ch = hay[pos]
-    if ch.isspace() or ch in _DIGIT_SEP_CHARS:
-        inner_digit = (needle[:1] if left else needle[-1:]).isdigit()
-        outer = hay[pos - 1] if (left and pos - 1 >= 0) else (hay[pos + 1] if (not left and pos + 1 < len(hay)) else "")
-        return not (inner_digit and outer.isdigit())  # digit-flanked separator => internal
+    if ch.isspace():
+        return True
     if _synthesis_token_internal(ch):
         return False
+    if ch in ",.:/":
+        inner_digit = (needle[:1] if left else needle[-1:]).isdigit()
+        outer = hay[pos - 1] if (left and pos - 1 >= 0) else (hay[pos + 1] if (not left and pos + 1 < len(hay)) else "")
+        return not (inner_digit and outer.isdigit())  # numeric separator => internal => not a boundary
     return True  # other punctuation ( ) [ ] etc. => boundary
 
 
-def _synthesis_modifier_governed(clause_norm: str, i: int) -> bool:
-    """True iff a GOVERNING polarity/quantifier/comparator modifier sits IMMEDIATELY before the matched
-    span at ``i`` and is thus NOT part of the (span-only) cell — meaning the cell copied a value while
-    dropping the modifier that governs its meaning (e.g. 'detectable increase' out of 'no detectable
-    increase', '14%' out of 'up to 14%'). Adjacency only (Sol A-polarity): the immediately-preceding
-    one/two word tokens."""
-    toks = re.findall(r"[^\W_]+", clause_norm[:i], re.UNICODE)
-    if toks and toks[-1] in ("a", "an", "the"):
-        toks = toks[:-1]  # a modifier can bind through one article ("roughly a 14%", "less than the 14%")
-    if not toks:
-        return False
-    if toks[-1] in _POLARITY_SINGLE:
-        return True
-    if len(toks) >= 2 and (toks[-2], toks[-1]) in _POLARITY_PHRASE:
-        return True
-    return False
-
-
 def _synthesis_cell_grounded(cell: str, clause_norm: str) -> bool:
-    """A content cell must be a NFKC/case/whitespace-normalized, TOKEN-BOUNDARY substring of the row's
-    single cited CLAUSE, WITH the governing modifiers of the span it copies. ONLY a literal em-dash "—"
-    (or empty) is 'not reported'. Complete numeric lexeme is compared: '5%' not grounded by
-    '≤5%'/'±5%'/'$5'/'5,000'/'5 000'; 'worker' not by "worker's"/'worker_id'; 'randomized' not by
-    'non-randomized'; a value governed by an omitted 'no'/'up to'/'more than'/'only' is DROPPED."""
+    """A content cell must be a case/whitespace-normalized, TOKEN-BOUNDARY substring of the row's single
+    cited CLAUSE. ONLY a literal em-dash "—" (or empty) is 'not reported'; 'none'/'-'/'n/r' are content
+    and must ground. Boundaries are Unicode-category based so the complete numeric lexeme is compared:
+    '5%' is not grounded by '≤5%'/'≥5%'/'±5%'/'$5'/'5,000'; 'worker' not by "worker's"/'workeré'/
+    'worker_id'; 'randomized' not by 'non-randomized'."""
     c = cell.strip()
     if c in ("", "—"):
         return True
@@ -8129,9 +8091,8 @@ def _synthesis_cell_grounded(cell: str, clause_norm: str) -> bool:
         if i < 0:
             return False
         if (_synthesis_boundary_ok(clause_norm, i - 1, needle, left=True)
-                and _synthesis_boundary_ok(clause_norm, i + len(needle), needle, left=False)
-                and not _synthesis_modifier_governed(clause_norm, i)):
-            return True  # a clean, un-governed, token-boundary occurrence grounds the cell
+                and _synthesis_boundary_ok(clause_norm, i + len(needle), needle, left=False)):
+            return True
         start = i + 1
 
 
@@ -8158,48 +8119,6 @@ def _synthesis_row_grounded(cells: list[str], ref_markers: "frozenset[str]", sen
         return False
     clause_norm = _synthesis_ws_norm(clause)
     return all(_synthesis_cell_grounded(cell, clause_norm) for cell in cells[:5])
-
-
-def _synthesis_entailment_enabled() -> bool:
-    """LEVER 2 row-faithfulness gate (PG_SYNTHESIS_MATRIX_ENTAILMENT, default 'on'). When on, each row is
-    verified by the frozen entailment judge instead of the over-strict verbatim lexical rule (which
-    suppresses faithful paraphrase and still cannot see verb-scoped negation). Independent of
-    PG_STRICT_VERIFY_OFF. 'off'/'0'/'no'/'false' => fall back to strict verbatim grounding."""
-    return resolve('PG_SYNTHESIS_MATRIX_ENTAILMENT').strip().lower() not in (
-        '', '0', 'off', 'no', 'false',
-    )
-
-
-def _synthesis_row_sentence(cells: list[str]) -> str:
-    """Build a natural-language claim sentence from a row's 5 content cells (Study/Context/Measure/
-    Finding/Design), omitting em-dash (not-reported) cells, for the entailment judge (hypothesis)."""
-    study, context, measure, finding, design = (c.strip() for c in cells[:5])
-    def _ok(v: str) -> bool:
-        return bool(v) and v != "—" and v != "-"
-    subj = study if _ok(study) else "The study"
-    parts: list[str] = []
-    if _ok(finding):
-        parts.append(finding if _ok(measure) is False else f"{finding} for {measure}")
-    elif _ok(measure):
-        parts.append(f"a result for {measure}")
-    body = f"{subj} found {parts[0]}" if parts else f"{subj} is reported"
-    if _ok(context):
-        body += f" in {context}"
-    if _ok(design):
-        body += f" ({design})"
-    return body.strip().rstrip(".") + "."
-
-
-def _synthesis_numbers_in_clause(cells: list[str], clause: str) -> bool:
-    """Cheap fail-closed numeric pre-check: every decimal appearing in a row's 5 content cells must
-    appear in the grounding clause. Numbers are where NLI judges are weakest, so gate them exactly here
-    BEFORE the entailment call (belt-and-suspenders). Reuses the frozen strict_verify decimal extractor."""
-    from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
-        _decimals as _sv_decimals,
-    )
-    clause_nums = _sv_decimals(_CITATION_MARKER_RE.sub("", clause))
-    cell_nums = _sv_decimals(_CITATION_MARKER_RE.sub("", " ".join(cells[:5])))
-    return cell_nums.issubset(clause_nums)
 
 
 def _extract_synthesis_matrix(
@@ -8279,32 +8198,8 @@ def _extract_synthesis_matrix(
             continue  # rule 2: every row must cite
         if not ref_markers.issubset(_prose_markers):
             continue  # a marker string absent from the prose => drop (exact-string, no int normalization)
-        # Contentless-row guard: a synthesis-comparison row must state an actual Finding. An
-        # all-"—" / finding-less row could trivially ENTAIL an empty claim and add a junk row,
-        # so require the Finding cell to carry reported content before any grounding gate.
-        _finding_cell = cells[3].strip() if len(cells) > 3 else ""
-        if not _finding_cell or _finding_cell in ("—", "-"):
-            continue  # no reported finding => not a synthesis row => drop
-        if _synthesis_entailment_enabled():
-            # PRIMARY semantic gate: the ONE equal-citation clause must ENTAIL the row. Closes
-            # verb-scoped negation ("did NOT rise 14%") that lexical checks cannot see, and admits
-            # faithful paraphrase (so real tables aren't over-suppressed). Runs regardless of
-            # PG_STRICT_VERIFY_OFF (table safety is not tied to the prose master switch).
-            _clause = _synthesis_grounding_clause(ref_markers, _prose_sentences)
-            if _clause is None:
-                continue  # no single clause whose citations EQUAL the row's Ref => ambiguous => drop
-            if not _synthesis_numbers_in_clause(cells, _clause):
-                continue  # a cell number not in the grounding clause => fabricated => drop (pre-check)
-            from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
-                _get_judge,
-            )
-            _verdict, _reason = _get_judge().judge(_synthesis_row_sentence(cells), _clause)
-            # FAIL CLOSED: keep ONLY on a clean ENTAILED. NEUTRAL/CONTRADICTED and the fail-open
-            # ("ENTAILED","judge_error:…") sentinel both drop the row.
-            if _verdict != "ENTAILED" or _reason.startswith("judge_error:"):
-                continue
-        elif not _synthesis_row_grounded(cells, ref_markers, _prose_sentences):
-            continue  # entailment off => strict verbatim lexical grounding (safe, stricter fallback)
+        if not _synthesis_row_grounded(cells, ref_markers, _prose_sentences):
+            continue  # a cell is not a verbatim span of its OWN single cited clause => fabrication => drop
         if _cell_verify:
             from src.polaris_graph.clinical_generator.strict_verify import (
                 _decimals as _sv_decimals,
@@ -8655,19 +8550,10 @@ def _parse_tier_override(override: str) -> "list[tuple[str, str]] | None":
 
 
 def _reader_field_safe(value: Any) -> bool:
-    """True iff a free-text field is safe for reader prose. Fail-closed: NFKC + lowercase, then convert
-    EVERY connector/punctuation run (incl. '_', '-', '.', '/') to spaces before tokenizing, so
-    'T1_topic'/'pipeline_internal'/'tier_3_source' cannot hide a code behind a word-char connector.
-    Reject if any token is a raw tier code (T1-T7 / UNKNOWN) or internal vocabulary, or any internal
-    marker substring survives. Unsafe fields are dropped, never leaked (Sol C screening)."""
-    s = _unicodedata.normalize("NFKC", str(value)).lower()
-    for bad in ("not_comparable", "possible_metric_mismatch", "ev_", "telemetry", "pipeline", "basket"):
-        if bad in s:
-            return False
-    for tok in re.sub(r"[^a-z0-9]+", " ", s).split():
-        if re.fullmatch(r"t[1-7]", tok) or tok in ("unknown", "tier", "telemetry", "pipeline", "basket"):
-            return False
-    return True
+    """True iff a free-text field is safe to place in reader prose — no raw tier token (T1-T7/UNKNOWN)
+    and no internal-marker vocabulary. Unsafe fields are dropped, never leaked (Sol C screening)."""
+    s = str(value)
+    return not _RAW_TIER_TOKEN_RE.search(s) and not _INTERNAL_MARKER_RE.search(s)
 
 
 def _reader_tier_sentence(

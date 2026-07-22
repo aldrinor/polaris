@@ -18,10 +18,6 @@ def msg(monkeypatch):
     monkeypatch.delenv("PG_SYNTHESIS_MATRIX", raising=False)
     monkeypatch.delenv("PG_SYNTHESIS_MATRIX_MIN_ROWS", raising=False)
     monkeypatch.delenv("PG_SWEEP_TABLE_CELL_VERIFY", raising=False)
-    # These tests exercise the deterministic structural/verbatim extraction path; keep the entailment
-    # judge gate OFF here (verbatim fallback) so no live judge is needed. Entailment is covered in
-    # test_lever_integration_safety.py with a mocked judge. Production default is 'on'.
-    monkeypatch.setenv("PG_SYNTHESIS_MATRIX_ENTAILMENT", "off")
     mod = importlib.import_module(MSG)
     return mod
 
