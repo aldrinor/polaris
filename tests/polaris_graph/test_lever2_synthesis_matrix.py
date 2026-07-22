@@ -40,14 +40,16 @@ def test_flag_on(msg, monkeypatch):
 
 
 def test_extract_valid_three_rows(msg):
+    # Every cell's words/numbers appear in the SAME sentence that carries the row's [N] -> grounded.
     prose = (
-        "Productivity rose 14% in support work [1]. It rose 34% in writing tasks [2]. "
-        "It rose 56% in coding [3]."
+        "In a firm deployment in customer support, productivity rose 14% [1]. "
+        "In a randomized experiment on writing, productivity rose 34% [2]. "
+        "In a randomized experiment on coding, productivity rose 56% [3]."
     )
     raw = _table([
-        "| Support study | customer support | productivity | +14% | firm deployment | [1] |",
-        "| Writing study | writing | productivity | +34% | randomized experiment | [2] |",
-        "| Coding study | software | productivity | +56% | randomized experiment | [3] |",
+        "| customer support | customer support | productivity | 14% | firm deployment | [1] |",
+        "| writing | writing | productivity | 34% | randomized experiment | [2] |",
+        "| coding | coding | productivity | 56% | randomized experiment | [3] |",
     ])
     out = msg._extract_synthesis_matrix(raw, {1, 2, 3}, verified_prose=prose, min_rows=3)
     assert out.startswith(HEADER)

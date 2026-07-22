@@ -8020,6 +8020,65 @@ def _synthesis_matrix_min_rows() -> int:
         return 3
 
 
+_SYNTHESIS_GROUND_STOPWORDS = frozenset(
+    "the a an of to in on for and or by with from at as is are was were be been being "
+    "that this these those it its their there here than then also more most less into "
+    "over under about across between among per via not no but which who whom whose "
+    "have has had will would can could may might such both each any all some".split()
+)
+
+
+def _synthesis_norm(text: str) -> str:
+    """Lowercase + collapse every non-alphanumeric run to a single space (for substring grounding)."""
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _synthesis_numbers(text: str) -> set[str]:
+    """The bare number tokens (integer/decimal) in a string — the values a cell asserts."""
+    return set(re.findall(r"\d+(?:\.\d+)?", text))
+
+
+def _synthesis_sentences_by_num(verified_prose: str) -> dict[int, str]:
+    """Map each citation number [N] to the concatenated text of the verified-prose SENTENCES that
+    carry it, so a table row citing [N] can be grounded against the exact sentence(s) it claims to
+    summarize — NOT merely against 'somewhere in the section' (the fabrication hole Sol found)."""
+    acc: dict[int, list[str]] = {}
+    for sent in split_into_sentences(verified_prose):
+        for m in _CITATION_MARKER_RE.finditer(sent):
+            acc.setdefault(int(m.group(1)), []).append(sent)
+    return {n: " ".join(v) for n, v in acc.items()}
+
+
+def _synthesis_row_grounded(cells: list[str], nums: list[int], sent_by_num: dict[int, str]) -> bool:
+    """FAIL-CLOSED grounding: every non-blank cell (except the Ref column) must be supported by the
+    verified-prose sentence(s) that carry this row's OWN [N] marker(s). A row is grounded only when:
+      (a) every number the cell asserts appears in the cited sentence(s) — kills numbers mis-assigned
+          to the wrong [N]; and
+      (b) every salient content token (>=4 chars, non-stopword, prefix-substring to tolerate plurals)
+          appears in the cited sentence(s) — kills invented institutes/contexts/measures/designs.
+    Any cell that is not grounded => the row is dropped by the caller. Ungroundable => no table."""
+    ground_raw = " ".join(sent_by_num.get(n, "") for n in nums)
+    if not ground_raw.strip():
+        return False
+    ground_norm = _synthesis_norm(ground_raw)
+    ground_nums = _synthesis_numbers(ground_raw)
+    # cells order = Study | Context | Measure | Finding | Design | Ref  -> ground the first five only.
+    for cell in cells[:5]:
+        c = cell.strip()
+        if c in ("", "—", "-") or c.lower() in ("n/r", "na", "none", "not reported", "unclear"):
+            continue
+        for num in _synthesis_numbers(c):
+            if num not in ground_nums:
+                return False
+        for tok in _synthesis_norm(c).split():
+            if tok.isdigit() or len(tok) < 4 or tok in _SYNTHESIS_GROUND_STOPWORDS:
+                continue
+            probe = tok[:5]
+            if probe not in ground_norm:
+                return False
+    return True
+
+
 def _extract_synthesis_matrix(
     raw: str,
     valid_citation_nums: set[int],
@@ -8069,6 +8128,9 @@ def _extract_synthesis_matrix(
         )
         _prose_decimals = _sv_decimals(_CITATION_MARKER_RE.sub("", verified_prose))
 
+    # FAIL-CLOSED cell grounding (Sol integrated-gate fix): bind every row to the verified-prose
+    # sentence(s) that carry its OWN [N]. Without prose we cannot ground => suppress the whole table.
+    _sent_by_num = _synthesis_sentences_by_num(verified_prose) if verified_prose.strip() else {}
     kept_rows: list[str] = []
     for line in lines_after[2:]:
         stripped = line.strip()
@@ -8081,6 +8143,11 @@ def _extract_synthesis_matrix(
             continue  # rule 2: every row must cite
         if any(n not in valid_citation_nums for n in nums):
             continue  # out-of-range/invented citation => drop the row
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if len(cells) != 6:
+            continue  # not a canonical 6-cell row => drop (cannot ground per-cell)
+        if not _synthesis_row_grounded(cells, nums, _sent_by_num):
+            continue  # a cell is not supported by its OWN cited sentence => fabrication => drop
         if _cell_verify:
             from src.polaris_graph.clinical_generator.strict_verify import (
                 _decimals as _sv_decimals,
@@ -8379,6 +8446,55 @@ def _m50_select_candidate_trials(
     return candidates
 
 
+def _deterministic_reader_limitations(
+    tier_fractions: dict[str, float] | None,
+    contradictions: list[dict[str, Any]] | None,
+    date_range: dict[str, Any] | None,
+    uncovered_topics: list[str] | None = None,
+) -> str:
+    """Lever 6 reader-register Limitations rendered DETERMINISTICALLY from telemetry — NO LLM, so there
+    is no fabrication surface (Sol integrated-gate fix). States the SAME numbers as the pipeline
+    telemetry but in scholarly register, without internal vocabulary (no tier codes / 'telemetry' /
+    'pipeline'). Every value below is copied verbatim from the telemetry; no claim is invented."""
+    parts: list[str] = ["Limitations:"]
+    if tier_fractions:
+        peer = (tier_fractions.get("T1", 0.0) + tier_fractions.get("T2", 0.0)) * 100
+        parts.append(
+            f"The evidence base draws substantially on working papers, preprints, and institutional "
+            f"reports alongside peer-reviewed journal articles; approximately {peer:.0f}% of the cited "
+            f"sources are peer-reviewed primary studies, so several conclusions are best read as "
+            f"indicative rather than definitive."
+        )
+    if contradictions:
+        def _nc(c: dict[str, Any]) -> bool:
+            return bool(c.get("not_comparable")) or (
+                "[not_comparable]" in str(c.get("predicate", "") or "")
+            )
+        if any(not _nc(c) for c in contradictions):
+            parts.append(
+                "Where studies of the same question report differing magnitudes, this review presents "
+                "the range of findings rather than adjudicating a single value."
+            )
+    if isinstance(date_range, dict):
+        _start = date_range.get("start") or date_range.get("min") or date_range.get("from")
+        _end = date_range.get("end") or date_range.get("max") or date_range.get("to")
+        if _start and _end:
+            parts.append(
+                f"The literature surveyed spans {_start}-{_end}; developments after this window may "
+                f"not be reflected."
+            )
+    if uncovered_topics:
+        _named = ", ".join(str(t) for t in uncovered_topics[:5] if t)
+        if _named:
+            parts.append(f"Some aspects received limited coverage in the retrieved evidence: {_named}.")
+    if len(parts) == 1:
+        parts.append(
+            "The review is bounded by the coverage and quality of the retrieved evidence; conclusions "
+            "should be weighed accordingly."
+        )
+    return " ".join(parts)
+
+
 async def _call_limitations(
     *,
     tier_fractions: dict[str, float] | None,
@@ -8400,6 +8516,13 @@ async def _call_limitations(
     deterministic fallback Limitations paragraph so the report never
     ships without this section.
     """
+    # Lever 6 (PG_LIMITATIONS_REGISTER=reader): render the Limitations DETERMINISTICALLY from telemetry
+    # and skip the LLM entirely — no fabrication surface, disclosure fidelity provable (Sol fix). OFF =>
+    # this branch is skipped and the original LLM path runs byte-identically.
+    if _limitations_register_reader_enabled():
+        return _deterministic_reader_limitations(
+            tier_fractions, contradictions, date_range, uncovered_topics,
+        ), 0, 0
     from src.polaris_graph.generator.live_deepseek_generator import (
         _format_telemetry_block,
     )

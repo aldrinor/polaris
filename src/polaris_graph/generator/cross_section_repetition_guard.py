@@ -142,6 +142,17 @@ def _contains_heading(sentence: str) -> bool:
     return False
 
 
+def _contains_table(sentence: str) -> bool:
+    """True iff any line of the unit is (or absorbed) a markdown table row — a line with a ``|`` pipe.
+    Sol integrated-gate SAFETY FIX (L2+L5): the lightweight splitter can swallow a trailing ``| ... |``
+    synthesis-matrix row into a preceding unit; consolidating/replacing such a unit would DESTROY the
+    table. A table unit is therefore never eligible — L5 skips it entirely (fail-safe, keeps the table)."""
+    for line in sentence.splitlines():
+        if "|" in line:
+            return True
+    return False
+
+
 def _signature(sentence: str) -> str:
     """EXACT-recycle equivalence signature: ONLY numeric ``[N]`` citation markers removed, whitespace
     collapsed, lowercased, trailing sentence punctuation stripped. Two units are equivalent iff their
@@ -236,6 +247,8 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
         for sent_pos, sent in enumerate(split_into_sentences(sec["text"])):
             if _contains_heading(sent):
                 continue
+            if _contains_table(sent):
+                continue  # SAFETY (L2+L5): never consolidate/replace a unit carrying a table row
             if not _has_numeric_citation(sent):
                 continue
             if _content_word_count(sent) < min_words:
@@ -302,12 +315,33 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
                 counts[mk] = counts.get(mk, 0) + 1
         return counts
 
+    def _table_lines(txt: str) -> int:
+        return sum(1 for ln in (txt or "").splitlines() if "|" in ln)
+
+    def _per_section_markers(secs: "list[dict[str, Any] | None]") -> "dict[int, list[str]]":
+        out: dict[int, list[str]] = {}
+        for i, s in enumerate(secs):
+            if s is not None:
+                out[i] = sorted(re.findall(r"\[\d+\]", s["sr"].verified_text or ""))
+        return out
+
+    def _per_section_tables(secs: "list[dict[str, Any] | None]") -> "dict[int, int]":
+        return {
+            i: _table_lines(s["sr"].verified_text)
+            for i, s in enumerate(secs) if s is not None
+        }
+
     _pre_texts: dict[int, str] = {
         i: sec["sr"].verified_text
         for i, sec in enumerate(sections)
         if sec is not None
     }
     _pre_markers = _cite_multiset(sections)
+    # SAFETY (L2+L5): per-section marker multiset + table-line count captured BEFORE mutation so the
+    # revert also fires if a consolidation moved a citation across sections or dropped a table row —
+    # not just if the AGGREGATE multiset changed (Sol integrated-gate defense-in-depth).
+    _pre_per_section = _per_section_markers(sections)
+    _pre_tables = _per_section_tables(sections)
 
     # Apply the swaps in place, one section at a time. Each swap targets EXACTLY one occurrence; a
     # unit that is absent or ambiguous (count != 1) in the current body is skipped (fail-safe).
@@ -327,9 +361,15 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
         if changed:
             sec["sr"].verified_text = text
 
-    # Enforce the no-rollback guard: if the citation multiset changed, REVERT everything and keep the
-    # legacy (redundant) output — coverage is never traded for de-duplication.
-    if consolidated and _cite_multiset(sections) != _pre_markers:
+    # Enforce the no-rollback guard: REVERT everything (keep the redundant original) if consolidation
+    # changed the AGGREGATE citation multiset, OR moved a citation across sections (per-section multiset),
+    # OR dropped any table row (per-section table-line count). Coverage/tables are never traded for
+    # de-duplication.
+    if consolidated and (
+        _cite_multiset(sections) != _pre_markers
+        or _per_section_markers(sections) != _pre_per_section
+        or _per_section_tables(sections) != _pre_tables
+    ):
         for i, txt in _pre_texts.items():
             if sections[i] is not None:
                 sections[i]["sr"].verified_text = txt  # type: ignore[index]
