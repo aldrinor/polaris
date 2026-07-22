@@ -14,3 +14,4 @@
 - [RACE climb ladder + architecture](race-climb-ladder-and-architecture.md) — 0.4605->0.5084 gated ladder; champion=_call_section path; structure render-replay design
 - [RACE scoring mechanics + 4-dim plan](race-scoring-mechanics.md) — RACE is comparative + prose-only (biblio stripped before judging); task-72 weights Insight.32/Comp.29/IF.25/Read.14; 6-step plan (doc committed)
 - [Build-all-then-measure rule](build-all-then-measure-rule.md) — levers are complementary; build ALL (each Sol correctness-gated), then RACE once 3x; never RACE per single lever; don't re-litigate a twice-given order
+- [NO entailment EVER rule](no-entailment-ever-rule.md) — HARD BAN: never add entailment/NLI/faith-ghost/post-gen content-drop anywhere; it cost months + damages RACE; drop the lever instead. Champion runs strict-verify OFF
