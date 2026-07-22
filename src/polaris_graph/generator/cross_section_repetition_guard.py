@@ -236,6 +236,14 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
         if not text.strip():
             sections.append(None)
             continue
+        # SAFETY (L2+L5, Sol integrated re-gate): a section that carries a markdown table is EXEMPT
+        # from consolidation ENTIRELY — never a source, target, or member. Skipping only the pipe-
+        # bearing unit still let L5 consume the PROSE sentence that grounds a table row (the row's
+        # citation stayed, so the aggregate multiset guard did not fire, yet the row was stranded from
+        # its verified basis). Exempting the whole section is conservative and closes that hole.
+        if "|" in text:
+            sections.append(None)
+            continue
         sections.append({"sr": sr, "text": text})
 
     # Flat list of eligible finding-units across all in-scope sections. Each unit keeps the RAW
@@ -315,8 +323,10 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
                 counts[mk] = counts.get(mk, 0) + 1
         return counts
 
-    def _table_lines(txt: str) -> int:
-        return sum(1 for ln in (txt or "").splitlines() if "|" in ln)
+    def _table_block_bytes(txt: str) -> str:
+        # EXACT bytes of every markdown table line — compared verbatim in the revert guard so a table
+        # can never be altered/dropped by consolidation (Sol integrated re-gate defense-in-depth).
+        return "\n".join(ln for ln in (txt or "").splitlines() if "|" in ln)
 
     def _per_section_markers(secs: "list[dict[str, Any] | None]") -> "dict[int, list[str]]":
         out: dict[int, list[str]] = {}
@@ -325,9 +335,9 @@ def consolidate_cross_section_repetition(section_results: list[Any]) -> dict[str
                 out[i] = sorted(re.findall(r"\[\d+\]", s["sr"].verified_text or ""))
         return out
 
-    def _per_section_tables(secs: "list[dict[str, Any] | None]") -> "dict[int, int]":
+    def _per_section_tables(secs: "list[dict[str, Any] | None]") -> "dict[int, str]":
         return {
-            i: _table_lines(s["sr"].verified_text)
+            i: _table_block_bytes(s["sr"].verified_text)
             for i, s in enumerate(secs) if s is not None
         }
 

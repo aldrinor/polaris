@@ -1,11 +1,12 @@
-"""Integration safety tests reproducing the two SAFETY BLOCKS Sol's integrated gate found, then
-proving them fixed:
-  FIX 1 — L2 synthesis-matrix cells must be grounded in their OWN cited sentence (no fabrication).
-  FIX 2 — L5 cross-section consolidation can never destroy an L2 table block.
-  FIX 3 — L6 reader-register Limitations is deterministic (no LLM fabrication surface).
+"""Integration safety tests — reproduce EACH counterexample from Sol's integrated re-gate, then prove
+it fixed:
+  BLOCK A — L2 cells must be VERBATIM token-boundary spans of the row's single cited sentence
+            (paraphrase / polarity / sign-flip all rejected).
+  BLOCK B — a table-bearing section is fully EXEMPT from L5 (its grounding prose survives).
+  BLOCK C — deterministic reader Limitations states CORRECT telemetry facts (T2 != primary; no
+            working-paper inference; honors override; comparable/not-comparable partition).
 """
 import importlib
-import os
 
 import pytest
 
@@ -23,66 +24,64 @@ def msg(monkeypatch):
     return importlib.import_module(MSG)
 
 
-def _table(rows):
-    return "\n".join([HEADER, SEP, *rows])
+def _row(study, ctx, measure, finding, design, ref):
+    return f"| {study} | {ctx} | {measure} | {finding} | {design} | {ref} |"
 
 
-# ---------------------------------------------------------------- FIX 1: L2 fabrication fail-closed
-def test_fabricated_cell_drops_row(msg):
-    # The cited sentence for [1] says nothing about "Stanford" or a "meta-analysis": invented cells.
+def _cells(study, ctx, measure, finding, design, ref):
+    return [study, ctx, measure, finding, design, ref]
+
+
+# ============================ BLOCK A — verbatim-span grounding (Sol's 3 counterexamples) ==========
+def test_A1_paraphrase_dropped(msg):
+    # "randomized analysis" is NOT a verbatim span of "random-effects analysis".
+    sents = ["The random-effects analysis reported a 14% gain [1]."]
+    cells = _cells("—", "—", "gain", "14%", "randomized analysis", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A2_polarity_dropped(msg):
+    # "no detectable change" must not match a sentence asserting a detectable change.
+    sents = ["There was a detectable change of 14% [1]."]
+    cells = _cells("—", "—", "change", "no detectable change 14%", "—", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A3_sign_flip_dropped(msg):
+    # "-14%" must not match "+14%".
+    sents = ["Output rose +14% in the trial [1]."]
+    cells = _cells("—", "—", "output", "-14%", "trial", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A_verbatim_row_kept(msg):
+    sents = ["In a randomized trial, output rose +14% [1]."]
+    cells = _cells("—", "—", "output", "+14%", "randomized trial", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is True
+
+
+def test_A_multi_citation_needs_one_coherent_sentence(msg):
+    # A row citing [1] and [2] must have BOTH in one sentence; split across sentences => dropped.
+    sents = ["Output rose 14% [1].", "Coverage was broad [2]."]
+    cells = _cells("—", "—", "output", "14%", "—", "[1][2]")
+    assert msg._synthesis_row_grounded(cells, [1, 2], sents) is False
+
+
+def test_A_end_to_end_fabricated_table_suppressed(msg):
     prose = (
-        "Productivity rose 14% in one setting [1]. Output rose 34% elsewhere [2]. "
-        "A further gain of 56% was reported [3]."
+        "The random-effects analysis reported 14% [1]. A detectable change of 34% occurred [2]. "
+        "Output rose +56% [3]."
     )
-    raw = _table([
-        "| Stanford lab | biotech | throughput | 14% | meta-analysis | [1] |",
-        "| B | y | m | 34% | rct | [2] |",
-        "| C | z | m | 56% | rct | [3] |",
-    ])
-    out = msg._extract_synthesis_matrix(raw, {1, 2, 3}, verified_prose=prose, min_rows=3)
-    # Row 1 ungrounded -> dropped -> < 3 rows -> whole table suppressed (fail-closed).
-    assert out == ""
+    raw = "\n".join([HEADER, SEP,
+                     _row("Stanford", "biotech", "gain", "14%", "randomized analysis", "[1]"),
+                     _row("—", "—", "change", "no detectable change 34%", "—", "[2]"),
+                     _row("—", "—", "output", "-56%", "—", "[3]")])
+    # All three rows fabricate (paraphrase / polarity / sign) => all dropped => suppressed.
+    assert msg._extract_synthesis_matrix(raw, {1, 2, 3}, verified_prose=prose, min_rows=3) == ""
 
 
-def test_number_on_wrong_citation_drops_row(msg):
-    # The row cites [1] but asserts 99% — a value that appears only in the [2] sentence.
-    prose = "Effect was 14% [1]. A different effect was 99% [2]. And another was 56% [3]."
-    raw = _table([
-        "| a | c | m | 99% | rct | [1] |",
-        "| b | c | m | 14% | rct | [2] |",
-        "| d | c | m | 56% | rct | [3] |",
-    ])
-    out = msg._extract_synthesis_matrix(raw, {1, 2, 3}, verified_prose=prose, min_rows=3)
-    # Row 1's 99% is not in the [1] sentence -> dropped; row 2's 14% is not in the [2] sentence ->
-    # dropped. Only row 3 grounded -> < 3 -> suppressed.
-    assert out == ""
-
-
-def test_grounded_table_survives(msg):
-    prose = (
-        "In a randomized trial on writing, output rose 34% [1]. "
-        "In a randomized trial on coding, output rose 56% [2]. "
-        "In a randomized trial on support, output rose 14% [3]."
-    )
-    raw = _table([
-        "| writing | writing | output | 34% | randomized trial | [1] |",
-        "| coding | coding | output | 56% | randomized trial | [2] |",
-        "| support | support | output | 14% | randomized trial | [3] |",
-    ])
-    out = msg._extract_synthesis_matrix(raw, {1, 2, 3}, verified_prose=prose, min_rows=3)
-    assert out.startswith(HEADER)
-    assert out.count("\n") == 4
-
-
-# ---------------------------------------------------------------- FIX 2: L5 never destroys a table
-def test_guard_skips_table_units(monkeypatch):
-    guard = importlib.import_module(GUARD)
-    # A unit that absorbed a table row (contains a pipe) is never eligible for consolidation.
-    assert guard._contains_table("Some prose [1]. | writing | x | m | 34% | rct | [1] |") is True
-    assert guard._contains_table("Plain prose sentence with a citation [1].") is False
-
-
-def test_consolidation_preserves_table_block(monkeypatch):
+# ============================ BLOCK B — table-bearing section fully exempt from L5 ==================
+def test_B_table_section_and_its_grounding_prose_survive(monkeypatch):
     guard = importlib.import_module(GUARD)
     monkeypatch.setenv("PG_CROSS_SECTION_REPETITION_GUARD", "1")
 
@@ -93,34 +92,66 @@ def test_consolidation_preserves_table_block(monkeypatch):
             self.dropped_due_to_failure = False
             self.is_gap_stub = False
 
-    # Same duplicated finding in two sections + a table block appended in section 2. The duplicate
-    # should consolidate, but the table block must survive byte-for-byte.
     dup = "Employment fell by 5 percentage points in exposed occupations [1]."
-    table = "\n\n" + "\n".join([HEADER, SEP, "| a | b | c | 5% | rct | [1] |"])
-    s1 = SR("Section One", dup + " More context here [2].")
-    s2 = SR("Section Two", dup + " Extra detail [3]." + table)
-    guard.consolidate_cross_section_repetition([s1, s2])
-    # The table header + its row are still present verbatim in section 2 (never consumed/replaced).
-    assert HEADER in s2.verified_text
-    assert "| a | b | c | 5% | rct | [1] |" in s2.verified_text
-
-
-# ---------------------------------------------------------------- FIX 3: L6 deterministic register
-def test_reader_limitations_deterministic_no_fabrication(msg):
-    text = msg._deterministic_reader_limitations(
-        {"T1": 0.04, "T2": 0.01}, None, {"start": 2015, "end": 2025}, ["policy design"]
+    table = "\n\n" + "\n".join(
+        [HEADER, SEP, "| exposed occupations | labor | employment | 5 pp | panel | [1] |"]
     )
-    assert text.startswith("Limitations:")
-    # 4% + 1% peer-reviewed => "5%" stated verbatim; no internal vocabulary leaks.
-    assert "5%" in text
-    for banned in ("telemetry", "pipeline", "T1", "T6", "tier"):
+    s1 = SR("One", dup + " Additional context here [2].")
+    s2 = SR("Two", dup + " Extra detail [3]." + table)   # table-bearing => exempt
+    s3 = SR("Three", dup + " Other framing [4].")
+    guard.consolidate_cross_section_repetition([s1, s2, s3])
+    # Section 2 untouched: its grounding sentence AND the table survive verbatim.
+    assert dup in s2.verified_text
+    assert HEADER in s2.verified_text
+    assert "| exposed occupations | labor | employment | 5 pp | panel | [1] |" in s2.verified_text
+
+
+# ============================ BLOCK C — correct deterministic limitations facts ====================
+def test_C_t2_never_labeled_primary(msg):
+    text = msg._deterministic_reader_limitations({"T1": 0.0, "T2": 1.0}, None, None, None)
+    assert "evidence syntheses (systematic reviews and meta-analyses)" in text
+    assert "primary studies" not in text  # 0% T1 => no primary claim; T2 is NOT primary
+
+
+def test_C_no_working_paper_inference(msg):
+    text = msg._deterministic_reader_limitations({"T1": 1.0, "T2": 0.0}, None, None, None)
+    assert "working paper" not in text.lower()
+    assert "preprint" not in text.lower()
+    assert "primary studies" in text
+
+
+def test_C_override_honored_verbatim(msg):
+    text = msg._deterministic_reader_limitations(
+        {"T1": 0.04, "T2": 0.01}, None, None, None,
+        tier_disclosure_override="Sources comprise 4% primary and 1% synthesis studies.",
+    )
+    assert "Sources comprise 4% primary and 1% synthesis studies." in text
+    assert "Of the retrieved corpus" not in text  # override wins => no re-derived fraction sentence
+
+
+def test_C_conflict_partition_not_magnitudes(msg):
+    contradictions = [
+        {"predicate": "A vs B"},                       # comparable
+        {"predicate": "C vs D [not_comparable]"},       # not comparable
+    ]
+    text = msg._deterministic_reader_limitations({"T1": 0.5}, contradictions, None, None)
+    assert "differing magnitudes" not in text
+    assert "conflicting findings" in text
+    assert "could not be directly compared" in text
+
+
+def test_C_no_internal_vocab(msg):
+    text = msg._deterministic_reader_limitations(
+        {"T1": 0.04, "T2": 0.01}, [{"predicate": "x"}], {"start": 2015, "end": 2025}, ["policy"]
+    )
+    for banned in ("telemetry", "pipeline", "T1", "T2", "tier", "T6"):
         assert banned not in text
+    assert "retrieved corpus" in text
     assert "2015-2025" in text
-    assert "policy design" in text
 
 
-def test_reader_limitations_stable(msg):
+def test_C_deterministic_stable(msg):
     a = msg._deterministic_reader_limitations({"T1": 0.1, "T2": 0.0}, None, None, None)
     b = msg._deterministic_reader_limitations({"T1": 0.1, "T2": 0.0}, None, None, None)
-    assert a == b  # deterministic: same telemetry -> identical text
-    assert "10%" in a
+    assert a == b
+    assert "10% primary studies" in a
