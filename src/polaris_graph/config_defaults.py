@@ -871,6 +871,14 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # Render-only augmentation; strict_verify untouched. Default '' = off => byte-identical (no table).
     'PG_SYNTHESIS_MATRIX': '',
     'PG_SYNTHESIS_MATRIX_MIN_ROWS': '3',
+    # LEVER 2 row-faithfulness gate. When the matrix is ON, each candidate row is run through the
+    # FROZEN entailment judge (the same NLI that gates prose): the row survives ONLY if its single
+    # equal-citation clause ENTAILS the row (fail-closed on NEUTRAL/CONTRADICTED/judge_error). This
+    # closes verb-scoped negation ("did NOT rise 14%") that lexical checks cannot see, and admits
+    # faithful paraphrase. Runs INDEPENDENT of PG_STRICT_VERIFY_OFF (table safety is not tied to the
+    # prose master switch). Default 'on' when the matrix is on; 'off' falls back to strict verbatim
+    # lexical grounding (safe, stricter). Only meaningful when PG_SYNTHESIS_MATRIX is on.
+    'PG_SYNTHESIS_MATRIX_ENTAILMENT': 'on',
     # LEVER 3 (coverage spine). When ON, the outline self-review is given an ADDITIVE directive to thread
     # each concept the QUESTION names across the report with ONE distinct analytical role (framing /
     # mechanism / cross-context comparison / synthesis / implication) instead of confining a framing
