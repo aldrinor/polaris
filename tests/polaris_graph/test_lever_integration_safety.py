@@ -80,6 +80,72 @@ def test_A_end_to_end_fabricated_table_suppressed(msg):
     assert msg._extract_synthesis_matrix(raw, {1, 2, 3}, verified_prose=prose, min_rows=3) == ""
 
 
+# --- round-3 counterexamples: token-continuation boundaries + equal-citation + Ref syntax ---
+def test_A_non_randomized_dropped(msg):
+    sents = ["A non-randomized analysis found 14% [1]."]
+    cells = _cells("—", "—", "—", "14%", "randomized analysis", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A_number_inside_signed_dropped(msg):
+    # cell "14%" must not match inside "-14%".
+    sents = ["The effect was -14% [1]."]
+    cells = _cells("—", "—", "—", "14%", "—", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A_number_inside_comparator_dropped(msg):
+    # cell "5%" must not match inside "<5%".
+    sents = ["The effect was <5% [1]."]
+    cells = _cells("—", "—", "—", "5%", "—", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A_possessive_dropped(msg):
+    # cell "worker" must not match inside "worker's".
+    sents = ["Each worker's output rose 3% [1]."]
+    cells = _cells("worker", "—", "—", "3%", "—", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A_none_content_cell_must_ground(msg):
+    # "none" is content (not the em-dash), and is absent from the sentence => drop.
+    sents = ["Output rose 14% [1]."]
+    cells = _cells("none", "—", "—", "14%", "—", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A_merged_unit_partial_citation_dropped(msg):
+    # One splitter unit citing {1,9}; a row citing only [1] cannot copy "+99%" from the [9] clause.
+    sents = ["Output fell -14% [1]; output rose +99% [9]."]
+    cells = _cells("—", "—", "output", "+99%", "—", "[1]")
+    assert msg._synthesis_row_grounded(cells, [1], sents) is False
+
+
+def test_A_ref_must_be_only_markers(msg):
+    prose = "Alpha rose 14% [1]. Beta rose 34% [2]. Gamma rose 56% [3]. Delta rose 78% [4]."
+    raw = "\n".join([HEADER, SEP,
+                     _row("alpha", "—", "—", "14%", "—", "[1]"),
+                     _row("beta", "—", "—", "34%", "—", "[2]"),
+                     _row("gamma", "—", "—", "56%", "—", "[3]"),
+                     _row("delta", "—", "—", "78%", "—", "[4] extra")])  # Ref not pure markers
+    out = msg._extract_synthesis_matrix(raw, {1, 2, 3, 4}, verified_prose=prose, min_rows=3)
+    assert out.count("\n") == 4  # header + sep + 3 kept rows; delta row dropped
+    assert "delta" not in out
+
+
+def test_A_stray_citation_in_content_cell_dropped(msg):
+    prose = "Alpha rose 14% [1]. Beta rose 34% [2]. Gamma rose 56% [3]. Delta rose 78% [4]."
+    raw = "\n".join([HEADER, SEP,
+                     _row("alpha", "—", "—", "14%", "—", "[1]"),
+                     _row("beta", "—", "—", "34%", "—", "[2]"),
+                     _row("gamma", "—", "—", "56%", "—", "[3]"),
+                     _row("delta [4]", "—", "—", "78%", "—", "[4]")])  # stray [4] in a content cell
+    out = msg._extract_synthesis_matrix(raw, {1, 2, 3, 4}, verified_prose=prose, min_rows=3)
+    assert out.count("\n") == 4
+    assert "delta" not in out
+
+
 # ============================ BLOCK B — table-bearing section fully exempt from L5 ==================
 def test_B_table_section_and_its_grounding_prose_survive(monkeypatch):
     guard = importlib.import_module(GUARD)
@@ -138,6 +204,26 @@ def test_C_conflict_partition_not_magnitudes(msg):
     assert "differing magnitudes" not in text
     assert "conflicting findings" in text
     assert "could not be directly compared" in text
+
+
+def test_C_possible_mismatch_never_conflicting(msg, monkeypatch):
+    # Suppression is default-ON; a [possible_metric_mismatch] record must NOT render as a conflict.
+    monkeypatch.delenv("PG_CONTRADICTION_SUPPRESS_METRIC_MISMATCH", raising=False)
+    contradictions = [{"predicate": "X vs Y [possible_metric_mismatch]"}]
+    text = msg._deterministic_reader_limitations({"T1": 0.5}, contradictions, None, None)
+    assert "conflicting findings" not in text
+    assert "possible metric mismatch" in text
+
+
+def test_C_override_tier_codes_translated(msg):
+    # Production caller supplies raw tier codes; they must be translated, percentages preserved.
+    text = msg._deterministic_reader_limitations(
+        None, None, None, None, tier_disclosure_override="T1=4%, T2=1%",
+    )
+    assert "4% primary studies" in text
+    assert "1% evidence syntheses (systematic reviews and meta-analyses)" in text
+    for banned in ("T1", "T2", "tier"):
+        assert banned not in text
 
 
 def test_C_no_internal_vocab(msg):

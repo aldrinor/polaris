@@ -8028,34 +8028,48 @@ def _synthesis_ws_norm(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip().lower())
 
 
+# A row's Ref cell must be ONLY citation markers (nothing else may ride in it).
+_SYNTHESIS_REF_CELL_RE = re.compile(r"(?:\[\d+\]\s*)+")
+# Characters that CONTINUE a token, so a boundary is a real token edge: alphanumerics PLUS signs,
+# comparators, hyphens (ASCII + Unicode), apostrophes, percent, slash, and dot. This makes "-14%" one
+# token distinct from "14%", "non-randomized" distinct from "randomized", and "worker's" from "worker".
+_SYNTHESIS_TOKEN_CONT = r"0-9A-Za-z\-+<>=%'’/.‐-―−"
+
+
 def _synthesis_cited_sentence(nums: list[int], sentences: list[str]) -> str | None:
-    """Return the ONE verified-prose sentence whose citation set contains ALL of the row's [N] markers,
-    or None if zero or more-than-one such sentence exists (ambiguous => fail closed). A table row must
-    be a verbatim summary of a single coherent cited sentence, never assembled across sentences."""
+    """Return the ONE verified-prose sentence whose citation set EQUALS the row's Ref set exactly, or
+    None if zero or more-than-one such sentence exists (fail closed). Equality (not subset) blocks a row
+    citing only [1] from copying a value out of a "…[1]; …[9]" merged unit — the [9] clause makes the
+    unit's set {1,9} != {1}, so it never grounds that row."""
     if not nums:
         return None
     target = set(nums)
     matches = [
         s for s in sentences
-        if target.issubset({int(m.group(1)) for m in _CITATION_MARKER_RE.finditer(s)})
+        if {int(m.group(1)) for m in _CITATION_MARKER_RE.finditer(s)} == target
     ]
     return matches[0] if len(matches) == 1 else None
 
 
 def _synthesis_cell_grounded(cell: str, sent_norm: str) -> bool:
-    """A non-blank cell must be a case-insensitive, whitespace-normalized, TOKEN-BOUNDARY substring of
-    the row's single cited sentence — signs and polarity preserved, NO prefix/fuzzy/bag matching. This
-    is what makes it airtight: 'randomized analysis' fails against 'random-effects analysis', 'no
-    detectable change' fails against 'a detectable change', and '-14%' fails against '+14%'."""
+    """A content cell must be a case-insensitive, whitespace-normalized, TOKEN-BOUNDARY span of the
+    row's single cited sentence. ONLY a literal em-dash "—" (or a truly empty cell) counts as
+    not-reported; "none"/"-"/"n/r"/"na" are content and must ground or the row drops. The boundary uses
+    the token-continuation class so signs/comparators/hyphens/apostrophes/percent are token-internal:
+    '14%' does NOT match inside '-14%'/'<5%', 'randomized' not inside 'non-randomized', 'worker' not
+    inside "worker's". Signs and polarity are preserved (no fuzzy/prefix/bag matching)."""
     c = cell.strip()
-    if c in ("", "—", "-") or c.lower() in ("n/r", "na", "none", "not reported", "unclear"):
-        return True  # explicitly-unstated cell is allowed
+    if c in ("", "—"):
+        return True  # only the em-dash (or an empty cell) is 'not reported'
     needle = _synthesis_ws_norm(c)
     if not needle:
         return True
-    # token-boundary substring: not flanked by a word char on either side (so "14%" does not match
-    # inside "214%", and "analysis" does not match inside "reanalysis").
-    return re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", sent_norm) is not None
+    pat = (
+        r"(?<![" + _SYNTHESIS_TOKEN_CONT + r"])"
+        + re.escape(needle)
+        + r"(?![" + _SYNTHESIS_TOKEN_CONT + r"])"
+    )
+    return re.search(pat, sent_norm) is not None
 
 
 def _synthesis_row_grounded(cells: list[str], nums: list[int], sentences: list[str]) -> bool:
@@ -8128,14 +8142,21 @@ def _extract_synthesis_matrix(
             break
         if not stripped.startswith("|"):
             break
-        nums = [int(m.group(1)) for m in _CITATION_MARKER_RE.finditer(stripped)]
+        # Parse the six cells FIRST; the Ref column must be ONLY citation markers, and the row's [N]
+        # are derived from Ref alone (never from the whole line — else prose in a content cell could
+        # smuggle a citation). A content cell carrying a stray [N] drops the row (Sol re-gate fix).
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if len(cells) != 6:
+            continue  # not a canonical 6-cell row => drop (cannot ground per-cell)
+        if not _SYNTHESIS_REF_CELL_RE.fullmatch(cells[5]):
+            continue  # Ref must be exactly [N] markers, nothing else
+        if any(_CITATION_MARKER_RE.search(c) for c in cells[:5]):
+            continue  # a citation marker inside a content cell => drop
+        nums = [int(m.group(1)) for m in _CITATION_MARKER_RE.finditer(cells[5])]
         if not nums:
             continue  # rule 2: every row must cite
         if any(n not in valid_citation_nums for n in nums):
             continue  # out-of-range/invented citation => drop the row
-        cells = [c.strip() for c in stripped.strip("|").split("|")]
-        if len(cells) != 6:
-            continue  # not a canonical 6-cell row => drop (cannot ground per-cell)
         if not _synthesis_row_grounded(cells, nums, _prose_sentences):
             continue  # a cell is not a verbatim span of its OWN cited sentence => fabrication => drop
         if _cell_verify:
@@ -8436,6 +8457,59 @@ def _m50_select_candidate_trials(
     return candidates
 
 
+# Canonical tier taxonomy (honest_pipeline.py): T1 peer-reviewed primary, T2 SR/MA, T3 regulatory,
+# T4 narrative review, T5 industry, T6 commentary/news, T7 other. Reader-facing labels — NO raw codes.
+_TIER_READER_LABEL = {
+    "1": "primary studies",
+    "2": "evidence syntheses (systematic reviews and meta-analyses)",
+    "3": "regulatory and official sources",
+    "4": "narrative reviews",
+    "5": "industry sources",
+    "6": "commentary and news",
+    "7": "other or unclassified sources",
+}
+_TIER_PCT_RE = re.compile(r"\bT([1-7])\b\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*%?", re.IGNORECASE)
+_RAW_TIER_TOKEN_RE = re.compile(r"\bT[1-7]\b", re.IGNORECASE)
+
+
+def _reader_tier_sentence(
+    tier_disclosure_override: str | None,
+    tier_fractions: dict[str, float] | None,
+) -> str:
+    """Build the reader-register corpus-composition sentence. A canonical override like
+    "T1=4%, T2=1%" is TRANSLATED into reader labels while preserving its rounded percentages — raw
+    T1-T7 tokens must NEVER reach reader prose (Sol re-gate: the production caller supplies tier codes).
+    With no override, derive from tier_fractions (T1=primary, T2=evidence syntheses)."""
+    if tier_disclosure_override and str(tier_disclosure_override).strip():
+        ov = str(tier_disclosure_override).strip()
+        pairs = _TIER_PCT_RE.findall(ov)
+        if pairs:
+            segs = [
+                f"approximately {pct}% {_TIER_READER_LABEL.get(code, 'other or unclassified sources')}"
+                for code, pct in pairs
+            ]
+            return "Of the retrieved corpus, " + ", ".join(segs) + "."
+        if _RAW_TIER_TOKEN_RE.search(ov):
+            return ""  # contains raw tier codes we could not parse => do NOT leak them; drop
+        return ov  # override carries no tier codes => safe to use verbatim
+    if tier_fractions:
+        t1 = tier_fractions.get("T1", 0.0) * 100
+        t2 = tier_fractions.get("T2", 0.0) * 100
+        seg: list[str] = []
+        if t1 > 0:
+            seg.append(f"approximately {t1:.0f}% primary studies")
+        if t2 > 0:
+            seg.append(
+                f"approximately {t2:.0f}% evidence syntheses (systematic reviews and meta-analyses)"
+            )
+        if seg:
+            return (
+                "Of the retrieved corpus, " + " and ".join(seg)
+                + "; the composition of the evidence base should be weighed when reading each conclusion."
+            )
+    return ""
+
+
 def _deterministic_reader_limitations(
     tier_fractions: dict[str, float] | None,
     contradictions: list[dict[str, Any]] | None,
@@ -8451,35 +8525,38 @@ def _deterministic_reader_limitations(
     tier_disclosure_override verbatim, and characterizes conflicts by the telemetry's own
     comparable / not-comparable partition (not 'differing magnitudes'). No internal vocabulary leaks."""
     parts: list[str] = ["Limitations:"]
-    if tier_disclosure_override and str(tier_disclosure_override).strip():
-        # Canonical disclosure string — use verbatim (single source of truth with Methods).
-        parts.append(str(tier_disclosure_override).strip())
-    elif tier_fractions:
-        t1 = tier_fractions.get("T1", 0.0) * 100
-        t2 = tier_fractions.get("T2", 0.0) * 100
-        seg: list[str] = []
-        if t1 > 0:
-            seg.append(f"approximately {t1:.0f}% primary studies")
-        if t2 > 0:
-            seg.append(
-                f"approximately {t2:.0f}% evidence syntheses (systematic reviews and meta-analyses)"
-            )
-        if seg:
-            parts.append(
-                "Of the retrieved corpus, " + " and ".join(seg)
-                + "; the composition of the evidence base should be weighed when reading each conclusion."
-            )
+    _tier_sentence = _reader_tier_sentence(tier_disclosure_override, tier_fractions)
+    if _tier_sentence:
+        parts.append(_tier_sentence)
     if contradictions:
-        def _nc(c: dict[str, Any]) -> bool:
-            return bool(c.get("not_comparable")) or (
-                "[not_comparable]" in str(c.get("predicate", "") or "")
-            )
-        if any(not _nc(c) for c in contradictions):
+        from .live_deepseek_generator import (
+            _contradiction_not_comparable,
+            _contradiction_possible_metric_mismatch,
+            _suppress_metric_mismatch_enabled,
+        )
+        _suppress = _suppress_metric_mismatch_enabled()
+        _not_comp = [c for c in contradictions if _contradiction_not_comparable(c)]
+        _poss = [
+            c for c in contradictions
+            if not _contradiction_not_comparable(c)
+            and _suppress and _contradiction_possible_metric_mismatch(c)
+        ]
+        _comparable = [
+            c for c in contradictions
+            if not _contradiction_not_comparable(c)
+            and not (_suppress and _contradiction_possible_metric_mismatch(c))
+        ]
+        if _comparable:
             parts.append(
                 "For some questions the retrieved studies report conflicting findings, which this "
                 "review presents side by side rather than reconciling into a single value."
             )
-        if any(_nc(c) for c in contradictions):
+        if _poss:
+            parts.append(
+                "Some findings that appear to differ may reflect a possible metric mismatch — the "
+                "studies may not measure exactly the same quantity — so no disagreement is asserted."
+            )
+        if _not_comp:
             parts.append(
                 "Some apparent disagreements could not be directly compared because the studies "
                 "measure different constructs."
