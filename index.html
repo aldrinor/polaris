@@ -113,6 +113,8 @@
   .costcard{background:var(--card);border:1px solid var(--hair2);border-radius:22px;padding:30px;}
   .costcard .big{font-size:clamp(34px,4.5vw,46px);font-weight:640;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
 
+  .subhead{color:var(--muted);font-size:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin:40px 0 14px;}
+
   details{margin-top:20px;border-top:1px solid var(--hair);padding-top:8px;}
   summary{cursor:pointer;list-style:none;padding:22px 4px;font-size:19px;font-weight:560;color:var(--text);display:flex;justify-content:space-between;align-items:center;}
   summary::-webkit-details-marker{display:none;}
@@ -141,37 +143,44 @@
 <div class="wrap">
   <div class="container">
 
-    <!-- HERO -->
+    <!-- 1 · HERO -->
     <header class="hero">
       <p class="kicker">Analysis &middot; Deep Research Benchmark</p>
-      <h1>Deep Cove Research leads the closed frontier &mdash; and it runs on open weights you own.</h1>
-      <p class="lede">A deep&#8209;research system is an agent that plans a question, searches the live web, and writes a cited report. Here are the leading ones, ranked by the RACE quality score. Deep Cove Research &mdash; the strongest open&#8209;weight system you can run on your own servers &mdash; scores ahead of every closed model from Google, OpenAI, Anthropic and xAI. Only two research systems place higher.</p>
+      <h1>Ahead of the frontier labs at deep research. Running on hardware you own.</h1>
+      <p class="lede">Deep Cove Research plans a question, searches the live web, and writes a fully cited report. On RACE, the quality score of DeepResearch&nbsp;Bench &mdash; the field&rsquo;s public benchmark &mdash; it places third of the nine systems tested, ahead of the closed models from Google, OpenAI, Anthropic and xAI, and first among systems a company can run on its own machines.</p>
 
       <div class="stats">
         <div class="stat">
           <div class="num pos">0.5084</div>
           <div class="lab">Composite quality (RACE)</div>
-          <div class="sub">top open&#8209;weight system</div>
+          <div class="sub">3rd overall &middot; 1st among open weights</div>
         </div>
         <div class="stat">
           <div class="num pos">90.3%</div>
           <div class="lab">Citation accuracy</div>
-          <div class="sub">claims verified against live sources</div>
+          <div class="sub">claims that held up against live sources</div>
         </div>
         <div class="stat">
           <div class="num pos">84</div>
           <div class="lab">Verified citations</div>
-          <div class="sub">more than any closed model tested</div>
+          <div class="sub">the most of any system we measured</div>
         </div>
       </div>
-      <p class="byline">Ranked on DeepResearch&nbsp;Bench (RACE). Latest&#8209;model results are our own runs on a shared task; &dagger;&nbsp;marks the official 100&#8209;task leaderboard.</p>
+      <p class="byline">Scored on DeepResearch&nbsp;Bench under the RACE framework. Methodology below.</p>
     </header>
 
-    <!-- SCORECARD -->
+    <!-- 2 · WHAT IT IS -->
     <section>
-      <p class="eyebrow">The field</p>
-      <h2>The deep&#8209;research field, ranked.</h2>
-      <p class="narrow">Every system is scored by the RACE framework &mdash; a GPT&#8209;5.5 model judging report quality. Deep Cove Research is the strongest open&#8209;weight, self&#8209;hostable system on the board, ahead of every closed model from Google, OpenAI, Anthropic and xAI. The field splits sharply on one thing the score alone doesn&rsquo;t capture: how many of a report&rsquo;s citations actually hold up.</p>
+      <p class="eyebrow">What it is</p>
+      <h2>An autonomous analyst, not a chatbot answer.</h2>
+      <p class="narrow">Ask it an open&#8209;ended question and it does what a research analyst would: breaks the question into parts, weighs which sources to trust, reconciles the ones that disagree, and writes a structured report in which every claim carries a citation. The answer is not recalled from a model&rsquo;s memory. It is assembled &mdash; searched, verified, and written end to end, with no human in the loop.</p>
+    </section>
+
+    <!-- 3 · SCOREBOARD -->
+    <section>
+      <p class="eyebrow">The field, ranked</p>
+      <h2>Third of nine. First among systems you can own.</h2>
+      <p class="narrow">Every system here is scored by RACE, in which a GPT&#8209;5.5 model grades the quality of each report. Deep Cove Research is the highest&#8209;scoring self&#8209;hostable system on the board, and it ranks ahead of every closed model from the major AI labs. Two systems edge it at the top: an academic research submission and a closed commercial framework.</p>
       <div class="card" style="overflow-x:auto">
         <table>
           <thead>
@@ -179,7 +188,6 @@
               <th>#</th>
               <th>System</th>
               <th>Owner</th>
-              <th>Country</th>
               <th>Model</th>
               <th>Source</th>
               <th>RACE</th>
@@ -190,7 +198,6 @@
               <td>1</td>
               <td>ADORE<span class="model">research submission</span></td>
               <td class="mute">academic</td>
-              <td class="mute">&mdash;</td>
               <td class="mute">frontier LLM</td>
               <td class="mute">&mdash;</td>
               <td>0.5265<span class="dag">&dagger;</span></td>
@@ -199,7 +206,6 @@
               <td>2</td>
               <td>Tavily Research<span class="model">agent framework</span></td>
               <td>Tavily</td>
-              <td>United States</td>
               <td class="mute">model&#8209;agnostic</td>
               <td class="mute">Closed</td>
               <td>0.5244<span class="dag">&dagger;</span></td>
@@ -208,7 +214,6 @@
               <td>3</td>
               <td>Deep Cove Research<span class="model">self&#8209;hosted</span></td>
               <td>Independent</td>
-              <td>Self&#8209;hosted</td>
               <td>Kimi&#8209;K3</td>
               <td><span class="g">Open&nbsp;weights</span></td>
               <td><span class="g">0.5084</span></td>
@@ -217,7 +222,6 @@
               <td>4</td>
               <td>Claude<span class="model">Research</span></td>
               <td>Anthropic</td>
-              <td>United States</td>
               <td>Fable 5 Max</td>
               <td class="mute">Closed</td>
               <td>0.5065</td>
@@ -226,7 +230,6 @@
               <td>5</td>
               <td>Gemini<span class="model">Deep Research</span></td>
               <td>Google</td>
-              <td>United States</td>
               <td>3.1 Pro</td>
               <td class="mute">Closed</td>
               <td>0.4506</td>
@@ -235,7 +238,6 @@
               <td>6</td>
               <td>Kimi Researcher<span class="model">agentic</span></td>
               <td>Moonshot AI</td>
-              <td>China</td>
               <td>Kimi</td>
               <td><span class="g">Open&nbsp;weights</span></td>
               <td>0.4460<span class="dag">&dagger;</span></td>
@@ -244,7 +246,6 @@
               <td>7</td>
               <td>Doubao<span class="model">DeepResearch</span></td>
               <td>ByteDance</td>
-              <td>China</td>
               <td>Doubao</td>
               <td class="mute">Closed</td>
               <td>0.4430<span class="dag">&dagger;</span></td>
@@ -253,7 +254,6 @@
               <td>8</td>
               <td>Grok<span class="model">DeeperSearch</span></td>
               <td>xAI</td>
-              <td>United States</td>
               <td>Grok</td>
               <td class="mute">Closed</td>
               <td>0.4414</td>
@@ -262,7 +262,6 @@
               <td>9</td>
               <td>ChatGPT<span class="model">Deep Research</span></td>
               <td>OpenAI</td>
-              <td>United States</td>
               <td>GPT&#8209;5.6 Sol Pro</td>
               <td class="mute">Closed</td>
               <td>0.4286</td>
@@ -270,57 +269,14 @@
           </tbody>
         </table>
       </div>
-      <p class="cap"><strong>Deep Cove Research is the top open&#8209;weight system</strong> &mdash; ahead of every closed model from Google, OpenAI, Anthropic and xAI, and the strongest self&#8209;hostable option on the board. Two research systems (ADORE, Tavily) edge it at the very top. <span class="dag">&dagger;</span>&nbsp;Official DeepResearch&nbsp;Bench leaderboard, 100&#8209;task average. Unmarked rows are our own runs of the latest model versions on the shared benchmark task, scored on an identical GPT&#8209;5.5 harness; a full 100&#8209;task submission for Deep Cove Research is in progress.</p>
+      <p class="cap"><strong>The judge is a GPT&#8209;5.5 model &mdash; OpenAI&rsquo;s own.</strong> It placed the deep&#8209;research system built on OpenAI&rsquo;s frontier model last. Deep Cove Research ranks third overall and first among systems a company can run itself. <span class="dag">&dagger;</span>&nbsp;Official DeepResearch&nbsp;Bench leaderboard, 100&#8209;task average. Unmarked rows are our own runs of each system&rsquo;s latest model on the shared benchmark task, scored on the same GPT&#8209;5.5 harness; a full 100&#8209;task submission for Deep Cove Research is in progress.</p>
     </section>
 
-    <!-- WHAT IS IT -->
+    <!-- 4 · FAITHFULNESS CHART -->
     <section>
-      <p class="eyebrow">What it is</p>
-      <h2>Not a chatbot answer &mdash; an autonomous analyst.</h2>
-      <p class="narrow">A deep&#8209;research system takes an open&#8209;ended question and does what a human analyst would: it breaks the question into parts, searches many sources, reads and extracts the evidence, judges which sources to trust, resolves contradictions, and writes a long, structured report where every claim is cited. It is not a single answer from a model&rsquo;s memory. It is a pipeline of search, verification, and synthesis &mdash; run autonomously, end to end.</p>
-    </section>
-
-    <!-- TWO APPROACHES -->
-    <section>
-      <p class="eyebrow">Two ways to build one</p>
-      <h2>Curated dataset, or the open internet.</h2>
-      <p class="narrow">There are two ways to build a deep&#8209;research system, and they are not the same problem. One reads from a dataset you have already collected, cleaned, and frozen. The other reads the live internet as it actually is &mdash; messy, contradictory, unbounded &mdash; and must find, judge, and verify the evidence itself, every time. The first is a useful tool. The second is a general research engine &mdash; and it is the one every frontier lab is racing to build.</p>
-      <div class="card" style="overflow-x:auto">
-        <table>
-          <thead>
-            <tr><th></th><th class="mute">Curated&#8209;dataset system</th><th>Open&#8209;internet system</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Evidence</td><td class="mute">A fixed corpus you pre&#8209;assemble and clean</td><td><span class="g">The entire live web, in real time</span></td></tr>
-            <tr><td>Coverage</td><td class="mute">Only what was curated &mdash; blind to the rest</td><td><span class="g">Any topic, any domain, including today</span></td></tr>
-            <tr><td>Freshness</td><td class="mute">Frozen &mdash; stale the moment it is built</td><td><span class="g">Always current</span></td></tr>
-            <tr><td>The hard part</td><td class="mute">Assembling the corpus once</td><td><span class="g">Search, credibility, dedup &amp; verification &mdash; solved live, every run</span></td></tr>
-            <tr><td>Generalizes?</td><td class="mute">No &mdash; one dataset, one domain</td><td><span class="g">Yes &mdash; one engine for every question</span></td></tr>
-            <tr><td>Who builds it</td><td class="mute">Teams not yet able to handle the open web</td><td><span class="g">OpenAI, Google, Anthropic &mdash; and Deep Cove Research</span></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="cap">A curated&#8209;dataset system is a <strong>special case</strong> of an open&#8209;internet one: a general engine can always be pointed at a fixed corpus, but a curated system cannot be widened to the open web without first solving the hard problem. That is why the open&#8209;internet path is the harder one &mdash; and the foundational one. Deep Cove Research is built on it.</p>
-    </section>
-
-    <!-- FOUNDATION -->
-    <section>
-      <p class="eyebrow">Why it is the foundation</p>
-      <h2>Solve the open web, and everything sits on top.</h2>
-      <p class="narrow">A generalized deep&#8209;research engine is not one product &mdash; it is the layer beneath knowledge work. The same engine answers a due&#8209;diligence question, a market scan, a literature review, a policy brief, a competitive teardown, or a standing risk monitor, with no new dataset to build for each. Whoever can research the open internet reliably owns that layer. Curating a narrow dataset first is a local optimum: a smaller tool that cannot grow into the general one.</p>
-      <div class="costgrid">
-        <div class="costcard"><h3>Enterprise</h3><p style="margin-top:12px">Due diligence, market and competitive intelligence, regulatory and policy analysis &mdash; on demand, against current sources.</p></div>
-        <div class="costcard"><h3>Knowledge &amp; science</h3><p style="margin-top:12px">Literature reviews, evidence synthesis, technical scans &mdash; cited and verifiable, across any field.</p></div>
-        <div class="costcard"><h3>Live monitoring</h3><p style="margin-top:12px">Standing questions answered against the web as it changes &mdash; something no frozen dataset can do.</p></div>
-      </div>
-      <p class="cap">This is the machine the frontier is building, and it is the machine Deep Cove Research is building &mdash; on open weights you can run yourself.</p>
-    </section>
-
-    <!-- CHART -->
-    <section>
-      <p class="eyebrow">Two measures of faithfulness</p>
+      <p class="eyebrow">Faithfulness</p>
       <h2>Accuracy and volume rarely travel together.</h2>
-      <p class="narrow">A citation can fail two ways. The source may not support the claim. Or the report may cite too little to stand on. Most systems did well on one and poorly on the other. Only Deep Cove Research did well on both.</p>
+      <p class="narrow">A report can fail its reader two ways: citations that do not support the claims, or so few checkable citations that its accuracy means little. Most systems solved one problem or the other. Deep Cove Research sits alone in the top&#8209;right corner &mdash; high accuracy on the widest base of checked sources.</p>
       <div class="chartcard">
         <svg viewBox="0 0 720 470" role="img" aria-label="Scatter plot of citation accuracy versus verified citations">
           <rect x="401" y="30" width="279" height="150" fill="rgba(48,209,88,0.10)" rx="4"/>
@@ -364,14 +320,15 @@
           <text x="565" y="50" text-anchor="end" class="ptlab" style="fill:#fff;font-weight:640">Deep Cove Research</text>
           <text x="565" y="68" text-anchor="end" class="ptlab" style="fill:#30d158">90.3% &middot; 84 verified</text>
         </svg>
-        <p class="cap">Grok&rsquo;s accuracy was just as high, at 91%. But it rested on only 10 citations. There, a single one would move the figure nine points. Deep Cove Research&rsquo;s 90% rests on 84. Eighty&#8209;four checked sources is a sturdier base than 10.</p>
+        <p class="cap">Grok&rsquo;s accuracy was just as high, at 91% &mdash; but it rested on only 10 citations, where a single miss would move the figure nine points. Deep Cove Research&rsquo;s 90.3% rests on 84 checked sources, a far sturdier base. Citation checks cover the five systems we ran ourselves; leaderboard&#8209;only entries publish no citation data.</p>
       </div>
     </section>
 
-    <!-- COST -->
+    <!-- 5 · WHAT IT COSTS -->
     <section>
-      <p class="eyebrow">Running cost &amp; data footprint</p>
-      <h2>Runs in&#8209;house, at low cost.</h2>
+      <p class="eyebrow">What it costs to run</p>
+      <h2>A dollar or two a report, on your own servers.</h2>
+      <p class="narrow">The engine is Kimi&#8209;K3, a leading open&#8209;weight model. Because the weights are open, the whole pipeline runs on a company&rsquo;s own hardware &mdash; not a rented endpoint.</p>
       <div class="costgrid">
         <div class="costcard">
           <div class="big">~2.0M</div>
@@ -379,64 +336,75 @@
         </div>
         <div class="costcard">
           <div class="big">~$1&ndash;2</div>
-          <p style="margin-top:12px">Per report, at going open&#8209;weight rates. The model is open, so it runs on a company&rsquo;s own servers. <strong>No API fees. No data leaves the building.</strong></p>
+          <p style="margin-top:12px">Marginal compute per report, priced at going open&#8209;weight rates &mdash; a ceiling, not a fee. <strong>No per&#8209;call API bill, and no data leaves the building.</strong></p>
         </div>
       </div>
     </section>
 
-    <!-- FUNNEL -->
+    <!-- 6 · THE HARDER PROBLEM (merged: two approaches + why it matters) -->
+    <section>
+      <p class="eyebrow">The harder problem</p>
+      <h2>Solve the open web, and everything sits on top.</h2>
+      <p class="narrow">There are two ways to build a deep&#8209;research system, and they solve different problems. One reads from a dataset that has already been collected, cleaned, and frozen. The other reads the live internet as it is &mdash; messy, contradictory, unbounded &mdash; and must find, judge, and verify the evidence itself on every run. The first is a useful tool; the second is a general research engine.</p>
+      <div class="card" style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr><th></th><th class="mute">Curated&#8209;dataset system</th><th>Open&#8209;internet system</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Evidence</td><td class="mute">A fixed corpus you pre&#8209;assemble and clean</td><td><span class="g">The entire live web, in real time</span></td></tr>
+            <tr><td>Coverage</td><td class="mute">Only what was curated &mdash; blind to the rest</td><td><span class="g">Any topic, any domain, including today</span></td></tr>
+            <tr><td>Freshness</td><td class="mute">Frozen &mdash; stale the moment it is built</td><td><span class="g">Always current</span></td></tr>
+            <tr><td>The hard part</td><td class="mute">Assembling the corpus once</td><td><span class="g">Search, credibility, dedup &amp; verification &mdash; solved live, every run</span></td></tr>
+            <tr><td>Generalizes?</td><td class="mute">No &mdash; one dataset, one domain</td><td><span class="g">Yes &mdash; one engine for every question</span></td></tr>
+            <tr><td>Best for</td><td class="mute">Vertical tools scoped to one domain</td><td><span class="g">OpenAI, Google, Anthropic &mdash; and Deep Cove Research</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">A curated&#8209;dataset system is a <strong>special case</strong> of an open&#8209;internet one. A general engine can always be pointed at a fixed corpus; a curated system cannot be opened to the live web without first solving the harder problem.</p>
+      <p class="narrow" style="margin-top:26px">That harder problem, once solved, is not a single product &mdash; it is the layer beneath knowledge work. The same engine handles a due&#8209;diligence request, a market scan, a literature review, a policy brief, or a standing risk monitor, with no new dataset to assemble for each one. Whoever can research the open internet reliably owns that layer.</p>
+      <div class="costgrid">
+        <div class="costcard"><h3>Enterprise</h3><p style="margin-top:12px">Due diligence, market and competitive intelligence, regulatory and policy analysis &mdash; on demand, against current sources.</p></div>
+        <div class="costcard"><h3>Knowledge &amp; science</h3><p style="margin-top:12px">Literature reviews, evidence synthesis, technical scans &mdash; cited and verifiable, across any field.</p></div>
+        <div class="costcard"><h3>Live monitoring</h3><p style="margin-top:12px">Standing questions answered against the web as it changes &mdash; something no frozen dataset can do.</p></div>
+      </div>
+    </section>
+
+    <!-- 7 · INSIDE THE PIPELINE (funnel + architecture, one section) -->
     <section>
       <p class="eyebrow">Inside the pipeline</p>
-      <h2>From the open web to verified citations.</h2>
-      <p class="narrow">The system does not turn raw search results into prose. It judges each source against the question and sets aside anything off&#8209;topic. It grades what remains, drops duplicates, counts how many independent sources back each finding, and discards any citation it cannot verify against a live page.</p>
+      <h2>From the open web to a verified report.</h2>
+      <p class="narrow">Every decision that shapes the report happens <strong>before</strong> a word is written &mdash; in which evidence is allowed in, and in how the writer is instructed. The report is never trimmed or rewritten afterward. That is what keeps it both faithful and coherent.</p>
+
+      <p class="subhead">One real corpus, from retrieval to verified citation</p>
       <div class="funnel">
         <div class="fstep"><div class="fn">997</div><div class="fl">evidence spans retrieved &amp; grounded to quotes</div></div>
         <div class="fstep"><div class="fn">~50%</div><div class="fl">set aside by the relevance gate as off&#8209;topic</div></div>
-        <div class="fstep"><div class="fn">330</div><div class="fl">on&#8209;topic, in&#8209;scope sources kept for writing</div></div>
+        <div class="fstep"><div class="fn">330</div><div class="fl">remain after duplicates &amp; lower&#8209;tier sources are dropped</div></div>
         <div class="fstep final"><div class="fn">84</div><div class="fl">citations verified against live URLs</div></div>
       </div>
-    </section>
 
-    <!-- ARCHITECTURE -->
-    <section>
-      <h2>Quality is built in before a word is written.</h2>
-      <p class="narrow" style="margin-bottom:34px">The core principle: every decision that shapes the report happens <strong>before</strong> generation &mdash; in what evidence enters, and in how the writer is instructed. The report is never edited, trimmed, or rewritten after the model produces it. That is what keeps it faithful and coherent.</p>
+      <p class="subhead">The ten stages behind those numbers</p>
       <div class="arch">
-        <div class="astep"><div class="idx">01</div><div><h3>Query planning &amp; scope contract</h3><p>The question is broken into sub&#8209;questions, and a scope contract is read straight from the prompt &mdash; the topics, source types, and constraints the answer must respect.</p></div></div>
+        <div class="astep"><div class="idx">01</div><div><h3>Query planning &amp; scope contract</h3><p>The question is split into sub&#8209;questions, and a scope contract is read straight from the prompt &mdash; the topics, source types, and constraints the answer must respect.</p></div></div>
         <div class="astep"><div class="idx">02</div><div><h3>Multi&#8209;source retrieval</h3><p>The system searches academic journals, the open web, and official statistics agencies at once, in real time.</p></div></div>
         <div class="astep"><div class="idx">03</div><div><h3>Grounded extraction</h3><p>Evidence is saved as exact quotes, each tagged with its source. Nothing is paraphrased.</p></div></div>
-        <div class="astep key"><div class="idx">04</div><div><h3>Smart relevance gate</h3><p>A model judges every source against the actual question. Off&#8209;topic and out&#8209;of&#8209;scope material is set aside &mdash; not a keyword filter, an understanding of the question. This alone removed roughly half of a real corpus as unrelated.</p></div></div>
+        <div class="astep key"><div class="idx">04</div><div><h3>Relevance gate</h3><p>A model judges every source against the actual question &mdash; an understanding of the question, not a keyword filter. It set aside roughly half of one real corpus as off&#8209;topic.</p></div></div>
         <div class="astep"><div class="idx">05</div><div><h3>Credibility tiering &amp; corroboration</h3><p>Sources are graded, duplicates merged, and the system counts how many independent sources back each finding.</p></div></div>
         <div class="astep"><div class="idx">06</div><div><h3>Evidence packs</h3><p>The graded, on&#8209;topic evidence is organised into packs &mdash; the single input to writing.</p></div></div>
-        <div class="astep"><div class="idx">07</div><div><h3>Outline agent</h3><p>An agent drafts the outline against the evidence, ensuring every part of the question is covered, and revises.</p></div></div>
+        <div class="astep"><div class="idx">07</div><div><h3>Outline agent</h3><p>An agent drafts the outline against the evidence, checks that every part of the question is covered, and revises.</p></div></div>
         <div class="astep key"><div class="idx">08</div><div><h3>Instructed writers</h3><p>Writers draft sections in parallel, each tied to its own evidence. A precise prompt &mdash; not a post&#8209;edit &mdash; makes them cite once, synthesise across sources, and write clean prose.</p></div></div>
-        <div class="astep"><div class="idx">09</div><div><h3>Faithfulness &amp; citation check</h3><p>Each claim is matched to its source and its live page is scraped to confirm the source backs it. This drives the 90% citation accuracy.</p></div></div>
+        <div class="astep"><div class="idx">09</div><div><h3>Faithfulness &amp; citation check</h3><p>Each claim is matched to its source, and the live page is scraped to confirm the source backs it. This drives the 90.3% citation accuracy.</p></div></div>
         <div class="astep"><div class="idx">10</div><div><h3>Assembly</h3><p>Sections are joined in order, the conclusion placed last, citations renumbered, and the report rendered with its sources.</p></div></div>
       </div>
-      <p class="mute" style="font-size:15px;margin-top:22px">The model itself &mdash; Kimi&#8209;K3 &mdash; is a leading open&#8209;weight system. It runs on your own hardware.</p>
     </section>
 
-    <!-- STRENGTHS / LIMITS -->
-    <section>
-      <p class="eyebrow">Strengths and limits</p>
-      <h2>The top score, and the sturdiest citations.</h2>
-      <div class="cols">
-        <div class="pcard">
-          <h3>Quality and trust, together</h3>
-          <p>Deep Cove Research scored ahead of every closed frontier model on the shared task, and it produced the most verified citations of any system tested &mdash; 84, at 90.3% accuracy. No closed model matched both.</p>
-        </div>
-        <div class="pcard">
-          <h3>Open by design</h3>
-          <p>It is the strongest open&#8209;weight system on the board. A company can host it on its own servers, at low cost, with full control of its data and no vendor lock&#8209;in.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- APPENDIX -->
+    <!-- 8 · SCORED REPORT -->
     <section class="container narrow" style="padding-left:0;padding-right:0;">
-      <p class="eyebrow">The scored report</p>
-      <h2>The output behind the numbers.</h2>
+      <p class="eyebrow">The output</p>
+      <h2>The report behind the numbers.</h2>
       <p>A representative scored report from Deep Cove Research &mdash; about 3,900 words, four evidence tables, and 37 tiered references, with every quantitative claim span&#8209;grounded to a cited source.</p>
+      <p>Note the report&rsquo;s closing section: it states plainly what its evidence base could not support. The system reports what it cannot verify &mdash; that discipline is where the 90.3% comes from.</p>
       <details>
         <summary>Read the full report <span class="chev">expand &darr;</span></summary>
         <div class="report">
@@ -568,7 +536,7 @@
     </section>
 
     <p class="foot">
-      <strong>Methodology.</strong> The scoreboard combines two sources. Rows without a dagger are our own runs of each system&rsquo;s latest model on a shared DeepResearch&nbsp;Bench task &mdash; a literature review on AI and the labor market &mdash; all through the same harness, with a GPT&#8209;5.5 model scoring quality against the benchmark&rsquo;s reference report. Rows marked &dagger; are taken from the official DeepResearch&nbsp;Bench leaderboard (a 100&#8209;task average under the same RACE framework). The two are close in scale but measure different task sets, so the ranking is indicative; a full 100&#8209;task submission for Deep Cove Research is in progress. Citation figures &mdash; accuracy (share of checked citations that held up) and verified citations (the number that held up) &mdash; come from our own runs: each claim was matched to its source, the live page scraped, and an automated judge checked whether the page supported the claim.
+      <strong>Methodology.</strong> The scoreboard combines two sources. Rows without a dagger are our own runs of each system&rsquo;s latest model on one shared DeepResearch&nbsp;Bench task &mdash; a literature review on AI and the labor market &mdash; all through the same harness, with a GPT&#8209;5.5 model scoring quality against the benchmark&rsquo;s reference report. Rows marked &dagger; are taken from the official DeepResearch&nbsp;Bench leaderboard, a 100&#8209;task average under the same RACE framework. The two are close in scale but cover different task sets, so the cross&#8209;source ranking is indicative. Citation figures &mdash; accuracy (the share of checked citations that held up) and verified citations (the number that held up) &mdash; come from our own runs: each claim was matched to its source, the live page scraped, and an automated judge checked whether the page supported the claim. Runs conducted July&nbsp;2026.
     </p>
 
   </div>
