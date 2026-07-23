@@ -336,6 +336,83 @@ epistemically-labeled synthesis, and where source-class enforcement fails BEFORE
   pullable that way; Qianfan/ZTE reports obtained via their own GitHub instead). Method architecture cannot be reverse-engineered
   from prose style alone.
 
+═══ PART 8 — REMAINING TOP-10 TEARDOWN (addendum, [F2]=Fable addendum; extends Parts 1-7) ═══
+Closes the top-10 gap: the first pass did cellcog-max/WhaleCloud/Qianfan/ZTE/NVIDIA; this adds the skipped ABOVE-reference systems,
+all fetched from the leaderboard Space raw_data. AVAILABILITY [F2]: legacy dir has NO zhipu/iFlow/ZTE file (full tree listed) → those
+task-72 reports are NOT fetchable from this Space; no claims made. Current-tab has all 10.
+STRUCTURAL SCOREBOARD (measured): Bodhi 54.07/54.15/54.60/54.41/51.87 — 4,361 words, 50 headings, 0 tables, `[[n]](url)`×105. Lunon
+53.51/—/54.83/—/50.48 — 11,476 words, 65 headings, 24 table lines, `[Title](url)`×184, EMPTY `## References` (:492). Dalpha 53.10 —
+4,039 words, 15 headings, 0 tables, 35 refs ALL journal+DOI. Sourcery 51.17 — 9,849 words, 54 headings, 35 table lines, 18 refs mixed.
+Xiaoyi (legacy) 57.00 — 19,095 words, 44 headings, 292 table lines, Chinese H1 + ~30 literal `[Blueprint State]` placeholder citations.
+
+• BODHI (#3, 54.07) — DENSITY EXISTENCE PROOF [F2]: 4,361 words, 0 tables, yet #3. 50 headings/4,361w ≈ 87 words/heading; each subsection
+  = closed loop study→precise number→Strength/Limitation appraisal→bolded LABELED deduction. #7 mechanism-first + reused downstream
+  (:15 "**Restructuring implication**: even when aggregate employment effects are small... firms may still be actively reorganizing";
+  :122 "consistent with GPT diffusion lags"). #8 completed at DEBATE level (§8.2 both poles w/ cites) but NO cross-sector matrix/
+  moderator-reconciliation after the sector tour → Insight 54.60 < cellcog 57.08. #2 coverage contract up front (:3 five enumerated
+  changes). Read 51.87 = its lowest (same signature as cellcog). NEW: N1 THE LABELED-DEDUCTION TEMPLATE — Pattern-1 shipped as a
+  recurring bolded tag ("**Restructuring implication:**"/"**Interpretation:**"/"**Mechanism link:**"/"**Policy tension:**") after every
+  evidence unit (judge needn't detect the deduction — it's typographically flagged; reference does it implicitly, nobody else SHIPS it
+  as a label). N2 MEASUREMENT-STRATEGIES CHAPTER as a first-class section (§2, TEN methods each w/ Strength/Limitation) → hits lit-review
+  form + literature depth + method-critique-as-second-order-insight in one structure (attacks the reference's own weakness #1). N3
+  first-person evidence-boundary protocol (:4 "Where the research record contains only bibliographic indications... I either do not use
+  it or explicitly limit claims").
+• LUNON (#4, 53.51; Read 50.48 lowest) [F2]: 11,476w, most-engineered epistemics in the tab. #8 STRONGEST sector-synthesis architecture:
+  sectors GROUPED BY BINDING CONSTRAINT + 9-row matrix w/ a "Binding Constraint" column + "**Cross-sector claim:**" paragraphs (:287
+  "That difference in binding constraint, not technical exposure, explains why two high-exposure sectors realise change at different
+  speeds"); ch10 resolves each debate as a "design-induced artifact" (:371,:377). #7 coupled-system w/ timing asymmetry (:114) + original
+  micro-mechanism (:126 "persistence of hybridization is not caution but arithmetic: expected cost of machine error exceeds the wage of
+  the human who catches it"). #10 coined themes (reshoring-incidence inversion :317; surveillance paradox :359). NEW: N4 WEIGHTED
+  SOURCE-INCLUSION RUBRIC TABLE (R-1 peer-review .30/R-2 English .15/R-3 Q1-Q2 .20/R-4 relevance .20/R-5 recency .15) + "signpost
+  convention" (seminal works named but "never cited as evidence for a load-bearing claim"). N5 FALSIFIERS section (three named, ranked by
+  checkability). N6 confidence-tier→policy-verb mapping ("commit on mature... stage on partial... hedge on open"). N7 validity envelope.
+  N8 measurement-reflexivity as the insight engine ("when the ruler is made of the thing it measures", reused 4×). CAVEATS (why #4 not #3):
+  rubric table but LOAD-BEARING claims cite NBER/arXiv/Pew/vendor blogs (signpost broken); empty `## References` as literal last line.
+• DALPHA (#5, 53.10) — COMPLIANCE EXISTENCE PROOF [F2]: 4,039w, 15 headings, 0 tables — the ONLY system with genuine end-to-end journal
+  compliance (35/35 real journal DOIs: QJE/AER/JPE/JEP/REStat/Science/PNAS/ManSci/...); cleanest one-move explained-disagreement (:41
+  "These findings are not contradictory; they measure different levels of adjustment"); exposure→adoption→impact as its own limitations
+  chapter (:145-149); channel-attributed conclusion (:161 assigns each conclusion to its strongest evidence family). NEW: N9 evidence-
+  provenance typing ("distinguishes direct AI evidence from broader automation/robotics evidence" — labels each block direct/bridge/
+  background). N10 channel-attributed conclusion (one-paragraph prose evidence map). SHAPE: 4k flawless words beats 9-11k flawed — the
+  "~9,000-word bar" is not a floor; clean synthesis + perfect source discipline + explained disagreement WITHOUT scenarios/tiers/matrices.
+• SOURCERY (#6, 51.17) — GENERIC-TEMPLATE CEILING [F2]: 9,849w but a house template (ToC/Key-Questions/Core-Findings/Deep-Analysis/
+  Unknowns/Evidence-Map) NOT rubric-shaped → Pattern 4 ✘, Pattern 5 ✘. Competent insight (so-so tech :272; reinstatement sign-flip
+  before/after 1987 :359-362; welfare-negative new tasks 2% GDP/−0.72% welfare :353) but FORFEITS Comp #3 industry scope (.0725) —
+  self-confessed :330 "sectoral evidence remains thin... No source provides AI-specific sectoral breakdowns", no sector tour — and near-
+  zero 4IR grounding. Weak compliance ("18 academic sources", Medium/blog/WP refs). NEW: N11 EVIDENCE MAP artifact (21-row Theme×
+  Strongest/Moderate/Weak-Absent table w/ cell citations). N12 scenario triptych w/ per-scenario Confidence. N13 deep source-mining (18
+  sources, 435 marks; 10-20 atomic claims per source → good FACT E.Cit surface #49 but starves breadth cells → loses on this rubric).
+• XIAOYI (legacy, 57.00) — SATURATION STRATEGY [F2]: 19,095w, 292 table lines — most complete coverage of any system in either phase;
+  every mechanism/consensus/controversy as TABLES w/ Confidence + Resolution-Status columns (§8.3 "Active Controversies" table :859-864;
+  "Emergent Consensus" table :849-855); original mechanisms (:44 ChatGPT "expectation shock"/anticipatory-adjustment channel; :42 "double
+  displacement mechanism"; :336 healthcare liability paradoxically protects employment). NEW: N14 "Critical Evidence Gap" LABELED BLOCK in
+  EVERY section (converts each coverage boundary into Insight #11 gap→research-implication credit). N15 consensus/controversy tables w/
+  Confidence+Resolution-Status + "Research Implication" column. N16 methodological-generations genealogy (exposure indices/identification
+  1st-2nd-3rd generation w/ per-gen limitation). N17 ANTI-PATTERN: literal "[Blueprint State]" placeholder as a citation ~30× survived to
+  submission — legacy Gemini tolerated it at 57.00; under GPT-5.5/FACT it's cellcog_7703-class filler. DO NOT bank on judge tolerance;
+  Chinese H1 on an English task likewise forgiven by the legacy judge only.
+
+CROSS-SYSTEM FINDINGS THAT EXTEND PARTS 1-7 [F2]:
+F1. WORD COUNT UNCORRELATED WITH RANK in the current top-6 (Bodhi #3 @4,361w, Dalpha #5 @4,039w beat Lunon #4 @11,476w and Sourcery #6
+   @9,849w). AMENDS Pattern 9: on the GPT-5.5 judge the operative variable is closed-loop paragraph DENSITY (study→number→appraisal→
+   deduction) + rubric-cell allocation; ~4k flawless words w/ full cell coverage ≈ 54, 9-11k words w/ cell gaps ≤ 53.5.
+F2. THE #1/#3 READABILITY SIGNATURE: cellcog 51.94, Bodhi 51.87, Lunon 50.48 all bottom out on Read — extreme analytic density costs
+   2-4 Read points and winners ACCEPT the trade (Read weight .14). The competitive ceiling does NOT require winning Read (relevant to
+   our 0.36 — fix Read for our own floor, but it's not the ceiling lever).
+F3. Inst #17/#18 DIFFERENTIATES WHEN INSIGHT COMPRESSES: current-tab rank tracks source-discipline (Bodhi > Lunon broken-practice >
+   Dalpha perfect-practice > Sourcery weak-claim+Medium-refs). DALPHA PROVES genuine journal-only compliance is ACHIEVABLE (35/35 DOIs)
+   → "leaders violate journal-only" (Qianfan/ZTE/NVIDIA caveats) is a LEGACY-tab phenomenon, not a law.
+F4. EPISTEMIC LABELING HAS ESCALATED FROM TAGS TO ARTIFACTS: Evidence Map strength table (Sourcery), maturity-tier→policy-verb + falsifiers
+   + validity envelope (Lunon), consensus/controversy tables w/ Confidence/Resolution columns (Xiaoyi), per-scenario Confidence (Sourcery),
+   per-section Critical-Evidence-Gap blocks (Xiaoyi), Strength/Limitation pairs per method (Bodhi) — all PRE-generation-plannable.
+F5. THE LABELED-DEDUCTION TEMPLATE (Bodhi N1) is the cheapest implementation of Pattern 1 — a writer rule "end every evidence unit with a
+   bolded `Implication:` clause" makes the .0800-cell behavior verifiable by OUR gates AND visible to the judge.
+F6. METHODS/MEASUREMENT CHAPTER IS NOW TABLE STAKES — 4/5 systems have one (Bodhi §2, Lunon 1.4+13.1, Sourcery, Xiaoyi §8); the reference
+   has NONE (its weakness #1). A standing beatable surface the top systems already exploit.
+F7. JUDGE TOLERANCE FOR STRUCTURAL DEFECTS is real but NOT BANKABLE: empty References heading (Lunon #4), ~30 "[Blueprint State]" leaks
+   (Xiaoyi 57.00), zero tables (Bodhi #3, Dalpha #5) — none fatal, all violate our quality bars + FACT extraction; treat as forgiven noise.
+F8. GENERIC DEEP-RESEARCH TEMPLATES LOSE TO RUBRIC-SHAPED OUTLINES (Sourcery vs everyone above it) — confirms Pattern 5 by counter-example.
+
 ═══ DEFINITIVE CONCLUSION [S+F] ═══
 The bar is NOT the reference's word count. It is a report whose coverage plan is COMPLETE, whose claims are built from faithful
 evidence baskets, whose reasoning EXPOSES MECHANISMS AND MODERATORS, whose sectors are compared through a shared causal schema,
