@@ -47,6 +47,30 @@ untouched ([[no-post-generation-fix-rule]], [[no-entailment-ever-rule]]); build-
 ([[build-all-then-measure-rule]]); consult on judgment calls ([[investigate-then-consult]],
 [[two-way-iteration-rule]]).
 
+**ARCHITECTURE CORRECTION (Sol Wave-1 design-gate, verified in code 2026-07-23) — matters for EVERY wave:**
+The ACTIVE section writer is **`abstractive_writer._call_writer`** (system prompt `_WRITER_SYSTEM_GROUP`
+abstractive_writer.py:431/:540), invoked via **`abstractive_pre_pass`** (:773), obtained in
+`multi_section_generator._run_section` at :6545-6547 and passed as `writer_fn` INTO
+`verified_compose._compose_section_per_basket` (which assembles/verifies DOWNSTREAM, per basket). So the audit's
+"consume at _compose_section_per_basket" is necessary-but-NOT-sufficient: writer INSTRUCTIONS (U1 inference, U14b)
+must reach `abstractive_pre_pass`/`_call_writer`, else they only hit the FALLBACK writer
+(`SECTION_SYSTEM_PROMPT_TEMPLATE` in multi_section_generator, selected at ~:4168). CRITICAL for champion
+preservation: `_SECTION_COMPOSITION_RULES` is UNCONDITIONALLY concatenated into that template at :3612-3615, so
+appending Wave-1 text there changes the writer prompt EVEN WHEN THE SWITCH IS OFF. => Every Wave-1 behavior must
+sit behind ONE call-time predicate `wave_active = (switch_enabled AND ac is not None AND not ac.is_empty)`, as a
+gated prompt SUFFIX at the writer call site, never a module-template append. Sol Wave-1 gate = NO-GO (14 required
+spec changes): pre-producer typed LicensedInference admission (premise claim IDs + marker UNION + reasoning-
+operator enum) BEFORE the writer, canary = lexical/surface closure only (NOT semantic entailment) + new pure
+fail-closed inventory helper composing evidence_value_extractor/claim_atom_extractor/verified_compose helpers
+(engine untouched); U1 count-free (closing move, no "3+ sentences" magic count); ORDERED non-whitespace token
+equality for layout (not multiset), Markdown-context-aware ATX-only normalizer at FINAL-render seam
+(compose_agentic_report_s3gear329.py:724-746), gated; preamble OMISSION gated not deleted; repeated-Limitations =
+pre-gen writer rule + NO-GO lint not post-gen delete; semantic naming PG_ANALYTICAL_CONTRACT/build_analytical_
+contract (no version/adjective names, CLAUDE.md:290-295). Sol staging: (1) carrier/off-path purity FIRST no prose
+change → (2) premise-owned inference planning → (3) active consumption via abstractive_pre_pass/_call_writer → (4)
+post-compose fail-closed audit → (5) U12-lite separately gated at final render → (6) U14b last/separate arm.
+Verdict at scratchpad/investigators/wave1_solgate_verdict.md (457 lines). Revising spec → re-gate before code.
+
 **The 3-model panel (no Kimi account needed):** Sol = Codex CLI (gpt-5.6-sol, max). K3 = **Codex CLI driving
 OpenRouter `moonshotai/kimi-k3`** — PROVEN working: `codex exec -c model_providers.openrouter.base_url=
 "https://openrouter.ai/api/v1" -c model_providers.openrouter.env_key=OPENROUTER_API_KEY -c
