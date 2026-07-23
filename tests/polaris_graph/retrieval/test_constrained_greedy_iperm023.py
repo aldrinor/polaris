@@ -27,12 +27,30 @@ from src.polaris_graph.retrieval.evidence_selector import (
     select_evidence_for_generation,
 )
 
-_AXES = ("safety", "class", "jurisdiction")
+_AXES = ("facet", "class", "jurisdiction")
 
 
-def _row(eid, *, tier="T1", rel=0.5, quote="", title="", url="https://example.org/x"):
-    return {"evidence_id": eid, "direct_quote": quote, "title": title,
-            "tier": tier, "url": url, "source_url": url, "relevance_score": rel}
+def _row(
+    eid, *, tier="T1", rel=0.5, quote="", title="",
+    url="https://example.org/x", facet="", evidence_class="",
+    jurisdiction="",
+):
+    row = {
+        "evidence_id": eid,
+        "direct_quote": quote,
+        "title": title,
+        "tier": tier,
+        "url": url,
+        "source_url": url,
+        "relevance_score": rel,
+    }
+    if facet:
+        row["facet"] = facet
+    if evidence_class:
+        row["evidence_class"] = evidence_class
+    if jurisdiction:
+        row["jurisdiction"] = jurisdiction
+    return row
 
 
 def _scored(rows):
@@ -57,33 +75,47 @@ def test_config_on_and_max_swaps_override(monkeypatch):
 
 def test_active_axes_default_and_override(monkeypatch):
     monkeypatch.delenv("PG_GREEDY_AXES", raising=False)
-    assert _greedy_active_axes() == ("safety", "class", "jurisdiction")
-    monkeypatch.setenv("PG_GREEDY_AXES", "safety, bogus")
-    assert _greedy_active_axes() == ("safety",)               # unknown axis ignored
+    assert _greedy_active_axes() == ("facet", "class", "jurisdiction")
+    monkeypatch.setenv("PG_GREEDY_AXES", "facet, bogus")
+    assert _greedy_active_axes() == ("facet",)               # unknown axis ignored
     monkeypatch.setenv("PG_GREEDY_AXES", "bogus")
-    assert _greedy_active_axes() == ("safety", "class", "jurisdiction")  # all-invalid -> default
+    assert _greedy_active_axes() == ("facet", "class", "jurisdiction")  # all-invalid -> default
 
 
-def test_coverage_buckets_keyword_derivation():
-    # one bucket per axis (first taxonomy match wins): "contraindicated in pregnancy" -> the FIRST
-    # safety match (contraindication), NOT both.
-    multi = _row_coverage_buckets(_row("a", quote="this is contraindicated in pregnancy"), _AXES)
-    assert multi == frozenset({("safety", "contraindication")})
-    assert ("safety", "contraindication") in _row_coverage_buckets(_row("a", quote="contraindicated"), _AXES)
-    assert ("class", "meta_analysis") in _row_coverage_buckets(_row("b", title="A systematic review"), _AXES)
-    assert _row_coverage_buckets(_row("c", quote="nothing special here"), _AXES) == frozenset()
+def test_coverage_buckets_come_from_row_metadata():
+    multi = _row_coverage_buckets(
+        _row(
+            "a",
+            facet="operating conditions",
+            evidence_class="field experiment",
+            jurisdiction="north",
+        ),
+        _AXES,
+    )
+    assert multi == frozenset({
+        ("facet", "operating conditions"),
+        ("class", "field experiment"),
+        ("jurisdiction", "north"),
+    })
+    assert _row_coverage_buckets(
+        _row("c", quote="nothing special here", url=""),
+        _AXES,
+    ) == frozenset()
 
 
 # ── the diversification pass ─────────────────────────────────────────────────
 
 def _monoculture_scenario():
-    # selected: 3 T1 contraindication rows (safety monoculture, each bucket covered 3x = redundant).
-    sel_rows = [_row(f"sel{i}", quote="drug is contraindicated", rel=0.9 - i * 0.01) for i in range(3)]
-    # slack pool: novel-bucket T1 rows + one redundant T1 contraindication row.
+    # Selected rows declare one repeated facet; the slack pool contains
+    # evidence-declared novel facet/class buckets and one redundant row.
+    sel_rows = [
+        _row(f"sel{i}", facet="throughput", rel=0.9 - i * 0.01)
+        for i in range(3)
+    ]
     pool_rows = [
-        _row("p_meta", title="A systematic review and meta-analysis", rel=0.4),   # novel class bucket
-        _row("p_adv", quote="serious adverse reaction reported", rel=0.3),        # novel safety bucket
-        _row("p_more_contra", quote="also contraindicated", rel=0.2),             # NOT novel
+        _row("p_design", evidence_class="panel analysis", rel=0.4),
+        _row("p_cost", facet="cost", rel=0.3),
+        _row("p_more_throughput", facet="throughput", rel=0.2),
     ]
     scored = _scored(sel_rows + pool_rows)
     selected = scored[:3]            # the 3 selected
@@ -100,7 +132,7 @@ def test_pass_diversifies_monoculture_and_is_coverage_monotone():
     assert swaps >= 1
     assert after.issuperset(before)                  # COVERAGE-MONOTONE: never drop a covered bucket
     assert len(after) > len(before)                  # strictly more distinct coverage
-    assert ("safety", "contraindication") in after   # the monoculture bucket is still covered
+    assert ("facet", "throughput") in after          # the monoculture bucket is still covered
     assert telem["distinct_buckets"] == len(after)
 
 
@@ -134,8 +166,13 @@ def test_pass_zero_max_swaps_is_noop():
 
 def test_swap_stays_same_tier():
     # a novel-bucket candidate in a DIFFERENT tier than any redundant row must NOT be pulled in.
-    sel_rows = [_row(f"s{i}", quote="contraindicated", tier="T1", rel=0.9 - i * 0.01) for i in range(3)]
-    pool_rows = [_row("p_t3", title="systematic review", tier="T3", rel=0.4)]  # novel but wrong tier
+    sel_rows = [
+        _row(f"s{i}", facet="throughput", tier="T1", rel=0.9 - i * 0.01)
+        for i in range(3)
+    ]
+    pool_rows = [
+        _row("p_t3", evidence_class="panel analysis", tier="T3", rel=0.4)
+    ]  # novel but wrong tier
     scored = _scored(sel_rows + pool_rows)
     selected = scored[:3]
     swaps, _ = _apply_coverage_diversification(
@@ -150,11 +187,16 @@ def test_greedy_does_not_pull_at_cap_domain_over_the_cap():
     # The bug Codex caught: a novel-bucket candidate from an AT-CAP domain must NOT be admitted by
     # evicting a DIFFERENT-domain row (that would push the capped domain back over the cap).
     sel_rows = [
-        _row("x1", quote="drug is contraindicated", url="https://x.com/1", rel=0.9),  # x.com, unique bucket
-        _row("x2", quote="serious adverse reaction", url="https://x.com/2", rel=0.8),  # x.com, unique bucket
+        _row("x1", facet="throughput", url="https://x.com/1", rel=0.9),  # x.com, unique bucket
+        _row("x2", facet="cost", url="https://x.com/2", rel=0.8),  # x.com, unique bucket
         _row("y1", quote="nothing notable", url="https://y.com/1", rel=0.7),           # y.com, NO bucket
     ]
-    pool_rows = [_row("x3", title="A systematic review and meta-analysis", url="https://x.com/3", rel=0.4)]
+    pool_rows = [
+        _row(
+            "x3", evidence_class="panel analysis",
+            url="https://x.com/3", rel=0.4,
+        )
+    ]
     scored = _scored(sel_rows + pool_rows)
     selected = scored[:3]
     swaps, _ = _apply_coverage_diversification(
@@ -173,11 +215,16 @@ def test_greedy_swaps_within_domain_when_at_cap():
     # When the at-cap domain HAS a redundant same-domain row, the novel candidate IS admitted by a
     # same-domain eviction (net-zero for the domain) -> cap respected AND coverage improves.
     sel_rows = [
-        _row("x1", quote="drug is contraindicated", url="https://x.com/1", rel=0.9),  # x.com redundant pair
-        _row("x2", quote="also contraindicated", url="https://x.com/2", rel=0.8),     # x.com (same bucket -> redundant)
+        _row("x1", facet="throughput", url="https://x.com/1", rel=0.9),  # x.com redundant pair
+        _row("x2", facet="throughput", url="https://x.com/2", rel=0.8),  # x.com (same bucket -> redundant)
         _row("y1", quote="nothing notable", url="https://y.com/1", rel=0.7),
     ]
-    pool_rows = [_row("x3", title="A systematic review and meta-analysis", url="https://x.com/3", rel=0.4)]
+    pool_rows = [
+        _row(
+            "x3", evidence_class="panel analysis",
+            url="https://x.com/3", rel=0.4,
+        )
+    ]
     scored = _scored(sel_rows + pool_rows)
     selected = scored[:3]
     from src.polaris_graph.retrieval.evidence_selector import _row_domain
@@ -187,7 +234,9 @@ def test_greedy_swaps_within_domain_when_at_cap():
     x_count = sum(1 for it in selected if _row_domain(it[3]) == "x.com")
     assert x_count == 2                                            # cap preserved (same-domain swap)
     assert "x3" in [it[3]["evidence_id"] for it in selected]       # novel candidate admitted
-    assert ("class", "meta_analysis") in {b for it in selected for b in _row_coverage_buckets(it[3], _AXES)}
+    assert ("class", "panel analysis") in {
+        b for it in selected for b in _row_coverage_buckets(it[3], _AXES)
+    }
 
 
 # ── _apply_domain_cap tuple return (Codex iter-2 P2.2) ───────────────────────
@@ -207,18 +256,24 @@ def test_domain_cap_returns_tuple_with_brought_in_ids():
 # ── integration through the public selector ─────────────────────────────────
 
 def _integration_rows(n=200):
-    # Build a truncating pool (n > cap). Most rows share one safety bucket (monoculture),
-    # a few carry rare novel buckets that the greedy pass should pull in.
+    # Build a truncating pool (n > cap). Most rows declare one facet;
+    # a few carry rare metadata buckets that the pass should pull in.
     rows = []
     for i in range(n):
         if i < 5:
-            quote, title = "", "A systematic review and meta-analysis of trials"   # rare class bucket
+            facet, evidence_class = "", "panel analysis"
         elif i < 10:
-            quote, title = "serious adverse reaction observed", ""                  # rare safety bucket
+            facet, evidence_class = "cost", ""
         else:
-            quote, title = "drug is contraindicated in this population", ""         # the monoculture
-        rows.append(_row(f"ev{i:03d}", tier="T1", rel=0.9 - i * 0.001, quote=quote, title=title,
-                         url=f"https://ex{i}.org/p"))
+            facet, evidence_class = "throughput", ""
+        rows.append(_row(
+            f"ev{i:03d}",
+            tier="T1",
+            rel=0.9 - i * 0.001,
+            facet=facet,
+            evidence_class=evidence_class,
+            url=f"https://ex{i}.org/p",
+        ))
     return rows
 
 

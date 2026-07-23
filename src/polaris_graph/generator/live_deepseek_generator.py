@@ -380,8 +380,8 @@ def _find_best_span_for_sentence(
             # I-gen-005 Step 2 (Codex strategy verdict 2026-05-26):
             # window bumped 500 -> 800 to cover the "table value here +
             # column header there" multi-claim case Codex sample-audit
-            # surfaced (SURMOUNT-3 endpoint at offset 1900-2400 with
-            # population framing at offset 600-900, etc.). Safety floors
+            # surfaced (a result at a late offset with its frame near the
+            # beginning of the source). Verification floors
             # held: _find_best_span_for_sentence still requires every
             # sentence decimal to appear in the span (line 300) AND
             # the verifier's content-word-overlap (>=2) check downstream.

@@ -288,14 +288,14 @@ class TestM42eTelemetryPass3:
 
 
 class TestM42eCapActuallyEnforced:
-    """M-42e pass-2 Codex medium #1: the pass-1 cap test used a
+    """M-42e pass-2 Codex medium #1: the pass-1 capacity test used a
     pool size == max_rows which triggered the early-exit path and
-    bypassed the floor logic entirely. This test uses pool size >
-    max_rows so the floor + cap code actually runs."""
+    bypassed the weighting logic entirely. This test uses pool size >
+    max_rows so the capacity-derived weighting code actually runs."""
 
-    def test_eight_primaries_with_tight_quota_cap_at_six(self) -> None:
+    def test_primary_reservations_follow_available_t1_capacity(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
-            select_evidence_for_generation, _M42E_PRIMARY_FLOOR_CAP,
+            select_evidence_for_generation,
         )
         # 8 distinct SURPASS primaries on NEJM host + 5 T1 non-
         # primaries (reviews) + 5 T2 meta-analyses = 18 rows total.
@@ -340,21 +340,17 @@ class TestM42eCapActuallyEnforced:
             r for r in result.selected_rows
             if "SURPASS-" in r.get("title", "") and "clinical trial" in r.get("title", "")
         ]
-        # Floor should reserve AT MOST _M42E_PRIMARY_FLOOR_CAP slots
-        # (though total primaries selected can exceed if T1 has room
-        # for additional primaries after the floor). The floor RESERVATION
-        # is capped; we verify via telemetry.
-        assert _M42E_PRIMARY_FLOOR_CAP == 6
-        # Telemetry note should surface the floor reservation count
+        # Telemetry surfaces both evidence demand and the capacity inherited
+        # from the selector's existing tier allocation. There is no separate
+        # domain-specific reservation constant.
         m42e_notes = [n for n in result.notes if "m42e_primary_floor" in n]
         assert m42e_notes, f"M-42e telemetry note missing; notes={result.notes}"
-        # Parse the reserved count from the note
         import re
-        m = re.search(r"reserved=(\d+)", m42e_notes[0])
-        assert m, f"reserved count missing from: {m42e_notes[0]}"
-        reserved_count = int(m.group(1))
-        assert reserved_count <= _M42E_PRIMARY_FLOOR_CAP, (
-            f"floor reserved {reserved_count} > cap {_M42E_PRIMARY_FLOOR_CAP}"
+        reserved = re.search(r"reserved=(\d+)", m42e_notes[0])
+        capacity = re.search(r"capacity=(\d+)", m42e_notes[0])
+        assert reserved and capacity, m42e_notes[0]
+        assert int(reserved.group(1)) == min(
+            len(anchors), int(capacity.group(1)),
         )
 
 
@@ -389,9 +385,9 @@ class TestM42eTelemetry:
         )
         m42e_entries = [n for n in result.notes if "m42e_primary_floor" in n]
         assert m42e_entries, f"no m42e_primary_floor entry; notes={result.notes}"
-        # The note should reference the cap and the matched anchors
+        # The note should reference evidence-derived capacity and matched anchors.
         note = m42e_entries[0]
-        assert "cap=" in note
+        assert "capacity=" in note
         assert "anchors=" in note
 
     def test_notes_omit_m42e_when_no_anchors_matched(self) -> None:
@@ -497,11 +493,10 @@ class TestM42ePrimaryFloorIntegration:
             "SURMOUNT-3 primary missing"
         )
 
-    def test_primary_floor_caps_at_6(self) -> None:
-        """8 anchor-matched primaries in pool but floor cap = 6 →
-        at most 6 primary-reservations."""
+    def test_primary_floor_uses_available_capacity(self) -> None:
+        """Anchor-matched primaries are bounded by selector capacity."""
         from src.polaris_graph.retrieval.evidence_selector import (
-            select_evidence_for_generation, _M42E_PRIMARY_FLOOR_CAP,
+            select_evidence_for_generation,
         )
         # Build a pool with 8 distinct primaries
         rows = [
@@ -526,16 +521,14 @@ class TestM42ePrimaryFloorIntegration:
             max_rows=13,
             primary_trial_anchors=anchors,
         )
-        surpass_count = sum(
-            1 for r in result.selected_rows
-            if "SURPASS-" in r.get("title", "")
+        note = next(n for n in result.notes if "m42e_primary_floor" in n)
+        import re
+        reserved = re.search(r"reserved=(\d+)", note)
+        capacity = re.search(r"capacity=(\d+)", note)
+        assert reserved and capacity, note
+        assert int(reserved.group(1)) == min(
+            len(set(anchors)), int(capacity.group(1)),
         )
-        # Should reserve at most _M42E_PRIMARY_FLOOR_CAP (6)
-        # Note: additional primaries MAY still be selected on relevance
-        # beyond the floor, but the floor reservation itself caps at 6.
-        # What we test: the cap prevents complete T1 monopoly when
-        # T1 quota is smaller.
-        assert _M42E_PRIMARY_FLOOR_CAP == 6
 
     def test_t2_preservation_when_t1_quota_tight(self) -> None:
         """T1 pool with 4 primaries + 4 post-hocs; T2 with 3 meta-

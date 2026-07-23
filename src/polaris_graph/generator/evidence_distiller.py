@@ -629,9 +629,9 @@ def _numbers_in_text(text: str) -> set[str]:
     as strict_verify plus claim_atom_extractor").
 
     Uses claim_atom_extractor._NUMBER_ATOM_RE, whose ``(?<![A-Za-z0-9_.])``
-    lookbehind correctly excludes the ``1`` embedded in "HbA1c" (preceded by a
+    lookbehind correctly excludes a digit embedded in an alphanumeric label
     letter) while still catching ``-1.86``, ``99.9``, and ranges. The bare
-    strict_verify._decimals pattern (no boundary) over-tokenizes "HbA1c" into a
+    strict_verify._decimals pattern (no boundary) over-tokenizes such labels into a
     junk ``1`` that would both over-strict the numbers-in-span pre-filter AND let
     a non-numeric claim spuriously satisfy the numeric->atom map (via
     ``"1" in atom_literal``). The boundary-aware regex is therefore the

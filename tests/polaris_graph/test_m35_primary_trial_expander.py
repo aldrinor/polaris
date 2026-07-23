@@ -1,6 +1,6 @@
-"""Tests for M-35: primary-trial-name query expansion.
+"""Tests for M-35 primary-source identifier query expansion.
 
-Generalizable contract (no hard-coded trial/drug names in Python):
+General contract (no hard-coded subject vocabulary in Python):
   - Empty / missing template → no queries (backwards compat).
   - Template without `per_query_primary_trial_anchors` key → no queries.
   - Slug not present in the per-query dict → no queries.
@@ -16,6 +16,7 @@ Generalizable contract (no hard-coded trial/drug names in Python):
 from __future__ import annotations
 
 from src.polaris_graph.retrieval.primary_trial_expander import (
+    expand_primary_source_queries,
     expand_primary_trial_queries,
 )
 
@@ -94,16 +95,13 @@ class TestRejectInvalidEntries:
         result = expand_primary_trial_queries("q", tmpl, "s")
         assert result == ['"OK-1" q', '"OK-2" q']
 
-    def test_trial_with_space_rejected(self) -> None:
-        """Quoted query `"TRIAL A" q` would be parsed OK by Serper
-        but trial names are conventionally hyphenated tokens. A
-        space-containing entry is more likely an authoring mistake
-        (e.g. pasting sentence fragments) than an intentional name."""
+    def test_source_identifier_with_space_is_supported(self) -> None:
+        """Quoted source identifiers may contain ordinary spaces."""
         tmpl = {"per_query_primary_trial_anchors": {"s": [
             "BAD ENTRY", "OK-1",
         ]}}
         result = expand_primary_trial_queries("q", tmpl, "s")
-        assert result == ['"OK-1" q']
+        assert result == ['"BAD ENTRY" q', '"OK-1" q']
 
     def test_double_quote_in_entry_rejected(self) -> None:
         """A `"` inside the anchor would break the outer `"{anchor}"`
@@ -212,21 +210,25 @@ class TestEmptySlug:
 
 
 class TestAnchorCountCap:
-    """PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS bounds the number of queries
-    the expander emits so a template with 50 anchors cannot blow up
-    the retrieval budget unexpectedly."""
+    """A configuration-owned bound can limit source query expansion."""
 
-    def test_default_cap_truncates_to_fifteen(self, monkeypatch) -> None:
+    def test_unset_bound_uses_all_evidence_identifiers(self, monkeypatch) -> None:
+        monkeypatch.delenv(
+            "PG_SWEEP_MAX_PRIMARY_SOURCE_ANCHORS", raising=False,
+        )
         monkeypatch.delenv("PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS", raising=False)
         tmpl = {"per_query_primary_trial_anchors": {
             "s": [f"T-{i}" for i in range(25)]
         }}
         result = expand_primary_trial_queries("q", tmpl, "s")
-        assert len(result) == 15
+        assert len(result) == 25
         assert result[0] == '"T-0" q'
-        assert result[-1] == '"T-14" q'
+        assert result[-1] == '"T-24" q'
 
     def test_env_override_tightens_cap(self, monkeypatch) -> None:
+        monkeypatch.delenv(
+            "PG_SWEEP_MAX_PRIMARY_SOURCE_ANCHORS", raising=False,
+        )
         monkeypatch.setenv("PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS", "3")
         tmpl = {"per_query_primary_trial_anchors": {
             "s": [f"T-{i}" for i in range(10)]
@@ -235,6 +237,9 @@ class TestAnchorCountCap:
         assert len(result) == 3
 
     def test_zero_env_disables_cap(self, monkeypatch) -> None:
+        monkeypatch.delenv(
+            "PG_SWEEP_MAX_PRIMARY_SOURCE_ANCHORS", raising=False,
+        )
         monkeypatch.setenv("PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS", "0")
         tmpl = {"per_query_primary_trial_anchors": {
             "s": [f"T-{i}" for i in range(30)]
@@ -242,7 +247,10 @@ class TestAnchorCountCap:
         result = expand_primary_trial_queries("q", tmpl, "s")
         assert len(result) == 30
 
-    def test_invalid_env_falls_back_to_default(self, monkeypatch) -> None:
+    def test_invalid_env_leaves_expansion_unbounded(self, monkeypatch) -> None:
+        monkeypatch.delenv(
+            "PG_SWEEP_MAX_PRIMARY_SOURCE_ANCHORS", raising=False,
+        )
         monkeypatch.setenv(
             "PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS", "not a number"
         )
@@ -250,11 +258,14 @@ class TestAnchorCountCap:
             "s": [f"T-{i}" for i in range(25)]
         }}
         result = expand_primary_trial_queries("q", tmpl, "s")
-        assert len(result) == 15  # default
+        assert len(result) == 25
 
     def test_negative_env_clamps_to_zero_disables_cap(
         self, monkeypatch
     ) -> None:
+        monkeypatch.delenv(
+            "PG_SWEEP_MAX_PRIMARY_SOURCE_ANCHORS", raising=False,
+        )
         monkeypatch.setenv("PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS", "-5")
         tmpl = {"per_query_primary_trial_anchors": {
             "s": [f"T-{i}" for i in range(25)]
@@ -262,6 +273,17 @@ class TestAnchorCountCap:
         result = expand_primary_trial_queries("q", tmpl, "s")
         # -5 clamps to 0 (no cap) → all 25 emitted.
         assert len(result) == 25
+
+    def test_source_named_configuration_takes_precedence(
+        self, monkeypatch,
+    ) -> None:
+        monkeypatch.setenv("PG_SWEEP_MAX_PRIMARY_SOURCE_ANCHORS", "4")
+        monkeypatch.setenv("PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS", "2")
+        tmpl = {"per_query_primary_source_anchors": {
+            "s": [f"S-{i}" for i in range(10)]
+        }}
+        result = expand_primary_source_queries("q", tmpl, "s")
+        assert len(result) == 4
 
 
 class TestYamlTemplateSchemaCoexistence:

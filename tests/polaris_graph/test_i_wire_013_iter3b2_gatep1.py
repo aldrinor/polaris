@@ -102,8 +102,7 @@ def test_arxiv_pair_not_emitted_as_metric_mismatch():
 
 def test_real_shared_metric_disagreement_still_emitted():
     """CONTROL: a genuine unit-bearing shared-metric disagreement (47% vs 32% unemployment) is
-    STILL surfaced as a possible_metric_mismatch — the screen rejects identifiers, never real
-    metrics (faithfulness unchanged)."""
+    surfaced as a contradiction because both rows explicitly share the same scope."""
     evidence = [
         {"evidence_id": "a", "tier": "T1",
          "direct_quote": "The unemployment rate is 47% in the region."},
@@ -112,7 +111,7 @@ def test_real_shared_metric_disagreement_still_emitted():
     ]
     records = _mismatch_records(evidence)
     assert len(records) == 1
-    assert POSSIBLE_METRIC_MISMATCH_MARKER in (records[0].predicate or "")
+    assert POSSIBLE_METRIC_MISMATCH_MARKER not in (records[0].predicate or "")
 
 
 def test_real_metric_survives_alongside_identifiers_in_same_row():

@@ -87,13 +87,10 @@ def test_non_drug_dbs_subject_is_non_empty_and_pair_is_flagged():
     )
 
 
-def test_normalize_subject_default_is_drug_only_byte_identical():
-    """The opt-in is OFF by default: every pre-existing caller (incl. the clinical numeric
-    path) keeps the drug-name-only behaviour and its fallback — byte-identical."""
-    # Non-drug text with general_fallback OFF -> the unchanged fallback, never a noun.
-    assert _normalize_subject("DBS is contraindicated in dementia.", fallback="") == ""
-    assert _normalize_subject("DBS is contraindicated in dementia.", fallback="unknown") == "unknown"
-    # general_fallback ON -> the domain-general noun subject.
+def test_normalize_subject_is_domain_neutral_for_both_call_shapes():
+    """The compatibility flag no longer selects a topic vocabulary."""
+    assert _normalize_subject("DBS is contraindicated in dementia.", fallback="") == "dbs"
+    assert _normalize_subject("DBS is contraindicated in dementia.", fallback="unknown") == "dbs"
     assert _normalize_subject(
         "DBS is contraindicated in dementia.", fallback="", general_fallback=True) == "dbs"
 

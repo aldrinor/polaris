@@ -29,7 +29,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 logger = logging.getLogger("polaris_graph.intake_constraint_extractor")
 
@@ -687,25 +687,23 @@ def extract_instruction_slots(
 
 _ENV_SCOPE_FLAG = "PG_EXTRACT_SCOPE_CONSTRAINTS"
 
-# Known org acronyms for named-source include detection (a bare 2-6 caps token followed by
-# a source noun, OR one of these known orgs, is a NAMED source rather than a topic acronym).
-_KNOWN_NAMED_ORGS = frozenset({
-    "WHO", "OECD", "FDA", "WEF", "IMF", "ILO", "EMA", "NICE", "CDC", "EPA", "SEC",
-    "NASA", "UN", "ECB", "BIS", "OSHA", "NIH", "USPTO", "WIPO", "IEEE", "ISO", "IPCC",
-})
 _NAMED_SOURCE_NOUNS = (
     "guidelines", "guideline", "guidance", "reports", "report", "data", "publications",
     "publication", "framework", "standards", "standard", "recommendations", "statistics",
     "database", "dataset",
 )
-# Include verb + an acronym object (optionally + a source noun). Verb is case-insensitive;
-# the acronym object is case-SENSITIVE (must be uppercase) via a scoped flag.
+# Include verb + an acronym object. A broad topical "focus on" cue requires a
+# source noun; an exclusive/source-use cue is itself sufficient. No anticipated
+# organization list is embedded here.
 _NAMED_INCLUDE_RE = re.compile(
-    r"(?i:\b(?:focus\s+on|focusing\s+on|prefer|prioriti[sz]e|rely\s+on|according\s+to|"
-    r"use|pin|per|cite))\s+(?:the\s+)?"
-    r"([A-Z]{2,6}\b(?:\s+(?:"
+    r"(?i:\b(?:prefer|prioriti[sz]e|rely\s+on|according\s+to|use|pin|per|cite|only))"
+    r"\s+(?:the\s+)?([A-Z][A-Z0-9&.-]{1,15}\b(?:\s+(?:"
     + "|".join(_NAMED_SOURCE_NOUNS)
     + r"))?)"
+    r"|(?i:\b(?:focus\s+on|focusing\s+on))\s+(?:the\s+)?"
+    r"([A-Z][A-Z0-9&.-]{1,15}\b\s+(?:"
+    + "|".join(_NAMED_SOURCE_NOUNS)
+    + r"))"
 )
 
 
@@ -867,7 +865,9 @@ def _trigger_span_text(prompt: str, s: int, e: int, trigger: str) -> str:
 
 
 def extract_scope_constraints_regex(
-    prompt: str, ontology: "dict[str, Any] | None" = None
+    prompt: str,
+    ontology: "dict[str, Any] | None" = None,
+    constraint_values: "Sequence[str] | None" = None,
 ) -> ScopeConstraints:
     """Deterministic scope-facet extraction (no network). The I-scope-001 primary."""
     text = (prompt or "").strip()
@@ -958,18 +958,43 @@ def extract_scope_constraints_regex(
 
     # --- named sources (on the appendix-stripped body) ---
     for m in _NAMED_INCLUDE_RE.finditer(body):
-        label = " ".join(m.group(1).split()).strip()
+        label = " ".join((m.group(1) or m.group(2) or "").split()).strip()
         if not label:
             continue
         acronym = label.split()[0]
-        has_noun = any(n in label.lower() for n in _NAMED_SOURCE_NOUNS)
-        if acronym not in _KNOWN_NAMED_ORGS and not has_noun:
-            continue  # a bare topic acronym (e.g. "AI") is NOT a named source
         if any(n.label.lower() == label.lower() for n in sc.named_include):
             continue
         sc.named_include.append(
             NamedSource(label=label, op="include", strictness="weight",
                         identity={"acronym": acronym}, source="regex")
+        )
+    # Rule-reader/semantic-extractor values are the open vocabulary for named
+    # sources that are not acronyms. Bind only values that occur after an
+    # explicit source-use/exclusivity cue in the prompt.
+    for raw_value in constraint_values or []:
+        label = " ".join(str(raw_value).replace("_", " ").split()).strip()
+        if not label:
+            continue
+        match = re.search(
+            r"(?i:\b(?:only|cite|use|prefer|prioriti[sz]e|rely\s+on|"
+            r"according\s+to|pin|per))\s+(?:the\s+)?"
+            + re.escape(label)
+            + r"\b",
+            body,
+        )
+        if not match or any(
+            named.label.casefold() == label.casefold()
+            for named in sc.named_include
+        ):
+            continue
+        sc.named_include.append(
+            NamedSource(
+                label=label,
+                op="include",
+                strictness="weight",
+                identity={"constraint_value": raw_value},
+                source="regex",
+            )
         )
 
     # named must-exclude: the do-not-view appendix (identity enforced via the registry).

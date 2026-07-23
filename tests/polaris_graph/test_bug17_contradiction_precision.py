@@ -113,31 +113,25 @@ def test_bug17_clinical_routed_nondrug_pair_falls_through_to_metric_guard() -> N
 #     as a hard contradiction (clinical drug-trial schema unchanged).
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_bug17_genuine_same_drug_contradiction_still_hard_flagged() -> None:
-    """semaglutide weight loss 14.9% vs 17.4% — the canonical real clinical
-    contradiction (Section E-06). It has a real drug subject, so it keeps the
-    full clinical schema and is emitted as a HARD contradiction (no mismatch
-    label). Proves the fix did not relax the drug-trial path."""
+def test_bug17_resolved_subject_with_unknown_scope_is_disclosed() -> None:
+    """A resolved subject does not license a hard contradiction by itself."""
     a = _claim("e3", "semaglutide", "weight loss", 14.9, "%")
     b = _claim("e4", "semaglutide", "weight loss", 17.4, "%")
     recs = detect_contradictions([a, b], is_clinical=True)
     assert len(recs) == 1
-    assert "possible_metric_mismatch" not in recs[0].predicate
+    assert "possible_metric_mismatch" in recs[0].predicate
     assert recs[0].subject == "semaglutide"
     # A real drug subject is recognised as the positive licensing signal.
     assert _group_has_real_drug_subject([a, b]) is True
 
 
-def test_bug17_real_drug_group_skips_metric_guard_even_with_differing_scope() -> None:
-    """A real-drug clinical contradiction must keep the no-guard clinical
-    schema: even with NO positively-confirmed shared scope axis, a same-drug
-    same-predicate numeric gap is still a hard contradiction (the clinical
-    rule is intentionally stricter / does not require scope confirmation)."""
+def test_bug17_domain_flag_does_not_skip_metric_guard() -> None:
+    """The compatibility domain flag cannot bypass shared-frame checks."""
     a = _claim("e5", "tirzepatide", "weight loss", 20.9, "%")
     b = _claim("e6", "tirzepatide", "weight loss", 25.5, "%")
     recs = detect_contradictions([a, b], is_clinical=True)
     assert len(recs) == 1
-    assert "possible_metric_mismatch" not in recs[0].predicate
+    assert "possible_metric_mismatch" in recs[0].predicate
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -265,11 +259,11 @@ def test_bug17_is_unknown_subject_sentinels() -> None:
     assert _is_unknown_subject("semaglutide") is False
 
 
-def test_bug17_group_has_real_drug_subject() -> None:
+def test_bug17_group_has_resolved_subject() -> None:
     drug = [_claim("e1", "semaglutide", "weight loss", 14.9, "%")]
     assert _group_has_real_drug_subject(drug) is True
     nondrug = [_claim("e2", "unemployment", "rate", 4.0, "percent")]
-    assert _group_has_real_drug_subject(nondrug) is False
+    assert _group_has_real_drug_subject(nondrug) is True
     unknown = [_claim("e3", "unknown", "accuracy", 92.0, "percent")]
     assert _group_has_real_drug_subject(unknown) is False
     assert _group_has_real_drug_subject([]) is False

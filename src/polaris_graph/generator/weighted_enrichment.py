@@ -365,7 +365,7 @@ def breadth_enrichment_enabled() -> bool:
 # I-deepfix-001 (#1344 follow-on, M5) — PROMOTION-ELIGIBILITY PARTITION.
 #
 # drb_72 let near-zero-weight, single-origin, non-journal sources anchor standalone
-# numbered findings exactly like a corroborated NEJM/AEA source: cognifit blog
+# numbered findings exactly like a corroborated scholarly source: a blog
 # (weight 0.03), inboundlogistics (0.00), procom (0.01), protolabs (0.00), a wsu
 # blog (0.06), an IZA working paper (0.05), a predatory 10.5555 DOI (0.00), and an
 # off-topic 10.26163 DOI (0.00). Each is on-topic enough to span-verify (the body
@@ -757,8 +757,8 @@ def _topical_factor(overlap: float, floor: float) -> float:
 # shared ZERO exact ``_content_words`` with ONLY the top-level research question. That
 # over-withheld genuinely on-topic spans that phrase the topic with SYNONYMS, ACRONYMS,
 # ENTITY NAMES, or lower-level terms (a "labor" question vs an on-topic span about
-# "automation exposure in clerical occupations"; a "GLP-1 obesity" question vs a
-# "semaglutide reduces BMI" span). If every one of a source's spans missed the exact
+# "automation exposure in clerical occupations"; a broad systems question vs a
+# source-written lower-level mechanism). If every one of a source's spans missed the exact
 # question vocabulary the whole source silently vanished from citation though on-topic.
 #
 # PRECISION-SAFE REWRITE: a span is CONFIDENTLY foreign ONLY when it shares nothing with
@@ -1549,7 +1549,7 @@ _MIN_UNIT_CHARS = 40
 # surfaced is uncapped) and NOT a faithfulness gate (strict_verify is untouched). A
 # real long-but-legitimate quote is split into sentence units upstream by
 # ``split_into_sentences``; a single unit exceeding this bound is structurally a blob,
-# never a clinical sentence. Env-overridable (LAW VI); fail-loud on a non-int; floored
+# never a substantive evidence sentence. Env-overridable (LAW VI); fail-loud on a non-int; floored
 # at ``_MIN_UNIT_CHARS`` so the bound can never silently zero the render.
 _ENV_MAX_UNIT_CHARS = "PG_BREADTH_ENRICHMENT_MAX_UNIT_CHARS"
 _DEFAULT_MAX_UNIT_CHARS = 600
@@ -1571,7 +1571,7 @@ _C0_CONTROL_KEEP = {"\n", "\t"}
 # wages rose 5% in 2023"). Dropping such prose would violate §-1.3 keep-all. A drop now
 # requires the trigger AND a STRONG WAF / security co-token (BYTE-IDENTICAL predicate
 # shared with ``finding_dedup._is_captcha_stub`` so consolidation and render agree). The
-# co-tokens are high-precision multi-word / branded anchors a real clinical sentence (any
+# co-tokens are high-precision multi-word / branded anchors a real evidence sentence (any
 # language) never contains.
 _CAPTCHA_STUB_TRIGGER = "just a moment"
 _WAF_CO_TOKENS = (
@@ -1592,9 +1592,9 @@ _WAF_CO_TOKENS = (
 # (which catch error-pages + line-level chrome, not sentence-form consent text) —
 # and on a verbatim self-quote strict_verify's content/decimal checks are IDLE, so
 # without this screen a "Enable basic functions like page navigation." span would
-# self-quote straight into a clinical report. Same allowlist-only, whole-unit
+# self-quote straight into a research report. Same allowlist-only, whole-unit
 # input-hygiene pattern as the strict_verify BUG-19 pregate: multi-word, anchored
-# to chrome-specific phrasing so a real clinical sentence (any language) is never
+# to chrome-specific phrasing so a real evidence sentence (any language) is never
 # touched, and NEVER a verdict — only what the breadth section actively SURFACES.
 _WEB_CHROME_MARKERS = (
     "enable basic functions",
@@ -1652,9 +1652,9 @@ _WEB_CHROME_RE = re.compile(
 )
 
 # Trailing sentence-terminal punctuation stripped before the ``[ev_id]`` marker is
-# appended, so the marker sits INSIDE the sentence unit (``...trial [ev_id].``) and
+# appended, so the marker sits INSIDE the sentence unit (``...finding [ev_id].``) and
 # survives strict_verify's re-split. A marker appended AFTER the period
-# (``...trial. [ev_id]``) is peeled onto its own fragment -> the content sentence
+# (``...finding. [ev_id]``) is peeled onto its own fragment -> the content sentence
 # goes tokenless -> dropped ``no_provenance_token`` (the silent-collapse the harness
 # caught: it suppressed otherwise-citable sources).
 _TERMINAL_PUNCT = ".!?"
@@ -1698,7 +1698,7 @@ def max_unit_chars() -> int:
     Default ``_DEFAULT_MAX_UNIT_CHARS``. Fail-loud on a non-integer (LAW II — no
     silent fallback to a guessed value); floored at ``_MIN_UNIT_CHARS`` so the bound
     can never silently zero the render. A unit longer than this is structurally a
-    fetch-shell / raw-extraction blob, never a clinical sentence.
+    fetch-shell / raw-extraction blob, never a substantive evidence sentence.
     """
     raw = os.environ.get(_ENV_MAX_UNIT_CHARS)
     if raw is None or not raw.strip():
@@ -1796,7 +1796,7 @@ def _is_web_chrome(text: str) -> bool:
 #
 # PRECISION OVER RECALL (the codebase law: "over-strip deletes a real finding, worse
 # than a leak"). Every NEW category is high-precision allowlist/structure-anchored so
-# a real clinical/economics/policy finding (any language) is never dropped; the
+# a real substantive finding (any language) is never dropped; the
 # canary below is the leak backstop. The "non-English-out-of-scope" category was
 # DELIBERATELY NOT built: a language-only drop deletes real non-English sources (a
 # §-1.3 multilingual-preservation regression), and any genuine non-English chrome
@@ -1920,7 +1920,7 @@ _DOC_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 # An ORCID identifier in a "claim" => an author/affiliation masthead list, never a
-# finding (a real clinical/economics sentence never carries a 0000-0000-0000-0000
+# finding (a real evidence sentence never carries a 0000-0000-0000-0000
 # ORCID id). High precision by construction.
 _ORCID_RE = re.compile(r"\b\d{4}-\d{4}-\d{4}-\d{3}[\dxX]\b")
 # A bare DOI / identifier row standing alone as a "claim" (no assertional prose).
@@ -2132,10 +2132,10 @@ def _is_residual_chrome_furniture(text: str) -> bool:
 # I-deepfix-001 (#1344) chrome_canary_unblind — three chrome CLASSES the containment predicate was
 # BLIND to (the canary passed 0/226 while the report was saturated with chrome). Each rule is a
 # high-precision CONTAINMENT signal (fires even when the class is welded INTO otherwise-real prose),
-# structure/dual-signal-anchored so it can NEVER flag clean clinical prose:
+# structure/dual-signal-anchored so it can NEVER flag clean evidence prose:
 #   (a) AUTHOR-AFFILIATION / EMAIL block — an email address CO-OCCURRING with an institution keyword
 #       (a corresponding-author byline: "…, Department of Cardiology, Harvard University. Email:
-#       jsmith@harvard.edu"). A real clinical/research finding never carries a raw email address, and
+#       jsmith@harvard.edu"). A real research finding never carries a raw email address, and
 #       the email+institution DUAL signal never co-occurs in substantive prose (precision-first per
 #       §-1.3: recall is secondary, over-strip is worse). The email alone is NOT enough (a finding
 #       could conceivably quote one); both signals are required.
@@ -2249,7 +2249,7 @@ def _contains_iwire016_gap_furniture(s: str) -> bool:
 # CLAIMS (and into the Abstract + Conclusion sandwich) of the drb_72 report because no enumerated
 # rule covered them and chrome self-entails strict_verify (text == its own span) so the faithfulness
 # engine is structurally blind to furniture. All are high-precision CONTAINMENT / structure signals,
-# dual-signal / structure-anchored so they can NEVER flag a real economics / labor / clinical finding
+# dual-signal / structure-anchored so they can NEVER flag a real substantive finding
 # (precision-first per §-1.3: fail-OPEN on ambiguity — over-strip is worse than a leak). FLAG-not-drop
 # / detector-only: a flagged unit is WITHHELD from the rendered rollup and from the abstract/conclusion
 # harvest, KEPT in evidence + the credibility disclosure; the faithfulness engine (strict_verify / NLI /
@@ -2416,10 +2416,10 @@ _TITLE_PAGE_MASTHEAD_RE = re.compile(
 # (2) BIBLIOGRAPHY fragment — a reference-list locator a real finding sentence never contains: a
 #     "pp. 45-67" page range, a "Retrieved from http…" / "Accessed <date>" retrieval line, or an
 #     "In: <Editor> (Ed(s).)" book-chapter opener. DELIBERATELY OMITTED: a bare "12(3): 45-67"
-#     volume(issue):pages locator — it collides with real clinical prose ("in arm 2 (3): 45-60
-#     patients responded"), and over-strip of a real finding is worse than a leak (§-1.3). An
+#     volume(issue):pages locator — it collides with real evidence prose ("in group 2 (3): 45-60
+#     participants responded"), and over-strip of a real finding is worse than a leak (§-1.3). An
 #     author-block-glued-to-"Abstract" byline is ALSO deliberately not screened here: it cannot be
-#     separated from real academic/clinical prose ("Patients at Massachusetts General Hospital showed
+#     separated from real scholarly prose ("Participants at an institution showed
 #     improved Abstract Reasoning scores") without over-stripping — genuine title pages carry an
 #     ORCID / email / superscript-affiliation signal already caught by ``_contains_missed_chrome_class``
 #     and ``_contains_iwire016_gap_furniture``.
@@ -2432,8 +2432,8 @@ _BIBLIOGRAPHY_FRAGMENT_RE = re.compile(
 )
 # (3) PURE TABLE / FIGURE CAPTION stub — REMOVED at Wave-A iter-3b (Codex P1). A caption-opening unit
 #     carries a real PRESENT-TENSE finding whose verb no finite whitelist can enumerate and which has
-#     no -ed/-ing morphology ("Table 1. Patients receive standard care after randomization.[1]",
-#     "Figure 2: The low-dose arms lack measurable benefit.[1]"), so any caption-stub screen
+#     no -ed/-ing morphology ("Table 1. Participants receive the reference condition.[1]",
+#     "Figure 2: The lower-level groups lack measurable benefit.[1]"), so any caption-stub screen
 #     over-withholds real findings. Per §-1.3 (over-strip is worse than a leak) the table/figure
 #     caption class is DEFERRED — it cannot be separated from real captioned findings without a real
 #     clause parser. Masthead + bibliography-fragment (high-precision, structure-anchored) remain.
@@ -2456,7 +2456,7 @@ def _contains_missed_titlepage_biblio_caption(text: str) -> bool:
 # three nets that route through ``_contains_forensic_chrome`` — the render-seam sanitize pass, the
 # chrome canary, and the verified-compose K-span junk screen — failed together). Each rule is a
 # high-precision, label/structure-anchored CONTAINMENT signal (fires even when the class is welded
-# INTO otherwise-real prose) that can NEVER flag a real economics / labor / clinical finding
+# INTO otherwise-real prose) that can NEVER flag a real substantive finding
 # (precision-first per §-1.3: over-strip of a real finding is worse than a leaked furniture unit).
 # FLAG-not-drop / suppress-only: a flagged unit is WITHHELD from the rendered rollup and KEPT in
 # evidence_pool + the disclosure; the faithfulness engine (strict_verify / NLI / 4-role / provenance
@@ -2474,7 +2474,7 @@ def _contains_missed_titlepage_biblio_caption(text: str) -> bool:
 #       contains. ("Terms of Use" alone is deliberately NOT screened — too generic.)
 #   (3) GLUED AUTHOR-STATS-TABLE — either a Stata summary-table header run ("Variable Obs Mean
 #       Std. Dev. Min Max") OR >=2 glued "Surname<digit>" author-superscript tokens
-#       ("Kanbach1 Heiduk2 Kraus3"). The surname-digit rule is the RISKY one (a clinical
+#       ("Surname1 Surname2 Surname3"). The surname-digit rule is the RISKY one (an evidence
 #       "Group1 … Group2" could collide), so it is GUARDED by ``_stopword_density`` < the floor:
 #       a pure author list has near-zero stopwords while real prose does not.
 #   (4) ASTERISKED-AUTHOR STREET + ZIP affiliation block — a US "City, ST 02142" postal block
@@ -2547,7 +2547,7 @@ _SURNAME_DIGIT_PAIR_RE = re.compile(r"\b([A-Za-z]{3,})[ ]?(\d{1,2})(?![\w.%])")
 # signal (``_AUTHOR_COSIGNAL_RE``): the exactly-2-pair upgrade fires ONLY on an affiliation keyword /
 # "et al." / email. Precision-first per §-1.3: a genuine bare-stars-only two-author byline that
 # carries no affiliation/email/et-al ("Jane Smith1* John Doe2*") is now an ACCEPTED LEAK (leaked page
-# furniture is far lower harm than deleting a real clinical / labor / economic finding); the >=3-pair
+# furniture is far lower harm than deleting a real substantive finding); the >=3-pair
 # path still catches any real glued author LIST, and 2 names + a real affiliation still fires.
 _AUTHOR_COSIGNAL_RE = re.compile(
     r"\b(?:University|Institute|College|Department)\b"
@@ -4298,7 +4298,7 @@ _CORROBORATION_CHROME_PLACEHOLDER = "(claim text withheld — source page-furnit
 # This REPAIRS the sentence in place (removes only the leaked marker; the claim text survives) at
 # the single render chokepoint, over every claim unit. High-precision: only a parenthetical whose
 # WHOLE content is >=2 short integers separated by comma/semicolon is stripped, so a real
-# parenthetical ("(1, 2, or 3 doses were compared)") is never touched (it has non-numeric words) and
+# parenthetical ("(1, 2, or 3 levels were compared)") is never touched (it has non-numeric words) and
 # a solitary "(3)" is left alone (too ambiguous). The report's OWN citations use SQUARE brackets
 # ``[N]`` / ``[#ev:...]`` and are never matched by this parenthesis rule. Faithfulness-NEUTRAL:
 # render text only — no source, count, provenance token, or verdict is touched. LAW VI kill-switch
@@ -4896,7 +4896,7 @@ def _substantive_units(direct_quote: str, *, is_junk: Any) -> list[str]:
         if len(unit) < _MIN_UNIT_CHARS:
             continue
         # I-beatboth-011 #4 (#1289): a unit longer than the render bound is structurally
-        # a fetch-shell / raw-extraction blob (the 75K equation dump), never a clinical
+        # a fetch-shell / raw-extraction blob (the 75K equation dump), never a substantive
         # sentence — DROP it. NOT a breadth cap (source count uncapped); NOT a verify
         # gate (strict_verify untouched). A real long quote is sentence-split upstream.
         if len(unit) > max_chars:

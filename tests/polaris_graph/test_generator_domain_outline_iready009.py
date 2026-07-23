@@ -1,10 +1,4 @@
-"""I-ready-009 (#1081) — generator answer-SHAPE: non-clinical questions get a domain-neutral outline.
-
-The Gate-B generator forced clinical section headers (Efficacy/Safety/Population Subgroups) onto
-NON-clinical questions. Fix = a generator-only OFF-mode outline-set switch: clinical/unknown keep the
-proven clinical _ALLOWED_SECTIONS byte-identical; any other domain gets a domain-neutral generic set.
-The planner / scope template / V30 contracts / section-PROSE prompt are ALL untouched. Offline, no spend.
-"""
+"""Generator outline labels come from configuration; blank input is general."""
 from __future__ import annotations
 
 import inspect
@@ -12,40 +6,37 @@ import inspect
 import pytest
 
 from src.polaris_graph.generator import multi_section_generator as m
+from src.polaris_graph.domain.domain_pack import load_domain_pack
 
 
 # ── domain → allowed section set ─────────────────────────────────────────────────────────────────
-@pytest.mark.parametrize("domain", ["clinical", "Clinical", " CLINICAL ", "", None])
-def test_clinical_and_unknown_keep_clinical_sections_byte_identical(domain):
-    assert m._allowed_sections_for_domain(domain) == m._ALLOWED_SECTIONS
+@pytest.mark.parametrize("domain", ["", None, "unrecognized"])
+def test_blank_and_unknown_use_general_pack(domain):
+    assert m._allowed_sections_for_domain(domain) == load_domain_pack(None)["sections"]
 
 
-@pytest.mark.parametrize("domain", ["economic", "workforce", "policy", "tech", "due_diligence", "source_critical"])
-def test_non_clinical_domains_get_generic_set(domain):
+@pytest.mark.parametrize(
+    "domain",
+    ["clinical", "workforce", "policy", "tech", "due_diligence", "source_critical"],
+)
+def test_domains_get_configuration_owned_sections(domain):
     got = m._allowed_sections_for_domain(domain)
-    assert got == m._ALLOWED_SECTIONS_GENERIC
-    # the generic set must NOT carry clinical headers (that was the defect).
-    for clinical_label in ("Efficacy", "Safety", "Regulatory", "Mechanism", "Dose Response",
-                           "Population Subgroups", "Long-term Outcomes"):
-        assert clinical_label not in got
+    assert got == load_domain_pack(domain)["sections"]
 
 
 # ── domain → outline system prompt ───────────────────────────────────────────────────────────────
-@pytest.mark.parametrize("domain", ["clinical", "", None])
-def test_clinical_unknown_select_clinical_outline_prompt(domain):
-    assert m._select_outline_system_prompt(domain) is m.OUTLINE_SYSTEM_PROMPT
+@pytest.mark.parametrize("domain", ["", None, "clinical", "policy", "workforce"])
+def test_outline_prompt_binds_selected_pack_labels(domain):
+    prompt = m._select_outline_system_prompt(domain)
+    for title in load_domain_pack(domain)["sections"]:
+        assert title in prompt
 
 
-@pytest.mark.parametrize("domain", ["economic", "policy", "workforce"])
-def test_non_clinical_select_generic_outline_prompt(domain):
-    assert m._select_outline_system_prompt(domain) is m.OUTLINE_SYSTEM_PROMPT_GENERIC
-
-
-def test_clinical_outline_prompt_is_unchanged():
-    # the clinical OFF-mode outline prompt keeps its clinical-specific rules (byte-identical path).
-    assert "Efficacy" in m.OUTLINE_SYSTEM_PROMPT
-    assert "SURPASS" in m.OUTLINE_SYSTEM_PROMPT
-    assert "Mechanism" in m.OUTLINE_SYSTEM_PROMPT
+def test_specialized_outline_prompt_has_no_embedded_study_program():
+    prompt = m._select_outline_system_prompt("clinical")
+    assert "Efficacy" in prompt
+    assert "SURPASS" not in prompt
+    assert "SURMOUNT" not in prompt
 
 
 def test_generic_outline_prompt_drops_clinical_rules_keeps_rigor():
@@ -69,15 +60,16 @@ def _outline_json(title: str) -> str:
 
 
 def test_parse_outline_accepts_generic_title_with_generic_allowed():
+    generic_titles = m._ALLOWED_SECTIONS_GENERIC[:3]
     raw = (
         '{"sections":['
-        '{"title":"Key Findings","focus":"f","ev_ids":["ev_1","ev_2"]},'
-        '{"title":"Evidence and Analysis","focus":"f","ev_ids":["ev_3","ev_4"]},'
-        '{"title":"Implications","focus":"f","ev_ids":["ev_5","ev_6"]}]}'
+        f'{{"title":"{generic_titles[0]}","focus":"f","ev_ids":["ev_1","ev_2"]}},'
+        f'{{"title":"{generic_titles[1]}","focus":"f","ev_ids":["ev_3","ev_4"]}},'
+        f'{{"title":"{generic_titles[2]}","focus":"f","ev_ids":["ev_5","ev_6"]}}]}}'
     )
     res = m._parse_outline(raw, allowed_sections=m._ALLOWED_SECTIONS_GENERIC)
     titles = {p.title for p in res.plans}
-    assert "Key Findings" in titles and "Implications" in titles
+    assert titles == set(generic_titles)
 
 
 def test_parse_outline_drops_clinical_title_under_generic_allowed():
@@ -116,11 +108,12 @@ def test_deterministic_fallback_clinical_uses_clinical_titles():
     assert titles == ["Efficacy", "Safety", "Comparative"]
 
 
-def test_deterministic_fallback_non_clinical_uses_generic_titles():
+def test_deterministic_fallback_uses_configured_titles():
     plans = m._build_deterministic_fallback_outline(_ev(12), domain="economic")
     titles = [p.title for p in plans]
-    assert titles == ["Key Findings", "Evidence and Analysis", "Implications"]
-    assert "Efficacy" not in titles and "Safety" not in titles
+    configured = load_domain_pack("economic")["sections"]
+    assert set(titles).issubset(set(configured))
+    assert len(titles) == 3
 
 
 # ── the planner is NOT touched; the section-PROSE prompt is unchanged for all domains ─────────────
@@ -138,11 +131,8 @@ def test_generate_multi_section_report_has_domain_param_default_empty():
 
 
 def test_section_prose_prompt_selection_is_unchanged():
-    # the prose prompt is still keyed on use_field_agnostic (planner), NOT on our new domain switch —
-    # so prose rigor (rules 1-13 incl. primary-source/jurisdiction) is identical for every domain.
-    src = inspect.getsource(m._select_section_system_prompt)
-    assert "use_field_agnostic" in src
-    assert "domain" not in src
+    # The compatibility switch now resolves to one generalized writer contract.
+    assert m._select_section_system_prompt(False) == m._select_section_system_prompt(True)
 
 
 # ── Codex diff-gate iter-1 P1: the RETRY prompt must be domain-aware end-to-end ───────────────────
@@ -156,9 +146,9 @@ class _FakeResp:
 def _make_fake_client(captured: list[str]):
     _VALID_GENERIC = (
         '{"sections":['
-        '{"title":"Key Findings","focus":"f","ev_ids":["ev_0","ev_1"]},'
-        '{"title":"Evidence and Analysis","focus":"f","ev_ids":["ev_2","ev_3"]},'
-        '{"title":"Implications","focus":"f","ev_ids":["ev_4","ev_5"]}]}'
+        '{"title":"Overview","focus":"f","ev_ids":["ev_0","ev_1"]},'
+        '{"title":"Key Findings","focus":"f","ev_ids":["ev_2","ev_3"]},'
+        '{"title":"Evidence and Analysis","focus":"f","ev_ids":["ev_4","ev_5"]}]}'
     )
 
     class _FakeClient:
@@ -196,7 +186,7 @@ def test_non_clinical_retry_prompt_has_no_clinical_leak(monkeypatch):
     assert "Key Findings" in retry_system or "Implications" in retry_system
 
 
-def test_clinical_retry_prompt_is_unchanged(monkeypatch):
+def test_specialized_retry_uses_general_rules_and_configured_titles(monkeypatch):
     import asyncio
 
     from src.polaris_graph.llm import openrouter_client as orc
@@ -207,14 +197,14 @@ def test_clinical_retry_prompt_is_unchanged(monkeypatch):
 
     evidence = [{"evidence_id": f"ev_{i}", "statement": "s", "tier": "T1"} for i in range(8)]
     asyncio.run(m._call_outline(
-        "tirzepatide efficacy and safety", evidence, "fake-model", 0.2, 2500,
+        "Compare two interventions and their reported outcomes",
+        evidence,
+        "fake-model",
+        0.2,
+        2500,
         domain="clinical",
     ))
     assert len(captured) == 2
-    # clinical retry still carries the clinical hard requirements. Inherited commit 2b42bc5
-    # reworded the mechanism rule "Mechanism must be ADDITIVE" -> "Mechanism is ADDITIVE:
-    # include it when mechanism evidence is present, never displacing an evidence-supported
-    # Regulatory/Safety/Efficacy/Comparative/Dose Response section" (multi_section_generator.py
-    # :3233). Semantics preserved (mechanism stays ADDITIVE, never displacing); pin the live text.
-    assert "Mechanism is ADDITIVE" in captured[1]
-    assert "Efficacy" in captured[1]
+    for title in load_domain_pack("clinical")["sections"]:
+        assert title in captured[1]
+    assert "SURPASS" not in captured[1]

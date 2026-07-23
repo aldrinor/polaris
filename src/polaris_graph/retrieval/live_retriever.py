@@ -4092,8 +4092,8 @@ def _fetch_content(
     text (Jina markdown / Crawl4AI) with no <script> blocks — honestly empty,
     never fabricated.
 
-    BUG-FETCH-R8d (2026-04-18): the live smoke test of
-    clinical_tirzepatide_t2dm showed 19/20 candidates failed via the
+    BUG-FETCH-R8d (2026-04-18): a live smoke test showed most candidates
+    failed via the
     previous naive httpx.Client. `src/tools/access_bypass.py` already
     had the full cascade (including BUG-BROTLI fix, concurrent Crawl4AI
     /Jina/Firecrawl, paywall detection) but pipeline A wasn't wired
@@ -5946,7 +5946,9 @@ def run_live_retrieval(
         _pre_expand_n = len(effective_queries)
         effective_queries = expand_evidence_type_queries(
             effective_queries,
-            clinical=(isinstance(domain, str) and domain.strip().lower() == "clinical"),
+            apply_to_frame=(
+                isinstance(domain, str) and domain.strip().lower() == "clinical"
+            ),
         )
         _n_expanded = len(effective_queries) - _pre_expand_n
         if _n_expanded:

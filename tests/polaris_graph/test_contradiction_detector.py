@@ -32,7 +32,7 @@ def _ev(
     }
 
 
-def test_weight_loss_contradiction_detected() -> None:
+def test_different_timepoints_are_disclosed_as_metric_mismatch() -> None:
     # STEP 1 vs STEP 5 semaglutide weight loss disagreement
     evidence = [
         _ev("ev_step1",
@@ -51,11 +51,12 @@ def test_weight_loss_contradiction_detected() -> None:
     r = records[0]
     assert r.subject == "semaglutide"
     # Fix-1: predicate now carries dose suffix like "weight loss (2.4 mg)".
-    assert r.predicate.startswith("weight loss")
+    assert "weight loss" in r.predicate
+    assert "possible_metric_mismatch" in r.predicate
     # Values 14.9 and 17.4 -> relative diff ~0.168, abs 2.5
     assert r.relative_difference > 0.10
     assert r.absolute_difference >= 2.5
-    assert r.severity in {"medium", "high"}
+    assert r.severity == "low"
 
 
 def test_no_contradiction_for_aligned_values() -> None:
@@ -78,9 +79,9 @@ def test_single_claim_no_contradiction() -> None:
 
 def test_three_way_contradiction() -> None:
     evidence = [
-        _ev("ev_low", "semaglutide weight loss 10.0% at week 52"),
-        _ev("ev_mid", "semaglutide weight loss 14.9% at week 68"),
-        _ev("ev_high", "semaglutide weight loss 17.4% at week 104"),
+        _ev("ev_low", "Semaglutide reported weight loss of 10.0% at week 68."),
+        _ev("ev_mid", "Semaglutide reported weight loss of 14.9% at week 68."),
+        _ev("ev_high", "Semaglutide reported weight loss of 17.4% at week 68."),
     ]
     claims = extract_numeric_claims(evidence)
     records = detect_contradictions(claims)
@@ -125,8 +126,8 @@ def test_abs_threshold_prevents_false_positives_on_small_values() -> None:
 
 def test_format_contradictions_output() -> None:
     evidence = [
-        _ev("ev_low", "semaglutide weight loss 10.0% at week 52"),
-        _ev("ev_high", "semaglutide weight loss 17.4% at week 104"),
+        _ev("ev_low", "Semaglutide reported weight loss of 10.0% at week 68."),
+        _ev("ev_high", "Semaglutide reported weight loss of 17.4% at week 68."),
     ]
     claims = extract_numeric_claims(evidence)
     records = detect_contradictions(claims)
@@ -144,8 +145,8 @@ def test_same_source_numeric_span_not_a_cross_source_contradiction() -> None:
     # not_comparable bucket (never dropped — §-1.3) and kept OUT of the headline contradiction count.
     shared = "https://example.com/one-review-article"
     evidence = [
-        _ev("ev_a", "semaglutide weight loss 10.0% at week 52", url=shared),
-        _ev("ev_b", "semaglutide weight loss 17.4% at week 104", url=shared),
+        _ev("ev_a", "Semaglutide reported weight loss of 10.0% at week 68.", url=shared),
+        _ev("ev_b", "Semaglutide reported weight loss of 17.4% at week 68.", url=shared),
     ]
     claims = extract_numeric_claims(evidence)
     records = detect_contradictions(claims)
@@ -167,8 +168,8 @@ def test_format_empty_contradictions() -> None:
 def test_custom_thresholds_override_env() -> None:
     # 14.9 vs 15.2 — below defaults, above strict
     evidence = [
-        _ev("ev1", "semaglutide weight loss 14.9% at 68 weeks"),
-        _ev("ev2", "semaglutide weight loss 15.2% at 68 weeks"),
+        _ev("ev1", "Semaglutide reported weight loss of 14.9% at 68 weeks."),
+        _ev("ev2", "Semaglutide reported weight loss of 15.2% at 68 weeks."),
     ]
     claims = extract_numeric_claims(evidence)
     # Default: no contradiction

@@ -36,9 +36,9 @@ def test_is_repairable_number_mismatch():
     assert sr.is_repairable(["number_not_in_any_cited_span:ev_x:missing=['1.5']"])
 
 
-def test_is_repairable_trial_name_mismatch():
+def test_is_repairable_source_identifier_mismatch():
     assert sr.is_repairable([
-        "trial_name_mismatch:ev_x:sentence_trials=['SURPASS-1']:evidence_trials=[]"
+        "trial_name_mismatch:ev_x:sentence_trials=['ORION-4']:evidence_trials=[]"
     ])
 
 
@@ -168,23 +168,24 @@ async def test_repair_loop_recovery_path(monkeypatch):
     """Repair returns text → re-verify passes → sentence MOVES from
     dropped to kept (Codex iter-1 P0 #2 drop accounting).
     """
-    full_text = "Drug reduced HbA1c by 1.5% in adults with diabetes."
+    full_text = "Model Orion reduced median latency in benchmark requests."
+    marker = f"[#ev:ev_a:0-{len(full_text.encode('utf-8'))}]"
     pool = {
         "ev_a": {"evidence_id": "ev_a", "direct_quote": full_text},
     }
     # PT12 safety filter: dropped sentence must cite ev_id that IS in kept
     kept: list[SentenceVerification] = [
-        _mk_sv("Existing kept [#ev:ev_a:0-50].", verified=True),
+        _mk_sv(f"Existing kept {marker}.", verified=True),
     ]
     dropped = [
         _mk_sv(
-            "Drug reduced HbA1c by 9.9% [#ev:ev_a:0-50].",
+            f"Model Orion reduced median latency by 9.9 ms {marker}.",
             verified=False,
             reasons=["number_not_in_any_cited_span:ev_a:missing=['9.9']"],
         ),
     ]
 
-    repaired = "Drug reduced HbA1c [#ev:ev_a:0-50]."
+    repaired = f"Model Orion reduced median latency {marker}."
     async def _fake_repair(**kwargs):
         return "text", repaired, 100, 50
     monkeypatch.setattr(sr, "repair_sentence", _fake_repair)

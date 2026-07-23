@@ -11,10 +11,14 @@ import src.polaris_graph.generator.multi_section_generator as m
 
 def _off(monkeypatch):
     monkeypatch.delenv("PG_SECTION_STRUCTURE", raising=False)
+    monkeypatch.setenv("PG_RENDER_BLOCKS", "0")
+    monkeypatch.setenv("PG_BASKET_SYNTHESIS", "0")
 
 
 def _on(monkeypatch):
     monkeypatch.setenv("PG_SECTION_STRUCTURE", "1")
+    monkeypatch.setenv("PG_RENDER_BLOCKS", "0")
+    monkeypatch.setenv("PG_BASKET_SYNTHESIS", "0")
 
 
 @pytest.mark.parametrize("anti_verbosity", [False, True])
@@ -42,8 +46,8 @@ def test_on_enables_structure_keeps_citation_contract(monkeypatch, anti_verbosit
     _on(monkeypatch)
     got = m._select_section_system_prompt(True, anti_verbosity=anti_verbosity)
     assert "Do not write a section heading" not in got          # flat rule 7 gone
-    assert "``###`` sub-headings" in got                        # subsection directive
-    assert "markdown TABLE" in got                              # comparison-table directive
+    assert "`###` subheadings" in got                          # subsection directive
+    assert "Markdown table" in got                              # comparison-table directive
     assert "bulleted list" in got                               # bullet directive
     assert "[ev_XXX] marker" in got                             # citation contract preserved
     # composes with anti-verbosity (front-loading directive still present when on)
@@ -63,4 +67,4 @@ def test_structure_composes_on_both_base_templates():
         m.SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC_CONCISE,
     ):
         out = m._build_structured_variant(base)
-        assert "``###`` sub-headings" in out and "[ev_XXX] marker" in out
+        assert "`###` subheadings" in out and "[ev_XXX] marker" in out

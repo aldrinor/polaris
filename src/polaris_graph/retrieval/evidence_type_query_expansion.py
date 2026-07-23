@@ -1,4 +1,4 @@
-"""U11 (I-deepfix-001) — clinical evidence-type query expansion (T1/T2 RECALL weight).
+"""U11 (I-deepfix-001) — retrieval-frame evidence-type query expansion.
 
 Clinical runs starve high-tier evidence (T1 randomized controlled trials /
 systematic reviews / meta-analyses, T2 clinical practice guidelines) because the
@@ -36,7 +36,7 @@ logger = logging.getLogger("polaris_graph.evidence_type_query_expansion")
 # (RCT / systematic review + meta-analysis / practice guideline). These qualifiers
 # are appended to the anchor query so the search engines rank the primary
 # literature that carries them above generic web.
-_DEFAULT_CLINICAL_EVIDENCE_TYPE_TERMS: tuple[str, ...] = (
+_DEFAULT_EVIDENCE_TYPE_TERMS: tuple[str, ...] = (
     "randomized controlled trial",
     "systematic review meta-analysis",
     "clinical practice guideline",
@@ -64,15 +64,15 @@ def _evidence_type_terms() -> tuple[str, ...]:
     """
     raw = resolve("PG_EVIDENCE_TYPE_QUERY_TERMS").strip()
     if not raw:
-        return _DEFAULT_CLINICAL_EVIDENCE_TYPE_TERMS
+        return _DEFAULT_EVIDENCE_TYPE_TERMS
     terms = tuple(t.strip() for t in raw.split(",") if t.strip())
-    return terms or _DEFAULT_CLINICAL_EVIDENCE_TYPE_TERMS
+    return terms or _DEFAULT_EVIDENCE_TYPE_TERMS
 
 
 def expand_evidence_type_queries(
     base_queries: Iterable[str],
     *,
-    clinical: bool,
+    apply_to_frame: bool,
     enabled: bool | None = None,
     terms: Iterable[str] | None = None,
 ) -> list[str]:
@@ -87,8 +87,8 @@ def expand_evidence_type_queries(
 
     Args:
         base_queries: the effective query list already compiled upstream.
-        clinical: whether this is a clinical-domain run. Expansion fires ONLY
-            when this is True — non-clinical runs are returned unchanged.
+        apply_to_frame: whether the prompt-derived retrieval frame calls for
+            evidence-type expansion.
         enabled: kill-switch override (defaults to the env knob). When falsy the
             input is returned unchanged (byte-identical).
         terms: evidence-type qualifier override (defaults to the env knob).
@@ -101,7 +101,7 @@ def expand_evidence_type_queries(
     out = [q for q in base_queries]
     if enabled is None:
         enabled = evidence_type_query_expansion_enabled()
-    if not enabled or not clinical:
+    if not enabled or not apply_to_frame:
         return out
     if terms is None:
         terms = _evidence_type_terms()
@@ -131,7 +131,7 @@ def expand_evidence_type_queries(
 
     if added:
         logger.info(
-            "[evidence_type_query_expansion] added %d clinical evidence-type "
+            "[evidence_type_query_expansion] added %d retrieval-frame evidence-type "
             "sub-queries off anchor %r",
             added, anchor[:80],
         )

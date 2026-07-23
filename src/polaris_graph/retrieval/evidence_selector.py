@@ -173,84 +173,38 @@ def _row_tier(row: dict[str, Any], url_to_tier: dict[str, str]) -> str:
     return str(tier)
 
 
-# M-41d (2026-04-21): jurisdictional-diversity floor for T3 regulatory
-# selection. V24 had 0 Health Canada entries in its bibliography
-# despite 7 HC rows in the corpus (M-37 shipped the tier fix and the
-# prompt rule, but the evidence selector tier-quota gave T3 only 12
-# slots that all went to FDA/EMA/NICE since they scored higher on
-# lexical relevance than a Canadian monograph). M-41d adds a floor:
-# within the T3 quota, reserve one slot for each present jurisdiction
-# whose evidence appears in the pool.
-#
-# Jurisdiction detection is by URL host suffix. A row maps to exactly
-# one jurisdiction or None. No drug-specific tokens; the host list
-# mirrors the regulatory_anchors template schema across domains.
-_M41D_JURISDICTION_HOSTS: list[tuple[str, tuple[str, ...]]] = [
-    # M-41d pass-2 (Codex audit medium #3): removed bare "europa.eu"
-    # from EMA — it was too broad (collapsed any EU-domain source
-    # into EMA). Kept "ema.europa.eu" which is the specific EMA
-    # documents host.
-    ("FDA",  ("fda.gov",)),
-    ("EMA",  ("ema.europa.eu",)),
-    ("NICE", ("nice.org.uk",)),
-    ("MHRA", ("mhra.gov.uk",)),
-    # M-42d (2026-04-22): added `hpfb-dgpsa.ca` — Health Products and
-    # Food Branch / Drug and Health Product Portal host. Existing
-    # *.canada.ca hosts already catch recalls-rappels.canada.ca,
-    # health-products.canada.ca, pdf.hres.ca via suffix match.
-    ("HC",   ("canada.ca", "hres.ca", "hc-sc.gc.ca", "cda-amc.ca",
-              "hpfb-dgpsa.ca")),
-    ("TGA",  ("tga.gov.au",)),
-    ("PMDA", ("pmda.go.jp",)),
-    ("WHO",  ("who.int",)),
-    ("NMPA", ("nmpa.gov.cn",)),
-]
+# M-41d: a general jurisdiction-diversity floor. Jurisdiction comes from
+# evidence metadata; a country-code host suffix is only a structural fallback.
 
 
-# M-42d (2026-04-22): Health Canada quota expansion. V25 baseline had
-# 1 HC entry in the bibliography (M-41d reserved 1 slot per present
-# jurisdiction). V26 aims for >=2 HC entries covering >=2 distinct
-# topics (e.g. monograph + recall/advisory). The expansion is a
-# quota-bounded 2nd reservation that ONLY fires after every present
-# jurisdiction has its 1st reservation, so FDA/EMA/NICE/MHRA each
-# keep their baseline 1 slot regardless of HC's 2nd. Relevance-fill
-# still runs afterwards so FDA/EMA/NICE can exceed 1 slot naturally.
-#
-# Env override `PG_M41D_HC_QUOTA` (default 2). Setting to 1 restores
-# exact M-41d behavior (no HC expansion).
-_M42D_HC_QUOTA_DEFAULT = 2
-_M42D_HC_JURISDICTION_CODE = "HC"
+def _priority_jurisdiction() -> str:
+    """Optional operator-selected jurisdiction for an extra reservation."""
+
+    return resolve("PG_M41D_PRIORITY_JURISDICTION").strip().casefold()
 
 
-def _m42d_hc_quota() -> int:
-    """Return the Health Canada quota (1..N) for the T3 selector floor.
+def _priority_jurisdiction_quota() -> int:
+    """Return the operator-supplied reservation, or zero when it is absent."""
 
-    M-42d (2026-04-22): configurable via `PG_M41D_HC_QUOTA` env var.
-    Defaults to 2. Values <1 clamp to 1 (legacy M-41d behavior).
-    Invalid strings fall back to default.
-    """
-    raw = resolve('PG_M41D_HC_QUOTA')
+    raw = resolve("PG_M41D_PRIORITY_JURISDICTION_QUOTA")
     if not raw:
-        return _M42D_HC_QUOTA_DEFAULT
+        return 0
     try:
-        v = int(raw)
+        return max(0, int(raw))
     except (ValueError, TypeError):
-        return _M42D_HC_QUOTA_DEFAULT
-    return max(1, v)
+        return 0
 
 
 def _row_jurisdiction(row: dict[str, Any]) -> str | None:
-    """Return the regulatory jurisdiction code a row belongs to, or
-    None if the URL is not from a recognized regulatory host.
+    """Return a source-supplied authority scope, with structural host fallback."""
 
-    M-41d pass-2 (Codex audit medium #3): uses proper host-suffix
-    matching instead of substring `in`. Pre-pass-2 `h in url` would
-    classify `https://not-fda.gov.example/path` as FDA because the
-    literal string `fda.gov` appears in the path. Now we extract the
-    actual host component from the URL and require it to either
-    equal one of the listed hosts or end with `.{host}` (proper
-    subdomain). Plain substring-in-path no longer matches.
-    """
+    for key in (
+        "jurisdiction", "authority", "agency", "source_organization",
+        "country", "region", "publisher_country",
+    ):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().casefold()
     url = (row.get("source_url") or row.get("url") or "").lower()
     if not url:
         return None
@@ -265,116 +219,39 @@ def _row_jurisdiction(row: dict[str, Any]) -> str | None:
         return None
     if not host:
         return None
-    for code, hosts in _M41D_JURISDICTION_HOSTS:
-        for h in hosts:
-            # Proper suffix match: host == h OR host ends with ".h".
-            if host == h or host.endswith("." + h):
-                return code
-    return None
+    labels = [label for label in host.split(".") if label]
+    if len(labels) < 2:
+        return None
+    if labels[0] == "www" and len(labels) >= 4:
+        return labels[1]
+    if labels[-1] == "gov" and len(labels) >= 2:
+        return labels[-2]
+    if (
+        len(labels[-1]) == 2
+        and labels[-1].isalpha()
+        and len(labels) >= 3
+        and re.fullmatch(r"(?:ac|co|com|edu|gov|net|org)", labels[-2])
+    ):
+        return labels[-3]
+    return labels[-2]
 
 
-# M-42e (2026-04-22): named-trial primary-paper floor for T1 tier.
-# V25 had SURPASS-2 NEJM cited but missed SURPASS-1 Rosenstock,
-# SURPASS-3 Ludvik, SURMOUNT-1 Jastreboff as first-class biblio
-# entries even though M-35 anchor queries surfaced them into the
-# corpus. The tier-balanced selector gave T1 proportional slots
-# allocated by relevance, letting meta-analyses and review papers
-# outscore primary trials on lexical relevance.
-#
-# M-42e adds a T1 named-trial-primary floor: for each anchor trial
-# configured in `per_query_primary_trial_anchors`, if the T1 pool
-# contains a matching primary paper (title regex), reserve 1 slot
-# before filling T1 by relevance. Capped at 6 (prevents displacing
-# T2 meta-analysis allocation below V25 baseline).
-_M42E_PRIMARY_FLOOR_CAP = 6
-
-# Known primary-publication DOI prefixes (NEJM, Lancet, JAMA,
-# Diabetes Care, Nat Med). Used alongside title regex to detect
-# primary-trial rows in T1 pool.
-_M42E_PRIMARY_DOI_PREFIXES = (
-    "10.1056/nejm",    # NEJM
-    "10.1016/s0140-6736",  # Lancet
-    "10.1016/s2213-8587",  # Lancet Diabetes & Endocrinology
-    "10.1001/jama",    # JAMA
-    "10.2337/dc",      # Diabetes Care
-    "10.1038/s41591",  # Nat Med
-    "10.1016/s2468-1253",  # Lancet Gastro
-    "10.1038/s41586",  # Nature
-)
-
-# M-42e pass-2 (Codex audit blocker fix): reject titles that
-# explicitly indicate a non-primary analysis type even when the
-# URL is on a primary-publication host/DOI. Pre-pass-2 a title
-# like "Post hoc analysis of SURPASS-2: subgroup results" on NEJM
-# would be classified as primary; this fixes that.
-_M42E_NON_PRIMARY_TITLE_PATTERNS = (
-    "post hoc",
-    "post-hoc",
-    "posthoc",
-    "subgroup analysis",
-    "subgroup analyses",
-    "subgroup results",
-    "secondary analysis",
-    "secondary analyses",
-    "exploratory analysis",
-    "exploratory analyses",
-    "pooled analysis",
-    "pooled analyses",
-    "network meta-analysis",
-    "meta-analysis",      # rarely a primary; safer to reject
-    "systematic review",
-    "substudy",
-    "sub-study",
-    "sub study",
-    "pre-planned analysis",
-    "pre-specified analysis",
-    "pre-specified secondary",
-    "commentary",
-    "editorial",
-    "perspective",
-    # Pass-3 (Codex audit medium #1): narrow modeling/PK analysis
-    # markers. These are supportive analyses that may be published on
-    # primary hosts but are not the primary trial publication. We
-    # avoid the generic bare "analysis" because "Primary analysis of
-    # SURPASS-2" IS the primary result and must not be rejected.
-    "pharmacokinetic analysis",
-    "population pharmacokinetic",
-    "modeling analysis",
-    "model-based analysis",
-    "exposure-response analysis",
-    "pk analysis",
-    "pd analysis",
-    "pkpd analysis",
+_M42E_DERIVATIVE_TITLE_RE = re.compile(
+    r"\b(?:post[-\s]?hoc|subgroup|secondary|exploratory|pooled|"
+    r"meta[-\s]?analysis|systematic\s+review|sub[-\s]?study|commentary|"
+    r"editorial|perspective|protocol|model(?:ing|[-\s]based)\s+analysis)\b",
+    re.IGNORECASE,
 )
 
 
-# M-42c (2026-04-22): mechanism-evidence detection for the
-# mechanism-section selector floor. Token patterns mirror the M-40
-# outline trigger vocabulary. A row is "mechanism-flagged" when any
-# of these appear in title OR statement OR direct_quote.
-_M42C_MECHANISM_TOKENS = (
-    "mechanism",
-    "pharmacokinetic",
-    "pharmacodynamic",
-    "receptor",
-    "half-life",
-    "half life",
-    "bioavailability",
-    "metabolism",
-    "agonist",
-    "antagonist",
-    "binding",
-    "signaling",
-    "signalling",  # British spelling
-    "pathway",
-    "kinetic",
-    "clamp",       # glucose clamp / euglycemic clamp
-    "isotope",     # tracer / isotope labeling
-    "affinity",    # receptor affinity
-    "biomarker",
-    "glucagon",    # incretin mechanism
-    "insulin secretion",
-    "insulin sensitivity",
+# M-42c: causal/process evidence is declared by row metadata or expressed
+# through generic mechanism language.
+_M42C_MECHANISM_RE = re.compile(
+    r"\b(?:mechanis\w*|causal\s+(?:path|pathway|process)|process\s+model|"
+    r"how\s+.+?\s+works?|(?:bind|signal|inhibit|activat|modulat|mediat|"
+    r"interact|propagat|transmit|transform|convert|regulat|respond|"
+    r"transition)\w*)\b",
+    re.IGNORECASE,
 )
 
 
@@ -400,75 +277,60 @@ def _row_title_text(row: dict[str, Any]) -> str:
 
 
 def _m42c_row_is_mechanism_rich(row: dict[str, Any]) -> bool:
-    """True if the row contains mechanism-of-action vocabulary in
-    title, statement, or direct_quote. Case-insensitive substring
-    match against `_M42C_MECHANISM_TOKENS`."""
+    """True when row metadata or source prose declares a mechanism facet."""
+
+    if row.get("mechanism_rich") is True:
+        return True
+    metadata = " ".join(
+        str(row.get(key) or "")
+        for key in ("facet", "topic", "section", "archetype", "tags")
+    )
     fields = [
+        metadata,
         _row_title_text(row),
         str(row.get("statement") or ""),
         str(row.get("direct_quote") or ""),
     ]
-    combined = " ".join(fields).lower()
-    return any(tok in combined for tok in _M42C_MECHANISM_TOKENS)
-
-
-# M-42c floor: number of T1/T2 slots to reserve for mechanism rows
-# when the corpus contains enough mechanism-flagged content. The
-# floor fires only when the pool has >=4 mechanism rows (matches the
-# M-40 outline-trigger threshold). Slots are taken from T1 first,
-# then T2; the floor does NOT expand those tier quotas.
-_M42C_MECHANISM_FLOOR_MIN_POOL_ROWS = 4
-_M42C_MECHANISM_FLOOR_SLOTS = 3  # reserve 3 slots across T1+T2
+    return bool(_M42C_MECHANISM_RE.search(" ".join(fields)))
 
 
 def _m42e_detect_primary_for_anchor(
     row: dict[str, Any],
     anchor: str,
 ) -> bool:
-    """True if `row` appears to be the primary publication for the
-    named-trial `anchor` (e.g. 'SURPASS-2', 'SURMOUNT-1').
-
-    Detection (M-42e pass-2):
-      1. Anchor appears in row title (required).
-      2. Row URL/DOI matches a known primary-publication prefix OR
-         sits on a primary-publication host.
-      3. Row title does NOT match any non-primary-analysis pattern
-         (post hoc, subgroup, secondary, exploratory, pooled,
-         meta-analysis, substudy, etc.). Even on a primary host, a
-         title declaring itself as a post hoc or subgroup analysis
-         is NOT the primary publication; usually it's a follow-up
-         analysis published in the same or a companion journal.
-
-    All three conditions required to prevent tagging analyses as
-    primaries.
-    """
+    """Identify an anchor's primary source from row metadata and structure."""
     if not anchor:
         return False
     # M-48 pass-2 (Codex blocker fix): live retriever populates
     # `statement` not `title`. Use shared accessor.
     title = _row_title_text(row).lower()
-    url = (row.get("source_url") or row.get("url") or "").lower()
     anchor_l = anchor.lower()
-    # (1) Title must contain the anchor (possibly with colon or
-    # parenthesis separator).
     if anchor_l not in title:
         return False
-    # (3) Title must NOT contain a non-primary-analysis marker.
-    for pat in _M42E_NON_PRIMARY_TITLE_PATTERNS:
-        if pat in title:
-            return False
-    # (2) URL must look like a primary publication — DOI prefix OR
-    # host suggesting peer-reviewed journal.
-    if any(p in url for p in _M42E_PRIMARY_DOI_PREFIXES):
+    if _M42E_DERIVATIVE_TITLE_RE.search(title):
+        return False
+    if (
+        re.search(r"\banalys(?:is|es)\b", title)
+        and not re.search(r"\b(?:primary|original)\s+analys(?:is|es)\b", title)
+    ):
+        return False
+    if row.get("is_primary_source") is True or row.get("is_primary") is True:
         return True
-    primary_hosts = (
-        "nejm.org", "thelancet.com", "jamanetwork.com",
-        "nature.com", "diabetesjournals.org",
+    role = " ".join(
+        str(row.get(key) or "")
+        for key in ("publication_role", "document_type", "source_type", "study_type")
+    ).casefold()
+    if re.search(r"\b(?:primary|original|direct)\b", role):
+        return True
+    locator = " ".join(
+        str(row.get(key) or "")
+        for key in ("doi", "source_url", "url")
     )
-    for h in primary_hosts:
-        if h in url:
-            return True
-    return False
+    return bool(re.search(
+        r"(?:\b10\.\d{4,9}/|doi\.org/|/(?:doi|articles?|fullarticle)/)",
+        locator,
+        re.IGNORECASE,
+    ))
 
 
 def _row_relevance(
@@ -1364,8 +1226,8 @@ def _reserve_subqueries(
 # A default-OFF forward guard that diversifies the SELECTED set on the coverage
 # axes the existing floor stack does NOT already cover. Entity custody is owned by
 # the M-42e/M-51 anchor-primary floors, mechanism by the M-42c floor, the 1-per
-# present-jurisdiction reservation by M-41d — so this pass adds SAFETY-CATEGORY +
-# EVIDENCE-CLASS coverage (plus jurisdiction diversity BEYOND the M-41d 1-per floor)
+# present-jurisdiction reservation by M-41d — so this pass adds declared FACET +
+# EVIDENCE-CLASS coverage (plus jurisdiction diversity beyond the M-41d floor)
 # via the SAME post-floor same-tier swap mechanism as the #956 passes. It NEVER
 # touches a floor / quota / protected row, so floor parity is guaranteed BY
 # CONSTRUCTION. Swaps are COVERAGE-MONOTONE: a swap fires only when the incoming row
@@ -1379,38 +1241,8 @@ def _reserve_subqueries(
 # unsupported prose. No-op at drb_76 scale (pool<=cap returns via the short-pool
 # branch before this region runs).
 
-# Safety-category taxonomy (FDA/DailyMed SPL labeling sections). Keyword -> category,
-# preference-only (a miss costs diversity, never faithfulness). Versioned constant.
-_GREEDY_SAFETY_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("boxed_warning", ("boxed warning", "black box warning", "black-box warning")),
-    ("contraindication", ("contraindication", "contraindicated")),
-    ("warning_precaution", ("warnings and precautions", "warning", "precaution")),
-    ("adverse_reaction", ("adverse reaction", "adverse event", "adverse effect",
-                          "side effect")),
-    ("drug_interaction", ("drug interaction", "drug-drug interaction")),
-    ("pregnancy_lactation", ("pregnancy", "lactation", "breastfeeding", "teratogen")),
-    ("hepatic_renal", ("hepatotoxicity", "hepatic impairment", "renal impairment",
-                       "nephrotox")),
-    ("hypoglycemia", ("hypoglycemia", "hypoglycaemia")),
-    ("overdose", ("overdose", "overdosage")),
-)
-
-# Evidence-class taxonomy. Keyword -> class, preference-only. Versioned constant.
-_GREEDY_EVIDENCE_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("meta_analysis", ("meta-analysis", "meta analysis", "systematic review",
-                       "cochrane")),
-    ("rct", ("randomized", "randomised", "double-blind", "placebo-controlled",
-             "phase 3 trial", "phase iii")),
-    ("guideline", ("guideline", "consensus statement", "recommendation",
-                   "position statement")),
-    ("real_world", ("real-world", "observational", "registry", "cohort study",
-                    "case-control", "post-marketing")),
-    ("regulatory", ("prescribing information", "package insert",
-                    "summary of product characteristics", "smpc")),
-)
-
 _GREEDY_MAX_SWAPS_DEFAULT = 24
-_GREEDY_AXES_DEFAULT = ("safety", "class", "jurisdiction")
+_GREEDY_AXES_DEFAULT = ("facet", "class", "jurisdiction")
 _GREEDY_VALID_AXES = frozenset(_GREEDY_AXES_DEFAULT)
 
 
@@ -1431,7 +1263,7 @@ def _greedy_match_category(
 
 
 def _greedy_active_axes() -> tuple[str, ...]:
-    """Call-time active axis set (env override PG_GREEDY_AXES, default safety/class/
+    """Call-time active axis set (env override PG_GREEDY_AXES, default facet/class/
     jurisdiction). Unknown axis names are ignored; empty/invalid -> the default."""
     raw = resolve('PG_GREEDY_AXES').strip()
     if not raw:
@@ -1444,17 +1276,31 @@ def _row_coverage_buckets(
     row: dict[str, Any], axes: tuple[str, ...],
 ) -> frozenset[tuple[str, str]]:
     """The (axis, value) coverage buckets a row belongs to across the ACTIVE axes.
-    safety_category / evidence_class are keyword-derived; jurisdiction reuses the
-    existing M-41d host predicate. A row with no axis value contributes nothing."""
+    Facet and evidence class come from row metadata; jurisdiction uses the
+    source-supplied/fallback predicate. A row with no value contributes nothing."""
+
+    def declared(keys: tuple[str, ...]) -> str:
+        for key in keys:
+            value = row.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().casefold()
+            if isinstance(value, (list, tuple)) and value:
+                text = " ".join(str(item) for item in value if str(item).strip())
+                if text:
+                    return text.casefold()
+        return ""
+
     out: set[tuple[str, str]] = set()
-    if "safety" in axes:
-        s = _greedy_match_category(row, _GREEDY_SAFETY_CATEGORIES)
-        if s:
-            out.add(("safety", s))
+    if "facet" in axes:
+        facet = declared(("facet", "category", "topic", "section", "archetype", "tags"))
+        if facet:
+            out.add(("facet", facet))
     if "class" in axes:
-        c = _greedy_match_category(row, _GREEDY_EVIDENCE_CLASSES)
-        if c:
-            out.add(("class", c))
+        evidence_class = declared(
+            ("evidence_class", "document_type", "publication_type", "source_type")
+        )
+        if evidence_class:
+            out.add(("class", evidence_class))
     if "jurisdiction" in axes:
         j = _row_jurisdiction(row)
         if j:
@@ -1687,8 +1533,6 @@ def _m46_short_pool_ordered_selection(
         # (matches M-42e spirit — the primary paper is the priority).
         t1_scored = [s for s in scored if s[2] == "T1"]
         for anchor in primary_trial_anchors:
-            if len(m42e_ids) >= _M42E_PRIMARY_FLOOR_CAP:
-                break
             matched = False
             for item in t1_scored:
                 if id(item) in m42e_ids:
@@ -1703,7 +1547,7 @@ def _m46_short_pool_ordered_selection(
     if m42e_anchors:
         notes.append(
             f"m42e_primary_floor matched={len(m42e_anchors)} "
-            f"reserved={len(m42e_ids)} cap={_M42E_PRIMARY_FLOOR_CAP} "
+            f"reserved={len(m42e_ids)} capacity={len(scored)} "
             f"anchors={m42e_anchors[:10]}"
         )
 
@@ -1758,55 +1602,49 @@ def _m46_short_pool_ordered_selection(
 
     # --- M-42c mechanism detection ---
     mech_pool = [s for s in scored if _m42c_row_is_mechanism_rich(s[3])]
-    m42c_ids: set[int] = set()
-    if len(mech_pool) >= _M42C_MECHANISM_FLOOR_MIN_POOL_ROWS:
-        mech_ranked = sorted(
-            mech_pool,
-            key=lambda s: (_TIER_PRIORITY.get(s[2], 9), -s[1], s[0]),
-        )
-        slots_left = _M42C_MECHANISM_FLOOR_SLOTS
-        for item in mech_ranked:
-            if slots_left <= 0:
-                break
-            if item[2] not in ("T1", "T2"):
-                continue
-            if id(item) in m42e_ids:
-                # Primary-trial slot already reserved — don't double-count.
-                continue
-            m42c_ids.add(id(item))
-            slots_left -= 1
+    m42c_ids: set[int] = {
+        id(item)
+        for item in mech_pool
+        if item[2] in ("T1", "T2") and id(item) not in m42e_ids
+    }
+    if mech_pool:
         notes.append(
             f"m42c_mechanism_floor pool_mech_rows={len(mech_pool)} "
-            f"reserved={len(m42c_ids)} "
-            f"slots={_M42C_MECHANISM_FLOOR_SLOTS}"
+            f"weighted={len(m42c_ids)}"
         )
 
-    # --- M-42d HC quota expansion detection ---
-    hc_rows = [s for s in scored
-               if s[2] == "T3"
-               and _row_jurisdiction(s[3]) == _M42D_HC_JURISDICTION_CODE]
-    hc_quota = _m42d_hc_quota()
-    m42d_hc_ids: set[int] = set()
-    m42d_hc_extras = 0
-    if hc_rows and hc_quota > 1:
-        # In short-pool mode, reserve up to `hc_quota` HC rows
-        # (bounded by pool) — first one mirrors the 1-per-juris pass
-        # in the main branch, extras are the M-42d expansion.
-        hc_sorted = sorted(hc_rows, key=lambda s: (-s[1], s[0]))
-        target = min(hc_quota, len(hc_sorted))
-        for item in hc_sorted[:target]:
-            m42d_hc_ids.add(id(item))
-        m42d_hc_extras = max(0, len(m42d_hc_ids) - 1)
-        if m42d_hc_extras > 0:
+    # --- M-42d optional evidence-derived jurisdiction quota ---
+    priority_jurisdiction = _priority_jurisdiction()
+    priority_rows = [
+        s
+        for s in scored
+        if priority_jurisdiction
+        and s[2] == "T3"
+        and _row_jurisdiction(s[3]) == priority_jurisdiction
+    ]
+    priority_quota = _priority_jurisdiction_quota()
+    m42d_priority_ids: set[int] = set()
+    m42d_priority_extras = 0
+    if priority_rows and priority_quota > 1:
+        # The optional priority comes from run configuration rather than a
+        # production-code jurisdiction literal.
+        priority_sorted = sorted(priority_rows, key=lambda s: (-s[1], s[0]))
+        target = min(priority_quota, len(priority_sorted))
+        for item in priority_sorted[:target]:
+            m42d_priority_ids.add(id(item))
+        m42d_priority_extras = max(0, len(m42d_priority_ids) - 1)
+        if m42d_priority_extras > 0:
             notes.append(
-                f"m42d_hc_quota_expand hc_pool={len(hc_rows)} "
-                f"reserved={len(m42d_hc_ids)} "
-                f"extras_added={m42d_hc_extras} quota={hc_quota}"
+                f"m42d_priority_jurisdiction_expand "
+                f"jurisdiction={priority_jurisdiction} "
+                f"pool={len(priority_rows)} "
+                f"reserved={len(m42d_priority_ids)} "
+                f"extras_added={m42d_priority_extras} quota={priority_quota}"
             )
 
     # --- Deterministic priority ordering ---
     # Priority class: 0 = M-42e primary OR M-51 anchor-primary extra,
-    # 1 = M-42c mechanism, 2 = M-42d HC, 3 = rest. Within same class:
+    # 1 = M-42c mechanism, 2 = configured jurisdiction, 3 = rest. Within same class:
     # by tier priority, then -score, then index.
     def _priority_class(item: tuple[int, float, str, dict[str, Any]]) -> int:
         iid = id(item)
@@ -1814,7 +1652,7 @@ def _m46_short_pool_ordered_selection(
             return 0
         if iid in m42c_ids:
             return 1
-        if iid in m42d_hc_ids:
+        if iid in m42d_priority_ids:
             return 2
         return 3
 
@@ -2079,7 +1917,7 @@ def _apply_scope_denylist(
 ) -> tuple[list[tuple[int, float, str, dict[str, Any]]], int, list[str]]:
     """Drop scored rows whose netloc matches `PG_SCOPE_DENYLIST_DOMAINS`.
 
-    EXEMPT: marquee / required-entity anchors AND named-trial primary anchors
+    EXEMPT: marquee / required-entity anchors and named-source primary anchors
     (the same exemption set as the relevance floor). Returns
     `(kept_scored, n_dropped, dropped_netlocs)`. When the env var is empty the
     denylist is `()` and the input is returned UNCHANGED (byte-identical no-op).
@@ -2240,7 +2078,7 @@ def _relevance_floor_selection(
     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
 
     Keep EVERY row whose lexical relevance >= ``relevance_floor``, PLUS any row
-    matching a primary trial anchor (floor-EXEMPT — a relevant primary RCT must
+    matching a primary-source anchor (floor-EXEMPT — a relevant primary study must
     never be dropped on a low lexical score). Ranked by ``relevance x authority``
     (authority = the row's ``authority_score`` sidecar, default 1.0). Each kept
     row is stamped with the additive ``selection_relevance`` float so
@@ -3396,14 +3234,14 @@ def _select_evidence_for_generation_impl(
     #
     # Pre-M-46 behavior: early-exit branch returned evidence_rows as-is
     # with a single `pool_size<=max_rows` note and no floor telemetry.
-    # M-42e primaries, M-42c mechanism rows, and M-42d HC rows were
+    # M-42e primaries, M-42c mechanism rows, and configured-jurisdiction rows were
     # silently not prioritized when pool was small.
     #
     # Post-M-46 behavior: selected list ordered as [M-42e primaries →
-    # M-42c mechanism → M-42d HC → rest by (tier priority, -relevance,
+    # M-42c mechanism → configured jurisdiction → rest by (tier priority, -relevance,
     # index)]. All original rows are kept; only ordering changes.
     # Notes include the m42e_primary_floor / m42c_mechanism_floor /
-    # m42d_hc_quota_expand entries seen on truncating runs.
+    # optional jurisdiction-expansion entries seen on truncating runs.
     if len(scored) <= max_rows:
         _short = _m46_short_pool_ordered_selection(
             evidence_rows=evidence_rows,
@@ -3502,60 +3340,35 @@ def _select_evidence_for_generation_impl(
             key=lambda x: (*_relevance_recency_key(x, _rec_enabled, _rec_eps), x[0])
         )
 
-    # M-42e (2026-04-22): T1 named-trial primary floor. Compute
-    # anchor-matched primary rows once so we can reserve their
-    # slots before the T1 pick-by-relevance pass. Capped at
-    # `_M42E_PRIMARY_FLOOR_CAP` to avoid displacing T2 allocation.
+    # M-42e: compute anchor-matched primary rows once so they can be
+    # weighted ahead of derivative rows within the existing T1 quota.
     #
     # IMPORTANT trade-off (Codex audit medium #3): the floor
     # operates WITHIN T1 quota; it does not expand T1 and does not
     # directly push T2 below its quota. When T1 quota is small (e.g.
     # 5) and 6+ primaries match, all T1 slots become primaries with
     # no T1 review slot remaining. This is accepted behavior —
-    # trading T1 review diversity for named-trial primary coverage —
+    # trading T1 review diversity for named-source primary coverage —
     # but future readers should know the mechanism.
-    # M-42c (2026-04-22): mechanism-rich T1+T2 floor. When the pool
-    # has >=4 mechanism-flagged rows, reserve up to 3 T1+T2 slots
-    # for mechanism content so the M-40 Mechanism section has an
-    # evidence pool deep enough for the M-42c conditional prompt
-    # target (20-35 sentences when >=8 mech ev_ids flow through).
-    # Floor operates WITHIN existing T1+T2 quotas — does NOT expand
-    # them. When no mechanism content present, no-op (backwards
-    # compatible).
-    m42c_mech_ids: set[int] = set()
+    # M-42c: weight every metadata/text-derived process row inside the
+    # existing T1/T2 quotas. Evidence supply, rather than a fixed row
+    # threshold or target count, determines how many can be selected.
     m42c_mech_pool_rows = [s for s in scored
                             if _m42c_row_is_mechanism_rich(s[3])]
-    m42c_mech_fires = (
-        len(m42c_mech_pool_rows) >= _M42C_MECHANISM_FLOOR_MIN_POOL_ROWS
-    )
+    m42c_mech_fires = bool(m42c_mech_pool_rows)
+    m42c_mech_ids: set[int] = set()
     if m42c_mech_fires:
-        # Mechanism rows ordered by (tier_priority, -score) — prefer
-        # T1 mechanism evidence over T2.
-        mech_ranked = sorted(
-            m42c_mech_pool_rows,
-            key=lambda s: (_TIER_PRIORITY.get(s[2], 9), -s[1], s[0]),
-        )
-        # Only count rows in tiers T1 or T2 — the mechanism floor
-        # doesn't touch T3/T4 quotas.
-        slots_left = _M42C_MECHANISM_FLOOR_SLOTS
-        for item in mech_ranked:
-            if slots_left <= 0:
-                break
-            if item[2] not in ("T1", "T2"):
-                continue
-            # Only reserve if the tier has quota slots available.
-            if quotas.get(item[2], 0) <= 0:
-                continue
-            m42c_mech_ids.add(id(item))
-            slots_left -= 1
+        m42c_mech_ids = {
+            id(item)
+            for item in m42c_mech_pool_rows
+            if item[2] in ("T1", "T2") and quotas.get(item[2], 0) > 0
+        }
 
     m42e_primary_ids: set[int] = set()
     m42e_matched_anchors: list[str] = []  # M-42e pass-2: telemetry
     if primary_trial_anchors and quotas.get("T1", 0) > 0:
         t1_items_for_m42e = by_tier.get("T1", [])
         for anchor in primary_trial_anchors:
-            if len(m42e_primary_ids) >= _M42E_PRIMARY_FLOOR_CAP:
-                break
             # Find the highest-scoring T1 row matching this anchor
             for item in t1_items_for_m42e:
                 if id(item) in m42e_primary_ids:
@@ -3581,19 +3394,19 @@ def _select_evidence_for_generation_impl(
             )
 
     selected: list[tuple[int, float, str, dict[str, Any]]] = []
-    # M-42d: telemetry notes populated inside the T3 block (HC expansion).
+    # M-42d: telemetry notes populated inside the T3 jurisdiction block.
     # Collected here and flushed to `notes` after the main tier loop.
     _m42d_pending_notes: list[str] = []
-    # #956: ids of T3 jurisdiction/HC floor-reserved rows, so the diversity
+    # #956: ids of T3 jurisdiction floor-reserved rows, so the diversity
     # passes never evict a regulatory-floor row (the m42e/m42c/m51 floors are
     # already tracked by their own id sets).
     _t3_floor_protected_ids: set[int] = set()
     for tier, quota in quotas.items():
-        # M-42e + M-42c: for T1 tier, reserve named-trial primary
+        # M-42e + M-42c: for T1 tier, reserve named-source primary
         # slots (M-42e) AND mechanism-evidence slots (M-42c) before
         # filling rest by relevance. Both floors are computed above;
-        # a row can satisfy both (e.g. a SURPASS-2 primary paper
-        # that also has mechanism content — counted once).
+        # a row can satisfy both when a primary source also has
+        # mechanism content; it is counted once.
         if tier == "T1" and quota > 0 and (m42e_primary_ids or m42c_mech_ids):
             tier_items = by_tier.get("T1", [])
             # Priority order: M-42e primary floor, then M-42c mech
@@ -3648,18 +3461,14 @@ def _select_evidence_for_generation_impl(
             continue
         # M-41d: for T3 (regulatory) tier, enforce a
         # jurisdictional-diversity floor — reserve one slot per
-        # present jurisdiction (FDA, EMA, NICE, HC, ...) before
-        # filling the rest of the T3 quota by relevance. Prevents the
-        # V24 failure mode where Health Canada evidence was in the
-        # corpus but outcompeted within T3 by higher-scoring FDA/EMA.
+        # present jurisdiction before filling the rest of the T3
+        # quota by relevance. Jurisdiction labels come from each row's
+        # metadata or publisher-country URL suffix.
         #
         # M-42d (2026-04-22): after the per-jurisdiction first-slot
-        # pass, HC gets up to `_m42d_hc_quota()` additional reserved
-        # slots (default 2 total). Preservation guard: HC's 2nd..Nth
-        # slots only fire AFTER every present jurisdiction already has
-        # its 1st, so FDA/EMA/NICE/MHRA are never displaced. The
-        # relevance fill that follows still lets high-scoring
-        # FDA/EMA/NICE rows beyond 1 slot be selected naturally.
+        # pass, an optional run-configured jurisdiction can receive
+        # additional reserved slots. The extra reservation only fires
+        # after every present jurisdiction has its first slot.
         tier_items = by_tier.get(tier, [])
         if tier == "T3" and quota > 0 and tier_items:
             # Group T3 items by jurisdiction.
@@ -3683,23 +3492,21 @@ def _select_evidence_for_generation_impl(
                         reserved_ids.add(id(item))
                         slots_left -= 1
                         break
-            # M-42d: HC quota expansion. After every present
-            # jurisdiction has its 1st slot, reserve up to
-            # (hc_quota - 1) additional HC rows from the quota that
-            # remains. This NEVER displaces FDA/EMA/NICE's 1st slots
-            # because those are already allocated above.
-            hc_quota = _m42d_hc_quota()
-            m42d_hc_extras = 0
+            # M-42d: optional configured-jurisdiction expansion.
+            priority_jurisdiction = _priority_jurisdiction()
+            priority_quota = _priority_jurisdiction_quota()
+            m42d_priority_extras = 0
             if (
-                hc_quota > 1
-                and _M42D_HC_JURISDICTION_CODE in juris_groups
+                priority_jurisdiction
+                and priority_quota > 1
+                and priority_jurisdiction in juris_groups
                 and slots_left > 0
             ):
-                hc_rows = juris_groups[_M42D_HC_JURISDICTION_CODE]
+                priority_rows = juris_groups[priority_jurisdiction]
                 # Rows are already in tier_items' original order (by
                 # score then index). Skip the one already reserved.
-                extras_remaining = hc_quota - 1
-                for item in hc_rows:
+                extras_remaining = priority_quota - 1
+                for item in priority_rows:
                     if slots_left <= 0 or extras_remaining <= 0:
                         break
                     if id(item) not in reserved_ids:
@@ -3707,9 +3514,10 @@ def _select_evidence_for_generation_impl(
                         reserved_ids.add(id(item))
                         slots_left -= 1
                         extras_remaining -= 1
-                        m42d_hc_extras += 1
+                        m42d_priority_extras += 1
             # #956: at this point reserved_ids holds ONLY the jurisdiction +
-            # HC floor slots (the relevance-fill below is NOT a floor). Capture
+            # configured-jurisdiction floor slots (the relevance-fill below is
+            # NOT a floor). Capture
             # them so the diversity passes treat them as protected.
             _t3_floor_protected_ids |= set(reserved_ids)
             # Fill remaining slots from the tier's global score order,
@@ -3722,23 +3530,24 @@ def _select_evidence_for_generation_impl(
                     reserved_ids.add(id(item))
                     slots_left -= 1
             selected.extend(reserved)
-            # Record telemetry for the HC expansion pass. Only emit
+            # Record telemetry for the optional expansion pass. Only emit
             # when the expansion actually added rows so audits can
             # distinguish "fired and added" vs "did not fire".
             #
             # M-42d pass-2 (Codex audit MEDIUM): `reserved` now reports
-            # actual slots taken by the HC floor (1 from the 1-per-juris
-            # pass + m42d_hc_extras) instead of the desired target
-            # bounded by pool. When `hc_quota` exceeds available slots,
+            # actual slots taken by the configured floor (1 from the
+            # 1-per-jurisdiction pass plus extras) instead of the desired target
+            # bounded by pool. When the quota exceeds available slots,
             # this prevents overstated telemetry.
-            if m42d_hc_extras > 0:
-                m42d_hc_reserved = 1 + m42d_hc_extras
+            if m42d_priority_extras > 0:
+                m42d_priority_reserved = 1 + m42d_priority_extras
                 m42d_telemetry_note = (
-                    f"m42d_hc_quota_expand hc_pool="
-                    f"{len(juris_groups.get(_M42D_HC_JURISDICTION_CODE, []))} "
-                    f"reserved={m42d_hc_reserved} "
-                    f"extras_added={m42d_hc_extras} "
-                    f"quota={hc_quota}"
+                    f"m42d_priority_jurisdiction_expand "
+                    f"jurisdiction={priority_jurisdiction} "
+                    f"pool={len(juris_groups.get(priority_jurisdiction, []))} "
+                    f"reserved={m42d_priority_reserved} "
+                    f"extras_added={m42d_priority_extras} "
+                    f"quota={priority_quota}"
                 )
                 _m42d_pending_notes.append(m42d_telemetry_note)
         else:
@@ -3749,10 +3558,9 @@ def _select_evidence_for_generation_impl(
     # review (CONDITIONAL-no-blockers) at
     # `outputs/codex_findings/v29_fix_plan_review_pass1/findings.md`.
     #
-    # Prior mechanism gap (verified by V28 cross-review):
-    # `outputs/audits/v28/cross_review.md` shows SURPASS-4 Del Prato
-    # Lancet + SURPASS-CVOT Nicholls were present in V28's
-    # `live_corpus_dump.json` but absent from the final bibliography.
+    # Prior mechanism gap (verified by a cross-review): primary
+    # publications were present in a corpus dump but absent from the
+    # final bibliography.
     # The existing M-42e floor only scans `by_tier.get("T1", [])`
     # within the T1 quota slice; when T1 quota is tight and
     # non-primary T1 rows outrank primaries by relevance, primaries
@@ -3844,7 +3652,7 @@ def _select_evidence_for_generation_impl(
     # ── #956 (S2): source-diversity passes (main truncating path only) ──────
     # Operate on post-floor slack via SAME-TIER swaps: reservation first, then
     # the per-domain soft cap. protected_ids = every floor-reserved row
-    # (M-42e primary, M-42c mechanism, M-51 anchor custody, T3 jurisdiction/HC).
+    # (M-42e primary, M-42c mechanism, M-51 anchor custody, T3 jurisdiction).
     # Both kill-switchable; OFF → no swaps, no telemetry (byte-identical).
     _diversity_notes: list[str] = []
     protected_ids = (
@@ -3940,11 +3748,10 @@ def _select_evidence_for_generation_impl(
     # When matched > T1 quota, quota-trim reduces actual reservations
     # below matches. Report both so audits see the true state.
     if m42e_matched_anchors:
-        cap = _M42E_PRIMARY_FLOOR_CAP
         actual_reserved = len(m42e_primary_ids)
         notes.append(
             f"m42e_primary_floor matched={len(m42e_matched_anchors)} "
-            f"reserved={actual_reserved} cap={cap} "
+            f"reserved={actual_reserved} capacity={quotas.get('T1', 0)} "
             f"anchors={m42e_matched_anchors[:10]}"
         )
     # M-42c: mechanism-floor telemetry so sweep audits see when the
@@ -3952,11 +3759,10 @@ def _select_evidence_for_generation_impl(
     if m42c_mech_fires:
         notes.append(
             f"m42c_mechanism_floor pool_mech_rows={len(m42c_mech_pool_rows)} "
-            f"reserved={len(m42c_mech_ids)} slots="
-            f"{_M42C_MECHANISM_FLOOR_SLOTS}"
+            f"weighted={len(m42c_mech_ids)}"
         )
-    # M-42d: flush HC quota expansion telemetry collected inside the T3
-    # block. Empty list = expansion did not fire (legacy behavior).
+    # M-42d: flush optional jurisdiction-expansion telemetry collected inside
+    # the T3 block. Empty means the configured expansion did not fire.
     notes.extend(_m42d_pending_notes)
     # M-51 (2026-04-23): anchor-custody telemetry for V29 diagnosis.
     if m51_matched_anchors:

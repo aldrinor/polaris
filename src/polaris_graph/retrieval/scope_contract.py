@@ -2,9 +2,10 @@
 
 The contract partitions a copied evidence pool immediately before composition:
 semantic OFF-topic sources are excluded, and definitively wrong-type/language
-sources are excluded only when the prompt states an exclusive constraint.  All
+sources are excluded only when the prompt states an exclusive constraint. All
 excluded rows remain in the caller's corpus and are returned as disclosure
-records.  Unknown classifications and judge failures fail open.
+records. Topic-judge failures fail open; unresolved document types fail closed
+only for an explicit exclusive document-type constraint.
 
 This module has no retrieval client and no generator/verification dependency.
 ``deepen_scope_contract`` is the tested acquisition hook for retrieval runners;
@@ -84,19 +85,30 @@ def _hard_exclusive(prompt: str, constraints: Mapping[str, Any], key: str) -> bo
     values = [str(v).strip().lower() for v in (constraints.get(key) or []) if str(v).strip()]
     if not values:
         return False
-    # Require exclusivity and a source-citation context in the same sentence.
+    # Require exclusivity and the extracted value or its dimension in the same
+    # sentence. The values are the vocabulary; no anticipated language/org list.
     for clause in re.split(r"(?<=[.!?;])\s+", prompt or ""):
         low = clause.lower()
         if not _EXCLUSIVE_RE.search(low):
             continue
-        if key == "source_types" and re.search(
-            r"\b(?:source|citation|cite|article|paper|journal|report|book|preprint|website|news)\w*\b",
-            low,
+        surfaces = {
+            form
+            for value in values
+            for form in (
+                value,
+                value.replace("_", " "),
+                value.replace("_", "-"),
+            )
+            if form
+        }
+        mentions_value = any(surface in low for surface in surfaces)
+        if key == "source_types" and (
+            mentions_value
+            or re.search(r"\b(?:source|citation|cite|document|publication)\w*\b", low)
         ):
             return True
-        if key == "languages" and re.search(
-            r"\b(?:language|english|spanish|french|german|chinese|japanese|arabic|korean)\w*\b",
-            low,
+        if key == "languages" and (
+            mentions_value or re.search(r"\blanguage\b", low)
         ):
             return True
     return False
@@ -140,11 +152,13 @@ def _wrong_type_reason(
                 f"source_type: genre={genre.value} not in "
                 f"{sorted(item.value for item in admitted)}"
             )
-        elif genre == DocumentType.UNKNOWN and set(source_types) <= {"journal_article", "peer_reviewed"}:
-            # The salvaged publication-surface classifier is a conservative
-            # negative proof.  No venue-name allowlist and no UNKNOWN exclusion.
+        elif genre == DocumentType.UNKNOWN:
             if known_non_journal_surface(row):
                 reasons.append("source_type: known non-journal publication surface")
+            else:
+                reasons.append(
+                    "source_type: unresolved under exclusive document-type constraint"
+                )
     if languages:
         language = _confident_language(row)
         if language is not None and language not in languages:
@@ -164,7 +178,8 @@ def apply_scope_contract(
     Topic judging is semantic and explicit-exclusion mode.  Any judge exception
     or malformed batch fails open inside ``classify_topic_relevance``.  Type and
     language exclusions require both a hard prompt marker and a definitive row
-    mismatch; UNKNOWN stays in the pool.
+    mismatch. An UNKNOWN document type is archived rather than cited only under
+    an explicit exclusive document-type constraint.
     """
     copied = [copy.deepcopy(dict(row)) for row in rows]
     if not scope_contract_enabled():
@@ -197,7 +212,11 @@ def apply_scope_contract(
         for row in topic_dropped
     ]
 
-    source_types = [str(v).strip().lower() for v in constraint_map.get("source_types", []) if str(v).strip()]
+    source_types = [
+        str(v).strip().lower()
+        for v in constraint_map.get("source_types", [])
+        if str(v).strip()
+    ]
     languages = [str(v).strip().lower()[:2] for v in constraint_map.get("languages", []) if str(v).strip()]
     if not _hard_exclusive(research_question, constraint_map, "source_types"):
         source_types = []
@@ -350,12 +369,25 @@ def build_scope_deepening_queries(
 
     base = [research_question]
     base.extend(decompose_question(research_question))
-    terms = [str(item).replace("_", " ") for item in constraints.get("source_types", [])]
+    schema = constraints.get("research_schema") or constraints.get("retrieval_frame") or {}
+    evidence_needs = (
+        schema.get("evidence_needs", [])
+        if isinstance(schema, Mapping)
+        else []
+    )
+    terms = [
+        str(item).replace("_", " ")
+        for item in [
+            *(constraints.get("source_types", []) or []),
+            *(evidence_needs or []),
+        ]
+        if str(item).strip()
+    ]
     if not terms:
         return base
     return expand_evidence_type_queries(
         base,
-        clinical=True,
+        apply_to_frame=True,
         enabled=True,
         terms=terms,
     )

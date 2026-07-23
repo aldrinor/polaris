@@ -86,7 +86,6 @@ MIGRATED_SITE_DEFAULTS: dict[str, str | None] = {
     'PG_LIMITATIONS_MIN_MAX_TOKENS': '6000',
     'PG_LIMITATIONS_REASONING_MAX_TOKENS': '2048',
     'PG_LIVE_RETRIEVER_MAX_WORKERS': None,
-    'PG_M41D_HC_QUOTA': '',
     'PG_M50_MIN_MAX_TOKENS': '6000',
     'PG_M50_REASONING_MAX_TOKENS': '2048',
     'PG_MESH_COMPOSE_MAX_TOKENS': '4096',
@@ -225,4 +224,3 @@ def test_resolve_matches_getenv_for_migrated_keys(monkeypatch):
         assert resolve(key) == os.getenv(key, old_literal), f"unset {key}"
         monkeypatch.setenv(key, f"OVR::{key}")
         assert resolve(key) == os.getenv(key, old_literal) == f"OVR::{key}", f"override {key}"
-

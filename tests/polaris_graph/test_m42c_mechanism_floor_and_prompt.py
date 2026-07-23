@@ -1,13 +1,4 @@
-"""M-42c tests: mechanism-evidence selector floor + conditional
-section prompt.
-
-Codex plan pass-3 approved two coordinated changes:
-1. Selector: reserve 2-4 T1+T2 slots for mechanism-flagged rows
-   when the pool has >=4 mechanism rows.
-2. Section prompt: CONDITIONAL mechanism-section target (20-35
-   sentences if >=8 mech ev_ids; 15-20 if 4-7; 10-15 if <4 with
-   disclosure).
-"""
+"""M-42c tests for evidence-derived process weighting and prompt guidance."""
 from __future__ import annotations
 
 
@@ -21,47 +12,55 @@ class TestM42cMechanismDetection:
         from src.polaris_graph.retrieval.evidence_selector import (
             _m42c_row_is_mechanism_rich,
         )
-        row = {"title": "Pharmacokinetics of tirzepatide in T2D",
-               "statement": "drug metabolism"}
+        row = {
+            "title": "Mechanism of request routing",
+            "statement": "Causal process model for queued requests",
+        }
         assert _m42c_row_is_mechanism_rich(row) is True
 
     def test_mechanism_token_in_statement_detected(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _m42c_row_is_mechanism_rich,
         )
-        row = {"title": "SURPASS-2 trial results",
-               "statement": "Tirzepatide binds GIP receptor with high affinity"}
+        row = {
+            "title": "Worker allocation results",
+            "statement": "Requests bind to workers and interact with the queue",
+        }
         assert _m42c_row_is_mechanism_rich(row) is True
 
     def test_mechanism_token_in_direct_quote_detected(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _m42c_row_is_mechanism_rich,
         )
-        row = {"title": "Efficacy study",
-               "direct_quote": "Half-life of approximately 5 days supports once-weekly dosing"}
+        row = {
+            "title": "Network evaluation",
+            "direct_quote": "Packets propagated through the network in 5 seconds",
+        }
         assert _m42c_row_is_mechanism_rich(row) is True
 
     def test_non_mechanism_row_not_detected(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _m42c_row_is_mechanism_rich,
         )
-        row = {"title": "SURPASS-2: tirzepatide vs semaglutide",
-               "statement": "HbA1c reduction at week 40",
-               "direct_quote": "Mean HbA1c reduction was 2.30 pp"}
+        row = {
+            "title": "ORION-2 throughput benchmark",
+            "statement": "Throughput at day 40",
+            "direct_quote": "Mean throughput increased by 2.30 percent",
+        }
         assert _m42c_row_is_mechanism_rich(row) is False
 
-    def test_british_spelling_signalling_detected(self) -> None:
+    def test_process_language_detected(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _m42c_row_is_mechanism_rich,
         )
-        row = {"title": "Incretin signalling pathways in glucose homeostasis"}
+        row = {"title": "Signalling pathways in a distributed controller"}
         assert _m42c_row_is_mechanism_rich(row) is True
 
-    def test_glucagon_detected(self) -> None:
+    def test_process_verb_detected(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _m42c_row_is_mechanism_rich,
         )
-        row = {"title": "GIP and glucagon secretion in T2D"}
+        row = {"title": "Signal propagation through nested queues"}
         assert _m42c_row_is_mechanism_rich(row) is True
 
 
@@ -70,35 +69,34 @@ class TestM42cMechanismFloorIntegration:
         from src.polaris_graph.retrieval.evidence_selector import (
             select_evidence_for_generation,
         )
-        # 5 mechanism rows (enough to trigger floor) + 5 non-mech
-        # efficacy rows + 3 meta-analyses
+        # Process-rich and result-only rows coexist in the same source pool.
         rows = []
         for i in range(5):
             rows.append({
                 "evidence_id": f"ev_m{i}",
                 "url": f"https://example.com/mech{i}",
                 "tier": "T1",
-                "title": f"Pharmacokinetics and receptor binding study {i}",
-                "statement": "Half-life, bioavailability, receptor affinity",
+                "title": f"Causal process and signal propagation study {i}",
+                "statement": "Requests bind to workers and transition between queues",
             })
         for i in range(5):
             rows.append({
                 "evidence_id": f"ev_e{i}",
                 "url": f"https://example.com/eff{i}",
                 "tier": "T1",
-                "title": f"SURPASS-{i+1} efficacy results",
-                "statement": "HbA1c reduction and weight loss at week 40",
+                "title": f"ORION-{i+1} performance results",
+                "statement": "Latency reduction and throughput at day 40",
             })
         for i in range(3):
             rows.append({
                 "evidence_id": f"ev_t2_{i}",
                 "url": f"https://example.com/meta{i}",
                 "tier": "T2",
-                "title": f"Meta-analysis {i}",
-                "statement": "Pooled HbA1c reduction",
+                "title": f"Evidence review {i}",
+                "statement": "Pooled latency reduction",
             })
         result = select_evidence_for_generation(
-            research_question="tirzepatide efficacy safety type 2 diabetes",
+            research_question="request routing latency and throughput",
             protocol=None,
             classified_sources=[],
             evidence_rows=rows,
@@ -111,45 +109,46 @@ class TestM42cMechanismFloorIntegration:
         selected_titles = [r.get("title", "") for r in result.selected_rows]
         mech_selected = sum(
             1 for t in selected_titles
-            if "Pharmacokinetics" in t or "receptor" in t.lower()
+            if "Causal process" in t or "propagation" in t.lower()
         )
         assert mech_selected >= 1, (
             f"mechanism floor didn't reserve any slots; "
             f"selected={selected_titles}"
         )
 
-    def test_no_mechanism_floor_when_pool_thin(self) -> None:
-        """Pool with <4 mechanism rows → floor does not fire."""
+    def test_process_weighting_follows_available_evidence(self) -> None:
+        """Every evidence-derived process row is weighted without a fixed floor."""
         from src.polaris_graph.retrieval.evidence_selector import (
             select_evidence_for_generation,
         )
         rows = [
-            # 2 mechanism rows (below threshold 4)
+            # Two process rows; evidence supply, not a fixed minimum, controls
+            # how many are eligible for weighting.
             {"evidence_id": "ev_m1", "url": "https://x.com/m1",
-             "tier": "T1", "title": "Pharmacokinetic study",
-             "statement": "half-life"},
+             "tier": "T1", "title": "Queue process study",
+             "statement": "process model"},
             {"evidence_id": "ev_m2", "url": "https://x.com/m2",
-             "tier": "T1", "title": "Receptor binding",
-             "statement": "affinity measurements"},
-            # Rest are efficacy
+             "tier": "T1", "title": "Worker allocation",
+             "statement": "system components interact"},
+            # The remaining rows report results without process evidence.
             {"evidence_id": "ev_e1", "url": "https://x.com/e1",
-             "tier": "T1", "title": "SURPASS-1 efficacy",
-             "statement": "HbA1c reduction"},
+             "tier": "T1", "title": "ORION-1 performance",
+             "statement": "latency reduction"},
             {"evidence_id": "ev_e2", "url": "https://x.com/e2",
-             "tier": "T1", "title": "SURPASS-2 efficacy",
-             "statement": "HbA1c reduction"},
+             "tier": "T1", "title": "ORION-2 performance",
+             "statement": "latency reduction"},
         ]
         result = select_evidence_for_generation(
-            research_question="tirzepatide efficacy",
+            research_question="request routing performance",
             protocol=None,
             classified_sources=[],
             evidence_rows=rows,
             max_rows=3,
         )
         m42c_notes = [n for n in result.notes if "m42c_mechanism_floor" in n]
-        assert not m42c_notes, (
-            f"m42c fired with insufficient pool: {m42c_notes}"
-        )
+        assert m42c_notes
+        assert "pool_mech_rows=2" in m42c_notes[0]
+        assert "weighted=2" in m42c_notes[0]
 
     def test_mechanism_floor_respects_t1_quota(self) -> None:
         """Mechanism floor does NOT expand T1 quota — it reserves
@@ -160,12 +159,12 @@ class TestM42cMechanismFloorIntegration:
         # All T1 mechanism rows (no T2/T3)
         rows = [
             {"evidence_id": f"ev_m{i}", "url": f"https://x.com/m{i}",
-             "tier": "T1", "title": "Pharmacokinetics study",
-             "statement": "receptor half-life metabolism"}
+             "tier": "T1", "title": "Mechanism study",
+             "statement": "system components interact and propagate"}
             for i in range(10)
         ]
         result = select_evidence_for_generation(
-            research_question="tirzepatide mechanism",
+            research_question="system mechanism",
             protocol=None,
             classified_sources=[],
             evidence_rows=rows,
@@ -185,75 +184,83 @@ class TestM42cSectionPromptRule:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
-        assert "M-42c" in SECTION_SYSTEM_PROMPT_TEMPLATE
-        assert "MECHANISM-SECTION DEPTH RULE" in SECTION_SYSTEM_PROMPT_TEMPLATE
+        assert "MECHANISM OR CAUSAL-PROCESS RULE" in SECTION_SYSTEM_PROMPT_TEMPLATE
 
-    def test_rule_conditional_tiers_stated(self) -> None:
+    def test_rule_has_no_sentence_count_targets(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
-        # All three tiers must be stated
-        assert "20-35 sentences" in SECTION_SYSTEM_PROMPT_TEMPLATE
-        assert "15-20 sentences" in SECTION_SYSTEM_PROMPT_TEMPLATE
-        assert "10-15 sentences" in SECTION_SYSTEM_PROMPT_TEMPLATE
+        import re
+        start = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
+            "MECHANISM OR CAUSAL-PROCESS RULE"
+        )
+        end = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
+            "EVIDENCE TIER DISCIPLINE", start,
+        )
+        body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:end]
+        assert not re.search(
+            r"\b\d+\s*-\s*\d+\s+sentences\b",
+            body,
+        )
 
-    def test_rule_specifies_mechanism_topics(self) -> None:
+    def test_rule_derives_process_topics_from_evidence(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
         start = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
-            "M-42c MECHANISM-SECTION DEPTH RULE"
+            "MECHANISM OR CAUSAL-PROCESS RULE"
         )
-        body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:start + 3000].lower()
-        required_topics = [
-            "receptor", "pharmacokinetic", "clamp", "signaling",
-        ]
-        for topic in required_topics:
-            assert topic in body, f"missing topic: {topic}"
+        end = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
+            "EVIDENCE TIER DISCIPLINE", start,
+        )
+        body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:end].lower()
+        assert "derive its subtopics" in body
+        assert "that recur in that section's evidence" in body
 
-    def test_rule_applies_only_to_mechanism_section(self) -> None:
-        """Rule body must explicitly say it applies ONLY when section
-        title is Mechanism."""
+    def test_rule_uses_content_not_section_title_as_trigger(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
         start = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
-            "M-42c MECHANISM-SECTION DEPTH RULE"
+            "MECHANISM OR CAUSAL-PROCESS RULE"
         )
-        body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:start + 3000]
-        assert "ONLY when" in body
-        assert 'title is "Mechanism"' in body or "Mechanism" in body
+        end = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
+            "EVIDENCE TIER DISCIPLINE", start,
+        )
+        body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:end].lower()
+        assert "do not use" in body
+        assert "section title" in body
 
-    def test_rule_requires_honest_disclosure_for_thin_pools(self) -> None:
+    def test_rule_requires_evidence_boundaries(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
         start = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
-            "M-42c MECHANISM-SECTION DEPTH RULE"
+            "MECHANISM OR CAUSAL-PROCESS RULE"
         )
-        body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:start + 3000].lower()
-        assert "disclosure" in body or "honest" in body or "limited" in body
+        end = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
+            "EVIDENCE TIER DISCIPLINE", start,
+        )
+        body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:end].lower()
+        assert "interpretive" in body
+        assert "supports only part" in body
 
-    def test_rule_does_not_hardcode_drug_names(self) -> None:
-        """M-32 generalization discipline — rule body must not name
-        specific drugs (tirzepatide, semaglutide). Narrow the scan
-        to ONLY the M-42c rule body (stops at next block heading)."""
+    def test_rule_does_not_hardcode_domain_vocabulary(self) -> None:
+        """The process rule must derive its vocabulary from evidence."""
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
         start = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
-            "M-42c MECHANISM-SECTION DEPTH RULE"
+            "MECHANISM OR CAUSAL-PROCESS RULE"
         )
-        # Stop at next block heading (EVIDENCE TIER DISCIPLINE or
-        # TRIAL-SPECIFIC CITATION RULE or similar all-caps section).
         end = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
             "EVIDENCE TIER DISCIPLINE", start
         )
-        assert end > start, "could not find M-42c rule end boundary"
+        assert end > start
         body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:end].lower()
         banned = [
-            "tirzepatide", "semaglutide", "liraglutide", "dulaglutide",
-            "mounjaro", "zepbound", "ozempic",
+            "receptor", "pharmacokinetic", "clamp", "signaling",
+            "drug", "disease",
         ]
         leaks = [d for d in banned if d in body]
-        assert not leaks, f"M-42c rule hardcodes drug names: {leaks}"
+        assert not leaks, f"process rule hardcodes domain vocabulary: {leaks}"

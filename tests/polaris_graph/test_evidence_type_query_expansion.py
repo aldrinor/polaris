@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import pytest
 
 from src.polaris_graph.retrieval.evidence_type_query_expansion import (
-    _DEFAULT_CLINICAL_EVIDENCE_TYPE_TERMS,
+    _DEFAULT_EVIDENCE_TYPE_TERMS,
     evidence_type_query_expansion_enabled,
     expand_evidence_type_queries,
 )
@@ -28,7 +28,7 @@ def test_expansion_emits_rct_and_guideline_subquery_for_clinical_question():
     """Acceptance: for a clinical question, expansion emits an RCT-targeted AND a
     guideline-targeted sub-query, keeping the original queries first and intact."""
     base = ["metformin cardiovascular outcomes in type 2 diabetes"]
-    out = expand_evidence_type_queries(base, clinical=True, enabled=True)
+    out = expand_evidence_type_queries(base, apply_to_frame=True, enabled=True)
 
     # Originals preserved, in order, at the front (WEIGHT-not-filter: never drop).
     assert out[: len(base)] == base
@@ -49,20 +49,20 @@ def test_expansion_emits_rct_and_guideline_subquery_for_clinical_question():
     for variant in added:
         assert variant.lower().startswith(base[0].lower())
     # One variant per default evidence-type term.
-    assert len(added) == len(_DEFAULT_CLINICAL_EVIDENCE_TYPE_TERMS)
+    assert len(added) == len(_DEFAULT_EVIDENCE_TYPE_TERMS)
 
 
 def test_expansion_noop_for_non_clinical_run():
     """Non-clinical runs are returned unchanged even when the flag is ON."""
     base = ["quarterly revenue guidance for the semiconductor sector"]
-    out = expand_evidence_type_queries(base, clinical=False, enabled=True)
+    out = expand_evidence_type_queries(base, apply_to_frame=False, enabled=True)
     assert out == base
 
 
 def test_expansion_noop_when_disabled_byte_identical():
     """Kill switch OFF => byte-identical passthrough (the safe default)."""
     base = ["stroke thrombolysis outcomes", "tPA time window"]
-    out = expand_evidence_type_queries(base, clinical=True, enabled=False)
+    out = expand_evidence_type_queries(base, apply_to_frame=True, enabled=False)
     assert out == base
 
 
@@ -72,7 +72,7 @@ def test_expansion_default_flag_is_off(monkeypatch):
     assert evidence_type_query_expansion_enabled() is False
     base = ["sepsis fluid resuscitation"]
     # enabled defaults to the (unset) env knob -> no expansion.
-    assert expand_evidence_type_queries(base, clinical=True) == base
+    assert expand_evidence_type_queries(base, apply_to_frame=True) == base
 
 
 def test_expansion_reads_env_flag(monkeypatch):
@@ -80,8 +80,8 @@ def test_expansion_reads_env_flag(monkeypatch):
     monkeypatch.setenv("PG_EVIDENCE_TYPE_QUERY_EXPANSION", "1")
     assert evidence_type_query_expansion_enabled() is True
     base = ["heart failure SGLT2 inhibitors"]
-    out = expand_evidence_type_queries(base, clinical=True)
-    assert len(out) == len(base) + len(_DEFAULT_CLINICAL_EVIDENCE_TYPE_TERMS)
+    out = expand_evidence_type_queries(base, apply_to_frame=True)
+    assert len(out) == len(base) + len(_DEFAULT_EVIDENCE_TYPE_TERMS)
 
 
 def test_expansion_dedups_and_handles_empty_anchor():
@@ -91,18 +91,20 @@ def test_expansion_dedups_and_handles_empty_anchor():
         "asthma biologics",
         "asthma biologics randomized controlled trial",  # collides with a variant
     ]
-    out = expand_evidence_type_queries(base, clinical=True, enabled=True)
+    out = expand_evidence_type_queries(base, apply_to_frame=True, enabled=True)
     lowered = [q.lower() for q in out]
     assert lowered.count("asthma biologics randomized controlled trial") == 1
     # Empty anchor -> nothing added.
-    assert expand_evidence_type_queries(["", "   "], clinical=True, enabled=True) == ["", "   "]
+    assert expand_evidence_type_queries(
+        ["", "   "], apply_to_frame=True, enabled=True,
+    ) == ["", "   "]
 
 
 def test_expansion_custom_terms_override():
     """Explicit terms override the clinical defaults."""
     base = ["copd exacerbation"]
     out = expand_evidence_type_queries(
-        base, clinical=True, enabled=True, terms=["cochrane review"]
+        base, apply_to_frame=True, enabled=True, terms=["cochrane review"]
     )
     assert out == ["copd exacerbation", "copd exacerbation cochrane review"]
 

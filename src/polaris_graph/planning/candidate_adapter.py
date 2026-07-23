@@ -597,6 +597,17 @@ def _from_rule_reader(
             spans=_spans_for(prompt, [st, str(st).replace("_", " ")]),
             detail={"source": "rule_reader", "raw_value": st},
         )))
+    for quality in getattr(rr, "quality_attributes", []) or []:
+        _dimension, value = _reroute_quality("source.quality", quality)
+        out.append(_stamp_ir(CandidateConstraint(
+            dimension=_dimension, value=value, force=FORCE_PREFER,
+            origin=ORIGIN_RULE_READER,
+            spans=_spans_for(
+                prompt,
+                [quality, str(quality).replace("_", " "), str(quality).replace("_", "-")],
+            ),
+            detail={"source": "rule_reader", "raw_value": quality},
+        )))
     for lang in rr.languages:
         # The rule-reader emits a NORMALIZED ISO code (e.g. "en"); a bare 2-char
         # code matches stray substrings ("...intellig-en-ce..."), so we do NOT
@@ -724,8 +735,17 @@ def reconcile_candidates(
     # --- deterministic pass (the three champion intake regex extractors) ---
     uc = extract_constraints_regex(prompt)
     slots = extract_instruction_slots_regex(prompt)
+    rr_obj: Optional[Constraints] = None
+    if isinstance(rule_reader, Constraints):
+        rr_obj = rule_reader
+    elif isinstance(rule_reader, dict):
+        rr_obj = _constraints_from_dict(rule_reader)
     try:
-        sc = extract_scope_constraints_regex(prompt, ontology=ontology)
+        sc = extract_scope_constraints_regex(
+            prompt,
+            ontology=ontology,
+            constraint_values=(rr_obj.source_types if rr_obj is not None else None),
+        )
     except Exception:  # noqa: BLE001 — fail-open: no scope facets on ontology miss
         sc = ScopeConstraints(source="regex")
 
@@ -735,11 +755,6 @@ def reconcile_candidates(
     deterministic.extend(_from_scope_constraints(prompt, sc))
 
     # --- rule-reader pass (gap-filler) ---
-    rr_obj: Optional[Constraints] = None
-    if isinstance(rule_reader, Constraints):
-        rr_obj = rule_reader
-    elif isinstance(rule_reader, dict):
-        rr_obj = _constraints_from_dict(rule_reader)
     rule_candidates = _from_rule_reader(prompt, rr_obj) if rr_obj is not None else []
 
     # --- ONTOLOGY ALIAS NORMALIZATION (RECON-2 §3/§4): canonicalize every
@@ -792,9 +807,14 @@ def _constraints_from_dict(d: dict[str, Any]) -> Constraints:
 
     return Constraints(
         source_types=_list(d.get("source_types")),
+        quality_attributes=_list(d.get("quality_attributes")),
         languages=_list(d.get("languages")),
         recency=_opt(d.get("recency")),
         required_coverage=_list(d.get("required_coverage")),
+        coverage_roles=[
+            dict(item) for item in (d.get("coverage_roles") or [])
+            if isinstance(item, dict)
+        ],
         exclusions=_list(d.get("exclusions")),
         format=_opt(d.get("format")),
         length=_opt(d.get("length")),

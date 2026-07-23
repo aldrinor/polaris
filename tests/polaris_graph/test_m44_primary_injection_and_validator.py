@@ -1,28 +1,11 @@
-"""M-44 tests: scorer/subset primary boost + same-sentence validator.
+"""Primary-source routing and named-study citation tests."""
 
-Codex V28 plan pass-2 APPROVED. V27 failure: primary ev_ids in the
-pool but outline planner picked T4 post-hocs / T2 meta-analyses over
-T1 primaries for Efficacy/Comparative/Safety/Weight sections.
-
-M-44 implements:
-  1. Injection: ensure primary-trial ev_ids appear in every primary-
-     eligible section's ev_ids list (Codex acceptance test: "pool has
-     SURPASS-2 primary + SURPASS-2 post-hoc + meta-analysis; selected
-     subset includes the primary ahead of derivatives").
-  2. Same-sentence validator: named-trial tokens in verified prose
-     must cite a matching M-42e primary ev_id in the same or
-     immediately adjacent sentence.
-
-No LLM calls. Pure logic + fixture data.
-"""
 from __future__ import annotations
-
-import pytest
 
 from src.polaris_graph.generator.multi_section_generator import (
     SectionPlan,
     _m44_detect_primary_ev_ids,
-    _m44_find_trial_mentions,
+    _m44_find_study_mentions,
     _m44_inject_primaries_into_outline,
     _m44_section_is_primary_eligible,
     _m44_sentence_spans,
@@ -30,415 +13,304 @@ from src.polaris_graph.generator.multi_section_generator import (
 )
 
 
-class TestM44SectionEligibility:
-    def test_efficacy_eligible(self) -> None:
-        assert _m44_section_is_primary_eligible("Efficacy")
-
-    def test_comparative_eligible(self) -> None:
-        assert _m44_section_is_primary_eligible("Comparative")
-
-    def test_safety_eligible(self) -> None:
-        assert _m44_section_is_primary_eligible("Safety")
-
-    def test_regulatory_not_eligible(self) -> None:
-        assert not _m44_section_is_primary_eligible("Regulatory")
-
-    def test_mechanism_not_eligible(self) -> None:
-        # Mechanism excluded per plan (M-47 handles mechanism cites)
-        assert not _m44_section_is_primary_eligible("Mechanism")
-
-    def test_limitations_not_eligible(self) -> None:
-        assert not _m44_section_is_primary_eligible("Limitations")
-
-    def test_weight_loss_eligible_by_token(self) -> None:
-        # Custom title with "weight" in name
-        assert _m44_section_is_primary_eligible("Weight Loss Outcomes")
-
-    def test_case_insensitive(self) -> None:
-        assert _m44_section_is_primary_eligible("efficacy")
-        assert _m44_section_is_primary_eligible("EFFICACY")
+def _primary_row(
+    evidence_id: str,
+    anchor: str,
+    *,
+    metric: str,
+    section: str = "",
+) -> dict[str, object]:
+    return {
+        "evidence_id": evidence_id,
+        "title": f"{anchor} primary publication about {metric}",
+        "direct_quote": f"{anchor} reported {metric}.",
+        "metric": metric,
+        "section": section,
+        "is_primary_source": True,
+        "source_url": f"https://example.test/{evidence_id}",
+    }
 
 
-class TestM44PrimaryDetection:
-    def test_detects_primaries_in_pool(self) -> None:
-        evidence_pool = {
-            "ev_s1": {
-                "evidence_id": "ev_s1",
-                "source_url": "https://www.nejm.org/doi/10.1056/NEJMoa2107019",
-                "title": "SURPASS-1: Tirzepatide monotherapy",
-            },
-            "ev_s2": {
-                "evidence_id": "ev_s2",
-                "source_url": "https://www.nejm.org/doi/10.1056/NEJMoa2107519",
-                "title": "SURPASS-2: Tirzepatide vs semaglutide",
-            },
-            "ev_review": {
-                "evidence_id": "ev_review",
-                "url": "https://example.com/review",
-                "title": "Narrative review of GLP-1s",
-            },
-        }
-        result = _m44_detect_primary_ev_ids(
-            evidence_pool, ["SURPASS-1", "SURPASS-2", "SURPASS-3"],
-        )
-        assert result["SURPASS-1"] == ["ev_s1"]
-        assert result["SURPASS-2"] == ["ev_s2"]
-        # SURPASS-3 has no match — not in dict
-        assert "SURPASS-3" not in result
-
-    def test_empty_anchors_returns_empty(self) -> None:
-        pool = {"ev_1": {"evidence_id": "ev_1", "title": "x"}}
-        assert _m44_detect_primary_ev_ids(pool, []) == {}
-        assert _m44_detect_primary_ev_ids(pool, None) == {}
+def test_any_named_evidence_section_is_eligible_on_compatibility_path() -> None:
+    for title in ("Performance", "Energy", "Methods", "Limitations"):
+        assert _m44_section_is_primary_eligible(title)
+    assert not _m44_section_is_primary_eligible("")
 
 
-class TestM44InjectionCodexAcceptance:
-    """Codex pass-2 verbatim acceptance test."""
-
-    def test_codex_acceptance_primary_prepended_over_derivatives(self) -> None:
-        """Pool has SURPASS-2 primary + SURPASS-2 post-hoc + meta-
-        analysis. Efficacy section's ev_ids [post-hoc, meta] should
-        become [primary, post-hoc, meta] after injection."""
-        plans = [
-            SectionPlan(
-                title="Efficacy",
-                focus="tirzepatide HbA1c efficacy",
-                ev_ids=["ev_post_hoc", "ev_meta"],
-            ),
-        ]
-        primary_by_anchor = {"SURPASS-2": ["ev_primary"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        assert updated[0].ev_ids[0] == "ev_primary", (
-            f"primary not prepended: {updated[0].ev_ids}"
-        )
-        assert updated[0].ev_ids == ["ev_primary", "ev_post_hoc", "ev_meta"]
-        # Injection telemetry recorded
-        assert any(
-            e["action"] == "injected" and e["ev_id"] == "ev_primary"
-            for e in log
-        )
-
-    def test_primary_already_present_skipped(self) -> None:
-        plans = [
-            SectionPlan(
-                title="Efficacy", focus="f",
-                ev_ids=["ev_primary", "ev_other"],
-            ),
-        ]
-        primary_by_anchor = {"SURPASS-2": ["ev_primary"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        assert updated[0].ev_ids == ["ev_primary", "ev_other"]
-        assert any(e["action"] == "already_present" for e in log)
-
-    def test_regulatory_section_not_injected(self) -> None:
-        """Regulatory is primary-excluded per plan."""
-        plans = [
-            SectionPlan(title="Regulatory", focus="f", ev_ids=["ev_fda"]),
-        ]
-        primary_by_anchor = {"SURPASS-2": ["ev_primary"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        assert updated[0].ev_ids == ["ev_fda"]
-        assert not log  # no injection for ineligible section
-
-    def test_mechanism_section_not_injected(self) -> None:
-        plans = [
-            SectionPlan(title="Mechanism", focus="f", ev_ids=["ev_clamp"]),
-        ]
-        primary_by_anchor = {"SURPASS-2": ["ev_primary"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        assert updated[0].ev_ids == ["ev_clamp"]
-        assert not log
-
-    def test_swap_at_cap(self) -> None:
-        """Section at cap must swap lowest-priority for primary."""
-        plans = [
-            SectionPlan(
-                title="Efficacy", focus="f",
-                ev_ids=[f"ev_{i}" for i in range(20)],
-            ),
-        ]
-        primary_by_anchor = {"SURPASS-2": ["ev_primary"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor, max_ev_per_section=20,
-        )
-        # Length unchanged
-        assert len(updated[0].ev_ids) == 20
-        # Primary in front
-        assert updated[0].ev_ids[0] == "ev_primary"
-        # ev_19 (last) was swapped
-        assert "ev_19" not in updated[0].ev_ids
-        assert any(
-            e["action"].startswith("swap_in_for_") for e in log
-        )
-
-    def test_multi_anchor_multi_section(self) -> None:
-        """M-44 pass-2 (Codex audit medium #3): anchors now respect
-        section-focus affinity. SURPASS-2 is _general (fits all
-        primary-eligible sections); SURPASS-CVOT is _cardiovascular
-        (fits Safety + Long-term Outcomes only, not Efficacy)."""
-        plans = [
-            SectionPlan(title="Efficacy", focus="f", ev_ids=["ev_a", "ev_b"]),
-            SectionPlan(title="Safety", focus="f", ev_ids=["ev_c", "ev_d"]),
-            SectionPlan(title="Regulatory", focus="f", ev_ids=["ev_fda"]),
-        ]
-        primary_by_anchor = {
-            "SURPASS-2": ["ev_s2"],
-            "SURPASS-CVOT": ["ev_cvot"],
-        }
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        # Efficacy: SURPASS-2 yes; CVOT no (cardiovascular affinity
-        # doesn't include efficacy title)
-        assert "ev_s2" in updated[0].ev_ids
-        assert "ev_cvot" not in updated[0].ev_ids
-        # Safety: both — SURPASS-2 by _general affinity, CVOT by
-        # _cardiovascular affinity
-        assert "ev_s2" in updated[1].ev_ids
-        assert "ev_cvot" in updated[1].ev_ids
-        # Regulatory: unchanged
-        assert updated[2].ev_ids == ["ev_fda"]
+def test_primary_detection_uses_anchor_and_source_role_metadata() -> None:
+    pool = {
+        "ev_orion": _primary_row(
+            "ev_orion",
+            "ORION-4",
+            metric="median latency",
+        ),
+        "ev_review": {
+            "evidence_id": "ev_review",
+            "title": "ORION-4 systematic review",
+            "is_primary_source": True,
+        },
+    }
+    assert _m44_detect_primary_ev_ids(
+        pool,
+        ["ORION-4", "NOVA-2"],
+    ) == {"ORION-4": ["ev_orion"]}
 
 
-class TestM44TrialMentionDetection:
-    def test_finds_named_trial(self) -> None:
-        text = "In SURPASS-2, tirzepatide reduced HbA1c."
-        matches = _m44_find_trial_mentions(text, ["SURPASS-2"])
-        assert len(matches) == 1
-        assert matches[0][0] == "SURPASS-2"
-
-    def test_word_boundary_prevents_substring_match(self) -> None:
-        # "SURPASS-10" should NOT match "SURPASS-1" anchor — the anchor
-        # regex uses lookbehind to require punctuation or whitespace
-        # AFTER the anchor.
-        text = "SURPASS-10 was a hypothetical trial."
-        matches = _m44_find_trial_mentions(text, ["SURPASS-1"])
-        assert matches == []
-
-    def test_multi_trial_mentions_detected(self) -> None:
-        text = "SURPASS-2 and SURMOUNT-1 were both pivotal."
-        matches = _m44_find_trial_mentions(
-            text, ["SURPASS-2", "SURMOUNT-1"],
-        )
-        assert len(matches) == 2
-
-    def test_trial_with_trailing_punctuation(self) -> None:
-        text = "SURPASS-2: tirzepatide trial."
-        matches = _m44_find_trial_mentions(text, ["SURPASS-2"])
-        assert len(matches) == 1
-
-
-class TestM44Pass2SectionFocusAffinity:
-    """M-44 pass-2 (Codex audit medium #3): injection is section-focus-
-    aware, not blanket 'all eligible sections'."""
-
-    def test_cvot_injected_only_in_safety_or_cv_sections(self) -> None:
-        plans = [
-            SectionPlan(title="Efficacy", focus="HbA1c reduction", ev_ids=["ev_a"]),
-            SectionPlan(title="Safety", focus="adverse events", ev_ids=["ev_b"]),
-            SectionPlan(
-                title="Long-term Outcomes",
-                focus="cardiovascular outcomes over 4 years",
-                ev_ids=["ev_c"],
-            ),
-        ]
-        primary_by_anchor = {"SURPASS-CVOT": ["ev_cvot"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        # Efficacy should NOT get CVOT (cardiovascular anchor)
-        assert "ev_cvot" not in updated[0].ev_ids
-        # Safety SHOULD get CVOT (affinity: safety)
-        assert updated[1].ev_ids[0] == "ev_cvot"
-        # Long-term Outcomes SHOULD get CVOT (affinity: long-term outcomes + focus keyword)
-        assert updated[2].ev_ids[0] == "ev_cvot"
-
-    def test_surmount_injected_only_in_weight_sections(self) -> None:
-        plans = [
-            SectionPlan(title="Efficacy", focus="HbA1c reduction", ev_ids=["ev_a"]),
-            SectionPlan(
-                title="Efficacy",
-                focus="body weight reduction outcomes",
-                ev_ids=["ev_b"],
-            ),
-            SectionPlan(title="Safety", focus="adverse events", ev_ids=["ev_c"]),
-        ]
-        primary_by_anchor = {"SURMOUNT-2": ["ev_sm2"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        # Efficacy with HbA1c focus — not weight — should NOT get SURMOUNT
-        # (it matches by title 'efficacy' alone actually — let's check)
-        # Actually SURMOUNT is _weight category, which affinities = efficacy, pop-subgroups, long-term
-        # So it DOES get injected into Efficacy by title match
-        assert updated[0].ev_ids[0] == "ev_sm2"
-        # Efficacy with weight focus also gets it
-        assert updated[1].ev_ids[0] == "ev_sm2"
-        # Safety — NOT in _weight affinity → skipped
-        assert "ev_sm2" not in updated[2].ev_ids
-
-    def test_surpass_general_goes_to_all_primary_eligible(self) -> None:
-        plans = [
-            SectionPlan(title="Efficacy", focus="f", ev_ids=["ev_a"]),
-            SectionPlan(title="Comparative", focus="f", ev_ids=["ev_b"]),
-            SectionPlan(title="Safety", focus="f", ev_ids=["ev_c"]),
-        ]
-        primary_by_anchor = {"SURPASS-2": ["ev_s2"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        # SURPASS-2 is _general category — all three sections get it
-        for u in updated:
-            assert "ev_s2" in u.ev_ids
-
-    def test_skipped_section_affinity_logged(self) -> None:
-        plans = [
-            SectionPlan(title="Efficacy", focus="HbA1c", ev_ids=["ev_a"]),
-        ]
-        primary_by_anchor = {"SURPASS-CVOT": ["ev_cvot"]}
-        updated, log = _m44_inject_primaries_into_outline(
-            plans, primary_by_anchor,
-        )
-        assert "ev_cvot" not in updated[0].ev_ids
-        assert any(
-            e["action"] == "skipped_section_affinity"
-            and e["anchor"] == "SURPASS-CVOT"
-            for e in log
-        )
+def test_primary_is_preferred_ahead_of_derivative_sources() -> None:
+    plans = [
+        SectionPlan(
+            title="Performance",
+            focus="Compare median latency.",
+            ev_ids=["ev_post_analysis", "ev_review"],
+        ),
+    ]
+    pool = {
+        "ev_primary": _primary_row(
+            "ev_primary",
+            "ORION-4",
+            metric="median latency",
+        ),
+    }
+    updated, log = _m44_inject_primaries_into_outline(
+        plans,
+        {"ORION-4": ["ev_primary"]},
+        evidence_pool=pool,
+    )
+    assert updated[0].ev_ids == [
+        "ev_primary",
+        "ev_post_analysis",
+        "ev_review",
+    ]
+    assert log[0]["action"] == "injected"
 
 
-class TestM44Pass2ValidatorPreviousSentence:
-    """M-44 pass-2 (Codex audit finding #4): adjacent sentence now
-    includes both previous AND next, not only next."""
-
-    def test_primary_cited_in_previous_sentence_passes(self) -> None:
-        text = (
-            "The primary publication reported efficacy [1]. "
-            "SURPASS-2 was the lead trial."
-        )
-        biblio = [{"num": 1, "evidence_id": "ev_s2_primary"}]
-        primary_by_anchor = {"SURPASS-2": ["ev_s2_primary"]}
-        violations = _m44_validate_primary_same_sentence(
-            text, primary_by_anchor, biblio,
-        )
-        assert violations == [], (
-            f"previous-sentence citation should pass post-pass-2: "
-            f"{violations}"
-        )
-
-
-class TestM44Pass3RegenComparison:
-    """M-44 pass-3 (Codex audit finding #1): regen replacement criterion
-    must compare against FIRST-PASS violation count, not the final
-    post-regen accumulator (which is empty at compare time)."""
-
-    def test_first_pass_violation_count_persists_through_regen(self) -> None:
-        """Compute first-pass violations per section before regen; those
-        counts must persist so regen comparison works. Unit test at the
-        helper level — the actual regen flow is inside
-        generate_multi_section_report which requires LLM mocking."""
-        # Verify the two-stage structure: build mock first-pass viols
-        # dict then compare a mock regen result against it.
-        first_pass_violations_by_idx = {0: 3, 1: 1, 2: 0}
-
-        # Section 0: regen has 2 viols (better than 3) → replace
-        assert 2 < first_pass_violations_by_idx.get(0, 0)
-        # Section 1: regen has 1 viol (same as first pass) → don't replace
-        # unless also zero with verified sentences
-        assert not (1 < first_pass_violations_by_idx.get(1, 0))
-        # Section 2: didn't need regen → key absent or 0
-        assert first_pass_violations_by_idx.get(2, 0) == 0
+def test_routing_vocabulary_is_derived_from_evidence_rows() -> None:
+    plans = [
+        SectionPlan(
+            title="Performance",
+            focus="Compare median latency.",
+            ev_ids=["ev_perf"],
+        ),
+        SectionPlan(
+            title="Energy",
+            focus="Compare energy consumption.",
+            ev_ids=["ev_energy_existing"],
+        ),
+    ]
+    pool = {
+        "ev_orion": _primary_row(
+            "ev_orion",
+            "ORION-4",
+            metric="median latency",
+        ),
+        "ev_nova": _primary_row(
+            "ev_nova",
+            "NOVA-2",
+            metric="energy consumption",
+        ),
+    }
+    updated, log = _m44_inject_primaries_into_outline(
+        plans,
+        {
+            "ORION-4": ["ev_orion"],
+            "NOVA-2": ["ev_nova"],
+        },
+        evidence_pool=pool,
+    )
+    assert updated[0].ev_ids[0] == "ev_orion"
+    assert "ev_nova" not in updated[0].ev_ids
+    assert updated[1].ev_ids[0] == "ev_nova"
+    assert "ev_orion" not in updated[1].ev_ids
+    assert any(entry["action"] == "skipped_evidence_affinity" for entry in log)
 
 
-class TestM44SentenceSpans:
-    def test_basic_sentences(self) -> None:
-        text = "First sentence. Second sentence! Third?"
-        spans = _m44_sentence_spans(text)
-        assert len(spans) == 3
+def test_evidence_metadata_path_does_not_route_to_unrelated_section() -> None:
+    plans = [
+        SectionPlan(
+            title="Legal history",
+            focus="Summarize enacted provisions.",
+            ev_ids=["ev_law"],
+        ),
+    ]
+    pool = {
+        "ev_orion": _primary_row(
+            "ev_orion",
+            "ORION-4",
+            metric="median latency",
+        ),
+    }
+    updated, log = _m44_inject_primaries_into_outline(
+        plans,
+        {"ORION-4": ["ev_orion"]},
+        evidence_pool=pool,
+    )
+    assert updated[0].ev_ids == ["ev_law"]
+    assert log[0]["action"] == "skipped_evidence_affinity"
 
-    def test_no_trailing_punctuation(self) -> None:
-        text = "Sentence without terminal punctuation"
-        spans = _m44_sentence_spans(text)
-        assert len(spans) == 1
-        assert spans[0] == (0, len(text))
 
-    def test_empty_text(self) -> None:
-        assert _m44_sentence_spans("") == []
+def test_legacy_call_without_rows_keeps_primary_custody_fallback() -> None:
+    plans = [
+        SectionPlan(title="Evidence", focus="Synthesize findings.", ev_ids=[]),
+    ]
+    updated, _ = _m44_inject_primaries_into_outline(
+        plans,
+        {"ORION-4": ["ev_orion"]},
+    )
+    assert updated[0].ev_ids == ["ev_orion"]
 
 
-class TestM44SameSentenceValidator:
-    def test_primary_cited_in_same_sentence_passes(self) -> None:
-        text = "In SURPASS-2, tirzepatide reduced HbA1c by 2.30 pp [1]."
-        biblio = [
-            {"num": 1, "evidence_id": "ev_s2_primary"},
-        ]
-        primary_by_anchor = {"SURPASS-2": ["ev_s2_primary"]}
-        violations = _m44_validate_primary_same_sentence(
-            text, primary_by_anchor, biblio,
-        )
-        assert violations == []
+def test_already_present_primary_is_not_duplicated() -> None:
+    plans = [
+        SectionPlan(
+            title="Performance",
+            focus="Median latency.",
+            ev_ids=["ev_orion", "ev_other"],
+        ),
+    ]
+    pool = {
+        "ev_orion": _primary_row(
+            "ev_orion",
+            "ORION-4",
+            metric="median latency",
+        ),
+    }
+    updated, log = _m44_inject_primaries_into_outline(
+        plans,
+        {"ORION-4": ["ev_orion"]},
+        evidence_pool=pool,
+    )
+    assert updated[0].ev_ids == ["ev_orion", "ev_other"]
+    assert log[0]["action"] == "already_present"
 
-    def test_primary_cited_in_adjacent_sentence_passes(self) -> None:
-        text = ("In SURPASS-2, tirzepatide was more effective than "
-                "semaglutide. The primary endpoint was HbA1c [1].")
-        biblio = [{"num": 1, "evidence_id": "ev_s2_primary"}]
-        primary_by_anchor = {"SURPASS-2": ["ev_s2_primary"]}
-        violations = _m44_validate_primary_same_sentence(
-            text, primary_by_anchor, biblio,
-        )
-        assert violations == [], (
-            f"adjacent-sentence citation should pass: {violations}"
-        )
 
-    def test_primary_cited_two_sentences_away_fails(self) -> None:
-        text = ("In SURPASS-2, tirzepatide was effective. "
-                "Semaglutide was the comparator. "
-                "HbA1c was the endpoint [1].")
-        biblio = [{"num": 1, "evidence_id": "ev_s2_primary"}]
-        primary_by_anchor = {"SURPASS-2": ["ev_s2_primary"]}
-        violations = _m44_validate_primary_same_sentence(
-            text, primary_by_anchor, biblio,
-        )
-        assert len(violations) == 1
-        assert violations[0]["anchor"] == "SURPASS-2"
+def test_default_path_does_not_count_evict_existing_evidence() -> None:
+    plans = [
+        SectionPlan(
+            title="Performance",
+            focus="Median latency.",
+            ev_ids=["ev_a", "ev_b"],
+        ),
+    ]
+    pool = {
+        "ev_orion": _primary_row(
+            "ev_orion",
+            "ORION-4",
+            metric="median latency",
+        ),
+    }
+    updated, log = _m44_inject_primaries_into_outline(
+        plans,
+        {"ORION-4": ["ev_orion"]},
+        max_ev_per_section=1,
+        evidence_pool=pool,
+    )
+    assert updated[0].ev_ids == ["ev_orion", "ev_a", "ev_b"]
+    assert log[0]["action"] == "injected"
 
-    def test_wrong_ev_id_cited_fails(self) -> None:
-        text = "In SURPASS-2, tirzepatide reduced HbA1c [5]."
-        biblio = [
-            {"num": 1, "evidence_id": "ev_s2_primary"},
-            {"num": 5, "evidence_id": "ev_post_hoc"},
-        ]
-        primary_by_anchor = {"SURPASS-2": ["ev_s2_primary"]}
-        violations = _m44_validate_primary_same_sentence(
-            text, primary_by_anchor, biblio,
-        )
-        assert len(violations) == 1
-        assert "ev_post_hoc" in violations[0]["citations_found"]
 
-    def test_no_trial_mention_no_violation(self) -> None:
-        text = "Tirzepatide is an incretin analog [1]."
-        biblio = [{"num": 1, "evidence_id": "ev_anything"}]
-        primary_by_anchor = {"SURPASS-2": ["ev_s2_primary"]}
-        violations = _m44_validate_primary_same_sentence(
-            text, primary_by_anchor, biblio,
-        )
-        assert violations == []
+def test_archetype_mode_preserves_field_neutral_routing() -> None:
+    plans = [
+        SectionPlan(
+            title="Latency under sustained load",
+            focus="Compare median latency.",
+            ev_ids=["ev_existing"],
+            archetype="Quantitative-Comparison",
+        ),
+        SectionPlan(
+            title="Historical context",
+            focus="Describe the project.",
+            ev_ids=["ev_history"],
+            archetype="Background",
+        ),
+    ]
+    pool = {
+        "ev_orion": _primary_row(
+            "ev_orion",
+            "ORION-4",
+            metric="median latency",
+        ),
+    }
+    updated, _ = _m44_inject_primaries_into_outline(
+        plans,
+        {"ORION-4": ["ev_orion"]},
+        use_archetype=True,
+        evidence_pool=pool,
+    )
+    assert updated[0].ev_ids[0] == "ev_orion"
+    assert updated[0].archetype == "Quantitative-Comparison"
+    assert updated[1].ev_ids == ["ev_history"]
 
-    def test_anchor_with_no_primary_in_pool_skipped(self) -> None:
-        """If SURPASS-3 is mentioned but no primary in the pool,
-        validator has nothing to enforce."""
-        text = "SURPASS-3 was a comparator trial."
-        biblio = []
-        primary_by_anchor = {"SURPASS-2": ["ev_s2_primary"]}  # no SURPASS-3
-        violations = _m44_validate_primary_same_sentence(
-            text, primary_by_anchor, biblio,
-        )
-        assert violations == []
+
+def test_named_study_mentions_use_exact_boundaries() -> None:
+    text = "ORION-4 and NOVA-2 reported results; ORION-40 did not."
+    assert [item[0] for item in _m44_find_study_mentions(
+        text,
+        ["ORION-4", "NOVA-2"],
+    )] == ["ORION-4", "NOVA-2"]
+    assert _m44_find_study_mentions("ORION-40", ["ORION-4"]) == []
+
+
+def test_sentence_span_parser_handles_terminal_and_unterminated_text() -> None:
+    text = "First sentence. Second sentence! Third?"
+    assert len(_m44_sentence_spans(text)) == 3
+    unterminated = "Sentence without terminal punctuation"
+    assert _m44_sentence_spans(unterminated) == [(0, len(unterminated))]
+    assert _m44_sentence_spans("") == []
+
+
+def test_primary_cited_in_same_sentence_passes() -> None:
+    assert _m44_validate_primary_same_sentence(
+        "ORION-4 reported median latency of 18.4 ms [1].",
+        {"ORION-4": ["ev_orion"]},
+        [{"num": 1, "evidence_id": "ev_orion"}],
+    ) == []
+
+
+def test_primary_cited_in_previous_or_next_sentence_passes() -> None:
+    bibliography = [{"num": 1, "evidence_id": "ev_orion"}]
+    primary = {"ORION-4": ["ev_orion"]}
+    assert _m44_validate_primary_same_sentence(
+        "The primary publication reports the result [1]. "
+        "ORION-4 is the named study.",
+        primary,
+        bibliography,
+    ) == []
+    assert _m44_validate_primary_same_sentence(
+        "ORION-4 is the named study. "
+        "The primary publication reports the result [1].",
+        primary,
+        bibliography,
+    ) == []
+
+
+def test_primary_citation_two_sentences_away_fails() -> None:
+    violations = _m44_validate_primary_same_sentence(
+        "ORION-4 reported the result. "
+        "A second statement adds context. "
+        "The primary publication is cited here [1].",
+        {"ORION-4": ["ev_orion"]},
+        [{"num": 1, "evidence_id": "ev_orion"}],
+    )
+    assert len(violations) == 1
+    assert violations[0]["anchor"] == "ORION-4"
+
+
+def test_derivative_citation_does_not_satisfy_primary_validator() -> None:
+    violations = _m44_validate_primary_same_sentence(
+        "ORION-4 reported the result [2].",
+        {"ORION-4": ["ev_orion"]},
+        [
+            {"num": 1, "evidence_id": "ev_orion"},
+            {"num": 2, "evidence_id": "ev_review"},
+        ],
+    )
+    assert len(violations) == 1
+    assert violations[0]["citations_found"] == ["ev_review"]
+
+
+def test_unmentioned_source_identifier_creates_no_violation() -> None:
+    assert _m44_validate_primary_same_sentence(
+        "The scheduler reduced latency [1].",
+        {"ORION-4": ["ev_orion"]},
+        [{"num": 1, "evidence_id": "ev_other"}],
+    ) == []

@@ -2,7 +2,7 @@
 
 Per Codex strategic-review iter 1 path B + I-bug-108 brief APPROVE:
 when strict_verify drops a sentence due to "drift" failures (entailment,
-number, trial-name, content overlap), feed (sentence, cited spans,
+number, source-identifier, content overlap), feed (sentence, cited spans,
 failure reason) back to the generator and ask for a single rewrite that
 makes the cited span actually entail the claim.
 
@@ -87,6 +87,7 @@ REPAIRABLE_REASON_PREFIXES: frozenset[str] = frozenset({
     "entailment_failed",
     "number_not_in_any_cited_span",
     "no_integer_overlap_any_cited_span",
+    # Compatibility reason emitted by the unchanged provenance verifier.
     "trial_name_mismatch",
     "no_content_word_overlap_any_cited_span",
     "overlap_too_low",
@@ -101,7 +102,7 @@ CONSTRAINTS (STRICT — non-compliance = repair failure):
 
 2. **No new specifics not in the cited span**: do NOT introduce numbers, study names, jurisdictions, mechanism details, or comparators that aren't literally in the cited span text. The verifier will reject again if you do.
 
-3. **Hedge generic where the original was specific**: if the original said "tirzepatide reduced HbA1c by 1.7%" and the span only says "tirzepatide reduced HbA1c", rewrite as "tirzepatide reduced HbA1c [#ev:...]" — the qualitative claim is in the span, the magnitude is not.
+3. **Hedge generic where the original was specific**: if the original states a measured change of 1.7 units and the span supports only the direction of change, retain only the qualitative claim and its marker. The magnitude is unsupported.
 
 4. **If you cannot make the claim entailed by the span**: output exactly NULL_DROP (capital, no quotes, nothing else). The original drop will be preserved.
 
@@ -122,7 +123,7 @@ CONSTRAINTS (STRICT — non-compliance = repair failure):
 
 2. **No new specifics not in a kept cited span**: do NOT introduce numbers, study names, jurisdictions, mechanism details, or comparators that aren't literally in a KEPT cited span text. The verifier will reject again if you do.
 
-3. **Hedge generic where the original was specific**: if the original said "tirzepatide reduced HbA1c by 1.7%" and the span only says "tirzepatide reduced HbA1c", rewrite as "tirzepatide reduced HbA1c [#ev:...]" — the qualitative claim is in the span, the magnitude is not.
+3. **Hedge generic where the original was specific**: if the original states a measured change of 1.7 units and the span supports only the direction of change, retain only the qualitative claim and its marker. The magnitude is unsupported.
 
 4. **If you cannot make the claim entailed by any remaining span**: output exactly NULL_DROP (capital, no quotes, nothing else). The original drop will be preserved.
 

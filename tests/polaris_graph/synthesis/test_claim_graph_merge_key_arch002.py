@@ -417,9 +417,9 @@ def test_13_off_path_is_byte_identical_when_flag_unset(monkeypatch):
 # cluster ids changing.
 _FROZEN_OFF_NUMERIC_KEYS = {
     # e1 + e2 are the SAME claim text -> identical legacy key -> they co-cluster.
-    "e1": ("numeric", "semaglutide", "weight loss", 14.9, "%", "", "treatment", "at week 68"),
-    "e2": ("numeric", "semaglutide", "weight loss", 14.9, "%", "", "treatment", "at week 68"),
-    "e3": ("numeric", "tirzepatide", "weight loss", 22.5, "%", "", "treatment", "at week 72"),
+    "e1": ("numeric", "semaglutide", "weight loss", 14.9, "%", "", "treatment", "week 68"),
+    "e2": ("numeric", "semaglutide", "weight loss", 14.9, "%", "", "treatment", "week 68"),
+    "e3": ("numeric", "tirzepatide", "weight loss", 22.5, "%", "", "treatment", "week 72"),
 }
 
 

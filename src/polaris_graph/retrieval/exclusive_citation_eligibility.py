@@ -19,8 +19,6 @@ _NON_JOURNAL_HOSTS = _PREPRINT_OR_WORKING_PAPER_HOSTS | frozenset({
 })
 _NON_JOURNAL_DOI_REGISTRANTS = frozenset({
     "10.1101",   # bioRxiv / medRxiv
-    "10.1109",   # mixed IEEE journal/conference registrant; DOI alone is ambiguous
-    "10.1145",   # ACM proceedings-heavy registrant
     "10.17605",  # OSF
     "10.2139",   # SSRN
     "10.3386",   # NBER working papers
@@ -30,9 +28,14 @@ _NON_JOURNAL_DOI_REGISTRANTS = frozenset({
     "10.6084",   # Figshare repository records
     "10.7910",   # Dataverse datasets
 })
+_MIXED_PUBLICATION_DOI_REGISTRANTS = frozenset({
+    "10.1109",
+    "10.1145",
+})
 _NON_JOURNAL_TEXT_RE = re.compile(
     r"\b(?:pre[ -]?print|working[ -]?paper|discussion[ -]?paper|policy[ -]?brief|"
-    r"press[ -]?release|government[ -]?report|white[ -]?paper|news(?:letter)?|blog)\b",
+    r"conference|proceedings|press[ -]?release|government[ -]?report|"
+    r"white[ -]?paper|news(?:letter)?|blog)\b",
     re.IGNORECASE,
 )
 _CHROME_TITLE_RE = re.compile(
@@ -82,12 +85,23 @@ def known_non_journal_surface(row: Mapping[str, object]) -> bool:
     text = " ".join(str(row.get(key) or "") for key in (
         "title", "source_url", "url", "source_class", "document_type",
     ))
-    if _NON_JOURNAL_TEXT_RE.search(text):
+    text_signal = bool(_NON_JOURNAL_TEXT_RE.search(text))
+    if text_signal:
         return True
     doi_match = _DOI_RE.search(" ".join(str(row.get(key) or "") for key in (
         "doi", "source_url", "url",
     )))
-    return bool(doi_match and doi_match.group(1).lower() in _NON_JOURNAL_DOI_REGISTRANTS)
+    if not doi_match:
+        return False
+    registrant = doi_match.group(1).lower()
+    if registrant in _NON_JOURNAL_DOI_REGISTRANTS:
+        return True
+    # Mixed registrants publish both journal articles and proceedings. Their
+    # prefix is never a veto by itself; only the independent host/text checks
+    # above may establish that this manifestation is non-journal.
+    if registrant in _MIXED_PUBLICATION_DOI_REGISTRANTS:
+        return False
+    return False
 
 
 def known_preprint_or_working_paper_host(row: Mapping[str, object]) -> bool:

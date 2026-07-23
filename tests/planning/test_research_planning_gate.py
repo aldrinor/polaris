@@ -292,7 +292,7 @@ def test_task72_deterministic_source_scope_survives_a_dropping_compiler(monkeypa
 
     monkeypatch.setenv("PG_GATE", "1")  # the deterministic authority is gated ON
     # the rule-reader result the S0 adapter reconciles (task-72 ground truth).
-    rr = Constraints(source_types=["journal_article", "high_quality"],
+    rr = Constraints(source_types=["journal_article"], quality_attributes=["high_quality"],
                      languages=["en"])
     client = _DroppingCompilerClient()
     result = asyncio.run(run_research_planning_gate(
@@ -361,7 +361,7 @@ def test_task72_promotion_is_noop_when_pg_gate_off(monkeypatch):
     from src.polaris_graph.instruction.constraint_extractor import Constraints
 
     monkeypatch.delenv("PG_GATE", raising=False)
-    rr = Constraints(source_types=["journal_article", "high_quality"],
+    rr = Constraints(source_types=["journal_article"], quality_attributes=["high_quality"],
                      languages=["en"])
     client = _DroppingCompilerClient()
     result = asyncio.run(run_research_planning_gate(

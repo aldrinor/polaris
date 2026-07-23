@@ -6,11 +6,8 @@ on the same (subject, predicate, numeric value) tuple. Surfaces these
 to the user before synthesis so the generator cannot silently pick one
 side.
 
-ADDRESSES PG_LB_SA_02_CONTENT_AUDIT Section E-06: the pre-rebuild
-pipeline found two conflicting efficacy numbers for semaglutide weight
-loss (STEP 1: 14.9% vs STEP 5: 17.4%), and the final report cited only
-one without disclosing the range. A reader could not tell whether the
-disagreement was stratification, dosing, duration, or cherry-picking.
+The detector prevents synthesis from silently choosing one of two
+incompatible measurements without disclosing their scopes.
 
 DESIGN:
 This detector is deterministic and rule-based. It does NOT use an LLM
@@ -55,19 +52,6 @@ _PCT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Mass / dose values with unit.
-_DOSE_RE = re.compile(
-    r"(?P<value>-?\d+(?:\.\d+)?)\s*(?P<unit>mg|µg|ug|mcg|g|kg)(?=\s|[,.;:)\]!?]|$)",
-    re.IGNORECASE,
-)
-
-# HbA1c points. "percentage points" uses an explicit trailing word
-# boundary since "points" ends on a word char.
-_HBA1C_RE = re.compile(
-    r"(?P<value>-?\d+(?:\.\d+)?)\s*(?P<unit>%|percentage\s*points?)",
-    re.IGNORECASE,
-)
-
 # Time durations
 _DURATION_RE = re.compile(
     r"(?P<value>-?\d+(?:\.\d+)?)\s*(?P<unit>weeks?|months?|years?)\b",
@@ -75,29 +59,12 @@ _DURATION_RE = re.compile(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# B9 domain-generalization — DOMAIN-AGNOSTIC numeric extraction.
-#
-# The clinical extractor (`extract_numeric_claims` clinical path) keys a claim
-# on a CLINICAL predicate lexicon (`_EFFICACY_PREDICATES` / `_SAFETY_PREDICATES`)
-# and a CLINICAL subject (`_DRUG_NAME_RE`). For a non-clinical corpus
-# (economics / AI-labor / policy / science / tech) both return nothing, so
-# `extract_numeric_claims` emits ZERO claims → every non-clinical numeric row
-# becomes a SINGLETON in `finding_dedup` / `claim_graph` (the documented
-# residual that blocks B6/B8 non-clinical baskets). The generic path below
-# extracts a claim-atom WITHOUT any clinical literal: a generic metric cue (the
-# SAME field-agnostic cues as `scope_gate.extract_research_frame_heuristic`) is
-# the predicate, a generic number+unit is the value, and a generic content-word
-# entity is the subject. This yields a REAL claim-key for non-clinical numerics
-# (so corroborating sources can consolidate into a basket) WITHOUT loosening the
-# clinical merge rule — clinical runs are byte-identical (gated on is_clinical).
-# Faithfulness is unchanged: span-grounding / strict_verify remain the hard gate.
+# Domain-neutral numeric extraction.  Measures and entities come from each
+# evidence row through the shared claim-frame extractor.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Any number with an OPTIONAL trailing unit token. Generic — no clinical
-# vocabulary. Captures percent / currency-magnitude / plain counts so an
-# economics or labor numeric ("GDP grew 3.2%", "$13 trillion", "75.5 percent")
-# is extractable. The unit is normalized so two sources stating the same
-# quantity in the same unit can consolidate.
+# Any number with an optional trailing unit token. The unit is normalized so
+# two sources stating the same quantity in the same unit can consolidate.
 _GENERIC_VALUE_RE = re.compile(
     r"(?P<value>-?\d+(?:,\d{3})*(?:\.\d+)?)\s*"
     r"(?P<unit>%|percent|percentage\s*points?|pp|bps|basis\s*points?|"
@@ -150,7 +117,7 @@ def _normalize_predicate_generic(text: str) -> Optional[str]:
     """Return a field-agnostic predicate (a generic metric cue) present in the
     text, or None. Reuses `scope_gate.extract_research_frame_heuristic`'s
     metric-cue vocabulary (rate/ratio/cost/share/level/score/growth/emissions/
-    accuracy/...). NO clinical literal. Pure, no LLM."""
+    accuracy/...). Pure, no LLM."""
     from src.polaris_graph.nodes.scope_gate import _FRAME_METRIC_CUES_RE
     m = _FRAME_METRIC_CUES_RE.search(text or "")
     if m:
@@ -178,14 +145,38 @@ _GENERIC_SUBJECT_STOPWORDS = frozenset({
 })
 
 
+def _measure_axis(endpoint: str) -> tuple[str, str] | None:
+    """Split a source-written ``subject + metric cue`` phrase when explicit.
+
+    For example, the evidence phrase ``unemployment rate`` carries both the
+    measured subject and its metric relation.  Statistical descriptors alone
+    (``median latency``) are not subjects, so those frames remain attached to
+    the separately extracted entity.
+    """
+
+    predicate = _normalize_predicate_generic(endpoint)
+    if not predicate:
+        return None
+    cue = re.search(rf"\b{re.escape(predicate)}\b", endpoint, re.IGNORECASE)
+    if not cue:
+        return None
+    prefix = endpoint[:cue.start()]
+    subject_tokens = [
+        token.casefold()
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9\-]*", prefix)
+        if token.casefold() not in _GENERIC_SUBJECT_STOPWORDS
+    ]
+    if not subject_tokens:
+        return None
+    return (" ".join(subject_tokens), endpoint.strip().casefold())
+
+
 def _subject_generic(
     text: str, anchor_pos: int, predicate: str = "", window: int = 120,
 ) -> str:
-    """Extract a generic content-word subject for a non-clinical claim — the
-    noun that names WHAT the metric measures, NOT a drug name and NOT the metric
-    cue itself.
+    """Extract the content-word subject naming what a metric measures.
 
-    Strategy (deterministic, no clinical regex):
+    Strategy (deterministic, no topic ontology):
       1. Anchor on the metric-cue (`predicate`) occurrence nearest the numeric
          value when available; the subject of "X rate" / "X growth" / "X share"
          is the content noun IMMEDIATELY PRECEDING the cue ("unemployment rate"
@@ -324,7 +315,7 @@ def _group_is_year_noise(group: list["ExtractedNumericClaim"]) -> bool:
 #     an ISSN, or a page range is a CITATION ARTIFACT, never a measured metric value. The generic
 #     extractor would otherwise lift e.g. the "07123" of a DOI or the "419" of "pp. 412-419" and,
 #     grouped with an unrelated unit-less number under the same generic metric cue, surface a
-#     FABRICATED ``possible_metric_mismatch`` (lethal in clinical context, §-1.1). We reject such a
+#     FABRICATED ``possible_metric_mismatch`` (§-1.1). We reject such a
 #     number BEFORE it becomes a candidate. Only UNIT-LESS numbers are screened — a unit-bearing
 #     value (47%, $13bn) is always a real metric, never a catalogue id. Faithfulness is unchanged:
 #     span-grounding / strict_verify remain the hard gate; this only stops inventing a contradiction
@@ -494,7 +485,7 @@ def _find_value_generic(
     than the first number in the row, so a leading date / sample-size does not
     become the claim value/dedup key. A unit-bearing number is always preferred;
     bare years / 'N=' counts are skipped. When ``cue_pos`` is None, fall back to
-    the first non-year/non-count number. NO clinical reject contexts. Pure."""
+    the first non-year/non-count number. No topic-specific reject contexts. Pure."""
     if not text:
         return None
     # B13: the confidence-interval BOUND region(s) ("... CI 2-9", "... CI 5 to 12").
@@ -585,166 +576,170 @@ def _find_value_generic(
     return min(candidates, key=_key)
 
 
+def _condition_level_from_atom(
+    literal_text: str,
+    atom_value: str,
+    atom_unit: str,
+    spans: list[Any],
+) -> str:
+    """Return a source-written condition level adjacent to the result frame.
+
+    The relation is grammatical rather than ontological: a value/unit span
+    immediately before a result verb, or inside a ``with/under/using/via``
+    phrase before a comparison, is a condition on the reported value.
+    """
+
+    outcome_positions = [
+        span.span_start
+        for span in spans
+        if span.value.replace(",", "").strip() == atom_value.replace(",", "").strip()
+        and _normalize_generic_unit(span.unit) == _normalize_generic_unit(atom_unit)
+    ]
+    if not outcome_positions:
+        position = literal_text.find(atom_value)
+        outcome_positions = [position] if position >= 0 else []
+    if not outcome_positions:
+        return ""
+    outcome_position = outcome_positions[0]
+
+    preceding: list[Any] = []
+    for span in spans:
+        if span.span_end > outcome_position:
+            continue
+        bridge = literal_text[span.span_end:outcome_position]
+        if re.search(r"[,;:.]", bridge):
+            continue
+        if re.search(
+            r"\b(?:was|were|is|are|reported|estimated|reached|hit|yielded|"
+            r"produced|achieved|attained|showed|demonstrated|found|changed|"
+            r"increased|decreased|declined|reduced|improved|worsened)\b",
+            bridge,
+            re.IGNORECASE,
+        ):
+            preceding.append(span)
+    if preceding:
+        return max(preceding, key=lambda span: span.span_end).literal_text
+
+    after_outcome = [
+        span
+        for span in spans
+        if span.span_start > outcome_position
+    ]
+    for span in after_outcome:
+        prefix = literal_text[outcome_position + len(atom_value):span.span_start]
+        suffix = literal_text[span.span_end:]
+        if (
+            re.search(r"\b(?:with|under|using|via)\b[^,;:.]*$", prefix, re.IGNORECASE)
+            and re.match(
+                r"\s*(?:compared|versus|vs\.?|relative\s+to)\b",
+                suffix,
+                re.IGNORECASE,
+            )
+        ):
+            return span.literal_text
+    return ""
+
+
 def _extract_numeric_claims_generic(
     evidence: list[dict[str, Any]],
 ) -> list["ExtractedNumericClaim"]:
-    """DOMAIN-AGNOSTIC numeric claim extraction for NON-clinical corpora.
+    """Extract claims through the shared evidence-derived frame extractor."""
 
-    One claim per row at most (the first generic metric value), keyed on a
-    generic predicate + generic subject + value + unit. A row with no generic
-    metric cue OR no extractable number yields NO claim (kept as a safe
-    singleton upstream). The clinical discriminator fields (dose / arm / Wave-3)
-    stay at their UNKNOWN defaults so they never anchor a non-clinical merge —
-    a non-clinical merge is anchored ONLY by a confidently-extracted
-    subject+predicate+value+unit (the conservative rule). NO clinical literal.
-    """
+    from src.polaris_graph.generator.claim_atom_extractor import (
+        extract_atoms_from_evidence,
+        extract_verbatim_value_unit_spans,
+    )
+
     claims: list[ExtractedNumericClaim] = []
     for ev in evidence:
-        quote = ev.get("direct_quote") or ev.get("statement") or ""
-        if not quote:
-            continue
-        predicate = _normalize_predicate_generic(quote)
-        if not predicate:
-            continue
-        # Anchor the value on the number nearest the metric cue (Codex P1.4) so
-        # a leading date / sample-size cannot become the claim value/key.
-        _cue_m = re.search(re.escape(predicate), quote, flags=re.IGNORECASE)
-        _cue_pos = _cue_m.start() if _cue_m else None
-        found = _find_value_generic(quote, cue_pos=_cue_pos)
-        if found is None:
-            continue
-        value, unit, ctx_window, anchor_pos = found
-        subject = _subject_generic(quote, anchor_pos, predicate=predicate)
-        # Codex iter-3 P1: do NOT set endpoint_phrase=predicate. The metric cue
-        # IS the predicate, not a time-window/endpoint. Stamping it as
-        # endpoint_phrase would make _shared_metric_axes read two same-predicate
-        # generic claims as POSITIVELY-confirmed shared scope -> a hard
-        # contradiction, when in fact their comparator/population/time-window are
-        # UNCONFIRMED. Leaving the discriminator axes empty means an unconfirmed
-        # generic numeric gap is correctly labeled possible_metric_mismatch
-        # (conservative non-clinical default); a true contradiction needs a
-        # positively-extracted shared scope axis. The predicate itself still
-        # groups the claims (grouping key includes predicate).
-        claims.append(ExtractedNumericClaim(
-            evidence_id=str(ev.get("evidence_id", "")),
-            subject=subject,
-            predicate=predicate,
-            value=value,
-            unit=unit,
-            context_snippet=ctx_window[:200],
-            source_url=ev.get("source_url", ""),
-            source_tier=ev.get("tier", ""),
-        ))
+        for atom in extract_atoms_from_evidence(ev):
+            raw_value = atom.value.replace(",", "").strip()
+            if re.search(r"\bto\b|[\u2013\u2014]", raw_value):
+                continue
+            try:
+                value = float(raw_value.lstrip("<>≤≥±~≈").strip())
+            except ValueError:
+                continue
+            literal_spans = extract_verbatim_value_unit_spans(atom.literal_text)
+            condition = _condition_level_from_atom(
+                atom.literal_text,
+                atom.value,
+                atom.unit,
+                literal_spans,
+            )
+            subject = atom.entity.strip()
+            entity_spans = extract_verbatim_value_unit_spans(subject)
+            if entity_spans and not condition:
+                condition = entity_spans[0].literal_text
+                subject = subject.replace(condition, "", 1).strip(" ,;-")
+            measure_axis = _measure_axis(atom.endpoint)
+            if measure_axis:
+                subject, predicate = measure_axis
+            else:
+                predicate = atom.endpoint.casefold()
+            if not subject:
+                anchor = atom.literal_text.find(atom.value)
+                subject = _subject_generic(
+                    atom.literal_text,
+                    max(anchor, 0),
+                    predicate=predicate,
+                )
+            scope = ""
+            for key in ("population", "cohort", "scope", "context"):
+                value_from_row = ev.get(key)
+                if isinstance(value_from_row, str) and value_from_row.strip():
+                    scope = value_from_row.strip().casefold()
+                    break
+            if not scope:
+                scope = _extract_population(atom.literal_text)
+            recurrence = _extract_dose_frequency(atom.literal_text)
+            route_formulation = ""
+            for key in ("route", "formulation", "delivery_method"):
+                route_from_row = ev.get(key)
+                if isinstance(route_from_row, str) and route_from_row.strip():
+                    route_formulation = route_from_row.strip().casefold()
+                    break
+            claims.append(ExtractedNumericClaim(
+                evidence_id=str(ev.get("evidence_id", "")),
+                subject=subject.casefold() or "unknown",
+                predicate=predicate,
+                value=value,
+                unit=re.sub(r"\s+", " ", atom.unit.strip().casefold()),
+                context_snippet=atom.literal_text[:200],
+                source_url=str(ev.get("source_url") or ev.get("url") or ""),
+                source_tier=str(ev.get("tier") or ""),
+                dose=condition.casefold(),
+                arm="comparator_adjacent" if atom.comparator else "treatment",
+                endpoint_phrase=atom.timepoint.casefold(),
+                dose_frequency=recurrence,
+                comparator=atom.comparator.casefold(),
+                route_formulation=route_formulation,
+                effect_measure=_extract_effect_measure(atom.literal_text),
+                direction=_extract_direction(atom.literal_text),
+                population=scope,
+            ))
     return claims
 
 
-# Predicate keywords — the ones we most want to catch contradictions on.
-# BUG-M-202 fix (deep-dive R7): expanded coverage beyond the original
-# obesity/cardiometabolic-only set. A proper domain-YAML-driven
-# profile loader is tracked as a follow-up (see docs/todo_list.md);
-# this expansion is the minimum-viable fix to close the AF
-# anticoagulation silent-failure reproducer.
-_EFFICACY_PREDICATES_METABOLIC = (
-    # Original obesity / GLP-1 / lipid
-    "weight loss", "body weight", "weight reduction",
-    "hba1c reduction", "a1c reduction",
-    "systolic blood pressure reduction", "diastolic blood pressure reduction",
-    "ldl reduction", "cholesterol reduction",
-    "cardiovascular risk reduction", "mace reduction",
-    "mortality reduction",
-)
-
-_EFFICACY_PREDICATES_ANTICOAGULATION = (
-    # AF anticoagulation + guideline endpoints (BUG-M-202 R7)
-    "stroke rate", "stroke risk", "ischemic stroke",
-    "systemic embolism", "stroke or systemic embolism",
-    "major bleeding", "clinically relevant non-major bleeding",
-    "intracranial hemorrhage", "gastrointestinal bleeding",
-    "time in therapeutic range", "ttr", "inr",
-    "cha2ds2-vasc", "has-bled",
-    "hazard ratio", "relative risk", "odds ratio",
-)
-
-_EFFICACY_PREDICATES_TECH = (
-    # Tech / ML benchmark endpoints
-    "accuracy", "f1 score", "f1-score",
-    "precision", "recall", "auc", "roc auc",
-    "error rate", "latency", "throughput",
-    "inference time", "model size",
-    "perplexity", "exact match",
-    "exact-match accuracy",
-)
-
-_EFFICACY_PREDICATES_POLICY = (
-    # Policy / regulatory quantitative endpoints
-    "compliance rate", "adoption rate", "enforcement rate",
-    "penalty rate", "coverage rate", "participation rate",
-    "emissions reduction", "cost savings",
-)
-
-_EFFICACY_PREDICATES_DD = (
-    # Due diligence / financial endpoints
-    "revenue growth", "ebitda margin", "gross margin",
-    "operating margin", "market share",
-    "customer acquisition cost", "churn rate",
-    "debt-to-equity", "cash flow",
-)
-
-_EFFICACY_PREDICATES = (
-    _EFFICACY_PREDICATES_METABOLIC
-    + _EFFICACY_PREDICATES_ANTICOAGULATION
-    + _EFFICACY_PREDICATES_TECH
-    + _EFFICACY_PREDICATES_POLICY
-    + _EFFICACY_PREDICATES_DD
-)
-
-_SAFETY_PREDICATES_METABOLIC = (
-    "incidence of nausea", "incidence of vomiting",
-    "discontinuation rate", "adverse event rate",
-    "serious adverse event rate", "pancreatitis incidence",
-    "hypoglycemia incidence", "thyroid c-cell",
-)
-
-_SAFETY_PREDICATES_ANTICOAGULATION = (
-    "bleeding rate", "fatal bleeding", "mortality",
-    "all-cause mortality", "cardiovascular mortality",
-)
-
-_SAFETY_PREDICATES = (
-    _SAFETY_PREDICATES_METABOLIC
-    + _SAFETY_PREDICATES_ANTICOAGULATION
-)
-
-# Per-domain predicate set for the `domain` kwarg. The union is still
-# the default when no domain is passed (backward-compat).
-_DOMAIN_PREDICATES: dict[str, tuple] = {
-    "clinical": (
-        _EFFICACY_PREDICATES_METABOLIC
-        + _EFFICACY_PREDICATES_ANTICOAGULATION
-        + _SAFETY_PREDICATES_METABOLIC
-        + _SAFETY_PREDICATES_ANTICOAGULATION
-    ),
-    "tech": _EFFICACY_PREDICATES_TECH,
-    "policy": _EFFICACY_PREDICATES_POLICY,
-    "due_diligence": _EFFICACY_PREDICATES_DD,
-}
+# Measures are extracted from each source row; there is deliberately no
+# domain-to-predicate table.
 
 
 @dataclass
 class ExtractedNumericClaim:
-    """A claim like 'X causes Y-value-unit change in Z' extracted from evidence."""
+    """A value-bearing claim frame copied from evidence."""
 
     evidence_id: str
-    subject: str      # e.g., "semaglutide"
-    predicate: str    # e.g., "weight loss"
+    subject: str
+    predicate: str
     value: float
     unit: str         # "%", "mg", "weeks", etc.
     context_snippet: str  # original text for display
     source_url: str = ""
     source_tier: str = ""
-    dose: str = ""             # "2.4 mg", "7.2 mg", or "" if not present
+    dose: str = ""             # compatibility field: source-written condition level
     # arm: legacy default "treatment"; "comparator_adjacent" only when a
-    # placebo/comparator cue fired. Kept at the LEGACY default (NOT None) for
+    # comparison cue fired. Kept at the legacy default (not None) for
     # OFF byte-identity: the OFF-path legacy key _normalized_key_numeric reads
     # ``arm`` into position 7 of the SHA-1-hashed cluster key
     # (claim_graph.py:241) and honest_pipeline/run_honest_sweep_r3 asdict it
@@ -761,12 +756,12 @@ class ExtractedNumericClaim:
     # them until claim_graph.build_merge_key reads them under
     # PG_SWEEP_CREDIBILITY_REDESIGN. A value is set ONLY when a positive token
     # was extracted (never derived/defaulted) per design §4.3.
-    dose_frequency: str = ""    # "qd"/"bid"/"weekly"/... cadence token; '' = UNKNOWN
+    dose_frequency: str = ""    # compatibility field: recurrence token; '' = UNKNOWN
     comparator: str = ""        # the "vs X" comparator phrase; '' = UNKNOWN
-    route_formulation: str = "" # "iv"/"po"/"sc"/"er"/...; '' = UNKNOWN
-    effect_measure: str = ""    # "relative"/"absolute"/"hr"/"or"/"raw"; '' = UNKNOWN
+    route_formulation: str = "" # compatibility field; derived metadata or '' = UNKNOWN
+    effect_measure: str = ""    # source-written statistical frame; '' = UNKNOWN
     direction: str = ""         # "increase"/"decrease" TOKEN-only; '' = UNKNOWN
-    population: str = ""         # "patients with X" cohort phrase; '' = UNKNOWN
+    population: str = ""         # source-written scope phrase; '' = UNKNOWN
 
 
 @dataclass
@@ -781,7 +776,7 @@ class ContradictionRecord:
     severity: str                   # "low" / "medium" / "high"
     recommended_action: str = (
         "Disclose both values with their source tiers in the final report. "
-        "If one source is T1 (RCT) and another is T5 (industry), note the "
+        "If their authority differs materially, note the "
         "authority gap alongside the numeric gap."
     )
     # ── A17 commensurability guard (I-arch-006 #1262) ────────────────────────
@@ -813,7 +808,7 @@ _WAVE3_DORMANT_NUMERIC_FIELDS = (
 
 
 # A17 record-level commensurability fields (I-arch-006 #1262). asdict() emits
-# every dataclass field, so to preserve byte-identity for the legacy / clinical /
+# every dataclass field, so to preserve byte-identity for legacy
 # comparable records (whose JSON never had these keys) they are STRIPPED whenever
 # they sit at their inert defaults (not_comparable=False AND empty reason). They
 # are emitted ONLY on a record where the A17 guard positively fired — the new,
@@ -832,7 +827,7 @@ def serialize_contradiction_record(record: "ContradictionRecord") -> dict:
 
     A17 (I-arch-006 #1262): the record-level commensurability fields
     (not_comparable / incommensurable_reason) are stripped whenever they carry their
-    inert defaults, so a comparable / clinical record serializes byte-identically to
+    inert defaults, so a comparable record serializes byte-identically to
     the pre-A17 tree; they appear ONLY on a record the A17 guard actually marked.
     """
     d = asdict(record)
@@ -856,68 +851,28 @@ def serialize_contradiction_record(record: "ContradictionRecord") -> dict:
 def _normalize_predicate(
     text: str, domain: str | None = None,
 ) -> Optional[str]:
-    """Return the predicate keyword if present in the text.
+    """Compatibility helper returning a measure derived from the text."""
 
-    BUG-M-202 fix (deep-dive R7): when a domain is supplied, prefer
-    domain-specific predicates first (higher specificity), then fall
-    back to the union set. Previously, only the metabolic-centric
-    union was checked — so AF anticoagulation queries returned zero
-    matches because stroke/bleeding vocabulary wasn't in the table.
-    """
-    t = (text or "").lower()
-    # Domain-specific first (more specific endpoints win ties).
-    if domain and domain in _DOMAIN_PREDICATES:
-        for p in _DOMAIN_PREDICATES[domain]:
-            if p in t:
-                return p
-    # Fall back to union.
-    for p in _EFFICACY_PREDICATES + _SAFETY_PREDICATES:
-        if p in t:
-            return p
-    return None
+    del domain
+    atoms = _extract_numeric_claims_generic([{
+        "evidence_id": "ev_000",
+        "direct_quote": text,
+    }])
+    return atoms[0].predicate if atoms else _normalize_predicate_generic(text)
 
 
 def _normalize_subject(
     text: str, fallback: str = "unknown", general_fallback: bool = False,
 ) -> str:
-    """Extract the salient subject of the clause: the first drug name, or fallback.
+    """Extract a salient source-written subject without an entity allow-list."""
 
-    This is the legacy API used when no positional anchor is available.
-    Prefer _subject_near_position() when you know where the numeric value
-    is and want to attribute the number to the nearest drug, not the
-    first drug to appear in the wider text.
-
-    B13 (I-arch-011) DOMAIN-GENERAL SUBJECT: ``general_fallback`` is OPT-IN and
-    defaults False so EVERY pre-existing caller (the clinical numeric path via
-    ``_subject_near_position`` line 621, and any other consumer) is byte-identical
-    — the drug-name-only behaviour and its ``fallback`` are unchanged. When the
-    caller opts in (the qualitative present-vs-absent detector, which runs on
-    device / procedure / population corpora where NO drug name appears), and the
-    drug allowlist finds nothing, we fall back to the in-file DOMAIN-AGNOSTIC noun
-    extractor (``_subject_general_noun``) instead of the empty/`fallback` string.
-    Without this, a non-drug clinical corpus (e.g. Parkinson / deep-brain-
-    stimulation safety) resolved EVERY qualitative assertion's subject to "" — so
-    Pass A (which skips empty-subject assertions) never fired and Pass B collapsed
-    every unrelated flag into one ``("", concept_type)`` bucket: real T1 safety
-    signals ("DBS is contraindicated in X") were diluted into indistinguishable
-    noise. Drug-name precedence is preserved (a named drug still wins), so the
-    existing clinical golden behaviour is unchanged. The contradiction surface is
-    ADVISORY (labels, never drops/holds): a real entity subject only makes a true
-    safety contradiction VISIBLE; faithfulness gates are untouched.
-    """
-    from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
-    m = _DRUG_NAME_RE.search(text or "")
-    if m:
-        return m.group(1).lower()
-    if general_fallback:
-        noun = _subject_general_noun(text)
-        if noun:
-            return noun
-    return fallback
+    del general_fallback
+    noun = _subject_general_noun(text)
+    return noun or fallback
 
 
 # B13 (I-arch-011): light, dependency-free clause-subject (noun-phrase head)
-# extraction for ANY domain (device / procedure / population / drug). Consistent
+# extraction for any domain. Consistent
 # with the in-file ``_subject_generic`` machinery (reuses ``_GENERIC_SUBJECT_STOPWORDS``)
 # and the field-agnostic 2025 noun-phrase-head approach (head noun + descriptors,
 # no parser): the salient subject of an English clause is overwhelmingly the
@@ -961,56 +916,36 @@ def _subject_near_position(
     fallback: str = "unknown",
     window: int = 150,
 ) -> str:
-    """R-5 Fix B: return the drug name whose match is CLOSEST to
-    anchor_pos in `text`, within ±window chars.
+    """Return the nearest content-word subject to a numeric anchor."""
 
-    Used for cross-drug comparisons like:
-        "Eli Lilly's Zepbound achieving 25.5% compared to Novo Nordisk's
-        CagriSema at 23%, with Lilly's retatrutide at 28.7% and ..."
-
-    Legacy `_normalize_subject(quote)` would return the first drug in
-    the full quote (often 'retatrutide' here, even though 25.5% belongs
-    to Zepbound). This function searches all drug matches inside the
-    ±window chars around anchor_pos and returns the match with the
-    smallest absolute distance.
-
-    Falls back to _normalize_subject(text) (first-in-text) only if
-    ZERO matches are found inside the window. Returns `fallback` if
-    still nothing.
-    """
-    from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
-
-    if not text:
-        return fallback
-    lo = max(0, anchor_pos - window)
-    hi = min(len(text), anchor_pos + window)
-    local = text[lo:hi]
-    matches = list(_DRUG_NAME_RE.finditer(local))
-    if not matches:
-        # Widen search to full text as last resort
-        return _normalize_subject(text, fallback)
-    # Pick the match whose center is closest to the (anchor_pos - lo)
-    # position inside `local`.
-    anchor_local = anchor_pos - lo
-    best = min(
-        matches,
-        key=lambda m: abs(((m.start() + m.end()) // 2) - anchor_local),
+    from src.polaris_graph.generator.claim_atom_extractor import (
+        extract_atoms_from_evidence,
     )
-    return best.group(1).lower()
+
+    atoms = extract_atoms_from_evidence({
+        "evidence_id": "subject_probe",
+        "direct_quote": text,
+    })
+    if atoms:
+        anchored = min(
+            atoms,
+            key=lambda atom: abs(
+                text.find(atom.value, max(0, anchor_pos - window)) - anchor_pos
+            ),
+        )
+        if anchored.entity:
+            return anchored.entity.casefold()
+    return _subject_generic(
+        text,
+        anchor_pos,
+        window=window,
+    ) or fallback
 
 
-# Fix-1 reject patterns. Numbers that sit inside these contexts are
-# filtered BEFORE we pull the value, because they're structurally not
-# the claim-under-measurement:
-#   - "placebo N%" / "vs placebo" / "versus placebo" → comparator arm
-#   - "≥5%" / "at least 5%" / "5% or more" / "5% threshold" → achievement
-#     threshold, not the value being measured
-#   - "STEP N" / "SUSTAIN N" → trial-program integer, not a value
-#   - "week N" / "month N" / "year N" → duration
-_PLACEBO_CONTEXT_RE = re.compile(
-    r"(?:vs\.?|versus|v\.)\s+placebo|"
-    r"placebo\s+(?:recipients|group|arm|patients)|"
-    r"in\s+(?:the\s+)?placebo",
+# Generic structural contexts that are not the measured value.
+_COMPARATOR_CONTEXT_RE = re.compile(
+    r"(?:vs\.?|versus|compared\s+(?:to|with)|relative\s+to)\s+"
+    r"[^,;:.]{1,80}",
     re.IGNORECASE,
 )
 _ACHIEVEMENT_THRESHOLD_RE = re.compile(
@@ -1018,9 +953,8 @@ _ACHIEVEMENT_THRESHOLD_RE = re.compile(
     r"-?\d+(?:\.\d+)?\s*%\s*(?:or\s+more|or\s+greater|threshold|achievement)",
     re.IGNORECASE,
 )
-_TRIAL_ACRONYM_NUM_RE = re.compile(
-    r"\b(?:STEP|SUSTAIN|SURPASS|SURMOUNT|REWIND|LEADER|PIONEER|SELECT)\s*-?\s*\d+",
-    re.IGNORECASE,
+_IDENTIFIER_NUM_RE = re.compile(
+    r"\b[A-Z][A-Z0-9]*(?:[-_/]\d+)+\b",
 )
 _DURATION_NUM_RE = re.compile(
     r"(?:week|month|year|day)s?\s+-?\d+(?:\.\d+)?|"
@@ -1035,7 +969,7 @@ _DURATION_NUM_RE = re.compile(
 # directly before a CI / confidence-interval cue. We DO NOT reject a number merely
 # because the wider sentence contains a CI elsewhere (that would suppress the real
 # point estimate "8%" in "reduced to 8% (95% CI 5-12)"), and we DO NOT reject a
-# plain "95% of patients" value (no CI cue). Word-boundary "CI" only, so it never
+# plain "95% of observations" value (no CI cue). Word-boundary "CI" only, so it never
 # fires on an unrelated capitalised "Ci"-prefixed token mid-word.
 _CONFIDENCE_INTERVAL_LEVEL_RE = re.compile(
     r"-?\d+(?:\.\d+)?\s*%?\s*"
@@ -1120,91 +1054,40 @@ def _credibility_redesign_enabled() -> bool:
     )
 
 
-# Dose pattern (captures the full "X.X mg" string for grouping).
-_DOSE_CAPTURE_RE = re.compile(
-    r"(\d+(?:\.\d+)?\s*m[gc]g?|\d+(?:\.\d+)?\s*[µu]g|\d+(?:\.\d+)?\s*g\b)",
-    re.IGNORECASE,
-)
-
-# Wave-3 variant (I-arch-002 [2], DRIFT-MGKG): preserves a per-weight ('/kg') or
-# per-time ('/day','/m2',...) denominator so '5 mg/kg' is DISTINCT from '5 mg'
-# (design §4.1/§4.3 — prevents a false dose-response merge). This change feeds
-# the LEGACY detect_contradictions grouping key (:596 includes dose) and is
-# therefore NOT byte-inert when the master flag is OFF; per the non-negotiable
-# byte-identity rule it is GATED behind PG_SWEEP_CREDIBILITY_REDESIGN. When the
-# flag is OFF the original _DOSE_CAPTURE_RE path runs verbatim.
-_DOSE_CAPTURE_MGKG_RE = re.compile(
-    r"(\d+(?:\.\d+)?\s*m[gc]g?|\d+(?:\.\d+)?\s*[µu]g|\d+(?:\.\d+)?\s*g\b)"
-    r"(\s*/\s*(?:kg|m2|m\^?2|day|d|hr?|h|dose|week|wk))?",
-    re.IGNORECASE,
-)
-
-
 def _extract_dose(text: str) -> str:
-    """Extract the most-salient dose token from the text (for grouping).
+    """Compatibility helper returning the first source-written level/unit span."""
 
-    DRIFT-MGKG (I-arch-002 [2]): under PG_SWEEP_CREDIBILITY_REDESIGN a trailing
-    per-weight/per-time denominator ('/kg', '/m2', ...) is preserved so
-    '5 mg/kg' != '5 mg'. Flag OFF => original behaviour byte-for-byte.
-    """
-    if _credibility_redesign_enabled():
-        m = _DOSE_CAPTURE_MGKG_RE.search(text or "")
-        if not m:
-            return ""
-        base = m.group(1)
-        denom = m.group(2) or ""
-        # Normalize internal whitespace out of the denominator ('  / kg' -> '/kg')
-        denom = re.sub(r"\s+", "", denom)
-        return (base + denom).replace(" ", " ").lower()
-    m = _DOSE_CAPTURE_RE.search(text or "")
-    if not m:
-        return ""
-    return m.group(1).replace(" ", " ").lower()
+    from src.polaris_graph.generator.claim_atom_extractor import (
+        extract_verbatim_value_unit_spans,
+    )
+
+    spans = extract_verbatim_value_unit_spans(text)
+    return spans[0].literal_text.casefold() if spans else ""
 
 
 def _detect_placebo_arm(text: str) -> bool:
     if not text:
         return False
-    return bool(_PLACEBO_CONTEXT_RE.search(text))
+    return bool(_COMPARATOR_CONTEXT_RE.search(text))
 
 
-# Pre-existing endpoint patterns (legacy; OFF path uses ONLY these).
-_ENDPOINT_PATTERNS_LEGACY = (
-    r"at\s+week\s+\d+", r"at\s+\d+\s+weeks?",
-    r"at\s+month\s+\d+", r"at\s+\d+\s+months?",
-    r"from\s+baseline", r"mean\s+change",
-    r"intent\s*-?\s*to\s*-?\s*treat",
-    r"per\s+protocol",
-    r"trial\s+product\s+estimand",
-)
-# Wave-3 (I-arch-002 [2]): day + year endpoint patterns. They are appended AFTER the
-# legacy patterns so they only fire when no legacy pattern matched, BUT they still
-# change the OFF output for inputs that previously returned "" (e.g. "at day 28" with
-# no week/month phrase) — and endpoint_phrase feeds BOTH the legacy cluster key
-# (_normalized_key_numeric position 7) AND contradictions.json (asdict). Per the
-# non-negotiable byte-identity rule they are therefore GATED behind
-# PG_SWEEP_CREDIBILITY_REDESIGN (Claude Slice-B iter-2 P1); OFF runs the legacy set
-# verbatim.
-_ENDPOINT_PATTERNS_WAVE3 = (
-    r"at\s+day\s+\d+", r"at\s+\d+\s+days?",
-    r"at\s+year\s+\d+", r"at\s+\d+\s+years?",
+# Generic observation-window patterns.
+_ENDPOINT_PATTERNS = (
+    r"(?:at|after|before|over|within|during|through|by)\s+"
+    r"(?:\d+(?:\.\d+)?\s*(?:milliseconds?|seconds?|minutes?|hours?|days?|"
+    r"weeks?|months?|years?)|(?:milliseconds?|seconds?|minutes?|hours?|"
+    r"days?|weeks?|months?|years?)\s+\d+(?:\.\d+)?)",
+    r"from\s+baseline",
+    r"mean\s+change",
 )
 
 
 def _extract_endpoint_phrase(text: str) -> str:
-    """Extract a short endpoint descriptor ('at week 68', 'from baseline').
-
-    The day/year forms are GATED behind PG_SWEEP_CREDIBILITY_REDESIGN (they would
-    otherwise resolve previously-"" inputs and drift the OFF cluster key + serialized
-    bytes — Claude Slice-B iter-2 P1). Flag OFF => legacy patterns only, byte-for-byte.
-    """
+    """Extract a source-written observation window without domain routing."""
     if not text:
         return ""
     low = text.lower()
-    patterns = _ENDPOINT_PATTERNS_LEGACY
-    if _credibility_redesign_enabled():
-        patterns = patterns + _ENDPOINT_PATTERNS_WAVE3
-    for pat in patterns:
+    for pat in _ENDPOINT_PATTERNS:
         m = re.search(pat, low)
         if m:
             return m.group(0)
@@ -1220,47 +1103,26 @@ def _extract_endpoint_phrase(text: str) -> str:
 # until claim_graph.build_merge_key reads them under PG_SWEEP_CREDIBILITY_REDESIGN.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Dosing cadence (per-time schedule). Orthogonal to the per-mass dose axis:
-# "15 mg weekly" != "15 mg daily" (the ISMP methotrexate sentinel error).
+# Generic recurrence schedule.
 _DOSE_FREQUENCY_RE = re.compile(
     r"\b(?P<tok>"
-    r"q\.?d\.?|b\.?i\.?d\.?|t\.?i\.?d\.?|q\.?i\.?d\.?|"   # latin abbreviations
-    r"q\s*\d+\s*h|q\s*\d+\s*hours?|"                       # q8h / q 12 hours
-    r"once[-\s]?(?:daily|a\s+day|per\s+day|weekly|a\s+week)|"
-    r"twice[-\s]?(?:daily|a\s+day|per\s+day|weekly|a\s+week)|"
-    r"three\s+times[-\s]?(?:daily|a\s+day|per\s+day)|"
-    r"daily|weekly|biweekly|fortnightly|monthly"
+    r"(?:once|twice|three\s+times)\s+(?:per|a|each)\s+"
+    r"(?:second|minute|hour|day|week|month|year)|"
+    r"(?:once|twice|three\s+times)\s+"
+    r"(?:hourly|daily|weekly|monthly|yearly)|"
+    r"every\s+\d+(?:\.\d+)?\s*"
+    r"(?:milliseconds?|seconds?|minutes?|hours?|days?|weeks?|months?|years?)|"
+    r"hourly|daily|weekly|monthly|yearly"
     r")\b",
     re.IGNORECASE,
 )
 
-# Normalize a matched cadence token to a canonical key.
-_DOSE_FREQUENCY_NORMALIZE = (
-    (re.compile(r"^q\.?d\.?$", re.IGNORECASE), "qd"),
-    (re.compile(r"^b\.?i\.?d\.?$", re.IGNORECASE), "bid"),
-    (re.compile(r"^t\.?i\.?d\.?$", re.IGNORECASE), "tid"),
-    (re.compile(r"^q\.?i\.?d\.?$", re.IGNORECASE), "qid"),
-    (re.compile(r"^q\s*(\d+)\s*h(?:ours?)?$", re.IGNORECASE), r"q\1h"),
-    (re.compile(r"^once[-\s]?(?:daily|a\s+day|per\s+day)$", re.IGNORECASE), "qd"),
-    (re.compile(r"^twice[-\s]?(?:daily|a\s+day|per\s+day)$", re.IGNORECASE), "bid"),
-    (re.compile(r"^three\s+times[-\s]?(?:daily|a\s+day|per\s+day)$", re.IGNORECASE), "tid"),
-    (re.compile(r"^once[-\s]?(?:weekly|a\s+week)$", re.IGNORECASE), "weekly"),
-    (re.compile(r"^twice[-\s]?(?:weekly|a\s+week)$", re.IGNORECASE), "biweekly"),
-)
-
-
 def _extract_dose_frequency(text: str) -> str:
-    """Cadence token (qd/bid/tid/q\\d+h/once-daily/weekly/...) or '' if none."""
+    """Source-written recurrence token, or an empty string."""
     if not text:
         return ""
     m = _DOSE_FREQUENCY_RE.search(text)
-    if not m:
-        return ""
-    raw = re.sub(r"\s+", " ", m.group("tok").strip()).lower()
-    for pat, repl in _DOSE_FREQUENCY_NORMALIZE:
-        if pat.match(raw):
-            return pat.sub(repl, raw)
-    return raw
+    return re.sub(r"\s+", " ", m.group("tok").strip()).casefold() if m else ""
 
 
 # Comparator: "vs X" / "versus X" / "compared to X". Captures the comparator
@@ -1283,42 +1145,11 @@ def _extract_comparator(text: str) -> str:
     return re.sub(r"\s+", " ", m.group("comp").strip()).lower()
 
 
-# Route / formulation: IV / PO / SC / IM / ER / XR / SR, plus spelled-out forms.
-_ROUTE_FORMULATION_RE = re.compile(
-    r"\b(?P<tok>"
-    r"i\.?v\.?|intravenous(?:ly)?|"
-    r"p\.?o\.?|per\s+os|oral(?:ly)?|by\s+mouth|"
-    r"s\.?c\.?|subcutaneous(?:ly)?|subq|"
-    r"i\.?m\.?|intramuscular(?:ly)?|"
-    r"e\.?r\.?|x\.?r\.?|s\.?r\.?|"
-    r"extended[-\s]?release|sustained[-\s]?release|immediate[-\s]?release"
-    r")\b",
-    re.IGNORECASE,
-)
-_ROUTE_FORMULATION_NORMALIZE = (
-    (re.compile(r"^(?:i\.?v\.?|intravenous(?:ly)?)$", re.IGNORECASE), "iv"),
-    (re.compile(r"^(?:p\.?o\.?|per\s+os|oral(?:ly)?|by\s+mouth)$", re.IGNORECASE), "po"),
-    (re.compile(r"^(?:s\.?c\.?|subcutaneous(?:ly)?|subq)$", re.IGNORECASE), "sc"),
-    (re.compile(r"^(?:i\.?m\.?|intramuscular(?:ly)?)$", re.IGNORECASE), "im"),
-    (re.compile(r"^(?:e\.?r\.?|extended[-\s]?release)$", re.IGNORECASE), "er"),
-    (re.compile(r"^(?:x\.?r\.?)$", re.IGNORECASE), "xr"),
-    (re.compile(r"^(?:s\.?r\.?|sustained[-\s]?release)$", re.IGNORECASE), "sr"),
-    (re.compile(r"^immediate[-\s]?release$", re.IGNORECASE), "ir"),
-)
-
-
 def _extract_route_formulation(text: str) -> str:
-    """Route/formulation token (iv/po/sc/im/er/...) or '' if none."""
-    if not text:
-        return ""
-    m = _ROUTE_FORMULATION_RE.search(text)
-    if not m:
-        return ""
-    raw = re.sub(r"\s+", " ", m.group("tok").strip()).lower()
-    for pat, repl in _ROUTE_FORMULATION_NORMALIZE:
-        if pat.match(raw):
-            return repl
-    return raw
+    """Compatibility field: no inference without explicit row metadata."""
+
+    del text
+    return ""
 
 
 # Effect measure: relative / absolute / HR / OR / RR / raw — ONLY on an EXPLICIT
@@ -1344,13 +1175,13 @@ def _extract_effect_measure(text: str) -> str:
     return ""
 
 
-# Direction: EXPLICIT clinical increase/decrease token ONLY. NEVER inferred from
+# Direction: explicit increase/decrease token only. Never inferred from
 # the predicate (design §4.3 — the predicate-derived fallback made "rose 5%" and
 # "fell 5%" merge and broke design test #5).
 #
 # Codex Slice-B P1 (over-merge narrowing): BARE QUANTITY COMPARATIVES + ambiguous
 # nouns are EXCLUDED — "more"/"less"/"fewer" (a magnitude comparison, not a
-# clinical direction) and "loss"/"lost" (the outcome NOUN, e.g. "weight loss" is
+# direction) and "loss"/"lost" (an outcome noun is
 # the predicate, not a fall in a metric). Including them converted an otherwise-
 # UNKNOWN direction into a positive discriminator, making two distinct claims
 # merge-eligible instead of safe singletons. The retained tokens are explicit
@@ -1387,22 +1218,18 @@ def _extract_direction(text: str) -> str:
     return ""
 
 
-# Population / cohort: "in patients with X" / "in adults with X" / "among ...".
-# The terminating lookahead stops the cohort phrase at a clause boundary or the
-# onset of an outcome verb. Verb stems (achiev/reduc/...) intentionally carry NO
-# trailing \b so they match the inflected forms ("achieved", "reduced").
+# Scope phrase following a generic ``in`` or ``among`` relation.
 _POPULATION_RE = re.compile(
     r"\b(?:in|among)\s+"
-    r"(?P<pop>(?:patients?|adults?|children|subjects?|participants?|women|men|"
-    r"individuals?|people)\b[a-z0-9\-\s]{0,50}?)"
+    r"(?P<pop>[a-z][a-z0-9\-\s]{1,60}?)"
     r"(?=[,.;:)\]]|\s+(?:achiev|reduc|experienc|demonstrat|report|produc|"
-    r"had\b|who\s+receiv|with\s+a\b)|$)",
+    r"had\b|who\b|with\s+a\b)|$)",
     re.IGNORECASE,
 )
 
 
 def _extract_population(text: str) -> str:
-    """The 'in/among patients with X' cohort phrase, or '' if none."""
+    """A source-written scope phrase, or an empty string."""
     if not text:
         return ""
     m = _POPULATION_RE.search(text)
@@ -1414,72 +1241,56 @@ def _extract_population(text: str) -> str:
 def _find_value_in_context(
     text: str, predicate: str,
 ) -> Optional[tuple[float, str, str, int]]:
-    """Find a numeric value that sits INSIDE a value-phrase context.
+    """Return the first result value from the shared claim-frame path."""
 
-    Returns (value, unit, matched_context, anchor_position_in_text) or None.
-
-    The algorithm:
-      1. Find all percentage matches.
-      2. For each, check a ±40-char window for:
-         (a) A value-phrase verb  AND
-         (b) NOT a reject pattern (placebo, threshold, trial acronym, duration)
-      3. Return the first match that satisfies both.
-
-    R-5 Fix B: also returns the anchor position so the caller can
-    attribute subject (drug name) to the drug NEAREST the value,
-    not the first drug appearing in the full quote.
-    """
     if not text:
         return None
+    from src.polaris_graph.generator.claim_atom_extractor import (
+        extract_atoms_from_evidence,
+    )
 
-    # Predicate-specific unit handling
-    if "hba1c" in predicate or "a1c" in predicate:
-        for m in _HBA1C_RE.finditer(text):
-            window = text[max(0, m.start() - 40): min(len(text), m.end() + 40)]
-            if _is_reject_context(window, m.start() - max(0, m.start() - 40)):
-                continue
-            if not _VALUE_PHRASE_VERBS.search(window):
-                continue
-            try:
-                return (
-                    float(m.group("value")), "percentage_points",
-                    window, m.start(),
-                )
-            except ValueError:
-                continue
+    row: dict[str, Any] = {
+        "evidence_id": "value_probe",
+        "direct_quote": text,
+    }
+    if predicate:
+        row["metric"] = predicate
+    atoms = extract_atoms_from_evidence(row)
+    if not atoms:
         return None
-
-    for m in _PCT_RE.finditer(text):
-        start_win = max(0, m.start() - 40)
-        end_win = min(len(text), m.end() + 40)
-        window = text[start_win:end_win]
-        # Reject if window is a comparator/threshold/acronym/duration
-        if _is_reject_context(window, m.start() - start_win):
-            continue
-        if not _VALUE_PHRASE_VERBS.search(window):
-            continue
-        try:
-            return (float(m.group("value")), "%", window, m.start())
-        except ValueError:
-            continue
-    return None
+    atom = atoms[0]
+    try:
+        value = float(
+            atom.value.replace(",", "").lstrip("<>≤≥±~≈").strip()
+        )
+    except ValueError:
+        return None
+    position = text.find(atom.value)
+    start = max(0, position - 60)
+    end = min(len(text), position + len(atom.value) + 60)
+    return (
+        value,
+        _normalize_generic_unit(atom.unit),
+        text[start:end],
+        position,
+    )
 
 
 def _is_reject_context(window: str, num_pos_in_window: int) -> bool:
     """Return True if the number at `num_pos_in_window` is in a reject context.
 
     We check the immediate left/right 30 chars around the number only —
-    this prevents a distant "placebo" elsewhere in the window from
-    wrongly rejecting a treatment-arm claim.
+    this prevents a distant comparator elsewhere in the window from
+    wrongly rejecting the measured claim.
     """
     near_start = max(0, num_pos_in_window - 30)
     near_end = min(len(window), num_pos_in_window + 30)
     near = window[near_start:near_end]
-    if _PLACEBO_CONTEXT_RE.search(near):
+    if _COMPARATOR_CONTEXT_RE.search(near):
         return True
     if _ACHIEVEMENT_THRESHOLD_RE.search(near):
         return True
-    if _TRIAL_ACRONYM_NUM_RE.search(near):
+    if _IDENTIFIER_NUM_RE.search(near):
         return True
     # Duration reject: only if the number itself is inside a week/month/year span
     m = _DURATION_NUM_RE.search(near)
@@ -1498,37 +1309,14 @@ def _is_reject_context(window: str, num_pos_in_window: int) -> bool:
 
 
 def _extract_numeric_value(text: str, predicate: str) -> Optional[tuple[float, str]]:
-    """Back-compat: returns (value, unit) without the context.
+    """Compatibility helper returning a value and normalized unit."""
 
-    The new pipeline uses _find_value_in_context() directly to also
-    capture the endpoint phrase; this shim keeps older call-sites
-    working during the Fix-1 rollout.
-    """
     if not text:
         return None
     result = _find_value_in_context(text, predicate)
     if result:
         v, u, _ctx, _pos = result
         return (v, u)
-
-    # Fallback: if no value-phrase match, fall back to the previous
-    # loose extraction — but ONLY for the predicate-specific regex,
-    # not the generic "any percentage in the quote" fallback which
-    # was the source of Fix-1 false positives.
-    if "hba1c" in predicate or "a1c" in predicate:
-        m = _HBA1C_RE.search(text)
-        if m:
-            try:
-                return float(m.group("value")), "percentage_points"
-            except ValueError:
-                return None
-    if "duration" in predicate:
-        m = _DURATION_RE.search(text)
-        if m:
-            try:
-                return float(m.group("value")), m.group("unit").lower()
-            except ValueError:
-                return None
     return None
 
 
@@ -1536,102 +1324,14 @@ def extract_numeric_claims(
     evidence: list[dict[str, Any]],
     domain: str | None = None,
 ) -> list[ExtractedNumericClaim]:
-    """Extract structured numeric claims from evidence rows.
+    """Extract structured claims through one domain-neutral path.
 
-    Each evidence dict should have 'evidence_id', 'direct_quote' (or
-    'statement'), 'source_url', 'tier'. Missing fields are handled.
-
-    BUG-M-202 fix (deep-dive R7): `domain` parameter routes to a
-    broader predicate set for non-clinical queries. Default None
-    preserves the union-fallback (original behavior).
-
-    B9 domain-generalization: for a NON-clinical run (deterministic
-    `is_clinical_domain` over `domain` + the evidence text) the clinical
-    predicate union + `_DRUG_NAME_RE` subject extract NOTHING, so this
-    historically returned zero claims and every non-clinical numeric became a
-    singleton. We now route non-clinical corpora to the DOMAIN-AGNOSTIC
-    extractor (generic metric cue + generic subject + value + unit), which
-    yields a real claim-key so corroborating sources can consolidate. The
-    CLINICAL path (is_clinical True — `domain="clinical"`, or a blank domain
-    over a clinically-signalled corpus) is byte-identical to before.
+    ``domain`` remains in the public signature for caller compatibility but
+    never selects vocabulary or logic.
     """
-    from src.polaris_graph.domain.domain_signal import is_clinical_domain
-    if not is_clinical_domain(domain, evidence):
-        return _extract_numeric_claims_generic(evidence)
-    claims: list[ExtractedNumericClaim] = []
-    for ev in evidence:
-        quote = ev.get("direct_quote") or ev.get("statement") or ""
-        if not quote:
-            continue
-        predicate = _normalize_predicate(quote, domain=domain)
-        if not predicate:
-            continue
 
-        # Fix-1 uses _find_value_in_context which returns the matched
-        # window so we can store the endpoint phrase.
-        in_context = _find_value_in_context(quote, predicate)
-        if in_context is None:
-            continue
-        value, unit, ctx_window, anchor_pos = in_context
-
-        # R-5 Fix B: subject must be the drug NEAREST the numeric value,
-        # not the first drug in the quote. Cross-drug comparison quotes
-        # like "Zepbound 25.5% compared to CagriSema 23%" were mis-
-        # attributing to the first drug mentioned earlier in the full
-        # direct_quote (often the paragraph's primary topic, e.g.
-        # retatrutide). _subject_near_position searches ±150 chars
-        # around the value's position and picks the closest drug match.
-        subject = _subject_near_position(quote, anchor_pos, fallback="unknown")
-
-        dose = _extract_dose(ctx_window) or _extract_dose(quote)
-        # arm classification: if the value sits in a placebo context
-        # it wouldn't have passed _find_value_in_context, but we also
-        # tag "comparator_adjacent" when the ctx includes "vs placebo"
-        # farther out (this is additional info for display, not a filter).
-        # OFF byte-identity (Codex Slice-B P1): a no-cue arm stays the LEGACY
-        # "treatment" string, NOT None — the OFF-path cluster key
-        # (_normalized_key_numeric, claim_graph.py:241) and contradictions.json
-        # asdict both read this field, so emitting None would drift OFF cluster
-        # ids + bytes. Flag-ON consolidation is still fail-closed: a defaulted
-        # "treatment" arm is treated as UNKNOWN by claim_graph._unknown_arm and
-        # forces a singleton; only the positively-extracted "comparator_adjacent"
-        # cue anchors a merge (design §4.3 — the arm lesson holds without None).
-        if _detect_placebo_arm(ctx_window):
-            arm = "comparator_adjacent"
-        else:
-            arm = "treatment"
-        endpoint_phrase = _extract_endpoint_phrase(ctx_window) or _extract_endpoint_phrase(quote)
-
-        # Wave-3 positive-known discriminators (I-arch-002 [2]). Each reads the
-        # evidence text ONLY (ctx first, then full quote) and yields '' when no
-        # positive token is present. Dormant until build_merge_key reads them.
-        dose_frequency = _extract_dose_frequency(ctx_window) or _extract_dose_frequency(quote)
-        comparator = _extract_comparator(ctx_window) or _extract_comparator(quote)
-        route_formulation = _extract_route_formulation(ctx_window) or _extract_route_formulation(quote)
-        effect_measure = _extract_effect_measure(ctx_window) or _extract_effect_measure(quote)
-        direction = _extract_direction(ctx_window) or _extract_direction(quote)
-        population = _extract_population(ctx_window) or _extract_population(quote)
-
-        claims.append(ExtractedNumericClaim(
-            evidence_id=str(ev.get("evidence_id", "")),
-            subject=subject,
-            predicate=predicate,
-            value=value,
-            unit=unit,
-            context_snippet=ctx_window[:200],
-            source_url=ev.get("source_url", ""),
-            source_tier=ev.get("tier", ""),
-            dose=dose,
-            arm=arm,
-            endpoint_phrase=endpoint_phrase,
-            dose_frequency=dose_frequency,
-            comparator=comparator,
-            route_formulation=route_formulation,
-            effect_measure=effect_measure,
-            direction=direction,
-            population=population,
-        ))
-    return claims
+    del domain
+    return _extract_numeric_claims_generic(evidence)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1666,7 +1366,7 @@ PG_CONTRADICTION_ABS_THRESHOLD = float(
 # tree. These are VALIDITY / WEIGHT checks only — NO faithfulness threshold
 # (strict_verify / NLI entailment / 4-role / provenance / span-grounding) is touched, and
 # a genuine same-metric contradiction with a REAL subject is never suppressed (a real
-# entity — drug / device / condition — is never a stopword, and a real disagreement has a
+# real entity is never a stopword, and a real disagreement has a
 # non-zero spread and a sane magnitude).
 PG_CONTRADICTION_ABSURD_REL = float(
     # 5000% — far above any real same-metric ratio disagreement; above this the "gap" is a
@@ -1700,7 +1400,7 @@ def _severity(rel: float, abs_: float) -> str:
 
 def _shared_metric_axes(group: list["ExtractedNumericClaim"]) -> bool:
     """B9 (Codex P1.3): return True only when the group's scope is POSITIVELY
-    confirmed shared — a TRUE non-clinical contradiction. The plan requires a
+    confirmed shared — a true contradiction. The plan requires a
     generic numeric contradiction to share endpoint + unit + population +
     comparator + time-window; otherwise it is a `possible_metric_mismatch`.
 
@@ -1710,7 +1410,7 @@ def _shared_metric_axes(group: list["ExtractedNumericClaim"]) -> bool:
         things -> NOT shared (mismatch).
       * If NO scope axis is positively confirmed (every axis uniformly empty /
         UNKNOWN) -> we CANNOT confirm a shared metric -> NOT shared (mismatch).
-        This is the conservative non-clinical default: unconfirmed scope is a
+        This is the conservative default: unconfirmed scope is a
         possible_metric_mismatch, never a hard contradiction.
       * Otherwise (no conflicting axis AND at least one axis positively
         confirmed shared) -> shared metric -> a true contradiction.
@@ -1732,11 +1432,9 @@ def _shared_metric_axes(group: list["ExtractedNumericClaim"]) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # I-deepfix-001 (item 13a) — SCOPE-MISMATCH guard (numeric-contradiction mislabel).
 #
-# The CLINICAL real-drug path skips ``_shared_metric_axes`` entirely
-# (``apply_metric_guard`` is False when the group's subject is a recognised drug —
-# see ``detect_contradictions``), so two claims about the SAME drug / predicate /
-# unit / dose that were measured at DIFFERENT time-windows (e.g. weight loss 7% at
-# week 26 vs 20.9% at week 88) or in DIFFERENT populations were asserted as a HARD
+# Earlier routing skipped ``_shared_metric_axes`` for one domain, so two claims
+# about the same subject / measure / unit / condition that were measured at
+# different time-windows or in different scopes could be asserted as a hard
 # numeric contradiction. That is a MISLABEL: the numbers measure the same metric
 # under a different scope — an expected time-course range / stratum, not a
 # cross-source disagreement. The cert / drb runs surfaced these as high-severity
@@ -1774,17 +1472,13 @@ def _group_has_divergent_scope_axis(group: list["ExtractedNumericClaim"]) -> boo
     comparator / population / endpoint_phrase (time-window) carries MORE THAN ONE
     distinct non-empty value.
 
-    Such a group measures the SAME metric under a DIFFERENT scope (weight loss at
-    week 26 vs week 88; efficacy in two different populations) — an expected range,
+    Such a group measures the same metric under a different scope — an expected range,
     NOT a cross-source contradiction. This is the CONSERVATIVE positive-divergence
     signal: it reuses the exact first-branch test of ``_shared_metric_axes`` (an axis
     with >1 distinct non-empty value == conflicting scope). It fires ONLY on positive
     divergence, so a group whose scope axes are empty or shared (e.g. both claims at
     "40 weeks") returns False and a genuine same-scope disagreement is UNAFFECTED —
-    never mis-suppressed. Only these clinical discriminator axes are populated on the
-    clinical extraction path; the generic (non-clinical) path leaves them empty (that
-    path already routes through ``_shared_metric_axes``), so this never double-handles
-    a non-clinical group. Pure, never raises.
+    never mis-suppressed. Pure, never raises.
     """
     for axis in ("comparator", "population", "endpoint_phrase"):
         non_empty = {(getattr(c, axis, "") or "").strip().lower() for c in group}
@@ -1809,33 +1503,10 @@ def _is_unknown_subject(subject: str) -> bool:
 
 
 def _group_has_real_drug_subject(group: list["ExtractedNumericClaim"]) -> bool:
-    """True iff the group is keyed on a REAL drug/intervention subject — the
-    positive signal that licenses the clinical drug-trial contradiction schema.
+    """Compatibility helper: whether the group has a resolved subject."""
 
-    BUG-17 (#1262) part 1: ``is_clinical`` is a ROUTING string (``domain ==
-    "clinical"`` makes ``is_clinical_domain`` return True unconditionally), NOT a
-    guarantee the claim is about a drug/intervention. A clinical-ROUTED but
-    NON-drug question (an ADAS yaw-angle ``accuracy`` number that happened to be
-    routed clinical) must NOT inherit the drug-trial grouping schema. We
-    therefore SEPARATE the routing string from a TRUE drug subject: the clinical
-    no-guard path fires only when the group's shared subject is a recognised
-    drug/intervention name (``_DRUG_NAME_RE``). Otherwise the group falls through
-    to the same-metric-axes guard (possible_metric_mismatch), regardless of the
-    routing flag.
-
-    Deterministic, no LLM, never raises (recogniser/config errors are swallowed
-    fail-soft — never drug-by-error). Faithfulness is unchanged: a genuine
-    clinical drug contradiction (subject is e.g. ``"semaglutide"``) still has a
-    real drug subject -> keeps the full clinical schema byte-for-byte.
-    """
     subj = (group[0].subject or "").strip().lower() if group else ""
-    if not subj or _is_unknown_subject(subj):
-        return False
-    try:
-        from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
-        return bool(_DRUG_NAME_RE.search(subj))
-    except Exception:
-        return False
+    return bool(subj and not _is_unknown_subject(subj))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1878,7 +1549,7 @@ def _a17_guard_enabled() -> bool:
 
 
 # Positively-known physical quantity kinds, keyed by a context-text cue. The cues
-# are deterministic word-boundary patterns (no clinical literal). Order is
+# are deterministic word-boundary patterns. Order is
 # irrelevant — a claim's kind is the SET of all cues that fire; a group is
 # incommensurable iff the UNION of single-kind claims spans >1 distinct kind.
 _QUANTITY_KIND_CUES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
@@ -2099,23 +1770,12 @@ def detect_contradictions(
     abs_threshold: Optional[float] = None,
     is_clinical: bool = True,
 ) -> list[ContradictionRecord]:
-    """Group claims by (subject, predicate, unit, dose) and flag discrepancies.
+    """Group claims by source-derived frame and flag numeric discrepancies.
 
-    Fix-1: grouping key now includes DOSE. A 2.4 mg weight-loss result
-    and a 7.2 mg weight-loss result are NOT a contradiction — they're
-    expected dose-response differences. They will only be grouped
-    together if both happen to have no dose tag (e.g., a narrative
-    review that doesn't specify dose).
-
-    B9 domain-generalization (`is_clinical`, default True = byte-identical):
-    on a NON-clinical run a generic numeric discrepancy is only a TRUE
-    contradiction when the two numbers measure the SAME thing — same
-    comparator, population, and endpoint/time-window. When those discriminators
-    differ (or cannot be confirmed shared), the pair is labeled
-    `possible_metric_mismatch` (severity downgraded, never silently dropped)
-    rather than asserted as a hard contradiction. Clinical runs keep the full
-    clinical contradiction rule unchanged (this branch never fires on them).
+    ``is_clinical`` is retained only for API compatibility and does not select
+    a domain-specific path.
     """
+    del is_clinical
     if rel_threshold is None:
         rel_threshold = PG_CONTRADICTION_REL_THRESHOLD
     if abs_threshold is None:
@@ -2123,7 +1783,12 @@ def detect_contradictions(
 
     grouped: dict[tuple[str, str, str, str], list[ExtractedNumericClaim]] = {}
     for c in claims:
-        key = (c.subject, c.predicate, c.unit, c.dose or "")
+        key = (
+            c.subject,
+            c.predicate,
+            _normalize_generic_unit(c.unit),
+            c.dose or "",
+        )
         grouped.setdefault(key, []).append(c)
 
     records: list[ContradictionRecord] = []
@@ -2153,8 +1818,8 @@ def detect_contradictions(
             # kept OUT of the headline count — §-1.3 never drop), never assert a contradiction
             # on it. Runs FIRST because a non-entity subject invalidates the whole bucket
             # regardless of units/scale. Default-ON noise guard; OFF => byte-identical. A real
-            # entity (drug / device / condition) is never a stopword, so no genuine
-            # contradiction is suppressed and clinical golden output is unchanged. No
+            # real entity is never a stopword, so no genuine
+            # contradiction is suppressed. No
             # faithfulness threshold touched.
             if _noise_guard_enabled() and subject in _GENERIC_SUBJECT_STOPWORDS:
                 records.append(ContradictionRecord(
@@ -2179,7 +1844,7 @@ def detect_contradictions(
                 ))
                 continue
             # A17 (I-arch-006 #1262): commensurability guard runs FIRST, on EVERY
-            # path (incl. the clinical real-drug path), because mixing divergent
+            # path, because mixing divergent
             # PHYSICAL quantity kinds in one bucket is a stronger validity failure
             # than a scope mismatch — a unit-less collapse can bucket a 0.5-degree
             # yaw angle with a 100-metre radar distance even under a real subject.
@@ -2297,41 +1962,11 @@ def detect_contradictions(
                     ),
                 ))
                 continue
-            # B9: on a non-clinical run, a numeric gap is a TRUE contradiction
-            # only when the claims share comparator/population/time-window. If
-            # those discriminators differ or cannot be confirmed, label it a
-            # `possible_metric_mismatch` (downgraded, surfaced, never dropped).
-            #
-            # BUG-17 (#1262): the same-metric-axes guard must ALSO apply on the
-            # CLINICAL-ROUTED path whenever the group is NOT keyed on a real
-            # drug/intervention subject. Two failure modes the old
-            # `not is_clinical` gate let through:
-            #   (1) clinical ROUTING string != TRUE drug subject — a clinical-
-            #       routed but non-drug question (ADAS yaw-angle `accuracy`)
-            #       inherited the drug-trial no-guard schema and asserted a hard
-            #       contradiction with no shared-metric check.
-            #   (2) unknown/blank subject — UNRELATED numbers (PCA variance vs CRC
-            #       prevalence vs mouse weight) collapsed under subject="unknown"
-            #       and were flagged as one hard contradiction.
-            # Fix: the no-guard clinical schema fires ONLY for a group with a real
-            # drug subject; an unknown-subject group OR a clinical-routed non-drug
-            # group falls through to the shared-metric-axes guard, which DISCLOSES
-            # the pair as a possible_metric_mismatch (never drops it — a genuinely
-            # conflicting unknown-subject pair whose axes ARE confirmed-shared still
-            # surfaces as a real contradiction). Faithfulness is NEVER relaxed: a
-            # genuine same-DRUG numeric contradiction keeps the full clinical
-            # schema, and no verified claim is dropped — we only stop FABRICATING
-            # contradictions between numbers that do not measure the same thing.
-            apply_metric_guard = not is_clinical or not _group_has_real_drug_subject(group)
-            metric_mismatch = (
-                apply_metric_guard and not _shared_metric_axes(group)
-            )
-            # I-deepfix-001 (item 13a) — SCOPE-MISMATCH guard. The clinical real-drug path
-            # above leaves ``apply_metric_guard`` False, so ``_shared_metric_axes`` never runs
-            # and two claims about the SAME drug/predicate/unit/dose measured at DIFFERENT
-            # time-windows (week 26 vs week 88 weight loss) or in DIFFERENT populations were
-            # asserted as a HARD contradiction — a mislabel (an expected range, not a
-            # disagreement). When the group POSITIVELY diverges on a scope axis
+            # A numeric gap is a confirmed contradiction only when the source
+            # frames share comparator/scope/time-window. Otherwise it remains a
+            # disclosed possible metric mismatch.
+            metric_mismatch = not _shared_metric_axes(group)
+            # When a group positively diverges on a scope axis
             # (endpoint_phrase / population / comparator), downgrade it to
             # possible_metric_mismatch (disclosed, both sides + sources kept — §-1.3; routed
             # OUT of the headline count, never dropped) rather than assert a contradiction.
@@ -2422,7 +2057,7 @@ def detect_contradictions(
 # population / time-window may differ). Its surfaced ``relative_difference`` is the
 # RAW magnitude across two numbers that may not measure the same quantity — on the
 # cert artifact this rendered ``rel_diff`` up to 437,481.7% as a headline "quality
-# signal", which is meaningless (and lethal in clinical context per §-1.1). This is
+# signal", which is meaningless under §-1.1). This is
 # the same class the production render path already suppresses
 # (``run_honest_sweep_r3._render_contradicts_block`` skips the marker), but the
 # plain-text ``format_contradictions_for_user`` summary still counted + rendered it

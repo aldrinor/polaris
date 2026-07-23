@@ -31,25 +31,21 @@ class TestM41aOutlineCap:
         from src.polaris_graph.generator.multi_section_generator import (
             OUTLINE_SYSTEM_PROMPT,
         )
-        assert "M-41a" in OUTLINE_SYSTEM_PROMPT
+        assert "never padded to a fixed count" in OUTLINE_SYSTEM_PROMPT
 
     def test_rule_allows_6_sections(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             OUTLINE_SYSTEM_PROMPT,
         )
-        # Rule must mention 6 explicitly
-        assert "6 sections" in OUTLINE_SYSTEM_PROMPT or (
-            "6 when" in OUTLINE_SYSTEM_PROMPT
-        )
+        assert "EVIDENCE decides, not a fixed count" in OUTLINE_SYSTEM_PROMPT
 
-    def test_rule_states_mechanism_is_additive(self) -> None:
+    def test_rule_derives_process_sections_from_evidence(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
-            OUTLINE_SYSTEM_PROMPT,
+            SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
-        text = OUTLINE_SYSTEM_PROMPT.lower()
-        # Must use "additive" or "must not displace" to communicate
-        # the structural intent.
-        assert "additive" in text or "must not displace" in text
+        text = SECTION_SYSTEM_PROMPT_TEMPLATE.lower()
+        assert "mechanism or causal-process rule" in text
+        assert "derive its subtopics" in text
 
     def test_parser_accepts_6_sections(self) -> None:
         """Parser validation: a 6-section plan (each with >=2 ev_ids)
@@ -339,34 +335,34 @@ class TestM41dJurisdictionDetection:
         from src.polaris_graph.retrieval.evidence_selector import (
             _row_jurisdiction,
         )
-        assert _row_jurisdiction({"url": "https://accessdata.fda.gov/labels/foo.pdf"}) == "FDA"
-        assert _row_jurisdiction({"url": "https://www.fda.gov/drugs/bar"}) == "FDA"
+        assert _row_jurisdiction({"url": "https://accessdata.fda.gov/labels/foo.pdf"}) == "fda"
+        assert _row_jurisdiction({"url": "https://www.fda.gov/drugs/bar"}) == "fda"
 
     def test_ema_detected(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _row_jurisdiction,
         )
-        assert _row_jurisdiction({"url": "https://www.ema.europa.eu/en/documents/assessment"}) == "EMA"
+        assert _row_jurisdiction({"url": "https://www.ema.europa.eu/en/documents/assessment"}) == "ema"
 
     def test_nice_detected(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _row_jurisdiction,
         )
-        assert _row_jurisdiction({"url": "https://www.nice.org.uk/guidance/ta924"}) == "NICE"
+        assert _row_jurisdiction({"url": "https://www.nice.org.uk/guidance/ta924"}) == "nice"
 
     def test_health_canada_detected(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _row_jurisdiction,
         )
-        assert _row_jurisdiction({"url": "https://pdf.hres.ca/dpd_pm/00073189.pdf"}) == "HC"
-        assert _row_jurisdiction({"url": "https://www.canada.ca/health-canada"}) == "HC"
+        assert _row_jurisdiction({"url": "https://pdf.hres.ca/dpd_pm/00073189.pdf"}) == "hres"
+        assert _row_jurisdiction({"url": "https://www.canada.ca/health-canada"}) == "canada"
 
-    def test_non_regulatory_host_returns_none(self) -> None:
+    def test_generic_hosts_yield_structural_source_labels(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
             _row_jurisdiction,
         )
-        assert _row_jurisdiction({"url": "https://nejm.org/article"}) is None
-        assert _row_jurisdiction({"url": "https://doi.org/10.1056/NEJMoa123"}) is None
+        assert _row_jurisdiction({"url": "https://archive.example/article"}) == "archive"
+        assert _row_jurisdiction({"url": "https://doi.org/10.1000/example"}) == "doi"
 
     def test_empty_url_returns_none(self) -> None:
         from src.polaris_graph.retrieval.evidence_selector import (
@@ -389,6 +385,7 @@ class TestM41dJurisdictionalFloor:
                 "evidence_id": f"ev_f{i}",
                 "url": f"https://accessdata.fda.gov/lbl/{i}.pdf",
                 "tier": "T3",
+                "jurisdiction": "west",
                 "statement": "tirzepatide efficacy safety type 2 diabetes glycemic control weight",
             })
         for i in range(4):
@@ -396,18 +393,21 @@ class TestM41dJurisdictionalFloor:
                 "evidence_id": f"ev_e{i}",
                 "url": f"https://ema.europa.eu/smpc/{i}",
                 "tier": "T3",
+                "jurisdiction": "east",
                 "statement": "tirzepatide efficacy safety type 2 diabetes",
             })
         rows.append({
             "evidence_id": "ev_n0",
             "url": "https://nice.org.uk/ta924",
             "tier": "T3",
+            "jurisdiction": "north",
             "statement": "tirzepatide NICE appraisal",
         })
         rows.append({
             "evidence_id": "ev_h0",
             "url": "https://pdf.hres.ca/dpd_pm/00073189.pdf",
             "tier": "T3",
+            "jurisdiction": "south",
             "statement": "product monograph",  # low relevance to query
         })
         return rows
@@ -468,10 +468,10 @@ class TestM41dJurisdictionalFloor:
         )
         assert _row_jurisdiction({
             "url": "https://accessdata.fda.gov/drugsatfda_docs/label/foo"
-        }) == "FDA"
+        }) == "fda"
         assert _row_jurisdiction({
             "url": "https://pdf.hres.ca/dpd_pm/00073189.pdf"
-        }) == "HC"
+        }) == "hres"
 
     def test_pass2_bare_europa_eu_no_longer_collapses_to_ema(self) -> None:
         """M-41d pass-2: `europa.eu` bare parent was removed; only
@@ -479,14 +479,13 @@ class TestM41dJurisdictionalFloor:
         from src.polaris_graph.retrieval.evidence_selector import (
             _row_jurisdiction,
         )
-        # Different europa.eu subdomain (e.g. EFSA) should not be EMA
+        # Different sibling subdomains retain their own structural label.
         assert _row_jurisdiction({
             "url": "https://www.efsa.europa.eu/en/opinion/123"
-        }) is None
-        # EMA itself still classifies
+        }) == "efsa"
         assert _row_jurisdiction({
             "url": "https://www.ema.europa.eu/en/documents/assessment"
-        }) == "EMA"
+        }) == "ema"
 
     def test_no_regression_without_multiple_jurisdictions(self) -> None:
         """If T3 pool has only one jurisdiction, selector behavior

@@ -89,7 +89,7 @@ _NUMERIC_DROP_PREFIXES: frozenset[str] = frozenset({
 # I-faith-001 Fix A refinement (Codex gate P1): a deterministic gap-disclosure
 # ("<field>: not extractable from available primary content") is an HONEST
 # disclosure, never a numeric CLAIM. A digit embedded in the field LABEL
-# (e.g. "Baseline HbA1c", "COVID-19", "T2 diabetes") must NOT make it look
+# (for example, an alphanumeric metric or version label) must not make it look
 # like a numeric fabrication and strip its rescue eligibility -> the honest
 # disclosure would vanish from a partially-rendered slot. Such disclosures
 # are always rescue-eligible. (Real narrative numeric fabrications are
@@ -2064,7 +2064,7 @@ async def run_contract_section(
     # ── DETERMINISTIC stream (M-58 verbatim-guarded slot prose) ────────
     # Rescue-ELIGIBLE: the M-69 Fix #4 rescue exists ONLY to undo
     # content-overlap false-drops on legitimately-verbatim slot prose (the
-    # SURPASS-5 25K-char regression). `parse_slot_fill_response` enforces
+    # long-document regression). `parse_slot_fill_response` enforces
     # `value == source_span`, so the entire rendered prose is verbatim source
     # text. Fix A's `_drop_is_numeric` guard keeps it from laundering numeric
     # fabrications.
@@ -2271,10 +2271,10 @@ async def run_contract_section(
                     # unstamped (it falls back to the global-map lookup, never crashes).
                     continue
             from .multi_section_generator import (
-                filter_underframed_trial_sentences,
+                filter_underframed_study_sentences,
             )
             from ..synthesis.credibility_pass import apply_disclosure_to_svs
-            _ra_kept, _ra_dropped_m41c = filter_underframed_trial_sentences(
+            _ra_kept, _ra_dropped_m41c = filter_underframed_study_sentences(
                 _reanchored_svs
             )
             # Re-apply the advisory per-claim disclosure so re-anchored survivors
@@ -2541,8 +2541,7 @@ async def run_contract_section(
     # a slot MUST NEVER silently drop from the body — even when
     # strict_verify kept zero sentences for it, emit the heading
     # plus an explicit gap-disclosure sentence. Pre-fix behaviour
-    # silently omitted SURPASS-6, FDA Mounjaro, EMA EPAR, HC
-    # Mounjaro in run-7 despite frame_coverage=pass for all four,
+    # silently omitted several bound entities despite frame_coverage=pass,
     # producing a structural LB vs both competitors.
     #
     # M-68 Fix #1b (run-8 Qwen citation_tightness regression):

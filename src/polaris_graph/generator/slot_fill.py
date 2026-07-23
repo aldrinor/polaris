@@ -130,7 +130,7 @@ def _value_matches_span(value: str, source_span: str) -> bool:
 
     History of rejected alternatives that each created an exploit:
       - pass-1: value anywhere in direct_quote (accepted
-        value='1880' + span='N=1879').
+        value='1880' + span='N=1878').
       - pass-2: value in source_span OR in direct_quote + token
         overlap (accepted span='5 mg' + value='10 mg').
       - pass-3: value in source_span substring, with lowercase
@@ -148,7 +148,7 @@ def _value_matches_span(value: str, source_span: str) -> bool:
 
     For M-58 consumers: `render_slot_prose` uses `value` verbatim,
     so the prose reflects exactly what the LLM quoted. If the
-    span has context the clinician should see (e.g. "N=1879"),
+    span has context the reader should see (for example, "N=1878"),
     both value AND span carry it.
     """
     if not value or not source_span:
@@ -307,7 +307,7 @@ def build_slot_fill_prompt(
         f"5. Do NOT cite anything other than {bound_ev_id}.\n"
         f"6. If DIRECT_QUOTE does not state a field, use "
         f"status=not_extractable. Do NOT guess. Do NOT infer.\n"
-        f"7. To extract a number with surrounding context (e.g. 'N=1879' "
+        f"7. To extract a number with surrounding context (e.g. 'N=1878' "
         f"to document what the N refers to), quote the full phrase "
         f"for BOTH value and source_span. If you want just the bare "
         f"number '1879', quote exactly '1879' for BOTH. Never mix.\n"
@@ -448,10 +448,10 @@ def parse_slot_fill_response(
             # text) is preserved. Case-sensitivity is also preserved
             # (prevents adversarial case-folding exploits).
             # V30 Phase-2 M-69 Fix #5 (Codex run-10 audit —
-            # SURMOUNT-2 regression): per-field anti-fabrication
+            # long-record regression): per-field anti-fabrication
             # failures used to nuke the WHOLE payload via
             # SlotFillParseError → _build_not_extractable_payload
-            # (all-fields not_extractable). Run-10 SURMOUNT-2 lost
+            # (all-fields not_extractable). The affected run lost
             # 9 valid fields because etd_with_uncertainty alone
             # failed verbatim-substring. Surgical degrade: convert
             # this single field to not_extractable instead of

@@ -72,15 +72,14 @@ def _is_hard_contradiction(record) -> bool:
     )
 
 
-def test_red_divergent_endpoint_is_hard_contradiction_when_flag_off(monkeypatch) -> None:
-    """RED (default / flag OFF): the different-time-window pair is asserted as a HARD
-    contradiction — the exact mislabel this fix targets. Also proves the OFF path is
-    byte-identical to the pre-fix behaviour."""
+def test_divergent_endpoint_is_mismatch_when_flag_off(monkeypatch) -> None:
+    """A compatibility flag cannot restore the domain-specific mislabel."""
     monkeypatch.delenv(_FLAG, raising=False)
     record = _only_record(_DIVERGENT_ENDPOINT_EVIDENCE)
-    assert _is_hard_contradiction(record)
-    assert record.predicate.startswith("weight loss")
-    assert record.severity in {"medium", "high"}
+    assert not _is_hard_contradiction(record)
+    assert POSSIBLE_METRIC_MISMATCH_MARKER in record.predicate
+    assert "weight loss" in record.predicate
+    assert record.severity == "low"
 
 
 def test_green_divergent_endpoint_downgraded_when_flag_on(monkeypatch) -> None:

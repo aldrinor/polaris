@@ -157,7 +157,7 @@ def test_concise_clinical_variant_has_no_orphaned_seams() -> None:
     assert "order):" not in concise
     # Rule #10 must close on a period, not a dangling em-dash before the next rule.
     rule_10_start = concise.find("10. When multiple evidence rows")
-    rule_11_start = concise.find("11. **Jurisdictional precision", rule_10_start)
+    rule_11_start = concise.find("11. **Authority precision", rule_10_start)
     rule_10_body = concise[rule_10_start:rule_11_start].rstrip()
     assert rule_10_body.endswith("supports that proposition."), (
         f"rule #10 did not close cleanly: {rule_10_body[-60:]!r}"
@@ -259,5 +259,5 @@ def test_concise_on_prompt_drops_all_mechanism_sentence_count_bias():
         assert "15-20 sentences" not in variant
         assert "10-15 sentences" not in variant
     normalized = " ".join(m.SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE.split())
-    assert "cover the evidence-supported priority topics" in normalized
-    assert "state the resulting boundary on interpretation" in normalized
+    assert "derive its subtopics from the concepts and measures" in normalized
+    assert "state interpretive boundaries" in normalized

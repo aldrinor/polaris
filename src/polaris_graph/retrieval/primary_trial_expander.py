@@ -1,205 +1,145 @@
-"""M-35 (2026-04-21): primary-trial-name query expansion.
+"""Template-driven primary-source identifier expansion.
 
-Companion to `regulatory_expander` (M-28). Where M-28 adds
-`{question} site:{anchor_host}` queries from a per-domain anchor list,
-M-35 adds `"{anchor_trial}" {question}` queries from a per-SLUG anchor
-list. Trial names are query-specific (tirzepatide's pivotals differ
-from metformin's) so they live per-sweep-slug rather than per-domain.
-
-The Codex DR pass-11 gap #1 on V23: "Replace the citation mix with
-primary SURPASS-1..SURPASS-6, SURPASS-CVOT, SURMOUNT-2/4 trial papers
-as first-class sources." V23's corpus had 62 rows mentioning those
-trial names but mostly conference abstracts and post-hoc pooled
-analyses — the NEJM/Lancet primaries for SURPASS-1/2/3 and SURMOUNT-1
-were missing. Targeted `"SURPASS-1" {question}` queries surface the
-primary trial publication directly.
-
-Design invariants (same discipline as M-28):
-  - Zero trial names, zero drug names, zero domain terms in this
-    module. All such content lives in YAML templates.
-  - Template-driven: the caller chooses the anchors per sweep slug
-    by writing them into the template. This module has no baked-in
-    knowledge of SURPASS, SURMOUNT, or any other trial name.
-  - Backwards-compatible: missing key / empty dict / slug not found
-    all return an empty list, so the expander is safe to call
-    unconditionally.
-
-Template schema (in `config/scope_templates/{domain}.yaml`):
-
-    per_query_primary_trial_anchors:
-      clinical_tirzepatide_t2dm:
-        - SURPASS-1
-        - SURPASS-2
-        - ...
-
-Design:
-  - Caller (sweep orchestrator) loads the scope template once and
-    calls `expand_primary_trial_queries(question, template, slug)`.
-  - Extra queries merge into the amplified list and travel through
-    the same scope-validator de-drift + Serper/S2 fanout as every
-    other amplified query.
+The module has no knowledge of topics, study programs, venues, or entity
+types.  A scope template supplies identifiers, optional query variants,
+direct locators, and relevance labels.  Legacy public names and template
+keys remain as compatibility aliases for existing callers.
 """
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
+
 from src.polaris_graph.settings import resolve
 
-logger = logging.getLogger("polaris_graph.primary_trial_expander")
+logger = logging.getLogger("polaris_graph.primary_source_expander")
 
-
-# PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS: soft upper bound on how many
-# anchor queries this function will emit from a single slug. Defaults
-# to 15 (larger than M-28's 10 because drug-pivotal programs can have
-# 6-8 trials). Set to 0 to disable the cap.
-_DEFAULT_MAX_ANCHORS = 15
+_CANONICAL_KEYS = {
+    "anchors": "per_query_primary_source_anchors",
+    "dois": "per_query_primary_source_dois",
+    "variants": "per_query_primary_source_variants",
+    "scope": "per_query_primary_source_scope",
+}
+_LEGACY_KEYS = {
+    "anchors": "per_query_primary_trial_anchors",
+    "dois": "per_query_primary_trial_dois",
+    "variants": "per_query_primary_trial_variants",
+    "scope": "per_query_trial_population_scope",
+}
 
 
 def _max_anchors() -> int:
-    """Read the max-anchor cap from env each call (so a test can
-    monkey-patch without importing a module-level constant)."""
-    raw = resolve("PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS")
-    if raw is None:
-        return _DEFAULT_MAX_ANCHORS
+    """Return an optional configuration-owned bound; zero means unbounded."""
+
+    raw = resolve("PG_SWEEP_MAX_PRIMARY_SOURCE_ANCHORS")
+    if raw is None or not str(raw).strip():
+        # Compatibility fallback for existing deployments.
+        raw = resolve("PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS")
+    if raw is None or not str(raw).strip():
+        return 0
     try:
-        val = int(raw)
+        return max(0, int(raw))
     except (TypeError, ValueError):
-        return _DEFAULT_MAX_ANCHORS
-    return max(0, val)
+        return 0
+
+
+def _scoped_value(
+    template: dict[str, Any] | None,
+    slug: str,
+    kind: str,
+) -> Any:
+    """Read a slug-scoped value, preferring the canonical schema key."""
+
+    if not isinstance(template, dict) or not isinstance(slug, str) or not slug.strip():
+        return None
+    for key in (_CANONICAL_KEYS[kind], _LEGACY_KEYS[kind]):
+        by_slug = template.get(key)
+        if isinstance(by_slug, dict) and slug in by_slug:
+            return by_slug.get(slug)
+    return None
+
+
+def _valid_anchor(value: Any) -> str:
+    """Return a safely quotable identifier, or an empty string."""
+
+    if not isinstance(value, str):
+        return ""
+    anchor = value.strip()
+    if (
+        not anchor
+        or any(
+            char in ('"', "\\") or ord(char) < 32 or ord(char) == 127
+            for char in anchor
+        )
+    ):
+        return ""
+    return anchor
 
 
 def _extract_anchors(
     template: dict[str, Any] | None,
     slug: str,
 ) -> list[str]:
-    """Pull the trial-name anchors for a given sweep `slug` out of a
-    loaded scope template.
-
-    Returns an empty list for:
-      - missing template
-      - missing `per_query_primary_trial_anchors` key
-      - malformed (non-dict) value
-      - slug not present in the dict
-      - empty list for the slug
-      - non-list value for the slug
-
-    Trims whitespace, skips non-string entries and empties. Rejects
-    entries containing whitespace (a trial name with spaces would
-    produce a malformed quoted query).
-    """
-    if not isinstance(template, dict):
-        return []
-    if not isinstance(slug, str) or not slug.strip():
-        return []
-    by_slug = template.get("per_query_primary_trial_anchors")
-    if not isinstance(by_slug, dict):
-        return []
-    raw = by_slug.get(slug)
+    raw = _scoped_value(template, slug, "anchors")
     if not isinstance(raw, list):
         return []
     anchors: list[str] = []
-    for entry in raw:
-        if not isinstance(entry, str):
-            continue
-        stripped = entry.strip()
-        # Reject entries containing ANY whitespace (not just literal
-        # space — tabs / newlines / vertical-tab / form-feed /
-        # carriage-return would all break the outer `"{anchor}"`
-        # quoting downstream) or a double quote (ASCII U+0022 would
-        # break the outer quoting directly) or a backslash (could
-        # survive as `"BAD\" q` and escape-eat the closing quote in
-        # some downstream search-query parsers). M-35 pass-2 (Codex
-        # blocker): `str.strip()` removes leading/trailing whitespace
-        # but NOT interior whitespace, so `"BAD\tENTRY"` would pass
-        # the pre-pass-2 `" " in stripped` check. isspace() closes
-        # that.
-        if (
-            not stripped
-            or any(ch.isspace() for ch in stripped)
-            or '"' in stripped
-            or "\\" in stripped
-        ):
-            continue
-        anchors.append(stripped)
-    # Deduplicate while preserving declared order.
     seen: set[str] = set()
-    unique: list[str] = []
-    for a in anchors:
-        if a not in seen:
-            seen.add(a)
-            unique.append(a)
-    return unique
+    for entry in raw:
+        anchor = _valid_anchor(entry)
+        if anchor and anchor not in seen:
+            seen.add(anchor)
+            anchors.append(anchor)
+    return anchors
 
 
-def _is_valid_doi(d: str) -> bool:
-    """A DOI is 10.<registrant>/<suffix>: registrant is 4-9 digits, suffix is
-    non-empty, and the whole string has no whitespace/quote/backslash (which
-    would break the doi.org URL or downstream quoting). iter-1 P2 (Codex):
-    reject empty-component forms like '10./x' or '10.1056/'."""
-    if not d.startswith("10.") or "/" not in d:
+def _is_valid_doi(value: str) -> bool:
+    """Validate the structural DOI form without a venue allow-list."""
+
+    if not value.startswith("10.") or "/" not in value:
         return False
-    prefix, _, suffix = d.partition("/")
-    registrant = prefix[len("10."):]
+    prefix, _, suffix = value.partition("/")
+    registrant = prefix.removeprefix("10.")
     return (
         registrant.isdigit()
         and 4 <= len(registrant) <= 9
         and bool(suffix)
-        and not any(ch.isspace() for ch in d)
-        and '"' not in d
-        and "\\" not in d
+        and not any(char.isspace() for char in value)
+        and '"' not in value
+        and "\\" not in value
     )
 
 
-def expand_primary_trial_dois(
+def expand_primary_source_dois(
     template: dict[str, Any] | None,
     slug: str,
 ) -> list[str]:
-    """I-bug-776 (#817) layer-4 (Codex decision b): return direct doi.org
-    candidate URLs for the anchored primary trials of `slug`, read from
-    `per_query_primary_trial_dois` (a {ANCHOR: DOI} dict) in the scope template.
+    """Return configured direct DOI locators for one query scope."""
 
-    These are injected as DIRECT retrieval candidates so the pivotal OA primaries
-    reliably enter the corpus even when guideline-dominated search ranking buries
-    them. They pass the SAME fetch / OA / extraction / tier / adequacy gates as
-    every other source (no laundering).
-
-    Backwards-compatible: missing template / key / slug / malformed -> []. Only
-    well-formed DOIs are accepted; slug-scoped (no global fallback).
-    """
-    if not isinstance(template, dict):
-        return []
-    if not isinstance(slug, str) or not slug.strip():
-        return []
-    by_slug = template.get("per_query_primary_trial_dois")
-    if not isinstance(by_slug, dict):
-        return []
-    raw = by_slug.get(slug)
+    raw = _scoped_value(template, slug, "dois")
     if not isinstance(raw, dict):
         return []
     urls: list[str] = []
     seen: set[str] = set()
-    for _anchor, doi in raw.items():
+    for doi in raw.values():
         if not isinstance(doi, str):
             continue
-        d = doi.strip()
-        if not _is_valid_doi(d):
+        normalized = doi.strip()
+        if not _is_valid_doi(normalized):
             continue
-        url = f"https://doi.org/{d}"
+        url = f"https://doi.org/{normalized}"
         if url not in seen:
             seen.add(url)
             urls.append(url)
     return urls
 
 
-def get_primary_trial_anchors_for_slug(
+def get_primary_source_anchors_for_slug(
     template: dict[str, Any] | None,
     slug: str,
 ) -> list[str]:
-    """M-42e (2026-04-22): public accessor for the raw anchor list
-    for a given sweep slug. Used by the evidence selector to apply
-    a T1 primary-paper floor. Same validation rules as `_extract_anchors`
-    — returns cleaned, deduplicated anchors or empty list."""
+    """Return cleaned, deduplicated source identifiers for a scope."""
+
     return _extract_anchors(template, slug)
 
 
@@ -207,211 +147,117 @@ def _extract_variants(
     template: dict[str, Any] | None,
     slug: str,
 ) -> dict[str, str]:
-    """M-48 (2026-04-22): pull per-anchor first-author + journal variant
-    strings for a given sweep slug.
-
-    Schema:
-        per_query_primary_trial_variants:
-          <slug>:
-            <anchor>: <free-text variant>
-
-    Returns an empty dict for:
-      - missing template
-      - missing `per_query_primary_trial_variants` key
-      - malformed (non-dict) value at any level
-      - slug not present
-      - variant value not a string
-      - variant string contains ANY whitespace-only content or is empty
-
-    The variant string is used as-is (wrapped in the outer query with
-    the base question appended). Example:
-        anchor = "SURPASS-2"
-        variant = "Frías NEJM tirzepatide semaglutide"
-        emitted query = `"SURPASS-2" Frías NEJM tirzepatide semaglutide {question}`
-    """
-    if not isinstance(template, dict):
-        return {}
-    if not isinstance(slug, str) or not slug.strip():
-        return {}
-    by_slug = template.get("per_query_primary_trial_variants")
-    if not isinstance(by_slug, dict):
-        return {}
-    raw = by_slug.get(slug)
+    raw = _scoped_value(template, slug, "variants")
     if not isinstance(raw, dict):
         return {}
-    out: dict[str, str] = {}
+    variants: dict[str, str] = {}
     for anchor, variant in raw.items():
-        if not isinstance(anchor, str) or not isinstance(variant, str):
-            continue
-        a = anchor.strip()
-        v = variant.strip()
-        # Reject anchor with interior whitespace / double quote /
-        # backslash (same invariant as _extract_anchors) and reject
-        # variant containing a double quote that would break the
-        # outer `"{anchor}"` quoting.
+        clean_anchor = _valid_anchor(anchor)
         if (
-            not a or any(ch.isspace() for ch in a)
-            or '"' in a or "\\" in a
+            not clean_anchor
+            or not isinstance(variant, str)
+            or not variant.strip()
+            or '"' in variant
         ):
             continue
-        if not v or '"' in v:
-            continue
-        out[a] = v
-    return out
+        variants[clean_anchor] = variant.strip()
+    return variants
 
 
-def get_trial_population_scope_for_slug(
+def get_source_scope_for_slug(
     template: dict[str, Any] | None,
     slug: str,
 ) -> dict[str, str]:
-    """M-48 (2026-04-22): public accessor for the per-anchor population-
-    scope labels.
+    """Return evidence-supplied relevance labels keyed by source identifier.
 
-    Schema:
-        per_query_trial_population_scope:
-          <slug>:
-            <anchor>: "direct" | "indirect_for_t2d" | "indirect"
-
-    Used by `label_rows_with_population_scope` to tag evidence rows
-    after retrieval. Missing entry → row stays unlabeled
-    (generator treats as "direct" by default).
+    Labels are normalized for case and carried as written, so each template
+    can define its own relevance taxonomy without production-code vocabulary.
     """
-    if not isinstance(template, dict):
-        return {}
-    if not isinstance(slug, str) or not slug.strip():
-        return {}
-    by_slug = template.get("per_query_trial_population_scope")
-    if not isinstance(by_slug, dict):
-        return {}
-    raw = by_slug.get(slug)
+
+    raw = _scoped_value(template, slug, "scope")
     if not isinstance(raw, dict):
         return {}
-    valid_labels = {"direct", "indirect_for_t2d", "indirect"}
-    out: dict[str, str] = {}
+    labels: dict[str, str] = {}
     for anchor, label in raw.items():
-        if not isinstance(anchor, str) or not isinstance(label, str):
+        clean_anchor = _valid_anchor(anchor)
+        if not clean_anchor or not isinstance(label, str) or not label.strip():
             continue
-        a = anchor.strip()
-        l_ = label.strip().lower()
-        if not a or any(ch.isspace() for ch in a):
-            continue
-        if l_ not in valid_labels:
-            continue
-        out[a] = l_
-    return out
+        normalized = label.strip().casefold()
+        labels[clean_anchor] = normalized
+    return labels
 
 
-def label_rows_with_population_scope(
+def label_rows_with_source_scope(
     rows: list[dict[str, Any]],
     template: dict[str, Any] | None,
     slug: str,
 ) -> list[dict[str, Any]]:
-    """M-48 (2026-04-22): annotate evidence rows with population-scope
-    metadata derived from per-anchor labels.
+    """Annotate rows by matching configured identifiers in row metadata."""
 
-    For each row, scan title for any configured anchor token (case-
-    insensitive substring match). If match found, add keys:
-      - `population_scope`: one of "direct" / "indirect_for_t2d" /
-        "indirect"
-      - `indirect_for_t2d`: bool (True iff label == indirect_for_t2d)
-
-    Rows with no anchor match are unchanged. This function mutates
-    rows in place AND returns the list (convenience).
-
-    Example usage in the sweep orchestrator, after `retrieval.evidence_rows`
-    is populated:
-
-        rows = label_rows_with_population_scope(
-            retrieval.evidence_rows, template, slug
-        )
-    """
-    labels = get_trial_population_scope_for_slug(template, slug)
+    labels = get_source_scope_for_slug(template, slug)
     if not labels or not rows:
         return rows
-    # Build case-insensitive lookup: {anchor_lower: (anchor_original, label)}
-    lookup = {a.lower(): (a, l_) for a, l_ in labels.items()}
+    lookup = {anchor.casefold(): (anchor, label) for anchor, label in labels.items()}
     for row in rows:
         if not isinstance(row, dict):
             continue
-        # M-48 pass-2 (Codex blocker): live retriever rows populate
-        # `statement` with the candidate title (not `title`). Read
-        # from title / statement / source_title in that order so the
-        # labeler works on both live rows and fixture rows.
-        title = ""
-        for key in ("title", "statement", "source_title"):
-            v = row.get(key)
-            if isinstance(v, str) and v:
-                title = v
+        match: tuple[str, str] | None = None
+        for key in ("title", "statement", "source_title", "direct_quote"):
+            searchable = str(row.get(key) or "").casefold()
+            if not searchable:
+                continue
+            for anchor_key, anchor_and_label in lookup.items():
+                if anchor_key in searchable:
+                    match = anchor_and_label
+                    break
+            if match:
                 break
-        title_l = title.lower()
-        for anchor_l, (_anchor, label) in lookup.items():
-            if anchor_l in title_l:
-                row["population_scope"] = label
-                row["indirect_for_t2d"] = (label == "indirect_for_t2d")
-                row["_m48_anchor_match"] = _anchor
-                break
+        if not match:
+            continue
+        anchor, label = match
+        row["scope_relationship"] = label
+        # Compatibility fields are populated dynamically from template data.
+        row["population_scope"] = label
+        for configured_label in set(labels.values()):
+            row[configured_label] = configured_label == label
+        row["_primary_source_anchor_match"] = anchor
+        row["_m48_anchor_match"] = anchor
     return rows
 
 
-def expand_primary_trial_queries(
+def expand_primary_source_queries(
     question: str,
     template: dict[str, Any] | None,
     slug: str,
 ) -> list[str]:
-    """Return anchor + variant queries for a given sweep slug.
+    """Build identifier-anchored retrieval queries from template metadata."""
 
-    For each configured anchor:
-      - emits `"{anchor}" {question}` (original M-35 form)
-      - IF the anchor has a variant in `per_query_primary_trial_variants`,
-        also emits `"{anchor}" {variant} {question}` (M-48 form)
-
-    The variant query carries first-author surname + target journal to
-    raise primary-publication landing probability. V27 hit 4/11 primary
-    trials with anchor-only queries; M-48 aims for ≥9/11.
-
-    Args:
-        question: the user's research question (or any base query text).
-        template: the loaded scope template dict (or None if none set).
-        slug: the sweep slug used to key into
-            `per_query_primary_trial_anchors` and
-            `per_query_primary_trial_variants`.
-
-    Returns:
-        A list of query strings; order is `[anchor1, anchor1_variant,
-        anchor2, anchor2_variant, ...]` for anchors with variants, else
-        `[anchor1, anchor2, ...]`. Total capped by
-        `PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS` applied to the ANCHOR count
-        (variants do not count against the cap so that capped runs
-        retain their variant queries).
-
-    Pure and deterministic — no network, no state.
-    """
-    base = (question or "").strip()
+    base = str(question or "").strip()
     if not base:
         return []
     anchors = _extract_anchors(template, slug)
     if not anchors:
         return []
     cap = _max_anchors()
-    if cap > 0 and len(anchors) > cap:
-        logger.info(
-            "[primary_trial_expander] slug=%r has %d anchors; capped "
-            "to %d via PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS",
-            slug, len(anchors), cap,
-        )
+    if cap > 0:
         anchors = anchors[:cap]
     variants = _extract_variants(template, slug)
     queries: list[str] = []
-    variant_count = 0
     for anchor in anchors:
         queries.append(f'"{anchor}" {base}')
-        variant = variants.get(anchor)
-        if variant:
+        if variant := variants.get(anchor):
             queries.append(f'"{anchor}" {variant} {base}')
-            variant_count += 1
     logger.info(
-        "[primary_trial_expander] emitted %d queries (%d anchors + "
-        "%d variants) for slug=%r base=%r",
-        len(queries), len(anchors), variant_count, slug, base[:60],
+        "[primary_source_expander] emitted %d query variants for scope=%r",
+        len(queries),
+        slug,
     )
     return queries
+
+
+# Compatibility aliases.  New code should use the source-oriented names above.
+expand_primary_trial_dois = expand_primary_source_dois
+get_primary_trial_anchors_for_slug = get_primary_source_anchors_for_slug
+get_trial_population_scope_for_slug = get_source_scope_for_slug
+label_rows_with_population_scope = label_rows_with_source_scope
+expand_primary_trial_queries = expand_primary_source_queries

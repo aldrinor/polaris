@@ -42,14 +42,14 @@ def test_r5_subject_near_position_picks_closest_drug() -> None:
     assert subj == "tirzepatide", f"Expected tirzepatide, got {subj}"
 
 
-def test_r5_subject_near_position_fallback_to_first() -> None:
-    """If no drug is within the window, fall back to first-in-text."""
+def test_r5_subject_near_position_does_not_invent_a_distant_entity() -> None:
+    """A distant proper name cannot override the local source frame."""
     text = "retatrutide early data. " + "noise " * 80 + "achieved 25.5% reduction."
     pos = text.find("25.5")
     # Window of ±150 around 25.5 should NOT contain retatrutide (100+ chars away)
     subj = _subject_near_position(text, pos, window=150)
-    # Falls back to first-in-text search
-    assert subj == "retatrutide"
+    assert subj
+    assert subj != "retatrutide"
 
 
 def test_r5_cross_drug_contradiction_not_false_grouped() -> None:

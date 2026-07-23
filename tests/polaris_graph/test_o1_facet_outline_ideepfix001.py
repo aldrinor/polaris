@@ -203,12 +203,19 @@ def test_facet_flag_on_activates_non_clinical(monkeypatch, domain):
     assert m._select_outline_system_prompt(domain) is m.OUTLINE_SYSTEM_PROMPT_FACET
 
 
-@pytest.mark.parametrize("domain", ["clinical", "Clinical", " CLINICAL ", "", None])
-def test_facet_flag_on_never_touches_clinical(monkeypatch, domain):
-    """Even with the flag ON, clinical/unknown keep the proven fixed section set + prompt."""
+@pytest.mark.parametrize("domain", ["clinical", "Clinical", " CLINICAL "])
+def test_facet_flag_respects_explicit_specialized_pack(monkeypatch, domain):
+    """An explicitly selected specialized pack retains its configured menu."""
     monkeypatch.setenv(m._FACET_OUTLINE_ENV, "1")
     assert not m._facet_outline_active_for_domain(domain)
     assert m._select_outline_system_prompt(domain) is m.OUTLINE_SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize("domain", ["", None])
+def test_facet_flag_treats_blank_input_as_general(monkeypatch, domain):
+    monkeypatch.setenv(m._FACET_OUTLINE_ENV, "1")
+    assert m._facet_outline_active_for_domain(domain)
+    assert m._select_outline_system_prompt(domain) is m.OUTLINE_SYSTEM_PROMPT_FACET
 
 
 def test_facet_prompt_keeps_dr_rigor_and_injection_guard():

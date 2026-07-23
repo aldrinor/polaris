@@ -20,10 +20,12 @@ Design notes
 
 Typed fields (all keys always present in the returned dict)
 -----------------------------------------------------------
-``source_types``     list[str]  e.g. ['journal_article']
+``source_types``     list[str]  document kinds, e.g. ['journal_article']
+``quality_attributes`` list[str] source-quality requirements, e.g. ['high_quality']
 ``languages``        list[str]  e.g. ['en'] (ISO-639-1 where known)
 ``recency``          str|None   a cutoff phrase/date, e.g. 'since 2020', or None
 ``required_coverage``list[str]  topical slots the prompt implies/names
+``coverage_roles``   list[dict] semantic role metadata for coverage slots
 ``exclusions``       list[str]  things to exclude (source kinds, topics, ...)
 ``format``           str|None   e.g. 'literature_review'
 ``length``           str|None   e.g. '3000 words' / '10 pages', or None
@@ -49,9 +51,11 @@ logger = logging.getLogger(__name__)
 # The full, ordered set of keys the extractor guarantees on every result dict.
 _FIELDS: tuple[str, ...] = (
     "source_types",
+    "quality_attributes",
     "languages",
     "recency",
     "required_coverage",
+    "coverage_roles",
     "exclusions",
     "format",
     "length",
@@ -59,7 +63,13 @@ _FIELDS: tuple[str, ...] = (
 )
 
 _LIST_FIELDS: frozenset[str] = frozenset(
-    {"source_types", "languages", "required_coverage", "exclusions"}
+    {
+        "source_types",
+        "quality_attributes",
+        "languages",
+        "required_coverage",
+        "exclusions",
+    }
 )
 _SCALAR_FIELDS: frozenset[str] = frozenset({"recency", "format", "length", "tone"})
 
@@ -92,6 +102,15 @@ _SOURCE_TYPE_ALIASES: dict[str, str] = {
     "website": "website",
     "grey literature": "grey_literature",
     "gray literature": "grey_literature",
+}
+
+_QUALITY_ATTRIBUTE_ALIASES: dict[str, str] = {
+    "high quality": "high_quality",
+    "high-quality": "high_quality",
+    "authoritative": "authoritative",
+    "credible": "credible",
+    "peer reviewed": "peer_reviewed",
+    "peer-reviewed": "peer_reviewed",
 }
 
 # ISO-639-1 canonicalization for the languages the prompt is likely to name.
@@ -143,9 +162,11 @@ class Constraints:
     """
 
     source_types: list[str] = field(default_factory=list)
+    quality_attributes: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
     recency: Optional[str] = None
     required_coverage: list[str] = field(default_factory=list)
+    coverage_roles: list[dict[str, Any]] = field(default_factory=list)
     exclusions: list[str] = field(default_factory=list)
     format: Optional[str] = None
     length: Optional[str] = None
@@ -155,9 +176,11 @@ class Constraints:
         """Return the canonical dict with all keys present, in field order."""
         return {
             "source_types": list(self.source_types),
+            "quality_attributes": list(self.quality_attributes),
             "languages": list(self.languages),
             "recency": self.recency,
             "required_coverage": list(self.required_coverage),
+            "coverage_roles": [dict(item) for item in self.coverage_roles],
             "exclusions": list(self.exclusions),
             "format": self.format,
             "length": self.length,
@@ -186,15 +209,24 @@ _SYSTEM_PROMPT = (
     "invent constraints that are not supported by the text. If a field is not "
     "constrained, leave it empty/null — do not guess.\n\n"
     "Return STRICT JSON only (no prose, no code fences) with EXACTLY these keys:\n"
-    "  source_types: array of strings — kinds of sources allowed/required "
-    "(e.g. 'journal_article', 'peer_reviewed'). If the prompt restricts to a "
-    "source kind ('only ... journal articles'), list ONLY that kind.\n"
+    "  source_types: array of strings — DOCUMENT KINDS allowed/required "
+    "(e.g. 'journal_article', 'conference_paper'). If the prompt restricts to "
+    "a source kind ('only ... journal articles'), list ONLY that kind. Never "
+    "put quality descriptors such as 'high-quality' in this field.\n"
+    "  quality_attributes: array of strings — source-quality requirements "
+    "(e.g. 'high_quality', 'peer_reviewed', 'authoritative'). Never put a "
+    "document kind in this field.\n"
     "  languages: array of strings — required source languages (prefer ISO-639-1 "
     "like 'en').\n"
     "  recency: string or null — any recency/date-window rule (e.g. 'since 2020', "
     "'last 5 years').\n"
     "  required_coverage: array of strings — specific topics/sub-questions/slots "
     "the review must cover, as named or clearly implied by the prompt.\n"
+    "  coverage_roles: array of objects, one per required_coverage item, with "
+    "keys 'concept', 'role', and 'comparative'. Derive the analytical role "
+    "semantically in the prompt's language; use role 'coverage' when no more "
+    "specific role is supported. comparative is true only for an explicit "
+    "cross-context comparison.\n"
     "  exclusions: array of strings — anything to exclude (source kinds, topics, "
     "regions).\n"
     "  format: string or null — the deliverable format (e.g. 'literature_review', "
@@ -303,6 +335,25 @@ def _as_opt_str(value: Any) -> Optional[str]:
     return s
 
 
+def _coverage_roles(value: Any) -> list[dict[str, Any]]:
+    """Normalize semantic coverage metadata without inferring from English tokens."""
+    if not isinstance(value, list):
+        return []
+    output: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        concept = " ".join(str(item.get("concept") or "").split()).strip()
+        role = " ".join(str(item.get("role") or "coverage").split()).strip()
+        if concept:
+            output.append({
+                "concept": concept,
+                "role": role or "coverage",
+                "comparative": bool(item.get("comparative", False)),
+            })
+    return output
+
+
 def _canon_list(items: list[str], aliases: dict[str, str]) -> list[str]:
     """Map each item through ``aliases`` (case/whitespace-insensitive), dedup."""
     out: list[str] = []
@@ -325,6 +376,27 @@ def _canon_scalar(value: Optional[str], aliases: dict[str, str]) -> Optional[str
     return aliases.get(key, value.strip())
 
 
+def _partition_source_constraints(data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Separate document kinds from quality descriptors, including legacy replies."""
+    source_types: list[str] = []
+    quality_attributes = _canon_list(
+        _as_str_list(data.get("quality_attributes")),
+        _QUALITY_ATTRIBUTE_ALIASES,
+    )
+    quality_seen = {item.casefold() for item in quality_attributes}
+    for raw in _as_str_list(data.get("source_types")):
+        key = re.sub(r"[\s_]+", " ", raw.strip().lower())
+        quality = _QUALITY_ATTRIBUTE_ALIASES.get(key)
+        document_type = _SOURCE_TYPE_ALIASES.get(key)
+        if quality is not None and document_type is None:
+            if quality.casefold() not in quality_seen:
+                quality_seen.add(quality.casefold())
+                quality_attributes.append(quality)
+            continue
+        source_types.append(document_type or raw.strip())
+    return _canon_list(source_types, _SOURCE_TYPE_ALIASES), quality_attributes
+
+
 def parse_constraints_json(raw: str) -> Constraints:
     """Parse a raw LLM JSON string into a normalized :class:`Constraints`.
 
@@ -340,15 +412,16 @@ def parse_constraints_json(raw: str) -> Constraints:
     if not isinstance(data, dict):
         raise ValueError("constraint extractor: model output was not a JSON object")
 
+    source_types, quality_attributes = _partition_source_constraints(data)
     c = Constraints(
-        source_types=_canon_list(
-            _as_str_list(data.get("source_types")), _SOURCE_TYPE_ALIASES
-        ),
+        source_types=source_types,
+        quality_attributes=quality_attributes,
         languages=_canon_list(
             _as_str_list(data.get("languages")), _LANGUAGE_ALIASES
         ),
         recency=_as_opt_str(data.get("recency")),
         required_coverage=_as_str_list(data.get("required_coverage")),
+        coverage_roles=_coverage_roles(data.get("coverage_roles")),
         exclusions=_as_str_list(data.get("exclusions")),
         format=_canon_scalar(_as_opt_str(data.get("format")), _FORMAT_ALIASES),
         length=_as_opt_str(data.get("length")),

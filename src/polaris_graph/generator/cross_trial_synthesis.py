@@ -1,357 +1,296 @@
-"""V33 — M-72 cross-trial synthesis layer.
+"""Evidence-derived cross-study synthesis context.
 
-Codex run-12 audit verdict: V31+V32 worked at the slot level but the
-categorical scoreboard remained frozen at 1 BB + 4 BO + 2 LB across
-runs 9-12. Two persistent LB dimensions diagnosed as substantive
-(not architectural):
+The slot layer already extracts source-bound fields.  This module preserves
+the useful next step—finding patterns across several empirical units—without
+assuming a subject area, intervention class, outcome name, or fixed study
+program.  Field names and values come exclusively from the payloads.
 
-  Regulatory LB — needs cross-jurisdiction synthesis (US↔EMA↔NICE↔HC
-    comparison), not per-jurisdiction prose alone. ChatGPT's win is
-    contrasting U.S. and EMA labeling materially.
-
-  Narrative depth LB — Efficacy + Mechanism remain slot-stacked even
-    after M-71 hedging discipline. Sustained synthesis (cross-trial
-    inference, time-course, target-attainment) is missing.
-
-This module reads rendered SlotFillPayloads from M-58/M-70 + the
-contradictions stream + the trial-summary cells, then emits 2-3
-synthesis sentences per body section (Comparative, Population
-Subgroups, Safety) that draw cross-trial inferences. Distinct from
-M-71 which only injects contradiction hedging instructions.
-
-## Pipeline
-
-  1. AGGREGATE — collect contract slot payloads (after M-63 dispatch
-     + M-70 regulatory synthesis) into a per-anchor frame:
-       trial_anchor → {N, baseline_hba1c, comparator, etd, sponsor}
-  2. SHAPE-MATCH — identify cross-trial patterns:
-       - dose-response trajectory (5/10/15 mg ETDs across SURPASS)
-       - comparator class progression (placebo → semaglutide → glargine)
-       - time-course (40 wk → 52 wk → 104 wk)
-       - jurisdiction parallel (FDA indication ↔ EMA indication)
-  3. SYNTHESIZE — LLM call with the aggregated frame as input,
-     prompt asks for 2-3 sentences per body section that quote the
-     extracted facts and add ONE inferential connective like
-     "across the SURPASS program" or "regulatory authorities
-     converge on".
-  4. VERIFY — sentences pass through whitespace-tolerant verbatim
-     check against the source slot payloads. Failed sentences drop;
-     surviving sentences are appended to the body section before
-     M-71 hedging block emission.
-
-## Why this is V33 not V32
-
-V32 (M-71) injected contradiction hedging into the prompt — gives
-the LLM context for hedged language but doesn't introduce new
-synthesis content. V33 (M-72) generates NEW prose from the
-already-extracted slots — that's a synthesis primitive.
-
-## Output
-
-Returns a `CrossTrialSynthesisBlock` with section-keyed prose
-suggestions. Caller (multi_section_generator._call_section)
-prepends them to the LLM prompt as "EXTRACTED CROSS-TRIAL CONTEXT".
-The LLM then produces a section paragraph that integrates these
-synthesis sentences into the body narrative.
-
-Keeps surgical-degrade discipline (M-69 Fix #5): per-pattern
-verification failures drop the single inference; sibling
-inferences survive.
+The output is prompt context, not released prose.  It deliberately describes
+which source-derived fields can be compared and leaves interpretation to the
+writer and the unchanged verification path.
 """
+
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Iterable
 
-from .slot_fill import SlotFillPayload, _whitespace_tolerant_substring
+from .slot_fill import SlotFillPayload
 
-logger = logging.getLogger("polaris_graph.cross_trial_synthesis")
+logger = logging.getLogger("polaris_graph.cross_study_synthesis")
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Aggregation
-# ─────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
-class _TrialFrame:
-    """One trial's extracted slot fields, normalized for cross-trial
-    comparison."""
+class _StudyFrame:
+    """Extracted fields for one evidence-bound empirical unit."""
+
     anchor: str
     entity_id: str
-    fields: dict[str, str]  # field_name -> extracted value
+    evidence_id: str
+    fields: dict[str, str]
 
 
-def _aggregate_trial_frames(
+def _display_anchor(payload: SlotFillPayload) -> str:
+    title = re.sub(r"\s+", " ", str(payload.subsection_title or "")).strip()
+    if title:
+        return title
+    return re.sub(r"[_-]+", " ", str(payload.entity_id or "")).strip()
+
+
+def _aggregate_study_frames(
     payloads: list[SlotFillPayload],
-) -> list[_TrialFrame]:
-    """Read M-58/M-70 payloads and collect a per-trial frame of
-    extracted fields. Skips payloads whose entity_id doesn't match
-    a trial anchor (e.g., regulatory entities are excluded; they
-    have their own jurisdiction synthesis path)."""
-    frames: list[_TrialFrame] = []
-    for p in payloads:
-        eid = p.entity_id
-        # Heuristic: trial entity_ids match `<anchor>_primary` or
-        # `<anchor>_secondary` pattern.
-        m = re.match(r"^([a-z0-9_]+?)_(primary|secondary|cvot)$", eid)
-        if not m:
-            continue
-        anchor = m.group(1).upper().replace("_", "-")
-        # Restore canonical anchor name (surpass_2 → SURPASS-2)
-        if anchor.startswith("SURPASS-") or anchor.startswith("SURMOUNT-"):
-            pass
-        elif "surpass" in eid.lower():
-            anchor = re.sub(r"surpass_(\d+|cvot)", r"SURPASS-\1",
-                            eid.lower(), flags=re.IGNORECASE).upper()
-        elif "surmount" in eid.lower():
-            anchor = re.sub(r"surmount_(\d+)", r"SURMOUNT-\1",
-                            eid.lower(), flags=re.IGNORECASE).upper()
+) -> list[_StudyFrame]:
+    """Collect every payload that contains at least one extracted field."""
 
-        extracted: dict[str, str] = {}
-        for f in p.fields:
-            if f.status == "extracted" and f.value:
-                extracted[f.field_name] = f.value
-        if extracted:
-            frames.append(_TrialFrame(
-                anchor=anchor,
-                entity_id=eid,
-                fields=extracted,
-            ))
+    frames: list[_StudyFrame] = []
+    for payload in payloads:
+        extracted = {
+            field_fill.field_name: str(field_fill.value)
+            for field_fill in payload.fields
+            if field_fill.status == "extracted" and field_fill.value
+        }
+        if not extracted:
+            continue
+        frames.append(_StudyFrame(
+            anchor=_display_anchor(payload),
+            entity_id=payload.entity_id,
+            evidence_id=payload.bound_ev_id,
+            fields=extracted,
+        ))
     return frames
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Shape-match patterns
-# ─────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
-class _CrossTrialPattern:
-    """One identified cross-trial pattern (dose-response, time-course,
-    jurisdiction parallel, etc.) with the contributing trials."""
-    section: str  # which body section it belongs to
-    pattern_type: str  # "dose_response" | "time_course" | "comparator_class"
-    summary: str  # "Across SURPASS-1 through -5, ..."
+class _CrossStudyPattern:
+    """One comparison licensed by fields shared across evidence units."""
+
+    section: str
+    pattern_type: str
+    summary: str
     contributing_anchors: tuple[str, ...]
     contributing_evidence_ids: tuple[str, ...]
 
 
-def _detect_dose_response_patterns(
-    frames: list[_TrialFrame],
-) -> list[_CrossTrialPattern]:
-    """Look for trials that report dose-stratified ETDs (5/10/15 mg).
-    If ≥3 SURPASS trials report dose ETDs, emit a dose-response
-    summary pattern for Comparative."""
-    eligible = []
-    for f in frames:
-        etd = f.fields.get("etd_with_uncertainty", "")
-        if not etd:
+def _ordered_unique(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        value = re.sub(r"\s+", " ", str(raw or "")).strip()
+        key = value.casefold()
+        if value and key not in seen:
+            seen.add(key)
+            out.append(value)
+    return out
+
+
+def _field_label(field_name: str) -> str:
+    return re.sub(r"[_-]+", " ", field_name).strip()
+
+
+def _shared_field_patterns(
+    frames: list[_StudyFrame],
+) -> list[_CrossStudyPattern]:
+    """Describe fields reported by more than one evidence unit.
+
+    No direction, trend, equivalence, or causal inference is asserted.  The
+    values are copied verbatim from the slot payloads.
+    """
+
+    by_field: dict[str, list[tuple[_StudyFrame, str]]] = {}
+    for frame in frames:
+        for field_name, value in frame.fields.items():
+            by_field.setdefault(field_name, []).append((frame, value))
+
+    patterns: list[_CrossStudyPattern] = []
+    for field_name, rows in by_field.items():
+        if len({row.entity_id for row, _ in rows}) < 2:
             continue
-        # Heuristic: ETD mentions multiple doses (5 mg / 10 mg / 15 mg)
-        if (
-            ("5 mg" in etd or "5-mg" in etd) and
-            ("10 mg" in etd or "10-mg" in etd) and
-            ("15 mg" in etd or "15-mg" in etd)
-        ):
-            eligible.append(f)
-        elif (
-            re.search(r"\b5\s*[/,]\s*10\s*[/,]\s*15", etd) or
-            re.search(r"-\d+\.\d+.*-\d+\.\d+.*-\d+\.\d+", etd)
-        ):
-            # Triple-dose ETD pattern: "-1.53; -1.47; -1.34" style
-            eligible.append(f)
-
-    if len(eligible) < 2:
-        return []
-
-    anchors = tuple(f.anchor for f in eligible)
-    evidence_ids = tuple(f.entity_id for f in eligible)
-    summary = (
-        f"Across {', '.join(anchors)}, dose-stratified ETDs at "
-        f"5, 10, and 15 mg show progressive HbA1c and weight "
-        f"reduction with each dose increment, consistent with a "
-        f"dose-response relationship characteristic of dual GIP/"
-        f"GLP-1 receptor agonism."
-    )
-    return [_CrossTrialPattern(
-        section="Comparative",
-        pattern_type="dose_response",
-        summary=summary,
-        contributing_anchors=anchors,
-        contributing_evidence_ids=evidence_ids,
-    )]
+        rendered = "; ".join(
+            f"{frame.anchor}: {value}"
+            for frame, value in rows
+        )
+        anchors = tuple(_ordered_unique(frame.anchor for frame, _ in rows))
+        evidence_ids = tuple(
+            _ordered_unique(frame.evidence_id for frame, _ in rows)
+        )
+        patterns.append(_CrossStudyPattern(
+            section="cross-study synthesis",
+            pattern_type="shared_field",
+            summary=(
+                f"Across the evidence units, {_field_label(field_name)} is "
+                f"reported as follows: {rendered}."
+            ),
+            contributing_anchors=anchors,
+            contributing_evidence_ids=evidence_ids,
+        ))
+    return patterns
 
 
-def _detect_comparator_class_patterns(
-    frames: list[_TrialFrame],
-) -> list[_CrossTrialPattern]:
-    """Look for trials whose comparators span placebo → GLP-1 RA →
-    insulin. Emit a comparator-class progression for Comparative."""
-    classes: dict[str, list[_TrialFrame]] = {
-        "placebo": [],
-        "glp1_ra": [],
-        "insulin": [],
+def _condition_patterns(
+    frames: list[_StudyFrame],
+) -> list[_CrossStudyPattern]:
+    """Surface different comparison conditions derived from field names.
+
+    Schema authors commonly name such a field ``comparator`` or
+    ``comparison_condition``.  Matching the linguistic stem keeps the rule
+    schema-derived without enumerating possible domain values.
+    """
+
+    matching_fields = {
+        field_name
+        for frame in frames
+        for field_name in frame.fields
+        if re.search(r"compar|reference[_ -]?condition", field_name, re.I)
     }
-    for f in frames:
-        comp = (f.fields.get("comparator", "") or "").lower()
-        if not comp:
+    patterns: list[_CrossStudyPattern] = []
+    for field_name in matching_fields:
+        rows = [
+            (frame, frame.fields[field_name])
+            for frame in frames
+            if frame.fields.get(field_name)
+        ]
+        distinct = _ordered_unique(value for _, value in rows)
+        if len(distinct) < 2:
             continue
-        if "placebo" in comp:
-            classes["placebo"].append(f)
-        elif "semaglutide" in comp or "dulaglutide" in comp or "liraglutide" in comp:
-            classes["glp1_ra"].append(f)
-        elif "insulin" in comp or "glargine" in comp or "degludec" in comp or "lispro" in comp:
-            classes["insulin"].append(f)
-
-    populated = [
-        cls for cls, fs in classes.items() if fs
-    ]
-    if len(populated) < 2:
-        return []
-
-    parts = []
-    anchors_all: list[str] = []
-    eids_all: list[str] = []
-    for cls in populated:
-        fs = classes[cls]
-        anchors_all.extend(f.anchor for f in fs)
-        eids_all.extend(f.entity_id for f in fs)
-        names = ", ".join(f.anchor for f in fs)
-        cls_label = {
-            "placebo": "placebo-controlled",
-            "glp1_ra": "active GLP-1 RA-comparator",
-            "insulin": "active insulin-comparator",
-        }[cls]
-        parts.append(f"{cls_label} ({names})")
-
-    summary = (
-        f"The pivotal program spans {' and '.join(parts)} designs, "
-        f"providing efficacy benchmarks against the major standard-"
-        f"of-care drug classes for type 2 diabetes."
-    )
-    return [_CrossTrialPattern(
-        section="Comparative",
-        pattern_type="comparator_class",
-        summary=summary,
-        contributing_anchors=tuple(anchors_all),
-        contributing_evidence_ids=tuple(eids_all),
-    )]
+        rendered = "; ".join(
+            f"{frame.anchor}: {value}"
+            for frame, value in rows
+        )
+        patterns.append(_CrossStudyPattern(
+            section="comparative synthesis",
+            pattern_type="comparison_conditions",
+            summary=f"Comparison conditions differ across sources: {rendered}.",
+            contributing_anchors=tuple(
+                _ordered_unique(frame.anchor for frame, _ in rows)
+            ),
+            contributing_evidence_ids=tuple(
+                _ordered_unique(frame.evidence_id for frame, _ in rows)
+            ),
+        ))
+    return patterns
 
 
-def _detect_safety_class_patterns(
-    frames: list[_TrialFrame],
-) -> list[_CrossTrialPattern]:
-    """Aggregate safety_signal fields across trials and emit a
-    cross-trial safety summary for Safety."""
-    eligible = [
-        f for f in frames if f.fields.get("safety_signal", "")
-    ]
-    if len(eligible) < 2:
-        return []
-
-    anchors = tuple(f.anchor for f in eligible)
-    eids = tuple(f.entity_id for f in eligible)
-    summary = (
-        f"The safety signal extracted across {', '.join(anchors)} "
-        f"converges on gastrointestinal events as the dominant "
-        f"adverse-event class, with hypoglycemia rates that depend "
-        f"on the comparator regimen rather than tirzepatide alone."
-    )
-    return [_CrossTrialPattern(
-        section="Safety",
-        pattern_type="safety_class",
-        summary=summary,
-        contributing_anchors=anchors,
-        contributing_evidence_ids=eids,
-    )]
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Public API
-# ─────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
-class CrossTrialSynthesisBlock:
-    """Per-section cross-trial synthesis suggestions, ready for
-    prompt injection into _call_section."""
-    section_to_patterns: dict[str, list[_CrossTrialPattern]] = field(
+class CrossStudySynthesisBlock:
+    """Prompt suggestions keyed by their evidence-derived analytical role."""
+
+    section_to_patterns: dict[str, list[_CrossStudyPattern]] = field(
         default_factory=dict,
     )
 
-    def get_for_section(self, section_title: str) -> list[_CrossTrialPattern]:
-        norm = section_title.strip().lower()
-        return self.section_to_patterns.get(norm, [])
+    def get_for_section(self, section_title: str) -> list[_CrossStudyPattern]:
+        """Return patterns whose field vocabulary overlaps the section.
+
+        A dedicated synthesis/comparison section receives all patterns.  For a
+        topical section, only patterns sharing a content token with its title
+        are returned.
+        """
+
+        normalized = re.sub(r"\s+", " ", section_title.strip().lower())
+        direct = list(self.section_to_patterns.get(normalized, []))
+        title_tokens = set(re.findall(r"[a-z][a-z0-9-]{2,}", normalized))
+        if re.search(r"\b(?:synth|compar|across)\w*", normalized):
+            return [
+                pattern
+                for patterns in self.section_to_patterns.values()
+                for pattern in patterns
+            ]
+        for key, patterns in self.section_to_patterns.items():
+            key_tokens = set(re.findall(r"[a-z][a-z0-9-]{2,}", key))
+            if title_tokens & key_tokens:
+                direct.extend(patterns)
+        # Stable de-duplication for a direct key plus token-overlap match.
+        seen: set[tuple[str, str, tuple[str, ...]]] = set()
+        out: list[_CrossStudyPattern] = []
+        for pattern in direct:
+            identity = (
+                pattern.pattern_type,
+                pattern.summary,
+                pattern.contributing_evidence_ids,
+            )
+            if identity not in seen:
+                seen.add(identity)
+                out.append(pattern)
+        return out
 
 
-def build_cross_trial_synthesis(
+def build_cross_study_synthesis(
     payloads: list[SlotFillPayload],
-) -> CrossTrialSynthesisBlock:
-    """Public entrypoint. Aggregates payloads → detects patterns →
-    returns a section-keyed block.
+) -> CrossStudySynthesisBlock:
+    """Aggregate payloads and return evidence-derived cross-study patterns."""
 
-    Returns an empty block when fewer than 2 trial frames have
-    extracted content. Caller treats empty block as "no synthesis
-    suggestions for this run".
-    """
-    frames = _aggregate_trial_frames(payloads)
+    frames = _aggregate_study_frames(payloads)
     if len(frames) < 2:
         logger.info(
-            "[m72] only %d trial frames with extracted fields — "
-            "skipping cross-trial synthesis", len(frames),
+            "[m72] only %d evidence frames with extracted fields; "
+            "cross-study synthesis skipped",
+            len(frames),
         )
-        return CrossTrialSynthesisBlock()
+        return CrossStudySynthesisBlock()
 
-    section_to_patterns: dict[str, list[_CrossTrialPattern]] = {}
-    for detector in (
-        _detect_dose_response_patterns,
-        _detect_comparator_class_patterns,
-        _detect_safety_class_patterns,
-    ):
-        for pat in detector(frames):
-            key = pat.section.strip().lower()
-            section_to_patterns.setdefault(key, []).append(pat)
-
-    if section_to_patterns:
-        total = sum(len(v) for v in section_to_patterns.values())
-        logger.info(
-            "[m72] cross-trial synthesis: %d patterns across "
-            "%d sections", total, len(section_to_patterns),
-        )
-    return CrossTrialSynthesisBlock(
-        section_to_patterns=section_to_patterns,
+    patterns = [
+        *_condition_patterns(frames),
+        *_shared_field_patterns(frames),
+    ]
+    section_to_patterns: dict[str, list[_CrossStudyPattern]] = {}
+    for pattern in patterns:
+        section_to_patterns.setdefault(pattern.section, []).append(pattern)
+    logger.info(
+        "[m72] cross-study synthesis found %d source-derived patterns",
+        len(patterns),
     )
+    return CrossStudySynthesisBlock(section_to_patterns=section_to_patterns)
 
 
-def render_cross_trial_synthesis_block(
+def render_cross_study_synthesis_block(
     section_title: str,
-    block: CrossTrialSynthesisBlock,
+    block: CrossStudySynthesisBlock,
 ) -> str:
-    """Render the M-72 synthesis instruction block for a section
-    prompt. Returns empty string when no patterns for this section."""
+    """Render source-derived cross-study context for one writer section."""
+
     patterns = block.get_for_section(section_title)
     if not patterns:
         return ""
     lines = [
         "",
-        "=== M-72 CROSS-TRIAL SYNTHESIS CONTEXT ===",
+        "=== M-72 CROSS-STUDY SYNTHESIS CONTEXT ===",
         (
-            "The following cross-trial inferences are derivable from "
-            "the contract slot payloads ALREADY rendered above. "
-            "INCLUDE 1-2 of these inferences as part of the body "
-            "narrative — they are connectives that integrate the "
-            "per-trial slot data into a single clinical synthesis. "
-            "Cite the contributing [ev_XXX] markers when stating "
-            "the inference. DO NOT invent claims beyond these "
-            "patterns; the slot payloads are the only source of "
-            "truth."
+            "The following comparisons are assembled only from extracted slot "
+            "payloads. Integrate a relevant comparison when it fits this "
+            "section, cite every contributing evidence marker, and do not add "
+            "a trend, mechanism, or conclusion absent from the source values."
         ),
         "",
     ]
-    for p in patterns:
-        evid_marks = "".join(
-            f"[{eid}]" for eid in p.contributing_evidence_ids
+    for pattern in patterns:
+        markers = "".join(
+            f"[{evidence_id}]"
+            for evidence_id in pattern.contributing_evidence_ids
+            if evidence_id
         )
         lines.append(
-            f"  - Pattern type: {p.pattern_type}\n"
-            f"    Suggested summary sentence: {p.summary}{evid_marks}"
+            f"  - Pattern type: {pattern.pattern_type}\n"
+            f"    Source-derived comparison: {pattern.summary}{markers}"
         )
     lines.append("")
     return "\n".join(lines)
+
+
+# Compatibility aliases for existing call sites.  The behavior and prompt
+# vocabulary are cross-study and domain-neutral.
+CrossTrialSynthesisBlock = CrossStudySynthesisBlock
+
+
+def build_cross_trial_synthesis(
+    payloads: list[SlotFillPayload],
+) -> CrossStudySynthesisBlock:
+    return build_cross_study_synthesis(payloads)
+
+
+def render_cross_trial_synthesis_block(
+    section_title: str,
+    block: CrossStudySynthesisBlock,
+) -> str:
+    return render_cross_study_synthesis_block(section_title, block)

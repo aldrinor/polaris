@@ -82,18 +82,22 @@ def test_all_keys_present_on_empty_result():
     c = parse_constraints_json("{}").to_dict()
     assert set(c.keys()) == {
         "source_types",
+        "quality_attributes",
         "languages",
         "recency",
         "required_coverage",
+        "coverage_roles",
         "exclusions",
         "format",
         "length",
         "tone",
     }
     assert c["source_types"] == []
+    assert c["quality_attributes"] == []
     assert c["languages"] == []
     assert c["recency"] is None
     assert c["required_coverage"] == []
+    assert c["coverage_roles"] == []
     assert c["exclusions"] == []
     assert c["format"] is None
     assert c["length"] is None
@@ -112,6 +116,14 @@ def test_parse_task72_shape_and_canonicalization():
     assert c.tone == "academic"
     assert c.recency is None
     assert c.required_coverage  # non-empty coverage slot(s)
+
+
+def test_quality_descriptor_is_partitioned_from_document_types():
+    c = parse_constraints_json(
+        '{"source_types": ["journal_article", "high-quality"]}'
+    )
+    assert c.source_types == ["journal_article"]
+    assert c.quality_attributes == ["high_quality"]
 
 
 def test_parser_tolerates_scalar_where_list_expected():

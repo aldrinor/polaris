@@ -2,66 +2,121 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 import re
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from src.polaris_graph.settings import resolve
 
 _OFF = frozenset({"", "0", "false", "no", "off", "disabled"})
-_ROLES = ("frame", "mechanism", "cross-context comparison", "synthesis", "implication")
-_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
-
-
-@dataclass(frozen=True)
+@dataclass
 class CoverageObligation:
     concept: str
     role: str
     comparative: bool = False
+    bound_section: str = ""
+    binding_method: str = ""
 
 
 def enabled() -> bool:
     return (resolve("PG_COVERAGE_OBLIGATIONS") or "").strip().lower() not in _OFF
 
 
-def _role_for(concept: str, position: int) -> str:
-    text = concept.lower()
-    if re.search(r"\b(various|across|between|different|multiple)\b", text):
-        return "cross-context comparison"
-    if re.search(r"\b(mechanism|how|why|driver|pathway|process)\b", text):
-        return "mechanism"
-    if re.search(r"\b(frame|context|era|revolution|paradigm)\b", text):
-        return "frame"
-    if re.search(r"\b(implication|recommendation|policy|future|consequence)\b", text):
-        return "implication"
-    if re.search(r"\b(overall|synthesis|integrat|conclusion)\b", text):
-        return "synthesis"
-    return _ROLES[position % len(_ROLES)]
-
-
-def build_obligations(required_coverage: Sequence[str] | None) -> list[CoverageObligation]:
+def build_obligations(
+    required_coverage: Sequence[str | Mapping[str, Any]] | None,
+) -> list[CoverageObligation]:
+    """Build obligations from semantic extractor output without language regexes."""
     obligations: list[CoverageObligation] = []
     seen: set[str] = set()
-    for position, raw in enumerate(required_coverage or []):
-        concept = " ".join(str(raw).split()).strip()
+    for raw in required_coverage or []:
+        if isinstance(raw, Mapping):
+            concept = " ".join(str(raw.get("concept") or "").split()).strip()
+            role = " ".join(str(raw.get("role") or "coverage").split()).strip()
+            comparative = bool(raw.get("comparative", False))
+        else:
+            concept = " ".join(str(raw).split()).strip()
+            role = "coverage"
+            comparative = False
         key = concept.casefold()
         if not concept or key in seen:
             continue
         seen.add(key)
-        role = _role_for(concept, position)
         obligations.append(CoverageObligation(
             concept=concept,
-            role=role,
-            comparative=(role == "cross-context comparison"),
+            role=role or "coverage",
+            comparative=comparative,
         ))
     return obligations
 
 
-def thread_obligations(plans: Sequence[Any], obligations: Sequence[CoverageObligation]) -> None:
-    """Attach each obligation to an outline focus and repeat the full spine in the conclusion."""
+def _character_ngrams(text: str) -> set[str]:
+    normalized = " ".join(text.casefold().split())
+    return {
+        normalized[index:index + 3]
+        for index in range(max(0, len(normalized) - 2))
+        if not normalized[index:index + 3].isspace()
+    }
+
+
+def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
+    numerator = sum(a * b for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if not left_norm or not right_norm:
+        return 0.0
+    return numerator / (left_norm * right_norm)
+
+
+def _obligation_targets(
+    plans: Sequence[Any],
+    obligations: Sequence[CoverageObligation],
+    embedding_fn: Callable[[list[str]], Sequence[Sequence[float]]] | None,
+) -> tuple[list[Any], str]:
+    plan_texts = [
+        f"{getattr(plan, 'title', '')}. {getattr(plan, 'focus', '')}"
+        for plan in plans
+    ]
+    concepts = [obligation.concept for obligation in obligations]
+    if embedding_fn is not None:
+        vectors = list(embedding_fn([*concepts, *plan_texts]))
+        if len(vectors) != len(concepts) + len(plan_texts):
+            raise ValueError("coverage obligation embedding count mismatch")
+        concept_vectors = vectors[:len(concepts)]
+        plan_vectors = vectors[len(concepts):]
+        return [
+            plans[max(
+                range(len(plans)),
+                key=lambda index: _cosine(concept_vector, plan_vectors[index]),
+            )]
+            for concept_vector in concept_vectors
+        ], "embedding"
+
+    # Dependency-free multilingual fallback: Unicode character n-gram affinity.
+    # The binding method is surfaced in telemetry rather than silently claiming
+    # semantic-model matching.
+    plan_grams = [_character_ngrams(text) for text in plan_texts]
+    return [
+        plans[max(
+            range(len(plans)),
+            key=lambda index: len(_character_ngrams(concept) & plan_grams[index]),
+        )]
+        for concept in concepts
+    ], "unicode_ngram"
+
+
+def thread_obligations(
+    plans: Sequence[Any],
+    obligations: Sequence[CoverageObligation],
+    *,
+    embedding_fn: Callable[[list[str]], Sequence[Sequence[float]]] | None = None,
+) -> None:
+    """Attach each obligation to its closest section and carry its binding."""
     if not enabled() or not plans or not obligations:
         return
-    for position, obligation in enumerate(obligations):
-        plan = plans[position % len(plans)]
+    targets, binding_method = _obligation_targets(plans, obligations, embedding_fn)
+    for obligation, plan in zip(obligations, targets):
+        obligation.bound_section = str(getattr(plan, "title", "") or "")
+        obligation.binding_method = binding_method
         direction = (
             "make at least one explicit comparison across contexts (regions, industries, populations, or periods)"
             if obligation.comparative else f"treat it analytically as a {obligation.role}"
@@ -85,13 +140,19 @@ def audit_fulfillment(
     obligations: Sequence[CoverageObligation],
     sections: Sequence[Any],
 ) -> dict[str, Any]:
-    bodies = [str(getattr(section, "verified_text", "") or "") for section in sections]
-    joined = " ".join(bodies).casefold()
+    sections_by_title = {
+        str(getattr(section, "title", "") or ""): section
+        for section in sections
+    }
     missing: list[dict[str, Any]] = []
     fulfilled: list[dict[str, Any]] = []
     for obligation in obligations:
-        tokens = [token.casefold() for token in _WORD_RE.findall(obligation.concept)]
-        present = bool(tokens) and all(token in joined for token in tokens)
+        section = sections_by_title.get(obligation.bound_section)
+        present = bool(
+            section is not None
+            and str(getattr(section, "verified_text", "") or "").strip()
+            and not bool(getattr(section, "dropped_due_to_failure", False))
+        )
         record = asdict(obligation)
         (fulfilled if present else missing).append(record)
     return {"fulfilled": fulfilled, "missing": missing}
@@ -119,7 +180,20 @@ def render_sections_preserving_outline(
     return rendered, disclosed
 
 
-def required_coverage_from(constraints: Mapping[str, Any] | None) -> list[str]:
+def required_coverage_from(
+    constraints: Mapping[str, Any] | None,
+) -> list[str | Mapping[str, Any]]:
     if not isinstance(constraints, Mapping):
         return []
-    return [str(item) for item in constraints.get("required_coverage", []) if str(item).strip()]
+    roles = {
+        str(item.get("concept") or "").casefold(): item
+        for item in (constraints.get("coverage_roles") or [])
+        if isinstance(item, Mapping) and str(item.get("concept") or "").strip()
+    }
+    output: list[str | Mapping[str, Any]] = []
+    for item in constraints.get("required_coverage", []):
+        concept = " ".join(str(item).split()).strip()
+        if not concept:
+            continue
+        output.append(roles.get(concept.casefold(), concept))
+    return output

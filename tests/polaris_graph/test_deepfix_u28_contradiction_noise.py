@@ -31,6 +31,7 @@ def _claim(
     *,
     unit: str = "",
     url: str | None = None,
+    population: str = "",
 ) -> ExtractedNumericClaim:
     return ExtractedNumericClaim(
         evidence_id=ev_id,
@@ -41,6 +42,7 @@ def _claim(
         context_snippet=f"{subject} {predicate} {value}{unit}",
         source_url=url if url is not None else f"https://example.com/{ev_id}",
         source_tier="T1",
+        population=population,
     )
 
 
@@ -132,9 +134,9 @@ def test_real_subject_still_contradicts() -> None:
     # suppressed — the guard only drops stopword subjects.
     claims = [
         _claim("ev_a", "semaglutide", "weight loss", 14.9, unit="%",
-               url="https://a.example/1"),
+               url="https://a.example/1", population="shared scope"),
         _claim("ev_b", "semaglutide", "weight loss", 17.4, unit="%",
-               url="https://b.example/2"),
+               url="https://b.example/2", population="shared scope"),
     ]
     records = detect_contradictions(claims, is_clinical=True)
     assert len(records) == 1

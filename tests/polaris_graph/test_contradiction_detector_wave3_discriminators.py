@@ -114,18 +114,19 @@ def test_p1_1_arm_legacy_treatment_on_no_placebo_cue_via_extractor() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_p1_2_dose_mgkg_off_byte_identical(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Flag OFF: the legacy regex path runs verbatim; '5 mg/kg' degrades to
-    # '5 mg' exactly as it does in the current tree (byte-identity anchor).
+def test_p1_2_compound_condition_unit_is_preserved_when_flag_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The compatibility flag does not select a lossy topic-specific parser.
     monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
-    assert _extract_dose("dosed at 5 mg/kg daily") == "5 mg"
+    assert _extract_dose("dosed at 5 mg/kg daily") == "5 mg/kg"
     assert _extract_dose("dosed at 5 mg daily") == "5 mg"
 
 
 def test_p1_2_dose_mgkg_off_explicit_zero(monkeypatch: pytest.MonkeyPatch) -> None:
-    # An explicit =0 is also OFF (mirrors credibility_pass._OFF_VALUES).
+    # An explicit zero likewise leaves the shared parser in place.
     monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
-    assert _extract_dose("dosed at 5 mg/kg daily") == "5 mg"
+    assert _extract_dose("dosed at 5 mg/kg daily") == "5 mg/kg"
 
 
 def test_p1_2_test7_mgkg_vs_mg_distinct_when_flag_on(
@@ -163,11 +164,11 @@ def test_p1_2_test19_dose_frequency_weekly_vs_daily_distinct() -> None:
     assert weekly != daily
 
 
-def test_p1_2_dose_frequency_abbreviations_normalize() -> None:
-    assert _extract_dose_frequency("given b.i.d.") == "bid"
-    assert _extract_dose_frequency("given twice daily") == "bid"
-    assert _extract_dose_frequency("given once daily") == "qd"
-    assert _extract_dose_frequency("administered q8h") == "q8h"
+def test_p1_2_recurrence_uses_generic_source_phrases() -> None:
+    assert _extract_dose_frequency("given twice daily") == "twice daily"
+    assert _extract_dose_frequency("given once daily") == "once daily"
+    assert _extract_dose_frequency("sampled every 8 hours") == "every 8 hours"
+    assert _extract_dose_frequency("given b.i.d.") == ""
 
 
 def test_p1_2_dose_frequency_unknown_when_no_cadence_token() -> None:
@@ -200,18 +201,15 @@ def test_p1_2_effect_measure_hr_or_and_unknown() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_p1_2_test17_route_iv_vs_po_distinct() -> None:
-    iv = _extract_route_formulation("1000 mg IV")
-    po = _extract_route_formulation("1000 mg PO")
-    assert iv == "iv"
-    assert po == "po"
-    assert iv != po
+def test_p1_2_route_is_not_inferred_from_topic_vocabulary() -> None:
+    assert _extract_route_formulation("1000 mg IV") == ""
+    assert _extract_route_formulation("1000 mg PO") == ""
 
 
-def test_p1_2_route_spelled_out_and_unknown() -> None:
-    assert _extract_route_formulation("administered orally") == "po"
-    assert _extract_route_formulation("given subcutaneously") == "sc"
-    assert _extract_route_formulation("extended-release tablet") == "er"
+def test_p1_2_route_compatibility_helper_is_inert() -> None:
+    assert _extract_route_formulation("administered orally") == ""
+    assert _extract_route_formulation("given subcutaneously") == ""
+    assert _extract_route_formulation("extended-release tablet") == ""
     assert _extract_route_formulation("1000 mg dose") == ""
 
 
@@ -272,13 +270,11 @@ def test_p1_2_endpoint_day_year_patterns(monkeypatch) -> None:
     assert _extract_endpoint_phrase("survival at 2 years") == "at 2 years"
 
 
-def test_p1_2_endpoint_day_year_gated_off_is_empty(monkeypatch) -> None:
-    # OFF byte-identity (Claude Slice-B iter-2 P1): a day/year-only phrase that the
-    # legacy tree returned "" for MUST still return "" with the flag OFF (endpoint_phrase
-    # feeds the legacy cluster key + contradictions.json, so a non-"" OFF value drifts).
+def test_p1_2_endpoint_day_year_is_domain_neutral_when_flag_off(monkeypatch) -> None:
+    # The compatibility flag cannot remove generic time units.
     monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "0")
-    assert _extract_endpoint_phrase("response measured at day 28") == ""
-    assert _extract_endpoint_phrase("survival at 2 years") == ""
+    assert _extract_endpoint_phrase("response measured at day 28") == "at day 28"
+    assert _extract_endpoint_phrase("survival at 2 years") == "at 2 years"
 
 
 def test_p1_2_endpoint_existing_week_month_unchanged(monkeypatch) -> None:
@@ -291,12 +287,9 @@ def test_p1_2_endpoint_existing_week_month_unchanged(monkeypatch) -> None:
 
 
 def test_p1_2_endpoint_day_year_do_not_override_existing_patterns() -> None:
-    # Byte-identity guard: the day/year patterns are placed LAST, so a phrase
-    # that ALSO matches an existing pattern keeps the legacy result. Pre-change
-    # these returned "from baseline" / "mean change"; the new patterns must not
-    # steal precedence.
-    assert _extract_endpoint_phrase("change from baseline at day 28") == "from baseline"
-    assert _extract_endpoint_phrase("mean change at day 28") == "mean change"
+    # An explicit observation window is the more specific source frame.
+    assert _extract_endpoint_phrase("change from baseline at day 28") == "at day 28"
+    assert _extract_endpoint_phrase("mean change at day 28") == "at day 28"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

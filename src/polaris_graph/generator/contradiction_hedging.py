@@ -1,55 +1,14 @@
-"""V32 — M-71 contradiction-aware hedging for section prose.
+"""M-71 contradiction-aware hedging for section prose.
 
-Codex strategic review (2026-04-25): run-9..run-11 Qwen flagged
-hedging_appropriateness=needs_revision because the explicit
-contradiction disclosure lives only in the appendix while the body
-sections (Safety, Comparative, Population Subgroups) make assertive
-claims without acknowledging the disagreements.
-
-This module:
-
-  1. CLASSIFIES contradictions by section relevance using
-     subject/predicate keyword tagging.
-  2. FILTERS to high-severity, same-endpoint/same-population
-     clusters per section so the LLM doesn't get flooded by noisy
-     detector output.
-  3. RENDERS a SECTION_HEDGING_BLOCK that gets injected into the
-     section prompt instructing the LLM to add ONE hedged sentence
-     when a contradiction materially changes interpretation.
-
-Codex's framing (verbatim):
-  "Run-11 Qwen is mainly objecting to hedging, not to section
-   layout or missing section types. You already have contradiction
-   JSON and the relevant body sections. The missing step is
-   section-local injection: feed only high-severity, same-endpoint/
-   same-population disagreement clusters into Safety, Comparative,
-   and Population Subgroups, and require one hedged sentence when
-   a contradiction materially changes interpretation."
-
-## Section relevance taxonomy
-
-| Section            | Relevant predicates / subjects                   |
-|--------------------|--------------------------------------------------|
-| Safety             | hypoglycemia, adverse events, GI events, AE     |
-| Comparative        | weight, body weight, HbA1c, vs                  |
-| Population Subgroups | weight loss, BMI, age, dose                    |
-| Efficacy           | HbA1c, primary endpoint, ETD                    |
-
-A contradiction is relevant to a section iff its
-subject/predicate matches one of the section's keyword lists.
-
-## Severity gate
-
-A contradiction is high-severity iff:
-  - At least 3 distinct values cited (i.e., genuine multi-source
-    disagreement, not a single outlier)
-  - Numeric range > 30% relative spread
-  - Tier mix includes ≥1 T1 source (so the disagreement isn't
-    pure noise from low-tier outliers)
+Contradictions are routed using vocabulary carried by the contradiction
+record itself.  Section titles are never mapped to a baked-in subject
+taxonomy: relevance comes from token overlap with record fields, explicit
+record routing metadata, or generic comparative syntax.
 """
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,48 +16,84 @@ logger = logging.getLogger("polaris_graph.contradiction_hedging")
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Section relevance classification
+# Evidence-derived section relevance
 # ─────────────────────────────────────────────────────────────────────
-_SECTION_KEYWORDS: dict[str, frozenset[str]] = {
-    "safety": frozenset({
-        "hypoglycemia", "adverse", "gi", "gastrointestinal",
-        "nausea", "vomiting", "diarrhea", "discontinuation",
-        "tolerability", "ae", "serious",
-    }),
-    "comparative": frozenset({
-        "weight", "body weight", "weight loss", "hba1c",
-        "ttr", "weight reduction", "vs", "versus",
-    }),
-    "population subgroups": frozenset({
-        "weight loss", "weight reduction", "bmi",
-        "body mass index", "age", "elderly", "dose",
-        "ethnicity", "subgroup",
-    }),
-    "efficacy": frozenset({
-        "hba1c", "primary endpoint", "etd",
-        "treatment difference", "glycemic", "glucose",
-    }),
-}
+_WORD_RE = re.compile(r"[^\W\d_][\w'-]*", re.UNICODE)
+_COMPARISON_RE = re.compile(
+    r"\b(?:versus|vs\.?|compared\s+(?:to|with)|relative\s+to|than)\b",
+    re.IGNORECASE,
+)
 
 
 def _section_keywords_for(title: str) -> frozenset[str]:
-    """Look up the section's keyword set by title (case-insensitive,
-    fuzzy)."""
-    norm = title.strip().lower()
-    for key, kws in _SECTION_KEYWORDS.items():
-        if key in norm:
-            return kws
-    return frozenset()
+    """Return meaningful vocabulary written in the section title itself."""
+
+    return frozenset(
+        token.casefold()
+        for token in _WORD_RE.findall(str(title or ""))
+        if len(token) > 2
+    )
+
+
+def _iter_text_values(value: Any) -> list[str]:
+    """Flatten text-bearing routing metadata without assuming a schema."""
+
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [item for entry in value for item in _iter_text_values(entry)]
+    if isinstance(value, dict):
+        return [item for entry in value.values() for item in _iter_text_values(entry)]
+    return []
+
+
+def _record_routing_tokens(c: dict[str, Any]) -> frozenset[str]:
+    """Derive routing vocabulary from the detector record."""
+
+    routing_values: list[str] = []
+    for key in (
+        "subject",
+        "predicate",
+        "endpoint",
+        "measure",
+        "metric",
+        "context",
+        "section",
+        "sections",
+        "section_title",
+        "topics",
+        "tags",
+    ):
+        routing_values.extend(_iter_text_values(c.get(key)))
+    return frozenset(
+        token.casefold()
+        for value in routing_values
+        for token in _WORD_RE.findall(value)
+        if len(token) > 2
+    )
 
 
 def _contradiction_text_blob(c: dict[str, Any]) -> str:
-    """Concatenate subject + predicate + dose into a search blob."""
-    parts = []
-    for k in ("subject", "predicate", "dose", "endpoint", "context"):
-        v = c.get(k)
-        if isinstance(v, str):
-            parts.append(v.lower())
-    return " ".join(parts)
+    """Concatenate the record's own text-bearing fields."""
+
+    return " ".join(sorted(_record_routing_tokens(c)))
+
+
+def _is_section_relevant(section_title: str, c: dict[str, Any]) -> bool:
+    """Route by evidence-derived vocabulary or generic comparison syntax."""
+
+    section_tokens = _section_keywords_for(section_title)
+    record_tokens = _record_routing_tokens(c)
+    if section_tokens & record_tokens:
+        return True
+    if any(token.startswith("compar") for token in section_tokens):
+        raw = " ".join(
+            value
+            for key in ("subject", "predicate", "endpoint", "measure", "metric", "context")
+            for value in _iter_text_values(c.get(key))
+        )
+        return bool(_COMPARISON_RE.search(raw))
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -167,16 +162,14 @@ def filter_section_contradictions(
     """
     if not contradictions:
         return []
-    keywords = _section_keywords_for(section_title)
-    if not keywords:
+    if not _section_keywords_for(section_title):
         return []
 
     candidates: list[tuple[float, SectionContradictionHint]] = []
     for c in contradictions:
         if not isinstance(c, dict):
             continue
-        blob = _contradiction_text_blob(c)
-        if not any(kw in blob for kw in keywords):
+        if not _is_section_relevant(section_title, c):
             continue
         if not _is_high_severity(c):
             continue

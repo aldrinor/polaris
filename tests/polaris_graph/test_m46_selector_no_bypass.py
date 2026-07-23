@@ -30,8 +30,9 @@ def _row(
     title: str = "",
     statement: str = "",
     direct_quote: str = "",
+    **metadata: object,
 ) -> dict:
-    return {
+    row = {
         "evidence_id": ev_id,
         "url": url,
         "tier": tier,
@@ -39,6 +40,8 @@ def _row(
         "statement": statement or f"evidence for {ev_id}",
         "direct_quote": direct_quote,
     }
+    row.update(metadata)
+    return row
 
 
 class TestM46ShortPoolFloorsFire:
@@ -112,7 +115,7 @@ class TestM46ShortPoolFloorsFire:
                  "T1", title="Generic review"),
             _row("ev_r2", "https://example.com/r2",
                  "T1", title="Another review"),
-            _row("ev_s1", "https://www.nejm.org/x1",
+            _row("ev_s1", "https://example.com/articles/x1",
                  "T1", title="SURPASS-1 primary publication"),
             _row("ev_r3", "https://example.com/r3",
                  "T1", title="Third review"),
@@ -148,7 +151,7 @@ class TestM46ShortPoolFloorsFire:
             _row("ev_m4", "https://example.com/m4",
                  "T2", title="Bioavailability metabolism pathway",
                  statement="pharmacokinetic metabolism pathway"),
-            _row("ev_s1", "https://www.nejm.org/x1",
+            _row("ev_s1", "https://example.com/articles/x1",
                  "T1", title="SURPASS-2 primary"),
         ]
         result = select_evidence_for_generation(
@@ -171,17 +174,21 @@ class TestM46ShortPoolFloorsFire:
         m42c_notes = [n for n in result.notes if "m42c_mechanism_floor" in n]
         assert m42c_notes, f"m42c note missing: {result.notes}"
 
-    def test_hc_expansion_telemetry_in_short_pool(self) -> None:
-        """M-42d HC quota expansion emits telemetry in short-pool mode."""
+    def test_configured_jurisdiction_telemetry_in_short_pool(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An evidence-defined priority jurisdiction emits telemetry."""
+        monkeypatch.setenv("PG_M41D_PRIORITY_JURISDICTION", "north")
+        monkeypatch.setenv("PG_M41D_PRIORITY_JURISDICTION_QUOTA", "2")
         rows = [
             _row("ev_fda1", "https://www.accessdata.fda.gov/drugsatfda/x1",
-                 "T3", title="FDA label"),
+                 "T3", title="Authority record", jurisdiction="south"),
             _row("ev_hc1", "https://pdf.hres.ca/1.pdf",
-                 "T3", title="HC monograph"),
+                 "T3", title="Primary authority record", jurisdiction="north"),
             _row("ev_hc2", "https://canada.ca/recall/2",
-                 "T3", title="HC recall"),
+                 "T3", title="Updated authority record", jurisdiction="north"),
             _row("ev_ema1", "https://www.ema.europa.eu/1",
-                 "T3", title="EMA EPAR"),
+                 "T3", title="Third authority record", jurisdiction="east"),
         ]
         result = select_evidence_for_generation(
             research_question="tirzepatide regulatory",
@@ -190,7 +197,10 @@ class TestM46ShortPoolFloorsFire:
             evidence_rows=rows,
             max_rows=50,
         )
-        m42d_notes = [n for n in result.notes if "m42d_hc_quota_expand" in n]
+        m42d_notes = [
+            n for n in result.notes
+            if "m42d_priority_jurisdiction_expand" in n
+        ]
         assert m42d_notes, f"m42d note missing in short pool: {result.notes}"
 
     def test_backwards_compat_no_anchors_no_notes(self) -> None:
@@ -247,9 +257,9 @@ class TestM46NoRegressionOnTruncatingRuns:
         """Pool 6 rows, max_rows 3 → truncating path (not M-46 early
         exit). Verify M-42e primary floor still fires."""
         rows = [
-            _row("ev_s1", "https://www.nejm.org/x1",
+            _row("ev_s1", "https://example.com/articles/x1",
                  "T1", title="SURPASS-1 primary"),
-            _row("ev_s2", "https://www.nejm.org/x2",
+            _row("ev_s2", "https://example.com/articles/x2",
                  "T1", title="SURPASS-2 primary"),
             _row("ev_r1", "https://example.com/r1", "T1"),
             _row("ev_r2", "https://example.com/r2", "T1"),

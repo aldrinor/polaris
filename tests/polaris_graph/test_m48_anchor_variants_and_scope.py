@@ -87,13 +87,15 @@ class TestM48VariantExtraction:
         }
         assert _extract_variants(tmpl, "s") == {}
 
-    def test_anchor_with_whitespace_rejected(self) -> None:
+    def test_anchor_with_whitespace_is_preserved(self) -> None:
         tmpl = {
             "per_query_primary_trial_variants": {
                 "s": {"BAD ANCHOR": "valid variant text"},
             },
         }
-        assert _extract_variants(tmpl, "s") == {}
+        assert _extract_variants(tmpl, "s") == {
+            "BAD ANCHOR": "valid variant text",
+        }
 
     def test_empty_variant_rejected(self) -> None:
         tmpl = {
@@ -156,14 +158,14 @@ class TestM48PopulationScope:
         assert scope["SURMOUNT-2"] == "direct"
         assert scope["SURPASS-2"] == "direct"
 
-    def test_invalid_label_rejected(self) -> None:
+    def test_template_defined_label_is_preserved(self) -> None:
         tmpl = {
             "per_query_trial_population_scope": {
                 "s": {"ANCHOR": "not-a-real-label"},
             },
         }
         scope = get_trial_population_scope_for_slug(tmpl, "s")
-        assert scope == {}
+        assert scope == {"ANCHOR": "not-a-real-label"}
 
     def test_accepts_case_insensitive_labels(self) -> None:
         tmpl = {

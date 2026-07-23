@@ -157,7 +157,7 @@ class FrameRow:
     doi: str | None
     pmid: str | None            # string form to handle both int/str inputs
     oa_pdf_url: str | None
-    url: str | None             # for regulatory url_pattern entities
+    url: str | None             # for url_pattern entities
     # Metadata where available
     title: str | None
     authors: tuple[str, ...]
@@ -225,23 +225,19 @@ _OA_FULLTEXT_MIN_CHARS = int(resolve("PG_OA_FULLTEXT_MIN_CHARS"))
 # Jina landing-page markdown the next, clean CrossRef abstract a third) and
 # noisy, while the abstract is clean and stable — and contract fields
 # (thesis/mechanism/effect) are abstract-level claims. Default OFF preserves
-# the M-66b-T clinical full-text path (multi-field trial rosters live in
-# tables, not abstracts); run_gate_b sets it ON for the benchmark.
+# the full-text path for fields that live in tables rather than abstracts.
 _FRAME_PREFER_ABSTRACT = (
     resolve("PG_FRAME_PREFER_ABSTRACT").strip().lower()
     in ("1", "true", "yes", "on")
 )
-# Entity types whose contract fields live in full-text TABLES (clinical trial
-# 9-field rosters etc.) KEEP the OA full-text path even under prefer-abstract,
-# so Gate-B gold-rubric coverage for clinical questions is preserved (dual-audit
-# #1034 P1). Narrative entity types (economic_report, ...) prefer the clean
-# abstract AND skip the scrape entirely (no non-deterministic fetch, no Sci-Hub
-# request).
+# Full-text entity types come from runtime metadata.  The domain-neutral
+# wildcard default preserves the richest fetch for every entity; operators may
+# provide a comma-separated subset for an abstract-first run.
 _FULLTEXT_ENTITY_TYPES = frozenset(
     t.strip().lower()
     for t in os.getenv(
         "PG_FRAME_FULLTEXT_ENTITY_TYPES",
-        "pivotal_trial,clinical_trial,rct,systematic_review,meta_analysis",
+        "*",
     ).split(",")
     if t.strip()
 )
@@ -421,11 +417,9 @@ def _parse_pubmed_xml(xml_text: str) -> dict[str, Any]:
         elif last:
             authors.append(last)
 
-    # V30 Phase-2 sweep run-1 root cause: stale/wrong PMID in the
-    # contract YAML (e.g. PMID 34010531 bound to surpass_2_primary
-    # actually points at the SPRINT blood-pressure trial, not the
-    # Frias tirzepatide paper). The extractor passed anti-fabrication
-    # because SPRINT prose WAS verbatim in the abstract we fetched.
+    # A stale locator in a contract can resolve to the wrong publication.
+    # The extractor may still pass anti-fabrication because the returned
+    # prose is genuinely verbatim, just from the wrong source.
     # Defense: pull PubMed's own DOI (`<ELocationID EIdType="doi">`)
     # so the caller can cross-check against the bound DOI and reject
     # mismatches rather than render wrong content.
@@ -995,7 +989,7 @@ def _pick_richest_abstract(
     if s2:
         candidates.append((s2, "s2_abstract"))
     # A thin OA full-text stub is a TRUE last resort: admit it ONLY when
-    # no real abstract resolved. Per §-1.1 clinical-safety (dual-audit
+    # no real abstract resolved. Per §-1.1 source-safety (dual-audit
     # finding #1034), a paywall junk stub must never become the extracted
     # span when a real abstract exists — even if the stub is longer.
     if partial_full_text and not candidates:
@@ -1020,11 +1014,10 @@ def _urlsafe_doi(doi: str) -> str:
 # stack (Crawl4AI + Jina Reader + Firecrawl concurrent) used
 # elsewhere for content extraction. Used by M-56 for:
 #
-#   - M-66b-R: url_pattern-primary regulatory entities (FDA, EMA,
-#     NICE, HC landing pages) where no DOI/PMID exists.
+#   - M-66b-R: url_pattern-primary entities where no DOI/PMID exists.
 #   - M-66b-T: OA PDF/HTML full-text fetch when Unpaywall
 #     surfaced an OA URL — upgrades direct_quote from abstract
-#     to full text so M-58 can extract 9-field SURPASS rosters.
+#     to full text so M-58 can extract fields absent from abstracts.
 #
 # Returns `(content_str, final_url_str)` on success, `("", "")` on
 # failure. Caller decides provenance class + attempt logging.
@@ -1214,8 +1207,7 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
             content = getattr(result, "content", "") or ""
             final_url = getattr(result, "url", "") or url
             method = (getattr(result, "access_method", "") or "").lower()
-            # Never use pirate-source (Sci-Hub) content in a research /
-            # clinical product — legal + provenance (#1034 dual-audit P1).
+            # Never use pirate-source content in a research product.
             # Rejects BOTH the Sci-Hub HTML viewer page AND clean Sci-Hub
             # PDF text (which _looks_like_html_junk cannot detect).
             if "scihub" in method or "sci-hub" in method:
@@ -1495,7 +1487,7 @@ def _fetch_frame_entity_inner(
     """Core dispatch: pick strategy by primary_identifier prefix."""
     identifiers = _collect_identifiers(binding)
 
-    # URL-pattern-primary entities (regulatory): V30 Phase-2 M-66b-R
+    # URL-pattern-primary entities: V30 Phase-2 M-66b-R
     # lifts these from METADATA_ONLY to OPEN_ACCESS when content can
     # be fetched via the POLARIS AccessBypass helper. Codex pass-3
     # CONDITIONAL-no-blockers approved this scope.
@@ -1606,13 +1598,11 @@ def _fetch_frame_entity_inner(
     abstract_crossref: str | None = None
     doi = identifiers.get("doi")
     pmid = identifiers.get("pmid")
-    # Entity-scoped prefer-abstract (#1034 dual-audit P1): a narrative
-    # frame entity (economic_report, ...) under the flag prefers the clean
-    # abstract AND skips the OA scrape entirely; a full-text entity type
-    # (clinical trial rosters) keeps the full-text path so Gate-B coverage
-    # is preserved.
+    # Configured full-text entity types keep the richest fetch; other
+    # types may skip the OA scrape under the abstract-first flag.
     entity_prefers_abstract = (
         _FRAME_PREFER_ABSTRACT
+        and "*" not in _FULLTEXT_ENTITY_TYPES
         and binding.entity_type.strip().lower() not in _FULLTEXT_ENTITY_TYPES
     )
 
@@ -1649,8 +1639,8 @@ def _fetch_frame_entity_inner(
     # Step 2b: V30 Phase-2 M-66b-T — fetch OA PDF/HTML full text
     # (Codex pass-3 CONDITIONAL-no-blockers). Upgrades
     # direct_quote from ~500-char abstract to up to 25K chars of
-    # full text, giving M-58 enough surface to extract SURPASS
-    # 9-field rosters. Falls back to abstract on fetch failure.
+    # full text, giving M-58 enough surface to extract fields absent
+    # from abstracts. Falls back to abstract on fetch failure.
     oa_locator = oa_pdf_url or oa_html_url
     if oa_locator and entity_prefers_abstract:
         # Narrative frame entity under prefer-abstract: SKIP the OA scrape
@@ -1765,8 +1755,8 @@ def _fetch_frame_entity_inner(
                     ),
                 ))
                 # Reject PubMed content entirely for this entity —
-                # we MUST NOT extract from SPRINT when the contract
-                # intended SURPASS-2.
+                # we MUST NOT extract from a source other than the one
+                # intended by the contract.
             else:
                 abstract_pubmed = parsed_pm.get("abstract")
                 # Fill missing metadata from PubMed if CrossRef didn't
@@ -1789,7 +1779,7 @@ def _fetch_frame_entity_inner(
     # short-circuit the gather and starve the slot — `_pick_richest_abstract` picks the
     # longest. OFF restores the legacy `not abstract_crossref and not abstract_pubmed`
     # short-circuit byte-identically. The full-text guard clause is INTENTIONALLY kept:
-    # a clinical entity with real OA full text still skips OpenAlex (full text wins),
+    # an entity with real OA full text still skips OpenAlex (full text wins),
     # while the paywalled primaries here (no usable full text) still consult OpenAlex.
     if (
         _OPENALEX_FRAME_FALLBACK_ENABLED
@@ -1913,7 +1903,7 @@ def _fetch_frame_entity_inner(
         failure_reason = None
     elif real_full_text:
         # V30 Phase-2 M-66b-T: real OA full text — rich source for
-        # M-58's multi-field extractions (default path; clinical rosters).
+        # M-58's multi-field extractions (default path).
         # I-faith-002: label by source so the manifest distinguishes a
         # legal CORE OA fetch from an AccessBypass scrape.
         direct_quote = real_full_text

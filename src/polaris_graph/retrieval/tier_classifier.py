@@ -1026,7 +1026,7 @@ def _detect_conference_abstract(title: str, url: str = "") -> bool:
 # M-18a (DR audit pass 1): STRONG narrative markers — always fire
 # regardless of primary-study signals. These phrases unambiguously
 # indicate that the paper is NOT a primary RCT even if it references
-# one (e.g., post-hoc analyses of a SURPASS trial ARE narrative).
+# one (for example, post-hoc analyses of a named study are derivative).
 _NARRATIVE_FLAVOR_STRONG_MARKERS = (
     # Case reports / series — always narrative regardless of primary terms
     "case report", "case reports", "case study",
@@ -1037,12 +1037,7 @@ _NARRATIVE_FLAVOR_STRONG_MARKERS = (
     "secondary analysis",
     "pooled analysis",
     "subgroup analysis",
-    # Program-level pooled reporting — still narrative
-    "in the step program", "in the step programme",
-    "in the surpass program", "in the surmount program",
-    "in the rewind program", "in the leader program",
-    "in the sustain program", "in the pioneer program",
-    "in the select program",
+    # Program-level pooled reporting is detected structurally below.
     # M-18c (Codex pass 10 advisory): narrative framings about
     # randomized trials are reviews ABOUT RCTs, not RCTs themselves.
     # These must fire even when the title also contains "randomized".
@@ -1065,14 +1060,19 @@ _NARRATIVE_FLAVOR_WEAK_MARKERS = (
     "a review of ",
     "the upcoming", "the coming", "on the horizon",
     "perspectives on", "viewpoints on",
-    "against obesity", "for obesity",
-    "for the treatment of", "for the management of",
     "perspective for", "perspective on ", "a perspective",
     "perspectives for",
-    "primary care providers", "primary care physician",
-    "for clinicians", "for physicians",
-    "prescribing ",
-    "what the clinician", "what clinicians",
+)
+
+# Linguistic shapes that signal an audience-facing or guidance-style title
+# without naming any profession, intervention, or subject area.
+_NARRATIVE_FLAVOR_WEAK_RE = re.compile(
+    r"\bfor\s+(?:the\s+)?(?:[a-z][a-z-]*\s+){0,2}"
+    r"[a-z][a-z-]*(?:ians|ists|ers)\b"
+    r"|\bwhat\s+[a-z][a-z-]*(?:ians|ists|ers)\s+needs?\s+to\s+know\b"
+    r"|\b[a-z][a-z-]*ing\s+recommendations?\b"
+    r"|\bfor\s+the\s+[a-z][a-z-]*\s+of\b",
+    re.IGNORECASE,
 )
 
 # Preserve the combined tuple for backwards compatibility with any
@@ -1087,10 +1087,9 @@ def _detect_narrative_flavor_from_title(title: str) -> bool:
 
     M-18a (DR audit pass 1): split narrative markers into STRONG (case
     report, post-hoc analysis, pooled analysis, program-level) and
-    WEAK (for the treatment of, update on, perspective for). Strong
+    WEAK (update on, perspective for). Strong
     markers always fire. Weak markers defer to primary-study signals
-    so NEJM head-to-head RCTs like "Tirzepatide as Compared with
-    Semaglutide for the Treatment of Obesity" are not demoted.
+    so primary comparison papers are not demoted.
     """
     if not title:
         return False
@@ -1100,10 +1099,15 @@ def _detect_narrative_flavor_from_title(title: str) -> bool:
     # STRONG narrative markers fire regardless of primary-study signals.
     if any(k in t for k in _NARRATIVE_FLAVOR_STRONG_MARKERS):
         return True
+    if re.search(r"\bin\s+(?:the\s+)?[\w.-]+\s+program(?:me)?\b", t):
+        return True
     # WEAK markers defer to primary-study signals.
     if _detect_primary_study_signal(title):
         return False
-    return any(k in t for k in _NARRATIVE_FLAVOR_WEAK_MARKERS)
+    return (
+        any(k in t for k in _NARRATIVE_FLAVOR_WEAK_MARKERS)
+        or bool(_NARRATIVE_FLAVOR_WEAK_RE.search(t))
+    )
 
 
 # Pass-10 addition (BUG-M-10): title markers that indicate guideline,
@@ -1211,7 +1215,7 @@ def _title_is_diagnostic_for_article_type(title: str) -> bool:
 # signals. R9_openalex_primary_study previously granted T1 on any
 # allowlisted journal host when OpenAlex said article+journal. Codex
 # found that truncated Serper snippet titles hid SR/MA suffixes, so
-# real meta-analyses (MDPI + Frontiers tirzepatide papers) slipped
+# real meta-analyses from some publishers slipped
 # through to T1. Codex recommendation: require at least one positive
 # primary-study marker before granting T1, not just absence of
 # SR/MA/narrative markers.
@@ -1223,19 +1227,8 @@ _PRIMARY_STUDY_TITLE_MARKERS = (
     "double-blind", "double blind",
     "single-blind", "single blind",
     "placebo-controlled", "placebo controlled",
-    # M-18a (DR audit pass 1): NEJM head-to-head RCTs often use the
-    # "X as Compared with Y" formula (e.g. "Tirzepatide as Compared
-    # with Semaglutide for the Treatment of Obesity"). Without this
-    # marker, the "for the treatment of" narrative-flavor keyword
-    # wins and the primary RCT is demoted to T4.
+    # Head-to-head studies often use the "X as Compared with Y" formula.
     "as compared with", "as compared to",
-    # Phase markers (clinical)
-    "phase 1", "phase 2", "phase 3", "phase 4",
-    "phase i ", "phase ii ", "phase iii ", "phase iv ",
-    "phase-1", "phase-2", "phase-3", "phase-4",
-    # Specific named trials / acronyms that unambiguously name a study
-    "surpass-", "surmount-", "step ", "select trial",
-    "leader trial", "sustain trial", "rewind trial", "pioneer ",
     # Observational study markers
     "cohort study", "cohort-study",
     "case-control", "case control",
@@ -1263,7 +1256,10 @@ def _detect_primary_study_signal(title: str) -> bool:
     if not title:
         return False
     t = title.lower()
-    return any(k in t for k in _PRIMARY_STUDY_TITLE_MARKERS)
+    if any(k in t for k in _PRIMARY_STUDY_TITLE_MARKERS):
+        return True
+    # A phase label is structural evidence regardless of the research domain.
+    return bool(re.search(r"\bphase[- ](?:[1-9]\d*|[ivxlcdm]+)\b", t))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1713,29 +1709,20 @@ def _classify_source_tier_rules(
         )
         return result
 
-    # ── Rule 2c (T3): Industry-hosted regulatory content (product
-    # monographs, prescribing information) — overrides industry-marketing
-    # classification because the CONTENT is a regulatory-approved label
-    # even though the HOSTING is manufacturer-controlled.
-    _url_lower = (signals.url or "").lower()
-    _title_lower = (signals.title or "").lower()
-    _regulatory_content_markers = (
-        "product-monograph", "product_monograph",
-        "prescribing-information", "prescribing_information",
-        "215256s",  # FDA label revision pattern
-    )
-    _regulatory_title_markers = (
-        "product monograph", "prescribing information",
-    )
-    if any(m in _url_lower for m in _regulatory_content_markers) or \
-       any(m in _title_lower for m in _regulatory_title_markers):
+    # ── Rule 2c (T3): publisher-hosted official content. The source class
+    # comes from upstream evidence metadata rather than a domain-specific URL
+    # or title vocabulary.
+    source_hint = (signals.source_type_hint or "").strip().lower()
+    if re.fullmatch(
+        r"(?:regulatory(?:_.+)?|.+_regulatory|official_document)",
+        source_hint,
+    ):
         result.tier = TierLevel.T3
         result.confidence = 0.9
-        result.matched_rules.append("R2c_regulatory_content_marker")
+        result.matched_rules.append("R2c_official_content_metadata")
         result.reasons.append(
-            "URL or title contains regulatory-content marker (product "
-            "monograph / prescribing information / FDA label revision "
-            "pattern). T3 regardless of hosting domain."
+            "Upstream source metadata identifies an official document. "
+            "T3 regardless of hosting domain."
         )
         return result
 
@@ -1948,8 +1935,7 @@ def _classify_source_tier_rules(
         # strong primary-study evidence AND OpenAlex confirms peer-
         # reviewed journal article. This prevents body-signal false
         # positives from demoting RCT titles such as "Randomized
-        # placebo-controlled trial" or named-trial titles like
-        # "SURPASS-9 trial".
+        # controlled study" or another structurally primary title.
         pub_type_for_gate = (signals.openalex_publication_type or "").lower()
         src_type_for_gate = (signals.openalex_source_type or "").lower()
         is_peer_reviewed_for_gate = (
@@ -2136,10 +2122,8 @@ def _classify_source_tier_rules(
                 )
                 return result
             # BUG-M-12 (Codex pass 12): the primary-signal requirement
-            # was too strict — bare NEJM/Lancet/JAMA papers with
-            # titles like "Tirzepatide in type 2 diabetes" or
-            # "Semaglutide in Obesity" are legitimate primary trials
-            # but lack positive RCT/phase markers in the title. Rely
+            # was too strict — primary papers can use a bare
+            # subject-plus-scope title and lack design markers. Rely
             # instead on (i) OpenAlex full-title enrichment in
             # live_retriever (so SR/MA suffixes aren't truncated) and
             # (ii) expanded narrative markers ("perspective for",

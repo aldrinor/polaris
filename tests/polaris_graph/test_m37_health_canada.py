@@ -138,49 +138,36 @@ class TestClinicalTemplateHealthCanadaAnchors:
 
 
 class TestSectionPromptJurisdictionalCoverage:
-    """M-37 fix #3: per-section prompt has a new rule #11b requiring
-    at least one citation per regulatory jurisdiction present in the
-    section's evidence subset."""
+    """Compatibility coverage for the generalized authority rule."""
 
     def test_prompt_has_jurisdictional_coverage_rule(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
-        # Rule 11b marker — stable identifier so future tests can key off it.
-        assert "M-37" in SECTION_SYSTEM_PROMPT_TEMPLATE
-        assert "Jurisdictional coverage" in SECTION_SYSTEM_PROMPT_TEMPLATE
-        # Must name Health Canada (the specific Codex pass-11 gap) but
-        # also generalize to other jurisdictions.
-        assert "Health Canada" in SECTION_SYSTEM_PROMPT_TEMPLATE
-        # Generalization: names multiple jurisdictions, not HC only
-        jurisdictions = ["FDA", "EMA", "Health Canada", "NICE"]
-        hits = [
-            j for j in jurisdictions
-            if j in SECTION_SYSTEM_PROMPT_TEMPLATE
-        ]
-        assert len(hits) >= 3, (
-            f"Rule #11b must name multiple jurisdictions, found: {hits}"
-        )
+        assert "Authority precision and coverage" in SECTION_SYSTEM_PROMPT_TEMPLATE
+        assert "jurisdictions" in SECTION_SYSTEM_PROMPT_TEMPLATE
+        assert "agencies" in SECTION_SYSTEM_PROMPT_TEMPLATE
+        assert "standards bodies" in SECTION_SYSTEM_PROMPT_TEMPLATE
 
-    def test_m29_jurisdictional_precision_rule_still_present(self) -> None:
-        """M-37 ADDED rule #11b; it must NOT remove the M-29 rule #11."""
+    def test_authority_precision_is_preserved(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
-        assert "M-29" in SECTION_SYSTEM_PROMPT_TEMPLATE
-        assert "Jurisdictional precision" in SECTION_SYSTEM_PROMPT_TEMPLATE
+        body = SECTION_SYSTEM_PROMPT_TEMPLATE.lower()
+        assert "attribute each specific assertion" in body
+        assert "whose source supports it" in body
 
-    def test_prompt_rule_ordering_preserved(self) -> None:
-        """Rule #11 (M-29 precision) must precede rule #11b (M-37
-        coverage) so the generator reads them as a compound rule."""
+    def test_precision_and_coverage_share_one_rule(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
-        m29_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional precision")
-        m37_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional coverage")
-        assert 0 < m29_idx < m37_idx, (
-            f"rule ordering wrong: precision={m29_idx}, coverage={m37_idx}"
+        start = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
+            "Authority precision and coverage"
         )
+        end = SECTION_SYSTEM_PROMPT_TEMPLATE.find("\n12.", start)
+        body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:end].lower()
+        assert "attribute each specific assertion" in body
+        assert "cite at least one source from each authority" in body
 
     def test_prompt_rule_qualifies_on_presence(self) -> None:
         """Rule #11b must qualify on presence (only fire when evidence
@@ -189,33 +176,18 @@ class TestSectionPromptJurisdictionalCoverage:
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
-        # Look for the presence-qualifier phrase
-        assert "actually present" in SECTION_SYSTEM_PROMPT_TEMPLATE or (
-            "appears in your evidence subset" in SECTION_SYSTEM_PROMPT_TEMPLATE
-        )
+        assert "present in the evidence" in SECTION_SYSTEM_PROMPT_TEMPLATE
 
-    def test_m37_rule_itself_does_not_hardcode_drug_names(self) -> None:
-        """M-37 generalization discipline: the NEW rule #11b must NOT
-        hardcode drug-specific content. Check only the #11b sub-
-        paragraph, not the whole prompt (pre-existing rule #10 uses
-        tirzepatide as a citation-density example, unchanged by M-37).
-        """
+    def test_authority_rule_has_no_named_domain_authorities(self) -> None:
+        """Authority vocabulary is structural rather than domain-specific."""
         from src.polaris_graph.generator.multi_section_generator import (
             SECTION_SYSTEM_PROMPT_TEMPLATE,
         )
-        # Extract the #11b rule body: from "Jurisdictional coverage"
-        # marker until the next rule marker (either "12." or blank line).
-        start = SECTION_SYSTEM_PROMPT_TEMPLATE.find("Jurisdictional coverage")
-        assert start >= 0, "rule #11b not present"
-        # Take 1500 chars max — more than enough for a single rule.
-        rule_body = SECTION_SYSTEM_PROMPT_TEMPLATE[start:start + 1500]
-        # The rule may name the KwikPen pen-device as an example of a
-        # jurisdiction-specific fact (it's Health-Canada-specific
-        # labelling, not a drug-tier branch in code) — acceptable.
-        # But the drug name itself must not appear in the M-37 rule.
-        lowered = rule_body.lower()
-        assert "tirzepatide" not in lowered, (
-            "M-37 rule #11b must not hardcode drug name"
+        start = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
+            "Authority precision and coverage"
         )
-        assert "mounjaro" not in lowered
-        assert "zepbound" not in lowered
+        end = SECTION_SYSTEM_PROMPT_TEMPLATE.find("\n12.", start)
+        assert start >= 0 and end > start
+        lowered = SECTION_SYSTEM_PROMPT_TEMPLATE[start:end].lower()
+        for literal in ("fda", "ema", "nice", "health canada"):
+            assert literal not in lowered

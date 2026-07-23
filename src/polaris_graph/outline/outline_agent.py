@@ -1453,8 +1453,8 @@ class OutlineAgent:
             "verbatim excerpt copied EXACTLY (same words, same characters, no added quotation "
             "marks of your own around it) from the QUESTION text that names the specific "
             "missing facet. A quote that is just the subject's name (e.g. only the topic noun) "
-            "does NOT count — it must name the FACET (e.g. 'long-term cardiovascular safety', "
-            "'compared with other agents', 'in specific populations', 'particular industries "
+            "does NOT count — it must name the FACET (e.g. 'long-term reliability', "
+            "'compared with alternatives', 'in specific contexts', 'particular industries "
             "or occupations', 'key risk points'). If you cannot produce such a quote, do not "
             "list the line.\n\n"
             "If the question is a single, narrow, already-answered factual question, or every "
@@ -1463,8 +1463,7 @@ class OutlineAgent:
             "<section title, copied EXACTLY from the list above> :: <specific missing aspect> "
             ":: <coverage|density|numeric_rows> :: <verbatim quote from QUESTION>\n\n"
             "Example (question asks two things, sources only cover one) — CORRECT:\n"
-            "Safety :: long-term cardiovascular safety :: coverage :: long-term cardiovascular "
-            "safety\n"
+            "Reliability :: long-term reliability :: coverage :: long-term reliability\n"
             "Example (question asks for a cross-cutting summary table of application cases and "
             "risks across industries; outline has sections 'Opportunities' and 'Challenges') — "
             "CORRECT (decomposed into 2 lines, each under an EXISTING section):\n"
@@ -1887,12 +1886,12 @@ class OutlineAgent:
                     elif new_ev_ids and not self.workspace.required_titles:
                         # Iter-2 fix: found via a real live thin-run (nondeterministic re-run) —
                         # when the checklist names a gap section that does NOT exist in the
-                        # current outline (e.g. the seed never created a dedicated "Cardiovascular
-                        # Safety" section for a question that asks about it), the OLD behavior
+                        # current outline (e.g. the seed never created a dedicated section for
+                        # a facet explicitly requested by the question), the OLD behavior
                         # here was a permanent SKIP: the new rows sat orphaned in the pool, the
                         # SAME gap re-fired every round under a slightly different name
-                        # ("Missing Section" / "Cardiovascular Safety" / "[No matching section]"
-                        # / "Outline"), and the loop burned its entire turn budget re-searching
+                        # ("Missing Section" / "[No matching section]" / "Outline"), and the
+                        # loop burned its entire turn budget re-searching
                         # the exact same aspect without ever converging. This ONLY applies when
                         # there is no deliverable required-structure lock (see the required_titles
                         # branch below, which correctly still SKIPs to protect an exact-N-in-order

@@ -26,6 +26,7 @@ from src.polaris_graph.retrieval.constraint_enforcement import (
 )
 from src.polaris_graph.retrieval.intake_constraint_extractor import (
     extract_scope_constraints,
+    extract_scope_constraints_regex,
     extract_user_constraints,
 )
 from src.polaris_graph.retrieval.scope_facet_classifier import (
@@ -334,6 +335,14 @@ def test_13_named_include_boost(enforce_on):
     )
     assert sel and sel[0] == _WHO["url"]   # named-included source pinned to the FRONT
     assert _JOURNAL["url"] in sel          # journal not demoted out
+
+
+def test_named_source_vocabulary_comes_from_extracted_constraint_values():
+    sc = extract_scope_constraints_regex(
+        "Use only ACM.",
+        constraint_values=["ACM"],
+    )
+    assert [item.label for item in sc.named_include] == ["ACM"]
 
 
 # ========================================================================================

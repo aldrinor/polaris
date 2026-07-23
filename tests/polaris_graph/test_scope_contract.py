@@ -94,8 +94,10 @@ def test_hard_exclusive_type_and_language_exclude_only_proven_mismatch(monkeypat
         lambda _prompt: "0: ON\n1: ON\n2: ON\n3: ON",
         constraints={"source_types": ["journal_article"], "languages": ["en"]},
     )
-    assert [row["evidence_id"] for row in result.evidence] == ["journal", "unknown"]
-    assert {item["evidence_id"] for item in result.wrong_type_excluded} == {"report", "spanish"}
+    assert [row["evidence_id"] for row in result.evidence] == ["journal"]
+    assert {item["evidence_id"] for item in result.wrong_type_excluded} == {
+        "report", "spanish", "unknown",
+    }
     assert all(item["retained_in_source_corpus"] for item in result.wrong_type_excluded)
 
 
@@ -136,3 +138,47 @@ def test_deepening_queries_are_prompt_and_wanted_type_derived():
     )
     assert queries[0].startswith("Compare AI labor displacement")
     assert any(query.endswith("journal article") for query in queries)
+
+
+def test_quality_descriptor_cannot_disable_exclusive_document_type_gate(monkeypatch):
+    monkeypatch.setenv("PG_COMPOSITION_SCOPE_CONTRACT", "1")
+    prompt = "Cite only high-quality journal articles."
+    rows = [
+        {"evidence_id": "journal", "title": "Study", "document_type": "JOURNAL_ARTICLE"},
+        {"evidence_id": "news", "title": "Newsroom item", "document_type": "NEWS"},
+        {"evidence_id": "unknown", "title": "Unresolved source", "document_type": "UNKNOWN"},
+    ]
+    result = apply_scope_contract(
+        rows,
+        prompt,
+        lambda _prompt: "0: ON\n1: ON\n2: ON",
+        constraints={"source_types": ["journal_article", "high-quality"]},
+    )
+    assert [row["evidence_id"] for row in result.evidence] == ["journal"]
+    assert {item["evidence_id"] for item in result.wrong_type_excluded} == {
+        "news", "unknown",
+    }
+
+
+def test_exclusive_language_detection_uses_extracted_value_not_language_list(monkeypatch):
+    monkeypatch.setenv("PG_COMPOSITION_SCOPE_CONTRACT", "1")
+    result = apply_scope_contract(
+        [
+            {
+                "evidence_id": "it",
+                "title": "Studio",
+                "document_type": "JOURNAL_ARTICLE",
+                "language": "it",
+            },
+            {
+                "evidence_id": "en",
+                "title": "Study",
+                "document_type": "JOURNAL_ARTICLE",
+                "language": "en",
+            },
+        ],
+        "Cite only Italian-language journal articles.",
+        lambda _prompt: "0: ON\n1: ON",
+        constraints={"source_types": ["journal_article"], "languages": ["it"]},
+    )
+    assert [row["evidence_id"] for row in result.evidence] == ["it"]

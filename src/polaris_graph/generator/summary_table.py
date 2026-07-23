@@ -109,7 +109,8 @@ _STRAIGHT_QUOTED_RE = re.compile(r"\"(.+?)\"")
 # Connector words that stay lowercase inside a header phrase when the belt-and-suspenders
 # UNQUOTED fallback title-cases an all-lowercase header (so "specific applications and
 # impacts" -> "Specific Applications and Impacts", never "... And ..."). A header that
-# already carries its own casing is preserved verbatim (see :func:`_smart_titlecase`).
+# already carries its own casing is preserved verbatim (see
+# :func:`_titlecase_preserving_casing`).
 _UNQUOTED_HEADER_SMALL_WORDS = frozenset(
     {"and", "or", "of", "the", "in", "to", "a", "an", "for", "on", "with", "by"}
 )
@@ -397,7 +398,7 @@ def summary_table_enabled() -> bool:
     return os.environ.get(_ENABLE_FLAG, "1").strip().lower() not in _OFF_VALUES
 
 
-def _smart_titlecase(phrase: str) -> str:
+def _titlecase_preserving_casing(phrase: str) -> str:
     """Title-case an ALL-lowercase header phrase (keeping connector words lowercase after
     the first word); a phrase that ALREADY carries any uppercase letter is returned
     VERBATIM (so "Country/Region" / "Specific Applications and Impacts" are preserved
@@ -450,7 +451,7 @@ def parse_requested_headers(research_question: str) -> list[str]:
     for raw in sentence_tail.split(","):
         piece = _UNQUOTED_LEADING_AND_RE.sub("", raw.strip()).strip().rstrip(".").strip()
         if piece:
-            unquoted.append(_smart_titlecase(piece))
+            unquoted.append(_titlecase_preserving_casing(piece))
     if len(unquoted) >= 2:
         return unquoted
     return []

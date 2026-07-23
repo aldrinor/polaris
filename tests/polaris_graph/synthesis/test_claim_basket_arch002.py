@@ -181,7 +181,7 @@ def test_14_union_laundering_member_failing_alone_counts_once():
     }
     rows = _annotated_rows([
         # A's span supports the 14.9% claim text.
-        ("evA", "Semaglutide achieved 14.9% weight loss at week 68 in the trial.", 0.9),
+        ("evA", "Semaglutide achieved 14.9% weight loss. Follow-up was at week 68.", 0.9),
         # B's span is about a DIFFERENT value (22.5) — it does NOT contain 14.9, so
         # B fails strict_verify ALONE even though A's span would launder it in a union.
         ("evB", "Tirzepatide achieved 22.5% weight loss at week 72 in the trial.", 0.8),
@@ -238,8 +238,8 @@ def test_14_both_members_verify_alone_count_is_two():
         "evB": _all_known_numeric("evB", value=14.9),
     }
     rows = _annotated_rows([
-        ("evA", "Semaglutide achieved 14.9% weight loss at week 68 in the trial.", 0.9),
-        ("evB", "A second cohort also showed 14.9% weight loss with semaglutide.", 0.8),
+        ("evA", "Semaglutide achieved 14.9% weight loss. Follow-up was at week 68.", 0.9),
+        ("evB", "Semaglutide achieved 14.9% weight loss. A second cohort corroborated it.", 0.8),
     ])
     _graph, baskets = _build_basket(claims_by_eid, rows)
     assert len(baskets) == 1
@@ -274,8 +274,8 @@ def test_11_basket_verdict_full_does_not_resurrect_a_dropped_sentence():
         "evB": _all_known_numeric("evB", value=14.9),
     }
     rows = _annotated_rows([
-        ("evA", "Semaglutide achieved 14.9% weight loss at week 68 in the trial.", 0.9),
-        ("evB", "A second cohort also showed 14.9% weight loss with semaglutide.", 0.8),
+        ("evA", "Semaglutide achieved 14.9% weight loss. Follow-up was at week 68.", 0.9),
+        ("evB", "Semaglutide achieved 14.9% weight loss. A second cohort corroborated it.", 0.8),
     ])
     _graph, baskets = _build_basket(claims_by_eid, rows)
     assert baskets[0].basket_verdict == BASKET_VERDICT_FULL
@@ -369,8 +369,8 @@ def test_22_main_path_basket_merges_distinct_origins_into_one_cluster():
         "e2": _all_known_numeric("e2", value=14.9),
     }
     rows = _annotated_rows([
-        ("e1", "Semaglutide achieved 14.9% weight loss at week 68.", 0.9),
-        ("e2", "Semaglutide achieved 14.9% weight loss at week 68.", 0.8),
+        ("e1", "Semaglutide achieved 14.9% weight loss. Follow-up was at week 68.", 0.9),
+        ("e2", "Semaglutide achieved 14.9% weight loss. Follow-up was at week 68.", 0.8),
     ])
     _graph, baskets = _build_basket(claims_by_eid, rows)
     assert len(baskets) == 1, "the two equal clinical atoms consolidate into one basket"

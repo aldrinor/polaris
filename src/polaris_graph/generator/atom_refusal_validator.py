@@ -1,24 +1,9 @@
-"""Atom citation validator + gap renderer (recommended_path #4).
+"""Atom-citation validation and explicit gap rendering.
 
-Per Codex APPROVE_DESIGN 2026-05-26 (refusal_design_verdict):
-    - Approach C hybrid: prompt-side instruction + post-hoc enforcement
-    - STRICT layer: missing/invalid atom_id → REPLACE sentence with refusal
-    - SOFT layer: value/endpoint/entity/timepoint mismatch → log only, do
-      NOT replace (during demo period)
-    - Sentence-level refusal granularity
-    - gaps.json sidecar AND inline refusal markers in report.md
-    - Multi-atom sentences: ALL cited atom_ids must exist (any missing → refuse)
-
-Quantitative-claim detector per Codex (triggers A + B only, with exclusions
-for design/admin numbers; qualitative comparative outcome language also
-required to cite atoms even without numbers).
-
-This module is pure functions — no I/O except gaps.json writing via
-explicit helper. Consumer (multi_section_generator) calls
-`validate_section()` once per V4 Pro section body, then
-`write_gaps_sidecar()` at the end.
+Numeric and comparative claims are detected from generic grammar and the
+evidence-derived claim-frame extractor.  This module contains no measure,
+entity, topic, venue, or source-name vocabulary.
 """
-
 from __future__ import annotations
 
 import json
@@ -31,341 +16,32 @@ from typing import Optional
 
 from src.polaris_graph.generator.claim_atom_extractor import (
     ClaimAtom,
+    extract_atoms_from_evidence,
     format_refusal_for_missing_atom,
 )
 
 
 class RefusalAction(str, Enum):
-    REFUSED = "refused"            # sentence replaced with refusal template
-    ALLOWED = "allowed"            # sentence kept as-is (atom valid)
-    LOGGED_ONLY = "logged_only"    # sentence kept but soft mismatch logged
+    REFUSED = "refused"
+    ALLOWED = "allowed"
+    LOGGED_ONLY = "logged_only"
 
 
 class RefusalReason(str, Enum):
-    MISSING_ATOM_CITATION = "missing_atom_citation"   # no atom_NNN in sentence
-    INVALID_ATOM_ID = "invalid_atom_id"               # atom_NNN cited but not in catalog
-    EV_CITATION_FOR_CLAIM = "ev_citation_for_claim"   # [ev_XXX] used for factual claim
-    SOFT_MISMATCH = "soft_mismatch"                   # cited atom value/endpoint differs
+    MISSING_ATOM_CITATION = "missing_atom_citation"
+    INVALID_ATOM_ID = "invalid_atom_id"
+    EV_CITATION_FOR_CLAIM = "ev_citation_for_claim"
+    SOFT_MISMATCH = "soft_mismatch"
     PARTIAL_COVERAGE_SUSPECTED = "partial_coverage_suspected"
-    NO_VIOLATION = "no_violation"                     # sentence is valid
+    NO_VIOLATION = "no_violation"
 
 
-# ---------------------------------------------------------------------------
-# Quantitative-claim detector (per Codex APPROVE_DESIGN trigger schema)
-# ---------------------------------------------------------------------------
-
-# Trigger A: number + endpoint vocab term
-# Trigger B: number alone (but not design/admin numbers — see exclusions)
-
-# Numbers in sentence — require non-letter context to avoid matching
-# embedded digits in endpoint names like "HbA1c" (the "1") or "T2DM"
-# (the "2"). Same approach as atom_extractor._NUMBER_ATOM_RE.
 _NUMBER_RE = re.compile(
-    r"(?<![A-Za-z0-9_.])[-−]?\d+(?:\.\d+)?(?![A-Za-z0-9_])"
+    r"(?<![A-Za-z0-9_.-])[-\u2212\u2013\u2014]?\d[\d,]*(?:\.\d+)?"
+    r"(?![A-Za-z0-9_-])"
 )
-
-# Endpoint vocab — superset for claim-detection (any one of these triggers
-# atom-citation requirement when combined with a number or with a
-# qualitative comparative term)
-_ENDPOINT_VOCAB_RE = re.compile(
-    r"\b("
-    r"hba1c|fasting\s+(?:plasma\s+)?glucose|fpg|fsg|"
-    r"body\s+weight|weight\s+(?:loss|reduction)|bmi|waist\s+circumference|"
-    r"ldl[-\s]?c|hdl[-\s]?c|triglycerides|cholesterol|"
-    r"blood\s+pressure|systolic|diastolic|sbp|dbp|mmhg|"
-    r"mace|myocardial\s+infarction|stroke|cv\s+death|cardiovascular\s+death|"
-    r"all[-\s]?cause\s+mortality|heart\s+failure|hf\s+hospitali[zs]ation|"
-    r"egfr|uacr|aki|creatinine|"
-    r"adverse\s+events?|aes?|serious\s+adverse|sae|discontinuation|"
-    # Iter-2 fix (Codex iter-1 P1): common safety endpoints by name
-    r"nausea|vomiting|diarrh(?:o)?ea|constipation|abdominal\s+pain|"
-    r"injection[-\s]?site\s+reaction|"
-    r"hypoglycemia|hypoglycaemia|pancreatitis|gallbladder|retinopathy|mtc|"
-    r"hazard\s+ratio|risk\s+ratio|odds\s+ratio|relative\s+risk|"
-    r"responder\s+rate|response\s+rate|incidence|"
-    r"non[-\s]?inferiority|superior(?:ity)?"
-    r")\b",
-    re.IGNORECASE,
-)
-
-# NOTE (iter-4 design decision): two prior iterations (iter-2, iter-3)
-# attempted an eligibility-range override via these two regex constants.
-# Codex iter-3 caught that pure-regex disambiguation between
-# "eligibility framing + endpoint+number" and "outcome claim + baseline
-# mention" is fundamentally fragile. Per CLAUDE.md §-1.1 clinical-safety
-# principle, the safer default is: any quantitative claim requires
-# atom citation. Constants retained for any future revisit but NO
-# LONGER WIRED into requires_atom_citation().
-_ELIGIBILITY_RANGE_RE = re.compile(
-    r"\b(?:inclusion\s+criter\w*|exclusion\s+criter\w*|"
-    r"eligibility\s+criter\w*|eligible\s+(?:if|when)\b|"
-    r"required\s+(?:hba1c|weight|bmi)\s+(?:of|between)\b)",
-    re.IGNORECASE,
-)
-_OUTCOME_VERB_WITH_NUMBER_RE = re.compile(
-    r"\b(?:reduc(?:ed|tions?|ing)|"
-    r"decreas(?:ed|es?|ing)|increas(?:ed|es?|ing)|"
-    r"chang(?:ed|es?)|improv(?:ed|ements?|ing)|"
-    r"lower(?:ed|ing)|rais(?:ed|ing)|"
-    r"fell|rose|dropped|"
-    # Codex Step 3j diff iter-1 P1 #1: active outcome verbs that V4 Pro
-    # may emit. Without these, "tirzepatide produced -2.30 percentage-point
-    # HbA1c reductions at 40 weeks" would slip past the trial-design
-    # exemption guard because no current verb matched.
-    r"produc(?:ed|es?|ing)|"
-    r"achiev(?:ed|es?|ing)|"
-    r"demonstrat(?:ed|es?|ing)|"
-    r"show(?:ed|s|n|ing)|"
-    r"yield(?:ed|s|ing)|"
-    r"deliver(?:ed|s|ing)|"
-    r"attain(?:ed|s|ing)|"
-    r"result(?:ed|s|ing)\s+in|"
-    r"led\s+to|leads\s+to|leading\s+to)\s+"
-    # Codex Step 3j diff iter-2 novel P1: optional article (a/an/the)
-    # between verb and number. Repro: "achieved a 2.30 percentage-point
-    # reduction" — without the article carve-out, this slipped past.
-    r"(?:by|of|from|to|in)?\s*(?:a|an|the)?\s*[-−]?\d",
-    re.IGNORECASE,
-)
-
-# Qualitative comparative/outcome language requiring atom citation
-# (Codex iter-1 P1 expanded: catch "more common with X than Y", "higher
-# with X than Y", "greater reduction than", etc.)
-_QUAL_COMPARATIVE_RE = re.compile(
-    r"\b("
-    r"greater(?:\s+\w+){0,4}\s+than|"
-    r"less(?:\s+\w+){0,4}\s+than|"
-    r"lower(?:\s+\w+){0,4}\s+than|"
-    r"higher(?:\s+\w+){0,4}\s+than|"
-    r"more(?:\s+\w+){0,4}\s+than|"     # "more common with X than Y"
-    r"fewer(?:\s+\w+){0,4}\s+than|"
-    r"superior(?:ity)?\s+to|non[-\s]?inferior(?:ity)?\s+to|"
-    r"statistically\s+significant|significantly\s+\w+|"
-    r"reduced|increased|decreased|elevated|improved|worsened|"
-    r"more\s+(?:effective|common|frequent)|less\s+(?:effective|common|frequent)|"
-    r"compared\s+(?:to|with)|versus|vs\.?"
-    r")\b",
-    re.IGNORECASE,
-)
-
-# Comparator/arm language that — combined with a comparative phrase —
-# signals a factual comparative claim. Iter-4 fix (Codex iter-3 novel-P1):
-# build comparator-arm regex from claim_atom_extractor._DRUG_RE so any
-# drug name known to the atom extractor is also recognized here.
-# Avoids drift between extractor's vocab and validator's vocab.
-def _build_comparative_arm_re() -> re.Pattern:
-    from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
-    drug_alt = _DRUG_RE.pattern.removeprefix(r"\b(").removesuffix(r")\b")
-    pattern = (
-        r"\b(?:than|versus|vs\.?|compared\s+(?:to|with))\s+"
-        r"(?:"
-        r"placebo|control(?:s|\s+arm)?|standard\s+care|usual\s+care|"
-        r"active\s+comparator|background\s+therapy|sham|"
-        r"glp[-\s]?1|sglt2|dpp[-\s]?4|insulin|metformin|sulfonylurea|"
-        + drug_alt
-        + r")\b"
-    )
-    return re.compile(pattern, re.IGNORECASE)
-
-
-_COMPARATIVE_ARM_RE = _build_comparative_arm_re()
-
-# Numbers to EXCLUDE from Trigger B when they appear with admin/design context
-_ADMIN_NUMBER_RE = re.compile(
-    r"\b("
-    r"phase\s+(?:I{1,3}V?|IV|\d+)|"
-    r"week[s]?\s+\d+|\d+\s+week[s]?|"
-    r"month[s]?\s+\d+|\d+\s+month[s]?|"
-    r"year[s]?\s+\d+|\d+\s+year[s]?|"
-    r"day[s]?\s+\d+|\d+\s+day[s]?|"
-    r"n\s*=\s*\d+|sample\s+size\s+\d+|"
-    r"arm\s+\d+|\d+\s+arm[s]?|"
-    r"\d+(?:\.\d+)?\s*(?:mg|μg|mcg|kg|g|mL|L|U|IU)(?!\s*/[dl])"  # dose-only, lab unit still triggers
-    r")\b",
-    re.IGNORECASE,
-)
-
-# Allowed-without-atom categories — narrative/synthesis prose
-_NARRATIVE_CATEGORY_RE = re.compile(
-    r"\b("
-    r"mechanism\s+of\s+action|receptor\s+agonis[mt]|incretin|"
-    r"open[-\s]?label|double[-\s]?blind|randomi[zs]ed|placebo[-\s]?controlled|"
-    r"phase\s+(?:I{1,3}V?|IV|\d+)\s+(?:trial|study)|"
-    r"inclusion\s+criter|exclusion\s+criter|eligibility|eligible\s+patients|"
-    r"prevalence|epidemiology|burden\s+of\s+disease|"
-    r"limitation|limited\s+by|caveat|long[-\s]?term\s+\w+\s+(?:data|safety)|"
-    r"these\s+(?:outcomes|results|findings)\s+(?:were|are)\s+(?:consistent|in\s+line)"
-    r")\b",
-    re.IGNORECASE,
-)
-
-
-# I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): trial-design framing
-# exemption for methodology narrative sentences that trigger Trigger A
-# (endpoint vocab + number) but describe what WILL BE measured, not what
-# WAS observed. Target repro from real V4 Pro smoke (gaps.json
-# efficacy.s009):
-#   "In a phase 3 trial, 1879 adults with type 2 diabetes (mean baseline
-#    HbA1c 8.28%, mean weight 93.7 kg) were randomly assigned to
-#    tirzepatide 5 mg, 10 mg, or 15 mg or semaglutide 1 mg, with the
-#    primary endpoint of change in HbA1c at 40 weeks[1]"
-#
-# Safety guard: result-attribution patterns (independent trigger,
-# below) catch outcome claims that would otherwise be masked by the
-# trial-design marker — see _ENDPOINT_RESULT_ATTRIBUTION_RE.
-#
-# Step 3b iter-3 lesson preserved: pure-regex disambiguation between
-# eligibility framing + endpoint+number AND outcome claim is fragile.
-# Trial-design markers are TIGHTER (require methodology-specific phrases,
-# not bare "baseline"); result-attribution guard catches the remaining
-# false-positive failure modes.
-_TRIAL_DESIGN_FRAME_RE = re.compile(
-    r"\b("
-    r"randomly\s+assigned\s+to|"
-    r"randomi[zs]ed\s+to|"
-    r"were\s+randomi[zs]ed|"
-    r"(?:primary|secondary)\s+end\s?point\s+of|"
-    r"(?:primary|secondary)\s+outcome\s+of|"
-    r"in\s+a\s+phase\s+(?:I{1,3}V?|IV|\d+)\s+trial|"
-    r"open[-\s]?label|"
-    r"double[-\s]?blind|"
-    r"placebo[-\s]?controlled|"
-    r"multicent(?:re|er)(?:d|ed)?|"
-    r"parallel[-\s]?group|"
-    r"stratified\s+by|"
-    r"head[-\s]?to[-\s]?head"
-    r")\b",
-    re.IGNORECASE,
-)
-
-# Endpoint-name alternation reused inside _ENDPOINT_RESULT_ATTRIBUTION_RE.
-# Codex iter-2 design P1 #3 + diff iter-1 P1 #2: must mirror
-# _ENDPOINT_VOCAB_RE coverage so the result-attribution guard doesn't
-# under-fire on hazard ratio, pancreatitis, abdominal pain, injection-site
-# reactions, urinary albumin excretion, etc.
-_ENDPOINT_NAMES_ALT = (
-    r"hba1c|glycated\s+h(?:a)?emoglobin|a1c|"
-    r"fasting\s+(?:plasma\s+)?glucose|fpg|fsg|"
-    r"body\s+weight|weight\s+(?:loss|reduction|change)|bmi|"
-    r"waist\s+circumference|"
-    r"ldl[-\s]?c|hdl[-\s]?c|triglycerides|cholesterol|"
-    r"blood\s+pressure|systolic|diastolic|sbp|dbp|mmhg|"
-    r"mace|myocardial\s+infarction|stroke|cv\s+death|cardiovascular\s+death|"
-    r"all[-\s]?cause\s+mortality|heart\s+failure|hf\s+hospitali[zs]ation|"
-    r"egfr|uacr|aki|creatinine|"
-    r"urinary\s+albumin(?:\s+excretion)?|"
-    r"adverse\s+events?|aes?|saes?|serious\s+adverse|discontinuation|"
-    r"nausea|vomiting|diarrh(?:o)?ea|constipation|abdominal\s+pain|"
-    r"injection[-\s]?site\s+reactions?|"
-    r"hypoglycemia|hypoglycaemia|hypoglyc(?:a)?emic\s+events?|"
-    r"pancreatitis|gallbladder|retinopathy|mtc|"
-    r"hazard\s+ratio|risk\s+ratio|odds\s+ratio|relative\s+risk|"
-    r"responder\s+rate|response\s+rate|incidence|"
-    # Codex Step 3j diff iter-2 P1 continuing #2: noninferiority and
-    # superiority are statistical endpoints in _ENDPOINT_VOCAB_RE.
-    r"non[-\s]?inferiority|superior(?:ity)?"
-)
-
-# Timepoint alternation — multiple natural forms (Codex Step 3j diff
-# iter-1 P1 #3 + design iter-2 P1 #2). Covers:
-#   "40 weeks", "week 40", "after 40 weeks", "by week 40",
-#   "at the end of 40 weeks", "40-week follow-up", "40-week".
-_TIMEPOINT_ALT = (
-    r"\d+\s*(?:weeks?|months?|years?|days?)|"
-    r"(?:weeks?|months?|years?|days?)\s+\d+|"
-    r"\d+[-\s](?:week|month|year|day)(?:s|\s+follow[-\s]?up)?"
-)
-# Prepositions/connectors that introduce a timepoint clause. Used
-# below; widened from bare "at" to cover real V4 Pro phrasings (Codex
-# Step 3j diff iter-1 P1 #3). Trailing "(?:\s+(?:the|a|an))?" handles
-# "at the 40-week follow-up" (article between prep and timepoint).
-_TIMEPOINT_PREP_ALT = (
-    r"(?:at|after|by|at\s+the\s+end\s+of|over|through(?:out)?|"
-    r"during|within|in)(?:\s+(?:the|a|an))?"
-)
-
-# I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): result-attribution
-# patterns that DON'T use outcome verbs but still assert an outcome
-# value. Wired as INDEPENDENT trigger (per Codex iter-3 P2): forces
-# atom-citation requirement REGARDLESS of trial-design marker. Catches:
-#   (a) "primary/secondary endpoint/outcome of <X> was NUMBER"
-#   (b) "at <timepoint> was NUMBER"
-#   (c) "<endpoint name> [at <timepoint>] was NUMBER"
-#   (d) REVERSE-ORDER: "change|reduction|... was NUMBER ... at <timepoint>"
-#   (e) PASSIVE/INCIDENCE: "X was reported in NUMBER", "occurred in NUMBER",
-#       "NUMBER achieved X"
-#
-# Safety floor: this guard combined with _OUTCOME_VERB_WITH_NUMBER_RE
-# means trial-design exemption only fires when the sentence has
-# methodology marker AND no outcome-verb-with-number AND no
-# result-attribution AND no qualitative comparative.
-_ENDPOINT_RESULT_ATTRIBUTION_RE = re.compile(
-    r"\b("
-    # (a) "primary/secondary endpoint|outcome of <anything> was NUMBER"
-    r"(?:primary|secondary)\s+(?:end\s?point|outcome)\s+of"
-    r"[^.]{1,80}?(?:was|were|is|are|=)\s*[-−]?\d+(?:\.\d+)?|"
-    # (b) "<prep> <timepoint> was NUMBER" — endpoint-at-timepoint result.
-    # Widened from bare "at" to all _TIMEPOINT_PREP_ALT (Codex Step 3j
-    # diff iter-1 P1 #3: "after 40 weeks", "by week 40", etc.).
-    + _TIMEPOINT_PREP_ALT + r"\s+(?:" + _TIMEPOINT_ALT + r")"
-    r"\s+(?:was|were|is|are|=)\s*[-−]?\d+(?:\.\d+)?|"
-    # (c) "<endpoint name> [<prep> <timepoint>] was NUMBER"
-    r"\b(?:" + _ENDPOINT_NAMES_ALT + r")"
-    r"(?:\s+" + _TIMEPOINT_PREP_ALT + r"\s+(?:" + _TIMEPOINT_ALT + r"))?"
-    r"\s+(?:was|were|is|are|=)\s*[-−]?\d+(?:\.\d+)?|"
-    # (d) REVERSE-ORDER: "change/reduction/... was NUMBER ... <prep> <timepoint>"
-    r"\b(?:change|reduction|level|rate|incidence|frequency)\b"
-    r"[^.]{1,80}?(?:was|were|is|are|=)\s*[-−]?\d+(?:\.\d+)?"
-    r"[^.]{1,80}?" + _TIMEPOINT_PREP_ALT + r"\s+(?:" + _TIMEPOINT_ALT + r")|"
-    # (e) PASSIVE/INCIDENCE result attribution
-    r"\b(?:" + _ENDPOINT_NAMES_ALT + r")\s+(?:was|were)\s+"
-    r"(?:reported|observed|recorded)\s+in\s+\d|"
-    r"\b(?:" + _ENDPOINT_NAMES_ALT + r")\s+occurred\s+in\s+\d|"
-    r"\d+\s*%?\s+achieved\s+(?:" + _ENDPOINT_NAMES_ALT + r")|"
-    # (f) VERB + ENDPOINT + "of NUMBER" — Codex Step 3j diff iter-3 P1.
-    # Repro: "tirzepatide achieved HbA1c of 6.2% at 40 weeks."
-    # The outcome-verb guard caught verb+NUMBER but not verb+endpoint+of+NUMBER.
-    # iter-4 P1: also include phrasal verbs (led to, resulted in,
-    # leading to, ...) for "led to HbA1c of 6.2%" and "resulted in
-    # nausea of 22%" patterns.
-    r"\b(?:produc(?:ed|es?|ing)|"
-    r"achiev(?:ed|es?|ing)|"
-    r"demonstrat(?:ed|es?|ing)|"
-    r"show(?:ed|s|n|ing)|"
-    r"yield(?:ed|s|ing)|"
-    r"deliver(?:ed|s|ing)|"
-    r"attain(?:ed|s|ing)|"
-    r"reduc(?:ed|tions?|ing)|"
-    r"lower(?:ed|ing)|rais(?:ed|ing)|"
-    r"increas(?:ed|es?|ing)|decreas(?:ed|es?|ing)|"
-    r"chang(?:ed|es?)|improv(?:ed|ements?|ing)|"
-    r"led\s+to|leads\s+to|leading\s+to|"
-    r"result(?:ed|s|ing)\s+in)"
-    # iter-5 P1: optional article/modifier (a/an/the/mean/median/
-    # baseline/change in) before the endpoint. Repro: "led to an
-    # HbA1c of 6.2%" / "resulted in mean HbA1c of 6.2%" / "led to
-    # a change in HbA1c of -2.30" — last needs 2 modifiers.
-    r"\s+(?:(?:a|an|the|mean|median|baseline|average|change\s+in)\s+){0,3}"
-    r"(?:" + _ENDPOINT_NAMES_ALT + r")\s+of\s+[-−]?\d+(?:\.\d+)?"
-    r")",
-    re.IGNORECASE,
-)
-
-
-# Atom-ID citation pattern: atom_NNN
-_ATOM_ID_RE = re.compile(r"\batom_\d{3,}\b")
-_EV_ID_RE = re.compile(r"\[?ev_\d{3,}(?::\d+-\d+)?\]?")
-_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:ev_\d{3,}:\d+-\d+\]")
-
-# I-gen-005 Step 3b commit 2 (Codex iter-1 P1.1): resolved verified_text
-# contains numeric bibliography markers [1], [2], etc. (from
-# resolve_provenance_to_citations) + atom_NNN (from V4 Pro per Step 3a)
-# + bare [ev_XXX] (defensive). All three would be matched by _NUMBER_RE
-# as bare numbers and trigger false Trigger B (number alone).
-#
-# These strip patterns produce a CLEANED COPY used for claim detection
-# and value extraction. extract_atom_citations / extract_ev_citations
-# still consume the ORIGINAL sentence for citation parsing.
+_ATOM_ID_RE = re.compile(r"\batom_\d{3,}\b", re.IGNORECASE)
+_EV_ID_RE = re.compile(r"\bev_\d+\b", re.IGNORECASE)
 _BIBLIO_MARKER_RE = re.compile(r"\[\d+\]")
 _ATOM_TOKEN_FOR_STRIP_RE = re.compile(
     r"\(?atom_\d{3,}(?:,\s*atom_\d{3,})*\)?",
@@ -375,29 +51,116 @@ _EV_TOKEN_FOR_STRIP_RE = re.compile(
     r"\[?ev_\d+(?::\d+-\d+)?\]?",
     re.IGNORECASE,
 )
+_RESULT_RELATION_RE = re.compile(
+    r"\b(?:was|were|is|are|averaged|measured|reported|estimated|reached|"
+    r"stood\s+at|totaled|amounted\s+to|changed|increased|decreased|declined|"
+    r"reduced|improved|worsened|rose|fell|grew|dropped|yielded|produced|"
+    r"occurred|accounted\s+for|corresponded\s+to|resulted\s+in|"
+    r"associated\s+with)\b",
+    re.IGNORECASE,
+)
+_SUBSTANTIVE_RESULT_RE = re.compile(
+    r"\b(?:averaged|measured|reported|estimated|reached|stood\s+at|totaled|"
+    r"amounted\s+to|changed|increased|decreased|declined|reduced|improved|"
+    r"worsened|rose|fell|grew|dropped|yielded|produced|occurred|"
+    r"accounted\s+for|corresponded\s+to|resulted\s+in|associated\s+with)\b",
+    re.IGNORECASE,
+)
+_QUALITATIVE_COMPARISON_RE = re.compile(
+    r"\b[^\W\d_]{3,}er\b.{0,40}\bthan\b|"
+    r"\b(?:greater|less|lower|higher|more|fewer|better|worse|improved|"
+    r"worsened|increased|decreased|reduced|elevated|superior|inferior|"
+    r"significant(?:ly)?)\b"
+    r".{0,80}\b(?:than|versus|vs\.?|compared\s+(?:to|with)|relative\s+to)\b|"
+    r"\b(?:than|versus|vs\.?|compared\s+(?:to|with)|relative\s+to)\b"
+    r".{0,80}\b(?:greater|less|lower|higher|more|fewer|better|worse|"
+    r"improved|worsened|increased|decreased|reduced|superior|inferior)\b",
+    re.IGNORECASE,
+)
+_TIME_NUMBER_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:milliseconds?|seconds?|minutes?|hours?|days?|"
+    r"weeks?|months?|years?)\b",
+    re.IGNORECASE,
+)
+_SAMPLE_NUMBER_RE = re.compile(
+    r"(?:\b[nN]\s*=\s*|\b(?:sample|dataset|cohort)\s+(?:of|size\s*[:=]?)?\s*|"
+    r"\b(?:included|enrolled|recruited|surveyed|observed|analy[sz]ed)\s+)"
+    r"\d[\d,]*",
+    re.IGNORECASE,
+)
+_STRUCTURAL_NUMBER_RE = re.compile(
+    r"\b(?:phase|stage|version|section|chapter|figure|table|step|round|wave)\s+"
+    r"\d+(?:\.\d+)?\b",
+    re.IGNORECASE,
+)
+_YEAR_NUMBER_RE = re.compile(
+    r"\b(?:published|issued|released|dated|updated|from|in)\s+"
+    r"(?:18|19|20|21)\d{2}\b",
+    re.IGNORECASE,
+)
+_CONDITION_FRAME_RE = re.compile(
+    r"\b(?:assigned|configured|set|scheduled|received|used|applied|ran|"
+    r"eligible|required|criterion|threshold|range)\b",
+    re.IGNORECASE,
+)
+_INTERVAL_RE = re.compile(
+    r"\b(?:confidence|credible|prediction)\s+interval\b|\bCI\b",
+    re.IGNORECASE,
+)
 
 
 def _strip_citation_tokens_for_detection(sentence: str) -> str:
-    """Strip [N] bibliography markers + atom_NNN + [ev_XXX] tokens from
-    the sentence COPY used by claim detection and number extraction.
+    """Remove machine citations from the copy used for claim detection."""
 
-    Per Codex Step 3b iter-1 P1.1: validating resolved verified_text
-    without stripping these tokens caused false Trigger B activations
-    on narrative sentences with citation markers.
+    cleaned = _BIBLIO_MARKER_RE.sub(" ", sentence)
+    cleaned = _ATOM_TOKEN_FOR_STRIP_RE.sub(" ", cleaned)
+    cleaned = _EV_TOKEN_FOR_STRIP_RE.sub(" ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
 
-    The original sentence is preserved for citation parsing —
-    extract_atom_citations / extract_ev_citations should always be
-    called on the ORIGINAL sentence, never on the cleaned copy.
-    """
-    s = _BIBLIO_MARKER_RE.sub(" ", sentence)
-    s = _ATOM_TOKEN_FOR_STRIP_RE.sub(" ", s)
-    s = _EV_TOKEN_FOR_STRIP_RE.sub(" ", s)
-    return re.sub(r"\s+", " ", s).strip()
+
+def _frame_atoms(sentence: str) -> list[ClaimAtom]:
+    return extract_atoms_from_evidence({
+        "evidence_id": "ev_000",
+        "direct_quote": sentence,
+    })
+
+
+def _numeric_spans(pattern: re.Pattern[str], text: str) -> list[tuple[int, int]]:
+    return [match.span() for match in pattern.finditer(text)]
+
+
+def _covered(position: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start <= position < end for start, end in spans)
+
+
+def _has_nonstructural_number(sentence: str) -> bool:
+    """Return whether at least one number is not purely design metadata."""
+
+    structural_spans: list[tuple[int, int]] = []
+    for pattern in (
+        _TIME_NUMBER_RE,
+        _SAMPLE_NUMBER_RE,
+        _STRUCTURAL_NUMBER_RE,
+        _YEAR_NUMBER_RE,
+    ):
+        structural_spans.extend(_numeric_spans(pattern, sentence))
+    numbers = list(_NUMBER_RE.finditer(sentence))
+    if not numbers:
+        return False
+    uncovered = [match for match in numbers if not _covered(match.start(), structural_spans)]
+    if not uncovered:
+        return False
+    if (
+        _CONDITION_FRAME_RE.search(sentence)
+        and not _SUBSTANTIVE_RESULT_RE.search(sentence)
+        and not _INTERVAL_RE.search(sentence)
+    ):
+        return False
+    return True
 
 
 @dataclass
 class GapRecord:
-    """One per sentence in a section's validation pass."""
     section_id: str
     section_title: str
     sentence_index: int
@@ -431,225 +194,94 @@ class GapRecord:
         }
 
 
-# ---------------------------------------------------------------------------
-# Quantitative-claim detection
-# ---------------------------------------------------------------------------
-
 def requires_atom_citation(sentence: str) -> tuple[bool, Optional[str]]:
-    """Codex APPROVE_DESIGN claim detector.
+    """Detect factual numeric or qualitative comparative claims."""
 
-    Returns (requires_atom, reason). True if sentence makes a factual
-    quantitative claim that needs atom_NNN citation; False for pure
-    narrative/mechanism/trial-design prose.
-
-    Triggers:
-      A: number + endpoint vocab term → requires atom
-      B: number alone (excluding admin/design numbers) → requires atom
-      Plus: qualitative comparative outcome language even without numbers
-
-    Excludes:
-      - pure mechanism / trial identity / eligibility / background prose
-    """
-    s_raw = sentence.strip()
-    if not s_raw:
+    cleaned = _strip_citation_tokens_for_detection(str(sentence or ""))
+    if not cleaned:
         return False, None
-
-    # Step 3b commit 2: strip citation tokens for detection-time analysis.
-    # [N] markers + atom_NNN + [ev_XXX] would otherwise be parsed as
-    # bare numbers and trigger false claim-required.
-    s = _strip_citation_tokens_for_detection(s_raw)
-    if not s:
-        return False, None
-
-    numbers = _NUMBER_RE.findall(s)
-    has_endpoint = bool(_ENDPOINT_VOCAB_RE.search(s))
-    has_qual_comparative = bool(_QUAL_COMPARATIVE_RE.search(s))
-    has_comparator_arm = bool(_COMPARATIVE_ARM_RE.search(s))
-    has_outcome_number = bool(numbers) and has_endpoint
-
-    # Iter-4 decision (Codex iter-3 continuing-P1): the eligibility
-    # override was removed. Two iterations of regex tightening (iter-2,
-    # iter-3) still couldn't reliably distinguish:
-    #   - "Patients meeting inclusion criteria had HbA1c of 6.8%"  (outcome — must require)
-    #   - "Eligible adults had baseline HbA1c between 7.0 and 10.0" (eligibility — should allow)
-    # Codex correctly observed that pure-regex disambiguation is
-    # fundamentally fragile here.
-    #
-    # SAFE DEFAULT: any quantitative claim requires atom citation. If
-    # V4 Pro cannot find a supporting atom (because the sentence is
-    # actually just eligibility framing), V4 Pro emits a refusal block.
-    # The refusal reads slightly awkwardly for benign eligibility
-    # sentences ("Insufficient evidence about HbA1c..."), but this is
-    # SAFER than masking real outcome claims that happen to share
-    # eligibility-frame keywords.
-    #
-    # Trade-off accepted per clinical-safety principle (CLAUDE.md §-1.1):
-    # false negative (over-refuse benign eligibility) is recoverable;
-    # false positive (mask real outcome) is lethal.
-
-    # I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): independent
-    # result-attribution trigger. Catches outcome claims that lack an
-    # explicit outcome verb but still assert a value (copular endpoint
-    # attribution, value-at-timepoint, passive/incidence). Fires
-    # BEFORE narrative / trial-design exemption checks so result claims
-    # can never be masked by methodology framing.
-    if _ENDPOINT_RESULT_ATTRIBUTION_RE.search(s):
-        return True, "trigger_endpoint_result_attribution"
-
-    # Pure narrative categories — never require atom citation UNLESS
-    # there's also an outcome-number combo or qualitative comparative.
-    narrative_matches = _NARRATIVE_CATEGORY_RE.findall(s)
-    if narrative_matches and not has_outcome_number and not has_qual_comparative:
-        return False, None
-
-    # I-gen-005 Step 3j (Codex iter-4 APPROVE_DESIGN): trial-design
-    # framing exemption. Allow methodology-narrative sentences that
-    # describe what WILL BE measured (e.g. "primary endpoint of change
-    # in HbA1c at 40 weeks") without forcing atom citation, as long
-    # as no outcome-verb-with-number AND no result-attribution
-    # (already returned above) AND no qualitative comparative.
-    # Order matters: this runs AFTER the result-attribution independent
-    # trigger so a sentence like "primary endpoint of change in HbA1c
-    # was -2.30" still REFUSES via the independent trigger first.
-    if (
-        _TRIAL_DESIGN_FRAME_RE.search(s)
-        and not _OUTCOME_VERB_WITH_NUMBER_RE.search(s)
-        and not has_qual_comparative
-    ):
-        return False, None
-
-    # Trigger A: number + endpoint
-    if has_outcome_number:
+    if _frame_atoms(cleaned):
         return True, "trigger_A_number_plus_endpoint"
-
-    # Qualitative comparative outcome language with an endpoint OR
-    # an explicit comparator arm (versus/than/compared to PLACEBO/DRUG).
-    # Catches "Tirzepatide showed greater reduction than semaglutide"
-    # (no endpoint vocab term but clearly a comparative claim).
-    if has_qual_comparative and (has_endpoint or has_comparator_arm):
+    if _QUALITATIVE_COMPARISON_RE.search(cleaned):
         return True, "trigger_qualitative_comparative"
-
-    # Trigger B: number alone, but check for admin/design exclusions
-    if numbers:
-        admin_matches = _ADMIN_NUMBER_RE.findall(s)
-        # If the sentence has more numbers than admin matches, at least
-        # one number is "outcome-like" — require citation.
-        if len(numbers) > len(admin_matches):
-            return True, "trigger_B_number_alone"
-
+    if _has_nonstructural_number(cleaned):
+        return True, "trigger_B_number_alone"
     return False, None
 
 
-# ---------------------------------------------------------------------------
-# Citation parsing
-# ---------------------------------------------------------------------------
-
 def extract_atom_citations(sentence: str) -> list[str]:
-    """All atom_NNN citations in this sentence."""
     return _ATOM_ID_RE.findall(sentence)
 
 
 def extract_ev_citations(sentence: str) -> list[str]:
-    """All [ev_XXX] or ev_XXX citations in this sentence."""
     return _EV_ID_RE.findall(sentence)
 
 
 def has_ev_citation_for_factual_claim(sentence: str) -> bool:
-    """True if sentence cites [ev_XXX] for what should be a factual claim.
-
-    Per Codex APPROVE_DESIGN: '[ev_XXX] is for non-claim transitions only.'
-    """
     requires_atom, _ = requires_atom_citation(sentence)
-    if not requires_atom:
-        return False
-    return bool(_EV_ID_RE.search(sentence)) and not _ATOM_ID_RE.search(sentence)
+    return (
+        requires_atom
+        and bool(_EV_ID_RE.search(sentence))
+        and not bool(_ATOM_ID_RE.search(sentence))
+    )
 
 
-# ---------------------------------------------------------------------------
-# Sentence splitter (decimal-aware, matches atom_extractor's logic)
-# ---------------------------------------------------------------------------
-
-# Decimal-aware sentence split. Two boundary patterns (alternation):
-#   (a) [.;!?] followed by whitespace + [A-Z\[] or end-of-text
-#       (standard prose boundary; lookbehind handles decimals via
-#        sentinel-pre-pass in split_sentences below)
-#   (b) [.;!?]\[N\] + whitespace + [A-Z\[]
-#       (resolved-citation boundary — Step 3b commit 2 follow-up iter-3
-#        per Codex PR #906 iter-3 P1). resolve_provenance_to_citations
-#        emits "<sentence>.[1] <next_sentence>.[2]" with the citation
-#        marker GLUED to the period. Pattern (a) alone misses this:
-#        "[1] sentence_two" matches but skips before "[1]". Pattern (b)
-#        explicitly consumes the [N] marker as part of the boundary so
-#        the SECOND sentence is its own validator input.
 _SENTENCE_BOUNDARY_RE = re.compile(
     r"[.;!?](?:\[\d+\])?(?=\s+(?:[A-Z\[]|$))"
 )
 
 
 def split_sentences(text: str) -> list[str]:
-    """Decimal-aware sentence split. Resolved bibliography markers
-    (`.[N]`) attach to the preceding sentence; whitespace is the
-    consumed delimiter only.
+    """Split prose without cutting decimals or balanced parentheticals."""
 
-    Step 3h fix (real-data smoke PR #911 follow-up): paren-aware —
-    `;` and other punctuation INSIDE `(...)`, `[...]`, `{...}` do NOT
-    boundary. V4 Pro routinely writes "...(95% CI, -0.28 to -0.03;
-    P=0.02) for the 5 mg dose, -0.39 percentage points (..." as ONE
-    sentence; the embedded `;` inside the CI parens previously broke
-    it into fragments, causing false refusals.
-
-    Strategy:
-      1. Protect "<digit>.<digit>" via sentinel so "2.30" stays intact.
-      2. finditer boundary positions (punctuation + optional [N]).
-      3. SKIP boundaries that fall inside an open paren/bracket/brace.
-      4. Slice manually: take protected[last_end:boundary.end()] as the
-         sentence, advance past whitespace, continue.
-      5. Restore decimal sentinels in each piece.
-    """
     if not text:
         return []
     sentinel = "\x00DEC\x00"
     protected = re.sub(
         r"(\d)\.(\d)",
-        lambda m: f"{m.group(1)}{sentinel}{m.group(2)}",
+        lambda match: f"{match.group(1)}{sentinel}{match.group(2)}",
         text,
     )
     pieces: list[str] = []
     last_end = 0
-    n = len(protected)
-    open_map = {"(": ")", "[": "]", "{": "}"}
-    close_set = {")", "]", "}"}
+    length = len(protected)
 
-    def _is_inside_paren(pos: int) -> bool:
-        """True if pos falls inside an unclosed paren/bracket/brace.
-        Note: balanced [N] biblio markers don't count as 'inside' for
-        boundaries past them — depth resets to 0 when closing bracket
-        is seen."""
-        depth = 0
-        for i in range(pos):
-            ch = protected[i]
-            if ch in open_map:
-                depth += 1
-            elif ch in close_set and depth > 0:
-                depth -= 1
-        return depth > 0
+    def inside_group(position: int) -> bool:
+        stack: list[str] = []
+        pairs = {")": "(", "]": "[", "}": "{"}
+        for char in protected[:position]:
+            if char in "([{":
+                stack.append(char)
+            elif char in pairs and stack and stack[-1] == pairs[char]:
+                stack.pop()
+        return bool(stack)
 
-    for m in _SENTENCE_BOUNDARY_RE.finditer(protected):
-        if _is_inside_paren(m.start()):
+    for match in _SENTENCE_BOUNDARY_RE.finditer(protected):
+        if inside_group(match.start()):
             continue
-        end_pos = m.end()
-        pieces.append(protected[last_end:end_pos])
-        while end_pos < n and protected[end_pos].isspace():
-            end_pos += 1
-        last_end = end_pos
-    if last_end < n:
+        end = match.end()
+        pieces.append(protected[last_end:end])
+        while end < length and protected[end].isspace():
+            end += 1
+        last_end = end
+    if last_end < length:
         pieces.append(protected[last_end:])
-    return [p.replace(sentinel, ".").strip() for p in pieces if p.strip()]
+    return [
+        piece.replace(sentinel, ".").strip()
+        for piece in pieces
+        if piece.strip()
+    ]
 
 
-# ---------------------------------------------------------------------------
-# Validation core
-# ---------------------------------------------------------------------------
+def _normalize_number(value: str) -> str:
+    return (
+        value.replace("\u2212", "-")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .replace(",", "")
+        .lstrip("-")
+    )
+
 
 def validate_sentence(
     sentence: str,
@@ -658,24 +290,10 @@ def validate_sentence(
     section_title: str,
     catalog: dict[str, ClaimAtom],
 ) -> GapRecord:
-    """Validate one sentence against the atom catalog.
+    """Validate one sentence against its section-local atom catalog."""
 
-    Returns a GapRecord with action + reason.
-
-    STRICT layer (replaces sentence with refusal):
-      - Sentence requires atom citation BUT no atom_NNN cited
-      - Cited atom_NNN doesn't exist in catalog
-      - [ev_XXX] cited for a factual claim (no atom_NNN)
-      - Multi-atom: ANY cited atom_NNN missing → replace
-
-    SOFT layer (logged_only; sentence kept as-is):
-      - Cited atom value differs from sentence value (paraphrase)
-      - Cited atom endpoint differs from sentence endpoint
-    """
     cited_atoms = extract_atom_citations(sentence)
     requires_atom, claim_trigger = requires_atom_citation(sentence)
-
-    # Non-claim sentence with no atoms cited → allowed (narrative)
     if not requires_atom and not cited_atoms:
         return GapRecord(
             section_id=section_id,
@@ -685,83 +303,59 @@ def validate_sentence(
             rendered_text=sentence,
             action=RefusalAction.ALLOWED,
             reason=RefusalReason.NO_VIOLATION,
-            notes="narrative/non-claim sentence; no atom citation required",
+            notes="non-claim sentence; no atom citation required",
         )
-
-    # Requires atom but no atom cited
     if requires_atom and not cited_atoms:
-        # Check for [ev_XXX] misuse
-        if extract_ev_citations(sentence):
-            return _build_refusal_record(
-                sentence, sentence_index, section_id, section_title,
-                reason=RefusalReason.EV_CITATION_FOR_CLAIM,
-                claim_trigger=claim_trigger,
-            )
+        reason = (
+            RefusalReason.EV_CITATION_FOR_CLAIM
+            if extract_ev_citations(sentence)
+            else RefusalReason.MISSING_ATOM_CITATION
+        )
         return _build_refusal_record(
-            sentence, sentence_index, section_id, section_title,
-            reason=RefusalReason.MISSING_ATOM_CITATION,
+            sentence,
+            sentence_index,
+            section_id,
+            section_title,
+            reason=reason,
             claim_trigger=claim_trigger,
         )
-
-    # Cited atoms exist — validate each exists in catalog
-    missing = [aid for aid in cited_atoms if aid not in catalog]
+    missing = [atom_id for atom_id in cited_atoms if atom_id not in catalog]
     if missing:
         return _build_refusal_record(
-            sentence, sentence_index, section_id, section_title,
+            sentence,
+            sentence_index,
+            section_id,
+            section_title,
             reason=RefusalReason.INVALID_ATOM_ID,
             missing_atoms=missing,
             cited_atoms=cited_atoms,
             claim_trigger=claim_trigger,
         )
 
-    # All cited atoms valid — SOFT mismatch checks (logged_only)
-    # Step 3b commit 2: extract numbers from the citation-stripped copy
-    # so atom_NNN/biblio markers do not pollute detected_values.
-    soft_notes = []
-    sentence_for_values = _strip_citation_tokens_for_detection(sentence)
-    detected_values = _NUMBER_RE.findall(sentence_for_values)
-    detected_value_set = set(detected_values)
-    for aid in cited_atoms:
-        atom = catalog[aid]
-        # Iter-2 fix (Codex iter-1 P2): tighten value matching to
-        # numeric-token boundaries. Old substring check matched
-        # "2.30" inside "12.30" (false negative on mismatch). New
-        # check uses the same _NUMBER_RE that extracted detected_values
-        # — equality on token strings (sign-normalized).
-        # Step 3h fix (real-data smoke PR #911 finding): normalize
-        # BOTH Unicode minus variants on BOTH sides. V4 Pro emits
-        # U+2212 (MINUS SIGN, "−") + U+2013/2014 (en/em dash) in
-        # clinical text; atom_extractor stores values with U+002D
-        # (HYPHEN-MINUS, "-"). Without sentence-side normalization,
-        # every clinical negative value reads as false SOFT_MISMATCH.
-        # Real smoke showed 4/4 soft_mismatches were this artifact.
-        def _normalize_minus(s: str) -> str:
-            return s.replace("−", "-").replace("–", "-").replace("—", "-")
-        atom_val_normalized = _normalize_minus(atom.value)
-        atom_val_unsigned = atom_val_normalized.lstrip("-")
-        sentence_unsigned = {
-            _normalize_minus(v).lstrip("-") for v in detected_value_set
-        }
-        if atom_val_unsigned and atom_val_unsigned not in sentence_unsigned:
-            soft_notes.append(
-                f"atom={aid} value={atom.value!r} not in sentence numeric tokens"
+    cleaned = _strip_citation_tokens_for_detection(sentence)
+    detected_values = _NUMBER_RE.findall(cleaned)
+    normalized_values = {_normalize_number(value) for value in detected_values}
+    notes: list[str] = []
+    for atom_id in cited_atoms:
+        atom_value = _normalize_number(catalog[atom_id].value)
+        if atom_value and atom_value not in normalized_values:
+            notes.append(
+                f"atom={atom_id} value={catalog[atom_id].value!r} "
+                "not in sentence numeric tokens"
             )
-
-    if soft_notes:
+    if notes:
         return GapRecord(
             section_id=section_id,
             section_title=section_title,
             sentence_index=sentence_index,
             original_sentence=sentence,
-            rendered_text=sentence,  # KEEP (soft layer)
+            rendered_text=sentence,
             action=RefusalAction.LOGGED_ONLY,
             reason=RefusalReason.SOFT_MISMATCH,
             cited_atoms=cited_atoms,
             detected_values=detected_values,
-            notes="; ".join(soft_notes),
+            notes="; ".join(notes),
         )
-
-    # Clean — allowed
     return GapRecord(
         section_id=section_id,
         section_title=section_title,
@@ -775,6 +369,14 @@ def validate_sentence(
     )
 
 
+def _detected_frame(sentence: str) -> tuple[str, str, str]:
+    atoms = _frame_atoms(_strip_citation_tokens_for_detection(sentence))
+    if not atoms:
+        return "this measured outcome", "", ""
+    atom = atoms[0]
+    return atom.endpoint, atom.entity, atom.timepoint
+
+
 def _build_refusal_record(
     sentence: str,
     sentence_index: int,
@@ -786,22 +388,15 @@ def _build_refusal_record(
     cited_atoms: Optional[list[str]] = None,
     claim_trigger: Optional[str] = None,
 ) -> GapRecord:
-    """Build a refusal GapRecord. Renders the refusal template using
-    detected endpoint/entity/timepoint from sentence text."""
-    endpoint = _detect_endpoint_in_sentence(sentence) or "this outcome"
-    entity = _detect_entity_in_sentence(sentence) or ""
-    timepoint = _detect_timepoint_in_sentence(sentence) or ""
-
+    endpoint, entity, timepoint = _detected_frame(sentence)
     rendered = format_refusal_for_missing_atom(
         endpoint=endpoint,
         entity=entity,
         timepoint=timepoint,
     )
-
-    # Iter-2 fix (Codex iter-1 P2): preserve detected_values on refusal
-    # records for downstream audit.
-    detected_values = _NUMBER_RE.findall(sentence)
-
+    detected_values = _NUMBER_RE.findall(
+        _strip_citation_tokens_for_detection(sentence)
+    )
     return GapRecord(
         section_id=section_id,
         section_title=section_title,
@@ -821,28 +416,19 @@ def _build_refusal_record(
 
 
 def _detect_endpoint_in_sentence(sentence: str) -> Optional[str]:
-    m = _ENDPOINT_VOCAB_RE.search(sentence)
-    return m.group(1).lower() if m else None
+    endpoint, _, _ = _detected_frame(sentence)
+    return endpoint
 
 
 def _detect_entity_in_sentence(sentence: str) -> Optional[str]:
-    # Reuse drug regex from atom_extractor — local import to avoid cycle
-    from src.polaris_graph.generator.claim_atom_extractor import _DRUG_RE
-    m = _DRUG_RE.search(sentence)
-    return m.group(0).strip() if m else None
+    _, entity, _ = _detected_frame(sentence)
+    return entity or None
 
 
 def _detect_timepoint_in_sentence(sentence: str) -> Optional[str]:
-    m = re.search(
-        r"\b(?:at|after|by|over)\s+(\d+\s*(?:weeks?|months?|years?|days?))\b",
-        sentence, re.IGNORECASE,
-    )
-    return m.group(1).lower() if m else None
+    _, _, timepoint = _detected_frame(sentence)
+    return timepoint or None
 
-
-# ---------------------------------------------------------------------------
-# Section-level validation
-# ---------------------------------------------------------------------------
 
 @dataclass
 class SectionValidationResult:
@@ -854,15 +440,24 @@ class SectionValidationResult:
 
     @property
     def refusal_count(self) -> int:
-        return sum(1 for g in self.gap_records if g.action == RefusalAction.REFUSED)
+        return sum(
+            record.action == RefusalAction.REFUSED
+            for record in self.gap_records
+        )
 
     @property
     def soft_mismatch_count(self) -> int:
-        return sum(1 for g in self.gap_records if g.action == RefusalAction.LOGGED_ONLY)
+        return sum(
+            record.action == RefusalAction.LOGGED_ONLY
+            for record in self.gap_records
+        )
 
     @property
     def allowed_count(self) -> int:
-        return sum(1 for g in self.gap_records if g.action == RefusalAction.ALLOWED)
+        return sum(
+            record.action == RefusalAction.ALLOWED
+            for record in self.gap_records
+        )
 
 
 def validate_section(
@@ -871,87 +466,73 @@ def validate_section(
     section_title: str,
     catalog: dict[str, ClaimAtom],
 ) -> SectionValidationResult:
-    """Validate all sentences in a section, preserving paragraph
-    structure. Sentence-level refusal: refused sentences are replaced
-    in `rendered_text`, others kept as-is.
+    """Validate every sentence while preserving paragraph boundaries."""
 
-    Step 3b commit 2 (Codex iter-2 P2.4): split on paragraph boundaries
-    FIRST, validate per paragraph, join with \\n\\n. Sentence_index is
-    MONOTONIC across paragraphs so gaps.json claim_id values stay
-    unique. Previously a single " ".join collapsed all paragraphs into
-    a single line — broke report.md formatting.
-    """
     if not section_text or not section_text.strip():
         return SectionValidationResult(
-            section_id=section_id,
-            section_title=section_title,
-            original_text=section_text,
-            rendered_text=section_text,
-            gap_records=[],
+            section_id,
+            section_title,
+            section_text,
+            section_text,
+            [],
         )
-
-    paragraphs = re.split(r"\n{2,}", section_text)
     rendered_paragraphs: list[str] = []
-    gap_records: list[GapRecord] = []
-    sentence_index = 0  # monotonic across paragraphs
-
-    for para in paragraphs:
-        para_stripped = para.strip()
-        if not para_stripped:
-            rendered_paragraphs.append(para)  # preserve whitespace-only paragraph
+    records: list[GapRecord] = []
+    sentence_index = 0
+    for paragraph in re.split(r"\n{2,}", section_text):
+        if not paragraph.strip():
+            rendered_paragraphs.append(paragraph)
             continue
-        sentences = split_sentences(para_stripped)
         rendered_sentences: list[str] = []
-        for sent in sentences:
+        for sentence in split_sentences(paragraph.strip()):
             record = validate_sentence(
-                sent, sentence_index, section_id, section_title, catalog,
+                sentence,
+                sentence_index,
+                section_id,
+                section_title,
+                catalog,
             )
-            gap_records.append(record)
+            records.append(record)
             rendered_sentences.append(record.rendered_text)
             sentence_index += 1
         rendered_paragraphs.append(" ".join(rendered_sentences))
-
-    rendered_text = "\n\n".join(rendered_paragraphs)
     return SectionValidationResult(
         section_id=section_id,
         section_title=section_title,
         original_text=section_text,
-        rendered_text=rendered_text,
-        gap_records=gap_records,
+        rendered_text="\n\n".join(rendered_paragraphs),
+        gap_records=records,
     )
 
-
-# ---------------------------------------------------------------------------
-# gaps.json sidecar writer
-# ---------------------------------------------------------------------------
 
 def build_gaps_document(
     document_id: str,
     section_results: list[SectionValidationResult],
 ) -> dict:
-    """Per Codex APPROVE_DESIGN gaps.json schema."""
     return {
         "document_id": document_id,
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
         "sections": [
             {
-                "section_id": s.section_id,
-                "section_title": s.section_title,
-                "claims": [g.to_dict() for g in s.gap_records],
+                "section_id": section.section_id,
+                "section_title": section.section_title,
+                "claims": [record.to_dict() for record in section.gap_records],
                 "summary": {
-                    "total_sentences": len(s.gap_records),
-                    "refused": s.refusal_count,
-                    "soft_mismatch": s.soft_mismatch_count,
-                    "allowed": s.allowed_count,
+                    "total_sentences": len(section.gap_records),
+                    "refused": section.refusal_count,
+                    "soft_mismatch": section.soft_mismatch_count,
+                    "allowed": section.allowed_count,
                 },
             }
-            for s in section_results
+            for section in section_results
         ],
         "totals": {
-            "total_sentences": sum(len(s.gap_records) for s in section_results),
-            "refused": sum(s.refusal_count for s in section_results),
-            "soft_mismatch": sum(s.soft_mismatch_count for s in section_results),
-            "allowed": sum(s.allowed_count for s in section_results),
+            "total_sentences": sum(len(section.gap_records) for section in section_results),
+            "refused": sum(section.refusal_count for section in section_results),
+            "soft_mismatch": sum(
+                section.soft_mismatch_count for section in section_results
+            ),
+            "allowed": sum(section.allowed_count for section in section_results),
         },
     }
 
@@ -963,15 +544,13 @@ def write_gaps_sidecar(
     *,
     filename: str = "gaps.json",
 ) -> Path:
-    """Write the gaps.json sidecar next to report.md.
-
-    Returns the written path. Caller is responsible for ensuring
-    `output_dir` exists.
-    """
-    doc = build_gaps_document(document_id, section_results)
     path = output_dir / filename
     path.write_text(
-        json.dumps(doc, indent=2, ensure_ascii=False),
+        json.dumps(
+            build_gaps_document(document_id, section_results),
+            indent=2,
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     return path

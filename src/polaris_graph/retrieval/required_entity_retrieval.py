@@ -2,21 +2,16 @@
 
 PURPOSE
 =======
-Some clinical must-cover S0 safety entities (contraindications, dosing limits,
-boxed warnings, regulatory status) live on drug-label / guideline pages
-(DailyMed, accessdata.fda.gov, EMA, NICE, Health Canada, NIH ODS) that the
-generic Serper/S2 research corpus rarely surfaces. When that content is absent
-from the cited corpus, the report cannot make verified contraindication/dosing
-claims and the must-cover slots gap-disclose — the recurring cause of
-`four_role_held` on clinical questions (#1188 + canary diagnosis).
+Some must-cover entities live in specialized primary documents that a generic
+research corpus rarely surfaces. When that content is absent, the corresponding
+slots must honestly gap-disclose.
 
 This lane is an ENV-GATED, additive retry. For each must-cover entity that is
 STILL unsatisfied after the normal V30 frame fetch, it:
 
-1. Builds TARGETED safety queries (intervention anchor x entity safety term)
-   biased to an authoritative clinical-authority domain set UNION the entity's
-   OWN ``url_pattern`` host, and fires them through ``search_fn`` (Serper) to
-   DISCOVER candidate authoritative URLs.
+1. Builds targeted queries from the entity's own labels, requested fields, and
+   query metadata, biased only to configured domains plus the entity's own
+   ``url_pattern`` host.
 2. FETCHES the discovered candidate URLs through the EXISTING live-retrieval
    pipeline (``retrieval_fn`` = ``run_live_retrieval`` with ``seed_urls`` +
    ``seed_only=True`` — the same AccessBypass/Zyte chokepoint, no Serper/S2
@@ -42,9 +37,8 @@ HONEST SCOPE
 Because the 4-role coverage gate for url-pattern regulatory entities requires
 ``record.url == entity.url_pattern`` EXACTLY, injecting an ALTERNATE authoritative
 URL CANNOT flip that specific entity's coverage. What this lane does is get the
-authoritative SAFETY CONTENT into the corpus so the generator can write VERIFIED
-contraindication / dosing claims (directly addressing #1190's "absent from the
-cited research corpus"). It flips 4-role coverage only for DOI/PMID-keyed
+authoritative required content into the corpus so the generator can write
+verified entity claims. It flips 4-role coverage only for DOI/PMID-keyed
 entities, or when the entity's exact ``url_pattern`` is itself among the fetched
 URLs — not for the url-pattern regulatory entity class as a rule.
 
@@ -71,20 +65,11 @@ logger = logging.getLogger(__name__)
 # --- env gate (HARD constraint 1: flag-OFF = byte-identical) ------------------
 _LANE_ENABLED_ENV = "PG_REQUIRED_ENTITY_RETRIEVAL"
 
-# --- authoritative-domain set (LAW VI: named const, env-overridable) ----------
-# The operator-approved clinical-authority set. Each entity's OWN url_pattern
-# host is UNIONed onto this per-entity so url-only-canonical entities
-# (ods.od.nih.gov, accessdata.fda.gov, health-products.canada.ca) are reachable
-# in the targeted search (the default list alone does not cover them).
+# --- optional domain bias (LAW VI: env-overridable) ---------------------------
+# Production code carries no field-specific host list. Each entity's own
+# url_pattern host is unioned with the run-configured domains.
 _REQUIRED_ENTITY_DOMAINS_ENV = "PG_REQUIRED_ENTITY_DOMAINS"
-_DEFAULT_REQUIRED_ENTITY_DOMAINS: tuple[str, ...] = (
-    "fda.gov",
-    "dailymed.nlm.nih.gov",
-    "ema.europa.eu",
-    "nice.org.uk",
-    "who.int",
-    "drugs.com",
-)
+_DEFAULT_REQUIRED_ENTITY_DOMAINS: tuple[str, ...] = ()
 
 # --- bounds (HARD constraint 3: named consts, env-overridable, no runaway) ----
 # Max distinct targeted queries fired per unsatisfied entity.
@@ -106,7 +91,7 @@ _DEFAULT_MAX_SEED_URLS_PER_ENTITY = 3
 # built ``<question> <entity>`` query blew past Serper's 2048-char ``q`` hard
 # limit -> HTTP 400 "query too long" -> the lane merged 0 rows and every derived
 # entity stayed a gap. Two env-overridable (LAW VI) bounds fix it:
-#   * the ANCHOR is clipped to its first N chars (mirrors the _intervention_anchor
+#   * the ANCHOR is clipped to its first N chars (mirrors the entity-anchor
 #     ``[:120]`` fallback) so the question can never dominate the query, and
 #   * the FINAL built query string is hard-clipped to the Serper ceiling as a
 #     last-line defence for a pathologically long entity term.
@@ -125,24 +110,8 @@ _DEFAULT_SERPER_QUERY_MAX_CHARS = 2048
 _MIN_VERIFIABLE_SPAN_ENV = "PG_MIN_VERIFIABLE_SPAN_CHARS"
 _DEFAULT_MIN_VERIFIABLE_SPAN_CHARS = 50
 
-# --- safety-term phrasings per S0 category (deterministic, no magic strings) --
-# Maps an entity's s0_category -> the safety phrasing appended to the
-# intervention anchor to build a targeted query. A category absent here falls
-# back to the generic safety terms below (still bounded).
-_S0_CATEGORY_QUERY_TERMS: dict[str, tuple[str, ...]] = {
-    "contraindications": ("contraindications", "who should not take", "warnings"),
-    "dosing_limits": ("dosing", "maximum dose", "tolerable upper intake limit"),
-    "black_box_warnings": ("boxed warning", "black box warning", "safety"),
-    "regulatory_status": ("label", "approval status", "prescribing information"),
-}
-_GENERIC_SAFETY_TERMS: tuple[str, ...] = (
-    "safety adverse effects",
-    "contraindications",
-    "dosing",
-)
-
 # Caller-supplied source/origin labels so the merged rows are honestly tagged
-# as required-entity-lane discoveries (not mislabeled as primary-trial seeds).
+# as required-entity-lane discoveries.
 SEED_SOURCE_LABEL = "required_entity_lane"
 SEED_QUERY_ORIGIN = "required_entity_targeted_search"
 
@@ -197,7 +166,7 @@ def _serper_query_max_chars() -> int:
 
 def _bounded_anchor(research_question: str) -> str:
     """Whitespace-collapsed research question clipped to the query-anchor char
-    ceiling (mirrors :func:`_intervention_anchor`'s ``[:120]`` fallback).
+    ceiling (mirrors :func:`_entity_anchor`'s bounded fallback).
 
     Bounding the anchor length keeps the built ``<anchor> <entity>`` query inside
     Serper's 2048-char ``q`` limit so a long question no longer 400s the coverage
@@ -225,10 +194,10 @@ def _bounded_gap_query(anchor: str, entity: str) -> str:
 
 
 def required_entity_domains() -> tuple[str, ...]:
-    """The authoritative clinical-authority domain set (LAW VI: env-overridable).
+    """Return the optional run-configured domain bias.
 
     ``PG_REQUIRED_ENTITY_DOMAINS`` is a comma-separated override; blank entries
-    are dropped. Empty/absent -> the operator-approved default set.
+    are dropped. Empty/absent means no global domain bias.
     """
     raw = os.getenv(_REQUIRED_ENTITY_DOMAINS_ENV)
     if raw is None or not raw.strip():
@@ -273,7 +242,7 @@ def frame_row_is_unsatisfied(row: FrameRow, *, min_span_chars: Optional[int] = N
     return False
 
 
-def _intervention_anchor(
+def _entity_anchor(
     *,
     entity_meta: Optional[Any],
     scope_overrides: Optional[Mapping[str, Any]],
@@ -282,16 +251,16 @@ def _intervention_anchor(
     """Pick the cleanest anchor for the targeted query (deterministic order).
 
     Priority: the contract entity's ``label_name`` (cleanest, e.g. "Mounjaro");
-    then ``scope_overrides['intervention']``; then a trimmed prefix of the
+    then a caller-supplied scope anchor; then a trimmed prefix of the
     research question. Never empty (the question is always present).
     """
     label_name = getattr(entity_meta, "label_name", None) if entity_meta is not None else None
     if isinstance(label_name, str) and label_name.strip():
         return label_name.strip()
     if scope_overrides:
-        intervention = scope_overrides.get("intervention")
-        if isinstance(intervention, str) and intervention.strip():
-            return intervention.strip()
+        for value in scope_overrides.values():
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     # Fallback: first chunk of the research question (bounded for query sanity).
     return (research_question or "").strip()[:120]
 
@@ -302,11 +271,10 @@ def build_targeted_queries(
     intervention_anchor: str,
     max_queries: Optional[int] = None,
 ) -> tuple[str, ...]:
-    """Build the targeted safety queries for one unsatisfied entity.
+    """Build targeted queries from an unsatisfied entity's own metadata.
 
-    ``<intervention_anchor> <safety term>`` per the entity's ``s0_category``
-    (falling back to generic safety terms). Deterministic order, de-duplicated,
-    capped at ``max_queries`` (env-bounded). The authoritative-domain ``site:``
+    Deterministic order, de-duplicated, capped at ``max_queries`` (env-bounded).
+    The optional domain ``site:``
     bias is applied by the search backend via the ``domains=`` argument, NOT
     baked into the query string here.
     """
@@ -315,8 +283,24 @@ def build_targeted_queries(
         if max_queries is None
         else max(0, max_queries)
     )
-    s0_category = entity.get("s0_category")
-    terms = _S0_CATEGORY_QUERY_TERMS.get(s0_category or "", _GENERIC_SAFETY_TERMS)
+    terms: list[str] = []
+    for key in ("query_terms", "search_terms", "required_terms", "fields"):
+        value = entity.get(key)
+        if isinstance(value, str) and value.strip():
+            terms.append(value.strip())
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            terms.extend(str(item).strip() for item in value if str(item).strip())
+    category = str(entity.get("s0_category") or "").replace("_", " ").strip()
+    if category:
+        terms.append(category)
+    if not terms:
+        for key in ("label", "name", "entity_id"):
+            value = str(entity.get(key) or "").strip()
+            if value:
+                terms.append(value)
+                break
+    if not terms:
+        terms.append("")
     anchor = (intervention_anchor or "").strip()
     queries: list[str] = []
     seen: set[str] = set()
@@ -333,7 +317,7 @@ def build_targeted_queries(
 
 # --- R3 (#1344): field-agnostic still-missing-entity gap-detect ---------------
 # Max targeted gap queries the general still-missing-entity detector emits per run
-# (compute-safety bound; each query still flows the unchanged weight-and-consolidate
+# (compute bound; each query still flows the unchanged weight-and-consolidate
 # path + frozen verify — §-1.3, never a breadth target).
 _MISSING_ENTITY_MAX_QUERIES_ENV = "PG_MISSING_ENTITY_GAP_MAX_QUERIES"
 _DEFAULT_MISSING_ENTITY_MAX_QUERIES = 12
@@ -366,7 +350,7 @@ def missing_entity_gap_queries(
     max_queries: Optional[int] = None,
 ) -> list[str]:
     """R3 (#1344): derive targeted corrective queries for STILL-MISSING required
-    entities — field-agnostic (no clinical-safety literal).
+    entities using field-agnostic metadata.
 
     DRB-II 2nd-order recall rubrics need a chained fact: A -> find entity -> fact
     B. The up-front decomposition fans out once and the single-pass CRAG loop can
@@ -497,7 +481,7 @@ def run_required_entity_lane(
             continue
         attempted.append(entity_id)
 
-        anchor = _intervention_anchor(
+        anchor = _entity_anchor(
             entity_meta=entity_meta_by_id.get(entity_id),
             scope_overrides=scope_overrides,
             research_question=research_question,
@@ -590,11 +574,11 @@ def run_required_entity_lane(
 # OFFLINE — so the lane runs even when no external rubric hands us the list. It
 # then targets ONLY the derived entities the corpus does not yet mention and
 # fetches candidate sources for them through the SAME injected live-retrieval
-# chokepoint the clinical lane uses (seed-only, no Serper/S2 fan-out).
+# chokepoint the required-entity lane uses (seed-only, no Serper/S2 fan-out).
 #
 # FAITHFULNESS (§-1.1 / operator BINDING — LETHAL otherwise)
 # ----------------------------------------------------------
-# Identical contract to the clinical lane: fetched rows are ORDINARY corpus
+# Identical contract to the required-entity lane: fetched rows are ordinary corpus
 # evidence carrying their REAL fetched URLs; they are NEVER keyed to an entity
 # and NEVER relabeled. strict_verify / NLI entailment / 4-role D8 / provenance /
 # span-grounding are UNCHANGED. A derived required entity for which the lane
@@ -602,7 +586,7 @@ def run_required_entity_lane(
 # recorded in ``gap_entities`` and NOTHING is injected for it (no fabrication, no
 # forced coverage). Deriving an entity only decides WHAT to search next; it can
 # never credit coverage on its own (§-1.3 WEIGHT-AND-CONSOLIDATE, never
-# FILTER / FORCE). The per-entity + per-run bounds are compute-safety CEILINGS
+# FILTER / FORCE). The per-entity + per-run bounds are compute ceilings
 # billed by actual use — never a breadth target / cap / thinner / floor.
 #
 # DEFAULT-ON kill-switch (LAW VI): ``PG_COVERAGE_L5_REQUIRED_ENTITY`` defaults
@@ -612,12 +596,12 @@ def run_required_entity_lane(
 # --- default-ON kill-switch (LAW VI) ------------------------------------------
 _COVERAGE_L5_ENABLED_ENV = "PG_COVERAGE_L5_REQUIRED_ENTITY"
 
-# --- compute-safety CEILING on derived entities (NOT a breadth target; §-1.3) -
+# --- compute CEILING on derived entities (NOT a breadth target; §-1.3) --------
 _COVERAGE_L5_MAX_ENTITIES_ENV = "PG_COVERAGE_L5_MAX_ENTITIES"
 _DEFAULT_COVERAGE_L5_MAX_ENTITIES = 24
 
 # Honest source/origin tags so merged L5 rows are attributed to THIS lane (never
-# mislabeled as clinical-lane seeds or primary-trial seeds).
+# mislabeled as another retrieval lane's seeds).
 COVERAGE_L5_SEED_SOURCE_LABEL = "required_entity_coverage_l5"
 COVERAGE_L5_SEED_QUERY_ORIGIN = "required_entity_coverage_l5_targeted_search"
 
@@ -649,7 +633,7 @@ _ENTITY_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9&./'\-]*")
 _STRAIGHT_QUOTE_RE = re.compile(r'"([^"\n]{2,80})"')
 _CURLY_QUOTE_RE = re.compile("[“]([^”\n]{2,80})[”]")
 
-# Fetch-width bounds are SHARED with the clinical lane (same lane family, same
+# Fetch-width bounds are shared across the lane family (same
 # chokepoint): PG_REQUIRED_ENTITY_MAX_RESULTS_PER_QUERY / _MAX_SEED_URLS_PER_ENTITY.
 
 
@@ -849,7 +833,7 @@ class CoverageL5Result:
 
     ``evidence_rows`` are the NEWLY fetched corpus rows (real fetched URLs) the
     caller merges into ``evidence_for_gen`` (same dedup + evidence_id renumber
-    the saturation gap-round + clinical lane use). ``gap_entities`` are the
+    the saturation gap-round and required-entity lane use). ``gap_entities`` are the
     derived required entities for which the lane surfaced NO candidate source —
     they STAY gap disclosures (nothing injected, no fabrication). All counts are
     deterministic and the lane NEVER mutates its inputs.
@@ -891,7 +875,7 @@ def run_l5_required_entity_coverage(
          exact-equality coverage gate cannot be tricked).
 
     ``domains`` defaults to an EMPTY bias (field-agnostic — L5 spans economics,
-    technology, policy, ... so it must NOT bias to a clinical-authority set). The
+    technology, policy, and other domains, so it uses no baked-in authority set). The
     caller may pass a bias set. DEPENDENCY-INJECTED ``search_fn`` / ``retrieval_fn``
     keep this pure / offline-testable. Kill-switch OFF => empty no-op result.
     """

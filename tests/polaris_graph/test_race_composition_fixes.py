@@ -70,6 +70,32 @@ def test_section_prompts_lock_writer_native_readability_rules():
             assert rule in template
 
 
+def test_generalized_section_template_contains_no_task_or_domain_literals():
+    banned = (
+        "tirzepatide", "hba1c", "kwikpen", "surpass", "pwbm",
+        "goldman", "75.5%", "n=1879",
+    )
+    normalized = SECTION_SYSTEM_PROMPT_TEMPLATE.casefold()
+    assert SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC is SECTION_SYSTEM_PROMPT_TEMPLATE
+    assert all(literal not in normalized for literal in banned)
+
+
+def test_mixed_registrant_journal_doi_needs_second_non_journal_signal():
+    for doi in ("10.1109/ACCESS.2024.1234", "10.1145/1234567"):
+        journal_row = {
+            "title": "A peer-reviewed journal article",
+            "doi": doi,
+            "document_type": "JOURNAL_ARTICLE",
+        }
+        proceedings_row = {
+            "title": "Conference proceedings paper",
+            "doi": doi,
+            "document_type": "CONFERENCE_PAPER",
+        }
+        assert known_non_journal_surface(journal_row) is False
+        assert known_non_journal_surface(proceedings_row) is True
+
+
 def test_report_blueprint_gives_writer_every_section_ownership():
     plans = [
         SimpleNamespace(title="Context", focus="Define the setting."),
@@ -137,14 +163,22 @@ def test_active_templates_have_no_length_or_citation_tallies():
 def test_coverage_audit_flags_unrendered_required_concept(monkeypatch):
     monkeypatch.setenv("PG_COVERAGE_OBLIGATIONS", "1")
     obligations = build_obligations([
-        "a named conceptual frame",
-        "effects across various settings",
+        {"concept": "a named conceptual frame", "role": "frame", "comparative": False},
+        {
+            "concept": "effects across various settings",
+            "role": "cross-context comparison",
+            "comparative": True,
+        },
     ])
     plans = [
         SimpleNamespace(title="Context", focus="Set context."),
         SimpleNamespace(title="Conclusion", focus="Conclude."),
     ]
-    thread_obligations(plans, obligations)
+    thread_obligations(
+        plans,
+        obligations,
+        embedding_fn=lambda _texts: [[1, 0], [0, 1], [1, 0], [0, 1]],
+    )
 
     audit = audit_fulfillment(
         obligations,

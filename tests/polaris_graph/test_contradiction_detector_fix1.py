@@ -115,8 +115,8 @@ def test_fix1_different_doses_not_grouped() -> None:
     assert records == []
 
 
-def test_fix1_same_dose_different_values_still_flagged() -> None:
-    """Same dose, different values → still a contradiction."""
+def test_fix1_same_condition_different_timepoints_is_disclosed_as_mismatch() -> None:
+    """A shared condition does not erase a differing observation window."""
     evidence = [
         _ev("ev_a", "Semaglutide 2.4 mg achieved 14.9% weight loss at week 68."),
         _ev("ev_b", "Semaglutide 2.4 mg achieved 17.4% weight loss at week 104."),
@@ -125,7 +125,7 @@ def test_fix1_same_dose_different_values_still_flagged() -> None:
     records = detect_contradictions(claims)
     assert len(records) == 1
     r = records[0]
-    assert r.predicate == "weight loss (2.4 mg)"
+    assert r.predicate == "weight loss (2.4 mg) [possible_metric_mismatch]"
 
 
 def test_fix1_live_run_noise_not_flagged() -> None:
