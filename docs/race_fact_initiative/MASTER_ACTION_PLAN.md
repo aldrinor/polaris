@@ -611,3 +611,39 @@ the OQ-1 tasks — THEN a 3v3 paired probe vs the pinned mf_baseline champion (0
 OQ-5 (probe budget). OQ-2 blocks Wave 2; OQ-3 and OQ-7 block Wave 3; the rest decidable in flight.
 
 **No pipeline code is written until the operator approves this plan and answers the Wave-1 blockers.**
+
+---
+
+## 10. OPERATOR DECISIONS — RESOLVED 2026-07-23 (Wave-1 gate CLEARED)
+
+- **OQ-0 (first-ship sequence): FABLE PROVEN-WINNER-FIRST.** Build order W1 (U1 + U12-lite + U14b, AC carrier as
+  definition-of-done) → W2 (U3 + U4 + U6) → W3 (U5 + U11 + U14a) → W4 (U2 + U8 + U10) → W5 (U7-full + U9 + U13 +
+  U12-full). Sol's governance-first order is the fallback if Wave 1 measures flat despite green deterministic gates.
+- **OQ-4 (licensed-inference doctrine): APPROVED.** The paragraph-closing inference sentence (derives what a
+  paragraph's already-cited findings jointly imply; zero new factual token/number/entity; carries the union of the
+  paragraph's markers) is an approved amendment to the closed-world writer contract, enforced by the C2 canary.
+- **OQ-1 (held-out set): 91 + 100 + 73.** Every fix's deterministic test must pass on task 72 AND on task 91
+  (inventory, .11 Insight — mandatory no-fire conditionality), task 100 (analytical, .40 Insight), task 73
+  (Read .25, readability stressor).
+- **OQ-5 (probe budget): WAVE 1 ONLY for now** (~6 generations = 3v3 paired vs mf_baseline). Remaining waves'
+  budget decided after the Wave-1 result.
+- OQ-2/3/6/7/8/9/10/11/12: not yet needed (OQ-2 before Wave 2; OQ-3/7 before Wave 3; rest in flight).
+
+## 11. CRITICAL RETARGET — canonical scoreboard = Gate-B / V30-ON (operator decision 2026-07-23)
+
+Four Sol design-gate rounds on the Wave-1 spec surfaced that POLARIS has TWO writer architectures gated by
+`PG_V30_PHASE2_ENABLED`: the LEGACY abstractive path (`_run_section`→`abstractive_pre_pass`→`_call_writer`→
+`_compose_section_per_basket`, active when V30=0, the DEFAULT — how mf_baseline 0.5009 was generated), and the V30
+CONTRACT-SECTION/SLOT path (`contract_section_runner.run_contract_section`→`slot_fill.build_slot_narrative_prompt`,
+active when V30=1). `scripts/dr_benchmark/run_gate_b.py:5746` FORCE-sets V30=1 and self-describes as "THE PRIMARY
+LIVE BENCHMARK PATH". **Operator decision: the canonical scoreboard is Gate-B / V30-ON.** Consequences:
+1. **mf_baseline 0.5009 is INVALID as champion** (generated V30-off). MUST RE-BASELINE under V30-on before any
+   Wave-1 measurement.
+2. **Wave-1 transport retargets** from the abstractive writer to the V30 narrative stream
+   (`build_slot_narrative_prompt` / `_SYSTEM_PROMPT` slot_fill.py:207,703; `run_contract_section` :1627).
+3. **The CHARTER (C1-C5), pre-producer canary doctrine, exact emitted==admitted-candidate binding, ordered-token
+   layout, complete-route coverage, OFF-path identity, semantic naming, and 6-stage staging ALL CARRY OVER** — only
+   the transport target moves. The 4 gate verdicts remain the faithfulness/correctness rulebook.
+4. **Phase-3 PIPELINE_GAP_AUDIT needs a V30 re-map** (its "active producer" seam is legacy-path).
+NEXT: Sol line-by-line investigation of the V30 slot writer → retargeted Wave-1 seam map → spec v4 → re-gate →
+build Stage 1. Re-baseline generation run is a prerequisite.
