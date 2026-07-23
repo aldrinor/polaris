@@ -32,12 +32,20 @@ PG_RENDER_BLOCKS), the ONLY valid comparator. Critical path U3→U4/U6→U7. 5-r
 held-out tasks 91+100+{73|51|4}; faithfulness firewall + U1 zero-new-factual-token canary + layout-only render
 exception; deterministic-then-3v3-paired measurement gate; shared-contract rule; no-regression gate).
 
-**THE OPEN DECISION for the operator (OQ-0, blocks build):** first-ship wave. Fable (Opus-recommended) =
-proven-winner-first, W1 = U1 licensed paragraph-closing inference + U12-lite layout + U14b, AC carrier as
-definition-of-done. Sol = governance-foundation-first, W1 = U5+U11+U13+U12. Both reach the same end state; they
-differ on sequence. Plus OQ-1 (held-out set), OQ-4 (licensed-inference doctrine sign-off), OQ-5 (probe budget)
-also block Wave 1. AWAITING operator sign-off before ANY pipeline code. See [[no-post-generation-fix-rule]],
-[[build-all-then-measure-rule]], [[investigate-then-consult]].
+**WAVE-1 GATE CLEARED — operator decisions RESOLVED 2026-07-23 → BUILDING (task #41):**
+- OQ-0 first-ship = **Fable proven-winner-first**. Order W1(U1+U12-lite+U14b, AC carrier=definition-of-done) →
+  W2(U3+U4+U6) → W3(U5+U11+U14a) → W4(U2+U8+U10) → W5(U7-full+U9+U13+U12-full). Sol's governance-first order is
+  the FALLBACK if W1 measures flat despite green deterministic gates.
+- OQ-4 licensed-inference doctrine = **APPROVED** (paragraph-closing inference: zero new factual token/number/
+  entity, union-of-paragraph-markers, enforced by the C2 canary; the single doctrine change).
+- OQ-1 held-out set = **91 + 100 + 73** (91 inventory .11 Insight = mandatory NO-FIRE conditionality test;
+  100 analytical .40; 73 Read .25 stressor). Every fix's deterministic test must pass on 72 + these 3.
+- OQ-5 budget = **Wave 1 only for now** (~6 gens = 3v3 paired vs mf_baseline); rest decided after W1 result.
+- Deferred: OQ-2 (before W2), OQ-3/7 (before W3), OQ-6/8/9/10/11/12 (in flight).
+Discipline: design gated by Sol max-reasoning before code ([[codex-sol-max-reasoning]]); faithfulness engine
+untouched ([[no-post-generation-fix-rule]], [[no-entailment-ever-rule]]); build-all-then-measure
+([[build-all-then-measure-rule]]); consult on judgment calls ([[investigate-then-consult]],
+[[two-way-iteration-rule]]).
 
 **The 3-model panel (no Kimi account needed):** Sol = Codex CLI (gpt-5.6-sol, max). K3 = **Codex CLI driving
 OpenRouter `moonshotai/kimi-k3`** — PROVEN working: `codex exec -c model_providers.openrouter.base_url=
