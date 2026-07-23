@@ -59,6 +59,102 @@ from typing import Any, Optional
 
 
 # ---------------------------------------------------------------------------
+# Domain-neutral value/unit spans used by construction-by-validity renderers
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ValueUnitSpan:
+    """One literal quantitative span copied from source text.
+
+    This is deliberately smaller than :class:`ClaimAtom`: it performs no endpoint,
+    entity, or outcome-role inference.  The renderer that consumes it needs only a
+    byte-for-byte value/unit slice and its offsets; comparability is decided from the
+    surrounding *verified sentence*, never from a generated label.
+    """
+
+    literal_text: str
+    value: str
+    unit: str
+    span_start: int
+    span_end: int
+
+
+_GENERAL_NUMBER = r"(?:[<>\u2264\u2265\u00b1~\u2248]\s*)?[-+]?\d[\d,]*(?:\.\d+)?(?:\s*(?:[-\u2013\u2014]|to)\s*\d[\d,]*(?:\.\d+)?)?"
+_GENERAL_SUFFIX_UNIT = (
+    r"(?:%|\u2030|\u00d7|[A-Za-z\u00b5\u03bc][A-Za-z0-9\u00b5\u03bc/\^\-]*"
+    r"(?:\s+(?:per\s+)?[A-Za-z\u00b5\u03bc][A-Za-z0-9\u00b5\u03bc/\^\-]*)?)"
+)
+_GENERAL_VALUE_UNIT_RE = re.compile(
+    rf"(?P<prefix>[$\u00a3\u20ac\u00a5]\s*)?(?P<value>{_GENERAL_NUMBER})\s*(?P<unit>{_GENERAL_SUFFIX_UNIT})?",
+    re.IGNORECASE,
+)
+
+# Function words cannot be measurement units.  This is grammatical vocabulary,
+# not a topic/source/venue ontology; excluding it only reduces false-positive yield.
+_NON_UNIT_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by",
+    "did", "do", "does", "for", "from", "had", "has", "have", "if", "in", "into",
+    "is", "it", "of", "on", "or", "than", "that", "the", "then", "this", "to",
+    "was", "were", "when", "which", "while", "with", "would",
+})
+
+
+def normalize_value_unit(unit: str) -> str:
+    """Return a conservative comparison key for a literal unit.
+
+    Only orthographic normalization is performed.  There is no conversion (for
+    example, kilograms are not equated with pounds), so two rows can compare only
+    when their source sentences use the same written unit.
+    """
+
+    key = re.sub(r"\s+", " ", str(unit or "").strip().lower())
+    if key in {"percent", "percentage"}:
+        return "%"
+    if key in {"percentage point", "percentage points"}:
+        return "percentage point"
+    return key
+
+
+def extract_verbatim_value_unit_spans(text: str) -> list[ValueUnitSpan]:
+    """Extract literal value/unit slices without generating or rewriting content.
+
+    A suffix unit may be a symbol (``%``/``×``), an SI-style token, or one/two
+    alphabetic words.  Currency symbols are accepted as prefix units.  A bare
+    number is not returned.  False positives therefore reduce table precision or
+    yield, but cannot fabricate a value: every returned ``literal_text`` is asserted
+    to be an exact slice of ``text``.
+    """
+
+    source = str(text or "")
+    out: list[ValueUnitSpan] = []
+    for match in _GENERAL_VALUE_UNIT_RE.finditer(source):
+        prefix = (match.group("prefix") or "").strip()
+        suffix = (match.group("unit") or "").strip()
+        if suffix and suffix.lower() in _NON_UNIT_WORDS:
+            suffix = ""
+        # Preserve a currency scale suffix in the comparison key.  Treating
+        # ``$4 million`` and ``$4 billion`` as the same unit would create a
+        # misleading comparison even though both literal cells were copied
+        # faithfully.  Joining the two source-written pieces remains entirely
+        # construction-only and makes comparability more conservative.
+        unit = " ".join(piece for piece in (prefix, suffix) if piece)
+        if not unit:
+            continue
+        start, end = match.span()
+        literal = source[start:end]
+        # Defensive construction invariant: a renderer can copy only this slice.
+        assert literal == source[start:end]
+        out.append(ValueUnitSpan(
+            literal_text=literal,
+            value=(match.group("value") or ""),
+            unit=unit,
+            span_start=start,
+            span_end=end,
+        ))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # ClaimAtom — the structured record V4 Pro will cite from
 # ---------------------------------------------------------------------------
 

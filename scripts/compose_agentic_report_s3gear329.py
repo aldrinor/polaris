@@ -39,9 +39,6 @@ sys.path.insert(0, str(ROOT))
 # over config_defaults), never bare os.getenv literals, so other pipelines/bots stay
 # byte-identical unless a flag is set.
 from src.polaris_graph.settings import resolve  # noqa: E402
-from src.polaris_graph.generator.weighted_enrichment import (  # noqa: E402
-    _ENRICHMENT_RESIDUAL_TITLE,
-)
 
 DRB_QUERY = ROOT / "third_party" / "deep_research_bench" / "data" / "prompt_data" / "query.jsonl"
 
@@ -92,6 +89,15 @@ logging.basicConfig(
 for noisy in ("httpx", "httpcore"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 log = logging.getLogger("compose")
+
+
+def _resolved_or_env(key: str) -> dict[str, str | None]:
+    """Capture a config value without allowing diagnostic recording to fail."""
+    try:
+        return {"value": resolve(key), "source": "resolve"}
+    except KeyError:
+        value = os.environ.get(key)
+        return {"value": value, "source": "env" if value is not None else "unset"}
 
 
 def _tier_fractions(evidence: list[dict]) -> dict[str, float]:
@@ -153,6 +159,21 @@ def _order_sections_by_required(verified: list, required_titles: list[str]) -> l
         if i not in used:
             ordered.append(sr)
     return ordered
+
+
+def _sections_for_render(sections: list, required_titles: list[str] | None = None) -> list:
+    """Return every non-failed section carrying verified/renderable text.
+
+    There is intentionally no residual-section switch: once verified prose was
+    generated, assembly may order it but may not excise it.  Under the facet-pack
+    gate residual evidence is folded into topical sections *before* generation.
+    """
+
+    verified = [
+        section for section in (sections or [])
+        if not section.dropped_due_to_failure and section.verified_text
+    ]
+    return _order_sections_by_required(verified, list(required_titles or []))
 
 
 def _dedup_biblio_by_work(biblio: list[dict]) -> list[dict]:
@@ -245,16 +266,8 @@ async def main() -> int:
     # STEP 4 (UTILIZATION): keep a facet's full matched payload by dropping the PG_MAX_EV_PER_SECTION
     # row-cap ceiling.
     #
-    # PG_ROUTE_ALL_BASKETS IS NO LONGER FORCED ON HERE (2026-07-21, three-model audit Sol+Fable+K3,
-    # full repo access + web search). A prior ``setdefault("PG_ROUTE_ALL_BASKETS","1")`` silently
-    # overrode the central-config default (0 = off) for EVERY run through this entry point, so every
-    # route-all A/B was invalid (both arms were on) and every reported score was route-all-ON. The
-    # audit found that force-routing every home-less basket by shallow content-word overlap DILUTES a
-    # quality-judged report: a bigger, noisier writer menu yields FEWER distinct facts and fewer
-    # distinct cited sources, and a large fraction of the routed evidence lands in a residual section
-    # the render then drops. Route-all now defaults OFF via config_defaults; enable it only by an
-    # explicit env/config value. If orphan coverage is revisited, build a relevance +
-    # marginal-novelty router (never force-all). See docs/ROUND2_ROLLOUT.md.
+    # Route-all is single-sourced in config_defaults.  This driver deliberately
+    # carries no hidden override; the central champion default is authoritative.
     os.environ.setdefault("PG_EV_BUDGET_TRACKS_PAYLOAD", "1")
 
     corpus_path = Path(args.corpus)
@@ -271,6 +284,22 @@ async def main() -> int:
     clusters = [SimpleNamespace(**c) if isinstance(c, dict) else c for c in raw_clusters]
     swg = corpus.get("same_work_groups")
     domain = corpus.get("domain", "")
+
+    # Coverage obligations use the existing generic constraint schema before generation.
+    _scope_constraints: dict = {}
+    if (resolve("PG_COVERAGE_OBLIGATIONS") or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    ):
+        try:
+            from src.polaris_graph.instruction.constraint_extractor import (  # noqa: PLC0415
+                extract_constraints_async,
+            )
+            _scope_constraints = dict(await extract_constraints_async(
+                rq, max_tokens=int(resolve("PG_EXTRACTION_MAX_TOKENS")),
+            ))
+        except Exception as exc:  # noqa: BLE001 — disclosed empty constraints; corpus remains intact
+            log.warning("[constraints] extraction unavailable: %s", exc)
+            _scope_constraints = {}
 
     run_id = time.strftime("agentic_report_%Y%m%d_%H%M%S")
     run_dir = ROOT / (args.out_dir or f"outputs/{run_id}")
@@ -379,7 +408,6 @@ async def main() -> int:
             same_work_groups=swg,
             section_temperature=0.3,
             outline_max_tokens=2500,
-            section_max_tokens=2400,
             min_kept_fraction=0.4,
             max_parallel_sections=args.max_parallel,
             tier_fractions=dist,
@@ -389,6 +417,7 @@ async def main() -> int:
             deliverable_spec=_deliverable_spec,
             scope_spec=_scope_spec,
             compose_projection=_compose_projection,
+            prompt_scope_constraints=_scope_constraints or None,
         )
         dt = time.time() - t0
         kept = [s for s in multi.sections if not s.dropped_due_to_failure]
@@ -441,29 +470,23 @@ async def main() -> int:
                 "be verified against the underlying evidence were removed rather than paraphrased."
             )
         # Verified section bodies (VERIFIED text only — never dropped/edited here).
-        _verified = [
-            sr for sr in multi.sections
-            if not sr.dropped_due_to_failure and sr.verified_text
-        ]
-        # STEP-1 render cleanup (change #6): optionally omit the residual enrichment
-        # section ("Additional Corroborated Findings") from the RENDERED body. This is a
-        # render-only filter over the assembly list — the section's evidence stays in
-        # multi.sections and rides into the archive/checkpoint (bibliography.json etc.),
-        # so no data is dropped. Default '1' (include) => byte-identical to today's body.
-        if resolve("PG_INCLUDE_RESIDUAL_SECTION") == "0":
-            _verified = [
-                sr for sr in _verified
-                if (sr.title or "").strip() != _ENRICHMENT_RESIDUAL_TITLE
-            ]
         # S4 contract-aware order: when the render plan names required section titles
         # in order, place matching verified sections FIRST in that order; every other
         # verified section keeps its original relative order AFTER them. This ORDERS
         # verified content — it never drops or fabricates a section. Absent render
         # plan => original order => byte-identical.
         _required_titles = list(_render_plan.get("required_titles", [])) if _render_plan else []
-        if _required_titles:
-            _verified = _order_sections_by_required(_verified, _required_titles)
-        bodies: list[str] = [f"## {sr.title}\n\n{sr.verified_text}" for sr in _verified]
+        _verified = _sections_for_render(multi.sections, _required_titles)
+        _missing_planned_sections: list[str] = []
+        if (resolve("PG_COVERAGE_OBLIGATIONS") or "").strip().lower() in ("1", "true", "yes", "on"):
+            from src.polaris_graph.generator.coverage_obligations import (  # noqa: PLC0415
+                render_sections_preserving_outline,
+            )
+            bodies, _missing_planned_sections = render_sections_preserving_outline(
+                multi.outline, _verified,
+            )
+        else:
+            bodies = [f"## {sr.title}\n\n{sr.verified_text}" for sr in _verified]
         sections_concat = "\n\n".join(bodies)
         if getattr(multi, "limitations_text", ""):
             sections_concat += f"\n\n## Limitations\n\n{multi.limitations_text}"
@@ -488,6 +511,33 @@ async def main() -> int:
                                f"{b.get('url','')}{_tier_suffix}\n")
 
         final_report = (f"# {title}\n\n{intro}\n\n{sections_concat}{biblio_section}")
+        _summary_table_canary = "disabled"
+        if resolve("PG_SUMMARY_TABLE_COMPOSE").strip().lower() in ("1", "true", "yes", "on"):
+            from src.polaris_graph.generator.summary_table import (  # noqa: PLC0415
+                extract_section_claims,
+                render_requested_summary_table,
+            )
+            _summary_result = render_requested_summary_table(
+                research_question=rq,
+                bibliography=biblio,
+                section_claims=extract_section_claims(multi.sections),
+                existing_report_md=final_report,
+                appendix_boundary_marker="## References",
+            )
+            final_report = _summary_result.text
+            _summary_table_canary = _summary_result.canary
+        from dataclasses import asdict  # noqa: PLC0415
+        from src.polaris_graph.generator.cleaned_output_guard import (  # noqa: PLC0415
+            find_malformed_tables,
+        )
+        _cleaned_output_defects = [
+            asdict(item) for item in find_malformed_tables(final_report)
+        ]
+        if _cleaned_output_defects:
+            log.warning(
+                "[cleaned-output] detected %d malformed-table defect(s); report left unchanged",
+                len(_cleaned_output_defects),
+            )
         (run_dir / "report.md").write_text(final_report, encoding="utf-8")
 
         # Pipeline telemetry / Methods is a SIDECAR artifact (provenance for us), NOT part of the judged
@@ -600,6 +650,32 @@ async def main() -> int:
             "generator_model": PG_GENERATOR_MODEL,
             "elapsed_seconds": round(dt, 1),
             "out_dir": str(run_dir),
+            "summary_table_canary": _summary_table_canary,
+            "prompt_scope_weight_ledger": getattr(multi, "prompt_scope_weight_ledger", {}) or {},
+            "attribution_coverage": getattr(multi, "attribution_coverage", {}) or {},
+            "evidence_pack_coverage": getattr(multi, "evidence_pack_coverage", {}) or {},
+            "coverage_obligation_audit": getattr(multi, "coverage_obligation_audit", {}) or {},
+            "missing_planned_sections": _missing_planned_sections,
+            "cleaned_output_defects": _cleaned_output_defects,
+            # STEP 1 (measurement honesty): record the RESOLVED state of every RACE lever so a run can
+            # never again "measure" a silently-inert lever. Effective env value at compose time.
+            "resolved_lever_states": {
+                k: _resolved_or_env(k)
+                for k in (
+                    "PG_RENDER_BLOCKS", "PG_SECTION_STRUCTURE",
+                    "PG_SYNTHESIS_MATRIX", "PG_SYNTHESIS_MATRIX_MIN_ROWS",
+                    "PG_SYNTHESIS_TABLE_CONSTRUCT", "PG_SUMMARY_TABLE_COMPOSE",
+                    "PG_TRIAL_TABLE_MIN_MAX_TOKENS", "PG_TRIAL_TABLE_REASONING_MAX_TOKENS",
+                    "PG_COVERAGE_SPINE", "PG_SOURCE_ROUTING", "PG_RQ_SOURCE_ELIGIBILITY_ENFORCE",
+                    "PG_PROMPT_SCOPE_WEIGHTING", "PG_NARRATIVE_ATTRIBUTION",
+                    "PG_FACET_EVIDENCE_PACKS", "PG_BASKET_SYNTHESIS",
+                    "PG_CROSS_SECTION_REPETITION_GUARD",
+                    "PG_COVERAGE_OBLIGATIONS",
+                    "PG_LIMITATIONS_REGISTER", "PG_REPORT_PREAMBLE_REGISTER",
+                    "PG_ROUTE_ALL_BASKETS", "PG_INCLUDE_RESIDUAL_SECTION",
+                    "PG_STRICT_VERIFY_OFF", "PG_STRICT_VERIFY_ENTAILMENT",
+                )
+            },
         }
         (run_dir / "compose_summary.json").write_text(
             json.dumps(summary, indent=2) + "\n", encoding="utf-8")

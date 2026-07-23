@@ -1488,6 +1488,12 @@ class MultiSectionResult:
     # report.md). Each item is {"sentence", "tier", "label", "audit_sentence", "tokens"}. Empty when the
     # gate is OFF or the depth layer produced nothing (byte-identical: the builder no-ops on empty).
     synthesized_findings: list[Any] = field(default_factory=list)
+    # STEP 5: complete prompt-scope ordering ledger (all rows retained).
+    prompt_scope_weight_ledger: dict[str, Any] = field(default_factory=dict)
+    # STEPS 4/6: lossless writer-metadata and per-facet evidence-pack ledgers.
+    attribution_coverage: dict[str, Any] = field(default_factory=dict)
+    evidence_pack_coverage: dict[str, Any] = field(default_factory=dict)
+    coverage_obligation_audit: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -3608,6 +3614,11 @@ SECTION_SYSTEM_PROMPT_TEMPLATE = """You are writing the "{title}" section of a r
 
 FOCUS OF THIS SECTION: {focus}
 
+Use cohesive scholarly prose. For adjacent cited findings, explicitly explain with their citations
+why they agree, differ, or condition one another; emphasize the key finding or term with Markdown
+bold; describe evidence limitations through publication type, representativeness, and risk of bias
+rather than implementation vocabulary.
+
 CRITICAL RULES:
 1. Use ONLY facts present in the <<<evidence:ev_XXX>>> blocks below. Do not introduce outside information.
 2. EVERY sentence must end with at least one [ev_XXX] marker.
@@ -3757,6 +3768,11 @@ SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC = """You are writing the "{title}"
 
 FOCUS OF THIS SECTION: {focus}
 
+Use cohesive scholarly prose. For adjacent cited findings, explicitly explain with their citations
+why they agree, differ, or condition one another; emphasize the key finding or term with Markdown
+bold; describe evidence limitations through publication type, representativeness, and risk of bias
+rather than implementation vocabulary.
+
 CRITICAL RULES:
 1. Use ONLY facts present in the <<<evidence:ev_XXX>>> blocks below. Do not introduce outside information.
 2. EVERY sentence must end with at least one [ev_XXX] marker.
@@ -3900,17 +3916,14 @@ def _build_concise_variant(template: str) -> str:
     return _FRONT_LOADING_DIRECTIVE + out
 
 
-# Batch 2 (structure): the STRUCTURE-ENABLED rule 7 — replaces the flat-prose rule 7 with a
-# directive to organize the body using ### sub-headings, markdown comparison tables, and bullet
-# lists, KEEPING the [ev_XXX]-marker-per-unit citation contract so FACT extraction still resolves.
+# STEP 3 structure: prose structure only. Comparison tables are attached later by
+# construction from verified sentences; the writer is never asked to generate one.
 _STRUCTURE_RULE_7 = (
     "7. STRUCTURE THE BODY FOR READABILITY (do NOT write the top-level section title — it is "
-    "added for you): group related findings under short ``###`` sub-headings (a 3-6 word noun "
-    "phrase each); when THREE OR MORE sources report the SAME metric across different entities, "
-    "periods, or places, render them as a compact GitHub-flavored markdown TABLE (a header row, "
-    "then one row per entity, every data cell ending with its [ev_XXX] marker); use a ``-`` "
-    "bulleted list for a set of parallel enumerable findings. Every prose sentence, every table "
-    "data row, and every bullet still ends with at least one [ev_XXX] marker."
+    "added for you): group related findings under short ``###`` sub-headings; use a ``-`` "
+    "bulleted list when the evidence naturally forms parallel enumerable findings. Do NOT "
+    "generate a table: comparison tables are constructed deterministically after verification. "
+    "Every prose sentence and every bullet still ends with at least one [ev_XXX] marker."
 )
 
 
@@ -3918,7 +3931,7 @@ def _build_structured_variant(template: str) -> str:
     """Batch 2 (structure): derive the STRUCTURE-ENABLED variant of a section system-prompt
     template. Replaces the flat-prose rule 7 ('Do not write a section heading ... Just the
     paragraph body') with a directive to organize the body using ``###`` sub-headings, markdown
-    comparison tables, and bullet lists — while KEEPING the [ev_XXX]-marker-per-unit citation
+    sub-headings and bullet lists — while KEEPING the [ev_XXX]-marker-per-unit citation
     contract. Pure text transform; FAILS LOUD if the rule-7 anchor drifts (I-cap-005 lesson). No
     env read, no faithfulness-gate touch (strict_verify unchanged; only the writer's prose shape)."""
     anchor = ("7. Do not write a section heading, section title, or preamble. "
@@ -3992,6 +4005,56 @@ def _render_blocks_enabled() -> bool:
     return resolve("PG_RENDER_BLOCKS").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _basket_synthesis_enabled() -> bool:
+    """STEP 6 whole-basket synthesis gate, default OFF."""
+
+    return resolve("PG_BASKET_SYNTHESIS").strip().lower() in ("1", "true", "yes", "on")
+
+
+_BASKET_SYNTHESIS_DIRECTIVE = (
+    "WHOLE-BASKET SYNTHESIS: The evidence blocks are a complete ordered stream. Blocks carrying "
+    "the same basket_ids are independent sources for the same claim: synthesize the whole basket, "
+    "cite every source whose span supports the sentence, and explain agreement, disagreement, or "
+    "method/context differences only when those differences appear in the supplied text. "
+    "prominence_weight controls narrative emphasis continuously; it never authorizes omitting a "
+    "lower-weight block. Let section depth emerge from supported cross-source relationships. Do not "
+    "write to a sentence or word target, and do not generate tables."
+)
+
+
+_NARRATIVE_ATTRIBUTION_DIRECTIVE = (
+    "NARRATIVE SOURCE ATTRIBUTION: When source_metadata supplies an author, venue, or year, carry "
+    "the available real metadata into normal scholarly prose. Never invent a missing field. Use "
+    "prominence_weight continuously to decide which source to foreground; lower-weight sources "
+    "remain available and should still be used where their evidence supports the synthesis. Keep "
+    "the required [ev_XXX] marker on every factual unit."
+)
+
+
+_BASKET_BODY_RULE_7 = (
+    "7. Do not write a top-level section heading, title, or preamble. Organize the body into "
+    "coherent paragraphs, each developing a supported cross-source relationship. Do not use "
+    "headings, bullet lists, or tables. Let the paragraph count and depth emerge from the supplied "
+    "evidence; do not write to a paragraph, sentence, or word target."
+)
+
+
+def _build_basket_body_variant(template: str) -> str:
+    """Remove the legacy one-paragraph constraint for whole-basket synthesis."""
+
+    anchor = (
+        "7. Do not write a section heading, section title, or preamble. "
+        "Just the paragraph body."
+    )
+    out = template.replace(anchor, _BASKET_BODY_RULE_7)
+    if out == template:
+        raise RuntimeError(
+            "basket-body transform anchor drifted: section-prompt rule 7 not found verbatim; "
+            "update _build_basket_body_variant."
+        )
+    return out
+
+
 def _section_distill_enabled() -> bool:
     """I-perm-016 (#1209): read the `PG_SECTION_DISTILL` flag at CALL TIME (never
     at import — the I-cap-005 import-time-cache class of bug). Default OFF: any
@@ -4055,11 +4118,116 @@ def _select_section_system_prompt(
     # directive (composes on top of whichever base was selected). Default OFF => base unchanged.
     if _section_structure_enabled():
         base = _build_structured_variant(base)
-    # LEVER 1 (render-blocks): when PG_RENDER_BLOCKS is on AND structure is OFF (structure wins if both
-    # set), flip rule 7 to the paragraphs-only directive. Default OFF => base unchanged.
+    # Basket synthesis removes the one-paragraph cap; otherwise PG_RENDER_BLOCKS
+    # selects its legacy paragraph variant. Structure wins when combined.
+    elif _basket_synthesis_enabled():
+        # Basket mode must remove the legacy one-paragraph cap even in the
+        # prompt-only isolation arm.  PG_RENDER_BLOCKS may still independently
+        # preserve the blank lines this target-free variant produces.
+        base = _build_basket_body_variant(base)
     elif _render_blocks_enabled():
         base = _build_paragraph_variant(base)
+    if _basket_synthesis_enabled():
+        base = f"{base}\n\n{_BASKET_SYNTHESIS_DIRECTIVE}"
     return base
+
+
+def _build_writer_evidence_blocks(evidence_subset: list[dict[str, Any]]) -> str:
+    """Serialize every assigned row, adding only gated metadata sidecars."""
+
+    from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
+        format_source_attribution_metadata,
+        narrative_attribution_enabled,
+    )
+    attribution_on = narrative_attribution_enabled()
+    blocks: list[str] = []
+    for evidence in evidence_subset:
+        block = wrap_evidence_for_prompt(
+            evidence_id=evidence.get("evidence_id", ""),
+            statement=evidence.get("statement", ""),
+            direct_quote=evidence.get("direct_quote", ""),
+            source_url=evidence.get("source_url", ""),
+            tier=evidence.get("tier", ""),
+        )
+        metadata_lines: list[str] = []
+        if attribution_on:
+            metadata_lines.append(format_source_attribution_metadata(evidence))
+        if _basket_synthesis_enabled():
+            basket_ids = [
+                str(item) for item in (evidence.get("evidence_basket_ids") or []) if str(item)
+            ]
+            metadata_lines.append(
+                "basket_ids: " + (", ".join(basket_ids) if basket_ids else "unclustered")
+            )
+        if metadata_lines:
+            safe_lines: list[str] = []
+            for line in metadata_lines:
+                safe_line, _ = sanitize_evidence_text(line)
+                safe_lines.append(safe_line)
+            block = block.replace("statement:", "\n".join(safe_lines) + "\nstatement:", 1)
+        blocks.append(block)
+    assert len(blocks) == len(evidence_subset)
+    return "\n\n".join(blocks)
+
+
+def _build_writer_sidecar_pack(evidence_subset: list[dict[str, Any]]) -> str:
+    """Lossless metadata/basket pack for writer paths that do not use raw blocks."""
+
+    from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
+        format_source_attribution_metadata,
+        narrative_attribution_enabled,
+    )
+    attribution_on = narrative_attribution_enabled()
+    basket_on = _basket_synthesis_enabled()
+    if not (attribution_on or basket_on):
+        return ""
+    lines: list[str] = []
+    for evidence in evidence_subset:
+        parts = [
+            format_source_attribution_metadata(evidence)
+            if attribution_on else
+            f"evidence_id={str(evidence.get('evidence_id') or '')}"
+        ]
+        if basket_on:
+            basket_ids = [
+                str(item) for item in (evidence.get("evidence_basket_ids") or []) if str(item)
+            ]
+            parts.append(
+                "basket_ids=" + (", ".join(basket_ids) if basket_ids else "unclustered")
+            )
+        safe_line, _ = sanitize_evidence_text("; ".join(parts))
+        lines.append(safe_line)
+    assert len(lines) == len(evidence_subset)
+    return "\n".join(lines)
+
+
+_CONTRACT_SOURCE_MARKER_RE = re.compile(
+    r"Source citation marker[^\n]*:\s*\[([^\]\n]+)\]", re.IGNORECASE,
+)
+
+
+def _contract_narrative_metadata_pack(
+    prompt: str,
+    evidence_pool: dict[str, dict[str, Any]],
+) -> str:
+    """Actual source metadata for contract narrative markers already in the prompt."""
+
+    from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
+        format_source_attribution_metadata,
+    )
+    lines: list[str] = []
+    seen: set[str] = set()
+    for evidence_id in _CONTRACT_SOURCE_MARKER_RE.findall(prompt or ""):
+        evidence_id = str(evidence_id).strip()
+        if not evidence_id or evidence_id in seen:
+            continue
+        row = evidence_pool.get(evidence_id)
+        if not isinstance(row, dict):
+            continue
+        seen.add(evidence_id)
+        safe_line, _ = sanitize_evidence_text(format_source_attribution_metadata(row))
+        lines.append(safe_line)
+    return "\n".join(lines)
 
 
 async def _call_section(
@@ -4155,6 +4323,19 @@ async def _call_section(
             cross_trial_summaries=_cross_trial_summaries,
             research_question=research_question,
         )
+        from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
+            narrative_attribution_enabled,
+        )
+        sidecar_pack = _build_writer_sidecar_pack(evidence_subset)
+        if sidecar_pack:
+            reduce_prompt = (
+                f"{reduce_prompt}\n\nWRITER SIDECAR PACK (one row per evidence block; none removed):\n"
+                f"{sidecar_pack}"
+            )
+        if narrative_attribution_enabled():
+            reduce_system = f"{reduce_system}\n\n{_NARRATIVE_ATTRIBUTION_DIRECTIVE}"
+        if _basket_synthesis_enabled():
+            reduce_system = f"{reduce_system}\n\n{_BASKET_SYNTHESIS_DIRECTIVE}"
         client = OpenRouterClient(model=model)
         try:
             set_reasoning_call_context(
@@ -4190,16 +4371,11 @@ async def _call_section(
             _section_atoms,
         )
 
-    blocks = []
-    for ev in evidence_subset:
-        blocks.append(wrap_evidence_for_prompt(
-            evidence_id=ev.get("evidence_id", ""),
-            statement=ev.get("statement", ""),
-            direct_quote=ev.get("direct_quote", ""),
-            source_url=ev.get("source_url", ""),
-            tier=ev.get("tier", ""),
-        ))
-    evidence_section = "\n\n".join(blocks)
+    from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
+        narrative_attribution_enabled,
+    )
+    _attribution_on = narrative_attribution_enabled()
+    evidence_section = _build_writer_evidence_blocks(evidence_subset)
 
     # I-meta-005 Phase 1 FIX 4 (Codex diff-gate iter-1 P1 #4): select the
     # FIELD-AGNOSTIC base prompt on-mode (`use_field_agnostic_prompt`, i.e.
@@ -4225,6 +4401,8 @@ async def _call_section(
     # "" (the default; no compose_projection) => system unchanged => byte-identical.
     if voice_advisory_text:
         system = f"{system}\n\n{voice_advisory_text}"
+    if _attribution_on:
+        system = f"{system}\n\n{_NARRATIVE_ATTRIBUTION_DIRECTIVE}"
 
     # I-gen-005 Pattern A (#904): for reasoning-first models (V4 Pro),
     # append a per-evidence allow-list of NUMBERS, TRIAL NAMES, DRUG
@@ -4427,7 +4605,19 @@ async def _call_section(
         from src.polaris_graph.llm.openrouter_client import (
             _REASONING_FIRST_MODELS,
         )
-        if model in _REASONING_FIRST_MODELS and _render_blocks_enabled():
+        if model in _REASONING_FIRST_MODELS and (
+            _section_structure_enabled() or _basket_synthesis_enabled()
+        ):
+            system += (
+                "\n\nHARD OUTPUT CONTRACT (reasoning-first model, RETRY):\n"
+                "Output only the finished cited section body; do not expose planning, deliberation, "
+                "numbered drafting steps, or meta-commentary. Preserve the requested prose structure. "
+                "Do not generate a table. Every factual sentence or bullet ends with at least one "
+                "[ev_XXX] marker present in the evidence blocks. If a factual unit cannot carry a real "
+                "marker, omit that unit. Let depth emerge from the supported evidence; do not write to "
+                "a sentence or word target."
+            )
+        elif model in _REASONING_FIRST_MODELS and _render_blocks_enabled():
             # LEVER 1 (render-blocks): paragraphs-only variant of the retry contract — same anti-
             # deliberation + every-sentence-cited rules, but asks for MULTIPLE blank-line-separated
             # paragraphs instead of "one finished paragraph". Reached only when the flag is on.
@@ -4519,7 +4709,14 @@ async def _call_section(
     # LEVER 1 (render-blocks): the first-pass instruction says "paragraph" (singular); when the flag is
     # on ask for blank-line-separated paragraphs so the draft actually carries breaks. OFF => exact
     # original string, byte-identical.
+    _structured_body = _section_structure_enabled()
     _final_write_line = (
+        f"Write the {section.title} section body now, preserving any requested sub-headings or "
+        f"bullets and following the rules."
+        if _structured_body
+        else f"Write the {section.title} section body now, following the rules."
+        if _basket_synthesis_enabled()
+        else
         f"Write the {section.title} section now, organizing the body into paragraphs of 3 to 6 "
         f"sentences separated by a blank line, following the rules."
         if _render_blocks_enabled()
@@ -6310,15 +6507,9 @@ async def _run_section(
         evidence_pool[ev_id] for ev_id in section.ev_ids
         if ev_id in evidence_pool
     ]
-    # RACE-FLOOR lever 2: FOCUS the WRITER's prompt menu to the top-N highest-ranked rows so a
-    # route_all/facet-route-crammed section (52-103 rows) composes deep step3-like prose instead of
-    # a 65%-dropped shallow spread. WRITER-menu ONLY: ``section.ev_ids`` (bibliography + disclosure),
-    # ``evidence_pool`` (the strict_verify pool), and the frozen faithfulness engine are ALL untouched;
-    # every emitted sentence is still gated against the FULL pool below. Deterministic head-N of the
-    # already-ranked list; DISCLOSED (LOUD). Default-OFF => byte-identical (see _writer_topn_ev_per_section).
-    ev_subset = _apply_writer_menu_cap(
-        ev_subset, section_title=section.title, total_assigned=len(section.ev_ids or []),
-    )
+    # STEP 5: the writer receives the complete assigned stream.  The former
+    # PG_WRITER_TOPN_EV_PER_SECTION call was a rank-then-drop citation menu and is
+    # intentionally retired from production assembly; weights control prominence.
     if not ev_subset:
         # BB5-C07 (#1178) sibling vanish path: a planned section with NO assigned evidence must
         # NOT silently disappear either. Render the no-evidence gap stub and ship the section
@@ -7148,21 +7339,25 @@ async def _run_section(
     # (default ON). See _screen_render_chrome_prose.
     verified_text = _screen_render_chrome_prose(verified_text)
 
-    # LEVER 2 (PG_SYNTHESIS_MATRIX, default OFF => byte-identical): when the section's verified prose
-    # names 3+ studies quantifying one comparable construct, append a cross-study comparison table built
-    # ONLY from that verified prose (reuse [N], never invent). ADDITIVE — prose is untouched, so
-    # faithfulness + claim-coverage hold by construction; strict_verify is not re-run. Suppressed (no
-    # change) when < min-rows comparable rows survive validation.
-    if _synthesis_matrix_enabled() and verified_text.strip():
-        _matrix, _sm_in_tok, _sm_out_tok = await _call_synthesis_matrix(
-            verified_prose=verified_text,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens_per_section,
+    # The legacy PG_SYNTHESIS_MATRIX generate-then-validate path is retired from
+    # production assembly.  A generated row that is later rejected is a
+    # post-generation content gate; the construction path below is the only
+    # executable synthesis-table producer.
+
+    # STEP 3 (PG_SYNTHESIS_TABLE_CONSTRUCT, default OFF => byte-identical): BUILD a cross-study
+    # comparison table deterministically FROM the verified prose (each cell a verbatim span of ONE
+    # verified sentence; Source = that sentence's own [N]). No LLM, no validate-then-drop, no entailment
+    # — fabrication-impossible by construction; prose untouched (appended block, same checksum as above).
+    if _construct_table_enabled() and verified_text.strip():
+        _ctable = _construct_synthesis_table(
+            verified_text,
+            kept_sentences=list(report.kept_sentences),
+            bibliography=biblio_slice,
         )
-        total_in_tok += _sm_in_tok
-        total_out_tok += _sm_out_tok
-        verified_text = _attach_synthesis_matrix(verified_text, _matrix)
+        if _ctable:
+            logger.info("[multi_section] construction-by-validity table: %d rows",
+                        _ctable.count("\n") - 1)
+            verified_text = _attach_synthesis_matrix(verified_text, _ctable)
 
     # BB5-C07 (#1178): a section that produced ZERO verified sentences must NOT silently vanish.
     # Pre-fix, `dropped_due_to_failure=True` + empty `verified_text` caused the section to be
@@ -8318,6 +8513,191 @@ def _attach_synthesis_matrix(verified_text: str, table: str) -> str:
         "synthesis-matrix attach altered the section prose"
     )
     return result
+
+
+def _construct_table_enabled() -> bool:
+    """PG_SYNTHESIS_TABLE_CONSTRUCT (default OFF). ON => build a construction-by-validity comparison
+    table from the section's verified prose (deterministic, no LLM, no validate-then-drop, no entailment)."""
+    return resolve("PG_SYNTHESIS_TABLE_CONSTRUCT").strip().lower() in ("1", "true", "yes", "on")
+
+
+_CONSTRUCT_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
+_CONSTRUCT_ATOM_TOKEN_RE = re.compile(r"\s*\(atom_[^)]+\)", re.IGNORECASE)
+_CONSTRUCT_WORD_RE = re.compile(r"[A-Za-z\u00c0-\u024f][A-Za-z0-9\u00c0-\u024f_-]{2,}")
+_CONSTRUCT_CONTEXT_STOP = frozenset({
+    "about", "according", "after", "among", "and", "are", "before", "between", "but",
+    "compared", "decreased", "declined", "difference", "estimated", "fell", "for", "found",
+    "from", "grew", "had", "has", "have", "increased", "into", "measured", "reported",
+    "rose", "showed", "study", "than", "that", "the", "their", "these", "this", "those",
+    "through", "under", "using", "versus", "was", "were", "when", "where", "which", "while",
+    "with", "within",
+})
+
+
+def _construct_table_cell(text: str) -> str:
+    """A GFM-safe representation of a literal source span."""
+
+    return str(text or "").strip().replace("|", r"\|")
+
+
+def _construct_clause(sentence: str, start: int, end: int) -> str:
+    """Smallest semicolon/dash-delimited literal clause carrying a value."""
+
+    left = max(sentence.rfind(";", 0, start), sentence.rfind(" — ", 0, start))
+    left = left + (3 if sentence[left:left + 3] == " — " else 1) if left >= 0 else 0
+    right_candidates = [
+        pos for pos in (sentence.find(";", end), sentence.find(" — ", end)) if pos >= 0
+    ]
+    right = min(right_candidates) if right_candidates else len(sentence)
+    return sentence[left:right].strip()
+
+
+def _construct_context_tokens(clause: str, unit: str) -> frozenset[str]:
+    unit_tokens = {token.lower() for token in _CONSTRUCT_WORD_RE.findall(unit)}
+    return frozenset(
+        token for token in _CONSTRUCT_WORD_RE.findall(clause.lower())
+        if token not in _CONSTRUCT_CONTEXT_STOP and token not in unit_tokens
+    )
+
+
+def _construct_synthesis_table(
+    verified_text: str,
+    *,
+    kept_sentences: list[Any] | None = None,
+    bibliography: list[dict[str, Any]] | None = None,
+) -> str:
+    """Build a `Finding | Value | Source` table BY CONSTRUCTION from the verified prose. Each row's
+    Value and Finding are literal spans of ONE kept verified sentence; Source is
+    resolved through that sentence's primary evidence ID and the real ev_id->[N]
+    bibliography map. Rows compare only when they share BOTH a normalized unit and
+    a non-generic measure/entity token copied from every participating sentence.
+    """
+    from src.polaris_graph.generator.claim_atom_extractor import (  # noqa: PLC0415
+        extract_verbatim_value_unit_spans,
+        normalize_value_unit,
+    )
+    from src.polaris_graph.generator.summary_table import (  # noqa: PLC0415
+        extract_section_claims,
+    )
+
+    biblio_map = {
+        str(row.get("evidence_id") or ""): int(row.get("num"))
+        for row in (bibliography or [])
+        if str(row.get("evidence_id") or "") and str(row.get("num") or "").isdigit()
+    }
+    if kept_sentences is None:
+        # Pure replay convenience: represent each already-resolved [N] sentence as
+        # a fake kept SV so even this path still traverses extract_section_claims.
+        synthetic: list[dict[str, Any]] = []
+        for sentence in split_into_sentences(verified_text):
+            markers = _CANON_MARKER_RE.findall(sentence)
+            if not markers:
+                continue
+            number = int(markers[0][1:-1])
+            evidence_id = f"resolved_{number}"
+            biblio_map[evidence_id] = number
+            synthetic.append({
+                "sentence": _CANON_MARKER_RE.sub("", sentence).strip(),
+                "tokens": [{"evidence_id": evidence_id}],
+                "is_verified": True,
+            })
+        kept_sentences = synthetic
+
+    claims = extract_section_claims([{"kept_sentences_pre_resolve": kept_sentences}])
+    final_sentences: list[tuple[str, str]] = []
+    for final_sentence in split_into_sentences(verified_text):
+        marker_stripped = _CANON_MARKER_RE.sub("", final_sentence)
+        marker_stripped = re.sub(r"\s+([.,;:])", r"\1", marker_stripped)
+        final_sentences.append((final_sentence, marker_stripped.strip()))
+    candidates: list[dict[str, Any]] = []
+    for claim_index, claim in enumerate(claims):
+        if not claim.get("is_verified", False):
+            continue
+        evidence_id = str(claim.get("evidence_id") or "")
+        number = biblio_map.get(evidence_id)
+        source = f"[{number}]" if number else ""
+        if not source or source not in verified_text:
+            continue
+        sentence = _CONSTRUCT_EV_TOKEN_RE.sub("", str(claim.get("sentence") or ""))
+        sentence = _CONSTRUCT_ATOM_TOKEN_RE.sub("", sentence).strip()
+        sentence = re.sub(r"\s+([.,;:])", r"\1", sentence)
+        for span_index, span in enumerate(extract_verbatim_value_unit_spans(sentence)):
+            unit_key = normalize_value_unit(span.unit)
+            if not unit_key:
+                continue
+            clause = _construct_clause(sentence, span.span_start, span.span_end)
+            # Render screens may withhold a kept SV after resolution. Require the
+            # literal clause and this evidence row's REAL [N] in the SAME final
+            # sentence: neither a duplicate clause nor an unrelated citation
+            # elsewhere may lend provenance to a withheld claim.
+            if not any(
+                source in final_sentence and clause in marker_stripped
+                for final_sentence, marker_stripped in final_sentences
+            ):
+                continue
+            context = _construct_context_tokens(clause, span.unit)
+            if not context:
+                continue
+            candidates.append({
+                "claim_index": claim_index,
+                "span_index": span_index,
+                "evidence_id": evidence_id,
+                "finding": clause,
+                "value": span.literal_text,
+                "source": source,
+                "unit": unit_key,
+                "context": context,
+            })
+
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    group_order: list[tuple[str, str]] = []
+    for candidate in candidates:
+        for token in sorted(candidate["context"]):
+            key = (candidate["unit"], token)
+            if key not in groups:
+                groups[key] = []
+                group_order.append(key)
+            if candidate["evidence_id"] not in {
+                row["evidence_id"] for row in groups[key]
+            }:
+                groups[key].append(candidate)
+    comparable = [
+        groups[key] for key in group_order
+        if len({row["evidence_id"] for row in groups[key]}) >= 2
+    ]
+    if not comparable:
+        return ""
+
+    # One candidate may share several context tokens with the same peers. Dedup
+    # identical row sets, then retain every maximal comparison set. A strict
+    # subset would repeat rows already present in its superset; independent or
+    # partially-overlapping comparisons remain separate. This is consolidation
+    # by identity, not a count/rank cap, and no comparable factual row vanishes.
+    unique: list[tuple[frozenset[tuple[int, int, str]], list[dict[str, Any]]]] = []
+    seen_signatures: set[frozenset[tuple[int, int, str]]] = set()
+    for rows in comparable:
+        signature = frozenset(
+            (row["claim_index"], row["span_index"], row["evidence_id"])
+            for row in rows
+        )
+        if signature not in seen_signatures:
+            seen_signatures.add(signature)
+            unique.append((signature, rows))
+    maximal = [
+        (signature, rows) for signature, rows in unique
+        if not any(signature < other for other, _ in unique)
+    ]
+
+    tables: list[str] = []
+    for _signature, rows in maximal:
+        lines = ["| Finding | Value | Source |", "|---|---|---|"]
+        for row in rows:
+            lines.append(
+                f"| {_construct_table_cell(row['finding'])} | "
+                f"{_construct_table_cell(row['value'])} | {row['source']} |"
+            )
+        tables.append("\n".join(lines))
+    return "\n\n".join(tables)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -11016,6 +11396,10 @@ async def generate_multi_section_report(
     # UNCHANGED rewrite + strict_verify + NLI + 4-role/D8 tail on the reused draft (no stored verdict
     # replayed; §-1.3). A section with no cached entry regenerates normally (fail-open, per-section).
     reused_section_raw_drafts: dict[str, str] | None = None,
+    # STEP 5: constraints extracted from this prompt by the shared extractor.  None
+    # lets this async entry point run that extractor when the central scope-weight
+    # gate is active.  OFF/default never imports or calls it.
+    prompt_scope_constraints: dict[str, Any] | None = None,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -11121,6 +11505,53 @@ async def generate_multi_section_report(
                 _voice_advisory_text = compose_voice_advisory(compose_projection)
         except Exception:  # noqa: BLE001 — fail-open: never break compose over voice
             _voice_advisory_text = ""
+
+    # STEP 5 — complete, prompt-governed evidence stream.  Scope is a
+    # continuous multiplicative weight folded into the existing prominence
+    # weight; the helper asserts every evidence ID survives and exposes the
+    # full ordered ledger.  Default OFF leaves the original list object/order
+    # untouched and performs no extraction call.
+    _prompt_scope_weight_ledger: dict[str, Any] = {}
+    _scope_constraints = dict(prompt_scope_constraints or {})
+    from src.polaris_graph.retrieval.prompt_scope_weighting import (  # noqa: PLC0415
+        prompt_scope_weighting_enabled as _prompt_scope_on,
+        weight_evidence_stream as _weight_evidence_stream,
+    )
+    from src.polaris_graph.generator.coverage_obligations import (  # noqa: PLC0415
+        build_obligations as _build_coverage_obligations,
+        enabled as _coverage_obligations_on,
+        required_coverage_from as _required_coverage_from,
+        thread_obligations as _thread_coverage_obligations,
+    )
+    if _prompt_scope_on() or _coverage_obligations_on():
+        if not _scope_constraints:
+            try:
+                from src.polaris_graph.instruction.constraint_extractor import (  # noqa: PLC0415
+                    extract_constraints_async,
+                )
+                _scope_constraints = await extract_constraints_async(
+                    research_question,
+                    max_tokens=int(resolve("PG_EXTRACTION_MAX_TOKENS")),
+                )
+            except Exception as exc:  # noqa: BLE001 — fail-open, but disclosed in ledger
+                logger.warning(
+                    "[multi_section] prompt scope extraction unavailable: %s; "
+                    "keeping original complete evidence order", exc,
+                )
+                _scope_constraints = {}
+        if _prompt_scope_on():
+            evidence, _prompt_scope_weight_ledger = _weight_evidence_stream(
+                evidence, constraints=_scope_constraints,
+            )
+            if not _scope_constraints:
+                _prompt_scope_weight_ledger["extractor_unavailable_or_empty"] = True
+    _coverage_obligations = (
+        _build_coverage_obligations(_required_coverage_from(_scope_constraints))
+        if _coverage_obligations_on() else []
+    )
+
+    _attribution_coverage: dict[str, Any] = {}
+    _evidence_pack_coverage: dict[str, Any] = {}
 
     # Stage 1: outline
     # I-meta-005 Phase 1 (#985): TRUE dual path at the OUTLINE seam only — the
@@ -11947,6 +12378,71 @@ async def generate_multi_section_report(
             singleton_candidates=(_singleton_candidates or None),
         )
 
+    # STEP 4: metadata coverage is measured over the final groundable pool.  A
+    # row with no author/venue/year still has a pack record and remains available
+    # to the writer; missing metadata is never an exclusion.
+    from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
+        build_attribution_coverage as _build_attribution_coverage,
+        narrative_attribution_enabled as _narrative_attribution_on,
+    )
+    if _narrative_attribution_on():
+        _attribution_coverage = _build_attribution_coverage(list(evidence_pool.values()))
+
+    # STEP 6: fold every basket, residual assignment, and otherwise-unassigned
+    # row into complete per-facet packs.  There is no count/token cap.  The
+    # helper asserts coverage and removes an enrichment/residual container only
+    # after all of its IDs are present in body facets.
+    _facet_packs_on = resolve("PG_FACET_EVIDENCE_PACKS").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    _basket_ids_by_evidence: dict[str, list[str]] = {}
+    if _facet_packs_on:
+        from src.polaris_graph.generator.facet_evidence_packs import (  # noqa: PLC0415
+            build_lossless_facet_packs,
+        )
+        from src.polaris_graph.generator.weighted_enrichment import (  # noqa: PLC0415
+            is_enrichment_section as _is_enrichment_plan,
+        )
+        _ordered_pool_ids = [
+            str(row.get("evidence_id") or "") for row in evidence
+            if str(row.get("evidence_id") or "") in evidence_pool
+        ]
+        plans, _evidence_pack_coverage, _basket_ids_by_evidence = build_lossless_facet_packs(
+            plans,
+            evidence_pool,
+            credibility_analysis=credibility_analysis,
+            auxiliary_plan=_is_enrichment_plan,
+            ordered_evidence_ids=_ordered_pool_ids,
+        )
+        logger.info(
+            "[multi_section] facet evidence packs: %d/%d evidence IDs covered; "
+            "missing=%d; auxiliary sections folded=%d",
+            len(_evidence_pack_coverage.get("covered_evidence_ids", [])),
+            len(_evidence_pack_coverage.get("input_evidence_ids", [])),
+            len(_evidence_pack_coverage.get("missing_evidence_ids", [])),
+            len(_evidence_pack_coverage.get("auxiliary_sections_folded", [])),
+        )
+    elif _basket_synthesis_enabled():
+        # The prompt-only isolation arm intentionally leaves section routing
+        # untouched, but same-claim rows already present in a section still need
+        # their real basket identity.  This metadata pass is lossless and has no
+        # ordering or admission effect.
+        from src.polaris_graph.generator.facet_evidence_packs import (  # noqa: PLC0415
+            build_basket_memberships,
+        )
+        _basket_ids_by_evidence = build_basket_memberships(
+            credibility_analysis, evidence_pool,
+        )
+
+    for _evidence_id, _basket_ids in _basket_ids_by_evidence.items():
+        _row = evidence_pool.get(_evidence_id)
+        if isinstance(_row, dict):
+            _row["evidence_basket_ids"] = list(_basket_ids)
+
+    # Carry the extracted prompt obligations through the final routed outline into the exact focus
+    # strings consumed by the live section writer. Evidence membership and verification are unchanged.
+    _thread_coverage_obligations(plans, _coverage_obligations)
+
     # OUTLINE GATE (default-OFF, byte-identical when unset): dump the ROUTED outline with each
     # section's assigned evidence RESOLVED to {tier,title,url,quote} BEFORE the expensive per-section
     # compose, so a caller can READ + quality-assess the outline (rich vs thin/poor) and abort early.
@@ -12097,6 +12593,20 @@ async def generate_multi_section_report(
             OpenRouterClient,
             set_reasoning_call_context,
         )
+        _contract_system = PG_NARRATIVE_PROSE_SYSTEM_MESSAGE
+        from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
+            narrative_attribution_enabled as _contract_attribution_on,
+        )
+        if _contract_attribution_on():
+            _contract_metadata = _contract_narrative_metadata_pack(prompt, evidence_pool)
+            if _contract_metadata:
+                prompt = (
+                    f"{prompt}\n\nSOURCE METADATA PACK (actual fields only):\n"
+                    f"{_contract_metadata}"
+                )
+            _contract_system = (
+                f"{_contract_system}\n\n{_NARRATIVE_ATTRIBUTION_DIRECTIVE}"
+            )
         client = OpenRouterClient(model=gen_model)
         try:
             # I-gen-004 (#496): tag the V30 contract-slot NARRATIVE call. Reuse the
@@ -12108,7 +12618,7 @@ async def generate_multi_section_report(
             )
             response = await client.generate(
                 prompt=prompt,
-                system=PG_NARRATIVE_PROSE_SYSTEM_MESSAGE,
+                system=_contract_system,
                 max_tokens=max(section_max_tokens, PG_CONTRACT_SLOT_MIN_MAX_TOKENS),
                 temperature=section_temperature,
                 # F02 budgets identical to _m63_llm_call (terse <=3-sentence call):
@@ -13361,6 +13871,13 @@ async def generate_multi_section_report(
     # is order-independent. OFF => byte-identical.
     section_results = _reorder_synthesis_body_lead(section_results)
 
+    from src.polaris_graph.generator.coverage_obligations import (  # noqa: PLC0415
+        audit_fulfillment as _audit_coverage_fulfillment,
+    )
+    _coverage_obligation_audit = (
+        _audit_coverage_fulfillment(_coverage_obligations, section_results)
+        if _coverage_obligations_on() else {}
+    )
     return MultiSectionResult(
         sections=section_results,
         outline=plans,
@@ -13436,4 +13953,8 @@ async def generate_multi_section_report(
         # during planning (empty unless the breadth enrichment ran AND demoted a near-zero
         # single-origin non-journal member). Drives the SWEEP-lane disclosure block; kept-not-dropped.
         cwf_disclosed_sources=list(_cwf_disclosed_sources),
+        prompt_scope_weight_ledger=dict(_prompt_scope_weight_ledger),
+        attribution_coverage=dict(_attribution_coverage),
+        evidence_pack_coverage=dict(_evidence_pack_coverage),
+        coverage_obligation_audit=_coverage_obligation_audit,
     )

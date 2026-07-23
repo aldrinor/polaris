@@ -1,7 +1,7 @@
 """Lever C (coverage): PG_ROUTE_ALL_BASKETS registration + kill-switch.
 
-The routing logic itself is pre-existing (route_orphan_baskets_to_section_plans); this change only
-moves the flag into central config (resolve) and confirms the default-OFF byte-identity contract.
+The routing logic itself is pre-existing (route_orphan_baskets_to_section_plans); the champion
+default is now single-sourced in central config and explicit 0 remains the rollback path.
 """
 import pytest
 
@@ -11,13 +11,13 @@ from src.polaris_graph.settings import resolve
 
 def test_registered_in_central_config(monkeypatch):
     monkeypatch.delenv("PG_ROUTE_ALL_BASKETS", raising=False)
-    # resolve() must not KeyError (registered) and default to '0'.
-    assert resolve("PG_ROUTE_ALL_BASKETS") == "0"
+    # Champion behavior is single-sourced centrally; run recipes carry no override.
+    assert resolve("PG_ROUTE_ALL_BASKETS") == "1"
 
 
-def test_default_off(monkeypatch):
+def test_central_default_on(monkeypatch):
     monkeypatch.delenv("PG_ROUTE_ALL_BASKETS", raising=False)
-    assert vc.route_all_baskets_enabled() is False
+    assert vc.route_all_baskets_enabled() is True
 
 
 @pytest.mark.parametrize("val", ["1", "true", "on", "yes", "TRUE", "On"])
@@ -33,9 +33,9 @@ def test_off_tokens_stay_off(monkeypatch, val):
 
 
 def test_off_returns_plans_unchanged(monkeypatch):
-    """OFF (default) => route_orphan_baskets_to_section_plans returns the SAME plan list (byte-
+    """Explicit OFF => route_orphan_baskets_to_section_plans returns the SAME plan list (byte-
     identical placement) regardless of orphan baskets."""
-    monkeypatch.delenv("PG_ROUTE_ALL_BASKETS", raising=False)
+    monkeypatch.setenv("PG_ROUTE_ALL_BASKETS", "0")
 
     class _Cred:
         baskets = [object()]  # an orphan basket present

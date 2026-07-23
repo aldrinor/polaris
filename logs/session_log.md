@@ -5945,3 +5945,13 @@
 - EVIDENCE/FINDINGS: commits 063b0261 (brief), 6756d7c4 (iteration record), ea2a6fe2 (real plan); GH #1344 comment posted. Codex verdict CONVERGE; Fable refine adopted 7 refinements + corrected byte-identical-OFF (gate-B force-sets PG_ABSTRACTIVE_WRITER) + dropped non-existent arXiv 2604.01432.
 - STATUS: Plan phase COMPLETE + committed. Build NOT started. Faithfulness untouched. Codex-CLI-on-Windows fix proven (self-contained stdin, no -s read-only).
 - NEXT_STEP: Build Wave 1a (group writer contract + bounded repair + labeled fallback), unit-test, dual-gate Codex+Fable, commit; then 1b..2e.
+
+[2026-07-22 19:15:01]
+- ACTION: SESSION_INIT and mandatory P4 pre-implementation governance verification for the Sol/Fable four-fix assignment.
+- RATIONALE: Current-session instructions place the requested implementation in campaign P4, but the binding startup and anti-drift protocols require canonical/control pins and campaign loop state to be verified before any task edit. Verification found stale canonical pins, missing control files, and missing loop state, which is an explicit hard-stop condition.
+- DOCS/RESEARCH: Local binding sources only: CLAUDE.md, AGENTS.md, state/beatboth_campaign/MASTER_PLAN.md, and the supplied sol_diagnose_verdict.txt. No external research was needed before this gate.
+- SYNC: Added the required halt marker, bug-log entry, and blocked Sol verdict; did not alter active issue or campaign state.
+- AFFECTED_FILES: state/halt_20260722T191501Z_canonical_pin_drift.md; logs/bug_log.md; logs/session_log.md; /tmp/claude-1000/-home-polaris-polaris-project/21e87760-8436-4090-870d-99ef2121882e/scratchpad/sol_fixes_verdict.txt.
+- EVIDENCE/FINDINGS: docs/canonical_pin.txt SHA256 `0ff6cfb51e9034cb33c2b92336ae181c50868f5ed31d0d00f445d0d41e806d29`; four pin mismatches where working tree equals HEAD; controls absent under /home/polaris; campaign loop_state.json absent. Existing source/test changes remain untouched.
+- STATUS: BLOCKED before implementation; zero requested fixes or tests added.
+- NEXT_STEP: Operator-signed canonical-pin reconciliation and restoration of campaign/control state, then resume P4 with a comprehensive live-path/call-site scan.

@@ -260,7 +260,9 @@ def _row_genre(row: "Any") -> DocumentType:
     pre = _field(row, "document_type")
     if pre is not None:
         try:
-            return DocumentType(str(pre))
+            stamped = DocumentType(str(pre).strip().upper())
+            if stamped != DocumentType.UNKNOWN:
+                return stamped
         except (ValueError, TypeError):
             pass
     try:
@@ -272,9 +274,19 @@ def _row_genre(row: "Any") -> DocumentType:
             title=str(_field(row, "title") or ""),
             doi=str(_field(row, "doi") or ""),
         )
-        return dt
+        if dt != DocumentType.UNKNOWN:
+            return dt
     except Exception:  # noqa: BLE001 - fail-open: an unclassifiable row is UNKNOWN (neutral)
-        return DocumentType.UNKNOWN
+        pass
+
+    # ``journal`` is an explicit schema alias for an article's publication venue. ``venue`` is
+    # populated by scholarly discovery backends after they have resolved a publication venue.
+    # Apply this positive signal only after explicit/stamped non-journal types and the generic
+    # URL/DOI classifier have had first refusal, so repository, working-paper, news, blog, book,
+    # and report manifestations cannot be promoted merely because they mention a venue.
+    if _field(row, "journal", "venue"):
+        return DocumentType.JOURNAL_ARTICLE
+    return DocumentType.UNKNOWN
 
 
 def _admitted_genres(source_types: list[str]) -> "frozenset[DocumentType] | None":
@@ -385,7 +397,8 @@ def ensure_rq_constraints(
     Fail-open: any extraction error (e.g. the live extractor disabled) caches an EMPTY dict so we
     never re-attempt and eligibility stays byte-identical (an empty plan). Returns the cached
     mapping (possibly empty), or None when there is no protocol / the flag is off."""
-    if protocol is None or not eligibility_enabled():
+    prompt_scope_on = (resolve("PG_PROMPT_SCOPE_WEIGHTING") or "").strip().lower() not in _OFF_VALUES
+    if protocol is None or not (eligibility_enabled() or prompt_scope_on):
         return None
     cached = protocol.get("_rq_constraints")
     if isinstance(cached, Mapping):
@@ -405,7 +418,10 @@ def ensure_rq_constraints(
             from src.polaris_graph.instruction.constraint_extractor import (  # noqa: PLC0415
                 extract_constraints,
             )
-            extracted = extract_constraints(rq_text)
+            extracted = extract_constraints(
+                rq_text,
+                max_tokens=int(resolve("PG_EXTRACTION_MAX_TOKENS")),
+            )
             if isinstance(extracted, Mapping):
                 constraints = dict(extracted)
         except Exception as exc:  # noqa: BLE001 - fail-open: no RQ constraints => empty plan
@@ -531,4 +547,86 @@ def build_rq_eligibility(
             len(plan.url_to_eligibility_weight), _dw, len(plan.fetch_recovery_urls),
             source_types or None, languages or None, recency_floor, recency_ceiling,
         )
+    return plan
+
+
+def build_rq_eligibility_from_constraints(
+    constraints: "Mapping[str, Any] | None",
+    evidence_rows: "list[Any] | None",
+) -> RQEligibilityPlan:
+    """Build the same keep-all weight plan from already-extracted prompt constraints.
+
+    Unlike :func:`build_rq_eligibility`, this pure entry point has no feature-gate or
+    live-extraction side effect.  It exists for callers that have already run the
+    shared constraint extractor asynchronously and activate behavior under their own
+    central gate.  Every row is retained; the result contains weights and disclosure
+    records only.
+    """
+
+    plan = RQEligibilityPlan()
+    if not isinstance(constraints, Mapping):
+        return plan
+    rows = list(evidence_rows or [])
+    if not rows:
+        return plan
+
+    source_types = [
+        str(x) for x in (constraints.get("source_types") or []) if str(x).strip()
+    ]
+    languages = [
+        str(x).strip().lower()[:2]
+        for x in (constraints.get("languages") or [])
+        if str(x).strip()
+    ]
+    admitted = _admitted_genres(source_types)
+    recency_floor, recency_ceiling = _parse_recency_bounds(constraints.get("recency"))
+    if not (admitted or languages or recency_floor is not None or recency_ceiling is not None):
+        return plan
+
+    weight = demote_weight()
+    for row in rows:
+        url = _row_url(row)
+        # A stable evidence id is a safe local key for prebuilt corpora whose URL
+        # metadata is absent; selector callers still naturally key by URL.
+        key = url or str(_field(row, "evidence_id") or "")
+        if not key:
+            continue
+        reasons: list[str] = []
+        unresolved = False
+        if admitted is not None:
+            genre = _row_genre(row)
+            if genre == DocumentType.UNKNOWN:
+                unresolved = True
+            elif genre not in admitted:
+                reasons.append(
+                    f"source_type: genre={genre.value} not in requested "
+                    f"{sorted(g.value for g in admitted)}"
+                )
+        if languages:
+            language = _row_language(row)
+            if language is None:
+                unresolved = True
+            elif language not in languages:
+                reasons.append(f"language: row={language} not in requested {languages}")
+        if recency_floor is not None or recency_ceiling is not None:
+            year = _row_year(row)
+            if year is None:
+                unresolved = True
+            else:
+                if recency_floor is not None and year < recency_floor:
+                    reasons.append(f"recency: year={year} < floor={recency_floor}")
+                if recency_ceiling is not None and year > recency_ceiling:
+                    reasons.append(f"recency: year={year} > ceiling={recency_ceiling}")
+        if reasons:
+            plan.url_to_eligibility_weight[key] = weight
+            plan.ineligible_urls.add(key)
+            plan.eligibility_records.append({
+                "source_url": url,
+                "evidence_id": str(_field(row, "evidence_id") or ""),
+                "action": "demoted_ineligible_kept",
+                "weight": weight,
+                "reasons": reasons,
+            })
+        elif unresolved:
+            plan.fetch_recovery_urls.add(key)
     return plan

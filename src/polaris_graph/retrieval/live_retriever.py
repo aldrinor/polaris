@@ -5210,6 +5210,7 @@ def _rerank_and_reserve(
     research_question: str,
     fetch_cap: int,
     n_seed_injected: int,
+    prompt_scope_constraints: Optional[dict[str, Any]] = None,
 ) -> list["SearchCandidate"]:
     """Replace arrival-order truncation with a no-spend, no-model-load relevance rerank
     that reserves at least one slot per sub-query (I-meta-002-q1d #951, Codex brief-gate
@@ -5237,10 +5238,22 @@ def _rerank_and_reserve(
 
         question_tokens = _rerank_content_tokens(research_question)
         # (score, original_index, candidate) so ties + zero-overlap fall back to arrival order.
-        scored = [
-            (_lexical_relevance_score(c, question_tokens), i, c)
-            for i, c in enumerate(non_seeds)
-        ]
+        if prompt_scope_constraints:
+            from src.polaris_graph.retrieval.prompt_scope_weighting import (  # noqa: PLC0415
+                scope_weight_for_candidate,
+            )
+        else:
+            scope_weight_for_candidate = None
+        scored = []
+        for i, candidate in enumerate(non_seeds):
+            score = _lexical_relevance_score(candidate, question_tokens)
+            scope_weight = (
+                scope_weight_for_candidate(candidate, prompt_scope_constraints)
+                if scope_weight_for_candidate is not None else 1.0
+            )
+            # The scope factor changes ordering within the existing fetch budget;
+            # it never removes a candidate or creates a new admission threshold.
+            scored.append((score * scope_weight, i, candidate))
         # Group by origin, each group sorted by (-score, index).
         groups: dict[str, list[tuple[float, int, "SearchCandidate"]]] = {}
         for entry in scored:
@@ -5534,6 +5547,7 @@ def _relevance_threshold_select(
     sub_queries: list[str],
     fetch_cap: int,
     n_seed_injected: int,
+    prompt_scope_constraints: Optional[dict[str, Any]] = None,
 ) -> tuple[list["SearchCandidate"], dict[str, float], Optional[RelevanceGateResult]]:
     """B4 ON-path selection: relevance ORDER (the floor orders, never filters) +
     fetch BUDGET (cost cap), using B1's semantic embedding-cosine scorer.
@@ -5601,8 +5615,22 @@ def _relevance_threshold_select(
     # — it SURVIVES to the budget so it can be fetched-to-know if the budget reaches
     # it. The fetch BUDGET is the ONLY bound; off-topic content with no overlap fails
     # the downstream faithfulness engine (the only sanctioned hard drop), never here.
-    above_floor = sorted((t for t in scored if t[0] >= threshold), key=lambda t: (-t[0], t[1]))
-    below_floor = sorted((t for t in scored if t[0] < threshold), key=lambda t: (-t[0], t[1]))
+    if prompt_scope_constraints:
+        from src.polaris_graph.retrieval.prompt_scope_weighting import (  # noqa: PLC0415
+            scope_weight_for_candidate,
+        )
+        scope_weights = [
+            scope_weight_for_candidate(candidate, prompt_scope_constraints)
+            for candidate in non_seeds
+        ]
+    else:
+        scope_weights = [1.0] * len(non_seeds)
+    rank_key = lambda t: (-(t[0] * scope_weights[t[1]]), t[1])
+    # The RAW topical score remains the floor predicate. Prompt scope changes
+    # ordering only, so it cannot demote a topically relevant source below the
+    # fetch-all-relevant boundary.
+    above_floor = sorted((t for t in scored if t[0] >= threshold), key=rank_key)
+    below_floor = sorted((t for t in scored if t[0] < threshold), key=rank_key)
     ranked = above_floor + below_floor
 
     # BUDGET. I-fetch-005 iter-2 P0 (§-1.3 WEIGHT-not-FILTER, Codex HIGHEST): the fetch
@@ -5872,6 +5900,31 @@ def run_live_retrieval(
         )
     else:
         effective_queries = list(all_queries)
+
+    # STEP 5: parse the prompt's own evidence-scope words once and carry them
+    # into query text + candidate ordering.  The local protocol lets a plain
+    # caller use the feature without introducing a required protocol object;
+    # a supplied protocol retains the cached extraction across retrieval rounds.
+    _prompt_scope_constraints: dict[str, Any] = {}
+    from src.polaris_graph.retrieval.prompt_scope_weighting import (  # noqa: PLC0415
+        bias_queries_by_prompt_scope,
+        prompt_scope_weighting_enabled,
+    )
+    if prompt_scope_weighting_enabled():
+        from src.polaris_graph.retrieval.rq_eligibility import (  # noqa: PLC0415
+            ensure_rq_constraints,
+        )
+        _scope_protocol = protocol if protocol is not None else {}
+        _extracted_scope = ensure_rq_constraints(_scope_protocol, research_question)
+        if isinstance(_extracted_scope, dict):
+            _prompt_scope_constraints = dict(_extracted_scope)
+        effective_queries = bias_queries_by_prompt_scope(
+            effective_queries, _prompt_scope_constraints,
+        )
+        notes.append(
+            "prompt_scope_weighting: query_count_unchanged="
+            f"{len(effective_queries)} constraints={bool(_prompt_scope_constraints)}"
+        )
 
     # ── U11 (I-deepfix-001): clinical evidence-type query expansion ──────
     # Clinical T1/T2 (RCT / systematic-review / meta-analysis / guideline)
@@ -6472,6 +6525,7 @@ def run_live_retrieval(
             sub_queries=list(effective_queries),
             fetch_cap=fetch_cap,
             n_seed_injected=_n_seed_injected,
+            prompt_scope_constraints=_prompt_scope_constraints,
         )
         if _b4_selected is None:
             # I-deepfix-001 P1-2 (#1344): record the semantic->lexical fallback so the
@@ -6490,6 +6544,7 @@ def run_live_retrieval(
             research_question=research_question,
             fetch_cap=fetch_cap,
             n_seed_injected=_n_seed_injected,
+            prompt_scope_constraints=_prompt_scope_constraints,
         )
     _rerank_dropped_urls = _pre_rerank_urls - {c.url for c in candidates}
     # B4 (§-1.3 DEMOTE-NOT-DROP, I-deepfix-001 D3 2026-06-29, Codex iter-1 P1): the

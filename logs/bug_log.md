@@ -1876,5 +1876,11 @@ auditor_revision_count: int
 
 **Required fix direction:** Thread a run_id from sweep orchestrator through to every LLM client instantiation.
 
+## HARD STOP: canonical and campaign state unavailable (2026-07-22)
+**Status:** BLOCKING
+**Severity:** critical
+
+The Sol/Fable P4 implementation assignment cannot pass the mandatory startup gate. Four canonical files have HEAD/working-tree hashes that differ from `docs/canonical_pin.txt`; the pinned `polaris-controls/CHARTER.md` and `PLAN.md` cannot be found under `/home/polaris`; and binding `state/beatboth_campaign/loop_state.json` is absent. Recorded in `state/halt_20260722T191501Z_canonical_pin_drift.md`. Operator-signed reconciliation/restoration is required before live-path edits.
+
 ## PERMANENT ARCHITECTURE FIX — the 9 issues PINNED (2026-06-10)
 Umbrella #1194 (I-perm-000); issues #1195-#1203 (I-perm-001..009). Charter: docs/permanent_fix_9_issues.md. Governing reframe: WITHHOLD→ALWAYS-RELEASE+LABEL; never assert ungrounded as fact. Each issue: research frontier best-practice → line-by-line our code → permanent migration → build → SERIOUS stress smoke → Codex review (only gate). Exit: all 9 Codex-APPROVED → serious preflight → present summary → operator go for full beat-both run. Folds prior #1192 #1078 #1193 #954 #1187 #1180 #1176 #1184 #1146 #1147.

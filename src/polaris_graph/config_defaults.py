@@ -453,10 +453,8 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_HEDGING_MAX_PER_PARAGRAPH': '2',
     'PG_HIGH_IMPACT_ZSCORE': '1.5',
     'PG_HYBRID_EVIDENCE': '0',
-    # STEP-1 render cleanup (change #6): when '1', the composed report body includes
-    # the residual enrichment section ('Additional Corroborated Findings'); when '0',
-    # that section is omitted from the RENDERED body only (its evidence stays in the
-    # archive/checkpoint — no data is dropped). Default '1' = include = today's body.
+    # Compatibility-only state record. Residual verified prose is always rendered; a
+    # post-generation content-removal switch is not a valid composition behavior.
     'PG_INCLUDE_RESIDUAL_SECTION': '1',
     'PG_INITIAL_QUERY_PCT': '0.30',
     'PG_INSTITUTIONAL_AUTHORITY_WEIGHT': 'on',
@@ -794,9 +792,11 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # (home-less) consolidated basket + unassigned high-tier singleton to the section whose
     # title+focus shares the most topical content words with it (off-topic-judge-confirmed baskets
     # deleted, fail-open) — so no relevant verified source is stranded and the section writer sees
-    # more relevant evidence (broader per-section coverage). Default '0' = off => plans unchanged
-    # (byte-identical). Placement only; the frozen faithfulness engine re-verifies every clause.
-    'PG_ROUTE_ALL_BASKETS': '0',
+    # more relevant evidence (broader per-section coverage). Explicit '0' is the rollback path.
+    # Placement only; the frozen faithfulness engine re-verifies every clause.
+    # Champion behavior is route-all ON.  This central default is the one source of
+    # truth; run recipes must not silently override it.
+    'PG_ROUTE_ALL_BASKETS': '1',
     # LEVER C+ (marginal-coverage router): tighten route_orphan_baskets_to_section_plans' placement
     # so an orphan is only routed into a section when its content-word overlap with that section is
     # STRONG enough, not a single generic shared word. PG_ROUTE_MIN_OVERLAP = the minimum best-section
@@ -864,13 +864,31 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # section to one blob. Render + prompt text only (strict_verify untouched). If PG_SECTION_STRUCTURE
     # is also ON it wins (structure variant supersedes). Default '' = off => flat render => byte-identical.
     'PG_RENDER_BLOCKS': '',
-    # LEVER 2 (typed cross-study synthesis matrix). When ON, after a section's prose is strict-verified
-    # and resolved, an LLM renders a comparison TABLE from THAT verified prose only (reuse [N] markers,
-    # never invent, "—" for unstated), suppressed unless >= PG_SYNTHESIS_MATRIX_MIN_ROWS comparable rows
-    # survive. The table is APPENDED as a block (prose untouched => faithfulness + claim-coverage hold).
-    # Render-only augmentation; strict_verify untouched. Default '' = off => byte-identical (no table).
+    # Compatibility state for the retired generate-then-validate matrix.  The section
+    # assembly no longer calls that path; PG_SYNTHESIS_TABLE_CONSTRUCT is the only
+    # executable synthesis-table producer.
     'PG_SYNTHESIS_MATRIX': '',
     'PG_SYNTHESIS_MATRIX_MIN_ROWS': '3',
+    # STEP 3 (construction-by-validity table). When ON, a cross-study comparison table is BUILT
+    # deterministically from the section's already-verified prose: each row's Value is a verbatim
+    # value+unit span of ONE verified sentence and Source is that sentence's own [N] marker. No LLM,
+    # no validate-then-drop, no entailment — fabrication is impossible by construction and prose is
+    # never altered (appended block). Emitted only when >=2 rows share a comparable unit. Default OFF.
+    'PG_SYNTHESIS_TABLE_CONSTRUCT': '',
+    # Wire the existing prompt-reading summary-table renderer at final compose.  It
+    # consumes only extracted verified claims and is default OFF for byte identity.
+    'PG_SUMMARY_TABLE_COMPOSE': '',
+    # Prompt-derived evidence ordering. Every row remains in the stream; only a
+    # continuous composition weight and stable order are added. Default OFF.
+    'PG_PROMPT_SCOPE_WEIGHTING': '',
+    # Carry author/venue/year metadata and the existing prominence weight into each
+    # writer evidence block for narrative attribution. Default OFF.
+    'PG_NARRATIVE_ATTRIBUTION': '',
+    # Build complete per-facet evidence packs and emit a coverage ledger. Default OFF.
+    'PG_FACET_EVIDENCE_PACKS': '',
+    # Ask the section writer to synthesize whole same-claim baskets and remove the
+    # paragraph-length instruction. Default OFF.
+    'PG_BASKET_SYNTHESIS': '',
     # LEVER 3 (coverage spine). When ON, the outline self-review is given an ADDITIVE directive to thread
     # each concept the QUESTION names across the report with ONE distinct analytical role (framing /
     # mechanism / cross-context comparison / synthesis / implication) instead of confining a framing
@@ -879,6 +897,10 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # section). Prompt text only; strict_verify + section add/drop logic untouched. Default '' = off =>
     # byte-identical self-review prompt. Concepts come from the QUESTION text, so it is RQ-general.
     'PG_COVERAGE_SPINE': '',
+    # RACE semantic coverage: turn extracted required_coverage clauses into role-bearing outline
+    # obligations and audit the rendered body. Missing planned sections remain sidecar telemetry.
+    # Default OFF => plans and render assembly are unchanged.
+    'PG_COVERAGE_OBLIGATIONS': '',
     'PG_SECTION_EVIDENCE_TOP_K': '100',
     'PG_SECTION_GINI_THRESHOLD': '0.30',
     'PG_SECTION_PER_SOURCE_SPAN_CAP': '0',

@@ -2202,6 +2202,12 @@ class OpenRouterClient:
                             stream_usage,
                             stream_served,
                         ) = await self._read_stream(body, actual_timeout)
+                    # Backward-compatible stream contract: older adapters/tests
+                    # returned the served provider as a bare display-name string;
+                    # current production returns a metadata mapping. Normalize at
+                    # the boundary so both carry the same provider identity.
+                    if isinstance(stream_served, str):
+                        stream_served = {"provider": stream_served}
                     _served_provider = (stream_served or {}).get("provider")
                     data = {
                         "choices": [{

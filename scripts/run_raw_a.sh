@@ -46,20 +46,9 @@ export PG_OUTLINE_MAX_TOKENS=131072             # prevents the deepseek truncati
 export PG_OUTLINE_REASONING_MAX_TOKENS=32768
 export PG_STRICT_VERIFY_OFF=1                    # <-- MASTER FAITHFULNESS KILL-SWITCH (see header): drops NOTHING
 export PG_STRICT_VERIFY_ENTAILMENT=off          # <-- ENTAILMENT OFF (redundant under the master switch; see header)
-# ROUTE-ALL — EXPLICIT, ON (2026-07-21). The compose script used to force this via a silent
-# `setdefault(...,"1")` (now REMOVED so central config governs, no hidden force). A clean route-all-OFF
-# run then settled the question the three-model audit could not — because every run it saw was
-# route-all-ON: route-all is LOAD-BEARING, not noise. MEASUREMENT (honest scope): ONE generator output
-# per arm, each rescored 3x by the RACE judge (NOT 3 independent generator draws — draws 2-3 were not
-# completed). K3+B/E/F route-all-ON = RACE 0.5084; route-all-OFF = 0.4722 (judge draws 0.4765/0.4703/
-# 0.4698, tight). The +0.036 direction is unambiguous — it craters Comprehensiveness (0.521->0.478) and
-# Insight (0.524->0.478) across every judge draw (far beyond ~0.007 judge noise) and the report
-# collapses 9438w/144cites -> 5081w/21cites (without routing ~90% of the corpus never reaches a
-# section). Magnitude has some uncontrolled GENERATOR variance (single draw/arm); the DIRECTION does
-# not. So the champion recipe EXPLICITLY chooses route-all on. The audit's valid residual point
-# (routing is indiscriminate -> some off-topic orphans) is the target of a follow-up
-# relevance+marginal-novelty router, which KEEPS this coverage and drops only the junk.
-export PG_ROUTE_ALL_BASKETS=1
+# PG_ROUTE_ALL_BASKETS is intentionally not exported here.  Its champion value
+# is single-sourced in config_defaults.py, so the resolved run state cannot
+# disagree with the central setting.
 
 # --- STEP-1 render/format cleanups (RENDER ONLY — no faithfulness surface touched) ---
 # Each flag is central-config-gated (config_defaults.py) and DEFAULTS to today's behavior;
@@ -68,7 +57,8 @@ export PG_MIRROR_CITE_COLLAPSE=0                 # #1 fold same-origin mirror ci
 export PG_ANTI_VERBOSITY=on                      # #2 concise-writing mode ON (denser prose)
 export PG_REFERENCE_TIER_LABELS=0                # #3 omit the "(tier X)" label from the References block
 export PG_CITATION_INLINE_GLUE_COLLAPSE=1        # #4 collapse the malformed "].[" citation glue -> "]["
-export PG_INCLUDE_RESIDUAL_SECTION=0             # #5 drop the "Additional Corroborated Findings" residual dump from the judged body
+# Residual verified prose is never removed after generation. Under
+# PG_FACET_EVIDENCE_PACKS it is folded into topical sections before writing.
 # Token-repair OFF: with strict-verify off, _repair_llm_draft_untokened misfires and 4 sections start
 # mid-word / with BibTeX; '0' disables the repair so those sections render cleanly (Sol token fix).
 export PG_NO_TOKEN_SENTENCE_REPAIR=0

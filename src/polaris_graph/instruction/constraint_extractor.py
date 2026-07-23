@@ -370,11 +370,19 @@ def _live_enabled() -> bool:
     ``OPENROUTER_API_KEY`` alone is not sufficient — the flag must be truthy —
     which keeps unit runs hermetic even on a developer box that has a key.
     """
-    return resolve("PG_CONSTRAINT_EXTRACT_LIVE").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
+    return (
+        resolve("PG_CONSTRAINT_EXTRACT_LIVE").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        or resolve("PG_PROMPT_SCOPE_WEIGHTING").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
     )
 
 
