@@ -26,6 +26,8 @@ export PG_GENERATOR_MODEL="moonshotai/kimi-k3"
 export PG_GENERATOR_PROVIDER_FANOUT="1"
 export OPENROUTER_REQUIRE_PARAMETERS="false"
 export OPENROUTER_ALLOW_FALLBACKS="true"
+# Forty retries let each report call ride through a sustained single-provider throttle burst.
+export PG_RATE_LIMIT_MAX_RETRIES="40"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 case " $* " in

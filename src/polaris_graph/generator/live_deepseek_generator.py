@@ -217,6 +217,12 @@ def _format_telemetry_block(
         for c in comparable[:5]:
             subj = c.get("subject", "") or ""
             pred = c.get("predicate", "") or ""
+            if c.get("comparison_status") == "conflict" and c.get("reason"):
+                row_ids = ", ".join(str(item) for item in (c.get("evidence_ids") or []))
+                lines.append(
+                    f"  - {subj} / {pred}: rows={row_ids}; reason={c.get('reason')}"
+                )
+                continue
             rel = (c.get("relative_difference") or 0) * 100
             sev = c.get("severity", "") or ""
             lines.append(

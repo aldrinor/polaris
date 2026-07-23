@@ -731,6 +731,10 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_QUERIES_PER_VECTOR': '50',
     'PG_QUESTION_DECOMP_TIMEOUT': '300',
     'PG_RATE_LIMIT_FLOOR_S': '15.0',
+    # Preserve the legacy three-attempt 429 budget unless a run opts into more retries.
+    'PG_RATE_LIMIT_MAX_RETRIES': '2',
+    # De-synchronize concurrent rate-limit retries without exceeding the retry-after cap.
+    'PG_RATE_LIMIT_JITTER_S': '1.0',
     'PG_RATE_LIMIT_RETRY_AFTER_CAP_S': '120.0',
     'PG_RAW_HTML_MAX_CHARS': '500000',
     'PG_REACT_MAX_ITERATIONS': '5',
@@ -845,6 +849,13 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     # that invoke the contract; it never changes retrieval or verification by
     # import side effect.  OFF is the emergency fail-open rollback.
     'PG_COMPOSITION_SCOPE_CONTRACT': '1',
+    # Generator-judged semantic conflict discovery over the final scoped pool.
+    # Default OFF: no candidate clustering, model calls, or prompt changes.
+    'PG_CONTRADICTION_MINING': '',
+    # Optional live acquisition after the composition scope contract. Every
+    # returned row re-passes the contract; default OFF avoids network and cost.
+    'PG_SCOPE_DEEPENING': '',
+    'PG_SCOPE_DEEPENING_WALL_SECONDS': '600',
     # OpenRouter z-ai/glm-5.2 top-provider completion limit verified from
     # /api/v1/models on 2026-07-23.  A cap is insurance; billing is actual-use.
     'PG_SCOPE_CONTRACT_MAX_TOKENS': '131072',
@@ -893,6 +904,9 @@ CONFIG_DEFAULTS: dict[str, str | None] = {
     'PG_NARRATIVE_ATTRIBUTION': '',
     # Build complete per-facet evidence packs and emit a coverage ledger. Default OFF.
     'PG_FACET_EVIDENCE_PACKS': '',
+    # Proposition/support/conflict grouping plus a report-wide relation map.
+    # Framing only; default OFF leaves section membership and prompts unchanged.
+    'PG_RELATION_EVIDENCE_PACKS': '',
     # Ask the section writer to synthesize whole same-claim baskets and remove the
     # paragraph-length instruction. Default OFF.
     'PG_BASKET_SYNTHESIS': '',

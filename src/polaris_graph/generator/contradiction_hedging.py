@@ -82,6 +82,13 @@ def _contradiction_text_blob(c: dict[str, Any]) -> str:
 def _is_section_relevant(section_title: str, c: dict[str, Any]) -> bool:
     """Route by evidence-derived vocabulary or generic comparison syntax."""
 
+    explicit_owner = str(c.get("section_title") or "").strip()
+    if (
+        explicit_owner
+        and c.get("comparison_status") == "conflict"
+        and c.get("confidence") == "confirmed"
+    ):
+        return explicit_owner.casefold() == str(section_title or "").strip().casefold()
     section_tokens = _section_keywords_for(section_title)
     record_tokens = _record_routing_tokens(c)
     if section_tokens & record_tokens:
@@ -103,6 +110,12 @@ def _is_high_severity(c: dict[str, Any]) -> bool:
     """Return True iff the contradiction is worth surfacing in body
     prose. Codex's gate: ≥3 distinct values + ≥30% relative spread
     + ≥1 T1 source."""
+    if (
+        c.get("comparison_status") == "conflict"
+        and c.get("confidence") == "confirmed"
+        and c.get("reason")
+    ):
+        return True
     values = c.get("values") or c.get("cited_values") or []
     if not isinstance(values, list) or len(values) < 3:
         return False
@@ -146,6 +159,8 @@ class SectionContradictionHint:
     predicate: str
     value_range: str  # "5.0 to 93.5%"
     tiers: tuple[str, ...]  # ("T1", "T2", "T4")
+    evidence_ids: tuple[str, ...] = ()
+    reason: str = ""
 
 
 def filter_section_contradictions(
@@ -166,12 +181,24 @@ def filter_section_contradictions(
         return []
 
     candidates: list[tuple[float, SectionContradictionHint]] = []
+    confirmed: list[SectionContradictionHint] = []
     for c in contradictions:
         if not isinstance(c, dict):
             continue
         if not _is_section_relevant(section_title, c):
             continue
         if not _is_high_severity(c):
+            continue
+        if c.get("comparison_status") == "conflict" and c.get("confidence") == "confirmed":
+            confirmed.append(SectionContradictionHint(
+                section_title=section_title,
+                subject=str(c.get("subject", "")),
+                predicate=str(c.get("predicate", "")),
+                value_range="",
+                tiers=(),
+                evidence_ids=tuple(str(item) for item in (c.get("evidence_ids") or [])),
+                reason=str(c.get("reason") or ""),
+            ))
             continue
         # Severity score (= relative spread)
         values = c.get("values") or c.get("cited_values") or []
@@ -203,7 +230,7 @@ def filter_section_contradictions(
 
     # Sort by spread descending
     candidates.sort(key=lambda x: x[0], reverse=True)
-    return [h for _, h in candidates[:max_per_section]]
+    return confirmed + [h for _, h in candidates[:max_per_section]]
 
 
 def render_section_hedging_block(
@@ -230,6 +257,14 @@ def render_section_hedging_block(
         "",
     ]
     for h in hints:
+        if h.reason and h.evidence_ids:
+            rows = " and ".join(h.evidence_ids)
+            lines.append(
+                f"  - Rows {rows} report incompatible findings on the same quantity or "
+                f"relationship: {h.reason} Address the disagreement explicitly and say what "
+                "differs (population, method, period, or measure)."
+            )
+            continue
         tier_str = "/".join(h.tiers) if h.tiers else "mixed tiers"
         lines.append(
             f"  - Subject: {h.subject!r}, Predicate: {h.predicate!r}; "

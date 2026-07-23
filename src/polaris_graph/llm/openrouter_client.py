@@ -15,7 +15,7 @@ import asyncio
 import json
 import logging
 import os
-from src.polaris_graph.settings import get_model_settings
+import random
 import re
 import threading
 import time
@@ -29,6 +29,7 @@ import httpx
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
+from src.polaris_graph.settings import get_model_settings
 from src.polaris_graph.tracing import _current_tracer
 # I-safety-002b (#925): Path-B benchmark gate capture (stdlib-only, no circular import;
 # all calls are gate-flagged via is_active() so the hot path pays one contextvar read).
@@ -2165,8 +2166,10 @@ class OpenRouterClient:
 
         start = time.monotonic()
         last_error = None
+        rate_limit_max_retries = max(0, int(resolve("PG_RATE_LIMIT_MAX_RETRIES")))
+        attempt_limit = max(MAX_RETRIES, rate_limit_max_retries)
 
-        for attempt in range(MAX_RETRIES + 1):
+        for attempt in range(attempt_limit + 1):
             try:
                 # I-meta-008 FULL-POWER: a reasoning-first GENERATOR (DeepSeek V4 Pro) needs minutes
                 # per section (observed up to 412s for one success; ~24 min worst case at the slow
@@ -2427,12 +2430,20 @@ class OpenRouterClient:
 
                 # Rate limit — back off
                 if status == 429:
+                    if attempt >= rate_limit_max_retries:
+                        self.usage.total_errors += 1
+                        raise
                     # I-bug-943: bumped 429 backoff floor 2,4,8 -> 15,30,60s (max 60s).
                     # DeepInfra's V4 Pro throttle window is longer than 14s; the old 3-attempt
                     # / 14s-total budget reliably gave up before the throttle cleared on
                     # parallel-section generation. Operator-tunable via PG_RATE_LIMIT_FLOOR_S.
                     floor = float(resolve("PG_RATE_LIMIT_FLOOR_S"))
-                    wait = min(60.0, max(floor, RETRY_BACKOFF_BASE ** (attempt + 1)) * (attempt + 1))
+                    retry_cap = max(1.0, float(resolve("PG_RATE_LIMIT_RETRY_AFTER_CAP_S")))
+                    wait = min(
+                        60.0,
+                        retry_cap,
+                        max(floor, RETRY_BACKOFF_BASE ** (attempt + 1)) * (attempt + 1),
+                    )
                     # I-deepfix-001 wave-2: HONOR a server-provided Retry-After header when present.
                     # Per RFC 9110 a 429 MAY carry Retry-After telling us EXACTLY when the throttle
                     # window clears; that server signal is authoritative, so it wins over the blind
@@ -2443,11 +2454,13 @@ class OpenRouterClient:
                     # Transport timing only — the faithfulness engine is untouched.
                     retry_after = _parse_retry_after(exc.response.headers.get("Retry-After"))
                     if retry_after is not None:
-                        cap = float(resolve("PG_RATE_LIMIT_RETRY_AFTER_CAP_S"))
-                        wait = max(1.0, min(cap, retry_after))
+                        wait = max(1.0, min(retry_cap, retry_after))
+                    jitter_limit = max(0.0, float(resolve("PG_RATE_LIMIT_JITTER_S")))
+                    jitter_room = min(jitter_limit, max(0.0, retry_cap - wait))
+                    wait += random.uniform(0.0, jitter_room)
                     logger.warning(
                         "[polaris graph] Rate limited, waiting %.1fs (attempt %d/%d)%s",
-                        wait, attempt + 1, MAX_RETRIES + 1,
+                        wait, attempt + 1, rate_limit_max_retries + 1,
                         "" if retry_after is None else f" [Retry-After={retry_after:.1f}s honored]",
                     )
                     await asyncio.sleep(wait)
@@ -2511,13 +2524,16 @@ class OpenRouterClient:
 
                 # Server error — retry
                 if status >= 500:
-                    wait = RETRY_BACKOFF_BASE ** attempt
-                    logger.warning(
-                        "[polaris graph] Server error %d, retrying in %.1fs",
-                        status, wait,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
+                    if attempt < MAX_RETRIES:
+                        wait = RETRY_BACKOFF_BASE ** attempt
+                        logger.warning(
+                            "[polaris graph] Server error %d, retrying in %.1fs",
+                            status, wait,
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+                    self.usage.total_errors += 1
+                    raise
 
                 # Client error — don't retry
                 self.usage.total_errors += 1

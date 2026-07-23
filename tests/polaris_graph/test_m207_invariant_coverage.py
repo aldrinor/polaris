@@ -95,11 +95,17 @@ def test_m207_every_unified_status_has_emitter_in_orchestrator() -> None:
 # Pipeline-A hardness invariants — the seven CLAUDE.md §9 rules
 # ─────────────────────────────────────────────────────────────────
 
-def test_m207_two_family_check_still_callable() -> None:
+def test_m207_two_family_check_still_callable(monkeypatch) -> None:
     """Invariant 1: two-family evaluator check must still be importable
-    and raise on same-family pair."""
+    and raise on same-family pair by default.
+
+    The campaign .env may explicitly waive segregation for an all-one-family
+    benchmark run.  That opt-in is not the default being pinned here, so remove
+    it just as the dedicated crown-jewel invariant test does.
+    """
     from src.polaris_graph.llm.openrouter_client import check_family_segregation
     import pytest as _pytest
+    monkeypatch.delenv("PG_PERMIT_GENERATOR_EVALUATOR_SAME_FAMILY", raising=False)
     # Same-family pair must raise
     with _pytest.raises(RuntimeError):
         check_family_segregation(

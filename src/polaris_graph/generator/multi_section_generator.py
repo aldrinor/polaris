@@ -4012,6 +4012,8 @@ async def _call_section(
     distillate: Any | None = None,
     research_question: str = "",
     report_blueprint: str = "",
+    relation_pack: str = "",
+    global_relation_map: str = "",
 ) -> tuple[str, int, int, dict[str, Any]]:
     """Single LLM call for one section.
 
@@ -4093,6 +4095,16 @@ async def _call_section(
         )
         if report_blueprint:
             reduce_prompt = f"{report_blueprint}\n\n{reduce_prompt}"
+        if relation_pack:
+            reduce_prompt = (
+                f"{reduce_prompt}\n\nPROPOSITION EVIDENCE PACK "
+                f"(grouping of admitted rows; not additional evidence):\n{relation_pack}"
+            )
+        if global_relation_map:
+            reduce_prompt = (
+                f"{reduce_prompt}\n\nREPORT-WIDE RELATION MAP "
+                f"(existing admitted propositions across sections):\n{global_relation_map}"
+            )
         from src.polaris_graph.generator.source_attribution import (  # noqa: PLC0415
             narrative_attribution_enabled,
         )
@@ -4173,6 +4185,18 @@ async def _call_section(
         system = f"{system}\n\n{voice_advisory_text}"
     if _attribution_on:
         system = f"{system}\n\n{_NARRATIVE_ATTRIBUTION_DIRECTIVE}"
+    if relation_pack:
+        system = (
+            f"{system}\n\nPROPOSITION EVIDENCE PACK "
+            f"(grouping of admitted rows; not additional evidence):\n{relation_pack}"
+        )
+    if global_relation_map:
+        system = (
+            f"{system}\n\nREPORT-WIDE RELATION MAP "
+            f"(existing admitted propositions across sections):\n{global_relation_map}\n"
+            "Use this map to explain convergence, conflict, and contextual boundaries across "
+            "sections. Cite only the evidence identifiers shown in the map; do not invent a relation."
+        )
 
     # I-gen-005 Pattern A (#904): for reasoning-first models (V4 Pro),
     # append a per-evidence allow-list of numbers, identifiers, and
@@ -6242,6 +6266,8 @@ async def _run_section(
     # default, and every other caller) => byte-identical: the draft is generated fresh. FAIL-OPEN:
     # an absent/blank cached draft falls through to full regeneration.
     reused_raw_draft: str | None = None,
+    relation_pack: str = "",
+    global_relation_map: str = "",
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -6697,6 +6723,8 @@ async def _run_section(
             distillate=distillate,
             research_question=research_question,
             report_blueprint=report_blueprint,
+            relation_pack=relation_pack,
+            global_relation_map=global_relation_map,
         )
     total_in_tok += in_tok
     total_out_tok += out_tok
@@ -6896,6 +6924,8 @@ async def _run_section(
             voice_advisory_text=voice_advisory_text,
             research_question=research_question,
             report_blueprint=report_blueprint,
+            relation_pack=relation_pack,
+            global_relation_map=global_relation_map,
         )
         total_in_tok += in_tok2
         total_out_tok += out_tok2
@@ -12108,6 +12138,32 @@ async def generate_multi_section_report(
         if isinstance(_row, dict):
             _row["evidence_basket_ids"] = list(_basket_ids)
 
+    # Batch 3 relation framing: group each section's unchanged membership by
+    # proposition and build one report-wide map for the synthesis role.
+    _relation_packs_by_section: dict[str, str] = {}
+    _global_relation_map = ""
+    from src.polaris_graph.generator.relation_evidence_packs import (  # noqa: PLC0415
+        assign_conflict_owners as _assign_conflict_owners,
+        build_relation_evidence_packs as _build_relation_packs,
+        relation_evidence_packs_enabled as _relation_packs_on,
+    )
+    if _relation_packs_on():
+        (
+            _relation_packs_by_section,
+            _global_relation_map,
+            contradictions,
+        ) = _build_relation_packs(
+            plans,
+            evidence_pool,
+            contradictions or [],
+        )
+    elif contradictions:
+        from src.polaris_graph.generator.contradiction_mining import (  # noqa: PLC0415
+            contradiction_mining_enabled as _contradiction_mining_on,
+        )
+        if _contradiction_mining_on():
+            contradictions = _assign_conflict_owners(contradictions, plans)
+
     # Carry the extracted prompt obligations through the final routed outline into the exact focus
     # strings consumed by the live section writer. Evidence membership and verification are unchanged.
     if _coverage_obligations:
@@ -12324,6 +12380,24 @@ async def generate_multi_section_report(
     legacy_plans = [p for p in plans if not is_contract_section(p)]
 
     async def _run_contract_bounded(plan: SectionPlan) -> SectionResult:
+        from src.polaris_graph.generator.relation_evidence_packs import (  # noqa: PLC0415
+            relation_context_for_plan as _relation_context_for_contract_plan,
+        )
+
+        async def _contract_narrative_with_relations(
+            prompt: str,
+        ) -> tuple[str, int, int]:
+            relation_parts = list(_relation_context_for_contract_plan(
+                plan, _relation_packs_by_section, _global_relation_map,
+            ))
+            relation_text = "\n\n".join(part for part in relation_parts if part)
+            if relation_text:
+                prompt = (
+                    f"{prompt}\n\nPRE-GENERATION RELATION FRAMING "
+                    f"(existing admitted evidence only):\n{relation_text}"
+                )
+            return await _m63_narrative_llm_call(prompt)
+
         async with sem:
             result, payloads = await run_contract_section(
                 plan, evidence_pool,
@@ -12331,7 +12405,7 @@ async def generate_multi_section_report(
                 # I-arch-004 F32 (#1255): route ONLY the narrative-paragraph call
                 # through the prose adapter; slot-fill + regulatory synthesis keep
                 # the JSON-only _m63_llm_call (their responses are parsed as JSON).
-                narrative_llm_call=_m63_narrative_llm_call,
+                narrative_llm_call=_contract_narrative_with_relations,
                 section_result_cls=SectionResult,
                 strict_verify_fn=strict_verify,
                 rewrite_fn=_rewrite_draft_with_spans,
@@ -12363,6 +12437,12 @@ async def generate_multi_section_report(
     )
 
     async def _run_legacy_bounded(plan: SectionPlan) -> SectionResult:
+        from src.polaris_graph.generator.relation_evidence_packs import (  # noqa: PLC0415
+            relation_context_for_plan as _relation_context_for_legacy_plan,
+        )
+        _relation_pack, _synthesis_relation_map = _relation_context_for_legacy_plan(
+            plan, _relation_packs_by_section, _global_relation_map,
+        )
         async with sem:
             return await _run_section(
                 plan, evidence_pool,
@@ -12415,6 +12495,8 @@ async def generate_multi_section_report(
                     (reused_section_raw_drafts or {}).get(plan.title)
                     if reused_section_raw_drafts else None
                 ),
+                relation_pack=_relation_pack,
+                global_relation_map=_synthesis_relation_map,
             )
 
     # V33 unified dispatch helper for downstream (M-44 regen) callers

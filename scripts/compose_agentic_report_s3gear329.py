@@ -245,6 +245,53 @@ def _live_topic_judge(prompt: str) -> str:
     return asyncio.run(_run())
 
 
+def _live_contradiction_judge(prompt: str) -> str:
+    """Synchronous plain-generator adapter used by the pre-generation miner."""
+    from src.polaris_graph.llm.openrouter_client import (  # noqa: PLC0415
+        OpenRouterClient,
+        PG_GENERATOR_MODEL,
+    )
+
+    max_tokens = int(resolve("PG_SCOPE_CONTRACT_MAX_TOKENS"))
+
+    async def _run() -> str:
+        client = OpenRouterClient(model=PG_GENERATOR_MODEL)
+        try:
+            response = await client.generate(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=0.0,
+                reasoning_effort="xhigh",
+            )
+            return (response.content or "").strip()
+        finally:
+            if hasattr(client, "close"):
+                await client.close()
+
+    return asyncio.run(_run())
+
+
+def _retrieve_scope_candidates(
+    research_question: str,
+    queries: list[str],
+    native_filters: dict,
+    domain: str,
+) -> list[dict]:
+    """Run the normal live acquisition path for one contract-deepening round."""
+    from src.polaris_graph.retrieval.live_retriever import (  # noqa: PLC0415
+        run_live_retrieval,
+    )
+
+    result = run_live_retrieval(
+        research_question=research_question,
+        amplified_queries=queries,
+        protocol=dict(native_filters),
+        domain=domain or None,
+        anchor_seed=False,
+    )
+    return list(result.evidence_rows)
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--corpus", required=True)
@@ -341,6 +388,7 @@ async def main() -> int:
     _scope_constraints: dict = {}
     from src.polaris_graph.retrieval.scope_contract import (  # noqa: PLC0415
         scope_contract_enabled,
+        scope_deepening_enabled,
     )
     _coverage_on = (resolve("PG_COVERAGE_OBLIGATIONS") or "").strip().lower() in (
         "1", "true", "yes", "on",
@@ -371,23 +419,22 @@ async def main() -> int:
     run_dir = ROOT / (args.out_dir or f"outputs/{run_id}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # SOL STEP 2B: atomic pre-generation scope partition.  The input corpus is
-    # retained byte-for-byte in ``corpus``; only copied survivors reach the
-    # writer.  The compose seam has no direct retrieval-round callable, so it
-    # records deepening as unavailable instead of treating later opportunistic
-    # outline-tool searches as a contract-aware saturation loop.
+    # Atomic pre-generation scope partition. The input corpus is retained
+    # byte-for-byte in ``corpus``; only copied survivors reach the writer.
+    _deepening_on = scope_deepening_enabled()
     _scope_disclosure: dict = {
         "input_count": corpus_evidence_count,
         "composition_evidence_count": corpus_evidence_count,
         "off_topic_excluded_count": 0,
         "wrong_type_excluded_count": 0,
         "contract_enabled": scope_contract_enabled(),
-        "deepening_status": "requires_retrieval_pipeline",
+        "deepening_status": "requires_retrieval_pipeline" if not _deepening_on else "pending",
     }
     if scope_contract_enabled():
         try:
             from src.polaris_graph.retrieval.scope_contract import (  # noqa: PLC0415
                 apply_scope_contract,
+                deepen_scope_contract,
                 remap_finding_clusters,
                 remap_same_work_groups,
             )
@@ -408,10 +455,26 @@ async def main() -> int:
             _scoped_swg = remap_same_work_groups(
                 swg or [], _scope_result.kept_original_indices, _kept_ids,
             )
+            if _deepening_on:
+                _scope_result = await asyncio.to_thread(
+                    deepen_scope_contract,
+                    _scope_result,
+                    rq,
+                    lambda queries, filters: _retrieve_scope_candidates(
+                        rq, queries, dict(filters), domain,
+                    ),
+                    None,
+                    _live_topic_judge,
+                    wall_seconds=float(resolve("PG_SCOPE_DEEPENING_WALL_SECONDS")),
+                    novelty_judge=_live_topic_judge,
+                )
             _scope_disclosure = _scope_result.disclosure()
             _scope_disclosure.update({
                 "contract_enabled": True,
-                "deepening_status": "requires_retrieval_pipeline",
+                "deepening_status": (
+                    _scope_result.deepening.get("stop_reason", "complete")
+                    if _deepening_on else "requires_retrieval_pipeline"
+                ),
                 "finding_clusters_before": len(raw_clusters),
                 "finding_clusters_after": len(_scoped_clusters),
                 "same_work_groups_before": len(swg or []),
@@ -435,9 +498,37 @@ async def main() -> int:
             log.warning("[scope-contract] failed open; composition pool unchanged: %s", exc)
             _scope_disclosure["judge_failed_open"] = True
             _scope_disclosure["failure"] = str(exc)[:300]
+
+    _contradictions: list[dict] = []
+    from src.polaris_graph.generator.contradiction_mining import (  # noqa: PLC0415
+        contradiction_mining_enabled,
+        find_contradictions,
+    )
+    _contradiction_on = contradiction_mining_enabled()
+    if _contradiction_on:
+        try:
+            _contradictions = await asyncio.to_thread(
+                find_contradictions,
+                evidence,
+                rq,
+                _live_contradiction_judge,
+            )
+            log.info(
+                "[contradiction-mining] confirmed=%d candidate pool=%d",
+                len(_contradictions),
+                len(evidence),
+            )
+        except Exception as exc:  # noqa: BLE001 — disclosed fail-open before generation
+            log.warning("[contradiction-mining] failed open: %s", exc)
+            _scope_disclosure["contradiction_mining_failure"] = str(exc)[:300]
     (run_dir / "scope_contract_disclosure.json").write_text(
         json.dumps(_scope_disclosure, indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
+    )
+    _retrieval_scope_status = (
+        "prebuilt_corpus_scope_contract_applied_with_deepening"
+        if _deepening_on
+        else "prebuilt_corpus_scope_contract_applied_no_deepening"
     )
     log.info("corpus=%s  evidence=%d  clusters=%d  same_work_groups=%s  domain=%s",
              corpus_path.name, len(evidence), len(clusters),
@@ -553,6 +644,7 @@ async def main() -> int:
             scope_spec=_scope_spec,
             compose_projection=_compose_projection,
             prompt_scope_constraints=_scope_constraints or None,
+            contradictions=_contradictions or None,
         )
         dt = time.time() - t0
         kept = [s for s in multi.sections if not s.dropped_due_to_failure]
@@ -684,6 +776,17 @@ async def main() -> int:
         # Pipeline telemetry / Methods is a SIDECAR artifact (provenance for us), NOT part of the judged
         # deliverable — a research report's reader does not want the generator's internal telemetry.
         tier_summary = ", ".join(f"{k}={v*100:.0f}%" for k, v in sorted(dist.items()))
+        _deepening_methods = (
+            "Deepening: unavailable at this prebuilt-corpus seam; run the retrieval pipeline "
+            "with the contract deepening hook for target/saturation-aware acquisition.\n"
+            if not _deepening_on else
+            f"Deepening: {_scope_disclosure.get('deepening_status', 'complete')}; "
+            f"details={json.dumps(_scope_disclosure.get('deepening', {}), sort_keys=True)}.\n"
+        )
+        _contradiction_methods = (
+            f"Contradictions detected: {len(_contradictions)}.\n"
+            if _contradiction_on else ""
+        )
         methods = (
             "# Methods / pipeline telemetry (sidecar — NOT part of the judged report.md)\n\n"
             f"Judged task: DRB task {args.rq_drb_task} (verbatim prompt).\n"
@@ -695,8 +798,8 @@ async def main() -> int:
             f"wrong-type/language excluded={_scope_disclosure.get('wrong_type_excluded_count', 0)}; "
             "excluded rows retained in the source corpus and disclosed in "
             "scope_contract_disclosure.json.\n"
-            "Deepening: unavailable at this prebuilt-corpus seam; run the retrieval pipeline "
-            "with the contract deepening hook for target/saturation-aware acquisition.\n"
+            f"{_deepening_methods}"
+            f"{_contradiction_methods}"
             f"Outliner: AGENTIC (PG_OUTLINE_AGENT=1) — agent {outliner_agent_model()}, "
             f"code {outliner_code_model()}.\n"
             f"Generator: {PG_GENERATOR_MODEL} (multi-section: agentic outline + "
@@ -747,9 +850,7 @@ async def main() -> int:
                     final_report,
                     outline=outline_titles,
                     biblio=biblio,
-                    retrieval_scope_status=(
-                        "prebuilt_corpus_scope_contract_applied_no_deepening"
-                    ),
+                    retrieval_scope_status=_retrieval_scope_status,
                     contract_sha256=_contract_sha,
                 )
                 compliance = _ca.to_dict()
@@ -789,7 +890,7 @@ async def main() -> int:
             "faithfulness_pass": faithful,
             # S4 disclosure: scope was evaluated on the prebuilt rows, while live
             # contract-aware discovery/deepening was not run at this seam.
-            "retrieval_scope_status": "prebuilt_corpus_scope_contract_applied_no_deepening",
+            "retrieval_scope_status": _retrieval_scope_status,
             "contract_compliance": compliance,
             "cp4_used": cp4_used,
             "degraded_to_seed": degraded_to_seed,
@@ -822,12 +923,17 @@ async def main() -> int:
                     "PG_FACET_EVIDENCE_PACKS", "PG_BASKET_SYNTHESIS",
                     "PG_CROSS_SECTION_REPETITION_GUARD",
                     "PG_COVERAGE_OBLIGATIONS",
+                    "PG_CONTRADICTION_MINING", "PG_SCOPE_DEEPENING",
+                    "PG_RELATION_EVIDENCE_PACKS",
                     "PG_LIMITATIONS_REGISTER", "PG_REPORT_PREAMBLE_REGISTER",
                     "PG_ROUTE_ALL_BASKETS", "PG_INCLUDE_RESIDUAL_SECTION",
                     "PG_STRICT_VERIFY_OFF", "PG_STRICT_VERIFY_ENTAILMENT",
                 )
             },
         }
+        if _contradiction_on:
+            summary["contradictions_detected"] = len(_contradictions)
+            summary["contradictions"] = _contradictions
         (run_dir / "compose_summary.json").write_text(
             json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         log.info("WROTE %s (%d chars, %d words) + compose_summary.json",

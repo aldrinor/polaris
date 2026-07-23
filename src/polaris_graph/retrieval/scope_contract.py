@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
@@ -30,12 +31,12 @@ from src.polaris_graph.retrieval.rq_eligibility import (
     _row_language,
     detect_language_offline,
 )
-from src.polaris_graph.retrieval.saturation import marginal_novelty
 from src.polaris_graph.retrieval.topic_relevance_gate import (
     classify_topic_relevance,
 )
 
 _OFF_VALUES = frozenset({"0", "false", "no", "off", "disabled", ""})
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _EXCLUSIVE_RE = re.compile(
     r"\b(?:only|exclusively|solely|restricted\s+to|limited\s+to|must\s+all\s+be)\b",
     re.IGNORECASE,
@@ -45,6 +46,12 @@ _EXCLUSIVE_RE = re.compile(
 def scope_contract_enabled() -> bool:
     """Central default-ON composition contract flag."""
     return (resolve("PG_COMPOSITION_SCOPE_CONTRACT") or "").strip().lower() not in _OFF_VALUES
+
+
+def scope_deepening_enabled() -> bool:
+    """Central default-off live-deepening flag."""
+
+    return (resolve("PG_SCOPE_DEEPENING") or "").strip().lower() in _TRUE_VALUES
 
 
 @dataclass
@@ -57,13 +64,14 @@ class ScopeContractResult:
     wrong_type_excluded: list[dict[str, Any]] = field(default_factory=list)
     judge_failed_open: bool = False
     constraints: dict[str, Any] = field(default_factory=dict)
+    deepening: dict[str, Any] = field(default_factory=dict)
 
     @property
     def excluded_count(self) -> int:
         return len(self.off_topic_excluded) + len(self.wrong_type_excluded)
 
     def disclosure(self) -> dict[str, Any]:
-        return {
+        payload = {
             "input_count": len(self.evidence) + self.excluded_count,
             "composition_evidence_count": len(self.evidence),
             "off_topic_excluded_count": len(self.off_topic_excluded),
@@ -75,6 +83,9 @@ class ScopeContractResult:
             "excluded_from_composition_only": True,
             "source_corpus_retained": True,
         }
+        if self.deepening:
+            payload["deepening"] = dict(self.deepening)
+        return payload
 
 
 def _hard_exclusive(prompt: str, constraints: Mapping[str, Any], key: str) -> bool:
@@ -306,53 +317,105 @@ def deepen_scope_contract(
     result: ScopeContractResult,
     research_question: str,
     retrieve_fn: Callable[[list[str], Mapping[str, Any]], Sequence[Mapping[str, Any]]],
-    query_fn: Callable[[str, Mapping[str, Any]], list[str]] | None,
+    query_fn: Callable[..., list[str]] | None,
     topic_judge: Callable[[str], str],
     *,
-    target_count: int,
-    novelty_floor: float,
-    max_rounds: int,
+    wall_seconds: float | None = None,
+    novelty_judge: Callable[[str], str] | None = None,
 ) -> ScopeContractResult:
-    """Acquisition-run hook: add eligible rows until target or saturation.
+    """Add eligible works until semantic novelty or the disclosed wall is exhausted.
 
-    Every candidate is re-partitioned by both gates before it counts.  The hook
-    never removes an already eligible row and never invents retrieval in a
-    prebuilt-only caller.
+    Every candidate re-passes topic and exclusive-type/language admission before
+    canonical-work dedup. A round that adds no new proposition, relationship,
+    population, or timeframe ends the loop; there is no evidence-count target.
     """
+
+    from src.polaris_graph.synthesis.finding_dedup import _same_work_key  # noqa: PLC0415
+
     current = result
-    seen_rows: list[Mapping[str, Any]] = list(current.evidence)
-    for _round in range(max(0, max_rounds)):
-        if len(current.evidence) >= max(0, target_count):
+    started = time.monotonic()
+    deadline = (
+        started + max(0.0, float(wall_seconds))
+        if wall_seconds is not None else None
+    )
+    seen_signatures = {
+        signature
+        for row in current.evidence
+        for signature in _semantic_signatures(row)
+    }
+    seen_semantic_rows = list(current.evidence)
+    known_works = {
+        _same_work_key(dict(row)) or f"row:{_row_key(row) or id(row)}"
+        for row in current.evidence
+    }
+    rounds = 0
+    added_works = 0
+    stop_reason = "novelty_exhausted"
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            stop_reason = "wall_budget"
             break
-        queries = (query_fn or build_scope_deepening_queries)(
-            research_question, current.constraints,
-        )
+        builder = query_fn or build_scope_deepening_queries
+        try:
+            queries = builder(research_question, current.constraints, current.evidence)
+        except TypeError:
+            queries = builder(research_question, current.constraints)
+        if not queries:
+            stop_reason = "no_gap_queries"
+            break
         native_filters = {
             "source_types": list(current.constraints.get("source_types") or []),
             "languages": list(current.constraints.get("languages") or []),
             "is_retracted": False,
         }
         candidates = list(retrieve_fn(queries, native_filters) or [])
+        rounds += 1
         if not candidates:
+            stop_reason = "retrieval_exhausted"
             break
-        novelty = marginal_novelty(seen_rows, candidates)
         partition = apply_scope_contract(
             candidates, research_question, topic_judge, constraints=current.constraints,
         )
-        known = {_row_key(row) for row in current.evidence}
-        additions = [row for row in partition.evidence if _row_key(row) not in known]
+        additions: list[dict[str, Any]] = []
+        round_signatures: set[str] = set()
+        for row in partition.evidence:
+            work_key = _same_work_key(dict(row)) or f"row:{_row_key(row) or id(row)}"
+            if work_key in known_works:
+                continue
+            known_works.add(work_key)
+            additions.append(row)
+            round_signatures.update(_semantic_signatures(row))
+        novel_signatures = round_signatures - seen_signatures
+        has_novelty = bool(novel_signatures)
+        if has_novelty and novelty_judge is not None:
+            has_novelty = _judge_semantic_novelty(
+                seen_semantic_rows,
+                additions,
+                novelty_judge,
+            )
         current.evidence.extend(additions)
+        added_works += len(additions)
         current.off_topic_excluded.extend(partition.off_topic_excluded)
         current.wrong_type_excluded.extend(partition.wrong_type_excluded)
-        seen_rows.extend(candidates)
-        if novelty < novelty_floor:
+        seen_signatures.update(round_signatures)
+        seen_semantic_rows.extend(additions)
+        if not has_novelty:
+            stop_reason = "novelty_exhausted"
             break
+    current.deepening = {
+        "rounds": rounds,
+        "added_canonical_works": added_works,
+        "stop_reason": stop_reason,
+        "wall_seconds": wall_seconds,
+        "elapsed_seconds": time.monotonic() - started,
+    }
     return current
 
 
 def build_scope_deepening_queries(
     research_question: str,
     constraints: Mapping[str, Any],
+    evidence: Sequence[Mapping[str, Any]] | None = None,
 ) -> list[str]:
     """Prompt-derived additive queries for a retrieval-run deepening round.
 
@@ -367,8 +430,45 @@ def build_scope_deepening_queries(
         decompose_question,
     )
 
+    facets = list(dict.fromkeys(
+        query for query in decompose_question(research_question) if str(query).strip()
+    ))
     base = [research_question]
-    base.extend(decompose_question(research_question))
+    if facets:
+        if evidence:
+            row_tokens = [
+                set(_semantic_tokens(" ".join(str(value) for value in row.values())))
+                for row in evidence
+            ]
+            coverage = {
+                facet: sum(
+                    bool(set(_semantic_tokens(facet)) & tokens)
+                    for tokens in row_tokens
+                )
+                for facet in facets
+            }
+            thinnest = min(coverage.values())
+            base.extend(facet for facet in facets if coverage[facet] == thinnest)
+        else:
+            base.extend(facets)
+    obligations = (
+        constraints.get("required_coverage")
+        or constraints.get("coverage_obligations")
+        or []
+    )
+    for obligation in obligations:
+        if isinstance(obligation, Mapping):
+            text = str(
+                obligation.get("concept")
+                or obligation.get("text")
+                or obligation.get("requirement")
+                or ""
+            ).strip()
+        else:
+            text = str(obligation or "").strip()
+        if text:
+            base.append(f"{research_question} {text}")
+    base = list(dict.fromkeys(base))
     schema = constraints.get("research_schema") or constraints.get("retrieval_frame") or {}
     evidence_needs = (
         schema.get("evidence_needs", [])
@@ -391,3 +491,91 @@ def build_scope_deepening_queries(
         enabled=True,
         terms=terms,
     )
+
+
+_SEMANTIC_TOKEN_RE = re.compile(r"[^\W_][\w'-]+", re.UNICODE)
+_SEMANTIC_STOPWORDS = frozenset({
+    "about", "also", "and", "are", "for", "from", "has", "have", "into",
+    "study", "that", "the", "their", "these", "this", "those", "using",
+    "was", "were", "which", "with",
+})
+
+
+def _semantic_tokens(text: str) -> tuple[str, ...]:
+    return tuple(sorted({
+        token.casefold()
+        for token in _SEMANTIC_TOKEN_RE.findall(str(text or ""))
+        if len(token) > 2 and token.casefold() not in _SEMANTIC_STOPWORDS
+    }))
+
+
+def _semantic_signatures(row: Mapping[str, Any]) -> set[str]:
+    """Evidence-derived novelty units for gap-loop saturation."""
+
+    signatures: set[str] = set()
+    field_groups = {
+        "proposition": ("proposition", "claim_text", "statement", "direct_quote", "snippet"),
+        "relation": ("predicate", "relationship", "association", "effect"),
+        "population": ("population", "sample", "cohort"),
+        "timeframe": ("timeframe", "period", "date_range", "publication_date", "year"),
+    }
+    for label, names in field_groups.items():
+        value = next(
+            (
+                str(row.get(name) or "").strip()
+                for name in names
+                if str(row.get(name) or "").strip()
+            ),
+            "",
+        )
+        tokens = _semantic_tokens(value)
+        if tokens:
+            signatures.add(f"{label}:{' '.join(tokens)}")
+    return signatures
+
+
+def _judge_semantic_novelty(
+    seen_rows: Sequence[Mapping[str, Any]],
+    additions: Sequence[Mapping[str, Any]],
+    judge_fn: Callable[[str], str],
+) -> bool:
+    """Return False only when the model confidently reports no new semantic unit."""
+
+    if not additions:
+        return False
+
+    def _render(rows: Sequence[Mapping[str, Any]]) -> str:
+        lines: list[str] = []
+        for row in rows:
+            values = [
+                str(row.get(name) or "").strip()
+                for name in (
+                    "proposition", "claim_text", "statement", "predicate", "relationship",
+                    "population", "sample", "cohort", "timeframe", "period", "date_range",
+                )
+                if str(row.get(name) or "").strip()
+            ]
+            if values:
+                lines.append(" | ".join(values))
+        return "\n".join(lines)
+
+    prompt = f"""Compare the admitted evidence from earlier acquisition rounds with the newly
+admitted canonical works. Decide whether the new works add at least one genuinely NEW proposition,
+relationship, population, or timeframe. A paraphrase, repeated estimate, or additional source for
+an existing proposition is corroboration, not semantic novelty.
+
+Earlier admitted evidence:
+{_render(seen_rows)}
+
+Newly admitted canonical works:
+{_render(additions)}
+
+Return exactly NOVEL if at least one new semantic unit exists.
+Return exactly EXHAUSTED if every new row only repeats or paraphrases existing semantic units."""
+    try:
+        verdict = str(judge_fn(prompt) or "").strip().upper()
+    except Exception:
+        return True
+    if verdict == "EXHAUSTED":
+        return False
+    return True
