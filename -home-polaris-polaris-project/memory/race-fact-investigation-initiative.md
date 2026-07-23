@@ -31,3 +31,11 @@ Codex goals feature is live (~/.codex/goals_1.sqlite). "Fix Kimi Retry" = harden
 - **Judge drift**: tonight's gpt-5.5 judge scored a stored champion report 0.4718 (vs ~0.508 historical) → only WITHIN-judge comparisons valid; leaderboard/historical numbers NOT comparable; "beat everyone" not defensible tonight.
 - Readability decomposes into 7 sub-criteria (task-72 criteria.jsonl): L1 prose .2, S1 structure/roadmap .2, S2 paragraph cohesion .15, P1 synthesis clarity .15, D1 data-as-tables .1, F1 formatting .1, A1 term-defs .1. Tables/formatting = only D1+F1 = 20%; our reports have 615-word wall-of-text paragraphs (worst loss) + no tables + weak roadmap.
 - RACE noise floor: ±0.027 draw-to-draw on Readability; baseline_triple says gain is real only if replicated mean clears ~+0.014. Fix the measurement harness to always run a same-judge baseline + enough draws.
+
+**INGESTION PROTOCOL (mandatory, every phase, both Sol+Fable):** before each phase, each investigator must
+read EVERY line of EVERY prior-phase artifact (each phase's consolidated plan + Sol verdict + Fable verdict,
+in docs/race_fact_initiative/) and emit an INGESTION RECEIPT at the top of its verdict — per file: line count +
+verbatim FIRST/MID/LAST line. Opus VERIFIES each receipt against the real files; mismatch/missing => reject +
+re-run. No skimming. Also: Opus's own consolidation must be LOSSLESS (read every line of both verdicts, preserve
+every point, [S]/[F] attributed) — the operator caught Opus compressing/skipping Fable twice; that is the failure
+mode to avoid. Snippet at scratchpad/investigators/INGESTION_PROTOCOL.md, prepended to every phase brief.
