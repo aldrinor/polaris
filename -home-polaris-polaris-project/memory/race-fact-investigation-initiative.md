@@ -18,6 +18,27 @@ Phases: P0 infra → P1 SCORING_SPEC (RACE+FACT line-by-line) → P2 COMPETITOR_
 P3 PIPELINE_GAP_AUDIT (our gaps+fix+test) → P4 EXECUTION_CHARTER + MASTER_ACTION_PLAN (sign-off gate). NO
 pipeline code until MASTER_ACTION_PLAN approved.
 
+**STATUS 2026-07-23: ALL 4 PHASES COMPLETE** (panel = Sol + Fable; K3 dropped, Moonshot 429-throttled).
+Deliverables committed+pushed in docs/race_fact_initiative/ (commit 155e60c0): SCORING_SPEC.md,
+COMPETITOR_TEARDOWN.md, PIPELINE_GAP_AUDIT.md (14 unified gaps U1-U14), **MASTER_ACTION_PLAN.md** + all
+raw phase1-4 sol/fable verdicts. Every receipt was verified against ground truth each phase.
+
+**The plan both models converged on:** ONE pre-generation `AnalyticalContract` (AC) — built from question +
+admitted evidence, consumed by the ACTIVE producer `_compose_section_per_basket` (NOT `_call_section`, the else
+branch — a prompt addendum routed only there misses the producer = the proven cause of the measured-flat levers),
+audited SEMANTICALLY (proposition entails obligation, NOT section-nonempty; and NOT an NLI model — R2 bans new
+entailment machinery per [[no-entailment-ever-rule]]). Champion = mf_baseline 0.5009 (all levers OFF but
+PG_RENDER_BLOCKS), the ONLY valid comparator. Critical path U3→U4/U6→U7. 5-rule charter (generalization gate w/
+held-out tasks 91+100+{73|51|4}; faithfulness firewall + U1 zero-new-factual-token canary + layout-only render
+exception; deterministic-then-3v3-paired measurement gate; shared-contract rule; no-regression gate).
+
+**THE OPEN DECISION for the operator (OQ-0, blocks build):** first-ship wave. Fable (Opus-recommended) =
+proven-winner-first, W1 = U1 licensed paragraph-closing inference + U12-lite layout + U14b, AC carrier as
+definition-of-done. Sol = governance-foundation-first, W1 = U5+U11+U13+U12. Both reach the same end state; they
+differ on sequence. Plus OQ-1 (held-out set), OQ-4 (licensed-inference doctrine sign-off), OQ-5 (probe budget)
+also block Wave 1. AWAITING operator sign-off before ANY pipeline code. See [[no-post-generation-fix-rule]],
+[[build-all-then-measure-rule]], [[investigate-then-consult]].
+
 **The 3-model panel (no Kimi account needed):** Sol = Codex CLI (gpt-5.6-sol, max). K3 = **Codex CLI driving
 OpenRouter `moonshotai/kimi-k3`** — PROVEN working: `codex exec -c model_providers.openrouter.base_url=
 "https://openrouter.ai/api/v1" -c model_providers.openrouter.env_key=OPENROUTER_API_KEY -c
